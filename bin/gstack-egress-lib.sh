@@ -37,11 +37,21 @@
 # the caller's. All temp handling is immediate, per call.
 
 # Self-locate without dirname (builtins only), so the lib works even under
-# a stripped test PATH.
-case "${BASH_SOURCE[0]}" in
-  */*) _gstack_egress_lib_dir="$(cd "${BASH_SOURCE[0]%/*}" && pwd)" ;;
+# a stripped test PATH. BASH_SOURCE is bash-only; under zsh (the macOS
+# default, sourced from skill blocks) %x names this file, read through eval
+# so bash never parses it. Without it the lib resolved to the caller's cwd
+# and looked for its siblings in the user's project (#3024).
+_gstack_egress_self=""
+if [ -n "${BASH_VERSION:-}" ]; then
+  _gstack_egress_self="${BASH_SOURCE[0]}"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+  eval '_gstack_egress_self="${(%):-%x}"'
+fi
+case "$_gstack_egress_self" in
+  */*) _gstack_egress_lib_dir="$(cd "${_gstack_egress_self%/*}" && pwd)" ;;
   *) _gstack_egress_lib_dir="$(pwd)" ;;
 esac
+unset _gstack_egress_self
 
 # State root from the shared twin (bin/gstack-state-root.sh, builtins only),
 # sourced lazily on first use.

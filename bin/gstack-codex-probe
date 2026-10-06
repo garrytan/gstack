@@ -17,7 +17,27 @@
 #   - Never change -e / -u / traps / IFS / PATH in the caller shell.
 #   - All internal vars prefix with _GSTACK_CODEX_.
 #   - All functions prefix with _gstack_codex_.
-#   - No command execution at source time (only function defs).
+#   - No command execution at source time (only function defs and the one
+#     self-location assignment below, which is parameter expansion only).
+
+# --- Self-location (bash and zsh) -------------------------------------------
+# Template blocks source this file into whatever shell the host runs; on macOS
+# that is zsh (Claude Code's Bash tool included). BASH_SOURCE is bash-only, so
+# under zsh every "${BASH_SOURCE[0]%/*}/..." path became "/..." and Codex
+# model selection failed (#3024). zsh names the sourced file with %x; the eval
+# keeps bash from parsing zsh-only syntax. Resolved once, at source time,
+# because inside a function zsh's %x names the function, not the file.
+_GSTACK_CODEX_BIN=""
+if [ -n "${BASH_VERSION:-}" ]; then
+  _GSTACK_CODEX_BIN="${BASH_SOURCE[0]}"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+  eval '_GSTACK_CODEX_BIN="${(%):-%x}"'
+fi
+case "$_GSTACK_CODEX_BIN" in
+  */*) _GSTACK_CODEX_BIN="${_GSTACK_CODEX_BIN%/*}" ;;
+  ?*) _GSTACK_CODEX_BIN="$PWD" ;;
+  *) _GSTACK_CODEX_BIN="$HOME/.claude/skills/gstack/bin" ;;
+esac
 
 # --- Auth probe -------------------------------------------------------------
 
@@ -43,7 +63,10 @@ _gstack_codex_auth_probe() {
   if [ -f "$_codex_home/config.toml" ]; then
     while IFS= read -r _env_key; do
       case "$_env_key" in ''|[0-9]*|*[!A-Za-z0-9_]*) continue ;; esac
-      _resolved=$(printf '%s' "${!_env_key:-}" | tr -d '[:space:]')
+      # Indirect read through eval, not ${!name}: zsh rejects bash's
+      # indirection, and _env_key is a validated identifier by this point.
+      eval "_resolved=\${$_env_key:-}"
+      _resolved=$(printf '%s' "$_resolved" | tr -d '[:space:]')
       if [ -n "$_resolved" ]; then
         echo "AUTH_OK"
         return 0
@@ -72,9 +95,9 @@ _gstack_codex_select_model() {
     return 1
   fi
   if [ -n "$_explicit" ]; then
-    _line=$(bun run "${BASH_SOURCE[0]%/*}/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind" --explicit "$_explicit")
+    _line=$(bun run "$_GSTACK_CODEX_BIN/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind" --explicit "$_explicit")
   else
-    _line=$(bun run "${BASH_SOURCE[0]%/*}/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind")
+    _line=$(bun run "$_GSTACK_CODEX_BIN/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind")
   fi
   _rc=$?
   _GSTACK_CODEX_SEL="${_line%%$'\t'*}"
@@ -135,7 +158,7 @@ _gstack_codex_first_use_notice() {
   # and how to turn reviews off. Shown once per state root; never blocks and
   # never prints a credential, only where it comes from.
   local _root _marker _codex_home="${CODEX_HOME:-$HOME/.codex}" _account _provider
-  _root="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
+  _root="$(. "$_GSTACK_CODEX_BIN/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
   [ -n "$_root" ] || return 0
   _marker="$_root/.codex-review-notice-shown"
   [ -e "$_marker" ] && return 0
@@ -194,7 +217,7 @@ _gstack_codex_model_probe() {
   # State root from the shared twin (sourced in a subshell, so the caller's
   # shell is untouched). A missing twin only disables the cache.
   local _gstack_home _cache=""
-  _gstack_home="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || _gstack_home=""
+  _gstack_home="$(. "$_GSTACK_CODEX_BIN/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || _gstack_home=""
   [ -n "$_gstack_home" ] && _cache="$_gstack_home/.codex-model-probe"
   # Cache signature (#2787): everything that can change the round trip's
   # outcome without the hour passing — the model, the Codex home and its
@@ -401,7 +424,7 @@ _gstack_codex_log_event() {
   local _duration="${2:-0}"
   [ "${_TEL:-off}" = "off" ] && return 0
   local _root
-  _root="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
+  _root="$(. "$_GSTACK_CODEX_BIN/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
   [ -n "$_root" ] || return 0
   mkdir -p "$_root/analytics" 2>/dev/null || return 0
   local _ts
