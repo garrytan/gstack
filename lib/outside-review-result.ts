@@ -44,11 +44,23 @@ const SANDBOX_FAILURE = /^\s*bwrap: \S.*$|^.*\bbubblewrap is unavailable\b.*$|^.
 /** Exact phrases a reviewer uses when it could not execute; the last fallback, used only without positive evidence. */
 const EXECUTION_FAILURE_PHRASE = /\b(?:commands? (?:could not|couldn't|cannot|can't) (?:be )?run|(?:could not|couldn't|was unable to|am unable to|unable to) (?:run (?:any )?(?:shell )?commands|execute (?:any )?commands|inspect the diff|read the diff|access the diff)|the diff could not be (?:read|inspected|accessed)|every (?:shell )?(?:command|invocation) failed)\b/i;
 /**
- * An account usage or rate limit (#3051). Codex states it plainly ("You've hit
- * your usage limit ... try again at <time>"); the line carries the reset time,
- * so it is relayed verbatim. Mirrors _QUOTA_SIG in bin/gstack-codex-probe.
+ * Codex's own trailing error lines (`ERROR: ...`, `stream error: ...`), never
+ * the whole stderr: it echoes the session prompt, which may quote any of the
+ * phrases below. Mirrors the awk filter in bin/gstack-codex-probe.
  */
-export const QUOTA_FAILURE = /^.*(?:usage limit|rate limit|rate_limit_exceeded|insufficient_quota|exceeded your current quota|too many requests|"status":\s*429|status:?\s*429).*$/im;
+const CODEX_ERROR_LINE = /^\s*(?:\[[^\]]*\]\s*)?(?:ERROR:|stream error)/;
+function codexErrorLines(stderr: string): string[] {
+  let block: string[] = [];
+  for (const line of stderr.split(/\r?\n/)) {
+    if (CODEX_ERROR_LINE.test(line)) block.push(line.trim());
+    else if (line.trim()) block = [];
+  }
+  return block;
+}
+/** The account's usage limit: Codex's line carries the reset time, so it is relayed verbatim. Same signature as the probe. */
+export const QUOTA_FAILURE = /usage limit|insufficient_quota|exceeded your current quota|quota exceeded/i;
+/** A plain HTTP 429 or rate limit: transient, so a separate reason from the quota. */
+export const RATE_LIMIT_FAILURE = /rate.?limit|too many requests|(?:^|[^0-9])429(?:[^0-9]|$)/i;
 /** `codex review` transcript on stderr: a command that ran prints " succeeded in Nms:". */
 const TRANSCRIPT_SUCCESS = /^\s*succeeded in \d+(?:\.\d+)?m?s:?\s*$/m;
 
@@ -78,8 +90,11 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
   if (exit !== 0) {
     const detail = sandbox(stderr);
     if (detail) return { state: 'unavailable', reason: 'sandbox_unavailable', detail };
-    const quota = exit !== 124 ? stderr.match(QUOTA_FAILURE)?.[0].trim().slice(0, 240) : undefined;
-    if (quota) return { state: 'unavailable', reason: 'quota_exhausted', detail: quota };
+    const errors = exit !== 124 ? codexErrorLines(stderr) : [];
+    const quota = errors.find(line => QUOTA_FAILURE.test(line));
+    if (quota) return { state: 'unavailable', reason: 'quota_exhausted', detail: quota.slice(0, 240) };
+    const rateLimit = errors.find(line => RATE_LIMIT_FAILURE.test(line));
+    if (rateLimit) return { state: 'unavailable', reason: 'rate_limited', detail: rateLimit.slice(0, 240) };
     const head = stderrHead(stderr);
     return { state: 'unavailable', reason: exit === 124 ? 'timeout' : 'execution_failed', detail: head ? `exit ${exit}: ${head}` : `exit ${exit}` };
   }

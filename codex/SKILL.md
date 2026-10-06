@@ -476,7 +476,7 @@ invalid or unavailable choice stops with a repair message, never the default.
 
 ```bash
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe
+source ~/.claude/skills/gstack/bin/gstack-codex-probe || { echo "HELPER_UNAVAILABLE"; exit 1; }
 
 # GSTACK_ACTIVE_HOST names the harness, never the model.
 if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
@@ -499,6 +499,10 @@ _gstack_codex_version_check   # warns if known-bad, non-blocking
 
 If the runtime guard reports a harness mismatch, stop. Outside coverage is unavailable. Repair with `./setup --host codex`; do not silently substitute another provider or force a same-harness invocation.
 
+If the output contains `HELPER_UNAVAILABLE`, stop: the gstack helper could not load in
+this shell. Relay its `gstack: cannot locate ...` line verbatim; it names the shell and
+links the fix.
+
 If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
 
@@ -510,9 +514,13 @@ follow the "Model not supported (HTTP 400 or 404)" recovery steps in
 invocations on the same 400.
 
 If the output contains `MODEL_QUOTA_EXHAUSTED`, stop: the account hit its Codex
-usage or rate limit. Relay Codex's own line under the marker verbatim (it names the
-reset time); the model is fine, so do not change it. Running the modes anyway fails
-the same way.
+usage limit. Relay Codex's own line under the marker verbatim (it names the reset
+time) and the HINT line (how long gstack skips Codex, and how to retry now); the model
+is fine, so do not change it. Running the modes anyway fails the same way.
+
+`MODEL_PROBE_RATE_LIMITED` is non-blocking: Codex answered 429. Report
+`CODEX_MODE: unverified (rate_limited)`, relay Codex's line and continue; a
+rate-limited mode run is missing coverage, never a pass.
 
 If the output contains `CODEX_SANDBOX: unavailable`, stop: Codex's sandbox cannot
 start here, so every command it runs would fail and its review would read nothing.

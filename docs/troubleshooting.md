@@ -31,6 +31,29 @@ P0 or P1 finding blocks exactly like a native P0/P1. `unverified` and
 `unavailable` are missing coverage: /ship and /review continue, show the gap in
 the readiness dashboard and the PR body, and never count it as a pass.
 
+<a id="sourced-helper-location"></a>
+### `gstack: cannot locate gstack-codex-probe (shell: ...)` / `CODEX_MODE: helper_unavailable`
+
+**Meaning.** Skill blocks load gstack's shell helpers (`gstack-codex-probe`,
+`gstack-egress-lib.sh`) into the shell your agent runs. A helper finds its own
+directory from bash (`BASH_SOURCE`) or zsh (`%x`). In any other shell (dash,
+sh), or when the shell cannot say which file it is reading, the helper stops
+instead of guessing a path. The message names the shell it saw.
+
+**Fix.** Run the skill from bash or zsh (the macOS and Linux defaults). If
+the shell cannot be changed, tell the helper where gstack is installed:
+
+```bash
+export GSTACK_ROOT=~/.claude/skills/gstack   # your install dir; it holds bin/
+```
+
+If the message says `cannot load ...`, the helper file is missing: re-run
+`./setup` from your gstack checkout.
+
+**Expected result.** `zsh -c 'source ~/.claude/skills/gstack/bin/gstack-codex-probe && _gstack_codex_select_model exec'`
+prints `CODEX_MODEL: <model> (exec; source: ...)`, and preflights print a
+`CODEX_MODE` other than `helper_unavailable`.
+
 <a id="codex-sandbox-unavailable"></a>
 ### `Codex outside review unavailable: Codex's sandbox could not start here (...)`
 
@@ -156,11 +179,12 @@ export GSTACK_CODEX_MODEL=<supported-model>
 ### `CODEX_MODE: quota_exhausted` / `MODEL_QUOTA_EXHAUSTED`
 
 **Meaning.** Codex refused the call because the account behind it hit its
-usage limit or rate limit. The line under the marker is Codex's own message,
-with its reset time and where to buy more. The model choice is fine. gstack
-skips the remaining Codex calls in that run and reports outside coverage as
-unavailable; it never counts as a pass. The result is cached for 15 minutes,
-so later skills do not spend another 30 seconds learning the same thing.
+usage limit (`You've hit your usage limit`, or `insufficient_quota`). The line
+under the marker is Codex's own message, with its reset time and where to buy
+more. The model choice is fine. gstack reports outside coverage as
+unavailable, never as a pass, and caches the result for 15 minutes, so the
+rest of the run (and other skills) make no Codex call. The HINT line says how
+many minutes remain.
 
 **Fix.** Wait for the reset time in Codex's message, or add credits or a
 higher plan for that account. To use a different account, sign in again:
@@ -169,8 +193,31 @@ higher plan for that account. To use a different account, sign in again:
 codex login
 ```
 
+To re-check before gstack's 15-minute cache expires (for example, right after
+buying credits), skip the cached result for one check, or delete it:
+
+```bash
+export GSTACK_CODEX_PROBE_RETRY=1   # unset it again afterwards
+# or
+rm -f ~/.gstack/.codex-model-probe  # <state root>/.codex-model-probe
+```
+
 **Expected result.** After the reset (or after `codex login`, which changes
 the auth signature and re-probes at once), `CODEX_MODE: ready`.
+
+<a id="codex-rate-limited"></a>
+### `CODEX_MODE: unverified (rate_limited)` / `MODEL_PROBE_RATE_LIMITED` / `unavailable: Codex rate-limited the review`
+
+**Meaning.** Codex answered HTTP 429 (too many requests), which usually clears
+within seconds. It is a different state from `quota_exhausted` and is never
+cached. At probe time the review still runs, and its own result decides. A 429
+during the review itself means that review failed, so coverage is missing,
+never a pass.
+
+**Fix.** Re-run the review in a minute. If 429s persist, check the rate limits
+for the account or API key on the provider's dashboard.
+
+**Expected result.** `CODEX_MODE: ready`, and the review completes.
 
 <a id="codex-mode-unverified"></a>
 ### `CODEX_MODE: unverified` / `MODEL_PROBE_INCONCLUSIVE`

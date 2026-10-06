@@ -299,13 +299,16 @@ review. The user turns this off only by asking explicitly
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 _CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
+_gstack_helper_error=""
+. ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || _gstack_helper_error="${_gstack_helper_error:-gstack: cannot load gstack-codex-probe; re-run ./setup. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location}"
 if [ "$_CODEX_CFG" = "disabled" ]; then
   _CODEX_MODE="disabled"
 elif { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
   _CODEX_MODE="under_codex"
 elif ! command -v codex >/dev/null 2>&1; then
   _CODEX_MODE="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+elif [ -n "$_gstack_helper_error" ]; then
+  _CODEX_MODE="helper_unavailable"; echo "$_gstack_helper_error"
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
   _CODEX_MODE="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
 else
@@ -323,6 +326,8 @@ else
     _CODEX_MODE="model_unusable"
   elif [ "${_GSTACK_CODEX_PROBE_STATE:-}" = inconclusive ]; then
     _CODEX_MODE="unverified"
+  elif [ "${_GSTACK_CODEX_PROBE_STATE:-}" = rate_limited ]; then
+    _CODEX_MODE="unverified (rate_limited)"
   else
     _CODEX_MODE="ready"; _gstack_codex_version_check 2>/dev/null || true
   fi
@@ -332,14 +337,15 @@ echo "CODEX_MODE: $_CODEX_MODE"
 
 Branch on the echoed `CODEX_MODE`:
 - **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
+- **`helper_unavailable`** — the helper could not load; relay the line above (cause and fix). Fall back to the Claude subagent path.
 - **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
 - **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
 - **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Fall back to the Claude subagent path.
 - **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Fall back to the Claude subagent path. The ~10s round trip is cached for 1h.
-- **`quota_exhausted`** — Codex usage/rate limit: relay its line verbatim (reset time), no more Codex calls. Fall back to the Claude subagent path.
+- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Fall back to the Claude subagent path.
 - **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Fall back to the Claude subagent path.
-- **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out; say so, and let the pass's own verdict decide.
+- **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out or, with `(rate_limited)`, hit a 429; say so, and let the pass's own verdict decide.
 
 **Disabled is a terminal branch for this section.** If the preflight prints
 `CODEX_MODE: disabled`, persist `outside_status: disabled` with the guarded

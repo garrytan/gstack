@@ -9,6 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { classifyOutsideReview, validateOutsideReview, type OutsideGate } from '../lib/outside-review-result';
+import { gateOutcomeLine, type GateReason } from '../lib/gate-outcomes';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const LIB = path.join(ROOT, 'lib', 'outside-review-result.ts');
@@ -197,8 +198,11 @@ describe('B1: a review whose sandbox could not start is unavailable, not clean',
   });
 });
 
-describe('#3051: a mid-run Codex usage limit reads as unavailable (quota), with Codex\'s own line', () => {
+describe('a mid-run Codex usage limit is unavailable (quota_exhausted); a mid-run 429 is unavailable (rate_limited)', () => {
   const LINE = "ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Oct 10th, 2026 2:55 AM.";
+  const RATE_429 = 'ERROR: {"type":"error","status":429,"error":{"type":"rate_limit_exceeded","message":"Rate limit reached"}}';
+  const QUOTA_429 = 'ERROR: {"type":"error","status":429,"error":{"type":"insufficient_quota","message":"You exceeded your current quota"}}';
+  const ECHOED = 'user\nCheck the usage limit banner and the insufficient_quota (429) retry path in this diff\n';
 
   test('failed call with the usage-limit line -> unavailable, reason quota_exhausted, detail is the line', () => {
     const result = classifyOutsideReview({ text: '', stderr: `Reading prompt from stdin...\n${LINE}\n`, exit: 1, gate: 'review' });
@@ -206,23 +210,64 @@ describe('#3051: a mid-run Codex usage limit reads as unavailable (quota), with 
     expect(result.detail).toBe(LINE);
   });
 
-  test('a timeout whose partial stderr mentions a rate limit keeps the timeout reason', () => {
-    const result = classifyOutsideReview({ text: '', stderr: 'retrying after rate limit\n', exit: 124, gate: 'review' });
-    expect(result.reason).toBe('timeout');
+  test('failed call with a bare 429 -> unavailable, reason rate_limited, detail is the line', () => {
+    const result = classifyOutsideReview({ text: '', stderr: `${ECHOED}${RATE_429}\n`, exit: 1, gate: 'review' });
+    expect([result.verdict, result.reason, result.detail]).toEqual(['unavailable', 'rate_limited', RATE_429]);
+    expect(gateOutcomeLine('Codex outside review', 'rate_limited', result.detail)).toContain('https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#codex-rate-limited');
+  });
+
+  test('a 429 body that also names insufficient_quota is the quota (quota wins over rate limit)', () => {
+    const stderr = `stream error: exceeded retry limit, last status: 429 Too Many Requests; retrying 1/5\n${QUOTA_429}\n`;
+    expect(classifyOutsideReview({ text: '', stderr, exit: 1, gate: 'review' }).reason).toBe('quota_exhausted');
+  });
+
+  test('an echoed prompt that names usage limit, insufficient_quota and 429 stays execution_failed', () => {
+    const stderr = `${ECHOED}ERROR: unexpected status 500 Internal Server Error\n`;
+    expect(classifyOutsideReview({ text: '', stderr, exit: 1, gate: 'review' }).reason).toBe('execution_failed');
+    expect(classifyOutsideReview({ text: '', stderr: `ERROR: ${LINE.slice(7)}\nthen the session continued and failed\n`, exit: 1, gate: 'review' }).reason).toBe('execution_failed');
+  });
+
+  test('a timeout whose partial stderr has a usage-limit or rate-limit line keeps the timeout reason', () => {
+    for (const line of [LINE, RATE_429]) {
+      expect(classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 124, gate: 'review' }).reason).toBe('timeout');
+    }
   });
 
   test('a completed review that discusses rate limits is not unavailable', () => {
     const text = '[P2] the client ignores the API rate limit header\nRecommendation: fix the retry loop because it ignores Retry-After';
-    const result = classifyOutsideReview({ text, stderr: '', exit: 0, gate: 'review' });
+    const result = classifyOutsideReview({ text, stderr: `${ECHOED}${RATE_429}\n`, exit: 0, gate: 'review' });
     expect(result.execution.state).toBe('ran');
   });
 
-  test('the probe and the classifier recognise the same Codex lines', () => {
-    const probe = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-codex-probe'), 'utf8').match(/_QUOTA_SIG="([^\n]+)"\n/)![1]!;
-    for (const line of [LINE, 'ERROR: {"type":"error","status":429,"error":{"type":"rate_limit_exceeded"}}', 'insufficient_quota: You exceeded your current quota']) {
-      const bash = spawnSync('bash', ['-c', `printf '%s' "$1" | grep -qiE "$2"`, '_', line, probe.replace(/\\"/g, '"')], { timeout: 5000 });
-      expect({ line, bash: bash.status }).toEqual({ line, bash: 0 });
-      expect(classifyOutsideReview({ text: '', stderr: line, exit: 1, gate: 'review' }).reason).toBe('quota_exhausted');
-    }
+  test('the probe and the classifier give the same outcome for the same Codex error output', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-quota-parity-'));
+    try {
+      const stubDir = path.join(home, 'bin');
+      const codexHome = path.join(home, '.codex');
+      fs.mkdirSync(stubDir);
+      fs.mkdirSync(codexHome);
+      fs.writeFileSync(path.join(codexHome, 'auth.json'), '{}');
+      fs.writeFileSync(path.join(stubDir, 'codex'), '#!/usr/bin/env bash\nprintf \'%s\' "$STUB_STDERR" >&2\nexit 1\n', { mode: 0o755 });
+      const cases: Array<[string, GateReason]> = [
+        [`${LINE}\n`, 'quota_exhausted'],
+        ['ERROR: Quota exceeded. Check your plan and billing details.\n', 'quota_exhausted'],
+        [`${QUOTA_429}\n`, 'quota_exhausted'],
+        [`${RATE_429}\n`, 'rate_limited'],
+        ['stream error: exceeded retry limit, last status: 429 Too Many Requests\n', 'rate_limited'],
+        [`${ECHOED}ERROR: unexpected status 500 Internal Server Error\n`, 'execution_failed'],
+      ];
+      for (const [stderr, reason] of cases) {
+        fs.rmSync(path.join(home, '.gstack'), { recursive: true, force: true });
+        const probe = spawnSync('bash', ['-c', `source "${path.join(ROOT, 'bin', 'gstack-codex-probe')}" && _gstack_codex_model_probe`], {
+          encoding: 'utf8', timeout: 20_000,
+          env: { PATH: `${stubDir}:${process.env.PATH ?? ''}`, HOME: home, CODEX_HOME: codexHome, GSTACK_HOME: path.join(home, '.gstack'), STUB_STDERR: stderr, _TEL: 'off' },
+        });
+        const probeReason = probe.stdout.includes('MODEL_QUOTA_EXHAUSTED') ? 'quota_exhausted'
+          : probe.stdout.includes('MODEL_PROBE_RATE_LIMITED') ? 'rate_limited'
+          : probe.stdout.includes('MODEL_PROBE_INCONCLUSIVE') ? 'execution_failed' : `other: ${probe.stdout}`;
+        expect({ stderr, probe: probeReason }).toEqual({ stderr, probe: reason });
+        expect({ stderr, classifier: classifyOutsideReview({ text: '', stderr, exit: 1, gate: 'review' }).reason }).toEqual({ stderr, classifier: reason });
+      }
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 });

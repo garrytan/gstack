@@ -65,8 +65,18 @@ export const GATE_OUTCOMES = {
   },
   quota_exhausted: {
     state: 'unavailable', anchor: 'codex-quota-exhausted',
-    summary: "Codex refused the call for this account's usage or rate limit",
-    fix: "wait for the reset time in Codex's message above, or add credits or a higher plan for that account; the model choice is fine",
+    summary: "Codex refused the call for this account's usage limit",
+    fix: "wait for the reset time in Codex's message above, or add credits or a higher plan for that account; the model choice is fine. To re-check before gstack's 15-minute cache expires, set GSTACK_CODEX_PROBE_RETRY=1 (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#codex-quota-exhausted)",
+  },
+  rate_limited: {
+    state: 'unavailable', anchor: 'codex-rate-limited',
+    summary: 'Codex rate-limited the review (HTTP 429), so it did not complete',
+    fix: 're-run the review in a minute; if 429s persist, check the account rate limits on the provider dashboard (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#codex-rate-limited)',
+  },
+  helper_unavailable: {
+    state: 'unavailable', anchor: 'sourced-helper-location',
+    summary: 'the gstack Codex helper could not be loaded into this shell',
+    fix: 'run the skill from bash or zsh, or export GSTACK_ROOT=<install dir>; if the helper file is missing, re-run ./setup (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location)',
   },
   probe_inconclusive: {
     state: 'ran', anchor: 'codex-mode-unverified',

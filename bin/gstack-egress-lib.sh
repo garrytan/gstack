@@ -36,22 +36,46 @@
 # their own EXIT traps and a trap set by a sourced library would clobber
 # the caller's. All temp handling is immediate, per call.
 
-# Self-locate without dirname (builtins only), so the lib works even under
-# a stripped test PATH. BASH_SOURCE is bash-only; under zsh (the macOS
-# default, sourced from skill blocks) %x names this file, read through eval
-# so bash never parses it. Without it the lib resolved to the caller's cwd
-# and looked for its siblings in the user's project (#3024).
-_gstack_egress_self=""
+# Self-locate with builtins only (no dirname), so the lib works under a
+# stripped test PATH and under zsh, where it used to resolve to the caller's
+# cwd and look for its siblings in the user's project.
+_gstack_helper=gstack-egress-lib.sh
+# >>> gstack self-locate (shared, byte-identical in every sourced helper) >>>
+# Skill blocks source helpers into the host's shell: bash, or zsh on macOS
+# (Claude Code's Bash tool included). Resolved once at source time, using
+# parameter expansion only: BASH_SOURCE under bash, %x under zsh (inside eval
+# so bash never parses it), made absolute with $PWD; else $GSTACK_ROOT/bin
+# when it holds this helper. Any other case, and any other shell, fails loudly
+# instead of guessing; the message and the return come before any bash- or
+# zsh-only syntax, so dash and sh print it instead of a syntax error.
+_gstack_helper_dir=""
+_gstack_helper_shell=""
 if [ -n "${BASH_VERSION:-}" ]; then
-  _gstack_egress_self="${BASH_SOURCE[0]}"
+  _gstack_helper_shell=bash
+  _gstack_helper_dir="${BASH_SOURCE[0]}"
 elif [ -n "${ZSH_VERSION:-}" ]; then
-  eval '_gstack_egress_self="${(%):-%x}"'
+  _gstack_helper_shell=zsh
+  eval '_gstack_helper_dir="${(%):-%x}"'
 fi
-case "$_gstack_egress_self" in
-  */*) _gstack_egress_lib_dir="$(cd "${_gstack_egress_self%/*}" && pwd)" ;;
-  *) _gstack_egress_lib_dir="$(pwd)" ;;
+case "$_gstack_helper_dir" in
+  /*) _gstack_helper_dir="${_gstack_helper_dir%/*}" ;;
+  */*) _gstack_helper_dir="$PWD/${_gstack_helper_dir%/*}" ;;
+  ?*) _gstack_helper_dir="$PWD" ;;
 esac
-unset _gstack_egress_self
+if [ -n "$_gstack_helper_shell" ] && [ ! -f "$_gstack_helper_dir/$_gstack_helper" ]; then
+  _gstack_helper_dir=""
+  if [ -n "${GSTACK_ROOT:-}" ] && [ -f "$GSTACK_ROOT/bin/$_gstack_helper" ]; then
+    _gstack_helper_dir="$GSTACK_ROOT/bin"
+  fi
+fi
+if [ -z "$_gstack_helper_shell" ] || [ -z "$_gstack_helper_dir" ]; then
+  _gstack_helper_error="gstack: cannot locate $_gstack_helper (shell: ${_gstack_helper_shell:-${0##*/}}). Source it from bash or zsh, or export GSTACK_ROOT=<install dir>. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location"
+  printf '%s\n' "$_gstack_helper_error" >&2
+  return 1 2>/dev/null || exit 1
+fi
+# <<< gstack self-locate <<<
+_gstack_egress_lib_dir="$_gstack_helper_dir"
+unset _gstack_helper _gstack_helper_dir _gstack_helper_shell
 
 # State root from the shared twin (bin/gstack-state-root.sh, builtins only),
 # sourced lazily on first use.
