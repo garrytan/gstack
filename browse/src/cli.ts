@@ -1652,6 +1652,33 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
  * replace it). Bun reads NO_PROXY when the first fetch runs, so this must run
  * before any fetch. The daemon inherits the same value.
  */
+export const CHAIN_NO_FLOW_ANCHOR = 'https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#browse-chain-no-flow';
+
+/**
+ * The flow `browse chain` runs when it has no arguments: stdin, read only when
+ * it is not a terminal. A terminal, empty input or a read error (EAGAIN, EOF)
+ * is a usage error.
+ */
+export function readChainFlow(isTTY: boolean, readStdin: () => string): { ok: true; flow: string } | { ok: false; error: string } {
+  let cause = 'stdin is a terminal';
+  if (!isTTY) {
+    try {
+      const flow = readStdin().trim();
+      if (flow) return { ok: true, flow };
+      cause = 'stdin was empty';
+    } catch (err: any) {
+      cause = `stdin could not be read (${err?.code ?? err?.message ?? String(err)})`;
+    }
+  }
+  return {
+    ok: false,
+    error: `[browse] chain: no flow to run (${cause}).\n` +
+      'Usage: echo \'[["goto","url"],["text"]]\' | browse chain\n' +
+      '   or: browse chain \'goto url | click @e5 | snapshot -ic\'\n' +
+      CHAIN_NO_FLOW_ANCHOR,
+  };
+}
+
 export function withLoopbackNoProxy(env: Record<string, string | undefined>): string {
   const entries = (env.NO_PROXY ?? env.no_proxy ?? '').split(',').map(e => e.trim()).filter(Boolean);
   for (const host of ['127.0.0.1', 'localhost', '::1']) if (!entries.includes(host)) entries.push(host);
@@ -2037,10 +2064,15 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
   // Special case: chain reads from stdin. Synchronously: on Windows an awaited
   // Bun.stdin.text() inside this un-awaited main() did not keep the event loop
   // alive, so a piped flow exited 0 with nothing sent to the daemon (#3039).
-  // A terminal has no flow to read; the empty argument gets the server's usage.
+  // No flow (a terminal, empty input, an unreadable stdin) is a usage error
+  // before ensureServer(): it never boots a daemon.
   if (command === 'chain' && commandArgs.length === 0) {
-    const stdin = process.stdin.isTTY ? '' : fs.readFileSync(0, 'utf8');
-    commandArgs.push(stdin.trim());
+    const flow = readChainFlow(Boolean(process.stdin.isTTY), () => fs.readFileSync(0, 'utf8'));
+    if (!flow.ok) {
+      console.error(flow.error);
+      process.exit(1);
+    }
+    commandArgs.push(flow.flow);
   }
 
   // #2219 IRON RULE (pair-agent leg): capture whether a LIVE daemon predates

@@ -582,6 +582,20 @@ hooks stay.
 
 ## Browser
 
+<a id="browse-chain-no-flow"></a>
+### `[browse] chain: no flow to run (stdin was empty)` (or `stdin is a terminal`, `stdin could not be read (EAGAIN)`)
+
+**Meaning.** `browse chain` with no arguments runs the JSON flow piped to it.
+Nothing arrived, so it exits 1 before starting a browser. It used to exit 0 on
+Windows having run nothing.
+
+**Fix.** Pipe the flow, or pass it as an argument:
+
+```bash
+echo '[["goto","https://example.com"],["text"]]' | browse chain
+browse chain 'goto https://example.com | text'
+```
+
 <a id="browse-chromium-path-failed"></a>
 ### `Chromium at GSTACK_CHROMIUM_PATH=<path> failed to launch: ...`
 
