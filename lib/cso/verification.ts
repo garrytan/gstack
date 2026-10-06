@@ -1718,7 +1718,7 @@ export class DockerVerificationExecutor implements VerificationExecutor {
           command: ['/opt/cso/run-app', '/bin/sleep', '2147483647'],
           readonlyDirectories: [{ host: fixtures, container: '/fixtures' }],
         });
-        await group.start(app);
+        await group.startHeldApplication(app);
         await dbPrepare(app);
         await group.execDetached(app, [request.start.executable, ...request.start.args]);
       } else {
@@ -1784,7 +1784,7 @@ export class DockerVerificationExecutor implements VerificationExecutor {
         });
         let testResult: { code: number; output: string };
         if (rails) {
-          await group.start(testId);
+          await group.startHeldApplication(testId);
           await dbPrepare(testId);
           const result = await group.execCapture(testId, cleanCommand([test.executable, ...test.args]), {
             workdir: '/work',

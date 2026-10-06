@@ -378,6 +378,7 @@ function failure(plan: ScannerPlan, error: unknown, version?: string): ScannerOu
     PREREQUISITE: 'PREREQUISITE',
     INCOMPATIBLE_INPUT: 'PREREQUISITE',
     ASSERTION_FAILED: 'TOOL_FAILED',
+    PREPARED_EXPORT_REJECTED: 'TOOL_FAILED',
   };
   const code = codes[e.code];
   return {
@@ -798,7 +799,7 @@ export async function createDockerScannerRunner(context: ScannerRunnerContext): 
               ? ['/opt/cso/run-app', '/bin/sleep', '2147483647']
               : ['/opt/cso/run-app', api.start.executable, ...api.start.args],
           });
-          await group!.start(app);
+          await (rails ? group!.startHeldApplication(app) : group!.start(app));
           if (rails) {
             const clean = [
               '/usr/bin/env',

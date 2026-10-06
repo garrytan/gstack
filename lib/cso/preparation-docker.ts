@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { atomicWriteSync } from '../fs-atomic';
 import { canonical, CsoError, sha256 } from './contracts';
-import { DockerGroup, type DockerEndpoint } from './docker';
+import { DockerGroup, preparedExportRejection, type DockerEndpoint } from './docker';
 import { secureDirectory } from './state';
 import {
   admittedPreparationRuntime,
@@ -640,6 +640,13 @@ export class RegistryEgressBroker {
       this.sockets.add(upstream);
       upstream.setTimeout(Math.max(1, Math.min(30_000, this.deadline - Date.now())));
       upstream.once('close', () => this.sockets.delete(upstream));
+      // Bun's stream.pipe does not end the destination socket, so a finished
+      // tunnel would otherwise keep its upstream open and fill the broker's
+      // connection limit. Each side's end and close are forwarded explicitly.
+      socket.once('end', () => upstream.end());
+      upstream.once('end', () => socket.end());
+      socket.once('close', () => upstream.destroy());
+      upstream.once('close', () => socket.destroy());
       upstream.once('error', () => {
         if (!this.closing) this.violation ??= 'Registry connection failed after DNS pinning';
         socket.destroy();
@@ -663,8 +670,8 @@ export class RegistryEgressBroker {
         };
         socket.on('data', count);
         upstream.on('data', count);
-        socket.pipe(upstream);
-        upstream.pipe(socket);
+        socket.pipe(upstream, { end: false });
+        upstream.pipe(socket, { end: false });
         this.contactedHosts.add(host);
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         if (remainder.length && addBytes(remainder.length)) upstream.write(remainder);
@@ -1228,7 +1235,12 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
     group: DockerGroup,
     id: string,
     command: string[],
-    options: { workdir?: string; env?: Record<string, string> } = {},
+    options: {
+      workdir?: string;
+      env?: Record<string, string>;
+      preparationCommand?: true;
+      redaction?: 'splice';
+    } = {},
   ) {
     const forbidden = new Set([
       'BUN_OPTIONS',
@@ -1255,7 +1267,11 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
         .map(([key, value]) => `${key}=${value}`),
       ...command,
     ];
-    return group.execCapture(id, argv, { workdir: options.workdir });
+    return group.execCapture(id, argv, {
+      workdir: options.workdir,
+      preparationCommand: options.preparationCommand,
+      redaction: options.redaction,
+    });
   }
 
   async acquire(request: PreparationAcquireRequest): Promise<AcquisitionReceipt> {
@@ -1357,6 +1373,7 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
           result = await this.execClean(group, container, [command.executable, ...command.args], {
             workdir: command.cwd,
             env: { ...command.env, ...proxy },
+            preparationCommand: true,
           });
         broker.assertClean();
         commandResults.push(commandReceipt(command, index, result.code));
@@ -1557,6 +1574,7 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
         readonlyFiles: [{ host: offlinePolicy, container: '/policy/offline.json' }],
         readonlyMetadata: metadata,
         readonlyArchiveDirectory: archives,
+        exportableWork: true,
         command: ['/opt/cso/run-app', '/opt/cso/preparation', 'seed', '/policy/offline.json'],
       });
       await group.start(app);
@@ -1572,6 +1590,7 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
           result = await this.execClean(group, app, [command.executable, ...command.args], {
             workdir: command.cwd,
             env: command.env,
+            preparationCommand: true,
           });
         commands.push(commandReceipt(command, index, result.code));
         if (result.code !== 0)
@@ -1581,15 +1600,23 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
       if (finalized.code !== 0) fail('TOOL_FAILED', 'Offline preparation scratch cleanup failed');
       await group.assertOnlyInitProcess(app);
       const containerExport = `/work/.gstack-cso-export-${randomBytes(12).toString('hex')}`;
-      const exported = await this.execClean(group, app, [
-        '/opt/cso/preparation',
-        'export-prepared',
-        '/work',
-        containerExport,
-        String(request.limits.writableBytes),
-      ]);
+      const exported = await this.execClean(
+        group,
+        app,
+        [
+          '/opt/cso/preparation',
+          'export-prepared',
+          '/work',
+          containerExport,
+          String(request.limits.writableBytes),
+        ],
+        { redaction: 'splice' },
+      );
       if (exported.code !== 0)
-        fail('TOOL_FAILED', 'Qualified prepared-tree export rejected offline application output');
+        fail(
+          'PREPARED_EXPORT_REJECTED',
+          `Qualified prepared-tree export rejected offline application output (exit ${exported.code}: ${preparedExportRejection(exported.stderr)})`,
+        );
       await group.assertOnlyInitProcess(app);
       await group.pause(app);
       const inertExport = secureDirectory(join(executionCopies, 'prepared-export')),

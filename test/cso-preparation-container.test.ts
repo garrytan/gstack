@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createPreparedExport, recordNpmArchiveEntry } from '../lib/cso/preparation-container';
 import { materializePreparedExport } from '../lib/cso/preparation-docker';
-import { validateSingleContainerProcessOutput } from '../lib/cso/docker';
+import { heldApplicationReady, validateSingleContainerProcessOutput } from '../lib/cso/docker';
 
 const roots: string[] = [];
 function temporary(): string { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cso-prepared-export-')); roots.push(root); return root; }
@@ -59,5 +59,12 @@ describe('CSO preparation container archive limits', () => {
     expect(() => validateSingleContainerProcessOutput('PID\n123\n')).not.toThrow();
     expect(() => validateSingleContainerProcessOutput('PID\n123\n456\n')).toThrow('background process');
     expect(() => validateSingleContainerProcessOutput('PID COMMAND\n123 bun\n')).toThrow('background process');
+  });
+
+  test('treats a held application as ready only after run-app has finished copying its source', () => {
+    expect(heldApplicationReady('PID                 COMMAND\n273296              sleep\n')).toBe(true);
+    expect(heldApplicationReady('PID COMMAND\n1 sh\n2 cp\n')).toBe(false);
+    expect(heldApplicationReady('PID COMMAND\n1 sh\n2 sleep\n')).toBe(false);
+    expect(heldApplicationReady('PID COMMAND\n1 sh\n')).toBe(false);
   });
 });

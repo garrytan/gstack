@@ -499,6 +499,26 @@ function hardenGit(file: string, args: string[]): { args: string[]; configs?: Gi
     ],
   };
 }
+/** Ceiling for one supervised child command. */
+export const COMMAND_TIMEOUT_MS = 300_000;
+/**
+ * Ceiling for one dependency fetch or install command inside a preparation
+ * container. Rails lockfiles that pin only the `ruby` platform compile native
+ * gems offline, which takes about 385 s at the app role's CPU share. Every
+ * other command keeps COMMAND_TIMEOUT_MS, and both stay inside the caller's
+ * aggregate deadline.
+ */
+export const PREPARATION_COMMAND_TIMEOUT_MS = 900_000;
+export function commandTimeoutMs(
+  deadline: number,
+  phase: 'command' | 'preparation',
+  now = Date.now(),
+): number {
+  return Math.max(
+    1,
+    Math.min(phase === 'preparation' ? PREPARATION_COMMAND_TIMEOUT_MS : COMMAND_TIMEOUT_MS, deadline - now),
+  );
+}
 export async function runProcess(
   file: string,
   args: string[],
@@ -511,6 +531,8 @@ export async function runProcess(
     raw?: boolean; // Only for inert Git framing or private helper/Docker control JSON that is validated before use. Never print or persist raw results.
     /** `splice` replaces each located sensitive span with a marker instead of withholding both channels. */
     redaction?: 'withhold' | 'splice';
+    /** Allows PREPARATION_COMMAND_TIMEOUT_MS; only preparation dependency commands set it. */
+    preparationCommand?: true;
   },
 ): Promise<ProcessResult> {
   if (!isAbsolute(file) || !isAbsolute(opts.cwd) || !existsSync(opts.cwd))
@@ -548,7 +570,13 @@ export async function runProcess(
         timedOut = true;
         kill();
       },
-      Math.max(1, Math.min(opts.timeoutMs ?? 30_000, 300_000)),
+      Math.max(
+        1,
+        Math.min(
+          opts.timeoutMs ?? 30_000,
+          opts.preparationCommand ? PREPARATION_COMMAND_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
+        ),
+      ),
     );
     const capture = (target: Buffer[]) => (chunk: Buffer) => {
       bytes += chunk.length;

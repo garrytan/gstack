@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { inspectPreparation, railsTestConfiguration } from '../lib/cso/preparation';
@@ -58,6 +58,17 @@ describe('CSO inert Node preparation', () => {
   test('rejects lock v1 without emitting executable fragments', () => {
     const plan = inspectPreparation(fixture(nodeFiles(1)));
     expect(plan.prerequisites[0].code).toBe('UNSUPPORTED_LOCK'); expect(plan.acquisition).toEqual([]); expect(plan.metadata).toEqual([]);
+  });
+  // npm 11 refuses one file loaded as both user and global config ("double-loading config").
+  test('every npm command loads distinct empty user and global configs', () => {
+    const plan = inspectPreparation(fixture(nodeFiles(3)));
+    const npm = [...plan.acquisition, ...plan.offline].filter(command => command.executable === '/usr/local/bin/npm');
+    expect(npm.length).toBeGreaterThanOrEqual(3);
+    for (const command of npm) {
+      const value = (flag: string) => command.args[command.args.indexOf(flag) + 1];
+      expect([value('--userconfig'), value('--globalconfig')]).toEqual(['/opt/cso/empty-config', '/opt/cso/empty-globalconfig']);
+    }
+    expect(readFileSync(join(import.meta.dir, '../lib/cso/images/node.Dockerfile'), 'utf8')).toContain('touch /opt/cso/empty-config /opt/cso/empty-globalconfig');
   });
   for (const url of [CREDENTIAL_ARCHIVE_URL, 'http://registry.npmjs.org/a.tgz', 'https://registry.npmjs.org.evil.invalid/a.tgz', 'https://127.0.0.1/a.tgz', 'git+ssh://github.com/a/b', 'https://registry.npmjs.org/a.tgz?token=secret']) test(`rejects non-public archive ${url.split('@').at(-1)}`, () => {
     const files = nodeFiles(); files['package-lock.json'].packages['node_modules/cookie'].resolved = url;
@@ -159,6 +170,12 @@ describe('CSO inert Rails preparation', () => {
     const plan = inspectPreparation(fixture({ 'Gemfile.lock': gemLock, 'Gemfile': 'system("touch /tmp/CSO_UNSAFE")\nsource "https://rubygems.org"' }));
     expect(plan.status).toBe('ready'); expect(plan.stack).toBe('rails'); expect(plan.metadata.some(m => m.path === 'Gemfile')).toBe(false);
     expect(plan.acquisition).toHaveLength(2); expect(plan.acquisition.every(c => c.args[0] === 'fetch')).toBe(true);
+    // One gem process per platform: each process loads the full RubyGems index once.
+    for (const command of plan.acquisition) {
+      const platform = command.args[command.args.indexOf('--platform') + 1];
+      expect(command.args.slice(1, command.args.indexOf('--platform'))).toEqual(plan.inputs.filter(input => input.platform === platform).map(input => `${input.name}:${input.version}`));
+      expect(command.args).not.toContain('--version');
+    }
     expect(plan.inputs[1].platform).toBe('x86_64-linux-gnu'); expect(plan.inputs[0].integritySource).toBe('registry-on-acquisition');
     expect(plan.runtimeRequirements).toEqual({ ruby: '3.3.6', bundler: '2.6.9' });
     expect(plan.offline[0].args).toContain('--local'); expect(plan.offline[0].env.BUNDLE_IGNORE_CONFIG).toBe('true');

@@ -11,8 +11,8 @@ import {
   type PreparedApplication, type PreparationRuntimeAdmission, type RailsDatabaseSelection,
 } from '../lib/cso/preparation-executor';
 import { inspectPreparation, type CsoStack, type PreparationPlan } from '../lib/cso/preparation';
-import { CSO_HELPER_ABI, type QualifiedRuntime, type RuntimeCatalog } from '../lib/cso/runtime-catalog';
-import { completeRuntimeCatalogFixture } from './helpers/cso-runtime-catalog';
+import { CSO_HELPER_ABI, validateRuntimeCatalog, type QualifiedRuntime, type RuntimeCatalog } from '../lib/cso/runtime-catalog';
+import { completeRuntimeCatalogFixture, installStagedRuntime } from './helpers/cso-runtime-catalog';
 import { secureDirectory } from '../lib/cso/state';
 import { canonicalStartPlan, canonicalTestPlan, DockerVerificationExecutor } from '../lib/cso/verification';
 
@@ -82,7 +82,10 @@ import django
 django.setup()
 from django.test import Client
 class ColdStartTest(unittest.TestCase):
-  def test_dependency_and_control(self): self.assertContains(Client().get("/control"),"CONTROL_OK",status_code=200)
+  def test_dependency_and_control(self):
+    response = Client().get("/control")
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b"CONTROL_OK", response.content)
 `,
   });
 }
@@ -102,6 +105,7 @@ function railsSource(directory: string, bundlerVersion: string): void {
     'config/database.yml': `default: &default\n  pool: 3\ntest:\n  primary:\n    <<: *default\n    adapter: sqlite3\n    database: storage/test.sqlite3\n  queue:\n    <<: *default\n    adapter: postgresql\n    database: cso_queue\n`,
     'app/controllers/application_controller.rb': `class ApplicationController < ActionController::Base;end\n`,
     'app/controllers/probe_controller.rb': `class ProbeController < ApplicationController\n def control;render plain:"CONTROL_OK:Rails";end\n def security;render plain:"DENIED",status: :forbidden;end\nend\n`,
+    'bin/rails': `#!/usr/bin/env ruby\nAPP_PATH = File.expand_path("../config/application", __dir__)\nrequire_relative "../config/boot"\nrequire "rails/commands"\n`,
     'Rakefile': `require_relative "config/application"\nRails.application.load_tasks\n`,
     'config.ru': `require_relative "config/environment"\nrun Rails.application\n`,
     'db/schema.rb': `ActiveRecord::Schema[8.1].define(version: 1) do\n create_table :cold_records, force: true do |t|\n  t.string :name\n end\nend\n`,
@@ -163,21 +167,14 @@ beforeAll(async () => {
   if (!fs.existsSync(watchdog)) throw new Error(`${requestedStack} cold-start qualification requires the compiled CSO watchdog`);
   endpoint = await dockerEndpoint(secureDirectory(path.join(root, 'docker-home')), { HOME: root, DOCKER_HOST: process.env.DOCKER_HOST ?? 'unix:///var/run/docker.sock' });
   catalog = completeRuntimeCatalogFixture(`${requestedStack}-staged-cold`);
-  const installRuntime = (value: QualifiedRuntime): QualifiedRuntime => {
-    const runtimeIndex = catalog.runtimes.findIndex(item => item.stack === value.stack && item.platform === value.platform);
-    const profile = catalog.profiles.find(item => item.stack === value.stack && item.platform === value.platform)!;
-    const installed = { ...value, id: profile.id };
-    catalog.runtimes[runtimeIndex] = installed;
-    profile.versions = { ...installed.versions };
-    return installed;
-  };
-  runtime = installRuntime(qualified(requestedStack as CsoStack, image, versions));
+  runtime = installStagedRuntime(catalog, qualified(requestedStack as CsoStack, image, versions));
   if (requestedStack === 'rails') {
     const postgresImage = process.env.GSTACK_CSO_TEST_POSTGRES_IMAGE;
     const postgresVersion = process.env.GSTACK_CSO_TEST_POSTGRES_VERSION;
     if (!postgresImage || !/^\d+\.\d+(?:\.\d+)?$/.test(postgresVersion ?? '')) throw new Error('Rails cold-start qualification requires a staged PostgreSQL digest and exact version');
-    installRuntime(qualified('postgresql', postgresImage, { postgresql: postgresVersion! }));
+    installStagedRuntime(catalog, qualified('postgresql', postgresImage, { postgresql: postgresVersion! }));
   }
+  validateRuntimeCatalog(catalog);
 });
 afterAll(() => { if (root) fs.rmSync(root, { recursive: true, force: true }); delete process.env.GSTACK_HOME; });
 

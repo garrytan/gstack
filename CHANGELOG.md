@@ -71,6 +71,28 @@ The first three rows are the ones users feel. The last three are why the next ce
 - Paid shard durations refreshed from census 37198445662; a JUnit case's recorded wall is capped by its shard's wall.
 - The docsync fixture saves its observation interface to a file its children read instead of having the parent copy it into each child prompt.
 
+## [1.91.29.0] - 2026-10-05
+
+**Native runtime qualification can pass for Node, Bun, Python and Rails.**
+
+Main run 37345275258 of `cso-runtime-images.yml` staged every image, but eight `qualify-native` rows failed. Two causes showed up in the logs, and more were hiding behind them. Every cause below is fixed, and each was reproduced on a local amd64 Docker daemon against freshly built images.
+
+- **Promotion evidence is recomputed for injected runtimes.** The cold-start test put the staged runtimes into its test catalog without re-binding `promotion.evidenceDigest`, so Bun, Python and Rails failed with `RUNTIME_PROMOTION_EVIDENCE_MISMATCH`. A shared `installStagedRuntime` helper re-binds the digest, and the test now validates the catalog it builds.
+- **npm dependency acquisition works.** npm 11 refuses to load the same file as both its user and global config. The preparation commands passed `/opt/cso/empty-config` for both, so every Node acquisition failed. The global config now points at its own empty file, `/opt/cso/empty-globalconfig`, which the Node image creates.
+- **Prepared output can leave its container.** `docker cp` cannot read tmpfs mounts. The acquisition `/archives` and offline `/work` directories are now Docker local volumes backed by tmpfs, with the same size, owner, mode and `nosuid`/`nodev` options as before (`/archives` stays `noexec`). The runner refuses to start a container when Docker did not keep those options.
+- **The offline seed stays up.** The in-image `seed` command exited while the offline commands were still to run, because it was waiting on a promise that nothing kept alive. It now holds a timer until the container stops.
+- **Prepared trees can execute.** Docker's tmpfs default is `noexec`, so virtualenv Python and binstubs under `/work` exited with status 126. `/work` now mounts `exec` explicitly.
+- **The registry broker releases its connections.** Under Bun, `pipe()` never closed the upstream socket. A Rails acquisition opens about 70 tunnels, which filled the broker's 64-connection limit and timed out. The broker and the in-container forwarder now forward end and close explicitly, and a free test opens 70 tunnels.
+- **Gem acquisition is batched.** Each `gem fetch` process spends about 11 seconds loading the RubyGems index, so acquisition now runs one `gem fetch` per platform for all exact gems.
+- **Rails commands wait for the source copy.** `db:prepare` ran while `run-app` was still copying the prepared tree, and failed with "Could not locate Gemfile". Rails application and test containers now start through `startHeldApplication`, which waits until the copy has finished.
+- **Test fixtures.** The Python cold fixture called a method that `unittest.TestCase` does not have, and the Rails cold fixture had no `bin/rails`, so `rails server` printed the `rails new` help instead of booting.
+- **Dependency installs get a bounded longer ceiling.** The Rails fixture's lockfile lists only the `ruby` platform, so `bundle install --local` compiles nokogiri, sqlite3 and pg. At the app container's 0.85 CPU share that takes about 385 seconds, past the 300-second limit on one command. Dependency fetch and install commands in the preparation phases now get `PREPARATION_COMMAND_TIMEOUT_MS` (900 seconds). Every other command keeps 300 seconds, both stay inside the journey deadline, and a free test pins which calls can ask for the longer ceiling. The CPU share and `ISOLATION_POLICY_HASH` are unchanged.
+- **Export refusals name their reason.** A prepared-tree export the helper refuses now fails with `PREPARED_EXPORT_REJECTED`, the helper's exit status and its fixed reason or filesystem errno. Target paths are never included, and nothing retries. One unexplained refusal was seen locally in 20 exports, so a recurrence on CI will now say why.
+
+- **The `/cso --diff` eval accepts every correct name for the webhook bug.** `cso-diff-mode` matched only `signature|authenticat|forg` in the root cause and impact, so a correct finding titled "no authenticity verification" failed it. It now also matches `authentic`, `spoof` and `hmac`, and checks the finding title. A solo panel on main measured the case at 10/10 with and without the qualified scanner images available.
+
+The images change (`/opt/cso/preparation` and the Node recipe), so qualification needs a fresh staging run on main.
+
 ## [1.91.27.0] - 2026-10-05
 
 **The first protected-main runtime staging run can finish, and a qualified scanner catalog can ship.**

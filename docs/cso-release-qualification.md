@@ -94,6 +94,38 @@ and once with two databases in a fresh staged PostgreSQL sidecar. The Rails
 fixture builds the source-platform `sqlite3` and `pg` native gems only in the
 offline execution phase.
 
+Preparation output leaves its containers through `docker cp`, which cannot read
+a tmpfs mount. The acquisition `/archives` directory and the offline `/work`
+directory are therefore Docker local volumes backed by bounded tmpfs, created
+per container with private mode, the runtime uid/gid, `nosuid`, and `nodev`
+(`/archives` is also `noexec`; `/work` must stay executable for virtualenv and
+binstub launchers). The runner inspects each container and refuses to start it
+if Docker did not preserve those options. npm's user and global configs point
+at two different empty files, because npm refuses to load one file in both
+roles. Rails application and test containers hold on `sleep` after `run-app`
+copies the source; `db:prepare` starts only once that copy has finished.
+Changes to `/opt/cso/preparation` or an image recipe need a new staging run
+before native qualification can pass.
+
+Each supervised command has a 300-second ceiling (`COMMAND_TIMEOUT_MS` in
+`lib/cso/process.ts`). Only the dependency fetch and install commands of the
+acquisition and offline preparation phases get `PREPARATION_COMMAND_TIMEOUT_MS`,
+900 seconds. A Rails lockfile that lists only the `ruby` platform compiles
+nokogiri, sqlite3 and pg offline, which takes about 385 seconds at the app
+role's 0.85 CPU share. Both ceilings are cut to the time left before the
+journey's aggregate deadline, so the longer ceiling never extends a journey.
+Helper probes, exports, application starts, `db:prepare` and project tests keep
+the 300-second ceiling. A free test in `test/cso-docker-mounts.test.ts` pins
+which calls may request the longer ceiling. The CPU share is unchanged, so
+`ISOLATION_POLICY_HASH` and the profiles bound to it are unaffected.
+
+When the in-image helper refuses to export a prepared tree, preparation fails
+with error code `PREPARED_EXPORT_REJECTED` instead of the generic
+`TOOL_FAILED`. The message carries the helper's exit status and its fixed
+reason, such as `prepared tree contains a hard-linked file`, or the filesystem
+errno and syscall. It never includes target paths. Nothing retries. Treat a
+recurrence as evidence for a defect, not as a flake to rerun.
+
 For hashed Python requirements resolved by pip, the broker records the requested
 index URL, allowed contacted hosts, and verified wheel hash. Pip's internal
 `files.pythonhosted.org` response URL is opaque to that TLS boundary, so

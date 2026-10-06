@@ -366,6 +366,43 @@ describe('CSO constrained dependency preparation executor', () => {
     } finally { await broker.close(); }
   });
 
+  // Rails acquires ~70 gems in sequence. Under Bun, stream.pipe left each finished
+  // tunnel's upstream open, so the broker hit its 64-connection limit mid-acquisition.
+  test('finished registry tunnels release both sockets across more tunnels than the connection limit', async () => {
+    const base = root('cso-broker-release-'), socketPath = path.join(base, 'registry.sock');
+    const registry = net.createServer(upstream => { upstream.on('data', chunk => upstream.write(chunk)); upstream.on('end', () => upstream.end()); });
+    await new Promise<void>(resolve => registry.listen(0, '127.0.0.1', resolve));
+    const registryPort = (registry.address() as net.AddressInfo).port, dial = net.connect;
+    const connect = spyOn(net, 'connect').mockImplementation(((options: any, ...rest: any[]) =>
+      dial({ host: '127.0.0.1', port: options?.port === 443 ? registryPort : options?.port }, ...rest)) as typeof net.connect);
+    const broker = new RegistryEgressBroker(socketPath, ['rubygems.org'], Date.now() + 60_000, 64 * 1024 * 1024,
+      () => ({ promise: Promise.resolve([{ address: '151.101.1.227', family: 4 as const }]), cancel: () => {} }));
+    await broker.start();
+    try {
+      for (let index = 0; index < 70; index++) {
+        const echoed = await new Promise<string>((resolveEcho, reject) => {
+          const client = net.createConnection({ path: socketPath }); let output = '';
+          client.setTimeout(5_000, () => client.destroy(new Error(`tunnel ${index} stalled`)));
+          client.once('connect', () => client.write('CONNECT rubygems.org:443 HTTP/1.1\r\nHost: rubygems.org:443\r\n\r\n'));
+          client.on('data', chunk => {
+            output += chunk.toString();
+            if (output === 'HTTP/1.1 200 Connection Established\r\n\r\n') { client.write(`gem-${index}`); return; }
+            if (output.endsWith(`gem-${index}`)) client.end();
+          });
+          client.once('close', () => resolveEcho(output)); client.once('error', reject);
+        });
+        expect(echoed).toEndWith(`gem-${index}`);
+      }
+      const deadline = Date.now() + 2_000;
+      while ((broker as any).sockets.size && Date.now() < deadline) await Bun.sleep(10);
+      expect((broker as any).sockets.size).toBe(0);
+      expect(() => broker.assertClean()).not.toThrow();
+      expect([...broker.contactedHosts]).toEqual(['rubygems.org']);
+    } finally {
+      connect.mockRestore(); await broker.close(); await new Promise<void>(resolve => registry.close(() => resolve()));
+    }
+  });
+
   test('registry address classification rejects mapped, translated, private, and unspecified destinations', () => {
     for (const address of ['127.0.0.1', '169.254.169.254', '10.2.3.4', '100.64.0.1'])
       expect(isBlockedRegistryAddress(address, 4)).toBe(true);
