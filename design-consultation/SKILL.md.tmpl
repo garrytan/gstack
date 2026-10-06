@@ -156,9 +156,12 @@ If the user wants competitive research:
 
 If the Aside check printed `READY`, find 5-10 products in their space. One read-only request covers the three queries ("[product category] website design", "[product category] best websites {current year}", "best [industry] web apps"):
 
+{{FREE_TEXT_FILE:PROMPT_FILE=aside-prompt}}
+
+Prompt file text: `[product category] website design, the best [product category] websites of {current year}, and the best [industry] web apps. Reply with up to 10 products, one per line as name, URL, one-line design note.` Then substitute the printed name for `<prompt-file-name>`:
+
 ```bash
-{{ASIDE_EXEC_PRELUDE}}
-_aside_exec "Search the web for [product category] website design, the best [product category] websites of {current year}, and the best [industry] web apps. Read-only: do not sign in, submit, or change anything. Reply with up to 10 products, one per line as name, URL, one-line design note, then stop."
+{{ASIDE_RESEARCH_SEND}}
 ```
 
 If it did not print `READY`, run those three queries with the WebSearch tool when the host provides it.

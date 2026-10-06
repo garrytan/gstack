@@ -290,7 +290,7 @@ Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose
 
 After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes). Substitute `SESSION_ID` with the value the preamble's skill-start output echoed — shell variables do not survive between Bash calls:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"design-html","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"SESSION_ID"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"design-html","question_id":"<id>","question_summary":"<summary-slug>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"SESSION_ID"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -299,7 +299,7 @@ User-origin gate (profile-poisoning defense): write tune events ONLY when `tune:
 
 Write (only after confirmation for free-form):
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<pref>","source":"inline-user","free_text":"<optional original words>"}'
+~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<pref>","source":"inline-user"}'
 ```
 
 Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<id>` → `<preference>`. Active immediately."
@@ -409,14 +409,14 @@ Comparison boards are local HTML files: open them with `open file://...` on macO
 
 If `DESIGN_READY`: the design binary is available for visual mockup generation.
 Commands:
-- `$D generate --brief "..." --output /path.png` — generate a single mockup (prints `outputPath`)
-- `$D variants --brief "..." --count 3 --output-dir /path/` — generate N style variants (prints `paths`)
+- `$D generate --brief "$(cat "$BRIEF_FILE")" --output /path.png` — generate a single mockup (prints `outputPath`)
+- `$D variants --brief "$(cat "$BRIEF_FILE")" --count 3 --output-dir /path/` — generate N style variants (prints `paths`)
 - `$D compare --images-file /path/board-images.json --output /path/board.html --serve` — comparison board + HTTP server
 - `$D serve --html /path/board.html` — serve comparison board and collect feedback via HTTP
-- `$D check --image /path.png --brief "..."` — vision quality gate
-- `$D iterate --session /path/session.json --feedback "..." --output /path.png` — iterate
+- `$D check --image /path.png --brief "$(cat "$BRIEF_FILE")"` — vision quality gate
+- `$D iterate --session /path/session.json --feedback "$(cat "$FEEDBACK_FILE")" --output /path.png` — iterate
 
-Image commands never overwrite (a taken name gets `-2`) and always print JSON (`requested`, `saved`, `failures`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without `set -e`: `_OUT=$($D ...); _RC=$?`.
+Image commands never overwrite (a taken name gets `-2`) and always print JSON (`requested`, `saved`, `failures`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without `set -e`: `_OUT=$($D ...); _RC=$?`. Briefs and feedback are free text: write each into a private `mktemp` file under `.gstack/tmp` and pass `"$(cat "$FILE")"`, never inline.
 
 **Path rule:** Design artifacts belong in `$GSTACK_STATE_ROOT/projects/$SLUG/designs/`.
 Use `bin/gstack-paths` (docs/state-root.md). Keep it even if temporary; never substitute

@@ -303,20 +303,35 @@ mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```
 
-Brief: Phase 3 aesthetic/colors/type/spacing/layout plus Phase 1 product context:
+Brief: Phase 3 aesthetic/colors/type/spacing/layout plus Phase 1 product context, written into a private file:
 
 ```bash
-_OUT=$($D variants --brief "<product name: [name]. Product type: [type]. Aesthetic: [direction]. Colors: primary [hex], secondary [hex], neutrals [range]. Typography: display [font], body [font]. Layout: [approach]. Show a realistic [page type] screen with [specific content for this product].>" --count 3 --output-dir "$_DESIGN_DIR/"); _RC=$?
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+BRIEF_FILE=$(mktemp "$_GT/brief.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "BRIEF_FILE: $BRIEF_FILE (name: ${BRIEF_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
+
+Brief shape: `Product name: [name]. Product type: [type]. Aesthetic: [direction]. Colors: primary [hex], secondary [hex], neutrals [range]. Typography: display [font], body [font]. Layout: [approach]. Show a realistic [page type] screen with [specific content for this product].` Then substitute the printed name for `<brief-file-name>`:
+
+```bash
+BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
+[ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }
+_OUT=$($D variants --brief "$(cat "$BRIEF_FILE")" --count 3 --output-dir "$_DESIGN_DIR/"); _RC=$?
 printf '%s\n' "$_OUT"; echo "EXIT: $_RC"
 ```
 
 <!-- design:round-accounting -->
 **Round accounting:** names are never overwritten (a taken one is bumped), so use only the printed `saved` paths. Tell the user how many of `requested` paid images were saved and name each `failures` entry. Exit 2 means nothing was saved: report `failures` and stop here (offer Path B or skip); run no `$D check` or board.
 
-Run quality check on each saved path, starting with the first; never include failed variants:
+Run quality check on each saved path, starting with the first, against the same brief file; never include failed variants:
 
 ```bash
-$D check --image "<first path from the printed saved list>" --brief "<the original brief>"
+BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
+[ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }
+$D check --image "<first path from the printed saved list>" --brief "$(cat "$BRIEF_FILE")"
 ```
 
 Read JSON, not exit code: `pass: false` means regenerate addressing `issues`, then recheck. `pass: true` with an unavailable/skipped warning is missing automated coverage; disclose it and inspect visually.
@@ -354,7 +369,7 @@ After the response, read current feedback next to the board HTML:
 **Board or chat:** revisions regenerate; a final choice needs summary confirmation; skip goes to Phase 6 without a mockup. Ask if no choice/detail; never infer approval from a missing file. Submit with revision notes is a revision.
 
 **Regenerate:**
-1. Revise the brief, preserving unrelated constraints. Archive this round's feedback files so old Submit cannot approve new images (the board block does this on rebuild).
+1. Revise the brief in the brief file, preserving unrelated constraints. Archive this round's feedback files so old Submit cannot approve new images (the board block does this on rebuild).
 2. Run `$D variants` with the new brief (no session), with the same capture and round accounting. Re-run the quality check and visual self-gate on every new image (its printed path).
 3. Rebuild with the board block above (it rewrites board-images.json), without `--serve`.
 4. Reload at the saved URL (keep its per-board path; legacy uses root):
@@ -381,7 +396,7 @@ _EXTRACT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gstack-design-extract-XXXXXXXX") || ex
 
 Compare extracted tokens with the approved image and verified fonts; show discrepancies at Q-final. Empty arrays, an "Unable to extract" mood or command failure → disclose fallback to Phase 3 values, never invent measured tokens.
 
-Late visual changes return to the feedback loop: regenerate, recheck, reconfirm, then extract again. Only `generate` supplies `sessionFile` for `$D iterate --session "<returned sessionFile>" --feedback "<feedback>" --output "$_DESIGN_DIR/refined.png"`; use its printed `outputPath`. Variants must regenerate.
+Late visual changes return to the feedback loop: regenerate, recheck, reconfirm, then extract again. Only `generate` supplies `sessionFile` for `$D iterate --session "<returned sessionFile>" --feedback "$(cat "$FEEDBACK_FILE")" --output "$_DESIGN_DIR/refined.png"`; use its printed `outputPath`. Variants must regenerate.
 
 **Plan mode:** Carry the approved mockup paths/tokens into Phase 6's "## Proposed DESIGN.md" plan section. Its Q-final approval governs saving that content; defer the actual DESIGN.md to implementation.
 

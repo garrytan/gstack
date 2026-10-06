@@ -1,5 +1,6 @@
 import { outsideVoiceFailurePolicy, outsideVoiceFor, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance } from './outside-voice';
 import { type TemplateContext, quoteSafePath, toShellPath } from './types';
+import { FREE_TEXT_WRITE_RULE, freeTextFileBash } from './free-text-file';
 import { binaryAssignment } from './runtime-root';
 import { usesLazySections } from './sections';
 import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS, CC_BACKGROUND_DEFAULT_SINCE } from './constants';
@@ -1144,6 +1145,9 @@ case "$_RC" in
 esac`;
 }
 
+const DESIGN_BRIEF_FILE_CHECK = `BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
+[ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }`;
+
 const DESIGN_ROUND_ACCOUNTING = `<!-- design:round-accounting -->
 **Round accounting (before any board, check or inline view):** \`$D\` never overwrites; a taken name is bumped (for example \`-2\`), so use only the paths its JSON printed and carry them as literal paths into later blocks (bash blocks do not share variables). Tell the user how many of \`requested\` paid images were saved (\`saved\`) and name each \`failures\` entry. Route on the exit code: 0 continue with \`saved\`; 3 continue with \`saved\` and say the run stopped early; 2 nothing was saved, so report \`failures\` and stop: do not run \`$D compare\` or \`$D check\`.`;
 
@@ -1157,13 +1161,22 @@ $D compare --images-file "$_DESIGN_DIR/board-images.json" --output "$_DESIGN_DIR
 \`\`\``;
 }
 
-function designApprovalBlock(screen: string): string {
-  return `Map the confirmed letter through this board's \`board-images.json\` (never the directory listing) and save it:
+/** Feedback goes into FEEDBACK_FILE; the mockup flow creates that file with its brief file in Step 2. */
+function designApprovalBlock(screen: string, createFeedbackFile = true): string {
+  return `${createFeedbackFile ? `Write the user's feedback (\`none\` when they gave none) into a private file:
+
+\`\`\`bash
+${freeTextFileBash([{ variable: 'FEEDBACK_FILE', stem: 'feedback' }])}
+\`\`\`
+
+${FREE_TEXT_WRITE_RULE} Then map` : `Write the user's feedback (\`none\` when they gave none) into the feedback file from Step 2, then map`} the confirmed letter through this board's \`board-images.json\` (never the directory listing) and save it, substituting the printed name for \`<feedback-file-name>\`:
 
 \`\`\`bash
 _IMG=$(jq -r --arg v "<VARIANT>" '.[($v | explode[0]) - 65] // empty' "$_DESIGN_DIR/board-images.json")
 if [ -n "$_IMG" ]; then
-  echo '{"approved_variant":"<VARIANT>","approved_path":"'"$(basename "$_IMG")"'","feedback":"<FEEDBACK>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"${screen}","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+  FEEDBACK_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<feedback-file-name>"
+  [ -s "$FEEDBACK_FILE" ] || { echo "Not saved: $FEEDBACK_FILE is missing or empty. Write the feedback, then rerun this block." >&2; exit 1; }
+  jq -n --arg approved_variant "<VARIANT>" --arg approved_path "$(basename "$_IMG")" --rawfile feedback "$FEEDBACK_FILE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg screen "${screen}" --arg branch "$(git branch --show-current 2>/dev/null)" '$ARGS.named | .feedback |= rtrimstr("\\n")' > "$_DESIGN_DIR/approved.json" && rm -f "$FEEDBACK_FILE"
   echo "APPROVED_IMAGE: $_IMG"
 else
   echo "NO_BOARD_IMAGE: <VARIANT> is not on this board; reselect from the board"
@@ -1190,14 +1203,14 @@ Comparison boards are local HTML files: open them with \`open file://...\` on ma
 
 If \`DESIGN_READY\`: the design binary is available for visual mockup generation.
 Commands:
-- \`$D generate --brief "..." --output /path.png\` — generate a single mockup (prints \`outputPath\`)
-- \`$D variants --brief "..." --count 3 --output-dir /path/\` — generate N style variants (prints \`paths\`)
+- \`$D generate --brief "$(cat "$BRIEF_FILE")" --output /path.png\` — generate a single mockup (prints \`outputPath\`)
+- \`$D variants --brief "$(cat "$BRIEF_FILE")" --count 3 --output-dir /path/\` — generate N style variants (prints \`paths\`)
 - \`$D compare --images-file /path/board-images.json --output /path/board.html --serve\` — comparison board + HTTP server
 - \`$D serve --html /path/board.html\` — serve comparison board and collect feedback via HTTP
-- \`$D check --image /path.png --brief "..."\` — vision quality gate
-- \`$D iterate --session /path/session.json --feedback "..." --output /path.png\` — iterate
+- \`$D check --image /path.png --brief "$(cat "$BRIEF_FILE")"\` — vision quality gate
+- \`$D iterate --session /path/session.json --feedback "$(cat "$FEEDBACK_FILE")" --output /path.png\` — iterate
 
-Image commands never overwrite (a taken name gets \`-2\`) and always print JSON (\`requested\`, \`saved\`, \`failures\`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without \`set -e\`: \`_OUT=$($D ...); _RC=$?\`.${ctx.skillName === 'design-consultation' ? `
+Image commands never overwrite (a taken name gets \`-2\`) and always print JSON (\`requested\`, \`saved\`, \`failures\`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without \`set -e\`: \`_OUT=$($D ...); _RC=$?\`. Briefs and feedback are free text: write each into a private \`mktemp\` file under \`.gstack/tmp\` and pass \`"$(cat "$FILE")"\`, never inline.${ctx.skillName === 'design-consultation' ? `
 - \`$D extract --image /absolute/path.png\` — print tokens and automatically update DESIGN.md in the current Git repository; no read-only flag
 
 \`generate\` returns \`sessionFile\`; \`iterate\` requires that existing session. \`variants\` returns \`paths\` but creates no session: regenerate with an updated brief instead.` : ''}
@@ -1236,12 +1249,19 @@ echo "DESIGN_DIR: $_DESIGN_DIR"
 **Step 2: Construct the design brief**
 
 Read DESIGN.md if it exists — use it to constrain the visual style. If no DESIGN.md,
-explore wide across diverse directions.
-
-**Step 3: Generate 3 variants**
+explore wide across diverse directions. The brief, and the user's feedback in Step 6, go in private files:
 
 \`\`\`bash
-_OUT=$($D variants --brief "<assembled brief>" --count 3 --output-dir "$_DESIGN_DIR/"); _RC=$?
+${freeTextFileBash([{ variable: 'BRIEF_FILE', stem: 'brief' }, { variable: 'FEEDBACK_FILE', stem: 'feedback' }])}
+\`\`\`
+
+${FREE_TEXT_WRITE_RULE}
+
+**Step 3: Generate 3 variants** (substitute the printed name for \`<brief-file-name>\`)
+
+\`\`\`bash
+${DESIGN_BRIEF_FILE_CHECK}
+_OUT=$($D variants --brief "$(cat "$BRIEF_FILE")" --count 3 --output-dir "$_DESIGN_DIR/"); _RC=$?
 printf '%s\\n' "$_OUT"; echo "EXIT: $_RC"
 \`\`\`
 
@@ -1270,7 +1290,7 @@ with Read and fall back to AskUserQuestion: "Which variant do you prefer? Any fe
 
 If the JSON contains \`"regenerated": true\`:
 1. Read \`regenerateAction\` (or \`remixSpec\` for remix requests)
-2. Generate new variants with \`$D iterate\` or \`$D variants\` using updated brief (capture and round accounting as in Step 3)
+2. Generate new variants with \`$D iterate\` or \`$D variants\` using the updated brief, rewritten into the brief file (capture and round accounting as in Step 3)
 3. Rebuild the board with Step 4's board block, without \`--serve\`
 4. POST the new HTML to the running board. Parse the board URL from stderr
    (\`BOARD_URL: http://127.0.0.1:N/boards/<id>/\` — the daemon path) or fall
@@ -1283,7 +1303,7 @@ If \`"regenerated": false\`: proceed with the approved variant.
 
 **Step 6: Save approved choice**
 
-${designApprovalBlock('mockup')}
+${designApprovalBlock('mockup', false)}
 
 Reference the printed \`APPROVED_IMAGE\` in the design doc or plan.`;
 }
@@ -1312,7 +1332,7 @@ After the response, read current feedback next to the board HTML:
 **Board or chat:** revisions regenerate; a final choice needs summary confirmation; skip goes to Phase 6 without a mockup. Ask if no choice/detail; never infer approval from a missing file. Submit with revision notes is a revision.
 
 **Regenerate:**
-1. Revise the brief, preserving unrelated constraints. Archive this round's feedback files so old Submit cannot approve new images (the board block does this on rebuild).
+1. Revise the brief in the brief file, preserving unrelated constraints. Archive this round's feedback files so old Submit cannot approve new images (the board block does this on rebuild).
 2. Run \`$D variants\` with the new brief (no session), with the same capture and round accounting. Re-run the quality check and visual self-gate on every new image (its printed path).
 3. Rebuild with the board block above (it rewrites board-images.json), without \`--serve\`.
 4. Reload at the saved URL (keep its per-board path; legacy uses root):

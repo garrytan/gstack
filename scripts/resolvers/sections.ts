@@ -27,7 +27,7 @@ export const QA_ASSET_BLOCKER = 'If missing or unreadable, report a QA setup blo
 
 /** Skills carved on every host: QA (portable assets) and those whose external
  * render would exceed SKILL_BYTE_CEILING inlined (C4, #2777). */
-const CARVED_ON_EVERY_HOST = ['qa', 'qa-only', 'ship', 'plan-ceo-review'];
+const CARVED_ON_EVERY_HOST = ['qa', 'qa-only', 'ship', 'plan-ceo-review', 'office-hours'];
 
 /** Hosts read at most this many UTF-8 bytes of one SKILL.md (~40K tokens). */
 export const SKILL_BYTE_CEILING = 160_000;

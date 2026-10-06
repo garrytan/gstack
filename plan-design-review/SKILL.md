@@ -311,7 +311,7 @@ Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose
 
 After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes). Substitute `SESSION_ID` with the value the preamble's skill-start output echoed — shell variables do not survive between Bash calls:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"plan-design-review","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"SESSION_ID"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"plan-design-review","question_id":"<id>","question_summary":"<summary-slug>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"SESSION_ID"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -320,7 +320,7 @@ User-origin gate (profile-poisoning defense): write tune events ONLY when `tune:
 
 Write (only after confirmation for free-form):
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<pref>","source":"inline-user","free_text":"<optional original words>"}'
+~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<pref>","source":"inline-user"}'
 ```
 
 Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<id>` → `<preference>`. Active immediately."
@@ -664,14 +664,14 @@ Comparison boards are local HTML files: open them with `open file://...` on macO
 
 If `DESIGN_READY`: the design binary is available for visual mockup generation.
 Commands:
-- `$D generate --brief "..." --output /path.png` — generate a single mockup (prints `outputPath`)
-- `$D variants --brief "..." --count 3 --output-dir /path/` — generate N style variants (prints `paths`)
+- `$D generate --brief "$(cat "$BRIEF_FILE")" --output /path.png` — generate a single mockup (prints `outputPath`)
+- `$D variants --brief "$(cat "$BRIEF_FILE")" --count 3 --output-dir /path/` — generate N style variants (prints `paths`)
 - `$D compare --images-file /path/board-images.json --output /path/board.html --serve` — comparison board + HTTP server
 - `$D serve --html /path/board.html` — serve comparison board and collect feedback via HTTP
-- `$D check --image /path.png --brief "..."` — vision quality gate
-- `$D iterate --session /path/session.json --feedback "..." --output /path.png` — iterate
+- `$D check --image /path.png --brief "$(cat "$BRIEF_FILE")"` — vision quality gate
+- `$D iterate --session /path/session.json --feedback "$(cat "$FEEDBACK_FILE")" --output /path.png` — iterate
 
-Image commands never overwrite (a taken name gets `-2`) and always print JSON (`requested`, `saved`, `failures`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without `set -e`: `_OUT=$($D ...); _RC=$?`.
+Image commands never overwrite (a taken name gets `-2`) and always print JSON (`requested`, `saved`, `failures`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without `set -e`: `_OUT=$($D ...); _RC=$?`. Briefs and feedback are free text: write each into a private `mktemp` file under `.gstack/tmp` and pass `"$(cat "$FILE")"`, never inline.
 
 **Path rule:** Design artifacts belong in `$GSTACK_STATE_ROOT/projects/$SLUG/designs/`.
 Use `bin/gstack-paths` (docs/state-root.md). Keep it even if temporary; never substitute
@@ -788,20 +788,35 @@ Replace `<screen-name>` with a descriptive kebab-case name (e.g., `homepage-vari
 **Generate mockups one screen at a time in this skill.** The inline review flow generates
 fewer variants and benefits from sequential control; /design-shotgun is the parallel flow.
 
-For each UI screen/section in scope, construct a design brief from the plan's description (and DESIGN.md if present) and generate variants:
+For each UI screen/section in scope, construct a design brief from the plan's description (and DESIGN.md if present) and write it into a private file:
 
 ```bash
-_OUT=$($D variants --brief "<description assembled from plan + DESIGN.md constraints>" --count 3 --output-dir "$_DESIGN_DIR/"); _RC=$?
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+BRIEF_FILE=$(mktemp "$_GT/brief.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "BRIEF_FILE: $BRIEF_FILE (name: ${BRIEF_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
+
+Then generate variants, substituting the printed name for `<brief-file-name>`:
+
+```bash
+BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
+[ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }
+_OUT=$($D variants --brief "$(cat "$BRIEF_FILE")" --count 3 --output-dir "$_DESIGN_DIR/"); _RC=$?
 printf '%s\n' "$_OUT"; echo "EXIT: $_RC"
 ```
 
 <!-- design:round-accounting -->
 **Round accounting (before any check or board):** `$D` never overwrites, so a taken name is bumped (for example `-2`); use only the printed `saved` paths. Tell the user how many of `requested` paid images were saved and name each `failures` entry. Exit 0: continue with `saved`. Exit 2: nothing was saved; report `failures` and stop: no `$D check`, no board.
 
-Then run a cross-model quality check on each saved path, starting with the first:
+Then run a cross-model quality check on each saved path, starting with the first, against the same brief file:
 
 ```bash
-$D check --image "<first path from the printed saved list>" --brief "<the original brief>"
+BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
+[ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }
+$D check --image "<first path from the printed saved list>" --brief "$(cat "$BRIEF_FILE")"
 ```
 
 Flag any variants that fail the quality check. Offer to regenerate failures.
@@ -914,12 +929,23 @@ Is this right?"
 
 Use AskUserQuestion to verify before proceeding.
 
-**Save the approved choice.** Map the confirmed letter through this board's `board-images.json` (never the directory listing) and save it:
+**Save the approved choice.** Write the user's feedback (`none` when they gave none) into a private file:
+
+```bash
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+FEEDBACK_FILE=$(mktemp "$_GT/feedback.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "FEEDBACK_FILE: $FEEDBACK_FILE (name: ${FEEDBACK_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand. Then map the confirmed letter through this board's `board-images.json` (never the directory listing) and save it, substituting the printed name for `<feedback-file-name>`:
 
 ```bash
 _IMG=$(jq -r --arg v "<VARIANT>" '.[($v | explode[0]) - 65] // empty' "$_DESIGN_DIR/board-images.json")
 if [ -n "$_IMG" ]; then
-  echo '{"approved_variant":"<VARIANT>","approved_path":"'"$(basename "$_IMG")"'","feedback":"<FEEDBACK>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"<SCREEN>","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+  FEEDBACK_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<feedback-file-name>"
+  [ -s "$FEEDBACK_FILE" ] || { echo "Not saved: $FEEDBACK_FILE is missing or empty. Write the feedback, then rerun this block." >&2; exit 1; }
+  jq -n --arg approved_variant "<VARIANT>" --arg approved_path "$(basename "$_IMG")" --rawfile feedback "$FEEDBACK_FILE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg screen "<SCREEN>" --arg branch "$(git branch --show-current 2>/dev/null)" '$ARGS.named | .feedback |= rtrimstr("\n")' > "$_DESIGN_DIR/approved.json" && rm -f "$FEEDBACK_FILE"
   echo "APPROVED_IMAGE: $_IMG"
 else
   echo "NO_BOARD_IMAGE: <VARIANT> is not on this board; reselect from the board"
@@ -1125,9 +1151,23 @@ Re-run loop: invoke /plan-design-review again → re-rate → sections at 8+ get
 ### "Show me what 10/10 looks like" (requires design binary)
 
 If `DESIGN_READY` was printed during setup AND a dimension rates below 7/10,
-offer to generate a visual mockup showing what the improved version would look like:
+offer to generate a visual mockup showing what the improved version would look like.
+Write the description of what 10/10 looks like for this dimension into a private file:
 
 ```bash
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+BRIEF_FILE=$(mktemp "$_GT/brief.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "BRIEF_FILE: $BRIEF_FILE (name: ${BRIEF_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
+
+Then substitute the printed name for `<brief-file-name>`:
+
+```bash
+BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
+[ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }
 SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 _DESIGN_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/designs/ideal-$(date +%Y%m%d)"
@@ -1135,8 +1175,8 @@ mkdir -p "$_DESIGN_DIR"
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -x "$D" ] || D=~/.claude/skills/gstack/design/dist/design
-_OUT=$("$D" generate --brief "<description of what 10/10 looks like for this dimension>" --output "$_DESIGN_DIR/ideal-<dimension>.png"); _RC=$?
-printf '%s\n' "$_OUT"; echo "EXIT: $_RC"
+_OUT=$("$D" generate --brief "$(cat "$BRIEF_FILE")" --output "$_DESIGN_DIR/ideal-<dimension>.png"); _RC=$?
+printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm -f "$BRIEF_FILE"
 ```
 
 Exit 0: show the image at the printed `outputPath` (it may be bumped, never overwritten) to the user via the Read tool. Exit 2 or 3: report `failures` and continue text-only. This makes the gap between

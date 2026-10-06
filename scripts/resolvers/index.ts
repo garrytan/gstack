@@ -38,9 +38,10 @@ import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPref
 import { generateTasksSectionEmit, generateTasksSectionAggregate } from './tasks-section';
 import { SECTION, SECTION_INDEX } from './sections';
 import { generateRedactInvocationBlock } from './redact-doc';
+import { generateFreeTextFile } from './free-text-file';
 import { FOREGROUND_DISPATCH_NOTE } from './constants';
 import { generateThirdPartyActions } from './third-party-actions';
-import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, generateUntrustedContentWarning, asideExecPrelude } from './aside';
+import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, generateUntrustedContentWarning, asideExecPrelude, asideResearchSend } from './aside';
 import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup, generateBrowseFallback } from './browse';
 import { generateDesignDocDiscovery } from './design-doc-discovery';
 import { generateSharedLibsRubric, generateSafeGitPath } from './shared-libs';
@@ -65,6 +66,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   CODEX_REVIEW_MODEL_CONFIG_FLAG: generateCodexReviewModelConfigFlag,
   CLAUDE_MODEL_FLAG: generateClaudeModelFlag,
   REDACT_INVOCATION_BLOCK: generateRedactInvocationBlock,
+  FREE_TEXT_FILE: generateFreeTextFile,
   THIRD_PARTY_ACTIONS: generateThirdPartyActions,
   DESIGN_DOC_DISCOVERY: generateDesignDocDiscovery,
   SHARED_LIBS_RUBRIC: generateSharedLibsRubric,
@@ -80,6 +82,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   ASIDE_COOKBOOK: generateAsideCookbook,
   ASIDE_RESEARCH: generateAsideResearch,
   ASIDE_EXEC_PRELUDE: asideExecPrelude,
+  ASIDE_RESEARCH_SEND: asideResearchSend,
   BASE_BRANCH_DETECT: generateBaseBranchDetect,
   QA_METHODOLOGY: generateQAMethodology,
   QA_SCOPE: generateQAScope,

@@ -21,9 +21,12 @@ const ctx = {
 
 
 describe("REDACT_INVOCATION_BLOCK", () => {
-  test("scan-at-sink: temp file → scan that file → exact bytes", () => {
+  test("scan-at-sink: agent-written private file → scan that file → exact bytes", () => {
     const block = generateRedactInvocationBlock(ctx, ["pre-issue"]);
-    expect(block).toContain("mktemp");
+    // CEO-12: the bytes come from the file the agent wrote (created by the
+    // shared mktemp free-text block), never from a heredoc.
+    expect(block).toContain('/.gstack/tmp/<redact-file-name>"');
+    expect(block).not.toContain("<<");
     expect(block).toContain("--from-file");
     expect(block).toMatch(/exact bytes/i);
   });

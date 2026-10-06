@@ -19,8 +19,19 @@ With focus (e.g., "security"):
 
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
 
-2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls.
-Replace `<prompt>` with the full prompt from step 1, verbatim and unescaped; Codex reads it on stdin.
+2. Create the prompt file and write the full prompt from step 1 into it. Codex reads it on stdin.
+
+```bash
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+PROMPT_FILE=$(mktemp "$_GT/codex-prompt.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "PROMPT_FILE: $PROMPT_FILE (name: ${PROMPT_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
+
+3. Run codex exec with **JSONL output** to capture reasoning traces and tool calls.
+Substitute the printed name for `<prompt-file-name>` (letters, digits, `.`, `_` and `-` only).
 Use `timeout: 600000` on the Bash call (the tool's maximum) — the gate sits ABOVE the
 540s wrapper so the wrapper fires first, ends Codex, and prints its explicit stall message:
 
@@ -39,12 +50,9 @@ fi
 TMPRESP=$(mktemp "$TMP_ROOT/codex-resp-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
 _gstack_codex_select_model exec || exit 1
-_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
-# The prompt goes to Codex on stdin (codex exec -), verbatim: no shell quoting, no argv size limit.
-cat > "$_PROMPT_FILE" <<'CODEX_PROMPT_END'
-<prompt>
-CODEX_PROMPT_END
-_gstack_codex_timeout_wrapper 540 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$_PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+PROMPT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<prompt-file-name>"
+[ -s "$PROMPT_FILE" ] || { echo "Not run: $PROMPT_FILE is missing or empty, so the prompt was never written. Write it, then run by hand: codex exec - -C $_REPO_ROOT < $PROMPT_FILE" >&2; exit 1; }
+_gstack_codex_timeout_wrapper 540 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
 turn_failed = False
@@ -102,7 +110,7 @@ if grep -qiE "auth|login|unauthorized" "$TMPERR" 2>/dev/null; then
   _gstack_codex_log_event "codex_auth_failed"
 fi
 bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex challenge' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPRESP.events" execution "$TMPRESP"
-rm -f "$TMPRESP" "$TMPRESP.events" "$_PROMPT_FILE"
+rm -f "$TMPRESP" "$TMPRESP.events" "$PROMPT_FILE"
 ```
 
 `VERDICT: unavailable` means the challenge did not run (its line names why, such as a
@@ -112,7 +120,7 @@ present the output below.
 This parses codex's JSONL events to extract reasoning traces, tool calls, and the final
 response. The `[codex thinking]` lines show what codex reasoned through before its answer.
 
-3. Present the full streamed output:
+4. Present the full streamed output:
 
 ```
 CODEX SAYS (adversarial challenge):
@@ -122,7 +130,7 @@ CODEX SAYS (adversarial challenge):
 Tokens: N | Est. cost: ~$X.XX
 ```
 
-3a. **Synthesis recommendation (REQUIRED).** After presenting the full
+4a. **Synthesis recommendation (REQUIRED).** After presenting the full
 adversarial output, emit ONE recommendation line summarizing what the user
 should do, in this format:
 

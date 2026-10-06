@@ -286,7 +286,7 @@ Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose
 
 After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes). Substitute `SESSION_ID` with the value the preamble's skill-start output echoed — shell variables do not survive between Bash calls:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"sync-gbrain","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"SESSION_ID"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"sync-gbrain","question_id":"<id>","question_summary":"<summary-slug>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"SESSION_ID"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -295,7 +295,7 @@ User-origin gate (profile-poisoning defense): write tune events ONLY when `tune:
 
 Write (only after confirmation for free-form):
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<pref>","source":"inline-user","free_text":"<optional original words>"}'
+~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<pref>","source":"inline-user"}'
 ```
 
 Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<id>` → `<preference>`. Active immediately."
@@ -587,8 +587,13 @@ Other memory types sync whatever the answer. Details:
 
 ## Step 2: Run the orchestrator
 
-Pass user args to the orchestrator. Do not paraphrase them — pass through
-as-is.
+Pass the user's flags to the orchestrator as `<user-args>`, unchanged (empty for a
+plain run). Use them only when every word is one of `--incremental`, `--full`,
+`--dry-run`, `--quiet`, `--no-code`, `--no-memory`, `--no-brain-sync`,
+`--code-only`, `--dream`, `--no-dream`, `--allow-reclone`,
+`--prune-gone-worktrees`, or `--sources` followed by one comma-separated list of
+lowercase memory types (or `all`). Any other value is not used: do not run the
+command; tell the user which value was rejected.
 
 ```bash
 bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts <user-args>
@@ -747,8 +752,8 @@ Capability check:
 bun run ~/.claude/skills/gstack/bin/gstack-gbrain-read-capability.ts <user-args>
 ```
 
-`<user-args>` are the same flags this /sync-gbrain invocation passed to Step 2,
-unchanged (empty for a plain run). The helper needs no other input: run it once
+`<user-args>` are the same checked flags this /sync-gbrain invocation passed to
+Step 2, unchanged (empty for a plain run). The helper needs no other input: run it once
 and use its JSON result; do not inspect its source or the gbrain CLI first.
 
 The helper reports JSON `status: ready` only after the successful code sync's

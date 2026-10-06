@@ -11,40 +11,44 @@
  *    fence never assigned. In a fresh shell it is empty: `cd ""` stays put and
  *    the next command runs in the user's project. Write `${VAR:?message}`, and
  *    for `cd` also handle failure (`cd -- "${VAR:?...}" || exit 1`).
- *  - untrusted-in-quotes: a `<placeholder>` the model fills with reviewer,
- *    diff or error text, inside a double-quoted body/title/message argument
- *    of gh, glab, git or curl. In double quotes the shell runs every backtick
- *    span in that text (#3046). Pass it through a quoted heredoc into a
- *    variable and expand the variable instead.
+ *  - free-text-placeholder: a `<placeholder>` the model fills in, anywhere
+ *    in a command (any command, any quoting: double, single, unquoted, or a
+ *    heredoc body, quoted or not). Free text (bodies, titles, messages, error
+ *    output, reviewer or diff text) reaches a command only as the contents of
+ *    a `mktemp` file the agent writes with its file-write tool (`--body-file`,
+ *    `-F body=@file`). Only identifier placeholders on IDENTIFIER_PLACEHOLDERS
+ *    may appear, each with the grammar the skill applies before use; their
+ *    grammars exclude every shell metacharacter.
  *
  * The lexer understands single/double quotes, `$(...)`, backticks, comments
  * and heredoc bodies; it is not a full shell parser.
  */
 
-export interface LintFinding { rule: 'tilde-in-quotes' | 'mktemp-template' | 'unguarded-var' | 'untrusted-in-quotes'; line: number; detail: string }
+import { IDENTIFIER_PLACEHOLDERS } from './placeholder-allowlist';
+
+export { IDENTIFIER_PLACEHOLDERS };
+export interface LintFinding { rule: 'tilde-in-quotes' | 'mktemp-template' | 'unguarded-var' | 'free-text-placeholder'; line: number; detail: string }
 
 interface VarRef { name: string; op: string }
-interface Word { raw: string; vars: VarRef[]; line: number }
+interface Word { raw: string; own: string; vars: VarRef[]; line: number }
+interface Heredoc { body: string; line: number; quoted: boolean }
 interface Command { words: Word[]; next: string; line: number }
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RESERVED = new Set(['if', 'then', 'elif', 'else', 'fi', 'do', 'done', 'while', 'until', '!', '{', '}', 'time', 'case', 'esac', 'in']);
 /** Always set by the environment the shell starts in. */
 const AMBIENT = new Set(['HOME', 'PWD', 'OLDPWD', 'PATH', 'USER', 'SHELL']);
-/** Commands that publish free text, and the flags that carry it. */
-const TEXT_SINKS = new Set(['gh', 'glab', 'git', 'curl']);
-const TEXT_FLAGS = /^(?:-f|-F|--field|--raw-field|--body|-b|--title|-t|-m|--message|-d|--data|--description|--notes)$/;
-const TEXT_FIELD = /^(?:body|title|message|description|notes)=/;
-const QUOTED_PLACEHOLDER = /"[^"]*<[A-Za-z][^<>"\n]*>[^"]*"/;
+/** A model-filled `<placeholder>`; `<name@host>` is a literal mail address (commit trailers). */
+const MAIL = /^<[^<>\s@]+@[^<>\s@]+>$/;
 
-function lex(src: string, findings: LintFinding[]): Command[] {
+function lex(src: string, findings: LintFinding[], heredocBodies: Heredoc[] = []): Command[] {
   const commands: Command[] = [];
   let i = 0;
   let line = 1;
   let words: Word[] = [];
   let word: Word | null = null;
   let cmdLine = 1;
-  const heredocs: Array<{ delim: string; strip: boolean }> = [];
+  const heredocs: Array<{ delim: string; strip: boolean; quoted: boolean }> = [];
 
   const endWord = () => { if (word) { words.push(word); word = null; } };
   const endCommand = (next: string) => {
@@ -53,7 +57,7 @@ function lex(src: string, findings: LintFinding[]): Command[] {
     words = [];
     cmdLine = line;
   };
-  const cur = () => (word ??= { raw: '', vars: [], line });
+  const cur = () => (word ??= { raw: '', own: '', vars: [], line });
   const readVar = (quoted: boolean) => {
     // at '$'
     const w = cur();
@@ -87,63 +91,72 @@ function lex(src: string, findings: LintFinding[]): Command[] {
     const startLine = line;
     i += 2;
     const inner = skipBalanced('(', ')');
-    const nested = lex(inner, findings);
+    const nestedDocs: Heredoc[] = [];
+    const nested = lex(inner, findings, nestedDocs);
     for (const c of nested) commands.push({ ...c, line: c.line + startLine - 1 });
+    for (const h of nestedDocs) heredocBodies.push({ ...h, line: h.line + startLine - 1 });
     cur().raw += `$(${inner})`;
+    cur().own += '$()';
   };
 
+  const add = (w: Word, text: string) => { w.raw += text; w.own += text; };
   while (i < src.length) {
     const c = src[i];
     if (c === '\n') {
       endCommand('\n');
       i++; line++;
       for (const h of heredocs.splice(0)) {
+        const bodyLine = line;
+        const body: string[] = [];
         while (i < src.length) {
           const eol = src.indexOf('\n', i);
           const text = src.slice(i, eol < 0 ? src.length : eol);
           i = eol < 0 ? src.length : eol + 1; line++;
           if ((h.strip ? text.replace(/^\t+/, '') : text).trim() === h.delim) break;
+          body.push(text);
         }
+        heredocBodies.push({ body: body.join('\n'), line: bodyLine, quoted: h.quoted });
       }
       cmdLine = line;
       continue;
     }
     if (c === ' ' || c === '\t') { endWord(); i++; continue; }
     if (c === '#' && !word) { while (i < src.length && src[i] !== '\n') i++; continue; }
-    if (c === '\\') { cur().raw += src.slice(i, i + 2); if (src[i + 1] === '\n') line++; i += 2; continue; }
+    if (c === '\\' && src[i + 1] === '\n') { endWord(); line++; i += 2; continue; }
+    if (c === '\\') { add(cur(), src.slice(i, i + 2)); i += 2; continue; }
     if (c === "'") {
       const end = src.indexOf("'", i + 1);
       const text = src.slice(i, end < 0 ? src.length : end + 1);
       line += (text.match(/\n/g) ?? []).length;
-      cur().raw += text; i = end < 0 ? src.length : end + 1; continue;
+      add(cur(), text); i = end < 0 ? src.length : end + 1; continue;
     }
     if (c === '"') {
       const w = cur();
-      w.raw += '"'; i++;
+      add(w, '"'); i++;
       if (src.startsWith('~/', i)) findings.push({ rule: 'tilde-in-quotes', line, detail: src.slice(i - 1, src.indexOf('"', i) + 1) });
       while (i < src.length && src[i] !== '"') {
-        if (src[i] === '\\') { w.raw += src.slice(i, i + 2); i += 2; continue; }
+        if (src[i] === '\\') { add(w, src.slice(i, i + 2)); i += 2; continue; }
         if (src.startsWith('$(', i) && !src.startsWith('$((', i)) { substitution(); continue; }
         if (src[i] === '$') readVar(true);
         if (src[i] === '\n') line++;
-        w.raw += src[i]; i++;
+        add(w, src[i]); i++;
       }
-      w.raw += '"'; i++;
+      add(w, '"'); i++;
       continue;
     }
-    if (src.startsWith('$((', i)) { i += 3; cur().raw += `$((${skipBalanced('(', ')')})`; continue; }
+    if (src.startsWith('$((', i)) { i += 3; add(cur(), `$((${skipBalanced('(', ')')})`); continue; }
     if (src.startsWith('$(', i)) { substitution(); continue; }
-    if (c === '$') { readVar(false); cur().raw += c; i++; continue; }
+    if (c === '$') { readVar(false); add(cur(), c); i++; continue; }
     if (c === '`') {
       const end = src.indexOf('`', i + 1);
-      cur().raw += src.slice(i, end < 0 ? src.length : end + 1);
+      add(cur(), src.slice(i, end < 0 ? src.length : end + 1));
       i = end < 0 ? src.length : end + 1; continue;
     }
     const hd = src.slice(i).match(/^<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/);
-    if (hd) { heredocs.push({ delim: hd[3], strip: hd[1] === '-' }); endWord(); i += hd[0].length; continue; }
+    if (hd) { heredocs.push({ delim: hd[3], strip: hd[1] === '-', quoted: hd[2] !== '' }); endWord(); i += hd[0].length; continue; }
     const op = src.slice(i).match(/^(\|\||&&|;;|[;&|()])/);
     if (op) { endCommand(op[1]); i += op[1].length; continue; }
-    cur().raw += c; i++;
+    add(cur(), c); i++;
   }
   endCommand('');
   return commands;
@@ -178,9 +191,38 @@ function commandName(cmd: Command): number {
   return k;
 }
 
+/**
+ * Placeholders in `text` that are not allowed there: free text anywhere, and
+ * `quoted` identifiers outside quotes. `inQuotes` is the context the text
+ * starts in (a heredoc body).
+ */
+function freeText(text: string, inQuotes = false): string[] {
+  const out: string[] = [];
+  let q: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q !== "'" && c === '\\') { i++; continue; }
+    if (q === null && (c === "'" || c === '"')) { q = c; continue; }
+    if (q !== null && c === q) { q = null; continue; }
+    if (c !== '<') continue;
+    const m = text.slice(i).match(/^<[A-Za-z][^<>\n]*>/);
+    if (!m) continue;
+    const p = m[0];
+    i += p.length - 1;
+    if (MAIL.test(p)) continue;
+    const entry = Object.hasOwn(IDENTIFIER_PLACEHOLDERS, p) ? IDENTIFIER_PLACEHOLDERS[p] : undefined;
+    if (!entry || (entry.quoted && q === null && !inQuotes)) out.push(entry ? `${p} (unquoted)` : p);
+  }
+  return out;
+}
+
 export function lintFence(body: string): LintFinding[] {
   const findings: LintFinding[] = [];
-  const commands = lex(body, findings);
+  const heredocs: Heredoc[] = [];
+  const commands = lex(body, findings, heredocs);
+  for (const h of heredocs) {
+    for (const p of freeText(h.body, h.quoted)) findings.push({ rule: 'free-text-placeholder', line: h.line, detail: `${p} in a heredoc body` });
+  }
   const assigned = new Set<string>();
   for (const cmd of commands) {
     const k = commandName(cmd);
@@ -191,13 +233,7 @@ export function lintFence(body: string): LintFinding[] {
       const template = operands.at(-1)?.raw.replace(/^["']|["']$/g, '');
       if (!template || template.startsWith('/tmp/')) findings.push({ rule: 'mktemp-template', line: cmd.line, detail: cmd.words.map(w => w.raw).join(' ') });
     }
-    if (name && TEXT_SINKS.has(name)) {
-      args.forEach((w, n) => {
-        const carriesText = TEXT_FIELD.test(w.raw) || TEXT_FLAGS.test(args[n - 1]?.raw ?? '');
-        const quotedHeredoc = /^"\$\(cat <<-?\s*'[A-Za-z_][A-Za-z0-9_]*'/.test(w.raw);
-        if (carriesText && !quotedHeredoc && QUOTED_PLACEHOLDER.test(w.raw.replace(/<[^<>\s"]+@[^<>\s"]+>/g, ''))) findings.push({ rule: 'untrusted-in-quotes', line: cmd.line, detail: `${name} ... ${args[n - 1]?.raw ?? ''} ${w.raw}`.replace(/\s+/g, ' ') });
-      });
-    }
+    for (const p of freeText(cmd.words.map(w => w.own).join(' '))) findings.push({ rule: 'free-text-placeholder', line: cmd.line, detail: `${p} in: ${cmd.words.map(x => x.raw).join(' ').replace(/\s+/g, ' ')}` });
     const recursiveRm = name === 'rm' && args.some(w => /^-[A-Za-z]*[rR]/.test(w.raw));
     const gitC = name === 'git' && args[0]?.raw === '-C';
     if (name === 'cd' || name === 'mv' || recursiveRm || gitC) {

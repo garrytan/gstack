@@ -27,15 +27,29 @@ AskUserQuestion: A) edit, B) acknowledge and proceed, C) cancel. **On a PUBLIC r
 option B is disabled** — force A or C. This pass is fail-soft (LLM judgment); the
 4.5b regex is the deterministic backstop and runs after it.
 
-**Audit trail (always):** append a content-free record — no spec text, only the
-categories that fired plus a sha256 of the body:
+**Write the final draft into a private file once.** The audit record, the
+redaction scans, the outside reviewer, the issue and the archive all read this
+one file; the draft never goes into a shell command:
 
 ```bash
-printf '%s' "<the final draft body>" > /tmp/spec-semantic-$$.txt
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+REDACT_FILE=$(mktemp "$_GT/spec.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "REDACT_FILE: $REDACT_FILE (name: ${REDACT_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
+
+**Audit trail (always):** append a content-free record — no spec text, only the
+categories that fired plus a sha256 of the body. Substitute the printed name for
+`<redact-file-name>`:
+
+```bash
+REDACT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<redact-file-name>"
+[ -s "$REDACT_FILE" ] || { echo "No audit record: $REDACT_FILE is missing or empty; write the draft into it first." >&2; exit 1; }
 bun ~/.claude/skills/gstack/lib/redact-audit-log.ts \
   "{\"repo_visibility\":\"$REDACT_VIS\",\"outcome\":\"<clean|flagged>\",\"categories_flagged\":[<...>],\"spec_archive_path\":\"\"}" \
-  /tmp/spec-semantic-$$.txt
-rm -f /tmp/spec-semantic-$$.txt
+  "$REDACT_FILE"
 ```
 
 ### Phase 4.5b: Fail-closed redaction (PRECEDES dispatch)
@@ -47,8 +61,10 @@ before dispatching to the outside reviewer:
 
 #### Redaction scan — pre-codex (the spec body)
 
-Scan-at-sink on the EXACT bytes that will be sent: write to a temp file, scan that
-file, pass the SAME file downstream. Never scan a string then re-render it.
+Scan-at-sink on the EXACT bytes that will be sent: they live in the private file
+you wrote with your file-write tool, the scan reads that file, and the SAME file goes
+downstream. Never scan a string then re-render it, and never put the text in a shell
+command. Substitute the file's printed name for `<redact-file-name>`.
 
 ```bash
 command -v bun >/dev/null 2>&1 || { echo "ERROR: bun unavailable — refusing unscanned outside dispatch." >&2; exit 1; }
@@ -58,10 +74,8 @@ REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibilit
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(glab repo view -F json 2>/dev/null | grep -o '"visibility":"[^"]*"' | head -1 | sed 's/.*:"//;s/"//' | tr 'A-Z' 'a-z')
 REDACT_VIS="${REDACT_VIS:-unknown}"
-REDACT_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-redact.XXXXXX") || { echo "ERROR: mktemp failed — refusing to send the spec body unscanned." >&2; exit 1; }
-cat > "$REDACT_FILE" <<'REDACT_BODY_EOF'
-<the exact the spec body goes here>
-REDACT_BODY_EOF
+REDACT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<redact-file-name>"
+[ -s "$REDACT_FILE" ] || { echo "ERROR: $REDACT_FILE is missing or empty — write the spec body into it first; refusing to send it unscanned." >&2; exit 1; }
 if REDACT_JSON=$("$HOME/.claude/skills/gstack/bin/gstack-redact" --from-file "$REDACT_FILE" --repo-visibility "$REDACT_VIS" --self-email "$(git config user.email 2>/dev/null)" --json); then REDACT_CODE=0; else REDACT_CODE=$?; fi
 case "$REDACT_CODE" in
   0) ;; # Only a successful scan may reach an outside or downstream sink.
@@ -239,25 +253,42 @@ never saw, and the issue is world-readable):
 #### Redaction scan — pre-issue (the issue body you're about to file)
 
 Run the SAME scan-at-sink procedure shown above (resolve `$REDACT_VIS` once and
-reuse it; write the exact bytes to `$REDACT_FILE`; `~/.claude/skills/gstack/bin/gstack-redact --from-file "$REDACT_FILE"
+reuse it; when the issue body you're about to file changed since the last scan, rewrite the same `$REDACT_FILE`
+with your file-write tool; `~/.claude/skills/gstack/bin/gstack-redact --from-file "$REDACT_FILE"
 --repo-visibility "$REDACT_VIS" --json`), now on the issue body you're about to file. Apply the same
 exit-3/2/0 handling. On exit 3, do NOT file the issue; HIGH has no skip. Pass the
 same `$REDACT_FILE` downstream so the bytes scanned are the bytes sent.
 
-If `gh` is available and authenticated, file from the scanned temp file. Keep the title inside the quoted heredoc (backticks in a double-quoted title would run as shell commands):
+If `gh` is available and authenticated, file from the scanned file. The title and
+the one-line approach for the decision log are free text too, so they go into their
+own private files:
 
 ```bash
-ISSUE_TITLE=$(cat <<'GSTACK_TITLE'
-<title>
-GSTACK_TITLE
-)
-ISSUE_URL=$(gh issue create --title "$ISSUE_TITLE" --body-file "$REDACT_FILE")
-ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed -E 's|.*/issues/([0-9]+)$|\1|')
-echo "Filed: $ISSUE_URL"
-~/.claude/skills/gstack/bin/gstack-decision-log '{"decision":"Spec filed #ISSUE_NUMBER: TITLE","rationale":"APPROACH","scope":"issue","issue":"ISSUE_NUMBER","source":"skill","confidence":7}' 2>/dev/null || true
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+TITLE_FILE=$(mktemp "$_GT/title.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "TITLE_FILE: $TITLE_FILE (name: ${TITLE_FILE##*/})"
+APPROACH_FILE=$(mktemp "$_GT/approach.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "APPROACH_FILE: $APPROACH_FILE (name: ${APPROACH_FILE##*/})"
 ```
 
-The last line records the spec as a durable, issue-scoped cross-session decision so a future session (or `/ship` closing the issue) inherits the core approach and why, not just the issue link. Non-interactive, best-effort (`|| true`). Substitute `ISSUE_NUMBER` (from the filed issue), `TITLE` (the issue title), and `APPROACH` (the one core approach/decision the spec settled). Only fires when the issue was actually filed.
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
+
+Then file, substituting the three printed names:
+
+```bash
+REDACT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<redact-file-name>"
+TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
+APPROACH_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<approach-file-name>"
+[ -s "$REDACT_FILE" ] && [ -s "$TITLE_FILE" ] || { echo "Not filed: $REDACT_FILE or $TITLE_FILE is missing or empty. Write them, then file by hand: gh issue create --title \"\$(cat $TITLE_FILE)\" --body-file $REDACT_FILE" >&2; exit 1; }
+ISSUE_URL=$(gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$REDACT_FILE") || exit 1
+ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed -E 's|.*/issues/([0-9]+)$|\1|')
+echo "Filed: $ISSUE_URL (ISSUE_NUMBER: $ISSUE_NUMBER)"
+[ -s "$APPROACH_FILE" ] && ~/.claude/skills/gstack/bin/gstack-decision-log "$(jq -cn --arg n "$ISSUE_NUMBER" --rawfile t "$TITLE_FILE" --rawfile a "$APPROACH_FILE" \
+  '{decision: ("Spec filed #" + $n + ": " + ($t | rtrimstr("\n"))), rationale: ($a | rtrimstr("\n")), scope: "issue", issue: $n, source: "skill", confidence: 7}')" 2>/dev/null || true
+rm -f "$APPROACH_FILE"
+```
+
+The last line records the spec as a durable, issue-scoped cross-session decision so a future session (or `/ship` closing the issue) inherits the core approach and why, not just the issue link. Non-interactive, best-effort (`|| true`). The approach file holds the one core approach/decision the spec settled. Only fires when the issue was actually filed.
 
 If `gh` is not available, print: "`gh` not authenticated — title and body below
 for paste into https://github.com/{owner}/{repo}/issues/new with zero
@@ -273,44 +304,51 @@ is consumed by `/ship` for auto-close.
 #### Redaction scan — pre-archive (the body about to be archived)
 
 Run the SAME scan-at-sink procedure shown above (resolve `$REDACT_VIS` once and
-reuse it; write the exact bytes to `$REDACT_FILE`; `~/.claude/skills/gstack/bin/gstack-redact --from-file "$REDACT_FILE"
+reuse it; when the body about to be archived changed since the last scan, rewrite the same `$REDACT_FILE`
+with your file-write tool; `~/.claude/skills/gstack/bin/gstack-redact --from-file "$REDACT_FILE"
 --repo-visibility "$REDACT_VIS" --json`), now on the body about to be archived. Apply the same
 exit-3/2/0 handling. On exit 3, do NOT write the archive; HIGH has no skip. Pass the
 same `$REDACT_FILE` downstream so the bytes scanned are the bytes sent.
 
-**Sanitized body to the archive.** If auto-redact fired, the `<body>` below
-MUST be the sanitized body (`$REDACT_FILE`), not the original draft — one body for
-all sinks. The user's on-disk source draft keeps the original.
+**Sanitized body to the archive.** If auto-redact fired, the archived body MUST be
+the sanitized body (`$REDACT_FILE`), not the original draft — one body for all sinks.
+The user's on-disk source draft keeps the original. Title and body are copied from
+their files, never expanded by the shell.
 
 Resolve the archive path via the existing `gstack-paths` helper (handles
-`GSTACK_HOME`, `CLAUDE_PLUGIN_DATA`, Windows fallback):
+`GSTACK_HOME`, `CLAUDE_PLUGIN_DATA`, Windows fallback). Substitute the printed file
+names and the filed issue number for `<issue-number>` (digits, or empty when no
+issue was filed):
 
 ```bash
+REDACT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<redact-file-name>"
+TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
+[ -s "$REDACT_FILE" ] && [ -s "$TITLE_FILE" ] || { echo "Not archived: $REDACT_FILE or $TITLE_FILE is missing or empty." >&2; exit 1; }
+ISSUE_NUMBER=<issue-number>
+ISSUE_URL=$([ -n "$ISSUE_NUMBER" ] && gh issue view "$ISSUE_NUMBER" --json url -q .url 2>/dev/null)
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG)
 ARCHIVE_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/specs"
 mkdir -p "$ARCHIVE_DIR"
-SLUG_TITLE=$(echo "<title>" | tr ' ' '-' | tr -cd 'a-zA-Z0-9-' | tr A-Z a-z | cut -c1-60)
+SLUG_TITLE=$(head -1 "$TITLE_FILE" | tr ' ' '-' | tr -cd 'a-zA-Z0-9-' | tr A-Z a-z | cut -c1-60)
 ARCHIVE_NAME="$(date +%Y%m%d-%H%M%S)-$$-${SLUG_TITLE}.md"
 ARCHIVE_PATH="$ARCHIVE_DIR/$ARCHIVE_NAME"
 # Atomic write: tmp → rename
-cat > "$ARCHIVE_PATH.tmp" <<EOF
----
-spec_issue_number: ${ISSUE_NUMBER:-}
-spec_issue_url: ${ISSUE_URL:-}
-spec_filed_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-spec_branch: $(git branch --show-current 2>/dev/null || echo unknown)
-spec_plan_mode: ${GSTACK_PLAN_MODE:-unset}
-spec_executed: ${WILL_EXECUTE:-false}
-spec_worktree_path:
----
-
-# <title>
-
-<body>
-EOF
-mv "$ARCHIVE_PATH.tmp" "$ARCHIVE_PATH"
-echo "Archived: $ARCHIVE_PATH"
+{
+  printf -- '---\n'
+  printf 'spec_issue_number: %s\n' "$ISSUE_NUMBER"
+  printf 'spec_issue_url: %s\n' "$ISSUE_URL"
+  printf 'spec_filed_at: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'spec_branch: %s\n' "$(git branch --show-current 2>/dev/null || echo unknown)"
+  printf 'spec_plan_mode: %s\n' "${GSTACK_PLAN_MODE:-unset}"
+  printf 'spec_executed: %s\n' "${WILL_EXECUTE:-false}"
+  printf 'spec_worktree_path:\n---\n\n# '
+  head -1 "$TITLE_FILE"
+  printf '\n'
+  cat "$REDACT_FILE"
+} > "$ARCHIVE_PATH.tmp"
+mv "$ARCHIVE_PATH.tmp" "$ARCHIVE_PATH" && rm -f "$TITLE_FILE"
+echo "Archived: $ARCHIVE_PATH (SLUG_TITLE: $SLUG_TITLE)"
 ```
 
 The PID suffix and atomic rename prevent collisions when two `/spec` invocations

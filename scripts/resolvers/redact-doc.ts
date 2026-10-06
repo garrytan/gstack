@@ -14,6 +14,7 @@
  * changes land here once. test/redact-doc-resolver.test.ts golden-pins the output.
  */
 import { toShellPath, type TemplateContext } from './types';
+import { FREE_TEXT_DIR } from './free-text-file';
 
 interface SinkSpec {
   /** What is being scanned, for the prose. */
@@ -66,7 +67,8 @@ esac` : `${scan}\nREDACT_CODE=$?`;
     return `#### Redaction scan — ${sinkLabel} (${sink.noun})
 
 Run the SAME scan-at-sink procedure shown above (resolve \`$REDACT_VIS\` once and
-reuse it; write the exact bytes to \`$REDACT_FILE\`; \`${bin} --from-file "$REDACT_FILE"
+reuse it; when ${sink.noun} changed since the last scan, rewrite the same \`$REDACT_FILE\`
+with your file-write tool; \`${bin} --from-file "$REDACT_FILE"
 --repo-visibility "$REDACT_VIS" --json\`), now on ${sink.noun}. Apply the same
 exit-3/2/0 handling. On exit 3, do NOT ${sink.blockVerb}; HIGH has no skip. Pass the
 same \`$REDACT_FILE\` downstream so the bytes scanned are the bytes sent.`;
@@ -74,8 +76,10 @@ same \`$REDACT_FILE\` downstream so the bytes scanned are the bytes sent.`;
 
   return `#### Redaction scan — ${sinkLabel} (${sink.noun})
 
-Scan-at-sink on the EXACT bytes that will be sent: write to a temp file, scan that
-file, pass the SAME file downstream. Never scan a string then re-render it.
+Scan-at-sink on the EXACT bytes that will be sent: they live in the private file
+you wrote with your file-write tool, the scan reads that file, and the SAME file goes
+downstream. Never scan a string then re-render it, and never put the text in a shell
+command. Substitute the file's printed name for \`<redact-file-name>\`.
 
 \`\`\`bash
 ${outsideGate ? 'command -v bun >/dev/null 2>&1 || { echo "ERROR: bun unavailable — refusing unscanned outside dispatch." >&2; exit 1; }' : 'command -v bun >/dev/null 2>&1 || echo "redaction scan skipped — bun not on PATH"'}
@@ -85,10 +89,8 @@ REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibilit
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(glab repo view -F json 2>/dev/null | grep -o '"visibility":"[^"]*"' | head -1 | sed 's/.*:"//;s/"//' | tr 'A-Z' 'a-z')
 REDACT_VIS="\${REDACT_VIS:-unknown}"
-REDACT_FILE=$(mktemp "\${TMPDIR:-/tmp}/gstack-redact.XXXXXX") || { echo "ERROR: mktemp failed — refusing to send ${sink.noun} unscanned." >&2; exit 1; }
-cat > "$REDACT_FILE" <<'REDACT_BODY_EOF'
-<the exact ${sink.noun} goes here>
-REDACT_BODY_EOF
+REDACT_FILE=${FREE_TEXT_DIR.slice(0, -1)}/<redact-file-name>"
+[ -s "$REDACT_FILE" ] || { echo "ERROR: $REDACT_FILE is missing or empty — write ${sink.noun} into it first; refusing to send it unscanned." >&2; exit 1; }
 ${scanAndGate}
 \`\`\`
 
