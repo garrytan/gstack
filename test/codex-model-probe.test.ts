@@ -280,6 +280,26 @@ describe('codex model probe (#2477)', () => {
     }
   });
 
+  // Claude Code's tool shell is zsh on macOS. There BASH_SOURCE is empty, and a
+  // "${BASH_SOURCE[0]%/*}/../scripts/…" path collapsed to "/../scripts/…"
+  // (Module not found → CODEX_MODEL invalid → every outside review skipped).
+  // The fixture HOME has no gstack install, so the $HOME fallback cannot pass this.
+  test.skipIf(spawnSync('zsh', ['-c', 'true']).status !== 0)('selection works when the probe is sourced from zsh', () => {
+    const f = makeFixture();
+    try {
+      fs.writeFileSync(path.join(f.codexHome, 'config.toml'), 'model = "gpt-5.6-terra"\n');
+      const r = spawnSync('zsh', ['-c', `source "${PROBE}"\n_gstack_codex_bin_dir\n_gstack_codex_select_model exec; printf '%s\\n' "$_GSTACK_CODEX_SEL"`], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: { PATH: `${f.stubDir}:${process.env.PATH ?? ''}`, HOME: f.home, CODEX_HOME: f.codexHome, GSTACK_HOME: f.gstackHome, _TEL: 'off' },
+      });
+      expect(r.stderr).not.toContain('Module not found');
+      expect(r.stdout.trim().split('\n')).toEqual([path.dirname(PROBE), 'gpt-5.6-terra']);
+    } finally {
+      fs.rmSync(f.home, { recursive: true, force: true });
+    }
+  });
+
   test('#2914: native review probes its own review_model selection', () => {
     const f = makeFixture();
     try {
