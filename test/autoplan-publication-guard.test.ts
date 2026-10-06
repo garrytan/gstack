@@ -500,9 +500,9 @@ describe('Autoplan parent publication guard', () => {
       const reason = (f.evaluate() as any).reason;
       expect(reason).toContain('which this guard cannot bind');
       expect(reason).toContain('`bun "<SNAPSHOT_TOOL>" init "<SOURCE_PLAN>" "<ACTIVE_PLAN>" "<RESTORE_PATH>"`');
-      f.events.splice(2, 0, { ...structuredClone(f.events[0]!), toolUseId: 're-init',
+      f.events.splice(2, 0, { ...(structuredClone(f.events[0]!) as any), toolUseId: 're-init',
         input: { command: `bun "${ROOT}/bin/gstack-autoplan-snapshot.ts" init "${f.source}" "${f.active}" "${f.restore}"` } },
-        { ...structuredClone(f.events[1]!), toolUseId: 're-init', content: JSON.stringify({ ...f.init, reused: true }) });
+        { ...(structuredClone(f.events[1]!) as any), toolUseId: 're-init', content: JSON.stringify({ ...f.init, reused: true }) });
       f.reorder(); expect(f.evaluate()).toEqual({ allow: true });
     });
 

@@ -24,7 +24,7 @@ describe('#3016: spawned auto-choice never grants consent or publishes', () => {
 
   test("skill-start's spawned-session block names consent and off-machine publishing as exceptions", () => {
     const start = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-skill-start'), 'utf8');
-    const block = start.slice(start.indexOf('_emit_block spawned-session'), start.indexOf('EOI', start.indexOf('_emit_block spawned-session')));
+    const block = start.slice(start.indexOf('_emit_block spawned-session'), start.indexOf('\nEOI', start.indexOf('_emit_block spawned-session')));
     expect(block).toContain('never grant a consent or choose an option that publishes or syncs data off this machine');
   });
 });
