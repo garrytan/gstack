@@ -424,9 +424,9 @@ Commands:
 - `$D compare --images-file /path/board-images.json --output /path/board.html --serve` — comparison board + HTTP server
 - `$D serve --html /path/board.html` — serve comparison board and collect feedback via HTTP
 - `$D check --image /path.png --brief "$(cat "$BRIEF_FILE")"` — vision quality gate
-- `$D iterate --session /path/session.json --feedback "..." --output /path.png` — iterate
+- `$D iterate --session /path/session.json --feedback "$(cat "$FEEDBACK_FILE")" --output /path.png` — iterate
 
-Image commands never overwrite (a taken name gets `-2`) and always print JSON (`requested`, `saved`, `failures`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without `set -e`: `_OUT=$($D ...); _RC=$?`. Briefs travel as files, never inline.
+Image commands never overwrite (a taken name gets `-2`) and always print JSON (`requested`, `saved`, `failures`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without `set -e`: `_OUT=$($D ...); _RC=$?`. Briefs and feedback are free text: write each into a private `mktemp` file under `.gstack/tmp` and pass `"$(cat "$FILE")"`, never inline.
 
 **Path rule:** Design artifacts belong in `$GSTACK_STATE_ROOT/projects/$SLUG/designs/`.
 Use `bin/gstack-paths` (docs/state-root.md). Keep it even if temporary; never substitute
@@ -717,9 +717,11 @@ After the command returns and its images are published:
    saved in ~{actual time}", listing every published path. A `skipped` check is missing
    automated coverage, not a pass: say so.
 2. For any failures: report explicitly with the error. Do NOT silently skip. Rerun each
-   failed variant with `retryable: true` once, using its own operation and brief:
-   `"$D" generate --brief "<brief>" --output "$_VARIANT_TMP/variant-<letter>.png"`, or for a
-   screenshot entry `"$D" evolve --screenshot "$_DESIGN_DIR/current.png" --brief "<brief>" --output "$_VARIANT_TMP/variant-<letter>.png"`.
+   failed variant with `retryable: true` once, using its own operation and its brief read
+   from `briefs.json` as data:
+   `_BRIEF=$(jq -r --arg v "<letter>" '.[($v | explode[0]) - 65].brief' "$_DESIGN_DIR/briefs.json")`, then
+   `"$D" generate --brief "$_BRIEF" --output "$_VARIANT_TMP/variant-<letter>.png"`, or for a
+   screenshot entry `"$D" evolve --screenshot "$_DESIGN_DIR/current.png" --brief "$_BRIEF" --output "$_VARIANT_TMP/variant-<letter>.png"`.
    Capture its JSON and exit code, then publish its `outputPath` with the claim helper.
 3. If zero variants succeeded: fall back to sequential generation, running `$D generate`
    yourself one variant at a time into `$_VARIANT_TMP`, publishing each with the claim

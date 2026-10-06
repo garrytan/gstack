@@ -300,9 +300,11 @@ After the command returns and its images are published:
    saved in ~{actual time}", listing every published path. A `skipped` check is missing
    automated coverage, not a pass: say so.
 2. For any failures: report explicitly with the error. Do NOT silently skip. Rerun each
-   failed variant with `retryable: true` once, using its own operation and brief:
-   `"$D" generate --brief "<brief>" --output "$_VARIANT_TMP/variant-<letter>.png"`, or for a
-   screenshot entry `"$D" evolve --screenshot "$_DESIGN_DIR/current.png" --brief "<brief>" --output "$_VARIANT_TMP/variant-<letter>.png"`.
+   failed variant with `retryable: true` once, using its own operation and its brief read
+   from `briefs.json` as data:
+   `_BRIEF=$(jq -r --arg v "<letter>" '.[($v | explode[0]) - 65].brief' "$_DESIGN_DIR/briefs.json")`, then
+   `"$D" generate --brief "$_BRIEF" --output "$_VARIANT_TMP/variant-<letter>.png"`, or for a
+   screenshot entry `"$D" evolve --screenshot "$_DESIGN_DIR/current.png" --brief "$_BRIEF" --output "$_VARIANT_TMP/variant-<letter>.png"`.
    Capture its JSON and exit code, then publish its `outputPath` with the claim helper.
 3. If zero variants succeeded: fall back to sequential generation, running `$D generate`
    yourself one variant at a time into `$_VARIANT_TMP`, publishing each with the claim
