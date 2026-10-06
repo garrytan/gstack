@@ -1,7 +1,487 @@
 {
   "schemaVersion": 1,
-  "revision": "cso-scanners-v3-unqualified",
-  "previousRevision": null,
+  "revision": "cso-scanners-10315cf44d1e-37345271247",
+  "previousRevision": "cso-scanners-v3-unqualified",
   "helperAbi": 3,
-  "scanners": []
+  "promotion": {
+    "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+    "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+    "evidenceDigest": "sha256:cdd4d062f494a19e02219a3dbe2172a1d127fd46b7f493a99a3ecd1da53547c6"
+  },
+  "scanners": [
+    {
+      "id": "gitleaks-8.30.1-amd64",
+      "scanner": "gitleaks",
+      "state": "qualified",
+      "platform": "linux/amd64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/gitleaks-amd64@sha256:87958928e31bc9d6d081da4d0f01ca2d7649a9729f11fb97844f7c9b7381df54",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "8.30.1",
+      "versionOutputSha256": "e243b582312eacfe957b6d89a806a58b882ef63d4dbd120afd2e1f1f82bfd312",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--ignore-gitleaks-allow",
+        "--redact",
+        "dir"
+      ],
+      "qualifiedAt": "2026-10-05T17:03:34.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:d0a923f139fc9699eacf6317cbfb42c8f6a0a25d29d57806aad374f71440b159",
+        "provenanceDigest": "sha256:6c42a7aa7a4a0ff735f24e3293843d69464e49850f2390899fa89d5be82fa78d",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "gitleaks-8.30.1-arm64",
+      "scanner": "gitleaks",
+      "state": "qualified",
+      "platform": "linux/arm64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/gitleaks-arm64@sha256:2ec5cc4a0ef009b33cb87a36ffa8e64299e3220c1cc71fe220ce754d8a701070",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "8.30.1",
+      "versionOutputSha256": "e243b582312eacfe957b6d89a806a58b882ef63d4dbd120afd2e1f1f82bfd312",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--ignore-gitleaks-allow",
+        "--redact",
+        "dir"
+      ],
+      "qualifiedAt": "2026-10-05T17:03:18.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:d88b2f655dbca131a1a2616cb899c6e774c72449c3dd64390ba5da3c1c6eedf8",
+        "provenanceDigest": "sha256:0519554660dfd61b13a38a8e7542e73ca50db692856c88e8db758b7237d6bcda",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "osv-2.6.0-amd64",
+      "scanner": "osv",
+      "state": "qualified",
+      "platform": "linux/amd64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/osv-amd64@sha256:c11ee12d6507f99706270ba614e88a09fc752a24455500b0675cebbdd6b2f4d1",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "2.6.0",
+      "versionOutputSha256": "3482c0d54f649daee8b3745275d9f39faee2c1cc48aa126cfb1826bdb165d565",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--no-call-analysis",
+        "--offline",
+        "scan source"
+      ],
+      "assets": {
+        "advisoryDatabase": {
+          "path": "/opt/cso/scanner-data/osv",
+          "contentSha256": "d9721a347e3ccf3c7ee7a4f6c679ba73cb56a7abd48d13e2bd03d0992ccd784c",
+          "updatedAt": "2026-10-04T18:32:04.000Z",
+          "ecosystems": [
+            "Go",
+            "Hex",
+            "Maven",
+            "NuGet",
+            "Packagist",
+            "Pub",
+            "PyPI",
+            "RubyGems",
+            "SwiftURL",
+            "crates.io",
+            "npm"
+          ]
+        }
+      },
+      "qualifiedAt": "2026-10-05T17:03:59.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:f1c0c24130bdf35a949a0caa3bc759615225e80fd3cb1f872fbe71e60341143e",
+        "provenanceDigest": "sha256:01296a3c9e42cf679c79e697d17a8ad91ea718229803bba146b02a006c132ec0",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "osv-2.6.0-arm64",
+      "scanner": "osv",
+      "state": "qualified",
+      "platform": "linux/arm64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/osv-arm64@sha256:4c95a31f481e0bd03ee3f38ff5db6692a4fab45a692d80a35dedb4ab41cc9b85",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "2.6.0",
+      "versionOutputSha256": "3482c0d54f649daee8b3745275d9f39faee2c1cc48aa126cfb1826bdb165d565",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--no-call-analysis",
+        "--offline",
+        "scan source"
+      ],
+      "assets": {
+        "advisoryDatabase": {
+          "path": "/opt/cso/scanner-data/osv",
+          "contentSha256": "d9721a347e3ccf3c7ee7a4f6c679ba73cb56a7abd48d13e2bd03d0992ccd784c",
+          "updatedAt": "2026-10-04T18:32:04.000Z",
+          "ecosystems": [
+            "Go",
+            "Hex",
+            "Maven",
+            "NuGet",
+            "Packagist",
+            "Pub",
+            "PyPI",
+            "RubyGems",
+            "SwiftURL",
+            "crates.io",
+            "npm"
+          ]
+        }
+      },
+      "qualifiedAt": "2026-10-05T17:03:27.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:adad6b43b6a482dbdd1291c2cc08553139828de959283f082c98263d7cdecf9e",
+        "provenanceDigest": "sha256:22c89fd59fd1a66e37be18ca53fe4fcb523435abbb802c0ef3c426346ba65433",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "schemathesis-4.29.1-amd64",
+      "scanner": "schemathesis",
+      "state": "qualified",
+      "platform": "linux/amd64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/schemathesis-amd64@sha256:b5d0b4ee7ea99a8a3052640a3b4612864e50455d6f9b26587cbc0e130bfb7298",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "4.29.1",
+      "versionOutputSha256": "95eebfd1854bb0da7cfbc7ed596ae383527f9f7a0737502e2c5103918ba5d473",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--include-operation-id",
+        "--max-redirects",
+        "--max-time",
+        "--report-json-path",
+        "--seed"
+      ],
+      "qualifiedAt": "2026-10-05T17:04:53.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:c3f522333636141ffe938aecafe7ed770c807f7c62ba1c677a98efb3d1ac53b8",
+        "provenanceDigest": "sha256:af944f8c56b8d40cf926c54a2d19551d9bdcafee9b7f53c1e645bda096bc5b87",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "schemathesis-4.29.1-arm64",
+      "scanner": "schemathesis",
+      "state": "qualified",
+      "platform": "linux/arm64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/schemathesis-arm64@sha256:a1c728a054317e3b5b9f198d3b863c4b2cdb179b50421d7535d3d8bc2ee0d73b",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "4.29.1",
+      "versionOutputSha256": "95eebfd1854bb0da7cfbc7ed596ae383527f9f7a0737502e2c5103918ba5d473",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--include-operation-id",
+        "--max-redirects",
+        "--max-time",
+        "--report-json-path",
+        "--seed"
+      ],
+      "qualifiedAt": "2026-10-05T17:04:45.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:e41f05af519dddde4eebb819ba7f550e590979105d843cc0072a799420ef784c",
+        "provenanceDigest": "sha256:f8ec70d5d97c08caf03b5ef226c4b7dc60bfb5d04992706b6455f54114e5d025",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "semgrep-1.179.0-amd64",
+      "scanner": "semgrep",
+      "state": "qualified",
+      "platform": "linux/amd64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/semgrep-amd64@sha256:afedba51358cf15009a106098bc625c7c67d632d6c3ec9413db950321c0b554e",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "1.179.0",
+      "versionOutputSha256": "2146b440f48873b14d4ae6b9381c9b75876edf3d7a9e1edddc68a54d9e6f22ca",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--disable-version-check",
+        "--metrics",
+        "--no-secrets-validation",
+        "--oss-only",
+        "scan"
+      ],
+      "assets": {
+        "semgrepRules": {
+          "path": "/policy/catalog/semgrep",
+          "sha256": "2b00d88982338e907f66dd8c1d60c791dff64a5a8ea51e9dca8c5958c51b0502"
+        }
+      },
+      "qualifiedAt": "2026-10-05T17:04:21.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:f9f5ccc12f54f9919a462f9c8806f804bc0c176d79a7dbab29cc3356074875f6",
+        "provenanceDigest": "sha256:d25d2cf5034ffdba3f15642533e5ea7da5ae6f31db8cfb470b5a9c9159c880dd",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "semgrep-1.179.0-arm64",
+      "scanner": "semgrep",
+      "state": "qualified",
+      "platform": "linux/arm64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/semgrep-arm64@sha256:9fd60397e05b04d424684f42226f61247b29e6e01351c27c5f557726692e4067",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "1.179.0",
+      "versionOutputSha256": "2146b440f48873b14d4ae6b9381c9b75876edf3d7a9e1edddc68a54d9e6f22ca",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--disable-version-check",
+        "--metrics",
+        "--no-secrets-validation",
+        "--oss-only",
+        "scan"
+      ],
+      "assets": {
+        "semgrepRules": {
+          "path": "/policy/catalog/semgrep",
+          "sha256": "2b00d88982338e907f66dd8c1d60c791dff64a5a8ea51e9dca8c5958c51b0502"
+        }
+      },
+      "qualifiedAt": "2026-10-05T17:03:51.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:5485f991838dac2ed404269bc26244fad9c574205b7d1d88e288e68797cda8a1",
+        "provenanceDigest": "sha256:507760557fec05c700f088a8771e928d02c9d1cacc9eb41c9dbde3345ed693b6",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "trivy-0.75.0-amd64",
+      "scanner": "trivy",
+      "state": "qualified",
+      "platform": "linux/amd64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/trivy-amd64@sha256:b35158ee043b0952c68213e6f367512c9b448af251f55fa728463b24877cd295",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "0.75.0",
+      "versionOutputSha256": "45417a6675db56eaea80ee62288d110b72eda4347391551178f5e6317e7ab309",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--cache-backend",
+        "--disable-telemetry",
+        "--offline-scan",
+        "--skip-check-update",
+        "--skip-db-update",
+        "--skip-java-db-update",
+        "--skip-version-check",
+        "--skip-vex-repo-update"
+      ],
+      "assets": {
+        "advisoryDatabase": {
+          "path": "/opt/cso/scanner-data/trivy",
+          "contentSha256": "e292173b9cf49eb5414745c87af4e9355f1a76cc93aa3f68f12edbe8e18b8eee",
+          "updatedAt": "2026-10-04T14:28:15.000Z",
+          "ecosystems": [
+            "alpine",
+            "bitnami",
+            "cargo",
+            "cocoapods",
+            "composer",
+            "conan",
+            "debian",
+            "go",
+            "hex",
+            "k8s",
+            "maven",
+            "npm",
+            "nuget",
+            "pip",
+            "pub",
+            "redhat",
+            "rubygems",
+            "swift",
+            "ubuntu"
+          ]
+        }
+      },
+      "qualifiedAt": "2026-10-05T17:03:32.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:9d1756fcac8fa34b8e7bb86804e2bae6827ae16171a437a8cb0c285a2ed2a002",
+        "provenanceDigest": "sha256:ec4a806f71fa31eaec844b114686e3e49f46763450e606afce7209f4fcef2e24",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "trivy-0.75.0-arm64",
+      "scanner": "trivy",
+      "state": "qualified",
+      "platform": "linux/arm64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/trivy-arm64@sha256:b02ba43685f282529312ffd4ae104f14ef89a31e2016888f08383ff418a2ea84",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "0.75.0",
+      "versionOutputSha256": "45417a6675db56eaea80ee62288d110b72eda4347391551178f5e6317e7ab309",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--cache-backend",
+        "--disable-telemetry",
+        "--offline-scan",
+        "--skip-check-update",
+        "--skip-db-update",
+        "--skip-java-db-update",
+        "--skip-version-check",
+        "--skip-vex-repo-update"
+      ],
+      "assets": {
+        "advisoryDatabase": {
+          "path": "/opt/cso/scanner-data/trivy",
+          "contentSha256": "e292173b9cf49eb5414745c87af4e9355f1a76cc93aa3f68f12edbe8e18b8eee",
+          "updatedAt": "2026-10-04T14:28:15.000Z",
+          "ecosystems": [
+            "alpine",
+            "bitnami",
+            "cargo",
+            "cocoapods",
+            "composer",
+            "conan",
+            "debian",
+            "go",
+            "hex",
+            "k8s",
+            "maven",
+            "npm",
+            "nuget",
+            "pip",
+            "pub",
+            "redhat",
+            "rubygems",
+            "swift",
+            "ubuntu"
+          ]
+        }
+      },
+      "qualifiedAt": "2026-10-05T17:03:28.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:25086e0e8ebd2678fbd7dca3b23979372f5edb4f0b3a32b5f37a6c0e357fcdb8",
+        "provenanceDigest": "sha256:94058e1003300c57c04ae6a83832b44dcf360eeac1d135dcd623c7cfc850bcc3",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "zizmor-1.30.1-amd64",
+      "scanner": "zizmor",
+      "state": "qualified",
+      "platform": "linux/amd64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/zizmor-amd64@sha256:7abcebedd12b0baff8582194ab7c370bbabea5582a239117b2361385efdc4dc2",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "1.30.1",
+      "versionOutputSha256": "038bd3d8941aa319dd031601ecda41abfb262dec0e838aa7c878ebf9121c9136",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--no-config",
+        "--no-ignores",
+        "--offline"
+      ],
+      "qualifiedAt": "2026-10-05T17:03:31.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:0c74af95a216db73e984bcd794dd30122ef4ff5579abe572613f26446781f4b6",
+        "provenanceDigest": "sha256:84e94dd8c913f8e8688470970de6bf726150d6fafb8a826a90daaf3ffdef5dbf",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    },
+    {
+      "id": "zizmor-1.30.1-arm64",
+      "scanner": "zizmor",
+      "state": "qualified",
+      "platform": "linux/arm64",
+      "image": "ghcr.io/garrytan/gstack/cso-scanners/zizmor-arm64@sha256:bd15b76eb428c346b8c6bdafd08491a98fd0baac5f3354706fec16606a64e5dd",
+      "entrypoint": "/opt/cso/entrypoint",
+      "executable": "/opt/cso/bin/scanner",
+      "version": "1.30.1",
+      "versionOutputSha256": "038bd3d8941aa319dd031601ecda41abfb262dec0e838aa7c878ebf9121c9136",
+      "helperAbi": 3,
+      "isolationPolicyHash": "2ae25762ae556094cff083d1e9f0eb4884f22f5918920609c7b05a57c8e208fc",
+      "capabilities": [
+        "--no-config",
+        "--no-ignores",
+        "--offline"
+      ],
+      "qualifiedAt": "2026-10-05T17:03:13.000Z",
+      "qualification": {
+        "sourceCommit": "10315cf44d1ea13e3ae4821841873afbf7807935",
+        "workflow": "https://github.com/garrytan/gstack/actions/runs/37345271247",
+        "sbomDigest": "sha256:4c2445ef9aae8a186848e8ea2b9b56eeb59167e921a8e0b9d28130986b18600b",
+        "provenanceDigest": "sha256:1074dd16e8c5d61dcb059cf43443763b13ea90012721a8baa731d86c26429ff4",
+        "verifiedProvenance": true,
+        "containmentPassed": true,
+        "adapterContractPassed": true,
+        "offlineAssetsPassed": true
+      }
+    }
+  ]
 }
