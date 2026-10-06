@@ -41,7 +41,7 @@
 set -u
 
 _GSTACK_DOC="https://github.com/garrytan/gstack/blob/main/docs/state-root.md"
-_GSTACK_TWIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/gstack-state-root.sh"
+_GSTACK_TWIN="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/gstack-state-root.sh"
 
 # Fail stop: never print a payload that would set an empty GSTACK_STATE_ROOT.
 _gstack_paths_fail() {

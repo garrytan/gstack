@@ -37,9 +37,11 @@
 # the caller's. All temp handling is immediate, per call.
 
 # Self-locate without dirname (builtins only), so the lib works even under
-# a stripped test PATH.
-case "${BASH_SOURCE[0]}" in
-  */*) _gstack_egress_lib_dir="$(cd "${BASH_SOURCE[0]%/*}" && pwd)" ;;
+# a stripped test PATH. ${BASH_SOURCE[0]:-$0}: BASH_SOURCE is unset when
+# sourced from zsh, where $0 still carries the sourced file's path.
+_gstack_egress_lib_self="${BASH_SOURCE[0]:-$0}"
+case "${_gstack_egress_lib_self}" in
+  */*) _gstack_egress_lib_dir="$(cd "${_gstack_egress_lib_self%/*}" && pwd)" ;;
   *) _gstack_egress_lib_dir="$(pwd)" ;;
 esac
 

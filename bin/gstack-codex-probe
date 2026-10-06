@@ -19,6 +19,13 @@
 #   - All functions prefix with _gstack_codex_.
 #   - No command execution at source time (only function defs).
 
+# Self-location, zsh-safe: BASH_SOURCE is unset when this file is sourced
+# from a zsh agent, while $0 still carries the sourced file's path there
+# (FUNCTION_ARGZERO). Without the fallback, ${_GSTACK_CODEX_SELF%/*} expands
+# empty and every derived path becomes /../scripts/... (bun then reports
+# Module not found and the model probe reads as model_unusable).
+_GSTACK_CODEX_SELF="${BASH_SOURCE[0]:-$0}"
+
 # --- Auth probe -------------------------------------------------------------
 
 _gstack_codex_auth_probe() {
@@ -72,9 +79,9 @@ _gstack_codex_select_model() {
     return 1
   fi
   if [ -n "$_explicit" ]; then
-    _line=$(bun run "${BASH_SOURCE[0]%/*}/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind" --explicit "$_explicit")
+    _line=$(bun run "${_GSTACK_CODEX_SELF%/*}/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind" --explicit "$_explicit")
   else
-    _line=$(bun run "${BASH_SOURCE[0]%/*}/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind")
+    _line=$(bun run "${_GSTACK_CODEX_SELF%/*}/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind")
   fi
   _rc=$?
   _GSTACK_CODEX_SEL="${_line%%$'\t'*}"
@@ -135,7 +142,7 @@ _gstack_codex_first_use_notice() {
   # and how to turn reviews off. Shown once per state root; never blocks and
   # never prints a credential, only where it comes from.
   local _root _marker _codex_home="${CODEX_HOME:-$HOME/.codex}" _account _provider
-  _root="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
+  _root="$(. "${_GSTACK_CODEX_SELF%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
   [ -n "$_root" ] || return 0
   _marker="$_root/.codex-review-notice-shown"
   [ -e "$_marker" ] && return 0
@@ -194,7 +201,7 @@ _gstack_codex_model_probe() {
   # State root from the shared twin (sourced in a subshell, so the caller's
   # shell is untouched). A missing twin only disables the cache.
   local _gstack_home _cache=""
-  _gstack_home="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || _gstack_home=""
+  _gstack_home="$(. "${_GSTACK_CODEX_SELF%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || _gstack_home=""
   [ -n "$_gstack_home" ] && _cache="$_gstack_home/.codex-model-probe"
   # Cache signature (#2787): everything that can change the round trip's
   # outcome without the hour passing — the model, the Codex home and its
@@ -401,7 +408,7 @@ _gstack_codex_log_event() {
   local _duration="${2:-0}"
   [ "${_TEL:-off}" = "off" ] && return 0
   local _root
-  _root="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
+  _root="$(. "${_GSTACK_CODEX_SELF%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
   [ -n "$_root" ] || return 0
   mkdir -p "$_root/analytics" 2>/dev/null || return 0
   local _ts
