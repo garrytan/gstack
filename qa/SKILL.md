@@ -662,7 +662,8 @@ Read the surrounding source and make the **minimal fix**. No unrelated refactors
 ### 8c. Re-test
 
 Re-run the regression, original failing probe and adjacent happy path. Inspect each
-final state; acceptance alone cannot verify a worker repair. Failed/unavailable rechecks stay unresolved.
+final state; acceptance alone cannot verify a worker repair. Failed/unavailable rechecks stay unresolved:
+try one revised minimal fix, else classify it reverted.
 
 For browser defects only:
 
@@ -684,7 +685,7 @@ repairs and valid red regressions/evidence uncommitted; tell the user what remai
 
 - **verified**: passed 8c (native regression when available); disclose missing test coverage
 - **best-effort**: fix applied but couldn't fully verify (e.g., needs auth state, external service)
-- **reverted**: regression detected → undo only this run's repair (revert its commit if already committed), retain the valid regression/evidence, and mark the issue "deferred". Never discard user changes.
+- **reverted**: regression detected or finding unresolved → undo only this run's repair (revert its commit if already committed), retain the valid regression/evidence, and mark the issue "deferred". Never discard user changes.
 
 ### 8e.5. Regression Test record
 
