@@ -52,6 +52,10 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 // the failure mode is structural rather than detectable via source-file scan.
 export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
   {
+    file: 'test/ship-measure-seeded-fixture.test.ts',
+    reason: 'drives a POSIX shell stub project (`./evals.sh` with a shebang) that CreateProcess cannot exec; the measure runner itself is covered by ship-measure.test.ts with in-process fake runners',
+  },
+  {
     file: 'test/qa-evidence-producer.test.ts',
     reason: 'executes the registered Linux native actor and its inotify observer; portable capture and Windows job behavior are covered by qa-evidence.test.ts',
   },
