@@ -35,6 +35,36 @@ describe('docs/troubleshooting.md anchors', () => {
     expect(linked.filter(l => !anchors.has(l.split('#')[1]!))).toEqual([]);
   });
 
+  // CEO-7 / ENG-15: messages print relative links or full GitHub URLs; both
+  // resolve against the docs in this working tree, so a new anchor never fails
+  // before it reaches main.
+  test('every docs/<guide>.md#anchor linked from shipped code (relative or full URL) exists in the working tree', () => {
+    const roots = ['setup', 'bin', 'lib', 'browse/src', 'autoplan/bin', 'scripts/resolvers', 'hosts'];
+    const files = roots.flatMap(function walk(rel: string): string[] {
+      const full = path.join(ROOT, rel);
+      if (!fs.existsSync(full)) return [];
+      if (fs.statSync(full).isFile()) return [rel];
+      return fs.readdirSync(full).filter(f => f !== 'node_modules').flatMap(f => walk(path.join(rel, f)));
+    });
+    const docAnchors = (doc: string) => {
+      const text = fs.readFileSync(path.join(ROOT, 'docs', doc), 'utf8');
+      return new Set([...text.matchAll(/<a id="([a-z0-9-]+)"><\/a>/g)].map(m => m[1]));
+    };
+    const cache = new Map<string, Set<string | undefined>>();
+    const missing: string[] = [];
+    let linked = 0;
+    for (const file of files) {
+      const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+      for (const m of text.matchAll(/(?:https:\/\/github\.com\/garrytan\/gstack\/blob\/main\/)?docs\/((?:troubleshooting|autoplan-guard-troubleshooting)\.md)#([a-z0-9-]+)/g)) {
+        linked++;
+        if (!cache.has(m[1]!)) cache.set(m[1]!, docAnchors(m[1]!));
+        if (!cache.get(m[1]!)!.has(m[2]!)) missing.push(`${file} -> ${m[1]}#${m[2]}`);
+      }
+    }
+    expect(linked).toBeGreaterThan(5);
+    expect(missing).toEqual([]);
+  });
+
   test('outcome lines follow the not run / unavailable / unverified shapes', () => {
     const line = (code: GateReason, detail?: string) => gateOutcomeLine('Codex outside review', code, detail);
     expect(line('disabled')).toBe('Codex outside review: not run (outside reviews are turned off (codex_reviews=disabled)). Fix: gstack-config set codex_reviews enabled.');
