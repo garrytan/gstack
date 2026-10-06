@@ -357,7 +357,10 @@ describe('gstack-codex-probe: timeout wrapper + namespace hygiene', () => {
     // tool gate killed the whole call and the partial output was lost.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-watchdog-stubborn-'));
     try {
-      for (const tool of native ? ['bash', 'sleep', 'cat'] : []) {
+      // pkill is part of the watchdog's contract (it reaps the provider's
+      // children; stock macOS ships /usr/bin/pkill). Without it the orphaned
+      // `sleep 30` keeps stdout open and the capture waits out the sleep.
+      for (const tool of native ? ['bash', 'sleep', 'cat', 'pkill'] : []) {
         const resolved = spawnSync('bash', ['-c', `command -v ${tool}`], { timeout: 5000 });
         fs.symlinkSync(resolved.stdout.toString().trim(), path.join(dir, tool));
       }

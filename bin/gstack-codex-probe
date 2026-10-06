@@ -418,6 +418,9 @@ _gstack_codex_timeout_wrapper() {
         sleep 1
         _GSTACK_CODEX_WAITED=$((_GSTACK_CODEX_WAITED + 1))
       done
+      # Freeze the command first: killing its children while it runs lets it
+      # continue past the killed child and print output after its deadline.
+      kill -STOP "$_cmd_pid" 2>/dev/null
       pkill -KILL -P "$_cmd_pid" 2>/dev/null
       kill -KILL "$_cmd_pid" 2>/dev/null
       exit 124
