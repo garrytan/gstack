@@ -1,5 +1,13 @@
 ## Step 10: Address Greptile review comments (if PR exists)
 
+Check for a PR first; with none there is nothing for Greptile to have reviewed:
+
+```bash
+_PR_ERR=$(gh pr view --json number -q .number 2>&1 >/dev/null) && echo "PR: exists" || case "$_PR_ERR" in *"no pull requests found"*) echo "PR: none" ;; *) echo "PR: unknown ($_PR_ERR)" ;; esac
+```
+
+`PR: none` → skip the dispatch, record "Greptile: runs on the PR once it exists; the next /ship or /review triages it", and continue to Step 11. Otherwise dispatch:
+
 Dispatch a subagent through Agent with `subagent_type: "general-purpose"` and
 `run_in_background: false`, using Step 7's shared foreground-dispatch rule.
 It fetches and classifies all Greptile comments,
