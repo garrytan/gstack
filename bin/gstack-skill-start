@@ -351,7 +351,24 @@ elif [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   # from the artifacts remote, so its content is not trusted for STATUS output.
   [ -f "$_GH/.brain-last-push" ] && _BRAIN_LAST_PUSH=$(head -1 "$_GH/.brain-last-push" 2>/dev/null | tr -cd 'A-Za-z0-9._:+-' || echo never)
   _BRAIN_LAST_PUSH=${_BRAIN_LAST_PUSH:-never}
-  echo "ARTIFACTS_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
+  # Health of the drain that just ran. Queue depth and last_push alone hid a
+  # sync that had been blocked for weeks, so an unhealthy status (or files
+  # held back by the secret scan) is appended here. A healthy line stays
+  # byte-identical. sed, not jq (jq is optional on the hot path); both values
+  # are clamped to a closed set / digits because the file's message field can
+  # carry scanned text and must never reach STATUS output.
+  _BRAIN_HEALTH=""
+  _BRAIN_HELD=""
+  if [ -f "$_GH/.brain-sync-status.json" ]; then
+    _BRAIN_HEALTH=$(head -1 "$_GH/.brain-sync-status.json" 2>/dev/null | sed -n 's/^{"status": *"\([a-z_]*\)".*/\1/p')
+    _BRAIN_HELD=$(head -1 "$_GH/.brain-sync-status.json" 2>/dev/null | sed -n 's/.*[^\\]"held": *\([0-9][0-9]*\)[,}].*/\1/p')
+  fi
+  case "$_BRAIN_HEALTH" in blocked|push_failed|error) ;; *) _BRAIN_HEALTH="" ;; esac
+  case "$_BRAIN_HELD" in ''|*[!0-9]*|0) _BRAIN_HELD="" ;; esac
+  echo "ARTIFACTS_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH${_BRAIN_HEALTH:+ | status=$_BRAIN_HEALTH}${_BRAIN_HELD:+ | held=$_BRAIN_HELD}"
+  if [ -n "$_BRAIN_HEALTH$_BRAIN_HELD" ]; then
+    echo "ARTIFACTS_SYNC: attention: the artifacts sync is not healthy. Run 'gstack-brain-sync --status', then tell the user what is stuck and the fix it names."
+  fi
 else
   echo "ARTIFACTS_SYNC: off"
 fi

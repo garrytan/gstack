@@ -44,6 +44,7 @@ ALLOWLIST="$GSTACK_HOME/.brain-allowlist"
 PRIVACY_MAP="$GSTACK_HOME/.brain-privacy-map.json"
 SKIP_FILE="$GSTACK_HOME/.brain-skip.txt"
 STATUS_FILE="$GSTACK_HOME/.brain-sync-status.json"
+HELD_FILE="$GSTACK_HOME/.brain-sync-held.json"
 LAST_PUSH_FILE="$GSTACK_HOME/.brain-last-push"
 LOCK_FILE="$GSTACK_HOME/.brain-sync.lock"
 DISCOVER_CURSOR="$GSTACK_HOME/.brain-discover-cursor"
@@ -484,6 +485,11 @@ dropped = set()
 for group in (classified.get("dropped", {}) or {}).values():
     dropped.update(group)
 deletable = staged | dropped
+# Privacy-held paths stay queued, but ONE record per path is enough to carry
+# the hold: without this every re-enqueue of a held path adds a record that is
+# never consumed, and the spool grows without bound.
+retained = set(classified.get("retained", []) or [])
+retained_records = {}
 
 unparseable = 0
 for name in lines(snapshot_file):
@@ -510,11 +516,22 @@ for name in lines(snapshot_file):
             pass                 # quarantine move failed — leave in place; next run retries
         continue
     if p not in deletable:
+        if p in retained:
+            retained_records.setdefault(p, []).append(name)
         continue                 # retained / unclassified: stays queued (explicit-delete-only)
     try:
         os.unlink(full)          # staged or dropped: fully processed
     except FileNotFoundError:
         pass
+def record_age_key(name):
+    head = name.split("-", 1)[0]
+    return (int(head) if head.isdigit() else 0, name)
+for names in retained_records.values():
+    for old in sorted(names, key=record_age_key)[:-1]:
+        try:
+            os.unlink(os.path.join(spool_dir, old))   # older duplicate; the newest stays
+        except OSError:
+            pass
 if unparseable:
     print(f"BRAIN_SYNC: {unparseable} unparseable spool record(s) moved to quarantine (inspect {os.path.join(spool_dir, 'quarantine')})", file=sys.stderr)
 
@@ -691,8 +708,9 @@ subcmd_once() {
   paths_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-paths.XXXXXX") || { rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
   class_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-class.XXXXXX") || { rm -f "$paths_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
   snapshot_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-snapshot.XXXXXX") || { rm -f "$paths_file" "$class_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
-  # Single trap covers all: lock cleanup AND tempfile cleanup.
-  trap 'rm -f "$paths_file" "$class_file" "$snapshot_file" 2>/dev/null; rm -rf "$lock_dir" 2>/dev/null || true' EXIT INT TERM
+  # Single trap covers all: lock cleanup AND tempfile cleanup (the .ok/.hits/
+  # .held siblings are the staging loop's and the hold-back step's scratch).
+  trap 'rm -f "$paths_file" "$paths_file.ok" "$paths_file.hits" "$paths_file.held" "$class_file" "$snapshot_file" 2>/dev/null; rm -rf "$lock_dir" 2>/dev/null || true' EXIT INT TERM
 
   # Fail-safe (G1): a classifier that dies mid-run (ENOSPC/OOM/SIGKILL, or a
   # shape the defensive filters don't cover) may have already written the
@@ -719,25 +737,138 @@ subcmd_once() {
     exit 0
   fi
 
-  # Stage with git add -f (forces past .gitignore=*) explicit paths only.
+  # A leftover index.lock (a git process killed mid-write) makes every add,
+  # reset and commit below fail — and those failures used to be swallowed, so
+  # the sync stalled with no signal. Report only, never auto-delete: a young
+  # lock is another git operation in flight (skip quietly; the next boundary
+  # retries), an old one needs a human to confirm no git process is running.
+  local idx_lock idx_lock_age
+  idx_lock=$(git -C "$GSTACK_HOME" rev-parse --git-path index.lock 2>/dev/null || echo "")
+  case "$idx_lock" in ''|/*|[A-Za-z]:*) ;; *) idx_lock="$GSTACK_HOME/$idx_lock" ;; esac
+  if [ -n "$idx_lock" ] && [ -e "$idx_lock" ]; then
+    idx_lock_age=$(python3 -c 'import os, sys, time; print(int(time.time() - os.path.getmtime(sys.argv[1])))' "$idx_lock" 2>/dev/null || echo 0)
+    case "$idx_lock_age" in ''|*[!0-9]*) idx_lock_age=0 ;; esac
+    if [ "$idx_lock_age" -ge 600 ]; then
+      write_status "error" "stale git index lock ($idx_lock, ${idx_lock_age}s old) is stopping every sync; queue preserved. Fix: confirm no git process is running in $GSTACK_HOME, then rm that file."
+      echo "BRAIN_SYNC: error: stale git index lock at $idx_lock" >&2
+    fi
+    exit 0
+  fi
+
+  # Stage with git add -f (forces past .gitignore=*) explicit paths only. A
+  # path whose add fails leaves $paths_file, so finalize_queue keeps its
+  # record queued and the commit count stays honest.
+  local add_err first_add_err="" add_failed=0
+  : > "$paths_file.ok"
   while IFS= read -r p; do
     p="${p%$'\r'}"   # Windows: compute_paths_to_stage's python print() emits CRLF;
                      # a trailing CR makes the pathspec match nothing (silent no-stage).
     [ -z "$p" ] && continue
-    git -C "$GSTACK_HOME" add -f -- "$p" 2>/dev/null || true
+    if add_err=$(git -C "$GSTACK_HOME" add -f -- "$p" 2>&1 >/dev/null); then
+      printf '%s\n' "$p" >> "$paths_file.ok"
+    else
+      add_failed=$(( add_failed + 1 ))
+      [ -z "$first_add_err" ] && first_add_err=$(printf '%s' "$add_err" | head -1)
+    fi
   done < "$paths_file"
+  if [ ! -s "$paths_file.ok" ]; then
+    write_status "error" "git add failed for all $add_failed path(s): ${first_add_err:-unknown error}; queue preserved (next run retries)" "{\"add_failed\": $add_failed}"
+    echo "BRAIN_SYNC: error: git add failed for all $add_failed path(s): ${first_add_err:-unknown error}" >&2
+    exit 0
+  fi
+  cat "$paths_file.ok" > "$paths_file"
+
+  # status_extra / status_suffix ride every status this drain writes from here
+  # on, so a partly-failed drain can never read as a plain "ok".
+  local status_extra="{}" status_suffix="" held_n=0
+  if [ "$add_failed" -gt 0 ]; then
+    status_suffix="; git add failed for $add_failed path(s), still queued (${first_add_err:-unknown error})"
+    echo "BRAIN_SYNC: warning: git add failed for $add_failed path(s): ${first_add_err:-unknown error}" >&2
+  fi
 
   # Secret-scan staged diff.
   local scan_out
   scan_out=$(git -C "$GSTACK_HOME" diff --cached 2>/dev/null | secret_scan_stdin || true)
   if [ -n "$scan_out" ]; then
-    # Hit — unstage, preserve queue, write loud status.
-    git -C "$GSTACK_HOME" reset HEAD -- . >/dev/null 2>&1 || true
-    local hint
-    hint="secret pattern detected ($scan_out). Remediation: review the staged file, then run: gstack-brain-sync --skip-file <path> OR edit the content."
-    write_status "blocked" "$hint"
-    echo "BRAIN_SYNC: blocked: $scan_out" >&2
-    exit 0
+    # Hit. Hold back ONLY the flagged paths so one bad file cannot stop the
+    # rest: ask the per-file scanner which staged paths match, unstage those,
+    # then RE-SCAN the whole staged diff. The re-scan is the invariant —
+    # nothing matching a scanner pattern is ever committed. Anything short of
+    # a clean re-scan falls back to the old behavior: unstage everything.
+    local helper_rc=0 rescan_rc=0 hit_family hit_path
+    : > "$paths_file.held"
+    # Per-file pass, looped in bash because the script's Windows invariant
+    # bans spawning processes from its Python blocks. Each staged path's own diff goes
+    # through the SAME scanner; only the pattern family is kept, never the
+    # matched text. Any path that cannot be scanned or named on one line
+    # fails the whole pass closed.
+    local sp sp_out sp_rc
+    : > "$paths_file.hits"
+    while IFS= read -r -d '' sp; do
+      case "$sp" in *$'\n'*|*$'\t'*) helper_rc=2; break ;; esac
+      sp_rc=0
+      sp_out=$(git --literal-pathspecs -C "$GSTACK_HOME" diff --cached --no-renames -- "$sp" 2>/dev/null | secret_scan_stdin 2>/dev/null) || sp_rc=$?
+      case "$sp_rc" in
+        0) ;;
+        1) printf '%s\t%s\n' "${sp_out%%:*}" "$sp" >> "$paths_file.hits" ;;
+        *) helper_rc=2; break ;;
+      esac
+    done < <(git -C "$GSTACK_HOME" diff --cached --no-renames -z --name-only 2>/dev/null)
+    if [ "$helper_rc" -eq 0 ]; then
+      while IFS=$'\t' read -r hit_family hit_path; do
+        [ -z "$hit_path" ] && continue
+        if git --literal-pathspecs -C "$GSTACK_HOME" reset -q HEAD -- "$hit_path" >/dev/null 2>&1; then
+          printf '%s\t%s\n' "$hit_family" "$hit_path" >> "$paths_file.held"
+          held_n=$(( held_n + 1 ))
+        fi
+      done < "$paths_file.hits"
+      git -C "$GSTACK_HOME" diff --cached 2>/dev/null | secret_scan_stdin >/dev/null 2>&1 || rescan_rc=$?
+    fi
+    if [ "$helper_rc" -ne 0 ] || [ "$held_n" -eq 0 ] || [ "$rescan_rc" -ne 0 ]; then
+      # Could not isolate the hit — unstage everything, preserve queue, loud status.
+      git -C "$GSTACK_HOME" reset HEAD -- . >/dev/null 2>&1 || true
+      local hint
+      hint="secret pattern detected ($scan_out). Remediation: review the staged file, then run: gstack-brain-sync --skip-file <path> OR edit the content."
+      write_status "blocked" "$hint"
+      echo "BRAIN_SYNC: blocked: $scan_out" >&2
+      exit 0
+    fi
+    # Held paths leave $paths_file (their records stay queued, so every later
+    # drain re-flags them until the content is fixed or the path is skipped).
+    # Their names + pattern family go to a 0600 sidecar; the status line stays
+    # content-free (a count only).
+    python3 - "$paths_file" "$paths_file.held" "$HELD_FILE" <<'PYEOF' 2>/dev/null || true
+import json, os, sys, time
+paths_file, held_file, sidecar = sys.argv[1:4]
+held = []
+with open(held_file) as f:
+    for line in f:
+        line = line.rstrip("\n")
+        if "\t" in line:
+            family, p = line.split("\t", 1)
+            held.append({"path": p, "family": family})
+names = {h["path"] for h in held}
+with open(paths_file) as f:
+    keep = [l for l in f if l.strip() and l.strip() not in names]
+with open(paths_file, "w") as f:
+    f.writelines(keep)
+fd = os.open(sidecar, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "held": held}, f)
+    f.write("\n")
+PYEOF
+    status_extra="{\"held\": $held_n}"
+    status_suffix="$status_suffix; held $held_n file(s) with secret-shaped text, NOT synced (names in $HELD_FILE; edit the content or run: gstack-brain-sync --skip-file <path>)"
+    echo "BRAIN_SYNC: held $held_n file(s) with secret-shaped text (see $HELD_FILE)" >&2
+    if git -C "$GSTACK_HOME" diff --cached --quiet 2>/dev/null; then
+      # Every staged path was held: nothing left to commit. Classified drops
+      # still leave the spool; the held records stay.
+      finalize_queue "$snapshot_file" "$class_file" "$paths_file"
+      write_status "blocked" "secret pattern detected ($scan_out); nothing else to sync$status_suffix" "$status_extra"
+      exit 0
+    fi
+  else
+    rm -f "$HELD_FILE" 2>/dev/null || true
   fi
 
   # Egress receipt for the push, written BEFORE the commit consumes the
@@ -750,7 +881,7 @@ subcmd_once() {
   if ! receipt_err=$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-egress-receipt" write \
       --sink brain-sync --host "$push_host" --class curated-memory-git-push \
       --no-payload --consent "artifacts_sync_mode!=off" 2>&1 >/dev/null); then
-    write_status "push_failed" "EGRESS_RECEIPT_FAILED: receipt not writable; push refused (queue preserved)"
+    write_status "push_failed" "EGRESS_RECEIPT_FAILED: receipt not writable; push refused (queue preserved)$status_suffix" "$status_extra"
     _gstack_egress_refusal "brain-sync push" "$(printf '%s' "$receipt_err" | head -c 300)"
     exit 1
   fi
@@ -765,7 +896,7 @@ subcmd_once() {
       # Nothing to commit (e.g. all files already committed). The drained
       # records leave the spool; retained + post-snapshot records survive.
       finalize_queue "$snapshot_file" "$class_file" "$paths_file"
-      write_status "idle" "queue drained but no new changes to commit"
+      write_status "idle" "queue drained but no new changes to commit$status_suffix" "$status_extra"
       exit 0
     }
 
@@ -778,7 +909,7 @@ subcmd_once() {
     if echo "$push_err" | grep -qiE "auth|permission|403|401|forbidden"; then
       local hint
       hint=$(remote_auth_hint)
-      write_status "push_failed" "push failed: auth error; commit retained locally, will retry next run. fix: $hint"
+      write_status "push_failed" "push failed: auth error; commit retained locally, will retry next run. fix: $hint$status_suffix" "$status_extra"
       echo "BRAIN_SYNC: push failed: auth. fix: $hint" >&2
       # Drained records leave the spool — they live in the local commit, which
       # the run-start detector re-pushes next time (#2549). Retained +
@@ -799,13 +930,13 @@ subcmd_once() {
             bash -c 'git -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
           finalize_queue "$snapshot_file" "$class_file" "$paths_file"
           date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
-          write_status "ok" "pushed $n file(s) after rebase"
+          write_status "ok" "pushed $n file(s) after rebase$status_suffix" "$status_extra"
           exit 0
         fi
       fi
     fi
     # Commit exists locally; the run-start detector re-pushes it next time.
-    write_status "push_failed" "push failed: $(printf '%s' "$push_err" | head -1); commit retained locally, will retry next run"
+    write_status "push_failed" "push failed: $(printf '%s' "$push_err" | head -1); commit retained locally, will retry next run$status_suffix" "$status_extra"
     finalize_queue "$snapshot_file" "$class_file" "$paths_file"
     exit 0
   }
@@ -813,7 +944,7 @@ subcmd_once() {
   # Success: drained records leave the spool (retained + post-snapshot survive).
   finalize_queue "$snapshot_file" "$class_file" "$paths_file"
   date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
-  write_status "ok" "pushed $n file(s)"
+  write_status "ok" "pushed $n file(s)$status_suffix" "$status_extra"
   exit 0
 }
 
@@ -827,7 +958,9 @@ subcmd_status() {
   # any not-yet-migrated legacy queue lines (transition window), including a
   # crash-leftover .migrating file — its records are still pending too.
   local queue_depth spool_depth legacy_depth
-  spool_depth=$(ls "$QUEUE_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
+  # find, not `ls "$QUEUE_DIR"/*.json`: a deep spool overflows the argv limit
+  # and the glob form then reported 0.
+  spool_depth=$(find "$QUEUE_DIR" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
   legacy_depth=0
   [ -f "$QUEUE" ] && legacy_depth=$(wc -l < "$QUEUE" | tr -d ' ')
   [ -f "$QUEUE.migrating" ] && legacy_depth=$(( legacy_depth + $(wc -l < "$QUEUE.migrating" | tr -d ' ') ))

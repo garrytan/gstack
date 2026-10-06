@@ -432,6 +432,50 @@ describe('gstack-skill-start behavior', () => {
       for (const dir of [gh, bin, remote]) fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test('ARTIFACTS_SYNC surfaces an unhealthy sync and stays unchanged when healthy', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-sync-home-'));
+    const gh = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-sync-gh-'));
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-sync-remote-'));
+    const env = { PATH: process.env.PATH!, HOME: home, GSTACK_HOME: gh };
+    const bin = (name: string, args: string[]) =>
+      execFileSync(path.join(ROOT, 'bin', name), args, { timeout: 30_000, encoding: 'utf-8', cwd: home, env, stdio: 'pipe' });
+    const HEALTHY = /^ARTIFACTS_SYNC: mode=full \| last_push=[A-Za-z0-9._:+-]+ \| queue=\d+$/m;
+    try {
+      execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote], { timeout: 30_000 });
+      bin('gstack-artifacts-init', ['--remote', remote]);
+      bin('gstack-config', ['set', 'artifacts_sync_mode', 'full']);
+      bin('gstack-config', ['set', 'artifacts_sync_mode_prompted', 'true']);
+      bin('gstack-config', ['set', 'update_check', 'false']);
+      const leak = 'projects/p/learnings.jsonl';
+      fs.mkdirSync(path.join(gh, 'projects/p'), { recursive: true });
+      fs.writeFileSync(path.join(gh, leak), '{"gh":"ghp_abcdefghij1234567890abcdef1234567890"}\n');
+      bin('gstack-brain-enqueue', [leak]);
+
+      // First start: the init's own files sync, the flagged one is held back.
+      const partial = runStart([], env);
+      expect(partial).toMatch(/^ARTIFACTS_SYNC: mode=full \| last_push=\S+ \| queue=1 \| held=1$/m);
+      expect(partial).toMatch(/^ARTIFACTS_SYNC: attention: /m);
+      // A stale git index lock stops every drain: the status token says so.
+      // (Each start enqueues files of its own, so the queue depth is not pinned.)
+      const lock = path.join(gh, '.git', 'index.lock');
+      fs.writeFileSync(lock, '');
+      const old = new Date(Date.now() - 3600_000);
+      fs.utimesSync(lock, old, old);
+      const unhealthy = runStart([], env);
+      expect(unhealthy).toMatch(/^ARTIFACTS_SYNC: mode=full \| last_push=\S+ \| queue=\d+ \| status=error$/m);
+      fs.unlinkSync(lock);
+      // The matched text never reaches STATUS output.
+      expect(partial + unhealthy).not.toContain('ghp_');
+
+      bin('gstack-brain-sync', ['--skip-file', leak]);
+      const healthy = runStart([], env);
+      expect(healthy).toMatch(HEALTHY);
+      expect(healthy).not.toContain('ARTIFACTS_SYNC: attention');
+    } finally {
+      for (const dir of [home, gh, remote]) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000); // three full skill starts, each draining a real git repo
 });
 
 describe('gstack-skill-end', () => {
