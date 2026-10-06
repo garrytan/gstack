@@ -263,8 +263,13 @@ Other memory types sync whatever the answer. Details:
 
 ## Step 2: Run the orchestrator
 
-Pass user args to the orchestrator. Do not paraphrase them — pass through
-as-is.
+Pass the user's flags to the orchestrator as `<user-args>`, unchanged (empty for a
+plain run). Use them only when every word is one of `--incremental`, `--full`,
+`--dry-run`, `--quiet`, `--no-code`, `--no-memory`, `--no-brain-sync`,
+`--code-only`, `--dream`, `--no-dream`, `--allow-reclone`,
+`--prune-gone-worktrees`, or `--sources` followed by one comma-separated list of
+lowercase memory types (or `all`). Any other value is not used: do not run the
+command; tell the user which value was rejected.
 
 ```bash
 bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts <user-args>
@@ -405,8 +410,8 @@ Capability check:
 bun run ~/.claude/skills/gstack/bin/gstack-gbrain-read-capability.ts <user-args>
 ```
 
-`<user-args>` are the same flags this /sync-gbrain invocation passed to Step 2,
-unchanged (empty for a plain run). The helper needs no other input: run it once
+`<user-args>` are the same checked flags this /sync-gbrain invocation passed to
+Step 2, unchanged (empty for a plain run). The helper needs no other input: run it once
 and use its JSON result; do not inspect its source or the gbrain CLI first.
 
 The helper reports JSON `status: ready` only after the successful code sync's
