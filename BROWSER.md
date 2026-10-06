@@ -1606,7 +1606,7 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 | `BROWSE_TUNNEL` | 0 | Activate the dual-listener tunnel architecture (requires `NGROK_AUTHTOKEN`) |
 | `BROWSE_TUNNEL_LOCAL_ONLY` | 0 | Test-only — bind both listeners locally without ngrok |
 | `CHROMIUM_PROFILE` | unset | Explicit headed Chromium profile directory (used by gbrowser's gbd per-workspace); honored by headed launch and profile-lock cleanup, not used by headless sessions |
-| `GSTACK_DISABLE_GPU` | unset | Set to `off` to skip the macOS headless GPU-taming flag set (applied by default on Darwin to stop runaway GPU-process spin) |
+| `GSTACK_DISABLE_GPU` | unset | Set to `off` to skip the macOS headless GPU-taming flag set (applied by default on Darwin to stop runaway GPU-process spin). That flag set also disables WebGL: `getContext('webgl')`/`'webgl2'` return `null`, so WebGL pages (three.js, Mapbox GL, sigma.js) show their fallback. Set `off` to QA WebGL or canvas-heavy apps. |
 | `GSTACK_BROWSE_MAX_HTML_BYTES` | 52428800 (50MB) | `load-html` size cap |
 | `GSTACK_SECURITY_OFF` | unset | Emergency kill switch — disable ML classifier |
 | `GSTACK_STEALTH` | unset | Set to `extended` (also accepts `1`/`true`) to layer six aggressive patches (WebGL spoof, faked plugins, mediaDevices) on top of Layer C. Actively lies; can break sites. |

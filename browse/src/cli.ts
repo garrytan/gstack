@@ -811,8 +811,14 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
     // hint. No silent restart — that would drop tab state, cookies, and
     // logged-in sessions without warning.
     if (desiredHash && state.configHash && state.configHash !== desiredHash) {
-      console.error(`[browse] existing daemon has different config (proxy/headed mismatch).`);
-      console.error(`[browse] run 'browse disconnect' first to apply --proxy/--headed.`);
+      // #3030: a caller that passed no flags never asked to "apply" any.
+      if (flags?.proxyUrl || flags?.headed) {
+        console.error(`[browse] existing daemon has different config (proxy/headed mismatch).`);
+        console.error(`[browse] run 'browse disconnect' first to apply --proxy/--headed.`);
+      } else {
+        console.error(`[browse] a browse daemon for this project is running with --headed/--proxy (started by another session).`);
+        console.error(`[browse] pass the same flags to use it, or run 'browse disconnect' to start a plain one.`);
+      }
       process.exit(1);
     }
     // Same path: existing daemon is plain (no flags) but caller passes
