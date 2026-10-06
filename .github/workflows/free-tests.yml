@@ -102,7 +102,8 @@ jobs:
   # $TMPDIR sits under /var/folders and /var is a symlink to /private/var, so
   # code that compares a realpath with an unresolved path passes on Linux's
   # /tmp and fails here (#2982). TMPDIR is deliberately left at the runner's
-  # default, and the job fails if that layout is not symlinked.
+  # default, and the job fails if that layout is not symlinked. It also sources
+  # the Codex probe from zsh, macOS's default shell (#3024; no paid call).
   macos-named-regressions:
     runs-on: macos-latest
     timeout-minutes: 20
@@ -124,6 +125,13 @@ jobs:
           git config --global user.email "free-tests-ci@gstack.test"
           git config --global user.name "Free Tests CI"
           git config --global init.defaultBranch main
+      - name: Codex probe selects a model when sourced from zsh (macOS default shell, no paid call)
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          out="$(zsh -c 'source "$GITHUB_WORKSPACE/bin/gstack-codex-probe" && _gstack_codex_select_model exec' 2>&1)"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -E '^CODEX_MODEL: [A-Za-z0-9._:/-]+ \(exec; source: '
       - name: Run the named macOS regressions on the default temp root
         run: |
           set -euo pipefail
@@ -131,7 +139,7 @@ jobs:
           resolved="$(realpath "$tmp")"
           echo "temp root: $tmp -> $resolved"
           test "$resolved" != "${tmp%/}"
-          files=(test/gstack-design-detect.test.ts browse/test/chromium-profile-isolation.test.ts test/cso-git-hardening.test.ts test/plan-count-file-permission.test.ts test/spec-quality-gate-secret-sink.test.ts test/gstack-memory-ingest.test.ts)
+          files=(test/gstack-design-detect.test.ts browse/test/chromium-profile-isolation.test.ts test/cso-git-hardening.test.ts test/plan-count-file-permission.test.ts test/spec-quality-gate-secret-sink.test.ts test/gstack-memory-ingest.test.ts test/regression-issue3024-zsh-sourced-helpers.test.ts)
           for file in "${files[@]}"; do test -f "$file"; done
           bun test "${files[@]}"
 

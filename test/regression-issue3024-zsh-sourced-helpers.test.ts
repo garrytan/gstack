@@ -285,4 +285,23 @@ describe('#3024: sourced helpers work under bash and zsh', () => {
       fs.rmSync(empty, { recursive: true, force: true });
     }
   });
+
+  test('CI keeps zsh: the free lane and the eval image install it, and the macOS lane sources the probe from zsh', () => {
+    const workflow = Bun.YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/free-tests.yml'), 'utf8')) as any;
+    const runs = (job: string) => (workflow.jobs[job].steps as any[]).map(step => String(step.run ?? '')).join('\n');
+    expect(runs('free-suite')).toMatch(/apt-get install[^\n]*\bzsh\b/);
+    expect(fs.readFileSync(path.join(ROOT, '.github/docker/Dockerfile.ci'), 'utf8')).toMatch(/apt-get install -y --no-install-recommends \\\n[^\n]*\bzsh\b/);
+    const mac = workflow.jobs['macos-named-regressions'];
+    expect(mac['runs-on']).toMatch(/^macos-/);
+    const step = (mac.steps as any[]).find(s => String(s.run ?? '').includes('_gstack_codex_select_model exec'));
+    expect(step?.run).toContain(`zsh -c 'source "$GITHUB_WORKSPACE/bin/gstack-codex-probe" && _gstack_codex_select_model exec'`);
+    expect(runs('macos-named-regressions')).toContain('test/regression-issue3024-zsh-sourced-helpers.test.ts');
+    if (skipShell('zsh')) return;
+    const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'zsh-helpers-ci-step-'));
+    try {
+      const r = run('bash', step.run, { GITHUB_WORKSPACE: ROOT, CODEX_HOME: codexHome });
+      expect(r.code).toBe(0);
+      expect(r.stdout).toMatch(/CODEX_MODEL: \S+ \(exec; source: /);
+    } finally { fs.rmSync(codexHome, { recursive: true, force: true }); }
+  });
 });
