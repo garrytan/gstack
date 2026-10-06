@@ -582,6 +582,22 @@ hooks stay.
 
 ## Browser
 
+<a id="browse-runtime-version-skew"></a>
+### `[browse] this install's browse CLI (<root>, build <hash>) and the gstack checkout's server bundle (<checkout>, build <hash>) are from different builds, so the server was not started. ...`
+
+**Meaning.** On Windows a host runtime root (`~/.codex/skills/gstack` and the
+other env-var hosts) holds a copy of browse with no `node_modules`, so its CLI
+starts the server bundle in the gstack checkout recorded in `.source-path`.
+The checkout was rebuilt (or updated) without refreshing this runtime root, so
+the two builds differ and browse refuses rather than run a mismatched server.
+
+**Fix.** Re-run setup from the checkout named in the message; it rebuilds and
+refreshes every runtime root:
+
+```bash
+cd <checkout> && ./setup
+```
+
 <a id="browse-chain-no-flow"></a>
 ### `[browse] chain: no flow to run (stdin was empty)` (or `stdin is a terminal`, `stdin could not be read (EAGAIN)`)
 

@@ -340,6 +340,36 @@ describe('#3026: a Windows runtime root without node_modules runs the source che
     }
   });
 
+  test('same build on both sides -> the checkout bundle; different builds -> refusal with the ./setup fix and anchor', () => {
+    const { BROWSE_VERSION_SKEW_ANCHOR } = require('../src/cli');
+    const l = layout({ runtimeModules: false, sourcePath: true, sourceModules: true });
+    const version = (root: string, v: string) => fs.writeFileSync(path.join(root, 'browse', 'dist', '.version'), `${v}\n`);
+    try {
+      version(l.runtime, 'a'.repeat(40));
+      version(l.source, 'a'.repeat(40));
+      expect(resolveNodeServerScript('/$bunfs/root', l.exe)).toBe(path.join(l.source, 'browse', 'dist', 'server-node.mjs'));
+      version(l.source, 'b'.repeat(40));
+      let message = '';
+      try { resolveNodeServerScript('/$bunfs/root', l.exe); } catch (err: any) { message = err.message; }
+      expect(message).toContain(`build ${'a'.repeat(12)}`);
+      expect(message).toContain(`build ${'b'.repeat(12)}`);
+      expect(message).toContain('are from different builds, so the server was not started');
+      expect(message).toContain(`Fix: cd "${l.source}" && ./setup`);
+      expect(message).toContain(BROWSE_VERSION_SKEW_ANCHOR);
+      expect(BROWSE_VERSION_SKEW_ANCHOR).toBe('https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#browse-runtime-version-skew');
+      // resolveServerLaunch surfaces the same refusal on Windows.
+      expect(() => require('../src/cli').resolveServerLaunch('win32', {}, '/$bunfs/root', l.exe)).toThrow('different builds');
+    } finally { fs.rmSync(l.base, { recursive: true, force: true }); }
+  });
+
+  test('an unversioned build on either side is not called skew', () => {
+    const l = layout({ runtimeModules: false, sourcePath: true, sourceModules: true });
+    try {
+      fs.writeFileSync(path.join(l.runtime, 'browse', 'dist', '.version'), 'abc\n');
+      expect(resolveNodeServerScript('/$bunfs/root', l.exe)).toBe(path.join(l.source, 'browse', 'dist', 'server-node.mjs'));
+    } finally { fs.rmSync(l.base, { recursive: true, force: true }); }
+  });
+
   test('setup records the source checkout in every runtime root it links', () => {
     const setup = fs.readFileSync(path.resolve(__dirname, '../../setup'), 'utf8');
     const fn = setup.slice(setup.indexOf('_link_runtime_dists() {'), setup.indexOf('\n}\n', setup.indexOf('_link_runtime_dists() {')));

@@ -121,17 +121,34 @@ function reachesPlaywright(script: string): boolean {
  * copies of browse/dist and no node_modules, so its server-node.mjs cannot
  * import playwright. setup records the source checkout in the root's
  * .source-path; run that checkout's bundle, which sits beside node_modules.
+ * Refuses (throws) when the two builds differ.
  */
 function sourceServerScript(execPath: string): string | null {
+  const root = path.resolve(path.dirname(execPath), '..', '..');
+  let source: string;
   try {
-    const root = path.resolve(path.dirname(execPath), '..', '..');
-    const source = fs.readFileSync(path.join(root, '.source-path'), 'utf8').trim();
-    const script = path.join(source, 'browse', 'dist', 'server-node.mjs');
-    return path.isAbsolute(source) && fs.existsSync(script) && reachesPlaywright(script) ? script : null;
+    source = fs.readFileSync(path.join(root, '.source-path'), 'utf8').trim();
   } catch {
     return null;
   }
+  const script = path.join(source, 'browse', 'dist', 'server-node.mjs');
+  if (!path.isAbsolute(source) || !fs.existsSync(script) || !reachesPlaywright(script)) return null;
+  // The CLI here and the checkout's server must come from the same build
+  // (both write browse/dist/.version); a checkout rebuilt without refreshing
+  // this root would otherwise run a server its CLI does not match.
+  const cliVersion = readVersionHash(execPath);
+  const serverVersion = readVersionHash(script);
+  if (cliVersion && serverVersion && cliVersion !== serverVersion) {
+    throw new Error(
+      `this install's browse CLI (${root}, build ${cliVersion.slice(0, 12)}) and the gstack checkout's server bundle ` +
+      `(${source}, build ${serverVersion.slice(0, 12)}) are from different builds, so the server was not started. ` +
+      `Fix: cd "${source}" && ./setup (rebuilds and refreshes every runtime root). ${BROWSE_VERSION_SKEW_ANCHOR}`,
+    );
+  }
+  return script;
 }
+
+export const BROWSE_VERSION_SKEW_ANCHOR = 'https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#browse-runtime-version-skew';
 
 /**
  * Which server to start, resolved only when a server is actually started
