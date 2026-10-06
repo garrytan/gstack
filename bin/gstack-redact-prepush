@@ -248,7 +248,10 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): string |
 }
 
 /** Return the added-line text for a ref update being pushed. */
-function addedLinesFor(localSha: string, remoteSha: string): string {
+/** Added lines grouped by the file they were added to (`+++ b/` path; empty when unknown). */
+interface AddedFile { file: string; text: string }
+
+function addedLinesFor(localSha: string, remoteSha: string): AddedFile[] {
   // Preferred ONLY when this push carries catch-up commits: scanning them again
   // is the bug. Every other shape falls through to the range logic below.
   const fromNew = addedLinesFromNewCommits(localSha, remoteSha);
@@ -284,8 +287,8 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
  * Added-line text from a unified diff. Shared by both range strategies so the
  * hunk-aware header handling below cannot drift between them.
  */
-function collectAddedLines(diff: string): string {
-  const added: string[] = [];
+function collectAddedLines(diff: string): AddedFile[] {
+  const added: AddedFile[] = [];
   // Hunk-aware header skip (#2498): `+++ ` is only a FILE HEADER outside a
   // hunk. Inside a hunk, an added content line whose text begins with "++"
   // renders as "+++<content>" — the old blanket startsWith("+++") skip
@@ -294,7 +297,8 @@ function collectAddedLines(diff: string): string {
   let file = "";
   let fileLines: string[] = [];
   const flush = () => {
-    added.push(...releaseVersionExempt(file, fileLines));
+    const lines = releaseVersionExempt(file, fileLines);
+    if (lines.length) added.push({ file, text: lines.join("\n") });
     fileLines = [];
   };
   for (const line of diff.split("\n")) {
@@ -309,7 +313,7 @@ function collectAddedLines(diff: string): string {
     if (line.startsWith("+")) fileLines.push(line.slice(1));
   }
   flush();
-  return added.join("\n");
+  return added;
 }
 
 const VERSION_FILE_CONTENT = /^\d+(?:\.\d+)+$/;
@@ -492,7 +496,7 @@ function main() {
       process.exit(1);
     }
     if (ZERO.test(localSha!)) continue; // branch delete → nothing pushed
-    let added: string;
+    let added: AddedFile[];
     try {
       added = addedLinesFor(localSha, remoteSha || "0");
     } catch (err) {
@@ -507,14 +511,17 @@ function main() {
       );
       process.exit(1);
     }
-    if (!added.trim()) continue;
+    if (!added.some((part) => part.text.trim())) continue;
     // Visibility doesn't change HIGH behavior; pass private so nothing is treated
     // as public-strict (HIGH blocks regardless either way).
     // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
     // scanned rather than blocked unscanned on the engine's size cap.
-    for (const f of scanAddedLines(added, { repoVisibility: "private" })) {
-      if (f.severity === "HIGH") allHigh.push(f);
-      else if (f.severity === "MEDIUM") mediumCount++;
+    // Scanned per file so a pattern can use the file's type (#3048).
+    for (const part of added) {
+      for (const f of scanAddedLines(part.text, { repoVisibility: "private", ...(part.file ? { sourcePath: part.file } : {}) })) {
+        if (f.severity === "HIGH") allHigh.push(f);
+        else if (f.severity === "MEDIUM") mediumCount++;
+      }
     }
   }
 

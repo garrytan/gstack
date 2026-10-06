@@ -638,3 +638,27 @@ describe("diff-extraction bypasses (#2498, minimal reimplementation)", () => {
     expect(stderr).toContain("could not parse");
   });
 });
+
+describe("#3048: the pushed diff is scanned per file, so TS/JSX source syntax is not a secret", () => {
+  const mediums = (stderr: string): number => Number(/(\d+) MEDIUM finding/.exec(stderr)?.[1] ?? 0);
+  test("a TS parameter type and a JSX expression raise nothing; the same shape in YAML still does", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    for (const [file, content] of [
+      ["src/coach.ts", "export function issue(\n  session: SessionState,\n): void {}\n"],
+      ["src/Turn.tsx", "<Row key={turn.requestId + turn.role} />\n"],
+    ] as const) {
+      fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+      fs.writeFileSync(path.join(repo, file), content);
+      git(["add", file]);
+    }
+    git(["commit", "-q", "-m", "ts"]);
+    const tsHead = git(["rev-parse", "HEAD"]);
+    expect(mediums(runHook(`refs/heads/main ${tsHead} refs/heads/main ${base}\n`).stderr)).toBe(0);
+    fs.mkdirSync(path.join(repo, "deploy"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "deploy", "values.yaml"), "  session: SessionState,\n");
+    git(["add", "deploy/values.yaml"]);
+    git(["commit", "-q", "-m", "yaml"]);
+    const yamlHead = git(["rev-parse", "HEAD"]);
+    expect(mediums(runHook(`refs/heads/main ${yamlHead} refs/heads/main ${tsHead}\n`).stderr)).toBe(1);
+  });
+});

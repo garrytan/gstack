@@ -217,6 +217,8 @@ function buildOpts(): ScanOptions {
     selfEmail: arg("--self-email"),
     repoPublicEmails: readLines(arg("--repo-public-emails")),
     ...(maxBytesOpt !== undefined ? { maxBytes: maxBytesOpt } : {}),
+    // The scanned file's path lets patterns tell TS/JSX source syntax from a literal (#3048).
+    ...(arg("--from-file") ? { sourcePath: arg("--from-file") } : {}),
   };
 }
 

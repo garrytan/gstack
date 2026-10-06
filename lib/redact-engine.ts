@@ -69,6 +69,12 @@ export interface ScanOptions {
   repoPublicEmails?: string[];
   /** Hard byte cap. Oversize input fails CLOSED. Default 1 MiB. */
   maxBytes?: number;
+  /**
+   * Path of the file the input came from, when known (the pre-push hook's
+   * `+++ b/` path, `--from-file`). Lets a pattern tell source syntax from a
+   * literal: in a TypeScript/JSX file `session: SessionState,` is a type.
+   */
+  sourcePath?: string;
 }
 
 export interface ScanResult {
@@ -399,7 +405,7 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
       if (allow.has(span)) continue;
 
       // Pattern-specific validators (Luhn, entropy, RFC1918, etc).
-      if (pat.validate && !pat.validate(span, m)) continue;
+      if (pat.validate && !pat.validate(span, m, opts)) continue;
 
       // Proximity requirement.
       if (

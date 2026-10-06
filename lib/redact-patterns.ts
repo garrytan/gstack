@@ -65,7 +65,7 @@ export interface RedactPattern {
    * (crypto wallets), RFC1918-exclusion (public IPs), etc. Receives the
    * matched secret span (group 1 or match[0]) and the full match array.
    */
-  validate?: (span: string, match: RegExpExecArray) => boolean;
+  validate?: (span: string, match: RegExpExecArray, opts?: { sourcePath?: string }) => boolean;
   /**
    * Proximity requirement: the pattern only counts if `nearRegex` also matches
    * within `nearWindow` chars of the match. Used for AWS secret keys (need
@@ -590,33 +590,30 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
 }
 
 /**
- * #3048: an unquoted value that names code is source syntax, not a literal:
- * a TypeScript parameter or property type (`session: SessionState,`) or a JSX
- * expression (`key={turn.requestId + turn.role}`, `apiKey={settings.apiKey}`).
- * A code name has no digits and reads as words: every camelCase/dotted part
- * is 2+ letters, they average 3+ letters, and each 3+ letter part has a vowel.
- * Random tokens fail that (mixed case gives 1-letter parts; most hold digits).
- * The bare form needs a code terminator (`,` `;` `)`) and no quote before it;
- * the JSX form needs its closing brace on the line and no quoted literal.
+ * #3048: in a TypeScript/JSX file, an unquoted value after `:` is a type or an
+ * expression, never a string literal (`session: SessionState,`), and a JSX
+ * brace holding only names and property reads (`key={turn.requestId + turn.role}`)
+ * is an expression. Decided by file context, not by how the value looks:
+ * `API_KEY=VelvetRiverOrbitSunset;` in a .env or YAML file is still a literal.
+ * Without a known TS/JSX path nothing is exempt.
  */
-function readsAsCodeName(text: string): boolean {
-  if (!/^[A-Za-z_$][A-Za-z_$]*(?:\.[A-Za-z_$][A-Za-z_$]*)*$/.test(text)) return false;
-  const parts = text.split(/[._$]+|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/).filter(Boolean);
-  return parts.length > 0 && parts.every(p => p.length >= 2 && (p.length < 3 || /[aeiouy]/i.test(p))) &&
-    parts.reduce((n, p) => n + p.length, 0) / parts.length >= 3;
-}
+const TS_SOURCE = /\.(?:[cm]?tsx?|jsx)$/i;
+const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s<>[\]|]*>)?(?:\[\])*$/;
 
-function isCodeReference(span: string, match: RegExpExecArray): boolean {
+function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !TS_SOURCE.test(sourcePath)) return false;
   const { start } = spanBounds(match);
-  if (match.input[start - 1] === '"' || match.input[start - 1] === "'") return false;
+  const before = match.input[start - 1];
+  if (before === '"' || before === "'" || before === "`") return false;
   if (span.startsWith("{")) {
     const line = match.input.slice(start + 1).split("\n", 1)[0];
     const close = line.indexOf("}");
     if (close < 0 || /["'`]/.test(line.slice(0, close))) return false;
-    return line.slice(0, close).split("+").every(term => readsAsCodeName(term.trim()));
+    return line.slice(0, close).split("+").every(term => CODE_NAME_CHAIN.test(term.trim()));
   }
-  const m = span.match(/^(.+?)[,;)]+$/);
-  return m !== null && readsAsCodeName(m[1]!);
+  const separator = match[0].slice(0, match[0].length - span.length).trimEnd().slice(-1);
+  if (separator !== ":") return false;
+  return CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""));
 }
 
 export const PATTERNS: RedactPattern[] = [
@@ -893,14 +890,14 @@ export const PATTERNS: RedactPattern[] = [
     // literal (`os.getenv("X", "<secret>")`). A literal appended to the read
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
     // #2899: a function call assigned to the name is code, not a value (see
-    // isCallExpression). #3048: so is a type or JSX expression (isCodeReference).
-    validate: (span, match) =>
+    // isCallExpression). #3048: so is a TS/JSX type or expression (isSourceExpression).
+    validate: (span, match, opts) =>
       isCredentialShapedEnvName(match[0]) &&
       !isPlaceholderSpan(span) &&
       !/^\$\{?[A-Za-z_]/.test(span) &&
       !isBareEnvRead(span, match) &&
       !isCallExpression(span, match) &&
-      !isCodeReference(span, match) &&
+      !isSourceExpression(span, match, opts?.sourcePath) &&
       shannonEntropy(span) >= 3.0,
   },
   {
