@@ -49,7 +49,7 @@ export function docsCandidate(repo: string, auditId: string, mode: 'edit' | 'rea
 }
 
 export function fixtureDocs(scenario: DocsScenario, generatedRoot = process.env.DOCSYNC_GENERATED_ROOT || DOCSYNC_ROOT) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-'));
+  const home = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ds-')));
   const repo = path.join(home, 'repo');
   const skills = path.join(home, '.claude/skills/gstack');
   fs.mkdirSync(repo);

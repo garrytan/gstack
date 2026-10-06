@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, parse } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ClaudeAdapter, claudeExecArgs, claudeExecEnvironment, claudeExecWorkingDirectory, claudeProducerPaths, resultFromClaudeOutput } from './helpers/providers/claude';
 import { codexExecArgs, codexExecEnvironment, codexExecWorkingDirectory, codexProducerConfig, codexProducerPaths, GptAdapter, resultFromCodexStream } from './helpers/providers/gpt';
@@ -14,6 +14,7 @@ let saved: Record<string, string | undefined>;
 let workdir: string;
 
 describe('CSO producer provider policies', () => {
+  const fixtureBase = join(parse(tmpdir()).root, 'gstack-provider-policy');
   const suffix = process.platform === 'win32' ? '.exe' : '';
   const helperAt = (directory: string) => join(directory, `gstack-cso-launcher${suffix}`);
   const providerAt = (directory: string) => ({ executable: join(directory, `provider${suffix}`), argsPrefix: [] as string[] });
@@ -22,7 +23,7 @@ describe('CSO producer provider policies', () => {
   });
 
   test('keeps exact Codex read-only defaults and gives the producer a custom least-privilege profile', () => {
-    const providerWorkdir = join(tmpdir(), 'gstack-provider-work');
+    const providerWorkdir = join(fixtureBase, 'gstack-provider-work');
     const common = { prompt: 'Reply OK', workdir: providerWorkdir, timeoutMs: 5000 };
     expect(codexExecArgs(common, 'gpt-test')).toEqual([
       'exec', 'Reply OK', '-C', providerWorkdir,
@@ -63,7 +64,7 @@ describe('CSO producer provider policies', () => {
   });
 
   test('keeps exact Claude defaults and enables its producer-only noninteractive safe policy', () => {
-    const work = join(tmpdir(), 'gstack-claude-work');
+    const work = join(fixtureBase, 'gstack-claude-work');
     const state = join(work, 'state');
     const source = join(work, 'source');
     const helper = helperAt(join(work, 'installed'));
@@ -89,7 +90,7 @@ describe('CSO producer provider policies', () => {
   });
 
   test('keeps exact Gemini defaults and replaces deprecated yolo only for the producer', () => {
-    const work = join(tmpdir(), 'gstack-gemini-work');
+    const work = join(fixtureBase, 'gstack-gemini-work');
     const state = join(work, 'state');
     const source = join(work, 'source');
     const helper = helperAt(join(work, 'installed'));
@@ -127,7 +128,7 @@ describe('CSO producer provider policies', () => {
   });
 
   test('passes only selected provider auth plus safe execution inputs and strips Docker credentials', () => {
-    const fixtureRoot = join(tmpdir(), 'gstack-provider-environment-policy');
+    const fixtureRoot = join(fixtureBase, 'gstack-provider-environment-policy');
     const state = join(fixtureRoot, 'state');
     const source = join(fixtureRoot, 'source');
     const helpers = join(fixtureRoot, 'helpers');
@@ -174,7 +175,7 @@ describe('CSO producer provider policies', () => {
   });
 
   test('preserves default provider environments and rejects producer escape-hatch arguments', () => {
-    const fixtureRoot = join(tmpdir(), 'gstack-provider-default-policy');
+    const fixtureRoot = join(fixtureBase, 'gstack-provider-default-policy');
     const state = join(fixtureRoot, 'state');
     const source = join(fixtureRoot, 'source');
     const helpers = join(fixtureRoot, 'helpers');

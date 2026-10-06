@@ -30,7 +30,7 @@ const workflows = ['evals.yml', 'evals-periodic.yml'].map(name => ({
 
 describe('paid CI coordination stays off the eval image', () => {
   test('the actual planner and reporter load from a checkout without installed packages', () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'paid-offline-'));
+    const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'paid-offline-')));
     const listed = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', timeout: 5_000 });
     expect(listed.status, listed.stderr).toBe(0);
     try {
@@ -184,7 +184,7 @@ describe('dependency-free CI planner and report execution', () => {
   let fixture: string;
 
   beforeAll(() => {
-    fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-paid-coordination-'));
+    fixture = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ci-paid-coordination-')));
     const sourceOnly = { recursive: true, filter: (file: string) => path.basename(file) !== 'node_modules' };
     fs.cpSync(path.join(ROOT, 'scripts'), path.join(fixture, 'scripts'), sourceOnly);
     fs.cpSync(path.join(ROOT, 'test/helpers'), path.join(fixture, 'test/helpers'), sourceOnly);
