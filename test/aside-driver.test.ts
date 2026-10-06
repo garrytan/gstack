@@ -263,10 +263,12 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     expect(prelude).toContain('--no-payload aside exec "$@"');
     // Fail-open: without the lib the wrapper still runs the send.
     expect(prelude).toContain('else aside exec "$@"; fi');
-    const reading = cookbook.match(/\*\*Open-ended reading through Aside's own agent\*\*[\s\S]*?```bash\n([\s\S]*?)```/)![1];
+    const [, promptFile, reading] = cookbook.match(/\*\*Open-ended reading through Aside's own agent\*\*[\s\S]*?```bash\n([\s\S]*?)```[\s\S]*?```bash\n([\s\S]*?)```/)!;
+    // CEO-12: the question travels in an agent-written file, never in the command.
+    expect(promptFile).toContain('PROMPT_FILE=$(mktemp "$_GT/aside-prompt.XXXXXX")');
     // Prelude and call share ONE bash block (blocks are separate shells).
     expect(reading.startsWith(prelude + '\n')).toBe(true);
-    expect(reading).toContain('\n_aside_exec "Open <url>. Read-only, do not submit or change anything.');
+    expect(reading).toContain('\n_aside_exec "Open <url>. Read-only, do not submit or change anything. $(cat "$PROMPT_FILE") Then stop."');
     expect(cookbook).not.toMatch(BARE_ASIDE_EXEC);
     expect(setup).not.toMatch(BARE_ASIDE_EXEC);
   });
@@ -404,15 +406,18 @@ describe('web research ({{ASIDE_RESEARCH}})', () => {
 
   test('the research send goes through _aside_exec with the cookbook\'s exact prelude (never bare aside exec)', () => {
     expect(research).not.toMatch(BARE_ASIDE_EXEC);
-    expect(research).toContain('_aside_exec "Search the web for <query>. Read-only: do not sign in, submit, or change anything.');
+    // CEO-12: the query travels in an agent-written file; the read-only rule stays in the shell.
+    expect(research).toContain('_aside_exec "Search the web for $(cat "$PROMPT_FILE") Read-only: do not sign in, submit, or change anything.');
     // The READY block is a nested list item, so the prelude renders indented by two spaces — same bytes otherwise.
     const prelude = asideExecPrelude(ctx);
-    expect(research).toContain('  ```bash\n  ' + prelude.replace(/\n/g, '\n  ') + '\n  _aside_exec "Search the web');
+    expect(research).toContain('  ```bash\n  ' + prelude.replace(/\n/g, '\n  ') + '\n  PROMPT_FILE="');
     const dedent = (s: string) => s.split('\n').map(l => l.replace(/^  /, '')).join('\n');
-    const researchBlock = research.match(/  ```bash\n([\s\S]*?)\n  _aside_exec "Search the web/)![1];
-    const cookbookBlock = cookbook.match(/\*\*Open-ended reading through Aside's own agent\*\*[\s\S]*?```bash\n([\s\S]*?)\n_aside_exec "Open <url>/)![1];
-    expect(dedent(researchBlock)).toBe(cookbookBlock);
-    expect(cookbookBlock).toBe(prelude);
+    const researchBlock = research.match(/  ```bash\n  (_EG=[\s\S]*?)\n  _aside_exec "Search the web/)![1];
+    const cookbookBlock = cookbook.match(/```bash\n(_EG=[\s\S]*?)\n_aside_exec "Open <url>/)![1];
+    // Same prelude and same prompt-file rebuild; only the by-hand command in the refusal differs.
+    const head = (b: string) => b.split('\n').slice(0, 2).join('\n');
+    expect(head(dedent(researchBlock))).toBe(head(cookbookBlock));
+    expect(cookbookBlock.split('\n')[0]).toBe(prelude);
   });
 
   test('the test-bootstrap research step (B2) routes through the same _aside_exec prelude', () => {

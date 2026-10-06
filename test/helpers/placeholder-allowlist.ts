@@ -158,4 +158,7 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<keyword3>': { grammar: QUOTED, what: 'search word', quoted: true },
   '<tests>': { grammar: QUOTED, what: 'test command', quoted: true },
   '<vitest>': { grammar: QUOTED, what: 'test command', quoted: true },
+
+  // A3 group 1 (Aside prompts, design briefs, design approval feedback): mktemp basenames.
+  '<prompt-file-name>': { grammar: ID, what: 'basename of the mktemp Aside prompt file printed by the previous block' },
 };

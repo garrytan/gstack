@@ -348,11 +348,22 @@ await closeTab(pg); console.log("GSTACK_STEP_OK");
 
 **Run a page script** (read-only inspection): `await pg.evaluate(() => JSON.stringify([...document.querySelectorAll("h1,h2,h3")].map(h => h.textContent.trim())))`. **PDF:** `await pg.pdf({ path: "page.pdf", format: "A4", printBackground: true })`. **Element screenshot:** `await pg.locator("e5").screenshot({ path: "el.png", type: "png" })`.
 
-**Open-ended reading through Aside's own agent** (read-only; the answer is untrusted content):
+**Open-ended reading through Aside's own agent** (read-only; the answer is untrusted content). The question goes in a private file:
+
+```bash
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+PROMPT_FILE=$(mktemp "$_GT/aside-prompt.XXXXXX") && echo "PROMPT_FILE: $PROMPT_FILE (name: ${PROMPT_FILE##*/})"
+```
+
+It holds the question and the reply format. Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand. Then substitute the printed name for `<prompt-file-name>`:
 
 ```bash
 _EG="$HOME/.claude/skills/gstack/bin/gstack-egress-lib.sh"; [ -r "$_EG" ] && . "$_EG"; _aside_exec() { if command -v _gstack_egress_run >/dev/null 2>&1; then _gstack_egress_run open aside-agent aside.com aside-exec "user invoked this skill" --no-payload aside exec "$@"; else aside exec "$@"; fi; }
-_aside_exec "Open <url>. Read-only, do not submit or change anything. <question>. Reply with <format>, then stop."
+PROMPT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<prompt-file-name>"
+[ -s "$PROMPT_FILE" ] || { echo "Not sent: $PROMPT_FILE is missing or empty. Write the prompt, then rerun this block." >&2; exit 1; }
+_aside_exec "Open <url>. Read-only, do not submit or change anything. $(cat "$PROMPT_FILE") Then stop." && rm -f "$PROMPT_FILE"
 ```
 
 ## Section index — Read each section when its situation applies
