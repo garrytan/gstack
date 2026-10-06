@@ -3,7 +3,8 @@
 # Browser repair verification
 
 Use this section only for a browser defect. Re-run the original interaction and an
-adjacent happy path. The Phase 5 evidence is the before; capture the after now.
+adjacent happy path. The Phase 5 evidence is the before (`issue-NNN-result.jpg` for an
+interactive defect, the annotated `issue-NNN.png` for a static one); capture the after now.
 
 Use the Phase 3 read/flow script in qa-patterns with `flow = true` for interaction bugs;
 set its actions and waits to the original reproduction. For static defects use `flow = false`.

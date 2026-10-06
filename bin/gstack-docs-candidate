@@ -83,8 +83,15 @@ function one(args: string[], name: string): string {
   return values[0]!;
 }
 
+const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]...
+       gstack-docs-candidate compare <candidate.json>`;
+
 function main(argv: string[]): void {
   const [command, ...args] = argv;
+  if ((command === '--help' || command === '-h') && !args.length) {
+    console.log(USAGE);
+    return;
+  }
   if (command === 'snapshot') {
     const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs']);
     for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
@@ -131,7 +138,7 @@ function main(argv: string[]): void {
     }));
     return;
   }
-  throw new Error('usage: gstack-docs-candidate snapshot|compare (see --help in the file header)');
+  throw new Error(USAGE);
 }
 
 try { main(process.argv.slice(2)); }

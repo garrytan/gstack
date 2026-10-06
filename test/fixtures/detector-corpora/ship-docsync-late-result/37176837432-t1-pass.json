@@ -1,0 +1,94 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "ship-docsync-late-result",
+  "detector": "test/helpers/docsync-fault-eval.ts#docsActorVerdict",
+  "series_identity": "8fefdbc3860636ba",
+  "source": {
+    "run": "37176837432",
+    "sha": "7249f014648202840af294b730ac244e03ce514c",
+    "lane": "gate",
+    "artifact": "native-captures-ci-37176837432-1-gate-census-8",
+    "path": ".gstack-dev/e2e-runs/2026-10-04-0424/ship-docsync-late-result-ds-ltVwIf-fixture/state.json"
+  },
+  "census_outcome": "passed",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Gate census pass: blocked report with no unquoted current claim, no publication, and stop(settled) → repair → fresh dispatch → late-callback order.",
+  "input": {
+    "state": {
+      "root": "<ROOT>",
+      "scenario": "late-result",
+      "events": [
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a1",
+          "task_id": "fixture-child-1"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "running"
+        },
+        {
+          "action": "stop",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "inspect"
+        },
+        {
+          "action": "repair",
+          "detail": "fixture transport/marking repaired"
+        },
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a2"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a2",
+          "task_id": "fixture-child-2"
+        },
+        {
+          "action": "late-callback",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "inspect"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "fixture-child-1",
+          "audit_id": "ship-docs-a1",
+          "settled": true,
+          "stopRequested": true,
+          "elapsed_ms": 900002
+        },
+        {
+          "id": "fixture-child-2",
+          "audit_id": "ship-docs-a2",
+          "settled": true,
+          "stopRequested": false,
+          "elapsed_ms": 0
+        }
+      ],
+      "repaired": true,
+      "armed": false,
+      "lateChanged": false,
+      "acceptedId": null
+    },
+    "report": "# Ship report — documentation phase (Step 14.5)\n\nDocumentation: blocked. Base main 0c98f9280aa7fe056ba3f625472587ab80f74d9f; HEAD f98639695877951c65ae29194c9bd476fd77413d; branch feature/docs; mode edit. Stopped before Step 15; no publication.\n\n- Attempt 1 (ship-docs-a1, handle fixture-child-1): no output by the ~10-minute Collect deadline; stop requested and confirmed stopped. Evidence: completion-ship-docs-a1.md, candidate-ship-docs-a1.json.\n- Recovery: declared transport repair applied after settlement; child assets rehashed unchanged; fresh Prepare ship-docs-a2 (candidate-ship-docs-a2.json, prompt-ship-docs-a2.md).\n- Attempt 2 (ship-docs-a2): settled with SESSION_KIND: spawned, but the last-line JSON audit_id is ship-docs-a1, not ship-docs-a2. Output rejected as a late/abandoned-id result. Evidence: completion-ship-docs-a2.md.\n- Scope/paths: selected paths per candidate-ship-docs-a2.json (docs root handbook; committed change only in handbook/reference/commands/widget.md.tmpl). Both post-child inspects matched the candidate: HEAD, index and every sha256 unchanged, no staged/unstaged diffs, personal-note.txt preserved. No child writes; no partial edits retained or excluded.\n- Blockers/debt: attempt budget exhausted (2 of 2); no validated audit or accepted hashes; the widget reference change remains unaudited. Unaccepted child claims are not reused.\n- Consumed documentation_section: none accepted; no ship-docs-a2-documentation.md exists.\n- Decisions: no user risk exception approved; publish not invoked. Next: user chooses repair with a new invocation (recommended) or a specifically named documentation-risk exception.\n- Invocation record: ship-invocation.md (Checkpoints 1–3).\n",
+    "published": false
+  }
+}

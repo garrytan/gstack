@@ -104,10 +104,21 @@ function setupPlanDir(tmpPrefix: string, skillName: 'plan-ceo-review' | 'plan-en
   return planDir;
 }
 
-// The capture instruction passed to every case. Tells the agent to dump
-// AskUserQuestion content to a file instead of calling a tool.
+// The capture instruction passed to every case except the approach menu (D2).
+// Tells the agent to dump AskUserQuestion content to a file instead of calling a tool.
 function captureInstruction(outFile: string): string {
   return `Write the verbatim text of every AskUserQuestion you would have made to ${outFile} (one question per session, full text including options and recommendation line). Do NOT call any tool to ask the user. Do NOT paraphrase — include the exact prose you would have shown. This is a format-capture test, not an interactive session.`;
+}
+
+/**
+ * D2: both approach-menu refusals in census 37195203538 (Fable 5.1,
+ * `reasoning_extraction`, "duplicating model outputs") were anchored on the
+ * session prompt. This wording delivers the same question to the file as the
+ * step's output, without the "verbatim ... exact prose ... format-capture"
+ * phrasing.
+ */
+function approachQuestionInstruction(outFile: string): string {
+  return `This session has no interactive question tool, so do not call any tool to ask the user. Write the one AskUserQuestion this step asks to ${outFile} instead: the question text, every option, and the Recommendation line, formatted as the skill specifies.`;
 }
 
 // --- Case 1: plan-ceo-review mode selection (kind-differentiated) ---
@@ -207,7 +218,7 @@ Read plan.md — that's the plan to review. This is a standalone plan document, 
 
 Proceed to Alternatives (the implementation approach menu). This is where the skill generates 2-3 approaches (minimal viable vs ideal architecture) and presents them via AskUserQuestion. These options differ in coverage (complete vs shortcut), so Completeness: N/10 applies.
 
-${captureInstruction(outFile)}
+${approachQuestionInstruction(outFile)}
 
 After writing the file, stop. Do not continue the review.`,
         workingDirectory: planDir,

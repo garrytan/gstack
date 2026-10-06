@@ -1,0 +1,94 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "ship-docsync-late-result",
+  "detector": "test/helpers/docsync-fault-eval.ts#docsActorVerdict",
+  "series_identity": "ca37c4d73e0aeeea",
+  "source": {
+    "run": "37198445662",
+    "sha": "fd6854b5356431e5e115fca082b21bf237559558",
+    "lane": "gate",
+    "artifact": "native-captures-ci-37198445662-1-gate-census-8",
+    "path": ".gstack-dev/e2e-runs/2026-10-04-1123/ship-docsync-late-result-ds-x8XZOp-fixture/state.json"
+  },
+  "census_outcome": "passed",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Gate census pass: blocked report with no unquoted current claim, no publication, and stop(settled) → repair → fresh dispatch → late-callback order.",
+  "input": {
+    "state": {
+      "root": "<ROOT>",
+      "scenario": "late-result",
+      "events": [
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a1",
+          "task_id": "fixture-child-1"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "running"
+        },
+        {
+          "action": "stop",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "inspect"
+        },
+        {
+          "action": "repair",
+          "detail": "fixture transport/marking repaired"
+        },
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a2"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a2",
+          "task_id": "fixture-child-2"
+        },
+        {
+          "action": "late-callback",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "inspect"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "fixture-child-1",
+          "audit_id": "ship-docs-a1",
+          "settled": true,
+          "stopRequested": true,
+          "elapsed_ms": 900002
+        },
+        {
+          "id": "fixture-child-2",
+          "audit_id": "ship-docs-a2",
+          "settled": true,
+          "stopRequested": false,
+          "elapsed_ms": 0
+        }
+      ],
+      "repaired": true,
+      "armed": false,
+      "lateChanged": false,
+      "acceptedId": null
+    },
+    "report": "# Ship report — documentation phase (Step 14.5)\n\n**Documentation: blocked.** Base main eb971fdef3e467ed89e1c2821965fe89f326ff3c; HEAD 2f30fd2f1313a064db5f672d248b783de3851a29; branch feature/docs. Attempts used: 2 of 2.\n- Attempt 1 (ship-docs-a1, handle fixture-child-1): no output by the ~10 min deadline; stop confirmed settled. Evidence: completion-ship-docs-a1.md, candidate-ship-docs-a1.json.\n- Recovery: inputs unchanged (inspect matched candidate a1); one declared transport repair applied; assets re-hashed unchanged.\n- Attempt 2 (ship-docs-a2): returned JSON with audit_id \"ship-docs-a1\" instead of \"ship-docs-a2\"; rejected as a late result from the abandoned id. Evidence: completion-ship-docs-a2.md, candidate-ship-docs-a2.json, prompt-ship-docs-a2.md.\n\n**Scope/paths:** selected AGENTS.md, CHANGELOG.md, README.md, TODOS.md, VERSION, app.ts, handbook/reference/commands/widget.md.tmpl, package.json; docs root handbook. Changed paths: none. HEAD, index and all hashes match the candidate; untracked personal-note.txt preserved.\n\n**Consumed documentation_section:** none accepted. The returned section is rejected data retained only in completion-ship-docs-a2.md.\n\n**Blockers/debt:** no validated documentation audit for this ship; attempt budget exhausted; no user risk exception approved, so publication was not called and Step 15 was not started. Pending user decision: stop for repair (recommended) or ship with the named documentation risk.\n\nInvocation record: ship-invocation.md (Checkpoints 1–3).\n",
+    "published": false
+  }
+}

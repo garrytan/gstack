@@ -1,0 +1,74 @@
+[
+  {
+    "run": "37174266054",
+    "lane": "periodic",
+    "outcome": "failed",
+    "series_identity": "bbcc80998be9c465",
+    "artifact": "paid-slice-5-a1",
+    "available": true,
+    "entry": "37174266054-t1-fail.json"
+  },
+  {
+    "run": "37176837432",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "bba88e411dd393e2",
+    "artifact": "paid-slice-5-a1",
+    "available": true,
+    "entry": "37176837432-t1-pass.json"
+  },
+  {
+    "run": "37179171083",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "bba88e411dd393e2",
+    "artifact": "paid-slice-5-a1",
+    "available": true,
+    "entry": "37179171083-t1-pass.json"
+  },
+  {
+    "run": "37182865432",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "531a8389999349df",
+    "artifact": "paid-slice-5-a1",
+    "available": true,
+    "entry": "37182865432-t1-pass.json"
+  },
+  {
+    "run": "37186854666",
+    "lane": "periodic",
+    "outcome": "failed",
+    "series_identity": "531a8389999349df",
+    "artifact": "paid-slice-5-a1",
+    "available": true,
+    "entry": "37186854666-t1-fail.json"
+  },
+  {
+    "run": "37193478719",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "cce38d7a8c76aedf",
+    "artifact": "paid-slice-5-a1",
+    "available": true,
+    "entry": "37193478719-t1-pass.json"
+  },
+  {
+    "run": "37195203538",
+    "lane": "periodic",
+    "outcome": "failed",
+    "series_identity": "cce38d7a8c76aedf",
+    "artifact": "paid-slice-5-a1",
+    "available": true,
+    "entry": "37195203538-t1-fail.json"
+  },
+  {
+    "run": "37198445662",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "b9d17145a5c36105",
+    "artifact": "paid-slice-5-a1",
+    "available": true,
+    "entry": "37198445662-t1-pass.json"
+  }
+]

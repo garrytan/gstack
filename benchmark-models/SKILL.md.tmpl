@@ -37,7 +37,7 @@ Different from `/benchmark` — that skill measures web page performance (Core W
 ## Step 0: Locate the binary
 
 ```bash
-BIN="$HOME/.claude/skills/gstack/bin/gstack-model-benchmark"
+BIN="{{RUNTIME_ROOT}}/bin/gstack-model-benchmark"
 [ -x "$BIN" ] || BIN=".claude/skills/gstack/bin/gstack-model-benchmark"
 [ -x "$BIN" ] || { echo "ERROR: gstack-model-benchmark not found. Run ./setup in the gstack install dir." >&2; exit 1; }
 echo "BIN: $BIN"

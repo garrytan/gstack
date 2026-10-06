@@ -26,6 +26,15 @@ describe('docs/troubleshooting.md anchors', () => {
     for (const outcome of Object.values(GATE_OUTCOMES)) expect(outcome.fix.trim().length).toBeGreaterThan(0);
   });
 
+  test('every docs/troubleshooting.md#anchor that setup or a bin script prints exists', () => {
+    const sources = ['setup', ...fs.readdirSync(path.join(ROOT, 'bin')).map(f => `bin/${f}`)]
+      .filter(f => fs.statSync(path.join(ROOT, f)).isFile());
+    const linked = sources.flatMap(f => [...fs.readFileSync(path.join(ROOT, f), 'utf8').matchAll(/troubleshooting\.md#([a-z0-9-]+)/g)]
+      .map(m => `${f} -> #${m[1]}`));
+    expect(linked.length).toBeGreaterThan(0);
+    expect(linked.filter(l => !anchors.has(l.split('#')[1]!))).toEqual([]);
+  });
+
   test('outcome lines follow the not run / unavailable / unverified shapes', () => {
     const line = (code: GateReason, detail?: string) => gateOutcomeLine('Codex outside review', code, detail);
     expect(line('disabled')).toBe('Codex outside review: not run (outside reviews are turned off (codex_reviews=disabled)). Fix: gstack-config set codex_reviews enabled.');

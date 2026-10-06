@@ -68,3 +68,72 @@ describe.skipIf(process.platform === 'win32')('upgrade setup recovery (real shel
     }
   });
 });
+
+// /gstack-upgrade checks the incoming release's Bun floor before pulling, with
+// the auto-updater's helper: below it the checkout and installs stay untouched.
+describe.skipIf(process.platform === 'win32')('upgrade Bun floor (real git)', () => {
+  const git = (cwd: string, ...args: string[]) =>
+    spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+
+  function fixture(floor: string, bunVersion: string) {
+    const root = mkdtempSync(join(tmpdir(), 'upgrade-bun-floor-'));
+    const origin = join(root, 'origin.git');
+    const seed = join(root, 'seed');
+    const install = join(root, 'install');
+    const stub = join(root, 'stub');
+    for (const dir of [join(seed, 'bin'), stub]) mkdirSync(dir, { recursive: true });
+    spawnSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
+    const helper = readFileSync(join(import.meta.dir, '../bin/gstack-bun-version.sh'), 'utf8');
+    writeFileSync(join(seed, 'bin', 'gstack-bun-version.sh'), helper);
+    writeFileSync(join(seed, 'bin', 'gstack-config'), '#!/bin/sh\n', { mode: 0o755 });
+    writeFileSync(join(seed, 'VERSION'), '1.0.0\n');
+    writeFileSync(join(seed, 'setup'), '#!/bin/sh\necho ran >> "$SETUP_LOG"\n', { mode: 0o755 });
+    git(seed, 'init', '-q', '-b', 'main');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-qm', 'seed');
+    git(seed, 'remote', 'add', 'origin', origin);
+    git(seed, 'push', '-q', 'origin', 'main');
+    spawnSync('git', ['clone', '-q', origin, install], { timeout: 30_000 });
+    writeFileSync(join(seed, 'bin', 'gstack-bun-version.sh'),
+      helper.replace(/^GSTACK_BUN_FLOOR="[^"]*"/m, `GSTACK_BUN_FLOOR="${floor}"`));
+    writeFileSync(join(seed, 'VERSION'), '1.1.0\n');
+    git(seed, 'commit', '-aqm', 'release 1.1.0');
+    git(seed, 'push', '-q', 'origin', 'main');
+    writeFileSync(join(stub, 'bun'), `#!/bin/sh\necho ${bunVersion}\n`, { mode: 0o755 });
+    const before = git(install, 'rev-parse', 'HEAD');
+    const result = spawnSync('bash', ['-c', blockAfter('**For git installs**')], {
+      cwd: root, encoding: 'utf8', timeout: 30_000,
+      env: { ...process.env, PATH: `${stub}:${process.env.PATH}`, INSTALL_DIR: install, SETUP_LOG: join(root, 'setup.log') },
+    });
+    return { root, install, stub, before, result, after: git(install, 'rev-parse', 'HEAD'),
+      setupRan: existsSync(join(root, 'setup.log')), version: readFileSync(join(install, 'VERSION'), 'utf8') };
+  }
+
+  test('below the incoming floor: stops before the pull with the held reason', () => {
+    const fx = fixture('9.0.0', '1.4.0');
+    try {
+      expect(fx.result.status).toBe(1);
+      expect(fx.result.stderr).toContain(
+        `BUN_TOO_OLD: bun-too-old: found Bun 1.4.0 at ${join(fx.stub, 'bun')}; gstack 1.1.0 needs 9.0.0 or newer; nothing was changed`);
+      expect(fx.result.stdout).not.toContain('FF_OK');
+      expect(fx.after).toBe(fx.before);
+      expect(fx.version).toBe('1.0.0\n');
+      expect(fx.setupRan).toBe(false);
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true });
+    }
+  });
+
+  test('at or above the incoming floor: the fast-forward and setup run', () => {
+    const fx = fixture('1.3.3', '1.4.0');
+    try {
+      expect(fx.result.status, fx.result.stderr).toBe(0);
+      expect(fx.result.stdout).toContain('FF_OK');
+      expect(fx.after).not.toBe(fx.before);
+      expect(fx.version).toBe('1.1.0\n');
+      expect(fx.setupRan).toBe(true);
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true });
+    }
+  });
+});

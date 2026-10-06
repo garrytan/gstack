@@ -12,6 +12,11 @@
 const LEDGER_HEADER = /^\|\s*ID and owner\s*\|\s*Contract and evidence\s*\|\s*Current\s*\|\s*Proposed\s*\|\s*Status\s*\|\s*Exact approval and scope\s*\|\s*$/;
 const FILL = /\b(?:fill\w*|refill\w*|repopulat\w*)\b|\bcache\.set\b/i;
 const WRITE = /\b(?:writes?|written|writer|commit\w*)\b/i;
+const CAMEL_WRITE = /\b[wW]rite[A-Z]\w*/;
+const ROW_ID = String.raw`[A-Za-z][\w-]*(?:\s*\/\s*[A-Za-z][\w-]*)*`;
+const ROW_ID_CELL = new RegExp(String.raw`^(${ROW_ID})(?=\s|$)`);
+const DECISION_HEADING = new RegExp(String.raw`^#{2,3}\s+currentDecision \((${ROW_ID})\)\s*$`);
+const normalizeId = (id: string | undefined) => id?.replace(/\s*\/\s*/g, '/');
 const RACE = /\b(?:stale|race|racing|overwrit\w*|newer|old|older|before|after|overlap\w*|in[- ]flight|concurrent\w*)\b/i;
 
 /** Asserted lines only: fenced blocks, block quotes and indented code become blank. */
@@ -36,7 +41,7 @@ function ledgerRows(lines: string[]): Map<string, string> {
     if (!LEDGER_HEADER.test(lines[i]!)) continue;
     for (let j = i + 2; j < lines.length && lines[j]!.trimStart().startsWith('|'); j++) {
       const cells = lines[j]!.trim().slice(1, -1).split('|').map(cell => cell.trim());
-      const id = /^([A-Za-z][\w-]*)(?=\s|$)/.exec(cells[0] ?? '')?.[1];
+      const id = normalizeId(ROW_ID_CELL.exec(cells[0] ?? '')?.[1]);
       // A row that does not split into the six ledger cells is not a record.
       if (!id || cells.length !== 6) continue;
       rows.set(id, cells[4]!);
@@ -50,12 +55,12 @@ export function hasApprovedStaleFillDecision(report: string): boolean {
   const lines = proseLines(report);
   const rows = ledgerRows(lines);
   for (let i = 0; i < lines.length; i++) {
-    const rowId = /^#{2,3}\s+currentDecision \(([A-Za-z][\w-]*)\)\s*$/.exec(lines[i]!)?.[1];
+    const rowId = normalizeId(DECISION_HEADING.exec(lines[i]!)?.[1]);
     if (!rowId) continue;
     for (let j = i + 1; j < lines.length && !/^#{1,6}\s/.test(lines[j]!); j++) {
       const subject = /^Question:\s*D[1-9]\d*\s*[—–-]\s*(.+)$/.exec(lines[j]!)?.[1];
       if (!subject) continue;
-      if (FILL.test(subject) && WRITE.test(subject) && RACE.test(subject) && /^[*_]*approved\b/i.test(rows.get(rowId) ?? '')) return true;
+      if (FILL.test(subject) && (WRITE.test(subject) || CAMEL_WRITE.test(subject)) && RACE.test(subject) && /^[*_]*approved\b/i.test(rows.get(rowId) ?? '')) return true;
       break;
     }
   }

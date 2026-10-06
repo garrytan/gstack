@@ -6,7 +6,8 @@
  * listed skill SHIPS the format spec in its always-loaded skeleton. This test
  * proves each skill's model OBEYS it: that the first real AUQ it fires carries
  * the fields software reads (a Recommendation: line and exactly one
- * (recommended) option) with a substantive recommendation (>= 4). The other
+ * (recommended) option) with a substantive recommendation (3-sample judge panel
+ * mean >= 4 on the one capture; C4). The other
  * format elements are logged. One parametrized case per skill so a single weak skill
  * is an isolated failure, not a blocker for the rest.
  *
@@ -38,8 +39,8 @@ import {
   scoreAuqFormat,
   auqMachineFormatProblems,
   skillFromWorktree,
-  gradeAuqRecommendation,
 } from './helpers/auq-sdk-capture';
+import { auqSubstancePanel, AUQ_SUBSTANCE_MIN } from './helpers/auq-substance-panel';
 
 const describeE2E = describeE2ETier('periodic');
 const runId = `auq-matrix-${process.env.EVALS_RUN_ID ?? 'local'}`;
@@ -140,18 +141,22 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
         const text = capture.text;
         const fmt = scoreAuqFormat(text);
         let substance = 0;
+        let substanceMean = 0;
+        let samples: number[] = [];
         let recPresent = false;
         let hadBecause = false;
         if (text.trim()) {
-          const g = await gradeAuqRecommendation(text);
-          substance = g.substance;
-          recPresent = g.present;
-          hadBecause = g.hadLiteralBecause;
+          const panel = await auqSubstancePanel(text);
+          substance = panel.median;
+          substanceMean = panel.mean;
+          samples = panel.samples.map(g => g.substance);
+          recPresent = panel.samples[0].present;
+          hadBecause = panel.samples[0].hadLiteralBecause;
         }
         // eslint-disable-next-line no-console
         console.log(
           `[AUQ-matrix ${m.skill}] captured=${text.length}B format=${fmt.present}/${fmt.total} ` +
-            `missing=[${fmt.missing.join(',')}] recPresent=${recPresent} substance=${substance} ` +
+            `missing=[${fmt.missing.join(',')}] recPresent=${recPresent} substance median=${substance} mean=${substanceMean.toFixed(2)} [${samples.join(',')}] ` +
             `literalBecause=${hadBecause}`,
         );
 
@@ -161,7 +166,9 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
         const problems: string[] = [];
         // Presentation elements (ELI10, Pros / cons, ✅/❌, Net:) are logged above, not failed.
         problems.push(...auqMachineFormatProblems(capture.question));
-        if (substance < 4) problems.push(`recommendation substance ${substance} < 4 (boilerplate/weak)`);
+        if (substance < AUQ_SUBSTANCE_MIN) {
+          problems.push(`recommendation substance median ${substance} < ${AUQ_SUBSTANCE_MIN} over samples [${samples.join(',')}] (boilerplate/weak)`);
+        }
         if (problems.length > 0) {
           throw new Error(
             `${m.skill} AUQ not at plan-ceo bar:\n  - ${problems.join('\n  - ')}\n--- captured AUQ ---\n${text}`,

@@ -130,3 +130,20 @@ export function assertPaidTestBudget(file: string, ms: number): void {
     throw new Error(`Unregistered paid test budget: ${file}: ${ms}`);
   }
 }
+
+/**
+ * Diagnostic thresholds, outside EVAL_POLICY: v1 verdicts never read them.
+ * A session above HEADROOM_WARN of the timeout it armed is flagged by
+ * `eval:pass-rates --headroom`; above HEADROOM_FAIL the weekly `--gate` alarms.
+ * Cut work to get under them; budgets are never raised.
+ */
+export const HEADROOM_WARN = 0.75;
+export const HEADROOM_FAIL = 0.85;
+
+/**
+ * In-request stream silence that labels a provider stall (failure_cause
+ * provider_stall, still a failure under EVAL_POLICY v1). Pre-registered from
+ * census 37198445662 on Claude Code 2.1.284: the longest gap inside one model
+ * message across 50 messages was 9.6 s, thinking deltas included.
+ */
+export const STALL_WINDOW_MS = 120_000;

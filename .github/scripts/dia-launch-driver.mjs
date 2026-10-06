@@ -46,7 +46,7 @@ export function compareDiaLaunchReceipts(left, right) {
       || qualification.isolation?.sharedRegisteredHome !== true || qualification.artifact?.signatureVerified !== true
       || qualification.artifact?.gatekeeperNotarized !== true || qualification.artifact?.macosCompatibility?.compatible !== true
       || qualification.platform?.os !== 'darwin' || qualification.platform?.architecture !== 'arm64'
-      || qualification.platform?.bun !== '1.4.0' || qualification.platform?.playwright !== '1.62.1'
+      || qualification.platform?.bun !== '1.4.2' || qualification.platform?.playwright !== '1.62.1'
       || !/^\d+(?:\.\d+){1,2}$/.test(qualification.artifact.macosCompatibility.hostVersion)
       || qualification.artifact?.architectures?.includes('arm64') !== true
       || ['serviceStopped', 'userDomainStopped', 'userProcessesStopped', 'accountRemoved', 'groupRemoved', 'stagingRemoved'].some(key => receipt.launcherCleanup?.[key] !== true)
@@ -63,7 +63,7 @@ export function compareDiaLaunchReceipts(left, right) {
         || policy?.mockKeychainFlag !== false || policy?.passwordStoreFlag !== false || policy?.firstRunSuppressed !== false
         || policy?.headlessFlag !== true || policy?.expectedProfile !== true || policy?.detached !== true || policy?.shellDisabled !== true
         || policy?.stdioCount !== 5 || policy?.extraPipeDescriptors !== true || policy?.profileArgumentCount !== 1
-        || result.driver?.runtime !== runtime || result.driver?.version !== (runtime === 'bun' ? '1.4.0' : '24.18.0')
+        || result.driver?.runtime !== runtime || result.driver?.version !== (runtime === 'bun' ? '1.4.2' : '24.18.0')
         || result.driver?.os !== 'darwin' || result.driver?.architecture !== 'arm64' || result.driver?.playwright !== '1.62.1'
         || result.driver?.release !== qualification.platform.release
         || result.driver?.executableSha256 !== config.executableSha256 || result.driver?.driverSha256 !== config.driverSha256
@@ -176,7 +176,7 @@ async function main() {
   const account = readFreshAccountConfiguration(process.argv[2], 'comparison-driver');
   const config = account.launchComparison;
   const runtimeVersion = process.versions.bun ?? process.versions.node;
-  if ((config.runtime === 'bun' ? process.versions.bun !== '1.4.0' : Boolean(process.versions.bun) || runtimeVersion !== '24.18.0')
+  if ((config.runtime === 'bun' ? process.versions.bun !== '1.4.2' : Boolean(process.versions.bun) || runtimeVersion !== '24.18.0')
     || process.arch !== 'arm64' || require('playwright/package.json').version !== '1.62.1') throw new Error('invalid_driver_runtime');
   if (await sha256(process.execPath) !== config.executableSha256 || await sha256(import.meta.filename) !== config.driverSha256
     || await sha256(path.join(import.meta.dirname, 'qualify-dia-macos.ts')) !== config.helpersSha256) throw new Error('driver_inputs_changed');

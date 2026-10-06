@@ -173,7 +173,8 @@ describe('gstack-retro-metrics contract', () => {
 
   test('the skill fence invokes the script with primary path + degraded fallback', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md.tmpl'), 'utf-8');
-    expect(tmpl).toContain('$HOME/.claude/skills/gstack/bin/gstack-retro-metrics');
+    expect(tmpl).toContain('"{{RUNTIME_ROOT}}/bin/gstack-retro-metrics"');
+    expect(fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md'), 'utf-8')).toContain('$HOME/.claude/skills/gstack/bin/gstack-retro-metrics');
     expect(tmpl).toContain('".claude/skills/gstack/bin/gstack-retro-metrics"');
     expect(tmpl).toContain('--base "<default>" --since "<since>"');
     expect(tmpl).toContain(

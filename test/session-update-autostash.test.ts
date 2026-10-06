@@ -138,7 +138,7 @@ describe('gstack-session-update lock identity + TTL (#2613)', () => {
     const realGit = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
     fs.writeFileSync(
       path.join(shimDir, 'git'),
-      `#!/usr/bin/env bash\ncase "$*" in *pull*) sleep ${sleepSecs};; esac\nexec "${realGit}" "$@"\n`,
+      `#!/usr/bin/env bash\ncase "$*" in *fetch*) sleep ${sleepSecs};; esac\nexec "${realGit}" "$@"\n`,
       { mode: 0o755 },
     );
     return shimDir;

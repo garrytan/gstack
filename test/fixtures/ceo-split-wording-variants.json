@@ -1,0 +1,5771 @@
+{
+ "provenance": "First five acknowledged candidate calls from all 31 plan-ceo-split-overflow runs measured on 2026-10-05 (CI marathon 37374526437 and 30 solo Ubicloud trials). Trimmed to what the progress detector reads: exact header, question first line, option labels and the selected answer; option descriptions and the rest of each question are omitted.",
+ "runs": [
+  {
+   "source": "CI marathon 37374526437 on a2bcbab31",
+   "originalOutcome": "completion_summary",
+   "calls": [
+    {
+     "sessionId": "7afdf3cc-4c07-44a9-a92b-35470912aa88",
+     "toolUseId": "toolu_018EmeUJBQ6ky4cGLFMT2SHq",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Ship the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Ship the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:19:45.178Z"
+    },
+    {
+     "sessionId": "7afdf3cc-4c07-44a9-a92b-35470912aa88",
+     "toolUseId": "toolu_01FzZ5rVauUYcR2nBLWmySK7",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Ship the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Ship the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:21:12.371Z"
+    },
+    {
+     "sessionId": "7afdf3cc-4c07-44a9-a92b-35470912aa88",
+     "toolUseId": "toolu_01Y1DznL2hYEbbnsrYR6w2fF",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Ship the Microsoft Teams webhook + bot integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Ship the Microsoft Teams webhook + bot integration this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:22:36.962Z"
+    },
+    {
+     "sessionId": "7afdf3cc-4c07-44a9-a92b-35470912aa88",
+     "toolUseId": "toolu_013p1wnobHCz2dBugKFeZEEb",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Ship the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Ship the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:23:58.441Z"
+    },
+    {
+     "sessionId": "7afdf3cc-4c07-44a9-a92b-35470912aa88",
+     "toolUseId": "toolu_01HdDYAm5RgMzT9C3T4JzxtN",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Ship the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Ship the Mattermost REST plugin this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:25:22.514Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t1 (a2bcbab31 batch 1)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "8a3cfeb6-799e-4cbc-9c2a-b4f5b2ec4cba",
+     "toolUseId": "toolu_01Wpm3QdPq7eAfn1B9jR3Lm7",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Ship the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Ship the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:48:34.702Z"
+    },
+    {
+     "sessionId": "8a3cfeb6-799e-4cbc-9c2a-b4f5b2ec4cba",
+     "toolUseId": "toolu_019xD6kfytvUynHfM414YHQJ",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Ship the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Ship the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:48.291Z"
+    },
+    {
+     "sessionId": "8a3cfeb6-799e-4cbc-9c2a-b4f5b2ec4cba",
+     "toolUseId": "toolu_017JK9DquTWEZiDcLDbNJjt9",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Ship the Microsoft Teams webhook + bot framework integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Ship the Microsoft Teams webhook + bot framework integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:19.583Z"
+    },
+    {
+     "sessionId": "8a3cfeb6-799e-4cbc-9c2a-b4f5b2ec4cba",
+     "toolUseId": "toolu_01KovnsSB9x6teqojutRKM4K",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Ship the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Ship the Telegram bot API integration this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:52:44.087Z"
+    },
+    {
+     "sessionId": "8a3cfeb6-799e-4cbc-9c2a-b4f5b2ec4cba",
+     "toolUseId": "toolu_01YNyyFYfV3eYYykDSBBkoAH",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Ship the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Ship the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:54:19.652Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t2 (a2bcbab31 batch 1)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "26e2411c-6e38-43dd-ada1-7cfda0396f05",
+     "toolUseId": "toolu_018Pjs2kHMhjZRGPrdnFZpfo",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Slack DM bot for incident alerts. Include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Slack DM bot for incident alerts. Include, defer, or cut?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:48:19.297Z"
+    },
+    {
+     "sessionId": "26e2411c-6e38-43dd-ada1-7cfda0396f05",
+     "toolUseId": "toolu_01XUtj44bFeZqkE2oXKsK7E1",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Discord guild bot for community channels. Include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Discord guild bot for community channels. Include, defer, or cut?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:24.355Z"
+    },
+    {
+     "sessionId": "26e2411c-6e38-43dd-ada1-7cfda0396f05",
+     "toolUseId": "toolu_01XKPgVDZGjn4UmTp49rGhrZ",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Microsoft Teams webhook + bot framework. Include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Microsoft Teams webhook + bot framework. Include, defer, or cut?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:50:27.532Z"
+    },
+    {
+     "sessionId": "26e2411c-6e38-43dd-ada1-7cfda0396f05",
+     "toolUseId": "toolu_01Fjn1Xr1CUcPM1Mywdrakmh",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Telegram bot API integration. Include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Telegram bot API integration. Include, defer, or cut?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:44.475Z"
+    },
+    {
+     "sessionId": "26e2411c-6e38-43dd-ada1-7cfda0396f05",
+     "toolUseId": "toolu_013srMFCtuxQwCEqT5zfwHmu",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Mattermost REST plugin. Include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Mattermost REST plugin. Include, defer, or cut?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:52:54.461Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t3 (a2bcbab31 batch 1)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "797bcea4-8c92-4922-a2c5-b144c5d61e48",
+     "toolUseId": "toolu_01F5G8WSQHvL9TPuURm3ytM3",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Ship the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Ship the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:48:33.180Z"
+    },
+    {
+     "sessionId": "797bcea4-8c92-4922-a2c5-b144c5d61e48",
+     "toolUseId": "toolu_01CSxMDgANWzmBnCc8ZL8BJA",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Ship the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Ship the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:46.196Z"
+    },
+    {
+     "sessionId": "797bcea4-8c92-4922-a2c5-b144c5d61e48",
+     "toolUseId": "toolu_01BgiWWEkVVK7HyBiepM4n9N",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Ship the Microsoft Teams webhook + bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Ship the Microsoft Teams webhook + bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:01.212Z"
+    },
+    {
+     "sessionId": "797bcea4-8c92-4922-a2c5-b144c5d61e48",
+     "toolUseId": "toolu_01MPWLXjZCyuAUvPywKkQjdW",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Ship the Telegram bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Ship the Telegram bot this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:52:18.180Z"
+    },
+    {
+     "sessionId": "797bcea4-8c92-4922-a2c5-b144c5d61e48",
+     "toolUseId": "toolu_01BDotMQPQHJ9v1XmaKYV6nt",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Ship the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Ship the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:53:41.177Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t4 (a2bcbab31 batch 1)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "7350e925-37f4-439f-8387-743a8503ce5a",
+     "toolUseId": "toolu_018jBQ5mDSYRgtQ2RzdrP1di",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:48:59.190Z"
+    },
+    {
+     "sessionId": "7350e925-37f4-439f-8387-743a8503ce5a",
+     "toolUseId": "toolu_0123bpyoKejW7jKDK5xdKYy5",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md) (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?": "Defer to next quarter (TODOS.md) (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:50:08.364Z"
+    },
+    {
+     "sessionId": "7350e925-37f4-439f-8387-743a8503ce5a",
+     "toolUseId": "toolu_012XAhRTc1oNYsGAfjptJz2E",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:28.222Z"
+    },
+    {
+     "sessionId": "7350e925-37f4-439f-8387-743a8503ce5a",
+     "toolUseId": "toolu_018CWBW7ht9xee9FfXKGJz66",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:52:41.507Z"
+    },
+    {
+     "sessionId": "7350e925-37f4-439f-8387-743a8503ce5a",
+     "toolUseId": "toolu_011xAv5c2Yw9aqdCkF39d5kk",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md) (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?": "Defer to next quarter (TODOS.md) (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:53:54.744Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t5 (a2bcbab31 batch 1)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "d9118f2a-5493-4779-b808-bd1ca87730aa",
+     "toolUseId": "toolu_01AJMtzfkzcPPSsJPnu74KFp",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Ship the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Ship the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:48:16.067Z"
+    },
+    {
+     "sessionId": "d9118f2a-5493-4779-b808-bd1ca87730aa",
+     "toolUseId": "toolu_01WVuWWDVZnZfbyrW9jSs7sm",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Ship the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Ship the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:27.642Z"
+    },
+    {
+     "sessionId": "d9118f2a-5493-4779-b808-bd1ca87730aa",
+     "toolUseId": "toolu_01PzCLu3bjFNue41WCWnh1PF",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Ship the Microsoft Teams webhook plus bot framework integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Ship the Microsoft Teams webhook plus bot framework integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:50:35.642Z"
+    },
+    {
+     "sessionId": "d9118f2a-5493-4779-b808-bd1ca87730aa",
+     "toolUseId": "toolu_013fkEHdyQkQb9iywaJnRFND",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Ship the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Ship the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:41.610Z"
+    },
+    {
+     "sessionId": "d9118f2a-5493-4779-b808-bd1ca87730aa",
+     "toolUseId": "toolu_01Vf5QHSQcH8U8hdazvD6wL5",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Ship the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Ship the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:52:50.599Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t6 (a2bcbab31 batch 1)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "867ba8bc-2a4b-4355-a41c-bbc21ee7df2f",
+     "toolUseId": "toolu_01NdsWax2rvXsmar7nxFubmh",
+     "questions": [
+      {
+       "header": "D1.1 Slack",
+       "question": "D1.1 \u2014 E1: Include, defer, or cut the Slack DM bot for incident alerts?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include, defer, or cut the Slack DM bot for incident alerts?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:00.626Z"
+    },
+    {
+     "sessionId": "867ba8bc-2a4b-4355-a41c-bbc21ee7df2f",
+     "toolUseId": "toolu_016uLqRWzNc5PxmTBoMxxPAN",
+     "questions": [
+      {
+       "header": "D1.2 Discord",
+       "question": "D1.2 \u2014 E2: Include, defer, or cut the Discord guild bot for community channels?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include, defer, or cut the Discord guild bot for community channels?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:57.475Z"
+    },
+    {
+     "sessionId": "867ba8bc-2a4b-4355-a41c-bbc21ee7df2f",
+     "toolUseId": "toolu_01B9cHV1nDfM8xW2MbmiHop5",
+     "questions": [
+      {
+       "header": "D1.3 Teams",
+       "question": "D1.3 \u2014 E3: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:00.136Z"
+    },
+    {
+     "sessionId": "867ba8bc-2a4b-4355-a41c-bbc21ee7df2f",
+     "toolUseId": "toolu_01F3gWFXa3Xybk1TTthD33Lv",
+     "questions": [
+      {
+       "header": "D1.4 Telegram",
+       "question": "D1.4 \u2014 E4: Include, defer, or cut the Telegram bot API integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include, defer, or cut the Telegram bot API integration?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:59.831Z"
+    },
+    {
+     "sessionId": "867ba8bc-2a4b-4355-a41c-bbc21ee7df2f",
+     "toolUseId": "toolu_01CypGWUDczpDDtvwtMfGA8U",
+     "questions": [
+      {
+       "header": "D1.5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include, defer, or cut the Mattermost REST plugin?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include, defer, or cut the Mattermost REST plugin?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:52:59.908Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t7 (a2bcbab31 batch 1)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "930d4aba-47cd-4b22-bd33-50c80a722856",
+     "toolUseId": "toolu_016feBxKVrJHUWHc4tNt1DUh",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:08.955Z"
+    },
+    {
+     "sessionId": "930d4aba-47cd-4b22-bd33-50c80a722856",
+     "toolUseId": "toolu_01FH1t9dtnKFEJjM3SVm6iSe",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:50:16.793Z"
+    },
+    {
+     "sessionId": "930d4aba-47cd-4b22-bd33-50c80a722856",
+     "toolUseId": "toolu_0172VBS2j9qQ8DywVMaqpUT3",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Include the Microsoft Teams webhook + bot framework this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include the Microsoft Teams webhook + bot framework this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:24.441Z"
+    },
+    {
+     "sessionId": "930d4aba-47cd-4b22-bd33-50c80a722856",
+     "toolUseId": "toolu_01QhKPh2qHkh9uRTw8mxSj5U",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:52:28.840Z"
+    },
+    {
+     "sessionId": "930d4aba-47cd-4b22-bd33-50c80a722856",
+     "toolUseId": "toolu_01HMVB5nVhN4ZMCqEmJR4mqY",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:53:34.488Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t8 (a2bcbab31 batch 1)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "307ccc7d-b436-43ca-b260-e2c0f0b86e16",
+     "toolUseId": "toolu_017R5dhhcatmJ63FHx4JNPJU",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Ship the Slack incident-alert DM bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Ship the Slack incident-alert DM bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:53.727Z"
+    },
+    {
+     "sessionId": "307ccc7d-b436-43ca-b260-e2c0f0b86e16",
+     "toolUseId": "toolu_01Xe3VmQq3zBHFzPHFTAbHG8",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Ship the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Ship the Discord guild bot for community channels this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:01.050Z"
+    },
+    {
+     "sessionId": "307ccc7d-b436-43ca-b260-e2c0f0b86e16",
+     "toolUseId": "toolu_0184Qd74nkWv9Cm1WZnYZDuL",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Ship the Microsoft Teams webhook + bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Ship the Microsoft Teams webhook + bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:52:09.764Z"
+    },
+    {
+     "sessionId": "307ccc7d-b436-43ca-b260-e2c0f0b86e16",
+     "toolUseId": "toolu_01Hcnxdw7AsXhYavQBuru7fw",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Ship the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Ship the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:53:15.339Z"
+    },
+    {
+     "sessionId": "307ccc7d-b436-43ca-b260-e2c0f0b86e16",
+     "toolUseId": "toolu_0132NCiA7mqGKnfFBnuHqXxM",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Ship the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Ship the Mattermost REST plugin this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:54:20.969Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t9 (a2bcbab31 batch 1)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "1e435bbf-0037-4b90-9007-80bc5d27e5b5",
+     "toolUseId": "toolu_01VG678VvuZRBsRuNDZHt5GQ",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Include Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include Slack DM bot for incident alerts this quarter?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:02.782Z"
+    },
+    {
+     "sessionId": "1e435bbf-0037-4b90-9007-80bc5d27e5b5",
+     "toolUseId": "toolu_011FayqMNjaS5oRHfVWutCQM",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Include Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include Discord guild bot for community channels this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:50:26.455Z"
+    },
+    {
+     "sessionId": "1e435bbf-0037-4b90-9007-80bc5d27e5b5",
+     "toolUseId": "toolu_018hR5ehmkhweznnicvSejVH",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Include Microsoft Teams integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include Microsoft Teams integration this quarter?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:51.459Z"
+    },
+    {
+     "sessionId": "1e435bbf-0037-4b90-9007-80bc5d27e5b5",
+     "toolUseId": "toolu_01DLhnme8HQYdAfEXcbicVaH",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include Telegram bot API integration this quarter?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:53:13.796Z"
+    },
+    {
+     "sessionId": "1e435bbf-0037-4b90-9007-80bc5d27e5b5",
+     "toolUseId": "toolu_01D7PS5fgiwp2QXksArtYYn1",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (raises cap to 4)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include Mattermost REST plugin this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:54:35.115Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t10 (a2bcbab31 batch 1)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "22e22c78-e308-4e0a-884d-d88bddc5de9d",
+     "toolUseId": "toolu_01EjhqcRpN5XgTHPswbjFs9Y",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:48:07.358Z"
+    },
+    {
+     "sessionId": "22e22c78-e308-4e0a-884d-d88bddc5de9d",
+     "toolUseId": "toolu_01NcNSjDGPhiERpLziKQuph1",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:49:29.910Z"
+    },
+    {
+     "sessionId": "22e22c78-e308-4e0a-884d-d88bddc5de9d",
+     "toolUseId": "toolu_011JpAE7WtwE7yDwXqaVy8Un",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:50:34.012Z"
+    },
+    {
+     "sessionId": "22e22c78-e308-4e0a-884d-d88bddc5de9d",
+     "toolUseId": "toolu_01NZ1o5g7AKNahG6eHEQrjeN",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:51:50.324Z"
+    },
+    {
+     "sessionId": "22e22c78-e308-4e0a-884d-d88bddc5de9d",
+     "toolUseId": "toolu_01ASeWgpwvbx5oucNTZWYSQU",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T21:53:05.321Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t11 (a2bcbab31 batch 2)",
+   "originalOutcome": "completion_summary",
+   "calls": [
+    {
+     "sessionId": "30a75ccf-be59-4b10-bac6-990183a4aac6",
+     "toolUseId": "toolu_017WYkQ3P4oL3gm5Lk1tqJU4",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:16:34.889Z"
+    },
+    {
+     "sessionId": "30a75ccf-be59-4b10-bac6-990183a4aac6",
+     "toolUseId": "toolu_014TxtJeDxrtvW3n37ZXguWU",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:46.097Z"
+    },
+    {
+     "sessionId": "30a75ccf-be59-4b10-bac6-990183a4aac6",
+     "toolUseId": "toolu_01G5LUULup1FTw1wERuRsGpA",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:19:02.931Z"
+    },
+    {
+     "sessionId": "30a75ccf-be59-4b10-bac6-990183a4aac6",
+     "toolUseId": "toolu_01VAuthKCDY5afUHzWMi5qz3",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:13.943Z"
+    },
+    {
+     "sessionId": "30a75ccf-be59-4b10-bac6-990183a4aac6",
+     "toolUseId": "toolu_01VdxNHmr6QwQYDxiHzr1gU9",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:21:25.961Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t12 (a2bcbab31 batch 2)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "aca277b2-e4cd-4f9e-849a-cf47581d0dcf",
+     "toolUseId": "toolu_01EEDCtqadh6Yatv9h7acu1e",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:16:38.889Z"
+    },
+    {
+     "sessionId": "aca277b2-e4cd-4f9e-849a-cf47581d0dcf",
+     "toolUseId": "toolu_015yhkusWJ96LMNrPeJCV4fs",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:58.725Z"
+    },
+    {
+     "sessionId": "aca277b2-e4cd-4f9e-849a-cf47581d0dcf",
+     "toolUseId": "toolu_018gE4xMG38i3GJu18RkxZQY",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:19:14.776Z"
+    },
+    {
+     "sessionId": "aca277b2-e4cd-4f9e-849a-cf47581d0dcf",
+     "toolUseId": "toolu_016Z3Tfr8ZJv5NGBfwa8SK7c",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:35.370Z"
+    },
+    {
+     "sessionId": "aca277b2-e4cd-4f9e-849a-cf47581d0dcf",
+     "toolUseId": "toolu_01MhpvHBTDrzjbBu1Y9ozozT",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:21:57.055Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t13 (a2bcbab31 batch 2)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "4f41076e-289a-4e4f-913a-897a8c07418b",
+     "toolUseId": "toolu_01AoPLfJBojLpvHAunSF3pnt",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1 Slack: include the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1 Slack: include the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:16:20.109Z"
+    },
+    {
+     "sessionId": "4f41076e-289a-4e4f-913a-897a8c07418b",
+     "toolUseId": "toolu_017QxPGbdmffhtDuzncx74wv",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2 Discord: include the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2 Discord: include the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:22.729Z"
+    },
+    {
+     "sessionId": "4f41076e-289a-4e4f-913a-897a8c07418b",
+     "toolUseId": "toolu_01CM9XkLyRfBL2TAUFtpEdvV",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3 Teams: include the Microsoft Teams webhook + bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3 Teams: include the Microsoft Teams webhook + bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:18:32.342Z"
+    },
+    {
+     "sessionId": "4f41076e-289a-4e4f-913a-897a8c07418b",
+     "toolUseId": "toolu_015p9JP7PhYFtDuaa1AunuZ5",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4 Telegram: include the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4 Telegram: include the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:19:49.304Z"
+    },
+    {
+     "sessionId": "4f41076e-289a-4e4f-913a-897a8c07418b",
+     "toolUseId": "toolu_01FBLHZ4bBVULWwABrtc7vzs",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5 Mattermost: include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5 Mattermost: include the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:57.130Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t14 (a2bcbab31 batch 2)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "7c116ca6-5ee2-426a-b702-adb88e30c48a",
+     "toolUseId": "toolu_017hktAqm3Mh1izXaXpEPUjc",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:15:48.562Z"
+    },
+    {
+     "sessionId": "7c116ca6-5ee2-426a-b702-adb88e30c48a",
+     "toolUseId": "toolu_01LJeksznf7tZeYtwW2KZx4m",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:02.460Z"
+    },
+    {
+     "sessionId": "7c116ca6-5ee2-426a-b702-adb88e30c48a",
+     "toolUseId": "toolu_01BcsdUPdhAhVkM4jzztJ3ni",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Include Microsoft Teams (webhook + bot framework) this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include Microsoft Teams (webhook + bot framework) this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:18:26.732Z"
+    },
+    {
+     "sessionId": "7c116ca6-5ee2-426a-b702-adb88e30c48a",
+     "toolUseId": "toolu_01VcRdR6inwZYhC8cHeeG4cs",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:19:39.128Z"
+    },
+    {
+     "sessionId": "7c116ca6-5ee2-426a-b702-adb88e30c48a",
+     "toolUseId": "toolu_01Vmo6EvK2bg6xvSLcEgEPX3",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:51.077Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t15 (a2bcbab31 batch 2)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "66a3266e-f7a1-4d0c-bf26-c932375674e1",
+     "toolUseId": "toolu_01SYZvQY6fQLZbbyxk1AV9ti",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1 Slack: include the Slack incident-alert DM bot in this quarter's scope?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1 Slack: include the Slack incident-alert DM bot in this quarter's scope?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:03.647Z"
+    },
+    {
+     "sessionId": "66a3266e-f7a1-4d0c-bf26-c932375674e1",
+     "toolUseId": "toolu_01A3zzzeax4HtfuK325eFJjD",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2 Discord: include the Discord guild bot for community channels in this quarter's scope?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2 Discord: include the Discord guild bot for community channels in this quarter's scope?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:18:36.292Z"
+    },
+    {
+     "sessionId": "66a3266e-f7a1-4d0c-bf26-c932375674e1",
+     "toolUseId": "toolu_01XQJnwaPJKUYfEzAv6FxsKh",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3 Microsoft Teams: include the Teams webhook + bot-framework integration in this quarter's scope?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3 Microsoft Teams: include the Teams webhook + bot-framework integration in this quarter's scope?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:14.031Z"
+    },
+    {
+     "sessionId": "66a3266e-f7a1-4d0c-bf26-c932375674e1",
+     "toolUseId": "toolu_01DDV3SbTuAu3mTAoSgm3gSu",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4 Telegram: include the Telegram bot API integration in this quarter's scope?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4 Telegram: include the Telegram bot API integration in this quarter's scope?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:21:45.969Z"
+    },
+    {
+     "sessionId": "66a3266e-f7a1-4d0c-bf26-c932375674e1",
+     "toolUseId": "toolu_01QkZNirx2sJ3ZNxKJrHvedE",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5 Mattermost: include the Mattermost REST plugin in this quarter's scope?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5 Mattermost: include the Mattermost REST plugin in this quarter's scope?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:23:22.982Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t16 (a2bcbab31 batch 2)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "0cf621b7-074c-4850-b8bc-a446f3880f3c",
+     "toolUseId": "toolu_018bpBPLnDAfLr8aFvKEenYJ",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Include the Slack incident-alert DM bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Include the Slack incident-alert DM bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:15:55.190Z"
+    },
+    {
+     "sessionId": "0cf621b7-074c-4850-b8bc-a446f3880f3c",
+     "toolUseId": "toolu_01WjXH34nD4kXKZo9uBicfxA",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Include the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Include the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:16:54.497Z"
+    },
+    {
+     "sessionId": "0cf621b7-074c-4850-b8bc-a446f3880f3c",
+     "toolUseId": "toolu_01QgcDMs5SFfMfJ9eSzvLNTn",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Include the Microsoft Teams webhook + bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Include the Microsoft Teams webhook + bot this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:58.623Z"
+    },
+    {
+     "sessionId": "0cf621b7-074c-4850-b8bc-a446f3880f3c",
+     "toolUseId": "toolu_018euhsGjNAURVbc4RWNnTir",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Include the Telegram bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Include the Telegram bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:18:59.282Z"
+    },
+    {
+     "sessionId": "0cf621b7-074c-4850-b8bc-a446f3880f3c",
+     "toolUseId": "toolu_01S46ttsu2v71a1dBP4MBLap",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Include the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:01.383Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t17 (a2bcbab31 batch 2)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "235616dc-7b53-4a7b-84da-a006c3e45893",
+     "toolUseId": "toolu_018idDPKJJHvqYuY9XHVp37p",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:15:58.997Z"
+    },
+    {
+     "sessionId": "235616dc-7b53-4a7b-84da-a006c3e45893",
+     "toolUseId": "toolu_019Pq7PZhHukfYimJNDsawDM",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:16:48.818Z"
+    },
+    {
+     "sessionId": "235616dc-7b53-4a7b-84da-a006c3e45893",
+     "toolUseId": "toolu_01H2zbRps2848t8woRsHCJwf",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Include Microsoft Teams (webhook + bot framework) this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include Microsoft Teams (webhook + bot framework) this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:46.666Z"
+    },
+    {
+     "sessionId": "235616dc-7b53-4a7b-84da-a006c3e45893",
+     "toolUseId": "toolu_01EPki4Dg2qs7atokXw6VEd6",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:18:43.950Z"
+    },
+    {
+     "sessionId": "235616dc-7b53-4a7b-84da-a006c3e45893",
+     "toolUseId": "toolu_01R97UZrfj9axMB9mQyRqhxP",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:19:38.126Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t18 (a2bcbab31 batch 2)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "3c5983f3-607a-4732-94ad-6d2f90c79206",
+     "toolUseId": "toolu_01SArrTRHeno8Vk6WEoYuYLp",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1 Slack: Include, defer, or cut the Slack incident-alert DM bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1 Slack: Include, defer, or cut the Slack incident-alert DM bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:15:48.840Z"
+    },
+    {
+     "sessionId": "3c5983f3-607a-4732-94ad-6d2f90c79206",
+     "toolUseId": "toolu_01WFUYxmGEMDbdbeUEBcPUAo",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2 Discord: Include, defer, or cut the Discord guild bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2 Discord: Include, defer, or cut the Discord guild bot this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:00.123Z"
+    },
+    {
+     "sessionId": "3c5983f3-607a-4732-94ad-6d2f90c79206",
+     "toolUseId": "toolu_01NbpZChbCwZnHcrmW99dpbQ",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3 Microsoft Teams: Include, defer, or cut the Teams webhook + bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3 Microsoft Teams: Include, defer, or cut the Teams webhook + bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:18:25.514Z"
+    },
+    {
+     "sessionId": "3c5983f3-607a-4732-94ad-6d2f90c79206",
+     "toolUseId": "toolu_013SapmY6r5r8trR7R2XiFZe",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4 Telegram: Include, defer, or cut the Telegram bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4 Telegram: Include, defer, or cut the Telegram bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:19:37.320Z"
+    },
+    {
+     "sessionId": "3c5983f3-607a-4732-94ad-6d2f90c79206",
+     "toolUseId": "toolu_01Q17pcoTMEaRxshvREyYGz3",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5 Mattermost: Include, defer, or cut the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5 Mattermost: Include, defer, or cut the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:56.398Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t19 (a2bcbab31 batch 2)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "4ebbebad-363f-4327-aa30-999a0a1d8429",
+     "toolUseId": "toolu_01YbV2knRQn3ZZCXMx2PNsnw",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:16:28.457Z"
+    },
+    {
+     "sessionId": "4ebbebad-363f-4327-aa30-999a0a1d8429",
+     "toolUseId": "toolu_01KYQVXg6sBPJVyrhHM3oP9t",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:46.245Z"
+    },
+    {
+     "sessionId": "4ebbebad-363f-4327-aa30-999a0a1d8429",
+     "toolUseId": "toolu_016EmJMNfTFLNwnEpowawxNt",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Include the Microsoft Teams webhook + bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include the Microsoft Teams webhook + bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:18:56.896Z"
+    },
+    {
+     "sessionId": "4ebbebad-363f-4327-aa30-999a0a1d8429",
+     "toolUseId": "toolu_015GSCKcwmjismb7Us9hhDQF",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:03.823Z"
+    },
+    {
+     "sessionId": "4ebbebad-363f-4327-aa30-999a0a1d8429",
+     "toolUseId": "toolu_011XGKwirGfu13Wsy7SauRXy",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:21:10.874Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t20 (a2bcbab31 batch 2)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "3e76999a-0bac-44eb-9b69-36403a2db9d8",
+     "toolUseId": "toolu_01P4RXVqH9EeM4bNbjCPxgVT",
+     "questions": [
+      {
+       "header": "D1.1 E1 Slack",
+       "question": "D1.1 \u2014 E1: Include, defer, or cut the Slack DM bot for incident alerts?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include, defer, or cut the Slack DM bot for incident alerts?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:16:28.933Z"
+    },
+    {
+     "sessionId": "3e76999a-0bac-44eb-9b69-36403a2db9d8",
+     "toolUseId": "toolu_01GzH59ZNeci3iDc5QBHeBmX",
+     "questions": [
+      {
+       "header": "D1.2 E2 Discord",
+       "question": "D1.2 \u2014 E2: Include, defer, or cut the Discord guild bot for community channels?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md) (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include, defer, or cut the Discord guild bot for community channels?": "Defer to next quarter (TODOS.md) (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:17:57.133Z"
+    },
+    {
+     "sessionId": "3e76999a-0bac-44eb-9b69-36403a2db9d8",
+     "toolUseId": "toolu_0178DoW8SV4QTbG9ihwztXoq",
+     "questions": [
+      {
+       "header": "D1.3 E3 Teams",
+       "question": "D1.3 \u2014 E3: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md) (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?": "Defer to next quarter (TODOS.md) (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:19:15.612Z"
+    },
+    {
+     "sessionId": "3e76999a-0bac-44eb-9b69-36403a2db9d8",
+     "toolUseId": "toolu_01S8BoBQSeGFojewZx6fCbM5",
+     "questions": [
+      {
+       "header": "D1.4 E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include, defer, or cut the Telegram bot API integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include, defer, or cut the Telegram bot API integration?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:20:29.627Z"
+    },
+    {
+     "sessionId": "3e76999a-0bac-44eb-9b69-36403a2db9d8",
+     "toolUseId": "toolu_01Vo9WvYnTAKr3ZKCwcCrEW3",
+     "questions": [
+      {
+       "header": "D1.5 E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include, defer, or cut the Mattermost REST plugin?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (TODOS.md)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include, defer, or cut the Mattermost REST plugin?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:21:45.829Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t1 (0ff760f5f)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "2a1df99e-49f6-4c82-81de-73ecce794272",
+     "toolUseId": "toolu_014f4HrP2MFm6wdSTuCnARf3",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Include Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:48:57.217Z"
+    },
+    {
+     "sessionId": "2a1df99e-49f6-4c82-81de-73ecce794272",
+     "toolUseId": "toolu_01Nv2LCzisrfznPygrx9nQdz",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Include Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:00.158Z"
+    },
+    {
+     "sessionId": "2a1df99e-49f6-4c82-81de-73ecce794272",
+     "toolUseId": "toolu_01PT8Vn6QHC8NJfbxFGYsccG",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Include Microsoft Teams webhook + bot framework this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include Microsoft Teams webhook + bot framework this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:51:06.348Z"
+    },
+    {
+     "sessionId": "2a1df99e-49f6-4c82-81de-73ecce794272",
+     "toolUseId": "toolu_0114n7ujBjg5AKRxCESHccgo",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include Telegram bot API integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:12.590Z"
+    },
+    {
+     "sessionId": "2a1df99e-49f6-4c82-81de-73ecce794272",
+     "toolUseId": "toolu_016tB2vxBNYxo2LwHR4qNrSd",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:19.186Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t2 (0ff760f5f)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "1b826b82-46c8-4271-9afd-0c7d6e1d0321",
+     "toolUseId": "toolu_01Rnzf228cwxgdwSUNqeKx2p",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1 Slack DM bot for incident alerts: include, defer, or cut this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1 Slack DM bot for incident alerts: include, defer, or cut this quarter?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:11.519Z"
+    },
+    {
+     "sessionId": "1b826b82-46c8-4271-9afd-0c7d6e1d0321",
+     "toolUseId": "toolu_01KNGADHtgHU8XKna28iGKHd",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2 Discord guild bot for community channels: include, defer, or cut this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2 Discord guild bot for community channels: include, defer, or cut this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:51:36.167Z"
+    },
+    {
+     "sessionId": "1b826b82-46c8-4271-9afd-0c7d6e1d0321",
+     "toolUseId": "toolu_01H2Y9QQBRmHsjfMTrDjj2Pp",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3 Microsoft Teams webhook + bot framework: include, defer, or cut this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3 Microsoft Teams webhook + bot framework: include, defer, or cut this quarter?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:01.686Z"
+    },
+    {
+     "sessionId": "1b826b82-46c8-4271-9afd-0c7d6e1d0321",
+     "toolUseId": "toolu_01URGrC3ZB4uvcMakxvHwe7P",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4 Telegram bot API integration: include, defer, or cut this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4 Telegram bot API integration: include, defer, or cut this quarter?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:54:29.270Z"
+    },
+    {
+     "sessionId": "1b826b82-46c8-4271-9afd-0c7d6e1d0321",
+     "toolUseId": "toolu_01VnXpWkyd4cdqEdGbPfVe5K",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5 Mattermost REST plugin: include, defer, or cut this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5 Mattermost REST plugin: include, defer, or cut this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:55:53.240Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t3 (0ff760f5f)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "00c277e0-abb6-4877-b319-1e5e53a4e372",
+     "toolUseId": "toolu_01WPnxJW9Muue4sNLFFN5WWX",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:18.770Z"
+    },
+    {
+     "sessionId": "00c277e0-abb6-4877-b319-1e5e53a4e372",
+     "toolUseId": "toolu_014m1cpHd5QEaj9vKroru3vR",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:51:27.205Z"
+    },
+    {
+     "sessionId": "00c277e0-abb6-4877-b319-1e5e53a4e372",
+     "toolUseId": "toolu_019d5endezR1dxXXPBiVwBW1",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + Bot Framework integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + Bot Framework integration?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:40.787Z"
+    },
+    {
+     "sessionId": "00c277e0-abb6-4877-b319-1e5e53a4e372",
+     "toolUseId": "toolu_01JAaJznD7tC9pYe6Etek8DX",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?": "Include in this quarter's scope (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:52.922Z"
+    },
+    {
+     "sessionId": "00c277e0-abb6-4877-b319-1e5e53a4e372",
+     "toolUseId": "toolu_01G1VjErjhk36DUrS72Mvm13",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter's scope (breaches ceiling)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:55:08.925Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t4 (0ff760f5f)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "ecdd8864-0666-427d-a12e-c973a9cdb906",
+     "toolUseId": "toolu_01W9Rgcpm9CJjwJoqwbh2UHg",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include the Slack DM bot for incident alerts this quarter?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:00.671Z"
+    },
+    {
+     "sessionId": "ecdd8864-0666-427d-a12e-c973a9cdb906",
+     "toolUseId": "toolu_01PriiDiDdER5qTwVwpuyvM8",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include the Discord guild bot for community channels this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:59.775Z"
+    },
+    {
+     "sessionId": "ecdd8864-0666-427d-a12e-c973a9cdb906",
+     "toolUseId": "toolu_01EJQhpm98mvgfnyc7iSqwvR",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Include the Microsoft Teams webhook and bot framework integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include the Microsoft Teams webhook and bot framework integration this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:01.230Z"
+    },
+    {
+     "sessionId": "ecdd8864-0666-427d-a12e-c973a9cdb906",
+     "toolUseId": "toolu_012VEtC5fLVb4bkz38VTCzg7",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include the Telegram bot API integration this quarter?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:51.360Z"
+    },
+    {
+     "sessionId": "ecdd8864-0666-427d-a12e-c973a9cdb906",
+     "toolUseId": "toolu_01EbZc3gCQHSxMnBDvxdnBjo",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss before deciding",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include the Mattermost REST plugin this quarter?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:42.574Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t5 (0ff760f5f)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "f287d209-57dc-468f-97ff-2782fa1069d2",
+     "toolUseId": "toolu_01CbmsAED2W32BPPVqaDc9Ys",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Include the Slack incident-alert DM bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Include the Slack incident-alert DM bot this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:59.126Z"
+    },
+    {
+     "sessionId": "f287d209-57dc-468f-97ff-2782fa1069d2",
+     "toolUseId": "toolu_01JD8MKPsSdnQKGTCcEyrvkh",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Include the Discord guild bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Include the Discord guild bot this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:15.349Z"
+    },
+    {
+     "sessionId": "f287d209-57dc-468f-97ff-2782fa1069d2",
+     "toolUseId": "toolu_01MNAXAK52qg1JtrMJD66zkY",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Include the Microsoft Teams bot + webhook integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Include the Microsoft Teams bot + webhook integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:29.175Z"
+    },
+    {
+     "sessionId": "f287d209-57dc-468f-97ff-2782fa1069d2",
+     "toolUseId": "toolu_01WAp7fG7ddCF8kdJecf6PEL",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Include the Telegram bot integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Include the Telegram bot integration this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:54:38.164Z"
+    },
+    {
+     "sessionId": "f287d209-57dc-468f-97ff-2782fa1069d2",
+     "toolUseId": "toolu_01X5jhhouef2vQf9nAPhyFcw",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Include the Mattermost REST plugin this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:55:44.259Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t6 (0ff760f5f)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "0b5b5604-3425-43a8-9762-97851d69fead",
+     "toolUseId": "toolu_015LPrukzEYqTdEFPi85quEe",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Ship the Slack DM bot for incident alerts this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Ship the Slack DM bot for incident alerts this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:49:25.095Z"
+    },
+    {
+     "sessionId": "0b5b5604-3425-43a8-9762-97851d69fead",
+     "toolUseId": "toolu_01NzNXmidZH1YihMiNFrAoZB",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Ship the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Ship the Discord guild bot for community channels this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:22.573Z"
+    },
+    {
+     "sessionId": "0b5b5604-3425-43a8-9762-97851d69fead",
+     "toolUseId": "toolu_01YATfQUXQyLM42BTP8sUCjR",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Ship the Microsoft Teams webhook + bot framework integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Ship the Microsoft Teams webhook + bot framework integration this quarter?": "Defer (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:51:25.755Z"
+    },
+    {
+     "sessionId": "0b5b5604-3425-43a8-9762-97851d69fead",
+     "toolUseId": "toolu_018VEQ18GhUqkd59eFSMxTBb",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Ship the Telegram bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Ship the Telegram bot API integration this quarter?": "Cut (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:31.583Z"
+    },
+    {
+     "sessionId": "0b5b5604-3425-43a8-9762-97851d69fead",
+     "toolUseId": "toolu_01UMFMyLgK1VfPYtzQnDeTJj",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Ship the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer",
+         "description": ""
+        },
+        {
+         "label": "Cut",
+         "description": ""
+        },
+        {
+         "label": "Hold",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Ship the Mattermost REST plugin this quarter?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:36.171Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t7 (0ff760f5f)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "1f279f74-c821-4939-a5b1-5e9e390ebc49",
+     "toolUseId": "toolu_014axiqnBwxHjmgGNDveF1nj",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Slack DM bot for incident alerts \u2014 include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Slack DM bot for incident alerts \u2014 include, defer, or cut?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:47.808Z"
+    },
+    {
+     "sessionId": "1f279f74-c821-4939-a5b1-5e9e390ebc49",
+     "toolUseId": "toolu_013L1oH7vyjnemN4ckAmptid",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Discord guild bot for community channels \u2014 include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Discord guild bot for community channels \u2014 include, defer, or cut?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:07.142Z"
+    },
+    {
+     "sessionId": "1f279f74-c821-4939-a5b1-5e9e390ebc49",
+     "toolUseId": "toolu_01W9kvHRNypxmx4tAqMwKFRw",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Microsoft Teams webhook + Bot Framework \u2014 include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Microsoft Teams webhook + Bot Framework \u2014 include, defer, or cut?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:15.997Z"
+    },
+    {
+     "sessionId": "1f279f74-c821-4939-a5b1-5e9e390ebc49",
+     "toolUseId": "toolu_01TaK4BeJq4d6H4AbxX4PhU3",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Telegram bot API integration \u2014 include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Telegram bot API integration \u2014 include, defer, or cut?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:54:30.477Z"
+    },
+    {
+     "sessionId": "1f279f74-c821-4939-a5b1-5e9e390ebc49",
+     "toolUseId": "toolu_01EKtnL6F3pb7BxxfbKcD2Ek",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Mattermost REST plugin \u2014 include, defer, or cut?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter with a re-estimate (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Mattermost REST plugin \u2014 include, defer, or cut?": "Defer to next quarter with a re-estimate (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:55:46.619Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t8 (0ff760f5f)",
+   "originalOutcome": "collection_complete",
+   "calls": [
+    {
+     "sessionId": "6e53f20b-1e0b-4bc6-a94b-e6b4dc2a721a",
+     "toolUseId": "toolu_016c2nphPuiSLe2V29A7ndGP",
+     "questions": [
+      {
+       "header": "E1 Slack",
+       "question": "D1.1 \u2014 E1: Include, defer, or cut the Slack DM bot for incident alerts?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1: Include, defer, or cut the Slack DM bot for incident alerts?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:51:07.519Z"
+    },
+    {
+     "sessionId": "6e53f20b-1e0b-4bc6-a94b-e6b4dc2a721a",
+     "toolUseId": "toolu_01Lxpx1FQnD4CUeroENvN7yn",
+     "questions": [
+      {
+       "header": "E2 Discord",
+       "question": "D1.2 \u2014 E2: Include, defer, or cut the Discord guild bot for community channels?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2: Include, defer, or cut the Discord guild bot for community channels?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:11.930Z"
+    },
+    {
+     "sessionId": "6e53f20b-1e0b-4bc6-a94b-e6b4dc2a721a",
+     "toolUseId": "toolu_01LDWPZqtPQn4mKDXizrwt7a",
+     "questions": [
+      {
+       "header": "E3 Teams",
+       "question": "D1.3 \u2014 E3: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:17.565Z"
+    },
+    {
+     "sessionId": "6e53f20b-1e0b-4bc6-a94b-e6b4dc2a721a",
+     "toolUseId": "toolu_011jnXm6nBG7tibEVqSb8aUN",
+     "questions": [
+      {
+       "header": "E4 Telegram",
+       "question": "D1.4 \u2014 E4: Include, defer, or cut the Telegram bot API integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4: Include, defer, or cut the Telegram bot API integration?": "Include (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:54:26.991Z"
+    },
+    {
+     "sessionId": "6e53f20b-1e0b-4bc6-a94b-e6b4dc2a721a",
+     "toolUseId": "toolu_01MYiNy9b2DsiSoyzwnWHPw6",
+     "questions": [
+      {
+       "header": "E5 Mattermost",
+       "question": "D1.5 \u2014 E5: Include, defer, or cut the Mattermost REST plugin?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5: Include, defer, or cut the Mattermost REST plugin?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:55:34.454Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t9 (0ff760f5f)",
+   "originalOutcome": "plan_ready",
+   "calls": [
+    {
+     "sessionId": "b523a29a-590a-4007-a372-aefaa6967f28",
+     "toolUseId": "toolu_01EfbcctXA4EvF3rvEKMSMtT",
+     "questions": [
+      {
+       "header": "D1.1 Slack",
+       "question": "D1.1 \u2014 SCOPE-E1: Include the Slack incident-alert DM bot this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 SCOPE-E1: Include the Slack incident-alert DM bot this quarter?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:49:58.566Z"
+    },
+    {
+     "sessionId": "b523a29a-590a-4007-a372-aefaa6967f28",
+     "toolUseId": "toolu_012CCGcyDfMDsuzH8GTX8Jx8",
+     "questions": [
+      {
+       "header": "D1.2 Discord",
+       "question": "D1.2 \u2014 SCOPE-E2: Include the Discord guild bot for community channels this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 SCOPE-E2: Include the Discord guild bot for community channels this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:51:06.416Z"
+    },
+    {
+     "sessionId": "b523a29a-590a-4007-a372-aefaa6967f28",
+     "toolUseId": "toolu_01H37d8H1RKzsjJUDDvii3YG",
+     "questions": [
+      {
+       "header": "D1.3 Teams",
+       "question": "D1.3 \u2014 SCOPE-E3: Include the Microsoft Teams webhook and Bot Framework integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 SCOPE-E3: Include the Microsoft Teams webhook and Bot Framework integration this quarter?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:17.546Z"
+    },
+    {
+     "sessionId": "b523a29a-590a-4007-a372-aefaa6967f28",
+     "toolUseId": "toolu_01SB1TjVP9Yxru535RAXttp1",
+     "questions": [
+      {
+       "header": "D1.4 Telegram",
+       "question": "D1.4 \u2014 SCOPE-E4: Include the Telegram Bot API integration this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 SCOPE-E4: Include the Telegram Bot API integration this quarter?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:30.673Z"
+    },
+    {
+     "sessionId": "b523a29a-590a-4007-a372-aefaa6967f28",
+     "toolUseId": "toolu_015H3Np3VwRRgW8N9yC59gHF",
+     "questions": [
+      {
+       "header": "D1.5 Mattermost",
+       "question": "D1.5 \u2014 SCOPE-E5: Include the Mattermost REST plugin this quarter?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold, discuss first",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 SCOPE-E5: Include the Mattermost REST plugin this quarter?": "Include this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:54:44.075Z"
+    }
+   ]
+  },
+  {
+   "source": "solo t10 (0ff760f5f)",
+   "originalOutcome": "timeout",
+   "calls": [
+    {
+     "sessionId": "b94c4f12-1717-4fb8-bd53-b00abf2912e4",
+     "toolUseId": "toolu_01Ki64g4eMP1wLxW816d2wtb",
+     "questions": [
+      {
+       "header": "D1.1 E1 Slack",
+       "question": "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.1 \u2014 E1-SLACK: Include, defer, or cut the Slack DM bot for incident alerts?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:50:54.155Z"
+    },
+    {
+     "sessionId": "b94c4f12-1717-4fb8-bd53-b00abf2912e4",
+     "toolUseId": "toolu_01A2pSEma9B52fPMn8YNKbms",
+     "questions": [
+      {
+       "header": "D1.2 E2 Discord",
+       "question": "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.2 \u2014 E2-DISCORD: Include, defer, or cut the Discord guild bot for community channels?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:52:09.372Z"
+    },
+    {
+     "sessionId": "b94c4f12-1717-4fb8-bd53-b00abf2912e4",
+     "toolUseId": "toolu_01NodNEp5TAhxrkmK4NoxwmT",
+     "questions": [
+      {
+       "header": "D1.3 E3 Teams",
+       "question": "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.3 \u2014 E3-TEAMS: Include, defer, or cut the Microsoft Teams webhook + bot framework integration?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:53:29.045Z"
+    },
+    {
+     "sessionId": "b94c4f12-1717-4fb8-bd53-b00abf2912e4",
+     "toolUseId": "toolu_01Fn5tpnkbjevV2rLPN52eKY",
+     "questions": [
+      {
+       "header": "D1.4 E4 Telegram",
+       "question": "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.4 \u2014 E4-TELEGRAM: Include, defer, or cut the Telegram bot API integration?": "Include in this quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:54:42.276Z"
+    },
+    {
+     "sessionId": "b94c4f12-1717-4fb8-bd53-b00abf2912e4",
+     "toolUseId": "toolu_01Hx3mMLQiEtSdhKmqnUsJL6",
+     "questions": [
+      {
+       "header": "D1.5 E5 Mattermst",
+       "question": "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Include in this quarter",
+         "description": ""
+        },
+        {
+         "label": "Defer to next quarter (recommended)",
+         "description": ""
+        },
+        {
+         "label": "Cut entirely",
+         "description": ""
+        },
+        {
+         "label": "Hold \u2014 stop the chain and discuss",
+         "description": ""
+        }
+       ]
+      }
+     ],
+     "answered": true,
+     "failed": false,
+     "answers": {
+      "D1.5 \u2014 E5-MATTERMOST: Include, defer, or cut the Mattermost REST plugin?": "Defer to next quarter (recommended)"
+     },
+     "unansweredQuestionIndices": [],
+     "answeredAt": "2026-10-05T22:55:55.229Z"
+    }
+   ]
+  }
+ ]
+}

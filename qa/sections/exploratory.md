@@ -50,9 +50,6 @@ Never reset DEADLINE_FILE/bypass DEADLINE_TOOL. Expiry or an invalid/missing DEA
 
 Each probe is one native command/interaction plus checks, excluding bookkeeping.
 Never batch probes.
-How one probe works: (1) if bounded, check the clock and choose the next command;
-(2) publish a checkpoint naming it (functional: `capture --after` publishes it);
-(3) run exactly that command via DEADLINE_TOOL or EVIDENCE_TOOL, read its result, repeat.
 
 1. First demonstrate success: output AND durable effects. Guard if bounded; await completion.
 2. **Decide whether another probe is needed.** If bounded, run `bun DEADLINE_TOOL status DEADLINE_FILE`.

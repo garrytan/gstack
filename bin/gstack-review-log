@@ -40,7 +40,22 @@ WTREE=""
 DIRTY=""
 if [ -n "$COMMIT_FULL" ]; then
   TREE=$(git rev-parse 'HEAD^{tree}' 2>/dev/null || true)
-  WTREE=$("$SCRIPT_DIR/gstack-wtree" 2>/dev/null || true)
+  # E4: the fingerprint's new objects go to a private 0700 directory this
+  # operation owns (a read-only .git still fingerprints), and stay readable
+  # until the consumers below (bindReview / checkSharedLibsReuse read the tree
+  # and blobs) finish; removed on EXIT/INT/TERM. gstack-wtree's one-line
+  # diagnostic reaches stderr; stdout stays the hash.
+  if WTREE_OBJECTS=$(mktemp -d "${TMPDIR:-/tmp}/gstack-wtree-objects-XXXXXX" 2>/dev/null); then
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && WTREE_OBJECTS="$(cygpath -m "$WTREE_OBJECTS")" ;;
+    esac
+    trap 'rm -rf "$WTREE_OBJECTS"' EXIT
+    trap 'exit 130' INT TERM
+    WTREE=$(GSTACK_WTREE_OBJECT_DIR="$WTREE_OBJECTS" "$SCRIPT_DIR/gstack-wtree" || true)
+    export GIT_ALTERNATE_OBJECT_DIRECTORIES="$WTREE_OBJECTS${GIT_ALTERNATE_OBJECT_DIRECTORIES:+:$GIT_ALTERNATE_OBJECT_DIRECTORIES}"
+  else
+    echo "gstack-review-log: cannot create a private object directory under ${TMPDIR:-/tmp}; no working-tree fingerprint. Set TMPDIR to a writable directory." >&2
+  fi
   if [ -n "$(git status --porcelain -uno 2>/dev/null | head -1)" ]; then
     DIRTY="true"
   else

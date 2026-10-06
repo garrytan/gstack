@@ -676,6 +676,8 @@ export interface FreeRunReport {
   inFlight: string[];
   /** Planned files never observed in the stream (silent passers + never-flushed wedges). */
   filesWithNoOutput: number;
+  /** The last nonblank line either stream printed: a native abort's message when bun dies without a summary. */
+  lastOutputLine: string | null;
 }
 
 interface FileProgress {
@@ -711,6 +713,7 @@ export class FreeRunReporter {
   private testsRan: number | null = null;
   private filesRan: number | null = null;
   private sawSummary = false;
+  private lastOutputLine: string | null = null;
 
   constructor(
     private readonly plannedFiles: string[],
@@ -758,6 +761,7 @@ export class FreeRunReporter {
       unhandledErrors: [...this.unhandled],
       inFlight,
       filesWithNoOutput: this.plannedFiles.filter((f) => !this.progress.has(normalizeRelativePath(f))).length,
+      lastOutputLine: this.lastOutputLine,
     };
   }
 
@@ -768,6 +772,7 @@ export class FreeRunReporter {
     // (fail) lines land under a second phantom file (observed on the first
     // Linux run: 5 real failures reported as 10 across 2 files).
     const line = stripAnsiLine(rawLine).replace(/^::group::/, '');
+    if (line.trim() !== '') this.lastOutputLine = line.trim();
     let visible = false;
     const failedCount = this.failureSummary.consume(line, origin);
     if (failedCount !== null) {
@@ -902,6 +907,10 @@ export function buildRunEpilogue(
   }
   for (const u of report.unhandledErrors) {
     lines.push(`  ⚠ unhandled error between tests (around ${u.file ?? 'unknown file'})`);
+  }
+  if (status === 'failed' && !report.sawTerminalSummary) {
+    lines.push(`  ⚠ test process ended before its summary; in flight: ${report.inFlight.length > 0 ? report.inFlight.join(', ') : 'unknown'}`);
+    if (report.lastOutputLine) lines.push(`  ⚠ last output: ${report.lastOutputLine}`);
   }
   if (status === 'timed-out') {
     if (report.inFlight.length > 0) {

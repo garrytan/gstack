@@ -78,8 +78,27 @@ function upstreamRelease(fx: Fx, version: string) {
   git(fx.seed, 'push', '-q', 'origin', 'main');
 }
 
-function runHook(fx: Fx, opts: { noBun?: boolean } = {}) {
-  const PATH = opts.noBun ? pathWithoutBun(fx.base) : `${path.dirname(process.execPath)}:${process.env.PATH}`;
+/** Upstream release that ships the Bun floor file (E1). */
+function upstreamReleaseWithFloor(fx: Fx, version: string, floor: string) {
+  fs.copyFileSync(path.join(ROOT, 'bin', 'gstack-bun-version.sh'), path.join(fx.seed, 'bin', 'gstack-bun-version.sh'));
+  const file = path.join(fx.seed, 'bin', 'gstack-bun-version.sh');
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^GSTACK_BUN_FLOOR="[^"]*"/m, `GSTACK_BUN_FLOOR="${floor}"`));
+  git(fx.seed, 'add', '-A');
+  upstreamRelease(fx, version);
+}
+
+/** A `bun` first on PATH that reports `version` (the binary setup would run). */
+function bunStub(fx: Fx, version: string): string {
+  const dir = path.join(fx.base, 'bun-stub');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'bun'), `#!/usr/bin/env bash\nprintf '%s\\n' '${version}'\n`, { mode: 0o755 });
+  return dir;
+}
+
+function runHook(fx: Fx, opts: { noBun?: boolean; bun?: string } = {}) {
+  const PATH = opts.noBun ? pathWithoutBun(fx.base)
+    : opts.bun ? `${bunStub(fx, opts.bun)}:${pathWithoutBun(fx.base)}`
+    : `${path.dirname(process.execPath)}:${process.env.PATH}`;
   return spawnSync('bash', [SCRIPT], {
     encoding: 'utf8',
     env: { PATH, HOME: fx.home, GSTACK_DIR: fx.install, GSTACK_STATE_ROOT: fx.state, SETUP_CONTROL: fx.control, SETUP_CALLS: fx.calls, TMPDIR: fx.base },
@@ -197,4 +216,52 @@ describe.skipIf(process.platform === 'win32')('gstack-session-update stages (B11
     expect(fs.existsSync(pending(fx))).toBe(false);
     expect(setupRuns(fx)).toBe(1);
   });
+});
+
+describe.skipIf(process.platform === 'win32')('gstack-session-update Bun floor (E1)', () => {
+  const head = (fx: Fx) => git(fx.install, 'rev-parse', 'HEAD');
+
+  test('below the incoming floor: the live checkout and installs stay untouched, with a stable bun-too-old reason', async () => {
+    const fx = makeFixture();
+    const before = head(fx);
+    upstreamReleaseWithFloor(fx, '1.1.0', '1.3.3');
+    const incoming = git(fx.seed, 'rev-parse', 'HEAD');
+
+    expect(runHook(fx, { bun: '1.3.2' }).stdout).toBe('');
+    const stub = path.join(fx.base, 'bun-stub', 'bun');
+    const log = await waitFor(fx, /HELD bun-too-old/);
+    expect(log).toContain(`HELD bun-too-old: found Bun 1.3.2 at ${stub}; gstack 1.1.0 needs 1.3.3 or newer incoming=${incoming}`);
+    expect(head(fx)).toBe(before);
+    expect(fs.readFileSync(path.join(fx.install, 'VERSION'), 'utf8')).toBe('1.0.0\n');
+    expect(git(fx.install, 'status', '--porcelain')).toBe('');
+    expect(setupRuns(fx)).toBe(0);
+    expect(fs.existsSync(marker(fx))).toBe(false);
+    expect(fs.readFileSync(pending(fx), 'utf8')).toContain(`pull=bun-too-old: found Bun 1.3.2 at ${stub}; gstack 1.1.0 needs 1.3.3 or newer\n`);
+
+    expireThrottle(fx);
+    expect(runHook(fx, { bun: '1.3.2' }).stdout.trim()).toBe(
+      `gstack auto-update: update held (bun-too-old: found Bun 1.3.2 at ${stub}; gstack 1.1.0 needs 1.3.3 or newer); nothing was installed or changed. Fix now: bun upgrade && cd ${fx.install} && git pull --ff-only && ./setup`,
+    );
+    await waitFor(fx, /HELD bun-too-old/, 2);
+    expect(head(fx)).toBe(before);
+
+    // After `bun upgrade` the next session start resumes the update on its own.
+    expireThrottle(fx);
+    runHook(fx, { bun: '1.4.0' });
+    await waitFor(fx, /UPDATED from=1\.0\.0 to=1\.1\.0/);
+    expect(head(fx)).toBe(incoming);
+    expect(setupRuns(fx)).toBe(1);
+    expect(fs.existsSync(pending(fx))).toBe(false);
+  });
+
+  for (const version of ['1.3.14', 'bun-dev (local build)']) {
+    test(`supported or unparseable Bun (${version}) proceeds: setup decides`, async () => {
+      const fx = makeFixture();
+      upstreamReleaseWithFloor(fx, '1.1.0', '1.3.3');
+      runHook(fx, { bun: version });
+      const log = await waitFor(fx, /UPDATED from=1\.0\.0 to=1\.1\.0/);
+      expect(log).not.toContain('HELD');
+      expect(head(fx)).toBe(git(fx.seed, 'rev-parse', 'HEAD'));
+    });
+  }
 });

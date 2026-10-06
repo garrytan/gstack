@@ -63,7 +63,7 @@ P=""
 if [ -x "$P" ]; then
   echo "MAKE_PDF_READY: $P"
   alias _p_="$P"   # shellcheck alias helper (not exported)
-  export P   # available as $P in subsequent blocks within the same skill invocation
+  export P   # env-var hosts re-derive $P in every later block (runtime prelude)
 else
   echo "MAKE_PDF_NOT_AVAILABLE (run './setup' in the gstack repo to build it)"
 fi
@@ -76,12 +76,12 @@ If `MAKE_PDF_READY` is printed: `$P` is the binary path for the rest of
 the skill. Use `$P` (not an explicit path) so the skill body stays portable.
 
 Core commands:
-- `$P generate <input.md> [output.pdf]` — render markdown to PDF (80% use case)
-- `$P generate --cover --toc essay.md out.pdf` — full publication layout
-- `$P generate --watermark DRAFT memo.md draft.pdf` — diagonal DRAFT watermark
-- `$P preview <input.md>` — render HTML and open in browser (fast iteration)
-- `$P setup` — verify the browser (Aside, or gstack's own headless fallback) + pdftotext and run a smoke test
-- `$P --help` — full flag reference
+- `"$P" generate <input.md> [output.pdf]` — render markdown to PDF (80% use case)
+- `"$P" generate --cover --toc essay.md out.pdf` — full publication layout
+- `"$P" generate --watermark DRAFT memo.md draft.pdf` — diagonal DRAFT watermark
+- `"$P" preview <input.md>` — render HTML and open in browser (fast iteration)
+- `"$P" setup` — verify the browser (Aside, or gstack's own headless fallback) + pdftotext and run a smoke test
+- `"$P" --help` — full flag reference
 
 Output contract:
 - `stdout`: ONLY the output path on success. One line.
@@ -224,14 +224,14 @@ One command, no flags. Gets a clean PDF with running header + page numbers
 + CONFIDENTIAL footer by default.
 
 ```bash
-$P generate letter.md                 # writes /tmp/letter.pdf
-$P generate letter.md letter.pdf      # explicit output path
+"$P" generate letter.md                 # writes /tmp/letter.pdf
+"$P" generate letter.md letter.pdf      # explicit output path
 ```
 
 ### Publication mode — cover + TOC + chapter breaks
 
 ```bash
-$P generate --cover --toc --author "Garry Tan" --title "On Horizons" \
+"$P" generate --cover --toc --author "Garry Tan" --title "On Horizons" \
   essay.md essay.pdf
 ```
 
@@ -241,7 +241,7 @@ Each top-level H1 in the markdown starts a new page. Disable with
 ### Draft-stage watermark
 
 ```bash
-$P generate --watermark DRAFT memo.md draft.pdf
+"$P" generate --watermark DRAFT memo.md draft.pdf
 ```
 
 Diagonal 10% opacity DRAFT across every page. When the draft is final, drop
@@ -250,7 +250,7 @@ the flag and regenerate.
 ### Fast iteration via preview
 
 ```bash
-$P preview essay.md
+"$P" preview essay.md
 ```
 
 Renders HTML with the same print CSS and opens it in your browser. Refresh
@@ -259,7 +259,7 @@ as you edit the markdown. Skip the PDF round trip until you're ready.
 ### Brand-free (no CONFIDENTIAL footer)
 
 ```bash
-$P generate --no-confidential memo.md memo.pdf
+"$P" generate --no-confidential memo.md memo.pdf
 ```
 
 ### Diagrams — mermaid and excalidraw fences render as pictures
@@ -316,10 +316,10 @@ promoted page is vertically centered. When the heuristic guesses wrong,
 ### Other formats — single-file HTML and Word
 
 ```bash
-$P generate readme.md out.html --to html    # ONE self-contained file: inline
+"$P" generate readme.md out.html --to html    # ONE self-contained file: inline
                                             # SVG diagrams, data-URI images,
                                             # zero network refs, screen-readable
-$P generate readme.md out.docx --to docx    # Word: content fidelity (headings,
+"$P" generate readme.md out.docx --to docx    # Word: content fidelity (headings,
                                             # tables, code, diagrams as PNG) —
                                             # layout is Word's, not ours
 ```
@@ -330,7 +330,7 @@ $P generate readme.md out.docx --to docx    # Word: content fidelity (headings,
 ### CI mode — fail loud on missing assets
 
 ```bash
-$P generate docs.md --strict     # missing, remote, out-of-tree, oversized,
+"$P" generate docs.md --strict     # missing, remote, out-of-tree, oversized,
                                  # and non-regular-file images exit non-zero
                                  # instead of warn + placeholder
 ```
@@ -377,15 +377,15 @@ Metadata:
 
 ## When to run it
 
-Run `$P generate` when the user wants markdown as a PDF. If the user has a `.md`
-file open and says "make it look nice", propose `$P generate --cover --toc` and ask
+Run `"$P" generate` when the user wants markdown as a PDF. If the user has a `.md`
+file open and says "make it look nice", propose `"$P" generate --cover --toc` and ask
 before running.
 
 ## Debugging
 
 - Exit 4 / "no browser available" → neither the Aside browser (macOS 15+,
   aside.com) nor gstack's own headless browser is usable. Open Aside, or run
-  `./setup` in the gstack repo to build the fallback, re-run. `$P setup` checks
+  `./setup` in the gstack repo to build the fallback, re-run. `"$P" setup` checks
   the whole chain and says which browser it found.
 - Diagram shows a red "failed to render" block → the parse error is printed in
   the block. If EVERY diagram fails with "diagram renderer:", the browser went
@@ -410,4 +410,4 @@ exit code: 0 success / 1 bad args / 2 render error / 3 TOC page numbers failed
            / 4 no browser available (Aside not open, fallback not built)
 ```
 
-Capture the path: `PDF=$($P generate letter.md)` — then use `$PDF`.
+Capture the path: `PDF=$("$P" generate letter.md)` — then use `$PDF`.

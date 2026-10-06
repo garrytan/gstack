@@ -214,7 +214,7 @@ export async function runPlanSkillObservation(opts: PlanSkillObservationOptions)
     tokensObserved: Object.fromEntries((opts.trackTokens ?? []).map(t => [t, false])),
   };
   return runPtySession<PlanSkillObservation>({
-    driver,
+    driver, budgetMs,
     launch: {
       permissionMode: opts.inPlanMode === false ? null : 'plan',
       cwd: opts.cwd,

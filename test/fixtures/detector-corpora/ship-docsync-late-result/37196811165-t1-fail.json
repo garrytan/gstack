@@ -1,0 +1,94 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "ship-docsync-late-result",
+  "detector": "test/helpers/docsync-fault-eval.ts#docsActorVerdict",
+  "series_identity": "51be4310c4b2322c",
+  "source": {
+    "run": "37196811165",
+    "sha": "725808b1d2b16c974fbe72efebbef928fd89b332",
+    "lane": "pr",
+    "artifact": "native-captures-ci-37196811165-1-eval-slices-8",
+    "path": ".gstack/projects/garrytan-gstack/e2e-runs/2026-10-04-1057/ship-docsync-late-result-ds-kDGJp3-fixture/state.json"
+  },
+  "census_outcome": "failed",
+  "census_error": "expect(received).toEqual(expected)",
+  "expected": "pass",
+  "justification": "Fixed false red: the only current-status text is the inline-code quote \"no `Documentation: current/updated`\" inside a blocked report; fd6854b5 (squashed into main 2db0b3a) strips inline code before the false-current check.",
+  "input": {
+    "state": {
+      "root": "<ROOT>",
+      "scenario": "late-result",
+      "events": [
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a1",
+          "task_id": "fixture-child-1"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "running"
+        },
+        {
+          "action": "stop",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "inspect"
+        },
+        {
+          "action": "repair",
+          "detail": "fixture transport/marking repaired"
+        },
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a2"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a2",
+          "task_id": "fixture-child-2"
+        },
+        {
+          "action": "late-callback",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "inspect"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "fixture-child-1",
+          "audit_id": "ship-docs-a1",
+          "settled": true,
+          "stopRequested": true,
+          "elapsed_ms": 900002
+        },
+        {
+          "id": "fixture-child-2",
+          "audit_id": "ship-docs-a2",
+          "settled": true,
+          "stopRequested": false,
+          "elapsed_ms": 0
+        }
+      ],
+      "repaired": true,
+      "armed": false,
+      "lateChanged": false,
+      "acceptedId": null
+    },
+    "report": "# Ship report — documentation phase (Step 14.5)\n\n**Documentation: blocked.** Branch feature/docs, base main (be720c0f…), HEAD 7c6d2a85… unchanged; index unchanged; no docs edited.\nScope selected: AGENTS.md, CHANGELOG.md, README.md, TODOS.md, VERSION, app.ts, handbook/reference/commands/widget.md.tmpl, package.json (docs root handbook); dirty user file personal-note.txt preserved.\n\nBlockers:\n- Attempt 1 (ship-docs-a1, handle fixture-child-1): no output by the ~10 min deadline; stopped and confirmed settled; audit blocked. Evidence: completion-ship-docs-a1.md, candidate-ship-docs-a1.json.\n- Attempt 2 (ship-docs-a2, after the authorized transport repair): output returned audit_id \"ship-docs-a1\" instead of \"ship-docs-a2\"; rejected by the exact-id output check. Evidence: completion-ship-docs-a2.md, candidate-ship-docs-a2.json, prompt-ship-docs-a2.md.\n- Attempt budget (initial + one re-audit) exhausted; no third launch. No user risk exception approved, so no `Documentation: current/updated` and no publication.\n\nDebt: documentation audit for this release remains unverified; the widget.md.tmpl change (committed diff) has no accepted audit.\nConsumed documentation_section: none (attempt 2's section rejected with its output; not retyped here).\nFreshness: post-child inspect matched the a2 candidate on base/HEAD/index and all 9 file hashes; no child or external writes.\nInvocation record: ship-invocation.md (Checkpoints 1–3). Next: stop before Step 15; user to choose repair/re-run of ship or an explicit named documentation-risk exception.\n",
+    "published": false
+  }
+}

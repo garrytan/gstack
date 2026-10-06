@@ -346,21 +346,28 @@ function currentEditPreview(preview: string, r: any, config: string, cwd: string
     const firstLine = before.slice(0, at).split(/\r?\n/).length;
     const oldLast = firstLine + input.old_string.split(/\r?\n/).length - 1;
     const newLast = firstLine + input.new_string.split(/\r?\n/).length - 1;
-    const rows: Array<{line: number; kind: string; text: string; clipped?: boolean}> = [];
+    const rows: Array<{line: number; kind: string; text: string; clipped?: boolean; gutter?: number}> = [];
     let leading: {kind: string; text: string} | undefined;
     for (const line of preview.split('\n')) {
       if (!line.trim() || /^[╌─━]{3,}[ \t]*$/.test(line)) continue;
-      const numbered = /^ {0,3}([1-9]\d*) ([ +\-])(.*)$/.exec(line);
+      // A trimmed empty unchanged row keeps only its number.
+      const numbered = /^( {0,3}([1-9]\d*) )([ +\-])(.*)$/.exec(line) ?? /^( {0,3}([1-9]\d*))()[ \t]*$/.exec(line);
       if (numbered) {
+        const kind = numbered[3] || ' ';
         if (leading) {
           // A wrapped first row has no coordinate. The next same-kind numbered
           // row anchors its complete visible suffix to the preceding source line.
-          if (leading.kind !== numbered[2] || Number(numbered[1]) < 2) return false;
-          rows.push({line:Number(numbered[1])-1,...leading,clipped:true}); leading=undefined;
+          if (leading.kind !== kind || Number(numbered[2]) < 2) return false;
+          rows.push({line:Number(numbered[2])-1,...leading,clipped:true}); leading=undefined;
         }
-        rows.push({line:Number(numbered[1]),kind:numbered[2]!,text:numbered[3]!}); continue;
+        rows.push({line:Number(numbered[2]),kind,text:numbered[4] ?? '',gutter:numbered[1]!.length}); continue;
       }
-      const wrapped = /^ {4,5}([+\-])(.*)$/.exec(line), last = rows.at(-1);
+      const last = rows.at(-1);
+      // An unchanged row wraps under its own gutter with a blank marker column.
+      if (last?.kind === ' ' && last.gutter && line.startsWith(' '.repeat(last.gutter + 1))) {
+        last.text += line.slice(last.gutter + 1); continue;
+      }
+      const wrapped = /^ {4,5}([+\-])(.*)$/.exec(line);
       if (!wrapped) return false;
       if (!last) {
         if (leading && leading.kind !== wrapped[1]) return false;

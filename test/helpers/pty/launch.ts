@@ -13,7 +13,8 @@ import { createFilePermissionRecorder } from '../plan-count-file-permission';
 import { createAutoplanArtifactRecorder } from '../autoplan-artifact-recorder';
 import { trustDialogInput } from '../pty-trust-dialog';
 import { resolveClaudeBinary } from './binary';
-import { createPtyScreen, stripAnsi } from './screen';
+import { createPtyScreen, idlePanelEnd, stripAnsi } from './screen';
+import { appendSessionLedger, sessionKey } from '../session-ledger';
 
 export interface ClaudePtyOptions {
   /** Register the repo's shipped skills in the child's user scope via
@@ -66,6 +67,8 @@ export interface ClaudePtyOptions {
   env?: Record<string, string>;
   /** Total run timeout (ms). Default 240000 (4 min). */
   timeoutMs?: number;
+  /** Append this session's session-ledger row on close (default). runPtySession writes its own. */
+  sessionLedger?: boolean;
 }
 
 export interface ClaudePtySession {
@@ -173,7 +176,9 @@ export async function launchClaudePty(
   const cols = opts.cols ?? 120;
   const rows = opts.rows ?? 40;
   const timeoutMs = opts.timeoutMs ?? 240_000;
-  const wallDeadline = performance.now() + timeoutMs;
+  const startedMono = performance.now();
+  const startedAt = new Date().toISOString();
+  const wallDeadline = startedMono + timeoutMs;
   const screenAbort = new AbortController();
   const launch = prepareLaunch(opts);
 
@@ -228,7 +233,19 @@ export async function launchClaudePty(
     }
   }, Math.max(0, wallDeadline - performance.now()));
   const trust = watchTrustDialog(pty);
-  return sessionHandle(pty, launch, wallTimer, trust);
+  const handle = sessionHandle(pty, launch, wallTimer, trust);
+  if (opts.sessionLedger === false) return handle;
+  const close = handle.close;
+  let recorded = false;
+  return Object.assign(handle, { close: () => {
+    if (!recorded) {
+      recorded = true;
+      const elapsed = performance.now() - startedMono;
+      appendSessionLedger({ key: sessionKey('pty', undefined), runner: 'pty', started_at: startedAt, budget_ms: timeoutMs,
+        elapsed_ms: elapsed, end: elapsed >= timeoutMs ? 'session_timeout' : 'completed', ...idlePanelEnd(handle.visibleText()), billed: false });
+    }
+    return close();
+  } });
 }
 
 /** Arguments, child environment and owned state roots, decided before any spawn. */

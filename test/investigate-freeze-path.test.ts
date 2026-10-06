@@ -29,7 +29,10 @@ describe('investigate freeze path resolution', () => {
     });
 
     test(`${rel} scope lock availability probe uses the $HOME anchor`, () => {
-      expect(content).toContain('_FREEZE_SCRIPT="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"');
+      // The template names the host's runtime root; Claude's render keeps the $HOME anchor.
+      expect(content).toContain(rel.endsWith('.tmpl')
+        ? '_FREEZE_SCRIPT="{{RUNTIME_ROOT}}/freeze/bin/check-freeze.sh"'
+        : '_FREEZE_SCRIPT="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"');
       expect(content).toContain('[ -x "$_FREEZE_SCRIPT" ] && echo "FREEZE_AVAILABLE" || echo "FREEZE_UNAVAILABLE"');
     });
   }

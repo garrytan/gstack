@@ -83,6 +83,12 @@ describe('test value bar render contract', () => {
     expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(TEST_VALUE_BAR_MAX_BYTES[mode]);
   });
 
+  test('the card clamp applies to card lines only; written JSON keeps full values (C2)', () => {
+    for (const mode of TEST_VALUE_BAR_MODES) {
+      expect(bar(mode)).toContain(`each field at most ${CARD_FIELD_MAX_BYTES} UTF-8 bytes here (clamp to 157 plus \`...\`; written JSON keeps full values)`);
+    }
+  });
+
   test('qa mode names only the invoking skill\'s card location (/qa-only has no 8e.5 record)', () => {
     const forSkill = (skillName: string) => generateTestValueBar({ ...ctx, skillName }, ['qa']);
     expect(forSkill('qa')).toContain('Put it in the 8e.5 record.');

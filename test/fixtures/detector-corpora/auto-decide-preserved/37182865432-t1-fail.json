@@ -1,0 +1,246 @@
+{
+ "schema": "gstack-detector-corpus/v1",
+ "case": "auto-decide-preserved",
+ "detector": "test/helpers/native-auto-decide.ts#findNativeAutoDecision",
+ "screen_detector": "test/helpers/pty/classify.ts#classifyVisible",
+ "series_identity": "e3bf31932dcbfd91",
+ "source": {
+  "run": "37182865432",
+  "sha": "44ef18cd0ee8bfb33b3812fbc7f012a2d52f6d9e",
+  "lane": "periodic",
+  "artifact": "paid-slice-20-a1",
+  "path": "shards/skill-e2e-auto-decide-preserved/pty-count/ci-37182865432-1-eval-slices-20/plan-ceo-review-1791095565691-zAJYEo/observation.json"
+ },
+ "census_outcome": "failed",
+ "census_error": "AUTO_DECIDE preserve test inconclusive: outcome=timeout",
+ "expected": "refuse",
+ "justification": "Genuine miss (integration decision 2026-10-04, lane S over lane D): the model ran gstack-ceo-mode-handoff --auto, but Claude Code collapses that Bash result, and its chat never began with the printed \"Auto-decided review mode → …\" line (\"I'm defaulting to HOLD SCOPE…\", then \"Mode decided: HOLD SCOPE\"), so the user never saw it. The helper's tool result locates the witness; it does not replace it. Same class as 37176837432 and 37179171083; the template now asks for the line verbatim (b8ec190).",
+ "screen_expected": "refuse",
+ "native_expected": "refuse",
+ "derived": "options.stateEvidence rebuilt from the session's gstack-question-log argument with source \"agent\" and ts = that call's tool-result timestamp (the bound question-log.jsonl itself is not archived)",
+ "input": {
+  "native": {
+   "transcript": {
+    "status": "ready",
+    "calls": [],
+    "assistantMessages": [
+     {
+      "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+      "text": "Received. I have the draft plan for deterministic skill-list ordering as context, along with your instructions: this is a mode-only handoff, no review mode has been selected yet, and the audit record's user_choice and recommended fields plus the mode handoff line should carry the full selected mode name rather than a menu letter. I'll wait for your slash command before starting anything.",
+      "timestamp": "2026-10-04T06:31:16.610Z"
+     },
+     {
+      "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+      "text": "Starting the plan-ceo-review preamble now. Per your instructions, I'll scope this run to the mode decision only: skip the Office Hours offer and setup prompts, gather just enough plan context to recommend a mode, ask the four-mode question, then run the handoff and audit record.",
+      "timestamp": "2026-10-04T06:31:24.520Z"
+     },
+     {
+      "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+      "text": "Preamble checks out, and with Conductor session and question tuning active, I'll check mode preference and send decision briefs as prose. I'm deferring the routing-rules setup since you'll handle it separately and plan mode blocks CLAUDE.md edits anyway—moving on to gather plan context.\n\n",
+      "timestamp": "2026-10-04T06:31:37.194Z"
+     },
+     {
+      "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+      "text": "I've gathered context: only the plan fixture exists in the repo, no remote, so the base branch defaults to `main`, and the saved preference (AUTO_DECIDE) means I'll go with my recommendation of HOLD SCOPE. Running the mode handoff now.\n\n",
+      "timestamp": "2026-10-04T06:32:05.754Z"
+     },
+     {
+      "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+      "text": "I'm defaulting to HOLD SCOPE review mode since this is a small, tightly-invariant fix (deterministic sort on an existing listing path, ~1-3 files) with no new approach needed—focus will be on sort correctness (case handling, tie-breaking, enumeration-order tests). Recording provenance and wrapping up this invocation.\n\n",
+      "timestamp": "2026-10-04T06:32:19.720Z"
+     },
+     {
+      "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+      "text": "**Mode decided: HOLD SCOPE.** The substantive review has not started, per your request.\n\nWhat this run did:\n- **Preamble** ran healthy. Conductor session, interactive, question tuning on.\n- **Mode selection** resolved by your saved preference for the mode question, which returned AUTO_DECIDE, so no question was asked. The handoff command printed the auto-decided line above.\n- **Audit record** logged with question id `plan-ceo-review-mode`, user_choice and recommended both set to the full name HOLD SCOPE, auto_decided true.\n- **Telemetry** recorded with outcome abort, since the review was intentionally stopped after the mode step.\n\nWhat this run skipped, by your instruction:\n- The Office Hours offer. No design doc exists for this branch, so it would normally fire.\n- The routing-rules setup prompt from skill-start. It is marker-based and will fire again on the next healthy run. Plan mode would also have blocked the CLAUDE.md edit and commit.\n- Review Sections 1 to 11, the plan file report, and ExitPlanMode. Nothing was written to the plan file.\n\nWhen you resume, HOLD SCOPE routes through 0G complexity check, 0I temporal interrogation, then the full review sections. Points worth pressing then: byte-order versus case-insensitive sorting for mixed-case names, tie-breaking for names that differ only by case, and whether the tests truly vary directory enumeration order instead of relying on the filesystem.\n\nSTATUS: DONE\nNo durable learnings this session.",
+      "timestamp": "2026-10-04T06:32:34.635Z"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:25.439Z",
+     "toolUseId": "toolu_01L7uumE3CicSqLq5YF1knYj",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-skill-start --skill \"plan-ceo-review\" --model \"claude\"",
+      "description": "Run gstack skill-start preamble"
+     }
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:26.964Z",
+     "toolUseId": "toolu_01L7uumE3CicSqLq5YF1knYj",
+     "kind": "result",
+     "isError": false,
+     "content": "SKILL_START_PROTO: 1\nBRANCH: main\nPROACTIVE: true\nPROACTIVE_PROMPTED: yes\nSKILL_PREFIX: false\nREPO_MODE: unknown\nSESSION_KIND: interactive\nCONDUCTOR_SESSION: true\nACTIVATED: yes\nFIRST_LOOP_SHOWN: yes\nFIRST_TASK: \nLAKE_INTRO: yes\nTELEMETRY: off\nTEL_PROMPTED: yes\nSESSION_ID: 1582-1791095486-11f777bc\nTEL_START: 1791095486\nEXPLAIN_LEVEL: default\nQUESTION_TUNING: true\nUPDATE_CHECK: false\nLEARNINGS: 0\nHAS_ROUTING: no\nROUTING_DECLINED: false\nVENDORED_GSTACK: no\nMODEL_OVERLAY: claude\nGSTACK_PLAN_MODE: active\nARTIFACTS_SYNC: off\n"
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:37.196Z",
+     "toolUseId": "toolu_01WANu5n8ZmUR9vrNDrNSBwU",
+     "kind": "use",
+     "name": "Read",
+     "input": {
+      "file_path": "<CWD>/PLAN.md"
+     }
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:37.215Z",
+     "toolUseId": "toolu_01WANu5n8ZmUR9vrNDrNSBwU",
+     "kind": "result",
+     "isError": false,
+     "content": "1\t# Draft: deterministic skill-list ordering\n2\t\n3\tUsers compare skill listings in scripts and reviews. Make the existing listing\n4\tpath sort registered skill na…[elided: not consumed]"
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:39.661Z",
+     "toolUseId": "toolu_016Dk1tbvmvWJFZPCZbBKtx5",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "echo \"REMOTE: $(git remote get-url origin 2>&1)\"; echo \"HEAD_REF: $(git symbolic-ref refs/remotes/origin/HEAD 2>&1)\"; echo \"--- log\"; git log --oneline -30; echo \"--- stash\"; git stash list; echo \"--- files\"; ls -la; echo \"--- todos\"; grep -rn \"TODO\\|FIXME\\|HACK\\|XXX\" -l --exclude-dir=node_modules --exclude-dir=vendor --exclude-dir=.git . | head -30; echo \"--- TODOS.md\"; cat TODOS.md 2>/dev/null || echo \"(none)\"",
+      "description": "Audit repo state, remote, history and TODOs"
+     }
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:41.663Z",
+     "toolUseId": "toolu_0153M6xQkpMgLtck4F849Qwh",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "printf '%s' \"Select the plan-ceo-review mode for the deterministic skill-list ordering plan: SCOPE EXPANSION, SELECTIVE EXPANSION, HOLD SCOPE, or SCOPE REDUCTION\" | ~/.claude/skills/gstack/bin/gstack-question-preference --check \"plan-ceo-review-mode\" --summary-stdin; echo \"PREF_EXIT: $?\"",
+      "description": "Check saved preference for the mode question"
+     }
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:44.535Z",
+     "toolUseId": "toolu_01QoUodomJaBeM9zZB5VKzoN",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-context-recovery 2>&1 | head -40; echo \"--- design doc\"; SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename \"$(git -C <CWD> rev-parse --show-toplevel 2>/dev/null || pwd)\"); BRANCH=main; DESIGN=$(~/.claude/skills/gstack/bin/gstack-design-doc-find \"$SLUG\" \"$BRANCH\" 2>/dev/null); [ -n \"$DESIGN\" ] && echo \"Design doc found: $DESIGN\" || echo \"No design doc found\"",
+      "description": "Recover context and check for design doc"
+     }
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:45.415Z",
+     "toolUseId": "toolu_016Dk1tbvmvWJFZPCZbBKtx5",
+     "kind": "result",
+     "isError": false,
+     "content": "REMOTE: error: No such remote 'origin'\nHEAD_REF: fatal: ref refs/remotes/origin/HEAD is not a symbolic ref\n--- log\n6e5f800 Seed review plan\n--- stash\n--- files\n…[elided: not consumed]"
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:45.505Z",
+     "toolUseId": "toolu_0153M6xQkpMgLtck4F849Qwh",
+     "kind": "result",
+     "isError": false,
+     "content": "AUTO_DECIDE\nPREF_EXIT: 0"
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:31:45.590Z",
+     "toolUseId": "toolu_01QoUodomJaBeM9zZB5VKzoN",
+     "kind": "result",
+     "isError": false,
+     "content": "--- RECENT ARTIFACTS ---\n{\"skill\":\"plan-ceo-review\",\"event\":\"started\",\"branch\":\"main\",\"session\":\"1582-1791095486-11f777bc\",\"ts\":\"2026-10-04T06:31:26.989Z\"}\n--- END ARTIFACTS ---\n--- design doc\nNo design doc found"
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:32:05.755Z",
+     "toolUseId": "toolu_01JuPbmLq6ZmKbP3t91p9szw",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-ceo-mode-handoff \"HOLD SCOPE\" --decisions \"none\" --auto",
+      "description": "Run gstack CEO mode handoff for HOLD SCOPE"
+     }
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:32:11.420Z",
+     "toolUseId": "toolu_01JuPbmLq6ZmKbP3t91p9szw",
+     "kind": "result",
+     "isError": false,
+     "content": "Auto-decided review mode → HOLD SCOPE (your preference). Change with /plan-tune. Approved decisions: none."
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:32:20.892Z",
+     "toolUseId": "toolu_01PbxZacUu8Ph611URXMobAZ",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-question-log '{\"skill\":\"plan-ceo-review\",\"question_id\":\"plan-ceo-review-mode\",\"question_summary\":\"Select plan-ceo-review mode for deterministic skill-list ordering plan\",\"category\":\"routing\",\"door_type\":\"two-way\",\"options_count\":4,\"user_choice\":\"HOLD SCOPE\",\"recommended\":\"HOLD SCOPE\",\"auto_decided\":true,\"session_id\":\"1582-1791095486-11f777bc\"}'; echo \"QLOG_EXIT: $?\"",
+      "description": "Log auto-decided mode question to audit record"
+     }
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:32:22.625Z",
+     "toolUseId": "toolu_01RKKa2pmNcBXzN8VTEWWaM6",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-skill-end --skill \"plan-ceo-review\" --outcome abort --session-id \"1582-1791095486-11f777bc\" --tel-start \"1791095486\" --used-browse no --error-message \"\" --failed-step \"\" 2>/dev/null || true; echo \"TEL_EXIT: $?\"",
+      "description": "Run skill-end telemetry for the mode-only run"
+     }
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:32:23.792Z",
+     "toolUseId": "toolu_01PbxZacUu8Ph611URXMobAZ",
+     "kind": "result",
+     "isError": false,
+     "content": "QLOG_EXIT: 0"
+    },
+    {
+     "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+     "timestamp": "2026-10-04T06:32:23.918Z",
+     "toolUseId": "toolu_01RKKa2pmNcBXzN8VTEWWaM6",
+     "kind": "result",
+     "isError": false,
+     "content": "SKILL_END: recorded outcome=abort duration_s=57\nTEL_EXIT: 0"
+    }
+   ],
+   "options": {
+    "skillName": "plan-ceo-review",
+    "sessionId": "1d84eb71-de32-4e99-a62e-9046d0850c10",
+    "commandStartedAt": 1791095476944,
+    "now": 1791095565690,
+    "proseQuestionObserved": false,
+    "stateEvidence": {
+     "questionId": "plan-ceo-review-mode",
+     "preference": "never-ask",
+     "records": [
+      {
+       "skill": "plan-ceo-review",
+       "question_id": "plan-ceo-review-mode",
+       "question_summary": "Select plan-ceo-review mode for deterministic skill-list ordering plan",
+       "category": "routing",
+       "door_type": "two-way",
+       "options_count": 4,
+       "user_choice": "HOLD SCOPE",
+       "recommended": "HOLD SCOPE",
+       "auto_decided": true,
+       "session_id": "1582-1791095486-11f777bc",
+       "source": "agent",
+       "ts": "2026-10-04T06:32:23.792Z"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "path": "shards/skill-e2e-auto-decide-preserved/pty-count/ci-37182865432-1-eval-slices-20/plan-ceo-review-1791095565691-zAJYEo/terminal.visible.log",
+   "tail_chars": 6000,
+   "text": "g\r✢thinking\r*thinking\r \r✶4\r✻thinking\r✽45thinking\rthinking\rthinking\r●\r✻thinking\r✻Crunched for 4s · done 6:31 AM\r\r❯ /plan-ceo-review                                                                                                      \r●Starting the plan-ceo-review preamblenow.Peryourinstructions,I'llscopethisruntothemodedecisiononly:skip\rtheOfficeHoursofferandsetupprompts,gatherjustenoughplancontexttorecommendamode,askthefour-mode\r  question, then run the handoff and audit record.\r Ran 1 shell command \r\r●Pramble checks out, and with Couctor session andquestiontuningactive,I'llcheckmodepreferenceandsend\rdecisionbriefsasprose.I'mdeferringtherouting-rulessetupsinceyou'llhandleitseparatelyandplanmodeblocks\rCLAUDE.md edits anyway—movingontogatherplancontext. · summary\r Read 1 file, ran 3 shell commands \r\r●I've gathered context: only the plan fixture exists in the repo, noremote,sothebasebranchdefaultstomain,and\rthesavedpreference(AUTO_DECIDE)meansI'llgowithmyrecommendationofHOLDSCOPE.Runningthemodehandoffnow. \r· summary\r Ran 1 shell command \r\r●I'm defaultingtoHOLDSCOPEreviewmodesincethisisasmall,tightly-invariantfix(deterministicsortonan\rexistinglistingpath,~1-3files)withnonewapproachneeded—focuswillbeonsortcorrectness(casehandling,\rtie-breaking, enumeration-ordertests).Recordingprovenanceandwrappingupthisinvocation. · summary\r●Running 2 shell commands…\r  ⎿  $ ~/.claude/skills/gstack/bin/gstack-question-log \r   '{\"skill\":\"plan-ceo-review\",\"question_id\":\"plan-ceo-review-mode\",\"question_summary\":\"Select plan-ceo-review mode \rfor deterministic skill-list ordering \r    plan\",\"category\":\"routing\",\"door_type\":\"two-way\",\"options_count\":4,\"user_choice\":\"HOLD SCOPE\",\"rec…\r6thinking\r✶\r*\r✢…7thinking\r \rthinking\r·g5thinking\rnthinking\rthought for 1s)\r✢i…\r●\r*sg\r✶\r✻un8\r✽ri\r6\r \r\r✻Crunched for 4s · done 6:31 AM\r\r❯ /plan-ceo-review                                                                                                      \r\r●Starting the plan-ceo-review preamble now. Per your instrctions,I'll scopethis ru tothe mode decisin only:skip\rth Office Hours offerand setup prompts, gatherjustenoughplancontexttorecommendamode,askthefour-mode\rquestion,thenrunthehandoffandauditrecord.\r\rRan 1 shell command \r\r●Preamblecheckout, and withConductorsessin ad qestion tuning active, I'll checkmode prferece andsend\rdecision briefs prose. I'mdeferring the routing-rules setup sinceyou'llhandleitseparatelyandplanmodeblocks\rCLAUDE.mdeditsanyway—movingontogatherplancontext. · summary\r\rRead 1 file, ran 3 shell commands \r\r●I've gathered context: only the plan fixture exists in the repo, no remote, so the base branchdefaultsto main, and\rthe savedpreference(AUTO_DECIDE)meansI'llgowithmyrecommendationofHOLDSCOPE.Runningthemodehandoffnow. \r· summary\r\rRan 1 shell command \r\r●I'm defauting to HOLDSCOPE review mode sicethis is a small, tightly-invariant fix (deterministic sort on an\rexisting listing path, ~13 files) withno new approach needed—focus wllbeon ort correctness (case handling,\rtie-breaking,enumeration-ordertests).Recordingprovenanceandwrappingupthisinvocation. · summary\r\r Running 2 shell commands…\r  ⎿  $ ~/.caude/skills/gstack/bin/gstack-skill-end -skill \"plan-co-review\" --otcome abort --session-id \r\"1582-1791095486-11f777bc\" --tel-start \"1791095486\" --used-browse no --error-message \"\" --failed-step \"\" \r2>/dev/null || true; echo \"TEL_EXIT: $?\res\r✻Pu\r✶r\r●\r*\r✢e\r·P\r7\rskill-end telemetryforthemode-onlyrun · 2s\rPerusing…\r)\rPerusing…\r\r \r✢Perusing…9\rPerusing…\r*\r✶\r✻Perusing…\r●\r✽Perusing…\rPerusing…8\rPerusing…\rPerusing…\r✻Perusing…40\r✶Perusing…\r \r*\r✢Perusing…\r·Perusing…\rPerusing…9\r●\rPerusing…\rPerusing…\rPerusing…\r✢\r*\r \r✶\r✻\r✽\r10s · ↓ 4.0k tokens)\r · thinking)\rthinking\rthinking\rthinking\r●\r✻thinking\r✶thinking\r*…\rg\r✢thinking\r \r·n1thinking\rthinking\ri…thinking\rthinking\r✢sgthinking\r*unthinking\r●\r✶\rri\r✻thinking\r✽es2thinking\rthinking\r \rPuthinking\rthinking\r✻rthinking\r✶ethinking\r*\r✢P\r●\rthinking\r·3thinking\rthinking\rthinking\rthinking\r \r✢thinking\r*thinking\r✶\r✻\rthinking\r●\r✽4thinking\rthinking\rthinking\rthinking\r✻thinking\r✶thinking\r \r*\r✢\rthinking\r·5thinking\rthinking\r●\rthinking\r✢thinking\rthinking\r*thinking\r✶\r✻\r \rthinking\r✽6thinking\rthinking\rthinking\r✻…thinking\r●\r✶gthinking\r*\r✢nthinking\r·i…7thinking\r \rsgthinking\rthinking\r✢unthinking\r*rithinking\r●\r✶\r✻esthinking\r✽Pu8thinking\r Ran 1 shell comman \r● I'm defaulting to HOLD SCOPE review mode since this is a small, tightly-invariant fix (deterministic sort on an\rexistinglistingpath,~1-3files)withnonewapproachneeded—focuswillbeonsortcorrectness(casehandling,\r tie-breaking, enumeration-orde tests). Recording provenane ad wrapping upinvocation. · summary\r\rRan 2 shell commands \r●Mode decided: HOLD SCOPE.Thesubstantivereviewhasnotstarted,peryourrequest.\r What this run did:\r- Preamble ran healthy. Conductor session, interactive, quesion tuning on.\r- Mode selection resolved by yur saved peferene for the mode question,whichreturnedAUTO_DECIDE,sonoquestion\rwasasked.Thehandoffcommandprintedtheauto-decidedlineabove.\r- Audit record logged with questionidplan-ceo-review-mode,user_choiceandrecommendedbothsettothefullname\rHOLDSCOPE,auto_decidedtrue.\r - Telemetry rerdd with oucome bort, sinc the review was intentionallytoppd fter the mode step.\r\rWhat thisrunskipped,byyourinstruction:\r-TheOfficeHoursoffer.Nodesigndocexistsforthisbranch,soitwouldnormallyfire.\r- The routing-rules setuppromptfromskill-start.Itismarker-basedandwillfireagainonthenexthealthyrun.\rPlanmodewouldalsohaveblockedtheCLAUDE.mdeditandcommit.\r - Review Sections1 to11, the planfilreport, and ExitPlnMode. Nothing was written to the plan file.\r\rWhn you resum, HOLD SCOPE routes hrough 0G complexity chck, 0I temporal interrogation, then the fullreview\rsections.Pointsworthpressingthen:byte-orderversuscase-insensitivesortingformixed-casenames,tie-breaking\r for name that diffr only by case,an whethe theteststrulyvarydirectoryenumerationorderinsteadofrelyingon\r  the filesystem.\r\rSTATUS: DONE\rNodurablelearningsthissession.\r\r✻ Cogitated for 1m18s · done 6:32 AM\r❯ \r← for agents"
+  }
+ }
+}

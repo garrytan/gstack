@@ -28,6 +28,7 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
+import { NEUTRAL_POSTURE_RE } from './helpers/prosons-posture';
 import { runSkillTest } from './helpers/session-runner';
 import { runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS } from './helpers/office-hours-attempt';
 import {
@@ -51,7 +52,6 @@ const RECOMMENDATION_RE = /[Rr]ecommendation:/;
 const PROS_CONS_HEADER_RE = /Pros\s*\/\s*cons:/i;
 const NET_LINE_RE = /^Net:/m;
 const HARD_STOP_ESCAPE_RE = /✅\s+No cons\s+—\s+this is a hard-stop choice/;
-const NEUTRAL_POSTURE_RE = /taste call/i;
 const RECOMMENDED_LABEL_RE = /\(recommended\)/;
 
 function countChars(text: string, char: string): number {

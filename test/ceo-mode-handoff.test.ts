@@ -65,7 +65,9 @@ describe('native handoff evidence', () => {
     }
   });
 
-  test('an auto-decided handoff stands in for the unsent annotation, unless later withdrawn', () => {
+  // The helper's Bash result is collapsed in the terminal (Claude Code 2.1.284), so it locates the
+  // witness but is not one: the chat must begin with the printed line (integration decision 2026-10-04).
+  test('an auto-decided handoff counts only once the chat begins with its line, unless later withdrawn', () => {
     const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/native-auto-decide-ag.json'), 'utf8'));
     const attempt = () => {
       const f = structuredClone(captured.attempts[0]);
@@ -79,19 +81,24 @@ describe('native handoff evidence', () => {
     expect(verdict(unsent)).toBeNull();
     const sessionId = unsent.options.sessionId;
     const after = Date.parse('2026-09-10T02:19:00.000Z');
+    const helperOnly = attempt();
+    helperOnly.tools.push(...handoff(sessionId, after, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    expect(verdict(helperOnly)).toBeNull();
     const sent = attempt();
     sent.tools.push(...handoff(sessionId, after, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    sent.transcript.assistantMessages.push({ sessionId, timestamp: '2026-09-10T02:19:02.000Z', text: `${AUTO_LINE}\n\nContinuing with the review.` });
     expect(verdict(sent)).toMatchObject({ option: 'HOLD SCOPE', annotation: AUTO_LINE });
     const asked = attempt();
     asked.tools.push(...handoff(sessionId, after, `${CMD} "HOLD SCOPE"`, 'Mode: HOLD SCOPE; approved decisions: none.'));
     expect(verdict(asked)).toBeNull();
     const withdrawn = attempt();
     withdrawn.tools.push(...handoff(sessionId, after, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    withdrawn.transcript.assistantMessages.push({ sessionId, timestamp: '2026-09-10T02:19:02.000Z', text: AUTO_LINE });
     withdrawn.transcript.assistantMessages.push({ sessionId, timestamp: '2026-09-10T02:19:05.000Z', text: 'Correction: I withdraw this auto-decision.' });
     expect(verdict(withdrawn)).toBeNull();
   });
 
-  test('with the owned decision record, the handoff is the declaration the census run never sent', () => {
+  test('with the owned decision record, a handoff the chat never repeated is still a miss', () => {
     const attempt = () => {
       const f = structuredClone(stateCapture) as any;
       const use = f.tools.find((e: any) => e.input?.command?.includes('gstack-question-log'));
@@ -105,8 +112,12 @@ describe('native handoff evidence', () => {
     const decide = (f: any) => findNativeAutoDecision(f.transcript, f.tools, f.options);
     const { f: unsent } = attempt();
     expect(decide(unsent)).toBeNull();
+    const { f: helperOnly, loggedAt: helperAt } = attempt();
+    helperOnly.tools.push(...handoff(helperOnly.options.sessionId, helperAt + 1000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    expect(decide(helperOnly)).toBeNull();
     const { f: sent, loggedAt } = attempt();
     sent.tools.push(...handoff(sent.options.sessionId, loggedAt + 1000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    sent.transcript.assistantMessages.push({ sessionId: sent.options.sessionId, timestamp: new Date(loggedAt + 2000).toISOString(), text: AUTO_LINE });
     expect(decide(sent)).toMatchObject({ option: 'HOLD SCOPE', annotation: AUTO_LINE, stateRecord: sent.options.stateEvidence.records[0] });
     const { f: early } = attempt();
     const started = Date.parse(early.tools.find((e: any) => e.kind === 'result' && String(e.content).includes('SKILL_START_PROTO')).timestamp);
@@ -144,7 +155,7 @@ describe('native handoff evidence', () => {
     }
   });
 
-  test('census 37182865432: the printed handoff before the provenance log is the declaration', () => {
+  test('census 37182865432: the handoff ran but its line never reached the chat, so it is a miss', () => {
     const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/auto-decide-handoff-before-log-37182865432.json'), 'utf8'));
     const attempt = () => {
       const f = structuredClone(captured);
@@ -156,21 +167,22 @@ describe('native handoff evidence', () => {
       return f;
     };
     const decide = (f: any) => findNativeAutoDecision(f.transcript, f.tools, f.options);
-    // As captured, the closing "**Mode decided: HOLD SCOPE.**" chat also declares the mode.
-    expect(decide(attempt())).toMatchObject({ option: 'HOLD SCOPE' });
-    const handoffOnly = () => {
+    // As captured: the helper printed the line in a collapsed Bash result and the chat said
+    // "I'm defaulting to HOLD SCOPE…" then "**Mode decided: HOLD SCOPE.**"; neither is the line.
+    expect(decide(attempt())).toBeNull();
+    const shown = () => {
       const f = attempt();
-      f.transcript.assistantMessages.find((m: any) => m.text.startsWith('**Mode decided:')).text = 'Wrapping up this invocation.';
+      f.transcript.assistantMessages.find((m: any) => m.text.startsWith('**Mode decided:')).text = `${AUTO_LINE}\n\nWrapping up this invocation.`;
       return f;
     };
-    expect(decide(handoffOnly())).toMatchObject({ option: 'HOLD SCOPE', annotation: AUTO_LINE });
+    expect(decide(shown())).toMatchObject({ option: 'HOLD SCOPE', annotation: AUTO_LINE });
     for (const [name, mutate] of Object.entries({
-      'handoff output altered': (f: any) => { f.tools.find((e: any) => e.kind === 'result' && e.content === AUTO_LINE).content = AUTO_LINE.replace('HOLD SCOPE', 'SCOPE EXPANSION'); },
+      'line not at the start of the chat': (f: any) => { const m = f.transcript.assistantMessages.find((x: any) => x.text.startsWith(AUTO_LINE)); m.text = `Note: ${m.text}`; },
       'record names another mode': (f: any) => { f.options.stateEvidence.records[0].user_choice = 'SCOPE EXPANSION'; f.options.stateEvidence.records[0].recommended = 'SCOPE EXPANSION'; },
       'later withdrawal': (f: any) => { f.transcript.assistantMessages.push({ sessionId: f.options.sessionId, timestamp: new Date(f.options.now - 1000).toISOString(), text: 'Correction: I withdraw this decision.' }); },
       'missing record': (f: any) => { f.options.stateEvidence.records = []; },
     })) {
-      const f = handoffOnly(); mutate(f); expect(decide(f), name).toBeNull();
+      const f = shown(); mutate(f); expect(decide(f), name).toBeNull();
     }
     const pending = attempt();
     pending.transcript.assistantMessages.find((m: any) => m.text.startsWith('**Mode decided:')).text = '**Mode pending: HOLD SCOPE.**';

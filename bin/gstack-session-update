@@ -5,6 +5,11 @@
 # The entire update runs in background (forked). The hook itself exits
 # immediately so session startup is never delayed.
 #
+# Before the live checkout moves, the updater fetches, reads the incoming
+# release's Bun floor (bin/gstack-bun-version.sh) and checks the `bun` setup
+# will run; below it the update is held with reason bun-too-old and nothing
+# changes (E1). Updaters older than this check cannot protect their first pull.
+#
 # Stages (B11): pull, setup and migrations are tracked separately. The
 # "just upgraded" marker is written only when every stage succeeded. A failed
 # stage is persisted in $STATE_DIR/session-update-pending and retried even
@@ -25,6 +30,9 @@ STATE_DIR="$(gstack_state_root; printf x)"; STATE_DIR="${STATE_DIR%x}"
 # Egress receipt helpers (_receipted_git): fail-open — an update pull must
 # never block a session over a receipt hiccup.
 . "$(cd "$(dirname "$0")" && pwd)/gstack-egress-lib.sh"
+# Bun floor comparison (E1): the incoming release's floor is applied before
+# the live checkout moves. Missing helper fails open, like every error here.
+. "$(cd "$(dirname "$0")" && pwd)/gstack-bun-version.sh" 2>/dev/null
 THROTTLE_FILE="$STATE_DIR/.last-session-update"
 LOCK_DIR="$STATE_DIR/.setup-lock"
 LOG_FILE="$STATE_DIR/analytics/session-update.log"
@@ -63,7 +71,12 @@ if [ -f "$PENDING_FILE" ]; then
     case "$_P_REASON" in bun*) _P_FIX="install Bun (https://bun.sh), then $_P_FIX" ;; esac
     echo "gstack auto-update: ${_P_STAGES} did not finish (${_P_REASON:-unknown reason}); installed skills may be out of date. gstack retries automatically. Fix now: $_P_FIX"
   elif [ -n "$_P_PULL" ]; then
-    echo "gstack auto-update: git pull did not finish ($_P_PULL); gstack is not updating. Fix now: cd $GSTACK_DIR && git pull --ff-only && ./setup"
+    case "$_P_PULL" in
+      bun-too-old*)
+        echo "gstack auto-update: update held ($_P_PULL); nothing was installed or changed. Fix now: bun upgrade && cd $GSTACK_DIR && git pull --ff-only && ./setup" ;;
+      *)
+        echo "gstack auto-update: git pull did not finish ($_P_PULL); gstack is not updating. Fix now: cd $GSTACK_DIR && git pull --ff-only && ./setup" ;;
+    esac
   fi
 fi
 
@@ -158,7 +171,7 @@ fi
   # heartbeat.
   trap 'kill "$HB_PID" 2>/dev/null; [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$MYPID" ] && rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
 
-  # ── Pull latest ──
+  # ── Fetch, check the incoming release's Bun floor, then fast-forward (E1) ──
   OLD_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
   UPDATE_URL=$(git -C "$GSTACK_DIR" remote get-url origin 2>/dev/null || echo "")
   UPDATE_HOST="${UPDATE_URL#*://}"; UPDATE_HOST="${UPDATE_HOST#*@}"; UPDATE_HOST="${UPDATE_HOST%%[/:]*}"
@@ -170,8 +183,22 @@ fi
   # Capture stderr: the log must carry WHY a pull failed, never just the code.
   PULL_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-session-pull-XXXXXX" 2>/dev/null || echo "")
   GSTACK_HOME="$STATE_DIR" _receipted_git open session-update "${UPDATE_HOST:-unknown}" gstack-self-update-pull "auto_upgrade=true" \
-    bash -c 'git -C "$1" pull --ff-only --autostash -q 2>"${2:-/dev/null}"' _ "$GSTACK_DIR" "$PULL_ERR_FILE"
+    bash -c 'git -C "$1" fetch -q 2>"${2:-/dev/null}"' _ "$GSTACK_DIR" "$PULL_ERR_FILE"
   PULL_EXIT=$?
+  # The fast-forward targets the exact revision whose requirement was read.
+  # Setup runs `bun` from this PATH, so that is the binary checked; a
+  # malformed version passes here because setup only warns on it.
+  INCOMING="" BUN_HELD=""
+  if [ "$PULL_EXIT" -eq 0 ]; then
+    INCOMING=$(git -C "$GSTACK_DIR" rev-parse --verify '@{upstream}^{commit}' 2>"${PULL_ERR_FILE:-/dev/null}") || PULL_EXIT=1
+  fi
+  if [ "$PULL_EXIT" -eq 0 ] && [ "$INCOMING" != "$OLD_HEAD" ]; then
+    BUN_HELD=$(gstack_bun_incoming_hold "$GSTACK_DIR" "$INCOMING" 2>/dev/null) || BUN_HELD=""
+  fi
+  if [ "$PULL_EXIT" -eq 0 ] && [ -z "$BUN_HELD" ]; then
+    git -C "$GSTACK_DIR" merge --ff-only --autostash -q "$INCOMING" >/dev/null 2>"${PULL_ERR_FILE:-/dev/null}"
+    PULL_EXIT=$?
+  fi
   NEW_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
 
   # Heartbeat: pull done — keep the TTL clock fresh for the setup step.
@@ -185,6 +212,13 @@ fi
   case "$P_FAILURES" in ''|*[!0-9]*) P_FAILURES=0 ;; esac
   case "$P_NEXT" in ''|*[!0-9]*) P_NEXT=0 ;; esac
 
+  if [ -n "$BUN_HELD" ]; then
+    log_entry "HELD $BUN_HELD incoming=$INCOMING"
+    P_PULL="$BUN_HELD"
+    pending_save
+    rm -f "$PULL_ERR_FILE" 2>/dev/null
+    exit 0
+  fi
   if [ "$PULL_EXIT" -ne 0 ]; then
     PULL_REASON=$(head -c 300 "$PULL_ERR_FILE" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
     log_entry "PULL_FAILED exit=$PULL_EXIT reason=${PULL_REASON:-unknown}"

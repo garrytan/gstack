@@ -5,7 +5,8 @@ import { join, resolve, dirname } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
 const ROOT = resolve(import.meta.dir, '..');
-const template = readFileSync(join(ROOT, 'investigate/SKILL.md.tmpl'), 'utf8');
+// The Claude render: the template names the root as {{RUNTIME_ROOT}} ($HOME/.claude/skills/gstack on Claude).
+const template = readFileSync(join(ROOT, 'investigate/SKILL.md'), 'utf8');
 const scope = template.split('## Scope Lock')[1].split('\n---')[0];
 const acquisition = [...scope.matchAll(/```bash\n([\s\S]*?)```/g)][1][1];
 const registered = template.match(/command: '(.*check-freeze\.sh.*)'/)![1].replace(/''/g, "'");

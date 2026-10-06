@@ -192,7 +192,7 @@ export async function runPlanSkillFloorCheck(opts: PlanSkillFloorOptions): Promi
     artifactError: undefined, finished: false, started: false, start: 0, deadlineAt: 0, screenDeadlineAt: 0,
   } as unknown as FloorRun;
   return runPtySession<PlanSkillFloorObservation>({
-    driver,
+    driver, budgetMs: timeoutMs,
     cleanup: () => fixture.cleanup(),
     launch: {
       permissionMode: 'plan',

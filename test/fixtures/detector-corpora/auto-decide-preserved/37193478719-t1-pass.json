@@ -1,0 +1,212 @@
+{
+ "schema": "gstack-detector-corpus/v1",
+ "case": "auto-decide-preserved",
+ "detector": "test/helpers/native-auto-decide.ts#findNativeAutoDecision",
+ "screen_detector": "test/helpers/pty/classify.ts#classifyVisible",
+ "series_identity": "7678e372b3345f9b",
+ "source": {
+  "run": "37193478719",
+  "sha": "9f357d9b9c75441b6a18e4f75174274954ba6f96",
+  "lane": "periodic",
+  "artifact": "paid-slice-20-a1",
+  "path": "shards/skill-e2e-auto-decide-preserved/pty-count/ci-37193478719-1-eval-slices-20/plan-ceo-review-1791107751754-kWX5bO/observation.json"
+ },
+ "census_outcome": "passed",
+ "census_error": "",
+ "expected": "pass",
+ "justification": "classifyVisible accepted the sent AUTO_DECIDE line on screen. The archived native poll predates that message (last assistant message is \"Now running the handoff and audit record\"), and the handoff ran inside a compound command, so the native snapshot holds no current declaration.",
+ "screen_expected": "pass",
+ "native_expected": "refuse",
+ "derived": "options.stateEvidence rebuilt from the session's gstack-question-log argument with source \"agent\" and ts = that call's tool-result timestamp (the bound question-log.jsonl itself is not archived)",
+ "input": {
+  "native": {
+   "transcript": {
+    "status": "ready",
+    "calls": [],
+    "assistantMessages": [
+     {
+      "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+      "text": "Received. I have the draft plan for deterministic skill-list ordering as context, along with your constraints: review-mode decision only, full mode name in the audit record and handoff line, no Office Hours or setup in this invocation, substantive review deferred. Waiting for your slash command.",
+      "timestamp": "2026-10-04T09:54:41.190Z"
+     },
+     {
+      "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+      "text": "Running the plan-ceo-review preamble, then working through Step 0 only as far as the mode decision you asked for.",
+      "timestamp": "2026-10-04T09:54:45.147Z"
+     },
+     {
+      "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+      "text": "Audit complete: single-commit repo with no remote, stashes, TODOs, design docs, or prior learnings; the mode preference resolved to AUTO_DECIDE, so I'm proceeding on the recommendation without needing a question. Now running the handoff and audit record.\n\n",
+      "timestamp": "2026-10-04T09:55:35.536Z"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:54:46.344Z",
+     "toolUseId": "toolu_019XB6AY8pzt53jEujDBLsFD",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-skill-start --skill \"plan-ceo-review\" --model \"claude\"",
+      "description": "Run gstack skill-start preamble"
+     }
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:54:47.584Z",
+     "toolUseId": "toolu_019XB6AY8pzt53jEujDBLsFD",
+     "kind": "result",
+     "isError": false,
+     "content": "SKILL_START_PROTO: 1\nBRANCH: main\nPROACTIVE: true\nPROACTIVE_PROMPTED: yes\nSKILL_PREFIX: false\nREPO_MODE: unknown\nSESSION_KIND: interactive\nCONDUCTOR_SESSION: true\nACTIVATED: yes\nFIRST_LOOP_SHOWN: yes\nFIRST_TASK: \nLAKE_INTRO: yes\nTELEMETRY: off\nTEL_PROMPTED: yes\nSESSION_ID: 1599-1791107687-bb89148d\nTEL_START: 1791107687\nEXPLAIN_LEVEL: default\nQUESTION_TUNING: true\nUPDATE_CHECK: false\nLEARNINGS: 0\nHAS_ROUTING: no\nROUTING_DECLINED: false\nVENDORED_GSTACK: no\nMODEL_OVERLAY: claude\nGSTACK_PLAN_MODE: active\nARTIFACTS_SYNC: off\n"
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:54:59.811Z",
+     "toolUseId": "toolu_01YYncvLTNru4zwNR1w1WBys",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-context-recovery 2>&1 | head -40",
+      "description": "Recover recent project context"
+     }
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:03.002Z",
+     "toolUseId": "toolu_012XobDGNx98ppKFQMXKWvMt",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "echo \"REMOTE: $(git remote get-url origin 2>&1)\"; echo \"HEAD: $(git symbolic-ref refs/remotes/origin/HEAD 2>&1)\"; echo \"--- log\"; git log --oneline -30; echo \"--- stash\"; git stash list; echo \"--- status\"; git status --short; echo \"--- files\"; git ls-files; echo \"--- todos\"; grep -rn \"TODO\\|FIXME\\|HACK\\|XXX\" --exclude-dir=node_modules --exclude-dir=vendor --exclude-dir=.git . | head -30",
+      "description": "Audit repo history, remote, stashes, file list and TODO markers"
+     }
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:08.318Z",
+     "toolUseId": "toolu_01W6wFMKDjEggUcsFxt5KZRP",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"); BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch'); DESIGN=$(~/.claude/skills/gstack/bin/gstack-design-doc-find \"$SLUG\" \"$BRANCH\"); [ -n \"$DESIGN\" ] && echo \"Design doc found: $DESIGN\" || echo \"No design doc found\"; echo \"SLUG=$SLUG BRANCH=$BRANCH\"; _CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo \"unset\"); echo \"CROSS_PROJECT: $_CROSS_PROJ\"; ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>&1 | head -20; echo \"--- pref check\"; printf '%s' \"Select plan-ceo-review mode for deterministic skill-list ordering plan\" | ~/.claude/skills/gstack/bin/gstack-question-preference --check \"plan-ceo-review-mode\" --summary-stdin; echo \"exit=$?\"",
+      "description": "Check design doc, prior learnings, and mode question preference"
+     }
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:10.632Z",
+     "toolUseId": "toolu_019mgJbvW16gMdxAFCeZsvnZ",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || true; for d in product goals recent-decisions; do echo \"### $d\"; ~/.claude/skills/gstack/bin/gstack-brain-cache get $d --project \"$SLUG\" 2>/dev/null || echo \"(no $d digest available yet)\"; done; echo \"### user-profile\"; ~/.claude/skills/gstack/bin/gstack-brain-cache get user-profile 2>/dev/null || echo \"(no user-profile digest available yet)\"",
+      "description": "Load brain context digests"
+     }
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:11.260Z",
+     "toolUseId": "toolu_01EgWh7Xf2Z8NwJwT3uJVJwx",
+     "kind": "use",
+     "name": "Read",
+     "input": {
+      "file_path": "<CWD>/PLAN.md"
+     }
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:11.310Z",
+     "toolUseId": "toolu_01YYncvLTNru4zwNR1w1WBys",
+     "kind": "result",
+     "isError": false,
+     "content": "--- RECENT ARTIFACTS ---\n{\"skill\":\"plan-ceo-review\",\"event\":\"started\",\"branch\":\"main\",\"session\":\"1599-1791107687-bb89148d\",\"ts\":\"2026-10-04T09:54:47.602Z\"}\n--- END ARTIFACTS ---"
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:11.354Z",
+     "toolUseId": "toolu_012XobDGNx98ppKFQMXKWvMt",
+     "kind": "result",
+     "isError": false,
+     "content": "REMOTE: error: No such remote 'origin'\nHEAD: fatal: ref refs/remotes/origin/HEAD is not a symbolic ref\n--- log\n3f10c21 Seed review plan\n--- stash\n--- status\n---…[elided: not consumed]"
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:11.473Z",
+     "toolUseId": "toolu_01W6wFMKDjEggUcsFxt5KZRP",
+     "kind": "result",
+     "isError": false,
+     "content": "No design doc found\nSLUG=gstack-plan-count-3Pak5B BRANCH=main\nCROSS_PROJECT: false\n--- pref check\nAUTO_DECIDE\nexit=0"
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:11.584Z",
+     "toolUseId": "toolu_019mgJbvW16gMdxAFCeZsvnZ",
+     "kind": "result",
+     "isError": false,
+     "content": "### product\n(no product digest available yet)\n### goals\n(no goals digest available yet)\n### recent-decisions\n(no recent-decisions digest available yet)\n### user-profile\n(no user-profile digest available yet)"
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:11.593Z",
+     "toolUseId": "toolu_01EgWh7Xf2Z8NwJwT3uJVJwx",
+     "kind": "result",
+     "isError": false,
+     "content": "1\t# Draft: deterministic skill-list ordering\n2\t\n3\tUsers compare skill listings in scripts and reviews. Make the existing listing\n4\tpath sort registered skill na…[elided: not consumed]"
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:37.327Z",
+     "toolUseId": "toolu_01HTu27YVDX3G3wtcuQXGvNL",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-ceo-mode-handoff \"HOLD SCOPE\" --decisions \"none\" --auto; echo \"handoff_exit=$?\"; ~/.claude/skills/gstack/bin/gstack-question-log '{\"skill\":\"plan-ceo-review\",\"question_id\":\"plan-ceo-review-mode\",\"question_summary\":\"Select plan-ceo-review mode for deterministic skill-list ordering plan\",\"category\":\"routing\",\"door_type\":\"two-way\",\"options_count\":4,\"user_choice\":\"HOLD SCOPE\",\"recommended\":\"HOLD SCOPE\",\"auto_decided\":true,\"session_id\":\"1599-1791107687-bb89148d\"}'; echo \"log_exit=$?\"",
+      "description": "Run mode handoff and log the auto-decided mode record"
+     }
+    },
+    {
+     "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+     "timestamp": "2026-10-04T09:55:38.015Z",
+     "toolUseId": "toolu_01HTu27YVDX3G3wtcuQXGvNL",
+     "kind": "result",
+     "isError": false,
+     "content": "Auto-decided review mode → HOLD SCOPE (your preference). Change with /plan-tune. Approved decisions: none.\nhandoff_exit=0\nlog_exit=0"
+    }
+   ],
+   "options": {
+    "skillName": "plan-ceo-review",
+    "sessionId": "e50ce1aa-1167-4be3-b288-01d65e8724e2",
+    "commandStartedAt": 1791107681517,
+    "now": 1791107751753,
+    "proseQuestionObserved": false,
+    "stateEvidence": {
+     "questionId": "plan-ceo-review-mode",
+     "preference": "never-ask",
+     "records": [
+      {
+       "skill": "plan-ceo-review",
+       "question_id": "plan-ceo-review-mode",
+       "question_summary": "Select plan-ceo-review mode for deterministic skill-list ordering plan",
+       "category": "routing",
+       "door_type": "two-way",
+       "options_count": 4,
+       "user_choice": "HOLD SCOPE",
+       "recommended": "HOLD SCOPE",
+       "auto_decided": true,
+       "session_id": "1599-1791107687-bb89148d",
+       "source": "agent",
+       "ts": "2026-10-04T09:55:38.015Z"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "path": "shards/skill-e2e-auto-decide-preserved/pty-count/ci-37193478719-1-eval-slices-20/plan-ceo-review-1791107751754-kWX5bO/terminal.visible.log",
+   "tail_chars": 6000,
+   "text": " full mode name in the audit record and handoff line, no Office Hours or setup in this\r  invocation, substantive review deferred. Waiting for your slash command.\r\r✻Brewed for 3s · done 9:54 AM\r\r❯ /plan-ceo-review                                                                                                      \r\r●Runningtheplan-ceo-reviewpreamble,thenworkingthroughStep0onlyasfarasthemodedecisionyouaskedfor.\r\rRead 1 file, ran 5 shell commands \r\r●Auditcomplete:single-commitrepowithnoremote,stashes,TODOs,designdocs,orpriorlearnings;themode\r preference resolved to AUTO_DECIDE, so I'mproceeding n the recommendation without neeing a questin. Now running\rthehandoffandauditrecord. · summary\r\r● Running 1 shellcommand…\r✶Billowing… 39thought for 21s)\r✻4\r \r✽\r✻\r✶\r●\r*\r✢5\r·\r \r…\r✢g\r*path sort registered skill names deterministically before rendering them.\rKeep skill membership, aliases, metadata and text/JSON output formats unchanged.\rCover mixed-case names and differing directory enumeration order with tests.\r                                                                              \rThisdraft is th review target,no the current branch. For this invocation,\rI want ony the evew-mode decision; I willhandle optional Ofice Hors d   \rsetupseparately, nd ru the substantv review later. Noreview mode has  \rbeen selected. For this mode-only handoff, use the full selected mode name in\rte nomalaudit record's user_choice and recommended fieldsand in the skill's\rnormalmodehandoff line. Amnu letteralone woudno identiy the choen mode.\r\r● Received. I have the draft plan for deterministic skill-list ordering as context, along with your constraints:\r  review-mode decision only, full mode name in the audit record and handoff line, no Office Hours or setup in this\r  invocation, substantive review deferred. Waiting for your slash command.\r✻Brewed for 3s · done 9:54 AM\r\r❯ /plan-ceo-review                                                                                                      \r●Running the plan-ceo-review preamble,thenworkingthroughStep0onlyasfarasthemodedecisionyouaskedfor.\r  Read 1 file, ran 5 shell commands \rAdit complete: single-commit repo with noremote,stashes, TODOs, designdocs, or prir learnings; the mode\rpreferenceresolvedtoAUTO_DECIDE,soI'mproceedingontherecommendationwithoutneedingaquestion.Nowrunning\rthe handoff and audit record. · summary\r Rnning 1 shellcommand…\r  ⎿  $ ~/.claude/skills/gstack/bin/gstack-ceo-mode-handoff \"HOLD SCOPE\" --decisions \"none\" --auto; echo \r   \"handoff_exit=$?\"; ~/.claude/skills/gstack/bin/gstack-question-log \r'{\"skill\":\"plan-ceo-review\",\"question_id\":\"plan-ceo-review-mode\",\"question_summary\":\"Select plan-ceo-review mode \r    for deterministic sk…\rn40\r✶i…\r●\r)\r✻6\r✽wg1\ron\rmode handff andlogtheauto-decidedmoderecord\rBillowing…\rBillowing…\r \r✻Billowing…\r✶Billowing…2\r*\r✢Billowing…7\r●\r·Billowing…\rBillowing…\rBillowing…\rBillowing…\r✢Billowing…\r*Billowing…\r \r✶\r✻Billowing…8\r✽Billowing…\rBillowing…\r●\rBillowing…\rBillowing…\r✻Billowing…\r✶Billowing…\r*\r✢\r \rBillowing…9\r·Billowing…\rBillowing…\rBillowing…\rBillowing…\r●\r✢Billowing…\r*Billowing…\r✶\r✻\rBillowing…1m 0s· ↓ 4.2k tokens)\r✽Billowing…\r \rBillowing…\rBillowing…\rBillowing…1\r✻Billowing…\r✶Billowing…\r●\r*\r✢\rBillowing…\r·Billowing…\rBillowing…\r \rBillowing…\r✢Billowing…2\rBillowing…\r*Billowing…\r✶\r✻\r●\rBillowing…\r✽Billowing…\rBillowing…\rBillowing…\r✻Billowing…3\r \r✶Billowing…\r*\r✢Billowing…\r·Billowing…\r●\rBillowing…\rBillowing…\r✢Billowing…4\r*Billowing…\r \r✶\r✻Billowing…\r✽Billowing…\rBillowing…\rBillowing…\r●\r✻Billowing…5\rBillowing…\r✶\r*\r✢Billowing…\r \rBillowing…\r·Billowing…\rBillowing…\rBillowing…\r✢Billowing…6\r●\rBillowing…\r*\r✶\r✻Billowing…\r✽Billowing…\rBillowing…\r \rBillowing…\rBillowing…\r✻7\r✶\r●\r*\r✢\r·\r·Billowing… \r \r✢8\r*\r✶\r✻\r●\r✽\r9\r✻\r✶\r \r✶Billowing… \r*\r✢\r·\r●\r10s · ↓ 4.2k tokens)\r✢\r*\r \r✶● Audit complete: single-commit repo with no remote, stashes, TODOs, design docs, or prior learnings; the mode\r  preference resolved to AUTO_DECIDE, so I'm proceeding on the recommendation without needing a question. Now running\r  the handoff and audit record. · summary\r\r  Ran 1 shell command \r  ⎿  $ ~/.claude/skills/gstack/bin/gstack-ceo-mode-handoff \"HOLD SCOPE\" --decisions \"none\" --auto; echo \r● Auto-decided review mode → HOLD SCOPE (your preference). Change with /plan-tune. Approved decisions: none. This plan\r  is a fix to an existing codepath: sort registered skill names before rendering, with membership, aliases, metadata and\r  output formats explicitly frozen. The estimated change is 2 to 3 files, the listing module plus tests. That fits the\r  fix/refactor rule, and HOLD SCOPE gives it the rigor it actually needs, namely tracing mixed-case ordering,\renumeration-orderindependence,andthetext/JSONformatinvariantsratherthantemptingexpansionsonadeterminism\r fix.\r\rNo new approach decision was needed. Theplan prescibes sorting in the existinglistingpath,whichisalreadythe\rsmallestscopedalternative,soStep0Dhadnorequiredchoice.\r\rMode provenance.Preferencecheckforplan-ceo-review-modeexited0withAUTO_DECIDE.Theauditrecordwasloggedwith\r  user_choice and recommended both set to the full name HOLD SCOPE, auto_decided true, under this session's ID. The\rhandoffcommandandthelogbothexited0.\r\rStep 0 evidence gathered so far\r\r-0Apremise:thepainisnon-reproduciblelistingswhenusersdiffoutputacrossmachinesorruns.Sortingaddresses\r   it directly, not a proxy.\r- 0B lverag: th plan reuses the existing listing path. Nobuild propsed.\r- 0C dream state: a detrministic listingisaprerequisiteforscriptedcomparisonandsnapshottests.Theplanmoves\rtowardthat.\r\r  Deferred per your instructions\r\r-Office Hours offer: no design doc found, offer skipped. Re-offer suppressed for this session.\r-Setup: the preamble firedaone-timerouting-rulesonboardingpromptforCLAUDE.md.Deferred,sinceyousaidsetup\risseparateandplanmodeforbidstheCLAUDE.mdeditandcommititrequires.Itsgateismarker-based,soit\r   re-fires on the nexthealthy run.\r  - Substantive review: HOLD SCOPE route is 0G then 0I then the 11 review sections. Not started.Nothingwaswrittento\r"
+  }
+ }
+}

@@ -15,8 +15,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DESELECTION_REASONS, RUNTIME_SKIP_REASON, attributeJUnitCase, formatPanelLine, runPaidReport, type JUnitCase } from '../scripts/test-paid-shards';
+import { DESELECTION_REASONS, RUNTIME_SKIP_REASON, attributeJUnitCase, formatPanelLine, resolvePaidShardBudget, runPaidReport, type JUnitCase } from '../scripts/test-paid-shards';
 import { panelVerdict } from './helpers/eval-store';
+import { trialRecordProblems as trialRecordProblemsV1 } from './fixtures/trial-record-v1-reader';
 
 const FIXTURES = path.join(import.meta.dir, 'fixtures', 'paid-report-census');
 
@@ -25,7 +26,7 @@ beforeAll(() => { base = fs.mkdtempSync(path.join(os.tmpdir(), 'paid-report-cens
 afterAll(() => { fs.rmSync(base, { recursive: true, force: true }); });
 
 let runs = 0;
-function report(lane: 'periodic' | 'gate', edit: (dir: string) => void = () => {}) {
+function report(lane: 'periodic' | 'gate', edit: (dir: string) => void = () => {}, env: NodeJS.ProcessEnv = {}) {
   const dir = path.join(base, `${lane}-${++runs}`);
   fs.cpSync(path.join(FIXTURES, lane), dir, { recursive: true });
   edit(dir);
@@ -34,7 +35,7 @@ function report(lane: 'periodic' | 'gate', edit: (dir: string) => void = () => {
   console.log = (...args: unknown[]) => { lines.push(args.join(' ')); };
   console.error = console.log;
   let status: number;
-  try { status = runPaidReport(dir, { env: {} }); } finally { console.log = log; console.error = error; }
+  try { status = runPaidReport(dir, { env }); } finally { console.log = log; console.error = error; }
   const history = fs.readFileSync(path.join(dir, 'trial-outcomes.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
   return { status, out: lines.join('\n'), dir, history };
 }
@@ -93,6 +94,119 @@ describe('census attribution from the 2026-10-03 artifacts', () => {
     expect(collector.census.unattributed).toEqual(['test/skill-e2e-cso.test.ts :: an unlabeled helper (passed)']);
     expect(collector.census.skipped).toHaveLength(1);
     expect(collector.verdict.counts).toMatchObject({ skipped: 1, unattributed: 1 });
+  });
+});
+
+describe('record builders attach ledger sessions and failure causes (plan 0.1/0.2)', () => {
+  const noOp = (dir: string) => path.join(dir, 'paid-slice-1-a1', 'shards', 'skill-e2e-plan-mode-no-op');
+  const failNoOp = (dir: string) => {
+    const file = path.join(noOp(dir), 'junit.xml');
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+      .replace('failures="0"', 'failures="1"')
+      .replace(/(<testcase name="plan-ceo-review reaches a terminal outcome outside plan mode"[^>]*?) \/>/,
+        '$1><failure type="AssertionError" message="plan-ceo-review: outcome=timeout (no terminal outcome within 180000ms)" /></testcase>'));
+    fs.writeFileSync(path.join(noOp(dir), 'session-ledger.jsonl'), [
+      { key: 'pty:session#1', runner: 'pty', started_at: 't', budget_ms: 180_000, elapsed_ms: 16_800, end: 'completed' },
+      { key: 'pty:session#2', runner: 'pty', started_at: 't', budget_ms: 180_000, elapsed_ms: 180_050, end: 'observer_timeout' },
+    ].map(row => JSON.stringify(row)).join('\n') + '\nnot json\n');
+  };
+
+  test('a JUnit-only PTY case gets failure_cause and sessions from its ledger; failure_class is unchanged', () => {
+    const r = report('gate', failNoOp);
+    const noOpRecord = r.history.find(record => record.case === 'plan-mode-no-op');
+    expect(noOpRecord).toMatchObject({ outcome: 'failed', failure_class: 'assertion', failure_cause: 'observer_timeout',
+      failure_cause_evidence: 'plan-ceo-review: outcome=timeout (no terminal outcome within 180000ms)',
+      sessions: [{ key: 'pty:session#1', runner: 'pty', elapsed_ms: 16_800, budget_ms: 180_000, end: 'completed' },
+        { key: 'pty:session#2', runner: 'pty', elapsed_ms: 180_050, budget_ms: 180_000, end: 'observer_timeout' }] });
+    for (const record of r.history) expect(trialRecordProblemsV1(record), record.case).toEqual([]);
+    // Its five tests run concurrently: JUnit times sum to 346 s, the shard's wall is 176.5 s (lane S A2).
+    expect(noOpRecord.duration_ms).toBe(176_495);
+    const plain = report('gate', dir => { failNoOp(dir); fs.rmSync(path.join(noOp(dir), 'session-ledger.jsonl')); });
+    const without = plain.history.find(record => record.case === 'plan-mode-no-op');
+    expect(without.failure_class).toBe(noOpRecord.failure_class);
+    expect(without.sessions).toBeUndefined();
+    const collector = (dir: string) => JSON.parse(fs.readFileSync(path.join(dir, 'collector-outcomes.json'), 'utf8'));
+    expect(collector(plain.dir).verdict).toEqual(collector(r.dir).verdict);
+  });
+});
+
+describe('red lines carry their values, evidence and a one-case command (plan 0.3)', () => {
+  const QA_ONLY = 'qa-only/SKILL.md workflow';
+  const addJudgeRed = (dir: string) => {
+    const shard = path.join(dir, 'paid-slice-1-a1', 'shards', 'skill-llm-eval');
+    fs.mkdirSync(shard, { recursive: true });
+    const message = 'expect(received).toBeGreaterThanOrEqual(expected)\n\nExpected: &gt;= 4\nReceived: 3.6666666666666665\n';
+    fs.writeFileSync(path.join(shard, 'junit.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites><testsuite name="test/skill-llm-eval.test.ts">`
+      + `<testcase name="${QA_ONLY}" classname="Other skill evals" time="34.8" file="test/skill-llm-eval.test.ts" line="9">`
+      + `<failure type="AssertionError" message="${message.replace(/\n/g, '&#10;')}" /></testcase></testsuite></testsuites>\n`);
+    // Trimmed from census 37198445662's paid-slice-5-a1 qa-only record.
+    fs.writeFileSync(path.join(shard, '1.91.19-x-llm-judge-2026-10-04-1129.json'), JSON.stringify({ tier: 'llm-judge', total_cost_usd: 0.06, tests: [{
+      name: QA_ONLY, suite: 'Other skill evals', tier: 'llm-judge', passed: false, duration_ms: 34829, cost_usd: 0.06, execution: 'executed',
+      judge_scores: { clarity: 3.6666666666666665, completeness: 4.333333333333333, actionability: 3.6666666666666665 },
+      judge_reasoning: '[sample 1] The bundle is thorough. Clarity suffers from extreme density and cross-file indirection. Two actionability concerns: Browser Quick allots 30 seconds.\n[sample 2] Deliverables are concrete.\n[sample 3] Execution is feasible.',
+      exit_reason: 'validation_failed', error: message.replace('&gt;', '>') }] }));
+    const manifestPath = path.join(dir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const budget = resolvePaidShardBudget(['test/skill-llm-eval.test.ts']);
+    manifest.entries.push({ file: 'test/skill-llm-eval.test.ts', slice: 1, status: 'planned', estimatedMs: 35_000, budget });
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    const slicePath = path.join(dir, 'paid-slice-1-a1', 'slice-1.json');
+    const slice = JSON.parse(fs.readFileSync(slicePath, 'utf8'));
+    slice.outcomes.push({ files: ['test/skill-llm-eval.test.ts'], status: 'failed', exitCode: 1, elapsedMs: 35_000, executedTests: 1, skippedTests: 0, budget });
+    fs.writeFileSync(slicePath, JSON.stringify(slice));
+  };
+
+  test('a judge red names each failing dimension, its mean, samples and rationale, its artifact and an exact one-case command', () => {
+    const r = report('gate', addJudgeRed, { GITHUB_RUN_ID: '37198445662' });
+    const line = r.out.split('\n').find(l => l.includes(`✗ ${QA_ONLY}`))!;
+    expect(line).toContain('FAIL  assertion — expect(received).toBeGreaterThanOrEqual(expected)');
+    expect(line).toContain('· cause assertion  clarity 3.67 < 4 (3 samples) "Clarity suffers from extreme density and cross-file indirection."; '
+      + 'actionability 3.67 < 4 (3 samples) "Two actionability concerns: Browser Quick allots 30 seconds."');
+    expect(line).toContain('evidence: paid-slice-1-a1/shards/skill-llm-eval (fetch: bun run eval:pass-rates --run 37198445662 --case \'qa-only/SKILL.md workflow\')');
+    expect(line).toContain(`after a repair: EVALS=1 EVALS_TIER=gate EVALS_JUDGE_SELECTION_JSON='{"version":1,"selected":["${QA_ONLY}"],"reason":"after a repair"}' `
+      + `bun test test/skill-llm-eval.test.ts -t '(?:^|\\s)(?:qa-only/SKILL\\.md workflow)$'`);
+    expect(line).not.toContain('rerun:');
+    const record = r.history.find(x => x.case === QA_ONLY);
+    expect(record).toMatchObject({ failure_class: 'assertion', error: 'expect(received).toBeGreaterThanOrEqual(expected)', failure_cause: 'assertion',
+      failure_detail: { judge: [expect.objectContaining({ dimension: 'clarity', mean: 3.67 }), expect.objectContaining({ dimension: 'actionability', mean: 3.67 })] } });
+    expect(trialRecordProblemsV1(record)).toEqual([]);
+  });
+
+  test('a behavior panel line names the failed trial\'s cause, values, slice artifact and an n-trial one-case command', () => {
+    const verdict = panelVerdict({ case: 'plan-review-prosons-neutral-neg', kind: 'behavior', panel: { n: 3, k: 2 }, quarantined: false, trials: [
+      { trial: 1, outcome: 'failed', failure_class: 'assertion', exit_reason: 'success', error: 'expect(received).not.toMatch(expected)',
+        failure_cause: 'assertion', failure_cause_evidence: 'session completed; check failed',
+        failure_detail: { expected: 'not /taste call/i', received: '"a taste call"' } } as any,
+      { trial: 2, outcome: 'failed', failure_class: 'assertion' }, { trial: 3, outcome: 'passed' }] });
+    const line = formatPanelLine({ ...verdict, file: 'test/skill-e2e-plan-prosons.test.ts', slices: { 1: 7, 2: 9, 3: 9 } }, 'periodic',
+      { artifacts: new Map([[7, 'paid-slice-7-a1']]), runId: '37193478719' });
+    expect(line).toContain('t1: assertion (session completed; check failed) — expect(received).not.toMatch(expected)  · cause assertion: session completed; check failed  Expected: not /taste call/i · Received: "a taste call"');
+    expect(line).toContain('evidence: paid-slice-7-a1/shards/skill-e2e-plan-prosons--plan-review-prosons-neutral-neg.t1 (fetch: bun run eval:pass-rates --run 37193478719 --case plan-review-prosons-neutral-neg)');
+    expect(line).toContain('after a repair: bun run scripts/test-paid-shards.ts --tier periodic --case plan-review-prosons-neutral-neg --trials 3');
+  });
+
+  test('a rule red shows Expected/Received and selects only its case; the summary fence cannot be broken', () => {
+    const r = report('gate', dir => {
+      const file = path.join(dir, 'paid-slice-1-a1', 'shards', 'skill-e2e-plan-mode-no-op', 'junit.xml');
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/(<testcase name="plan-ceo-review reaches a terminal outcome outside plan mode"[^>]*?) \/>/,
+        '$1><failure type="AssertionError" message="expect(received).toBe(expected)&#10;&#10;Expected: &quot;asked&quot;&#10;Received: &quot;```@team&lt;/details&gt;&quot;" /></testcase>'));
+      addJudgeRed(dir);
+    });
+    const line = r.out.split('\n').find(l => l.includes('✗ plan-mode-no-op'))!;
+    expect(line).toContain('Expected: "asked" · Received: "```@\u200bteam</details>"');
+    expect(line).toContain('evidence: paid-slice-1-a1/shards/skill-e2e-plan-mode-no-op');
+    expect(line).not.toContain('(fetch:');
+    expect(line).toContain('after a repair: bun run scripts/test-paid-shards.ts --tier gate --case plan-mode-no-op');
+    const summary = fs.readFileSync(path.join(r.dir, 'report-summary.md'), 'utf8');
+    const lines = summary.split('\n');
+    const at = lines.findIndex(l => l.includes('✗ plan-mode-no-op'));
+    const open = lines.slice(0, at).findLast(l => /^`{3,}$/.test(l))!;
+    expect(open.length).toBeGreaterThan(3);
+    expect(lines.slice(at).find(l => /^`{3,}$/.test(l))).toBe(open);
+    expect(summary).not.toMatch(/@team/);
+    if (summary.includes('**ACTION REQUIRED')) expect(summary.trimEnd().endsWith('Guide: docs/evals/census-red.md')).toBe(true);
+    const collector = JSON.parse(fs.readFileSync(path.join(r.dir, 'collector-outcomes.json'), 'utf8'));
+    expect(collector.failures.join('\n')).not.toContain('`');
   });
 });
 

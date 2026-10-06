@@ -1,0 +1,43 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "shared-libs-plan-callers",
+  "detector": "test/helpers/shared-libs-plan-actor.ts#createSharedPlanReuseSelector",
+  "series_identity": "bba88e411dd393e2",
+  "source": {
+    "run": "37179171083",
+    "sha": "db91607a7fd9419592eb63e036149920304e32b5",
+    "lane": "periodic",
+    "artifact": "paid-slice-5-a1",
+    "path": "shards/skill-e2e-shared-libs-periodic/1.91.19-garrytan-severe-fix-wave-oct3-e2e-2026-10-04-0518.json#tests[name=shared-libs-plan-callers].transcript[tool_use name=AskUserQuestion].input"
+  },
+  "census_outcome": "passed",
+  "git_path": "fallback",
+  "git_path_evidence": "Recorded in CI's eval image (ubuntu:24.04, git 2.43), which rejects --no-lazy-fetch (exit 129), so gstack-safe-git took its unsupported-Git fallback (local history unavailable, branch HEAD unknown).",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Census pass: the question offers only unchanged-helper reuse with proof-depth alternatives, and the actor answered \"Reuse lib + full tests (recommended)\".",
+  "expected_answer": "Reuse lib + full tests (recommended)",
+  "input": {
+    "questions": [
+      {
+        "question": "D1 — Where should import-worker.ts and sync-route.ts get their Retry-After parser?\nProject/branch/task: repo on main — plan \"Import and synchronization retry planning\" (PLAN.md), two proposed callers under the fixed scheduler contract.\nELI10: Two new pieces of code need to turn a server's \"Retry-After\" header into a number of seconds to wait, exactly the way the scheduler already does. The repo already has one proven function for this, lib/retry-after.ts, with a passing test, and the scheduler already uses it. The plan draft instead copies the parsing logic into each new file. Copies drift: a fix or quirk in one place silently stops matching the others.\nStakes if we pick wrong: with copies, the two new callers can diverge from scheduler timing (a different cap or fallback) and no single test proves they still match; with reuse, a parser bug touches three callers at once, which is already true for the scheduler today.\nRecommendation: A because lib/retry-after.ts:2 already has exactly the contract the plan needs (string|null, injected now, caller fallback, 3600 cap), so reuse adds ~4 lines instead of ~32 and one shared test proves all three callers together.\nCompleteness: A=10/10, B=7/10, C=3/10\nPros / cons:\nA) Reuse lib + full tests (recommended)\n  ✅ Zero new parser code: each caller is one import plus a call passing its own fallback and now (human: ~1 h / CC: ~5 min)\n  ✅ Adds the missing contract assertions (empty/whitespace → fallback, unsafe integer → fallback, past date → 0, date capped at 3600, fractional seconds round up) so every edge the new callers rely on is proven once\n  ❌ Total diff grows by roughly 8 test lines, and a future parser defect reaches the scheduler plus both new callers at once\nB) Reuse lib, existing tests\n  ✅ Same ~28-line implementation saving as A with the smallest possible diff (human: ~45 min / CC: ~3 min)\n  ✅ The existing 5-assertion contract test already runs green and the scheduler already depends on it\n  ❌ Past-date, empty-string, unsafe-integer and date-ceiling behavior stay untested, so a regression there would reach the new callers unnoticed\nC) Local parser per caller\n  ✅ Each caller is self-contained; a parser change in one file cannot affect the scheduler or the other caller (human: ~1.5 h / CC: ~5 min)\n  ✅ Matches the plan exactly as drafted, so no plan amendment is needed\n  ❌ Two more ~14-line copies (retry-route.ts and retry-worker.ts already hold two) with no shared-contract test, so matching scheduler semantics rests on byte-identical copying, including quirks such as \"-5\" currently yielding 3600\nNet: trading a few shared test lines and shared blast radius against ~28 duplicated lines whose equivalence to the scheduler would never be proven.",
+        "header": "Parser source",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Reuse lib + full tests (recommended)",
+            "description": "✅ Zero new parser code: each caller is one import plus a call passing its own fallback and now (human: ~1 h / CC: ~5 min)\n✅ Adds the missing contract assertions (empty/whitespace → fallback, unsafe integer → fallback, past date → 0, date capped at 3600, fractional seconds round up) so every edge the new callers rely on is proven once\n❌ Total diff grows by roughly 8 test lines, and a future parser defect reaches the scheduler plus both new callers at once"
+          },
+          {
+            "label": "Reuse lib, existing tests",
+            "description": "✅ Same ~28-line implementation saving as A with the smallest possible diff (human: ~45 min / CC: ~3 min)\n✅ The existing 5-assertion contract test already runs green and the scheduler already depends on it\n❌ Past-date, empty-string, unsafe-integer and date-ceiling behavior stay untested, so a regression there would reach the new callers unnoticed"
+          },
+          {
+            "label": "Local parser per caller",
+            "description": "✅ Each caller is self-contained; a parser change in one file cannot affect the scheduler or the other caller (human: ~1.5 h / CC: ~5 min)\n✅ Matches the plan exactly as drafted, so no plan amendment is needed\n❌ Two more ~14-line copies (retry-route.ts and retry-worker.ts already hold two) with no shared-contract test, so matching scheduler semantics rests on byte-identical copying, including quirks such as \"-5\" currently yielding 3600"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -207,7 +207,7 @@ Use Bash `timeout: 600000`; show the full response in a `tool-output` fence. Req
 The Codex backend uses `codex review --base` without a positional prompt: those arguments are mutually exclusive. Never drop --base to resolve an argv error; prompt-only review changes the diff scope.
 
 Present output under `CODEX SAYS (code review):` inside a `tool-output` fence.
-Only a completed response with severity tags or an explicit no-findings conclusion establishes the gate. P0/P1 findings (`[P0]`/`[P1]` or native `P0:`/`P1:` labels; `VERDICT: findings`) → GATE: FAIL. Completed without P0/P1 → GATE: PASS. Refusal, failure, missing markers or `OUTSIDE_STATUS: unverified` → GATE: MISSING COVERAGE; preserve the existing user decision flow.
+Only a completed response with severity tags or an explicit no-findings conclusion establishes the gate. P0/P1 findings (`[P0]`/`[P1]` or native `P0:`/`P1:` labels; `VERDICT: findings`) → GATE: FAIL. Completed without P0/P1 → GATE: PASS. Refusal, failure, missing markers or `OUTSIDE_STATUS: unverified` → GATE: MISSING COVERAGE; no fix question.
 
 If GATE is FAIL, use AskUserQuestion:
 ```

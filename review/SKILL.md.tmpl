@@ -42,7 +42,7 @@ Review the branch diff against the base for structural issues tests miss.
 
 1. Run `git branch --show-current` to get the current branch.
 2. If on the base branch, output: **"Nothing to review — you're on the base branch or have no changes against it."** and stop.
-3. Run `git fetch origin <base> --quiet && DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" --stat` to check if there's a diff. If no diff, output the same message and stop.
+3. Run `git fetch origin <base> --quiet && echo "BASE_REFRESH: fresh" || echo "BASE_REFRESH: stale $(git rev-parse --short origin/<base>)"`, then `DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" --stat`. If no diff, output the same message and stop. `stale` is not an empty diff: continue; report `Base coverage: stale at <revision>`.
 
 ---
 
@@ -77,13 +77,7 @@ Each pass has one direction: collect findings in Steps 3–4.8, approve and appl
 fixes in Step 5, then choose repeat or final persistence in Step 5.8.
 Do not edit reviewed source until Step 5. All readers examine the same candidate.
 
-Fetch the base branch to avoid false positives from stale local state:
-
-```bash
-git fetch origin <base> --quiet
-```
-
-Compute the merge base, then diff the working tree against that point:
+Diff the working tree against the merge base:
 
 ```bash
 DIFF_BASE=$(git merge-base origin/<base> HEAD)

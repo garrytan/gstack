@@ -213,8 +213,8 @@ When fixing failures or preparing `/ship`, follow this order:
    do not satisfy coverage; preserve every attempt. Paid evals never retry. Each
    case's kind (`E2E_KINDS`) fixes its trials before the run: `rule` one trial;
    `behavior` a panel of 3 independent trials, PASS at >= 2 with no contract
-   violation; `judge` 3 samples on one output, gated on the mean against the
-   unchanged threshold. Never add trials, samples or dispatches after seeing a
+   violation; `judge` 3 samples on one output, each dimension gated on its
+   median (at least 2 of 3 samples) against the unchanged threshold. Never add trials, samples or dispatches after seeing a
    result, never change a kind to change a verdict without pass-rate evidence,
    and report every trial. Quarantine follows `CASE_QUARANTINE`'s entry and exit
    rules only (`EVAL_POLICY`, `docs/TESTING_INTERNALS.md`). A census whose every

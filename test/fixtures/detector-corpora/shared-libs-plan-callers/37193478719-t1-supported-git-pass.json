@@ -1,0 +1,44 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "shared-libs-plan-callers",
+  "detector": "test/helpers/shared-libs-plan-actor.ts#createSharedPlanReuseSelector",
+  "series_identity": "cce38d7a8c76aedf",
+  "source": {
+    "run": "37193478719",
+    "sha": "9f357d9b9c75441b6a18e4f75174274954ba6f96",
+    "lane": "periodic",
+    "artifact": "paid-slice-5-a1",
+    "path": "shards/skill-e2e-shared-libs-periodic/1.91.19-garrytan-severe-fix-wave-oct3-e2e-2026-10-04-0957.json#tests[name=shared-libs-plan-callers].transcript[tool_use name=AskUserQuestion].input"
+  },
+  "census_outcome": "passed",
+  "git_path": "supported",
+  "git_path_evidence": "Synthetic supported-path shape (git >= 2.44 reads succeed): local history and branch HEAD are known, so the brief cites them. No census recorded this path before the CI image moved to git 2.55.",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Supported-git shape of the 37193478719 pass: same reuse-only menu and proof-depth alternatives, with HEAD and a history citation in the brief; the actor still answers \"Reuse helper + full proof\".",
+  "derived": "the brief rewritten to the supported-git shape: Project/branch/task names the branch HEAD and the assessment cites a local history read (gstack-safe-git succeeded)",
+  "expected_answer": "Reuse helper + full proof",
+  "input": {
+    "questions": [
+      {
+        "question": "D1 — Which parser should the two new callers use under the fixed scheduler contract?\nProject/branch/task: repo on main @ 4f1c2d9 (local history read); PLAN.md adds src/import-worker.ts and src/sync-route.ts, both needing Retry-After parsing identical to src/scheduler.ts.\nELI10: The scheduler already uses a small, tested helper (lib/retry-after.ts) that turns a Retry-After header into a wait in seconds, caps it at an hour, and falls back to a caller-supplied default when the header is missing or garbage. git log shows lib/retry-after.ts unchanged since its contract test landed in 9e8f7a6. The plan drafts a fresh copy of that logic inside each new caller. Copies look harmless today but drift apart on edge cases over time, and nobody tests the copies directly.\nStakes if we pick wrong: two more untested parser copies (three total with the existing duplicates) that can disagree with the scheduler on edge cases such as past dates, blank headers or huge numbers, producing different retry waits per caller.\nRecommendation: A because the helper already exists, is used by the scheduler and has a contract test, so reuse costs two import lines and the only real work is proving the edge cases the new callers rely on.\nCompleteness: A=10/10, B=7/10, C=4/10\nPros / cons:\nA) Reuse helper + full proof (recommended)\n  ✅ Zero new parser code: each caller imports retrySeconds from lib/retry-after.ts, exactly as src/scheduler.ts:1 does today.\n  ✅ Contract test gains the edge cases the callers depend on (blank header, past date → 0, unsafe integer, date beyond 3600 s, fractional-second rounding), all verified by probe against the current helper.\n  ❌ A future bug in the shared helper now reaches the scheduler and both new callers at once (three call sites). (human: ~1 h / CC: ~5 min)\nB) Reuse helper, existing tests\n  ✅ Same two-line wiring as A with no parser duplication.\n  ✅ Smallest diff: only the two caller integration tests are added.\n  ❌ Edge cases the new callers rely on (blank header, past date, unsafe integer, date cap) stay unproven in test/retry-after.test.ts; a regression there would pass CI. (human: ~45 min / CC: ~4 min)\nC) Local parsers as drafted\n  ✅ Each caller is self-contained; a helper change cannot alter its behavior.\n  ✅ Matches the current plan text, so no plan amendment is needed.\n  ❌ Adds ~30 duplicated implementation lines with no direct tests, and the copies can silently diverge from the scheduler's contract the plan says is fixed. (human: ~2 h / CC: ~10 min)\nNet: trading a slightly wider blast radius for one proven parser versus three untested copies of the same 15 lines.",
+        "header": "Parser reuse",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Reuse helper + full proof",
+            "description": "✅ Both new callers import retrySeconds from lib/retry-after.ts (one line each), the same wiring src/scheduler.ts uses today; no parser code is written.\n✅ test/retry-after.test.ts keeps its 5 assertions and adds the edge cases the callers depend on: blank/whitespace header → fallback, past date → 0, unsafe-integer string → fallback, date ≥ 3600 s ahead → 3600, fractional-second date → ceil. Each new caller gets its integration test asserting header/null, injected now and its own fallback flow through and the result is used.\n❌ A future helper bug reaches the scheduler and both new callers at once. Helper semantics, src/retry-route.ts and src/retry-worker.ts stay unchanged (out of scope). (human: ~1 h / CC: ~5 min)"
+          },
+          {
+            "label": "Reuse helper, existing tests",
+            "description": "✅ Same one-line import per caller as A; no parser duplication.\n✅ Smallest diff: only the two caller integration tests are added; test/retry-after.test.ts is left at its current 5 assertions.\n❌ Blank header, past date, unsafe integer and date-cap behavior stay unproven by the contract test, so a helper regression on those paths would pass CI while the callers rely on them. Helper semantics and existing callers stay unchanged. (human: ~45 min / CC: ~4 min)"
+          },
+          {
+            "label": "Local parsers as drafted",
+            "description": "✅ Each caller carries its own 15-line parser copy and cannot be changed by a helper edit.\n✅ Matches the current plan text; only the two caller integration tests are added.\n❌ About 30 duplicated implementation lines with no direct tests; the copies must stay byte-identical to lib/retry-after.ts to honor the fixed contract and can silently drift. Helper and existing callers stay unchanged. (human: ~2 h / CC: ~10 min)"
+          }
+        ]
+      }
+    ]
+  }
+}

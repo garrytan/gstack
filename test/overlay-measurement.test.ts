@@ -5,6 +5,7 @@ import * as path from 'path';
 import type { AgentSdkResult, QueryProvider } from './helpers/agent-sdk-runner';
 import { firstAssistantMessageToolCount, reportedThinkingTokens, assessComparison, trialArtifactStem } from './helpers/overlay-measurement';
 import { runOverlayTrial, awaitOverlayWorkers, assessOverlayArms, captureOverlayQueryAttempts, type OverlayTrialOutcome } from './helpers/overlay-attempt';
+import { OVERLAY_CONTRACT } from './helpers/overlay-case-policy';
 import { setupLiteralWorkspace, correctLiteralTargets, snapshotWorkspace, assertReadOnlyWorkspace } from './helpers/overlay-workspace';
 import { fanoutPass, higherIsBetter20Pct, lowerIsBetter20Pct, lowerIsBetter20PctOrZeroBaseline, OVERLAY_FIXTURES, type OverlayFixture } from './fixtures/overlay-nudges';
 
@@ -66,9 +67,10 @@ describe('SDK overlay measurements', () => {
 describe('correctness versus efficacy', () => {
   describe.each(['claude-opus-4-7', 'claude-sonnet-4-6'])('dedicated-tool gate for %s', (model) => {
     const f = { ...OVERLAY_FIXTURES.find(f => f.metricName === 'bash_tool_calls' && f.model === model)!, trials: 3 };
-    // A trial whose final JSON fails the fixture's verify is recorded as a failed measurement.
+    // Contract v4: a trial whose final JSON fails the fixture's verify is a valid
+    // measurement with a wrong answer, not an invalid measurement.
     const correct = (metric: number): OverlayTrialOutcome => ({ passed: true, taskCorrect: true, metric, exitReason: 'success' });
-    const incorrect = (metric: number): OverlayTrialOutcome => ({ passed: false, taskCorrect: false, metric, exitReason: 'validation_failed' });
+    const incorrect = (metric: number): OverlayTrialOutcome => ({ passed: true, taskCorrect: false, metric, exitReason: 'success', answerError: 'AssertionError: final answer does not match the fixture task' });
     const arm = (...trials: OverlayTrialOutcome[]) => trials;
     test('fixture gates on the comparison and on output correctness, not on zero ON Bash', () => {
       expect(f.taskCorrect).toBeUndefined();
@@ -88,9 +90,25 @@ describe('correctness versus efficacy', () => {
         gatePassed: false, passed: false, comparison: { status: 'no_measured_improvement' },
       });
     });
-    test('a 20% reduction with incorrect output fails', () => {
+    test('a 20% reduction with incorrect ON output fails', () => {
       expect(assessOverlayArms(f, arm(correct(0), incorrect(0), correct(0)), arm(correct(5), correct(5), correct(5)))).toMatchObject({
-        measurementsValid: false, passed: false,
+        measurementsValid: true, correctnessPassed: false, passed: false,
+      });
+    });
+    test('an OFF wrong answer is a comparison result, not an invalid measurement', () => {
+      expect(assessOverlayArms(f, arm(correct(0), correct(0), correct(0)), arm(incorrect(0), correct(0), correct(0)))).toMatchObject({
+        measurementsValid: true, correctnessPassed: true, gatePassed: true, passed: true, comparison: { status: 'baseline_saturated' },
+      });
+    });
+    test('an execution failure invalidates the measurement in either arm', () => {
+      const failed: OverlayTrialOutcome = { passed: false, taskCorrect: false, metric: 0, exitReason: 'error_max_turns', error: 'Error: SDK execution failed: error_max_turns' };
+      for (const [on, off] of [[arm(failed, correct(0), correct(0)), arm(correct(0), correct(0), correct(0))], [arm(correct(0), correct(0), correct(0)), arm(failed, correct(0), correct(0))]]) {
+        expect(assessOverlayArms(f, on, off)).toMatchObject({ measurementsValid: false, correctnessPassed: false, gatePassed: false, passed: false, comparison: { status: 'incomplete' } });
+      }
+    });
+    test('an OFF wrong answer does not rescue a failed comparison gate', () => {
+      expect(assessOverlayArms(f, arm(correct(6), correct(6), correct(6)), arm(incorrect(5), correct(5), correct(5)))).toMatchObject({
+        measurementsValid: true, correctnessPassed: true, gatePassed: false, passed: false, comparison: { status: 'regressed' },
       });
     });
     test('a zero-Bash baseline passes only when every ON trial is also zero', () => {
@@ -288,10 +306,13 @@ describe('complete trial lifecycle', () => {
       }, record: (entry) => records.push(entry) });
       expect(records).toHaveLength(1);
       expect(records[0]).toBe(outcome);
-      expect(outcome.passed).toBe(scenario === 'success');
+      // Contract v4: a failed output check is a completed wrong answer, not an invalid measurement.
+      expect(outcome.passed).toBe(scenario === 'success' || scenario === 'assertion');
+      expect(outcome.taskCorrect).toBe(scenario === 'success');
+      if (scenario === 'assertion') expect(outcome).toMatchObject({ exitReason: 'success', answerError: 'Error: required output absent' });
       if (scenario === 'runner_error' || scenario === 'setup_error') expect(outcome.exitReason).toBe('harness_error');
       if (scenario === 'max_turns') expect(outcome.exitReason).toBe('error_max_turns');
-      if (scenario !== 'success') expect(outcome.error).toBeTruthy();
+      if (scenario !== 'success' && scenario !== 'assertion') expect(outcome.error).toBeTruthy();
       if (scenario !== 'runner_error' && scenario !== 'setup_error') expect(outcome.result?.costUsd).toBe(0.03);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
@@ -308,6 +329,40 @@ describe('complete trial lifecycle', () => {
     const workers = [Promise.reject(new Error('first failed')), new Promise<void>((resolve) => setTimeout(() => { settled = true; resolve(); }, 20))];
     await expect(awaitOverlayWorkers(workers)).rejects.toThrow('overlay workers failed');
     expect(settled).toBe(true);
+  });
+});
+
+describe('contract v4 replay of census 37198445662', () => {
+  const corpus = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures', 'overlay-v4-replay-37198445662.json'), 'utf8')) as {
+    source: { fixture: string }; trials: Array<{ arm: 'overlay-on' | 'overlay-off'; trial: number; tools: string[]; answer: string; v3: { measurementPassed: boolean } }>;
+  };
+  const f = OVERLAY_FIXTURES.find(candidate => candidate.id === corpus.source.fixture)!;
+  const replay = async (trial: (typeof corpus.trials)[number]) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overlay-v4-replay-'));
+    try {
+      return await runOverlayTrial({ fixture: f, directory: dir, record: () => {}, invoke: async () => result({
+        events: [systemInit(), { type: 'result', subtype: 'success', result: trial.answer }] as AgentSdkResult['events'],
+        toolCalls: trial.tools.map(tool => ({ tool, input: {}, output: '' })), output: trial.answer, model: f.model,
+      }) });
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+  test('the stored OFF wrong answer is a measured result and the case passes under v4', async () => {
+    const outcomes = await Promise.all(corpus.trials.map(replay));
+    const arm = (name: string) => outcomes.filter((_, index) => corpus.trials[index].arm === name);
+    expect(corpus.trials.filter(trial => !trial.v3.measurementPassed).map(trial => `${trial.arm}-${trial.trial}`)).toEqual(['overlay-off-0']);
+    expect(outcomes.every(outcome => outcome.passed)).toBe(true);
+    expect(arm('overlay-off').map(outcome => outcome.taskCorrect)).toEqual([false, ...Array(9).fill(true)]);
+    expect(arm('overlay-off')[0].answerError).toContain('does not match the fixture task');
+    expect(assessOverlayArms(f, arm('overlay-on'), arm('overlay-off'))).toMatchObject({
+      measurementsValid: true, correctnessPassed: true, gatePassed: true, passed: true, comparison: { status: 'baseline_saturated', meanOn: 0, meanOff: 0 },
+    });
+    expect(OVERLAY_CONTRACT.version).toBe(4);
+  });
+  test('the same wrong answer in the ON arm still fails the case', async () => {
+    const swapped = corpus.trials.map(trial => ({ ...trial, arm: trial.arm === 'overlay-on' ? 'overlay-off' as const : 'overlay-on' as const }));
+    const outcomes = await Promise.all(swapped.map(replay));
+    const arm = (name: string) => outcomes.filter((_, index) => swapped[index].arm === name);
+    expect(assessOverlayArms(f, arm('overlay-on'), arm('overlay-off'))).toMatchObject({ measurementsValid: true, correctnessPassed: false, passed: false });
   });
 });
 

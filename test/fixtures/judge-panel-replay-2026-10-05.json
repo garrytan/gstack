@@ -1,0 +1,893 @@
+{
+ "provenance": "Replayed evidence, not a CI pass: every judge panel printed by eval-slices (2) jobs 112032744416 (run 37389946212, head 1536f7f6b) and 112049856586 (run 37395241262, head a5450908e). Only the numeric and boolean sample fields the gates read are kept; reasoning text is omitted.",
+ "panels": [
+  {
+   "job": "112032744416",
+   "case": "Setup block",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 3
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "Browse SKILL.md",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "QA health rubric",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "QA anti-refusal",
+   "samples": [
+    {
+     "would_browse": true,
+     "confidence": 5
+    },
+    {
+     "would_browse": true,
+     "confidence": 5
+    },
+    {
+     "would_browse": true,
+     "confidence": 5
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "QA workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 3,
+     "completeness": 4,
+     "actionability": 3
+    },
+    {
+     "clarity": 3,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "Cross-skill consistency",
+   "samples": [
+    {
+     "consistent": true,
+     "score": 4
+    },
+    {
+     "consistent": true,
+     "score": 4
+    },
+    {
+     "consistent": true,
+     "score": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "document-release/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "ship/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "plan-ceo-review/SKILL.md modes",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "plan-design-review/SKILL.md passes",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "plan-eng-review/SKILL.md sections",
+   "samples": [
+    {
+     "clarity": 3,
+     "completeness": 4,
+     "actionability": 3
+    },
+    {
+     "clarity": 3,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 3,
+     "completeness": 4,
+     "actionability": 3
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "design-review/SKILL.md fix loop",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "design-consultation/SKILL.md research",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "land-and-deploy/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "canary/SKILL.md monitoring loop",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "benchmark/SKILL.md perf collection",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "setup-deploy/SKILL.md platform setup",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "sync-gbrain/SKILL.md read-only readiness",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "retro/SKILL.md instructions",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "review/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 3,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "qa-only/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "gstack-upgrade/SKILL.md upgrade flow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "Voice directive",
+   "samples": [
+    {
+     "directness": 5,
+     "concreteness": 5,
+     "avoids_corporate": 5,
+     "avoids_ai_vocabulary": 4,
+     "connects_user_outcomes": 5
+    },
+    {
+     "directness": 5,
+     "concreteness": 5,
+     "avoids_corporate": 5,
+     "avoids_ai_vocabulary": 4,
+     "connects_user_outcomes": 5
+    },
+    {
+     "directness": 5,
+     "concreteness": 5,
+     "avoids_corporate": 5,
+     "avoids_ai_vocabulary": 4,
+     "connects_user_outcomes": 5
+    }
+   ]
+  },
+  {
+   "job": "112032744416",
+   "case": "setup-browser-cookies/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "document-release/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "ship/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "plan-ceo-review/SKILL.md modes",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 3,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "plan-eng-review/SKILL.md sections",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "design-review/SKILL.md fix loop",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "plan-design-review/SKILL.md passes",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "design-consultation/SKILL.md research",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 5,
+     "actionability": 4
+    },
+    {
+     "clarity": 3,
+     "completeness": 4,
+     "actionability": 3
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "land-and-deploy/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "canary/SKILL.md monitoring loop",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 3,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "setup-deploy/SKILL.md platform setup",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "benchmark/SKILL.md perf collection",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "sync-gbrain/SKILL.md read-only readiness",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 3,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "retro/SKILL.md instructions",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "review/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "qa-only/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "gstack-upgrade/SKILL.md upgrade flow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "Voice directive",
+   "samples": [
+    {
+     "directness": 5,
+     "concreteness": 5,
+     "avoids_corporate": 5,
+     "avoids_ai_vocabulary": 4,
+     "connects_user_outcomes": 5
+    },
+    {
+     "directness": 5,
+     "concreteness": 5,
+     "avoids_corporate": 5,
+     "avoids_ai_vocabulary": 4,
+     "connects_user_outcomes": 5
+    },
+    {
+     "directness": 5,
+     "concreteness": 5,
+     "avoids_corporate": 5,
+     "avoids_ai_vocabulary": 4,
+     "connects_user_outcomes": 5
+    }
+   ]
+  },
+  {
+   "job": "112049856586",
+   "case": "setup-browser-cookies/SKILL.md workflow",
+   "samples": [
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    },
+    {
+     "clarity": 4,
+     "completeness": 4,
+     "actionability": 4
+    }
+   ]
+  }
+ ]
+}

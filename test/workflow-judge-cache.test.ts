@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { Messages } from '@anthropic-ai/sdk/resources/messages';
-import { callJudge, JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS, judgePanel, judgePanelMajority, judgePanelMean, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS, JUDGE_PANEL_SAMPLES } from './helpers/llm-judge';
+import { callJudge, JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS, judgePanel, judgePanelMajority, judgePanelMean, judgePanelMedian, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS, JUDGE_PANEL_SAMPLES } from './helpers/llm-judge';
 import { EVAL_POLICY } from './helpers/periodic-exclude-data';
 import { getCookieWorkflowManualReview } from './helpers/cookie-workflow-manual-review';
 import { resolveEvalModel } from '../lib/eval-model';
@@ -172,7 +172,7 @@ test('workflow registration preserves model work and reserves only terminal-reco
   const body = source.split('async function runWorkflowJudge')[1]!.split('// Block 1:')[0]!;
   const stages = ['workflowJudgeAttempts.set', 'readWorkflowJudgeInput(', 'cache.lookup()',
     'judgePanel(() => callJudge<JudgeScore>(prompt, opts.model, { signal: controller.signal, max_tokens: maxTokens,',
-    'scores = judgePanelMean(samples, JUDGE_SCORE_DIMENSIONS);',
+    'scores = judgePanelMedian(samples, JUDGE_SCORE_DIMENSIONS);',
     'expect(scores.clarity)', 'expect(scores.completeness)', 'expect(scores.actionability)', 'cache.publish(samples, active)']
     .map(stage => body.indexOf(stage));
   expect(stages.every(position => position >= 0)).toBe(true);
@@ -207,7 +207,7 @@ function actualCallback(f: ReturnType<typeof fixture>, overrides: {
     'evalCollector', 'expect', 'console', 'performance', 'JUDGE_MS', 'WORKFLOW_JUDGE_RECORD_MS',
     'setTimeout', 'clearTimeout', 'JudgeRefusalError', 'getCookieWorkflowManualReview', 'DEFAULT_JUDGE_MAX_TOKENS', 'resolveEvalModel',
     'WORKFLOW_JUDGE_RESPONSE_SCHEMA', 'validWorkflowJudgeScore',
-    'judgePanel', 'judgePanelMean', 'judgePanelReasoning', 'JUDGE_SCORE_DIMENSIONS',
+    'judgePanel', 'judgePanelMean', 'judgePanelMedian', 'judgePanelReasoning', 'JUDGE_SCORE_DIMENSIONS',
     `${javascript}\nreturn runWorkflowJudge;`)(
     f.root, overrides.read ?? readWorkflowJudgeInput, buildWorkflowJudgePrompt,
     (options: WorkflowCacheOptions) => (overrides.prepare ?? prepareWorkflowJudgeCache)({ ...options, env: f.env }),
@@ -219,7 +219,7 @@ function actualCallback(f: ReturnType<typeof fixture>, overrides: {
     overrides.setTimer ?? setTimeout, overrides.clearTimer ?? clearTimeout,
     JudgeRefusalError, getCookieWorkflowManualReview, DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel,
     WORKFLOW_JUDGE_RESPONSE_SCHEMA, validWorkflowJudgeScore,
-    judgePanel, judgePanelMean, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS);
+    judgePanel, judgePanelMean, judgePanelMedian, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS);
   return { run, records, signals, prompts, attempts, options: { ...f.opts, suite: 'Cache regression' } };
 }
 
@@ -572,14 +572,14 @@ describe('judge panel', () => {
     expect(String(error)).toContain(`sample 1 of ${SAMPLES} failed beside scored samples`);
   });
 
-  test('numeric dimensions gate on the per-dimension mean; one low sample can be outvoted, a low mean cannot', () => {
-    const outvoted = judgePanelMean([panelScore(2), panelScore(4), panelScore(4)], JUDGE_SCORE_DIMENSIONS);
-    expect(outvoted.clarity).toBeCloseTo(10 / 3);
-    expect(outvoted.clarity).toBeGreaterThanOrEqual(panelThresholds.clarity);
-    const low = judgePanelMean([panelScore(2), panelScore(2), panelScore(4)], JUDGE_SCORE_DIMENSIONS);
+  test('numeric dimensions gate on the per-dimension median: 2 of 3 samples decide, the mean is only reported', () => {
+    const outvoted = judgePanelMedian([panelScore(2), panelScore(4), panelScore(4)], JUDGE_SCORE_DIMENSIONS);
+    expect(outvoted.clarity).toBe(4);
+    expect(judgePanelMean([panelScore(2), panelScore(4), panelScore(4)], JUDGE_SCORE_DIMENSIONS).clarity).toBeCloseTo(10 / 3);
+    const low = judgePanelMedian([panelScore(2), panelScore(2), panelScore(4)], JUDGE_SCORE_DIMENSIONS);
     expect(low.clarity).toBeLessThan(panelThresholds.clarity);
-    // No compensation across dimensions: each is averaged on its own.
-    expect(judgePanelMean([panelScore(5, 1), panelScore(5, 1), panelScore(5, 1)], JUDGE_SCORE_DIMENSIONS).completeness).toBe(1);
+    // No compensation across dimensions: each is gated on its own.
+    expect(judgePanelMedian([panelScore(5, 1), panelScore(5, 1), panelScore(5, 1)], JUDGE_SCORE_DIMENSIONS).completeness).toBe(1);
   });
 
   test('malformed sample fields fail the panel instead of averaging to NaN', () => {
@@ -621,7 +621,7 @@ describe('judge panel', () => {
   });
 });
 
-// Stored browse reference panel means against the judge floors.
+// Stored browse reference panel means (recorded before EVAL_POLICY v3) against the judge floors.
 {
   type Scores = { clarity: number; completeness: number; actionability: number };
   const stored = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/browse-judge/panel-means.json'), 'utf8')) as

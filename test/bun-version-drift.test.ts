@@ -10,9 +10,16 @@
  * parsing — a lane on a different Bun is testing a different product.
  *
  * Bumping Bun: change every surface in one commit; this test names each one.
+ *
+ * E1: bin/gstack-bun-version.sh is the one source setup and the auto-updater
+ * read. Its tested version is the CI pin, engines.bun's lower bound, setup's
+ * install hint and README's requirement; its floor (1.3.3) is the security
+ * boundary below which the no-autoload compile flags are silently ignored.
  */
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -87,4 +94,85 @@ describe('bun version pins', () => {
       ).toBe(true);
     }
   });
+});
+
+function bunVersionsFile(): { floor: string; tested: string } {
+  const src = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-bun-version.sh'), 'utf-8');
+  return {
+    floor: src.match(/^GSTACK_BUN_FLOOR="([^"]+)"$/m)?.[1] ?? '<no GSTACK_BUN_FLOOR>',
+    tested: src.match(/^GSTACK_BUN_TESTED="([^"]+)"$/m)?.[1] ?? '<no GSTACK_BUN_TESTED>',
+  };
+}
+
+describe('Bun requirement surfaces agree (E1)', () => {
+  const { floor, tested } = bunVersionsFile();
+
+  test('tested version == every CI pin == engines.bun lower bound; floor sits below it', () => {
+    const ciVersions = [...new Set(collectPins().map((p) => p.version))];
+    expect(ciVersions).toEqual([tested]);
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
+    expect(pkg.engines?.bun).toBe(`>=${tested}`);
+    expect(floor).toBe('1.3.3');
+    expect(Bun.semver.order(floor, tested)).toBe(-1);
+  });
+
+  test('README states the tested version and the floor', () => {
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf-8');
+    expect(readme).toContain(`[Bun](https://bun.sh/) v${tested}+`);
+    expect(readme).toContain(`refuses Bun older than ${floor}`);
+  });
+
+  test.skipIf(process.platform === 'win32')('setup install hint pins the tested version', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-bun-hint-'));
+    try {
+      const nobun = path.join(base, 'bin');
+      fs.mkdirSync(nobun);
+      for (const tool of ['dirname', 'cat', 'uname', 'mkdir']) {
+        const found = spawnSync('bash', ['-c', `command -v ${tool}`], { encoding: 'utf-8', timeout: 10_000 }).stdout.trim();
+        if (found) fs.symlinkSync(found, path.join(nobun, tool));
+      }
+      const r = spawnSync('/bin/bash', [path.join(ROOT, 'setup')], {
+        encoding: 'utf-8', env: { PATH: nobun, HOME: base }, timeout: 30_000,
+      });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain('bun is required but not installed');
+      expect(r.stderr).toContain(`BUN_VERSION="${tested}"`);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('BROWSE SETUP install hint pins the tested version', () => {
+    const resolver = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'browse.ts'), 'utf-8');
+    expect([...resolver.matchAll(/BUN_VERSION="([0-9][^"]*)"/g)].map((m) => m[1])).toEqual([tested]);
+  });
+
+  // Compiled probe of the security floor: a binary built with the four
+  // no-autoload flags must not read a .env beside it. Run by hand against
+  // released binaries on 2026-10-04: Bun 1.3.2 accepted the flags and still
+  // loaded .env; 1.3.3 and 1.4.0 did not. This keeps the probe honest on the
+  // Bun under test (the CI pin); the control build proves the probe can see a leak.
+  test.skipIf(process.platform === 'win32')('compiled probe: the no-autoload flags hold on the Bun under test', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-bun-probe-'));
+    try {
+      fs.writeFileSync(path.join(base, 'probe.ts'), 'console.log(process.env.GSTACK_BUN_PROBE ?? "absent");\n');
+      const run = path.join(base, 'run');
+      fs.mkdirSync(run);
+      fs.writeFileSync(path.join(run, '.env'), 'GSTACK_BUN_PROBE=leaked\n');
+      const build = (out: string, flags: string[]) => {
+        const r = spawnSync(process.execPath, ['build', '--compile', ...flags, 'probe.ts', '--outfile', out], {
+          cwd: base, encoding: 'utf-8', timeout: 120_000,
+        });
+        expect(r.status, r.stderr).toBe(0);
+        return spawnSync(path.join(base, out), [], { cwd: run, encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
+      };
+      expect(build('control', [])).toBe('leaked');
+      expect(build('guarded', [
+        '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig',
+        '--no-compile-autoload-tsconfig', '--no-compile-autoload-package-json',
+      ])).toBe('absent');
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  }, 240_000);
 });

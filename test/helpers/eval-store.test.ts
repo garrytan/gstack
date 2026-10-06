@@ -25,10 +25,13 @@ import {
   parseTrialOutcomes,
   sanitizeTrialError,
   trialContextFromEnv,
+  TRIAL_ERROR_MAX,
 } from './eval-store';
 import type { EvalResult, EvalTestEntry, ComparisonResult, PanelTrial, TrialOutcomeRecord } from './eval-store';
 import { EVAL_POLICY } from './periodic-exclude-data';
 import { manualReviewFixture } from './manual-judge-review-fixture';
+// The frozen EVAL_POLICY v1 reader (test/fixtures/trial-record-v1-reader.ts).
+import { trialRecordProblems as trialRecordProblemsV1 } from '../fixtures/trial-record-v1-reader';
 
 let tmpDir: string;
 
@@ -1149,6 +1152,35 @@ describe('trial-outcomes JSONL', () => {
     expect(parsed.records).toHaveLength(1);
     expect(parsed.errors).toEqual(['line 2: not JSON', 'line 3: schema other']);
     expect(parseTrialOutcomes(text, { maxBytes: 10 }).errors[0]).toContain('exceed');
+  });
+
+  test('new optional fields: valid records pass the current reader and the frozen v1 reader', () => {
+    const failed = record({ trial: 2, outcome: 'failed', failure_class: 'assertion', exit_reason: 'success',
+      error: sanitizeTrialError('expect(received).toBe(expected)\n\nExpected: "b"\nReceived: "a"'),
+      failure_cause: 'assertion', failure_cause_evidence: 'session completed; check failed',
+      failure_detail: { expected: '"b"', received: '"a"' }, cost_known: false,
+      sessions: [{ key: 'claude-p:case-x#1', runner: 'claude-p', elapsed_ms: 1200, budget_ms: 300_000, end: 'completed' }] });
+    const judge = record({ trial: 3, outcome: 'failed', failure_class: 'assertion', failure_cause: 'assertion',
+      failure_detail: { judge: [{ dimension: 'clarity', mean: 3.67, threshold: 4, samples: 3, rationale: 'Clarity suffers from density.' }] } });
+    const passed = record({ sessions: [{ key: 'pty:case-x#1', runner: 'pty', elapsed_ms: 10, end: 'completed' }] });
+    for (const r of [failed, judge, passed]) {
+      expect(trialRecordProblemsV1(JSON.parse(JSON.stringify(r)))).toEqual([]);
+      expect(r.error === undefined || r.error.length <= TRIAL_ERROR_MAX).toBe(true);
+    }
+    expect(parseTrialOutcomes(formatTrialOutcomes([failed, judge, passed]))).toEqual({ records: [failed, judge, passed], errors: [] });
+  });
+
+  test('new optional fields are bounded and checked only when present', () => {
+    const failed = (extra: Partial<TrialOutcomeRecord> | Record<string, unknown>) => record({ outcome: 'failed', failure_class: 'assertion', ...extra } as Partial<TrialOutcomeRecord>);
+    const problems = (r: unknown) => parseTrialOutcomes(JSON.stringify(r)).errors;
+    expect(problems(record({ failure_cause: 'assertion' }))[0]).toContain('failure_cause on a non-failed trial');
+    expect(problems(failed({ failure_cause: 'detector' }))[0]).toContain("unknown failure_cause \"detector\" (written by a newer gstack; update this checkout to read it)");
+    expect(problems(failed({ failure_cause_evidence: 'x'.repeat(301) }))[0]).toContain('failure_cause_evidence invalid');
+    expect(problems(failed({ failure_detail: { expected: 'x'.repeat(201), received: '' } }))[0]).toContain('failure_detail invalid');
+    expect(problems(failed({ failure_detail: { judge: [] } }))[0]).toContain('failure_detail invalid');
+    expect(problems(record({ sessions: [{ key: 'k', runner: 'pty', elapsed_ms: -1, end: 'completed' }] }))[0]).toContain('sessions invalid');
+    expect(problems(record({ cost_known: 'no' } as any))[0]).toContain('cost_known invalid');
+    expect(problems(failed({}))).toEqual([]);
   });
 
   test('sanitizeTrialError keeps one capped line without mentions', () => {

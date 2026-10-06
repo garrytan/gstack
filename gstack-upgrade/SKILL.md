@@ -146,6 +146,8 @@ cd -- "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the p
 # re-renders to ~/.gstack/render), so discarding is lossless.
 git checkout -- 'SKILL.md' '*/SKILL.md' '*/sections/*.md' 2>/dev/null || true
 git fetch origin
+# Same pre-advance check as the auto-updater: the incoming release's Bun floor.
+HOLD=$(. bin/gstack-bun-version.sh 2>/dev/null && gstack_bun_incoming_hold . origin/main) && { echo "BUN_TOO_OLD: $HOLD; nothing was changed" >&2; exit 1; }
 PRE_UPGRADE_COMMIT=$(git rev-parse HEAD)
 echo "PRE_UPGRADE_COMMIT=$PRE_UPGRADE_COMMIT"
 if git pull --ff-only --autostash origin main; then
@@ -164,6 +166,7 @@ belongs to another checkout or project; pass on its command, do not run it.
 
 If the output ends with `FF_OK`, the upgrade is done — skip the fallback
 below entirely.
+On `BUN_TOO_OLD`, STOP: tell the user to run `bun upgrade`, then /gstack-upgrade again.
 On `SETUP_FAILED`, STOP; keep user changes and report the recovery commit. There is no `.bak` on the git path. Do not enter the divergence fallback merely because setup failed. Enter it only on `FF_REFUSED`, after inspecting the pull error; network/auth failures stop for repair, not reset.
 
 **Fallback (ff-only refused — local commits or divergence).** `git reset

@@ -1,0 +1,396 @@
+{
+ "source": {
+  "run": "37198445662",
+  "sha": "fd6854b",
+  "tier": "periodic",
+  "artifact": "paid-slice-26-a1",
+  "case": "overlay-harness-claude-dedicated-tools-vs-bash-sonnet",
+  "fixture": "claude-dedicated-tools-vs-bash-sonnet",
+  "attempt": 1,
+  "contract": 3
+ },
+ "excerpt": "Per trial: tool_use names in order and the native terminal result string. Everything else in the SDK stream is omitted.",
+ "originalOutcome": "FAIL under contract v3: overlay-off-0 answered src/api.ts: [] (wrong), was recorded as an invalid measurement, and the comparison became incomplete.",
+ "expected": {
+  "3": "fail",
+  "4": "pass"
+ },
+ "justification": "Contract v4 (D1, approved 2026-10-04) scores a completed OFF wrong answer as a correctness result; every ON trial is correct and the zero-Bash baseline gate holds.",
+ "trials": [
+  {
+   "arm": "overlay-on",
+   "trial": 0,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 1,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Read"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 2,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Read",
+    "Read",
+    "Read",
+    "Read",
+    "Read"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 3,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Read"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 4,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 5,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 6,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 7,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Read"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 8,
+   "tools": [
+    "Glob",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-on",
+   "trial": 9,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Read"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 0,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": false,
+    "taskCorrect": false,
+    "exitReason": "validation_failed"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 1,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/types.ts\":[\"Foo\"],\"src/api.ts\":[\"fetchFoo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 2,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 3,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 4,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 5,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 6,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 7,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 8,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  },
+  {
+   "arm": "overlay-off",
+   "trial": 9,
+   "tools": [
+    "Glob",
+    "Glob",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep",
+    "Grep"
+   ],
+   "answer": "{\"src/index.ts\":[\"x\"],\"src/util.ts\":[\"util\"],\"src/config.ts\":[\"c\"],\"src/api.ts\":[\"fetchFoo\"],\"src/types.ts\":[\"Foo\"]}",
+   "v3": {
+    "measurementPassed": true,
+    "taskCorrect": true,
+    "exitReason": "success"
+   }
+  }
+ ]
+}

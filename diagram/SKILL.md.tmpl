@@ -73,7 +73,7 @@ gstack versions never clobber each other.
 
 ```bash
 BUNDLE=""
-for c in "$HOME/.claude/skills/gstack/lib/diagram-render/dist/diagram-render.html" \
+for c in "{{RUNTIME_ROOT}}/lib/diagram-render/dist/diagram-render.html" \
          "$(git rev-parse --show-toplevel 2>/dev/null)/lib/diagram-render/dist/diagram-render.html"; do
   [ -f "$c" ] && BUNDLE="$c" && break
 done

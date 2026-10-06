@@ -298,6 +298,9 @@ test('review finalization ownership: the plan audit retains its high-impact gate
   const flatAudit = audit.replace(/\s+/g, ' ');
   expectMentions(flatAudit, [['before', 'implementation', 'invocation']], 'flatAudit');
   expect(flatAudit).toMatch(/not this read-only audit/i);
+  // C2: a spawned or non-interactive review cannot answer the question; its default writes and drops nothing.
+  expect(flatAudit).toContain('Spawned or non-interactive: report REQUIREMENTS MISSING, continue; record nothing.');
+  expect(flatAudit.indexOf('Spawned or non-interactive: report')).toBeLessThan(flatAudit.indexOf('When continuing after the audit'));
 });
 
 test('review scope notes remain provisional until the plan section emits the only final scope check', () => {

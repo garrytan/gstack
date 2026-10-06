@@ -1,0 +1,94 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "ship-docsync-late-result",
+  "detector": "test/helpers/docsync-fault-eval.ts#docsActorVerdict",
+  "series_identity": "fd4bf35072aa2f84",
+  "source": {
+    "run": "37182865432",
+    "sha": "44ef18cd0ee8bfb33b3812fbc7f012a2d52f6d9e",
+    "lane": "gate",
+    "artifact": "native-captures-ci-37182865432-1-gate-census-8",
+    "path": ".gstack-dev/e2e-runs/2026-10-04-0629/ship-docsync-late-result-ds-879rmW-fixture/state.json"
+  },
+  "census_outcome": "passed",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Gate census pass: blocked report with no unquoted current claim, no publication, and stop(settled) → repair → fresh dispatch → late-callback order.",
+  "input": {
+    "state": {
+      "root": "<ROOT>",
+      "scenario": "late-result",
+      "events": [
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a1",
+          "task_id": "fixture-child-1"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "running"
+        },
+        {
+          "action": "stop",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "repair",
+          "detail": "fixture transport/marking repaired"
+        },
+        {
+          "action": "inspect"
+        },
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a2"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a2",
+          "task_id": "fixture-child-2"
+        },
+        {
+          "action": "late-callback",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "inspect"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "fixture-child-1",
+          "audit_id": "ship-docs-a1",
+          "settled": true,
+          "stopRequested": true,
+          "elapsed_ms": 900002
+        },
+        {
+          "id": "fixture-child-2",
+          "audit_id": "ship-docs-a2",
+          "settled": true,
+          "stopRequested": false,
+          "elapsed_ms": 0
+        }
+      ],
+      "repaired": true,
+      "armed": false,
+      "lateChanged": false,
+      "acceptedId": null
+    },
+    "report": "# Ship report — documentation phase (Step 14.5), stopped before Step 15\n\nDocumentation: blocked\n\n- Scope audited: feature/docs vs main (base f07a74d31f4107cdfc9e636e670757287df14a73, HEAD 41fd588e2a92f5c59bc698b1d44d14c902b061a7); selected paths per candidate-ship-docs-a2.json; docs root handbook. Committed change: handbook/reference/commands/widget.md.tmpl only.\n- Attempt 1 (ship-docs-a1, child fixture-child-1): ran past the ~10-minute deadline, stopped and confirmed stopped with no final output. Evidence: completion-ship-docs-a1.md, ship-invocation.md Checkpoints 1–2.\n- Repair: authorized transport/marking repair applied after confirmed settlement; inputs unchanged versus candidate-ship-docs-a1.json.\n- Attempt 2 (ship-docs-a2): returned SESSION_KIND: spawned and JSON, but audit_id was ship-docs-a1 (abandoned id) → output rejected. Evidence: completion-ship-docs-a2.md, Checkpoint 3.\n- Ownership/freshness: HEAD, index and all selected file hashes equal candidate-ship-docs-a2.json; no child writes; personal-note.txt preserved. Changed paths: none.\n- Consumed documentation_section: none (no validated audit; no ship-docs-a2-documentation.md written).\n- Blockers/debt: attempt budget exhausted (2/2); no validated documentation audit for this ship; no user risk exception approved, so no publication and no local publish receipt.\n- Next: user must choose stop-for-repair (recommended, new invocation) or an explicit named documentation risk before Step 15.\n\nArtifacts: ship-invocation.md, candidate-ship-docs-a1.json, prompt-ship-docs-a1.md, completion-ship-docs-a1.md, candidate-ship-docs-a2.json, prompt-ship-docs-a2.md, completion-ship-docs-a2.md (all under <ROOT>).\n",
+    "published": false
+  }
+}

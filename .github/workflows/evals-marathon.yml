@@ -94,7 +94,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       # One marathon file per runner: a 1-second budget never packs two
       # recorded files together.
@@ -268,7 +268,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -289,31 +289,65 @@ jobs:
           # PIPESTATUS[0], NOT $?: the default step shell has no pipefail.
           echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
-      # One tracking issue for the whole lane (never one per week).
-      - name: Upsert tracking issue on failure
+      # A red marathon run writes its report to the step summary and the
+      # marathon-report artifact on every ref. Only main upserts the lane's ONE
+      # tracking issue (never one per week) and closes it on the next green
+      # run; a branch-dispatched run never touches main's issue.
+      - name: Write the marathon report
         if: always() && (steps.reconcile.outputs.exit != '0' || needs.eval-slices.result != 'success')
+        run: |
+          set -euo pipefail
+          {
+            echo "Marathon report (non-blocking lane): branch ${GITHUB_REF_NAME} @ ${GITHUB_SHA}, event ${GITHUB_EVENT_NAME}, run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "A census went red: triage with ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/docs/evals/census-red.md"
+            echo
+            echo "- reconciliation exit: ${{ steps.reconcile.outputs.exit }}"
+            echo "- marathon slices job: ${{ needs.eval-slices.result }}"
+            echo
+            { tail -c 6000 /tmp/report.txt 2>/dev/null || echo "(no reconciliation output)"; } \
+              | bun --no-install -e 'import { publishedFence } from "./scripts/lib/published-text";
+                  const lines = (await Bun.stdin.text()).split("\n").filter(Boolean);
+                  console.log(publishedFence(lines.length ? lines : ["(none)"]).join("\n"));'
+          } > /tmp/marathon-report.md
+          cat /tmp/marathon-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the marathon report
+        if: always() && (steps.reconcile.outputs.exit != '0' || needs.eval-slices.result != 'success')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: marathon-report-a${{ github.run_attempt }}
+          path: /tmp/marathon-report.md
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upsert tracking issue on failure
+        if: always() && github.ref == 'refs/heads/main' && (steps.reconcile.outputs.exit != '0' || needs.eval-slices.result != 'success')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TITLE="Weekly marathon evals: red lane needs triage"
-          BODY_FILE=/tmp/issue-body.md
-          {
-            echo "Automated weekly marathon report (non-blocking lane) — run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo
-            echo "- reconciliation exit: ${{ steps.reconcile.outputs.exit }}"
-            echo "- marathon slices job: ${{ needs.eval-slices.result }}"
-            echo
-            echo '```'
-            tail -c 6000 /tmp/report.txt 2>/dev/null || echo "(no reconciliation output)"
-            echo '```'
-          } > "$BODY_FILE"
+          BODY_FILE=/tmp/marathon-report.md
+          [ -s "$BODY_FILE" ] || echo "Marathon report missing; run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > "$BODY_FILE"
           EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
             echo "commented on #$EXISTING"
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$BODY_FILE"
+          fi
+
+      - name: Close the tracking issue on a green run
+        if: always() && github.ref == 'refs/heads/main' && steps.reconcile.outputs.exit == '0' && needs.eval-slices.result == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TITLE="Weekly marathon evals: red lane needs triage"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" --comment "Green marathon run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           fi
 
       - name: Fail the workflow when reconciliation failed

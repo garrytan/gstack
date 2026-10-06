@@ -1,0 +1,82 @@
+[
+ {
+  "run": "37174266054",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "6c9ea4bac7c0bc81",
+  "artifact": "paid-slice-20-a1",
+  "available": true,
+  "entry": "37174266054-t1-pass.json",
+  "reason": null
+ },
+ {
+  "run": "37176837432",
+  "lane": "periodic",
+  "outcome": "failed",
+  "series_identity": "6c9ea4bac7c0bc81",
+  "artifact": "paid-slice-20-a1",
+  "available": true,
+  "entry": "37176837432-t1-fail.json",
+  "reason": null
+ },
+ {
+  "run": "37179171083",
+  "lane": "periodic",
+  "outcome": "failed",
+  "series_identity": "6c9ea4bac7c0bc81",
+  "artifact": "paid-slice-20-a1",
+  "available": true,
+  "entry": "37179171083-t1-fail.json",
+  "reason": null
+ },
+ {
+  "run": "37182865432",
+  "lane": "periodic",
+  "outcome": "failed",
+  "series_identity": "e3bf31932dcbfd91",
+  "artifact": "paid-slice-20-a1",
+  "available": true,
+  "entry": "37182865432-t1-fail.json",
+  "reason": null
+ },
+ {
+  "run": "37186854666",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "7678e372b3345f9b",
+  "artifact": "paid-slice-20-a1",
+  "available": true,
+  "entry": "37186854666-t1-pass.json",
+  "reason": null
+ },
+ {
+  "run": "37193478719",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "7678e372b3345f9b",
+  "artifact": "paid-slice-20-a1",
+  "available": true,
+  "entry": "37193478719-t1-pass.json",
+  "reason": null
+ },
+ {
+  "run": "37195203538",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "7678e372b3345f9b",
+  "artifact": "paid-slice-20-a1",
+  "available": true,
+  "entry": "37195203538-t1-pass.json",
+  "reason": null
+ },
+ {
+  "run": "37198445662",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "7678e372b3345f9b",
+  "artifact": "paid-slice-20-a1",
+  "available": true,
+  "entry": "37198445662-t1-pass.json",
+  "reason": null
+ }
+]

@@ -1,0 +1,39 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "shared-libs-plan-callers",
+  "detector": "test/helpers/shared-libs-plan-actor.ts#createSharedPlanReuseSelector",
+  "series_identity": "b9d17145a5c36105",
+  "source": {
+    "run": "37198445662",
+    "sha": "fd6854b5356431e5e115fca082b21bf237559558",
+    "lane": "periodic",
+    "artifact": "paid-slice-5-a1",
+    "path": "shards/skill-e2e-shared-libs-periodic/1.91.19-garrytan-severe-fix-wave-oct3-e2e-2026-10-04-1127.json#tests[name=shared-libs-plan-callers].transcript[tool_use name=AskUserQuestion].input"
+  },
+  "census_outcome": "passed",
+  "git_path": "fallback",
+  "git_path_evidence": "Recorded in CI's eval image (ubuntu:24.04, git 2.43), which rejects --no-lazy-fetch (exit 129), so gstack-safe-git took its unsupported-Git fallback (local history unavailable, branch HEAD unknown).",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Census pass: the question offers only unchanged-helper reuse with proof-depth alternatives, and the actor answered \"Reuse lib/retry-after\".",
+  "expected_answer": "Reuse lib/retry-after",
+  "input": {
+    "questions": [
+      {
+        "question": "D1 — Parser source for the two new Retry-After callers\nProject/branch/task: repo on main — plan review of PLAN.md, which adds src/import-worker.ts and src/sync-route.ts.\nELI10: Two new pieces of code need to read a server's \"Retry-After\" hint and turn it into a wait time, exactly the way the scheduler already does. The scheduler gets that from one shared function in lib/retry-after.ts that already has a passing test. The draft plan instead writes a fresh copy of that function inside each new file. Copies look fine today but can quietly drift from the scheduler, and every copy needs its own tests.\nStakes if we pick wrong: with copies, a future fix to the shared parser will not reach the new callers and their wait times silently diverge from the scheduler; with reuse, a parser bug hits three call sites at once, though a copied bug would hit them anyway.\nRecommendation: A because the existing shared parser already matches the plan's contract line for line (string|null input, injected now, caller fallback, 3600 ceiling) and is proven by src/scheduler.ts plus test/retry-after.test.ts, so a copy adds code without adding behavior or reliability.\nCompleteness: A=10/10, B=7/10\nPros / cons:\nA) Reuse lib/retry-after (recommended)\n  ✅ Zero new parser code: each caller is one import plus one call, saving ~24 implementation lines versus two 14-line copies\n  ✅ One shared-contract test file pins the scheduler semantics the callers inherit, so one fix reaches all three call sites\n  ❌ A parser bug or semantics change in lib/retry-after.ts now affects scheduler, import-worker and sync-route together\nB) Local parser per caller\n  ✅ Each caller is self-contained and can be read without following an import into lib/\n  ✅ A later caller-specific tweak needs no coordination with the scheduler's shared parser\n  ❌ Two more copies of the same 14 lines (four in the repo with the existing copies), each needing its own parser tests, with no test proving they match the scheduler\nNet: trading one shared point of change against duplicated code and untested drift from the scheduler contract.",
+        "header": "Parser source",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Reuse lib/retry-after",
+            "description": "✅ Both new callers import `retrySeconds` from `../lib/retry-after` and call `retrySeconds(header, now, callerFallback)` with their injected now and a fallback ≤ 3600; no new parser code (~4 implementation lines, ~24 saved vs the draft).\n✅ Proof: extend test/retry-after.test.ts with the edge cases the callers rely on (empty/whitespace → fallback, past date → 0, date beyond ceiling → 3600, unsafe integer → fallback, fractional-second ceil, custom fallback returned), plus the one integration test per caller already in the plan. Effort human ~1 h / CC ~5 min.\n❌ A bug or semantics change in lib/retry-after.ts reaches scheduler, import-worker and sync-route at once; lib/retry-after.ts itself and the existing copies in retry-route.ts/retry-worker.ts stay unchanged."
+          },
+          {
+            "label": "Local parser per caller",
+            "description": "✅ Each caller carries its own 14-line copy of the parser and is readable without following an import into lib/.\n✅ A later caller-specific tweak needs no coordination with the scheduler's shared parser. Effort human ~2 h / CC ~10 min.\n❌ Adds ~28 duplicated implementation lines and requires the same edge-case parser test list in each caller (~16-20 test lines) plus the integration tests; nothing asserts the copies match the scheduler, so drift is undetected. Maintenance: four parser copies in the repo."
+          }
+        ]
+      }
+    ]
+  }
+}

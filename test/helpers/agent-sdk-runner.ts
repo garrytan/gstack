@@ -37,6 +37,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { resolveClaudeBinary as resolveClaudeBinaryShared } from '../../lib/claude-bin';
 import { resolveEvalModel } from '../../lib/eval-model';
+import { SessionObserver, appendSessionLedger, sessionKey, type SessionEnd } from './session-ledger';
 import { hermeticChildEnv } from './hermetic-env';
 import type { SkillTestResult } from './session-runner';
 
@@ -130,6 +131,10 @@ export interface RunAgentSdkOptions {
    * to auto-allow them.
    */
   canUseTool?: CanUseTool;
+  /** A custom queryProvider that drops `stream_event` rows from its own evidence opts in to partial messages. */
+  streamLiveness?: boolean;
+  /** The session timeout the caller armed (a getter when armed at admission), for the session ledger. */
+  sessionBudgetMs?: number | (() => number | undefined);
 }
 
 /**
@@ -336,6 +341,24 @@ export async function runAgentSdkTest(
   while (attempt <= maxRetries) {
     await sem.acquire(opts.signal);
     const startMs = Date.now();
+    const startMono = performance.now();
+    const startedAt = new Date().toISOString();
+    const observer = new SessionObserver(startMono);
+    let recorded = false;
+    /** One ledger row per attempt; an abort at the armed budget is a session timeout. */
+    const recordSession = (fallback: SessionEnd) => {
+      if (recorded) return;
+      recorded = true;
+      const elapsed = performance.now() - startMono;
+      const budget = typeof opts.sessionBudgetMs === 'function' ? opts.sessionBudgetMs() : opts.sessionBudgetMs;
+      const aborted = controller.signal.aborted || opts.signal?.aborted === true;
+      const structured = observer.verdict();
+      const end: SessionEnd = aborted ? (budget !== undefined && elapsed + 1000 >= budget ? 'session_timeout' : 'aborted') : structured?.end ?? fallback;
+      appendSessionLedger({ key: sessionKey('agent-sdk', opts.testName), ...(opts.testName ? { test_name: opts.testName } : {}), runner: 'agent-sdk',
+        started_at: startedAt, ...(budget !== undefined ? { budget_ms: budget } : {}), elapsed_ms: elapsed, end,
+        ...(end === 'session_timeout' ? { evidence: `armed ${budget}ms session timeout fired` } : structured && !aborted ? { evidence: structured.evidence } : {}),
+        liveness: observer.summary(performance.now()), billed: observer.billed });
+    };
     const controller = new AbortController();
     let activeQuery: ReturnType<QueryProvider> | undefined;
     const abort = () => {
@@ -358,7 +381,7 @@ export async function runAgentSdkTest(
     let terminalResult: SDKResultMessage | null = null;
     // A generator can emit its terminal result and then throw. Keep its
     // authoritative usage in both paths, while preserving the caller's outcome.
-    const finishResult = (exitReason: string): AgentSdkResult => ({
+    const finishResult = (exitReason: string): AgentSdkResult => (recordSession(exitReason === 'success' ? 'completed' : 'error'), {
       events,
       assistantTurns,
       toolCalls,
@@ -413,7 +436,13 @@ export async function runAgentSdkTest(
         settingSources: opts.settingSources ?? [],
         env: hermeticChildEnv(opts.env),
         pathToClaudeCodeExecutable: opts.pathToClaudeCodeExecutable,
-        ...(hasCanUseTool ? { canUseTool: opts.canUseTool } : {}),
+        // Liveness only: stream_event rows are observed, never kept in events. A custom
+        // queryProvider sees every row first, so it streams them only when it opts in.
+        includePartialMessages: !opts.queryProvider || opts.streamLiveness === true,
+        ...(hasCanUseTool ? { canUseTool: async (...args: Parameters<CanUseTool>) => {
+          observer.permission(1);
+          try { return await opts.canUseTool!(...args); } finally { observer.permission(-1); }
+        } } : {}),
       };
       // Empty bare string means "omit entirely" (SDK runs with no override).
       // Any object or non-empty string is passed through.
@@ -431,7 +460,9 @@ export async function runAgentSdkTest(
       opts.signal?.throwIfAborted();
 
       for await (const ev of q) {
+        observer.observe(ev, performance.now());
         opts.signal?.throwIfAborted();
+        if (ev.type === 'stream_event') continue;
         const now = Date.now();
         if (firstResponseMs === 0) firstResponseMs = now - startMs;
         const interTurn = now - lastEventMs;
@@ -494,6 +525,7 @@ export async function runAgentSdkTest(
       return finishResult(terminalResult.subtype ?? 'unknown');
     } catch (err) {
       lastErr = err;
+      if (!isMaxTurnsError(err)) recordSession('error');
       opts.signal?.throwIfAborted();
 
       // Some SDK versions throw max-turns after emitting a terminal result;

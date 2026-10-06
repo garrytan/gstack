@@ -174,7 +174,11 @@ function recordedBatchingIssue(call: NativePlanQuestionCall, savedPlan: string):
     const previous = tokens.slice(0, at).filter(t => t.type !== 'space').at(-1);
     const quotedContext = /\b(?:quoted|copied|historical|example|hypothetical|archived)\b[^\n]*:\s*$/i;
     if (previous?.type === 'paragraph' && quotedContext.test(previous.raw)) return [];
-    const parts = token.raw.split('\n').map(line => line.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').replace(/[*_]/g, '').trim());
+    // A declaration may open a later sentence of its line ("Report destination
+    // requested by the user. Review target (fixed): `PLAN.md` in ..."); each
+    // sentence start is a field position, a mid-sentence mention is not.
+    const parts = token.raw.split('\n').flatMap(line => line.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').replace(/[*_]/g, '').trim()
+      .split(/(?<=[.!?])\s+(?=[A-Z])/));
     return parts.filter((line, i) => TARGET_FIELD.test(line) &&
       !parts.slice(0, i).some(part => quotedContext.test(part)));
   });

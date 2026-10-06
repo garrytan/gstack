@@ -157,6 +157,15 @@ describe('shared-code skill distribution', () => {
     }
   });
 
+  test('every rendered recommendation names a concrete risk, never "none"', () => {
+    // C3: shared-libs-opportunity-judgment reds 37193478719 t3 and 37195203538 t1 wrote
+    // "Main risk: none found inside the repo" / "none in behavior" for the top recommendation.
+    for (const host of ALL_HOST_CONFIGS) {
+      const text = rendered(host, 'deslop-shared-libs').replace(/\s+/g, ' ');
+      expect(text, host.name).toContain('name the main risk or uncertainty: a concrete behavior that could differ after migration, or the shared-failure blast radius, never "none".');
+    }
+  });
+
   test('standalone catalog entry adds exactly the approved 82 bytes', () => {
     const skill = readFileSync(join(output, 'deslop-shared-libs/SKILL.md'), 'utf8');
     const description = skill.match(/^description: (.+)$/m)?.[1];

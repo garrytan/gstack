@@ -389,11 +389,11 @@ describe('panel verdict surfaces (eval reliability policy)', () => {
     const gate = report.steps.find(step => step.id === 'pass-rates')!;
     expect(gate.run).toContain('bun run eval:pass-rates --gate --runs 10');
     expect(gate.if).toBe('always()');
-    for (const name of ['Upsert tracking issue on failure', 'Fail the workflow when reconciliation failed']) {
+    for (const name of ['Write the census report', 'Upsert tracking issue on failure', 'Fail the workflow when reconciliation failed']) {
       expect(report.steps.find(step => step.name === name)!.if).toContain("steps.pass-rates.outputs.exit != '0'");
     }
-    const upsert = report.steps.find(step => step.name === 'Upsert tracking issue on failure')!;
-    expect(upsert.run).toContain('report-summary.md');
+    // The report body is written once on every ref; the main-only upsert posts it (test/evals-tracking-issue.test.ts).
+    expect(report.steps.find(step => step.name === 'Write the census report')!.run).toContain('report-summary.md');
     expect(report.steps.find(step => step.name === 'Close the tracking issue on a green run')!.run).toContain('gh issue close');
     expect(report.steps.filter(step => step.with?.name?.startsWith('trial-outcomes-')).length).toBe(2);
     const redispatch = jobs.redispatch!;

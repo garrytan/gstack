@@ -283,16 +283,28 @@ case "$HOST" in
     echo "Unknown --host value: $HOST — nothing was installed or changed. Expected one of: claude (default), codex, kiro, factory, opencode, cursor, copilot, slate, openclaw, hermes, gbrain, or auto. Tiers: ./setup --help" >&2; exit 1 ;;
 esac
 
+# Bun versions come from one sourced file (floor and tested; E1).
+. "$(dirname "$0")/bin/gstack-bun-version.sh" 2>/dev/null || { echo "$0: bin/gstack-bun-version.sh is missing; nothing was installed or changed. Fix: reinstall gstack (git clone https://github.com/garrytan/gstack)" >&2; exit 1; }
 if ! command -v bun >/dev/null 2>&1; then
   echo "Error: bun is required but not installed." >&2
   echo "Install with checksum verification:" >&2
-  echo '  BUN_VERSION="1.3.10"' >&2
+  echo "  BUN_VERSION=\"$GSTACK_BUN_TESTED\"" >&2
   echo '  tmpfile=$(mktemp)' >&2
   echo '  curl -fsSL "https://bun.sh/install" -o "$tmpfile"' >&2
   echo '  echo "Verify checksum before running: sha256sum $tmpfile   # or: shasum -a 256 $tmpfile"' >&2
   echo '  BUN_VERSION="$BUN_VERSION" bash "$tmpfile" && rm "$tmpfile"' >&2
   exit 1
 fi
+_BUN_FOUND="$(bun --version 2>/dev/null | head -1)"
+case "$(gstack_bun_status "$_BUN_FOUND")" in
+  too-old)
+    echo "gstack needs Bun $GSTACK_BUN_FLOOR or newer ($GSTACK_BUN_TESTED recommended); found $_BUN_FOUND at $(command -v bun). Nothing was installed or changed." >&2
+    echo "Why: older Bun ignores --no-compile-autoload-dotenv, so gstack's compiled tools could read a project's .env." >&2
+    echo "Fix: bun upgrade, then re-run ./setup (docs/troubleshooting.md#bun-too-old)" >&2
+    exit 1 ;;
+  untested) echo "warning: gstack is tested on Bun $GSTACK_BUN_TESTED (CI pin); found $_BUN_FOUND. Upgrade with: bun upgrade (docs/troubleshooting.md#bun-too-old)" >&2 ;;
+  malformed) echo "warning: could not read the Bun version (bun --version printed '$(printf '%s' "$_BUN_FOUND" | head -c 60)'); continuing. gstack is tested on Bun $GSTACK_BUN_TESTED (docs/troubleshooting.md#bun-too-old)" >&2 ;;
+esac
 
 INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
@@ -609,15 +621,18 @@ _link_or_copy() {
 }
 
 # _link_runtime_dists SOURCE ROOT — the compiled design and make-pdf binaries
-# behind $GSTACK_DESIGN and $GSTACK_MAKE_PDF on every env-var host (#2891).
-# dist/ only, never the whole directory: make-pdf/ ships a Claude SKILL.md a
-# host scanning its skills root would discover as a duplicate skill.
+# behind $GSTACK_DESIGN and $GSTACK_MAKE_PDF on every env-var host (#2891),
+# and freeze/bin (with the careful/bin helper it sources), whose state and
+# check scripts /freeze, /guard, /unfreeze and /investigate run as
+# "$GSTACK_ROOT/freeze/bin/...". Subdirectories only, never the whole skill
+# directory: make-pdf/, freeze/ and careful/ ship a Claude SKILL.md a host
+# scanning its skills root would discover as a duplicate skill.
 _link_runtime_dists() {
   local d
-  for d in design/dist make-pdf/dist; do
+  for d in design/dist make-pdf/dist freeze/bin careful/bin; do
     [ -d "$1/$d" ] || continue
     if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$2/$d" ] || [ ! -e "$2/$d" ]; then
-      mkdir -p "$2/${d%/dist}"
+      mkdir -p "$2/${d%/*}"
       _link_or_copy "$1/$d" "$2/$d"
     fi
   done

@@ -55,3 +55,34 @@ describe('CEO stale-fill decision from the skill-defined ledger and currentDecis
     expect(hasApprovedStaleFillDecision('```text\n' + report.replaceAll('```', '') + '\n```')).toBe(false);
   });
 });
+
+describe('structured reader alone on the plan-ceo-section-loading corpus', () => {
+  const corpus = path.join(import.meta.dir, 'fixtures', 'detector-corpora', 'plan-ceo-section-loading');
+  const entry = (name: string): string => JSON.parse(fs.readFileSync(path.join(corpus, name), 'utf8')).input.report;
+  const camelWrite = entry('37186854666-t1-pass.json');
+  const camelQuestion = camelWrite.split('\n').find(line => line.startsWith('Question: D1'))!;
+
+  test('reads an approved decision whose question names the write as writeProfile (37186854666)', () => {
+    expect(camelQuestion).toContain('writeProfile');
+    expect(hasApprovedStaleFillDecision(camelWrite)).toBe(true);
+  });
+
+  test('reads an approved decision under the slash-joined row ID D1 / STALE-FILL (37195203538)', () => {
+    expect(hasApprovedStaleFillDecision(entry('37195203538-t1-pass.json'))).toBe(true);
+  });
+
+  test('still refuses an unrelated decision, the copied plan and an unresolved ledger row', () => {
+    expect(hasApprovedStaleFillDecision(entry('37182865432-t1-fail-derived-unrelated-decision.json'))).toBe(false);
+    expect(hasApprovedStaleFillDecision(CEO_SECTION_CACHE_PLAN)).toBe(false);
+    expect(hasApprovedStaleFillDecision(entry('37174266054-t1-pass.json'))).toBe(false);
+  });
+
+  test.each(['rewriteProfile', 'isWriteable', 'writeable'])('a question whose only write term is %s is not the race', identifier => {
+    expect(hasApprovedStaleFillDecision(camelWrite.replace(camelQuestion, camelQuestion.replace('writeProfile', identifier)))).toBe(false);
+  });
+
+  test('a slash-joined ID still needs its own approved ledger row', () => {
+    const report = entry('37195203538-t1-pass.json');
+    expect(hasApprovedStaleFillDecision(report.replaceAll('| D1 / STALE-FILL ', '| D1 / OTHER-ROW '))).toBe(false);
+  });
+});

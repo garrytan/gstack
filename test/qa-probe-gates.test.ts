@@ -334,3 +334,42 @@ describe('judge-named QA workflow gaps (C2)', () => {
     }
   });
 });
+
+// Lane S C2: gaps the qa-only/review/ship workflow judges named in their rationales.
+describe('judge-named QA workflow gaps (C2)', () => {
+  const ctx = (skillName: string) => ({ host: 'claude' as const, skillName, tmplPath: '', paths: HOST_PATHS.claude });
+
+  test('Browser Quick leaves time for its six page probes, and the method states the same budget', () => {
+    for (const skillName of ['qa', 'qa-only']) {
+      const seconds = Number(/Browser Quick: SECONDS=(\d+)\./.exec(generateQAExploratory(ctx(skillName)))?.[1]);
+      // homepage + top 5 targets, each a checkpoint write plus one guarded command: 30 s left ~5 s per probe.
+      expect(seconds / 6).toBeGreaterThanOrEqual(20);
+      const patterns = fs.readFileSync(path.join(import.meta.dir, '..', 'qa', 'sections', 'qa-patterns.md'), 'utf8');
+      expect(patterns).toContain(`${seconds / 60} minutes: homepage + top 5 navigation targets`);
+    }
+  });
+
+  test('PROBE_DIR names its source line, and stopping goes to the final report steps', () => {
+    for (const skillName of ['qa', 'qa-only']) {
+      const text = generateQAExploratory(ctx(skillName));
+      const layout = text.indexOf('mixed standalone runs use REPORT_DIR/browser and REPORT_DIR/functional');
+      const probeDir = text.indexOf("PROBE_DIR: this surface's owned probe directory per the line above.");
+      expect(layout).toBeGreaterThan(-1);
+      expect(probeDir).toBeGreaterThan(layout);
+      expect(text.slice(layout, probeDir).split('\n')).toHaveLength(3);
+      expect(text).toContain('write the report (§4), not a checkpoint.');
+      const final = text.indexOf('## 4. Final report');
+      expect(final).toBeGreaterThan(-1);
+      expect(text.indexOf('annotations.json', final)).toBeLessThan(text.indexOf('materialize PROBE_DIR', final));
+    }
+  });
+
+  test('/review and /ship: smoke rechecks after smoke expiry are not-run, before step 4c revalidation', () => {
+    for (const skillName of ['review', 'ship']) {
+      const text = generateQAReview(ctx(skillName));
+      const rule = text.indexOf('Post-expiry smoke rechecks are not-run.');
+      expect(rule).toBeGreaterThan(-1);
+      expect(rule).toBeLessThan(text.indexOf('c. Re-review changed or uncertain coverage and repeat step 3 for affected checks.'));
+    }
+  });
+});

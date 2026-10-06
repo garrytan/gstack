@@ -40,19 +40,10 @@ describeIfSelected('Session Intelligence E2E', [
     run('git', ['add', '.']);
     run('git', ['commit', '-m', 'initial']);
 
-    // Copy bin scripts needed by timeline and checkpoint
-    const binDir = path.join(workDir, 'bin');
-    fs.mkdirSync(binDir, { recursive: true });
-    for (const script of [
-      'gstack-timeline-log', 'gstack-timeline-read', 'gstack-slug', 'gstack-state-root.sh', 'gstack-remote-identity.sh',
-      'gstack-learnings-log', 'gstack-learnings-search',
-    ]) {
-      const src = path.join(ROOT, 'bin', script);
-      if (fs.existsSync(src)) {
-        fs.copyFileSync(src, path.join(binDir, script));
-        fs.chmodSync(path.join(binDir, script), 0o755);
-      }
-    }
+    // The prompts send every bin call to ./bin/, and the skill preambles run
+    // gstack-skill-start and gstack-context-recovery, which call further bin
+    // scripts, so ./bin/ is the whole runtime bin directory.
+    fs.symlinkSync(path.join(ROOT, 'bin'), path.join(workDir, 'bin'), 'dir');
 
     // Compute slug (same logic as gstack-slug without git remote)
     slug = path.basename(workDir).replace(/[^a-zA-Z0-9._-]/g, '');

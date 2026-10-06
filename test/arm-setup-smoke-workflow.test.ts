@@ -42,7 +42,7 @@ describe('native ARM setup smoke workflow', () => {
     expect(scripts).toContain('git archive --format=tar HEAD');
     expect(scripts).toContain('sha256sum setup bun.lock package.json');
     expect(scripts).toContain('ln -s bun /usr/local/bin/bunx');
-    expect(scripts).toContain('test "$(bunx --version)" = 1.4.0');
+    expect(scripts).toContain('test "$(bunx --version)" = 1.4.2');
     expect(scripts.match(/sha256sum --check \/input\/source.sha256/g)).toHaveLength(2);
     expect(scripts).toContain('bun install --frozen-lockfile');
     expect(scripts).toContain('bash setup --host claude');
@@ -78,7 +78,7 @@ describe('native ARM setup smoke workflow', () => {
     expect(upload.if).toBe('always()');
     expect(upload.with['retention-days']).toBe(14);
     expect(upload.with['if-no-files-found']).toBe('error');
-    expect(job.steps[1].with['bun-version']).toBe('1.4.0');
+    expect(job.steps[1].with['bun-version']).toBe('1.4.2');
   });
 
   test('the registered shell step refuses a nonnative Docker daemon before pulling or running', () => {

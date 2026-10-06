@@ -44,7 +44,7 @@ function publicProse(text: string): string {
 
 // The same current-mode field grammar owns declarations and later corrections.
 function modeField(line: string): { value: string; completed: boolean } | null {
-  const match = /^(?:(?:Correction|Actually|Update):\s*)?(?<label>(?:Review )?Mode(?: decision)?|Decision)(?: (?<status>[^:\r\n]+))?:\s*(?<value>.*)$/i.exec(line.replace(/^\s*[-*+]\s+/, '').trim());
+  const match = /^(?:(?:Correction|Actually|Update):\s*)?(?<label>(?:Review )?Mode(?: decision)?|Decision)(?: (?<status>(?:(?![.!?](?:\s|$))[^:\r\n])+))?:\s*(?<value>.*)$/i.exec(line.replace(/^\s*[-*+]\s+/, '').trim());
   if (!match) return null;
   // "Mode" and "Mode decision" are both field labels. If an explicit status
   // follows, only the completion class (including decided/selected/chosen) is
@@ -258,6 +258,13 @@ export function ceoModeHandoffs(tools: ReadonlyArray<NativePublicToolEvent>, ses
   });
 }
 
+/** The helper's tool result is collapsed in the terminal, so the user sees the
+ * AUTO_DECIDE line only when a later chat message of the session begins with it. */
+function handoffShown(handoff: CeoModeHandoff, messages: ReadonlyArray<{ sessionId: string; timestamp: string; text: string }>): boolean {
+  return messages.some(m => m.sessionId === handoff.sessionId && Date.parse(m.timestamp) >= Date.parse(handoff.timestamp) &&
+    plain(m.text.split(/\r?\n/).find(line => line.trim()) ?? '').startsWith(handoff.line));
+}
+
 function currentModeStatement(text: string, questionSummary?: string): { option: string; statement: string } | null {
   const prose = publicProse(text);
   const lines = prose.split('\n');
@@ -318,11 +325,14 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   if (starts.length !== 1) return null;
   const start = starts[0]!, questionId = `${opts.skillName}-mode`;
   // The handoff helper's printed AUTO_DECIDE line is the current declaration
-  // when it follows the preference check and nothing later withdraws or changes
-  // it. Step 0E records provenance after the handoff, so the log may follow it.
+  // when it follows the preference check, the chat repeats it to the user, and
+  // nothing later withdraws or changes it. Step 0E records provenance after
+  // the handoff, so the log may follow it. A handoff the chat never showed is
+  // a miss: another mode statement cannot stand in for the AUTO_DECIDE line.
+  const autoHandoffs = (after: number, option: string) => ceoModeHandoffs(owned, opts.sessionId).filter(h => h.auto &&
+    h.option === option && timely(h.timestamp) && time(h.timestamp) >= after);
   const autoHandoff = (after: number, option: string, summary: string) => {
-    const handoff = ceoModeHandoffs(owned, opts.sessionId).find(h => h.auto && h.option === option &&
-      timely(h.timestamp) && time(h.timestamp) >= after);
+    const handoff = autoHandoffs(after, option).find(h => handoffShown(h, current));
     if (!handoff) return null;
     const later = current.filter(m => time(m.timestamp) >= time(handoff.timestamp));
     if (withdrawn(later.map(m => m.text).join('\n\n'), option, summary) ||
@@ -343,6 +353,7 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
           loggedAt >= time(start.result.timestamp) && loggedAt <= opts.now) {
         const handoff = autoHandoff(time(start.result.timestamp), modeValue(row.user_choice)!, row.question_summary);
         if (handoff) return { ...handoff, summary: row.question_summary, preambleToolUseId: start.use.toolUseId, stateRecord: row };
+        if (autoHandoffs(time(start.result.timestamp), modeValue(row.user_choice)!).length) return null;
         for (const message of current) {
           const declared = currentModeStatement(message.text, row.question_summary);
           if (time(message.timestamp) < loggedAt || !declared || declared.option !== modeValue(row.user_choice)) continue;
@@ -394,6 +405,7 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   const handoff = autoHandoff(time(check.result!.timestamp), modeValue(logged.log.user_choice)!, logged.log.question_summary);
   if (handoff) return { ...handoff, summary: logged.log.question_summary, preambleToolUseId: start.use.toolUseId,
     preferenceToolUseId: check.use.toolUseId, questionLogToolUseId: logged.use.toolUseId };
+  if (autoHandoffs(time(check.result!.timestamp), modeValue(logged.log.user_choice)!).length) return null;
   for (const message of current) {
     if (time(message.timestamp) < time(logged.result!.timestamp)) continue;
     const declared = currentModeStatement(message.text, logged.log.question_summary);
@@ -432,7 +444,7 @@ export function findNativeAutoDecision(
   if (messages.some(m => !Number.isFinite(at(m.timestamp)) || at(m.timestamp) > opts.now)) return null;
   const loadedAt = at(results[0]!.timestamp);
   for (const handoff of ceoModeHandoffs(tools, opts.sessionId)) {
-    if (!handoff.auto || !timely(handoff.timestamp) || at(handoff.timestamp) < loadedAt) continue;
+    if (!handoff.auto || !timely(handoff.timestamp) || at(handoff.timestamp) < loadedAt || !handoffShown(handoff, messages)) continue;
     const later = messages.filter(m => at(m.timestamp) >= at(handoff.timestamp)).map(m => m.text).join('\n\n');
     if (withdrawn(later, handoff.option)) continue;
     return { sessionId: opts.sessionId, skillToolUseId: use.toolUseId, timestamp: handoff.timestamp,

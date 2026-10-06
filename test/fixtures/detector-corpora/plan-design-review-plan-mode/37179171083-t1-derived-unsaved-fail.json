@@ -1,0 +1,23 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "plan-design-review-plan-mode",
+  "detector": "test/skill-e2e-design.test.ts#plan-design-review-plan-mode.validate",
+  "series_identity": "c0a69951bb8e69c8",
+  "source": {
+    "run": "37179171083",
+    "sha": "db91607a7fd9419592eb63e036149920304e32b5",
+    "lane": "periodic",
+    "artifact": "native-captures-ci-37179171083-1-eval-slices-9",
+    "path": ".gstack/projects/garrytan-gstack/e2e-runs/2026-10-04-0513/plan-design-review-plan-mode.ndjson"
+  },
+  "census_outcome": "failed",
+  "census_error": "expect(received).toBe(expected)",
+  "expected": "refuse",
+  "justification": "A summary that claims a saved review must not pass when plan.md is unchanged; the plan edit and its design additions are the contract.",
+  "derived": "output of 37179171083 kept; plan_after set to the untouched seed, as if the Write never landed (null = plan.md left as the seed)",
+  "input": {
+    "exit_reason": "success",
+    "output": "Read-back verified: the report is the last section and ends on the unresolved-decisions block.\n\nDesign review of plan.md is saved. Overall design score 0/10 → 8/10, with 6 decisions added and 4 left for you.\n\n- **Classified the surface as OPERATE** and cut the gradient hero. The page now opens on a 56px utility header and three tabular stat numerals (D1, with desktop and 375px ASCII diagrams).\n- **Replaced \"cards and icons\"** with a cardless hairline layout, functional 16px monochrome icons only, left-aligned, one motion moment (D4).\n- **Added the full state table** for stats, feed, live updates, settings, and page shell, including warm empty states and a non-shifting \"N new\" pill for WebSocket inserts (D2).\n- **Added the journey storyboard** across visceral, behavioral, and reflective horizons (D3).\n- **Specified inline tokens** since no DESIGN.md exists: IBM Plex Sans and Mono, 16/20/32 type scale, CSS color variables, 4px radius, no shadows (D5).\n- **Specified responsive and a11y behavior** per viewport, landmarks, skip link, 44px targets, visible labels, reduced motion (D6).\n- **Unresolved for you:** accent hue and typeface license, settings field inventory, engagement rate definition, and whether the API paginates activity.\n- Decisions were applied without AskUserQuestion under your non-interactive instruction. Mockups, outside voices, review log, and the JSONL task artifact were not run. Eng review is still required.",
+    "plan_after": null
+  }
+}

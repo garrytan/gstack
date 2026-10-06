@@ -182,9 +182,9 @@ the new defaults.
 
 | I want to… | Command | Cost / time | Needs |
 |---|---|---|---|
-| Check an ordinary edit quickly | `bun run test:quick` | Free, about a minute | Bun 1.4.0 |
+| Check an ordinary edit quickly | `bun run test:quick` | Free, about a minute | Bun 1.4.2 |
 | Run one free test file while repairing | `bun test <file>` | Free, seconds | Never bare `bun test` for the suite |
-| Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.0 |
+| Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.2 |
 | Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY` |
 | Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs) | Free | Windows, Git Bash |
 | Refresh the Windows duration seed | `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`, then commit the `free-test-durations-windows` artifact | Free CI runners | Pushed branch, `gh` with workflow rights |
@@ -207,7 +207,7 @@ Old command names are listed under [Retired commands](#retired-commands).
 
 ### Setup
 
-Development and tests require Bun 1.4.0 or newer; CI pins and tests 1.4.0.
+Development and tests require Bun 1.4.2 or newer; CI pins and tests 1.4.2.
 Earlier Linux versions can close unrelated live file descriptors during
 subprocess garbage collection, causing intermittent browser and HTTP fixture
 failures ([upstream diagnosis](https://github.com/oven-sh/bun/issues/34785#issuecomment-5020318035)).
@@ -284,9 +284,10 @@ constants in `EVAL_POLICY` (`test/helpers/periodic-exclude-data.ts`):
   PASS at 2 or more with no contract violation (`expectContract()`). Use it only
   when a live model choice decides the verdict and an occasional deviation is
   acceptable product behavior; the one-line reason goes in `BEHAVIOR_WHY`.
-- `judge`: an LLM judge scoring a fixed input; 3 samples of the same prompt,
-  gated on the per-dimension mean (booleans on a majority) against the
-  unchanged threshold. An erroring sample fails the panel and is never resampled.
+- `judge`: an LLM judge scoring a fixed input; exactly 3 samples of the same
+  prompt, each dimension gated on its median, at least 2 of 3 samples, against
+  the unchanged threshold (booleans on a majority; the mean is reported only).
+  An erroring sample fails the panel and is never resampled.
 
 A timed-out, crashed or infrastructure-failed trial counts as a failed trial and
 is reported with its class; a missing trial makes the case INCOMPLETE, which
@@ -295,6 +296,13 @@ cause, never as a clean pass. Case budgets and thresholds never change with
 this policy. Quarantine (`CASE_QUARANTINE`) and history are described in
 `docs/TESTING_INTERNALS.md`; `bun run eval:pass-rates --case <id>` shows a
 case's per-trial pass rate with its Wilson interval.
+
+**A census went red?** Follow [docs/evals/census-red.md](docs/evals/census-red.md):
+read the red line, inspect its evidence with `bun run eval:pass-rates --run <id>`,
+check `--reds` and `--headroom`, repair with a free regression test, and only
+then spend one paid run with the line's `after a repair:` command. A red census
+on `main` is reported on the weekly tracking issue; a census dispatched on a
+branch writes the same report to its run summary and `census-report` artifact.
 
 CI enables verified first-attempt reuse for 16 workflow quality judges for
 24 hours within the same PR. The cookie workflow's custom input and the other 11
@@ -477,6 +485,9 @@ bun run eval:list            # list all eval runs (turns, duration, cost per run
 bun run eval:compare         # compare two runs — shows per-test deltas + Takeaway commentary
 bun run eval:summary         # aggregate stats + per-test efficiency averages across runs
 bun run eval:pass-rates      # per-case trial pass rates + Wilson intervals from recent weekly runs (--case, --runs, --dir, --backfill, --json, --gate)
+bun run eval:pass-rates --reds       # verdict reds per census by failure class and cause, all-green probability
+bun run eval:pass-rates --headroom   # slowest session per case vs its armed budget (alarm above 85% in --gate)
+bun run eval:pass-rates --run <id>   # one census's reds with their values and fetched transcript evidence
 ```
 
 **Detached runs for agents and long suites.** When an agent (or you, for a run
@@ -534,8 +545,8 @@ Override the judge model per run with `GSTACK_EVAL_MODEL_JUDGE`:
 - **Actionability** — Can the agent execute tasks using only the information in the doc?
 
 Each dimension is scored 1-5 by a panel of 3 samples of the same prompt, drawn
-concurrently; each dimension's panel mean must meet that judge's threshold (≥ 4
-for most dimensions; see each case). An erroring sample fails the panel. There's also a regression test that compares generated docs against the hand-maintained baseline from `origin/main` — generated must score equal or higher.
+concurrently; each dimension's panel median (at least 2 of 3 samples) must meet
+that judge's threshold (≥ 4 for most dimensions; see each case). An erroring sample fails the panel. There's also a regression test that compares generated docs against the hand-maintained baseline from `origin/main` — generated must score equal or higher.
 
 Needs `ANTHROPIC_API_KEY` in `.env`. The judge files run in every paid lane
 (`bun run eval:bg:pr` selects the ones your diff touches).

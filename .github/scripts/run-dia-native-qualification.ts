@@ -406,7 +406,7 @@ async function freshWorker(configFile: string) {
     if (await digest(account.bun) !== account.bunSha256 || await digest(account.destinationExecutable) !== account.destinationSha256) throw new Error('staged_executable_changed');
     receipt.reason = 'fresh_dependency_install';
     run(account.bun, ['install', '--frozen-lockfile', '--ignore-scripts'], 180_000);
-    if (Bun.version !== '1.4.0' || require(path.join(account.snapshot, 'node_modules/playwright/package.json')).version !== '1.62.1') throw new Error('pinned_runtime_mismatch');
+    if (Bun.version !== '1.4.2' || require(path.join(account.snapshot, 'node_modules/playwright/package.json')).version !== '1.62.1') throw new Error('pinned_runtime_mismatch');
     mkdirSync(probe, { mode: 0o700 });
     receipt.reason = 'background_keychain_preflight';
     snapshot = captureUserKeychains(env, [account.home, account.temporary]);
@@ -538,7 +538,7 @@ export async function runFreshAccountQualification(comparisonRuntime?: 'bun' | '
   validateQualificationHost(process.env);
   if (comparisonRuntime !== undefined && !['bun', 'node'].includes(comparisonRuntime)) throw new Error('invalid_comparison_runtime');
   if (guiReadinessOnly && comparisonRuntime !== undefined) throw new Error('conflicting_diagnostic_modes');
-  if (process.getuid?.() === 0 || Bun.version !== '1.4.0') throw new Error('run_as_unprivileged_pinned_ci_runner');
+  if (process.getuid?.() === 0 || Bun.version !== '1.4.2') throw new Error('run_as_unprivileged_pinned_ci_runner');
   const outputRoot = realpathSync(process.env.RUNNER_TEMP!);
   const output = path.join(outputRoot, 'dia-native-qualification.json');
   if (existsSync(output)) throw new Error('fresh_output_required');

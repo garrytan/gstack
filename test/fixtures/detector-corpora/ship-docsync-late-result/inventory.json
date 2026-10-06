@@ -1,0 +1,423 @@
+[
+  {
+    "run": "37174266054",
+    "lane": "gate",
+    "outcome": "passed",
+    "series_identity": "8fefdbc3860636ba",
+    "artifact": "native-captures-ci-37174266054-1-gate-census-8",
+    "available": true,
+    "entry": "37174266054-t1-pass.json"
+  },
+  {
+    "run": "37176837432",
+    "lane": "gate",
+    "outcome": "passed",
+    "series_identity": "8fefdbc3860636ba",
+    "artifact": "native-captures-ci-37176837432-1-gate-census-8",
+    "available": true,
+    "entry": "37176837432-t1-pass.json"
+  },
+  {
+    "run": "37179171083",
+    "lane": "gate",
+    "outcome": "passed",
+    "series_identity": "8fefdbc3860636ba",
+    "artifact": "native-captures-ci-37179171083-1-gate-census-8",
+    "available": true,
+    "entry": "37179171083-t1-pass.json"
+  },
+  {
+    "run": "37182865432",
+    "lane": "gate",
+    "outcome": "passed",
+    "series_identity": "fd4bf35072aa2f84",
+    "artifact": "native-captures-ci-37182865432-1-gate-census-8",
+    "available": true,
+    "entry": "37182865432-t1-pass.json"
+  },
+  {
+    "run": "37186854666",
+    "lane": "gate",
+    "outcome": "passed",
+    "series_identity": "2973ee01e37171be",
+    "artifact": "native-captures-ci-37186854666-1-gate-census-8",
+    "available": true,
+    "entry": "37186854666-t1-pass.json"
+  },
+  {
+    "run": "37193478719",
+    "lane": "gate",
+    "outcome": "passed",
+    "series_identity": "a280730f8acc5ece",
+    "artifact": "native-captures-ci-37193478719-1-gate-census-8",
+    "available": true,
+    "entry": "37193478719-t1-pass.json"
+  },
+  {
+    "run": "37195203538",
+    "lane": "gate",
+    "outcome": "passed",
+    "series_identity": "51be4310c4b2322c",
+    "artifact": "native-captures-ci-37195203538-1-gate-census-8",
+    "available": true,
+    "entry": "37195203538-t1-pass.json"
+  },
+  {
+    "run": "37198445662",
+    "lane": "gate",
+    "outcome": "passed",
+    "series_identity": "ca37c4d73e0aeeea",
+    "artifact": "native-captures-ci-37198445662-1-gate-census-8",
+    "available": true,
+    "entry": "37198445662-t1-pass.json"
+  },
+  {
+    "run": "37196811165",
+    "lane": "pr",
+    "outcome": "failed",
+    "series_identity": "51be4310c4b2322c",
+    "artifact": "native-captures-ci-37196811165-1-eval-slices-8",
+    "available": true,
+    "entry": "37196811165-t1-fail.json"
+  },
+  {
+    "run": "37199589136",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "de47b356beabbe72",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37199579960",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37197708438",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "ca37c4d73e0aeeea",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37196784022",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37194511147",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "51be4310c4b2322c",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37192833320",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "a280730f8acc5ece",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37189974078",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "8b4e6898105a18a4",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37188668421",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "2973ee01e37171be",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37188014112",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37186091144",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "2973ee01e37171be",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37184467123",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "fd4bf35072aa2f84",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37182208158",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "fd4bf35072aa2f84",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37181717177",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37179168735",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "8fefdbc3860636ba",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37178720668",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37178146922",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37176835584",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "8fefdbc3860636ba",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37176237665",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37173609560",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "8fefdbc3860636ba",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37172907071",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "8fefdbc3860636ba",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37172266374",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "8fefdbc3860636ba",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37170610789",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "114e0e58a512d735",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37170258467",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37168819307",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "6a91277ce79e930a",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37168384066",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37166586458",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "6c73db545c893e55",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37164967731",
+    "lane": "pr",
+    "outcome": "passed",
+    "series_identity": "6c73db545c893e55",
+    "artifact": "trial-outcomes-pr-a1",
+    "available": true,
+    "entry": null,
+    "reason": "passing PR-lane trial on the wave branch (scanned for late-result reds); pass coverage comes from the gate-census captures"
+  },
+  {
+    "run": "37164663577",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37164023690",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37163862654",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37163438154",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37163388183",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37163226077",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  },
+  {
+    "run": "37162847235",
+    "lane": "pr",
+    "outcome": "none",
+    "series_identity": null,
+    "artifact": "trial-outcomes-pr-a1",
+    "available": false,
+    "entry": null,
+    "reason": "run cancelled without a trial-outcomes-pr-a1 artifact; no late-result trial recorded"
+  }
+]

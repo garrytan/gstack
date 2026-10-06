@@ -321,6 +321,26 @@ export function isNumericMetadataValue(span: string, match: RegExpExecArray): bo
 }
 
 /**
+ * GitHub Actions run and job ids are bare 10-12 digit integers, so
+ * pii.phone.e164 reads them as phone numbers. A published eval report prints
+ * the run id inside the command the reader copies
+ * (`bun run eval:pass-rates --run 37235771700`), and redacting it breaks that
+ * command. Only the position decides: a run/job flag (`--run 37235771700`,
+ * `--job=111534615007`), a `gh run view|watch|rerun|download|cancel`
+ * argument, an `actions/runs/<id>` or `/job/<id>` URL segment, or a
+ * `run_id` / `job_id` key. The same digits anywhere else still report.
+ */
+const CI_ID_POSITION_BEFORE =
+  /(?:--(?:run|job)(?:-id)?(?:[ \t]+|[ \t]*=[ \t]*)|\bgh[ \t]+run[ \t]+(?:view|watch|rerun|download|cancel)[ \t]+|\/actions\/runs\/|\/jobs?\/|(?:run|job)_id["']?[ \t]*[:=][ \t]*["']?)$/i;
+export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean {
+  if (!/^\d+$/.test(span)) return false;
+  const input = match.input ?? "";
+  const { start } = spanBounds(match);
+  const lineStart = input.lastIndexOf("\n", start - 1) + 1;
+  return CI_ID_POSITION_BEFORE.test(input.slice(Math.max(lineStart, start - 80), start));
+}
+
+/**
  * A four-part version (MAJOR.MINOR.PATCH.BUILD: .NET assembly versions,
  * gstack's own VERSION) is byte-for-byte a dotted quad, and `1.128.1.0` is a
  * public address, so `"version": "1.128.1.0"` raised pii.ip_public on every
@@ -892,14 +912,16 @@ export const PATTERNS: RedactPattern[] = [
     // A digit-only UUID's hyphen groups read as national phone formatting, and
     // so do a county tax-map parcel ID (see looksLikeParcelId), vector
     // coordinates (looksLikeDecimalCoordinates) and seed/nonce/timestamp JSON
-    // values (isNumericMetadataValue).
+    // values (isNumericMetadataValue), and GitHub Actions run and job ids in
+    // their id positions (isCiRunIdentifier).
     validate: (span, match) =>
       !insideUuid(match) &&
       span.replace(/\D/g, "").length >= 10 &&
       !looksLikeCompactTimestamp(span) &&
       !looksLikeParcelId(span, match) &&
       !looksLikeDecimalCoordinates(span) &&
-      !isNumericMetadataValue(span, match),
+      !isNumericMetadataValue(span, match) &&
+      !isCiRunIdentifier(span, match),
   },
   {
     id: "pii.ssn",

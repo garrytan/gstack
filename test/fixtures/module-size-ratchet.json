@@ -1,6 +1,9 @@
 {
   "newModules": [
     { "file": "scripts/lib/shard-engine.ts", "movedFrom": "scripts/test-strict-output.ts" },
+    { "file": "scripts/lib/eval-history.ts", "movedFrom": "(new: headroom, red ledger and run triage, kept out of scripts/eval-flake-rank.ts)" },
+    { "file": "scripts/lib/published-text.ts", "movedFrom": "(new: one sanitizer for model-written text reaching public reports)" },
+    { "file": "test/helpers/session-ledger.ts", "movedFrom": "(new: per-session ledger every paid runner appends to)" },
     { "file": "scripts/lib/paid-types.ts", "movedFrom": "scripts/test-paid-shards.ts" },
     { "file": "scripts/lib/paid-select.ts", "movedFrom": "scripts/test-paid-shards.ts" },
     { "file": "scripts/eval-bg.ts", "movedFrom": "(new: eval:bg dispatch/local backend, W5d)" },

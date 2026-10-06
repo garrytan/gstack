@@ -176,7 +176,7 @@ ${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: true, 
 ${outsideVoiceFor(ctx).id === 'codex' ? 'The Codex backend uses `codex review --base` without a positional prompt: those arguments are mutually exclusive. Never drop --base to resolve an argv error; prompt-only review changes the diff scope.' : 'The Claude Code backend receives the parent-captured base diff, including committed and working-tree changes, because review mode cannot execute git.'}
 
 Present output under \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (code review):\` inside a \`tool-output\` fence.
-Only a completed response with severity tags or an explicit no-findings conclusion establishes the gate. P0/P1 findings (\`[P0]\`/\`[P1]\` or native \`P0:\`/\`P1:\` labels; \`VERDICT: findings\`) → GATE: FAIL. Completed without P0/P1 → GATE: PASS. Refusal, failure, missing markers or \`OUTSIDE_STATUS: unverified\` → GATE: MISSING COVERAGE; preserve the existing user decision flow.
+Only a completed response with severity tags or an explicit no-findings conclusion establishes the gate. P0/P1 findings (\`[P0]\`/\`[P1]\` or native \`P0:\`/\`P1:\` labels; \`VERDICT: findings\`) → GATE: FAIL. Completed without P0/P1 → GATE: PASS. Refusal, failure, missing markers or \`OUTSIDE_STATUS: unverified\` → GATE: MISSING COVERAGE; no fix question.
 
 If GATE is FAIL, use AskUserQuestion:
 \`\`\`
@@ -409,7 +409,7 @@ THE PLAN:
 function codexPlanReviewRun(ctx: TemplateContext, ceo: boolean, needsApprovalReadiness: boolean): string {
   return `**If \`CODEX_MODE: ready\` (or \`unverified\`) — run ${outsideVoiceFor(ctx).label}:**
 
-${['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName) ? `Run this block only for \`ready\`, in the one foreground Bash call described below.
+${['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName) ? `Run this block for \`ready\` or \`unverified\`, in the one foreground Bash call described below.
 Its opening harness guard rechecks the fresh shell: exit 78 uses the same Native
 fallback below, never a replacement provider. Finish termination before fallback and consume only
 completed output. Use private temporary paths, with no background jobs.` : `Run the selected backend in the one foreground Bash invocation described below.

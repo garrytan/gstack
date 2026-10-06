@@ -131,7 +131,7 @@ describe('v2 writer', () => {
     expect(errors).toEqual([]);
     const expected = caseSeriesIdentitiesV2([id], treeEntries(ROOT))[id]!;
     expect(records[0]).toMatchObject({ series_identity: expected.identity, series_fingerprint: expected.fingerprint, harness_version: HARNESS_VERSION,
-      policy_version: 2 });
+      policy_version: EVAL_POLICY.version });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

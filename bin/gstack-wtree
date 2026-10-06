@@ -21,11 +21,17 @@
 # produce the identical write-tree hash. Fallback: `read-tree HEAD` when the
 # index copy is unavailable (fresh repo, exotic index).
 #
-# The real repo index is never touched. Staged blobs land in the object store
-# as unreachable objects and get gc'd like stash churn (note: this means the
+# The real repo index is never touched. Run standalone, staged blobs land in
+# the object store as unreachable objects and get gc'd like stash churn (the
 # CONTENT of untracked, non-ignored files enters .git/objects until gc — the
-# same property `git stash -u` has). Exit 1 outside a git repo or in a repo
-# with no commits — callers treat that as "no fingerprint".
+# same property `git stash -u` has), so `git diff <tree> <tree>` between saved
+# snapshots works. With GSTACK_WTREE_OBJECT_DIR set (gstack-review-log, E4),
+# new objects go to that private directory instead, with the repository's
+# object store as an alternate: the fingerprint works under a read-only .git
+# (Codex's sandbox), and the caller owns the directory's lifetime because its
+# consumers read the tree afterwards. Exit 1 outside a git repo, in a repo with
+# no commits, or when a write fails (one stderr line names the cause) — callers
+# treat that as "no fingerprint"; a partial hash is never printed.
 set -euo pipefail
 
 TOP=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
@@ -33,14 +39,34 @@ TOP=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
 # var set, `git rev-parse --git-path index` returns the temp index itself and
 # the stat-cache seed silently self-copies into a dead fast path.
 REAL_INDEX=$(git -C "$TOP" rev-parse --git-path index 2>/dev/null || true)
-TMPIDX=$(mktemp "${TMPDIR:-/tmp}/gstack-wtree-XXXXXX")
+# Same for the object store: the common dir's objects (linked worktrees share
+# it), resolved to an absolute path before GIT_OBJECT_DIRECTORY is exported.
+REAL_OBJECTS=$(git -C "$TOP" rev-parse --git-path objects 2>/dev/null || true)
+OBJ_DIR="${GSTACK_WTREE_OBJECT_DIR:-}"
+if [ -n "$OBJ_DIR" ] && [ ! -d "$OBJ_DIR" ]; then
+  echo "gstack-wtree: private object directory $OBJ_DIR does not exist" >&2
+  exit 1
+fi
+TMPIDX=$(mktemp "${TMPDIR:-/tmp}/gstack-wtree-XXXXXX" 2>/dev/null) || {
+  echo "gstack-wtree: cannot create a temp index under ${TMPDIR:-/tmp}; set TMPDIR to a writable directory" >&2
+  exit 1
+}
 trap 'rm -f "$TMPIDX"' EXIT
+trap 'exit 130' INT TERM
 export GIT_INDEX_FILE="$TMPIDX"
 # Resolve relative --git-path output against the repo root.
 case "$REAL_INDEX" in
   ""|/*) ;;
   *) REAL_INDEX="$TOP/$REAL_INDEX" ;;
 esac
+case "$REAL_OBJECTS" in
+  ""|/*) ;;
+  *) REAL_OBJECTS="$TOP/$REAL_OBJECTS" ;;
+esac
+if [ -n "$OBJ_DIR" ]; then
+  export GIT_OBJECT_DIRECTORY="$OBJ_DIR"
+  export GIT_ALTERNATE_OBJECT_DIRECTORIES="$REAL_OBJECTS${GIT_ALTERNATE_OBJECT_DIRECTORIES:+:$GIT_ALTERNATE_OBJECT_DIRECTORIES}"
+fi
 if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ] && cp "$REAL_INDEX" "$TMPIDX" 2>/dev/null; then
   # Carry the real index's mtime onto the copy. Git's racy-git protection
   # re-hashes any entry whose cached mtime is not older than the index file
@@ -58,5 +84,12 @@ if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ] && cp "$REAL_INDEX" "$TMPIDX" 2>
 else
   git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
 fi
-git -C "$TOP" add -A 2>/dev/null || exit 1
-git -C "$TOP" write-tree 2>/dev/null
+if ! ERR=$(git -C "$TOP" add -A 2>&1 >/dev/null); then
+  echo "gstack-wtree: cannot stage the working tree: $(printf '%s' "$ERR" | head -1)" >&2
+  exit 1
+fi
+if ! TREE=$(git -C "$TOP" write-tree 2>&1) || ! printf '%s' "$TREE" | grep -Eqx '[0-9a-f]{40}|[0-9a-f]{64}'; then
+  echo "gstack-wtree: cannot write the tree: $(printf '%s' "$TREE" | head -1)" >&2
+  exit 1
+fi
+printf '%s\n' "$TREE"

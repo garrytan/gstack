@@ -98,7 +98,7 @@ describe('diagnostic-only Dia runtime comparison', () => {
   const arm = (runtime: 'bun' | 'node', ready: boolean) => {
     const sha = 'a'.repeat(64);
     const config = { mode: 'launch-only', runtime, qualificationCredit: false, executableSha256: runtime === 'bun' ? sha : 'b'.repeat(64), driverSha256: sha, helpersSha256: sha };
-    const driver = { runtime, version: runtime === 'bun' ? '1.4.0' : '24.18.0', architecture: 'arm64', os: 'darwin', release: '24.6.0', playwright: '1.62.1',
+    const driver = { runtime, version: runtime === 'bun' ? '1.4.2' : '24.18.0', architecture: 'arm64', os: 'darwin', release: '24.6.0', playwright: '1.62.1',
       executableSha256: config.executableSha256, driverSha256: sha, helpersSha256: sha };
     const result = (purpose: string, success: boolean) => ({ protocol: 1, purpose, ready: success, launchReturned: success, protocolResponded: success,
       samplingEnabled: false, rootCount: 1, supervisor: { closed: true, exitCode: 0 }, cleanup: { confirmed: true, childClosed: true, groupAbsent: true, launchSettled: true,
@@ -112,7 +112,7 @@ describe('diagnostic-only Dia runtime comparison', () => {
       qualification: { launchComparison: { qualificationCredit: false, source: result('source', ready) }, counts: { pass: 0, fail: 0, skip: 0 },
         keychainStage: 'completed', isolation: { registeredIdentity: true, sharedRegisteredHome: true },
         cleanup: { ownedBrowsersStopped: true, sourceProfileRemoved: true, keychainRestored: true, mountDetached: true, fixtureRemoved: true },
-        platform: { os: 'darwin', architecture: 'arm64', bun: '1.4.0', playwright: '1.62.1', release: '24.6.0' },
+        platform: { os: 'darwin', architecture: 'arm64', bun: '1.4.2', playwright: '1.62.1', release: '24.6.0' },
         artifact: { signatureVerified: true, gatekeeperNotarized: true, macosCompatibility: { compatible: true, hostVersion: '15.7.9' },
           architectures: ['arm64'], sha256: sha, executableSha256: sha, version: '1.49.1', bundleId: 'company.thebrowser.dia', team: 'S6N382Y83G' } } };
   };

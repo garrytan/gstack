@@ -314,8 +314,34 @@ describe.skipIf(process.platform === 'win32')('session-runner explicit tool avai
     await withFakeClaude(async (dir, observed) => {
       await runSkillTest({ prompt: 'Default tools', workingDirectory: dir, allowedTools: ['Read'], timeout: 5_000 });
       expect(observed().args).not.toContain('--tools');
-      expect(observed().args).not.toContain('--include-partial-messages');
+      // Partial messages always stream for the session ledger's liveness summary (plan 0.2).
+      expect(observed().args).toContain('--include-partial-messages');
       expect(flagValue(observed().args, '--allowed-tools')).toBe('Read');
+    });
+  });
+
+  test('without public diagnostics, partial messages feed only the session ledger; the transcript keeps its shape', async () => {
+    await withFakeClaude(async (dir) => {
+      fs.writeFileSync(path.join(dir, 'diagnostic-case'), 'complete');
+      const evalDir = path.join(dir, 'eval');
+      const saved = process.env.GSTACK_EVAL_DIR;
+      process.env.GSTACK_EVAL_DIR = evalDir;
+      let result: Awaited<ReturnType<typeof runSkillTest>>;
+      try {
+        result = await runSkillTest({ prompt: 'diagnose', workingDirectory: dir, tools: ['Read', 'Write'], timeout: 5_000, testName: 'ledger-case' });
+      } finally {
+        if (saved === undefined) delete process.env.GSTACK_EVAL_DIR; else process.env.GSTACK_EVAL_DIR = saved;
+      }
+      expect(result.exitReason).toBe('success');
+      expect(result.transcript.map(e => e.type)).toEqual(['system', 'assistant', 'assistant', 'result']);
+      expect(JSON.stringify(result.transcript)).not.toContain('stream_event');
+      const rows = fs.readFileSync(path.join(evalDir, 'session-ledger.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ key: 'claude-p:ledger-case#1', test_name: 'ledger-case', runner: 'claude-p', budget_ms: 5_000, end: 'completed',
+        liveness: { partial: true, turns: 0, last_event: 'result', open_tool_at_end: 'Write' } });
+      expect(rows[0].elapsed_ms).toBeGreaterThan(0);
+      expect(rows[0].liveness.max_request_silence_ms).toBeLessThan(5_000);
+      expect(JSON.stringify(rows[0])).not.toContain('PRIVATE');
     });
   });
 

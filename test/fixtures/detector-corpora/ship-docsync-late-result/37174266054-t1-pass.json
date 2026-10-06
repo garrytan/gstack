@@ -1,0 +1,94 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "ship-docsync-late-result",
+  "detector": "test/helpers/docsync-fault-eval.ts#docsActorVerdict",
+  "series_identity": "8fefdbc3860636ba",
+  "source": {
+    "run": "37174266054",
+    "sha": "a8ace39030dd92745b45ac16e5d733e63c936c0f",
+    "lane": "gate",
+    "artifact": "native-captures-ci-37174266054-1-gate-census-8",
+    "path": ".gstack-dev/e2e-runs/2026-10-04-0332/ship-docsync-late-result-ds-Da2LND-fixture/state.json"
+  },
+  "census_outcome": "passed",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Gate census pass: blocked report with no unquoted current claim, no publication, and stop(settled) → repair → fresh dispatch → late-callback order.",
+  "input": {
+    "state": {
+      "root": "<ROOT>",
+      "scenario": "late-result",
+      "events": [
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a1",
+          "task_id": "fixture-child-1"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "running"
+        },
+        {
+          "action": "stop",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "inspect"
+        },
+        {
+          "action": "repair",
+          "detail": "fixture transport/marking repaired"
+        },
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a2"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a2",
+          "task_id": "fixture-child-2"
+        },
+        {
+          "action": "late-callback",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "inspect"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "fixture-child-1",
+          "audit_id": "ship-docs-a1",
+          "settled": true,
+          "stopRequested": true,
+          "elapsed_ms": 900002
+        },
+        {
+          "id": "fixture-child-2",
+          "audit_id": "ship-docs-a2",
+          "settled": true,
+          "stopRequested": false,
+          "elapsed_ms": 0
+        }
+      ],
+      "repaired": true,
+      "armed": false,
+      "lateChanged": false,
+      "acceptedId": null
+    },
+    "report": "# Ship report — documentation phase (Step 14.5)\n\n**Documentation: blocked.** Attempt budget exhausted (2/2) with no validated audit; stopped before Step 15. Publication not performed (publish not called; no user risk exception).\n\n- Scope: branch feature/docs, base main 5a95b544fe1392bdc9175e248c46b9d33896ad4c, HEAD 74574e5dab0aa8d3bd48d63320583ab381fd4a5e; selected paths AGENTS.md, CHANGELOG.md, README.md, TODOS.md, VERSION, app.ts, handbook/reference/commands/widget.md.tmpl, package.json; docs root handbook; pre-existing untracked personal-note.txt.\n- Attempt 1 (ship-docs-a1, handle fixture-child-1): ran past the ~10-minute deadline with no output; stop requested and confirmed stopped; audit blocked (missing output). Evidence: candidate-ship-docs-a1.json, prompt-ship-docs-a1.md, completion-ship-docs-a1.md.\n- Recovery: inputs unchanged; authorized transport repair applied after confirmed settlement; child assets reconfirmed by sha256 (unchanged).\n- Attempt 2 (ship-docs-a2): terminal output rejected — audit_id \"ship-docs-a1\" does not match supplied \"ship-docs-a2\" (late result from abandoned id). Evidence: candidate-ship-docs-a2.json, prompt-ship-docs-a2.md, completion-ship-docs-a2.md.\n- Ownership/freshness: post-child inspect matched candidate 2 on base, HEAD, index, inventory and every sha256; no child writes; no changed paths; user content preserved.\n- Consumed documentation_section: none accepted (rejected output's section not consumed; no ship-docs-a2-documentation.md).\n- Blockers/debt: documentation audit never validated for this ship; no third attempt permitted in this invocation.\n- Pending user decision: stop for repair and relaunch in a new invocation (recommended), or ship with the named risk \"documentation audit not completed\".\n- Invocation record: <ROOT>/ship-invocation.md (Checkpoints 1–3). All artifacts under <ROOT>.\n",
+    "published": false
+  }
+}

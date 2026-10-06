@@ -1,6 +1,18 @@
 import { isDeepStrictEqual } from 'node:util';
 import * as path from 'node:path';
-import { renderOfficeHoursReviewerPrompt, validateOfficeHoursReview, renderOfficeHoursReview, extractOfficeHoursReviewBlock, type OfficeHoursReview } from '../../lib/office-hours-review';
+import { renderOfficeHoursReviewerPrompt, validateOfficeHoursReview, renderOfficeHoursReview, extractOfficeHoursReviewBlock, parseOfficeHoursVerdictReceipt, verifyOfficeHoursVerdictReceipt, officeHoursDesignChanges, verifyOfficeHoursCitations, type OfficeHoursReview } from '../../lib/office-hours-review';
+
+export type OfficeHoursFile = { path: string; content: string | null };
+/** The helper's captured diff before a later round; a missing snapshot fails closed. */
+function snapshotChanges(snapshots: readonly OfficeHoursFile[], verdictPath: string, round: number) {
+  const read = (n: number) => {
+    const wanted = path.join(path.dirname(path.resolve(verdictPath)), `round-${n}.design.md`);
+    const content = snapshots.find(file => path.resolve(file.path) === wanted)?.content;
+    if (typeof content !== 'string') throw new Error(`Office-hours review artifacts: round ${round} lacks its captured design snapshot round-${n}.design.md`);
+    return content;
+  };
+  return officeHoursDesignChanges(read(round - 1), read(round));
+}
 
 /**
  * Completion evidence for the fixed office-hours section-loading fixture.
@@ -207,8 +219,10 @@ export function validateOfficeHoursCompletion(evidence: OfficeHoursCompletionEvi
  */
 export function validateOfficeHoursReviewArtifacts(
   evidence: OfficeHoursCompletionEvidence,
-  artifacts: Array<{ path: string; content: string | null }>,
-): void {
+  artifacts: OfficeHoursFile[],
+  snapshots: readonly OfficeHoursFile[] = [],
+  maxRounds = 3,
+): OfficeHoursReviewEvidence | null {
   const fail = (message: string): never => { throw new Error(`Office-hours review artifacts: ${message}`); };
   const reviewEvidence = validateOfficeHoursCompletion(evidence);
   const normalize = (value: unknown) => String(value ?? '').replace(/\\/g, '/').replace(/^\.\//, '');
@@ -221,32 +235,36 @@ export function validateOfficeHoursReviewArtifacts(
   const attempts = evidence.toolCalls.slice(firstWrite + 1).filter(call => ['Agent', 'Task'].includes(call.tool)
     && /\breview\b/i.test(String(call.input?.prompt ?? ''))
     && [designPath, relativeDesign].some(p => normalize(call.input?.prompt).includes(p)));
-  if (!attempts.length || attempts.length > 3) fail('expected one to three reviewer attempts');
+  if (!attempts.length || attempts.length > maxRounds) fail(`expected one to ${maxRounds} reviewer attempts`);
   const rounds: OfficeHoursReview[] = [];
+  const verdicts: string[] = [];
   let failedAttempt = false;
   for (let i = 0; i < attempts.length; i++) {
-    let verdict: OfficeHoursReview;
-    try {
-      const response = (attempts[i].output ?? '').trim();
-      // One enclosing JSON fence changes presentation, not the authored data.
-      // Additional prose or a second payload still fails JSON parsing.
-      const payload = /^```(?:json)?[ \t]*\n([\s\S]*)\n```$/i.exec(response)?.[1] ?? response;
-      verdict = validateOfficeHoursReview(JSON.parse(payload), rounds.at(-1));
-    } catch (error) {
+    const response = attempts[i].output ?? '';
+    // Anything but exactly one receipt line is a failed attempt; the saved
+    // file, not the response, is the findings inventory.
+    try { parseOfficeHoursVerdictReceipt(response); }
+    catch {
       if (i !== attempts.length - 1) fail('continued reviewing after an invalid or failed verdict');
       failedAttempt = true;
+      verdicts.push(response);
       break;
     }
-    if (normalize(verdict!.document) !== designPath) fail(`round ${i + 1} reviewed a different document`);
     const matches = artifacts.filter(artifact => normalize(artifact.path).endsWith(`/round-${i + 1}.json`));
     if (matches.length !== 1 || matches[0].content === null) fail(`round ${i + 1} needs exactly one saved verdict`);
     const prompt = normalize(attempts[i].input?.prompt).replaceAll('/./', '/');
     const assigned = [artifactPath(matches[0].path), path.relative(fixtureRoot, artifactPath(matches[0].path))];
     if (!assigned.some(reference => prompt.includes(reference))) fail(`round ${i + 1} artifact was not assigned to the reviewer`);
-    let saved: unknown;
-    try { saved = JSON.parse(matches[0].content!); }
-    catch { fail(`round ${i + 1} saved verdict is invalid JSON`); }
-    if (!isDeepStrictEqual(saved, verdict!)) fail(`round ${i + 1} saved verdict differs from the reviewer response`);
+    try { verifyOfficeHoursVerdictReceipt(response, { round: i + 1, verdictPath: artifactPath(matches[0].path), bytes: matches[0].content! }); }
+    catch (error) { fail(`round ${i + 1} saved verdict differs from the reviewer receipt: ${(error as Error).message}`); }
+    let verdict: OfficeHoursReview;
+    try { verdict = validateOfficeHoursReview(JSON.parse(matches[0].content!), rounds.at(-1)); }
+    catch { fail(`round ${i + 1} saved verdict is invalid`); }
+    if (normalize(verdict!.document) !== designPath) fail(`round ${i + 1} reviewed a different document`);
+    if (i > 0) {
+      try { verifyOfficeHoursCitations(verdict!, snapshotChanges(snapshots, artifactPath(matches[0].path), i + 1).changed); }
+      catch (error) { fail(`round ${i + 1} citation: ${(error as Error).message}`); }
+    }
     // The flattened trace proves authored content, not the writer's parent ID.
     // An identical copy after dispatch is valid; a preexisting file is not proof.
     const attemptIndex = evidence.toolCalls.indexOf(attempts[i]);
@@ -257,6 +275,7 @@ export function validateOfficeHoursReviewArtifacts(
     catch { fail(`round ${i + 1} lacks an observed JSON Write`); }
     if (!isDeepStrictEqual(written, verdict!)) fail(`round ${i + 1} artifact differs from its observed Write`);
     rounds.push(verdict!);
+    verdicts.push(matches[0].content!);
   }
   // Even when the actual final tool result is absent, the existing completion
   // validator requires a declared UNREVIEWED and its explanation in the report.
@@ -276,10 +295,10 @@ export function validateOfficeHoursReviewArtifacts(
       try {
         validateOfficeHoursReview(JSON.parse(artifact.content), rounds.at(-1));
       } catch { continue; } // Preserve a malformed failed attempt as evidence.
-      fail('valid saved verdict has no matching reviewer response');
+      fail('valid saved verdict has no matching reviewer receipt');
     }
   }
-  const expected = renderOfficeHoursReview(rounds, unavailable);
+  const expected = renderOfficeHoursReview(rounds, unavailable, maxRounds);
   const expectedReport = sectionBody(expected.report, ['spec review'], true);
   const expectedConcerns = sectionBody(expected.concerns, ['reviewer concerns'], true);
   if (extractOfficeHoursReviewBlock(evidence.output, 'report') !== expected.report
@@ -290,12 +309,16 @@ export function validateOfficeHoursReviewArtifacts(
       || withoutTrailingBreaks(sectionBody(evidence.designContent!, ['reviewer concerns'], true)) !== expectedConcerns) {
     fail('Reviewer Concerns does not preserve every saved problem and remedy');
   }
+  // A receipt names the verdict; the preservation judge reads the saved bytes.
+  return reviewEvidence && { ...reviewEvidence, verdict: verdicts.at(-1)!, priorVerdicts: verdicts.slice(0, -1) };
 }
 
 /** Prove that each actual reviewer received the entire generated contract and prior verdict. */
 export function validateOfficeHoursReviewerHandoffs(
   evidence: OfficeHoursCompletionEvidence,
-  artifacts: Array<{ path: string; content: string | null }>,
+  artifacts: OfficeHoursFile[],
+  snapshots: readonly OfficeHoursFile[] = [],
+  maxRounds = 3,
 ): void {
   const fail = (message: string): never => { throw new Error(`Office-hours reviewer handoff: ${message}`); };
   const calls = evidence.toolCalls;
@@ -332,7 +355,8 @@ export function validateOfficeHoursReviewerHandoffs(
         || path.basename(verdicts[0]) !== `round-${index + 1}.json`) fail(`round ${index + 1} lacks its assigned verdict path`);
     const verdictPath = verdicts[0];
     const promptPath = verdictPath.replace(/\.json$/, '.prompt.md');
-    const expected = renderOfficeHoursReviewerPrompt({ document: evidence.designPath, verdictPath, previous });
+    const expected = renderOfficeHoursReviewerPrompt({ document: evidence.designPath, verdictPath, previous, maxRounds,
+      changes: index > 0 ? snapshotChanges(snapshots, verdictPath, index + 1).diff : undefined });
     let delivered = prompt.includes(expected.trimEnd());
     let unavailableBeforeRead = false;
     if (!delivered) {
@@ -364,9 +388,7 @@ export function validateOfficeHoursReviewerHandoffs(
     }
     let validVerdict = false;
     try {
-      const response = (attempt.output ?? '').trim();
-      const payload = /^```(?:json)?[ \t]*\n([\s\S]*)\n```$/i.exec(response)?.[1] ?? response;
-      previous = validateOfficeHoursReview(JSON.parse(payload), previous);
+      parseOfficeHoursVerdictReceipt(attempt.output ?? '');
       validVerdict = true;
     } catch {
       if (index !== attempts.length - 1) fail('another reviewer followed an invalid verdict');
@@ -374,13 +396,12 @@ export function validateOfficeHoursReviewerHandoffs(
     }
     if (validVerdict) {
       const matches = artifacts.filter(artifact => path.resolve(artifact.path) === verdictPath);
-      let saved: unknown;
-      try { saved = matches.length === 1 ? JSON.parse(matches[0].content ?? '') : null; }
+      if (matches.length !== 1 || matches[0].content === null) fail(`round ${index + 1} has no valid saved verdict`);
+      try { verifyOfficeHoursVerdictReceipt(attempt.output!, { round: index + 1, verdictPath, bytes: matches[0].content! }); }
+      catch (error) { fail(`round ${index + 1} saved verdict differs from the reviewer receipt: ${(error as Error).message}`); }
+      // Prepare reads the saved object; its insertion order reproduces the prompt bytes.
+      try { previous = validateOfficeHoursReview(JSON.parse(matches[0].content!), previous); }
       catch { fail(`round ${index + 1} has no valid saved verdict`); }
-      if (!isDeepStrictEqual(saved, previous)) fail(`round ${index + 1} saved verdict differs from the reviewer response`);
-      // Prepare reads the saved object. JSON object key order is immaterial to
-      // equality, but using that same insertion order reproduces its prompt bytes.
-      previous = saved as OfficeHoursReview;
     }
     // A native tool failure before the reviewer can Read is genuinely unavailable.
     // A malformed completed verdict or a parent declaration alone cannot waive delivery.
@@ -403,8 +424,8 @@ export async function validateOfficeHoursReviewPreservation(
   }
   const prompt = `Check whether an office-hours design preserves all unresolved findings from its final independent review.
 Perform three independent audits: (1) finding coverage, (2) disposition and any claimed convergence, and (3) fixed/remaining/count-unit metrics when a report is supplied. Complete EVERY applicable audit even if another already fails; a coverage failure cannot skip metrics, and a metrics failure cannot skip convergence. Collect all actual defects from all three audits before answering.
-Validate the declared disposition against the actual last reviewer output. COMPLETED requires a completed review with no unresolved findings; a genuine PASS need not have a perfect score. CONCERNS_RECORDED requires preserving all unresolved findings. UNREVIEWED is valid for an actual failed/unavailable review attempt, not for a completed verdict with findings.
-A genuine failed/unavailable attempt declared UNREVIEWED needs no invented findings. A genuine PASS may have an empty concerns section. List a contradictory disposition in unsupported; do not let the author's declaration suppress actual reviewer findings.
+Validate the declared disposition against the actual last reviewer output. COMPLETED requires a completed review with no unresolved blocking findings; its minor findings stay recorded in the concerns and count as preserved findings, and a genuine PASS need not have a perfect score. CONCERNS_RECORDED requires preserving all unresolved findings. UNREVIEWED is valid for an actual failed/unavailable review attempt, not for a completed verdict with findings.
+A genuine failed/unavailable attempt declared UNREVIEWED needs no invented findings. A genuine PASS without minor findings may have an empty concerns section. List a contradictory disposition in unsupported; do not let the author's declaration suppress actual reviewer findings.
 Document Status APPROVED records user approval and is compatible with CONCERNS_RECORDED. The independent review is a quality bonus; do not invent a requirement for reviewer approval, a clean verdict, or a perfect score before the user can approve the design.
 Compare every unresolved problem AND the necessary remedy against the persisted Reviewer Concerns.
 Start from the COMPLETE SOURCE VERDICT, not from the persisted subset. Map EACH source finding to a specific persisted passage. Any source finding without a sufficient counterpart MUST be listed in missing, even if every item that was persisted is accurate.

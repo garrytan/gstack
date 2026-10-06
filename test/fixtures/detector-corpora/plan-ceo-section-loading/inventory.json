@@ -1,0 +1,85 @@
+[
+  {
+    "run": "37174266054",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "a7f8ef2d01d4716d",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": "37174266054-t1-pass.json"
+  },
+  {
+    "run": "37176837432",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "a7f8ef2d01d4716d",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": null,
+    "reason": "Same series (a7f8ef2d01d4716d) as the 37174266054 entry and same detector path (approved ledger decision and prose finding both hold) as the 37179171083 and 37198445662 entries; omitted to bound corpus size."
+  },
+  {
+    "run": "37179171083",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "c040a0214e4f3172",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": "37179171083-t1-pass.json"
+  },
+  {
+    "run": "37182865432",
+    "lane": "periodic",
+    "outcome": "failed",
+    "series_identity": "b56318cf9e1e2194",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": "37182865432-t1-fail.json"
+  },
+  {
+    "run": "37186854666",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "2986275878c588ef",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": "37186854666-t1-pass.json"
+  },
+  {
+    "run": "37193478719",
+    "lane": "periodic",
+    "outcome": "failed",
+    "series_identity": "2986275878c588ef",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": "37193478719-t1-fail.json"
+  },
+  {
+    "run": "37195203538",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "68761d79db01290b",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": "37195203538-t1-pass.json"
+  },
+  {
+    "run": "37198445662",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "68761d79db01290b",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": "37198445662-t1-pass.json"
+  },
+  {
+    "run": "37182865432",
+    "lane": "periodic",
+    "outcome": "failed",
+    "series_identity": "b56318cf9e1e2194",
+    "artifact": "paid-slice-6-a1",
+    "available": true,
+    "entry": "37182865432-t1-fail-derived-unrelated-decision.json",
+    "reason": "derived negative control (no genuine failing capture exists for this case)"
+  }
+]

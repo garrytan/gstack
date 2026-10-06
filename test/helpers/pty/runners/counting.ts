@@ -245,7 +245,7 @@ export async function runPlanSkillCounting(opts: PlanSkillCountingOptions): Prom
     ...(opts.permissionPlanPath ? [opts.permissionPlanPath] : []),
   ];
   return runPtySession<PlanSkillCountObservation>({
-    driver,
+    driver, budgetMs: timeoutMs,
     cleanup: () => fixture.cleanup(),
     launch: {
       permissionMode: 'plan',

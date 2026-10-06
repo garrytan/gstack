@@ -1,0 +1,323 @@
+{
+ "schema": "gstack-detector-corpus/v1",
+ "case": "auto-decide-preserved",
+ "detector": "test/helpers/native-auto-decide.ts#findNativeAutoDecision",
+ "screen_detector": "test/helpers/pty/classify.ts#classifyVisible",
+ "series_identity": "7678e372b3345f9b",
+ "source": {
+  "run": "37198445662",
+  "sha": "fd6854b5356431e5e115fca082b21bf237559558",
+  "lane": "periodic",
+  "artifact": "paid-slice-20-a1",
+  "path": "shards/skill-e2e-auto-decide-preserved/pty-count/ci-37198445662-1-eval-slices-20/plan-ceo-review-1791113328798-6JFWyh/observation.json"
+ },
+ "census_outcome": "passed",
+ "census_error": "",
+ "expected": "pass",
+ "justification": "classifyVisible accepted the sent AUTO_DECIDE line on screen. The archived native poll predates that message (last assistant message announces the handoff), and the handoff ran inside a compound command, so the native snapshot holds no current declaration.",
+ "screen_expected": "pass",
+ "native_expected": "refuse",
+ "derived": "options.stateEvidence rebuilt from the session's gstack-question-log argument with source \"agent\" and ts = that call's tool-result timestamp (the bound question-log.jsonl itself is not archived)",
+ "input": {
+  "native": {
+   "transcript": {
+    "status": "ready",
+    "calls": [],
+    "assistantMessages": [
+     {
+      "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+      "text": "Received. I have the draft plan for deterministic skill-list ordering as context, along with your constraints: this is a mode-only handoff, no review mode selected yet, use the full mode name in the audit record and handoff line. I'll wait for your slash command before starting or calling any tools.",
+      "timestamp": "2026-10-04T11:25:02.647Z"
+     },
+     {
+      "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+      "text": "I'll run the skill preamble first, then work through Step 0 to the mode decision only, as you asked.",
+      "timestamp": "2026-10-04T11:25:07.190Z"
+     },
+     {
+      "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+      "text": "I'll defer the CLAUDE.md setup prompt since you're handling it separately and plan mode blocks edits anyway—it'll reappear next run. Now gathering the audit context in one pass.\n\n",
+      "timestamp": "2026-10-04T11:25:34.122Z"
+     },
+     {
+      "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+      "text": "The fixture repo only has CLAUDE.md and PLAN.md—no remote, stash, TODOs, design doc, or prior context, and Aside isn't installed. Since mode preference is set to auto-decide, I'll skip that question and run the landscape check via WebSearch instead.\n\n",
+      "timestamp": "2026-10-04T11:26:36.166Z"
+     },
+     {
+      "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+      "text": "Confirmed the Reproducible Builds guidance aligns with the plan: avoid relying on readdir order and sort entries bytewise to prevent locale-based inconsistencies. Now writing the Step 0 ledger to the plan file while running the mode handoff and audit log in parallel.\n\n",
+      "timestamp": "2026-10-04T11:27:37.493Z"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:08.567Z",
+     "toolUseId": "toolu_01Wf6kvaTmd5c4BVKu8m21EF",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-skill-start --skill \"plan-ceo-review\" --model \"claude\"",
+      "description": "Run gstack skill preamble"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:10.032Z",
+     "toolUseId": "toolu_01Wf6kvaTmd5c4BVKu8m21EF",
+     "kind": "result",
+     "isError": false,
+     "content": "SKILL_START_PROTO: 1\nBRANCH: main\nPROACTIVE: true\nPROACTIVE_PROMPTED: yes\nSKILL_PREFIX: false\nREPO_MODE: unknown\nSESSION_KIND: interactive\nCONDUCTOR_SESSION: true\nACTIVATED: yes\nFIRST_LOOP_SHOWN: yes\nFIRST_TASK: \nLAKE_INTRO: yes\nTELEMETRY: off\nTEL_PROMPTED: yes\nSESSION_ID: 1562-1791113109-05c92427\nTEL_START: 1791113109\nEXPLAIN_LEVEL: default\nQUESTION_TUNING: true\nUPDATE_CHECK: false\nLEARNINGS: 0\nHAS_ROUTING: no\nROUTING_DECLINED: false\nVENDORED_GSTACK: no\nMODEL_OVERLAY: claude\nGSTACK_PLAN_MODE: active\nARTIFACTS_SYNC: off\n"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:36.494Z",
+     "toolUseId": "toolu_01WfcV1ucLDK2iPD1sy2MgZP",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-context-recovery 2>&1; echo \"---REMOTE---\"; git remote get-url origin 2>&1; echo \"---HEAD---\"; git symbolic-ref refs/remotes/origin/HEAD 2>&1; git rev-parse --verify origin/main 2>&1; echo \"---LOG---\"; git log --oneline -30; echo \"---STASH---\"; git stash list; echo \"---TODO---\"; grep -r \"TODO\\|FIXME\\|HACK\\|XXX\" -l --exclude-dir=node_modules --exclude-dir=vendor --exclude-dir=.git . | head -30; echo \"---TOUCHED---\"; git log --since=30.days --name-only --format=\"\" | sort | uniq -c | sort -rn | head -20; echo \"---FILES---\"; git ls-files | head -100",
+      "description": "Recover context and audit repo history"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:50.500Z",
+     "toolUseId": "toolu_01NLsv1JwFa2z6QM2DjX2iKh",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "setopt +o nomatch 2>/dev/null || true\nSLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\")\nBRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')\nDESIGN=$(~/.claude/skills/gstack/bin/gstack-design-doc-find \"$SLUG\" \"$BRANCH\")\n[ -n \"$DESIGN\" ] && echo \"Design doc found: $DESIGN\" || echo \"No design doc found\"\necho \"---LEARNINGS---\"\n_CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo \"unset\")\necho \"CROSS_PROJECT: $_CROSS_PROJ\"\nif [ \"$_CROSS_PROJ\" = \"true\" ]; then\n  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>&1 >&3 3>&-); _LR=$?; } 3>&1\nelse\n  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>&1 >&3 3>&-); _LR=$?; } 3>&1\nfi\n[ \"$_LR\" = 0 ] || { _LE=${_LE%%$'\\n'*}; echo \"LEARNINGS: unavailable (${_LE:-exit $_LR})\"; }\necho \"---BRAIN---\"\nSLUG2=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || true\nfor d in product goals recent-decisions; do echo \"### $d\"; ~/.claude/skills/gstack/bin/gstack-brain-cache get $d --project \"$SLUG2\" 2>/dev/null || echo \"_(no $d digest available yet)_\"; done\necho \"### user-profile\"; ~/.claude/skills/gstack/bin/gstack-brain-cache get user-profile 2>/dev/null || echo \"_(no user-profile digest available yet)_\"\necho \"---ASIDE---\"\n_gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 \"$@\"; elif command -v timeout >/dev/null; then timeout 30 \"$@\"\nelif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 \"$@\"; else return 125; fi; }\n_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)\nif [ \"${GSTACK_SKIP_ASIDE:-}\" = \"1\" ] || [ -z \"$_A\" ]; then\n  echo \"NEEDS_ASIDE: ${GSTACK_PLATFORM:-$(uname)}\"\nelse\n  _rc=0; _o=$(_gs_d \"$_A\" repl 'console.log(\"ASIDE_READY \" + pwd)' 2>&1) || _rc=$?\n  case \"$_rc\" in\n    124|142) echo \"ASIDE_TIMEOUT: probe deadline exceeded\" ;;\n    125) echo \"ASIDE_UNAVAILABLE: bounded probe unavailable\" ;;\n    0) if printf '%s\\n' \"$_o\" | grep -q '^ASIDE_READY '; then echo \"READY: $_A\"\n       else echo \"ASIDE_NOT_RUNNING: no readiness marker\"; fi ;;\n    *) echo \"ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally\" ;;\n  esac\nfi\necho \"---QPREF---\"\nprintf '%s' \"Select plan-ceo-review mode for deterministic skill-list ordering plan: SCOPE EXPANSION, SELECTIVE EXPANSION, HOLD SCOPE, or SCOPE REDUCTION\" | ~/.claude/skills/gstack/bin/gstack-question-preference --check \"plan-ceo-review-mode\" --summary-stdin; echo \"QPREF_EXIT: $?\"",
+      "description": "Check design doc, learnings, brain context, Aside, and mode preference"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:51.497Z",
+     "toolUseId": "toolu_01Jg384kG7A8kPWZHjzUixKa",
+     "kind": "use",
+     "name": "Read",
+     "input": {
+      "file_path": "<CWD>/PLAN.md"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:53.678Z",
+     "toolUseId": "toolu_01QtvhyccyZBEYf9hbVcKxvb",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "ls -la <CWD>; echo \"---TODOS---\"; cat <CWD>/TODOS.md 2>&1 | head -50; echo \"---ETHOS---\"; sed -n '1,60p' ~/.claude/skills/gstack/ETHOS.md 2>&1",
+      "description": "List repo files, read TODOS.md and ETHOS.md"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:54.352Z",
+     "toolUseId": "toolu_01WfcV1ucLDK2iPD1sy2MgZP",
+     "kind": "result",
+     "isError": false,
+     "content": "--- RECENT ARTIFACTS ---\n{\"skill\":\"plan-ceo-review\",\"event\":\"started\",\"branch\":\"main\",\"session\":\"1562-1791113109-05c92427\",\"ts\":\"2026-10-04T11:25:10.051Z\"}\n--- END ARTIFACTS ---\n---REMOTE---\nerror: No such remote 'origin'\n---HEAD---\nfatal: ref refs/remotes/origin/HEAD is not a symbolic ref\n9b45bea985d4de4cc1c1b2619d16faa32cd42f91\n---LOG---\n9b45bea Seed review plan\n---STASH---\n---TODO---\n---TOUCHED---\n      1 PLAN.md\n      1 CLAUDE.md\n---FILES---\nCLAUDE.md\nPLAN.md"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:54.644Z",
+     "toolUseId": "toolu_01NLsv1JwFa2z6QM2DjX2iKh",
+     "kind": "result",
+     "isError": false,
+     "content": "No design doc found\n---LEARNINGS---\nCROSS_PROJECT: false\n---BRAIN---\n### product\n_(no product digest available yet)_\n### goals\n_(no goals digest available yet)_\n### recent-decisions\n_(no recent-decisions digest available yet)_\n### user-profile\n_(no user-profile digest available yet)_\n---ASIDE---\nNEEDS_ASIDE: Linux\n---QPREF---\nAUTO_DECIDE\nQPREF_EXIT: 0"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:54.680Z",
+     "toolUseId": "toolu_01Jg384kG7A8kPWZHjzUixKa",
+     "kind": "result",
+     "isError": false,
+     "content": "1\t# Draft: deterministic skill-list ordering\n2\t\n3\tUsers compare skill listings in scripts and reviews. Make the existing listing\n4\tpath sort registered skill na…[elided: not consumed]"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:25:54.689Z",
+     "toolUseId": "toolu_01QtvhyccyZBEYf9hbVcKxvb",
+     "kind": "result",
+     "isError": false,
+     "content": "total 20\ndrwx------ 3 runner runner 4096 Oct  4 11:24 .\ndrwxr-xr-x 7 runner runner 4096 Oct  4 11:25 ..\ndrwxr-xr-x 8 runner runner 4096 Oct  4 11:24 .git\n-rw-r--r-- 1 runner runner 1132 Oct  4 11:24 CLAUDE.md\n-rw-r--r-- 1 runner runner  826 Oct  4 11:24 PLAN.md\n---TODOS---\ncat: <CWD>/TODOS.md: No such file or directory\n---ETHOS---\n# gstack Builder Ethos\n\nThese are the principles that shape how gstack thinks, recommends, and builds.\nSkill preambles carry condensed forms of some of them (completeness, voice,\nsearch before building), and the Search Before Building section points here for\nthe full text. They reflect what we believe about building software in 2026.\n\n---\n\n## The Golden Age\n\nA single person with AI can now build what used to take a team of twenty.\nThe engineering barrier is gone. What remains is taste, judgment, and the\nwillingness to do the complete thing.\n\nThis is not a prediction — it's happening right now. 10,000+ usable lines of\ncode per day. 100+ commits per week. Not by a team. By one person, part-time,\nusing the right tools. The compression ratio between human-team time and\nAI-assisted time ranges from 3x (research) to 100x (boilerplate):\n\n| Task type                   | Human team | AI-assisted | Compression |\n|-----------------------------|-----------|-------------|-------------|\n| Boilerplate / scaffolding   | 2 days    | 15 min      | ~100x       |\n| Test writing                | 1 day     | 15 min      | ~50x        |\n| Feature implementation      | 1 week    | 30 min      | ~30x        |\n| Bug fix + regression test   | 4 hours   | 15 min      | ~20x        |\n| Architecture / design       | 2 days    | 4 hours     | ~5x         |\n| Research / exploration      | 1 day     | 3 hours     | ~3x         |\n\nThis table changes everything about how you make build-vs-skip decisions.\nThe last 10% of completeness that teams used to skip? It costs seconds now.\n\n---\n\n## 1. Boil the Ocean\n\n\"Don't boil the ocean\" was the right advice when engineering time was the\nbottleneck. That era is over. AI-assisted coding makes the marginal cost of\ncompleteness near-zero, so the old caution has quietly turned into an excuse.\nWhen the complete implementation costs minutes more than the shortcut — do the\ncomplete thing. Every time.\n\n**Ocean, lakes first:** The ocean is the destination — 100% test coverage for a\nmodule, full feature implementation, all edge cases, complete error paths. You\nget there one lake at a time: each lake is a boilable unit, not the ceiling.\n\"That's boiling the ocean\" is no longer a reason to ship a shortcut — boiling\nthe ocean is the goal. The only thing still out of scope is genuinely unrelated\nwork: a multi-quarter platform migration that has nothing to do with the task at\nhand. Flag that as separate scope. Boil everything else.\n\n**Completeness is cheap.** When evaluating \"approach A (full, ~150 LOC) vs\napproach B (90%, ~80 LOC)\" — always prefer A. The 70-line delta costs\nseconds with AI coding. \"Ship the shortcut\" is legacy thinking from when\nhuman engineering time was the bottleneck.\n\n**Anti-patterns:**\n- \"Choose B — it covers 90% with less code.\" (If A is 70 lines more, choose A.)\n- \"Let's defer tests to a follow-up PR.\" (Tests are the cheapest lake to boil.)\n- \"This would take 2 weeks.\" (Say: \"2 weeks human / ~1 hour AI-assisted.\")"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:26:36.168Z",
+     "toolUseId": "toolu_013JNLGRRstXZfcntr9ahtSc",
+     "kind": "use",
+     "name": "ToolSearch",
+     "input": {
+      "query": "select:WebSearch",
+      "max_results": 1
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:26:36.171Z",
+     "toolUseId": "toolu_013JNLGRRstXZfcntr9ahtSc",
+     "kind": "result",
+     "isError": false,
+     "content": [
+      {
+       "type": "tool_reference",
+       "tool_name": "WebSearch"
+      }
+     ]
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:26:36.532Z",
+     "toolUseId": "toolu_01GNkE1RxcdKUAUirZHVX6aL",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-ceo-mode-handoff --help 2>&1 | head -30",
+      "description": "Show mode handoff helper usage"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:26:37.103Z",
+     "toolUseId": "toolu_01GNkE1RxcdKUAUirZHVX6aL",
+     "kind": "result",
+     "isError": false,
+     "content": "gstack-ceo-mode-handoff: unknown mode: --help"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:26:48.243Z",
+     "toolUseId": "toolu_019yK3jaeJGwVALSWypGcXzd",
+     "kind": "use",
+     "name": "WebSearch",
+     "input": {
+      "query": "deterministic sorted output CLI listing reproducible scripts filesystem enumeration order best practice"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:27:25.578Z",
+     "toolUseId": "toolu_019yK3jaeJGwVALSWypGcXzd",
+     "kind": "result",
+     "isError": false,
+     "content": "Web search results for query: \"deterministic sorted output CLI listing reproducible scripts filesystem enumeration order best practice\"\n\nLinks: [{\"title\":\"Nix: …[elided: not consumed]"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:28:17.198Z",
+     "toolUseId": "toolu_01Si5mXg44rZxfPohQa5QFqc",
+     "kind": "use",
+     "name": "Write",
+     "input": {
+      "file_path": "<CLAUDE_CONFIG_DIR>/plans/keep-this-draft-plan-indexed-beaver.md",
+      "content": "# Working plan: deterministic skill-list ordering\n\nSource: PLAN.md in the fixture repo (commit 9b45bea \"Seed review plan\").\nReview: /plan-ceo-review, mode-only handoff requested by the user. The\nsubstantive review (Sections 1–11, outputs, report) is deliberately NOT run in\nthis invocation; the user will run it later.\n\n## Plan under review (verbatim from PLAN.md)\n\nUsers compare skill listings in scripts and reviews. Make the existing listing\npath sort registered skill names deterministically before rendering them.\nKeep skill membership, aliases, metadata and text/JSON output formats unchanged.\nCover mixed-case names and differing directory enumeration order with tests.\n\n## Review depth\n\nImplementation-ready (default; the user did not ask for strategy-only or a\nsingle narrow decision). Stated limits recorded from the plan:\n\n| Measure | Value | Unit | Prerequisite |\n|---|---|---|---|\n| Skill membership | unchanged | set of registered names | existing registry |\n| Aliases | unchanged | mapping | existing registry |\n| Metadata | unchanged | per-skill fields | existing registry |\n| Output formats | unchanged | text and JSON | existing renderers |\n| Ordering | deterministic | sort of registered names before render | existing listing path |\n| Tests | required | mixed-case names; differing directory enumeration order | test harness |\n\n## Pre-review system audit\n\n- Platform: unknown (no `origin` remote). Base branch: `main` (git-native fallback).\n- History: one commit, `9b45bea Seed review plan`. No stash. No TODO/FIXME/HACK markers.\n- Repo contents: `CLAUDE.md`, `PLAN.md` only. The listing code the plan modifies is\n  not present in this fixture, so code-level leverage below is stated as unknowns\n  for the implementation owner to confirm.\n- TODOS.md: absent. No prior deferrals.\n- Design doc: none found. User is handling /office-hours separately; offer not made.\n- Retrospective check: no prior review refactors or reverts (single commit).\n- DESIGN_SCOPE: none. CLI text/JSON listing only; no UI screens or components. Section 11 skips.\n- Taste calibration: not applicable (recommended mode is HOLD SCOPE, not an expansion mode).\n- Prior learnings: cross_project_learnings=false; 0 project learnings found.\n- Brain context: all four digests cold (no product, goals, recent-decisions, user-profile).\n- Landscape check: Aside not installed (NEEDS_ASIDE); ran one read-only WebSearch.\n  - [Layer 1] Tried and true: never rely on readdir/listdir/glob order; apply an\n    explicit sort; sort bytewise (codepoint or `LC_ALL=C`) so locale collation\n    cannot change results. Source: reproducible-builds.org \"Stable order for inputs\"\n    and \"Commandments\".\n  - [Layer 2] Search results: Python glob deliberately stays unsorted (bpo-30461);\n    systemd and mono both landed \"sort the input file list\" fixes; disorderfs and\n    reprotest exist to shuffle/reverse directory order in CI to catch exactly this bug.\n  - [Layer 3] First principles: the plan says \"deterministic\", not \"alphabetical\".\n    Those differ for mixed case. Codepoint order (`Zeta` before `alpha`) is\n    deterministic and locale-free but reads oddly; case-insensitive order needs a\n    stable tiebreak (e.g. fold then raw) or two names differing only by case\n    produce enumeration-dependent output again. This is the one real design\n    choice inside the plan and belongs to the implementation review, not mode\n    selection. No eureka to log.\n\n## Step 0 ledger\n\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| S0-PREMISE (user) | PLAN.md lines 3–6: listings are diffed by scripts and reviewers; nondeterministic order creates false diffs | Listing renders names in registry/enumeration order (unverified: code not in fixture) | Sort registered names before render; membership, aliases, metadata, formats unchanged | approved (plan as stated) | PLAN.md as handed over; no change proposed by this review |\n| S0-COLLATION (implementation owner) | Plan requires mixed-case test coverage; \"deterministic\" does not specify codepoint vs case-insensitive order | unknown | pending: codepoint sort vs case-folded sort with raw tiebreak | unresolved | Not a Step 0 approach choice; defer to Review Sections (implementation-ready depth). No approval requested here |\n| S0-MODE (user) | 0E recommendation; preference check `plan-ceo-review-mode` returned AUTO_DECIDE | none selected | HOLD SCOPE | approved (auto-decided) | Preference check exit 0 AUTO_DECIDE; see handoff provenance below |\n\n### 0A. Premise Challenge\n\nReal problem: two runs of the same listing can print the same skills in different\norder because the registry is populated from directory enumeration, which POSIX\nleaves unspecified. Target outcome: identical input produces byte-identical text\nand JSON listings, so `diff`, snapshot tests and review comments stop flagging\nnoise. Do-nothing cost: every script that compares listings needs its own\n`sort`, and JSON consumers that compare arrays cannot. The plan solves the pain\ndirectly (it fixes the producer, not each consumer). It is not a proxy fix.\n\n### 0B. Existing Code Leverage\n\n| Sub-problem | Reusable code | Note |\n|---|---|---|\n| Collect registered names | existing registry / listing path | Reuse as-is; plan says \"existing listing path\" |\n| Sort | standard library sort | Reuse ladder rung 2; no new dependency |\n| Render text/JSON | existing renderers | Unchanged by contract |\n| Simulate enumeration order in tests | existing test harness fixtures | Owner must confirm whether a fake directory walker or injected name list exists |\n\nNo rebuild proposed. The fixture repo contains no code, so the implementation\nowner must confirm the listing entry point and test helpers.\n\n### 0C. Dream State Mapping\n\n```\n  CURRENT STATE                      THIS PLAN                       12-MONTH IDEAL\n  Listing order follows      --->    Names sorted once at the   ---> Every user-facing\n  readdir order; scripts             listing boundary; text          enumeration (skills,\n  and reviews see spurious           and JSON stable; tests          aliases, any future\n  diffs between machines             pin mixed-case and              catalog) is sorted at\n  and runs                           shuffled enumeration            the producer; CI shuffles\n                                                                     directory order to prove it\n```\n\nThe plan moves toward the ideal. It is the first and smallest lake: one boundary,\none sort, two test classes.\n\n### 0D. Alternatives\n\nNo required approach choice. The plan names a single, bounded approach (sort at\nthe existing listing path) with explicit invariants. The only open design question\n(S0-COLLATION) is an implementation detail inside that approach and is recorded\nas pending for the Review Sections. No new approach decision was needed.\n\n### 0E. Mode Selection\n\nPlanned changed files (estimate; code not in fixture): 1 source edit on the\nlisting path + 1 test file edit or addition = ~2 files. Category: fix/refactor\nof existing behavior with pinned invariants. Not >15 files; category is clear.\n\nRecommendation: HOLD SCOPE because the plan explicitly freezes membership,\naliases, metadata and both output formats, so the value here is rigor on the\none changed behavior (collation rule, locale independence, case-only collisions,\nshuffled-enumeration tests) rather than any new capability.\n\nPreference check: `gstack-question-preference --check plan-ceo-review-mode`\nexited 0 with AUTO_DECIDE. Per 0E step 3 the recommendation is selected without\na question. Selected mode: HOLD SCOPE.\n\n## Route after mode\n\nHOLD SCOPE route is 0G → 0I → Review Sections. Per the user's instruction this\ninvocation stops after the mode handoff. 0G, 0I and Review Sections 1–11,\nrequired outputs and the GSTACK REVIEW REPORT are pending for the later run.\n\n## NOT in scope\n\nNothing cut or deferred by this invocation.\n"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:28:17.279Z",
+     "toolUseId": "toolu_01Si5mXg44rZxfPohQa5QFqc",
+     "kind": "result",
+     "isError": false,
+     "content": "File created successfully at: <CLAUDE_CONFIG_DIR>/plans/keep-this-draft-plan-indexe…[elided: not consumed]"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:28:20.265Z",
+     "toolUseId": "toolu_01RXKeSPQ9g8Bxx8y1hTfwAk",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-ceo-mode-handoff \"HOLD SCOPE\" --decisions \"none\" --auto; echo \"HANDOFF_EXIT: $?\"; echo \"---QLOG---\"; ~/.claude/skills/gstack/bin/gstack-question-log '{\"skill\":\"plan-ceo-review\",\"question_id\":\"plan-ceo-review-mode\",\"question_summary\":\"Select plan-ceo-review mode for deterministic skill-list ordering plan\",\"category\":\"routing\",\"door_type\":\"two-way\",\"options_count\":4,\"user_choice\":\"HOLD SCOPE\",\"recommended\":\"HOLD SCOPE\",\"auto_decided\":true,\"session_id\":\"1562-1791113109-05c92427\"}'; echo \"QLOG_EXIT: $?\"",
+      "description": "Run mode handoff and log auto-decided mode"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:28:21.195Z",
+     "toolUseId": "toolu_01RXKeSPQ9g8Bxx8y1hTfwAk",
+     "kind": "result",
+     "isError": false,
+     "content": "Auto-decided review mode → HOLD SCOPE (your preference). Change with /plan-tune. Approved decisions: none.\nHANDOFF_EXIT: 0\n---QLOG---\nQLOG_EXIT: 0"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:28:32.356Z",
+     "toolUseId": "toolu_01DmtVBPoyAUHhn5N8613NYK",
+     "kind": "use",
+     "name": "Edit",
+     "input": {
+      "replace_all": false,
+      "file_path": "<CLAUDE_CONFIG_DIR>/plans/keep-this-draft-plan-indexed-beaver.md",
+      "old_string": "## Route after mode",
+      "new_string": "### Mode handoff and provenance\n\nHandoff line (from `gstack-ceo-mode-handoff \"HOLD SCOPE\" --decisions none --auto`, exit 0):\n\n> Auto-decided review mode → HOLD SCOPE (your preference). Change with /plan-tune. Approved decisions: none.\n\nProvenance: successful preference check (AUTO_DECIDE) on question_id\n`plan-ceo-review-mode`; recommendation HOLD SCOPE. Audit record written with\n`gstack-question-log` (exit 0): user_choice=HOLD SCOPE, recommended=HOLD SCOPE,\nauto_decided=true, session 1562-1791113109-05c92427. No question was asked.\n\n## Route after mode"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:28:32.384Z",
+     "toolUseId": "toolu_01DmtVBPoyAUHhn5N8613NYK",
+     "kind": "result",
+     "isError": false,
+     "content": "The file <CLAUDE_CONFIG_DIR>/plans/keep-this-draft-plan-indexed-beaver.md has been …[elided: not consumed]"
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:28:34.202Z",
+     "toolUseId": "toolu_01BzKWpwYPt8hK4PSkzYDGJs",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-skill-end --skill \"plan-ceo-review\" --outcome abort --session-id \"1562-1791113109-05c92427\" --tel-start \"1791113109\" --used-browse no --error-message \"\" --failed-step \"\" 2>/dev/null || true; echo \"SKILL_END_EXIT: $?\"",
+      "description": "Log skill-end telemetry for this invocation"
+     }
+    },
+    {
+     "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+     "timestamp": "2026-10-04T11:28:34.904Z",
+     "toolUseId": "toolu_01BzKWpwYPt8hK4PSkzYDGJs",
+     "kind": "result",
+     "isError": false,
+     "content": "SKILL_END: recorded outcome=abort duration_s=205\nSKILL_END_EXIT: 0"
+    }
+   ],
+   "options": {
+    "skillName": "plan-ceo-review",
+    "sessionId": "77c8d5e3-f546-4efd-b4bf-1eb8f149ba7e",
+    "commandStartedAt": 1791113102899,
+    "now": 1791113328797,
+    "proseQuestionObserved": false,
+    "stateEvidence": {
+     "questionId": "plan-ceo-review-mode",
+     "preference": "never-ask",
+     "records": [
+      {
+       "skill": "plan-ceo-review",
+       "question_id": "plan-ceo-review-mode",
+       "question_summary": "Select plan-ceo-review mode for deterministic skill-list ordering plan",
+       "category": "routing",
+       "door_type": "two-way",
+       "options_count": 4,
+       "user_choice": "HOLD SCOPE",
+       "recommended": "HOLD SCOPE",
+       "auto_decided": true,
+       "session_id": "1562-1791113109-05c92427",
+       "source": "agent",
+       "ts": "2026-10-04T11:28:21.195Z"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "path": "shards/skill-e2e-auto-decide-preserved/pty-count/ci-37198445662-1-eval-slices-20/plan-ceo-review-1791113328798-6JFWyh/terminal.visible.log",
+   "tail_chars": 6000,
+   "text": "de → HOLDSCOPE(yourpreference).Changewith/plan-tune.Approveddecisions:none.Theplan\rfreezesskillmembership,aliases,metadataandbothoutputformats,sothereview'svalueisrigorontheonechanged\rbehavior, not new capability.Theestimatedchangetouchesabouttwofiles,afixtoexistingbehavior,whichmapsto\rHOLDSCOPEunderthemoderules.Nonewapproachdecisionwasneeded.\r\r  What happened in Step 0\r - Mode selection di not need a questio. Your stored preferencefor the mode question retundAUTO_DECIDE, so the\r  rcommendation was selected and the handoff ran. The audt record usesthe full modnamein bot the ser_choice\r  and recmmended fields, wth uto_decided set totrue.\r-AuditfoundafixturewithonlyCLAUDE.mdandPLAN.md,noremote,nostash,noTODOs,nodesigndoc,andcoldbrain\r   context. Thelistingcodeitselfisnotinthisrepo,socodeleverageisrecordedasunknownsforthe\r    implementation owner.\r-Landscape checkranthroughWebSearchbecauseAsideisnotinstalled.ReproducibleBuildsguidancematchestheplan:\r  never trust directoryenumerationorder,sortexplicitly,andsortbytewisesolocalecollationcannotchangethe\rresult.SeeStableorderforinputs(https://reproducible-builds.org/docs/stable-inputs/),Commandments\r   (https://reproducible-builds.org/docs/commandments/),Pythongloborderingissue\r    (https://bugs.python.org/issue30461),systemdsortfix(https://github.com/systemd/systemd/pull/31080),and\rdisorderfs(https://manpages.ubuntu.com/manpages/stonking/man1/disorderfs.1.html).\r - One pending design question recrded forthelaterreview,notdecidedhere.\"Deterministic\"and\"alphabetical\"\r    differ for mixed case. Codepoint order is locale-free but puts uppercase names first. Case-insensitive orderneedsa\rraw-name tiebreak or two names differing only by case become enumeration-dependent again.\r\rArtifacts\r\r  -\r\rWorkingplanwiththeStep0ledger,0Ato0Eevidence,andhandoffprovenanceissavedat\rRan 1 shell command \r\r●Updated plan\r  ⎿  /plan to preview\r\rRan 1 shell command \r\r●Auto-decidedreviewmode→HOLDSCOPE(yourpreference).Changewith/plan-tune.Approveddecisions:none.Theplan\r freezes skill membership, aliases, metadataand both output formats,so the review's value is rgor o theonchged\rbehavior, notnw capability. The estimatedchange touches abut wofiles,a fx toexistingbehavir, which maps to\rHOLD SCOPE under the mode rules. No new approach decision ws needed.\r\rWhat happened in Step 0\r\r-Mode selectiondidnotneedaquestion.YourstoredpreferenceforthemodequestionreturnedAUTO_DECIDE,sothe\r recommendationwasselectnd the handoff ran. The audit record usesthe full modename in both the user_choic\rand recommended fields, with auto_decided set totrue.\r-Audit fund a fixture with only CLAUDE.mandPLAN.md,noremote,nostash,noTODOs,nodesigndoc,andcoldbrain\r context. The listing code itself is not in this repo, so code lverage i recrded asunknowns for the\rimplmentation owner.\r-Landscape check ran throughWebSearchbecauseAsideisnotinstalled.ReproducibleBuildsguidancematchestheplan:\r never trust directory enmeration order, sortexplictly, and sort bytewise so locale collaton anno change the\rrsult. SeeStable ordr fo inputs (http://rproducible-builds.org/docs/stable-inputs/), Commandmens\r(https://rproducible-builds.org/docs/commandmnts/), Python glob ordering issu\rbugs.python.org/isue30461), system sort fix (https://github.com/sytmd/systemd/pull/31080),and\rdisorderfs (https://manpage.ubuntu.com/manpages/stonking/man1disorderfs.1.html).\r-One pending design question is recorded for th laer review, not decided here. \"Deterministic\"and\"alphabetical\"\r differ for mixed case. Codepoint order is locale-frebut puts upperas names firs. Case-insensitive order needsa\rraw-name tiebrak or two names differing only by casecome enmeration-depndent again.\r\rArtifacts\r\r-WorkingplanwiththeStep0ledger,0Ato0Eevidence,andhandoffprovenanceissavedat\r .claude/plans/keep-this-draft-plan-indexed-beaver.md under te with-skills home. PLAN.md inthefixtureis\r●Updated plan\r  ⎿  /plan to preview\r\r  Ran 1 shellcommand \r●Auto-decided review mode→HOLDSCOPE(yourpreference).Changewith/plan-tune.Approveddecisions:none.Theplan\rfreezesskillmembership,aliases,metadataandbothoutputformats,sothereview'svalueisrigorontheonechanged\r behavior, not new capability. The estimatedchange touches bout twofies, a fix to existing behavior, whic maps to\rHOLD SCOPE under the moderule. No new pproach decision was needed.\r\rWhat happened in Step 0\r- Mode selectio did notneedaquestion.YourstoredpreferenceforthemodequestionreturnedAUTO_DECIDE,sothe\rrecommendationwasselectedandthehandoffran.Theauditrecordusesthefullmodenameinboththeuser_choice\r and recommended fields, with auto_decided set  true.\r-Audit found a fixtur wih onlyCLAUDE.md and PLAN.md, no remote,no tash, no TODOs, no design doc, and cold brain\rcontext. The listng code itself is not in this repo, socodeleverageisrecordedasunknownsforthe\r implementation owne.\r-Landscape check ra through WbSearch because Aside is not installed. ReproducibleBuilds guidancematchestheplan:\rnever trus directoyenumerationorder,sortexplicitly,andsortbytewisesolocalecollationcannotchangethe\r result. See Stable order for inputs (https://reproducible-builds.org/docs/stable-inpts/), Commandmens\r(https://reproduible-builds.org/dcs/commandmnts/), Ptho glb ordering isue\r(https://bugs.python.org/issue30461), systemd sot fix (https://github.om/systmd/systemd/pull/31080),and\rdisorderfs (https://manpageubuntu.com/anpags/tonking/man1/disfs.1.html).\r-One pending design question is recorded for the later review, not decided here. \"Deterministic\" and \"alphabetical\"\rffer formixed case. Codpoint order is locale-free but puts uppecase names first.Case-insensitiveorderneedsa\r raw-name tiebreak or two namediffering nly by casebcome eumeraton-dependent again.\r\rArtifacts\r- WorkingplanwiththeStep0ledger,0Ato0Eevidence,andhandoffprovenanceissavedat\r.claude/plans/keep-this-draft-plan-indexed-beaver.mdunderthewith-skillshome.PLAN.mdinthefixtureis\r untouched.\r-\rSkill-endtelemetryrecordedthisinvocationasabort,meaningstoppedbeforethereviewbyyourrequest.Telemetry"
+  }
+ }
+}

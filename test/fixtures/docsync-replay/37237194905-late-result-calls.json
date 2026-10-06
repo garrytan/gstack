@@ -1,0 +1,136 @@
+{
+ "source": {
+  "run": "37237194905",
+  "case": "ship-docsync-late-result",
+  "sha": "c245d1bc228a38f004927a8ef5e63f1b6320c761"
+ },
+ "note": "Tool calls of the failed trial, reduced to the fields the authority detector reads. Call 20 wrote to a mistyped shard root (3GanyY for 3GanyU); the agent disclosed it and rewrote the report at the right path.",
+ "calls": [
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "<HOME>/phase.md"
+   }
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "<HOME>/.claude/skills/gstack/ship/sections/documentation.md"
+   }
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "<HOME>/ship-invocation.md"
+   }
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "<HOME>/candidate-ship-docs-a1.json"
+   }
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "<HOME>/completion-ship-docs-a1.md"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun <ACTOR> status <HOME>/actor-state.json task_id=fixture-child-1"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun <ACTOR> stop <HOME>/actor-state.json task_id=fixture-child-1"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun <ACTOR> status <HOME>/actor-state.json task_id=fixture-child-1"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun <ACTOR> inspect <HOME>/actor-state.json"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun <ACTOR> repair <HOME>/actor-state.json"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "sha256sum <HOME>/.claude/skills/gstack/document-release/SKILL.md <HOME>/.claude/skills/gstack/document-release/sections/audit-scope.md <HOME>/.claude/skills/gstack/document-release/sections/release-body.md"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun <ACTOR> prepare <HOME>/actor-state.json audit_id=ship-docs-a2"
+   }
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "<HOME>/candidate-ship-docs-a2.json"
+   }
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "<HOME>/prompt-ship-docs-a2.md"
+   }
+  },
+  {
+   "tool": "Edit",
+   "input": {
+    "file_path": "<HOME>/ship-invocation.md"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun <ACTOR> dispatch <HOME>/actor-state.json audit_id=ship-docs-a2 candidate=<HOME>/candidate-ship-docs-a2.json prompt=<HOME>/prompt-ship-docs-a2.md run_in_background=false"
+   }
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<HOME>/completion-ship-docs-a2.md"
+   }
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun <ACTOR> inspect <HOME>/actor-state.json"
+   }
+  },
+  {
+   "tool": "Edit",
+   "input": {
+    "file_path": "<HOME>/ship-invocation.md"
+   }
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<TYPO_HOME>/ship-report.md"
+   }
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<HOME>/ship-report.md"
+   }
+  }
+ ]
+}

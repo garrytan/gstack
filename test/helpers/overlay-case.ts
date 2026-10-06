@@ -46,7 +46,7 @@ function saveTrial(fixture: OverlayFixture, attempt: number, arm: Arm, n: number
     // this JSONL remains the final SDK result used for the trial measurement.
     rateLimitAttemptStreamsRetained: true,
     measurementPassed: outcome.passed, taskCorrect: outcome.taskCorrect, metric: outcome.metric, exitReason: outcome.exitReason,
-    error: outcome.error, before: outcome.before, after: outcome.after,
+    error: outcome.error, answerError: outcome.answerError, before: outcome.before, after: outcome.after,
   }, null, 2) + '\n', { flag: 'wx' });
 }
 
@@ -143,7 +143,7 @@ export function registerOverlayCase(fixtureId: string): void {
               name: `${fixture.id}-contract-v${OVERLAY_CONTRACT.version}-${key}`, suite: 'overlay-harness-measurement', tier: 'e2e',
               passed: outcome.passed, duration_ms: sdk?.durationMs ?? 0, cost_usd: sdk?.costUsd ?? 0,
               transcript: sdk?.events, prompt: fixture.userPrompt,
-              output: JSON.stringify({ contract: OVERLAY_CONTRACT, measurementPassed: outcome.passed, taskCorrect: outcome.taskCorrect, metric: outcome.metric, assistantOutput: sdk?.output }),
+              output: JSON.stringify({ contract: OVERLAY_CONTRACT, measurementPassed: outcome.passed, taskCorrect: outcome.taskCorrect, answerError: outcome.answerError, metric: outcome.metric, assistantOutput: sdk?.output }),
               turns_used: sdk?.turnsUsed, browse_errors: sdk?.browseErrors,
               exit_reason: outcome.exitReason, error: outcome.error,
               model: sdk?.model ?? fixture.model, first_response_ms: sdk?.firstResponseMs, max_inter_turn_ms: sdk?.maxInterTurnMs,

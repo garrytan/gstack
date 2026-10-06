@@ -4,6 +4,7 @@ import { EvalCollector, getProjectEvalDir, shardSlugOfEvalDir, type EvalTestEntr
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { classifyOutsideReview } from '../../lib/outside-review-result';
+import { appendSessionLedger, sessionKey } from './session-ledger';
 
 // The process keeps its existing work budget. Its pipes may need the existing
 // five-second drain grace; Bun must then allow another five seconds to record.
@@ -143,6 +144,7 @@ export interface CodexEvalOptions {
 
 export async function runRecordedCodexEval(opts: CodexEvalOptions): Promise<CodexResult> {
   const started = Date.now();
+  const startMono = performance.now();
   const drainGraceMs = opts.drainGraceMs ?? CODEX_DRAIN_GRACE_MS;
   const timeoutMs = opts.budgetMs + drainGraceMs;
   const deadlineAt = started + timeoutMs;
@@ -196,6 +198,10 @@ export async function runRecordedCodexEval(opts: CodexEvalOptions): Promise<Code
       : 'validation_failed';
     const message = failure instanceof Error ? failure.message : String(failure);
     const diagnostic = result?.stderr && !message.includes(result.stderr) ? `${message}\n${result.stderr}` : message;
+    appendSessionLedger({ key: sessionKey('codex', opts.name), test_name: opts.name, runner: 'codex', started_at: new Date(started).toISOString(),
+      budget_ms: opts.budgetMs, elapsed_ms: performance.now() - startMono,
+      end: exitReason === 'timeout' ? 'session_timeout' : passed || exitReason === 'validation_failed' ? 'completed' : 'error',
+      ...(exitReason === 'timeout' ? { evidence: `armed ${opts.budgetMs}ms Codex budget expired` } : {}), billed: false });
 
     // addTest appends retry attempts. Never pre-record a failure and then
     // overwrite it: that would manufacture two attempts from one execution.
@@ -205,7 +211,7 @@ export async function runRecordedCodexEval(opts: CodexEvalOptions): Promise<Code
       tier: 'e2e',
       passed,
       duration_ms: failure instanceof CodexEvalTimeout ? Date.now() - started : result?.durationMs ?? Date.now() - started,
-      cost_usd: 0,
+      cost_usd: 0, cost_known: false,
       ...(result ? {
         output: result.output.slice(0, opts.outputLimit ?? 2000),
         turns_used: result.toolCalls.length,

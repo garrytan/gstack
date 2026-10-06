@@ -148,6 +148,14 @@ test('parent and child receive resolved local platform and base without new prob
     report: path.join(fixture.home, 'report.md'), publish: path.join(fixture.home, 'publish.ts'),
     scenario: 'current', testName: 'docsync-command-grammar', runId: 'free-control', timeout: 10000 });
   expect(options.prompt).toContain('Platform: local/git-native. Base: main.');
+  // A1: the parent points children at the saved interface instead of retyping it into their prompts.
+  const interfaceFile = path.join(fixture.home, 'fixture-interface.md');
+  expect(options.prompt).toContain(`saved at ${interfaceFile}: each child prompt tells the child to Read that file first`);
+  expect(options.prompt).not.toContain('include this interface in child prompts');
+  const saved = fs.readFileSync(interfaceFile, 'utf8');
+  expect(saved.startsWith('Fixture observation interface')).toBe(true);
+  expect(options.prompt.endsWith(saved.trimEnd())).toBe(true);
+  expect(fs.statSync(interfaceFile).mode & 0o777).toBe(0o600);
 });
 
 // The observer polices bash commands from the POSIX-only paid ship evals and refuses backslashes
@@ -200,13 +208,14 @@ test('only the native ship parent interface declares the section insert', () => 
   for (const transport of [false, true]) expect(docsNativeInterface(fixture, [], transport)).not.toContain('>> TARGET.md');
 });
 
-test('the installed docs-candidate helper is admitted only with a private .json record', () => {
+test('the installed docs-candidate helper is admitted only with a private .json record, or for its own --help', () => {
   const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
   const record = path.join(fixture.home, 'audit-1-candidate.json');
   for (const command of [
     `${helper} snapshot --out ${record} --audit-id audit-1 --mode edit --base main --docs handbook`,
     `${helper} snapshot --out ${record} --audit-id audit-1 --mode read-only --base main --select app.ts --docs handbook`,
     `${helper} compare ${record}`,
+    `${helper} --help`,
   ]) expect(docsCommandAllowed(command, fixture), command).toBe(true);
   for (const command of [
     `${helper} snapshot --out ${path.join(fixture.repo, 'candidate.json')} --audit-id a --mode edit --base main`,
@@ -217,7 +226,10 @@ test('the installed docs-candidate helper is admitted only with a private .json 
     `${helper} compare ${path.join(fixture.skills, 'bin/x.json')}`,
     `${helper} compare ${record} extra`,
     `${helper} install`,
+    `${helper} --help snapshot`,
+    `${helper} --version`,
     `~/.claude/skills/gstack/bin/gstack-docs-candidate compare ${record}`,
   ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
   expect(docsNativeInterface(fixture)).toContain(`${fixture.skills.split(path.sep).join('/')}/bin/gstack-docs-candidate snapshot`);
+  expect(docsNativeInterface(fixture)).toContain('compare <that .json> and --help commands');
 });

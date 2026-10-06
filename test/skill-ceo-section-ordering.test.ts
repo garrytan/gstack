@@ -129,6 +129,25 @@ test('CEO handoff carries all answered rows instead of one synthetic approach', 
   expect(handoff).not.toContain('<approved 0D approach>');
 });
 
+// ci-37176837432 paid-slice-3 HOLD SCOPE skipped the helper and paraphrased ("holding scope");
+// ci-37198445662 paid-slice-3 HOLD SCOPE ran it, then wrote the plan, loaded sections and probed Codex
+// for 114 s before the posture chat. Both spent the case's 240 s post-selection window.
+test('CEO mode handoff chat follows the helper before any other tool call', () => {
+  const selection = between(skeletonSource(), '### 0E. Mode Selection', '### 0F.');
+  const instruction = selection.slice(selection.indexOf('4. **Mode handoff:**')).split('\n')[0]!;
+  expect(instruction).toContain('before any other tool call, plan write or section load, and never skip the helper');
+});
+
+// A2/auto-decide: Claude Code 2.1.284 collapses the helper's Bash output ("Ran 1 shell command"), so the
+// printed line reaches the user only through chat. Census reds 37176837432, 37179171083 and 37182865432
+// paraphrased it ("HOLD SCOPE was auto-selected…", "Mode decision done…", "I'm defaulting to HOLD SCOPE…");
+// every passing capture's chat starts with "Auto-decided review mode →".
+test('CEO mode handoff chat repeats the printed line verbatim because tool output is collapsed', () => {
+  const selection = between(skeletonSource(), '### 0E. Mode Selection', '### 0F.');
+  const instruction = selection.slice(selection.indexOf('4. **Mode handoff:**')).split('\n')[0]!;
+  expect(instruction).toContain('Then send brief chat beginning with that line, copied verbatim (the terminal collapses tool output, so the user sees it only in your chat; never a paraphrase');
+});
+
 // Guards the public handoff instruction, not model compliance or posture detection.
 test('CEO mode handoff applies the selected mode before the next question', () => {
   const selection = between(skeletonSource(), '### 0E. Mode Selection', '### 0F.');

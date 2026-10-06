@@ -21,6 +21,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const BASELINE = [
   'test/anthropic-preflight.test.ts',
   'test/artifacts-init-migration.test.ts',
+  'test/auq-substance-panel.test.ts', // C4 (approved 2026-10-04): the auq-matrix substance panel's gating rule lives in a paid-path helper
   'test/autoplan-artifact-recorder.test.ts',
   'test/autoplan-artifact-windows-argv.test.ts',
   'test/autoplan-edit-digests-al.test.ts',
@@ -68,6 +69,12 @@ const BASELINE = [
   'test/design-daemon-windows-identity.test.ts',
   'test/design-detector-source-fixture.test.ts', // slices test/skill-e2e-design.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/design-html-section-completion.test.ts',
+  'test/detector-corpus-auto-decide-preserved.test.ts', // B1 replay corpus: census captures through the paid case's detectors (approved plan item)
+  'test/detector-corpus-plan-ceo-section-loading.test.ts', // B1 replay corpus: census captures through the paid case's detectors (approved plan item)
+  'test/detector-corpus-plan-design-review-plan-mode.test.ts', // B1 replay corpus: census captures through the paid case's checker; slices test/skill-e2e-design.test.ts source (flagged once the ratchet learned paid-source slicing)
+  'test/detector-corpus-plan-eng-multi-finding-batching.test.ts', // B1 replay corpus (GSTA-23 red 37228573062): census captures through the paid case's review-question counter
+  'test/detector-corpus-shared-libs-plan-callers.test.ts', // B1 replay corpus: census captures through the paid case's actor (approved plan item)
+  'test/detector-corpus-ship-docsync-late-result.test.ts', // B1 replay corpus: census captures through the paid case's detectors (approved plan item)
   'test/devex-peer-comparison-calibration.test.ts',
   'test/diagram-render-drift.test.ts',
   'test/disabled-dated-record-at.test.ts',
@@ -161,12 +168,15 @@ const BASELINE = [
   'test/plan-edit-cropped-permission.test.ts',
   'test/plan-eng-resume.test.ts', // harness owner for the plan-eng-review-artifact checkpoint: proves its resume point before paid spend
   'test/plan-floor-dx-actor.test.ts',
+  'test/plan-floor-edit-wrap.test.ts', // B3: replays PR run 37176835584's viewport through the floor runner's edit-preview parser
   'test/plan-floor-review.test.ts',
+  'test/plan-format-approach-prompt.test.ts', // D2: pins the refusal-free capture prompt of a paid fixture (provider refusal evidence in the commit)
   'test/plan-mode-evidence.test.ts',
   'test/plan-pending-question-pty.test.ts',
   'test/plan-seed-submission.test.ts',
   'test/plan-skill-read-permission.test.ts',
   'test/plan-skill-webfetch-permission.test.ts',
+  'test/prosons-neutral-posture.test.ts', // C3: replays the two census false reds through the prosons neutral-posture detector
   'test/pty-askuserquestion-single-line.test.ts',
   'test/pty-numbered-option-indent-native.test.ts',
   'test/pty-option-selection.test.ts',

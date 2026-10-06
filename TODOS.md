@@ -2,6 +2,96 @@
 
 ## NEXT PRIORITY
 
+### P2/P3: reliability follow-ups deferrals (filed 2026-10-04, v1.91.30.0)
+
+Deferred from the approved reliability follow-ups plan (docs/designs/RELIABILITY_FOLLOWUPS_2026_10.md), each with its reason.
+
+- **Free-suite git hang behind shard neighbors (B5): Bun spawnSync loses the
+  child's exit (oven-sh/bun#34069, open upstream)** — CI shard 1 (PR runs
+  37242691914 and earlier) timed out `execFileSync`/`spawnSync` git calls in
+  redact-prepush-rebase-force-push, render-sections-provenance and
+  shared-libs-stage-actor. A watcher on Ubicloud caught it: every "hung" git is a
+  zombie (exited, never reaped) while the `bun test` main thread runs, matching
+  the upstream report. CI's shard-1 file list reproduces it in about 3 of 60
+  runs (none of 20 without pty-workspace-trust, not significant). Next step:
+  move the git calls in shared fixture helpers to async spawn with a hard
+  timeout, or take a Bun release that fixes #34069. **Effort:** M. **Priority:** P2.
+- **Judge rubric anchors (C1, needs Garry: EVAL_POLICY)** — the pre-registered
+  control panels (`docs/evals/judge-controls-2026-10.md`, 36 calls) showed
+  every workflow judge separates gross breakage, but the qa workflow judge
+  passed a /qa bundle with Phase 10 Report removed (no sample noticed) and the
+  review judge passed /review with Step 3 removed (two of three samples noticed
+  it and rated it minor); no positive sample scored 5 on any dimension.
+  Missing-step coverage now lives in `test/workflow-required-steps.test.ts`.
+  Proposal: anchor completeness/actionability 4 and 5 to named deliverables
+  and inputs, as a pre-registered EVAL_POLICY change. **Effort:** M. **Priority:** P2.
+- **auto-decide-preserved: the CEO handoff line must reach the chat verbatim**
+  — the native detector now credits the helper's AUTO_DECIDE line only when a
+  chat message begins with it (Claude Code collapses the Bash result). One
+  diagnostic run on the pre-verbatim wording paraphrased it; one on the
+  verbatim wording passed. Watch the next censuses; a red here is a template
+  miss, not a detector false red. **Effort:** S. **Priority:** P2.
+- **Named red: ship-docsync-late-result on PR run 37237194905** — the model
+  wrote its report to a mistyped shard root (`…-3GanyY` for `…-3GanyU`) at
+  call 20, disclosed it, then wrote the real report at the right path. The
+  authority detector is correct (the file was created outside the fixture);
+  `test/docsync-authority.test.ts` replays the capture. If any docsync case
+  writes to a near-miss shard path again, give the model a short stable
+  fixture root (env var or fixed short symlink) instead of random tokens to
+  copy, without loosening the authority check. **Effort:** S. **Priority:** P2.
+- **PTY sessions are cost-unknown** — `test/helpers/pricing.ts` excludes
+  cache-write charges, so PTY trials stay `cost_known: false`. Price them from
+  native transcript usage once pricing covers cache writes. **Effort:** S. **Priority:** P3.
+- **Custom SDK query providers stream no partial messages** — overlay-case,
+  the ship hook/skip actors, workflow-boundaries and the setup-gbrain sandbox
+  record raw events, so their ledger rows carry no stall evidence (never
+  `provider_stall`). Let them drop `stream_event` rows and opt in to stream
+  liveness. **Effort:** S. **Priority:** P3.
+- **Name PTY sessions by case** at their call sites so multi-case shards
+  attribute ledger rows (single-case shards already do). **Effort:** S. **Priority:** P3.
+- **Red lines link the native-captures artifact** — they name the slice
+  artifact; `native-captures-<EVALS_RUN_ID>` embeds the job id, which the
+  report job does not know. **Effort:** S. **Priority:** P3.
+- **EVAL_POLICY v2: provider_stall as INFRA** — decide with two censuses of
+  `eval:pass-rates --reds` cause data (labels only today). **Effort:** S. **Priority:** P3 (Garry).
+- **Detector convert candidates (B2)** — `docs/evals/detector-inventory.md`
+  lists 38 phrase-only checks with a structured source (top: S5 screen-first
+  auto-decision, PTY plan_ready/silent_write from journal tool calls, setup
+  selectors keyed on wording, the bws READY probe), and periodic "surface"
+  checks that match the injected SKILL.md body (context-restore-*,
+  scrape-prototype-path). **Effort:** M. **Priority:** P3.
+- **Retain the owned transcript tail in floor captures** — PR run 37176835584's
+  public transcript never showed the pending Edit, so the B3 parser fix may not
+  have been sufficient there. **Effort:** S. **Priority:** P3.
+- **CEO decision procedure latency** (~60 s per question: grid, save,
+  Read-back, ask) bounds plan-ceo-mode-routing's 240 s post-selection window.
+  Named, not cut. **Effort:** M. **Priority:** P3.
+- **Value-card JSON wording** — two of three qa-only judge samples still say
+  "written JSON keeps full values" names no file. Name the JSON per mode (ship
+  Step 7, /test-audit's sidecar) and drop the clause where no JSON carries
+  cards. **Effort:** S. **Priority:** P3.
+- **Windows check of E4's private object directory** —
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES` uses `;` on Git for Windows (only matters
+  when alternates are already set) and the `cygpath -m` conversion is
+  unverified there. **Effort:** S. **Priority:** P3.
+- **Fresh /ship marathon case** — the marathon lane runs a fresh
+  /plan-eng-review; a fresh /ship journey case is new harness work.
+  **Effort:** M. **Priority:** P3.
+- **Refresh the E5/E6 duration seeds** — `codex-multiblock-live` (180 s) and
+  `design-model-smoke` (90 s) are estimates in `scripts/paid-test-durations.json`;
+  refresh them with `--write-durations` from their first census, and close
+  "Periodic paid smoke for the default design model pairing" once it has run
+  there. **Effort:** S. **Priority:** P3.
+- **Env-var hosts: optional runtime files outside the runtime root** — the
+  Chrome extension lookup in /open-gstack-browser and /connect-chrome, and the
+  prose pointers to `$GSTACK_ROOT/docs/...` and `$GSTACK_ROOT/scripts/...`
+  (question-split guide, jargon list, question registry) name files the
+  Codex/Factory runtime roots do not link. Executed fences are covered by
+  `test/env-host-runtime-assets.test.ts`; these reads are not. **Effort:** S. **Priority:** P3.
+- **Product A/B against the stock host agent** — compare gstack end to end
+  with the stock Claude Code/Codex agent on product outcomes (the overlay
+  harness covers model-level deltas only). Its own project. **Effort:** L. **Priority:** P3.
+
 ### P1–P3: test/eval/CI audit wave follow-ups (filed 2026-10-04)
 
 From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
@@ -35,7 +125,7 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
 
 Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10.md), each with its reason.
 
-- **Enforce the Bun floor at setup (#2815)** — `engines.bun` is now `>=1.4.0`
+- ~~**Enforce the Bun floor at setup (#2815)**~~ — done in v1.91.30.0: setup refuses Bun below 1.3.3 and warns below 1.4.2; auto-update and /gstack-upgrade check the incoming floor before moving the checkout. Original note: — `engines.bun` is now `>=1.4.0`
   (the CI pin), but Bun does not enforce `engines` and setup never checks the
   version. Bun older than 1.3.3 silently ignores `--no-compile-autoload-dotenv`
   and `--no-env-file` (verified with 1.3.2), so D0's protection against a
@@ -49,12 +139,12 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
 - **C8 router wording behind a routing panel** — disabled skills now leave the
   router, but the "When in doubt, invoke the skill" wording change (Tier 3) was
   not run through a routing eval panel. **Effort:** S. **Priority:** P3.
-- **Cross-block variables on fresh-shell hosts: make-pdf `$P`** — make-pdf
+- ~~**Cross-block variables on fresh-shell hosts: make-pdf `$P`**~~ — done in v1.91.30.0: env-var hosts re-derive `$P` in every block (MAKE_PDF_BIN honored). Original note: — make-pdf
   "exports" `$P` for later blocks, which Codex and the other env-var hosts lose
   between blocks (same class as `$B`/`$D`, which the shared prelude now
   re-derives). Add `P` to the runtime prelude or resolve it per block.
   **Effort:** S. **Priority:** P2.
-- **#2709's recorded-Chromium reap never runs on Playwright 1.62** — Playwright
+- ~~**#2709's recorded-Chromium reap never runs on Playwright 1.62**~~ — done in v1.91.30.0: the owned headless launch records the browser PID over CDP `SystemInfo.getProcessInfo`. Original note: — Playwright
   1.62's `Browser` has no `process()`, so `chromiumProcInfo` is always null and
   the cleanup is a no-op (verified by probe). Record the PID another way (CDP
   `SystemInfo.getProcessInfo` or the launch server). **Effort:** S. **Priority:** P2.
@@ -201,7 +291,7 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   36898545245, 36787269090, 36641820398, 36633323521) across skills and checks
   (a two-`(recommended)` option count; office-hours substance). It is kind
   `rule` but gates on one judge sample. Decide under EVAL_POLICY whether it is
-  a `judge` case (3 samples, mean) and supply pass-rate evidence before
+  a `judge` case (3 samples, median) and supply pass-rate evidence before
   changing the kind. Effort S. **Priority:** P2.
 - **qa/SKILL.md workflow judge dips below its actionability floor** — census
   37186854666 (b24b6d8) scored actionability 3.67 < 4 (clarity 3, completeness

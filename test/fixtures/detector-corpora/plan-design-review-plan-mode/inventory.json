@@ -1,0 +1,77 @@
+[
+  {
+    "run": "37174266054",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "c0a69951bb8e69c8",
+    "artifact": "native-captures-ci-37174266054-1-eval-slices-9",
+    "available": true,
+    "entry": "37174266054-t1-pass.json"
+  },
+  {
+    "run": "37176837432",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "c0a69951bb8e69c8",
+    "artifact": "native-captures-ci-37176837432-1-eval-slices-9",
+    "available": true,
+    "entry": null,
+    "reason": "Redundant pass: the summary names interaction state and hierarchy, the same output-term path as 37174266054 on the same series; its stray Write to a mistyped sibling directory never reaches plan.md, which is all the detector reads."
+  },
+  {
+    "run": "37179171083",
+    "lane": "periodic",
+    "outcome": "failed",
+    "series_identity": "c0a69951bb8e69c8",
+    "artifact": "native-captures-ci-37179171083-1-eval-slices-9",
+    "available": true,
+    "entry": "37179171083-t1-fail.json"
+  },
+  {
+    "run": "37182865432",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "5d5f1fccfc7b08e4",
+    "artifact": "native-captures-ci-37182865432-1-eval-slices-9",
+    "available": true,
+    "entry": null,
+    "reason": "Redundant pass: the summary names interaction state, the same output-term path as 37174266054."
+  },
+  {
+    "run": "37186854666",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "6b54ea60e2b7fcd3",
+    "artifact": "native-captures-ci-37186854666-1-eval-slices-9",
+    "available": true,
+    "entry": null,
+    "reason": "Redundant pass: the summary names interaction state and hierarchy, the same output-term path as 37174266054."
+  },
+  {
+    "run": "37193478719",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "6b54ea60e2b7fcd3",
+    "artifact": "native-captures-ci-37193478719-1-eval-slices-9",
+    "available": true,
+    "entry": "37193478719-t1-pass.json"
+  },
+  {
+    "run": "37195203538",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "9eb4635ae1888148",
+    "artifact": "native-captures-ci-37195203538-1-eval-slices-9",
+    "available": true,
+    "entry": "37195203538-t1-pass.json"
+  },
+  {
+    "run": "37198445662",
+    "lane": "periodic",
+    "outcome": "passed",
+    "series_identity": "9eb4635ae1888148",
+    "artifact": "native-captures-ci-37198445662-1-eval-slices-9",
+    "available": true,
+    "entry": "37198445662-t1-pass.json"
+  }
+]

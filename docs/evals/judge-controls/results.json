@@ -1,0 +1,365 @@
+{
+  "recorded_at": "2026-10-04T17:58:09.689Z",
+  "results": [
+    {
+      "judge": "qa/SKILL.md workflow",
+      "bundle": "positive",
+      "verdict": "pass",
+      "mean": {
+        "clarity": 4,
+        "completeness": 4.333333333333333,
+        "actionability": 4
+      },
+      "samples": [
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The bundle has a strong skeleton: a section index with explicit load conditions, repeated STOP/Read directives with a uniform missing-asset blocked path, a well-defined browser-vs-functional split (scope.md surface selection, isolation rules, LOCAL host definition), an explicit caller-authority matrix for browser setup (report-only vs standalone, unknown → report-only), a concrete functional contract map with enumerated outcomes, and a fully specified fix loop (8a→8f) with regression-before-repair, value card, commit/classify/revert rules, self-regulation triggers and a hard cap. Tooling is executable (bash scripts, DEADLINE_TOOL/EVIDENCE_TOOL invocations, health-score weights and rounding, both report templates, screenshot naming). Weaknesses that keep it from 5s: prose is extremely compressed and sometimes terse to the point of ambiguity (e.g., checkpoint 'exploration-NNN.json' rules, 'Guard if bounded; await completion', 'preserve every safe program-JSON key/value and identity hash'); the interplay between exploratory.md's loop and qa-patterns' Phases 1-6 'as techniques' requires careful reading; there is mild tension between 'extend an existing table-driven test' and 'use new native test files / {name}.regression-N.test.{ext}'; functional report naming ('safe command/service label') is vaguer than the browser convention; and some execution depends on assets not in the bundle (browse/SKILL.md Cookbook, /devex-review, gstack tool semantics). An agent can execute and produce the deliverables, but must work hard to parse the dense rules."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The bundle is well-structured: SKILL.md gives an ordered phase sequence (Setup → learnings/test-plan context → baseline probes → triage → fix loop with regression-before-repair → final QA → report → TODOS → learnings) with explicit, conditional Read directives and defined behavior for missing/unreadable sections (block affected probes, continue safe checks). Authority (report-only vs standalone, caller-owned decisions), isolation (LOCAL vs non-local, owned fixtures, one AskUserQuestion for mutations), native contract map, deadline/evidence tooling, checkpoint publication, severity rubric, output naming, templates and taxonomy are all specified with concrete bash/aside/$B commands, making it largely executable. Weaknesses: exploratory.md is extremely dense and terse (e.g., 'Preserve every safe program-JSON key/value and identity hash unchanged', 'QA_DEADLINE receipts are not observations', PROBE_DIR vs REPORT_DIR selection) and would require careful parsing; the DX path is a single sentence in scope.md with no location for /devex-review; the 8a.5 value-card 'JSON keeps full values' references an undefined JSON artifact; and some cross-skill dependencies (browse cookbook, deadline/evidence tool flags beyond those listed) are external to the bundle. These create minor ambiguities and small gaps rather than blocking defects."
+        },
+        {
+          "clarity": 4,
+          "completeness": 5,
+          "actionability": 4,
+          "reasoning": "The entrypoint lays out an unambiguous phase sequence (Setup → Learnings → Test-plan context → baseline Phases 1-6 → Triage → Fix loop 8a-8f → Final QA → Report → TODOS → Learnings) with explicit Read directives, stated load conditions, and a uniform blocked-path rule (missing/unreadable section → report setup blocker, block affected probes, continue safe independent checks). Authority is clearly partitioned by caller (standalone /qa vs report-only), isolation and ownership rules are concrete (LOCAL host definition, mutating-action consent, owned fixtures, unknown ownership blocks), and native functional contracts are enumerated in a contract map with defined outcome states. Browser-only sections are consistently fenced off from functional runs, and templates, naming conventions (regression-N.test.ext, run-YYYYMMDDTHHMMSSZ, screenshot names), tool invocations (deadline/evidence tools, learnings search, report copy), commit formats, value card, classification states, stop rules and hard cap are all specified. Weaknesses that keep it from perfect scores: the prose is extremely dense and relies heavily on cross-file references ('shared loop's gates', 'Phase 5 is the before', 'surface report template'), the checkpoint/exploration-NNN.json publication protocol is strict and easy to get wrong, a few outputs are only implied (exact functional report filename, mixed-run report layout, 'safe hostname' transformation), and there is mild tension between 'Diff-aware is automatic with no URL' in qa-patterns and 'absence of a URL never forces a browser' in SKILL.md (reconciled only by the surface-selection order). An agent can execute and produce the deliverables, but with notable cognitive load."
+        }
+      ]
+    },
+    {
+      "judge": "qa/SKILL.md workflow",
+      "bundle": "negative",
+      "verdict": "fail",
+      "mean": {
+        "clarity": 3,
+        "completeness": 3.3333333333333335,
+        "actionability": 2.3333333333333335
+      },
+      "samples": [
+        {
+          "clarity": 3,
+          "completeness": 3,
+          "actionability": 2,
+          "reasoning": "Only section headings were supplied, not the instruction bodies, so the evaluation is limited to structure. The outline is well-organized: an entrypoint with a section index, numbered phases 1-11 covering baseline, triage, fix loop (diagnose/reproduce, regression-before-repair, fix, re-test, commit, classify, self-regulation), final QA, reporting, TODOS update and learnings capture; conditional sections for browser setup/fallback, exploratory probing, native functional contracts, test bootstrap; plus report templates and an issue taxonomy. However, several things the rubric asks about are not visible at all in the provided material: authority rules, isolation/safety boundaries, blocked paths, how 'Phases 1-6: QA Baseline' maps onto native (non-browser) surfaces when qa-patterns.md is explicitly 'Browser QA methodology', how scope.md (a lone ### fragment, 23 lines) drives the browser/native/mixed decision, and what triggers DX/test-bootstrap loading. SKILL.md starts at line 427, implying missing preceding content. Inserted steps like 8a.5 and 8e.5 hint at patching that may create ordering ambiguity. Without the actual step text, bounded-probe limits, decision criteria, and deliverable formats cannot be confirmed as executable, so actionability is rated conservatively."
+        },
+        {
+          "clarity": 3,
+          "completeness": 4,
+          "actionability": 3,
+          "reasoning": "What is visible is only a heading-level outline of each file, not the step text, so executable decisions cannot be confirmed. Structurally the bundle is strong: a scope/surface selector loaded before setup, a gated browser-setup aside with an explicit headless fallback, a native-tool functional section with a contract map and evidence retention, a shared exploratory probe loop with parent handoff, a full Test→Triage→Fix Loop (diagnose/reproduce, regression-before-repair, re-test, commit, classify, self-regulation STOP) →Final QA→Report→TODOS update→Capture Learnings chain, two report templates, a severity/category taxonomy, and a health-score rubric. Gaps at the outline level: no visible section naming authority/isolation rules or an explicit blocked-path protocol (presumably buried in Setup/Additional Rules/Browser access decision), the section-index load conditions and mode-selection criteria are not exposed, and Prior Learnings/Capture Learnings have no dedicated file. Clarity and actionability are therefore rated as plausible-but-unverified: the phase ordering is unambiguous, but whether each phase gives concrete commands, exit criteria, and decision tests cannot be judged from headings alone."
+        },
+        {
+          "clarity": 3,
+          "completeness": 3,
+          "actionability": 2,
+          "reasoning": "The bundle exposes a coherent skeleton: an entrypoint with Setup, Phases 1-11, a detailed Fix Loop (diagnose/reproduce → regression test before repair → fix → re-test → commit → classify → self-regulation STOP gate), conditional sections for browser setup/fallback, native functional contracts, exploratory probing, and report templates plus a taxonomy. Phase ordering and the test-before-fix discipline are clear at the heading level. However, only headings are provided, so the actual load conditions for each section, authority/isolation rules, the contract map contents, blocked-path handling, and the browser-access decision criteria cannot be verified. Several ambiguities surface even from the outline: SKILL.md 'Phases 1-6' overlaps with qa-patterns' own 'Phase 1-6' and exploratory's '1-4' numbering; scope.md is a lone H3 fragment with no parent context; decimal sub-steps (8a.5, 8e.5) hint at bolted-on logic; and no explicit section names the stated conditions for loading browser vs functional vs mixed surfaces. Without the body text, an agent could follow the phase order but could not reliably make the surface-selection, fallback, or blocked-path decisions or produce evidence-backed deliverables, so actionability is limited."
+        }
+      ]
+    },
+    {
+      "judge": "qa/SKILL.md workflow",
+      "bundle": "defect",
+      "verdict": "pass",
+      "mean": {
+        "clarity": 3.3333333333333335,
+        "completeness": 4,
+        "actionability": 4
+      },
+      "samples": [
+        {
+          "clarity": 3,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The entry point is well-structured: a conditional section index, explicit STOP/Read gates with blocked-path fallbacks, parameter table, tier/mode rules, clean-tree gate, report-dir ownership rules, and a detailed fix loop (8a–8f) with a regression-before-repair value card, classification, self-regulation caps and commit discipline. Authority (report-only vs standalone /qa), isolation (scope.md ownership/production-forwarding rules), native contract map, browser/functional separation, health rubric and both report templates are all present, so an agent can produce the stated deliverables. Clarity suffers from the extremely dense, jargon-heavy exploratory.md (SECONDS/DEADLINE_FILE/PROBE_DIR/checkpoint publication rules compressed into nested caller-specific conditionals), the 'Phases 1-6' label that only maps to browser techniques while functional runs use a contract map, a missing Phase 10 (9 jumps to 11), a `{name}.regression-N.test.{ext}` naming rule that can conflict with native conventions (e.g., pytest), and several references to external skills/cookbooks (browse/SKILL.md, /devex-review, /setup-browser-cookies) not supplied. Decisions are executable but require careful parsing; some edge cases (mixed-run reporting, bounded browser wrapping of aside repl) are only lightly specified."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The workflow has a well-ordered spine (Setup → Learnings → Phases 1-6 baseline → Triage → Fix Loop 8a-8f → Final QA → TODOS → Learnings) with explicit STOP/Read gates, surface selection before setup, strict browser-vs-functional conditional loading, and clear authority (report-only vs standalone, caller-owned fixes) and isolation rules. Blocked-path handling is consistent (missing assets/tools block affected probes, continue safe checks, never substitute curl/tests). Native functional contracts are concrete via the contract map, EVIDENCE_TOOL/DEADLINE_TOOL commands, and the functional report template; browser work has scripts, $B fallback mapping, a scoring rubric, and templates. Deliverables (REPORT_DIR layout, report filenames, baseline.json, screenshots, exploration-NNN.json checkpoints, annotations.json, regression test naming/attribution, commit formats) are specified. Weaknesses: the prose is extremely dense and telegraphic (e.g., checkpoint field rules, SECONDS/mode resolution, 'QA_DEADLINE receipts are not observations'), raising misparse risk; Phase numbering skips Phase 10; some referenced assets (browse Cookbook, command-list, devex-review) are external; and tension between 'extend existing table' and the mandatory new regression-N file naming is only partly resolved. Overall executable but demands careful reading."
+        },
+        {
+          "clarity": 3,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The bundle is thorough: conditional Read directives state precise load conditions ('never for functional-only'), blocked-path handling is consistent (missing assets block affected probes, continue safe checks), scope.md defines surface selection and isolation crisply, system-functional.md gives a concrete contract map and outcome vocabulary, the Health Score Rubric and both report templates are fully specified, and Phase 8 (regression-before-repair, value card, commit, classify, self-regulation caps) is executable. Authority tiers (report-only vs standalone /qa, LOCAL vs non-local mutation consent) are explicit. Weaknesses hurt clarity more than completeness: the exploratory probe loop is dense and partially self-overlapping (a '(1)(2)(3)' summary followed by numbered steps 1-5 with browser/functional branches for checkpoint publication), heavy jargon (DEADLINE_TOOL/EVIDENCE_TOOL/checkpoints/superseded) requires careful parsing, qa-patterns.md and system-functional.md are loaded only indirectly via exploratory.md rather than a SKILL.md STOP, phase numbering jumps from 9 to 11 (no Phase 10), and 'Phases 1-6' is a browser-technique numbering reused as the baseline heading for functional runs. Minor gaps: mixed-run final-report merging and tool fallback behavior if gstack binaries are absent are thinly specified. Overall an agent can execute and produce the expected deliverables, but would need to read slowly to resolve the cross-references."
+        }
+      ]
+    },
+    {
+      "judge": "qa-only/SKILL.md workflow",
+      "bundle": "positive",
+      "verdict": "pass",
+      "mean": {
+        "clarity": 3.6666666666666665,
+        "completeness": 4.333333333333333,
+        "actionability": 4
+      },
+      "samples": [
+        {
+          "clarity": 4,
+          "completeness": 5,
+          "actionability": 4,
+          "reasoning": "The bundle is internally consistent across entrypoint and sections: timers (Quick 30s/Full 900s) match qa-patterns' 5-15 minute Full, REPORT_DIR/PROBE_DIR layouts agree between SKILL.md and exploratory.md, and the deferred-charter ordering is explicit. Decision points are thorough—conflicting --quick/--regression, non-empty output dirs, missing assets/baselines, unauthorized learning stores, and report-only authority are all resolved without gaps. Clarity suffers from extreme density and layered cross-skill path references (e.g., 'relative to the installed qa/gstack-qa SKILL.md directory... beside this host's installed caller skill'), and the 'accidental early Read' recovery rule is convoluted. Actionability is strong: exact DEADLINE_TOOL/EVIDENCE_TOOL commands, four-field checkpoint schema, and templates are specified, though the cognitive load of reconciling several sections mid-run is high."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The workflow is internally consistent despite dense cross-referencing: SKILL.md explicitly defers charters/clocks to Run the Selected Checks and tells exploratory §1 to reuse the REPORT_DIR resolved in Prepare Report Artifacts, so the apparent ordering tension resolves cleanly. Decision points are defined (conflicting --quick/--regression → ask; non-empty output dir → fresh run-UTC subdirectory; missing baseline blocks only that surface's regression). Tooling is concrete—exact DEADLINE_TOOL/EVIDENCE_TOOL syntax, four-field exploration-NNN.json schema, Aside/$B scripts, scoring rubric and templates. Weaknesses: heavy jargon and layered 'caller/owned/PROBE_DIR' definitions slow comprehension, and 'one probe plus checks' vs multi-capture scripts leaves slight room for batching ambiguity. Report-only boundaries are stated repeatedly and unambiguously."
+        },
+        {
+          "clarity": 3,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The workflow is internally consistent and decisions are mostly explicit (conflicting --quick/--regression → ask; missing baseline blocks only that surface; mixed order defaults functional→browser; charters Written before any clock). Deliverables are concrete: REPORT_FILE naming, run-dir collision rules, exploration-NNN.json's four fields, annotations/materialize before reporting.md, value cards, project-copy path. Clarity suffers from dense forward cross-references, e.g. 'Select Surfaces' tells the agent to defer charters to a later section whose §1 reuses REPORT_DIR resolved in a section after it, forcing reconstruction of execution order. Exploratory §4's materialize step is functional-centric ('browser-only: evidence []'), leaving browser-run handling implicit until SKILL.md's Output Structure. Browser Quick (30s) with mandatory per-probe checkpoint Writes is defined but practically tight."
+        }
+      ]
+    },
+    {
+      "judge": "qa-only/SKILL.md workflow",
+      "bundle": "negative",
+      "verdict": "fail",
+      "mean": {
+        "clarity": 2,
+        "completeness": 1.3333333333333333,
+        "actionability": 1
+      },
+      "samples": [
+        {
+          "clarity": 2,
+          "completeness": 1,
+          "actionability": 1,
+          "reasoning": "The bundle supplies only headings; every file's body (SKILL.md lines 382-596, exploratory.md, reporting.md, scope.md, browser-setup.md, qa-patterns.md, template) is absent, so no actual instructions, decision criteria, or outputs can be followed. Example: 'Select Surfaces and Isolation' and scope.md's 'Select the surface before setup' give no rule for choosing browser/native/mixed targets or isolation. Example: 'Additional Rules (qa-only specific)' and reporting.md name no concrete prohibitions on mutating product/tests/Git nor evidence or timing field definitions, and the report template lists section titles with no field contents. The outline structure is coherent, which earns minimal clarity credit, but an agent cannot execute the workflow or produce a checked report from this content."
+        },
+        {
+          "clarity": 2,
+          "completeness": 1,
+          "actionability": 1,
+          "reasoning": "The supplied bundle contains only headings; no instruction bodies, decision rules, or output contracts are present. For example, \"Select Surfaces and Isolation\" and scope.md's \"Select the surface before setup\" give no criteria for choosing browser vs native functional vs mixed targets, and the Health Score Rubric lists weights (Console 15%, Links 10%) without counting or scoring rules. The outline structure hints at a sensible flow (preparation gate, probe loop, evidence-based reporting, no-mutation rules), but an agent cannot determine what to run, what evidence to retain, or how to populate the report template. Nothing executable can be derived from headings alone."
+        },
+        {
+          "clarity": 2,
+          "completeness": 2,
+          "actionability": 1,
+          "reasoning": "The bundle supplies only headings; no instruction bodies survive, so every step, decision rule, and output contract is undefined. The outline is coherent (surface selection, isolation, conditional browser setup, evidence-based reporting, no-mutation rules) and the section index maps to real files, which earns minimal structural credit. But decisive gaps remain: 'Select Surfaces and Isolation' and scope.md give no criteria for choosing browser vs. native functional vs. mixed targets, and the report-only mutation prohibition exists only as a heading ('Additional Rules') with no enumerated forbidden actions or enforcement check. An agent cannot execute the probe loop, fill the functional report template fields, or verify coverage limits from this material; it would have to invent the workflow."
+        }
+      ]
+    },
+    {
+      "judge": "qa-only/SKILL.md workflow",
+      "bundle": "defect",
+      "verdict": "fail",
+      "mean": {
+        "clarity": 2,
+        "completeness": 4,
+        "actionability": 2.6666666666666665
+      },
+      "samples": [
+        {
+          "clarity": 2,
+          "completeness": 4,
+          "actionability": 3,
+          "reasoning": "The bundle is detailed and otherwise coherent, but the entrypoint opens with a decisive contradiction: SKILL.md's first instruction says 'After reporting each bug, fix it in the source and commit the fix,' immediately followed by 'NEVER fix anything or change product tests,' Additional Rule 1 and exploratory §3 forbidding any product/test/Git mutation. An agent cannot resolve this without guessing, and the wrong guess violates the workflow's core report-only guarantee. Elsewhere decisions are well-specified: mode conflicts trigger a user question, REPORT_DIR/REPORT_FILE resolution, mixed-run clock directories, checkpoint field contents, timing fields and the value-card bar are all defined, and the preparation gate, probe loop, finalization order and templates give a complete deliverable path. Minor friction: scope/method Reads live in the qa directory while the skill is qa-only, requiring path resolution."
+        },
+        {
+          "clarity": 2,
+          "completeness": 4,
+          "actionability": 2,
+          "reasoning": "The entrypoint's second line orders \"After reporting each bug, fix it in the source and commit the fix,\" directly contradicting the next bolded sentence (\"NEVER fix anything\"), Additional Rule 1, exploratory §3 and reporting's report-only repair fields. An agent cannot resolve which authority governs, and the wrong resolution violates the workflow's defining constraint. Otherwise the bundle is thorough: surface selection, mode handling, REPORT_DIR/REPORT_FILE derivation, charter-before-probe ordering, deadline/evidence tools, checkpoint schema, templates, value cards and finalization checks are well specified, with explicit blocker handling. Minor friction remains (the Browser Setup Read points at the qa directory while sibling Reads use qa-only), but the fix-and-commit contradiction is the decisive defect for clarity and actionability."
+        },
+        {
+          "clarity": 2,
+          "completeness": 4,
+          "actionability": 3,
+          "reasoning": "The entrypoint's first instruction (\"After reporting each bug, fix it in the source and commit the fix\") directly contradicts the bolded report-only mandate, exploratory §3 and Additional Rule 1, leaving an agent to guess which governs the core safety boundary. Otherwise the bundle is thorough: surface selection, mode/baseline resolution, REPORT_DIR/REPORT_FILE rules, deadline/evidence tooling, checkpoint schema, health rubric and finalization checks are all specified. A second ambiguity: SKILL.md tells functional-only runs to skip Browser Setup, yet 'Run the Selected Checks' says to read TODOS.md 'before browser probes' without clarifying functional preflight ordering. Deliverables are achievable, but the opening contradiction risks a prohibited commit."
+        }
+      ]
+    },
+    {
+      "judge": "review/SKILL.md workflow",
+      "bundle": "positive",
+      "verdict": "pass",
+      "mean": {
+        "clarity": 4,
+        "completeness": 4,
+        "actionability": 4
+      },
+      "samples": [
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The skeleton is dense but each path resolves: Step 4 reads QA scope/methods read-only, Step 4.7 runs bounded smoke even for small diffs without plan/server, test_stub forces ASK (Step 5a), incomplete/blocked probes keep COMPLETED=false, and Step 5.8 reruns affected probes with a new REVIEW_START. Two rough edges keep it from 5: exploratory.md says `materialize` runs once per PROBE_DIR while Step 4.7/5.8 reuse REPORT_DIR and require revalidation captures after repairs, leaving where rerun evidence is materialized undefined; Step 3.4 gives no handling when BRANCH_VERSION or NEXT_SLOT is empty before the version comparison. Outputs (report, log record, QA section) are otherwise well specified."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The skeleton plus on-demand sections give a determinable next action on nearly every path: QA Reads resolved from the installed QA directory, smoke bounded via DEADLINE_FILE while plan checks/revalidation use --timeout-ms, test_stub findings forced to ASK, incomplete/blocked probes mapped to COMPLETED=false, and repeat passes rerunning only affected probes. Minor tensions remain: SKILL.md Step 4.7 step 3 says 'post-expiry smoke rechecks are not-run' while step 4c and Step 5.8 require rerunning affected probes after fixes, leaving which rule governs an expired-smoke revalidation to inference; Step 3 defines a pass as 'before any fixes' while Step 5.8 says a pass covers Steps 3–5. Outputs, records and gates are otherwise well specified and executable."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The decision tree is dense but each path resolves: Step 4 fixes the QA Read order and installation fallback, Step 4.7 mandates smoke probes even for small diffs without plan/server, test_stub findings are forced to ASK with regression-before-repair in 5d, incomplete/blocked/not-run probes propagate to COMPLETED=false, and 5.8 defines reruns of affected probes with new REVIEW_START tokens. Residual ambiguity: Step 4.7.3 says 'post-expiry smoke rechecks are not-run' while also requiring post-expiry 'revalidation' and 5.8 requires rerunning affected smoke probes after fixes—the agent must infer that fix-triggered reruns count as revalidation, not rechecks. Step 4's 'research runs alongside specialist dispatch' also slightly muddles ordering with Step 4.5. Outputs, records and tool invocations are otherwise well specified."
+        }
+      ]
+    },
+    {
+      "judge": "review/SKILL.md workflow",
+      "bundle": "negative",
+      "verdict": "fail",
+      "mean": {
+        "clarity": 2,
+        "completeness": 1,
+        "actionability": 1
+      },
+      "samples": [
+        {
+          "clarity": 2,
+          "completeness": 1,
+          "actionability": 1,
+          "reasoning": "The bundle contains only section headings; no instruction bodies survive, so every step requires guessing. Example: review/SKILL.md 'Step 4.7: Exploratory QA (before Fix-First)' and qa/sections/exploratory.md '2. Probe loop'/'3. Parent handoff' define no charter, probe bound, incomplete-probe handling, or handoff format, so the agent cannot know what to run or report. Example: SKILL.md Step 5c/5d and '1. Re-review after edits' give no test_stub ASK gate rule or which evidence to rerun after approved repairs; review/sections/shared-code-reuse.md is entirely empty. Ordering is also inconsistent (Step 0 precedes the title; Steps 4.5/4.8 live in sections with no sequencing guidance). No deliverable schema is present beyond template headings."
+        },
+        {
+          "clarity": 2,
+          "completeness": 1,
+          "actionability": 1,
+          "reasoning": "The bundle contains only headings; no step bodies, decisions, or outputs survive, so the agent must guess every action. Example 1: review/SKILL.md 'Step 4.7: Exploratory QA (before Fix-First)' and qa/sections/exploratory.md '2. Probe loop'/'3. Parent handoff' define nothing about running without a plan or server, what counts as an incomplete probe, or what the parent receives — the report-only discovery rule and test_stub ASK gate appear nowhere. Example 2: 'Step 5.8: Persist Eng Review result' → '1. Re-review after edits' has no instruction to rerun affected QA evidence after approved repairs, and review/sections/shared-code-reuse.md is empty despite being indexed. The skeleton is navigable, but nothing is executable."
+        },
+        {
+          "clarity": 2,
+          "completeness": 1,
+          "actionability": 1,
+          "reasoning": "The bundle contains only headings; no step bodies, decisions, or outputs are present, so execution requires guessing everywhere. Example 1: review/SKILL.md places 'Step 0: Detect platform and base branch' before the title and section index, and Step 4.7 Exploratory QA, Step 4.5/4.6 Review Army, and Step 4.8 Adversarial sit across files with no visible Read triggers or ordering rule, leaving the agent unsure which pass runs when. Example 2: the stated test_stub ASK gate, report-only discovery rule, incomplete-probe honesty handling, and 'Re-review after edits' rerun-evidence requirement are named in headings only (Step 5c, Step 5.8 §1, exploratory.md §2) with no defined conditions or deliverables. shared-code-reuse.md is empty."
+        }
+      ]
+    },
+    {
+      "judge": "review/SKILL.md workflow",
+      "bundle": "defect",
+      "verdict": "pass",
+      "mean": {
+        "clarity": 4,
+        "completeness": 4,
+        "actionability": 4
+      },
+      "samples": [
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "Paths are explicit and cross-referenced: small diffs still run Step 4.7 smoke (review-army.md small-diff branch), test_stub forces ASK (Step 5a), incomplete probes map to blocked/not-run and COMPLETED:false (Step 5.8), and reruns after approved repairs are defined (Step 5.8.2, Step 4.7.4). Defects are minor: Step 5.0 says save actions in the 'Step 3 action list' but no Step 3 exists (only 3.4–3.6; elsewhere called 'invocation action list'), and Step 5.8 repeats 'Steps 3–5' similarly. Also 'not applicable' QA outcomes (exploratory.md §4) aren't mapped onto Step 5.8's COMPLETED rule, leaving nonbehavioral-diff completion slightly underspecified. Otherwise executable without guessing."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "Dense but coherent decision tree: paths for small diffs, missing plan/server, blocked probes, test_stub ASK gates, rerun-after-repair and nonconvergence are each explicitly resolved, and section Reads are ordered. Minor defects: SKILL.md Step 5.0 'Keep decisions through fix cycles' tells the agent to save actions in 'the Step 3 action list', which is never defined (elsewhere called the 'invocation action list'); and Step 5.8/shared-code-reuse depend on a captured REVIEW_START token whose creation never appears in the supplied steps, only `--finish REVIEW_START`. Step 4's 'Research runs alongside specialist dispatch' also blurs read-only Step 4 with Step 4.5 timing. None force guessing on a permitted action, but they cost locating effort."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The decision tree is dense but internally consistent: Step 4 reads scope/methods read-only, Step 4.7 runs bounded smoke plus required plan checks (5 min/12 probes, no DEADLINE reset, post-expiry rechecks not-run), QA defects return with test_stub forced to ASK (Step 5a), repairs require red-then-green regression plus original/adjacent probes (5d), and Step 5.8 reruns affected probes and marks COMPLETED false on any blocked/not-run required probe. Minor defects: Step 5.0 'Keep decisions' tells the agent to save actions in a 'Step 3 action list' though no Step 3 exists (only 3.4–3.6), and Step 5.8 says 'a pass covers Steps 3–5' with similar numbering drift; REVIEW_START capture is assumed from the preamble. Neither forces a wrong action, but they cost lookup effort."
+        }
+      ]
+    },
+    {
+      "judge": "setup-deploy/SKILL.md platform setup",
+      "bundle": "positive",
+      "verdict": "pass",
+      "mean": {
+        "clarity": 4,
+        "completeness": 4,
+        "actionability": 4
+      },
+      "samples": [
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "Steps 2–6 are concrete: detection script, per-platform branches, a field-collection rule before writing, a fixed CLAUDE.md template with explicit duplication rule, and non-blocking verification. Multi-platform detection and non-deploying projects are handled. Gaps: Fly computes the health check from the inferred `{app}.fly.dev` URL before asking the user to confirm a possibly custom domain, with no instruction to recompute, so the written health check can target the wrong host. Step 3 routes Heroku/Railway to the Custom questions (which ask the deploy trigger), yet Step 4 says Heroku/Railway leave the trigger unset, creating redundant or contradictory asks. Render checks RENDER_API_KEY but never uses the result, and the summary omits project type and hooks."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "Steps 2–6 form a coherent, executable pipeline: detection script, per-platform branches, explicit confirmation gating, a fully specified CLAUDE.md template with dual-field rules, verification, and summary. Decision points (multiple platforms, non-deploying projects, merge-method allowed via gh) are handled. Two gaps: Step 4 claims Heroku/Railway leave the deploy trigger unset, yet their branch routes through the Custom questions that explicitly collect the trigger—a small contradiction about what counts as confirmed. Vercel's 'production URL from vercel project settings' gives no command to obtain it, so the agent must fall back to asking without clear guidance. Otherwise unambiguous and deliverable-ready."
+        },
+        {
+          "clarity": 4,
+          "completeness": 4,
+          "actionability": 4,
+          "reasoning": "The supplied Steps 2-6 form a coherent, executable flow: a concrete detection script, per-platform sub-procedures with explicit confirmation gates, a CLAUDE.md template with a consistency rule for duplicated fields, non-blocking verification, and a summary. Multi-platform and project-type disambiguation are handled. Gaps remain: Step 4's field list omits `Deploy workflow`, so when fly.toml coexists with a GitHub Actions deploy workflow (or several workflows match), it is undefined which file is recorded or how to choose among them. Step 4 also says to ask for any missing status command while the template offers an 'HTTP health check' fallback, leaving Vercel/Netlify agents unsure whether to prompt or default. These are minor ambiguities in an otherwise well-specified workflow."
+        }
+      ]
+    },
+    {
+      "judge": "setup-deploy/SKILL.md platform setup",
+      "bundle": "negative",
+      "verdict": "fail",
+      "mean": {
+        "clarity": 1.3333333333333333,
+        "completeness": 1,
+        "actionability": 1
+      },
+      "samples": [
+        {
+          "clarity": 2,
+          "completeness": 1,
+          "actionability": 1,
+          "reasoning": "The supplied workflow is only a skeleton of headings with no instructions beneath them. Step 2 'Detect platform' lists 'Platform config files' and 'GitHub Actions deploy workflows' but gives no file names, glob patterns, or precedence rules when multiple platforms are found. Step 4 'Write configuration' names a CLAUDE.md section header but specifies no fields (URLs, status commands, health checks) or format to persist. Step 1 is absent, and Steps 5-6 have no verification commands or summary content. The outline is readable, but an agent cannot detect a platform, gather config, or produce a CLAUDE.md deliverable from headings alone."
+        },
+        {
+          "clarity": 1,
+          "completeness": 1,
+          "actionability": 1,
+          "reasoning": "The supplied workflow consists solely of section headings with no instructional body. For example, 'Step 2: Detect platform' lists 'Platform config files' and 'GitHub Actions deploy workflows' but gives no file names, glob patterns, or detection logic to distinguish Fly.io from Render or Vercel. Likewise 'Step 4: Write configuration' names a CLAUDE.md heading and 'Custom deploy hooks' but specifies no fields (URLs, status commands, health checks) or format to persist. Step 1 is absent entirely, and Steps 5–6 have no verification criteria or summary content. An agent cannot execute any step or produce the expected CLAUDE.md deliverable from this outline alone."
+        },
+        {
+          "clarity": 1,
+          "completeness": 1,
+          "actionability": 1,
+          "reasoning": "The supplied entrypoint is only a heading skeleton with no instruction body. For example, '### Step 2: Detect platform' lists '# Platform config files' and '# GitHub Actions deploy workflows' but gives no file names (fly.toml, render.yaml, vercel.json) or detection logic, so an agent cannot determine which platform applies. Likewise '### Step 4: Write configuration' names a '## Deploy Configuration' section and 'Custom deploy hooks' but provides no schema, fields, or prompts for URLs, status commands, or health checks. Step 1 is absent entirely, and Steps 5-6 have no verification criteria or summary format. Nothing here is executable; the agent would have to invent the whole workflow."
+        }
+      ]
+    },
+    {
+      "judge": "setup-deploy/SKILL.md platform setup",
+      "bundle": "defect",
+      "verdict": "fail",
+      "mean": {
+        "clarity": 4,
+        "completeness": 3,
+        "actionability": 3.3333333333333335
+      },
+      "samples": [
+        {
+          "clarity": 4,
+          "completeness": 3,
+          "actionability": 4,
+          "reasoning": "Platform sections are concrete and executable (Fly extraction/health-probe logic, Render key check that avoids leaking bytes), and Step 4 explicitly resolves which fields each path leaves unset, lists allowed merge methods via gh, and defines the no-deploy case. Two gaps weaken it: Step 2 says 'Run the platform detection from the deploy bootstrap:' followed by an empty block, so the agent has no command or expected output format to branch on in Step 3. Also Step 4 claims Heroku/Railway leave the deploy trigger unset, yet that path routes through the Custom/Manual questions which ask for the trigger; and the template defaults differ ('HTTP health check' vs 'poll production URL') despite the instruction that both fields hold identical values."
+        },
+        {
+          "clarity": 4,
+          "completeness": 3,
+          "actionability": 3,
+          "reasoning": "Platform-specific branches are precise (exact grep/sed, curl, and gh commands; explicit confirmation rules; well-defined CLAUDE.md template with duplicated hook fields explained). But Step 2 is hollow: 'Run the platform detection from the deploy bootstrap:' is followed by nothing, so the agent has no command or file reference to actually detect Fly/Render/Vercel/etc., undermining every downstream branch. Additionally, the Vercel path tells the agent to use 'the production URL from vercel project settings' without a command to retrieve it, and Heroku/Railway detection is routed to a section gated on 'If nothing detected', a minor ordering contradiction. Steps 4–6 are otherwise executable and produce the deliverable."
+        },
+        {
+          "clarity": 4,
+          "completeness": 3,
+          "actionability": 3,
+          "reasoning": "Platform sections, the CLAUDE.md template, and verify/summary steps are concrete and mostly unambiguous, with explicit handling for multi-platform detection, non-deploying projects, and secret-safe key checks. The decisive gap is Step 2: 'Run the platform detection from the deploy bootstrap:' is followed by nothing, so the agent has no command or criteria for how fly.toml/render.yaml/workflows are actually detected, undermining everything downstream. Secondary looseness: Vercel's health check is 'the production URL from vercel project settings' with no command given, and Render sets the health check to an inferred URL before user confirmation. The workflow is executable once detection is supplied, but as written it depends on an undefined step."
+        }
+      ]
+    }
+  ]
+}

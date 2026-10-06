@@ -1,0 +1,43 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "shared-libs-plan-callers",
+  "detector": "test/helpers/shared-libs-plan-actor.ts#createSharedPlanReuseSelector",
+  "series_identity": "531a8389999349df",
+  "source": {
+    "run": "37182865432",
+    "sha": "44ef18cd0ee8bfb33b3812fbc7f012a2d52f6d9e",
+    "lane": "periodic",
+    "artifact": "paid-slice-5-a1",
+    "path": "shards/skill-e2e-shared-libs-periodic/1.91.19-garrytan-severe-fix-wave-oct3-e2e-2026-10-04-0633.json#tests[name=shared-libs-plan-callers].transcript[tool_use name=AskUserQuestion].input"
+  },
+  "census_outcome": "passed",
+  "git_path": "fallback",
+  "git_path_evidence": "Recorded in CI's eval image (ubuntu:24.04, git 2.43), which rejects --no-lazy-fetch (exit 129), so gstack-safe-git took its unsupported-Git fallback (local history unavailable, branch HEAD unknown).",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Census pass: the question offers only unchanged-helper reuse with proof-depth alternatives, and the actor answered \"Reuse helper + full proof (recommended)\".",
+  "expected_answer": "Reuse helper + full proof (recommended)",
+  "input": {
+    "questions": [
+      {
+        "question": "D1 — Where should the two new callers get their Retry-After parser?\nProject/branch/task: repo on main; the plan adds src/import-worker.ts and src/sync-route.ts, both needing Retry-After parsing that matches src/scheduler.ts.\nELI10: The scheduler already reads Retry-After headers through one shared function in lib/retry-after.ts, and a passing test pins how it behaves. The plan has each new file write its own copy of that logic. Two more copies means three places that must agree forever on the same tricky rules (blank header, date in the past, giant number, one-hour cap), and a fix in one copy silently misses the others.\nStakes if we pick wrong: a hand-written copy drifts from the scheduler, so an import or sync retries at a different time than the scheduler would for the same header, and nobody notices until production.\nRecommendation: A because the existing helper already matches the callers' stated contract exactly (string|null, injected now, 3600 ceiling, caller fallback) and the extra proof is a few assertions.\nCompleteness: A=10/10, B=7/10, C=3/10\nPros / cons:\nA) Reuse helper + full proof (recommended) (human: ~1 hour / CC: ~5 min)\n  ✅ Both callers import the function the scheduler already uses, so matching semantics is guaranteed by construction, not by hand.\n  ✅ Adds regression assertions for the four currently untested edges the callers rely on: blank string, unsafe integer, past date, date beyond the one-hour cap.\n  ❌ Touches test/retry-after.test.ts, a file the plan did not list, though only with assertions that pin current behavior.\nB) Reuse helper, existing tests (human: ~45 min / CC: ~3 min)\n  ✅ Same guaranteed-matching semantics as A with the smallest diff: two imports plus two caller integration tests.\n  ✅ No change outside the two new files and their tests.\n  ❌ Blank header, past dates and the date-beyond-cap path stay unproven, so a later helper edit could change what the new callers do without a failing test.\nC) Keep local parsers (human: ~2 hours / CC: ~10 min)\n  ✅ Each new file is self-contained and can be read without following an import.\n  ✅ No dependency on lib/retry-after.ts for the new code paths.\n  ❌ Three hand-maintained copies of the same rules; \"must match scheduler semantics\" becomes a manual promise with no shared test enforcing it, and ~30 duplicated lines.\nNet: trading one extra test-file edit for semantics that are shared by construction and pinned on every edge the new callers depend on, versus duplicating logic the repo already owns.",
+        "header": "Parser reuse",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Reuse helper + full proof (recommended)",
+            "description": "✅ Both callers import the function the scheduler already uses, so matching semantics is guaranteed by construction, not by hand.\n✅ Adds regression assertions for the four currently untested edges the callers rely on: blank string, unsafe integer, past date, date beyond the one-hour cap.\n❌ Touches test/retry-after.test.ts, a file the plan did not list, though only with assertions that pin current behavior. (human: ~1 hour / CC: ~5 min)"
+          },
+          {
+            "label": "Reuse helper, existing tests",
+            "description": "✅ Same guaranteed-matching semantics as A with the smallest diff: two imports plus two caller integration tests.\n✅ No change outside the two new files and their tests.\n❌ Blank header, past dates and the date-beyond-cap path stay unproven, so a later helper edit could change what the new callers do without a failing test. (human: ~45 min / CC: ~3 min)"
+          },
+          {
+            "label": "Keep local parsers",
+            "description": "✅ Each new file is self-contained and can be read without following an import.\n✅ No dependency on lib/retry-after.ts for the new code paths.\n❌ Three hand-maintained copies of the same rules; \"must match scheduler semantics\" becomes a manual promise with no shared test enforcing it, and ~30 duplicated lines. (human: ~2 hours / CC: ~10 min)"
+          }
+        ]
+      }
+    ]
+  }
+}

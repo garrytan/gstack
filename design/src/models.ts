@@ -8,6 +8,9 @@
  *     analysis — check, diff, memory, design-to-code, evolve's analysis step.
  *
  * `GSTACK_DESIGN_MODEL` (named like `GSTACK_CODEX_MODEL`) replaces both.
+ * `GSTACK_DESIGN_IMAGE_MODEL` replaces the image_generation tool's model; it
+ * must look like a gpt-image model name (IMAGE_TOOL_MODEL_PATTERN) and a bad
+ * value fails before any request, naming the variable.
  *
  * Defaults (checked against OpenAI's model and deprecation pages, 2026-10):
  * gpt-5.5 lists Chat Completions, image input and the Responses
@@ -24,7 +27,8 @@
  * The limit is a cap, not a charge — only generated tokens are billed.
  *
  * `bun run design/scripts/live-model-check.ts` probes these defaults with a
- * real key (opt-in, not in any test lane).
+ * real key. It always tests the defaults (overrides are ignored), so an
+ * override cannot mask a retirement.
  */
 
 export const DESIGN_MODEL_ENV = "GSTACK_DESIGN_MODEL";
@@ -36,8 +40,28 @@ export const DEFAULT_DESIGN_MODELS: Readonly<Record<DesignCall, string>> = {
   vision: "gpt-5.5",
 };
 
-/** The image model the hosted image_generation tool runs; never omitted (the API default is gpt-image-1). */
+/** The image model the hosted image_generation tool runs by default; never omitted (the API default is gpt-image-1). */
 export const IMAGE_TOOL_MODEL = "gpt-image-2";
+
+export const DESIGN_IMAGE_MODEL_ENV = "GSTACK_DESIGN_IMAGE_MODEL";
+
+/** Conservative shape for an image tool model override: gpt-image-<version>[-variant]. */
+export const IMAGE_TOOL_MODEL_PATTERN = /^gpt-image-[0-9][a-z0-9.-]{0,31}$/;
+
+/**
+ * The image_generation tool's model: `GSTACK_DESIGN_IMAGE_MODEL` when set,
+ * else IMAGE_TOOL_MODEL. Throws, naming the variable, when the override does
+ * not match IMAGE_TOOL_MODEL_PATTERN.
+ */
+export function imageToolModel(env: Record<string, string | undefined> = process.env): string {
+  const override = env[DESIGN_IMAGE_MODEL_ENV]?.trim();
+  if (!override) return IMAGE_TOOL_MODEL;
+  if (!IMAGE_TOOL_MODEL_PATTERN.test(override)) {
+    throw new Error(`${DESIGN_IMAGE_MODEL_ENV}=${JSON.stringify(override.slice(0, 80))} is not a gpt-image model name ` +
+      `(expected something like ${IMAGE_TOOL_MODEL}); fix it or unset it to use ${IMAGE_TOOL_MODEL}`);
+  }
+  return override;
+}
 
 /** Reasoning allowance added to every vision call's visible-answer budget. */
 export const REASONING_HEADROOM_TOKENS = 8192;
@@ -47,10 +71,10 @@ export function designModel(call: DesignCall, env: Record<string, string | undef
   return env[DESIGN_MODEL_ENV]?.trim() || DEFAULT_DESIGN_MODELS[call];
 }
 
-/** Why `orchestrator` cannot drive the IMAGE_TOOL_MODEL tool, or null when it can. */
-export function imagePairingProblem(orchestrator: string): string | null {
+/** Why `orchestrator` cannot drive the image_generation tool model, or null when it can. */
+export function imagePairingProblem(orchestrator: string, toolModel = IMAGE_TOOL_MODEL): string | null {
   if (!/^(?:gpt-4|gpt-3|chatgpt-4o)/i.test(orchestrator)) return null;
-  return `${orchestrator} cannot drive the ${IMAGE_TOOL_MODEL} image_generation tool (OpenAI returns 400 for that pairing); ` +
+  return `${orchestrator} cannot drive the ${toolModel} image_generation tool (OpenAI returns 400 for that pairing); ` +
     `set ${DESIGN_MODEL_ENV} to a gpt-5-class model such as ${DEFAULT_DESIGN_MODELS.image}, or unset it`;
 }
 
@@ -65,13 +89,14 @@ export function imageRequestBody(
   extra: Record<string, unknown> = {},
 ): string {
   const model = designModel("image");
-  const problem = imagePairingProblem(model);
+  const toolModel = imageToolModel();
+  const problem = imagePairingProblem(model, toolModel);
   if (problem) throw new Error(problem);
   return JSON.stringify({
     model,
     input,
     ...extra,
-    tools: [{ type: "image_generation", model: IMAGE_TOOL_MODEL, size: tool.size, quality: tool.quality }],
+    tools: [{ type: "image_generation", model: toolModel, size: tool.size, quality: tool.quality }],
   });
 }
 
@@ -100,8 +125,11 @@ export function modelRejectionHint(status: number, body: string, call: DesignCal
   if (!/\bmodel\b|unsupported (?:parameter|value)|not supported/i.test(body)) return "";
   const model = designModel(call);
   const source = process.env[DESIGN_MODEL_ENV]?.trim() ? `${DESIGN_MODEL_ENV}=${model}` : `the default model ${model}`;
-  const what = call === "image"
-    ? `image-generation (Responses API, tool model ${IMAGE_TOOL_MODEL})`
-    : "vision (Chat Completions)";
-  return ` — OpenAI rejected ${source} for this ${what} call; set ${DESIGN_MODEL_ENV} to a model your account can use for it`;
+  if (call !== "image") {
+    return ` — OpenAI rejected ${source} for this vision (Chat Completions) call; set ${DESIGN_MODEL_ENV} to a model your account can use for it`;
+  }
+  const toolOverride = process.env[DESIGN_IMAGE_MODEL_ENV]?.trim();
+  const tool = toolOverride ? `${DESIGN_IMAGE_MODEL_ENV}=${toolOverride}` : `the default tool model ${IMAGE_TOOL_MODEL}`;
+  return ` — OpenAI rejected ${source} or ${tool} for this image-generation (Responses API) call; ` +
+    `set ${DESIGN_MODEL_ENV} or ${DESIGN_IMAGE_MODEL_ENV} to models your account can use for it`;
 }

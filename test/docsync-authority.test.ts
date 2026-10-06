@@ -105,3 +105,19 @@ test('completed docs review accepts literal cat but not an unrelated command or 
     expect(docsCompletedRead(calls({ tool: 'Read', input: { file_path: doc, limit: 1 }, output: original.slice(0, 20) }), doc, fixture)).toBe(false);
   } finally { fixture.clean(); }
 });
+
+test.skipIf(process.platform === 'win32')('replay of Linux run 37237194905 late-result: only the write to a mistyped shard root is outside authority', () => {
+  const fixture = fixtureDocs('current');
+  try {
+    const actor = path.join(import.meta.dir, 'helpers', 'docsync-fault-actor.ts');
+    const typoHome = path.join(path.dirname(fixture.home), `typo-${path.basename(fixture.home)}`);
+    const replay = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-replay/37237194905-late-result-calls.json'), 'utf8'));
+    const toolCalls = replay.calls.map((call: { tool: string; input: Record<string, string> }) => ({ tool: call.tool, output: '',
+      input: Object.fromEntries(Object.entries(call.input).map(([key, value]) => [key,
+        value.replaceAll('<TYPO_HOME>', typoHome).replaceAll('<HOME>', fixture.home).replaceAll('<ACTOR>', actor)])) }));
+    expect(toolCalls).toHaveLength(21);
+    expect(docsToolFailures(calls(...toolCalls), fixture, [actor])).toEqual(['write outside docs fixture authority']);
+    expect(toolCalls[19].input.file_path.startsWith(typoHome)).toBe(true);
+    expect(docsToolFailures(calls(...toolCalls.filter((_: unknown, index: number) => index !== 19)), fixture, [actor])).toEqual([]);
+  } finally { fixture.clean(); }
+});

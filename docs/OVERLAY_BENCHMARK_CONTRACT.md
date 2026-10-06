@@ -1,4 +1,4 @@
-# Overlay benchmark behavior contract v2
+# Overlay benchmark behavior contract v4
 
 The paid overlay fixtures verify supported behavior, with comparative efficacy
 reported separately as research evidence. A passing case does **not** establish
@@ -7,7 +7,7 @@ blocking efficacy contract; historical failures retain their original verdicts.
 
 The contract is defined by `OVERLAY_CONTRACT` in
 `test/helpers/overlay-case-policy.ts`. Every new measurement and aggregate record
-identifies version 3. Eval entry names include `contract-v3` so automated result
+identifies version 4. Eval entry names include `contract-v4` so automated result
 matching cannot silently compare the old and new contracts by the same name.
 Selection IDs for the six retained paid cases stay unchanged.
 
@@ -20,9 +20,17 @@ OFF does not. Each retained fixture runs ten samples per arm, separately for
 Every planned sample in both arms must execute successfully, produce exactly
 one successful native terminal result without an error flag, preserve workspace
 scope, and yield a finite metric within the fixture's bounds. Missing reasoning
-metadata, failed output validation, oracle process errors, partial sampling,
-deadlines, cleanup failures, or recording failures keep the case failed. Missing
-observations are never replaced with zero or discarded to obtain a passing arm.
+metadata, oracle process errors, partial sampling, deadlines, cleanup failures,
+or recording failures keep the case failed. Missing observations are never
+replaced with zero or discarded to obtain a passing arm.
+
+A completed answer that fails the fixture's output check is a measured
+correctness result, not an invalid measurement, in either arm: its record has
+`measurementPassed: true`, `taskCorrect: false` and the check's message in
+`answerError`. Only ON correctness gates the case, so an OFF wrong answer stays
+in the comparison and an ON wrong answer fails the case. Version 3 counted an
+OFF wrong answer as an invalid measurement (census 37198445662); v3 verdicts
+are not reinterpreted.
 
 | Fixture family | Exact task and scope contract | Additional ON requirement | Measurement |
 | --- | --- | --- | --- |

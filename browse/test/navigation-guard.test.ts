@@ -4,6 +4,7 @@
  * server.ts runs write commands: through BrowserManager.failIfNavigationBlocked.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { BrowserManager } from '../src/browser-manager';
 import { handleWriteCommand } from '../src/write-commands';
 
@@ -48,19 +49,31 @@ function run(command: string, args: string[]): Promise<string> {
   return bm.failIfNavigationBlocked(session.getPage(), handleWriteCommand(command, args, session, bm));
 }
 
+// While Bun's promise matchers (rejects/resolves) wait, each Playwright round-trip takes
+// about a second, which pushed the 5 s click timeout past the guard's block under load.
+// Settle the command first, then assert on the refusal.
+async function refusal(command: string, args: string[]): Promise<string> {
+  try {
+    await run(command, args);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  throw new Error(`${command} ${args.join(' ')} was not refused`);
+}
+
 describe('D2: navigation guard', () => {
   test('a redirect to 169.254.0.0/16 fails the goto and leaves the tab blank', async () => {
-    await expect(run('goto', [`${base}/to-link-local`])).rejects.toThrow(/169\.254\.170\.2 is a cloud metadata or link-local address/);
+    expect(await refusal('goto', [`${base}/to-link-local`])).toMatch(/169\.254\.170\.2 is a cloud metadata or link-local address/);
     expect(bm.getActiveSession().getPage().url()).toBe('about:blank');
   }, 30_000);
 
   test('a redirect to an IPv4-mapped IPv6 link-local address is refused too', async () => {
-    await expect(run('goto', [`${base}/to-mapped`])).rejects.toThrow(/cloud metadata or link-local/);
+    expect(await refusal('goto', [`${base}/to-mapped`])).toMatch(/cloud metadata or link-local/);
     expect(bm.getActiveSession().getPage().url()).toBe('about:blank');
   }, 30_000);
 
   test('a blocked target that fails at once still leaves the tab blank for the next command', async () => {
-    await expect(run('goto', [`${base}/to-fast-fail`])).rejects.toThrow(/cloud metadata or link-local/);
+    expect(await refusal('goto', [`${base}/to-fast-fail`])).toMatch(/cloud metadata or link-local/);
     expect(bm.getActiveSession().getPage().url()).toBe('about:blank');
     const result = await run('goto', [`${base}/safe`]);
     expect(result).toContain('Navigated to');
@@ -69,13 +82,13 @@ describe('D2: navigation guard', () => {
 
   test('clicking a link to a link-local address is refused', async () => {
     await run('goto', [`${base}/link`]);
-    await expect(run('click', ['#go'])).rejects.toThrow(/cloud metadata or link-local/);
+    expect(await refusal('click', ['#go'])).toMatch(/cloud metadata or link-local/);
     expect(bm.getActiveSession().getPage().url()).toBe('about:blank');
   }, 30_000);
 
   test('a script-driven navigation to a link-local address is refused', async () => {
     await run('goto', [`${base}/script`]);
-    await expect(run('click', ['#go'])).rejects.toThrow(/cloud metadata or link-local/);
+    expect(await refusal('click', ['#go'])).toMatch(/cloud metadata or link-local/);
     expect(bm.getActiveSession().getPage().url()).toBe('about:blank');
   }, 30_000);
 
@@ -84,4 +97,10 @@ describe('D2: navigation guard', () => {
     expect(result).toContain('Navigated to');
     expect(bm.getActiveSession().getPage().url()).toBe(`${base}/safe`);
   }, 30_000);
+});
+
+test('live browser commands settle before the refusal is asserted', () => {
+  const source = readFileSync(import.meta.path, 'utf8');
+  expect(source).not.toMatch(new RegExp(['expect\\(', 'run\\('].join('')));
+  expect(source).not.toMatch(new RegExp(['\\.', 'rejects'].join('')));
 });

@@ -1,0 +1,224 @@
+{
+ "schema": "gstack-detector-corpus/v1",
+ "case": "auto-decide-preserved",
+ "detector": "test/helpers/native-auto-decide.ts#findNativeAutoDecision",
+ "screen_detector": "test/helpers/pty/classify.ts#classifyVisible",
+ "series_identity": "6c9ea4bac7c0bc81",
+ "source": {
+  "run": "37174266054",
+  "sha": "a8ace39030dd92745b45ac16e5d733e63c936c0f",
+  "lane": "periodic",
+  "artifact": "paid-slice-20-a1",
+  "path": "shards/skill-e2e-auto-decide-preserved/pty-count/ci-37174266054-1-eval-slices-20/plan-ceo-review-1791084936827-pBoN0B/observation.json"
+ },
+ "census_outcome": "passed",
+ "census_error": "",
+ "expected": "pass",
+ "justification": "Pre-helper skill (a8ace39): the model sent the documented \"Auto-decided review mode → HOLD SCOPE (your preference)\" line, which classifyVisible accepts on screen; it never ran the question log or handoff helper, so no structured decision exists for the native detector.",
+ "screen_expected": "pass",
+ "native_expected": "refuse",
+ "input": {
+  "native": {
+   "transcript": {
+    "status": "ready",
+    "calls": [],
+    "assistantMessages": [
+     {
+      "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+      "text": "Received. I have the draft plan for deterministic skill-list ordering in context, and I understand the handoff constraints: review-mode decision only, full mode name in the audit record and handoff line, no Office Hours or setup, and no substantive review yet. Waiting for your slash command.",
+      "timestamp": "2026-10-04T03:34:13.255Z"
+     },
+     {
+      "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+      "text": "I'll run the skill preamble first, then move through Step 0 only as far as the mode decision you asked for.",
+      "timestamp": "2026-10-04T03:34:19.295Z"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:20.346Z",
+     "toolUseId": "toolu_011kTp99f3Anru9WTVFVQCsZ",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-skill-start --skill \"plan-ceo-review\" --model \"claude\" 2>&1",
+      "description": "Run gstack skill-start preamble"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:21.872Z",
+     "toolUseId": "toolu_011kTp99f3Anru9WTVFVQCsZ",
+     "kind": "result",
+     "isError": false,
+     "content": "SKILL_START_PROTO: 1\nBRANCH: main\nPROACTIVE: true\nPROACTIVE_PROMPTED: yes\nSKILL_PREFIX: false\nREPO_MODE: unknown\nSESSION_KIND: interactive\nCONDUCTOR_SESSION: true\nACTIVATED: yes\nFIRST_LOOP_SHOWN: yes\nFIRST_TASK: \nLAKE_INTRO: yes\nTELEMETRY: off\nTEL_PROMPTED: yes\nSESSION_ID: 1611-1791084861-3e00d981\nTEL_START: 1791084861\nEXPLAIN_LEVEL: default\nQUESTION_TUNING: true\nUPDATE_CHECK: false\nLEARNINGS: 0\nHAS_ROUTING: no\nROUTING_DECLINED: false\nVENDORED_GSTACK: no\nMODEL_OVERLAY: claude\nGSTACK_PLAN_MODE: active\nARTIFACTS_SYNC: off\n"
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:34.257Z",
+     "toolUseId": "toolu_019QAu5FMBCS9XEAt9cdpZd6",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "~/.claude/skills/gstack/bin/gstack-context-recovery 2>&1 | head -60",
+      "description": "Recover recent project context"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:38.386Z",
+     "toolUseId": "toolu_01R2TQ9MyTSkszc3VYsPrKib",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "echo \"REMOTE: $(git remote get-url origin 2>&1)\"; echo \"HEAD_REF: $(git symbolic-ref refs/remotes/origin/HEAD 2>&1)\"; git rev-parse --verify origin/main >/dev/null 2>&1 && echo \"origin/main exists\" || echo \"no origin/main\"; echo \"--- log\"; git log --oneline -30; echo \"--- stash\"; git stash list; echo \"--- files\"; git ls-files; echo \"--- todos\"; grep -r \"TODO\\|FIXME\\|HACK\\|XXX\" -l --exclude-dir=node_modules --exclude-dir=vendor --exclude-dir=.git . | head -30; echo \"--- recent\"; git log --since=30.days --name-only --format=\"\" | sort | uniq -c | sort -rn | head -20",
+      "description": "Audit repo history, remote, stashes, TODO markers"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:41.827Z",
+     "toolUseId": "toolu_01FHxBFVyVFterbEmNDTv81v",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "setopt +o nomatch 2>/dev/null || true; SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"); BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch'); echo \"SLUG=$SLUG BRANCH=$BRANCH\"; DESIGN=$(~/.claude/skills/gstack/bin/gstack-design-doc-find \"$SLUG\" \"$BRANCH\"); [ -n \"$DESIGN\" ] && echo \"Design doc found: $DESIGN\" || echo \"No design doc found\"",
+      "description": "Check for an office-hours design doc"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:44.138Z",
+     "toolUseId": "toolu_017d2MhxfKxcb1SZCvmSXLXY",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "_CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo \"unset\"); echo \"CROSS_PROJECT: $_CROSS_PROJ\"; if [ \"$_CROSS_PROJ\" = \"true\" ]; then ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>&1; else ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>&1; fi | head -40",
+      "description": "Check cross-project setting and search prior learnings"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:46.514Z",
+     "toolUseId": "toolu_018xZso3XN931CCXMxhRNaqB",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || true; echo \"SLUG=$SLUG\"; for d in product goals recent-decisions; do echo \"### $d\"; ~/.claude/skills/gstack/bin/gstack-brain-cache get $d --project \"$SLUG\" 2>/dev/null || echo \"(no $d digest available yet)\"; done; echo \"### user-profile\"; ~/.claude/skills/gstack/bin/gstack-brain-cache get user-profile 2>/dev/null || echo \"(no user-profile digest available yet)\"",
+      "description": "Load brain context digests"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:48.452Z",
+     "toolUseId": "toolu_01UfuYHFETMDuY3EAP5jsTZZ",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "printf '%s' \"Select plan-ceo-review mode: SCOPE EXPANSION / SELECTIVE EXPANSION / HOLD SCOPE / SCOPE REDUCTION for deterministic skill-list ordering plan\" | ~/.claude/skills/gstack/bin/gstack-question-preference --check \"plan-ceo-review-mode\" --summary-stdin 2>&1; echo \"EXIT=$?\"",
+      "description": "Check stored preference for the mode question"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:53.452Z",
+     "toolUseId": "toolu_01NojwM3bMzrEmdKQtNGJ2KV",
+     "kind": "use",
+     "name": "Bash",
+     "input": {
+      "command": "_gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 \"$@\"; elif command -v timeout >/dev/null; then timeout 30 \"$@\"; elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 \"$@\"; else return 125; fi; }\n_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)\nif [ \"${GSTACK_SKIP_ASIDE:-}\" = \"1\" ] || [ -z \"$_A\" ]; then echo \"NEEDS_ASIDE\"; else _rc=0; _o=$(_gs_d \"$_A\" repl 'console.log(\"ASIDE_READY \" + pwd)' 2>&1) || _rc=$?; case \"$_rc\" in 124|142) echo \"ASIDE_TIMEOUT: probe deadline exceeded\" ;; 125) echo \"ASIDE_UNAVAILABLE: bounded probe unavailable\" ;; 0) if printf '%s\\n' \"$_o\" | grep -q '^ASIDE_READY '; then echo \"READY: $_A\"; else echo \"ASIDE_NOT_RUNNING: no readiness marker\"; fi ;; *) echo \"ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally\" ;; esac; fi",
+      "description": "Probe Aside browser readiness"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.075Z",
+     "toolUseId": "toolu_0117Cr93gotHMehSf84wAvp1",
+     "kind": "use",
+     "name": "Read",
+     "input": {
+      "file_path": "<CWD>/PLAN.md"
+     }
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.490Z",
+     "toolUseId": "toolu_019QAu5FMBCS9XEAt9cdpZd6",
+     "kind": "result",
+     "isError": false,
+     "content": "--- RECENT ARTIFACTS ---\n{\"skill\":\"plan-ceo-review\",\"event\":\"started\",\"branch\":\"main\",\"session\":\"1611-1791084861-3e00d981\",\"ts\":\"2026-10-04T03:34:21.900Z\"}\n--- END ARTIFACTS ---"
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.562Z",
+     "toolUseId": "toolu_01R2TQ9MyTSkszc3VYsPrKib",
+     "kind": "result",
+     "isError": false,
+     "content": "REMOTE: error: No such remote 'origin'\nHEAD_REF: fatal: ref refs/remotes/origin/HEAD is not a symbolic ref\norigin/main exists\n--- log\nf181f79 Seed review plan\n-…[elided: not consumed]"
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.593Z",
+     "toolUseId": "toolu_01FHxBFVyVFterbEmNDTv81v",
+     "kind": "result",
+     "isError": false,
+     "content": "SLUG=gstack-plan-count-66Rq4t BRANCH=main\nNo design doc found"
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.644Z",
+     "toolUseId": "toolu_017d2MhxfKxcb1SZCvmSXLXY",
+     "kind": "result",
+     "isError": false,
+     "content": "CROSS_PROJECT: false"
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.756Z",
+     "toolUseId": "toolu_018xZso3XN931CCXMxhRNaqB",
+     "kind": "result",
+     "isError": false,
+     "content": "SLUG=gstack-plan-count-66Rq4t\n### product\n(no product digest available yet)\n### goals\n(no goals digest available yet)\n### recent-decisions\n(no recent-decisions digest available yet)\n### user-profile\n(no user-profile digest available yet)"
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.817Z",
+     "toolUseId": "toolu_01UfuYHFETMDuY3EAP5jsTZZ",
+     "kind": "result",
+     "isError": false,
+     "content": "AUTO_DECIDE\nEXIT=0"
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.834Z",
+     "toolUseId": "toolu_01NojwM3bMzrEmdKQtNGJ2KV",
+     "kind": "result",
+     "isError": false,
+     "content": "NEEDS_ASIDE"
+    },
+    {
+     "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+     "timestamp": "2026-10-04T03:34:54.842Z",
+     "toolUseId": "toolu_0117Cr93gotHMehSf84wAvp1",
+     "kind": "result",
+     "isError": false,
+     "content": "1\t# Draft: deterministic skill-list ordering\n2\t\n3\tUsers compare skill listings in scripts and reviews. Make the existing listing\n4\tpath sort registered skill na…[elided: not consumed]"
+    }
+   ],
+   "options": {
+    "skillName": "plan-ceo-review",
+    "sessionId": "869a270b-e457-41dc-b9ad-2dcb706638a6",
+    "commandStartedAt": 1791084853562,
+    "now": 1791084936826,
+    "proseQuestionObserved": false
+   }
+  },
+  "screen": {
+   "path": "shards/skill-e2e-auto-decide-preserved/pty-count/ci-37174266054-1-eval-slices-20/plan-ceo-review-1791084936827-pBoN0B/terminal.visible.log",
+   "tail_chars": 6000,
+   "text": "n file below):\r\r-0A Premise.Realproblem:skilllistingorderdependsonfilesystemenumeration,sotworunsortwomachinesdiff\r differentlyand scipt comparisons flap. Target outcome:byt-identical lisng foridentical egistered skills.\rDo-nothing cost: nosydiffs n reviews and brittle scripts. The plan hits he paindirectly,not a poxy.\r-0B Leverage. Theexting listing path already renders text and JSON;the change sa sor onthename sequence\r before rendering. Standard-library sort with astable key is the whole implementation. No rebuild.\r-0C Dream state. 12-moth ideal: every user-facing enumeraton inte tool (skills, aliases, learnings)is\r deterministic and testedthat way. This plan is th first lake.\r\rCURRENT STATE                  THIS PLAN                       12-MONTH IDEAL\rlistingorder=readdirordersortnamesbeforerender,all enumerations\rflaps across runs/machines   tess for case + enum oderdeterministic + tested\r\rNonewapproachdecisionwasneededin0D:asinglesortcallistheonlycredibleapproachandtheplanalready\rspecifies it.\r\r0E recommendation.Estimatedchangedfiles:2to3(onelistingmoduleedit,oneortwotestfiles).Estimate,nota\rcount from code. Category: fix/refactor of existing behavor, with membrship, aliases,mtadata andouput formas\rexplicitlyfrozen. That points to HOLD SCOPE.\r\rAuto-decidedreviewmode→HOLDSCOPE(yourpreference).Changewith/plan-tune.Approveddecisions:none.HOLDSCOPE\r\r●Preambleresultsthatmatterhere:thesessionisinteractiveunderConductor,questiontuningison,andthestored\r pference for the mode qustion reurned AUTO_DECIDE, so thmo resolves from the recommedation withou amenu.\rBase branch ismain (noorigin remoe, but origin/mainexists). Nodign doc, no prior learings, cold braindigests,\rno TODO markers, clea tree with one seed commit. Aside is not installed,s Iskiped landscape web researchfor\rthis mode-only pass d usd n-distribution knowledge.\r\rTwosetupitemsfiredandIamdeferringbothperyourinstruction:theone-timeCLAUDE.mdrouting-rulesprompt(it\ralso requires aCLAUDE.meditand commit, wich plan mode forbds)andth Office Hours offer. Their gates are\rmarke-based and will re-fire on your nextrun.\r\rStep 0 evidence (compact, recorded to the plan file below):\r\r-0A Premise.Realproblem:skilllistingorderdependsonfilesystemenumeration,sotworunsortwomachinesdiff\r differentlyand scipt comparisons flap. Target outcome:byt-identical lisng foridentical egistered skills.\rDo-nothing cost: nosydiffs n reviews and brittle scripts. The plan hits he paindirectly,not a poxy.\r-0B Leverage. Theexting listing path already renders text and JSON;the change sa sor onthename sequence\r before rendering. Standard-library sort with astable key is the whole implementation. No rebuild.\r-0C Dream state. 12-moth ideal: every user-facing enumeraton inte tool (skills, aliases, learnings)is\r deterministic and testedthat way. This plan is th first lake.\r\rCURRENT STATE                  THIS PLAN                       12-MONTH IDEAL\rlistingorder=readdirordersortnamesbeforerender,all enumerations\rflaps across runs/machines   tess for case + enum oderdeterministic + tested\r\rNonewapproachdecisionwasneededin0D:asinglesortcallistheonlycredibleapproachandtheplanalready\rspecifies it.\r\r0E recommendation.Estimatedchangedfiles:2to3(onelistingmoduleedit,oneortwotestfiles).Estimate,nota\rcount from code. Category: fix/refactor of existing behavor, with membrship, aliases,mtadata andouput formas\rexplicitlyfrozen. That points to HOLD SCOPE.\r\rAuto-decidedreviewmode→HOLDSCOPE(yourpreference).Changewith/plan-tune.Approveddecisions:none.HOLDSCOPE\rapplies becaus theplanfreezes every output contrat except ordering, so he value f the revew is rigor on the one\r●Preambleresultsthatmatterhere:thesessionisinteractiveunderConductor,questiontuningison,andthestored\r pference for the mode qustion reurned AUTO_DECIDE, so thmo resolves from the recommedation withou amenu.\rBase branch ismain (noorigin remoe, but origin/mainexists). Nodign doc, no prior learings, cold braindigests,\rno TODO markers, clea tree with one seed commit. Aside is not installed,s Iskiped landscape web researchfor\rthis mode-only pass d usd n-distribution knowledge.\r\rTwosetupitemsfiredandIamdeferringbothperyourinstruction:theone-timeCLAUDE.mdrouting-rulesprompt(it\ralso requires aCLAUDE.meditand commit, wich plan mode forbds)andth Office Hours offer. Their gates are\rmarke-based and will re-fire on your nextrun.\r\rStep 0 evidence (compact, recorded to the plan file below):\r\r-0A Premise.Realproblem:skilllistingorderdependsonfilesystemenumeration,sotworunsortwomachinesdiff\r differentlyand scipt comparisons flap. Target outcome:byt-identical lisng foridentical egistered skills.\rDo-nothing cost: nosydiffs n reviews and brittle scripts. The plan hits he paindirectly,not a poxy.\r-0B Leverage. Theexting listing path already renders text and JSON;the change sa sor onthename sequence\r before rendering. Standard-library sort with astable key is the whole implementation. No rebuild.\r-0C Dream state. 12-moth ideal: every user-facing enumeraton inte tool (skills, aliases, learnings)is\r deterministic and testedthat way. This plan is th first lake.\r\rCURRENT STATE                  THIS PLAN                       12-MONTH IDEAL\rlistingorder=readdirordersortnamesbeforerender,all enumerations\rflaps across runs/machines   tess for case + enum oderdeterministic + tested\r\rNonewapproachdecisionwasneededin0D:asinglesortcallistheonlycredibleapproachandtheplanalready\rspecifies it.\r\r0E recommendation.Estimatedchangedfiles:2to3(onelistingmoduleedit,oneortwotestfiles).Estimate,nota\rcount from code. Category: fix/refactor of existing behavor, with membrship, aliases,mtadata andouput formas\rexplicitlyfrozen. That points to HOLD SCOPE.\r\rAuto-decidedreviewmode→HOLDSCOPE(yourpreference).Changewith/plan-tune.Approveddecisions:none.HOLDSCOPE\rapplies becaus theplanfreezes every output contrat except ordering, so he value f the revew is rigor on the one\roen contract: the sort key (cae-insensiiveversus byte order, tie-breakwn two names collid cae-nsensitivly,"
+  }
+ }
+}

@@ -1,0 +1,94 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "ship-docsync-late-result",
+  "detector": "test/helpers/docsync-fault-eval.ts#docsActorVerdict",
+  "series_identity": "51be4310c4b2322c",
+  "source": {
+    "run": "37195203538",
+    "sha": "41287009bd6b524244edced7770c87fc3103eb59",
+    "lane": "gate",
+    "artifact": "native-captures-ci-37195203538-1-gate-census-8",
+    "path": ".gstack-dev/e2e-runs/2026-10-04-1025/ship-docsync-late-result-ds-fmQFR2-fixture/state.json"
+  },
+  "census_outcome": "passed",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Gate census pass: blocked report with no unquoted current claim, no publication, and stop(settled) → repair → fresh dispatch → late-callback order.",
+  "input": {
+    "state": {
+      "root": "<ROOT>",
+      "scenario": "late-result",
+      "events": [
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a1",
+          "task_id": "fixture-child-1"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "running"
+        },
+        {
+          "action": "stop",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "status",
+          "task_id": "fixture-child-1",
+          "detail": "settled"
+        },
+        {
+          "action": "inspect"
+        },
+        {
+          "action": "repair",
+          "detail": "fixture transport/marking repaired"
+        },
+        {
+          "action": "prepare",
+          "audit_id": "ship-docs-a2"
+        },
+        {
+          "action": "dispatch",
+          "audit_id": "ship-docs-a2",
+          "task_id": "fixture-child-2"
+        },
+        {
+          "action": "late-callback",
+          "audit_id": "ship-docs-a1"
+        },
+        {
+          "action": "inspect"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "fixture-child-1",
+          "audit_id": "ship-docs-a1",
+          "settled": true,
+          "stopRequested": true,
+          "elapsed_ms": 900002
+        },
+        {
+          "id": "fixture-child-2",
+          "audit_id": "ship-docs-a2",
+          "settled": true,
+          "stopRequested": false,
+          "elapsed_ms": 0
+        }
+      ],
+      "repaired": true,
+      "armed": false,
+      "lateChanged": false,
+      "acceptedId": null
+    },
+    "report": "# Ship report — documentation phase (Step 14.5)\n\nDocumentation: blocked\n\n- Scope: branch feature/docs, base main 8ad2f2d07c09a59d71090a6b392896221de9663f, HEAD 59cd38543902d151b9c636f87efa2fa2f50ac48d; selected paths per candidate-ship-docs-a2.json; docs root handbook; mode edit.\n- Attempt 1 (ship-docs-a1, handle fixture-child-1): no output within ~10 min; stop requested, status confirmed stopped; inputs unchanged. Evidence: completion-ship-docs-a1.md, candidate-ship-docs-a1.json.\n- Recovery: child confirmed settled; declared transport repair applied; assets reconfirmed by sha256sum; Prepare repeated with fresh id ship-docs-a2.\n- Attempt 2 (ship-docs-a2): terminal output rejected — audit_id echoed ship-docs-a1, not ship-docs-a2 (late result from abandoned id). Evidence: completion-ship-docs-a2.md, prompt-ship-docs-a2.md.\n- Ownership/freshness: HEAD, index and every selected-path sha256 match candidate-ship-docs-a2.json; no child writes; personal-note.txt preserved. Changed paths: none.\n- Consumed documentation_section: none (no validated audit; rejected output retained as evidence only).\n- Blockers/debt: attempt budget exhausted (2 of 2); no verified documentation audit exists for this release; no user risk exception approved, so publication and Step 15 are not authorized.\n- Publication: not performed (local publish stand-in not invoked).\n- Invocation record: ship-invocation.md, Checkpoints 1–3.\n",
+    "published": false
+  }
+}

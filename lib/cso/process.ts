@@ -225,10 +225,13 @@ function safeMetadata(value: string, key: string): boolean {
     return true;
   return false;
 }
+// Run ids are public CI metadata to the shared redactor; here only the validated
+// workflow slot may carry one.
+const RUN_ID_SEGMENT = /(\/actions\/runs\/)[0-9]+/g;
 function sanitizeJson(value: unknown, key: string, seen: WeakSet<object>, trustedMetadata: boolean): unknown {
   if (typeof value === 'string') {
     if (trustedMetadata && safeMetadata(value, key)) return value;
-    return redact(value);
+    return redact(value).replace(RUN_ID_SEGMENT, '$1<REDACTED-ci-run-id>');
   }
   if (value === null || typeof value !== 'object') return value;
   if (seen.has(value as object)) throw new CsoError('INVALID_SCHEMA', 'Cyclic JSON cannot be persisted');

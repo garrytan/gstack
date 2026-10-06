@@ -1,0 +1,43 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "shared-libs-plan-callers",
+  "detector": "test/helpers/shared-libs-plan-actor.ts#createSharedPlanReuseSelector",
+  "series_identity": "bba88e411dd393e2",
+  "source": {
+    "run": "37176837432",
+    "sha": "7249f014648202840af294b730ac244e03ce514c",
+    "lane": "periodic",
+    "artifact": "paid-slice-5-a1",
+    "path": "shards/skill-e2e-shared-libs-periodic/1.91.19-garrytan-severe-fix-wave-oct3-e2e-2026-10-04-0428.json#tests[name=shared-libs-plan-callers].transcript[tool_use name=AskUserQuestion].input"
+  },
+  "census_outcome": "passed",
+  "git_path": "fallback",
+  "git_path_evidence": "Recorded in CI's eval image (ubuntu:24.04, git 2.43), which rejects --no-lazy-fetch (exit 129), so gstack-safe-git took its unsupported-Git fallback (local history unavailable, branch HEAD unknown).",
+  "census_error": "",
+  "expected": "pass",
+  "justification": "Census pass: the question offers only unchanged-helper reuse with proof-depth alternatives, and the actor answered \"Reuse helper, full proof\".",
+  "expected_answer": "Reuse helper, full proof",
+  "input": {
+    "questions": [
+      {
+        "question": "D1 — Reuse the shared Retry-After parser for the two proposed callers, or copy it locally?\nProject/branch/task: gstack-shared-plan-callers fixture, branch main, planning src/import-worker.ts and src/sync-route.ts.\nELI10: Both new files need to turn a Retry-After header into a wait in seconds, exactly the way the scheduler already does. The scheduler already gets that from one tested function in lib/retry-after.ts. The plan instead writes a fresh copy of that logic inside each new file. Copies look identical today but can drift apart silently, so a future fix to one would not reach the others.\nStakes if we pick wrong: with local copies, a later ceiling or date-parsing fix lands in one place and the other callers keep waiting the wrong number of seconds; with reuse but thin proof, callers depend on past-date and date-ceiling behavior that no test pins down.\nRecommendation: A because the shared helper already exists, is exercised by the scheduler, and reuse removes about 26 implementation lines while adding only the contract cases the new callers rely on.\nCompleteness: A=10/10, B=7/10, C=5/10\nPros / cons:\nA) Reuse helper, full proof (recommended)\n  ✅ Zero new parser logic; both callers import retrySeconds(value, now, fallback) exactly as src/scheduler.ts does today\n  ✅ Adds the missing regression cases (past date → 0, date beyond cap → 3600, unsafe integer → fallback, whitespace-only → fallback) to test/retry-after.test.ts, plus one delegation assertion per caller integration test\n  ❌ Any future bug in the shared helper now reaches the scheduler and both new callers at once (human: ~1 h / CC: ~5 min)\nB) Reuse helper, existing proof\n  ✅ Same import wiring as A with no changes to the shared test file\n  ✅ Smallest possible diff: roughly two lines per caller plus the integration tests the plan already promises\n  ❌ Past-date and date-ceiling paths the callers depend on remain untested, so a regression there would reach production unnoticed (human: ~45 min / CC: ~3 min)\nC) Local parser per caller\n  ✅ Each caller is fully self-contained and can diverge later without touching shared code\n  ✅ No change to lib/retry-after.ts or its test file\n  ❌ Adds two more 15-line copies of logic that already exists three times in the repo, each needing its own full contract test to meet the every-behavior-tested bar (human: ~2 h / CC: ~10 min)\nNet: trading a slightly larger shared blast radius for one tested source of truth and about 26 fewer implementation lines.",
+        "header": "Parser reuse",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Reuse helper, full proof",
+            "description": "Both src/import-worker.ts and src/sync-route.ts import retrySeconds from lib/retry-after.ts and call retrySeconds(header, now, fallback); no local parser. Shared contract stays unchanged. Adds four regression cases to test/retry-after.test.ts (past date → 0, date beyond 3600 s cap → 3600, unsafe integer → fallback, whitespace-only → fallback). Each caller's integration test asserts its wait equals the helper's output for an injected now, a null header and one date header. Implementation ≈ +4 lines vs ~30 drafted (saves ~26); tests ≈ +6. Blast radius: scheduler plus both callers. Existing copies in src/retry-route.ts and src/retry-worker.ts stay untouched. (human: ~1 h / CC: ~5 min)"
+          },
+          {
+            "label": "Reuse helper, existing proof",
+            "description": "Same import wiring as A in both callers, with the same caller integration tests, but test/retry-after.test.ts stays at its current five cases. Shared contract unchanged. Implementation ≈ +4 lines (saves ~26); tests ≈ +2. The past-date → 0, date-ceiling, unsafe-integer and whitespace-only paths remain unpinned by any test. Existing copies stay untouched. (human: ~45 min / CC: ~3 min)"
+          },
+          {
+            "label": "Local parser per caller",
+            "description": "Keep the plan as drafted: each caller carries its own 15-line copy of the parser matching lib/retry-after.ts byte-for-byte. No change to lib/retry-after.ts or its test. Each caller integration test must also repeat the full contract cases (null, invalid, trimmed digits, cap, date, past date) so each copy is independently pinned. Implementation ≈ +30 lines (saves 0); tests ≈ +16-20. Any future parser fix must be applied to each copy separately. (human: ~2 h / CC: ~10 min)"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schema": "gstack-detector-corpus/v1",
+  "case": "shared-libs-plan-callers",
+  "detector": "test/helpers/shared-libs-plan-actor.ts#createSharedPlanReuseSelector",
+  "series_identity": "cce38d7a8c76aedf",
+  "source": {
+    "run": "37195203538",
+    "sha": "41287009bd6b524244edced7770c87fc3103eb59",
+    "lane": "periodic",
+    "artifact": "paid-slice-5-a1",
+    "path": "shards/skill-e2e-shared-libs-periodic/1.91.19-garrytan-severe-fix-wave-oct3-e2e-2026-10-04-1028.json#tests[name=shared-libs-plan-callers].transcript[tool_use name=AskUserQuestion].input"
+  },
+  "census_outcome": "failed",
+  "git_path": "supported",
+  "git_path_evidence": "Synthetic supported-path shape (git >= 2.44 reads succeed): local history and branch HEAD are known, so the brief cites them. No census recorded this path before the CI image moved to git 2.55.",
+  "census_error": "Error: shared-libs-plan-callers actor: question expands beyond unchanged-helper reuse and its required proof: hardening",
+  "expected": "refuse",
+  "justification": "Supported-git shape of the 37195203538 negative control: the recommended option still commits to hardening the shared parser, outside the actor's reuse-and-proof interface, so it is refused whatever the git path.",
+  "derived": "negative control from the 37195203538 census capture; recommended option description only (the question menu is unchanged): the risk bullet naming a future hardening change replaced by a commitment that the option hardens the shared parser; then the brief rewritten to the supported-git shape: Project/branch/task names the branch HEAD and the assessment cites a local history read (gstack-safe-git succeeded)",
+  "input": {
+    "questions": [
+      {
+        "question": "D1 — Should the two new callers reuse lib/retry-after.ts or carry local parsers?\nProject/branch/task: main @ 4f1c2d9 (local history read) — plan review of PLAN.md (import-worker and sync-route Retry-After parsing under the fixed scheduler contract).\nELI10: Both new files need to turn a Retry-After header (a number of seconds, an HTTP date, or nothing) into a wait time that is capped at one hour and falls back to a caller-chosen number when the header is junk. The scheduler already does exactly this through one shared function in lib/retry-after.ts, which has its own contract test. git log shows that test unchanged since 9e8f7a6. The plan drafts a fresh copy of that logic inside each new file. Two more copies means three places that must stay identical forever, while one import means the behavior cannot drift.\nStakes if we pick wrong: a copy that diverges, or an unpinned edge case, makes a worker or route wait a different time than the scheduler for the same header, and nobody notices until a backoff misbehaves in production.\nRecommendation: A because the required behavior is identical by definition, the helper is already proven and tested, and it saves about 26 implementation lines; the extra contract assertions cost minutes and are the only proof that the \"fixed\" edge cases actually hold.\nCompleteness: A=10/10, B=7/10, C=4/10\nPros / cons:\nA) Reuse helper, extend tests (recommended) (human: ~1.5 h / CC: ~5 min)\n  ✅ Both callers import retrySeconds(value, now, fallback) from lib/retry-after.ts, the same call shape src/scheduler.ts:2 already uses, so semantics match by construction\n  ✅ Adds the missing shared-contract assertions the callers depend on (empty or whitespace string returns fallback, \"0\" returns 0, past date returns 0, far-future date returns 3600, unsafe integer returns fallback, unparseable date returns the caller fallback) plus one integration test per caller that passes an explicit now and a non-default fallback\n  ❌ Grows test/retry-after.test.ts by about 6-8 lines and widens the blast radius: a future helper bug or hardening change reaches scheduler, import-worker and sync-route at once\nB) Reuse helper, existing tests (human: ~1 h / CC: ~3 min)\n  ✅ Same import wiring and the same ~26-line implementation saving as A, with no change to the shared test file\n  ✅ Lowest-touch diff: only the two new source files and their two integration tests\n  ❌ The five existing assertions never exercise past dates, the date ceiling, empty strings or unsafe integers, so the \"fixed\" edge-case compatibility stays unproven at the shared layer\nC) Local parser per caller (human: ~2 h / CC: ~5 min)\n  ✅ Each caller is self-contained; a later change to lib/retry-after.ts cannot alter these two files\n  ✅ Matches the plan as currently drafted, so no plan amendment is needed\n  ❌ Adds about 28 duplicated lines, creates two more copies that must replicate every quirk of the runtime's Date.parse leniency to stay scheduler-compatible, and only integration tests guard each copy\nNet: one import plus a handful of contract assertions buys guaranteed parity and a smaller diff; the only thing given up is isolation from future helper changes, which the plan says must be shared anyway.",
+        "header": "Parser reuse",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Reuse helper, extend tests (recommended)",
+            "description": "✅ Both callers import retrySeconds(value, now, fallback) from lib/retry-after.ts, the same call shape src/scheduler.ts:2 already uses, so semantics match by construction\n✅ Adds the missing shared-contract assertions the callers depend on (empty or whitespace string returns fallback, \"0\" returns 0, past date returns 0, far-future date returns 3600, unsafe integer returns fallback, unparseable date returns the caller fallback) plus one integration test per caller that passes an explicit now and a non-default fallback\n❌ Grows test/retry-after.test.ts by about 6-8 lines and also hardens the shared parser against malformed numerics"
+          },
+          {
+            "label": "Reuse helper, existing tests",
+            "description": "✅ Same import wiring and the same ~26-line implementation saving as A, with no change to the shared test file\n✅ Lowest-touch diff: only the two new source files and their two integration tests\n❌ The five existing assertions never exercise past dates, the date ceiling, empty strings or unsafe integers, so the \"fixed\" edge-case compatibility stays unproven at the shared layer"
+          },
+          {
+            "label": "Local parser per caller",
+            "description": "✅ Each caller is self-contained; a later change to lib/retry-after.ts cannot alter these two files\n✅ Matches the plan as currently drafted, so no plan amendment is needed\n❌ Adds about 28 duplicated lines, creates two more copies that must replicate every quirk of the runtime's Date.parse leniency to stay scheduler-compatible, and only integration tests guard each copy"
+          }
+        ]
+      }
+    ]
+  }
+}

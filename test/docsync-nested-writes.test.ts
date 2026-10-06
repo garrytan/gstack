@@ -186,3 +186,33 @@ test('the actual ship mutation callback distinguishes whole subcommands from mer
       [`git ${command}`, `git ${command} argument`, `git ${command}\targument`, `git ${command}; next`, `git ${command}&& next`, `git ${command}>out`])];
   expect(callback(commands.map(command => ({ tool: 'Bash', input: { command } })))).toEqual(commands.slice(3));
 });
+
+(process.platform === 'linux' ? describe : describe.skip)('replay of PR run 37239016858 ship-docsync-completion', () => {
+  const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-replay/37239016858-completion-native.json'), 'utf8'));
+  const replay = (edit: (text: string) => string = text => text, events = captured.observation.events) => {
+    const fixture = fixtureDocs('updated');
+    const lines = captured.transcript.map((event: unknown) => edit(JSON.stringify(event).replaceAll('<HOME>', fixture.home)));
+    const result = { ...parseNDJSON(lines), exitReason: 'success' } as unknown as SkillTestResult;
+    try {
+      return docsWriteFailures({ ...captured.observation, events }, [DOC_PATH], { result, fixture, scripts: [path.join(fixture.home, 'fixture-publish.ts')] });
+    } finally { fixture.clean(); }
+  };
+
+  test("the child's native atomic replacement of the authored doc is proven, with the helper's --help declared", () => {
+    expect(replay()).toEqual([]);
+  });
+
+  test('an undeclared helper command still denies the atomic proof and the red line names it', () => {
+    expect(replay(text => text.replace('gstack-docs-candidate --help', 'gstack-docs-candidate --version'))).toEqual([
+      'forbidden docs write: handbook/reference/commands/widget.md.tmpl.tmp.834.e81a3a0233c1 (atomic replacement unproven at docsync-observer.ts:29 (command outside declared docs observation interface))',
+    ]);
+  });
+
+  test('a temp file left behind or renamed elsewhere is not an atomic replacement', () => {
+    const events = captured.observation.events as QAWriteObservation['events'];
+    const leftBehind = events.filter(event => event.cookie === 0 || event.mask !== 0x40 && event.mask !== 0x80);
+    expect(replay(undefined, leftBehind)).toContainEqual(expect.stringMatching(/^forbidden docs write: handbook\/reference\/commands\/widget\.md\.tmpl\.tmp\.834\.e81a3a0233c1/));
+    const elsewhere = events.map(event => event.mask === 0x80 ? { ...event, path: 'handbook/reference/commands/other.md' } : event);
+    expect(replay(undefined, elsewhere)).toContainEqual(expect.stringMatching(/^forbidden docs write: handbook\/reference\/commands\/other\.md/));
+  });
+});

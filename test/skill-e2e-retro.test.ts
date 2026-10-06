@@ -79,11 +79,10 @@ describeIfSelected('Base branch detection', ['retro-base-branch'], () => {
   });
 
   testConcurrentIfSelected('retro-base-branch', async () => {
-    const dir = path.join(baseBranchDir, 'retro-base');
-    fs.mkdirSync(dir, { recursive: true });
+    const dir = baseBranchDir;
 
-    // Create git repo with commit history
-    run('git', ['init'], dir);
+    // Create git repo with commit history on main, the branch the prompt names
+    run('git', ['init', '-b', 'main'], dir);
     run('git', ['config', 'user.email', 'dev@example.com'], dir);
     run('git', ['config', 'user.name', 'Dev'], dir);
 

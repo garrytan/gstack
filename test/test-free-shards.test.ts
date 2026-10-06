@@ -805,6 +805,17 @@ describe('test-free-shards: output contract (log capture, quiet console, failure
     expect(lines.some((l) => l.startsWith('[test:free] FAIL — '))).toBe(true);
   }, 30_000);
 
+  test('a test process that aborts before its summary names the in-flight file and its last output', () => {
+    const reporter = new FreeRunReporter(['test/done.test.ts', 'test/aborted.test.ts']);
+    reporter.write('::group::test/done.test.ts:\n(pass) fine\n::endgroup::\n', 'stdout');
+    reporter.write('::group::test/aborted.test.ts:\n(pass) first\n', 'stdout');
+    reporter.write('GetQueuedCompletionStatusEx: (735) ERROR_ABANDONED_WAIT_0\n', 'stderr');
+    reporter.end();
+    const lines = buildRunEpilogue('failed', reporter.report(), 16_000, '/tmp/x.log');
+    expect(lines).toContain('  ⚠ test process ended before its summary; in flight: test/aborted.test.ts');
+    expect(lines).toContain('  ⚠ last output: GetQueuedCompletionStatusEx: (735) ERROR_ABANDONED_WAIT_0');
+  });
+
   test('timeout with no observable header falls back to the buffered-parallel explanation', () => {
     const reporter = new FreeRunReporter(['test/a.test.ts', 'test/b.test.ts']);
     reporter.end();

@@ -183,6 +183,41 @@ function launchedProcess(browser: Browser | null | undefined): ChildProcess | nu
 }
 
 /**
+ * #2709: PID of the Chromium browser process gstack launched, read over CDP
+ * (`SystemInfo.getProcessInfo`, type "browser") because Playwright 1.62's
+ * Browser has no `process()`. Call it only for a launch gstack owns; a
+ * connected browser belongs to someone else and must never be reaped. Bounded:
+ * a hung or failed CDP call logs once and returns null, which means no reap.
+ */
+export async function launchedChromiumPid(browser: Browser, timeoutMs = 2_000): Promise<number | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const query = async (): Promise<number | null> => {
+    const session = await browser.newBrowserCDPSession();
+    try {
+      const { processInfo } = await session.send('SystemInfo.getProcessInfo');
+      const pid = processInfo.find((p) => p.type === 'browser')?.id;
+      return Number.isInteger(pid) && pid! > 0 ? pid! : null;
+    } finally {
+      await session.detach().catch(() => {});
+    }
+  };
+  try {
+    return await Promise.race([
+      query(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[browse] Could not record the Chromium PID (CDP SystemInfo.getProcessInfo: ${msg}); browse stop cannot reap a surviving Chromium.`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Resolve why the underlying Chromium ChildProcess is going away.
  *
  * The 'disconnected' Playwright event fires before the child process emits
@@ -669,12 +704,10 @@ export class BrowserManager {
     });
 
     // #2709: record the child's identity so the CLI can reap a survivor after
-    // daemon shutdown. `.process()` exists here — we launched this browser.
+    // daemon shutdown. We launched this browser, so its PID is ours to record.
     {
-      const proc = launchedProcess(this.browser);
-      this.chromiumProcInfo = proc?.pid
-        ? { pid: proc.pid, startTime: readPidStartTime(proc.pid) }
-        : null;
+      const pid = await launchedChromiumPid(this.browser);
+      this.chromiumProcInfo = pid ? { pid, startTime: readPidStartTime(pid) } : null;
     }
 
     this.context = await this.browser.newContext(contextOptions);

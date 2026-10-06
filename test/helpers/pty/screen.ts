@@ -414,6 +414,13 @@ export function isNumberedOptionListVisible(visible: string): boolean {
 /** Start of the CLI's public "API Error:" panel. The native AUQ capture reads the same panel. */
 export const API_ERROR_PANEL = /(?:^|\n)[\t │┃]*(?:[⎿●⏺]\s*)?API Error:/i;
 
+/** Session-ledger end from the last idle turn's public error panel: a safeguards panel is a refusal, any other an API error. */
+export function idlePanelEnd(visible: string): { end: 'refusal' | 'api_error'; evidence: string } | null {
+  const panel = idleTurnEnd(visible)?.apiError;
+  if (!panel) return null;
+  return { end: /safeguards flagged|can't respond to this message/i.test(panel) ? 'refusal' : 'api_error', evidence: panel };
+}
+
 /** The CLI's end-of-turn line, e.g. "✻ Cooked for 24s · done 12:46 AM" (spaces may collapse in the PTY text). */
 const TURN_DONE_RE = /✻[ \t]*\p{L}[\p{L}'’-]*[ \t]*for[ \t]*(?=\d)(?:\d+h[ \t]*)?(?:\d+m[ \t]*)?(?:\d+s)?[ \t]*·[ \t]*done[^\n]*/gu;
 /** An empty input prompt and its known idle footers, nothing else. */

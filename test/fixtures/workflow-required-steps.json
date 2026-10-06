@@ -1,0 +1,214 @@
+{
+  "source": "Step and phase headings of the judged workflow skills, derived on 2026-10-04 from the generated Claude SKILL.md and sections (templates at the integration head). qa-only lists its template's own top-level headings. C1 calibration showed the workflow judges pass a bundle with a required step removed, so missing-step coverage lives here.",
+  "skills": {
+    "qa": {
+      "SKILL.md": [
+        "## Step 0: Detect platform and base branch",
+        "## Phases 1-6: QA Baseline",
+        "## Phase 7: Triage",
+        "## Phase 8: Fix Loop",
+        "### 8a. Diagnose and reproduce",
+        "### 8a.5. Regression test before repair",
+        "### 8b. Fix",
+        "### 8c. Re-test",
+        "### 8d. Commit verified work",
+        "### 8e. Classify",
+        "### 8e.5. Regression Test record",
+        "### 8f. Self-Regulation (STOP AND EVALUATE)",
+        "## Phase 9: Final QA",
+        "## Phase 10: Report",
+        "## Phase 11: TODOS.md Update"
+      ],
+      "sections/exploratory.md": [
+        "## 1. Charter and preflight",
+        "## 2. Probe loop",
+        "## 3. Parent handoff",
+        "## 4. Final report"
+      ],
+      "sections/qa-patterns.md": [
+        "### Phase 1: Initialize",
+        "### Phase 2: Authenticate (if needed)",
+        "### Phase 3: Orient",
+        "### Phase 4: Explore",
+        "### Phase 5: Document",
+        "### Phase 6: Wrap Up"
+      ]
+    },
+    "qa-only": {
+      "SKILL.md": [
+        "## Request Parameters",
+        "## Test Plan Context",
+        "## Select Surfaces and Isolation",
+        "## Prepare Report Artifacts",
+        "## Browser Setup (conditional)",
+        "## Run the Selected Checks",
+        "## Output",
+        "## Additional Rules (qa-only specific)"
+      ],
+      "sections/exploratory.md": [
+        "## 0. Preparation gate",
+        "## 1. Charter and preflight",
+        "## 2. Probe loop",
+        "## 3. Parent handoff",
+        "## 4. Final report"
+      ],
+      "sections/reporting.md": [
+        "## 1. Establish each finding once",
+        "## 2. Fill timing fields from their actual boundaries",
+        "## 3. Assemble and check every repetition before writing",
+        "## 4. Capture permitted notes, then write the report"
+      ]
+    },
+    "review": {
+      "SKILL.md": [
+        "## Step 0: Detect platform and base branch",
+        "## Step 1: Check branch",
+        "## Step 1.5: Scope Drift Detection",
+        "## Step 2: Read the checklist",
+        "## Step 2.5: Check for Greptile review comments",
+        "## Step 3: Get the diff",
+        "## Step 3.4: Workspace-aware queue status (advisory)",
+        "## Step 3.5: Slop scan (advisory)",
+        "## Step 3.6: Gather review context",
+        "## Step 4: Critical pass (core review)",
+        "### Step 4.7: Exploratory QA (before Fix-First)",
+        "## Step 5: Fix-First Review",
+        "### Step 5.0: Cross-review finding dedup",
+        "### Step 5a: Classify each finding",
+        "### Step 5b: Auto-fix all AUTO-FIX items",
+        "### Step 5c: Batch-ask about ASK items",
+        "### Step 5d: Apply user-approved fixes",
+        "## Step 5.8: Persist Eng Review result",
+        "### 1. Re-review after edits",
+        "### 2. Fill the record"
+      ],
+      "sections/adversarial.md": [
+        "## Step 4.8: Adversarial review (always-on)"
+      ],
+      "sections/review-army.md": [
+        "## Step 4.5: Review Army — Specialist Dispatch",
+        "### Step 4.6: Collect and merge findings",
+        "#### 1. Parse outputs",
+        "#### 2. Validate severity",
+        "#### 3. Identify and merge",
+        "#### 4. Apply specialist confidence gates",
+        "#### 5. Score and present specialists",
+        "#### 6. Save specialist activity",
+        "#### 7. Hand off to Fix-First"
+      ]
+    },
+    "ship": {
+      "SKILL.md": [
+        "## Step 0: Detect platform and base branch",
+        "## Step 0.9: Apple target detection",
+        "## Step 1: Pre-flight",
+        "## Step 2: Distribution Pipeline Check",
+        "## Step 3: Merge the base branch (BEFORE tests)",
+        "## Step 11.5: Bind the reviews",
+        "## Step 12: Version bump (auto-decide)",
+        "## Step 14: TODOS.md (auto-update)",
+        "## Step 14.5: Documentation audit (every ship)",
+        "## Step 15: Commit (bisectable chunks)",
+        "## Step 16: Verification Gate",
+        "### 1. Finish writers and prepare outputs",
+        "### 2. Choose the change route",
+        "### 3. Resolve documentation freshness",
+        "### 4. Verify the frozen candidate",
+        "### 5. Report, then push",
+        "## Step 17: Push",
+        "## Step 18: Prepare publication metadata",
+        "## Step 20: Persist ship metrics",
+        "## Step 21: Plan-tune discoverability nudge (first-successful-ship only)"
+      ],
+      "sections/adversarial.md": [
+        "## Step 11: Adversarial review (always-on)"
+      ],
+      "sections/changelog.md": [
+        "## Step 13: CHANGELOG (auto-generate)"
+      ],
+      "sections/greptile.md": [
+        "## Step 10: Address Greptile review comments (if PR exists)"
+      ],
+      "sections/plan-completion.md": [
+        "## Step 8: Plan Completion Audit",
+        "## Step 8.1: Plan Verification",
+        "## Step 8.2: Scope Drift Detection"
+      ],
+      "sections/pr-body.md": [
+        "## Step 19: Create PR/MR"
+      ],
+      "sections/review-army.md": [
+        "## Step 9: Pre-Landing Review",
+        "## Step 9.1: Review Army — Specialist Dispatch",
+        "### Step 9.2: Collect and merge findings",
+        "#### 1. Parse outputs",
+        "#### 2. Validate severity",
+        "#### 3. Identify and merge",
+        "#### 4. Apply specialist confidence gates",
+        "#### 5. Score and present specialists",
+        "#### 6. Save specialist activity",
+        "#### 7. Hand off to Fix-First",
+        "### Step 9.2.1: Exploratory QA (before Fix-First)",
+        "### Step 9.3: Cross-review finding dedup",
+        "## Step 9.4: Fix-First and persistence"
+      ],
+      "sections/test-coverage.md": [
+        "## Step 7: Test Coverage Audit"
+      ],
+      "sections/tests.md": [
+        "## Step 4: Test Framework Bootstrap",
+        "## Step 5: Run tests (on merged code)",
+        "## Step 6: Eval Suites (conditional)"
+      ]
+    },
+    "plan-ceo-review": {
+      "SKILL.md": [
+        "## Step 0: Detect platform and base branch",
+        "## Step 0: Nuclear Scope Challenge + Mode Selection",
+        "### 0A. Premise Challenge",
+        "### 0B. Existing Code Leverage",
+        "### 0C. Dream State Mapping",
+        "### 0D. Alternatives (reusable decision procedure)",
+        "### 0E. Mode Selection",
+        "### 0F. Expansion Framing (shared by EXPANSION and SELECTIVE EXPANSION)",
+        "### 0G. Mode-Specific Analysis",
+        "### 0H. Persist CEO Plan (EXPANSION and SELECTIVE EXPANSION only)",
+        "### 0I. Temporal Interrogation (EXPANSION, SELECTIVE EXPANSION, and HOLD modes)"
+      ],
+      "sections/review-sections.md": [
+        "### Section 1: Architecture Review",
+        "### Section 2: Error & Rescue Map",
+        "### Section 3: Security & Threat Model",
+        "### Section 4: Data Flow & Interaction Edge Cases",
+        "### Section 5: Code Quality Review",
+        "### Section 6: Test Review",
+        "### Section 7: Performance Review",
+        "### Section 8: Observability & Debuggability Review",
+        "### Section 9: Deployment & Rollout Review",
+        "### Section 10: Long-Term Trajectory Review",
+        "### Section 11: Design & UX Review (skip if no UI scope detected)"
+      ]
+    },
+    "plan-eng-review": {
+      "SKILL.md": [
+        "### Step 0: Scope Challenge"
+      ],
+      "sections/review-sections.md": [
+        "### 1. Architecture review",
+        "### 2. Code quality review",
+        "### 3. Test review",
+        "### 4. Performance review"
+      ]
+    },
+    "setup-deploy": {
+      "SKILL.md": [
+        "### Step 1: Check existing configuration",
+        "### Step 2: Detect platform",
+        "### Step 3: Platform-specific setup",
+        "### Step 4: Write configuration",
+        "### Step 5: Verify",
+        "### Step 6: Summary"
+      ]
+    }
+  }
+}

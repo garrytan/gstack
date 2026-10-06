@@ -66,13 +66,16 @@ import { EVAL_POLICY, PERIODIC_CI_EXCLUDE } from '../test/helpers/periodic-exclu
 import {
   getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile, failureClassOf, panelVerdict,
   sanitizeTrialError, CONTRACT_VIOLATIONS_FILE, TRIAL_ENV, type TrialFailureClass,
+  trialCostKnown, trialFailureFields, trialSessions,
 } from '../test/helpers/eval-store';
+import { STALL_WINDOW_MS } from '../test/helpers/eval-budgets';
+import { readSessionLedger, type SessionLedgerRow } from '../test/helpers/session-ledger';
 import { preflightAnthropicApi } from '../test/helpers/anthropic-preflight';
 import { e2eReuseLaneProblem, prepareE2EShardReuse, selectPlanReceipts } from './e2e-shard-reuse';
 import { E2E_TOUCHFILES, E2E_TIERS } from '../test/helpers/touchfiles';
 import { scopeCodexAccess, shardFile, shardCaseId, shardTrial, trialShardKey, type CaseTrialPlan, caseTrialPlan, excludedCasesNamePattern, caseTestNamePattern, expandCaseShards, expandTrialShards, fileCaseRegistration, partitionCaseExclusions } from './lib/paid-cases';
 import { retriesForFiles, trialPanelKey, sliceExecutionOrder, buildRunManifest, parseRunManifest, type SliceResult, sliceExitCode, guardTrialRecords, formatSlicePlan, formatCapacityPreflight, sliceDeadlineMs } from './lib/paid-plan';
-import { caseFile, runCaseDiagnosis, formatPanelLine, runPaidReport } from './lib/paid-report';
+import { caseSelection, runCaseDiagnosis, formatPanelLine, runPaidReport } from './lib/paid-report';
 import {
   DEFAULT_JOBS, DEFAULT_MAX_FILES_PER_SHARD, DEFAULT_SHARD_TIMEOUT_MS, DEFAULT_TIER, DEFAULT_WITHIN_SHARD_CONCURRENCY, OVERLAY_MAX_ACTIVE_SHARDS,
   PAID_LANE_POLICY, PAID_TIERS, ROOT, SLICE_JOB_STARTED_AT_ENV, SLICE_UPLOAD_RESERVE_MS, isOverlayTestFile,
@@ -94,8 +97,10 @@ export * from './lib/paid-cases';
 export * from './lib/paid-plan';
 export * from './lib/paid-report';
 
-/** Records and contract evidence an isolated shard left in its eval dir. */
-export function readTrialEvidence(evalDir: string | undefined): { records: any[]; contract: string | null } {
+type TrialEvidence = { records: any[]; contract: string | null; sessions?: SessionLedgerRow[] };
+
+/** Records, contract evidence and session-ledger rows an isolated shard left in its eval dir. */
+export function readTrialEvidence(evalDir: string | undefined): TrialEvidence {
   if (!evalDir || !fs.existsSync(evalDir)) return { records: [], contract: null };
   const names = fs.readdirSync(evalDir);
   const parse = (name: string) => { try { return JSON.parse(fs.readFileSync(path.join(evalDir, name), 'utf8')); } catch { return null; } };
@@ -108,28 +113,32 @@ export function readTrialEvidence(evalDir: string | undefined): { records: any[]
     const line = fs.readFileSync(path.join(evalDir, CONTRACT_VIOLATIONS_FILE), 'utf8').split('\n').find(l => l.trim());
     if (line) contract = String(JSON.parse(line).message ?? 'contract violation');
   } catch { /* no sidecar */ }
-  return { records, contract };
+  return { records, contract, sessions: readSessionLedger(evalDir) };
 }
 
 /** Classify one isolated trial shard. Contract evidence always fails the trial. */
 export function classifyTrialShard(
   outcome: Pick<ShardOutcome, 'status' | 'executedTests' | 'skippedTests' | 'elapsedMs' | 'runnerError'>,
   caseId: string, trial: number, plan: CaseTrialPlan,
-  evidence: { records: any[]; contract: string | null },
+  evidence: TrialEvidence,
 ): ShardTrialRecord {
   const failedRecord = evidence.records.find(record => record.passed === false) ?? evidence.records[0];
   const base: ShardTrialRecord = {
     case: caseId, trial, kind: plan.kind, panel: plan.panel, quarantined: plan.quarantined, outcome: null,
     cost_usd: Math.round(evidence.records.reduce((sum, record) => sum + (Number(record.cost_usd) || 0), 0) * 100) / 100,
     duration_ms: outcome.elapsedMs,
-    ...(typeof failedRecord?.model === 'string' ? { model: failedRecord.model } : {}),
+    ...(typeof failedRecord?.model === 'string' ? { model: failedRecord.model } : {}), ...trialSessions(evidence.sessions ?? []),
+    ...trialCostKnown(evidence.records, evidence.sessions),
   };
-  const failed = (failureClass: TrialFailureClass, error?: string): ShardTrialRecord => ({
-    ...base, outcome: 'failed', failure_class: evidence.contract !== null ? 'contract' : failureClass,
-    ...(failedRecord?.exit_reason ? { exit_reason: String(failedRecord.exit_reason) } : {}),
-    ...(Number.isInteger(failedRecord?.timeout_at_turn) ? { timeout_at_turn: failedRecord.timeout_at_turn } : {}),
-    ...(sanitizeTrialError(evidence.contract ?? failedRecord?.error ?? error) ? { error: sanitizeTrialError(evidence.contract ?? failedRecord?.error ?? error) } : {}),
-  });
+  const failed = (failureClass: TrialFailureClass, error?: string): ShardTrialRecord => {
+    const cls = evidence.contract !== null ? 'contract' : failureClass;
+    const raw = evidence.contract ?? failedRecord?.error ?? error;
+    return { ...base, outcome: 'failed', failure_class: cls,
+      ...(failedRecord?.exit_reason ? { exit_reason: String(failedRecord.exit_reason) } : {}),
+      ...(Number.isInteger(failedRecord?.timeout_at_turn) ? { timeout_at_turn: failedRecord.timeout_at_turn } : {}),
+      ...(sanitizeTrialError(raw) ? { error: sanitizeTrialError(raw) } : {}),
+      ...trialFailureFields({ failure_class: cls, exit_reason: failedRecord?.exit_reason, error: raw, sessions: evidence.sessions, record: failedRecord }, STALL_WINDOW_MS) };
+  };
   if (outcome.runnerError !== undefined) return { ...base, harness: `runner error: ${sanitizeTrialError(outcome.runnerError) ?? 'unknown'}` };
   if (outcome.status === 'never-started') return { ...base, harness: 'never started' };
   if (outcome.status === 'passed-empty') return { ...base, harness: 'hollow: executed no case' };
@@ -873,16 +882,16 @@ async function main(): Promise<number> {
   if (options.reportDir) return runPaidReport(options.reportDir, { writeDurations: options.writeDurations });
 
   if (options.caseId && options.listOnly) {
-    const file = caseFile(options.caseId);
+    const { file, mode, reason } = caseSelection(options.caseId);
     const plan = caseTrialPlan(options.caseId);
     const n = options.trials ?? plan.panel.n;
-    console.log(`[test:paid] --case ${options.caseId}: ${n} trial(s) of ${file} (kind ${plan.kind}), list only`);
-    for (let trial = 1; trial <= n; trial++) console.log(`  ${trialShardKey(file, options.caseId, trial)}`);
+    console.log(`[test:paid] --case ${options.caseId}: ${n} trial(s) of ${file} (kind ${plan.kind}), selects ${reason}, list only`);
+    for (let trial = 1; trial <= n; trial++) console.log(`  ${mode === 'file' ? `${file} (trial ${trial})` : trialShardKey(file, options.caseId, trial)}`);
     return 0;
   }
   if (options.caseId) {
     preflightAnthropicApi(process.env);
-    const verdict = await runCaseDiagnosis(options.caseId, { trials: options.trials ?? undefined, jobs: options.jobs,
+    const verdict = await runCaseDiagnosis(options.caseId, { trials: options.trials ?? undefined, jobs: options.jobs, runShards: runPaidShards,
       withinShardConcurrency: options.withinShardConcurrency, timeoutMs: timeoutOverride,
       evalDirBase: process.env.GSTACK_EVAL_DIR || getProjectEvalDir() });
     return verdict.status === 'PASS' ? 0 : 1;

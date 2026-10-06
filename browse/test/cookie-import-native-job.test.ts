@@ -343,7 +343,7 @@ const request: NativeCookieRequest = {
   profile: 'Default',
   domains: ['example.test'],
   deadline: 25_000,
-  qualifiedBunVersions: ['1.4.0'],
+  qualifiedBunVersions: ['1.4.2'],
 };
 
 function kernelContract(mode: string) {

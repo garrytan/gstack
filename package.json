@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.91.29",
+  "version": "1.91.30",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -78,7 +78,7 @@
     "socks": "^2.8.9"
   },
   "engines": {
-    "bun": ">=1.4.0"
+    "bun": ">=1.4.2"
   },
   "keywords": [
     "browser",
@@ -93,7 +93,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.117",
     "@anthropic-ai/sdk": "^0.78.0",
-    "@types/bun": "1.4.0",
+    "@types/bun": "1.4.2",
     "prettier": "3.9.9",
     "typescript": "7.0.2",
     "xterm": "^5.3.0",

@@ -1,0 +1,92 @@
+[
+ {
+  "run": "37162480720",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "5553dbf327080983",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37162480720-t1-pass.json"
+ },
+ {
+  "run": "37174266054",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "57a825b033078a7b",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37174266054-t1-pass.json"
+ },
+ {
+  "run": "37176837432",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "57a825b033078a7b",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37176837432-t1-pass.json"
+ },
+ {
+  "run": "37179171083",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "57a825b033078a7b",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37179171083-t1-pass.json"
+ },
+ {
+  "run": "37182865432",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "c620ebc29ce470c6",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37182865432-t1-pass.json"
+ },
+ {
+  "run": "37186854666",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "a3e4c3429b2cfef8",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37186854666-t1-pass.json"
+ },
+ {
+  "run": "37193478719",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "a3e4c3429b2cfef8",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37193478719-t1-pass.json"
+ },
+ {
+  "run": "37195203538",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "ded5316419aefeaf",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37195203538-t1-pass.json"
+ },
+ {
+  "run": "37198445662",
+  "lane": "periodic",
+  "outcome": "passed",
+  "series_identity": "ded5316419aefeaf",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37198445662-t1-pass.json"
+ },
+ {
+  "run": "37228573062",
+  "lane": "periodic",
+  "outcome": "failed",
+  "series_identity": "4a37ebd37e42d08d",
+  "artifact": "paid-slice-1-a1",
+  "available": true,
+  "entry": "37228573062-t1-fail.json"
+ }
+]

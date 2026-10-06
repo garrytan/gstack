@@ -129,7 +129,7 @@ function cardRules(mode: TestValueBarMode, skillName: string): string {
     qa: skillName === 'qa-only' ? 'Put it under each proposed test.' : 'Put it in the 8e.5 record.',
     audit: 'Read cards from test header comments when present.',
   }[mode];
-  return `Value card: \`Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none\` (seam: \`none\` or its name); each field at most ${CARD_FIELD_MAX_BYTES} UTF-8 bytes here (clamp to 157 plus \`...\`; JSON keeps full values). ${where} A missing upstream card never blocks: derive it; ignore unknown fields.
+  return `Value card: \`Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none\` (seam: \`none\` or its name); each field at most ${CARD_FIELD_MAX_BYTES} UTF-8 bytes here (clamp to 157 plus \`...\`; written JSON keeps full values). ${where} A missing upstream card never blocks: derive it; ignore unknown fields.
 
 Example: ${EXAMPLE_CARD}
 ${EXAMPLE_REJECTED}`;

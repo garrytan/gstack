@@ -103,11 +103,11 @@ RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL "https://nodejs.org
 # Hashes come from the release's SHASUMS256.txt. The image builds linux/amd64
 # only (the Node.js tarball above is linux-x64); an architecture without a
 # verified archive fails here. test/ci-image-cli-pin.test.ts pins this shape.
-ARG BUN_VERSION=1.4.0
+ARG BUN_VERSION=1.4.2
 ARG TARGETARCH
 ENV BUN_INSTALL="/usr/local"
 RUN case "${TARGETARCH:-amd64}" in \
-      amd64) bun_target=linux-x64; bun_sha256=2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452 ;; \
+      amd64) bun_target=linux-x64; bun_sha256=36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913 ;; \
       *) echo "Dockerfile.ci: no verified Bun ${BUN_VERSION} archive for ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
     && curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL \

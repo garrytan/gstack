@@ -21,35 +21,37 @@ type DocsWriteContext = {
 /** Atomic temp files proven to be native replacements of DOC_PATH; `deniedAt` names the first unmet check. */
 function docsAtomicSources(observation: QAWriteObservation, allowed: string[], context?: DocsWriteContext): Set<string> & { deniedAt?: string } {
   const denied: Set<string> & { deniedAt?: string } = new Set<string>();
-  const deny = (line: number) => { denied.deniedAt = `docsync-observer.ts:${line}`; return denied; };
+  const deny = (line: number, cause?: string[]) => { denied.deniedAt = `docsync-observer.ts:${line}${cause?.length ? ` (${[...new Set(cause)].join('; ')})` : ''}`; return denied; };
   if (!context || context.readOnly || !allowed.includes(DOC_PATH) || !observation.complete || observation.failures.length) return denied;
   const { result, fixture, scripts = [] } = context;
-  if (result.exitReason !== 'success' || !Array.isArray(result.transcript) || docsToolFailures(result, fixture, scripts).length) return deny(27);
+  if (result.exitReason !== 'success' || !Array.isArray(result.transcript)) return deny(27);
+  const toolFailures = docsToolFailures(result, fixture, scripts);
+  if (toolFailures.length) return deny(29, toolFailures);
   const failures: string[] = [];
   const target = path.join(fixture.repo, DOC_PATH);
   const native = nativeCalls(result.transcript, failures);
   const calls = native.filter(call => ['Write', 'Edit'].includes(call.name)
     && typeof call.input.file_path === 'string' && path.resolve(fixture.repo, call.input.file_path) === target);
-  if (failures.length || !calls.length || calls.some((call, index) => call.failed || call.end <= call.start || (index > 0 && call.start <= calls[index - 1].end))) return deny(33);
+  if (failures.length || !calls.length || calls.some((call, index) => call.failed || call.end <= call.start || (index > 0 && call.start <= calls[index - 1].end))) return deny(35);
   const before = observation.before[DOC_PATH];
   const after = observation.after[DOC_PATH];
-  if (!/^\d+:[a-f0-9]{64}$/.test(before ?? '') || !/^\d+:[a-f0-9]{64}$/.test(after ?? '') || before.split(':')[0] !== after.split(':')[0]) return deny(36);
+  if (!/^\d+:[a-f0-9]{64}$/.test(before ?? '') || !/^\d+:[a-f0-9]{64}$/.test(after ?? '') || before.split(':')[0] !== after.split(':')[0]) return deny(38);
   const hash = (text: string) => createHash('sha256').update(text).digest('hex');
   const encoded = fixture.before?.contents[DOC_PATH];
-  if (typeof encoded !== 'string') return deny(39);
+  if (typeof encoded !== 'string') return deny(41);
   const baseline = Buffer.from(encoded, 'base64');
   let content = baseline.toString('utf8');
   let contentHash = before.split(':')[1];
-  if (baseline.toString('base64') !== encoded || !Buffer.from(content).equals(baseline) || hash(content) !== contentHash) return deny(43);
+  if (baseline.toString('base64') !== encoded || !Buffer.from(content).equals(baseline) || hash(content) !== contentHash) return deny(45);
   const seen = new Set([contentHash]);
   for (const call of calls) {
     const event = result.transcript[call.end];
     const payload = event.tool_use_result;
     const results = event.message.content.filter((block: any) => block?.type === 'tool_result');
-    if (results.length !== 1 || (results[0].is_error !== undefined && results[0].is_error !== false)) return deny(49);
+    if (results.length !== 1 || (results[0].is_error !== undefined && results[0].is_error !== false)) return deny(51);
     const omitted = !Object.hasOwn(event, 'tool_use_result');
     if (omitted) {
-      if (call.parent === null) return deny(52);
+      if (call.parent === null) return deny(54);
       let child = call;
       const ancestors = new Set<typeof call>();
       while (child.parent !== null) {
@@ -57,71 +59,71 @@ function docsAtomicSources(observation: QAWriteObservation, allowed: string[], c
           const blocks = result.transcript[candidate.end]?.message?.content?.filter((block: any) => block?.type === 'tool_result');
           return blocks?.length === 1 && blocks[0].tool_use_id === child.parent;
         });
-        if (parents.length !== 1) return deny(60);
+        if (parents.length !== 1) return deny(62);
         const parent = parents[0];
         const completion = result.transcript[parent.end];
         const block = completion.message.content.find((block: any) => block?.type === 'tool_result');
         if (!['Agent', 'Task'].includes(parent.name) || parent.failed || parent.input.run_in_background === true
           || parent.start >= child.start || parent.end <= child.end || ancestors.has(parent)
-          || (block.is_error !== undefined && block.is_error !== false)) return deny(66);
+          || (block.is_error !== undefined && block.is_error !== false)) return deny(68);
         if (Object.hasOwn(completion, 'tool_use_result')) {
-          if (completion.tool_use_result?.status !== 'completed') return deny(68);
-        } else if (parent.parent === null) return deny(69);
+          if (completion.tool_use_result?.status !== 'completed') return deny(70);
+        } else if (parent.parent === null) return deny(71);
         ancestors.add(parent);
         child = parent;
       }
-    } else if (!payload || payload.filePath !== target || payload.userModified !== false || payload.originalFile !== content) return deny(73);
+    } else if (!payload || payload.filePath !== target || payload.userModified !== false || payload.originalFile !== content) return deny(75);
     if (call.name === 'Write') {
-      if (typeof call.input.content !== 'string' || (!omitted && (payload.type !== 'update' || payload.content !== call.input.content))) return deny(75);
+      if (typeof call.input.content !== 'string' || (!omitted && (payload.type !== 'update' || payload.content !== call.input.content))) return deny(77);
       content = call.input.content;
     } else {
       const { old_string: old, new_string: replacement, replace_all: all = false } = call.input;
       if (typeof old !== 'string' || !old || typeof replacement !== 'string' || typeof all !== 'boolean'
-        || (!omitted && (payload.oldString !== old || payload.newString !== replacement || payload.replaceAll !== all))) return deny(80);
+        || (!omitted && (payload.oldString !== old || payload.newString !== replacement || payload.replaceAll !== all))) return deny(82);
       const parts = content.split(old);
-      if (parts.length < 2 || (!all && parts.length !== 2)) return deny(82);
+      if (parts.length < 2 || (!all && parts.length !== 2)) return deny(84);
       content = parts.join(replacement);
     }
     contentHash = hash(content);
-    if (seen.has(contentHash)) return deny(86);
+    if (seen.has(contentHash)) return deny(88);
     seen.add(contentHash);
   }
-  if (contentHash !== after.split(':')[1]) return deny(89);
+  if (contentHash !== after.split(':')[1]) return deny(91);
   const events = observation.events;
   const destinations = events.flatMap((event, index) => event.path === DOC_PATH && event.mask === 0x80 ? [index] : []);
-  if (destinations.length !== calls.length) return deny(92);
+  if (destinations.length !== calls.length) return deny(94);
   const sources = new Set<string>();
   let previous = -1;
   for (const destination of destinations) {
     const move = events[destination];
-    if (!Number.isInteger(move.cookie) || move.cookie <= 0 || move.cookie > 0xffffffff) return deny(97);
+    if (!Number.isInteger(move.cookie) || move.cookie <= 0 || move.cookie > 0xffffffff) return deny(99);
     const pair = events.flatMap((event, index) => event.cookie === move.cookie ? [index] : []);
-    if (pair.length !== 2 || pair[1] !== destination) return deny(99);
+    if (pair.length !== 2 || pair[1] !== destination) return deny(101);
     const source = events[pair[0]];
     if (source.mask !== 0x40 || source.path === DOC_PATH || path.dirname(source.path) !== path.dirname(DOC_PATH)
-      || Object.hasOwn(observation.before, source.path) || Object.hasOwn(observation.after, source.path) || sources.has(source.path)) return deny(102);
+      || Object.hasOwn(observation.before, source.path) || Object.hasOwn(observation.after, source.path) || sources.has(source.path)) return deny(104);
     const lifecycle = events.flatMap((event, index) => event.path === source.path ? [{ event, index }] : []);
-    if (lifecycle[0]?.event.mask !== 0x100 || lifecycle[0].index <= previous || lifecycle.at(-1)?.index !== pair[0]) return deny(104);
+    if (lifecycle[0]?.event.mask !== 0x100 || lifecycle[0].index <= previous || lifecycle.at(-1)?.index !== pair[0]) return deny(106);
     let modified = false;
     let closed = false;
     for (const { event, index } of lifecycle) {
-      if (index === pair[0]) { if (!modified || !closed) return deny(108); continue; }
-      if (event.cookie !== 0) return deny(109);
+      if (index === pair[0]) { if (!modified || !closed) return deny(110); continue; }
+      if (event.cookie !== 0) return deny(111);
       if (index === lifecycle[0].index) continue;
       if (event.mask === 0x2 && !closed) modified = true;
       else if (event.mask === 0x4 && !closed) continue;
       else if (event.mask === 0x8 && modified) closed = true;
-      else return deny(114);
+      else return deny(116);
     }
     sources.add(source.path);
     previous = destination;
   }
   if (events.some((event, index) => event.path === DOC_PATH && (index < destinations[0]
-    || ![0x80, 0x4, 0x400, 0x800].includes(event.mask) || (event.mask !== 0x80 && event.cookie !== 0)))) return deny(120);
+    || ![0x80, 0x4, 0x400, 0x800].includes(event.mask) || (event.mask !== 0x80 && event.cookie !== 0)))) return deny(122);
   for (const [index, destination] of destinations.entries()) {
     const replaced = events.slice(destination + 1, destinations[index + 1]).filter(event => event.path === DOC_PATH);
     if (replaced.filter(event => event.mask === 0x4).length !== 1 || replaced.filter(event => event.mask === 0x400).length !== 1
-      || replaced.filter(event => event.mask === 0x800).length > 1) return deny(124);
+      || replaced.filter(event => event.mask === 0x800).length > 1) return deny(126);
   }
   return sources;
 }
@@ -169,8 +171,12 @@ type DocsSessionOptionsInput = {
 
 export function docsSessionOptions(input: DocsSessionOptionsInput): Parameters<typeof import('./session-runner').runSkillTest>[0] {
   const { fixture, phase, report, publish, scenario, testName, runId, timeout } = input;
+  // The parent names this file in child prompts instead of retyping the interface (A1: ~30-40 s of generation).
+  const interfaceFile = path.join(fixture.home, 'fixture-interface.md');
+  const observation = docsNativeInterface(fixture, [publish], false, true, interfaceFile);
+  fs.writeFileSync(interfaceFile, `${observation}\n`, { mode: 0o600 });
   return {
-    prompt: `Load gstack's /ship workflow. Steps 0–14 are complete in this isolated fixture. Execute the next phase from ${phase}, then stop before the next numbered phase. Skill assets are installed under ${fixture.skills}; HOME=${fixture.home}. Base: main. ${scenario === 'current' ? 'This is a second /ship invocation for an existing open PR; the docs-only branch is already pushed. Earlier audit results are not evidence for this invocation.' : ''} ${scenario === 'store' ? 'The selected store-release source is the current working tree on main. All App Store operations are mocked and out of scope; no permissions to edit source are granted.' : ''} After the phase, write the ship outcome to ${report}. Only if the workflow gate actually allows continuing, run the isolated publication stand-in: bun ${publish}. No real PR, push, store action or later ship phase is authorized. If a decision is required, record the exact blocker and stop; no risk exception is granted. Preserve all partial content. The repository's Git-excluded .qa-state/ directory is the fixture owner's write-observer probe, not product content or child output.\n\n${docsNativeInterface(fixture, [publish], false, true)}`,
+    prompt: `Load gstack's /ship workflow. Steps 0–14 are complete in this isolated fixture. Execute the next phase from ${phase}, then stop before the next numbered phase. Skill assets are installed under ${fixture.skills}; HOME=${fixture.home}. Base: main. ${scenario === 'current' ? 'This is a second /ship invocation for an existing open PR; the docs-only branch is already pushed. Earlier audit results are not evidence for this invocation.' : ''} ${scenario === 'store' ? 'The selected store-release source is the current working tree on main. All App Store operations are mocked and out of scope; no permissions to edit source are granted.' : ''} After the phase, write the ship outcome to ${report}. Only if the workflow gate actually allows continuing, run the isolated publication stand-in: bun ${publish}. No real PR, push, store action or later ship phase is authorized. If a decision is required, record the exact blocker and stop; no risk exception is granted. Preserve all partial content. The repository's Git-excluded .qa-state/ directory is the fixture owner's write-observer probe, not product content or child output.\n\n${observation}`,
     workingDirectory: fixture.repo,
     maxTurns: 30,
     allowedTools: ['Bash', 'Read', 'Grep', 'Glob', 'Write', 'Edit', 'Agent', 'Task'],
@@ -263,6 +269,7 @@ function literalDocsCommandAllowed(text: string, fixture: ReturnType<typeof fixt
   const candidate = path.join(fixture.skills, 'bin/gstack-docs-candidate').split(path.sep).join('/');
   if (commandName === candidate) {
     const privateJson = (file: string | undefined) => !!file && path.isAbsolute(file) && /\.json$/i.test(file) && docsPrivateArtifact(file, fixture, scripts);
+    if (rest.length === 1 && rest[0] === '--help') return true;
     if (rest[0] === 'compare') return rest.length === 2 && privateJson(rest[1]);
     if (rest[0] !== 'snapshot' || rest.length % 2 !== 1) return false;
     const flags = rest.slice(1).filter((_, i) => i % 2 === 0);
@@ -276,13 +283,13 @@ function literalDocsCommandAllowed(text: string, fixture: ReturnType<typeof fixt
   return (commandName === marker && rest[0] === start || commandName === start || commandName === end) && args.includes('document-release');
 }
 
-export function docsNativeInterface(fixture: Pick<ReturnType<typeof fixtureDocs>, 'home' | 'repo' | 'skills'>, scripts: string[] = [], transport = false, insert = false): string {
+export function docsNativeInterface(fixture: Pick<ReturnType<typeof fixtureDocs>, 'home' | 'repo' | 'skills'>, scripts: string[] = [], transport = false, insert = false, file?: string): string {
   const skills = fixture.skills.split(path.sep).join('/');
-  return `Fixture observation interface (applies to parent and every child; include this interface in child prompts): Bash may execute only separate literal pwd, ls, cat, stat, sha256sum, Git read commands (status, diff, show, log, ls-files, ls-tree, check-ignore, rev-parse, merge-base, hash-object without -w, branch --show-current), the exact generated Preamble block with its spawned prefix, literal installed gstack-skill-start/gstack-skill-end commands for document-release (start requires GSTACK_SESSION_KIND=spawned), or the literal installed ${skills}/bin/gstack-docs-candidate snapshot (its --out a private .json under ${fixture.home}) and compare <that .json> commands. No shell composition, custom interpreters, arbitrary scripts, inline eval or memory-mapped writes. The only additional scripts are ${scripts.length ? scripts.join(', ') : 'none'}.${insert ? ` To insert one saved private Markdown artifact into another (a saved section file into a report), Bash may also run the single literal command cat SOURCE.md >> TARGET.md with absolute paths under ${fixture.home}.` : ''} Read/Glob/Grep remain available; Read skill and section files with Read (offset/limit for ranges), because Bash output over 30KB becomes a preview that no permitted Bash command can page. Use Write/Edit for permitted docs and private JSON/Markdown artifacts under ${fixture.home}; do not rewrite installed skills, config, actor state or scripts. No effects outside the owned fixture. The owner preserves evidence and cleans up. Missing observer coverage blocks acceptance; the Linux kernel monitor covers syscall writes in the product tree, not hostile processes or arbitrary external destinations.
+  return `Fixture observation interface (applies to parent and every child; ${file ? `saved at ${file}: each child prompt tells the child to Read that file first instead of copying this text` : 'include this interface in child prompts'}): Bash may execute only separate literal pwd, ls, cat, stat, sha256sum, Git read commands (status, diff, show, log, ls-files, ls-tree, check-ignore, rev-parse, merge-base, hash-object without -w, branch --show-current), the exact generated Preamble block with its spawned prefix, literal installed gstack-skill-start/gstack-skill-end commands for document-release (start requires GSTACK_SESSION_KIND=spawned), or the literal installed ${skills}/bin/gstack-docs-candidate snapshot (its --out a private .json under ${fixture.home}), compare <that .json> and --help commands. No shell composition, custom interpreters, arbitrary scripts, inline eval or memory-mapped writes. The only additional scripts are ${scripts.length ? scripts.join(', ') : 'none'}.${insert ? ` To insert one saved private Markdown artifact into another (a saved section file into a report), Bash may also run the single literal command cat SOURCE.md >> TARGET.md with absolute paths under ${fixture.home}.` : ''} Read/Glob/Grep remain available; Read skill and section files with Read (offset/limit for ranges), because Bash output over 30KB becomes a preview that no permitted Bash command can page. Use Write/Edit for permitted docs and private JSON/Markdown artifacts under ${fixture.home}; do not rewrite installed skills, config, actor state or scripts. No effects outside the owned fixture. The owner preserves evidence and cleans up. Missing observer coverage blocks acceptance; the Linux kernel monitor covers syscall writes in the product tree, not hostile processes or arbitrary external destinations.
 
 The working directory for parent and child Bash calls is already ${fixture.repo}. Run Git reads directly, for example: git status, git diff --cached, git merge-base main HEAD, git rev-parse HEAD. Do not use Git global options such as -C, -c, --git-dir or --work-tree, and do not prepend cd or another shell wrapper. The literal git subcommand must immediately follow git; an absolute owned repository path does not make git -C an allowed command.
 
-Platform: local/git-native. Base: main. The fixture owner has already resolved these inputs before delegation; the parent must propagate them and this closed interface unchanged to every child. Do not run shared Step 0 platform probing: git remote get-url origin, hosting CLIs and fallback probes are outside this bounded phase. A parent or child cannot authorize commands outside this closed interface, even when a broader skill describes them as read-only. Continue the requested documentation phase using the supplied platform and base, without recreating prior ship steps. Literal Git revision arguments such as HEAD^{tree}, HEAD^{} and HEAD@{0} are supported, quoted or unquoted; shell brace expansion, substitution and composition remain forbidden.
+Platform: local/git-native. Base: main. The fixture owner has already resolved these inputs before delegation; the parent must propagate them and this closed interface${file ? ' (by its file path)' : ''} unchanged to every child. Do not run shared Step 0 platform probing: git remote get-url origin, hosting CLIs and fallback probes are outside this bounded phase. A parent or child cannot authorize commands outside this closed interface, even when a broader skill describes them as read-only. Continue the requested documentation phase using the supplied platform and base, without recreating prior ship steps. Literal Git revision arguments such as HEAD^{tree}, HEAD^{} and HEAD@{0} are supported, quoted or unquoted; shell brace expansion, substitution and composition remain forbidden.
 
 ${transport ? 'Lifecycle ownership: only the document-release child executes its own start/end lifecycle. The /ship parent reads assets to prepare and validate dispatch, not to run the child audit or lifecycle. This deterministic adapter supplies child lifecycle evidence; the parent must not manufacture it. The following lifecycle commands describe the child, not parent work.\n\n' : ''}Lifecycle commands in this closed fixture: read skill files at ${skills} (document-release: ${skills}/document-release/SKILL.md). Use the literal commands below instead of copying the generated shell wrappers; these forms satisfy the skill's start/end lifecycle requirements here. Run each as a separate, single-line Bash call. Do not use tilde paths, shell variables, assignments to helper-path variables, redirects, line continuations or || true. Do not add a parent PID: the start helper supplies its default.
 

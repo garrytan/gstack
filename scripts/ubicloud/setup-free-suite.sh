@@ -4,7 +4,7 @@
 # Runs as user `ubi` (passwordless sudo) from the synced checkout.
 set -euo pipefail
 
-BUN_VERSION=1.4.0
+BUN_VERSION=1.4.2
 NODE_VERSION=22.20.0
 
 export DEBIAN_FRONTEND=noninteractive

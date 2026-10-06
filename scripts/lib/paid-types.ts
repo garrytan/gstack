@@ -4,7 +4,7 @@
  */
 import * as path from 'node:path';
 import { normalizeRelativePath, type LanePolicy } from './shard-engine';
-import type { EvalCaseKind, PanelShape, TrialFailureClass, TrialOutcome } from '../../test/helpers/eval-store';
+import type { EvalCaseKind, PanelShape, TrialFailureCause, TrialFailureClass, TrialFailureDetail, TrialOutcome, TrialSessionSummary } from '../../test/helpers/eval-store';
 
 export const ROOT = path.resolve(import.meta.dir, '..', '..');
 
@@ -119,6 +119,11 @@ export interface ShardTrialRecord {
   cost_usd: number;
   duration_ms: number;
   model?: string;
+  failure_cause?: TrialFailureCause;
+  failure_cause_evidence?: string;
+  failure_detail?: TrialFailureDetail;
+  sessions?: TrialSessionSummary[];
+  cost_known?: false;
 }
 
 /** Upload reserve between a slice's in-process deadline and its CI job ceiling (ENG-2). */

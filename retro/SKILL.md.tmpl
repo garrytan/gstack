@@ -106,7 +106,7 @@ Remember whether the fetch succeeded — the stale-base guard in Step 1 only BLO
 Run `gstack-retro-metrics` with the detected base branch and computed start:
 
 ```bash
-_RM="$HOME/.claude/skills/gstack/bin/gstack-retro-metrics"
+_RM="{{RUNTIME_ROOT}}/bin/gstack-retro-metrics"
 [ -x "$_RM" ] || _RM=".claude/skills/gstack/bin/gstack-retro-metrics"
 "$_RM" --base "<default>" --since "<since>" \
   || echo "RETRO_METRICS: unavailable — stale install (read the helper source for manual computation)"

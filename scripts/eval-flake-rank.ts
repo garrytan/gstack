@@ -44,6 +44,8 @@
  *   bun run eval:pass-rates --dir <path>          # local eval dirs / downloaded artifacts (repeatable)
  *   bun run eval:pass-rates --backfill            # also import legacy slice artifacts, labeled pre-policy
  *   bun run eval:pass-rates --json | --gate
+ *   bun run eval:pass-rates --headroom | --reds | --run <id>   # report views (scripts/lib/eval-history.ts)
+ *   bun run eval:pass-rates --help                # every flag, no network
  */
 
 import * as fs from 'node:fs';
@@ -55,7 +57,9 @@ import { E2E_KINDS, E2E_TIERS, E2E_TOUCHFILES, GLOBAL_TOUCHFILES, LLM_JUDGE_TOUC
 import { CASE_QUARANTINE, EVAL_POLICY } from '../test/helpers/periodic-exclude-data';
 import { CASE_TEST_NAMES } from './test-paid-shards';
 import { resolveStateRoot } from '../lib/state-root';
-import { downloadRunArtifacts, isPooledTrialRun, isWeeklyHistoryRun, listWeeklyRuns, parseFlakeLedger, repoSlug, TRIAL_OUTCOMES_MAX_BYTES } from './lib/ci-history';
+import { GH_JOBS, PASS_RATES_USAGE, criticalPath, formatCriticalPath, formatHeadroom, formatRedLedger, headroom, headroomAlarms, parsePassRatesArgs,
+  redLedger, triageRun, CENSUS_RED_GUIDE, type CriticalPath } from './lib/eval-history';
+import { downloadRunArtifacts, GH_HISTORY, isPooledTrialRun, isWeeklyHistoryRun, listWeeklyRuns, parseFlakeLedger, repoSlug, TRIAL_OUTCOMES_MAX_BYTES, type WeeklyRun } from './lib/ci-history';
 
 interface TestSeries {
   name: string;
@@ -237,7 +241,7 @@ export function backfillEvalFiles(files: string[], run?: { run_id: string; sha?:
         tier: caseTier(id, registry), kind: registry.kinds[id]!, trial: 1, panel: { n: 1, k: 1 }, attempt: 1,
         outcome, ...(outcome === 'failed' ? { failure_class: failureClassOf(entry) } : {}),
         exit_reason: entry.exit_reason, error: sanitizeTrialError(entry.error),
-        duration_ms: Math.max(0, entry.duration_ms || 0), cost_usd: Math.max(0, entry.cost_usd || 0),
+        duration_ms: Math.max(0, entry.duration_ms || 0), cost_usd: Math.max(0, entry.cost_usd || 0), ...(entry.cost_known === false ? { cost_known: false } : {}),
         model: entry.model, cli_version: result.claude_cli_version, policy_version: 0, quarantined: false,
         execution: entry.execution === 'reused' ? 'reused' : 'executed', source: 'backfill',
         run_id: run?.run_id ?? `local:${file}`, sha: run?.sha ?? result.git_sha, recorded_at: run?.timestamp ?? result.timestamp,
@@ -292,7 +296,7 @@ export function holmRejections(pValues: number[], alpha: number): Set<number> {
 
 export type PassRateLabel = 'INCONCLUSIVE' | 'BROKEN' | 'FLAKY' | 'FAILING' | 'PASSING';
 export type AlarmKind = 'drift' | 'rule-as-behavior' | 'regression' | 'quarantine-exit' | 'quarantine-expired'
-  | 'quarantine-cap' | 'quarantine-invalid';
+  | 'quarantine-cap' | 'quarantine-invalid' | 'headroom';
 
 /** The EVAL_POLICY fields pass-rates reads (structural, so tests can vary them). */
 export interface PassRatePolicy {
@@ -567,24 +571,22 @@ export { downloadRunArtifacts, GH_HISTORY, listWeeklyRuns, TRIAL_OUTCOMES_MAX_BY
   type HistoryFetcher, type RunArtifact, type WeeklyRun } from './lib/ci-history';
 
 if (import.meta.main) {
-  const argv = process.argv.slice(2);
-  const flag = (name: string) => { const index = argv.indexOf(name); return index === -1 ? undefined : argv[index + 1]; };
-  const dirs = argv.flatMap((arg, index) => arg === '--dir' && argv[index + 1] ? [argv[index + 1]!] : []);
-  const asJson = argv.includes('--json');
-  const gate = argv.includes('--gate');
-  const backfill = argv.includes('--backfill');
-  const caseFilter = flag('--case');
-  const runsLimit = Number(flag('--runs')) || 10;
-  const sinceDays = Number(flag('--since-days')) || 60;
-  const repo = flag('--repo') ?? repoSlug();
-  const workflow = flag('--workflow') ?? 'evals-periodic.yml';
-  const branch = flag('--branch') ?? 'main';
+  const parsed = parsePassRatesArgs(process.argv.slice(2), id => Object.hasOwn(E2E_TIERS, id) || Object.hasOwn(LLM_JUDGE_TOUCHFILES, id)
+    || (/^test\/[\w./-]+\.test\.ts$/.test(id) && fs.existsSync(id)));
+  if ('help' in parsed) { console.log(PASS_RATES_USAGE); process.exit(0); }
+  if ('error' in parsed) { console.error(`eval:pass-rates: ${parsed.error}\n${PASS_RATES_USAGE}`); process.exit(2); }
+  const { dirs, json: asJson, gate, backfill, caseFilter, runs: runsLimit, sinceDays, view } = parsed;
+  const repo = parsed.repo ?? repoSlug();
+  const workflow = parsed.workflow ?? 'evals-periodic.yml';
+  const branch = parsed.branch ?? 'main';
 
   const records: TrialRecord[] = [];
   const unattributed = new Set<string>();
   const errors: string[] = [];
   let historyError: string | null = null;
   let weeklyRuns: string[] | undefined;
+  let fetched: WeeklyRun[] = [];
+  const cacheDir = path.join(path.resolve(resolveStateRoot()), 'eval-pass-rates-cache', repo.replace('/', '-'));
   let pooledRunIds: Set<string> | undefined;
 
   const manualReviews: string[] = [];
@@ -611,7 +613,8 @@ if (import.meta.main) {
         : [];
       pooledRunIds = new Set(pooledRuns.map(run => `${run.id}`));
       const runs = [...weekly, ...pooledRuns];
-      const cacheDir = path.join(path.resolve(resolveStateRoot()), 'eval-pass-rates-cache', repo.replace('/', '-'));
+      if (parsed.runId !== undefined && !runs.some(run => run.id === parsed.runId)) runs.push(GH_JOBS.getRun(repo, parsed.runId));
+      fetched = runs;
       const match = backfill
         ? (name: string) => name.startsWith('trial-outcomes') || /^(paid-slice-\d+|gate-census-\d+)(-a\d+)?$/.test(name)
         : (name: string) => name.startsWith('trial-outcomes');
@@ -624,11 +627,37 @@ if (import.meta.main) {
     }
   }
 
-  const report = analyzePassRates(records, { weeklyRuns, pooledRunIds, unattributed: [...unattributed].sort(), errors, manualReviews });
+  const scope = dirs.length ? `local dirs ${dirs.join(', ')}` : `${repo} ${workflow} on ${branch}${pooledRunIds?.size ? ` + ${pooledRunIds.size} pooled branch census run(s)` : ''}, `
+    + `last ${runsLimit} completed run(s): ${fetched.map(run => run.id).join(', ') || 'none'}`;
+  const scoped = caseFilter ? records.filter(record => record.case === caseFilter) : records;
+  const caseHeadroom = headroom(scoped);
+  if (view !== 'rates') {
+    const critical: CriticalPath[] = [];
+    if (view !== 'reds' && !dirs.length) {
+      for (const run of fetched.filter(run => view === 'headroom' || run.id === parsed.runId)) {
+        try { critical.push(criticalPath(String(run.id), GH_JOBS.listJobs(repo, run.id))); } catch { critical.push({ run: String(run.id), jobs: 0, slowest: null, wallMs: null }); }
+      }
+    }
+    const lines = view === 'headroom' ? formatHeadroom(caseHeadroom, critical) : view === 'reds' ? formatRedLedger(redLedger(scoped))
+      : historyError ? [] : triageRun({ repo, run: fetched.find(run => run.id === parsed.runId)!, records, caseFilter, cacheDir, fetcher: GH_HISTORY,
+        download: (match, maxBytes) => downloadRunArtifacts({ repo, run: fetched.find(run => run.id === parsed.runId)!, match, cacheDir, maxBytes }) })
+        .concat(formatCriticalPath(critical), historyError ? [] : [`guide: ${CENSUS_RED_GUIDE}`]);
+    if (asJson) console.log(JSON.stringify({ scope, historyError, view, lines }, null, 2));
+    else {
+      console.log(`scope: ${scope}`);
+      if (historyError) console.log(`history unavailable (${historyError})`);
+      for (const line of lines) console.log(line);
+    }
+    process.exit(historyError ? 1 : 0);
+  }
+  const full = analyzePassRates(records, { weeklyRuns, pooledRunIds, unattributed: [...unattributed].sort(), errors, manualReviews });
+  const alarms = [...full.alarms, ...(gate ? headroomAlarms(caseHeadroom) : [])].filter(alarm => !caseFilter || alarm.case === caseFilter);
+  const report = { ...full, cases: full.cases.filter(entry => !caseFilter || entry.case === caseFilter), alarms };
   const ledger = readFreeLedger();
   if (asJson) {
-    console.log(JSON.stringify({ repo, workflow, branch, dirs, historyError, ...report, freeLedger: ledger }, null, 2));
+    console.log(JSON.stringify({ repo, workflow, branch, scope, dirs, historyError, ...report, freeLedger: ledger }, null, 2));
   } else {
+    console.log(`scope: ${scope}`);
     if (historyError) console.log(`pass-rates: history unavailable (${historyError}); every label below is INCONCLUSIVE`);
     console.log(formatPassRates(report, { caseFilter }));
     if (ledger.length > 0) {

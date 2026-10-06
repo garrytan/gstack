@@ -140,6 +140,10 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   DX_FRAMEWORK: generateDxFramework,
   TASTE_PROFILE: generateTasteProfile,
   BIN_DIR: (ctx) => ctx.paths.binDir,
+  // Quotable runtime root for paths under gstack's install (freeze/bin, bin, lib):
+  // $GSTACK_ROOT on env-var hosts (each fence gets the runtime prelude), the
+  // literal $HOME path on Claude, so a quoted path keeps working with spaces.
+  RUNTIME_ROOT: (ctx) => getHostConfig(ctx.host).usesEnvVars ? '$GSTACK_ROOT' : `$HOME/${getHostConfig(ctx.host).globalRoot}`,
   // Literal bin dir for skills that skip the shared preamble, where
   // $GSTACK_BIN is never set (#2906): the per-install root when rendering for
   // one, else the host's default global root.

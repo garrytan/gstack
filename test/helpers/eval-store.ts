@@ -65,6 +65,8 @@ export interface EvalTestEntry {
   passed: boolean;
   duration_ms: number;
   cost_usd: number;
+  /** False when the harness captured no billing, so cost_usd 0 means unknown. Absent means known. */
+  cost_known?: boolean;
   /** Absent in older records means executed; reuse is never a new model run. */
   execution?: 'executed' | 'reused';
   reused_from?: { input_key: string; run_id: string; revision: string; completed_at: string };
@@ -208,6 +210,164 @@ export function trialContextFromEnv(env: NodeJS.ProcessEnv = process.env): Trial
 export function failureClassOf(entry: Pick<EvalTestEntry, 'failure_class' | 'exit_reason'>): TrialFailureClass {
   if (entry.failure_class && FAILURE_CLASSES.includes(entry.failure_class)) return entry.failure_class;
   return entry.exit_reason === 'timeout' ? 'timeout' : 'assertion';
+}
+
+/** Machine-recorded cause of a failed trial, beside its policy class. failure_class
+ *  (what verdicts read) is never changed by it; whether an assertion was a
+ *  detector, harness or product fault is a human diagnosis, never a cause. */
+export const FAILURE_CAUSES = ['contract', 'pre_turn_infra', 'api_error', 'refusal', 'provider_stall',
+  'session_timeout', 'observer_timeout', 'assertion', 'unknown'] as const;
+export type TrialFailureCause = typeof FAILURE_CAUSES[number];
+export const FAILURE_CAUSE_EVIDENCE_MAX = 300;
+export const FAILURE_DETAIL_PART_MAX = 200;
+
+/** Session facts failureCauseOf reads (a structural subset of a session-ledger row). */
+export interface SessionCauseFacts {
+  key?: string;
+  end: string;
+  evidence?: string;
+  elapsed_ms?: number;
+  budget_ms?: number;
+  liveness?: { partial: boolean; max_request_silence_ms: number; silence_started_ms?: number; silence_after?: string };
+}
+
+export interface FailureCauseFacts {
+  failure_class: TrialFailureClass;
+  exit_reason?: string;
+  /** Raw failure text (the record's error or the JUnit message). */
+  error?: string;
+  sessions?: readonly SessionCauseFacts[];
+}
+
+const oneLine = (text: string | undefined, max: number): string | undefined => {
+  const first = text?.split('\n').map((l) => l.trim()).find((l) => l.length > 0);
+  if (!first) return undefined;
+  // eslint-disable-next-line no-control-regex
+  const clean = first.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/@(?=[A-Za-z0-9_-])/g, '@\u200b');
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+};
+
+/**
+ * Pure and dependency-free: the cause of one failed trial from its recorded
+ * facts. Precedence contract > pre_turn_infra > api_error > refusal >
+ * provider_stall > session_timeout > observer_timeout > assertion > unknown;
+ * the highest cause with evidence wins and its evidence line is returned.
+ * A provider stall needs a session that streamed partial messages, did not
+ * complete, and shows STALL_WINDOW_MS of silence with a request in flight and
+ * nothing outstanding; sessions without partial messages are never stalls.
+ * The window is STALL_WINDOW_MS (eval-budgets.ts), passed in so this stays
+ * dependency-free (tests that mock eval-budgets still load eval-store).
+ */
+export function failureCauseOf(facts: FailureCauseFacts, stallWindowMs: number): { cause: TrialFailureCause; evidence?: string } {
+  const sessions = facts.sessions ?? [];
+  const ended = (end: string) => sessions.find((s) => s.end === end);
+  const out = (cause: TrialFailureCause, evidence?: string) => {
+    const line = oneLine(evidence, FAILURE_CAUSE_EVIDENCE_MAX);
+    return line ? { cause, evidence: line } : { cause };
+  };
+  if (facts.failure_class === 'contract') return out('contract', facts.error);
+  if (facts.failure_class === 'infra') return out('pre_turn_infra', facts.error ?? facts.exit_reason);
+  const api = ended('api_error');
+  if (api) return out('api_error', api.evidence);
+  if (facts.exit_reason === 'error_api') return out('api_error', facts.error);
+  const refusal = ended('refusal');
+  if (refusal) return out('refusal', refusal.evidence);
+  const stall = sessions.find((s) => s.end !== 'completed' && s.liveness?.partial === true && s.liveness.max_request_silence_ms >= stallWindowMs);
+  if (stall?.liveness) {
+    const l = stall.liveness;
+    return out('provider_stall', `no stream event for ${Math.round(l.max_request_silence_ms / 1000)}s`
+      + `${l.silence_started_ms !== undefined ? ` from ${Math.round(l.silence_started_ms / 1000)}s` : ''}`
+      + `${l.silence_after ? ` (last: ${l.silence_after})` : ''}; model request in flight, no tool outstanding`);
+  }
+  const clock = (s: SessionCauseFacts) => `${s.key ?? 'session'} ran ${Math.round((s.elapsed_ms ?? 0) / 1000)}s`
+    + `${s.budget_ms ? ` of its ${Math.round(s.budget_ms / 1000)}s budget` : ''}`;
+  const timedOut = ended('session_timeout');
+  if (timedOut) return out('session_timeout', timedOut.evidence ?? clock(timedOut));
+  if (facts.exit_reason === 'timeout') return out('session_timeout', 'the runner\'s armed session timeout fired');
+  const observerText = /\boutcome=timeout\b/.test(facts.error ?? '') ? facts.error : undefined;
+  const observer = ended('observer_timeout');
+  if (observer) return out('observer_timeout', observer.evidence ?? observerText ?? clock(observer));
+  if (observerText) return out('observer_timeout', observerText);
+  if (facts.failure_class === 'assertion') return out('assertion', facts.exit_reason === 'success' ? 'session completed; check failed' : undefined);
+  return out('unknown', facts.failure_class === 'timeout' ? 'case budget expired with no session evidence' : undefined);
+}
+
+/** Expected/Received values of a failed Bun matcher, or a judge's failing dimensions. */
+export type TrialFailureDetail =
+  | { expected: string; received: string }
+  | { judge: Array<{ dimension: string; mean: number; threshold: number; samples: number; rationale?: string }> };
+
+const detailPart = (text: string): string => {
+  // eslint-disable-next-line no-control-regex
+  const flat = text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/@(?=[A-Za-z0-9_-])/g, '@\u200b');
+  return flat.length > FAILURE_DETAIL_PART_MAX ? `${flat.slice(0, FAILURE_DETAIL_PART_MAX - 1)}…` : flat;
+};
+
+/**
+ * Detail the stored error line cannot carry (it keeps only the matcher header).
+ * A judge record with a `>= N` threshold names each dimension below it, its
+ * gating value (the panel median since EVAL_POLICY v3, in the `mean` field), its sample count and the first sample sentence naming that dimension;
+ * otherwise a Bun matcher message yields its Expected/Received values.
+ */
+export function failureDetailOf(text: string | undefined,
+  record?: { judge_scores?: unknown; judge_reasoning?: unknown }): TrialFailureDetail | undefined {
+  if (!text) return undefined;
+  const threshold = /^Expected:\s*>=?\s*(-?[\d.]+)\s*$/m.exec(text);
+  const scores = record?.judge_scores;
+  if (threshold && scores && typeof scores === 'object' && !Array.isArray(scores)) {
+    const limit = Number(threshold[1]);
+    const reasoning = typeof record?.judge_reasoning === 'string' ? record.judge_reasoning : '';
+    const samples = reasoning.split(/\[sample \d+\]\s*/).map((s) => s.trim()).filter(Boolean);
+    const judge = Object.entries(scores as Record<string, unknown>)
+      .filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] < limit)
+      .slice(0, 8).map(([dimension, mean]) => {
+        const word = dimension.replace(/_/g, ' ').toLowerCase();
+        const sentence = samples.flatMap((s) => s.split(/(?<=[.!?])\s+/)).find((s) => s.toLowerCase().includes(word));
+        return { dimension: detailPart(dimension), mean: Math.round(mean * 100) / 100, threshold: limit,
+          samples: Math.max(1, samples.length), ...(sentence ? { rationale: detailPart(sentence.slice(0, 150)) } : {}) };
+      });
+    if (judge.length) return { judge };
+  }
+  const lines = text.split('\n');
+  const expected = lines.map((l) => /^Expected(?:[^:]*)?:\s?(.*)$/.exec(l)).find(Boolean);
+  const received = lines.map((l) => /^Received(?:[^:]*)?:\s?(.*)$/.exec(l)).find(Boolean);
+  if (expected && received && !/^\s*[-+]\s*\d+\s*$/.test(expected[1]!)) {
+    return { expected: detailPart(expected[1]!), received: detailPart(received[1]!) };
+  }
+  const minus = lines.filter((l) => /^-\s/.test(l) && !/^- Expected\s/.test(l)).map((l) => l.slice(1).trim());
+  const plus = lines.filter((l) => /^\+\s/.test(l) && !/^\+ Received\s/.test(l)).map((l) => l.slice(1).trim());
+  if (minus.length || plus.length) return { expected: detailPart(minus.join(' ')), received: detailPart(plus.join(' ')) };
+  return undefined;
+}
+
+export interface TrialSessionSummary { key: string; runner: string; elapsed_ms: number; budget_ms?: number; end: string }
+
+/** The compact per-session view a trial record carries (ledger evidence and liveness stay in the artifact). */
+export function trialSessions(rows: ReadonlyArray<SessionCauseFacts & { runner?: string }>): { sessions?: TrialSessionSummary[] } {
+  const sessions = rows.filter((r) => typeof r.key === 'string' && Number.isFinite(r.elapsed_ms)).slice(0, 32).map((r) => ({
+    key: r.key!.slice(0, 160), runner: String(r.runner ?? 'unknown').slice(0, 20), elapsed_ms: r.elapsed_ms!,
+    ...(Number.isFinite(r.budget_ms) ? { budget_ms: r.budget_ms } : {}), end: r.end.slice(0, 20) }));
+  return sessions.length ? { sessions } : {};
+}
+
+/**
+ * Whether a trial's cost_usd is its billed cost: every eval record and ledger
+ * session captured billing. A trial with no eval record (a JUnit-only PTY
+ * case) or a session that billed nothing (PTY, Codex, an SDK capture without
+ * a terminal result) is unknown. Returns the field only when unknown, so a
+ * known cost keeps today's record shape (absent means known).
+ */
+export function trialCostKnown(records: ReadonlyArray<{ cost_known?: unknown }>, sessions: ReadonlyArray<{ billed?: boolean }> = []): { cost_known?: false } {
+  return records.length > 0 && records.every((r) => r.cost_known !== false) && sessions.every((s) => s.billed !== false) ? {} : { cost_known: false };
+}
+
+/** Cause, cause evidence and detail of one failed trial, for both record builders. */
+export function trialFailureFields(input: FailureCauseFacts & { record?: { judge_scores?: unknown; judge_reasoning?: unknown } }, stallWindowMs: number): {
+  failure_cause: TrialFailureCause; failure_cause_evidence?: string; failure_detail?: TrialFailureDetail;
+} {
+  const { cause, evidence } = failureCauseOf(input, stallWindowMs);
+  const detail = failureDetailOf(input.error, input.record);
+  return { failure_cause: cause, ...(evidence ? { failure_cause_evidence: evidence } : {}), ...(detail ? { failure_detail: detail } : {}) };
 }
 
 export class ContractViolation extends Error {
@@ -404,6 +564,14 @@ export interface TrialOutcomeRecord {
   recorded_at?: string;
   /** History series key: a hash of the case's own touchfiles (GLOBAL_TOUCHFILES excluded), stamped by the report job. */
   series_identity?: string;
+  /** Failed trials only: what the runners observed (failureCauseOf); verdicts never read it. */
+  failure_cause?: TrialFailureCause;
+  failure_cause_evidence?: string;
+  failure_detail?: TrialFailureDetail;
+  /** Ledger sessions of this trial; absent means unknown, never scored. */
+  sessions?: TrialSessionSummary[];
+  /** False when the harness captured no billing, so cost_usd 0 means unknown. Absent means known. */
+  cost_known?: boolean;
 }
 
 /** First line of free text, stripped of @-mentions and control characters, capped. */
@@ -437,6 +605,34 @@ function trialRecordProblems(r: any): string[] {
   if (!['shard', 'junit', 'backfill'].includes(r.source)) problems.push('source invalid');
   if (r.error !== undefined && (typeof r.error !== 'string' || r.error.length > TRIAL_ERROR_MAX)) problems.push('error invalid');
   if (r.series_identity !== undefined && (typeof r.series_identity !== 'string' || !/^[\w.-]{1,64}$/.test(r.series_identity))) problems.push('series_identity invalid');
+  problems.push(...optionalFieldProblems(r));
+  return problems;
+}
+
+const boundedString = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
+const finiteNonNegative = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+/** The optional diagnostic fields, checked only when present. */
+function optionalFieldProblems(r: any): string[] {
+  const problems: string[] = [];
+  if (r.failure_cause !== undefined) {
+    if (r.outcome !== 'failed') problems.push('failure_cause on a non-failed trial');
+    else if (!FAILURE_CAUSES.includes(r.failure_cause)) problems.push(`unknown failure_cause ${JSON.stringify(String(r.failure_cause).slice(0, 40))} (written by a newer gstack; update this checkout to read it)`);
+  }
+  if (r.failure_cause_evidence !== undefined && !boundedString(r.failure_cause_evidence, FAILURE_CAUSE_EVIDENCE_MAX)) problems.push('failure_cause_evidence invalid');
+  const d = r.failure_detail;
+  if (d !== undefined) {
+    const assertion = d && typeof d === 'object' && !Array.isArray(d) && Object.keys(d).length === 2
+      && boundedString(d.expected, FAILURE_DETAIL_PART_MAX) && boundedString(d.received, FAILURE_DETAIL_PART_MAX);
+    const judge = d && typeof d === 'object' && Object.keys(d).length === 1 && Array.isArray(d.judge) && d.judge.length >= 1 && d.judge.length <= 8
+      && d.judge.every((j: any) => j && boundedString(j.dimension, FAILURE_DETAIL_PART_MAX) && Number.isFinite(j.mean) && Number.isFinite(j.threshold)
+        && Number.isInteger(j.samples) && j.samples >= 1 && j.samples <= 20 && (j.rationale === undefined || boundedString(j.rationale, FAILURE_DETAIL_PART_MAX)));
+    if (!assertion && !judge) problems.push('failure_detail invalid');
+  }
+  if (r.sessions !== undefined && !(Array.isArray(r.sessions) && r.sessions.length <= 32 && r.sessions.every((x: any) => x
+    && boundedString(x.key, 160) && boundedString(x.runner, 20) && finiteNonNegative(x.elapsed_ms) && boundedString(x.end, 20)
+    && (x.budget_ms === undefined || finiteNonNegative(x.budget_ms))))) problems.push('sessions invalid');
+  if (r.cost_known !== undefined && typeof r.cost_known !== 'boolean') problems.push('cost_known invalid');
   return problems;
 }
 

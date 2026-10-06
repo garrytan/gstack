@@ -121,14 +121,14 @@ After forming your root cause hypothesis, lock edits to the affected module to p
 ```bash
 # $HOME-anchored like the careful/freeze frontmatter hooks: early skill bash runs
 # before CLAUDE_SKILL_DIR exists, so a relative path would never resolve.
-_FREEZE_SCRIPT="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
+_FREEZE_SCRIPT="{{RUNTIME_ROOT}}/freeze/bin/check-freeze.sh"
 [ -x "$_FREEZE_SCRIPT" ] && echo "FREEZE_AVAILABLE" || echo "FREEZE_UNAVAILABLE"
 ```
 
 **If FREEZE_AVAILABLE:** Identify the narrowest directory containing the affected files. Acquire a run-owned boundary; the helper resolves its physical absolute path and leaves any pre-existing user or other-run boundary untouched:
 
 ```bash
-bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" acquire "<detected-directory>"
+bash "{{RUNTIME_ROOT}}/freeze/bin/freeze-state.sh" acquire "<detected-directory>"
 ```
 
 Substitute `<detected-directory>` with the actual path (e.g., `src/auth/`). Retain the exact returned `FREEZE_OWNER` token in this run's context (including any checkpoint); never reconstruct it from the current state file. Only a returned token means this run owns a new lock. `FREEZE_PRESERVED` means keep the existing boundary and do not clean it up. On acquisition error, pause before edits and report it; never claim a lock was acquired. Relative legacy state is ambiguous: ask the user to re-establish an absolute boundary via `/freeze`, rather than guessing its original cwd.
@@ -138,7 +138,7 @@ Tell the user the boundary and its owner disposition. Hooks enforce Edit/Write r
 **Terminal cleanup:** On completion, explicit abort, or any known error that ends this investigation, run the following with this run's retained token, before the final response. Skip it when this run acquired no token:
 
 ```bash
-bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" release "<retained-owner-token>"
+bash "{{RUNTIME_ROOT}}/freeze/bin/freeze-state.sh" release "<retained-owner-token>"
 ```
 
 The helper compares ownership and removes state under the same mutation lock used by `/freeze`, `/guard`, and `/unfreeze`; a replacement boundary is preserved, even at the same path. Report cleanup errors or `FREEZE_PRESERVED`, never retry by deleting state directly. A hard-killed session cannot run this cleanup: recovery is explicit `/unfreeze` (user-requested removal) or `/freeze` (user-selected replacement). If a mutation lock was abandoned, inspect it with the user after confirming no writer is active; never automatically delete an ambiguous lock.

@@ -191,3 +191,26 @@ describe("db.url_with_password: postgres:postgres only on a loopback host (#2913
     ],
   );
 });
+
+describe("pii.phone.e164: GitHub Actions run and job ids in their id positions", () => {
+  table(
+    "pii.phone.e164",
+    "MEDIUM",
+    [
+      "bun run eval:pass-rates --run 37235771700 --case context-recovery-artifacts",
+      "bun run eval:pass-rates --run=37235771700",
+      "gh run view 37235771700 --job 111534615007 --log",
+      "gh run download 37235771700 -n paid-slice-10-a1",
+      "https://github.com/garrytan/gstack/actions/runs/37235771700/job/111534615007",
+      "GITHUB_RUN_ID=37235771700",
+      '{"run_id": 37235771700}',
+    ],
+    [
+      "call 37235771700 tomorrow",
+      "--phone 37235771700",
+      "https://example.com/contact/37235771700",
+      '{"phone_id": 37235771700}',
+      "run 4155550123 laps",
+    ],
+  );
+});

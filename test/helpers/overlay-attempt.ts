@@ -10,6 +10,8 @@ export interface OverlayTrialOutcome {
   passed: boolean;
   taskCorrect: boolean;
   metric?: number;
+  /** Contract v4: a completed answer that failed the fixture's output check. */
+  answerError?: string;
   result?: AgentSdkResult;
   error?: string;
   exitReason: string;
@@ -57,13 +59,20 @@ export async function runOverlayTrial(options: {
       (fixture.comparison.maximum !== undefined && metric > fixture.comparison.maximum)))) {
       throw new Error(`invalid fixture metric: ${metric}`);
     }
-    fixture.verify?.(result, directory, metric);
+    let answerError: string | undefined;
+    try { fixture.verify?.(result, directory, metric); }
+    catch (error) { answerError = error instanceof Error ? `${error.name}: ${error.message}` : String(error); }
     checkActive();
     // Implementation oracles execute agent-written code. Their side effects
     // must obey the same scope contract and appear in the retained snapshot.
     after = snapshotWorkspace(directory);
     assertWorkspaceChanges(before, after, fixture.allowedChanges ?? []);
-    outcome = { passed: true, taskCorrect: fixture.taskCorrect?.(metric) ?? true, metric, result, exitReason: result.exitReason, before, after };
+    // Contract v4: a wrong completed answer is a measured correctness result in
+    // either arm, not an invalid measurement.
+    outcome = {
+      passed: true, taskCorrect: !answerError && (fixture.taskCorrect?.(metric) ?? true),
+      metric, result, exitReason: result.exitReason, before, after, ...(answerError ? { answerError } : {}),
+    };
   } catch (error) {
     // Capture post-failure files when possible; preserve the first failure if
     // the workspace is absent or evidence capture itself cannot complete.
@@ -98,11 +107,11 @@ export function assessOverlayArms(fixture: OverlayFixture, overlay: OverlayTrial
     off: off.filter((trial) => trial?.passed).map((trial) => trial.metric!),
   };
   const comparison = assessComparison(metrics, fixture.trials, fixture.comparison, fixture.pass);
+  // Only execution, scope and metric failures invalidate a trial, in both arms.
   const measurementsValid = comparison.status !== 'incomplete' && [overlay, off].every((arm) =>
     arm.length === fixture.trials && Array.from(arm).every((trial) => trial?.passed));
-  // Baseline completion is an experimental variable for literal scope. A valid
-  // OFF sample may score 0..3; ON must complete all three. Every ON trial has
-  // already passed its fixture's output check to count as a valid measurement.
+  // Task correctness is a measured result in both arms (OFF may score 0..3 or
+  // answer wrongly); only ON correctness gates the case.
   const correctnessPassed = measurementsValid && overlay.every((trial) => trial.taskCorrect);
   // A fixture with a gate also blocks on its comparison (dedicated tools: 20%
   // fewer Bash calls, or none at a zero baseline). Without a gate the
