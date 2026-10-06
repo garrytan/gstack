@@ -672,10 +672,7 @@ concurrency, caching, auth and framework behavior:
 - Look for a newer built-in before proposing a workaround.
 - Verify API signatures against current docs.
 
-```bash
-_EG="$HOME/.claude/skills/gstack/bin/gstack-egress-lib.sh"; [ -r "$_EG" ] && . "$_EG"; _aside_exec() { if command -v _gstack_egress_run >/dev/null 2>&1; then _gstack_egress_run open aside-agent aside.com aside-exec "user invoked this skill" --no-payload aside exec "$@"; else aside exec "$@"; fi; }
-_aside_exec "Search the web for {framework} {version} {pattern} current best practice and whether a built-in replaces it. Read-only: do not sign in, submit, or change anything. Reply with up to 5 bullets, each with its source URL, then stop."
-```
+Prompt file text (create, write and send it with the Web research runs in Aside blocks above): `{framework} {version} {pattern} current best practice and whether a built-in replaces it. Reply with up to 5 bullets, each with its source URL.`
 
 Without Aside `READY`, use WebSearch if available; with neither, disclose the gap
 and use existing knowledge. Research runs alongside specialist dispatch.

@@ -17,7 +17,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, asideExecPrelude, ASIDE_LOCAL_HOST_RULE } from '../scripts/resolvers/aside';
+import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, asideExecPrelude, asideResearchSend, ASIDE_LOCAL_HOST_RULE } from '../scripts/resolvers/aside';
 import { generateTestBootstrap } from '../scripts/resolvers/testing';
 import { generateBrowseFallback, generateBrowseSetup, generateUntrustedContentWarning } from '../scripts/resolvers/browse';
 import { RESOLVERS } from '../scripts/resolvers/index';
@@ -422,8 +422,11 @@ describe('web research ({{ASIDE_RESEARCH}})', () => {
 
   test('the test-bootstrap research step (B2) routes through the same _aside_exec prelude', () => {
     const bootstrap = generateTestBootstrap(ctx);
-    expect(bootstrap).toContain(asideExecPrelude(ctx) + '\n_aside_exec "Search the web for the best');
-    expect(bootstrap).toContain('_aside_exec "Search the web for the best [runtime] test framework');
+    // CEO-12: the query travels in an agent-written file and goes out through the shared research send block.
+    expect(bootstrap).toContain('PROMPT_FILE=$(mktemp "$_GT/aside-prompt.XXXXXX")');
+    expect(bootstrap).toContain('Prompt file text: `the best [runtime] test framework');
+    expect(bootstrap).toContain('```bash\n' + asideResearchSend(ctx) + '\n```');
+    expect(asideResearchSend(ctx).startsWith(asideExecPrelude(ctx) + '\n')).toBe(true);
     expect(bootstrap).not.toMatch(BARE_ASIDE_EXEC);
     // Same degradation ladder: WebSearch when the host has it, built-in table last.
   });

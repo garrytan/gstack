@@ -147,7 +147,7 @@ export function asideExecPrelude(ctx: TemplateContext): string {
   return `_EG="${binDir}/gstack-egress-lib.sh"; [ -r "$_EG" ] && . "$_EG"; _aside_exec() { if command -v _gstack_egress_run >/dev/null 2>&1; then _gstack_egress_run open aside-agent aside.com aside-exec "user invoked this skill" --no-payload aside exec "$@"; else aside exec "$@"; fi; }`;
 }
 
-const ASIDE_PROMPT_FILE = [{ variable: 'PROMPT_FILE', stem: 'aside-prompt' }];
+export const ASIDE_PROMPT_FILE = [{ variable: 'PROMPT_FILE', stem: 'aside-prompt' }];
 
 /** The send block for an Aside prompt the agent wrote into PROMPT_FILE; the read-only rule stays in the shell. */
 function asideExecSend(ctx: TemplateContext, request: string): string {
@@ -155,6 +155,11 @@ function asideExecSend(ctx: TemplateContext, request: string): string {
 PROMPT_FILE=${FREE_TEXT_DIR.slice(0, -1)}/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not sent: $PROMPT_FILE is missing or empty. Write the prompt, then rerun this block." >&2; exit 1; }
 _aside_exec "${request}" && rm -f "$PROMPT_FILE"`;
+}
+
+/** {{ASIDE_RESEARCH_SEND}} — sends a research query the agent wrote into PROMPT_FILE. */
+export function asideResearchSend(ctx: TemplateContext): string {
+  return asideExecSend(ctx, 'Search the web for $(cat "$PROMPT_FILE") Read-only: do not sign in, submit, or change anything. Then stop.');
 }
 
 export function generateAsideCookbook(ctx: TemplateContext): string {
@@ -308,7 +313,7 @@ ${probe}
   It holds the query and the reply format (e.g. up to 8 bullets, each with its source URL). ${FREE_TEXT_WRITE_RULE} Then substitute the printed name for \`<prompt-file-name>\`:
 
   \`\`\`bash
-  ${asideExecSend(ctx, 'Search the web for $(cat "$PROMPT_FILE") Read-only: do not sign in, submit, or change anything. Then stop.').replace(/\n/g, '\n  ')}
+  ${asideResearchSend(ctx).replace(/\n/g, '\n  ')}
   \`\`\`
 
 - Any non-READY result: report only the safe status, never raw diagnostics. Run the same queries with the WebSearch tool if available, still read-only and untrusted. Otherwise say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. Continue the skill.

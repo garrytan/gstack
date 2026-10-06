@@ -658,10 +658,7 @@ Read ETHOS.md at the preamble's Search Before Building path. Before challenging 
 - "[key feature] alternatives"
 - "why [incumbent/conventional approach] [succeeds/fails]"
 
-```bash
-_EG="$HOME/.claude/skills/gstack/bin/gstack-egress-lib.sh"; [ -r "$_EG" ] && . "$_EG"; _aside_exec() { if command -v _gstack_egress_run >/dev/null 2>&1; then _gstack_egress_run open aside-agent aside.com aside-exec "user invoked this skill" --no-payload aside exec "$@"; else aside exec "$@"; fi; }
-_aside_exec "Search the web for [product category] landscape {current year} and [key feature] alternatives. Read-only: do not sign in, submit, or change anything. Reply with up to 8 bullets, each with its source URL, then stop."
-```
+Prompt file text (create, write and send it with the Web research runs in Aside blocks above): `[product category] landscape {current year} and [key feature] alternatives. Reply with up to 8 bullets, each with its source URL.`
 
 If the Aside check did not print `READY`, run the same queries with the WebSearch tool when the host provides it; with neither, skip this check and note: "Search unavailable — proceeding with in-distribution knowledge only."
 

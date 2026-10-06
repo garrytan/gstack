@@ -721,10 +721,7 @@ Research through Aside (Web research runs in Aside, above), one read-only reques
 - "[thing being built] open source alternatives"
 - "best [thing category] {current year}"
 
-```bash
-_EG="$HOME/.claude/skills/gstack/bin/gstack-egress-lib.sh"; [ -r "$_EG" ] && . "$_EG"; _aside_exec() { if command -v _gstack_egress_run >/dev/null 2>&1; then _gstack_egress_run open aside-agent aside.com aside-exec "user invoked this skill" --no-payload aside exec "$@"; else aside exec "$@"; fi; }
-_aside_exec "Search the web for [problem space] startup approach {current year}, [problem space] common mistakes, and why [incumbent solution] works or fails. Read-only: do not sign in, submit, or change anything. Reply with up to 8 bullets, each with its source URL, then stop."
-```
+Prompt file text (create, write and send it with the Web research runs in Aside blocks above): `[problem space] startup approach {current year}, [problem space] common mistakes, and why [incumbent solution] works or fails. Reply with up to 8 bullets, each with its source URL.`
 
 Read the top 2-3 sources it cites. Run the three-layer synthesis:
 - **[Layer 1]** What does everyone already know about this space?

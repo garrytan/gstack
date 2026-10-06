@@ -579,10 +579,7 @@ Also check:
 - "{framework} {generic error type}"
 - "{library} {component} known issues"
 
-```bash
-_EG="$HOME/.claude/skills/gstack/bin/gstack-egress-lib.sh"; [ -r "$_EG" ] && . "$_EG"; _aside_exec() { if command -v _gstack_egress_run >/dev/null 2>&1; then _gstack_egress_run open aside-agent aside.com aside-exec "user invoked this skill" --no-payload aside exec "$@"; else aside exec "$@"; fi; }
-_aside_exec "Search the web for {framework} {generic error type} and {library} {component} known issues. Read-only: do not sign in, submit, or change anything. Reply with up to 6 bullets, each with its source URL, then stop."
-```
+Prompt file text (create, write and send it with the Web research runs in Aside blocks above): `{framework} {generic error type} and {library} {component} known issues. Reply with up to 6 bullets, each with its source URL.`
 
 If the Aside check did not print `READY`, run the same searches with the WebSearch tool when the host provides it; with neither, skip this search and proceed with hypothesis testing. If a documented solution or known dependency bug surfaces, present it as a candidate hypothesis in Phase 3.
 

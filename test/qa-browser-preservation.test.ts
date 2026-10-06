@@ -75,7 +75,7 @@ describe('compact QA bootstrap preserves native detection', () => {
       'Never silently delete a valid red regression', '/qa\'s diagnosis/fix gate', 'First real tests',
       'min 1, max 5', 'full verified command', '.github/workflows/test.yml', 'push + pull_request',
       'ubuntu-latest', 'manual test-step addition', 'never overwrite TESTING.md', '100% test coverage',
-      'BOTH branches', 'unrelated staged edits', '{{ASIDE_EXEC_PRELUDE}}', 'WebSearch',
+      'BOTH branches', 'unrelated staged edits', '{{FREE_TEXT_FILE:PROMPT_FILE=aside-prompt}}', '{{ASIDE_RESEARCH_SEND}}', 'WebSearch',
     ]) expect(bootstrap).toContain(contract);
     expect(bootstrap).not.toContain('git checkout --');
     expect(bootstrap).not.toContain('delete silently');
