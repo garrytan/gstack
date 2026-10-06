@@ -2,6 +2,45 @@
 
 ## NEXT PRIORITY
 
+### P1–P3: Oct 6 fix-wave follow-ups (filed 2026-10-06)
+
+Deferred from the approved plan (docs/designs/FIX_WAVE_2026_10_06.md), each with its reason.
+
+- **Bounded or incremental owned-journal read (P1, next wave)** — /autoplan's
+  guard reads the whole parent journal and refuses at 32 MiB (`too_large`,
+  #3050); long sessions reach 50-70 MiB. Read incrementally while keeping every
+  ownership and ancestry check. Acceptance: /autoplan completes in a session
+  whose journal is over 100 MiB, with phase-entry latency and peak memory
+  measured on macOS and Linux. **Effort:** L. **Priority:** P1.
+- **Greptile in parallel during /ship (#3020, full version)** — push early so
+  Greptile reviews while /ship runs its other passes, then merge its findings
+  into the review. This wave only skips triage when no PR exists.
+  **Effort:** M. **Priority:** P2.
+- **Executed-subcommand Codex probe** — turn `bin/gstack-codex-probe` into an
+  executed command (`gstack-codex-probe select-model exec` printing its status
+  lines) so skills stop depending on the calling shell. The zsh fix (#3024)
+  keeps sourcing because skills call its functions across a block.
+  **Effort:** M. **Priority:** P2.
+- **Argument-array posting helper** — one gstack helper that posts PR and issue
+  text by passing arguments as an array, never through a shell string (the
+  stronger form of the free-text file rule). **Effort:** M. **Priority:** P2.
+- **Free text the lint cannot see yet** — question tuning's inline
+  `printf '%s' "<question summary>" | … --summary-stdin`, /ship's `NEW_TITLE`
+  restore and Step 18's `"<current title>"` prose, and the heredoc template in
+  `docs/gbrain-write-surfaces.md` should use the agent-written file too.
+  **Effort:** S. **Priority:** P2.
+- **/plan-tune free-text tune events** — preference writes from skills no
+  longer pass the user's own words (`free_text`), because they travelled
+  inside a single-quoted JSON argument. Pass them through the agent-written
+  file. **Effort:** S. **Priority:** P2.
+- **Native Windows Docker transport for /cso (#3028)** — `lib/cso/docker.ts`
+  accepts only `unix:///` endpoints, so /cso on Windows reports "static
+  assessment only" even with a trusted `docker.exe`. Add named-pipe transport
+  with the same trust checks. **Effort:** L. **Priority:** P2.
+- **Readiness command** — a `gstack doctor` (or a Codex row in
+  `./setup --status`) that shows CODEX_MODE, the self-locate result and the
+  hook check without starting a skill. **Effort:** S. **Priority:** P3.
+
 ### P2/P3: reliability follow-ups deferrals (filed 2026-10-04, v1.91.30.0)
 
 Deferred from the approved reliability follow-ups plan (docs/designs/RELIABILITY_FOLLOWUPS_2026_10.md), each with its reason.
@@ -26,11 +65,11 @@ Deferred from the approved reliability follow-ups plan (docs/designs/RELIABILITY
   Proposal: anchor completeness/actionability 4 and 5 to named deliverables
   and inputs, as a pre-registered EVAL_POLICY change. **Effort:** M. **Priority:** P2.
 - **auto-decide-preserved: the CEO handoff line must reach the chat verbatim**
-  — the native detector now credits the helper's AUTO_DECIDE line only when a
-  chat message begins with it (Claude Code collapses the Bash result). One
-  diagnostic run on the pre-verbatim wording paraphrased it; one on the
-  verbatim wording passed. Watch the next censuses; a red here is a template
-  miss, not a detector false red. **Effort:** S. **Priority:** P2.
+  — the native detector credits the helper's AUTO_DECIDE line only when a chat
+  message begins with it (Claude Code collapses the Bash result). Periodic run
+  37272185151 went red on that class (the model led with a heading and a
+  paraphrase). The Oct 6 wave adds a stderr reminder beside the line in
+  `bin/gstack-ceo-mode-handoff`; watch the next censuses. **Effort:** S. **Priority:** P2.
 - **Named red: ship-docsync-late-result on PR run 37237194905** — the model
   wrote its report to a mistyped shard root (`…-3GanyY` for `…-3GanyU`) at
   call 20, disclosed it, then wrote the real report at the right path. The
