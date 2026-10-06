@@ -629,6 +629,10 @@ _link_or_copy() {
 # scanning its skills root would discover as a duplicate skill.
 _link_runtime_dists() {
   local d
+  # Record the source checkout (#3026): on Windows the root's browse/dist is a
+  # copy with no node_modules beside it, and the browse CLI runs the checkout's
+  # Node server bundle from here instead. /gstack-upgrade reads it too.
+  printf '%s\n' "$1" > "$2/.source-path"
   for d in design/dist make-pdf/dist freeze/bin careful/bin; do
     [ -d "$1/$d" ] || continue
     if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$2/$d" ] || [ ! -e "$2/$d" ]; then

@@ -102,10 +102,35 @@ export function resolveNodeServerScript(
   // Compiled binary: browse/dist/browse → browse/dist/server-node.mjs
   if (execPath) {
     const adjacent = path.resolve(path.dirname(execPath), 'server-node.mjs');
-    if (fs.existsSync(adjacent)) return adjacent;
+    if (fs.existsSync(adjacent)) return reachesPlaywright(adjacent) ? adjacent : (sourceServerScript(execPath) ?? adjacent);
   }
 
   return null;
+}
+
+/** Node resolves the bundle's externals (playwright, …) by walking up from the bundle's directory. */
+function reachesPlaywright(script: string): boolean {
+  for (let dir = path.dirname(script); ; dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, 'node_modules', 'playwright', 'package.json'))) return true;
+    if (path.dirname(dir) === dir) return false;
+  }
+}
+
+/**
+ * #3026: a host runtime root on Windows (~/.codex/skills/gstack, …) holds file
+ * copies of browse/dist and no node_modules, so its server-node.mjs cannot
+ * import playwright. setup records the source checkout in the root's
+ * .source-path; run that checkout's bundle, which sits beside node_modules.
+ */
+function sourceServerScript(execPath: string): string | null {
+  try {
+    const root = path.resolve(path.dirname(execPath), '..', '..');
+    const source = fs.readFileSync(path.join(root, '.source-path'), 'utf8').trim();
+    const script = path.join(source, 'browse', 'dist', 'server-node.mjs');
+    return path.isAbsolute(source) && fs.existsSync(script) && reachesPlaywright(script) ? script : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

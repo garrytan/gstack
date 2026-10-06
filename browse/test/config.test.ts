@@ -297,6 +297,56 @@ describe('resolveNodeServerScript', () => {
   });
 });
 
+describe('#3026: a Windows runtime root without node_modules runs the source checkout bundle', () => {
+  const { resolveNodeServerScript } = require('../src/cli');
+  const fs = require('fs');
+  const os = require('os');
+
+  function layout(opts: { runtimeModules: boolean; sourcePath: boolean; sourceModules: boolean }) {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-runtime-root-'));
+    const source = path.join(base, 'gstack');
+    const runtime = path.join(base, 'home', '.codex', 'skills', 'gstack');
+    for (const dir of [source, runtime]) {
+      fs.mkdirSync(path.join(dir, 'browse', 'dist'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'browse', 'dist', 'server-node.mjs'), '');
+    }
+    const playwright = (root: string) => {
+      fs.mkdirSync(path.join(root, 'node_modules', 'playwright'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'node_modules', 'playwright', 'package.json'), '{}');
+    };
+    if (opts.sourceModules) playwright(source);
+    if (opts.runtimeModules) playwright(runtime);
+    if (opts.sourcePath) fs.writeFileSync(path.join(runtime, '.source-path'), `${source}\n`);
+    return { base, source, runtime, exe: path.join(runtime, 'browse', 'dist', 'browse.exe') };
+  }
+
+  test('no reachable playwright beside the copy -> the checkout bundle named by .source-path', () => {
+    const l = layout({ runtimeModules: false, sourcePath: true, sourceModules: true });
+    try { expect(resolveNodeServerScript('/$bunfs/root', l.exe)).toBe(path.join(l.source, 'browse', 'dist', 'server-node.mjs')); }
+    finally { fs.rmSync(l.base, { recursive: true, force: true }); }
+  });
+
+  test('a runtime root that reaches playwright keeps its own bundle', () => {
+    const l = layout({ runtimeModules: true, sourcePath: true, sourceModules: true });
+    try { expect(resolveNodeServerScript('/$bunfs/root', l.exe)).toBe(path.join(l.runtime, 'browse', 'dist', 'server-node.mjs')); }
+    finally { fs.rmSync(l.base, { recursive: true, force: true }); }
+  });
+
+  test('without .source-path, or a checkout without node_modules, the adjacent bundle is unchanged', () => {
+    for (const opts of [{ runtimeModules: false, sourcePath: false, sourceModules: true }, { runtimeModules: false, sourcePath: true, sourceModules: false }]) {
+      const l = layout(opts);
+      try { expect(resolveNodeServerScript('/$bunfs/root', l.exe)).toBe(path.join(l.runtime, 'browse', 'dist', 'server-node.mjs')); }
+      finally { fs.rmSync(l.base, { recursive: true, force: true }); }
+    }
+  });
+
+  test('setup records the source checkout in every runtime root it links', () => {
+    const setup = fs.readFileSync(path.resolve(__dirname, '../../setup'), 'utf8');
+    const fn = setup.slice(setup.indexOf('_link_runtime_dists() {'), setup.indexOf('\n}\n', setup.indexOf('_link_runtime_dists() {')));
+    expect(fn).toContain(`printf '%s\\n' "$1" > "$2/.source-path"`);
+  });
+});
+
 describe('version mismatch detection', () => {
   test('detects when versions differ', () => {
     const stateVersion = 'abc123';
