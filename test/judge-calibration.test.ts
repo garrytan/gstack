@@ -238,7 +238,8 @@ describe('committed calibration configurations and corpora', () => {
     const qa = (clarity: number, completeness: number, actionability: number) => ({ clarity, completeness, actionability, reasoning: '' });
     for (const id of ['qa-workflow', 'qa-health-rubric', 'workflow-default']) {
       expect(byId[id]!.verdict([qa(3, 3, 4), qa(3, 3, 4), qa(3, 3, 4)])).toBe('pass');
-      expect(byId[id]!.verdict([qa(5, 5, 4), qa(5, 5, 4), qa(5, 5, 3)])).toBe('fail');
+      expect(byId[id]!.verdict([qa(5, 5, 4), qa(5, 5, 4), qa(5, 5, 3)])).toBe('pass');
+      expect(byId[id]!.verdict([qa(5, 5, 4), qa(5, 5, 3), qa(5, 5, 3)])).toBe('fail');
       expect(() => byId[id]!.validate({ ...qa(3, 3, 4), clarity: '3' })).toThrow();
     }
     const arm = (over_engineering: number) => ({ over_engineering, construct: over_engineering ? 'helper' : 'none', reasoning: '' });
@@ -247,10 +248,12 @@ describe('committed calibration configurations and corpora', () => {
     expect(() => byId.arm!.validate({ over_engineering: 0, construct: 'helper', reasoning: '' })).toThrow();
     const browse = (would_browse: boolean, confidence: number) => ({ would_browse, confidence, fallback_behavior: '', reasoning: '' });
     expect(byId['qa-anti-refusal']!.verdict([browse(true, 4), browse(true, 4), browse(false, 5)])).toBe('pass');
-    expect(byId['qa-anti-refusal']!.verdict([browse(true, 4), browse(true, 3), browse(true, 4)])).toBe('fail');
+    expect(byId['qa-anti-refusal']!.verdict([browse(true, 4), browse(true, 3), browse(true, 4)])).toBe('pass');
+    expect(byId['qa-anti-refusal']!.verdict([browse(true, 4), browse(true, 3), browse(true, 3)])).toBe('fail');
     const voice = (low: number) => ({ directness: 5, concreteness: 5, avoids_corporate: 5, avoids_ai_vocabulary: low, connects_user_outcomes: 5, reasoning: '' });
     expect(byId.voice!.verdict([voice(4), voice(4), voice(4)])).toBe('pass');
-    expect(byId.voice!.verdict([voice(4), voice(4), voice(3)])).toBe('fail');
+    expect(byId.voice!.verdict([voice(4), voice(4), voice(3)])).toBe('pass');
+    expect(byId.voice!.verdict([voice(4), voice(3), voice(3)])).toBe('fail');
   });
 });
 

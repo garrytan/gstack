@@ -141,12 +141,14 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
         const text = capture.text;
         const fmt = scoreAuqFormat(text);
         let substance = 0;
+        let substanceMean = 0;
         let samples: number[] = [];
         let recPresent = false;
         let hadBecause = false;
         if (text.trim()) {
           const panel = await auqSubstancePanel(text);
-          substance = panel.mean;
+          substance = panel.median;
+          substanceMean = panel.mean;
           samples = panel.samples.map(g => g.substance);
           recPresent = panel.samples[0].present;
           hadBecause = panel.samples[0].hadLiteralBecause;
@@ -154,7 +156,7 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
         // eslint-disable-next-line no-console
         console.log(
           `[AUQ-matrix ${m.skill}] captured=${text.length}B format=${fmt.present}/${fmt.total} ` +
-            `missing=[${fmt.missing.join(',')}] recPresent=${recPresent} substance=${substance.toFixed(2)} [${samples.join(',')}] ` +
+            `missing=[${fmt.missing.join(',')}] recPresent=${recPresent} substance median=${substance} mean=${substanceMean.toFixed(2)} [${samples.join(',')}] ` +
             `literalBecause=${hadBecause}`,
         );
 
@@ -165,7 +167,7 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
         // Presentation elements (ELI10, Pros / cons, ✅/❌, Net:) are logged above, not failed.
         problems.push(...auqMachineFormatProblems(capture.question));
         if (substance < AUQ_SUBSTANCE_MIN) {
-          problems.push(`recommendation substance mean ${substance.toFixed(2)} < ${AUQ_SUBSTANCE_MIN} over samples [${samples.join(',')}] (boilerplate/weak)`);
+          problems.push(`recommendation substance median ${substance} < ${AUQ_SUBSTANCE_MIN} over samples [${samples.join(',')}] (boilerplate/weak)`);
         }
         if (problems.length > 0) {
           throw new Error(

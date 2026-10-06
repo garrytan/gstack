@@ -291,7 +291,7 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   36898545245, 36787269090, 36641820398, 36633323521) across skills and checks
   (a two-`(recommended)` option count; office-hours substance). It is kind
   `rule` but gates on one judge sample. Decide under EVAL_POLICY whether it is
-  a `judge` case (3 samples, mean) and supply pass-rate evidence before
+  a `judge` case (3 samples, median) and supply pass-rate evidence before
   changing the kind. Effort S. **Priority:** P2.
 - **qa/SKILL.md workflow judge dips below its actionability floor** — census
   37186854666 (b24b6d8) scored actionability 3.67 < 4 (clarity 3, completeness

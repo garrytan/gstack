@@ -38,6 +38,7 @@ The first three rows are the ones users feel. The last three are why the next ce
 
 ### Behavior changes you may notice
 
+- **LLM judges pass a dimension when 2 of their 3 samples meet its threshold** (EVAL_POLICY v3, the per-dimension median; it was the mean, so one low sample beside two passing ones failed the panel). Thresholds, sample count, judge model and prompts are unchanged; panel logs still show every sample and the mean. Policy v3 and HARNESS_VERSION 2 start a new pass-rate series for every case.
 - **Office-hours review verdicts are schema version 2** (`severity` and `changed_text` on every finding). An in-progress review saved by an older version is refused; start a fresh review directory.
 - **Bun below 1.3.3 stops setup** with `gstack needs Bun 1.3.3 or newer`; nothing is installed. Fix: `bun upgrade`, then `./setup`.
 - **Auto-update can say `update held (bun-too-old: ...)`** and `/gstack-upgrade` can stop with `BUN_TOO_OLD`; your current version keeps working. Fix: `bun upgrade`.

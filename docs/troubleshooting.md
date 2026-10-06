@@ -766,10 +766,11 @@ their case. This is informational; the corpus still replays them.
 and check it with `bun test test/detector-corpus-<case>.test.ts`.
 
 <a id="auq-substance-panel"></a>
-### `recommendation substance mean <x> < 4 over samples [<a>,<b>,<c>] (boilerplate/weak)`
+### `recommendation substance median <x> < 4 over samples [<a>,<b>,<c>] (boilerplate/weak)`
 
 **Meaning.** The auq-matrix case scores each captured question's recommendation
-with a 3-sample judge panel; their mean was below 4.
+with a 3-sample judge panel; fewer than 2 of the 3 samples reached 4, so their
+median was below 4.
 
 **Fix.** Read the logged samples and the captured question. A fix goes in the
 skill text, followed by one diagnostic run of auq-matrix.

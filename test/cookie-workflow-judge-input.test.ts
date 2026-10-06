@@ -11,7 +11,7 @@ import { selectTests } from './helpers/test-selection';
 import { E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
 import { selectPrProfile } from '../scripts/test-pr-profile';
 import { JUDGE_MS } from './helpers/eval-budgets';
-import { JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS, judgePanel, judgePanelMean, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS, JUDGE_PANEL_SAMPLES } from './helpers/llm-judge';
+import { JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS, judgePanel, judgePanelMean, judgePanelMedian, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS, JUDGE_PANEL_SAMPLES } from './helpers/llm-judge';
 import { COOKIE_MANUAL_REVIEW_FILE, getCookieWorkflowManualReview, isManualReviewEntry } from './helpers/cookie-workflow-manual-review';
 
 const ROOT = resolve(import.meta.dir, '..');
@@ -70,7 +70,7 @@ function actualCookieCallback(root: string, overrides: {
   const records: EvalTestEntry[] = [];
   const attempts = new Map<string, { attempt: number }>();
   let callback: () => Promise<void> = async () => { throw new Error('Judge callback was not registered'); };
-  new Function('describeIfSelected', 'testIfSelected', 'ROOT', 'buildCookieWorkflowJudgeInput', 'resolveEvalModel', 'callJudge', 'COOKIE_WORKFLOW_JUDGE', 'JUDGE_MS', 'WORKFLOW_JUDGE_TEST_MS', 'WORKFLOW_JUDGE_RECORD_MS', 'evalCollector', 'expect', 'console', 'readWorkflowJudgeInput', 'buildWorkflowJudgePrompt', 'prepareWorkflowJudgeCache', 'workflowJudgeAttempts', 'performance', 'setTimeout', 'clearTimeout', 'JudgeRefusalError', 'getCookieWorkflowManualReview', 'DEFAULT_JUDGE_MAX_TOKENS', 'WORKFLOW_JUDGE_RESPONSE_SCHEMA', 'validWorkflowJudgeScore', 'judgePanel', 'judgePanelMean', 'judgePanelReasoning', 'JUDGE_SCORE_DIMENSIONS', registration)(
+  new Function('describeIfSelected', 'testIfSelected', 'ROOT', 'buildCookieWorkflowJudgeInput', 'resolveEvalModel', 'callJudge', 'COOKIE_WORKFLOW_JUDGE', 'JUDGE_MS', 'WORKFLOW_JUDGE_TEST_MS', 'WORKFLOW_JUDGE_RECORD_MS', 'evalCollector', 'expect', 'console', 'readWorkflowJudgeInput', 'buildWorkflowJudgePrompt', 'prepareWorkflowJudgeCache', 'workflowJudgeAttempts', 'performance', 'setTimeout', 'clearTimeout', 'JudgeRefusalError', 'getCookieWorkflowManualReview', 'DEFAULT_JUDGE_MAX_TOKENS', 'WORKFLOW_JUDGE_RESPONSE_SCHEMA', 'validWorkflowJudgeScore', 'judgePanel', 'judgePanelMean', 'judgePanelMedian', 'judgePanelReasoning', 'JUDGE_SCORE_DIMENSIONS', registration)(
     (_suite: string, names: string[], run: () => void) => { expect(names).toEqual([NAME]); run(); },
     (name: string, run: () => Promise<void>, budget: number) => { expect(name).toBe(NAME); expect(budget).toBe(JUDGE_MS + 10_000); callback = run; },
     root, buildCookieWorkflowJudgeInput, (_kind: string, explicit?: string) => explicit ?? 'fixture-model',
@@ -85,7 +85,7 @@ function actualCookieCallback(root: string, overrides: {
     attempts, overrides.clock ? { now: overrides.clock } : performance,
     overrides.setTimer ?? setTimeout, overrides.clearTimer ?? clearTimeout,
     JudgeRefusalError, getCookieWorkflowManualReview, DEFAULT_JUDGE_MAX_TOKENS,
-    WORKFLOW_JUDGE_RESPONSE_SCHEMA, validWorkflowJudgeScore, judgePanel, judgePanelMean, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS,
+    WORKFLOW_JUDGE_RESPONSE_SCHEMA, validWorkflowJudgeScore, judgePanel, judgePanelMean, judgePanelMedian, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS,
   );
   return { run: () => callback(), requests, records, attempts };
 }

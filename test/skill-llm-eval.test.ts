@@ -14,7 +14,7 @@ import { afterAll, expect } from 'bun:test';
 import { JUDGE_MS } from './helpers/eval-budgets';
 import * as fs from 'fs';
 import * as path from 'path';
-import { callJudge, judge, JudgeRefusalError, JUDGE_SCORE_SCHEMA, QA_ANTI_REFUSAL_JUDGE_SCHEMA, VOICE_DIRECTIVE_JUDGE_SCHEMA, CROSS_SKILL_CONSISTENCY_JUDGE_SCHEMA, buildQaWorkflowJudgePrompt, buildQaHealthRubricJudgePrompt, buildQaAntiRefusalJudgePrompt, buildCrossSkillConsistencyJudgePrompt, buildVoiceDirectiveJudgePrompt, DEFAULT_JUDGE_MAX_TOKENS, judgePanel, judgePanelMean, judgePanelMajority, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS } from './helpers/llm-judge';
+import { callJudge, judge, JudgeRefusalError, JUDGE_SCORE_SCHEMA, QA_ANTI_REFUSAL_JUDGE_SCHEMA, VOICE_DIRECTIVE_JUDGE_SCHEMA, CROSS_SKILL_CONSISTENCY_JUDGE_SCHEMA, buildQaWorkflowJudgePrompt, buildQaHealthRubricJudgePrompt, buildQaAntiRefusalJudgePrompt, buildCrossSkillConsistencyJudgePrompt, buildVoiceDirectiveJudgePrompt, DEFAULT_JUDGE_MAX_TOKENS, judgePanel, judgePanelMean, judgePanelMedian, judgePanelSummary, judgePanelMajority, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS } from './helpers/llm-judge';
 import { ASK_QUESTIONS_HEADING, ENG_REVIEW_EXCERPT } from './helpers/workflow-excerpt';
 import type { JudgeScore } from './helpers/llm-judge';
 import { readWorkflowJudgeInput, buildWorkflowJudgePrompt, QA_DISCOVERY_REFERENCES, WORKFLOW_JUDGE_RESPONSE_SCHEMA, type WorkflowJudgeInput } from './helpers/workflow-judge-input';
@@ -101,8 +101,8 @@ describeIfSelected('LLM-as-judge quality evals', [
     const section = sliceBrowseSection('## Snapshot Flags');
 
     const samples = await judgePanel(() => judge('browse skill reference (flags + commands)', section));
-    const scores = judgePanelMean(samples, JUDGE_SCORE_DIMENSIONS);
-    console.log('Browse SKILL.md panel:', JSON.stringify({ mean: scores, samples }, null, 2));
+    const { median: scores, mean } = judgePanelSummary(samples, JUDGE_SCORE_DIMENSIONS);
+    console.log('Browse SKILL.md panel:', JSON.stringify({ gate: 'median', median: scores, mean, samples }, null, 2));
 
     const baselinesPath = path.join(ROOT, 'test', 'fixtures', 'eval-baselines.json');
     const baselines = JSON.parse(fs.readFileSync(baselinesPath, 'utf-8'));
@@ -145,8 +145,8 @@ describeIfSelected('LLM-as-judge quality evals', [
     const section = content.slice(setupStart, setupEnd);
 
     const samples = await judgePanel(() => judge('setup/binary discovery instructions', section));
-    const scores = judgePanelMean(samples, JUDGE_SCORE_DIMENSIONS);
-    console.log('Setup block panel:', JSON.stringify({ mean: scores, samples }, null, 2));
+    const { median: scores, mean } = judgePanelSummary(samples, JUDGE_SCORE_DIMENSIONS);
+    console.log('Setup block panel:', JSON.stringify({ gate: 'median', median: scores, mean, samples }, null, 2));
 
     evalCollector?.addTest({
       name: 'setup block',
@@ -206,8 +206,8 @@ describeIfSelected('QA skill quality evals', ['qa/SKILL.md workflow', 'qa/SKILL.
       references: ['qa/templates/functional-report-template.md', 'qa/templates/qa-report-template.md', 'qa/references/issue-taxonomy.md'] }).text;
 
     const samples = await judgePanel(() => callJudge<JudgeScore>(buildQaWorkflowJudgePrompt(section)));
-    const scores = judgePanelMean(samples, JUDGE_SCORE_DIMENSIONS);
-    console.log('QA workflow panel:', JSON.stringify({ mean: scores, samples }, null, 2));
+    const { median: scores, mean } = judgePanelSummary(samples, JUDGE_SCORE_DIMENSIONS);
+    console.log('QA workflow panel:', JSON.stringify({ gate: 'median', median: scores, mean, samples }, null, 2));
 
     evalCollector?.addTest({
       name: 'qa/SKILL.md workflow',
@@ -232,8 +232,8 @@ describeIfSelected('QA skill quality evals', ['qa/SKILL.md workflow', 'qa/SKILL.
     const section = sliceQaPatterns('## Health Score Rubric');
 
     const samples = await judgePanel(() => callJudge<JudgeScore>(buildQaHealthRubricJudgePrompt(section), undefined, { jsonSchema: JUDGE_SCORE_SCHEMA }));
-    const scores = judgePanelMean(samples, JUDGE_SCORE_DIMENSIONS);
-    console.log('QA health rubric panel:', JSON.stringify({ mean: scores, samples }, null, 2));
+    const { median: scores, mean } = judgePanelSummary(samples, JUDGE_SCORE_DIMENSIONS);
+    console.log('QA health rubric panel:', JSON.stringify({ gate: 'median', median: scores, mean, samples }, null, 2));
 
     evalCollector?.addTest({
       name: 'qa/SKILL.md health rubric',
@@ -263,9 +263,9 @@ describeIfSelected('QA skill quality evals', ['qa/SKILL.md workflow', 'qa/SKILL.
     const rulesSection = sliceQaPatterns('## Important Rules');
 
     const samples = await judgePanel(() => callJudge<{ would_browse: boolean; fallback_behavior: string; confidence: number; reasoning: string }>(buildQaAntiRefusalJudgePrompt(diffAwareSection, rulesSection), undefined, { jsonSchema: QA_ANTI_REFUSAL_JUDGE_SCHEMA }));
-    const result = { would_browse: judgePanelMajority(samples, 'would_browse'), ...judgePanelMean(samples, ['confidence'] as const) };
+    const result = { would_browse: judgePanelMajority(samples, 'would_browse'), ...judgePanelMedian(samples, ['confidence'] as const) };
 
-    console.log('QA anti-refusal panel:', JSON.stringify({ result, samples }, null, 2));
+    console.log('QA anti-refusal panel:', JSON.stringify({ gate: 'median', result, mean: judgePanelMean(samples, ['confidence'] as const), samples }, null, 2));
 
     evalCollector?.addTest({
       name: 'qa/SKILL.md anti-refusal',
@@ -308,9 +308,9 @@ describeIfSelected('Cross-skill consistency evals', ['cross-skill greptile consi
     ].join('\n\n');
 
     const samples = await judgePanel(() => callJudge<{ consistent: boolean; issues: string[]; score: number; reasoning: string }>(buildCrossSkillConsistencyJudgePrompt(collected), undefined, { jsonSchema: CROSS_SKILL_CONSISTENCY_JUDGE_SCHEMA }));
-    const result = { consistent: judgePanelMajority(samples, 'consistent'), ...judgePanelMean(samples, ['score'] as const) };
+    const result = { consistent: judgePanelMajority(samples, 'consistent'), ...judgePanelMedian(samples, ['score'] as const) };
 
-    console.log('Cross-skill consistency panel:', JSON.stringify({ result, samples }, null, 2));
+    console.log('Cross-skill consistency panel:', JSON.stringify({ gate: 'median', result, mean: judgePanelMean(samples, ['score'] as const), samples }, null, 2));
 
     evalCollector?.addTest({
       name: 'cross-skill greptile consistency',
@@ -464,8 +464,8 @@ async function runWorkflowJudge(opts: {
     if (opts.compactReasoning && !samples.every(sample => validWorkflowJudgeScore(sample as unknown as EvalCacheValue, { clarity: 1, completeness: 1, actionability: 1 }, true))) {
       throw new Error('Workflow judge violated the compact response contract');
     }
-    scores = judgePanelMean(samples, JUDGE_SCORE_DIMENSIONS);
-    console.log(`${opts.testName} panel:`, JSON.stringify({ mean: scores, samples }, null, 2));
+    scores = judgePanelMedian(samples, JUDGE_SCORE_DIMENSIONS);
+    console.log(`${opts.testName} panel:`, JSON.stringify({ gate: 'median', median: scores, mean: judgePanelMean(samples, JUDGE_SCORE_DIMENSIONS), samples }, null, 2));
     expect(scores.clarity).toBeGreaterThanOrEqual(thresholds.clarity);
     expect(scores.completeness).toBeGreaterThanOrEqual(thresholds.completeness);
     expect(scores.actionability).toBeGreaterThanOrEqual(thresholds.actionability);
@@ -752,9 +752,9 @@ describeIfSelected('Voice directive eval', ['voice directive tone'], () => {
       connects_user_outcomes: number;
       reasoning: string;
     }>(buildVoiceDirectiveJudgePrompt(voiceSection), undefined, { jsonSchema: VOICE_DIRECTIVE_JUDGE_SCHEMA }));
-    const result = judgePanelMean(samples, ['directness', 'concreteness', 'avoids_corporate', 'avoids_ai_vocabulary', 'connects_user_outcomes'] as const);
+    const { median: result, mean } = judgePanelSummary(samples, ['directness', 'concreteness', 'avoids_corporate', 'avoids_ai_vocabulary', 'connects_user_outcomes'] as const);
 
-    console.log('Voice directive panel:', JSON.stringify({ mean: result, samples }, null, 2));
+    console.log('Voice directive panel:', JSON.stringify({ gate: 'median', median: result, mean, samples }, null, 2));
 
     evalCollector?.addTest({
       name: 'voice directive tone',

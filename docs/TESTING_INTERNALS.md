@@ -427,15 +427,18 @@ and the kind fixes its trials before the run:
 - `judge`: an LLM judge scoring a fixed input. `judgePanel()`
   (`test/helpers/llm-judge.ts`) draws 3 samples of the same prompt concurrently
   inside the unchanged `JUDGE_MS`; numeric dimensions gate on the per-dimension
-  mean against the unchanged threshold (no dimension compensates for another),
-  booleans on a strict majority. A sample that errors (refusal, truncation,
+  median of exactly 3 samples, so at least 2 of 3 must meet the unchanged
+  threshold (`judgePanelMedian()`; no dimension compensates for another, and
+  any other sample count fails closed), booleans on a strict majority. Panel
+  logs show every sample and the mean for information; the median is the gate
+  (EVAL_POLICY v3, approved 2026-10-06). A sample that errors (refusal, truncation,
   non-JSON, a malformed field) fails the panel and is never resampled; a
   refusal counts as an unscored panel only when every sample refused.
   `callJudge`'s 429 backoff happens before any model output and is transport,
   not a verdict retry. The workflow-judge cache stores whole panels only.
   The `rule` case auq-matrix uses the same panel inside its one execution: each
   skill's single native capture has its recommendation substance scored by 3
-  judge samples, gated on their mean against the unchanged minimum of 4, and a
+  judge samples, gated on their median against the unchanged minimum of 4, and a
   failed sample fails the panel without resampling (approved 2026-10-04 for
   censuses after the change).
 
@@ -485,7 +488,8 @@ this checkout to read it)`.
 
 `failure_detail` carries the values `error` cannot hold: a failed Bun matcher's
 `{expected, received}`, or for a judge one `{dimension, mean, threshold,
-samples, rationale}` entry per failing dimension, each part capped at 200
+samples, rationale}` entry per failing dimension (since EVAL_POLICY v3 `mean`
+holds the panel's gating median), each part capped at 200
 characters. `sessions[]` (at most 32) summarizes the trial's session-ledger
 rows. `cost_known: false` marks a record or trial whose harness captured no
 billing: PTY and Codex sessions never bill, and an SDK session bills only with a

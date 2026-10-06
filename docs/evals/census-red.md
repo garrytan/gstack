@@ -37,7 +37,7 @@ with one failed trial shown):
 | case, kind, verdict | the registry id, its kind (`rule`, `behavior`, `judge`) and the verdict with each trial's outcome; the brackets name the slice and attempt of each trial |
 | `failure_class` | the class verdicts read: `assertion`, `contract`, `timeout` or `infra` |
 | `cause` | what the machine observed (`failure_cause`, glossary in [TESTING_INTERNALS](../TESTING_INTERNALS.md#failure-causes)), with its evidence line |
-| Expected / Received | the failed matcher's values; for a judge, each failing dimension's mean, threshold, sample count and lowest rationale |
+| Expected / Received | the failed matcher's values; for a judge, each failing dimension's gating median (the mean before EVAL_POLICY v3), threshold, sample count and lowest rationale |
 | `evidence:` | the slice artifact and shard directory holding the transcript |
 | `after a repair:` | the command that runs only this case, once a repair exists |
 

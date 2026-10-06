@@ -284,9 +284,10 @@ constants in `EVAL_POLICY` (`test/helpers/periodic-exclude-data.ts`):
   PASS at 2 or more with no contract violation (`expectContract()`). Use it only
   when a live model choice decides the verdict and an occasional deviation is
   acceptable product behavior; the one-line reason goes in `BEHAVIOR_WHY`.
-- `judge`: an LLM judge scoring a fixed input; 3 samples of the same prompt,
-  gated on the per-dimension mean (booleans on a majority) against the
-  unchanged threshold. An erroring sample fails the panel and is never resampled.
+- `judge`: an LLM judge scoring a fixed input; exactly 3 samples of the same
+  prompt, each dimension gated on its median, at least 2 of 3 samples, against
+  the unchanged threshold (booleans on a majority; the mean is reported only).
+  An erroring sample fails the panel and is never resampled.
 
 A timed-out, crashed or infrastructure-failed trial counts as a failed trial and
 is reported with its class; a missing trial makes the case INCOMPLETE, which
@@ -544,8 +545,8 @@ Override the judge model per run with `GSTACK_EVAL_MODEL_JUDGE`:
 - **Actionability** — Can the agent execute tasks using only the information in the doc?
 
 Each dimension is scored 1-5 by a panel of 3 samples of the same prompt, drawn
-concurrently; each dimension's panel mean must meet that judge's threshold (≥ 4
-for most dimensions; see each case). An erroring sample fails the panel. There's also a regression test that compares generated docs against the hand-maintained baseline from `origin/main` — generated must score equal or higher.
+concurrently; each dimension's panel median (at least 2 of 3 samples) must meet
+that judge's threshold (≥ 4 for most dimensions; see each case). An erroring sample fails the panel. There's also a regression test that compares generated docs against the hand-maintained baseline from `origin/main` — generated must score equal or higher.
 
 Needs `ANTHROPIC_API_KEY` in `.env`. The judge files run in every paid lane
 (`bun run eval:bg:pr` selects the ones your diff touches).

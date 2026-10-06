@@ -306,7 +306,7 @@ const detailPart = (text: string): string => {
 /**
  * Detail the stored error line cannot carry (it keeps only the matcher header).
  * A judge record with a `>= N` threshold names each dimension below it, its
- * mean, its sample count and the first sample sentence naming that dimension;
+ * gating value (the panel median since EVAL_POLICY v3, in the `mean` field), its sample count and the first sample sentence naming that dimension;
  * otherwise a Bun matcher message yields its Expected/Received values.
  */
 export function failureDetailOf(text: string | undefined,

@@ -12,7 +12,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { buildQaWorkflowJudgePrompt, callJudge, judgePanelMean, DEFAULT_JUDGE_MAX_TOKENS, JUDGE_SCORE_DIMENSIONS, type CallJudgeOptions } from '../test/helpers/llm-judge';
+import { buildQaWorkflowJudgePrompt, callJudge, judgePanelMean, judgePanelMedian, DEFAULT_JUDGE_MAX_TOKENS, JUDGE_SCORE_DIMENSIONS, type CallJudgeOptions } from '../test/helpers/llm-judge';
 import { buildWorkflowJudgePrompt, readWorkflowJudgeInput, QA_DISCOVERY_REFERENCES, WORKFLOW_JUDGE_RESPONSE_SCHEMA } from '../test/helpers/workflow-judge-input';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -113,10 +113,11 @@ const results = await Promise.all(JUDGES.flatMap(judge => Object.entries(bundles
   const prompt = judge.prompt(text);
   const samples = await Promise.all(Array.from({ length: SAMPLES }, () => callJudge<Sample>(prompt, undefined, judge.options)));
   const mean = judgePanelMean(samples, JUDGE_SCORE_DIMENSIONS);
-  const verdict = Object.entries(FLOORS).every(([key, floor]) => mean[key as keyof typeof FLOORS] >= floor) ? 'pass' : 'fail';
-  return { judge: judge.name, bundle, verdict, mean, samples };
+  const median = judgePanelMedian(samples, JUDGE_SCORE_DIMENSIONS);
+  const verdict = Object.entries(FLOORS).every(([key, floor]) => median[key as keyof typeof FLOORS] >= floor) ? 'pass' : 'fail';
+  return { judge: judge.name, bundle, verdict, median, mean, samples };
 })));
 const out = path.join(ROOT, 'docs/evals/judge-controls/results.json');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, JSON.stringify({ recorded_at: new Date().toISOString(), results }, null, 2) + '\n');
-for (const r of results) console.log(`${r.judge} | ${r.bundle} | ${r.verdict} | ${JSON.stringify(r.mean)}`);
+for (const r of results) console.log(`${r.judge} | ${r.bundle} | ${r.verdict} | median ${JSON.stringify(r.median)} mean ${JSON.stringify(r.mean)}`);

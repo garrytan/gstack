@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel } from '../../lib/eval-model';
 import { JUDGE_MS } from './eval-budgets';
-import { JUDGE_PANEL_SAMPLES, JUDGE_SCORE_DIMENSIONS, judgePanelMean, type JudgeScore } from './llm-judge';
+import { JUDGE_PANEL_SAMPLES, JUDGE_SCORE_DIMENSIONS, judgePanelMedian, type JudgeScore } from './llm-judge';
 import { readWorkflowJudgeInput, buildWorkflowJudgePrompt, WORKFLOW_JUDGE_RESPONSE_SCHEMA, WORKFLOW_JUDGE_REASONING_WORD_LIMIT } from './workflow-judge-input';
 import { buildEvalInputIdentity, lookupEvalInputCache, sourceDependencyClosure, storeEvalInputCache,
   type EvalCacheValue, type EvalInputIdentity, type EvalPassingProof } from '../../scripts/eval-input-cache';
@@ -49,13 +49,13 @@ export function validWorkflowJudgeScore(value: EvalCacheValue, thresholds: Thres
 
 const SAMPLE_RANGE: Thresholds = { clarity: 1, completeness: 1, actionability: 1 };
 
-/** A complete judge panel: exactly JUDGE_PANEL_SAMPLES of valid samples whose per-dimension mean meets every threshold. */
+/** A complete judge panel: exactly JUDGE_PANEL_SAMPLES of valid samples whose per-dimension median (2 of 3) meets every threshold. */
 export function validWorkflowJudgePanel(value: EvalCacheValue, thresholds: Thresholds, compactReasoning = false): value is { samples: Array<JudgeScore & EvalCacheValue> } {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).join(',') !== 'samples'
     || !Array.isArray(value.samples) || value.samples.length !== JUDGE_PANEL_SAMPLES
     || !value.samples.every(sample => validWorkflowJudgeScore(sample, SAMPLE_RANGE, compactReasoning))) return false;
-  const mean = judgePanelMean(value.samples as JudgeScore[], JUDGE_SCORE_DIMENSIONS);
-  return JUDGE_SCORE_DIMENSIONS.every(key => mean[key] >= thresholds[key]);
+  const median = judgePanelMedian(value.samples as JudgeScore[], JUDGE_SCORE_DIMENSIONS);
+  return JUDGE_SCORE_DIMENSIONS.every(key => median[key] >= thresholds[key]);
 }
 
 export function prepareWorkflowJudgeCache(opts: WorkflowCacheOptions): {
@@ -140,9 +140,10 @@ export function prepareWorkflowJudgeCache(opts: WorkflowCacheOptions): {
 }
 
 /**
- * Pass floors for the browse reference judge panel mean. The stored baseline
- * is recorded for comparison only: a three-sample mean is too noisy for a
- * no-dip ratchet, and gating on it silently raised the clarity floor to 4.
+ * Pass floors for the browse reference judge panel, applied to its gating
+ * per-dimension median (EVAL_POLICY v3). The stored baseline is recorded for
+ * comparison only: a three-sample aggregate is too noisy for a no-dip ratchet,
+ * and gating on it silently raised the clarity floor to 4.
  */
 export const BROWSE_JUDGE_FLOORS = { clarity: 3, completeness: 4, actionability: 4 } as const;
 

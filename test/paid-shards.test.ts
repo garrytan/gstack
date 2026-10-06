@@ -759,7 +759,7 @@ console.log("Ran 1 tests across 1 files. [1ms]"); process.exit(${fail ? 1 : 0});
       expect(sliceExitCode(summary.outcomes)).toBe(0);
       const env = JSON.parse(fs.readFileSync(path.join(evalDirBase, 'shards', shardSlug([key(3)]), 'env.json'), 'utf8'));
       expect(env).toMatchObject({ GSTACK_EVAL_CASE_ID: 'review-sql-injection', GSTACK_EVAL_KIND: 'behavior', GSTACK_EVAL_TRIAL: '3',
-        GSTACK_EVAL_PANEL_N: '3', GSTACK_EVAL_PANEL_K: '2', GSTACK_EVAL_POLICY_VERSION: '2' });
+        GSTACK_EVAL_PANEL_N: '3', GSTACK_EVAL_PANEL_K: '2', GSTACK_EVAL_POLICY_VERSION: '3' });
       expect(JSON.parse(env.EVALS_SELECTION_JSON).selected).toEqual(['review-sql-injection']);
     } finally { fs.rmSync(evalDirBase, { recursive: true, force: true }); }
   });

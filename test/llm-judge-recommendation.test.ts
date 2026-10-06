@@ -7,7 +7,7 @@
  * against the same threshold the production E2E tests use (>= 4).
  *
  * Each fixture is a pre-registered 3-sample judge panel: numeric substance
- * gates on the panel mean, the boolean checks on a 2-of-3 majority, and an
+ * gates on the panel median (2 of 3 samples), the boolean checks on a 2-of-3 majority, and an
  * erroring sample fails the panel (never resampled). Costs ~$0.12 per run.
  * Touchfile-gated to test/helpers/llm-judge.ts so it fires on rubric
  * tweaks but not every test run. Runs only under EVALS=1 with an API key.
@@ -15,7 +15,7 @@
 
 import { expect } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
-import { judgePanel, judgePanelMajority, judgePanelMean, judgePanelReasoning, judgeRecommendation } from './helpers/llm-judge';
+import { judgePanel, judgePanelMajority, judgePanelMedian, judgePanelReasoning, judgeRecommendation } from './helpers/llm-judge';
 import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
 
 // Fixtures wrap a realistic AskUserQuestion shape so the judge sees the menu
@@ -45,7 +45,7 @@ async function judgeRecommendationPanel(text: string) {
     present: judgePanelMajority(samples, 'present'),
     commits: judgePanelMajority(samples, 'commits'),
     has_because: judgePanelMajority(samples, 'has_because'),
-    reason_substance: judgePanelMean(samples, ['reason_substance']).reason_substance,
+    reason_substance: judgePanelMedian(samples, ['reason_substance']).reason_substance,
     reasoning: judgePanelReasoning(samples),
   };
 }
