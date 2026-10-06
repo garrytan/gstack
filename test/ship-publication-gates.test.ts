@@ -1,10 +1,18 @@
 import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expectMentions } from './helpers/prompt-structure';
 
 const template = readFileSync(new URL('../ship/sections/pr-body.md.tmpl', import.meta.url), 'utf8');
+
+/** The agent writes the body drafts with its file-write tool; the block reads them by printed name. */
+function writeDrafts(root: string, top = '## Summary\n\n## Documentation', rest = '## Test plan\n- [x] bun test: pass'): (block: string) => string {
+  mkdirSync(join(root, '.gstack/tmp'), { recursive: true });
+  writeFileSync(join(root, '.gstack/tmp/pr-body-top.abc123'), top);
+  writeFileSync(join(root, '.gstack/tmp/pr-body-rest.abc123'), rest);
+  return block => block.replace('<body-top-file-name>', 'pr-body-top.abc123').replace('<body-rest-file-name>', 'pr-body-rest.abc123');
+}
 const scanner = resolve(import.meta.dir, '../bin/gstack-redact');
 
 for (const failure of ['none', 'body', 'title'] as const) {
@@ -26,7 +34,7 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(scanner)} "$@"
       const block = template.match(/```bash\n(: "\$\{NEW_TITLE:[\s\S]*?)\n```/)?.[1];
       expect(block).toBeDefined();
       writeFileSync(join(root, 'section.md'), '**Status:** current — no edits.');
-      const result = Bun.spawnSync(['bash', '-c', block!], {
+      const result = Bun.spawnSync(['bash', '-c', writeDrafts(root)(block!)], {
         cwd: root,
         env: { ...process.env, HOME: root, NEW_TITLE: 'v1.2.3.4 fix: publication checks', FAIL_AT: failure,
           DOCS_SECTION_FILE: join(root, 'section.md') },
@@ -58,15 +66,24 @@ test('publication composes the saved documentation section unchanged and refuses
   try {
     const section = '**Status:** current — no edits.\n\n- Diagram drift: none (no diagrams in any doc).';
     writeFileSync(join(root, 'section.md'), section);
-    const run = (file: string) => Bun.spawnSync(['bash', '-c', `${compose}cat -- "$PR_BODY_FILE"`], {
+    const run = (file: string) => Bun.spawnSync(['bash', '-c', `${writeDrafts(root)(compose)}cat -- "$PR_BODY_FILE"`], {
       cwd: root, env: { ...process.env, HOME: root, DOCS_SECTION_FILE: file }, stdout: 'pipe', stderr: 'pipe', timeout: 10_000,
     });
     const composed = run(join(root, 'section.md'));
     expect(composed.exitCode).toBe(0);
-    expect(composed.stdout.toString()).toContain(`## Documentation" heading line>\n${section}\n<rest of the PR body`);
+    expect(composed.stdout.toString()).toBe(`## Summary\n\n## Documentation\n${section}\n## Test plan\n- [x] bun test: pass\n`);
+    expect(existsSync(join(root, '.gstack/tmp/pr-body-top.abc123'))).toBe(false);
+    expect(existsSync(join(root, '.gstack/tmp/pr-body-rest.abc123'))).toBe(false);
     const missing = run(join(root, 'absent.md'));
     expect(missing.exitCode).toBe(1);
     expect(missing.stdout.toString()).toBe('');
+    rmSync(join(root, '.gstack/tmp'), { recursive: true, force: true });
+    const unwritten = Bun.spawnSync(['bash', '-c', `${compose.replace('<body-top-file-name>', 'never-written').replace('<body-rest-file-name>', 'never-written')}cat -- "$PR_BODY_FILE"`], {
+      cwd: root, env: { ...process.env, HOME: root, DOCS_SECTION_FILE: join(root, 'section.md') }, stdout: 'pipe', stderr: 'pipe', timeout: 10_000,
+    });
+    expect(unwritten.exitCode).toBe(1);
+    expect(unwritten.stdout.toString()).toBe('');
+    expect(unwritten.stderr.toString()).toContain('the body was never written');
     const unset = Bun.spawnSync(['bash', '-c', block], {
       cwd: root, env: { ...process.env, HOME: root, NEW_TITLE: 'v1.2.3.4 fix: publication checks', DOCS_SECTION_FILE: '' },
       stdout: 'pipe', stderr: 'pipe', timeout: 10_000,
