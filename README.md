@@ -710,6 +710,11 @@ to `$HOME\.copilot\skills\windows-gstack-patch` once, then invoke
 `/windows-gstack-patch` after the upgrade. The skill restores only the Windows
 shell instruction block and verifies a real helper invocation. It does not
 rename helpers, change file associations, or replace your runtime and config.
+The repair also covers generated project registrations in `.agents\skills`
+and `.github\skills`, which Copilot can discover instead of the personal
+copies. It preserves their names and host metadata. Reapply the repair after
+regenerating project skills for another host; personal-only verification does
+not prove that a project skill loads the Windows instructions.
 
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 

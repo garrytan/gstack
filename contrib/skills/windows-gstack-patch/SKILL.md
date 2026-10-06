@@ -5,9 +5,9 @@ description: "Repairs generated gstack skills for Copilot CLI on Windows after a
 
 # Patch generated gstack skills on Windows
 
-Run this skill only on Windows. It patches the generated Copilot skill copies under the selected `skills` directory. It does not change the gstack checkout, reset an upgrade, rename helpers, or change file associations.
+Windows only. Patch generated gstack skill copies, including project registrations discovered by Copilot. Preserve names and host metadata. Do not change tracked sources, reset an upgrade, rename helpers, or change file associations.
 
-1. Resolve the directory of this loaded `SKILL.md`. Build absolute paths to `Apply-WindowsPatch.ps1` and `Verify-WindowsPatch.ps1`. Do not invoke an extensionless file. Set `$skillsRoot` to the user-supplied Copilot skills directory or the default below. Set `$bashPath` to a user-supplied absolute Git for Windows Bash path or `$null`.
+1. Resolve this loaded skill's directory and its two `.ps1` scripts to absolute paths. Never invoke extensionless helpers directly. Use the supplied personal skills root and absolute Git Bash path, or these defaults.
 
    ```powershell
    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -32,7 +32,7 @@ Run this skill only on Windows. It patches the generated Copilot skill copies un
    }
    & $powershell @verifyArgs
    if ($LASTEXITCODE -ne 0) {
-       throw "Verify-WindowsPatch.ps1 Bash preflight failed with exit code $LASTEXITCODE."
+       throw "Verify-WindowsPatch.ps1 failed with exit code $LASTEXITCODE."
    }
    ```
 
@@ -47,24 +47,16 @@ Run this skill only on Windows. It patches the generated Copilot skill copies un
    }
    ```
 
-   Pass `-WhatIf` for a preview. Pass `-BackupDirectory <absolute directory outside SkillsRoot>` to select the recovery-backup parent. Otherwise, the script creates a unique run directory under the system temporary directory. It validates every candidate and stages every changed file plus its recovery backup before the first atomic replacement. Preserve the reported backup directory until the installation is verified. Stop on any ownership, frontmatter, marker, UTF-8, reparse-point, backup, or staging error.
+   `-WhatIf` previews without writing. `-BackupDirectory <absolute directory outside SkillsRoot>` chooses the backup parent; otherwise backups go in a unique system-temp directory. All candidates validate and stage with recovery backups before atomic replacement. Keep backups until verification passes. Stop on ownership, frontmatter, marker, UTF-8, reparse-point, backup, or staging errors.
 
-4. Run `copilot skill list`. This is a read-only check. Confirm that `windows-gstack-patch` appears under Personal and that the generated `gstack` skills still load.
+4. Run `copilot skill list`. Require Personal `windows-gstack-patch` and generated gstack skills to load.
+
+   Copilot also discovers project copies generated for Codex. Repeat Step 3's command and exit guard for each existing repository `.agents\skills` and `.github\skills` directory, passing `$projectSkillsRoot` as `-SkillsRoot`. Keep `$skillsRoot` on the personal installation for Step 5; project copies may lack a runtime. Only generated `gstack` and `gstack-*` directories qualify, with a frontmatter name matching the directory or its unprefixed skill name. Keep backups. Do not regenerate Codex copies as Copilot skills or delete registrations.
+
+   Rerun `copilot skill list` and invoke the repaired project skill through the skill tool. Require `gstack:copilot-shell-execution:begin` before its first executable fence. Personal startup success alone does not prove project discovery. Reapply after project-host regeneration or upgrades.
 
 5. Run the full verifier. It invokes the installed `gstack-skill-start` through the same explicit Bash path with isolated temporary state. It disables update checks, telemetry, proactive prompts, and artifact sync. It requires exit code `0`, `SKILL_START_PROTO: 1` as the first line, `MODEL_OVERLAY: none`, a session file keyed by the supplied `--parent-pid`, and no new `OpenWith.exe` process.
 
-   ```powershell
-   $verifyArgs = @(
-       '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-       '-File', $verify, '-SkillsRoot', $skillsRoot
-   )
-   if ($bashPath) {
-       $verifyArgs += @('-BashPath', $bashPath)
-   }
-   & $powershell @verifyArgs
-   if ($LASTEXITCODE -ne 0) {
-       throw "Verify-WindowsPatch.ps1 startup probe failed with exit code $LASTEXITCODE."
-   }
-   ```
+   Repeat Step 2's verifier command without `-BashOnly`, retaining the explicit interpreter, personal `$skillsRoot`, optional `$bashPath`, and nonzero-exit guard.
 
-6. Report the patch summary, every original-to-backup mapping, the `copilot skill list` result, and every `EVIDENCE` line from the verifier. Do not commit, push, open a pull request, run an upgrade, or edit upstream gstack files.
+6. Report the patch summary for every root, every original-to-backup mapping, the `copilot skill list` and loaded-skill results, and every `EVIDENCE` line from the verifier. Do not commit, push, open a pull request, run an upgrade, or edit upstream gstack files.
