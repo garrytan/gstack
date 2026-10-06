@@ -486,6 +486,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 |------|-------------------|
 | App Store/TestFlight distribution is requested for an Apple app (.xcodeproj, .xcworkspace, or an app-product Swift package) — read at Step 0.9 before the branch gate; an Apple repository-landing request follows the normal pipeline | `sections/apple-release.md` |
 | running the test suites and (if prompt files changed) the eval suites (Steps 4-6) | `sections/tests.md` |
+| a paid eval case is red or a free-suite shard failed (Steps 5-6) — read from the tests section; diagnostic reruns, then the gate once | `sections/measure.md` |
 | auditing test coverage of the diff (Step 7) | `sections/test-coverage.md` |
 | auditing plan completion, verification, and scope drift (Step 8) | `sections/plan-completion.md` |
 | the pre-landing review and specialist dispatch (Step 9) | `sections/review-army.md` |

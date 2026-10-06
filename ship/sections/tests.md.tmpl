@@ -38,7 +38,10 @@ log=...` summary lines — each carries the lane's exit code and a per-run log
 file (no shared /tmp collisions between concurrent ships). Read the log files
 for failure detail.
 
-**If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
+**If any test fails:** Do NOT immediately stop. When a free-suite shard failed,
+first Read `~/.claude/skills/gstack/ship/sections/measure.md` and rerun that
+shard's file list as it says (diagnostic, not a verdict). Then apply the Test
+Failure Ownership Triage:
 
 {{TEST_FAILURE_TRIAGE}}
 
@@ -105,7 +108,10 @@ satisfy coverage.
 
 **3. Check results and save evidence for Step 19.**
 
-- **If any eval fails:** Show failures and available costs, then **STOP**.
+- **If any eval fails:** Do not rerun the full gate. Show failures and available
+  costs, then Read `~/.claude/skills/gstack/ship/sections/measure.md` and run its
+  loop for each red case: classify, measure alone, fix at the cause, re-measure,
+  then gate once. **STOP** only at its named-red stop.
 - **If all selected evals pass:** Record actual counts, any reused evidence and
   its source, and available costs. Continue to Step 7.
 
