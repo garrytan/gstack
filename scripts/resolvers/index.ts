@@ -38,6 +38,7 @@ import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPref
 import { generateTasksSectionEmit, generateTasksSectionAggregate } from './tasks-section';
 import { SECTION, SECTION_INDEX } from './sections';
 import { generateRedactInvocationBlock } from './redact-doc';
+import { generateFreeTextFile } from './free-text-file';
 import { FOREGROUND_DISPATCH_NOTE } from './constants';
 import { generateThirdPartyActions } from './third-party-actions';
 import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, generateUntrustedContentWarning, asideExecPrelude } from './aside';
@@ -65,6 +66,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   CODEX_REVIEW_MODEL_CONFIG_FLAG: generateCodexReviewModelConfigFlag,
   CLAUDE_MODEL_FLAG: generateClaudeModelFlag,
   REDACT_INVOCATION_BLOCK: generateRedactInvocationBlock,
+  FREE_TEXT_FILE: generateFreeTextFile,
   THIRD_PARTY_ACTIONS: generateThirdPartyActions,
   DESIGN_DOC_DISCOVERY: generateDesignDocDiscovery,
   SHARED_LIBS_RUBRIC: generateSharedLibsRubric,

@@ -291,34 +291,46 @@ Ask with AskUserQuestion in the AskUserQuestion Format. List each failure the sa
 - Find who likely broke it. Check BOTH the test file AND the production code it tests:
   ```bash
   # Who last touched the failing test?
-  git log --format="%an (%ae)" -1 -- <failing-test-file>
+  git log --format="%an (%ae)" -1 -- "<failing-test-file>"
   # Who last touched the production code the test covers? (often the actual breaker)
-  git log --format="%an (%ae)" -1 -- <source-file-under-test>
+  git log --format="%an (%ae)" -1 -- "<source-file-under-test>"
   ```
   If these are different people, prefer the production code author — they likely introduced the regression.
-- Create an issue assigned to that person; run only your platform's create line. Test names and errors stay inside the quoted heredocs (column 0): in a double-quoted argument their backticks run as commands.
+- Create an issue assigned to that person. Its title and body carry test names and error output, so they travel as files, never inside a command:
 
 ```bash
-ISSUE_TITLE=$(cat <<'GSTACK_ISSUE'
-Pre-existing test failure: <test-name>
-GSTACK_ISSUE
-)
-ISSUE_BODY=$(cat <<'GSTACK_ISSUE'
-Failing on <current-branch>; pre-existing.
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+TITLE_FILE=$(mktemp "$_GT/issue-title.XXXXXX") && echo "TITLE_FILE: $TITLE_FILE (name: ${TITLE_FILE##*/})"
+BODY_FILE=$(mktemp "$_GT/issue-body.XXXXXX") && echo "BODY_FILE: $BODY_FILE (name: ${BODY_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand. Title file: `Pre-existing test failure: <test name>`. Body file (Markdown; the error goes in a `~~~` fence so backticks in it stay literal):
+
+```text
+Failing on <current branch>; pre-existing.
 
 **Error:**
 ~~~
-<first 10 lines>
+<first 10 lines of the failure>
 ~~~
 
 **Last modified by:** <author>
 **Noticed by:** gstack /ship on <date>
-GSTACK_ISSUE
-)
-# GitHub:
-gh issue create --title "$ISSUE_TITLE" --body "$ISSUE_BODY" --assignee "<github-username>"
-# GitLab:
-glab issue create -t "$ISSUE_TITLE" -d "$ISSUE_BODY" -a "<gitlab-username>"
+```
+
+Then post with your platform from Step 0 (`github` or `gitlab`). Substitute the two printed names, and an assignee only when it is a valid login for that platform (GitHub: letters, digits and single hyphens, at most 39 characters); otherwise drop the assignee flag and name the person in the body.
+
+```bash
+TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
+BODY_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<body-file-name>"
+[ -s "$TITLE_FILE" ] && [ -s "$BODY_FILE" ] || { echo "Not sent: $TITLE_FILE or $BODY_FILE is missing or empty, so the text was never written. Write it, then send by hand: gh issue create --title \"\$(cat $TITLE_FILE)\" --body-file $BODY_FILE" >&2; exit 1; }
+case "<platform>" in
+  github) gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$BODY_FILE" --assignee "<github-username>" ;;
+  gitlab) glab issue create -t "$(cat "$TITLE_FILE")" -d "$(cat "$BODY_FILE")" -a "<gitlab-username>" ;;
+  *) echo "Not sent: no GitHub or GitLab remote. Files: $TITLE_FILE $BODY_FILE" >&2; false ;;
+esac && rm -f "$TITLE_FILE" "$BODY_FILE"
 ```
 
 - If neither CLI is available or `--assignee`/`-a` fails (user not in org, etc.), create the issue without assignee and note who should look at it in the body.
