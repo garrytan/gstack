@@ -11,7 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const SECTION = fs.readFileSync(path.join(ROOT, 'ship/sections/greptile.md'), 'utf8');
+const SECTION = fs.readFileSync(path.join(ROOT, 'ship/sections/greptile.md.tmpl'), 'utf8');
 const CHECK = SECTION.match(/```bash\n([\s\S]*?)\n```/)![1];
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ship-greptile-'));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
