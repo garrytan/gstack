@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-export type CsoStack = 'node' | 'bun' | 'python' | 'rails';
+/** 'java' (Maven or Gradle) is detected so it is reported as itself; no runtime prepares it. */
+export type CsoStack = 'node' | 'bun' | 'python' | 'rails' | 'java';
 export interface PreparationPrerequisite {
   code: string;
   message: string;
@@ -1196,7 +1197,13 @@ export function inspectPreparation(snapshotPath: string, stack?: CsoStack): Prep
       detectedStacks.push('node');
     if (read(root, 'Gemfile.lock', true) !== undefined || read(root, 'Gemfile', true) !== undefined)
       detectedStacks.push('rails');
-    if (
+    // A root Maven or Gradle build names the repository's language; Python
+    // metadata beside it is helper tooling, not a second application stack.
+    const jvmBuild = ['pom.xml', 'build.gradle', 'build.gradle.kts'].find(
+      (file) => read(root, file, true) !== undefined,
+    );
+    if (jvmBuild) detectedStacks.push('java');
+    else if (
       read(root, 'uv.lock', true) !== undefined ||
       read(root, 'requirements.txt', true) !== undefined ||
       read(root, 'pyproject.toml', true) !== undefined
@@ -1210,12 +1217,17 @@ export function inspectPreparation(snapshotPath: string, stack?: CsoStack): Prep
     const detected = stack ?? detectedStacks[0] ?? 'python';
     plan.stack = detected;
     plan.runtimeProfile = detected;
+    if (detected === 'java')
+      fail(
+        'UNSUPPORTED_STACK',
+        `Java (${jvmBuild ?? 'Maven or Gradle'}) is not a supported runtime stack yet; supported runtime stacks are Node, Bun, Python, and Rails.`,
+        jvmBuild,
+      );
     if (!['node', 'bun', 'python', 'rails'].includes(detected))
       fail('UNSUPPORTED_STACK', 'Supported runtime stacks are Node, Bun, Python, and Rails.');
-    ({ node: inspectNode, bun: inspectBun, python: inspectPython, rails: inspectRails })[detected](
-      root,
-      plan,
-    );
+    ({ node: inspectNode, bun: inspectBun, python: inspectPython, rails: inspectRails })[
+      detected as Exclude<CsoStack, 'java'>
+    ](root, plan);
   } catch (error) {
     plan.status = 'prerequisites';
     plan.prerequisites.push(
