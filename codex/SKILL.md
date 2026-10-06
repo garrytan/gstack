@@ -514,9 +514,13 @@ follow the "Model not supported (HTTP 400 or 404)" recovery steps in
 invocations on the same 400.
 
 If the output contains `MODEL_QUOTA_EXHAUSTED`, stop: the account hit its Codex
-usage or rate limit. Relay Codex's own line under the marker verbatim (it names the
-reset time); the model is fine, so do not change it. Running the modes anyway fails
-the same way.
+usage limit. Relay Codex's own line under the marker verbatim (it names the reset
+time) and the HINT line (how long gstack skips Codex, and how to retry now); the model
+is fine, so do not change it. Running the modes anyway fails the same way.
+
+`MODEL_PROBE_RATE_LIMITED` is non-blocking: Codex answered 429. Report
+`CODEX_MODE: unverified (rate_limited)`, relay Codex's line and continue; a
+rate-limited mode run is missing coverage, never a pass.
 
 If the output contains `CODEX_SANDBOX: unavailable`, stop: Codex's sandbox cannot
 start here, so every command it runs would fail and its review would read nothing.
