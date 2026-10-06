@@ -3,7 +3,7 @@ import { defineHost, GBRAIN_RESOLVERS, preambleToolGlossary } from './define-hos
 // GitHub Copilot CLI (#393). Ported from PR #2323 (@andrey-esipov) with ideas
 // from #396/#487 (@ridermw) and #1852 (@lolisaigao1234); disposition in
 // docs/ADDING_A_HOST.md "GitHub Copilot CLI".
-const COPILOT_TOOL_GLOSSARY = '**GitHub Copilot tool names:** `AskUserQuestion` means your `ask_user` tool (one question per call: put the decision brief in the question and each option in the choices). `ExitPlanMode` means `exit_plan_mode`; the Agent tool means `task`; the Read tool means `view`; the Skill tool means `skill`. Copilot has no `mcp__*__AskUserQuestion` variant.';
+const COPILOT_TOOL_GLOSSARY = '**GitHub Copilot tool names:** `AskUserQuestion` means your `ask_user` tool (one question per call: put the decision brief in the question and each option in the choices). `ExitPlanMode` means `exit_plan_mode`; the Agent tool means `task`; the Read tool means `view`; the Skill tool means `skill`. Copilot has no `mcp__*__AskUserQuestion` variant. **On Windows (#3047):** run each bash block in Git for Windows Bash by its full path (usually `C:\\Program Files\\Git\\bin\\bash.exe`; bare `bash` can start WSL instead). Never translate a block into PowerShell, and never run an extensionless gstack helper from PowerShell directly: Windows opens an app picker instead of running it.';
 
 const copilot = defineHost({
   name: 'copilot',

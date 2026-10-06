@@ -790,3 +790,13 @@ describe('host renders name the host\'s own tools and identities (#2626, #2015, 
     }
   });
 });
+
+describe('#3047: Copilot on Windows runs bash blocks in Git for Windows Bash', () => {
+  test('the Copilot tool glossary names Git Bash by full path and forbids PowerShell translation', async () => {
+    const { default: copilot } = await import('../hosts/copilot');
+    const glossary = JSON.stringify(copilot.toolRewrites);
+    expect(glossary).toContain('Git for Windows Bash by its full path');
+    expect(glossary).toContain('bare `bash` can start WSL');
+    expect(glossary).toContain('Never translate a block into PowerShell');
+  });
+});
