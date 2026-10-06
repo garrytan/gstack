@@ -183,13 +183,14 @@ foreach ($candidate in @($candidates | Sort-Object Path -Unique)) {
     }
     $nameMatches = [regex]::Matches(
         $frontmatter.Groups['body'].Value,
-        '(?m)^[ \t]*name:[ \t]*(?<name>[a-z][a-z0-9-]*)[ \t]*$'
+        '(?m)^[ \t]*name:[ \t]*(?<name>[a-z][a-z0-9-]*)[ \t]*\r?$'
     )
     if ($nameMatches.Count -ne 1) {
         throw "Generated SKILL.md at '$($candidate.Path)' must contain exactly one plain name field."
     }
     $actualName = $nameMatches[0].Groups['name'].Value
-    if ($actualName -cne $candidate.ExpectedName) {
+    $unprefixedName = $candidate.ExpectedName -creplace '^gstack-', ''
+    if ($actualName -cne $candidate.ExpectedName -and $actualName -cne $unprefixedName) {
         throw "Generated SKILL.md at '$($candidate.Path)' has name '$actualName'; expected '$($candidate.ExpectedName)'."
     }
 

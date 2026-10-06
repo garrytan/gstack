@@ -117,6 +117,60 @@ test('the bundled payload stays byte-for-byte equal to the Copilot host prefix',
 });
 
 describe.skipIf(process.platform !== 'win32')('windows-gstack-patch behavior', () => {
+  test('patches CRLF project frontmatter without changing its name or existing content', () => {
+    const skillsRoot = path.join(tempRoot(), '.github', 'skills');
+    const file = writeSkill(skillsRoot, 'gstack-setup-gbrain', 'setup-gbrain');
+    const original = fs.readFileSync(file, 'utf8').replace(/\n/g, '\r\n');
+    fs.writeFileSync(file, original);
+
+    const first = runPatch(skillsRoot);
+    expect(first.status, first.stderr).toBe(0);
+    const patched = fs.readFileSync(file, 'utf8');
+    expect(patched.replace(`\n${PAYLOAD}`, '')).toBe(original);
+    expect(patched).toContain('name: setup-gbrain\r\n');
+
+    const second = runPatch(skillsRoot);
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toContain('SUMMARY changed=0 unchanged=1 skipped=0 planned=0');
+    expect(fs.readFileSync(file, 'utf8')).toBe(patched);
+  });
+
+  test('patches shared project registrations without changing their host identity or metadata', () => {
+    const skillsRoot = path.join(tempRoot(), '.agents', 'skills');
+    const file = writeSkill(skillsRoot, 'gstack-setup-gbrain', 'setup-gbrain');
+    const metadata = path.join(path.dirname(file), 'agents', 'openai.yaml');
+    fs.mkdirSync(path.dirname(metadata), { recursive: true });
+    fs.writeFileSync(metadata, 'interface:\n  display_name: GBrain setup\n');
+    const original = fs.readFileSync(file, 'utf8');
+    const metadataBefore = fs.readFileSync(metadata);
+
+    const first = runPatch(skillsRoot);
+    expect(first.status, first.stderr).toBe(0);
+    expect(first.stdout).toContain('SUMMARY changed=1 unchanged=0 skipped=0 planned=0');
+    const patched = fs.readFileSync(file, 'utf8');
+    expect(patched.replace(`\n${PAYLOAD}`, '')).toBe(original);
+    expect(patched).toContain('name: setup-gbrain\n');
+    expect(patched.indexOf(PAYLOAD)).toBeLessThan(patched.indexOf('## Existing'));
+    expect(fs.readFileSync(metadata)).toEqual(metadataBefore);
+
+    const second = runPatch(skillsRoot);
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toContain('SUMMARY changed=0 unchanged=1 skipped=0 planned=0');
+    expect(fs.readFileSync(file, 'utf8')).toBe(patched);
+  });
+
+  test('rejects an unrelated generated name before mutating a shared project registration', () => {
+    const skillsRoot = path.join(tempRoot(), '.agents', 'skills');
+    const valid = writeSkill(skillsRoot, 'gstack-setup-gbrain', 'setup-gbrain');
+    writeSkill(skillsRoot, 'gstack-review', 'other-review');
+    const before = fs.readFileSync(valid);
+
+    const result = runPatch(skillsRoot);
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain("has name 'other-review'; expected 'gstack-review'");
+    expect(fs.readFileSync(valid)).toEqual(before);
+  });
+
   test('patches immediate and supported nested generated skills, replaces stale content, and reruns without writes', () => {
     const fixture = tempRoot();
     const skillsRoot = path.join(fixture, 'skills root');
