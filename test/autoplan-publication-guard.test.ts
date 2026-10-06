@@ -483,6 +483,29 @@ describe('Autoplan parent publication guard', () => {
     });
   }
 
+  test('#3045: no init at all keeps the generic missing-evidence denial', () => {
+    const f = fixture(); f.message(); f.current(); f.events.splice(0, 2); f.reorder();
+    const reason = (f.evaluate() as any).reason;
+    expect(reason).toContain('Complete the existing snapshot init step');
+    expect(reason).not.toContain('cannot bind');
+  });
+  for (const [name, command] of [
+    ['a resolved-variable init piped to tail', (f: any) => `ST=$(bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "${ROOT}/bin/gstack-autoplan-snapshot.ts"); bun "$ST" init "${f.source}" "${f.active}" "${f.restore}" 2>&1 | tail -5`],
+    ['an init through a variable from an earlier call', (f: any) => `bun "$SNAPSHOT_TOOL" init "${f.source}" "${f.active}" "${f.restore}"`],
+    ['a chained literal init', (f: any) => `bun "${ROOT}/bin/gstack-autoplan-snapshot.ts" init "${f.source}" "${f.active}" "${f.restore}" && echo done`],
+  ] as const)
+    test(`#3045: ${name} is named as the cause with the literal re-run; only the literal re-run binds`, () => {
+      const f = fixture(); f.message(); f.current();
+      (f.events[0] as any).input.command = command(f);
+      const reason = (f.evaluate() as any).reason;
+      expect(reason).toContain('which this guard cannot bind');
+      expect(reason).toContain('`bun "<SNAPSHOT_TOOL>" init "<SOURCE_PLAN>" "<ACTIVE_PLAN>" "<RESTORE_PATH>"`');
+      f.events.splice(2, 0, { ...structuredClone(f.events[0]!), toolUseId: 're-init',
+        input: { command: `bun "${ROOT}/bin/gstack-autoplan-snapshot.ts" init "${f.source}" "${f.active}" "${f.restore}"` } },
+        { ...structuredClone(f.events[1]!), toolUseId: 're-init', content: JSON.stringify({ ...f.init, reused: true }) });
+      f.reorder(); expect(f.evaluate()).toEqual({ allow: true });
+    });
+
   test('split successful close ranges through EOF are sufficient', () => {
     const f = fixture(); f.events.splice(4, 2); f.read('part1', f.packet.closePacketPath, 1, 10);
     f.read('part2', f.packet.closePacketPath, 11); f.message(); f.current(); expect(f.evaluate()).toEqual({ allow: true });

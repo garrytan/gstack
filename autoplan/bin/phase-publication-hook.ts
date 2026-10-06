@@ -224,13 +224,17 @@ function initArguments(command: unknown, root: string): string[] | undefined {
   return args.slice(1);
 }
 
+/** Diagnostic only, never binds: a Bash call that ran snapshot init in a shape the guard cannot bind (#3045). */
+const UNBINDABLE_INIT = /(?:gstack-autoplan-snapshot|SNAPSHOT_TOOL|\$\{?[A-Z_]+\}?"?)\S*\s+init\s/;
+
 function invocation(events: Event[], root: string): Invocation {
   let bound: Invocation | undefined;
   let chosen: Record<string, any> | undefined;
+  let unbindable = false;
   for (const use of events) {
     if (use.kind !== 'use' || use.name !== 'Bash') continue;
     const args = initArguments(use.input?.command, root);
-    if (!args) continue;
+    if (!args) { unbindable ||= typeof use.input?.command === 'string' && UNBINDABLE_INIT.test(use.input.command) && /\.md\b/.test(use.input.command); continue; }
     const results = events.filter(x => x.kind === 'result' && x.toolUseId === use.toolUseId && x.order > use.order);
     if (results.length !== 1) fail('Autoplan initialization acknowledgment is unavailable or ambiguous.');
     const text = textResult(results[0]!);
@@ -244,6 +248,10 @@ function invocation(events: Event[], root: string): Invocation {
     bound = { activePlan: result.activePlan, restorePath: result.restorePath,
       originalSha256: result.originalSha256, start: results[0]!.order };
   }
+  if ((!chosen || !bound) && unbindable)
+    fail('Autoplan invocation evidence is unavailable: snapshot init ran through a shell variable, substitution, chaining, ' +
+      'a pipe or a redirect, which this guard cannot bind. Re-run it as one Bash call with the literal absolute paths: ' +
+      '`bun "<SNAPSHOT_TOOL>" init "<SOURCE_PLAN>" "<ACTIVE_PLAN>" "<RESTORE_PATH>"` (it answers reused:true), then retry this tool.');
   if (!chosen || !bound) fail('Autoplan invocation evidence is unavailable. Complete the existing snapshot init step before phase entry.');
   const restore = read(bound.restorePath, true), active = read(bound.activePlan);
   const reference = JSON.stringify(bound.restorePath).replace(/--/g, '\\u002d\\u002d');

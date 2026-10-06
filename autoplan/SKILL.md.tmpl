@@ -215,6 +215,8 @@ Before scope/review:
 ```bash
 bun "<SNAPSHOT_TOOL>" init "<SOURCE_PLAN>" "<ACTIVE_PLAN>" "<RESTORE_PATH>"
 ```
+Run init as its own Bash call with the literal absolute paths: no variables,
+substitutions, chaining, pipes or redirects, which the guard cannot bind.
 Use returned paths/`scope`; never hand-wrap. init backs up SOURCE_PLAN exactly,
 then initializes ACTIVE_PLAN atomically without losing requirements.
 Reviewers get only `## Implementation plan`; analysis stays in `## Review record`,
