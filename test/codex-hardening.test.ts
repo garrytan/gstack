@@ -956,3 +956,39 @@ describe('codex broken-install detection (#2742)', () => {
     expect(src).toContain('_CODEX_MP=$?');
   });
 });
+
+// --- Live codex smokes keep away from the real Codex home -------------------
+
+describe('live codex smokes run codex in a private HOME and CODEX_HOME', () => {
+  // Every codex run writes $CODEX_HOME/tmp/arg0. The two smokes below probe the
+  // CLI at module load or in free-tier tests, so with a real codex on PATH they
+  // used to write into the developer's ~/.codex.
+  for (const file of ['test/codex-resume-flag-semantics.test.ts', 'test/codex-e2e-sol-scope.test.ts']) {
+    test(`${file} never runs codex with the caller's HOME or Codex home`, () => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-smoke-home-'));
+      try {
+        const stubDir = path.join(home, 'stub-bin');
+        const log = path.join(home, 'codex-calls.log');
+        fs.mkdirSync(stubDir);
+        fs.writeFileSync(path.join(stubDir, 'codex'), `#!/usr/bin/env bash
+printf '%s|%s\\n' "$HOME" "\${CODEX_HOME:-unset}" >> "${log}"
+mkdir -p "\${CODEX_HOME:-$HOME/.codex}/tmp" && : > "\${CODEX_HOME:-$HOME/.codex}/tmp/arg0"
+printf 'Usage: codex exec [OPTIONS]\\n  -c, --config <key=value>  sandbox_mode\\n      --ignore-user-config\\n'
+`, { mode: 0o755 });
+        const r = spawnSync(process.execPath, ['test', file], {
+          cwd: ROOT, encoding: 'utf8', timeout: 120_000,
+          env: { PATH: `${stubDir}:${process.env.PATH ?? ''}`, HOME: home, TMPDIR: os.tmpdir() },
+        });
+        expect(r.status).toBe(0);
+        const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+        expect(calls.length).toBeGreaterThan(0);
+        for (const call of calls) {
+          const [callHome, codexHome] = call.split('|');
+          expect({ call, privateHome: callHome !== home, privateCodexHome: codexHome !== 'unset' && !codexHome!.startsWith(home) })
+            .toEqual({ call, privateHome: true, privateCodexHome: true });
+        }
+        expect(fs.existsSync(path.join(home, '.codex'))).toBe(false);
+      } finally { fs.rmSync(home, { recursive: true, force: true }); }
+    });
+  }
+});

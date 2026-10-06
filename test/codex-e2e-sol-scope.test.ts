@@ -25,8 +25,19 @@ const CODEX_AVAILABLE = spawnSync('which', ['codex'], { timeout: 30_000 }).statu
 // The run pins the model with --ignore-user-config; older codex CLIs reject
 // the flag with an argv error indistinguishable from a Sol regression, so
 // probe support and skip (not fail) on old CLIs.
-const IGNORE_USER_CONFIG_SUPPORTED = CODEX_AVAILABLE
-  && (spawnSync('codex', ['exec', '--help'], { encoding: 'utf8', timeout: 120_000 }).stdout ?? '').includes('--ignore-user-config');
+// The probe runs in a private HOME and CODEX_HOME: every codex run writes
+// $CODEX_HOME/tmp/arg0, and module load must never touch the real ~/.codex.
+function codexSupportsIgnoreUserConfig(): boolean {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sol-probe-'));
+  try {
+    fs.mkdirSync(path.join(home, '.codex'));
+    const help = spawnSync('codex', ['exec', '--help'], {
+      encoding: 'utf8', timeout: 120_000, env: { ...process.env, HOME: home, CODEX_HOME: path.join(home, '.codex') },
+    });
+    return (help.stdout ?? '').includes('--ignore-user-config');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+}
+const IGNORE_USER_CONFIG_SUPPORTED = CODEX_AVAILABLE && codexSupportsIgnoreUserConfig();
 const evalsEnabled = !!process.env.EVALS;
 // External-service test — periodic tier only (CLAUDE.md tiering rule 3). The
 // positive guard shape below is what classifyPaidTestFile greps to exclude

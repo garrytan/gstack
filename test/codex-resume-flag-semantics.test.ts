@@ -12,11 +12,20 @@
  * (the periodic-tier eval runners) will exercise it.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { afterAll, describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 const codexPath = spawnSync('which', ['codex'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
 const codexAvailable = codexPath.length > 0;
+// Every codex run writes $CODEX_HOME/tmp/arg0, so the smoke gets a private
+// HOME and CODEX_HOME and never touches the developer's real ~/.codex.
+const smokeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-resume-smoke-'));
+fs.mkdirSync(path.join(smokeHome, '.codex'));
+const smokeEnv = { ...process.env, HOME: smokeHome, CODEX_HOME: path.join(smokeHome, '.codex') };
+afterAll(() => fs.rmSync(smokeHome, { recursive: true, force: true }));
 
 describe.skipIf(!codexAvailable)(
   'codex exec resume — flag semantics (live CLI smoke; closes #1270 regex-only gap)',
@@ -26,6 +35,7 @@ describe.skipIf(!codexAvailable)(
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 10_000,
+        env: smokeEnv,
       });
       const helpText = (result.stdout || '') + '\n' + (result.stderr || '');
       // The /codex skill builds resume invocations with `-c 'sandbox_mode="read-only"'`.
@@ -39,6 +49,7 @@ describe.skipIf(!codexAvailable)(
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 10_000,
+        env: smokeEnv,
       });
       const helpText = (result.stdout || '') + '\n' + (result.stderr || '');
       // The whole point of #1270 was that `codex exec resume` rejects `-C <dir>`.
