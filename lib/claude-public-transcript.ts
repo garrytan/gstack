@@ -72,7 +72,15 @@ export function unresolvedPlanQuestionCalls(calls: NativePlanQuestionCall[]): Na
 
 /** The most journal bytes the guard reads; a longer session reports `too_large`, never `identity` (#3050). */
 export const OWNED_TRANSCRIPT_MAX_BYTES = 32 * 1024 * 1024;
-const MAX_BYTES = OWNED_TRANSCRIPT_MAX_BYTES;
+/** Test seam: GSTACK_TRANSCRIPT_TEST_MAX_BYTES can only LOWER the cap, never raise it. */
+export function transcriptReadLimit(): number {
+  const lowered = Number(process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES);
+  return Number.isInteger(lowered) && lowered > 0 && lowered < OWNED_TRANSCRIPT_MAX_BYTES ? lowered : OWNED_TRANSCRIPT_MAX_BYTES;
+}
+/** A journal over the read limit; it only grows, so retrying never helps (#3050). */
+class TranscriptTooLarge extends Error {
+  constructor(readonly bytes: number) { super(`transcript is ${bytes} bytes, over the ${transcriptReadLimit()}-byte read limit`); }
+}
 const MAX_FILES = 64;
 const object = (value: unknown): value is Record<string, any> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -338,7 +346,7 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
         const file = path.join(project, entry.name);
         if (ownedParentTranscript !== undefined && file !== ownedParentTranscript) continue;
         bytes += ownedSnapshot ? Buffer.byteLength(ownedSnapshot.text) : fs.statSync(file).size;
-        if (bytes > MAX_BYTES) throw new Error('transcript exceeds 32 MiB read limit');
+        if (bytes > transcriptReadLimit()) throw new TranscriptTooLarge(bytes);
         const text = ownedSnapshot?.text ?? fs.readFileSync(file, 'utf8');
         let publicOrder = 0;
         // Native sessions retain their original journal after Bash changes cwd.
@@ -501,7 +509,8 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
   } catch (error) {
     // A failed read cannot silently turn an incomplete transcript into a
     // complete review. Keep the diagnostic explicit and return no coverage.
-    return { status: 'error', calls: [], assistantMessages: [], error: `Claude question transcript: ${String(error)}` };
+    return { status: 'error', calls: [], assistantMessages: [], ...(error instanceof TranscriptTooLarge ? { reason: 'too_large' as const } : {}),
+      error: `Claude question transcript: ${String(error)}` };
   }
 }
 
@@ -557,7 +566,7 @@ export function readOwnedClaudePublicTranscript(file: string, cwd: string, sessi
     const before = fs.fstatSync(fd, { bigint: true });
     if (!before.isFile()) throw new OwnedReadError('identity');
     // A journal only grows, so an oversize one can never pass on retry (#3050).
-    if (before.size > BigInt(OWNED_TRANSCRIPT_MAX_BYTES)) throw new OwnedReadError('too_large');
+    if (before.size > BigInt(transcriptReadLimit())) throw new OwnedReadError('too_large');
     bytes = fs.readFileSync(fd);
     const after = fs.fstatSync(fd, { bigint: true }), current = fs.lstatSync(file, { bigint: true });
     if (!current.isFile() || before.dev !== current.dev || before.ino !== current.ino) throw new OwnedReadError('identity');

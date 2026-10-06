@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { initializePlan, prepareMethodology, createSnapshot, preparePhaseClose, prepareAmendedInput } from '../bin/gstack-autoplan-snapshot';
 import { evaluateAutoplanPublication, runPublicationHook, autoplanReadRange, type PublicationHookInput } from '../autoplan/bin/phase-publication-hook.ts';
-import { readOwnedClaudePublicTranscript, nativePathSpelling, ownedNativePath, sameNativePath, type ClaudeParentPublicEvent } from '../lib/claude-public-transcript';
+import { readOwnedClaudePublicTranscript, readPlanCountTranscript, transcriptReadLimit, OWNED_TRANSCRIPT_MAX_BYTES, nativePathSpelling, ownedNativePath, sameNativePath, type ClaudeParentPublicEvent } from '../lib/claude-public-transcript';
 import { prematureAutoplanPhaseEntry } from './helpers/autoplan-method-read-audit';
 import captured from './fixtures/autoplan-publication-boundary-361c.json';
 import consumption from './fixtures/autoplan-phase-consumption-491.json';
@@ -329,19 +329,47 @@ describe('Autoplan parent publication guard', () => {
     }
   });
 
-  test('#3050: a journal over the read limit is a hard too_large denial with its size, never a retryable identity', async () => {
+  const withReadLimit = async <T>(bytes: number, run: () => T | Promise<T>): Promise<T> => {
+    const prior = process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES;
+    process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES = String(bytes);
+    try { return await run(); } finally {
+      if (prior === undefined) delete process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES; else process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES = prior;
+    }
+  };
+  test('#3050: at the read limit the journal reads; one byte over is a hard too_large denial with its size and recovery', async () => {
     const f = fixture();
     f.message(); f.current(); f.journal();
-    const pad = Buffer.alloc(33 * 1024 * 1024, 0x20); pad[pad.length - 1] = 0x0a;
-    fs.appendFileSync(f.input.transcript_path, pad);
-    expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.reason).toBe('too_large');
-    const output: any = await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
+    const size = fs.statSync(f.input.transcript_path).size;
+    await withReadLimit(size, () => expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.reason).not.toBe('too_large'));
+    const output: any = await withReadLimit(size - 1, async () => {
+      expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.reason).toBe('too_large');
+      return withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
+    });
     const reason: string = output.hookSpecificOutput.permissionDecisionReason;
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(reason).toContain("This session's journal is 33 MiB, over the 32 MiB the guard reads");
+    expect(reason).toMatch(/This session's journal is [\d.]+ MiB, over the [\d.]+ MiB limit \/autoplan can verify\./);
+    expect(reason).not.toContain(' 0 MiB');
+    expect(reason).toContain('Run /context-save, start a new session');
     expect(reason).toContain('code too_large');
-    expect(reason).toContain('/plan-ceo-review');
+    expect(reason).toContain('docs/autoplan-guard-troubleshooting.md#journal-too-large');
     expect(reason).not.toContain('Retry this phase-entry tool');
+  });
+
+  test('#3050: the batch read and the narrowed parent loop report too_large, not a plain error', async () => {
+    const f = fixture();
+    f.message(); f.current(); f.journal();
+    const size = fs.statSync(f.input.transcript_path).size;
+    const config = path.dirname(path.dirname(path.dirname(f.input.transcript_path)));
+    await withReadLimit(size - 1, () => {
+      const batch = readPlanCountTranscript(config, f.input.cwd, () => {});
+      expect([batch.status, batch.reason]).toEqual(['error', 'too_large']);
+      const narrowed = readPlanCountTranscript(config, f.input.cwd, () => {}, f.input.transcript_path);
+      expect([narrowed.status, narrowed.reason]).toEqual(['error', 'too_large']);
+    });
+  });
+
+  test('#3050: the test seam can only lower the cap', async () => {
+    await withReadLimit(OWNED_TRANSCRIPT_MAX_BYTES * 4, () => expect(transcriptReadLimit()).toBe(OWNED_TRANSCRIPT_MAX_BYTES));
   });
 
   test('#3050: a real identity failure still reports identity', () => {

@@ -9,7 +9,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { extractImplementationPlan, checkPhaseImplementation, acceptedBlocks } from '../../bin/gstack-autoplan-snapshot';
 import { autoplanPhaseCompletions } from '../../lib/autoplan-phase-publication';
 import { readOwnedClaudePublicTranscript, nativePathSpelling, ownedNativePath, sameNativePath,
-  type ClaudeParentPublicEvent, type OwnedTranscriptReason, OWNED_TRANSCRIPT_MAX_BYTES } from '../../lib/claude-public-transcript';
+  type ClaudeParentPublicEvent, type OwnedTranscriptReason, transcriptReadLimit } from '../../lib/claude-public-transcript';
 import { resolveStateRoot } from '../../lib/state-root';
 
 const PHASES = ['ceo', 'design', 'dx', 'eng', 'tasks'] as const;
@@ -536,12 +536,15 @@ const HARD_CAUSE: Partial<Record<OwnedTranscriptReason, string>> = {
   agent: "The session journal's conversation ancestry passes through a subagent record.",
   cycle: "The session journal's parent links form a cycle.",
 };
-/** #3050: a journal only grows, so the size limit is a hard cause with the real size, never a retry. */
-function journalTooLarge(journal: string): string {
-  const mib = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MiB`;
-  let size = 'over';
+/** #3050: a journal only grows, so the size limit is a hard denial with the real size and a recovery that keeps the work. */
+function journalTooLarge(journal: string, read: OwnedRead): never {
+  const mib = (bytes: number) => { const m = bytes / (1024 * 1024); return `${m >= 10 ? Math.round(m) : Number(m.toPrecision(2))} MiB`; };
+  let size = 'over the limit';
   try { size = mib(fs.statSync(journal).size); } catch { /* size stays generic */ }
-  return `This session's journal is ${size}, over the ${mib(OWNED_TRANSCRIPT_MAX_BYTES)} the guard reads, and it only grows.`;
+  fail(`This session's journal is ${size}, over the ${mib(transcriptReadLimit())} limit /autoplan can verify. Run /context-save, ` +
+    'start a new session (resume and compact keep writing this journal), run /context-restore, then /autoplan <plan path>; ' +
+    'or run /plan-ceo-review, /plan-devex-review and /plan-eng-review individually. ' +
+    `(code too_large, Claude Code ${read.diagnostic?.claudeVersion ?? 'version unknown'}). Troubleshooting: ${GUIDE}#journal-too-large`);
 }
 const guidance = (code: string, read?: OwnedRead) =>
   `(code ${code}, Claude Code ${read?.diagnostic?.claudeVersion ?? 'version unknown'}). Troubleshooting: ${GUIDE}`;
@@ -595,7 +598,8 @@ export async function runPublicationHook(value: unknown, root: string): Promise<
           return {};
       }
       const code = read.transcript.reason;
-      const cause = code === 'too_large' ? journalTooLarge(journal) : code && HARD_CAUSE[code];
+      if (code === 'too_large') journalTooLarge(journal, read);
+      const cause = code && HARD_CAUSE[code];
       if (code && cause) fail(`Publication guard cannot verify this session: ${cause} Fallback: run /plan-ceo-review, then ` +
         `/plan-devex-review, then /plan-eng-review by hand, or start a new session. ${guidance(code, read)}`);
       // Unflushed records, a missing current tool_use, malformed or changing
