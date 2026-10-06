@@ -102,7 +102,7 @@ Reply text quotes commit SHAs, diff lines and reviewer text, so it never goes in
 _GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
 mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
 _EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
-REPLY_FILE=$(mktemp "$_GT/reply.XXXXXX") || { echo "Not sent: mktemp failed in $_GT." >&2; exit 1; }; echo "REPLY_FILE: $REPLY_FILE (name: ${REPLY_FILE##*/})"
+REPLY_FILE=$(mktemp "${_GT:?}/reply.XXXXXX") || { echo "Not sent: mktemp failed in $_GT." >&2; exit 1; }; echo "REPLY_FILE: $REPLY_FILE (name: ${REPLY_FILE##*/})"
 ```
 
 **2. Write the reply** (a template below) into the printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
