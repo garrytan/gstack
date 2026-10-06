@@ -17,6 +17,12 @@
       "trigger": "running the test suites and (if prompt files changed) the eval suites (Steps 4-6)"
     },
     {
+      "id": "measure",
+      "file": "measure.md",
+      "title": "Measure-then-fix loop for a red eval or free shard",
+      "trigger": "a paid eval case is red or a free-suite shard failed (Steps 5-6) \u2014 read from the tests section; diagnostic reruns, then the gate once"
+    },
+    {
       "id": "test-coverage",
       "file": "test-coverage.md",
       "title": "Test coverage audit (subagent)",

@@ -389,6 +389,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'tpa-apple-ban':               [ 'scripts/resolvers/third-party-actions.ts', 'ship/SKILL.md.tmpl', 'ship/sections/apple-release.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-third-party-actions.test.ts', 'test/helpers/third-party-actions.ts',
      'lib/eval-model.ts'
   ],
+  'ship-measure-seeded-flake': ['ship/**', 'scripts/ship-measure.ts', 'scripts/test-free-shards.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/paid-select.ts', 'scripts/lib/free-home-guard.ts', 'bin/gstack-config', 'bin/gstack-state-root.sh', 'lib/state-root.ts', 'scripts/resolvers/sections.ts', 'scripts/resolvers/testing.ts', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-ship-measure-loop.test.ts', 'test/helpers/ship-measure-seeded-fixture.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/skill-fixture.ts'],
   'ship-section-loading':        [ 'ship/**', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts',  'test/skill-e2e-ship-section-loading.test.ts',
       'scripts/resolvers/testing.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/auq-native-capture.ts', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/hermetic-skill-runtime.ts', 'test/helpers/llm-judge.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-fixture.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'test/helpers/plan-skill-question-events.ts', 'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/plan-skill-questions.ts', 'test/helpers/pty-screen.ts', 'test/helpers/pty-trust-dialog.ts', 'test/helpers/skill-census.ts'],
   'plan-ceo-section-loading':    [
@@ -1262,6 +1263,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
   'tpa-absent-darwin':         'gate',       // consent/credential safety guardrail; deterministic shims + grep asserts
   'tpa-apple-ban':             'gate',       // consent/credential safety guardrail; deterministic shims + grep asserts
 
+  'ship-measure-seeded-flake': 'periodic', // free stub evals; real /ship measure loop (A6)
   'ship-section-loading':      'periodic',   // ~$3/run, real /ship; asserts section reads
   'plan-ceo-section-loading':  'periodic',   // ~$3-5/run, real /plan-ceo-review; asserts section read
   'carve-section-loading-browse': 'periodic',
@@ -1714,6 +1716,7 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'tpa-broken': 'rule',
   'tpa-absent-darwin': 'rule',
   'tpa-apple-ban': 'rule',
+  'ship-measure-seeded-flake': 'behavior',
   'ship-section-loading': 'rule',
   'plan-ceo-section-loading': 'rule',
   'carve-section-loading-browse': 'rule',
@@ -1893,6 +1896,8 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
  * E2E_KINDS; values are non-empty.
  */
 export const BEHAVIOR_WHY: Record<string, string> = {
+  'ship-measure-seeded-flake':
+    "How the live model words its classification and fix can vary run to run; measuring before fixing, re-measuring at target and running the gate once after stay assertions, and answering only the spend question is a contract.",
   'shared-libs-opportunity-judgment':
     "Whether a candidate extraction is worth recommending is a judgment call; the read-only invariant stays a contract.",
   'context-restore-provenance-order':

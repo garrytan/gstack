@@ -458,6 +458,61 @@ reported. Changing any `EVAL_POLICY` constant after seeing census results needs
 Garry's re-approval, a `version` bump and a fresh census;
 `test/periodic-exclude-policy.test.ts` pins the approved values.
 
+<a id="ship-measure"></a>
+**Measure-then-fix: diagnostic trials are not verdicts** (`scripts/ship-measure.ts`).
+When a paid case goes red during /ship, /ship measures that case alone before it
+reruns the full gate: classify the red line, measure, fix at the cause,
+re-measure, then run the gate once (`ship/sections/measure.md`). The repeated
+runs are **diagnostic measurement, not verdict retries**, so they fit the
+no-retry rule above: they never change the recorded verdict of the run that
+failed, every trial and measurement file says `"label": "diagnostic"` and
+`"verdict": null`, and they are written under `.context/ship-measure/<case>/<round>/t<NN>/`
+(one directory per baseline, repair round and trial; an existing round is never
+overwritten). The runner refuses an output directory inside the project eval
+dir, so pass-rate history and CI uploads never read a diagnostic trial as a
+verdict. The lane verdict still comes only from the full gate run. Each trial
+runs through gstack's single-case runner (`scripts/test-paid-shards.ts --tier
+<tier> --case <id> --trials 1`; a standalone judge id runs its file with only
+that judge selected and needs its own passing record) or through the project's
+documented single-case command (`--command '<command> {case}'`, split on
+whitespace, no shell).
+
+Counts per kind come from gstack config (`bin/gstack-config`), so a measurement
+is pre-registered before it runs:
+
+| Kind | Trials (config key, default) | Meets target when |
+|---|---|---|
+| `rule` | `ship_measure_rule_trials`, 10 | at least 90% of trials pass (9 of 10) |
+| `behavior` | `ship_measure_behavior_panels`, 4 panels of 3 (12 trials) | every panel passes at its own 2 of 3 with no contract violation, and at least 90% of trials pass (11 of 12) |
+| `judge` | `ship_measure_judge_outputs`, 10 outputs | at least 90% of outputs pass (9 of 10); an output passes when 2 of its 3 judge samples pass |
+
+`ship_measure_budget_usd` (default 25) is an estimated admission budget per red
+case across the baseline, every repair round and judge scoring: before each
+batch the runner reserves the estimated cost of every concurrent trial and
+admits only what fits beside what was already spent, then reconciles actual
+costs after the batch. When the next trial no longer fits it stops with a named
+red. A case with no per-trial estimate, or one above
+`ship_measure_ask_per_trial_usd` (default 2), asks once before any trial runs;
+with no estimate it then runs one calibration trial alone. `ship_measure_max_rounds`
+(default 3) limits repair rounds. `ship-measure report` prints the PR-body table:
+each measurement as "observed k/n" (after the named fix for a repair round),
+target, estimated and actual spend. A red the user declares infrastructure is
+recorded with `ship-measure skip` and shows as `unmeasured`, never as a pass. A
+case is called fixed only with a named causal change and every failure in the
+closing measurement explained; the weekly census, not the loop, reports
+long-term reliability.
+
+The same rule covers a failed free-suite shard: `ship-measure free` reruns that
+shard's exact file list 10 times (rerun 1 alone as the baseline, the rest in
+parallel at `max(1, floor(cores / shard concurrency))`), each with its own HOME,
+state root and flake ledger and with `GSTACK_FREE_RETRY_FLAKY=0`, under a
+10-minute wall cap that reports a partial count. Browse daemons in a rerun pick
+free random ports, as in the normal suite. `ship_rerun_backend=ubicloud` runs the
+reruns on one Ubicloud VM through `bun run test:ubicloud --diagnostic`, which
+also sets the flaky retry off. The seeded paid case `ship-measure-seeded-flake`
+(periodic, `behavior`) drives /ship through this loop against a stub eval
+command that fails trial slots 2, 5 and 9 until its list is sorted.
+
 <a id="failure-causes"></a>
 **Failure causes and details** (diagnostic only; verdicts unchanged under v1).
 Every failed trial record keeps `failure_class` (`assertion`, `contract`,
@@ -762,7 +817,9 @@ poppler, emoji fonts, zsh for the bash+zsh portability arms (#2669), generated
 host outputs, gate binaries, and the CSO helper), and runs `xvfb-run -a bun run test:free` with `GSTACK_EXPECT_BINARIES=1`
 and `GSTACK_FREE_RETRY_FLAKY=1`. Shard logs are copied to
 `.context/ubicloud/<timestamp>/`, and the VM is destroyed on every exit path.
-The exit status is the suite's.
+The exit status is the suite's. `--diagnostic` instead runs /ship's free-shard
+measurement (`scripts/ship-measure.ts free`, see [ship-measure](#ship-measure))
+with `GSTACK_FREE_RETRY_FLAKY=0`.
 
 A stock Ubuntu 24.04 VM differs from a GitHub-hosted runner in three ways that
 the scripts correct: the login umask is `002` (group-writable directories fail
