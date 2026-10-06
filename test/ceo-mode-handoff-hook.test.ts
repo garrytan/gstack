@@ -45,3 +45,15 @@ describe('plan-ceo-review mode handoff hook', () => {
     expect(tmpl).toContain('{{CEO_MODE_HANDOFF_HOOK}}');
   });
 });
+
+describe('the early-question harness admits only this exact hook', () => {
+  test('the rendered frontmatter entry is admitted; a different Bash PostToolUse hook is not', async () => {
+    const { isCeoModeHandoffHook } = await import('./helpers/plan-skill-question-hook-scope');
+    const claude = fs.readFileSync(path.join(ROOT, 'plan-ceo-review/SKILL.md'), 'utf8');
+    const command = JSON.parse(claude.match(/^ {10}command: (".*")$/m)![1]!);
+    expect(isCeoModeHandoffHook({ matcher: 'Bash', hooks: [{ type: 'command', command }] })).toBe(true);
+    expect(isCeoModeHandoffHook({ matcher: 'Bash', hooks: [{ type: 'command', command: command.replace('mode-handoff-hook', 'other-hook') }] })).toBe(false);
+    expect(isCeoModeHandoffHook({ matcher: 'Bash', hooks: [{ type: 'command', command, timeout: 5 }] })).toBe(false);
+    expect(isCeoModeHandoffHook({ matcher: 'Edit', hooks: [{ type: 'command', command }] })).toBe(false);
+  });
+});

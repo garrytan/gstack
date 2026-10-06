@@ -599,7 +599,7 @@ Look up current best practices for the detected runtime through Aside's agent fi
 _GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
 mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
 _EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
-PROMPT_FILE=$(mktemp "$_GT/aside-prompt.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "PROMPT_FILE: $PROMPT_FILE (name: ${PROMPT_FILE##*/})"
+PROMPT_FILE=$(mktemp "$_GT/aside-prompt.XXXXXX") || { echo "Not sent: mktemp failed in $_GT." >&2; exit 1; }; echo "PROMPT_FILE: $PROMPT_FILE (name: ${PROMPT_FILE##*/})"
 ```
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand. Prompt file text: `the best [runtime] test framework in {current year} and how [framework A] compares to [framework B]. Reply with up to 6 bullets, each with its source URL.` Then substitute the printed name for `<prompt-file-name>`:
@@ -1766,7 +1766,7 @@ If the gstack designer is available and the finding involves visual layout, hier
 _GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
 mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
 _EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
-BRIEF_FILE=$(mktemp "$_GT/brief.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "BRIEF_FILE: $BRIEF_FILE (name: ${BRIEF_FILE##*/})"
+BRIEF_FILE=$(mktemp "$_GT/brief.XXXXXX") || { echo "Not sent: mktemp failed in $_GT." >&2; exit 1; }; echo "BRIEF_FILE: $BRIEF_FILE (name: ${BRIEF_FILE##*/})"
 ```
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.

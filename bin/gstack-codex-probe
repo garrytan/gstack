@@ -29,7 +29,7 @@
 # _gstack_helper_dir; inside a function zsh's %x names the function, not the
 # file, so it is copied once here.
 _gstack_helper=gstack-codex-probe
-# >>> gstack self-locate (shared, byte-identical in every sourced helper) >>>
+# === gstack self-locate (shared, byte-identical in every sourced helper) ===
 # Skill blocks source helpers into the host's shell: bash, or zsh on macOS
 # (Claude Code's Bash tool included). Resolved once at source time, using
 # parameter expansion only: BASH_SOURCE under bash, %x under zsh (inside eval
@@ -62,7 +62,7 @@ if [ -z "$_gstack_helper_shell" ] || [ -z "$_gstack_helper_dir" ]; then
   printf '%s\n' "$_gstack_helper_error" >&2
   return 1 2>/dev/null || exit 1
 fi
-# <<< gstack self-locate <<<
+# === end gstack self-locate ===
 _GSTACK_CODEX_BIN="$_gstack_helper_dir"
 unset _gstack_helper _gstack_helper_dir _gstack_helper_shell
 

@@ -40,7 +40,7 @@
 # stripped test PATH and under zsh, where it used to resolve to the caller's
 # cwd and look for its siblings in the user's project.
 _gstack_helper=gstack-egress-lib.sh
-# >>> gstack self-locate (shared, byte-identical in every sourced helper) >>>
+# === gstack self-locate (shared, byte-identical in every sourced helper) ===
 # Skill blocks source helpers into the host's shell: bash, or zsh on macOS
 # (Claude Code's Bash tool included). Resolved once at source time, using
 # parameter expansion only: BASH_SOURCE under bash, %x under zsh (inside eval
@@ -73,7 +73,7 @@ if [ -z "$_gstack_helper_shell" ] || [ -z "$_gstack_helper_dir" ]; then
   printf '%s\n' "$_gstack_helper_error" >&2
   return 1 2>/dev/null || exit 1
 fi
-# <<< gstack self-locate <<<
+# === end gstack self-locate ===
 _gstack_egress_lib_dir="$_gstack_helper_dir"
 unset _gstack_helper _gstack_helper_dir _gstack_helper_shell
 

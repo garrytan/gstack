@@ -458,7 +458,8 @@ reported. Changing any `EVAL_POLICY` constant after seeing census results needs
 Garry's re-approval, a `version` bump and a fresh census;
 `test/periodic-exclude-policy.test.ts` pins the approved values.
 
-<a id="ship-measure"></a>
+### Ship measure
+
 **Measure-then-fix: diagnostic trials are not verdicts** (`scripts/ship-measure.ts`).
 When a paid case goes red during /ship, /ship measures that case alone before it
 reruns the full gate: classify the red line, measure, fix at the cause,

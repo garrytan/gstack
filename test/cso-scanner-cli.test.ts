@@ -8,7 +8,7 @@ import { withLock } from '../lib/cso/state';
 const launcher = resolve(import.meta.dir, '../bin/gstack-cso-launcher');
 let root = '', repo = '', state = '', sarif = '';
 const env = () => ({ HOME: root, GSTACK_HOME: state, PATH: '/usr/bin:/bin' });
-function command(args: string[]) { return spawnSync(launcher, args, { cwd: repo, env: env(), encoding: 'utf8', timeout: 30000 }); }
+function command(args: string[], extra: Record<string, string> = {}) { return spawnSync(launcher, args, { cwd: repo, env: { ...env(), ...extra }, encoding: 'utf8', timeout: 30000 }); }
 function start() {
   const r = command(['start', '--repo', repo, '--offline']); expect(r.status).toBe(0);
   const report = JSON.parse(r.stdout), dir = join(state, 'security/cso', report.repoId, report.runId);
@@ -25,8 +25,9 @@ afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
 describe('compiled scanner evidence persistence', () => {
   test('scan without a locally present qualified image records helper-owned coverage without host execution', () => {
-    const run = start(), r = command(['scan', run.runId, 'gitleaks']); expect(r.status).toBe(0);
-    const out = JSON.parse(r.stdout); expect(out.status).toBe('not_assessed'); expect(out.gaps[0].message).toMatch(/^No qualified gitleaks|^Pinned runtime image is not already present locally: \S+@sha256:[a-f0-9]{64}$/);
+    // No usable Docker here (a dead socket): a machine with Docker and a pulled image would otherwise scan.
+    const run = start(), r = command(['scan', run.runId, 'gitleaks'], { DOCKER_HOST: `unix://${join(root, 'no-docker.sock')}` }); expect(r.status).toBe(0);
+    const out = JSON.parse(r.stdout); expect(out.status).toBe('not_assessed'); expect(out.gaps[0].message).toMatch(/^No qualified gitleaks|^Pinned runtime image is not already present locally: \S+@sha256:[a-f0-9]{64}$|^Pinned local Docker socket is unavailable$/);
     expect(out.artifactId).toMatch(/^gitleaks-[a-f0-9]{16}-[a-f0-9]{16}$/);
     expect(run.artifacts()).toEqual([`${out.artifactId}.json`]);
     const stored = JSON.parse(fs.readFileSync(join(run.dir,out.artifact), 'utf8')); const shipped = JSON.parse(fs.readFileSync(join(import.meta.dir, '../lib/cso/scanner-images/catalog.json'), 'utf8')).scanners.find((p: any) => p.scanner === 'gitleaks' && p.platform === (process.arch === 'arm64' ? 'linux/arm64' : 'linux/amd64')); expect(stored.provenance.image).toBe(shipped?.image ?? null); expect(stored.outcome).not.toHaveProperty('repair');

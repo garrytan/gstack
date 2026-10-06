@@ -32,7 +32,7 @@ const HAS_DASH = Boolean(Bun.which('dash'));
 const ZSH_REQUIRED = Boolean(process.env.CI) && process.platform !== 'win32';
 const DASH_REQUIRED = Boolean(process.env.CI) && process.platform === 'linux';
 const ANCHOR = 'https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location';
-const SELF_LOCATE = /# >>> gstack self-locate[^\n]*\n[\s\S]*?# <<< gstack self-locate <<<\n/;
+const SELF_LOCATE = /# === gstack self-locate[^\n]*\n[\s\S]*?# === end gstack self-locate ===\n/;
 
 if (!HAS_ZSH && !ZSH_REQUIRED) console.warn('zsh not installed: install zsh to run the sourced-helper guard (CI requires it)');
 

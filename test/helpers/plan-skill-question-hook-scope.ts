@@ -17,6 +17,13 @@ const managedRoot = process.platform === 'darwin' ? '/Library/Application Suppor
   : process.platform === 'win32' ? 'C:\\Program Files\\ClaudeCode' : '/etc/claude-code';
 const skillSourceRoot = fs.realpathSync(path.resolve(import.meta.dir, '..', '..'));
 
+const CEO_MODE_HANDOFF_HOOK = /^bash -c 'S="[^"\n]*\/plan-ceo-review\/bin\/mode-handoff-hook"\nif \[ -f "\$S" \]; then exec bash "\$S"; fi\nexit 0'$/;
+export function isCeoModeHandoffHook(entry: unknown): boolean {
+  return object(entry) && entry.matcher === 'Bash' && Array.isArray(entry.hooks) && entry.hooks.length === 1 &&
+    object(entry.hooks[0]) && entry.hooks[0].type === 'command' && typeof entry.hooks[0].command === 'string' &&
+    Object.keys(entry.hooks[0]).length === 2 && CEO_MODE_HANDOFF_HOOK.test(entry.hooks[0].command);
+}
+
 function inventory(opts: Options): string {
   const rows: [string, string | null][] = [];
   let totalBytes = 0;
@@ -79,6 +86,10 @@ function inventory(opts: Options): string {
         if (entries === undefined) continue;
         if (!Array.isArray(entries)) fail(`unparseable ${event} hooks`);
         for (const entry of entries) {
+          // gstack's own /plan-ceo-review handoff hook only adds a system message
+          // (the Step 0E line); it never mutates a tool result, so it is admitted
+          // by its exact command and nothing else.
+          if (event === 'PostToolUse' && isCeoModeHandoffHook(entry)) continue;
           // AUQ is observed before permission; file/Bash/Fetch grant input is observed at the
           // permission request, after legitimate PreToolUse safety hooks.
           // Reject matching mutators at or after each observation boundary.

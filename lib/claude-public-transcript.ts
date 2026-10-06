@@ -77,9 +77,10 @@ export function transcriptReadLimit(): number {
   const lowered = Number(process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES);
   return Number.isInteger(lowered) && lowered > 0 && lowered < OWNED_TRANSCRIPT_MAX_BYTES ? lowered : OWNED_TRANSCRIPT_MAX_BYTES;
 }
+const mib = (bytes: number) => { const m = bytes / (1024 * 1024); return `${m >= 10 ? Number(m.toFixed(1)) : Number(m.toPrecision(2))} MiB`; };
 /** A journal over the read limit; it only grows, so retrying never helps (#3050). */
 class TranscriptTooLarge extends Error {
-  constructor(readonly bytes: number) { super(`transcript is ${bytes} bytes, over the ${transcriptReadLimit()}-byte read limit`); }
+  constructor(readonly bytes: number) { super(`transcript is ${mib(bytes)}, over the ${mib(transcriptReadLimit())} read limit`); }
 }
 const MAX_FILES = 64;
 const object = (value: unknown): value is Record<string, any> =>

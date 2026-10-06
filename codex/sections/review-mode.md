@@ -89,7 +89,7 @@ after `/codex review ` into it:
 _GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
 mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
 _EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
-FOCUS_FILE=$(mktemp "$_GT/codex-focus.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "FOCUS_FILE: $FOCUS_FILE (name: ${FOCUS_FILE##*/})"
+FOCUS_FILE=$(mktemp "$_GT/codex-focus.XXXXXX") || { echo "Not sent: mktemp failed in $_GT." >&2; exit 1; }; echo "FOCUS_FILE: $FOCUS_FILE (name: ${FOCUS_FILE##*/})"
 ```
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.

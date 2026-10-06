@@ -122,9 +122,10 @@ describe('paid/free dependency boundary', () => {
       expect(result.selection.judges).toEqual(Object.keys(LLM_JUDGE_TOUCHFILES).sort());
     }
     // A tracked file under a derivable directory that no paid case's reference closure reaches is consumed by no paid case.
-    const unconsumed = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['scripts/eval-flake-rank.ts'] });
+    // (scripts/eval-flake-rank.ts was the example until the ship-measure seeded case's closure reached it.)
+    const unconsumed = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['scripts/eval-tier-report.ts'] });
     expect(unconsumed.coverage?.mode).toBe('pr');
-    expect(unconsumed.coverage?.noConsumerFiles).toEqual(['scripts/eval-flake-rank.ts']);
+    expect(unconsumed.coverage?.noConsumerFiles).toEqual(['scripts/eval-tier-report.ts']);
     // A path absent from the head tree is a deletion: with no live reference it has no consumer.
     for (const file of ['scripts/new-helper.ts', 'lib/new-runtime.ts', 'test/helpers/new-helper.ts', '.github/workflows/new-free-tests.yml']) {
       const deleted = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [file] });
