@@ -8,7 +8,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 test.each(['asked', 'plan_ready', 'silent_write', 'wrote_findings_before_asking', 'timeout', 'exited', 'runner-error', 'assertion-error', 'retry'])
 ('CEO plan-mode smoke owns its committed target and preserves %s', scenario => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-smoke-free-'));
+  // Long-form spelling: the child reports its fixture cwd with Windows 8.3 short names expanded.
+  const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-smoke-free-')));
   const script = path.join(directory, 'registration.test.ts');
   const factsFile = path.join(directory, 'facts.json');
   fs.writeFileSync(script, `
