@@ -30,7 +30,10 @@ describe('the generated ship skill runs the loop (A6 acceptance)', () => {
     const positions = steps.map(step => loop.indexOf(step));
     expect(positions.every(p => p >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
-    expect(loop).toContain('run the full\ngate command once');
+    expect(loop).toContain('run the full\ngate once');
+    // A push that runs the gate in CI is the gate run; a second dispatch doubles the paid gate.
+    expect(loop).toContain('the push is the gate run');
+    expect(loop).toContain('do not also start the gate command');
   });
 
   test('the diagnostic-not-verdict rule, the honest-fix rule and the unmeasured label are stated', () => {

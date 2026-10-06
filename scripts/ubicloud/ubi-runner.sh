@@ -9,8 +9,10 @@
 # destroys the VM on every exit path. Exits with the command's status.
 # Needs only bash, curl, python3, ssh, ssh-keygen, and tar locally, so it works
 # from dev boxes, containers, and cloud sandboxes. VMs are named
-# ubirun-<epoch>-<hex>; every `up` first destroys ubirun-* VMs older than
-# UBI_GC_HOURS (default 12) so an interrupted client cannot leak one for long.
+# ubirun-<epoch>-<hex>. Every exit path destroys this client's VM. Nothing
+# sweeps stale VMs by default: the project quota is shared with other agents'
+# runners, and an age-only sweep destroyed their long runs too. Set
+# UBI_GC_HOURS to a positive number, or run `gc HOURS`, to opt in.
 set -euo pipefail
 # Keep heredoc bodies on temp files, not the pipe window (test/heredoc-pipe-deadlock.test.ts).
 BASH_COMPAT=50
@@ -19,7 +21,7 @@ API="${UBICLOUD_API_URL:-https://api.ubicloud.com}"
 STATE_ROOT="${UBI_RUNNER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/ubi-runner}"
 DEFAULT_SIZE="${UBI_SIZE:-standard-16}"
 DEFAULT_LOCATION="${UBI_LOCATION:-eu-central-h1}"
-GC_HOURS="${UBI_GC_HOURS:-12}"
+GC_HOURS="${UBI_GC_HOURS:-0}"
 PREFIX="ubirun"
 
 die() { echo "ubi-runner: $*" >&2; exit 1; }
@@ -152,8 +154,19 @@ cmd_down() {
     loc=$(cli vm list -N -f location,name | awk -v n="$name" '$2==n {print $1}')
     [ -n "$loc" ] || die "VM '$name' not found"
   fi
-  cli vm "$loc/$name" destroy -f >/dev/null && log "destroyed $loc/$name"
-  rm -rf "$dir"
+  # A failed destroy, or a VM still listed afterwards, is a failure: callers
+  # report success only when the VM is really gone.
+  if ! cli vm "$loc/$name" destroy -f >/dev/null; then
+    log "FAILED to destroy $loc/$name; retry: $0 down $name"
+    return 1
+  fi
+  local i
+  for i in $(seq 1 30); do
+    cli vm list -N -f location,name | awk -v n="$name" '$2==n {found=1} END {exit !found}' || { log "destroyed $loc/$name"; rm -rf "$dir"; return 0; }
+    sleep 2
+  done
+  log "FAILED: $loc/$name is still listed after destroy; retry: $0 down $name"
+  return 1
 }
 
 cmd_sync() {
@@ -262,7 +275,7 @@ usage: ubi-runner.sh <command> [args]
                          copy matching remote entries into LOCAL_DIR
   down NAME              destroy the VM
   list                   list all VMs in the project
-  gc [HOURS]             destroy $PREFIX-* VMs older than HOURS (default $GC_HOURS)
+  gc HOURS               destroy $PREFIX-* VMs older than HOURS (every owner's; off by default)
   cli ARGS...            raw Ubicloud CLI passthrough (e.g. cli vm list)
 
 defaults: size=$DEFAULT_SIZE location=$DEFAULT_LOCATION (env UBI_SIZE, UBI_LOCATION)

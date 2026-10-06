@@ -381,6 +381,54 @@ export function readTrialRecords(evalDir: string): Array<Record<string, any>> {
     .filter((t): t is Record<string, any> => !!t && typeof t === 'object');
 }
 
+/**
+ * No-cost proof that gstack's runner selects the case before any paid trial:
+ * `--list` must name the case's own test file. A selection bug otherwise
+ * shows up only after money is spent (two such bugs were found in #3033).
+ */
+export function caseSelectionPreflight(caseId: string, rootDir = ROOT): { ok: boolean; detail: string } {
+  const isJudge = !Object.hasOwn(E2E_TIERS, caseId);
+  if (isJudge) {
+    if (!Object.hasOwn(LLM_JUDGE_TOUCHFILES, caseId)) return { ok: false, detail: `${caseId} is neither an E2E case nor a standalone judge` };
+    const file = judgeFile(caseId, rootDir);
+    return fs.existsSync(path.join(rootDir, file)) ? { ok: true, detail: `judge ${caseId} runs from ${file}` } : { ok: false, detail: `judge file ${file} is missing` };
+  }
+  const r = spawnSync(process.execPath, ['run', path.join(rootDir, 'scripts/test-paid-shards.ts'), '--tier', E2E_TIERS[caseId]!, '--case', caseId, '--trials', '1', '--list'],
+    { cwd: rootDir, encoding: 'utf8', timeout: 60_000 });
+  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  if (r.status !== 0) return { ok: false, detail: `--list exited ${r.status}: ${out.trim().split('\n').slice(-1)[0] ?? ''}` };
+  const file = new RegExp(`--case ${caseId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: \\d+ trial\\(s\\) of (\\S+)`).exec(out)?.[1];
+  const listed = file && new RegExp(`^\\s+${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(trial 1\\)`, 'm').test(out);
+  if (!file || !listed || !fs.existsSync(path.join(rootDir, file))) return { ok: false, detail: `--list did not plan a trial of ${caseId}'s test file` };
+  return { ok: true, detail: `--case ${caseId} selects ${file}` };
+}
+
+/**
+ * The environment every diagnostic trial starts from. Trials always run fresh
+ * and never publish: with the judge input cache enabled, a trial could reuse a
+ * stored pass, and its own passes would flow into the gate's reuse.
+ */
+export function diagnosticBaseEnv(base: NodeJS.ProcessEnv, evalDir: string): NodeJS.ProcessEnv {
+  const { EVALS_CACHE_DIR: _cacheDir, EVALS_CACHE_RUNTIME_ID: _cacheRuntime, ...inherited } = base;
+  return { ...inherited, GSTACK_EVAL_DIR: evalDir, GSTACK_SHIP_MEASURE_LABEL: 'diagnostic', EVALS_JOBS: '1' };
+}
+
+/** True when some junit.xml under evalDir holds an executed, passing testcase and no failed or errored one. */
+export function junitExecuted(evalDir: string): boolean {
+  if (!fs.existsSync(evalDir)) return false;
+  let executed = 0;
+  for (const name of fs.readdirSync(evalDir, { recursive: true }) as string[]) {
+    if (path.basename(name) !== 'junit.xml') continue;
+    const xml = fs.readFileSync(path.join(evalDir, name), 'utf8');
+    for (const m of xml.matchAll(/<testcase\b[^>]*?(?:\/>|>([\s\S]*?)<\/testcase>)/g)) {
+      const body = m[1] ?? '';
+      if (/<(?:failure|error)\b/.test(body)) return false;
+      if (!/<skipped\b/.test(body)) executed++;
+    }
+  }
+  return executed > 0;
+}
+
 function costOf(records: Array<Record<string, any>>): number | undefined {
   if (!records.length || records.some(r => r.cost_known === false || typeof r.cost_usd !== 'number')) return undefined;
   return records.reduce((sum, r) => sum + r.cost_usd, 0);
@@ -462,14 +510,16 @@ export function gstackRunner(rootDir = ROOT): TrialRunner {
       ? [process.execPath, 'test', path.join(rootDir, judgeFile(caseId, rootDir))]
       : [process.execPath, 'run', path.join(rootDir, 'scripts/test-paid-shards.ts'), '--tier', E2E_TIERS[caseId]!, '--case', caseId, '--trials', '1'];
     const env = {
-      ...process.env, GSTACK_EVAL_DIR: evalDir, GSTACK_SHIP_MEASURE_LABEL: 'diagnostic', EVALS_JOBS: '1',
+      ...diagnosticBaseEnv(process.env, evalDir),
       ...(isJudge ? { EVALS: '1', EVALS_TIER: 'gate', EVALS_ALL: '1', ...paidSelectionEnv('full', { e2e: [], judges: [caseId] }, 'ship-measure judge') } : {}),
     };
     const { code, output } = await runTrialProcess(argv, rootDir, env, dir);
     const records = readTrialRecords(evalDir);
     const own = isJudge ? records.filter(r => r.name === caseId || r.case_id === caseId) : records;
     const failed = own.find(r => r.passed !== true);
-    const passed = code === 0 && (!isJudge || (own.length > 0 && !failed));
+    // An E2E trial passes only with proof the case ran: a JUnit testcase that
+    // executed and passed (a --case that selected nothing also exits 0).
+    const passed = code === 0 && (isJudge ? own.length > 0 && !failed : junitExecuted(evalDir));
     const cost = costOf(own);
     return {
       passed, ...(cost !== undefined ? { costUsd: cost } : {}),
@@ -596,6 +646,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   const isGstack = path.resolve(process.cwd()) === ROOT;
   if (!flags['--command'] && !isGstack) throw new Error('No single-case eval command: pass --command \'<documented command> {case}\' (ask the user once and record the answer).');
   console.log(formatKindTable(config));
+  if (!flags['--command']) {
+    const selected = caseSelectionPreflight(caseId);
+    if (!selected.ok) throw new Error(`--case ${caseId} does not select its test (no paid call made): ${selected.detail}`);
+    console.log(`[ship-measure] preflight: ${selected.detail}`);
+  }
   const m = await measureCase({
     caseId, kind, round: flags['--round'] ?? 'baseline', config, outDir, fix: flags['--fix'],
     runner: flags['--command'] ? commandRunner(flags['--command']) : gstackRunner(),

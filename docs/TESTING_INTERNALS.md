@@ -828,9 +828,10 @@ the CSO private-state checks), AppArmor blocks the unprivileged user
 namespaces Chromium's sandbox needs, and `clang` and `python3-venv` are absent
 (required by the Dia readiness and Python runner tests).
 
-VMs are named `ubirun-<epoch>-<hex>`. Every new VM first destroys `ubirun-*`
-VMs older than `UBI_GC_HOURS` (default 12), so an interrupted client cannot
-leak one for long. For other commands, use the runner directly:
+VMs are named `ubirun-<epoch>-<hex>`. Every exit path destroys the client's
+own VM, and `down` fails unless the VM is confirmed gone. Nothing sweeps stale
+VMs by default, because the project quota is shared with other agents' runners;
+set `UBI_GC_HOURS` to a positive number (or run `gc HOURS`) to opt in. For other commands, use the runner directly:
 `scripts/ubicloud/ubi-runner.sh run --setup <script> -- '<command>'`, or its
 `up` / `ssh` / `sync` / `pull` / `down` steps (`--help` lists them).
 

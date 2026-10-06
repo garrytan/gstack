@@ -91,3 +91,51 @@ describe('ubicloud free-suite runner', () => {
     expect(result.stdout.toString()).toBe('');
   });
 });
+
+describe('ubi-runner teardown is confirmed and never sweeps other runners by default', () => {
+  function fakeApi(mode: { destroy: number; listed: string }) {
+    const root = mkdtempSync(join(tmpdir(), 'ubi-down-'));
+    const bin = join(root, 'bin'), state = join(root, 'state'), log = join(root, 'calls.log');
+    mkdirSync(bin); mkdirSync(join(state, 'vm-a'), { recursive: true });
+    writeFileSync(join(state, 'vm-a/env'), 'NAME=vm-a\nLOCATION=eu-central-h1\nIP=192.0.2.1\n');
+    writeFileSync(join(bin, 'curl'), `#!/usr/bin/env bash
+out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done
+body=$(cat); echo "$body" >> ${JSON.stringify(log)}
+case "$body" in
+  *destroy*) : > "$out"; printf '%s' ${mode.destroy} ;;
+  *list*) printf '%s' ${JSON.stringify(mode.listed)} > "$out"; printf 200 ;;
+  *) : > "$out"; printf 200 ;;
+esac
+`);
+    chmodSync(join(bin, 'curl'), 0o755);
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: state };
+    const run = (...args: string[]) => Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), ...args], { env, timeout: 90_000 });
+    return { root, run, calls: () => (existsSync(log) ? readFileSync(log, 'utf8') : '') };
+  }
+
+  test('down fails when the destroy request fails', () => {
+    const f = fakeApi({ destroy: 500, listed: 'eu-central-h1 vm-a\n' });
+    try {
+      const r = f.run('down', 'vm-a');
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stderr.toString()).toContain('FAILED to destroy eu-central-h1/vm-a');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test('down succeeds only once the VM is no longer listed', () => {
+    const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 other-vm\n' });
+    try {
+      const r = f.run('down', 'vm-a');
+      expect(r.exitCode).toBe(0);
+      expect(r.stderr.toString()).toContain('destroyed eu-central-h1/vm-a');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test('gc with no hours and no UBI_GC_HOURS lists and destroys nothing', () => {
+    const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 ubirun-1000000000-deadbeef\n' });
+    try {
+      expect(f.run('gc').exitCode).toBe(0);
+      expect(f.calls()).toBe('');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+});

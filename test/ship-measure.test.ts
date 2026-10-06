@@ -321,3 +321,38 @@ describe('free-suite shard reruns (CEO-1)', () => {
     expect(normal).toContain('xvfb-run -a bun run test:free ');
   });
 });
+
+describe('diagnostic trials prove they ran and never touch the judge cache', () => {
+  const fs2 = require('node:fs') as typeof import('node:fs');
+  const os2 = require('node:os') as typeof import('node:os');
+  const path2 = require('node:path') as typeof import('node:path');
+  const { junitExecuted, diagnosticBaseEnv } = require('../scripts/ship-measure');
+  const junit = (cases: string) => `<?xml version="1.0"?><testsuites><testsuite name="x">${cases}</testsuite></testsuites>`;
+  function dirWith(xml: string | null) {
+    const d = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'ship-measure-junit-'));
+    if (xml !== null) { fs2.mkdirSync(path2.join(d, 't1/shards/a'), { recursive: true }); fs2.writeFileSync(path2.join(d, 't1/shards/a/junit.xml'), xml); }
+    return d;
+  }
+  test('an exit-0 trial with no executed testcase is not a pass', () => {
+    expect(junitExecuted(dirWith(null))).toBe(false);
+    expect(junitExecuted(dirWith(junit('')))).toBe(false);
+    expect(junitExecuted(dirWith(junit('<testcase name="a"><skipped/></testcase>')))).toBe(false);
+    expect(junitExecuted(dirWith(junit('<testcase name="a"><failure message="x"/></testcase>')))).toBe(false);
+    expect(junitExecuted(dirWith(junit('<testcase name="a" time="1"/>')))).toBe(true);
+    expect(junitExecuted(dirWith(junit('<testcase name="a" time="1"></testcase><testcase name="b"><skipped/></testcase>')))).toBe(true);
+  });
+  test('the judge input cache is never inherited by a diagnostic trial', () => {
+    const env = diagnosticBaseEnv({ EVALS_CACHE_DIR: '/c', EVALS_CACHE_RUNTIME_ID: 'img', KEEP: '1' }, '/e');
+    expect(env).not.toHaveProperty('EVALS_CACHE_DIR');
+    expect(env).not.toHaveProperty('EVALS_CACHE_RUNTIME_ID');
+    expect(env).toMatchObject({ KEEP: '1', GSTACK_EVAL_DIR: '/e', GSTACK_SHIP_MEASURE_LABEL: 'diagnostic' });
+  });
+});
+
+describe('the measure CLI proves --case selection before any paid trial', () => {
+  test('a real case plans its own test file; an unknown case is refused', () => {
+    const { caseSelectionPreflight } = require('../scripts/ship-measure');
+    expect(caseSelectionPreflight('ship-measure-seeded-flake')).toEqual({ ok: true, detail: '--case ship-measure-seeded-flake selects test/skill-e2e-ship-measure-loop.test.ts' });
+    expect(caseSelectionPreflight('no-such-case').ok).toBe(false);
+  });
+});

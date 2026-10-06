@@ -48,5 +48,8 @@ completed at the cap) and one failure capture, then continue the triage.
    exhausted): stop, do not push, and report `ship-measure report` with every trial.
 
 **Gate once.** When every red case measures at or above target, run the full
-gate command once (Step 6 item 2). Put the `ship-measure report` table (estimated
+gate once (Step 6 item 2). When the project's CI runs that gate on push (gstack:
+the pull request's `evals` workflow), the push is the gate run: push and read
+that run, and do not also start the gate command (gstack's `bun run eval:bg:pr`
+on a pushed head dispatches a second paid run). Put the `ship-measure report` table (estimated
 and actual spend per case) in the PR body.
