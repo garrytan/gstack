@@ -16,15 +16,22 @@ const CHECK = SECTION.match(/```bash\n([\s\S]*?)\n```/)![1];
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ship-greptile-'));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-/** Run the check with a PATH holding only `head` and, unless null, a stub gh. */
+/**
+ * Run the check with the stub gh first on PATH (or no gh at all when null).
+ * The real PATH stays, so bash and coreutils resolve natively on every
+ * platform, Windows Git Bash included.
+ */
 function check(gh: string | null): string {
   const bin = fs.mkdtempSync(path.join(tmp, 'bin-'));
-  fs.symlinkSync(Bun.which('head')!, path.join(bin, 'head'));
-  fs.symlinkSync(Bun.which('bash')!, path.join(bin, 'bash'));
-  // `#!/usr/bin/env bash`, not the absolute bash path: on Windows that path
-  // (C:\Program Files\Git\bin\bash.exe) has a space and cannot be a shebang.
   if (gh !== null) fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env bash\n${gh}\n`, { mode: 0o755 });
-  const r = spawnSync(Bun.which('bash')!, ['-c', CHECK], { cwd: tmp, encoding: 'utf8', timeout: 10_000, env: { PATH: bin } });
+  const sep = process.platform === 'win32' ? ';' : ':';
+  const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH';
+  // Only the no-gh case drops directories that hold a real gh; a stub case keeps
+  // the whole PATH (the stub's `env bash` must resolve) with the stub first.
+  const inherited = (process.env[pathKey] ?? '').split(sep)
+    .filter(dir => dir && (gh !== null || (!fs.existsSync(path.join(dir, 'gh')) && !fs.existsSync(path.join(dir, 'gh.exe')))));
+  const env = { ...process.env, [pathKey]: [bin, ...inherited].join(sep), GH_TOKEN: '', GITHUB_TOKEN: '' };
+  const r = spawnSync(Bun.which('bash')!, ['-c', CHECK], { cwd: tmp, encoding: 'utf8', timeout: 10_000, env });
   expect(r.status, r.stderr).toBe(0);
   return r.stdout.trim();
 }
