@@ -214,10 +214,11 @@ customer facts from committed behavior, and requires evidence for every prior st
 
 After each verdict, BEFORE fixing any findings or dispatching again, validate the
 saved files with the helper. Pass the reviewer's entire response unchanged as the
-receipt and list every completed round in order:
+receipt (a lone `OFFICE_HOURS_VERDICT` line; with a quote, backtick, `$` or `\` it is
+malformed) and list every completed round in order:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-office-hours-review check --receipt "<reviewer response>" "<round-1.json>" "<round-2.json if present>" "<round-3.json if present>"
+~/.claude/skills/gstack/bin/gstack-office-hours-review check --receipt "<receipt line>" "<round-1.json>" "<round-2.json if present>" "<round-3.json if present>"
 ```
 
 A missing, malformed, or mismatched receipt fails the check: that attempt is a failed review.
