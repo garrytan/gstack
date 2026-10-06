@@ -563,6 +563,25 @@ Visual Studio".
 
 **Fix.** Fix the printed compiler error, then re-run `./setup`.
 
+<a id="cso-windows-docker"></a>
+### `Docker found at <path>, but native Windows Docker transport is not supported yet; static assessment only.` / `docker.exe at <path> is outside the trusted install locations (...)`
+
+**Meaning.** On Windows, /cso looks for `docker.exe` only under the install
+folders Windows reports for Program Files, Program Files (x86) and the Windows
+directory, by its real path, with no symlink or junction on the way. A
+user-writable directory is untrusted, because the Docker child carries
+registry credentials; that refusal cannot be overridden.
+
+Even a trusted `docker.exe` cannot run /cso's isolated containers yet: /cso
+admits only a local Unix Docker socket, and Docker Desktop on Windows speaks
+over a named pipe. /cso reports this and runs its static assessment only; no
+container or runtime check runs.
+
+**Fix.** For runtime checks, run /cso from Linux or macOS (WSL2 counts as
+Linux) with a local Docker socket. On Windows, static assessment is the
+supported mode; if the refusal named a user directory, install Docker Desktop
+under Program Files.
+
 <a id="conductor-auq-hook-removed"></a>
 ### `removed the AskUserQuestion preference hook: it breaks Conductor's native AskUserQuestion (#2207). ...`
 
