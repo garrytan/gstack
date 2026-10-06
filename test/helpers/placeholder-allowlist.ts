@@ -160,7 +160,21 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<vitest>': { grammar: QUOTED, what: 'test command', quoted: true },
 
   // A3 group 1 (Aside prompts, design briefs, design approval feedback): mktemp basenames.
-  '<prompt-file-name>': { grammar: ID, what: 'basename of the mktemp Aside prompt file printed by the previous block' },
+  '<prompt-file-name>': { grammar: ID, what: 'basename of the mktemp prompt file (Aside, Codex, benchmark) printed by the previous block' },
   '<brief-file-name>': { grammar: ID, what: 'basename of the mktemp design brief file printed by the free-text block' },
   '<feedback-file-name>': { grammar: ID, what: 'basename of the mktemp design feedback file printed by the previous block' },
+
+  // A3 group 2 (Codex prompts and misc): mktemp basenames, mode switches,
+  // the benchmark prompt path and the sync-gbrain orchestrator flags.
+  '<focus-file-name>': { grammar: ID, what: 'basename of the mktemp Codex review focus file printed by the free-text block' },
+  '<receipt line>': { grammar: /^OFFICE_HOURS_VERDICT round=[1-3] sha256=[0-9a-f]{64} path=\/[^'"`$\\\n]+$/, what: 'office-hours reviewer verdict receipt (one line)', quoted: true },
+  '<body-top-file-name>': { grammar: ID, what: 'basename of the mktemp PR body draft (through ## Documentation) printed by the free-text block' },
+  '<body-rest-file-name>': { grammar: ID, what: 'basename of the mktemp PR body draft (after the documentation section) printed by the free-text block' },
+  '<rejected-file-name>': { grammar: ID, what: 'basename of the mktemp rejected-test list printed by the free-text block' },
+  '<new|resume>': { grammar: oneOf('new', 'resume'), what: 'Codex consult session mode' },
+  '<prompt-path>': { grammar: QUOTED, what: 'benchmark prompt file path', quoted: true },
+  '<user-args>': {
+    grammar: /^(?:(?:--(?:incremental|full|dry-run|quiet|no-code|no-memory|no-brain-sync|code-only|dream|no-dream|allow-reclone|prune-gone-worktrees)|--sources [a-z][a-z0-9_,-]*)(?: (?=-)|$))*$/,
+    what: 'gstack-gbrain-sync flags (space-separated; --sources takes one comma-separated type list)',
+  },
 };
