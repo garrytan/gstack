@@ -374,7 +374,7 @@ describe('cookie import reliability', () => {
     expect(error).toBeInstanceOf(CookieImportError);
     expect(error.code).toBe('not_installed');
     expect(error.message).toContain(path.join('AppData', 'Roaming', 'Opera Software', 'Opera Stable'));
-    expect(error.message).not.toContain(path.join('AppData', 'Local'));
+    expect(error.message).not.toContain(path.join(home, 'AppData', 'Local'));
     expect(error.message).not.toContain('User Data');
     expect(error.message).not.toContain('fixture-secret-sentinel');
 
