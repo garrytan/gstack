@@ -97,25 +97,19 @@ handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
 
 **Skip this entire section if \`gbrain\` is not on PATH.**
 
-After completing this skill, save the output:
+Save the output: run \`mkdir -p .gstack/tmp && mktemp .gstack/tmp/page.XXXXXX\` at the
+repo root, write the page into the printed file with your file-write tool
+(frontmatter \`title: "${meta.title}: <feature name>"\`, \`tags: [${meta.tag}, <feature-slug>]\`,
+then the output in markdown), then:
 
 \`\`\`bash
-gbrain put "${meta.slugPrefix}/<feature-slug>" --content "$(cat <<'EOF'
----
-title: "${meta.title}: <feature name>"
-tags: [${meta.tag}, <feature-slug>]
----
-<skill output in markdown>
-EOF
-)"
+gbrain put "${meta.slugPrefix}/<feature-slug>" < "<page-file>" && rm -f "<page-file>"
 \`\`\`
 
-Read the saved page back before claiming persistence. Then extract
-person/org entities and create stub pages for each one.
-Throttle errors (exit 1 with "throttle"/"rate limit"/"busy") and any
-other non-zero exit are transient — don't retry inline. Full entity-stub
-template, throttle handling, and backlink protocol:
-see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
+Read the saved page back before claiming persistence. Then create stub pages for
+its person/org entities. Any non-zero exit (throttle included) is transient: don't
+retry inline. Entity stubs, throttling and backlinks: see
+\`docs/gbrain-write-surfaces.md\` §Save Template.`;
 }
 
 // ────────────────────────────────────────────────────────────────────

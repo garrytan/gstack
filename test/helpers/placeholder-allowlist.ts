@@ -51,7 +51,6 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<check-number>': { grammar: NUM, what: 'canary check number' },
   '<run-id>': { grammar: NUM, what: 'GitHub Actions run id' },
   '<PID>': { grammar: NUM, what: 'process id printed by an earlier block' },
-  '<session-id>': { grammar: ID, what: 'Codex session id printed by an earlier call' },
   '<retained-owner-token>': { grammar: ID, what: 'freeze owner token printed by acquire' },
   '<RUN_ID>': { grammar: ID, what: 'run id printed by Setup' },
   '<RUN_ID from Setup>': { grammar: ID, what: 'run id printed by Setup' },
@@ -96,7 +95,6 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<reply-file-name>': { grammar: ID, what: 'basename of the mktemp reply file printed by the previous block' },
   '<redact-file-name>': { grammar: ID, what: 'basename of the mktemp draft file printed by the free-text block' },
   '<approach-file-name>': { grammar: ID, what: 'basename of the mktemp approach file printed by the free-text block' },
-  '<text-file-name>': { grammar: ID, what: 'basename of the mktemp text file printed by the previous block' },
   '<greptile-dir>': { grammar: PATH, what: 'mktemp directory printed by the Greptile fetch block' },
   '<SNAPSHOT_TOOL>': { grammar: QUOTED, what: 'snapshot tool path printed by autoplan', quoted: true },
   '<SOURCE_PLAN>': { grammar: QUOTED, what: 'plan path', quoted: true },
@@ -159,6 +157,12 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<tests>': { grammar: QUOTED, what: 'test command', quoted: true },
   '<vitest>': { grammar: QUOTED, what: 'test command', quoted: true },
 
+  // External-host renders: Claude Code outside voice and the gbrain page save.
+  '<gstack-runtime-root>': { grammar: QUOTED, what: 'installed runtime path', quoted: true },
+  '<fresh-or-resume>': { grammar: oneOf('fresh', 'resume'), what: 'Claude Code session mode' },
+  '<feature-slug>': { grammar: ID, what: 'feature slug for the gbrain page' },
+  '<page-file>': { grammar: QUOTED, what: 'mktemp page file path printed by the previous command', quoted: true },
+
   // A3 group 1 (Aside prompts, design briefs, design approval feedback): mktemp basenames.
   '<prompt-file-name>': { grammar: ID, what: 'basename of the mktemp prompt file (Aside, Codex, benchmark) printed by the previous block' },
   '<brief-file-name>': { grammar: ID, what: 'basename of the mktemp design brief file printed by the free-text block' },
@@ -176,5 +180,6 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<user-args>': {
     grammar: /^(?:(?:--(?:incremental|full|dry-run|quiet|no-code|no-memory|no-brain-sync|code-only|dream|no-dream|allow-reclone|prune-gone-worktrees)|--sources [a-z][a-z0-9_,-]*)(?: (?=-)|$))*$/,
     what: 'gstack-gbrain-sync flags (space-separated; --sources takes one comma-separated type list)',
+    list: true,
   },
 };
