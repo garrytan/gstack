@@ -68,6 +68,11 @@ export const GATE_OUTCOMES = {
     summary: "Codex refused the call for this account's usage or rate limit",
     fix: "wait for the reset time in Codex's message above, or add credits or a higher plan for that account; the model choice is fine",
   },
+  helper_unavailable: {
+    state: 'unavailable', anchor: 'sourced-helper-location',
+    summary: 'the gstack Codex helper could not be loaded into this shell',
+    fix: 'run the skill from bash or zsh, or export GSTACK_ROOT=<install dir>; if the helper file is missing, re-run ./setup (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location)',
+  },
   probe_inconclusive: {
     state: 'ran', anchor: 'codex-mode-unverified',
     summary: 'the Codex model check timed out or hit a network error, so readiness is unverified',

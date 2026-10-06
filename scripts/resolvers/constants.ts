@@ -103,15 +103,18 @@ On any error: continue — ${feature} is informational, not a gate.`;
  * fenced block — CLAUDE.md: each block is a fresh shell, so functions sourced
  * here do NOT persist to later blocks). It:
  *   1. reads the `codex_reviews` master switch,
- *   2. sources `gstack-codex-probe`,
+ *   2. sources `gstack-codex-probe` with POSIX `.`, so even sh/dash reach the
+ *      helper's own diagnostic (`CODEX_MODE: helper_unavailable`),
  *   3. runs `command -v codex` (literal — keeps the e2e substring assertion),
  *      then `_gstack_codex_auth_probe`, then `_gstack_codex_version_check`,
  *   4. logs the relevant `_gstack_codex_log_event` for each non-ready outcome,
  *   5. sets ONE canonical mode var and echoes `CODEX_MODE: <mode>` so the agent
  *      gates later blocks on the echoed value.
  *
- * Mode values: `disabled` (config off) | `not_installed` | `not_authed` |
- * `broken_install` | `sandbox_unavailable` | `model_unusable` | `quota_exhausted` | `unverified` | `ready`.
+ * Mode values: `disabled` (config off) | `helper_unavailable` (the probe could
+ * not be sourced; its own diagnostic is echoed) | `not_installed` | `not_authed` |
+ * `broken_install` | `sandbox_unavailable` | `model_unusable` | `quota_exhausted` |
+ * `unverified` | `ready`.
  * The path is host-rewritten at gen-skill-docs time (pathRewrites), so the
  * literal `~/.claude/skills/gstack` is correct here and becomes `$GSTACK_ROOT`
  * etc. for non-Claude hosts.
@@ -135,13 +138,16 @@ export function codexPreflight(opts: { modeVar?: string; disabledBehavior: 'skip
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 _CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
+_gstack_helper_error=""
+. ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || _gstack_helper_error="\${_gstack_helper_error:-gstack: cannot load gstack-codex-probe; re-run ./setup. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location}"
 if [ "$_CODEX_CFG" = "disabled" ]; then
   ${m}="disabled"
 elif { [ -n "\${CODEX_THREAD_ID:-}" ] || [ -n "\${CODEX_SANDBOX:-}" ] || [ "\${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
   ${m}="under_codex"
 elif ! command -v codex >/dev/null 2>&1; then
   ${m}="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+elif [ -n "$_gstack_helper_error" ]; then
+  ${m}="helper_unavailable"; echo "$_gstack_helper_error"
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
   ${m}="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
 else
@@ -169,6 +175,7 @@ echo "CODEX_MODE: $${m}"
 
 Branch on the echoed \`CODEX_MODE\`:
 - **\`disabled\`** — the user turned Codex reviews off (\`codex_reviews=disabled\`). ${disabledLine}
+- **\`helper_unavailable\`** — the helper could not load; relay the line above (cause and fix). ${nativeRoute}
 - **\`not_installed\`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: \`npm install -g @openai/codex\`." ${nativeRoute}
 - **\`under_codex\`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
 - **\`not_authed\`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run \`codex login\` or set \`$CODEX_API_KEY\`." ${nativeRoute}

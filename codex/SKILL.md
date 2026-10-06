@@ -476,7 +476,7 @@ invalid or unavailable choice stops with a repair message, never the default.
 
 ```bash
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe
+source ~/.claude/skills/gstack/bin/gstack-codex-probe || { echo "HELPER_UNAVAILABLE"; exit 1; }
 
 # GSTACK_ACTIVE_HOST names the harness, never the model.
 if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
@@ -498,6 +498,10 @@ _gstack_codex_version_check   # warns if known-bad, non-blocking
 ```
 
 If the runtime guard reports a harness mismatch, stop. Outside coverage is unavailable. Repair with `./setup --host codex`; do not silently substitute another provider or force a same-harness invocation.
+
+If the output contains `HELPER_UNAVAILABLE`, stop: the gstack helper could not load in
+this shell. Relay its `gstack: cannot locate ...` line verbatim; it names the shell and
+links the fix.
 
 If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."

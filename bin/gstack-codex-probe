@@ -18,27 +18,53 @@
 #   - Never change -e / -u / traps / IFS / PATH in the caller shell.
 #   - All internal vars prefix with _GSTACK_CODEX_.
 #   - All functions prefix with _gstack_codex_.
-#   - No command execution at source time (only function defs and the one
-#     self-location assignment below, which is parameter expansion only).
+#   - No command execution at source time (only function defs and the shared
+#     self-location block below, which is parameter expansion only; its
+#     _gstack_helper* variables are the one exception to the prefix rule and
+#     are unset once _GSTACK_CODEX_BIN is set).
 
 # --- Self-location (bash and zsh) -------------------------------------------
-# Template blocks source this file into whatever shell the host runs; on macOS
-# that is zsh (Claude Code's Bash tool included). BASH_SOURCE is bash-only, so
-# under zsh every "${BASH_SOURCE[0]%/*}/..." path became "/..." and Codex
-# model selection failed (#3024). zsh names the sourced file with %x; the eval
-# keeps bash from parsing zsh-only syntax. Resolved once, at source time,
-# because inside a function zsh's %x names the function, not the file.
-_GSTACK_CODEX_BIN=""
+# Under zsh BASH_SOURCE is empty, so every "$dir/../scripts/..." path became
+# "/..." and Codex model selection failed. The shared block below sets
+# _gstack_helper_dir; inside a function zsh's %x names the function, not the
+# file, so it is copied once here.
+_gstack_helper=gstack-codex-probe
+# >>> gstack self-locate (shared, byte-identical in every sourced helper) >>>
+# Skill blocks source helpers into the host's shell: bash, or zsh on macOS
+# (Claude Code's Bash tool included). Resolved once at source time, using
+# parameter expansion only: BASH_SOURCE under bash, %x under zsh (inside eval
+# so bash never parses it), made absolute with $PWD; else $GSTACK_ROOT/bin
+# when it holds this helper. Any other case, and any other shell, fails loudly
+# instead of guessing; the message and the return come before any bash- or
+# zsh-only syntax, so dash and sh print it instead of a syntax error.
+_gstack_helper_dir=""
+_gstack_helper_shell=""
 if [ -n "${BASH_VERSION:-}" ]; then
-  _GSTACK_CODEX_BIN="${BASH_SOURCE[0]}"
+  _gstack_helper_shell=bash
+  _gstack_helper_dir="${BASH_SOURCE[0]}"
 elif [ -n "${ZSH_VERSION:-}" ]; then
-  eval '_GSTACK_CODEX_BIN="${(%):-%x}"'
+  _gstack_helper_shell=zsh
+  eval '_gstack_helper_dir="${(%):-%x}"'
 fi
-case "$_GSTACK_CODEX_BIN" in
-  */*) _GSTACK_CODEX_BIN="${_GSTACK_CODEX_BIN%/*}" ;;
-  ?*) _GSTACK_CODEX_BIN="$PWD" ;;
-  *) _GSTACK_CODEX_BIN="$HOME/.claude/skills/gstack/bin" ;;
+case "$_gstack_helper_dir" in
+  /*) _gstack_helper_dir="${_gstack_helper_dir%/*}" ;;
+  */*) _gstack_helper_dir="$PWD/${_gstack_helper_dir%/*}" ;;
+  ?*) _gstack_helper_dir="$PWD" ;;
 esac
+if [ -n "$_gstack_helper_shell" ] && [ ! -f "$_gstack_helper_dir/$_gstack_helper" ]; then
+  _gstack_helper_dir=""
+  if [ -n "${GSTACK_ROOT:-}" ] && [ -f "$GSTACK_ROOT/bin/$_gstack_helper" ]; then
+    _gstack_helper_dir="$GSTACK_ROOT/bin"
+  fi
+fi
+if [ -z "$_gstack_helper_shell" ] || [ -z "$_gstack_helper_dir" ]; then
+  _gstack_helper_error="gstack: cannot locate $_gstack_helper (shell: ${_gstack_helper_shell:-${0##*/}}). Source it from bash or zsh, or export GSTACK_ROOT=<install dir>. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location"
+  printf '%s\n' "$_gstack_helper_error" >&2
+  return 1 2>/dev/null || exit 1
+fi
+# <<< gstack self-locate <<<
+_GSTACK_CODEX_BIN="$_gstack_helper_dir"
+unset _gstack_helper _gstack_helper_dir _gstack_helper_shell
 
 # --- Auth probe -------------------------------------------------------------
 

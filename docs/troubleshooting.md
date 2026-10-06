@@ -31,6 +31,29 @@ P0 or P1 finding blocks exactly like a native P0/P1. `unverified` and
 `unavailable` are missing coverage: /ship and /review continue, show the gap in
 the readiness dashboard and the PR body, and never count it as a pass.
 
+<a id="sourced-helper-location"></a>
+### `gstack: cannot locate gstack-codex-probe (shell: ...)` / `CODEX_MODE: helper_unavailable`
+
+**Meaning.** Skill blocks load gstack's shell helpers (`gstack-codex-probe`,
+`gstack-egress-lib.sh`) into the shell your agent runs. A helper finds its own
+directory from bash (`BASH_SOURCE`) or zsh (`%x`). In any other shell (dash,
+sh), or when the shell cannot say which file it is reading, the helper stops
+instead of guessing a path. The message names the shell it saw.
+
+**Fix.** Run the skill from bash or zsh (the macOS and Linux defaults). If
+the shell cannot be changed, tell the helper where gstack is installed:
+
+```bash
+export GSTACK_ROOT=~/.claude/skills/gstack   # your install dir; it holds bin/
+```
+
+If the message says `cannot load ...`, the helper file is missing: re-run
+`./setup` from your gstack checkout.
+
+**Expected result.** `zsh -c 'source ~/.claude/skills/gstack/bin/gstack-codex-probe && _gstack_codex_select_model exec'`
+prints `CODEX_MODEL: <model> (exec; source: ...)`, and preflights print a
+`CODEX_MODE` other than `helper_unavailable`.
+
 <a id="codex-sandbox-unavailable"></a>
 ### `Codex outside review unavailable: Codex's sandbox could not start here (...)`
 
