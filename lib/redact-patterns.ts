@@ -589,6 +589,36 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
   return !carriesSecretLiteral(call);
 }
 
+/**
+ * #3048: an unquoted value that names code is source syntax, not a literal:
+ * a TypeScript parameter or property type (`session: SessionState,`) or a JSX
+ * expression (`key={turn.requestId + turn.role}`, `apiKey={settings.apiKey}`).
+ * A code name has no digits and reads as words: every camelCase/dotted part
+ * is 2+ letters, they average 3+ letters, and each 3+ letter part has a vowel.
+ * Random tokens fail that (mixed case gives 1-letter parts; most hold digits).
+ * The bare form needs a code terminator (`,` `;` `)`) and no quote before it;
+ * the JSX form needs its closing brace on the line and no quoted literal.
+ */
+function readsAsCodeName(text: string): boolean {
+  if (!/^[A-Za-z_$][A-Za-z_$]*(?:\.[A-Za-z_$][A-Za-z_$]*)*$/.test(text)) return false;
+  const parts = text.split(/[._$]+|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/).filter(Boolean);
+  return parts.length > 0 && parts.every(p => p.length >= 2 && (p.length < 3 || /[aeiouy]/i.test(p))) &&
+    parts.reduce((n, p) => n + p.length, 0) / parts.length >= 3;
+}
+
+function isCodeReference(span: string, match: RegExpExecArray): boolean {
+  const { start } = spanBounds(match);
+  if (match.input[start - 1] === '"' || match.input[start - 1] === "'") return false;
+  if (span.startsWith("{")) {
+    const line = match.input.slice(start + 1).split("\n", 1)[0];
+    const close = line.indexOf("}");
+    if (close < 0 || /["'`]/.test(line.slice(0, close))) return false;
+    return line.slice(0, close).split("+").every(term => readsAsCodeName(term.trim()));
+  }
+  const m = span.match(/^(.+?)[,;)]+$/);
+  return m !== null && readsAsCodeName(m[1]!);
+}
+
 export const PATTERNS: RedactPattern[] = [
   // ===== HIGH — genuinely-secret credentials (block) =====
   {
@@ -863,13 +893,14 @@ export const PATTERNS: RedactPattern[] = [
     // literal (`os.getenv("X", "<secret>")`). A literal appended to the read
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
     // #2899: a function call assigned to the name is code, not a value (see
-    // isCallExpression).
+    // isCallExpression). #3048: so is a type or JSX expression (isCodeReference).
     validate: (span, match) =>
       isCredentialShapedEnvName(match[0]) &&
       !isPlaceholderSpan(span) &&
       !/^\$\{?[A-Za-z_]/.test(span) &&
       !isBareEnvRead(span, match) &&
       !isCallExpression(span, match) &&
+      !isCodeReference(span, match) &&
       shannonEntropy(span) >= 3.0,
   },
   {

@@ -234,6 +234,22 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
     expect(ids(`authToken: ${v}`)).toContain("env.kv"); // (iv) credential camel
     expect(ids(`clientSecret: ${v}`)).toContain("env.kv"); // (iv) credential camel
   });
+  // #3048 — a TypeScript type or JSX expression names code, not a literal;
+  // credential literals in the same shapes must still fire.
+  test("env.kv skips TypeScript types and JSX expressions, keeps literals in those shapes (#3048)", () => {
+    const v = "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ";
+    for (const code of [
+      "export async function issueServerCoachItem(\n  db: Pool,\n  session: SessionState,\n  item: IssuedCoachItem,\n): Promise<void> {}",
+      "interface Props {\n  session: SessionState;\n}",
+      "key={turn.requestId + turn.role + index}",
+      "apiKey={settings.apiKey}",
+    ]) expect({ code, ids: ids(code) }).toEqual({ code, ids: ids(code).filter(id => id !== "env.kv") });
+    for (const literal of [
+      `session: ${v},`, `session: "${v}",`, `key={${v}}`, `API_KEY={${v}}`,
+      `key={settings.apiKey + "${v}"}`, `key="${v}"`, `api_key: ${v}`,
+      "token: QxZpLmNvTrKbWdHgJcFs,", "token: QxZpLmNvTrKbWdHgJcFs",
+    ]) expect({ literal, kv: ids(literal).includes("env.kv") }).toEqual({ literal, kv: true });
+  });
   // #2912 — a line that READS a secret from the environment holds no secret;
   // it must not fire (and so must not be masked or withhold a /cso source file).
   test("env.kv skips exact environment reads (#2912)", () => {
