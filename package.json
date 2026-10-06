@@ -100,9 +100,13 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "overrides": {
+    "@modelcontextprotocol/sdk": "1.31.0",
     "adm-zip": "^0.6.1",
-    "ip-address": "10.3.1",
-    "sharp": "0.35.4"
+    "fast-uri": "3.1.8",
+    "hono": "4.13.13",
+    "ip-address": "10.7.3",
+    "proxy-addr": "2.0.8",
+    "sharp": "0.35.5"
   },
   "patchedDependencies": {
     "playwright-core@1.62.1": "patches/playwright-core@1.62.1.patch"

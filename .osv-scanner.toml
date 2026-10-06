@@ -54,3 +54,32 @@ id = "GHSA-p7fg-763f-g4gf"
 # deliberate claude-agent-sdk bump. Tracking: #2754.
 reason = "Fix requires breaking the deliberate eval-harness agent-sdk pin; MEDIUM severity accepted until the next harness bump."
 ignoreUntil = 2026-11-30T00:00:00Z
+
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+# braces 3.0.3 in lib/diagram-render only: @excalidraw/excalidraw -> sass ->
+# chokidar -> braces. chokidar is sass's Node file watcher; the diagram-render
+# bundle is built for the browser and contains no chokidar/braces code
+# (test/osv-config-wiring.test.ts checks the built page for chokidar). No fixed
+# braces release exists. Re-evaluate on expiry or when excalidraw drops sass.
+reason = "Build-time only (excalidraw -> sass -> chokidar); not in the shipped browser bundle; no fixed release."
+ignoreUntil = 2026-11-30T00:00:00Z
+
+[[IgnoredVulns]]
+id = "GHSA-hp3w-g68c-fv3c"
+# sprintf-js 1.1.3 (DoS through an unbounded precision specifier in the FORMAT
+# string). Reachable only as roarr's logger dependency (global-agent -> roarr),
+# which formats its own constant messages; no caller passes user-controlled
+# format strings. No fixed release exists.
+reason = "No fixed release; only roarr's constant-format logging reaches it."
+ignoreUntil = 2026-11-30T00:00:00Z
+
+[[IgnoredVulns]]
+id = "GHSA-238p-pmpm-9mq7"
+# katex 0.16.47 in lib/diagram-render (mermaid's math renderer). The advisory
+# needs prototype pollution to already exist in the page; the render page is
+# offline, loads only gstack's own bundle and the user's diagram source. The
+# only fix is 0.18.x, outside mermaid 11.16's ^0.16 range. Low severity (2.1).
+# Re-evaluate when mermaid accepts katex 0.18.
+reason = "Requires pre-existing prototype pollution in an offline single-bundle page; fix is outside mermaid's katex range; low severity."
+ignoreUntil = 2026-11-30T00:00:00Z

@@ -44,4 +44,10 @@ describe("osv-scanner config wiring", () => {
     // and (depending on scanner version) may be ignored.
     expect(cfg).not.toMatch(/ignoreUntil = "/);
   });
+  test("the braces ignore stays true: the shipped diagram-render page carries no chokidar/braces code", () => {
+    const toml = fs.readFileSync(path.join(ROOT, ".osv-scanner.toml"), "utf8");
+    if (!toml.includes('id = "GHSA-vfj7-8cjw-p6xm"')) return;
+    const page = fs.readFileSync(path.join(ROOT, "lib", "diagram-render", "dist", "diagram-render.html"), "utf8");
+    expect(page).not.toMatch(/chokidar|FSWatcher/);
+  });
 });
