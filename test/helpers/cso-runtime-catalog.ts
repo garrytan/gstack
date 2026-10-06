@@ -1,4 +1,6 @@
 import type { CsoStack } from '../../lib/cso/preparation';
+
+type RuntimeStack = Exclude<CsoStack, 'java'>;
 import { canonical, sha256 } from '../../lib/cso/contracts';
 import { ISOLATION_POLICY_HASH } from '../../lib/cso/docker';
 import {
@@ -14,7 +16,7 @@ const SOURCE_COMMIT = 'b'.repeat(40);
 const WORKFLOW = 'https://github.com/garrytan/gstack/actions/runs/1';
 const DIGEST = `sha256:${'a'.repeat(64)}`;
 
-const VERSIONS: Record<CsoStack | 'postgresql', Record<string, string>> = {
+const VERSIONS: Record<RuntimeStack | 'postgresql', Record<string, string>> = {
   node: { node: '24.1.0', npm: '11.3.0', 'cso-preparation': '1.0.0' },
   bun: { bun: '1.3.10', 'cso-preparation': '1.0.0' },
   python: { python: '3.12.9', uv: '0.8.0', 'cso-preparation': '1.0.0' },
@@ -22,12 +24,12 @@ const VERSIONS: Record<CsoStack | 'postgresql', Record<string, string>> = {
   postgresql: { postgresql: '17.2' },
 };
 
-function runtimeId(stack: CsoStack | 'postgresql', platform: RuntimePlatform): string {
+function runtimeId(stack: RuntimeStack | 'postgresql', platform: RuntimePlatform): string {
   return `${stack}-qualified-test-${platform === 'linux/amd64' ? 'amd64' : 'arm64'}`;
 }
 
 export function qualifiedRuntimeFixture(
-  stack: CsoStack | 'postgresql',
+  stack: RuntimeStack | 'postgresql',
   platform: RuntimePlatform = 'linux/amd64',
 ): QualifiedRuntime {
   const arch = platform === 'linux/amd64' ? 'amd64' : 'arm64';

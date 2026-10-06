@@ -50,7 +50,7 @@ function snapshot(stack: CsoStack): string {
   return base;
 }
 
-function runtime(stack: CsoStack | 'postgresql') { return qualifiedRuntimeFixture(stack); }
+function runtime(stack: Parameters<typeof qualifiedRuntimeFixture>[0]) { return qualifiedRuntimeFixture(stack); }
 function catalog(..._stacks: Array<CsoStack | 'postgresql'>) { return completeRuntimeCatalogFixture('executor-test-v1'); }
 function cacheFixture() {
   const base = root('cso-executor-cache-'), staging = path.join(base, 'staging'); fs.mkdirSync(staging, { mode: 0o700 });

@@ -565,6 +565,42 @@ Bun first.
 
 **Fix.** `cd <gstack checkout> && git pull --ff-only && ./setup`.
 
+<a id="setup-hook-does-not-parse"></a>
+### `gstack setup: refusing to register hooks that do not parse (Claude Code would block tool calls with them): <file>:<line>: <error>`
+
+**Meaning.** Claude Code runs gstack's hook shims through `/bin/sh`, and a hook
+that does not parse exits 2, which blocks the tool call it guards in every
+session. Setup parse-checks every hook it registers (the shim, and the
+TypeScript it runs with its local imports). It registers the hooks that parse,
+skips the ones listed, finishes the rest of the install, and exits non-zero.
+Claude Code runs hooks straight from `~/.claude/skills/gstack`, so a skipped
+hook that an earlier setup registered keeps running the broken file until it
+is fixed. This is a gstack bug, or a half-applied edit or merge in your
+checkout: report the printed `<file>:<line>`.
+
+**Fix.**
+
+```bash
+git -C ~/.claude/skills/gstack status   # half-applied edits or merge conflicts?
+git -C ~/.claude/skills/gstack checkout -- <file>   # or finish the merge
+cd ~/.claude/skills/gstack && ./setup
+```
+
+**Expected result.** Setup finishes with exit 0 and no refusal line.
+
+<a id="auto-update-hook-does-not-parse"></a>
+### `gstack auto-update: update held (hook-does-not-parse: <file>:<line>: <error>); nothing was installed or changed, and your current hooks keep running. ...`
+
+**Meaning.** Team-mode auto-update fetched a release with a hook that does not
+parse. It checked the incoming revision before moving your checkout, so your
+checkout, installed skills and registered hooks stay at the current revision.
+gstack checks again at the next update check and installs the first release
+whose hooks parse. This is a gstack bug: report the printed `<file>:<line>`.
+
+**Fix.** Nothing to do locally. A manual `git pull` followed by `./setup`
+cannot be checked before the pull; setup then refuses the broken hook (see the
+entry above).
+
 <a id="cso-windows-msvc-compile"></a>
 ### `CSO unavailable: its native helper was not built (windows-msvc-compile)`
 
@@ -573,6 +609,25 @@ not compile. setup prints the first compiler error. It used to say "install
 Visual Studio".
 
 **Fix.** Fix the printed compiler error, then re-run `./setup`.
+
+<a id="cso-windows-docker"></a>
+### `Docker found at <path>, but native Windows Docker transport is not supported yet; static assessment only.` / `docker.exe at <path> is outside the trusted install locations (...)`
+
+**Meaning.** On Windows, /cso looks for `docker.exe` only under the install
+folders Windows reports for Program Files, Program Files (x86) and the Windows
+directory, by its real path, with no symlink or junction on the way. A
+user-writable directory is untrusted, because the Docker child carries
+registry credentials; that refusal cannot be overridden.
+
+Even a trusted `docker.exe` cannot run /cso's isolated containers yet: /cso
+admits only a local Unix Docker socket, and Docker Desktop on Windows speaks
+over a named pipe. /cso reports this and runs its static assessment only; no
+container or runtime check runs.
+
+**Fix.** For runtime checks, run /cso from Linux or macOS (WSL2 counts as
+Linux) with a local Docker socket. On Windows, static assessment is the
+supported mode; if the refusal named a user directory, install Docker Desktop
+under Program Files.
 
 <a id="conductor-auq-hook-removed"></a>
 ### `removed the AskUserQuestion preference hook: it breaks Conductor's native AskUserQuestion (#2207). ...`
@@ -592,6 +647,36 @@ hooks stay.
 ---
 
 ## Browser
+
+<a id="browse-runtime-version-skew"></a>
+### `[browse] this install's browse CLI (<root>, build <hash>) and the gstack checkout's server bundle (<checkout>, build <hash>) are from different builds, so the server was not started. ...`
+
+**Meaning.** On Windows a host runtime root (`~/.codex/skills/gstack` and the
+other env-var hosts) holds a copy of browse with no `node_modules`, so its CLI
+starts the server bundle in the gstack checkout recorded in `.source-path`.
+The checkout was rebuilt (or updated) without refreshing this runtime root, so
+the two builds differ and browse refuses rather than run a mismatched server.
+
+**Fix.** Re-run setup from the checkout named in the message; it rebuilds and
+refreshes every runtime root:
+
+```bash
+cd <checkout> && ./setup
+```
+
+<a id="browse-chain-no-flow"></a>
+### `[browse] chain: no flow to run (stdin was empty)` (or `stdin is a terminal`, `stdin could not be read (EAGAIN)`)
+
+**Meaning.** `browse chain` with no arguments runs the JSON flow piped to it.
+Nothing arrived, so it exits 1 before starting a browser. It used to exit 0 on
+Windows having run nothing.
+
+**Fix.** Pipe the flow, or pass it as an argument:
+
+```bash
+echo '[["goto","https://example.com"],["text"]]' | browse chain
+browse chain 'goto https://example.com | text'
+```
 
 <a id="browse-chromium-path-failed"></a>
 ### `Chromium at GSTACK_CHROMIUM_PATH=<path> failed to launch: ...`

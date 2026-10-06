@@ -15,6 +15,7 @@ import {
 import { basename, dirname, join, isAbsolute, delimiter, resolve } from 'node:path';
 import { redactFindingSpans } from '../redact-engine';
 import { CsoError, MAX_OUTPUT } from './contracts';
+import { windowsDockerUnavailable } from './windows-docker';
 
 const SOURCE_RUNTIME = /^bun(?:\.exe)?$/i.test(basename(process.execPath));
 const WINDOWS_GIT =
@@ -45,6 +46,7 @@ export function executable(name: string): string {
       );
     }
   }
+  if (process.platform === 'win32' && name.toLowerCase() === 'docker') windowsDockerUnavailable();
   for (const directory of TRUSTED_DIRECTORIES) {
     const candidates =
       process.platform === 'win32'

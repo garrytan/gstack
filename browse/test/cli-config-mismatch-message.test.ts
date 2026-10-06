@@ -43,6 +43,7 @@ describe('#3030: config-mismatch refusal names who started the daemon', () => {
     expect(r.out).toContain('running with --headed/--proxy (started by another session)');
     expect(r.out).toContain("pass the same flags to use it, or run 'browse disconnect'");
     expect(r.out).not.toContain('to apply --proxy/--headed');
+    expect(r.out).toContain('BROWSER.md, "Daemon discipline": https://github.com/garrytan/gstack/blob/main/BROWSER.md#headed-mode--proxy--browser-native-downloads-v12800');
   }, 45_000);
 
   test('a call that passed a different flag keeps the apply-via-disconnect hint', async () => {
@@ -50,4 +51,22 @@ describe('#3030: config-mismatch refusal names who started the daemon', () => {
     expect(r.code).toBe(1);
     expect(r.out).toContain("run 'browse disconnect' first to apply --proxy/--headed");
   }, 45_000);
+});
+
+describe('#3030: BROWSER.md says how to enable WebGL', () => {
+  const browserMd = fs.readFileSync(path.resolve(import.meta.dir, '../../BROWSER.md'), 'utf8');
+
+  test('the GSTACK_DISABLE_GPU row states the effect and the only recognized value', () => {
+    const row = browserMd.split('\n').find(line => line.startsWith('| `GSTACK_DISABLE_GPU`')) ?? '';
+    expect(row).toContain('also disables WebGL');
+    expect(row).toContain('Set `GSTACK_DISABLE_GPU=off` to enable WebGL (`off` is the only recognized value).');
+  });
+
+  test('the Daemon discipline paragraph sits under the heading the refusal links to', () => {
+    const heading = browserMd.indexOf('### Headed mode + proxy + browser-native downloads (v1.28.0.0)');
+    const discipline = browserMd.indexOf('**Daemon discipline.**');
+    expect(heading).toBeGreaterThan(-1);
+    expect(discipline).toBeGreaterThan(heading);
+    expect(browserMd.slice(heading + 3, discipline).replace(/```[\s\S]*?```/g, '')).not.toMatch(/\n#{1,3} /);
+  });
 });
