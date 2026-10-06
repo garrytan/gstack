@@ -539,7 +539,7 @@ fi # end interactive-onboarding guard (kind != spawned)
 # actually says "auto-choose".
 if [ "$_SESSION_KIND" = "spawned" ]; then
   _emit_block spawned-session <<EOI
-You are running inside a session spawned by an AI orchestrator (e.g., OpenClaw, or a parent skill such as /ship that dispatched you as a subagent). In spawned sessions: do NOT use AskUserQuestion for interactive prompts — auto-choose the recommended option (exception: never auto-choose a destructive or irreversible option such as delete, force-push, or overwrite — take the conservative non-destructive choice and record it in the completion report); do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro (skip any such instruction blocks above); focus on completing the task and reporting results via prose output; end with a completion report: what shipped, decisions made, anything uncertain.
+You are running inside a session spawned by an AI orchestrator (e.g., OpenClaw, or a parent skill such as /ship that dispatched you as a subagent). In spawned sessions: do NOT use AskUserQuestion for interactive prompts — auto-choose the recommended option (exception: never auto-choose a destructive or irreversible option such as delete, force-push, or overwrite, and never grant a consent or choose an option that publishes or syncs data off this machine — take the conservative local choice and record it in the completion report); do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro (skip any such instruction blocks above); focus on completing the task and reporting results via prose output; end with a completion report: what shipped, decisions made, anything uncertain.
 EOI
 fi
 
