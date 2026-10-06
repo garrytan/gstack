@@ -651,10 +651,15 @@ that doesn't declare it (e.g. `gbrain-base` / `gbrain-base-v2`), a `dream` cycle
 completes but `resolve_symbol_edges` matches nothing — the graph stays empty no
 matter how many times you run it. So "build the call graph" is only meaningful on
 a code-aware pack. The `--dream` stage detects this and reports it honestly
-(a WARN row) rather than claiming a build that didn't happen. gbrain exposes pack
-capability only at cycle runtime (no pre-flight query as of 0.41.x), so we can't
-detect it before running. `code-def` / `code-refs` need the same symbol
-extraction; they are NOT free "direct lookups" on a non-code-aware pack.
+(a WARN row) rather than claiming a build that didn't happen. `code-def` /
+`code-refs` need the same symbol extraction; they are NOT free "direct lookups"
+on a non-code-aware pack.
+
+A source can also hold no code pages at all while reporting a healthy page count
+(a source added outside gstack syncs with gbrain's default markdown strategy).
+On gbrain 0.60 or later, `code-def` for a symbol that cannot exist answers
+`.status`: `ready` (the source holds code), `out_of_scope` (it holds none, so
+`--dream` cannot help), or nothing usable on older gbrain or an error.
 
 Detect whether this source's call graph is built via doctor's `cycle_freshness`
 check, matching the cwd `SOURCE_ID` literally. `doctor --fast` skips the DB
@@ -683,10 +688,23 @@ fi
 # readCycleStatus(). A fail/warn that doesn't name this source → "unknown"
 # (don't mask other-source failures).
 echo "call graph for $SOURCE_ID: $CYCLE${CYCLE_WHY:+: $CYCLE_WHY}"
+CODE_SCOPE=unknown
+if [ -n "$SOURCE_ID" ]; then
+  CODE_SCOPE=$(gbrain code-def ZzzGstackProbeSymbolThatCannotExist --source "$SOURCE_ID" --limit 1 2>/dev/null \
+    | sed -n '/^[[:space:]]*{/,$p' | jq -r '.status // "unknown"' 2>/dev/null || echo unknown)
+  case "$CODE_SCOPE" in ready|out_of_scope) ;; *) CODE_SCOPE=unknown ;; esac
+fi
+echo "code scope for $SOURCE_ID: $CODE_SCOPE"
 ```
 
-If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
-`PAGES > 0`, AskUserQuestion via the format in the preamble:
+If `CODE_SCOPE == out_of_scope`, do not offer a build: report "this source holds
+no code pages (it syncs with gbrain's markdown strategy), so a call-graph build
+cannot help; re-sync it with `gbrain sync --strategy code --source <id>` to index
+its code" and continue to Step 4.
+
+If `CYCLE == never` AND `CODE_SCOPE` is `ready` or `unknown` AND the user did NOT
+pass `--dream`/`--full` AND Step 3 `PAGES > 0`, AskUserQuestion via the format in
+the preamble:
 
 > D2 — This repo's call graph isn't built. Build it now?
 >
@@ -773,10 +791,14 @@ of the same repo each have their own pin and their own indexed pages, so
 semantic results match the code on disk here.
 
 Call-graph queries (`code-callers`/`code-callees`) also need the graph to be
-built first — run `/sync-gbrain --dream` (or `--full`) if they return
-`count: 0`. This only works if this source's gbrain schema pack extracts code
-symbols; on a non-code-aware pack `--dream` completes but the graph stays empty
-and reports a WARN. `code-def`/`code-refs` need the same extraction.
+built first. A `count: 0` has several causes, and only one is fixed by
+`/sync-gbrain --dream` (or `--full`): the graph was never built. Check the others
+first: the source may hold no code at all (`gbrain code-def <any-symbol>
+--source <id>` answers `status: out_of_scope`), the symbol may be dotted (these
+verbs take a bare name), or `--all-sources` was used. `--dream` also needs a
+schema pack that extracts code symbols; on another pack it completes, the graph
+stays empty and it reports a WARN. `code-def`/`code-refs` need the same
+extraction.
 
 Two indexed corpora available via the `gbrain` CLI:
 - This worktree's code (auto-pinned via `.gbrain-source`).

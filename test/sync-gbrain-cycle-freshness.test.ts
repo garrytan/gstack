@@ -48,7 +48,8 @@ esac
       encoding: "utf-8",
       timeout: 30_000,
     });
-    return (r.stdout || "").trim();
+    // The block also prints the code-scope probe line (B11); these cases pin the call-graph line.
+    return (r.stdout || "").trim().split("\n")[0]!;
   }
 
   it("reports never when this source never completed a cycle (doctor exits 1 on the failing check)", () => {

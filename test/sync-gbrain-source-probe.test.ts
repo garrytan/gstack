@@ -60,7 +60,8 @@ test('actual generated Step 3/3.5 shell reads a pretty state and probes the pinn
     expect(cycle.status, cycle.stderr).toBe(0);
     expect(pages.stdout).toContain('cwd source: client-fixture, page_count: 7');
     expect(cycle.stdout).toContain('call graph for client-fixture: never');
-    expect(f.calls()).toEqual(['sources list --json', 'sources list --json', 'doctor --json --scope=brain']);
+    expect(f.calls()).toEqual(['sources list --json', 'sources list --json', 'doctor --json --scope=brain',
+      'code-def ZzzGstackProbeSymbolThatCannotExist --source client-fixture --limit 1']);
   } finally { f.cleanup(); }
 });
 
