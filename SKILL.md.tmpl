@@ -98,11 +98,13 @@ quality gates that produce better results than answering inline.
 - User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
 - User asks for code quality dashboard, "health check" → invoke `/health`
 
-**When in doubt, invoke the skill.** A false positive (invoking a skill that wasn't
-needed) is cheaper than a false negative (answering ad-hoc when a structured workflow
-exists). The skill provides multi-step workflows, checklists, and quality gates that
-always produce better results than an ad-hoc answer. If no skill matches, answer
-directly as usual.
+**Route only to skills in your available-skills list.** A rule above whose skill is
+not listed there is turned off on this install; skip it, never try to invoke it.
+
+**When to invoke, and when not to.** Invoke when the request matches a skill's purpose:
+the skill's workflow, checklists and gates beat an ad-hoc answer. Answer directly when
+no skill matches, for a quick factual question or a small edit the user scoped
+themselves, and when the user asks for a direct answer instead of a workflow.
 
 If the user opts out of suggestions, run `gstack-config set proactive false`.
 If they opt back in, run `gstack-config set proactive true`.

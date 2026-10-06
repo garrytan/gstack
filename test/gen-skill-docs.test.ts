@@ -2116,9 +2116,18 @@ describe('preamble routing injection (bin/gstack-skill-start emission layer)', (
     expect(routingBlock).not.toContain('invoke checkpoint');
   });
 
-  test('routing section uses soft "when in doubt" policy, not hard "ALWAYS invoke"', () => {
-    expect(routingBlock).toContain('When in doubt, invoke the skill');
+  test('routing section routes only to available skills, without "when in doubt" over-triggering (#3018)', () => {
+    expect(routingBlock).toContain("Route only to skills in the session's available-skills list");
+    expect(routingBlock).not.toContain('When in doubt');
     expect(routingBlock).not.toContain('Do NOT answer directly');
+  });
+
+  test('root router skips routes to skills that are not loaded and says when not to invoke (#3018)', () => {
+    const router = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(router).toContain('Route only to skills in your available-skills list');
+    expect(router).toContain('skip it, never try to invoke it');
+    expect(router).toContain('Answer directly when\nno skill matches');
+    expect(router).not.toContain('When in doubt, invoke the skill');
   });
 });
 

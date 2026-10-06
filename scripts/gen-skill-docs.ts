@@ -169,8 +169,8 @@ function rewriteInstallRoot(content: string, hostConfig: HostConfig, installRoot
 }
 
 /**
- * C8 (#3018): the router names every skill and ends "When in doubt, invoke the
- * skill", so it routed to skills the user disabled. A per-install render that
+ * C8 (#3018): the router names every skill, so it routed to skills the user
+ * disabled (it also said "When in doubt, invoke the skill" until v1.91.31). A per-install render that
  * knows its disabled skills drops their routing rules (keeping the other side
  * of an "A or B" rule) and says which skills are off. The router itself and
  * the way back (gstack-upgrade) can never be disabled.
