@@ -64,12 +64,14 @@ Deferred from the approved reliability follow-ups plan (docs/designs/RELIABILITY
   Missing-step coverage now lives in `test/workflow-required-steps.test.ts`.
   Proposal: anchor completeness/actionability 4 and 5 to named deliverables
   and inputs, as a pre-registered EVAL_POLICY change. **Effort:** M. **Priority:** P2.
-- **auto-decide-preserved: the CEO handoff line must reach the chat verbatim**
-  — the native detector credits the helper's AUTO_DECIDE line only when a chat
-  message begins with it (Claude Code collapses the Bash result). Periodic run
-  37272185151 went red on that class (the model led with a heading and a
-  paraphrase). The Oct 6 wave adds a stderr reminder beside the line in
-  `bin/gstack-ceo-mode-handoff`; watch the next censuses. **Effort:** S. **Priority:** P2.
+- **auto-decide-preserved: the CEO handoff line no longer depends on the model**
+  — periodic run 37272185151 went red because the model led its chat with a
+  paraphrase; a reminder beside the line measured 1/10. The Oct 6 wave shows
+  the line through /plan-ceo-review's PostToolUse hook (system message), which
+  measured 10/10 with the line visible in every trial while no trial's chat led
+  with it. The native detector still credits only a chat that begins with the
+  line; if the screen path ever stops carrying the hook message, make the
+  detector read the hook's record instead. **Effort:** S. **Priority:** P3.
 - **Named red: ship-docsync-late-result on PR run 37237194905** — the model
   wrote its report to a mistyped shard root (`…-3GanyY` for `…-3GanyU`) at
   call 20, disclosed it, then wrote the real report at the right path. The

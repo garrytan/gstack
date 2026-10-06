@@ -33,6 +33,28 @@ printf '%s\\n' ${shellWord(unavailable)}`;
 }
 
 /**
+ * {{CEO_MODE_HANDOFF_HOOK}}: /plan-ceo-review's PostToolUse hook that shows the
+ * Step 0E mode handoff line to the user as a system message (Claude only), so
+ * the line is visible even when the model paraphrases it in chat.
+ */
+export function generateCeoModeHandoffHook(ctx: TemplateContext, args?: string[]): string {
+  if (ctx.skillName !== 'plan-ceo-review' || args?.length) {
+    throw new Error('CEO_MODE_HANDOFF_HOOK is only valid in plan-ceo-review without arguments');
+  }
+  if (ctx.host !== 'claude') return '';
+  const shellWord = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  const script = `S="${toShellPath(ctx.paths.skillRoot)}/plan-ceo-review/bin/mode-handoff-hook"
+if [ -f "$S" ]; then exec bash "$S"; fi
+exit 0`;
+  return `hooks:
+  PostToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: ${JSON.stringify(`bash -c ${shellWord(script)}`)}`;
+}
+
+/**
  * {{INVOKE_SKILL:skill-name}} — emits prose instructing Claude to read
  * another skill's SKILL.md and follow it, skipping preamble sections.
  *

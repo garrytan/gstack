@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ceoModeHandoffs, findNativeAutoDecision, HANDOFF_REMINDER } from './helpers/native-auto-decide';
+import { ceoModeHandoffs, findNativeAutoDecision } from './helpers/native-auto-decide';
 import { hasNativePostAnswerCeoPosture } from './helpers/ceo-mode-option';
 import { readPlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
 import expansionCapture from './fixtures/ceo-expansion-auq-ac.json';
@@ -31,12 +31,6 @@ describe('gstack-ceo-mode-handoff', () => {
     expect(run('SCOPE EXPANSION', '--decisions', 'D1 (A): keep the CLI.').stdout)
       .toBe('Mode: SCOPE EXPANSION; approved decisions: D1 (A): keep the CLI.\n');
     expect(run('SCOPE REDUCTION', '--decisions', ' ').stdout).toBe('Mode: SCOPE REDUCTION; approved decisions: none.\n');
-  });
-
-  test('reminds the model on stderr to start its next chat message with the line (periodic red 37272185151)', () => {
-    const r = run('HOLD_SCOPE', '--auto');
-    expect(r.stdout).toBe(`${AUTO_LINE}\n`);
-    expect(r.stderr).toBe(`${HANDOFF_REMINDER}\n`);
   });
 
   test('rejects unknown modes and arguments without printing a handoff', () => {
@@ -69,12 +63,6 @@ describe('native handoff evidence', () => {
       mutate(events);
       expect(ceoModeHandoffs(events, 's'), name).toEqual([]);
     }
-  });
-
-  test('the merged tool result (line, then the stderr reminder) is the helper output; any other trailing text is not', () => {
-    expect(ceoModeHandoffs(handoff('s', at, `${CMD} "HOLD SCOPE" --auto`, `${AUTO_LINE}\n${HANDOFF_REMINDER}`), 's'))
-      .toMatchObject([{ option: 'HOLD SCOPE', auto: true, line: AUTO_LINE }]);
-    expect(ceoModeHandoffs(handoff('s', at, `${CMD} "HOLD SCOPE" --auto`, `${AUTO_LINE}\nAnything else`), 's')).toEqual([]);
   });
 
   // The helper's Bash result is collapsed in the terminal (Claude Code 2.1.284), so it locates the

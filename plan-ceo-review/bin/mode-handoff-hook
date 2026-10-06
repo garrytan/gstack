@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Bash shim — Claude Code runs hook commands through /bin/sh; this runs the
+# TypeScript hook with bun.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+exec bun "$HERE/mode-handoff-hook.ts"

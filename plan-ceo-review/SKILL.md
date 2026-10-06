@@ -10,6 +10,12 @@ allowed-tools:
   - Bash
   - AskUserQuestion
   - WebSearch
+hooks:
+  PostToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "bash -c 'S=\"$HOME/.claude/skills/gstack/plan-ceo-review/bin/mode-handoff-hook\"\nif [ -f \"$S\" ]; then exec bash \"$S\"; fi\nexit 0'"
 triggers:
   - think bigger
   - expand scope

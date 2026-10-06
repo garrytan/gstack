@@ -230,9 +230,6 @@ const modeNames = ['HOLD SCOPE', 'SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'SCOP
 const modeValue = (value: unknown) => typeof value === 'string' && modeNames.includes(value.replaceAll('_', ' '))
   ? value.replaceAll('_', ' ') : null;
 
-/** The reminder bin/gstack-ceo-mode-handoff prints on stderr after the line. */
-export const HANDOFF_REMINDER = 'Start your next chat message with the line above, copied exactly (no heading before it, no rewording).';
-
 export interface CeoModeHandoff { sessionId: string; toolUseId: string; timestamp: string; option: string; auto: boolean; line: string }
 
 /** Successful `gstack-ceo-mode-handoff` runs whose single output line is exactly what that invocation prints. */
@@ -255,9 +252,7 @@ export function ceoModeHandoffs(tools: ReadonlyArray<NativePublicToolEvent>, ses
       : `Mode: ${option}; approved decisions: ${decisions}.`;
     const results = tools.filter(e => e.kind === 'result' && e.sessionId === sessionId && e.toolUseId === use.toolUseId);
     const result = results.length === 1 ? results[0]! : null;
-    // The helper's stderr reminder (merged into the tool result) may follow the line.
-    const output = typeof result?.content === 'string' ? result.content.trim().split(/\r?\n/) : [];
-    if (!result || result.isError !== false || output[0] !== line || output.slice(1).some(l => l !== HANDOFF_REMINDER) ||
+    if (!result || result.isError !== false || typeof result.content !== 'string' || result.content.trim() !== line ||
         !(Date.parse(result.timestamp) >= Date.parse(use.timestamp))) return [];
     return [{ sessionId, toolUseId: use.toolUseId, timestamp: result.timestamp, option, auto, line }];
   });

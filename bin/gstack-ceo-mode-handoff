@@ -40,7 +40,3 @@ if [ "$auto" = 1 ]; then
 else
   echo "Mode: $mode; approved decisions: $decisions."
 fi
-# The terminal collapses this tool output, so the user sees the line only when
-# the next chat message starts with it. Models followed the skill's "copy it
-# verbatim" less reliably than a reminder beside the line itself (#3038).
-echo "Start your next chat message with the line above, copied exactly (no heading before it, no rewording)." >&2
