@@ -161,8 +161,8 @@ describe('QA-only cross-host lazy rendering', () => {
         expect(fs.readFileSync(path.join(rendered, dir, 'SKILL.md'), 'utf8')).not.toContain(body.split('\n').slice(2).join('\n').trim());
       }
       const outside = generated.artifacts.filter(artifact => artifact.host === host.name && artifact.kind === 'section'
-        && !/^(?:qa|qa-only|ship|plan-ceo-review)\//.test(artifact.relativePath)
-        && !/\/gstack-(?:qa(?:-only)?|ship|plan-ceo-review)\//.test(artifact.relativePath));
+        && !/^(?:qa|qa-only|ship|plan-ceo-review|office-hours)\//.test(artifact.relativePath)
+        && !/\/gstack-(?:qa(?:-only)?|ship|plan-ceo-review|office-hours)\//.test(artifact.relativePath));
       expect(outside.length > 0).toBe(host.name === 'claude');
       // C4: ship is carved on every host; external pointers are relative to the installed skill.
       const ctx = context(host.name, 'ship');
