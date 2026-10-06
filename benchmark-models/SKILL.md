@@ -187,7 +187,16 @@ Use AskUserQuestion with the preamble format:
 
 If A: list top-level gstack skills that have SKILL.md files (from `find . -maxdepth 2 -name SKILL.md -not -path './.*'`), ask the user to pick one via a second AskUserQuestion. Use the picked SKILL.md path as the prompt file.
 
-If B: ask the user for the inline prompt. Use it verbatim via `--prompt "<text>"`.
+If B: ask the user for the inline prompt. It never goes into a shell command: create a prompt file and write the prompt into it verbatim, then use the printed path as the prompt file.
+
+```bash
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+PROMPT_FILE=$(mktemp "$_GT/benchmark-prompt.XXXXXX") && echo "PROMPT_FILE: $PROMPT_FILE (name: ${PROMPT_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
 
 If C: ask for the path. Verify it exists. Use as positional argument.
 
@@ -235,10 +244,12 @@ If judge is NOT available, skip this question and omit the `--judge` flag.
 Construct the command from Step 1, 2, 3 decisions:
 
 ```bash
-"$BIN" <prompt-spec> --models <picked-models> [--judge] --output table
+PROMPT_PATH="<prompt-path>"
+[ -s "$PROMPT_PATH" ] || { echo "ERROR: $PROMPT_PATH is missing or empty; the benchmark needs a prompt file." >&2; exit 1; }
+"$BIN" --models <picked-models> [--judge] --output table -- "$PROMPT_PATH"
 ```
 
-Where `<prompt-spec>` is either `--prompt "<text>"` (Step 1B), a file path (Step 1A or 1C), and `<picked-models>` is the comma-separated list from Step 2.
+`<prompt-path>` is the prompt file from Step 1 (the SKILL.md path, the printed prompt file, or the user's path) and `<picked-models>` is the comma-separated list from Step 2. Use a path only if it has no `'`, `"`, backtick, `$` or `\`; otherwise copy the file into a new Step 1B prompt file and use that.
 
 Stream the output as it arrives. This is slow — each provider runs the prompt fully. Expect 30s-5min depending on prompt complexity and whether `--judge` is on.
 
