@@ -8,7 +8,12 @@
 # Before the live checkout moves, the updater fetches, reads the incoming
 # release's Bun floor (bin/gstack-bun-version.sh) and checks the `bun` setup
 # will run; below it the update is held with reason bun-too-old and nothing
-# changes (E1). Updaters older than this check cannot protect their first pull.
+# changes (E1). Then it parse-checks every hook the incoming revision registers
+# (bin/gstack-hook-check on a `git archive` of that revision): Claude Code runs
+# hooks straight from this checkout, so an unparseable hook would block tool
+# calls the moment the checkout moved. A failure holds the update with reason
+# hook-does-not-parse and its file:line. Updaters older than a check cannot
+# protect their first pull.
 #
 # Stages (B11): pull, setup and migrations are tracked separately. The
 # "just upgraded" marker is written only when every stage succeeded. A failed
@@ -37,11 +42,27 @@ THROTTLE_FILE="$STATE_DIR/.last-session-update"
 LOCK_DIR="$STATE_DIR/.setup-lock"
 LOG_FILE="$STATE_DIR/analytics/session-update.log"
 PENDING_FILE="$STATE_DIR/session-update-pending"
+HOOK_CHECK="$(cd "$(dirname "$0")" && pwd)/gstack-hook-check"
 THROTTLE_SECONDS=3600  # 1 hour
 
 log_entry() {
   mkdir -p "$(dirname "$LOG_FILE")"
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG_FILE" 2>/dev/null || true  # best-effort: logging never blocks a session
+}
+# hook_incoming_hold <rev> — parse-check the hooks of <rev> (extracted with
+# git archive) before the live checkout moves. Prints the held reason and
+# returns 0 when a hook does not parse; otherwise prints nothing and returns 1
+# (an archive or bun failure fails open, like every other error here).
+hook_incoming_hold() {
+  _hc_dir=$(mktemp -d "${TMPDIR:-/tmp}/gstack-session-hooks-XXXXXX" 2>/dev/null) || return 1
+  _hc_out=""
+  if git -C "$GSTACK_DIR" archive --format=tar "$1" 2>/dev/null | tar -xf - -C "$_hc_dir" 2>/dev/null; then
+    _hc_out=$("$HOOK_CHECK" "$_hc_dir" 2>/dev/null)
+  fi
+  rm -rf "$_hc_dir"
+  _hc_fail=$(printf '%s\n' "$_hc_out" | sed -n 's/^fail [^ ]* //p' | head -1)
+  [ -n "$_hc_fail" ] || return 1
+  printf 'hook-does-not-parse: %s\n' "${_hc_fail#"$_hc_dir"/}" | head -c 300
 }
 pending_get() { sed -n "s/^$1=//p" "$PENDING_FILE" 2>/dev/null | head -1; }
 # pending_save — persist the P_* stage state; nothing pending removes the file.
@@ -74,6 +95,8 @@ if [ -f "$PENDING_FILE" ]; then
     case "$_P_PULL" in
       bun-too-old*)
         echo "gstack auto-update: update held ($_P_PULL); nothing was installed or changed. Fix now: bun upgrade && cd $GSTACK_DIR && git pull --ff-only && ./setup" ;;
+      hook-does-not-parse*)
+        echo "gstack auto-update: update held ($_P_PULL); nothing was installed or changed, and your current hooks keep running. This is a gstack bug; report ${_P_PULL#hook-does-not-parse: } at https://github.com/garrytan/gstack/issues. gstack retries at the next check. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#auto-update-hook-does-not-parse" ;;
       *)
         echo "gstack auto-update: git pull did not finish ($_P_PULL); gstack is not updating. Fix now: cd $GSTACK_DIR && git pull --ff-only && ./setup" ;;
     esac
@@ -188,14 +211,17 @@ fi
   # The fast-forward targets the exact revision whose requirement was read.
   # Setup runs `bun` from this PATH, so that is the binary checked; a
   # malformed version passes here because setup only warns on it.
-  INCOMING="" BUN_HELD=""
+  INCOMING="" HELD=""
   if [ "$PULL_EXIT" -eq 0 ]; then
     INCOMING=$(git -C "$GSTACK_DIR" rev-parse --verify '@{upstream}^{commit}' 2>"${PULL_ERR_FILE:-/dev/null}") || PULL_EXIT=1
   fi
   if [ "$PULL_EXIT" -eq 0 ] && [ "$INCOMING" != "$OLD_HEAD" ]; then
-    BUN_HELD=$(gstack_bun_incoming_hold "$GSTACK_DIR" "$INCOMING" 2>/dev/null) || BUN_HELD=""
+    HELD=$(gstack_bun_incoming_hold "$GSTACK_DIR" "$INCOMING" 2>/dev/null) || HELD=""
   fi
-  if [ "$PULL_EXIT" -eq 0 ] && [ -z "$BUN_HELD" ]; then
+  if [ "$PULL_EXIT" -eq 0 ] && [ -z "$HELD" ] && [ "$INCOMING" != "$OLD_HEAD" ]; then
+    HELD=$(hook_incoming_hold "$INCOMING") || HELD=""
+  fi
+  if [ "$PULL_EXIT" -eq 0 ] && [ -z "$HELD" ]; then
     git -C "$GSTACK_DIR" merge --ff-only --autostash -q "$INCOMING" >/dev/null 2>"${PULL_ERR_FILE:-/dev/null}"
     PULL_EXIT=$?
   fi
@@ -212,9 +238,9 @@ fi
   case "$P_FAILURES" in ''|*[!0-9]*) P_FAILURES=0 ;; esac
   case "$P_NEXT" in ''|*[!0-9]*) P_NEXT=0 ;; esac
 
-  if [ -n "$BUN_HELD" ]; then
-    log_entry "HELD $BUN_HELD incoming=$INCOMING"
-    P_PULL="$BUN_HELD"
+  if [ -n "$HELD" ]; then
+    log_entry "HELD $HELD incoming=$INCOMING"
+    P_PULL="$HELD"
     pending_save
     rm -f "$PULL_ERR_FILE" 2>/dev/null
     exit 0

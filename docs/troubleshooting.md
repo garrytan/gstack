@@ -541,6 +541,19 @@ cd ~/.claude/skills/gstack && ./setup
 
 **Expected result.** Setup finishes with exit 0 and no refusal line.
 
+<a id="auto-update-hook-does-not-parse"></a>
+### `gstack auto-update: update held (hook-does-not-parse: <file>:<line>: <error>); nothing was installed or changed, and your current hooks keep running. ...`
+
+**Meaning.** Team-mode auto-update fetched a release with a hook that does not
+parse. It checked the incoming revision before moving your checkout, so your
+checkout, installed skills and registered hooks stay at the current revision.
+gstack checks again at the next update check and installs the first release
+whose hooks parse. This is a gstack bug: report the printed `<file>:<line>`.
+
+**Fix.** Nothing to do locally. A manual `git pull` followed by `./setup`
+cannot be checked before the pull; setup then refuses the broken hook (see the
+entry above).
+
 <a id="cso-windows-msvc-compile"></a>
 ### `CSO unavailable: its native helper was not built (windows-msvc-compile)`
 
