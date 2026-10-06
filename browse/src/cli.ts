@@ -123,11 +123,22 @@ function reachesPlaywright(script: string): boolean {
  * .source-path; run that checkout's bundle, which sits beside node_modules.
  * Refuses (throws) when the two builds differ.
  */
+/**
+ * setup runs under Git Bash on Windows, so `.source-path` holds an MSYS path
+ * (`/d/a/gstack`). Node reads that as `\d\a\gstack` on the current drive,
+ * which does not exist, and the CLI fell back to the root's own bundle that
+ * cannot import playwright (windows-setup-e2e). Map the drive form to `D:/...`.
+ */
+export function nativeSourcePath(source: string, platform: NodeJS.Platform = process.platform): string {
+  const msys = platform === 'win32' ? /^\/([A-Za-z])(\/.*)?$/.exec(source) : null;
+  return msys ? `${msys[1]!.toUpperCase()}:${msys[2] ?? '/'}` : source;
+}
+
 function sourceServerScript(execPath: string): string | null {
   const root = path.resolve(path.dirname(execPath), '..', '..');
   let source: string;
   try {
-    source = fs.readFileSync(path.join(root, '.source-path'), 'utf8').trim();
+    source = nativeSourcePath(fs.readFileSync(path.join(root, '.source-path'), 'utf8').trim());
   } catch {
     return null;
   }

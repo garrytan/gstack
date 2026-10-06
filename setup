@@ -632,7 +632,11 @@ _link_runtime_dists() {
   # Record the source checkout (#3026): on Windows the root's browse/dist is a
   # copy with no node_modules beside it, and the browse CLI runs the checkout's
   # Node server bundle from here instead. /gstack-upgrade reads it too.
-  printf '%s\n' "$1" > "$2/.source-path"
+  if [ "$IS_WINDOWS" -eq 1 ] && command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$1" > "$2/.source-path"
+  else
+    printf '%s\n' "$1" > "$2/.source-path"
+  fi
   for d in design/dist make-pdf/dist freeze/bin careful/bin; do
     [ -d "$1/$d" ] || continue
     if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$2/$d" ] || [ ! -e "$2/$d" ]; then

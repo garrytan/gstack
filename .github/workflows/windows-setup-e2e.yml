@@ -153,7 +153,12 @@ jobs:
           CODE=$?
           set -e
           echo "$OUT"
-          test "$CODE" -eq 0 || (echo "browse chain exited $CODE" && exit 1)
+          if [ "$CODE" -ne 0 ]; then
+            echo "browse chain exited $CODE; server logs:"
+            find "$UNRELATED" "$E2E_HOME" -maxdepth 4 \( -name 'browse-daemon.log' -o -name 'browse-startup-error.log' \) -print -exec tail -n 60 {} \; 2>/dev/null || true
+            cat "$E2E_HOME/.codex/skills/gstack/.source-path" 2>/dev/null || true
+            exit 1
+          fi
           echo "$OUT" | grep -q 'gstack-windows-chain-ok' || (echo "chain output lacks the page text: the flow did not run" && exit 1)
           # Empty piped input is a usage error, never a silent exit 0.
           set +e

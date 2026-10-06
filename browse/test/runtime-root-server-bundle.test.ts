@@ -85,5 +85,16 @@ describe('#3026: a Windows runtime root without node_modules runs the source che
     const setup = fs.readFileSync(path.resolve(__dirname, '../../setup'), 'utf8');
     const fn = setup.slice(setup.indexOf('_link_runtime_dists() {'), setup.indexOf('\n}\n', setup.indexOf('_link_runtime_dists() {')));
     expect(fn).toContain(`printf '%s\\n' "$1" > "$2/.source-path"`);
+    // Git Bash on Windows records a native (D:/...) path, not an MSYS one.
+    expect(fn).toContain('cygpath -m "$1" > "$2/.source-path"');
+  });
+
+  test('an MSYS .source-path (/d/a/gstack) resolves to the drive path on Windows only', () => {
+    const { nativeSourcePath } = require('../src/cli');
+    expect(nativeSourcePath('/d/a/gstack/gstack', 'win32')).toBe('D:/a/gstack/gstack');
+    expect(nativeSourcePath('/c', 'win32')).toBe('C:/');
+    expect(nativeSourcePath('D:/a/gstack', 'win32')).toBe('D:/a/gstack');
+    expect(nativeSourcePath('/home/u/gstack', 'linux')).toBe('/home/u/gstack');
+    expect(nativeSourcePath('/home/u/gstack', 'win32')).toBe('/home/u/gstack');
   });
 });
