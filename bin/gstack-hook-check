@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# gstack-hook-check — parse-check every hook Claude Code runs from a gstack tree.
+#
+# Usage:
+#   gstack-hook-check [--setup <file>] --list <root>   print the checked hooks
+#   gstack-hook-check [--setup <file>] <root>          check them
+#
+# Claude Code runs gstack's hook shims through /bin/sh; a shim that does not
+# parse exits 2, which for a PreToolUse hook blocks the tool call in every
+# session. setup runs this before it registers hooks, and the auto-updater
+# (bin/gstack-session-update) runs it on the incoming revision before the
+# live checkout moves.
+#
+# The hook list comes from the registration code: every
+# `_hook_command_path <path>` argument in <root>/setup (or the setup named by
+# --setup, when another tree's setup registers <root>'s hooks), plus the autoplan
+# phase-publication hook (registered by its skill frontmatter).
+# test/setup-hook-syntax-gate.test.ts keeps the two equal.
+#
+# Each shim is parsed by the interpreter its shebang names (bash -n, sh -n).
+# Each TypeScript entry the shim runs (a `<name>.ts` beside it) is bundled with
+# its local imports into a temp directory, packages external, so a broken or
+# missing local import fails; a missing entry fails.
+#
+# Output, one line per hook:
+#   ok <hook>
+#   missing <hook>                      (no shim: setup skips registering it)
+#   fail <hook> <file>:<line>: <message>
+# Exit: 0 when nothing failed, 1 when a hook failed, 2 on usage, 3 when bun
+# (needed for the TypeScript check) is not found. Set GSTACK_HOOK_CHECK_BUN to
+# the bun to run (setup passes its own).
+set -u
+
+LIST_ONLY=0 SETUP_FILE=""
+while [ $# -gt 1 ]; do
+  case "$1" in
+    --list) LIST_ONLY=1; shift ;;
+    --setup) SETUP_FILE="$2"; shift 2 ;;
+    *) break ;;
+  esac
+done
+ROOT="${1:-}"
+if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
+  echo "usage: gstack-hook-check [--setup <file>] [--list] <gstack root>" >&2
+  exit 2
+fi
+SETUP_FILE="${SETUP_FILE:-$ROOT/setup}"
+
+hook_list() {
+  sed -n 's/.*\$(_hook_command_path \([A-Za-z0-9._/-]*\).*/\1/p' "$SETUP_FILE" 2>/dev/null
+  echo autoplan/bin/phase-publication-hook
+}
+HOOKS=$(hook_list | awk '!seen[$0]++')
+
+if [ "$LIST_ONLY" -eq 1 ]; then
+  printf '%s\n' "$HOOKS"
+  exit 0
+fi
+
+BUN="${GSTACK_HOOK_CHECK_BUN:-bun}"
+if ! command -v "$BUN" >/dev/null 2>&1; then
+  echo "gstack-hook-check: bun not found, so TypeScript hook entries cannot be checked" >&2
+  exit 3
+fi
+TMP_OUT=$(mktemp -d "${TMPDIR:-/tmp}/gstack-hook-check.XXXXXX") || { echo "gstack-hook-check: cannot create a temp directory" >&2; exit 1; }
+trap 'rm -rf "$TMP_OUT"' EXIT
+
+# first_location <file> <tool output> — "<file>:<line>" from bun's "at f:l:c"
+# or bash's "f: line N:" (falls back to <file>).
+first_location() {
+  _loc=$(printf '%s\n' "$2" | sed -n 's/^[[:space:]]*at \(.*\):\([0-9][0-9]*\):[0-9][0-9]*$/\1:\2/p' | head -1)
+  [ -n "$_loc" ] || _loc=$(printf '%s\n' "$2" | sed -n 's/^\(.*\): line \([0-9][0-9]*\):.*/\1:\2/p' | head -1)
+  printf '%s\n' "${_loc:-$1}"
+}
+first_message() {
+  _msg=$(printf '%s\n' "$1" | sed -n 's/^error: //p' | head -1)
+  [ -n "$_msg" ] || _msg=$(printf '%s\n' "$1" | sed -n 's/^.*: line [0-9][0-9]*: //p' | head -1)
+  [ -n "$_msg" ] || _msg=$(printf '%s\n' "$1" | grep -v '^[[:space:]]*$' | head -1)
+  printf '%s\n' "$_msg"
+}
+
+FAILED=0
+fail() { echo "fail $1 $2: $3"; FAILED=1; }
+
+for hook in $HOOKS; do
+  shim="$ROOT/$hook"
+  if [ ! -f "$shim" ]; then echo "missing $hook"; continue; fi
+  hook_ok=1
+  shebang=$(head -1 "$shim")
+  case "$shebang" in
+    '#!'*bash*) interp=bash ;;
+    '#!'*/sh|'#!'*/sh' '*|'#!'*' sh'|'#!'*' sh '*) interp=sh ;;
+    *) interp="" ;;
+  esac
+  if [ -z "$interp" ]; then
+    fail "$hook" "$shim:1" "unsupported shebang '$shebang' (expected bash or sh)"
+    continue
+  fi
+  if ! err=$("$interp" -n "$shim" 2>&1); then
+    fail "$hook" "$(first_location "$shim" "$err")" "$(first_message "$err")"
+    hook_ok=0
+  fi
+  dir=$(dirname "$shim")
+  for entry in $(grep -v '^[[:space:]]*#' "$shim" | grep -oE '[A-Za-z0-9._-]+\.ts([^A-Za-z0-9_]|$)' | sed -E 's/\.ts.*$/.ts/' | awk '!seen[$0]++'); do
+    if [ ! -f "$dir/$entry" ]; then
+      fail "$hook" "$dir/$entry:1" "missing TypeScript entry (the hook runs it)"
+      hook_ok=0
+      continue
+    fi
+    if ! err=$("$BUN" build --target=bun --packages=external --outdir "$TMP_OUT/$(basename "$hook")" "$dir/$entry" 2>&1 >/dev/null); then
+      fail "$hook" "$(first_location "$dir/$entry" "$err")" "$(first_message "$err")"
+      hook_ok=0
+    fi
+  done
+  [ "$hook_ok" -eq 1 ] && echo "ok $hook"
+done
+exit "$FAILED"

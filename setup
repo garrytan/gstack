@@ -3706,7 +3706,14 @@ fi
 
 # Echo the canonical path for a hook (repo-relative arg); fails when the hook
 # is not executable at the canonical install — callers must skip + log.
+# A hook the parse gate below refused is never registered.
+_HOOK_REFUSED=""
+_hook_refused() {
+  case " $_HOOK_REFUSED " in *" $1 "*) return 0 ;; esac
+  return 1
+}
 _hook_command_path() {
+  _hook_refused "$1" && return 1
   if [ -x "$CANONICAL_GSTACK_ROOT/$1" ]; then
     printf '%s\n' "$CANONICAL_GSTACK_ROOT/$1"
     return 0
@@ -3714,31 +3721,35 @@ _hook_command_path() {
   return 1
 }
 
-# Hook syntax gate (#3032): Claude Code runs these shims through /bin/sh, and a
-# shell file that does not parse exits 2, which for a PreToolUse hook blocks the
-# tool call in every session on the machine. A half-edited or half-merged hook
-# must stop setup with its file and line before any registration is written or
-# healed, not install silently.
-_HOOK_SYNTAX_PROBLEMS=""
-for _hook in bin/gstack-session-update hosts/claude/hooks/question-log-hook \
-    hosts/claude/hooks/question-preference-hook hosts/claude/hooks/auq-error-fallback-hook \
-    hosts/claude/hooks/timeline-stop-hook autoplan/bin/phase-publication-hook; do
-  _hook_file="$CANONICAL_GSTACK_ROOT/$_hook"
-  [ -f "$_hook_file" ] || continue
-  if ! _hook_err=$(bash -n "$_hook_file" 2>&1); then
-    _HOOK_SYNTAX_PROBLEMS="${_HOOK_SYNTAX_PROBLEMS}
-  $_hook_err"
+# Hook parse gate: Claude Code runs these shims through /bin/sh, and a shell
+# file that does not parse exits 2, which for a PreToolUse hook blocks the tool
+# call in every session on the machine. bin/gstack-hook-check parses every hook
+# path this file resolves for registration, and the TypeScript each one runs.
+# The canonical root is the checkout Claude Code runs hooks from, so its files
+# are already live: there is no staged swap to abort here. Setup registers the
+# hooks that parse, refuses the ones that do not (the resolver skips them), and
+# exits non-zero at the end with the file and line. The auto-updater runs the
+# same check before the checkout moves.
+if [ -d "$CANONICAL_GSTACK_ROOT" ]; then
+  _HOOK_CHECK_RC=0
+  _HOOK_CHECK_OUT=$(GSTACK_HOOK_CHECK_BUN="$BUN_CMD" "$SOURCE_GSTACK_DIR/bin/gstack-hook-check" \
+    --setup "$SOURCE_GSTACK_DIR/setup" "$CANONICAL_GSTACK_ROOT") || _HOOK_CHECK_RC=$?
+  _HOOK_REFUSED=$(printf '%s\n' "$_HOOK_CHECK_OUT" | sed -n 's/^fail \([^ ]*\) .*/\1/p' | awk '!seen[$0]++' | tr '\n' ' ')
+  _HOOK_PASSED=$(printf '%s\n' "$_HOOK_CHECK_OUT" | sed -n 's/^ok //p' | tr '\n' ' ')
+  _HOOK_REFUSED_AT=$(printf '%s\n' "$_HOOK_CHECK_OUT" | sed -n 's/^fail [^ ]* \([^ ]*\): .*/\1/p' | head -1)
+  if [ -n "$_HOOK_REFUSED" ]; then
+    {
+      echo "gstack setup: refusing to register hooks that do not parse (Claude Code would block tool calls with them):"
+      printf '%s\n' "$_HOOK_CHECK_OUT" | sed -n 's/^fail [^ ]* /  /p'
+      echo "  Hooks that parse register as usual: ${_HOOK_PASSED:-none}"
+      echo "  Skipped: $_HOOK_REFUSED"
+      echo "  This is a gstack bug; report $_HOOK_REFUSED_AT at https://github.com/garrytan/gstack/issues"
+      echo "  Claude Code runs hooks straight from $CANONICAL_GSTACK_ROOT, so a skipped hook that an earlier setup registered, or that a skill file runs, keeps running the broken file until it is fixed."
+      echo "  Fix: repair the file (git -C \"$CANONICAL_GSTACK_ROOT\" status shows half-applied edits or merge conflicts), then re-run ./setup. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#setup-hook-does-not-parse"
+    } >&2
+  elif [ "$_HOOK_CHECK_RC" -ne 0 ]; then
+    echo "gstack setup: warning: the hook parse check could not run (exit $_HOOK_CHECK_RC); hooks are registered unchecked." >&2
   fi
-  if [ -f "$_hook_file.ts" ] && ! _hook_err=$(bun_cmd build --no-bundle --target=bun "$_hook_file.ts" 2>&1 >/dev/null); then
-    _HOOK_SYNTAX_PROBLEMS="${_HOOK_SYNTAX_PROBLEMS}
-  $_hook_file.ts:
-$(printf '%s\n' "$_hook_err" | sed 's/^/    /')"
-  fi
-done
-if [ -n "$_HOOK_SYNTAX_PROBLEMS" ]; then
-  echo "gstack setup: refusing to register hooks: a hook file does not parse, and Claude Code would block tool calls with it:$_HOOK_SYNTAX_PROBLEMS" >&2
-  echo "Fix: repair the file above (git -C \"$SOURCE_GSTACK_DIR\" status shows half-applied edits or merge conflicts), then re-run ./setup." >&2
-  exit 1
 fi
 
 # Heal-first: prune dead gstack hook entries and re-point survivors at the
@@ -3802,7 +3813,11 @@ if [ "$TEAM_MODE" -eq 1 ]; then
   if [ -x "$SETTINGS_HOOK" ] && [ -n "$HOOK_CMD" ]; then
     "$SETTINGS_HOOK" add-event --event SessionStart --command "$HOOK_CMD" --source gstack-session-update >/dev/null || true
   elif [ -z "$HOOK_CMD" ]; then
-    log "  SessionStart hook not registered: bin/gstack-session-update missing at $CANONICAL_GSTACK_ROOT (no stable install)"
+    if _hook_refused bin/gstack-session-update; then
+      log "  SessionStart hook not registered: bin/gstack-session-update does not parse (see above)"
+    else
+      log "  SessionStart hook not registered: bin/gstack-session-update missing at $CANONICAL_GSTACK_ROOT (no stable install)"
+    fi
   fi
 
   log ""
@@ -4002,14 +4017,18 @@ PLAN_TUNE_INSTALL_MARKER="$HOME/.gstack/.plan-tune-hooks-prompted"
 # Canonical-only: an ephemeral tree with no stable install gets a visible skip,
 # never a baked worktree path.
 if [ "$NO_TEAM_MODE" -ne 1 ] && [ -x "$SETTINGS_HOOK" ] \
-   && { [ -z "$PLAN_TUNE_LOG_HOOK" ] || [ -z "$PLAN_TUNE_PREF_HOOK" ]; }; then
+   && { { [ -z "$PLAN_TUNE_LOG_HOOK" ] && ! _hook_refused hosts/claude/hooks/question-log-hook; } \
+        || { [ -z "$PLAN_TUNE_PREF_HOOK" ] && ! _hook_refused hosts/claude/hooks/question-preference-hook; }; }; then
   log "  AskUserQuestion hooks not registered: hooks missing at $CANONICAL_GSTACK_ROOT (no stable install)"
 fi
 
+# A hook refused by the parse gate leaves its variable empty; the others in
+# this block still register.
 if [ "$NO_TEAM_MODE" -ne 1 ] \
    && [ -x "$SETTINGS_HOOK" ] \
-   && [ -n "$PLAN_TUNE_LOG_HOOK" ] \
-   && [ -n "$PLAN_TUNE_PREF_HOOK" ]; then
+   && { [ -n "$PLAN_TUNE_LOG_HOOK" ] || _hook_refused hosts/claude/hooks/question-log-hook; } \
+   && { [ -n "$PLAN_TUNE_PREF_HOOK" ] || _hook_refused hosts/claude/hooks/question-preference-hook; } \
+   && [ -n "$PLAN_TUNE_LOG_HOOK$PLAN_TUNE_PREF_HOOK$AUQ_ERROR_FALLBACK_HOOK" ]; then
 
   # Already installed? Require BOTH the plan-tune source AND the AUQ-error-fallback
   # source — so an existing install that predates the fallback hook re-runs the
@@ -4084,13 +4103,15 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     # fail-closed settings error) so callers log honestly instead of claiming
     # success for a mutation that never happened.
     local _pt_install_rc=0
-    "$SETTINGS_HOOK" ensure-event \
-      --event PostToolUse \
-      --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
-      --command "$PLAN_TUNE_LOG_HOOK" \
-      --source plan-tune-cathedral \
-      --timeout 5 || _pt_install_rc=1
-    if [ "$_PT_SKIP_PREF" -eq 0 ]; then
+    if [ -n "$PLAN_TUNE_LOG_HOOK" ]; then
+      "$SETTINGS_HOOK" ensure-event \
+        --event PostToolUse \
+        --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+        --command "$PLAN_TUNE_LOG_HOOK" \
+        --source plan-tune-cathedral \
+        --timeout 5 || _pt_install_rc=1
+    fi
+    if [ "$_PT_SKIP_PREF" -eq 0 ] && [ -n "$PLAN_TUNE_PREF_HOOK" ]; then
       "$SETTINGS_HOOK" ensure-event \
         --event PreToolUse \
         --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
@@ -4427,4 +4448,9 @@ if [ ${#_BACKED_UP_SKILL_MDS[@]} -gt 0 ]; then
   log ""
   log "Moved ${#_BACKED_UP_SKILL_MDS[@]} customized SKILL.md file(s) to $_SKILL_BACKUP_ROOT before installing gstack's: ${_BACKED_UP_SKILL_MDS[*]}"
   log "  Those were gstack-generated files you had edited; restore anything you meant to keep under a different skill name."
+fi
+if [ -n "${_HOOK_REFUSED:-}" ]; then
+  echo "" >&2
+  echo "gstack setup: everything else is installed, but these hooks were not registered because they do not parse: $_HOOK_REFUSED(first: $_HOOK_REFUSED_AT). This is a gstack bug; report $_HOOK_REFUSED_AT. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#setup-hook-does-not-parse" >&2
+  exit 1
 fi
