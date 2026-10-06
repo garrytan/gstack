@@ -2003,9 +2003,12 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     await handleTunnel(commandArgs); // always exits
   }
 
-  // Special case: chain reads from stdin
+  // Special case: chain reads from stdin. Synchronously: on Windows an awaited
+  // Bun.stdin.text() inside this un-awaited main() did not keep the event loop
+  // alive, so a piped flow exited 0 with nothing sent to the daemon (#3039).
+  // A terminal has no flow to read; the empty argument gets the server's usage.
   if (command === 'chain' && commandArgs.length === 0) {
-    const stdin = await Bun.stdin.text();
+    const stdin = process.stdin.isTTY ? '' : fs.readFileSync(0, 'utf8');
     commandArgs.push(stdin.trim());
   }
 
