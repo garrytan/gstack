@@ -20,8 +20,8 @@ export function handoffMessage(input: unknown): string | null {
   const { tool_name: tool, tool_input: toolInput, tool_response: response } = input as Record<string, any>;
   if (tool !== 'Bash' || typeof toolInput?.command !== 'string') return null;
   if (!/(?:^|[\s"'/])gstack-ceo-mode-handoff["']?\s/.test(toolInput.command)) return null;
-  const stdout = typeof response === 'string' ? response : typeof response?.stdout === 'string' ? response.stdout : '';
-  const line = stdout.split(/\r?\n/).find(l => l.trim())?.trim() ?? '';
+  const stdout: string = typeof response === 'string' ? response : typeof response?.stdout === 'string' ? response.stdout : '';
+  const line = stdout.split(/\r?\n/).find((l: string) => l.trim())?.trim() ?? '';
   return HANDOFF_LINE.test(line) ? line : null;
 }
 
