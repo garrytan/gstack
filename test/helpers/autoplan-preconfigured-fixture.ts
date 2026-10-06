@@ -4,7 +4,7 @@ import { join } from 'node:path';
 // Real project routing, matching the section offered by gstack-skill-start.
 const ROUTING = `## Skill routing
 
-When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+When the user's request matches an available skill, invoke it via the Skill tool. Route only to skills in the session's available-skills list; answer directly for quick questions or small scoped edits.
 
 Key routing rules:
 - Product ideas/brainstorming → invoke /office-hours
