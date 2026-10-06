@@ -3710,6 +3710,33 @@ _hook_command_path() {
   return 1
 }
 
+# Hook syntax gate (#3032): Claude Code runs these shims through /bin/sh, and a
+# shell file that does not parse exits 2, which for a PreToolUse hook blocks the
+# tool call in every session on the machine. A half-edited or half-merged hook
+# must stop setup with its file and line before any registration is written or
+# healed, not install silently.
+_HOOK_SYNTAX_PROBLEMS=""
+for _hook in bin/gstack-session-update hosts/claude/hooks/question-log-hook \
+    hosts/claude/hooks/question-preference-hook hosts/claude/hooks/auq-error-fallback-hook \
+    hosts/claude/hooks/timeline-stop-hook autoplan/bin/phase-publication-hook; do
+  _hook_file="$CANONICAL_GSTACK_ROOT/$_hook"
+  [ -f "$_hook_file" ] || continue
+  if ! _hook_err=$(bash -n "$_hook_file" 2>&1); then
+    _HOOK_SYNTAX_PROBLEMS="${_HOOK_SYNTAX_PROBLEMS}
+  $_hook_err"
+  fi
+  if [ -f "$_hook_file.ts" ] && ! _hook_err=$(bun_cmd build --no-bundle --target=bun "$_hook_file.ts" 2>&1 >/dev/null); then
+    _HOOK_SYNTAX_PROBLEMS="${_HOOK_SYNTAX_PROBLEMS}
+  $_hook_file.ts:
+$(printf '%s\n' "$_hook_err" | sed 's/^/    /')"
+  fi
+done
+if [ -n "$_HOOK_SYNTAX_PROBLEMS" ]; then
+  echo "gstack setup: refusing to register hooks: a hook file does not parse, and Claude Code would block tool calls with it:$_HOOK_SYNTAX_PROBLEMS" >&2
+  echo "Fix: repair the file above (git -C \"$SOURCE_GSTACK_DIR\" status shows half-applied edits or merge conflicts), then re-run ./setup." >&2
+  exit 1
+fi
+
 # Heal-first: prune dead gstack hook entries and re-point survivors at the
 # stable install BEFORE any tag-presence guard below (a dead entry carrying the
 # tag otherwise blocks re-registration forever — the missing-Stop-hook failure
