@@ -50,6 +50,7 @@ phase entry.
 | `sidechain` | The first turn or its ancestry is a sidechain (subagent) record, not the parent session. |
 | `agent` | The conversation ancestry passes through a subagent record. |
 | `cycle` | The journal's parent links form a loop. |
+| `too_large` | The session journal is over the 32 MiB the guard reads (the message names its size). Long sessions, especially with screenshots, get there; a journal only grows, so retrying never helps. Start a new session for `/autoplan`. |
 
 **What to do:** run the review phases by hand: `/plan-ceo-review`, then
 `/plan-devex-review`, then `/plan-eng-review`. Or start a new Claude Code
@@ -65,7 +66,7 @@ The guard has not reached a conclusion. The message ends with
 |------|-------|
 | (none) | The journal does not yet hold the records the guard needs. This includes the current tool call, or an ancestor record Claude Code has not written yet. |
 | `changing` | Claude Code was writing the journal during every read in the 2-second window. |
-| `identity` | The journal path, its directories or the file itself failed the identity checks: for example a symlink, a foreign session, or the wrong directory layout. |
+| `identity` | The journal path, its directories or the file itself failed the identity checks: for example a symlink, a foreign session, or the wrong directory layout. A journal over the size limit reports `too_large` instead. |
 | `malformed` | A complete journal line is not valid JSON or UTF-8, or its records contradict each other. |
 
 If a retry keeps failing with the same code, use the fallback above.

@@ -329,6 +329,29 @@ describe('Autoplan parent publication guard', () => {
     }
   });
 
+  test('#3050: a journal over the read limit is a hard too_large denial with its size, never a retryable identity', async () => {
+    const f = fixture();
+    f.message(); f.current(); f.journal();
+    const pad = Buffer.alloc(33 * 1024 * 1024, 0x20); pad[pad.length - 1] = 0x0a;
+    fs.appendFileSync(f.input.transcript_path, pad);
+    expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.reason).toBe('too_large');
+    const output: any = await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
+    const reason: string = output.hookSpecificOutput.permissionDecisionReason;
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(reason).toContain("This session's journal is 33 MiB, over the 32 MiB the guard reads");
+    expect(reason).toContain('code too_large');
+    expect(reason).toContain('/plan-ceo-review');
+    expect(reason).not.toContain('Retry this phase-entry tool');
+  });
+
+  test('#3050: a real identity failure still reports identity', () => {
+    const f = fixture();
+    f.message(); f.current(); f.journal();
+    const other = path.join(path.dirname(f.input.transcript_path), 'not-this-session.jsonl');
+    fs.copyFileSync(f.input.transcript_path, other);
+    expect(readOwnedClaudePublicTranscript(other, f.input.cwd, f.sessionId).transcript.reason).toBe('identity');
+  });
+
   test('native hook accepts platform paths without evaluating shell escapes', async () => {
     // The same actual hook receives native separators in Windows CI.
     const f = fixture();
