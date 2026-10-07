@@ -10,6 +10,11 @@ name: Eval sweep
 # an agent fixes from the uploaded report. Pinned by
 # test/eval-sweep-workflow.test.ts.
 on:
+  # TEMPORARY validation trigger (removed in the next commit): workflow_dispatch
+  # needs the file on the default branch, so this branch runs it on push with
+  # K=2 and a $25 cap.
+  push:
+    branches: [garrytan/ship-measure-bar-sweep]
   schedule:
     - cron: '0 12 * * 1'  # Monday 12:00 UTC, after the 06:00 periodic census
   workflow_dispatch:
@@ -167,8 +172,8 @@ jobs:
           GSTACK_CI_IMAGE: ${{ needs.image.outputs.image-ref }}
           SWEEP_OUT: /tmp/ship-measure-sweep
           SWEEP_PRIOR: /tmp/prior-sweeps
-          SWEEP_K: ${{ inputs.k }}
-          SWEEP_CAP_USD: ${{ inputs.cap_usd }}
+          SWEEP_K: ${{ github.event_name == 'push' && '2' || inputs.k }}
+          SWEEP_CAP_USD: ${{ github.event_name == 'push' && '25' || inputs.cap_usd }}
           SWEEP_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
