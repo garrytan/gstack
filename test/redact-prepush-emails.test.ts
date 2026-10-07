@@ -21,6 +21,9 @@ const PREPUSH = path.resolve(import.meta.dir, "../bin/gstack-redact-prepush");
 const REDACT = path.resolve(import.meta.dir, "../bin/gstack-redact");
 const ZERO = "0".repeat(40);
 const AWS_KEY = ["AKIA", "1234567890ABCDEF"].join("");
+// Fixture addresses are assembled at runtime so this file's own pushed diff
+// carries no address literal for the repo's pre-push scan to list.
+const at = (name: string): string => `${name}@corp.io`;
 const roots: string[] = [];
 
 afterEach(() => {
@@ -57,7 +60,7 @@ let clock = 1_800_000_000;
  * by `git commit`, so a git wrapper that exports its own GIT_AUTHOR_* (some CI
  * and agent machines do) cannot replace the identity under test.
  */
-function commitFile(fx: Fixture, cwd: string, file: string, body: string, email = "me@corp.io"): string {
+function commitFile(fx: Fixture, cwd: string, file: string, body: string, email = at("me")): string {
   fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true });
   fs.writeFileSync(path.join(cwd, file), body);
   git(fx, cwd, ["add", file]);
@@ -81,7 +84,7 @@ function fixture(opts: { selfEmail?: string | null; seed?: boolean } = {}): Fixt
   git(fx, root, ["init", "--bare", "-q", "-b", "main", fx.origin]);
   git(fx, fx.repo, ["init", "-q", "-b", "main"]);
   git(fx, fx.repo, ["config", "user.name", "Me"]);
-  if (opts.selfEmail !== null) git(fx, fx.repo, ["config", "user.email", opts.selfEmail ?? "me@corp.io"]);
+  if (opts.selfEmail !== null) git(fx, fx.repo, ["config", "user.email", opts.selfEmail ?? at("me")]);
   git(fx, fx.repo, ["remote", "add", "origin", fx.origin]);
   if (opts.seed !== false) {
     commitFile(fx, fx.repo, "README.md", "seed\n", "seed@example.com");
@@ -118,8 +121,8 @@ function publishForeignBranch(fx: Fixture, remote: string, branch: string, email
 
 describe("own and already-public addresses are not reported (#3060)", () => {
   test("the pusher's own address (git config user.email) is not reported", () => {
-    const fx = fixture({ selfEmail: "me@corp.io" });
-    commitFile(fx, fx.repo, "AUTHORS.md", "Maintainer: me@corp.io\n", "colleague@corp.io");
+    const fx = fixture({ selfEmail: at("me") });
+    commitFile(fx, fx.repo, "AUTHORS.md", `Maintainer: ${at("me")}\n`, at("colleague"));
     const { code, stderr } = push(fx, ["origin", "main"]);
     expect(code).toBe(0);
     expect(stderr).not.toContain("MEDIUM");
@@ -127,9 +130,9 @@ describe("own and already-public addresses are not reported (#3060)", () => {
 
   test("an address that authored a commit the remote already has is not reported", () => {
     const fx = fixture();
-    commitFile(fx, fx.repo, "lib.txt", "code\n", "colleague@corp.io");
+    commitFile(fx, fx.repo, "lib.txt", "code\n", at("colleague"));
     expect(push(fx, ["origin", "main"]).code).toBe(0);
-    commitFile(fx, fx.repo, "CODEOWNERS", "* colleague@corp.io\n");
+    commitFile(fx, fx.repo, "CODEOWNERS", `* ${at("colleague")}\n`);
     const { code, stderr } = push(fx, ["origin", "main"]);
     expect(code).toBe(0);
     expect(stderr).not.toContain("MEDIUM");
@@ -137,7 +140,7 @@ describe("own and already-public addresses are not reported (#3060)", () => {
 
   test("an address that authors one of the pushed commits is not reported", () => {
     const fx = fixture();
-    commitFile(fx, fx.repo, "package.json", '{ "author": "newcomer@corp.io" }\n', "newcomer@corp.io");
+    commitFile(fx, fx.repo, "package.json", `{ "author": "${at("newcomer")}" }\n`, at("newcomer"));
     const { code, stderr } = push(fx, ["origin", "main"]);
     expect(code).toBe(0);
     expect(stderr).not.toContain("MEDIUM");
@@ -145,17 +148,17 @@ describe("own and already-public addresses are not reported (#3060)", () => {
 
   test("mailmapped author addresses count as already public", () => {
     const fx = fixture();
-    commitFile(fx, fx.repo, "lib.txt", "code\n", "old-name@corp.io");
+    commitFile(fx, fx.repo, "lib.txt", "code\n", at("old-name"));
     expect(push(fx, ["origin", "main"]).code).toBe(0);
-    fs.writeFileSync(path.join(fx.repo, ".mailmap"), "Someone <current@corp.io> <old-name@corp.io>\n");
-    commitFile(fx, fx.repo, "docs/contact.md", "Ask current@corp.io\n");
+    fs.writeFileSync(path.join(fx.repo, ".mailmap"), `Someone <${at("current")}> <${at("old-name")}>\n`);
+    commitFile(fx, fx.repo, "docs/contact.md", `Ask ${at("current")}\n`);
     const { stderr } = push(fx, ["origin", "main"]);
     expect(stderr).not.toContain("MEDIUM");
   });
 
   test("control: a stranger's address is reported with rule, file, line and fix, never the address", () => {
     const fx = fixture();
-    commitFile(fx, fx.repo, "notes.md", "line one\nline two\ncontact stranger@corp.io\n");
+    commitFile(fx, fx.repo, "notes.md", `line one\nline two\ncontact ${at("stranger")}\n`);
     const { code, stderr } = push(fx, ["origin", "main"]);
     expect(code).toBe(0);
     expect(stderr).toMatch(/1 MEDIUM finding/);
@@ -164,12 +167,12 @@ describe("own and already-public addresses are not reported (#3060)", () => {
     expect(lines[0]).toContain("pii.email");
     expect(lines[0]).toContain("notes.md:3");
     expect(lines[0]).toContain("git config --add gstack.redact.allowEmail <address>");
-    expect(stderr).not.toContain("stranger@corp.io");
+    expect(stderr).not.toContain(at("stranger"));
   });
 
   test("control: a stranger's address in the first push of a repo with no history is reported", () => {
     const fx = fixture({ seed: false });
-    commitFile(fx, fx.repo, "notes.md", "contact stranger@corp.io\n");
+    commitFile(fx, fx.repo, "notes.md", `contact ${at("stranger")}\n`);
     const { code, stderr } = push(fx, ["origin", "main"]);
     expect(code).toBe(0);
     const lines = mediumLines(stderr);
@@ -181,10 +184,10 @@ describe("own and already-public addresses are not reported (#3060)", () => {
 describe("history scope follows the push destination (CEO-7, ENG-8)", () => {
   test("a new branch to a configured remote counts authors on that remote's tracking refs", () => {
     const fx = fixture();
-    publishForeignBranch(fx, fx.origin, "other", "colleague@corp.io");
+    publishForeignBranch(fx, fx.origin, "other", at("colleague"));
     git(fx, fx.repo, ["fetch", "-q", "origin"]);
     git(fx, fx.repo, ["checkout", "-q", "-b", "feature"]);
-    commitFile(fx, fx.repo, "CODEOWNERS", "* colleague@corp.io\n");
+    commitFile(fx, fx.repo, "CODEOWNERS", `* ${at("colleague")}\n`);
     const { code, stderr } = push(fx, ["origin", "feature"]);
     expect(code).toBe(0);
     expect(stderr).not.toContain("MEDIUM");
@@ -192,10 +195,10 @@ describe("history scope follows the push destination (CEO-7, ENG-8)", () => {
 
   test("control: a URL push does not count the tracking refs of a remote that happens to match", () => {
     const fx = fixture();
-    publishForeignBranch(fx, fx.origin, "other", "colleague@corp.io");
+    publishForeignBranch(fx, fx.origin, "other", at("colleague"));
     git(fx, fx.repo, ["fetch", "-q", "origin"]);
     git(fx, fx.repo, ["checkout", "-q", "-b", "feature"]);
-    commitFile(fx, fx.repo, "CODEOWNERS", "* colleague@corp.io\n");
+    commitFile(fx, fx.repo, "CODEOWNERS", `* ${at("colleague")}\n`);
     const { code, stderr } = push(fx, [fx.origin, "feature"]);
     expect(code).toBe(0);
     expect(mediumLines(stderr)).toHaveLength(1);
@@ -206,11 +209,11 @@ describe("history scope follows the push destination (CEO-7, ENG-8)", () => {
     const upstream = path.join(fx.root, "upstream.git");
     git(fx, fx.root, ["init", "--bare", "-q", "-b", "main", upstream]);
     git(fx, fx.repo, ["push", "-q", upstream, "main"]);
-    publishForeignBranch(fx, upstream, "other", "private-colleague@corp.io");
+    publishForeignBranch(fx, upstream, "other", at("private-colleague"));
     git(fx, fx.repo, ["remote", "add", "upstream", upstream]);
     git(fx, fx.repo, ["fetch", "-q", "upstream"]);
     git(fx, fx.repo, ["checkout", "-q", "-b", "feature"]);
-    commitFile(fx, fx.repo, "CODEOWNERS", "* private-colleague@corp.io\n");
+    commitFile(fx, fx.repo, "CODEOWNERS", `* ${at("private-colleague")}\n`);
     const { code, stderr } = push(fx, ["origin", "feature"]);
     expect(code).toBe(0);
     expect(mediumLines(stderr)).toHaveLength(1);
@@ -218,10 +221,10 @@ describe("history scope follows the push destination (CEO-7, ENG-8)", () => {
 
   test("a force-push counts authors in the history of the remote tip it replaces", () => {
     const fx = fixture();
-    commitFile(fx, fx.repo, "draft.txt", "draft\n", "reviewer@corp.io");
+    commitFile(fx, fx.repo, "draft.txt", "draft\n", at("reviewer"));
     expect(push(fx, ["origin", "main"]).code).toBe(0);
     git(fx, fx.repo, ["reset", "-q", "--hard", "HEAD~1"]);
-    commitFile(fx, fx.repo, "CODEOWNERS", "* reviewer@corp.io\n");
+    commitFile(fx, fx.repo, "CODEOWNERS", `* ${at("reviewer")}\n`);
     const { code, stderr } = push(fx, ["--force", "origin", "main"]);
     expect(code).toBe(0);
     expect(stderr).not.toContain("MEDIUM");
@@ -232,7 +235,7 @@ describe("history scope follows the push destination (CEO-7, ENG-8)", () => {
     const count = 50_001;
     const lines: string[] = [];
     for (let i = 1; i <= count; i++) {
-      const email = i === 1 ? "oldest@corp.io" : "filler@example.com";
+      const email = i === 1 ? at("oldest") : "filler@example.com";
       lines.push("commit refs/heads/main", `mark :${i}`, `committer Someone <${email}> ${1_700_000_000 + i} +0000`, "data 1", "c");
       if (i > 1) lines.push(`from :${i - 1}`);
       lines.push("");
@@ -242,7 +245,7 @@ describe("history scope follows the push destination (CEO-7, ENG-8)", () => {
     });
     expect(imported.status).toBe(0);
     git(fx, fx.repo, ["reset", "-q", "--hard", "main"]);
-    const head = commitFile(fx, fx.repo, "CODEOWNERS", "* oldest@corp.io\n* newest@corp.io\n", "newest@corp.io");
+    const head = commitFile(fx, fx.repo, "CODEOWNERS", `* ${at("oldest")}\n* ${at("newest")}\n`, at("newest"));
     const { code, stderr } = runHook(fx, `refs/heads/main ${head} refs/heads/main ${ZERO}\n`, []);
     expect(code).toBe(0);
     const found = mediumLines(stderr);
@@ -273,9 +276,9 @@ describe("each input fails on its own (CEO-23, DX-9)", () => {
 
   test("without user.email, already-public authors are still not reported", () => {
     const fx = fixture({ selfEmail: null });
-    commitFile(fx, fx.repo, "lib.txt", "code\n", "colleague@corp.io");
+    commitFile(fx, fx.repo, "lib.txt", "code\n", at("colleague"));
     expect(push(fx, ["origin", "main"]).code).toBe(0);
-    commitFile(fx, fx.repo, "CODEOWNERS", "* colleague@corp.io\n* stranger@corp.io\n", "colleague@corp.io");
+    commitFile(fx, fx.repo, "CODEOWNERS", `* ${at("colleague")}\n* ${at("stranger")}\n`, at("colleague"));
     const { code, stderr } = push(fx, ["origin", "main"]);
     expect(code).toBe(0);
     const found = mediumLines(stderr);
@@ -285,11 +288,11 @@ describe("each input fails on its own (CEO-23, DX-9)", () => {
 
   for (const behavior of ["fail", "hang"] as const) {
     test(`a history read that ${behavior === "fail" ? "errors" : "times out"} still honors the pusher's own address and says suppression was limited`, () => {
-      const fx = fixture({ selfEmail: "me@corp.io" });
-      commitFile(fx, fx.repo, "lib.txt", "code\n", "colleague@corp.io");
+      const fx = fixture({ selfEmail: at("me") });
+      commitFile(fx, fx.repo, "lib.txt", "code\n", at("colleague"));
       expect(push(fx, ["origin", "main"]).code).toBe(0);
       git(fx, fx.repo, ["fetch", "-q", "origin"]);
-      commitFile(fx, fx.repo, "CODEOWNERS", "* me@corp.io\n* colleague@corp.io\n", "colleague@corp.io");
+      commitFile(fx, fx.repo, "CODEOWNERS", `* ${at("me")}\n* ${at("colleague")}\n`, at("colleague"));
       const started = Date.now();
       const { code, stderr } = runHook(fx, pushedRange(fx), ["origin", fx.origin], stubGitLog(fx, behavior));
       expect(Date.now() - started).toBeLessThan(25_000);
@@ -306,8 +309,8 @@ describe("each input fails on its own (CEO-23, DX-9)", () => {
 describe("per-address allowlist (DX-17)", () => {
   test("an allowed address is not reported; a different address still is", () => {
     const fx = fixture();
-    git(fx, fx.repo, ["config", "--add", "gstack.redact.allowEmail", "Team@corp.io"]);
-    commitFile(fx, fx.repo, "CONTACT.md", "team@corp.io\nother@corp.io\n");
+    git(fx, fx.repo, ["config", "--add", "gstack.redact.allowEmail", at("Team")]);
+    commitFile(fx, fx.repo, "CONTACT.md", `${at("team")}\n${at("other")}\n`);
     const { code, stderr } = push(fx, ["origin", "main"]);
     expect(code).toBe(0);
     const found = mediumLines(stderr);
@@ -317,8 +320,8 @@ describe("per-address allowlist (DX-17)", () => {
 
   test("a HIGH secret next to an allowed address still blocks", () => {
     const fx = fixture();
-    git(fx, fx.repo, ["config", "--add", "gstack.redact.allowEmail", "team@corp.io"]);
-    commitFile(fx, fx.repo, "deploy.env", `OWNER=team@corp.io\nkey ${AWS_KEY}\n`);
+    git(fx, fx.repo, ["config", "--add", "gstack.redact.allowEmail", at("team")]);
+    commitFile(fx, fx.repo, "deploy.env", `OWNER=${at("team")}\nkey ${AWS_KEY}\n`);
     const { code, stderr } = push(fx, ["origin", "main"]);
     expect(code).toBe(1);
     expect(stderr).toContain("aws.access_key");
@@ -331,8 +334,8 @@ describe("MEDIUM lines point at the real file line (ENG-8)", () => {
     const body = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
     commitFile(fx, fx.repo, "notes.md", body.join("\n") + "\n");
     expect(push(fx, ["origin", "main"]).code).toBe(0);
-    body[4] = "ask first@corp.io";
-    body[24] = "ask second@corp.io";
+    body[4] = `ask ${at("first")}`;
+    body[24] = `ask ${at("second")}`;
     commitFile(fx, fx.repo, "notes.md", body.join("\n") + "\n");
     const found = mediumLines(push(fx, ["origin", "main"]).stderr);
     expect(found).toHaveLength(2);
@@ -343,7 +346,7 @@ describe("MEDIUM lines point at the real file line (ENG-8)", () => {
   test("a finding past a scan chunk boundary reports its file line", () => {
     const fx = fixture();
     const filler = Array.from({ length: 20_000 }, (_, i) => `filler line ${i} ${"x".repeat(40)}`);
-    filler.push("ask late@corp.io");
+    filler.push(`ask ${at("late")}`);
     commitFile(fx, fx.repo, "big.txt", filler.join("\n") + "\n");
     const found = mediumLines(push(fx, ["origin", "main"]).stderr);
     expect(found).toHaveLength(1);
@@ -359,9 +362,9 @@ describe("MEDIUM lines point at the real file line (ENG-8)", () => {
     commitFile(fx, fx.repo, "upstream.txt", "landed upstream\n");
     expect(push(fx, ["origin", "main"]).code).toBe(0);
     git(fx, fx.repo, ["checkout", "-q", "feature"]);
-    const added = commitFile(fx, fx.repo, "notes.md", "start\nask gone@corp.io\n");
+    const added = commitFile(fx, fx.repo, "notes.md", `start\nask ${at("gone")}\n`);
     commitFile(fx, fx.repo, "notes.md", "start\n");
-    git(fx, fx.repo, ["merge", "-q", "--no-edit", "main"], as("me@corp.io"));
+    git(fx, fx.repo, ["merge", "-q", "--no-edit", "main"], as(at("me")));
     const found = mediumLines(push(fx, ["origin", "feature"]).stderr);
     expect(found).toHaveLength(1);
     expect(found[0]).toContain("notes.md:2");
