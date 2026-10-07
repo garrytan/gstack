@@ -21,6 +21,8 @@
  *   - HIGH finding in added lines → print + exit 1 (block), for public AND private.
  *   - MEDIUM → warn (non-blocking), one line per finding naming its rule,
  *     file line and fix, never the matched value. LOW/WARN → silent.
+ *   - `pii.email` skips the pusher's own address and addresses already in
+ *     the destination's commit metadata (see emailScanOptions).
  *   - GSTACK_REDACT_PREPUSH=skip → log + exit 0 (escape valve).
  *
  * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
@@ -29,7 +31,7 @@
 import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import { normalizeWithMap, scan, type Finding } from "../lib/redact-engine";
+import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
 import { resolveStateRoot } from "../lib/state-root";
 
@@ -500,6 +502,50 @@ function logSkip(reason: string): void {
   }
 }
 
+const HISTORY_MAX_COMMITS = 50_000;
+const HISTORY_TIMEOUT_MS = 5_000;
+
+function configValues(args: string[]): string[] {
+  return git(["config", ...args]).split("\n").map((v) => v.trim()).filter(Boolean);
+}
+
+/**
+ * Addresses `pii.email` treats as not a new leak (#3060): the pusher's own
+ * (`git config user.email`) and the author and committer addresses (raw and
+ * mailmapped) the destination will hold after this push. That last set is the history of every pushed tip
+ * (pushed commits become public with the push, third-party authors included),
+ * of each remote tip being replaced, and, for a ref whose remote tip is new or
+ * unknown, the push remote's own tracking refs. A URL or unknown destination
+ * never borrows a remote's tracking refs; another remote's history never counts.
+ *
+ * Each input fails on its own and a failure omits only that input, which is
+ * the behavior before these exemptions existed. The history read is bounded:
+ * past the commit cap it uses the newest authors it read; an error or the
+ * timeout passes no history, and the reason is returned so the report can say
+ * suppression was limited.
+ */
+function emailScanOptions(historyRevs: string[], trackingRemote: string | null): {
+  options: Pick<ScanOptions, "selfEmail" | "repoPublicEmails">;
+  limited?: string;
+} {
+  const selfEmail = configValues(["--get", "user.email"])[0];
+  const r = spawnSync("git", [
+    "log", "--no-show-signature", "--no-color", `--max-count=${HISTORY_MAX_COMMITS}`, "--format=%ae%n%aE%n%ce%n%cE",
+    ...historyRevs, ...(trackingRemote ? [`--remotes=${trackingRemote}/*`] : []), "--",
+  ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: HISTORY_TIMEOUT_MS, killSignal: "SIGKILL" });
+  const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
+  const history = r.status === 0 && !r.error
+    ? (r.stdout ?? "").split("\n").map((e) => e.trim()).filter((e) => e.includes("@"))
+    : null;
+  return {
+    options: {
+      ...(selfEmail ? { selfEmail } : {}),
+      ...(history ? { repoPublicEmails: [...new Set(history)] } : {}),
+    },
+    ...(history ? {} : { limited: timedOut ? `reading commit history took over ${HISTORY_TIMEOUT_MS / 1000} s` : "reading commit history failed" }),
+  };
+}
+
 /** One MEDIUM report line: rule id, file line (and commit), and the fix. Never the matched value. */
 function mediumLine(f: Finding, part: AddedFile): string {
   const line = part.lines[f.line - 1];
@@ -523,6 +569,8 @@ function main() {
     .map((l) => l.split(/\s+/));
 
   const parts: AddedFile[] = [];
+  const historyRevs = new Set<string>();
+  let trackingRemote: string | null = null;
 
   for (const fields of refs) {
     // Fail CLOSED on a ref line we cannot parse (#2498): git hands pre-push
@@ -557,20 +605,31 @@ function main() {
       process.exit(1);
     }
     parts.push(...added.filter((part) => part.text.trim()));
+    historyRevs.add(localSha);
+    if (!ZERO.test(remoteSha) && objectExists(remoteSha)) historyRevs.add(remoteSha);
+    else {
+      const target = pushTarget();
+      if (target.kind === "remote") trackingRemote = target.name;
+    }
   }
 
   const allHigh: Finding[] = [];
   const mediums: string[] = [];
+  let emailMedium = false;
+  const emails = parts.length ? emailScanOptions([...historyRevs], trackingRemote) : { options: {} };
   // Visibility doesn't change HIGH behavior; pass private so nothing is treated
   // as public-strict (HIGH blocks regardless either way).
   // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
   // scanned rather than blocked unscanned on the engine's size cap.
   // Scanned per file so a pattern can use the file's type (#3048).
   for (const part of parts) {
-    const opts = { repoVisibility: "private" as const, ...(part.file ? { sourcePath: part.file } : {}) };
+    const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file ? { sourcePath: part.file } : {}) };
     for (const f of scanAddedLines(part.text, opts)) {
       if (f.severity === "HIGH") allHigh.push(f);
-      else if (f.severity === "MEDIUM") mediums.push(mediumLine(f, part));
+      else if (f.severity === "MEDIUM") {
+        mediums.push(mediumLine(f, part));
+        if (f.id === "pii.email") emailMedium = true;
+      }
     }
   }
 
@@ -580,6 +639,12 @@ function main() {
         "Not blocking. Review before this becomes public.\n",
     );
     for (const line of mediums) process.stderr.write(line);
+    if (emailMedium && "limited" in emails && emails.limited) {
+      process.stderr.write(
+        `gstack-redact-prepush: existing-email suppression was limited for this push (${emails.limited}), ` +
+          "so an address already in the history may be listed above.\n",
+      );
+    }
   }
 
   if (allHigh.length > 0) {

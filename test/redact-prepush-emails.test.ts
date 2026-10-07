@@ -116,7 +116,43 @@ function publishForeignBranch(fx: Fixture, remote: string, branch: string, email
   git(fx, producer, ["push", "-q", "origin", `HEAD:refs/heads/${branch}`]);
 }
 
-describe("MEDIUM findings are listed one per line", () => {
+describe("own and already-public addresses are not reported (#3060)", () => {
+  test("the pusher's own address (git config user.email) is not reported", () => {
+    const fx = fixture({ selfEmail: "me@corp.io" });
+    commitFile(fx, fx.repo, "AUTHORS.md", "Maintainer: me@corp.io\n", "colleague@corp.io");
+    const { code, stderr } = push(fx, ["origin", "main"]);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("MEDIUM");
+  });
+
+  test("an address that authored a commit the remote already has is not reported", () => {
+    const fx = fixture();
+    commitFile(fx, fx.repo, "lib.txt", "code\n", "colleague@corp.io");
+    expect(push(fx, ["origin", "main"]).code).toBe(0);
+    commitFile(fx, fx.repo, "CODEOWNERS", "* colleague@corp.io\n");
+    const { code, stderr } = push(fx, ["origin", "main"]);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("MEDIUM");
+  });
+
+  test("an address that authors one of the pushed commits is not reported", () => {
+    const fx = fixture();
+    commitFile(fx, fx.repo, "package.json", '{ "author": "newcomer@corp.io" }\n', "newcomer@corp.io");
+    const { code, stderr } = push(fx, ["origin", "main"]);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("MEDIUM");
+  });
+
+  test("mailmapped author addresses count as already public", () => {
+    const fx = fixture();
+    commitFile(fx, fx.repo, "lib.txt", "code\n", "old-name@corp.io");
+    expect(push(fx, ["origin", "main"]).code).toBe(0);
+    fs.writeFileSync(path.join(fx.repo, ".mailmap"), "Someone <current@corp.io> <old-name@corp.io>\n");
+    commitFile(fx, fx.repo, "docs/contact.md", "Ask current@corp.io\n");
+    const { stderr } = push(fx, ["origin", "main"]);
+    expect(stderr).not.toContain("MEDIUM");
+  });
+
   test("control: a stranger's address is reported with rule, file, line and fix, never the address", () => {
     const fx = fixture();
     commitFile(fx, fx.repo, "notes.md", "line one\nline two\ncontact stranger@corp.io\n");
@@ -139,6 +175,131 @@ describe("MEDIUM findings are listed one per line", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("notes.md:1");
   });
+});
+
+describe("history scope follows the push destination (CEO-7, ENG-8)", () => {
+  test("a new branch to a configured remote counts authors on that remote's tracking refs", () => {
+    const fx = fixture();
+    publishForeignBranch(fx, fx.origin, "other", "colleague@corp.io");
+    git(fx, fx.repo, ["fetch", "-q", "origin"]);
+    git(fx, fx.repo, ["checkout", "-q", "-b", "feature"]);
+    commitFile(fx, fx.repo, "CODEOWNERS", "* colleague@corp.io\n");
+    const { code, stderr } = push(fx, ["origin", "feature"]);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("MEDIUM");
+  });
+
+  test("control: a URL push does not count the tracking refs of a remote that happens to match", () => {
+    const fx = fixture();
+    publishForeignBranch(fx, fx.origin, "other", "colleague@corp.io");
+    git(fx, fx.repo, ["fetch", "-q", "origin"]);
+    git(fx, fx.repo, ["checkout", "-q", "-b", "feature"]);
+    commitFile(fx, fx.repo, "CODEOWNERS", "* colleague@corp.io\n");
+    const { code, stderr } = push(fx, [fx.origin, "feature"]);
+    expect(code).toBe(0);
+    expect(mediumLines(stderr)).toHaveLength(1);
+  });
+
+  test("control: an address only another remote's history holds is still reported", () => {
+    const fx = fixture();
+    const upstream = path.join(fx.root, "upstream.git");
+    git(fx, fx.root, ["init", "--bare", "-q", "-b", "main", upstream]);
+    git(fx, fx.repo, ["push", "-q", upstream, "main"]);
+    publishForeignBranch(fx, upstream, "other", "private-colleague@corp.io");
+    git(fx, fx.repo, ["remote", "add", "upstream", upstream]);
+    git(fx, fx.repo, ["fetch", "-q", "upstream"]);
+    git(fx, fx.repo, ["checkout", "-q", "-b", "feature"]);
+    commitFile(fx, fx.repo, "CODEOWNERS", "* private-colleague@corp.io\n");
+    const { code, stderr } = push(fx, ["origin", "feature"]);
+    expect(code).toBe(0);
+    expect(mediumLines(stderr)).toHaveLength(1);
+  });
+
+  test("a force-push counts authors in the history of the remote tip it replaces", () => {
+    const fx = fixture();
+    commitFile(fx, fx.repo, "draft.txt", "draft\n", "reviewer@corp.io");
+    expect(push(fx, ["origin", "main"]).code).toBe(0);
+    git(fx, fx.repo, ["reset", "-q", "--hard", "HEAD~1"]);
+    commitFile(fx, fx.repo, "CODEOWNERS", "* reviewer@corp.io\n");
+    const { code, stderr } = push(fx, ["--force", "origin", "main"]);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("MEDIUM");
+  });
+
+  test("hitting the 50,000-commit cap uses the newest authors and stays quiet about it", () => {
+    const fx = fixture({ seed: false });
+    const count = 50_001;
+    const lines: string[] = [];
+    for (let i = 1; i <= count; i++) {
+      const email = i === 1 ? "oldest@corp.io" : "filler@example.com";
+      lines.push("commit refs/heads/main", `mark :${i}`, `committer Someone <${email}> ${1_700_000_000 + i} +0000`, "data 1", "c");
+      if (i > 1) lines.push(`from :${i - 1}`);
+      lines.push("");
+    }
+    const imported = spawnSync("git", ["fast-import", "--quiet"], {
+      cwd: fx.repo, input: lines.join("\n"), encoding: "utf8", env: fx.env, timeout: 120_000,
+    });
+    expect(imported.status).toBe(0);
+    git(fx, fx.repo, ["reset", "-q", "--hard", "main"]);
+    const head = commitFile(fx, fx.repo, "CODEOWNERS", "* oldest@corp.io\n* newest@corp.io\n", "newest@corp.io");
+    const { code, stderr } = runHook(fx, `refs/heads/main ${head} refs/heads/main ${ZERO}\n`, []);
+    expect(code).toBe(0);
+    const found = mediumLines(stderr);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("CODEOWNERS:1");
+    expect(stderr).not.toMatch(limitedLine);
+  }, 120_000);
+});
+
+describe("each input fails on its own (CEO-23, DX-9)", () => {
+  /** A `git` that fails or hangs only for `git log`, so every other call is real. */
+  function stubGitLog(fx: Fixture, behavior: "fail" | "hang"): Record<string, string> {
+    const realGit = Bun.which("git");
+    if (!realGit) throw new Error("git not found");
+    const bin = path.join(fx.root, "stub-bin");
+    fs.mkdirSync(bin, { recursive: true });
+    const action = behavior === "fail" ? 'echo "fatal: stub" >&2; exit 128' : "exec sleep 30";
+    fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh\nif [ "$1" = "log" ]; then ${action}; fi\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+    const pathKey = Object.keys(fx.env).find((k) => k.toLowerCase() === "path") || "PATH";
+    return { [pathKey]: `${bin}${path.delimiter}${fx.env[pathKey] ?? ""}` };
+  }
+
+  function pushedRange(fx: Fixture): string {
+    const base = git(fx, fx.repo, ["rev-parse", "origin/main"]);
+    const head = git(fx, fx.repo, ["rev-parse", "HEAD"]);
+    return `refs/heads/main ${head} refs/heads/main ${base}\n`;
+  }
+
+  test("without user.email, already-public authors are still not reported", () => {
+    const fx = fixture({ selfEmail: null });
+    commitFile(fx, fx.repo, "lib.txt", "code\n", "colleague@corp.io");
+    expect(push(fx, ["origin", "main"]).code).toBe(0);
+    commitFile(fx, fx.repo, "CODEOWNERS", "* colleague@corp.io\n* stranger@corp.io\n", "colleague@corp.io");
+    const { code, stderr } = push(fx, ["origin", "main"]);
+    expect(code).toBe(0);
+    const found = mediumLines(stderr);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("CODEOWNERS:2");
+  });
+
+  for (const behavior of ["fail", "hang"] as const) {
+    test(`a history read that ${behavior === "fail" ? "errors" : "times out"} still honors the pusher's own address and says suppression was limited`, () => {
+      const fx = fixture({ selfEmail: "me@corp.io" });
+      commitFile(fx, fx.repo, "lib.txt", "code\n", "colleague@corp.io");
+      expect(push(fx, ["origin", "main"]).code).toBe(0);
+      git(fx, fx.repo, ["fetch", "-q", "origin"]);
+      commitFile(fx, fx.repo, "CODEOWNERS", "* me@corp.io\n* colleague@corp.io\n", "colleague@corp.io");
+      const started = Date.now();
+      const { code, stderr } = runHook(fx, pushedRange(fx), ["origin", fx.origin], stubGitLog(fx, behavior));
+      expect(Date.now() - started).toBeLessThan(25_000);
+      expect(code).toBe(0);
+      const found = mediumLines(stderr);
+      expect(found).toHaveLength(1);
+      expect(found[0]).toContain("CODEOWNERS:2");
+      expect(stderr.split("\n").filter((l) => limitedLine.test(l))).toHaveLength(1);
+      expect(stderr).toContain(behavior === "fail" ? "reading commit history failed" : "reading commit history took over 5 s");
+    }, 40_000);
+  }
 });
 
 describe("MEDIUM lines point at the real file line (ENG-8)", () => {
