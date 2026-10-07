@@ -181,9 +181,11 @@ describe('ship-measure sweep CLI ($0)', () => {
 
   test('a fake single-case command runs the whole sweep end to end at $0', () => {
     const cwd = tmp('sweep-cli-fake-');
-    const script = path.join(cwd, 'fake-trial.sh');
-    fs.writeFileSync(script, '#!/usr/bin/env bash\necho "cost_usd: 0"\nif [ "$GSTACK_SHIP_MEASURE_TRIAL" = 3 ]; then echo "failure_cause: assertion"; exit 1; fi\necho "PASS $1"\n', { mode: 0o755 });
-    const r = cli(cwd, '--history-dir', historyDir(), '--k', '1', '--cap-usd', '1', '--command', `${script} {case}`, '--jobs', '5', '--out', path.join(cwd, 'out'));
+    // A Bun script, not a shell stub, so the fake runner also executes on Windows.
+    const script = path.join(cwd, 'fake-trial.ts');
+    fs.writeFileSync(script, 'console.log("cost_usd: 0");\nif (process.env.GSTACK_SHIP_MEASURE_TRIAL === "3") { console.log("failure_cause: assertion"); process.exit(1); }\nconsole.log(`PASS ${process.argv[2]}`);\n');
+    const bun = /\s/.test(process.execPath) ? 'bun' : process.execPath;
+    const r = cli(cwd, '--history-dir', historyDir(), '--k', '1', '--cap-usd', '1', '--command', `${bun} ${script} {case}`, '--jobs', '5', '--out', path.join(cwd, 'out'));
     expect(r.status).toBe(0);
     expect(r.stdout).toContain(`DIAGNOSTIC ${A} baseline: observed 9/10 trials (baseline); MEETS`);
     expect(r.stdout).toMatch(new RegExp(`\\| 1 \\| ${A} \\| rule \\| [^|]+ \\| 9/10 \\| MEETS \\|`));
