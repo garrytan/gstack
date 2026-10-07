@@ -452,10 +452,13 @@ EOF
       printf '%s%s' "$SAME" "$OTHER" | grep -v '^[[:space:]]*$' | head -20 | sed 's/^/UNVERIFIED /'
     else
       FOREIGN_N=$(printf '%s\n' "$CLASSIFIED" | grep -c '^foreign' || true)
+      VERIFIED=$(printf '%s\n' "$CLASSIFIED" | awk -F '\t' -v f="$FOREIGN_N" \
+        '$(1) == "match" || $(1) == "match-root" || ($(1) == "unstamped" && f == 0) { print $(2) }')
       # Cap at 20: a user with 10k saved files shouldn't blow the context window.
-      FILES=$(printf '%s\n' "$CLASSIFIED" | awk -F '\t' -v f="$FOREIGN_N" \
-        '$(1) == "match" || $(1) == "match-root" || ($(1) == "unstamped" && f == 0) { print $(2) }' | head -20)
+      FILES=$(printf '%s\n' "$VERIFIED" | head -20)
       if [ -n "$FILES" ]; then echo "$FILES"; else echo "NO_VERIFIED_CHECKPOINTS"; fi
+      # A newer checkpoint of another branch that names the same task.
+      printf '%s\n' "$VERIFIED" | ~/.claude/skills/gstack/bin/gstack-slug --newer-task "$CURRENT_BRANCH" 2>/dev/null || true
       printf '%s\n' "$CLASSIFIED" | awk -F '\t' -v f="$FOREIGN_N" \
         '$(1) == "match-root" { print "ROOT_DIFFERS " $(2) }
          $(1) == "foreign" { print "FOREIGN " $(2) }
@@ -466,6 +469,8 @@ EOF
     fi
   fi
 fi
+# Checkpoints saved in a repository below this directory (BELOW_CWD, POINTER).
+~/.claude/skills/gstack/bin/gstack-slug --checkpoints-below 2>/dev/null || true
 ```
 
 **Candidates include every `.md` file in the directory**, but they are ordered
@@ -482,6 +487,12 @@ has written to). Prefixed lines are never candidates for "latest":
 - `ROOT_DIFFERS <path>`: same repository, different checkout (Conductor workspace
   handoff or a moved clone). This is information, not a mismatch; the file is
   also listed as a plain path line.
+- `NEWER_TASK <path>`: another branch of this repository saved a newer checkpoint
+  for the same task (its worktree is below this main tree, or the title or ticket
+  matches). The file is also a plain path line, after the current branch's own.
+- `BELOW_CWD <path>` / `POINTER <path>`: saved by a session in a repository below
+  this directory (`POINTER`: a /context-save started here recorded it). These are
+  candidates, not mismatches.
 
 ### Step 2: Load the right file
 
@@ -491,6 +502,12 @@ has written to). Prefixed lines are never candidates for "latest":
 - Otherwise: load the **first plain path line returned by Step 1 above**, which
   is the newest `YYYYMMDD-HHMMSS` checkpoint of this project for the current
   branch, or, if the current branch has none, the newest across all branches.
+- **Do not silently take an older checkpoint.** If Step 1 printed `NEWER_TASK`,
+  or a `BELOW_CWD`/`POINTER` file is newer than the first plain path line (or
+  there is none), show both (title, branch, saved time, and `project_root` for a
+  file below this directory), propose the newer one as the continuation, and ask
+  via AskUserQuestion which to load. A `BELOW_CWD`/`POINTER` file is not a
+  PROJECT MISMATCH: say "Saved in `{project_root}`, below this directory."
 - If Step 1 printed `NO_VERIFIED_CHECKPOINTS` or `IDENTITY_CHECK_FAILED`, do not
   present any checkpoint as the latest one. Say "No checkpoint in this directory
   is verified as this project's", list the `FOREIGN`/`UNVERIFIED` titles with the
@@ -571,7 +588,7 @@ unverified earlier one.
 
 ## If no saved contexts exist
 
-If Step 1 printed `NO_CHECKPOINTS`, tell the user:
+If Step 1 printed `NO_CHECKPOINTS` and no `BELOW_CWD` or `POINTER` line, tell the user:
 
 "No saved contexts yet. Run `/context-save` first to save your current working
 state, then `/context-restore` will find it."
