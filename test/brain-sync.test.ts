@@ -270,6 +270,21 @@ describe('init + sync + restore round-trip', () => {
     expect(cfg.stdout).toContain('gstack-jsonl-merge');
   });
 
+  test('the pre-commit hook init and restore write catches a JSON auth header with a Bearer prefix', () => {
+    for (const bin of ['gstack-artifacts-init', 'gstack-brain-restore']) {
+      const src = fs.readFileSync(path.join(BIN, bin), 'utf-8');
+      expect(src).toContain('(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}');
+    }
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+    const token = ['Bearer ', 'abcd', 'efgh', 'ijkl', 'mnop', 'qrst'].join('');
+    fs.writeFileSync(path.join(tmpHome, 'projects/p/headers.json'), `{"authorization": "${token}"}\n`);
+    git(['add', '-f', 'projects/p/headers.json']);
+    const r = git(['commit', '-q', '-m', 'manual commit']);
+    expect(r.status).not.toBe(0);
+    expect(git(['log', '--oneline']).stdout).not.toContain('manual commit');
+  });
+
   test('refuses init on different remote', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     const otherRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-other-'));
