@@ -87,6 +87,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'autoplan-journal-drift': ['lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'lib/claude-bin.ts', '.github/docker/Dockerfile.ci', 'test/skill-e2e-autoplan-journal-drift.test.ts'],
   // Live PTY phase boundary on the pinned Claude Code through /autoplan's own hook block (ENG-18).
   'autoplan-guard-pty': ['autoplan/bin/phase-publication-hook.ts', 'autoplan/bin/phase-publication-hook', 'autoplan/bin/guard-reasons.ts', 'autoplan/bin/guard-log.ts', 'autoplan/SKILL.md', 'autoplan/SKILL.md.tmpl', 'scripts/resolvers/composition.ts', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'autoplan/bin/guard-journal.ts', 'lib/autoplan-phase-publication.ts', 'lib/state-root.ts', 'bin/gstack-autoplan-snapshot.ts', '.github/docker/Dockerfile.ci', 'test/helpers/autoplan-guard-pty.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/hermetic-env.ts', 'test/skill-e2e-autoplan-guard-pty.test.ts'],
+  // A resumed session whose journal is padded past 100 MiB before its compact boundary enters Phase 1 through the guard (CEO-15).
+  'autoplan-long-session': ['autoplan/bin/phase-publication-hook.ts', 'autoplan/bin/phase-publication-hook', 'autoplan/bin/guard-reasons.ts', 'autoplan/bin/guard-log.ts', 'autoplan/bin/guard-journal.ts', 'autoplan/SKILL.md', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'bin/gstack-autoplan-snapshot.ts', '.github/docker/Dockerfile.ci', 'test/helpers/autoplan-guard-pty.ts', 'test/helpers/journal-padding.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/skill-e2e-autoplan-long-session.test.ts'],
   // Latest published Claude Code (not the pin): Agent/Read hook payloads vs their journal records, with the guard's own comparison.
   'autoplan-schema-canary': ['autoplan/bin/phase-publication-hook.ts', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'lib/claude-bin.ts', 'test/helpers/schema-canary.ts', 'test/skill-e2e-autoplan-schema-canary.test.ts'],
 
@@ -1159,6 +1161,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
   'autoplan-journal-drift': 'periodic',
   'autoplan-schema-canary': 'periodic',
   'autoplan-guard-pty': 'gate',
+  'autoplan-long-session': 'periodic',
 
   // SKILL.md setup — gate (if setup breaks, no skill works)
   'skillmd-setup-discovery': 'gate',
@@ -1656,6 +1659,7 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'autoplan-journal-drift': 'rule',
   'autoplan-schema-canary': 'rule',
   'autoplan-guard-pty': 'rule',
+  'autoplan-long-session': 'rule',
   'skillmd-setup-discovery': 'rule',
   'skillmd-no-local-binary': 'rule',
   'skillmd-outside-git': 'rule',
