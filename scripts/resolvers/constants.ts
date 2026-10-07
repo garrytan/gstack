@@ -196,8 +196,12 @@ Branch on the echoed \`CODEX_MODE\`:
  * {{FOREGROUND_DISPATCH_NOTE}} in section templates; resolver sites may
  * interpolate it directly. Same name as the placeholder for grep-ability.
  */
-/** The Claude Code release that flipped Agent-tool subagents to background-by-default (#497/#2440 class). Interpolated at every RESOLVER site; three templates carry the literal inline (autoplan/sections/ceo-phase, cso, design-shotgun) — grep 'Claude Code v2.1' when bumping. */
+/** The Claude Code release that flipped Agent-tool subagents to background-by-default (#497/#2440 class). Interpolated at every RESOLVER site — grep 'Claude Code v2.1' when bumping. */
 export const CC_BACKGROUND_DEFAULT_SINCE = 'Claude Code v2.1.198';
+/** Claude Code's fork-subagent schema has no run_in_background, so every foreground request is conditional (CEO-20). */
+export const FOREGROUND_IF_AVAILABLE = '`run_in_background: false` when available';
+/** The recovery when a requested foreground dispatch still ran in the background. */
+export const BACKGROUND_RECOVERY = 'A launch receipt means it went background: await its completion notice.';
 
 export const FOREGROUND_DISPATCH_NOTE =
-  `**Foreground required:** pass \`run_in_background: false\` on the Agent call — subagents run in the background by default since ${CC_BACKGROUND_DEFAULT_SINCE}, so omitting the flag gives a background run. Dispatch through the Agent tool only: invoking the target as a Skill, or executing its workflow inline in your own context, forfeits the fresh-context isolation this dispatch exists for, even though the skill may appear in your available-skills list; the explicit flag already makes the Agent call block. (Where a step defines an inline fallback, it applies only after a dispatched subagent has failed.)`;
+  `**Foreground required:** pass ${FOREGROUND_IF_AVAILABLE} on the Agent call — subagents run in the background by default since ${CC_BACKGROUND_DEFAULT_SINCE}, so omitting an available flag gives a background run. ${BACKGROUND_RECOVERY} Dispatch through the Agent tool only: invoking the target as a Skill, or executing its workflow inline in your own context, forfeits the fresh-context isolation this dispatch exists for, even though the skill may appear in your available-skills list. (Where a step defines an inline fallback, it applies only after a dispatched subagent has failed.)`;

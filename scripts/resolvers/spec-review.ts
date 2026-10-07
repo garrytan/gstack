@@ -5,7 +5,7 @@
  */
 import { type TemplateContext } from './types';
 import { generateInvokeSkill } from './composition';
-import { CC_BACKGROUND_DEFAULT_SINCE } from './constants';
+import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
 import { DESIGN_DOC_DISCOVERY_BLOCK } from './design-doc-discovery';
 
 export function generateAntiShortcutClause(_ctx: TemplateContext): string {
@@ -58,8 +58,8 @@ rounds 2 and 3 are delta re-reviews of the exact design diff since the last roun
 so prepare every round in the same review directory and do not edit the design
 between prepare and its review.
 
-Use the Agent tool with \`run_in_background: false\` and its returned \`dispatch\`
-string unchanged as the prompt. The reviewer must Read the entire prepared prompt
+Use the Agent tool with ${FOREGROUND_IF_AVAILABLE} and its returned \`dispatch\`
+string unchanged as the prompt. ${BACKGROUND_RECOVERY} The reviewer must Read the entire prepared prompt
 file before reviewing the design. Do not recreate the prompt, copy selected fields,
 or summarize prior findings. A parent Read does not deliver the file to the reviewer.
 The reviewer has fresh context and cannot see the brainstorming conversation.
