@@ -86,6 +86,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Real pinned-claude journals (SessionStart hook, /compact, --fork-session) through the /autoplan guard's reader.
   'autoplan-journal-drift': ['lib/claude-public-transcript.ts', 'lib/claude-bin.ts', '.github/docker/Dockerfile.ci', 'test/skill-e2e-autoplan-journal-drift.test.ts'],
   // Latest published Claude Code (not the pin): Agent/Read hook payloads vs their journal records, with the guard's own comparison.
+  // Live PTY phase boundary on the pinned Claude Code through /autoplan's own hook block (ENG-18).
+  'autoplan-guard-pty': ['autoplan/bin/phase-publication-hook.ts', 'autoplan/bin/phase-publication-hook', 'autoplan/bin/guard-reasons.ts', 'autoplan/bin/guard-log.ts', 'autoplan/SKILL.md', 'autoplan/SKILL.md.tmpl', 'scripts/resolvers/composition.ts', 'lib/claude-public-transcript.ts', 'lib/autoplan-phase-publication.ts', 'lib/state-root.ts', 'bin/gstack-autoplan-snapshot.ts', '.github/docker/Dockerfile.ci', 'test/helpers/autoplan-guard-pty.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/hermetic-env.ts', 'test/skill-e2e-autoplan-guard-pty.test.ts'],
   'autoplan-schema-canary': ['autoplan/bin/phase-publication-hook.ts', 'lib/claude-public-transcript.ts', 'lib/claude-bin.ts', 'test/helpers/schema-canary.ts', 'test/skill-e2e-autoplan-schema-canary.test.ts'],
 
   // P4 first-run scaffold (activation lift) — the detection binary end-to-end
@@ -1156,6 +1158,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
   'hermetic-sentinel': 'gate',
   'autoplan-journal-drift': 'periodic',
   'autoplan-schema-canary': 'periodic',
+  'autoplan-guard-pty': 'gate',
 
   // SKILL.md setup — gate (if setup breaks, no skill works)
   'skillmd-setup-discovery': 'gate',
@@ -1652,6 +1655,7 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'hermetic-sentinel': 'rule',
   'autoplan-journal-drift': 'rule',
   'autoplan-schema-canary': 'rule',
+  'autoplan-guard-pty': 'rule',
   'skillmd-setup-discovery': 'rule',
   'skillmd-no-local-binary': 'rule',
   'skillmd-outside-git': 'rule',
