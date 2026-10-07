@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { createOutsideReceiptRuntime } from './helpers/outside-voice-receipt';
 import { codexExecutionTranscript, foundInvoiceAuthorizationDefect } from './helpers/outside-voice-evidence';
 
-const finding = 'invoice.ts removes the owner check and exposes another user’s bankAccount.\nRecommendation: Restore authorization because invoice financial data crosses ownership boundaries.';
+const finding = 'High: invoice.ts removes the owner check and exposes another user’s bankAccount.\nRecommendation: Restore authorization because invoice financial data crosses ownership boundaries.';
 function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-receipt-free-'));
   const real = path.join(dir, 'real runtime'), repo = path.join(dir, 'repo'), observed = path.join(dir, 'observed.json');

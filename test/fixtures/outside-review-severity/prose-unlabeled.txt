@@ -1,0 +1,3 @@
+The plan's high-level structure is sound, but the rollback path writes the queue before the lock is held, and the docs still describe the old flag. The medium-term cleanup can wait.
+
+Recommendation: fix the rollback ordering because a concurrent drain can lose records.

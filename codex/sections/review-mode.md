@@ -37,8 +37,8 @@ Use only one command path below. Remember its printed start token as CODEX_REVIE
 
 **Sandbox is pinned via config override.** Top-level `codex review` has no
 `-s`/`--sandbox` flag (verified on 0.147.0: `codex review --help` lists none), so the
-sandbox is set with `-c` from `_GSTACK_CODEX_SANDBOX`, which `_gstack_codex_select_model`
-sets so the effective setting is `sandbox_mode="read-only"` (full access only for
+sandbox is set with `-c` from `_CODEX_SANDBOX_MODE`, which `select-model` reports
+so the effective setting is `sandbox_mode="read-only"` (full access only for
 `GSTACK_CODEX_NO_SANDBOX=1`, with a warning). Without it the call inherits the user's
 `~/.codex/config.toml` default, which on a trusted project can be WRITE access —
 contradicting this skill's read-only contract:
@@ -47,17 +47,19 @@ contradicting this skill's read-only contract:
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 ~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
-source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
-_gstack_codex_select_model review || exit 1
+_CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
+_CODEX_OUT=$("$_CODEX_PROBE" select-model review) || exit 1
+_CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
+_CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
 # The 330s wrapper sits BELOW the 360s Bash gate so the wrapper fires FIRST
 # and a stall surfaces as a diagnosable exit 124 with an explicit message,
 # never as a silent harness kill that downstream reads as "no findings".
-_gstack_codex_timeout_wrapper 330 codex review --base <base> -c "sandbox_mode=\"${_GSTACK_CODEX_SANDBOX:?}\"" -c "review_model=\"${_GSTACK_CODEX_SEL:?}\"" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$TMPOUT" 2>"$TMPERR"
+"$_CODEX_PROBE" run-with-timeout 330 codex review --base <base> -c "sandbox_mode=\"${_CODEX_SANDBOX_MODE:?}\"" -c "review_model=\"${_CODEX_SEL:?}\"" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$TMPOUT" 2>"$TMPERR"
 _CODEX_EXIT=$?
 cat "$TMPOUT"
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "330"
-  _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
+  "$_CODEX_PROBE" log-event codex_timeout "330"
+  "$_CODEX_PROBE" log-hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "Codex stalled past 5.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
 elif [ "$_CODEX_EXIT" != "0" ]; then
   # Surface non-zero exits (parse errors, arg-shape breaks, etc.) so the
@@ -65,7 +67,7 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   # burn 30-60min misdiagnosing it.
   echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
-  _gstack_codex_log_event "codex_nonzero_exit" "review:$_CODEX_EXIT"
+  "$_CODEX_PROBE" log-event codex_nonzero_exit "review:$_CODEX_EXIT"
 fi
 bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review' --exit "$_CODEX_EXIT" --stderr "$TMPERR" structured "$TMPOUT"
 ```
@@ -103,8 +105,10 @@ cd "$_REPO_ROOT"
 FOCUS_FILE="$_REPO_ROOT/.gstack/tmp/<focus-file-name>"
 [ -s "$FOCUS_FILE" ] || { echo "Not run: $FOCUS_FILE is missing or empty, so the focus text was never written. Write it, then run this block again." >&2; exit 1; }
 ~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
-source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
-_gstack_codex_select_model exec || exit 1
+_CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
+_CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1
+_CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
+_CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 {
   printf '%s\n' "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do not invoke any installed skill (Codex home skills/, .agents/); answer directly. Do NOT modify agents/openai.yaml. Stay focused on repository code only."
@@ -116,13 +120,13 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp 
   git diff "<base>...HEAD" 2>/dev/null
   printf '\nDIFF_END\n'
 } > "$_PROMPT_FILE"
-_gstack_codex_timeout_wrapper 330 codex exec - -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$TMPOUT" < "$_PROMPT_FILE" >"$TMPOUT.events" 2>"$TMPERR"
+"$_CODEX_PROBE" run-with-timeout 330 codex exec - -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$TMPOUT" < "$_PROMPT_FILE" >"$TMPOUT.events" 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE" "$FOCUS_FILE"
 cat "$TMPOUT"
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "330"
-  _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
+  "$_CODEX_PROBE" log-event codex_timeout "330"
+  "$_CODEX_PROBE" log-hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "Codex stalled past 5.5 minutes."
 fi
 bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPOUT.events" structured "$TMPOUT"

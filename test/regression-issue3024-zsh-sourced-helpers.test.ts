@@ -22,6 +22,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { codexPreflight } from '../scripts/resolvers/constants';
+import { PROBE_SOURCING_DEPRECATION, withoutDeprecation } from './helpers/codex-probe-sourcing';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
@@ -52,6 +53,9 @@ const code = (text: string) => text.split('\n').filter(line => !/^\s*#/.test(lin
  * Every bin/ helper a generated skill or resolver loads with `source` or `.`,
  * plus every bin/ file those helpers source in turn (for example
  * gstack-state-root.sh, sourced by the codex probe and the egress lib).
+ * Current skills run gstack-codex-probe as a command, but skills rendered
+ * before that change still source it until the compatibility window closes,
+ * so it stays on the list until sourcing is removed.
  */
 function sourcedHelpers(): string[] {
   const files = [
@@ -60,7 +64,7 @@ function sourcedHelpers(): string[] {
       .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules' && e.name !== 'test')
       .flatMap(e => walk(path.join(ROOT, e.name), f => /(?:SKILL\.md|\.md\.tmpl)$/.test(f))),
   ];
-  const names = new Set<string>();
+  const names = new Set<string>(['gstack-codex-probe']);
   const direct = /(?:^|[\s;&|({]|then\s)(?:source|\.)\s+"?[^"\s;)<]*\bbin\/([A-Za-z0-9._-]+)/g;
   const viaVar = /\/(gstack-[A-Za-z0-9._-]+\.sh)"; \[ -r "\$[A-Z_]+" \] && \. "\$[A-Z_]+"/g;
   const nested = /(?:^|[\s;&|({]|then\s)(?:source|\.)\s+"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\/([A-Za-z0-9._-]+)/g;
@@ -167,7 +171,8 @@ describe('#3024: sourced helpers work under bash and zsh', () => {
       for (const name of helpers) {
         const file = path.join(BIN, name);
         const r = run(shell, `${shell} -n '${file}' && . '${file}' && echo SOURCED`);
-        expect({ name, out: r.out.trim().split('\n').pop() }).toEqual({ name, out: 'SOURCED' });
+        const deprecation = name === 'gstack-codex-probe' ? PROBE_SOURCING_DEPRECATION : '';
+        expect({ name, stdout: r.stdout, stderr: r.stderr }).toEqual({ name, stdout: 'SOURCED\n', stderr: deprecation });
       }
     });
 
@@ -219,7 +224,8 @@ describe('#3024: sourced helpers work under bash and zsh', () => {
         LOCAL_PROVIDER_KEY: 'present',
       });
       fs.rmSync(codexHome, { recursive: true, force: true });
-      expect(r.out.trim()).toBe('AUTH_OK');
+      expect(r.stdout.trim()).toBe('AUTH_OK');
+      expect(withoutDeprecation(r.stderr)).toBe('');
       expect(r.code).toBe(0);
     });
 
@@ -259,17 +265,20 @@ describe('#3024: sourced helpers work under bash and zsh', () => {
     expect(r.out).toContain('rc=1 bin=unset');
   });
 
-  for (const [label, shell, prefix, expected] of [
-    ['dash', 'dash', '', `gstack: cannot locate gstack-codex-probe (shell: dash). Source it from bash or zsh, or export GSTACK_ROOT=<install dir>. ${ANCHOR}`],
-    ['an unknown shell', 'bash', 'unset BASH_VERSION\n', `gstack: cannot locate gstack-codex-probe (shell: bash). Source it from bash or zsh, or export GSTACK_ROOT=<install dir>. ${ANCHOR}`],
+  // The preflight runs the probe as a command, so the calling shell no longer
+  // matters: dash and a shell without BASH_VERSION reach the same verdict.
+  for (const [label, shell, prefix] of [
+    ['dash', 'dash', ''],
+    ['an unknown shell', 'bash', 'unset BASH_VERSION\n'],
   ] as const) {
-    test.skipIf(shell === 'dash' && skipDash)(`the full generated preflight under ${label} reports helper_unavailable with the helper's line`, () => {
+    test.skipIf(shell === 'dash' && skipDash)(`the full generated preflight under ${label} runs the probe as a command and reaches CODEX_MODE: ready`, () => {
       const { home, env } = preflightHome();
       try {
         const r = run(shell, `${prefix}${PREFLIGHT}`, env, home);
-        expect(r.out).toContain(`${expected}\nCODEX_MODE: helper_unavailable\n`);
-        expect(r.out).not.toContain('not_authed');
-        expect(r.out).not.toMatch(/Syntax error|not found/);
+        expect(r.out).toContain('CODEX_MODEL: gpt-test-model (exec;');
+        expect(r.out).toContain('CODEX_MODE: ready\n');
+        expect(r.out).not.toContain('cannot locate');
+        expect(r.out).not.toMatch(/Syntax error|not found|deprecated/);
       } finally { fs.rmSync(home, { recursive: true, force: true }); }
     });
   }

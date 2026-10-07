@@ -1517,8 +1517,8 @@ describe('Codex skill', () => {
     const resumeCommand = match![0];
     expect(resumeCommand).not.toContain(' -C ');
     expect(resumeCommand).not.toMatch(/ -s /);
-    // resume takes the sandbox only as config; _gstack_codex_select_model sets it (read-only by default).
-    expect(resumeCommand).toContain('-c "sandbox_mode=\\"${_GSTACK_CODEX_SANDBOX:?}\\""');
+    // resume takes the sandbox only as config; the probe's select-model reports it (read-only by default).
+    expect(resumeCommand).toContain('-c "sandbox_mode=\\"${_CODEX_SANDBOX_MODE:?}\\""');
   });
 
   test('codex union contains cost tracking', () => {

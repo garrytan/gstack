@@ -9,7 +9,7 @@
  */
 import { GATE_OUTCOMES, gateOutcomeLine, type GateReason } from './gate-outcomes';
 
-export type OutsideGate = 'review' | 'structured' | 'spec' | 'execution';
+export type OutsideGate = 'review' | 'structured' | 'spec' | 'execution' | 'proposal';
 export type OutsideVerdict = 'clean' | 'findings' | 'unverified' | 'unavailable';
 export type Severity = 'P0' | 'P1' | 'P2' | 'P3';
 
@@ -112,6 +112,27 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
   return { state: 'ran' };
 }
 
+/**
+ * Severity words count as findings only in label position, never inside prose
+ * ("high-level", "a low-risk change", "no critical findings"): `Severity: High`
+ * or `Priority: high`, a leading `High:` / `High —` / `[High]` (after an
+ * optional heading, bullet or number), a bold `**High**`, or a table cell.
+ * Critical and high block like P0/P1; medium and low are advisory like P2/P3.
+ */
+const SEVERITY_WORDS: Record<string, Severity> = { critical: 'P0', high: 'P1', medium: 'P2', low: 'P3' };
+const WORD = '(critical|high|medium|low)';
+const SEVERITY_LABELS = [
+  new RegExp(`\\b(?:severity|priority)\\b[\\t ]*[:=][\\t ]*(?:\\*\\*|__|\\[|\`)*${WORD}\\b`, 'gim'),
+  new RegExp(`^[\\t ]*(?:>[\\t ]*)?(?:#{1,6}[\\t ]+|[-+*][\\t ]+|\\(?\\d{1,3}[.)][\\t ]+)?(?:\\*\\*|__)?\\[?${WORD}\\]?(?:\\*\\*|__)?[\\t ]*(?::|\u2014|\u2013|-[\\t ]|\\]|\\(|\\*\\*[\\t ]*(?:\u2014|\u2013|-[\\t ]))`, 'gim'),
+  new RegExp(`(?:\\*\\*|__)\\[?${WORD}\\]?:?(?:\\*\\*|__)`, 'gi'),
+  new RegExp(`\\|[\\t ]*(?:\\*\\*)?${WORD}(?:\\*\\*)?[\\t ]*(?=\\|)`, 'gi'),
+];
+function severityWords(text: string): Severity[] {
+  return SEVERITY_LABELS.flatMap(re => [...text.matchAll(re)].map(m => SEVERITY_WORDS[m[1]!.toLowerCase()]!));
+}
+/** An explicit conclusion that the review found nothing to report. */
+const NO_FINDINGS = /\bNO_FINDINGS\b|\bno (?:actionable |significant |new |concrete )?(?:bugs?|issues?|findings?|problems?)\b|\b(?:did not|didn't|cannot|can't|could not|couldn't) (?:find|identify) any (?:actionable |new |concrete )?(?:bugs|issues|findings|problems)\b/i;
+
 /** Formatting the requested marker in bold, inline code, or a list does not invalidate a completed review. */
 function plainReview(text: string): string {
   return text.split(/\r?\n/).map(line => line.replace(/^[\t ]*(?:#{1,6}[\t ]+|[-+*][\t ]+)?/, '').replace(/[*_`]/g, '')).join('\n');
@@ -119,7 +140,8 @@ function plainReview(text: string): string {
 
 export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewClassification {
   const plain = plainReview(input.text);
-  const levels = [...plain.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity);
+  const levels = [...[...plain.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
+    ...(input.gate === 'review' || input.gate === 'structured' ? severityWords(input.text) : [])];
   const findings = { highest: levels.length ? levels.sort()[0]! : null };
   const ran = execution(input);
   if (ran.state === 'unavailable') return { execution: ran, findings, verdict: 'unavailable', reason: ran.reason, detail: ran.detail };
@@ -133,13 +155,11 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
     const score = Number(scores[0]![1]);
     return { ...result(score >= 7 ? 'clean' : 'findings'), score };
   }
-  if (input.gate === 'structured') {
-    const clear = /\bNO_FINDINGS\b|\bno (?:actionable |significant |new |concrete )?(?:bugs|issues|findings|problems)\b|\b(?:did not|didn't) (?:find|identify) any (?:actionable |new |concrete )?(?:bugs|issues|findings|problems)\b/i.test(input.text);
-    if (!findings.highest && !clear) return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');
-    return result(blocking ? 'findings' : 'clean');
-  }
-  if (input.gate === 'review' && !/^Recommendation:[\t ]*[^\r\n]+\bbecause\b[\t ]*\S[^\r\n]+$/im.test(plain)) {
+  if ((input.gate === 'review' || input.gate === 'proposal') && !/^Recommendation:[\t ]*[^\r\n]+\bbecause\b[\t ]*\S[^\r\n]+$/im.test(plain)) {
     return result('unavailable', 'missing_markers', 'missing review completion recommendation');
+  }
+  if ((input.gate === 'structured' || input.gate === 'review') && !findings.highest && !NO_FINDINGS.test(input.text)) {
+    return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');
   }
   return result(blocking ? 'findings' : 'clean');
 }
@@ -162,7 +182,7 @@ export function validateOutsideReview(text: string, gate: OutsideGate): { comple
 }
 
 const VERDICT_EXIT: Record<OutsideVerdict, number> = { clean: 0, findings: 3, unverified: 4, unavailable: 1 };
-const GATES = ['review', 'structured', 'spec', 'execution'];
+const GATES = ['review', 'structured', 'spec', 'execution', 'proposal'];
 const USAGE = `Usage: outside-review-result.ts <gate> <response-file>
        outside-review-result.ts --verdict [--stderr <file>] [--exit <code>] [--events <file>] [--label <name>] <gate> <response-file>
 Gates: ${GATES.join('|')}. Two-argument form exits 0 completed, 1 unavailable, 2 usage.

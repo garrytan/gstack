@@ -755,26 +755,30 @@ Review skills will load at each phase entry. Starting full review pipeline with 
 
 ```bash
 
-# Codex preflight: one block (functions sourced here don't persist to later blocks).
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
+# Codex preflight: the probe runs as a command, so any shell works.
+_CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
 _CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
 _gstack_helper_error=""
-. ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || _gstack_helper_error="${_gstack_helper_error:-gstack: cannot load gstack-codex-probe; re-run ./setup. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location}"
+[ -x "$_CODEX_PROBE" ] || _gstack_helper_error="gstack: cannot load gstack-codex-probe; re-run ./setup. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location"
 if [ "$_CODEX_CFG" = "disabled" ]; then
   _CODEX_MODE="disabled"
 elif { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
   _CODEX_MODE="under_codex"
 elif ! command -v codex >/dev/null 2>&1; then
-  _CODEX_MODE="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+  _CODEX_MODE="not_installed"; "$_CODEX_PROBE" log-event codex_cli_missing 2>/dev/null || true
 elif [ -n "$_gstack_helper_error" ]; then
   _CODEX_MODE="helper_unavailable"; echo "$_gstack_helper_error"
-elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
-  _CODEX_MODE="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
+elif ! "$_CODEX_PROBE" check-auth >/dev/null 2>&1; then
+  _CODEX_MODE="not_authed"; "$_CODEX_PROBE" log-event codex_auth_failed 2>/dev/null || true
 else
-  # The free sandbox check runs before the paid model probe. Probe code 2 means
-  # the CLI cannot execute at all, a different fix from an unusable model.
-  _CODEX_MP=0; _gstack_codex_sandbox_preflight || _CODEX_MP=3
-  [ "$_CODEX_MP" -ne 0 ] || { _gstack_codex_model_probe; _CODEX_MP=$?; }
+  # Free sandbox check before the paid probe; probe exit 2 = the CLI cannot run.
+  _CODEX_MP=0; _CODEX_PS=""
+  "$_CODEX_PROBE" check-sandbox || _CODEX_MP=3
+  for _CODEX_KIND in exec; do
+    [ "$_CODEX_MP" -eq 0 ] || break
+    _CODEX_PO=$("$_CODEX_PROBE" probe-model $_CODEX_KIND); _CODEX_MP=$?; printf '%s\n' "$_CODEX_PO"
+    case "$_CODEX_PO" in *"STATE: inconclusive"*) _CODEX_PS=inconclusive ;; *"STATE: rate_limited"*) _CODEX_PS=rate_limited ;; esac
+  done
   if [ "$_CODEX_MP" -eq 3 ]; then
     _CODEX_MODE="sandbox_unavailable"
   elif [ "$_CODEX_MP" -eq 2 ]; then
@@ -783,12 +787,12 @@ else
     _CODEX_MODE="quota_exhausted"
   elif [ "$_CODEX_MP" -ne 0 ]; then
     _CODEX_MODE="model_unusable"
-  elif [ "${_GSTACK_CODEX_PROBE_STATE:-}" = inconclusive ]; then
+  elif [ "$_CODEX_PS" = inconclusive ]; then
     _CODEX_MODE="unverified"
-  elif [ "${_GSTACK_CODEX_PROBE_STATE:-}" = rate_limited ]; then
+  elif [ "$_CODEX_PS" = rate_limited ]; then
     _CODEX_MODE="unverified (rate_limited)"
   else
-    _CODEX_MODE="ready"; _gstack_codex_version_check 2>/dev/null || true
+    _CODEX_MODE="ready"; "$_CODEX_PROBE" check-version || true
   fi
 fi
 echo "CODEX_MODE: $_CODEX_MODE"
@@ -796,7 +800,7 @@ echo "CODEX_MODE: $_CODEX_MODE"
 
 Branch on the echoed `CODEX_MODE`:
 - **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."
-- **`helper_unavailable`** — the helper could not load; relay the line above (cause and fix). Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
 - **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
