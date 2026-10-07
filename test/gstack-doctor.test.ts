@@ -337,3 +337,23 @@ describe('./setup --status Codex row', () => {
     expect(fs.readdirSync(f.state).sort()).toEqual(before);
   });
 });
+
+describe('bug-report template and README (DX-2, DX-12)', () => {
+  const template = fs.readFileSync(path.join(REPO, '.github/ISSUE_TEMPLATE/bug_report.md'), 'utf8');
+
+  test('the template asks for the doctor output with the Claude Code path and a lookup for other hosts', () => {
+    expect(template).toContain('~/.claude/skills/gstack/bin/gstack-doctor');
+    expect(template).toContain('./setup --status');
+    expect(template).toContain('/bin/gstack-paths --get GSTACK_STATE_ROOT');
+  });
+
+  test('the template names no bare gstack- command', () => {
+    for (const m of template.matchAll(/gstack-[a-z]/g)) expect(template.slice(0, m.index).endsWith('/bin/'), template.slice(m.index! - 40, m.index! + 20)).toBe(true);
+  });
+
+  test('README troubleshooting points at the doctor by absolute path', () => {
+    const readme = fs.readFileSync(path.join(REPO, 'README.md'), 'utf8');
+    const section = readme.slice(readme.indexOf('## Troubleshooting'));
+    expect(section).toContain('`~/.claude/skills/gstack/bin/gstack-doctor`');
+  });
+});
