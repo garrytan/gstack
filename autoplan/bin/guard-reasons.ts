@@ -31,7 +31,7 @@ export const REASONS = {
   identity: { disposition: 'fallback', text: () => 'The session journal failed its identity checks (a link, a foreign session, the wrong directory layout, or a different or shrunken file).' },
   malformed: { disposition: 'fallback', text: () => 'A complete session journal record is not valid JSON or UTF-8, or its records contradict each other.' },
   journal_missing: { disposition: 'fallback', text: () => 'The session journal does not exist, so no missing-publication conclusion has been made.' },
-  changing: { disposition: 'transient', text: () => 'Claude Code was still writing the session journal on every read. Wait for the current response to finish, then make this phase-entry call again; no missing-publication conclusion has been made.' },
+  oversized_invocation: { disposition: 'fallback', text: d => `This /autoplan invocation is too large to verify: the journal records the guard must read in full exceed its ${d.limit ?? '32 MiB'} retained-data bound.` },
   // Environment-unverifiable (UC1): allowed with a warning.
   unrecognized_shape: { disposition: 'unverified', text: d => `This Claude Code journal shape is not recognized (${d.cause}).` },
   journal_lag: { disposition: 'unverified', text: () => 'Claude Code has not written the previous assistant message to the session journal.' },
@@ -75,7 +75,7 @@ export const REASONS = {
 
 export type ReasonCode = keyof typeof REASONS;
 /** Codes the October 7 wave removed; their anchors stay so old reports still resolve. */
-export const REMOVED_CODES = ['current_missing', 'pending_read'] as const;
+export const REMOVED_CODES = ['current_missing', 'pending_read', 'changing'] as const;
 
 export const anchor = (code: string) => code.replace(/_/g, '-');
 export const reasonCode = (code: string): ReasonCode =>

@@ -338,12 +338,17 @@ describe('Autoplan parent publication guard', () => {
       if (prior === undefined) delete process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES; else process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES = prior;
     }
   };
-  test('#3050 + UC1: at the read limit the journal reads; one byte over is an unverified allow naming its size, code and anchor', async () => {
+  test('CEO-2 + UC1: a journal larger than the record bound reads; one record one byte over it is an unverified allow naming its size, code and anchor', async () => {
     const f = fixture();
     f.message(); f.current(); f.journal();
     const size = fs.statSync(f.input.transcript_path).size;
-    await withReadLimit(size, () => expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.reason).not.toBe('too_large'));
-    const output: any = await withReadLimit(size - 1, async () => {
+    const record = Math.max(...fs.readFileSync(f.input.transcript_path, 'utf8').split('\n').map(line => Buffer.byteLength(line)));
+    expect(size).toBeGreaterThan(record);
+    await withReadLimit(record, async () => {
+      expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.status).toBe('ready');
+      expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual({});
+    });
+    const output: any = await withReadLimit(record - 1, async () => {
       expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.reason).toBe('too_large');
       return withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
     });

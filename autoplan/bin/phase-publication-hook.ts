@@ -8,8 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { extractImplementationPlan, checkPhaseImplementation, acceptedBlocks } from '../../bin/gstack-autoplan-snapshot';
 import { autoplanPhaseCompletions } from '../../lib/autoplan-phase-publication';
-import { readOwnedClaudePublicTranscript, nativePathSpelling, ownedNativePath, sameNativePath,
-  type ClaudeParentPublicEvent, transcriptReadLimit } from '../../lib/claude-public-transcript';
+import { nativePathSpelling, ownedNativePath, sameNativePath, type ClaudeParentPublicEvent } from '../../lib/claude-journal-records';
+import { ownedRecordLimit, ownedRetainedLimit, type JournalPrefix, type OwnedRead, type OwnedReadMeasure } from '../../lib/claude-owned-journal';
+import { readGuardJournal, textResult, DEDUP_REPLY } from './guard-journal';
 import { resolveStateRoot } from '../../lib/state-root';
 import { REASONS, reasonCode, reasonText, type Detail, type ReasonCode } from './guard-reasons';
 import { logGuardDecision } from './guard-log';
@@ -21,6 +22,16 @@ type Use = Event & { kind: 'use' };
 type Tool = Extract<Event, { toolUseId: string }>;
 type Turn = Extract<Event, { kind: 'end_turn' | 'user_turn' }>;
 const isUse = (e: Event): e is Use => e.kind === 'use';
+/** ENG-5: one pass groups each tool id's uses and results, so evaluation never rescans per tool. */
+function byTool(events: readonly Event[]) {
+  const uses = new Map<string, Use[]>(), results = new Map<string, Tool[]>();
+  for (const e of events) if (e.kind === 'use' || e.kind === 'result') {
+    const map = (e.kind === 'use' ? uses : results) as Map<string, Tool[]>, list = map.get(e.toolUseId) ?? [];
+    list.push(e); map.set(e.toolUseId, list);
+  }
+  return { uses: (id: string) => uses.get(id) ?? [], results: (id: string) => results.get(id) ?? [] };
+}
+type Tools = ReturnType<typeof byTool>;
 const number: Record<Phase, number> = { ceo: 1, design: 2, dx: 2.5, eng: 3, tasks: 4 };
 const object = (x: unknown): x is Record<string, any> => x !== null && typeof x === 'object' && !Array.isArray(x);
 const positive = (x: unknown): x is number => Number.isSafeInteger(x) && (x as number) > 0;
@@ -212,17 +223,10 @@ export function boundAutoplanPhaseConsumption(events: Event[], use: Use, cwd: st
   return consumption(use, cwd, root, invocation(events.filter(e => e.order < use.order), root));
 }
 
-function textResult(event: Event): string | undefined {
-  if (event.kind !== 'result' || event.isError !== false) return;
-  if (typeof event.content === 'string') return event.content;
-  if (Array.isArray(event.content) && event.content.length === 1 && event.content[0]?.type === 'text' &&
-      typeof event.content[0].text === 'string') return event.content[0].text;
-}
-
 /** Authenticate the existing direct-create result; this does not prove its shell command's origin. */
-function checkpointResult(result: Event, entered: Event[], init: Invocation): { phase: Phase; path: string } | undefined {
+function checkpointResult(result: Event, tools: Tools, init: Invocation): { phase: Phase; path: string } | undefined {
   if (result.kind !== 'result') return;
-  const use = entered.find((e): e is Use => isUse(e) && e.toolUseId === result.toolUseId);
+  const use = tools.uses(result.toolUseId)[0];
   if (use?.name !== 'Bash' || use.order >= result.order) return;
   const text = textResult(result);
   if (text === undefined) return;
@@ -261,11 +265,12 @@ function invocation(events: Event[], root: string): Invocation {
   let bound: Invocation | undefined;
   let chosen: Record<string, any> | undefined;
   let unbindable = false;
+  const tools = byTool(events);
   for (const use of events) {
     if (use.kind !== 'use' || use.name !== 'Bash') continue;
     const args = initArguments(use.input?.command, root);
     if (!args) { unbindable ||= typeof use.input?.command === 'string' && UNBINDABLE_INIT.test(use.input.command) && /\.md\b/.test(use.input.command); continue; }
-    const results = events.filter(x => x.kind === 'result' && x.toolUseId === use.toolUseId && x.order > use.order);
+    const results = tools.results(use.toolUseId).filter(x => x.order > use.order);
     if (results.length !== 1) fail('init_mismatch');
     const text = textResult(results[0]!);
     if (text === undefined) fail('init_failed');
@@ -295,7 +300,7 @@ export function autoplanReadRange(use: Use, result: Event, content: string, hist
   while (true) {
     if (use.name !== 'Read' || result.kind !== 'result' || result.toolUseId !== use.toolUseId ||
         result.sessionId !== use.sessionId || result.isError !== false || result.order <= use.order || !object(result.file)) return;
-    if (textResult(result) !== 'Wasted call — file unchanged since your last Read. Refer to that earlier tool_result instead.' ||
+    if (textResult(result) !== DEDUP_REPLY ||
         !isDeepStrictEqual(Object.keys(result.file), ['filePath']) || !samePath(result.file.filePath, use.input?.file_path)) break;
     // Pinned native dedup requires the same offset/limit and a non-truncated prior
     // Read. Seeded-context notices without that native delivery supply no range.
@@ -388,10 +393,10 @@ function verifyCloseEdits(events: Event[], closeOrder: number, init: Invocation)
   const edits = events.filter((e): e is Use => e.kind === 'use' && e.order > closeOrder &&
     ['Write', 'Edit'].includes(e.name ?? '') && samePath(e.input?.file_path, init.activePlan));
   if (!edits.length) return;
-  const current = read(init.activePlan);
+  const current = read(init.activePlan), tools = byTool(events);
   let prior = current;
   for (const use of edits.toReversed()) {
-    const results = events.filter((e): e is Tool => e.kind === 'result' && e.toolUseId === use.toolUseId);
+    const results = tools.results(use.toolUseId);
     if (results.length !== 1) fail('mutation_pending');
     if (results[0]!.isError === true) continue;
     const input = use.input;
@@ -434,8 +439,9 @@ function requirePublication(phase: Phase, entryOrder: number, entered: Event[], 
   if (checkpoint && JSON.parse(/^Binding: (.+)$/m.exec(content)![1]!).checkpointPath !== checkpoint)
     fail('close_stale', { cause: `The Phase ${number[phase]} close packet belongs to an earlier checkpoint` });
   let closeOrder = -1;
+  const tools = byTool(entered);
   for (const use of closeReads.filter(e => native(e) === latestPath)) {
-    const results = entered.filter(e => e.kind === 'result' && e.toolUseId === use.toolUseId);
+    const results = tools.results(use.toolUseId);
     if (results.length !== 1) continue;
     const range = autoplanReadRange(use, results[0]!, content, entered);
     if (!range) continue;
@@ -444,7 +450,7 @@ function requirePublication(phase: Phase, entryOrder: number, entered: Event[], 
   }
   if (covered.size !== content.split('\n').length) fail('close_incomplete', { phase: number[phase] });
   const pending = entered.some(e => e.kind === 'use' && e.order > closeOrder && ['Write', 'Edit'].includes(e.name ?? '') &&
-    samePath(e.input?.file_path, init.activePlan) && !entered.some(r => r.kind === 'result' && r.toolUseId === e.toolUseId));
+    samePath(e.input?.file_path, init.activePlan) && !tools.results(e.toolUseId).length);
   if (pending) fail('mutation_pending');
   if (current) verifyCloseEdits(entered, closeOrder, init);
   const reports = entered.filter((e): e is Event & { kind: 'message' } => e.kind === 'message' && e.order > closeOrder &&
@@ -518,9 +524,8 @@ function payloadDecision(input: PublicationHookInput, root: string, events: Even
 
 /** ENG-2: a tool still waiting for its result outside the last journaled message means the journal lags more than one message. */
 export function journalLagged(events: Event[]): boolean {
-  const lastMessage = events.findLast(e => e.messageId !== undefined && e.kind !== 'result')?.messageId;
-  return events.some(e => isUse(e) && (e.messageId === undefined || e.messageId !== lastMessage) &&
-    !events.some(r => r.kind === 'result' && r.toolUseId === e.toolUseId));
+  const lastMessage = events.findLast(e => e.messageId !== undefined && e.kind !== 'result')?.messageId, tools = byTool(events);
+  return events.some(e => isUse(e) && (e.messageId === undefined || e.messageId !== lastMessage) && !tools.results(e.toolUseId).length);
 }
 
 function consistentEvents(input: PublicationHookInput, events: Event[]): void {
@@ -558,11 +563,11 @@ function phaseDecision(input: PublicationHookInput, root: string, before: Event[
   const entered = before.filter((e, i) => e.order > init.start && !disarmed[i]);
   const target = consumption(requested, input.cwd, root, init)!.phase;
   let phase: Phase | undefined, entryOrder = init.start, checkpoint: string | undefined;
-  const seenCheckpoints = new Set<string>(), preparedCheckpoints = new Map<Phase, string>();
+  const seenCheckpoints = new Set<string>(), preparedCheckpoints = new Map<Phase, string>(), tools = byTool(entered);
   for (const use of entered) {
     if (use.kind === 'result') {
       let created: ReturnType<typeof checkpointResult>;
-      try { created = checkpointResult(use, entered, init); } catch { continue; }
+      try { created = checkpointResult(use, tools, init); } catch { continue; }
       if (!created || seenCheckpoints.has(created.path)) continue;
       seenCheckpoints.add(created.path);
       if (phase && number[created.phase] < number[phase]) {
@@ -576,7 +581,7 @@ function phaseDecision(input: PublicationHookInput, root: string, before: Event[
       continue;
     }
     if (!isUse(use) || !['Read', 'Agent'].includes(use.name ?? '')) continue;
-    const results = entered.filter((e): e is Tool => e.kind === 'result' && e.toolUseId === use.toolUseId);
+    const results = tools.results(use.toolUseId);
     if (results.length !== 1 || results[0]!.isError !== false || results[0]!.order <= use.order) continue;
     let next: Consumer | undefined;
     try { next = consumption(use, input.cwd, root, init, true); } catch { continue; }
@@ -592,10 +597,10 @@ function phaseDecision(input: PublicationHookInput, root: string, before: Event[
   }
   // One batch rule on both paths: guarded calls in the current call's message
   // that target the same phase are one batch; another phase is never batched.
-  const siblings = entered.filter(e => isUse(e) && candidate(e, input.cwd) && sameMessage(e, current));
-  if (siblings.some(e => targetPhase(e as Use, input.cwd) !== target)) fail('cross_phase_batch');
-  if (entered.some(e => e.kind === 'use' && candidate(e, input.cwd) && !siblings.includes(e) &&
-      !entered.some(r => r.kind === 'result' && r.toolUseId === e.toolUseId))) fail('entry_pending');
+  const siblings = new Set(entered.filter(e => isUse(e) && candidate(e, input.cwd) && sameMessage(e, current)));
+  if ([...siblings].some(e => targetPhase(e as Use, input.cwd) !== target)) fail('cross_phase_batch');
+  if (entered.some(e => e.kind === 'use' && candidate(e, input.cwd) && !siblings.has(e) &&
+      !tools.results(e.toolUseId).length)) fail('entry_pending');
   if (!phase) {
     if (target !== 'ceo') fail('phase_order');
     return { allow: true };
@@ -637,7 +642,6 @@ export function publicationHookOutput(decision: Decision | PublicationDecision):
     permissionDecisionReason: `[autoplan] ${decision.reason}` } };
 }
 
-type OwnedRead = ReturnType<typeof readOwnedClaudePublicTranscript>;
 type EvaluationPath = 'journal' | 'payload' | 'none';
 const mib = (bytes: number) => { const m = bytes / (1024 * 1024); return `${m >= 10 ? Math.round(m) : Number(m.toPrecision(2))} MiB`; };
 
@@ -665,19 +669,23 @@ function decided(decision: Decision, via: EvaluationPath, version?: string): obj
 const denied = (code: ReasonCode, version?: string, detail: Detail = {}, via: EvaluationPath = 'none') =>
   decided({ allow: false, code, reason: '', detail }, via, version);
 
-/** Read every owner the hook accepts (project root, then its linked worktrees). */
-function ownedRead(journal: string, owners: string[], sessionId: string): OwnedRead {
-  const reads = [readOwnedClaudePublicTranscript(journal, owners[0]!, sessionId)];
-  if (reads[0]!.transcript.reason === 'foreign_cwd')
-    for (const owner of owners.slice(1)) reads.push(readOwnedClaudePublicTranscript(journal, owner, sessionId));
-  return reads.find(r => r.transcript.status === 'ready') ?? reads.find(r => r.transcript.reason !== 'foreign_cwd') ?? reads[0]!;
+/** Read the journal for every owner the hook accepts (project root, then its linked worktrees), with the hook's own classifiers. */
+export function ownedRead(journal: string, owners: string[], input: PublicationHookInput, root: string, prior: JournalPrefix | undefined,
+  measure: OwnedReadMeasure): OwnedRead {
+  return readGuardJournal(journal, owners, input.session_id, input.tool_use_id, {
+    init: command => { try { return initArguments(command, root); } catch { return undefined; } },
+    read: file => artifactName(file, input.cwd, true) && path.basename(requestedPath(input.cwd, file as string)) === 'close-packet.md' ? 'close'
+      : phaseName(file, input.cwd) || artifactName(file, input.cwd) ? 'phase' : undefined,
+    reviewer: toolInput => candidate({ name: 'Agent', input: toolInput }, input.cwd),
+  }, prior, measure);
 }
 
 /**
  * A ready journal holding the current call takes the journal path; one that
  * lacks it takes the payload path at once (Claude Code may write the record only
  * with its result). The 2-second window remains for a journal that does not exist
- * yet, a journal lagging more than one message, and the unrecognized-shape double read.
+ * yet, a journal lagging more than one message, and the unrecognized-shape double
+ * read. Claude Code's appends never fail a read; a changed prefix is `rewritten`.
  */
 export async function runPublicationHook(value: unknown, root: string): Promise<object> {
   let version: string | undefined;
@@ -695,9 +703,12 @@ export async function runPublicationHook(value: unknown, root: string): Promise<
     if (!ownPath(projectCwd)) return denied('hook_input');
     const journal = nativePathSpelling(input.transcript_path), owners = [projectCwd, ...linkedWorktrees(projectCwd)];
     const deadline = performance.now() + 2_000;
-    let read: OwnedRead, stable: string | undefined;
+    let read: OwnedRead, first: JournalPrefix | undefined, unrecognized = false;
     for (;;) {
-      read = ownedRead(journal, owners, input.session_id);
+      // Every later read must see the first read's bytes unchanged (CEO-2); a mismatch is `rewritten`.
+      const measure: OwnedReadMeasure = {};
+      read = ownedRead(journal, owners, input, root, first, measure);
+      first ??= measure.prefix;
       version = read.claudeVersion ?? read.diagnostic?.claudeVersion;
       const code = read.transcript.reason, expired = performance.now() >= deadline;
       if (read.transcript.status === 'ready') {
@@ -706,22 +717,23 @@ export async function runPublicationHook(value: unknown, root: string): Promise<
         if (!journalLagged(read.events)) return decided(payloadDecision(input, root, read.events), 'payload', version);
         if (expired) return unverifiedOutput('journal_lag', {}, version, 'payload');
       } else if (code === 'too_large') {
-        let size: string | undefined;
-        try { size = mib(fs.statSync(journal).size); } catch { /* size stays generic */ }
-        return unverifiedOutput('too_large', { size, limit: mib(transcriptReadLimit()) }, version, 'none');
-      } else if (code && code !== 'changing' && !code.startsWith('unrecognized_shape:')) {
-        return denied(code as ReasonCode, version);
-      } else if (code?.startsWith('unrecognized_shape:') && read.diagnostic?.complete) {
-        if (stable === read.diagnostic.sha256) return unverifiedOutput(code, { cause: code }, version, 'none', read.diagnostic.rootShape);
-        stable = read.diagnostic.sha256;
-      } else stable = undefined;
-      if (expired) break;
+        return unverifiedOutput('too_large', { size: measure.recordBytes ? mib(measure.recordBytes) : undefined, limit: mib(ownedRecordLimit()) },
+          version, 'none');
+      } else if (code === 'rewritten') {
+        return unverifiedOutput('rewritten', {}, version, 'none');
+      } else if (code === 'oversized_invocation') {
+        return denied(code, version, { limit: mib(ownedRetainedLimit()) });
+      } else if (code?.startsWith('unrecognized_shape:')) {
+        // A second read over the same prefix: the shape is Claude Code's, not a write in progress.
+        if (unrecognized) return unverifiedOutput(code, { cause: code }, version, 'none', read.diagnostic?.rootShape);
+        unrecognized = true;
+      } else if (code) return denied(code as ReasonCode, version);
+      if (expired && !code?.startsWith('unrecognized_shape:')) break;
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    const code = read.transcript.reason;
     // A journal with bytes but no owned records yet: Claude Code has not written an ancestor.
-    if (!code && read.diagnostic) return unverifiedOutput('journal_lag', {}, version, 'none');
-    return denied(code ? 'changing' : 'journal_missing', version);
+    if (read.diagnostic) return unverifiedOutput('journal_lag', {}, version, 'none');
+    return denied('journal_missing', version);
   } catch {
     return denied('installation', version);
   }

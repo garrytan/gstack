@@ -79,9 +79,11 @@ missing) and did not catch up within 2 seconds.
 <a id="rewritten"></a>
 ### `rewritten`
 
-The journal bytes the guard had already read changed during one hook call.
-Claude Code normally only appends. Rewrites between hook calls are not
-detected.
+The journal bytes the guard had already read changed during one hook call:
+a later read's sha256 of bytes [0, first size) differs from the first read's,
+or a record pass two reloads no longer parses to the record pass one indexed.
+Claude Code normally only appends, and appends never fail a read. Rewrites
+between hook calls are not detected (an accepted limit).
 
 <a id="too-large"></a><a id="journal-too-large"></a>
 ### `too_large`
@@ -89,6 +91,7 @@ detected.
 A single journal record is over the 32 MiB record limit (`OWNED_RECORD_MAX_BYTES`).
 The guard reads long journals record by record, so a large journal alone
 never triggers this; one enormous record (for example a huge pasted file) does.
+A record still being written (no newline yet) is not read at all.
 
 <a id="unseen-version"></a>
 ### `unseen_version`
@@ -126,6 +129,15 @@ The journal's parent links form a loop.
 The journal path, its directories or the file failed the identity checks: a
 symlink, a foreign session, the wrong directory layout, a different file, or a
 journal that shrank. A rerun hits the same check.
+
+<a id="oversized-invocation"></a>
+### `oversized_invocation`
+The current `/autoplan` invocation needs more journal records read in full
+than the 32 MiB retained-data bound (`OWNED_RETAINED_MAX_BYTES`). The guard
+indexes every record without its content and reloads in full only what it
+evaluates: snapshot init results, guarded and close-packet Reads, structured
+Bash results, error results, assistant text after the first close-packet Read
+and edits of the active plan. A rerun reads the same records; use the fallback.
 
 <a id="malformed"></a>
 ### `malformed`
@@ -263,12 +275,14 @@ A phase-entry call from an earlier message has no result yet. Wait for it.
 ### `mutation_pending`
 An edit to the active plan after the close Read has no result yet. Wait for it.
 
+## Removed codes
+
 <a id="changing"></a>
 ### `changing`
-Claude Code was writing the journal on every read for 2 seconds. Wait for the
-current response to finish.
-
-## Removed codes
+Before the October 7, 2026 release, `changing` denied a call when Claude Code
+appended to the journal while the guard read it. The bounded reader reads the
+bytes present at open and ignores a trailing record still being written, so
+appends never fail a read; a changed prefix is [`rewritten`](#rewritten).
 
 <a id="current-missing"></a><a id="pending-read"></a>
 Before the October 7, 2026 release, "Native parent evidence has not reached

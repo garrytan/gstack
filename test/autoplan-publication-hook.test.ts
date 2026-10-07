@@ -126,12 +126,12 @@ describe('Autoplan hook journal-root verdicts', () => {
     expect(output.hookSpecificOutput.permissionDecision).toBeUndefined();
     expect(output.systemMessage).toContain('code unrecognized_shape:preamble:system:local_command');
   });
-  test('no advisory while a record is still being written: a transient denial naming what to wait for', async () => {
+  test('CEO-2: a record still being written is ignored, so the complete unrecognized shape is the advisory', async () => {
     const s = session('unknown', { partial: true });
     const output = await s.hookRun();
-    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(output.hookSpecificOutput.permissionDecisionReason).toContain('no missing-publication conclusion');
-    expect(output.hookSpecificOutput.permissionDecisionReason).toContain('Wait for the current response to finish');
+    expect(output.hookSpecificOutput.permissionDecision).toBeUndefined();
+    expect(output.systemMessage).toContain('code unrecognized_shape:preamble:system:local_command');
+    expect(output.systemMessage).not.toContain('Wait for the current response to finish');
   });
 
   for (const code of ['competing_root', 'foreign_cwd', 'sidechain', 'agent', 'cycle'] as const)

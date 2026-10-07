@@ -23,7 +23,8 @@ export interface Step {
 }
 
 /** A completed Phase `phase` (init, entry, close packet Read) with a reviewer snapshot for `phase`. */
-export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: number; version?: string } = {}) {
+/** `opening: 'skill'` starts the run from a typed request and a Skill tool call instead of the /autoplan slash turn. */
+export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: number; version?: string; opening?: 'slash' | 'skill' } = {}) {
   const cwd = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'autoplan-guard-replay-')));
   const source = path.join(cwd, 'source.md'), active = path.join(cwd, 'active.md'), restore = path.join(cwd, 'restore.md');
   fs.writeFileSync(source, '# Current plan\nKeep documented behavior.\n');
@@ -72,8 +73,12 @@ export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: nu
     hook_event_name: 'PreToolUse', session_id: sessionId, cwd, transcript_path: transcript,
     tool_name: name, tool_use_id: id, tool_input: toolInput });
 
-  /** Write the journal for steps[0, upto). */
-  function journal(upto = steps.length) {
+  /**
+   * Write the journal for steps[0, upto), streaming rows to the file. `pad(at)`
+   * adds Claude-shaped records before the /autoplan turn (`at` -1) and after
+   * step `at`, for bound tests and the journal-read benchmark.
+   */
+  function journal(upto = steps.length, pad?: (at: number) => Array<{ type: string; message?: Record_; extra?: Record_ }>) {
     fs.mkdirSync(path.dirname(transcript), { recursive: true });
     let parent: string | null = null, clock = Date.parse('2026-10-07T09:04:00Z');
     const record = (type: string, message: Record_, extra: Record_ = {}) => {
@@ -83,9 +88,17 @@ export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: nu
     };
     const assistant = (messageId: string | undefined, content: unknown[], extra: Record_ = {}) =>
       record('assistant', { role: 'assistant', ...(messageId ? { id: messageId } : {}), content, ...extra });
-    const rows = [record('user', { role: 'user', content: '<command-message>autoplan</command-message>\n<command-name>/autoplan</command-name>' },
-      { origin: { kind: 'human' }, promptId: randomUUID() })];
-    for (const s of steps.slice(0, upto)) {
+    const fd = fs.openSync(transcript, 'w');
+    const rows = { push: (...items: Record_[]) => { fs.writeSync(fd, items.map(r => JSON.stringify(r) + '\n').join('')); } };
+    const padding = (at: number) => { for (const r of pad?.(at) ?? []) rows.push(record(r.type, r.message as Record_, r.extra)); };
+    padding(-1);
+    if (opts.opening === 'skill') {
+      rows.push(record('user', { role: 'user', content: 'Run autoplan on the current plan.' }, { origin: { kind: 'human' }, promptSource: 'typed', promptId: randomUUID() }));
+      rows.push(assistant(nextMessage(), [{ type: 'tool_use', id: 'skill-autoplan', name: 'Skill', input: { skill: 'autoplan' } }]));
+      rows.push(record('user', { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'skill-autoplan', content: 'Launching skill: autoplan' }] }));
+    } else rows.push(record('user', { role: 'user', content: '<command-message>autoplan</command-message>\n<command-name>/autoplan</command-name>' },
+      { origin: { kind: 'human' }, promptId: randomUUID() }));
+    for (const [at, s] of steps.slice(0, upto).entries()) {
       if (s.kind === 'use') rows.push(assistant(s.messageId, [{ type: 'tool_use', id: s.id, name: s.name, input: s.input }]));
       else if (s.kind === 'message') rows.push(assistant(s.messageId, [{ type: 'text', text: s.text }]));
       else if (s.kind === 'end_turn') rows.push(assistant(s.messageId, [], { stop_reason: 'end_turn' }));
@@ -97,8 +110,9 @@ export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: nu
       else if (s.kind === 'notification') rows.push(record('user', { role: 'user', content:
         `<task-notification>\n<tool-use-id>${s.id}</tool-use-id>\n<status>completed</status>\n<result>Review done.</result>\n</task-notification>` },
         { origin: { kind: 'task-notification' }, promptSource: 'system', promptId: randomUUID() }));
+      padding(at);
     }
-    fs.writeFileSync(transcript, rows.map(r => JSON.stringify(r)).join('\n') + '\n');
+    fs.closeSync(fd);
   }
 
   /** Run the hook in-process against the journal as written, with an owned state root for the guard log. */

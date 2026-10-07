@@ -84,11 +84,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'hermetic-canary':   [ 'test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
   'hermetic-sentinel': [ 'test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
   // Real pinned-claude journals (SessionStart hook, /compact, --fork-session) through the /autoplan guard's reader.
-  'autoplan-journal-drift': ['lib/claude-public-transcript.ts', 'lib/claude-bin.ts', '.github/docker/Dockerfile.ci', 'test/skill-e2e-autoplan-journal-drift.test.ts'],
-  // Latest published Claude Code (not the pin): Agent/Read hook payloads vs their journal records, with the guard's own comparison.
+  'autoplan-journal-drift': ['lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'lib/claude-bin.ts', '.github/docker/Dockerfile.ci', 'test/skill-e2e-autoplan-journal-drift.test.ts'],
   // Live PTY phase boundary on the pinned Claude Code through /autoplan's own hook block (ENG-18).
-  'autoplan-guard-pty': ['autoplan/bin/phase-publication-hook.ts', 'autoplan/bin/phase-publication-hook', 'autoplan/bin/guard-reasons.ts', 'autoplan/bin/guard-log.ts', 'autoplan/SKILL.md', 'autoplan/SKILL.md.tmpl', 'scripts/resolvers/composition.ts', 'lib/claude-public-transcript.ts', 'lib/autoplan-phase-publication.ts', 'lib/state-root.ts', 'bin/gstack-autoplan-snapshot.ts', '.github/docker/Dockerfile.ci', 'test/helpers/autoplan-guard-pty.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/hermetic-env.ts', 'test/skill-e2e-autoplan-guard-pty.test.ts'],
-  'autoplan-schema-canary': ['autoplan/bin/phase-publication-hook.ts', 'lib/claude-public-transcript.ts', 'lib/claude-bin.ts', 'test/helpers/schema-canary.ts', 'test/skill-e2e-autoplan-schema-canary.test.ts'],
+  'autoplan-guard-pty': ['autoplan/bin/phase-publication-hook.ts', 'autoplan/bin/phase-publication-hook', 'autoplan/bin/guard-reasons.ts', 'autoplan/bin/guard-log.ts', 'autoplan/SKILL.md', 'autoplan/SKILL.md.tmpl', 'scripts/resolvers/composition.ts', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'autoplan/bin/guard-journal.ts', 'lib/autoplan-phase-publication.ts', 'lib/state-root.ts', 'bin/gstack-autoplan-snapshot.ts', '.github/docker/Dockerfile.ci', 'test/helpers/autoplan-guard-pty.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/hermetic-env.ts', 'test/skill-e2e-autoplan-guard-pty.test.ts'],
+  // Latest published Claude Code (not the pin): Agent/Read hook payloads vs their journal records, with the guard's own comparison.
+  'autoplan-schema-canary': ['autoplan/bin/phase-publication-hook.ts', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'lib/claude-bin.ts', 'test/helpers/schema-canary.ts', 'test/skill-e2e-autoplan-schema-canary.test.ts'],
 
   // P4 first-run scaffold (activation lift) — the detection binary end-to-end
   // through the real runner, plus the script wiring that gates + maps it
@@ -207,7 +207,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     
     "test/fixtures/eng-option-b-scope-al.json",
      'test/fixtures/pty-companion-cli.ts', 'lib/fs-atomic.ts',    'test/helpers/plan-skill-questions.ts', 'test/fixtures/eng-auq-validation-error.json', 'test/fixtures/bash-directory-permission.json', 'test/fixtures/design-tasks-bash-permission.json',  'test/fixtures/read-permission.json',  'test/fixtures/ceo-split-e5-numbered-description-491.json',  'test/helpers/plan-skill-question-events.ts',  'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/skill-census.ts',  'scripts/resolvers/tasks-section.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'bin/gstack-context-recovery'],
-  'plan-eng-review-plan-mode':    ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts',
+  'plan-eng-review-plan-mode':    ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',
     
     'test/fixtures/auto-decide-recommendation-361c.json',
     
@@ -231,7 +231,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
      'test/fixtures/pty-companion-cli.ts', 'test/helpers/plan-seed-submission.ts',  'test/fixtures/plan-seed-cli.ts', 'test/helpers/owned-claude-transcript.ts', 'lib/fs-atomic.ts',    'test/helpers/plan-skill-questions.ts', 'test/fixtures/eng-auq-validation-error.json', 'test/fixtures/bash-directory-permission.json', 'test/fixtures/design-tasks-bash-permission.json',  'test/fixtures/read-permission.json',  'test/fixtures/ceo-split-e5-numbered-description-491.json',  'test/helpers/plan-skill-question-events.ts',  'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/skill-census.ts',  'scripts/resolvers/testing.ts', 'test/helpers/plan-mode-evidence.ts',  'lib/redact-engine.ts', 'lib/redact-patterns.ts',  'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-fixture.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'bin/gstack-context-recovery'],
   // PTY plan-mode smoke (whole file); the SDK plan-edit case below owns plan-design-review-plan-mode.
   'plan-design-review-plan-mode-smoke': [
-    'lib/claude-public-transcript.ts',
+    'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',
     
     'test/fixtures/auto-decide-recommendation-361c.json',
     
@@ -321,7 +321,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // written a never-ask preference, AUQ should still auto-decide rather than
   // surfacing the question. Touches the question-tuning + preference
   // infrastructure plus the resolvers that own the AUTO_DECIDE preamble.
-  'auto-decide-preserved':        ['bin/gstack-ceo-mode-handoff', 'test/fixtures/auto-decide-handoff-line-e354.json', 'test/fixtures/auto-decide-handoff-before-log-37182865432.json', 'bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts',
+  'auto-decide-preserved':        ['bin/gstack-ceo-mode-handoff', 'test/fixtures/auto-decide-handoff-line-e354.json', 'test/fixtures/auto-decide-handoff-before-log-37182865432.json', 'bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',
     
     'test/fixtures/auto-decide-recommendation-361c.json',
     
@@ -348,7 +348,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
      
     'scripts/resolvers/tasks-section.ts', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/hermetic-skill-runtime.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-fixture.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'test/helpers/plan-skill-question-events.ts', 'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/plan-skill-questions.ts', 'test/helpers/pty-screen.ts', 'test/helpers/pty-trust-dialog.ts', 'test/helpers/skill-census.ts'],
   'plan-ceo-mode-routing':       ['bin/gstack-ceo-mode-handoff', 
-    'lib/claude-public-transcript.ts',
+    'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',
     
     
 
@@ -365,7 +365,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
      'test/fixtures/pty-companion-cli.ts', 'lib/fs-atomic.ts',  'test/helpers/ceo-finding-fixture.ts',   'test/helpers/plan-skill-questions.ts', 'test/fixtures/eng-auq-validation-error.json', 'test/fixtures/bash-directory-permission.json', 'test/fixtures/design-tasks-bash-permission.json',  'test/fixtures/read-permission.json',  'test/fixtures/ceo-split-e5-numbered-description-491.json',  'test/helpers/plan-skill-question-events.ts',  'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/skill-census.ts',  'test/helpers/owned-claude-transcript.ts',    'scripts/resolvers/tasks-section.ts',
     'test/fixtures/ceo-expansion-pacing-77.json', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts'],
   'plan-design-with-ui-scope':   [ 'design/src/variants.ts','bin/gstack-state-root.sh', 'lib/state-root.ts', 'test/helpers/pty-screen.ts',
-    'lib/claude-public-transcript.ts',
+    'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',
      'test/fixtures/autoplan-public-narration-ad.json',
     'test/helpers/plan-count-fixture.ts', 
      'test/fixtures/ceo-prerequisite-n-call.json', 'test/fixtures/eng-prerequisite-77.json',
@@ -431,7 +431,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // "did agent fire ANY AUQ?" observer that exits early on first non-permission
   // numbered-option render. ~1-3 min typical wall time per test, ~$2-6 total.
   'plan-eng-finding-floor':      ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'test/helpers/pty-screen.ts',
-    'lib/claude-public-transcript.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json',
+    'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json',
     
     'test/fixtures/plan-create-permission-361c.json',
     'test/helpers/plan-floor-review.ts',
@@ -447,7 +447,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
      "scripts/resolvers/preamble/generate-preamble-bash.ts",
      'test/fixtures/pty-companion-cli.ts', 'lib/fs-atomic.ts',    'test/helpers/plan-skill-questions.ts', 'test/fixtures/eng-auq-validation-error.json', 'test/fixtures/bash-directory-permission.json', 'test/fixtures/design-tasks-bash-permission.json',  'test/fixtures/read-permission.json',  'test/fixtures/ceo-split-e5-numbered-description-491.json',  'test/helpers/plan-skill-question-events.ts',  'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/skill-census.ts',  'scripts/resolvers/testing.ts',  'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'bin/gstack-context-recovery'],
   'plan-ceo-finding-floor':      ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'test/helpers/pty-screen.ts',
-    'lib/claude-public-transcript.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json',
+    'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json',
     
     'test/fixtures/plan-create-permission-361c.json',
     'test/helpers/plan-floor-review.ts',
@@ -460,7 +460,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
      'test/fixtures/pty-companion-cli.ts', 'lib/fs-atomic.ts',    'test/helpers/plan-skill-questions.ts', 'test/fixtures/eng-auq-validation-error.json', 'test/fixtures/bash-directory-permission.json', 'test/fixtures/design-tasks-bash-permission.json',  'test/fixtures/read-permission.json',  'test/fixtures/ceo-split-e5-numbered-description-491.json',  'test/helpers/plan-skill-question-events.ts',  'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/skill-census.ts',  'scripts/resolvers/tasks-section.ts', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'bin/gstack-context-recovery'],
   'plan-design-finding-floor':   ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'test/helpers/pty-screen.ts',
     
-    'lib/claude-public-transcript.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json',
+    'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json',
     
     'test/fixtures/plan-create-permission-361c.json',
     'test/helpers/plan-floor-review.ts',
@@ -478,7 +478,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-devex-finding-floor':    ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'test/helpers/pty-screen.ts',
      'test/fixtures/plan-floor-dx-custom-491.json', 'test/fixtures/plan-floor-dx-editor-hint.json',
     
-    'lib/claude-public-transcript.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json', 'test/fixtures/plan-floor-product-type-70b.json',
+    'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json', 'test/fixtures/plan-floor-product-type-70b.json',
     
     'test/fixtures/plan-create-permission-361c.json',
     'test/helpers/plan-floor-review.ts',
@@ -493,7 +493,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // a model fires one AUQ then batches the rest into a "## Decisions to
   // confirm" plan write. runPlanSkillFloorCheck cannot detect that shape
   // (it exits on first AUQ); runPlanSkillCounting can.
-  'plan-eng-multi-finding-batching': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json',
+  'plan-eng-multi-finding-batching': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json',
     
     'test/fixtures/plan-create-permission-361c.json',
     
@@ -531,7 +531,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
      "scripts/resolvers/preamble/generate-preamble-bash.ts",
      'test/fixtures/pty-companion-cli.ts',   'lib/fs-atomic.ts', 'test/helpers/owned-claude-transcript.ts',    'test/fixtures/webfetch-permission.json',  'test/helpers/plan-skill-questions.ts', 'test/fixtures/eng-auq-validation-error.json', 'test/fixtures/bash-directory-permission.json', 'test/fixtures/design-tasks-bash-permission.json',  'test/fixtures/read-permission.json',  'test/fixtures/ceo-split-e5-numbered-description-491.json',  'test/helpers/plan-skill-question-events.ts',  'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/skill-census.ts',  'test/helpers/ceo-finding-fixture.ts',     'test/helpers/plan-review-decisions.ts',  'test/helpers/plan-review-cases.ts',  'test/helpers/llm-judge.ts', 'lib/eval-model.ts', 'test/skill-e2e-plan-decision-classification.test.ts', 'test/fixtures/plan-decision-classification.ts',  'scripts/resolvers/testing.ts', 'test/fixtures/eng-file-permission-repaint.json', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'bin/gstack-context-recovery'],
-  'plan-ceo-split-overflow': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json',
+  'plan-ceo-split-overflow': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts',  'test/fixtures/plan-create-prepublication-491.json',  'test/fixtures/plan-create-combined-permission-70b.json',
     
     'test/fixtures/plan-create-permission-361c.json',
     
@@ -881,7 +881,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/outside-voice-evidence.ts',  
     'test/fixtures/outside-async-task-m-events.json',
      'test/fixtures/autoplan-amend-input-77.json',
-     'test/fixtures/autoplan-phase-handoff-6714.json','scripts/resolvers/learnings.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts',  'test/fixtures/plan-scope-recovery-av.json',   'test/fixtures/design-scope-checkpoint-at.json',  'scripts/resolvers/composition.ts',   'autoplan/**', 'codex/**', 'bin/gstack-codex-probe', 'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/design.ts', 'test/skill-e2e-autoplan-dual-voice.test.ts', 'bin/gstack-autoplan-snapshot.ts',    'test/fixtures/autoplan/t-ceo-omitted-obligations.json', 'test/fixtures/autoplan/u-ceo-original-loss.json', 'test/fixtures/autoplan/v-ceo-dangling-references.json',
+     'test/fixtures/autoplan-phase-handoff-6714.json','scripts/resolvers/learnings.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts',  'test/fixtures/plan-scope-recovery-av.json',   'test/fixtures/design-scope-checkpoint-at.json',  'scripts/resolvers/composition.ts',   'autoplan/**', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'codex/**', 'bin/gstack-codex-probe', 'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/design.ts', 'test/skill-e2e-autoplan-dual-voice.test.ts', 'bin/gstack-autoplan-snapshot.ts',    'test/fixtures/autoplan/t-ceo-omitted-obligations.json', 'test/fixtures/autoplan/u-ceo-original-loss.json', 'test/fixtures/autoplan/v-ceo-dangling-references.json',
     'scripts/resolvers/design-doc-discovery.ts', 'bin/gstack-design-doc-find', 'plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/testing.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts',  'scripts/resolvers/tasks-section.ts', 'test/helpers/autoplan-phase-observer.ts', 'scripts/resolve-codex-generation-model.ts', 'scripts/resolvers/constants.ts'],
 
   // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
