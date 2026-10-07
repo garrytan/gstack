@@ -949,3 +949,21 @@ Bypass once: `GSTACK_REDACT_PREPUSH=skip git push`.
 
 **Fix.** Write it as `version: 1.2.3.4`, `"version": "..."` or `v1.2.3.4`.
 MEDIUM findings do not block pushes.
+
+<a id="redact-prepush-email"></a>
+### `MEDIUM  pii.email  <file>:<line>` from the pre-push hook
+
+**Meaning.** The pushed lines add an email address that is not yours and not
+already in the destination's commit metadata. The hook does not report your
+own address (`git config user.email`), addresses listed in
+`gstack.redact.allowEmail`, or author and committer addresses (mailmapped too)
+from the history of the pushed commits, of the remote tip being replaced, and,
+for a new branch pushed to a configured remote, of that remote's tracking refs.
+An address only another remote knows still reports. If the hook also printed
+`existing-email suppression was limited for this push`, it could not read the
+history in 5 seconds, so known authors may be listed too.
+
+**Fix.** Remove the address, or allow it for this repo:
+`git config --add gstack.redact.allowEmail <address>`. If it is your own
+address, check `git config user.email`. The allowlist only covers `pii.email`;
+it never lets a HIGH finding through.
