@@ -358,6 +358,9 @@ elif [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   [ -f "$_GH/.brain-last-push" ] && _BRAIN_LAST_PUSH=$(head -1 "$_GH/.brain-last-push" 2>/dev/null | tr -cd 'A-Za-z0-9._:+-' || echo never)
   _BRAIN_LAST_PUSH=${_BRAIN_LAST_PUSH:-never}
   echo "ARTIFACTS_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
+  # A stuck sync (scanner hold, failed push or commit, no push or no drain for
+  # 24 hours) prints fixed attention lines; a healthy sync prints none.
+  "$_BRAIN_SYNC_BIN" --attention 2>/dev/null | grep '^ARTIFACTS_SYNC: attention: ' || true
 else
   echo "ARTIFACTS_SYNC: off"
 fi

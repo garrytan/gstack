@@ -90,11 +90,15 @@ On machine B:
 gstack-brain-sync --status
 ```
 
-Shows: last successful push, pending queue depth, any sync blocks, and the
-current privacy mode.
+Shows: the status (`ok`, `idle`, `held`, `blocked`, `push_failed`,
+`error`), files held back by the secret scan with their fixes, the
+`drainable` count, the last sync and push times, pending queue depth, and
+the current privacy mode.
 
-Every skill run prints a `BRAIN_SYNC:` line near the top of the preamble
-output. Scan it for problems.
+Every skill run prints an `ARTIFACTS_SYNC:` line near the top of the
+preamble output. When the sync is stuck it adds an
+`ARTIFACTS_SYNC: attention:` line; the table of those lines and their fixes
+is in [gbrain-sync-errors.md](gbrain-sync-errors.md#artifacts_sync-attention--at-skill-start).
 
 ## Privacy modes in detail
 
@@ -122,20 +126,22 @@ your machine. Blocked patterns include:
 - JWTs (`eyJ…`)
 - Bearer tokens in JSON (`"authorization": "…"`, `"api_key": "…"`, etc.)
 
-If a scan hits, sync stops, the queue is preserved, and your preamble
-prints:
+If a scan hits, only the flagged file is held back (with any file coupled
+to it); everything else syncs. The held file stays queued and is re-scanned
+at every sync, and skill start prints:
 
 ```
-BRAIN_SYNC: blocked: <pattern-family>:<snippet>
+ARTIFACTS_SYNC: attention: status=held held=1. The secret scan is holding back 1 file(s); everything else still syncs. See which files and how to fix them: <bin> --status
 ```
 
 To remediate:
 
-1. Review the offending file.
-2. If the match is a false positive on content you explicitly want to
-   sync, run `gstack-brain-sync --skip-file <path>` to permanently
-   exclude that path.
-3. Otherwise, edit the file to remove the secret and re-run any skill.
+1. Run `gstack-brain-sync --status` (the line prints its absolute path). Each
+   entry under `held` names the file, the scanner rule and both fixes.
+2. If the match is a false positive on content you never want synced, run
+   `gstack-brain-sync --skip-file <path>` to permanently exclude that path;
+   `gstack-brain-sync --unskip-file <path>` undoes it.
+3. Otherwise, edit the file to remove the secret; the next skill run syncs it.
 
 There's a defense-in-depth hook at `~/.gstack/.git/hooks/pre-commit` that
 runs the same scan if you manually `git commit` against the repo.
