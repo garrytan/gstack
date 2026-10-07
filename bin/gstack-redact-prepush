@@ -19,7 +19,8 @@
  *
  * Behavior:
  *   - HIGH finding in added lines → print + exit 1 (block), for public AND private.
- *   - MEDIUM → warn (non-blocking). LOW/WARN → silent.
+ *   - MEDIUM → warn (non-blocking), one line per finding naming its rule,
+ *     file line and fix, never the matched value. LOW/WARN → silent.
  *   - GSTACK_REDACT_PREPUSH=skip → log + exit 0 (escape valve).
  *
  * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
@@ -210,7 +211,7 @@ function unknownRemoteTipBase(localSha: string): string | null {
  * resolving a merge is still caught, while an ordinary merge contributes
  * nothing. Returns null when the notion does not apply, so callers fall back.
  */
-function addedLinesFromNewCommits(localSha: string, remoteSha: string): string | null {
+function addedLinesFromNewCommits(localSha: string, remoteSha: string): AddedFile[] | null {
   // remoteSha is what git TELLS us the remote has, and it is authoritative in a
   // way `--remotes` is not: remote-tracking refs can be absent (a fresh clone
   // that never fetched, a push to a remote with no tracking ref) or stale. Drop
@@ -236,26 +237,32 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): string |
   const shas = narrowed.split("\n").filter(Boolean);
   // A rewrite of long history should fall back rather than shell out per commit.
   if (shas.length > 500) return null;
-  const out: string[] = [];
+  const out: AddedFile[] = [];
   for (const sha of shas) {
     // gitStrict: a failed diff must never read as "nothing added" (#1946).
-    out.push(gitStrict([
+    // Collected per commit so a finding names the commit whose file line it is.
+    out.push(...collectAddedLines(gitStrict([
       "show", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
       "--src-prefix=a/", "--dst-prefix=b/", "--cc", "--format=", sha,
-    ]));
+    ]), sha));
   }
-  return out.join("\n");
+  return out;
 }
 
-/** Return the added-line text for a ref update being pushed. */
-/** Added lines grouped by the file they were added to (`+++ b/` path; empty when unknown). */
-interface AddedFile { file: string; text: string }
+/**
+ * Added lines grouped by the file they were added to (`+++ b/` path; empty
+ * when unknown). `lines[i]` is the file line number of the i-th line of
+ * `text`, read from the hunk headers; `commit` is set when the lines came from
+ * one commit's diff rather than the net diff of the pushed range.
+ */
+interface AddedFile { file: string; text: string; lines: number[]; commit?: string }
 
+/** Return the added lines for a ref update being pushed. */
 function addedLinesFor(localSha: string, remoteSha: string): AddedFile[] {
   // Preferred ONLY when this push carries catch-up commits: scanning them again
   // is the bug. Every other shape falls through to the range logic below.
   const fromNew = addedLinesFromNewCommits(localSha, remoteSha);
-  if (fromNew !== null) return collectAddedLines(fromNew);
+  if (fromNew !== null) return fromNew;
 
   let range: string;
   if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
@@ -287,7 +294,7 @@ function addedLinesFor(localSha: string, remoteSha: string): AddedFile[] {
  * Added-line text from a unified diff. Shared by both range strategies so the
  * hunk-aware header handling below cannot drift between them.
  */
-function collectAddedLines(diff: string): AddedFile[] {
+function collectAddedLines(diff: string, commit?: string): AddedFile[] {
   const added: AddedFile[] = [];
   // Hunk-aware header skip (#2498): `+++ ` is only a FILE HEADER outside a
   // hunk. Inside a hunk, an added content line whose text begins with "++"
@@ -296,10 +303,17 @@ function collectAddedLines(diff: string): AddedFile[] {
   let inHunk = false;
   let file = "";
   let fileLines: string[] = [];
+  let lineNumbers: number[] = [];
+  // File line tracking from hunk headers. A combined (--cc) header has one
+  // more `@` than it has parents, and each body line one prefix column per
+  // parent; a line belongs to the resulting file unless a column says `-`.
+  let parents = 1;
+  let nextLine = 0;
   const flush = () => {
     const lines = releaseVersionExempt(file, fileLines);
-    if (lines.length) added.push({ file, text: lines.join("\n") });
+    if (lines.length) added.push({ file, text: lines.join("\n"), lines: lineNumbers, ...(commit ? { commit } : {}) });
     fileLines = [];
+    lineNumbers = [];
   };
   for (const line of diff.split("\n")) {
     // `diff --` rather than `diff --git`: a merge scanned with --cc emits
@@ -307,10 +321,20 @@ function collectAddedLines(diff: string): AddedFile[] {
     // boundaries and read the next file's `+++ b/...` header as content. Only
     // noise (it over-scans, never under-scans), but the boundary is real.
     if (line.startsWith("diff --")) { flush(); file = ""; inHunk = false; continue; }
-    if (line.startsWith("@@")) { inHunk = true; continue; }
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      parents = (/^@+/.exec(line)?.[0].length ?? 2) - 1;
+      nextLine = Number(/ \+(\d+)(?:,\d+)? @+/.exec(line)?.[1] ?? 0);
+      continue;
+    }
     if (!inHunk && line.startsWith("+++ ")) { file = line.startsWith("+++ b/") ? line.slice(6) : ""; continue; }
     if (!inHunk && (line.startsWith("+++") || line.startsWith("---"))) continue;
-    if (line.startsWith("+")) fileLines.push(line.slice(1));
+    const inResult = inHunk && !line.startsWith("\\") && !line.slice(0, parents).includes("-");
+    const lineNumber = inResult ? nextLine++ : 0;
+    if (line.startsWith("+")) {
+      fileLines.push(line.slice(1));
+      lineNumbers.push(lineNumber);
+    }
   }
   flush();
   return added;
@@ -366,9 +390,10 @@ const MAX_SCAN_BYTES = 1024 * 1024;
  * the engine intact, so a genuinely unscannable blob (minified bundle,
  * embedded base64) trips input_too_large and blocks exactly as before.
  *
- * Findings' line/col are slice-relative, which is fine here — this hook only
- * reads severity, id and preview. Do not lift this into the engine, where
- * callers rely on absolute line numbers.
+ * The engine reports line/col relative to each slice; an admitted finding's
+ * `line` is rewritten to its 1-based line within `added`, which the caller
+ * maps to the file line. Do not lift this into the engine, where callers rely
+ * on absolute line numbers.
  */
 function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Finding[] {
   const findings: Finding[] = [];
@@ -426,6 +451,19 @@ function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Findin
     }
   };
 
+  const addedLineStarts = [0];
+  for (let i = 0; i < added.length; i++) if (added[i] === "\n") addedLineStarts.push(i + 1);
+  const lineAt = (offset: number): number => {
+    let lo = 0;
+    let hi = addedLineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (addedLineStarts[mid] <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+
   for (const core of cores) {
     const left = contextStart(core.start);
     const text = added.slice(left, contextEnd(core.end));
@@ -438,7 +476,7 @@ function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Findin
     for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
     for (const finding of result.findings) {
       const offset = starts[finding.line - 1] + finding.col - 1 + left;
-      if (offset >= core.start && offset < core.end) findings.push(finding);
+      if (offset >= core.start && offset < core.end) findings.push({ ...finding, line: lineAt(offset) });
     }
   }
 
@@ -462,6 +500,14 @@ function logSkip(reason: string): void {
   }
 }
 
+/** One MEDIUM report line: rule id, file line (and commit), and the fix. Never the matched value. */
+function mediumLine(f: Finding, part: AddedFile): string {
+  const line = part.lines[f.line - 1];
+  const where = `${part.file || "(unknown file)"}${line ? `:${line}` : ""}` +
+    (part.commit ? ` in commit ${part.commit.slice(0, 12)}` : "");
+  return `  MEDIUM  ${f.id}  ${where}  fix: remove the value before it becomes public\n`;
+}
+
 function main() {
   if ((process.env.GSTACK_REDACT_PREPUSH || "").toLowerCase() === "skip") {
     logSkip(process.env.GSTACK_REDACT_PREPUSH_REASON || "env-skip");
@@ -476,8 +522,7 @@ function main() {
     .filter(Boolean)
     .map((l) => l.split(/\s+/));
 
-  const allHigh: Finding[] = [];
-  let mediumCount = 0;
+  const parts: AddedFile[] = [];
 
   for (const fields of refs) {
     // Fail CLOSED on a ref line we cannot parse (#2498): git hands pre-push
@@ -511,25 +556,30 @@ function main() {
       );
       process.exit(1);
     }
-    if (!added.some((part) => part.text.trim())) continue;
-    // Visibility doesn't change HIGH behavior; pass private so nothing is treated
-    // as public-strict (HIGH blocks regardless either way).
-    // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
-    // scanned rather than blocked unscanned on the engine's size cap.
-    // Scanned per file so a pattern can use the file's type (#3048).
-    for (const part of added) {
-      for (const f of scanAddedLines(part.text, { repoVisibility: "private", ...(part.file ? { sourcePath: part.file } : {}) })) {
-        if (f.severity === "HIGH") allHigh.push(f);
-        else if (f.severity === "MEDIUM") mediumCount++;
-      }
+    parts.push(...added.filter((part) => part.text.trim()));
+  }
+
+  const allHigh: Finding[] = [];
+  const mediums: string[] = [];
+  // Visibility doesn't change HIGH behavior; pass private so nothing is treated
+  // as public-strict (HIGH blocks regardless either way).
+  // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
+  // scanned rather than blocked unscanned on the engine's size cap.
+  // Scanned per file so a pattern can use the file's type (#3048).
+  for (const part of parts) {
+    const opts = { repoVisibility: "private" as const, ...(part.file ? { sourcePath: part.file } : {}) };
+    for (const f of scanAddedLines(part.text, opts)) {
+      if (f.severity === "HIGH") allHigh.push(f);
+      else if (f.severity === "MEDIUM") mediums.push(mediumLine(f, part));
     }
   }
 
-  if (mediumCount > 0) {
+  if (mediums.length > 0) {
     process.stderr.write(
-      `gstack-redact-prepush: ${mediumCount} MEDIUM finding(s) in pushed diff (PII/internal). ` +
+      `gstack-redact-prepush: ${mediums.length} MEDIUM finding(s) in pushed diff (PII/internal). ` +
         "Not blocking. Review before this becomes public.\n",
     );
+    for (const line of mediums) process.stderr.write(line);
   }
 
   if (allHigh.length > 0) {
