@@ -10,8 +10,7 @@ import { inspectPreparation, type CsoStack } from '../lib/cso/preparation';
 import {
   admitPreparationRuntime, admitPreparationSidecar, PreparationExecutor,
   type AcquisitionReceipt, type OfflinePreparationReceipt, type PreparationAcquireRequest,
-  type PreparationSandboxRunner, type OfflinePreparationRequest,
-} from '../lib/cso/preparation-executor';
+  type PreparationSandboxRunner, type OfflinePreparationRequest, preparedIdentityEntry } from '../lib/cso/preparation-executor';
 import { CSO_HELPER_ABI } from '../lib/cso/runtime-catalog';
 import { DockerPreparationSandboxRunner, isBlockedRegistryAddress, RegistryEgressBroker } from '../lib/cso/preparation-docker';
 import { completeRuntimeCatalogFixture, qualifiedRuntimeFixture } from './helpers/cso-runtime-catalog';
@@ -189,6 +188,22 @@ describe('CSO constrained dependency preparation executor', () => {
   test('prepared dependency identity detects offline test-toolchain mutation',async()=>{
     const source=snapshot('node'),plan=inspectPreparation(source,'node'),admission=admitPreparationRuntime({plan,platform:'linux/amd64',catalog:catalog('node')}),runner=new FakeRunner(),executor=new PreparationExecutor({cache:cacheFixture(),runner}),deadline=Date.now()+60_000,closure=await executor.acquire({plan,admission,snapshot:source,deadline});
     const before=await executor.prepareOffline({plan,admission,snapshot:source,closure,deadline});runner.mutatePrepared=root=>fs.writeFileSync(path.join(root,'node_modules','.cso-dependencies'),'changed toolchain bytes');const after=await executor.prepareOffline({plan,admission,snapshot:source,closure,deadline});expect(after.preparedDependencyHash).not.toBe(before.preparedDependencyHash);
+  });
+
+  test('Rails build diagnostics with random build directories stay out of the prepared identity', () => {
+    for (const path of [
+      'vendor/bundle/ruby/3.4.0/extensions/x86_64-linux/3.4.0/date-3.5.1/gem_make.out',
+      'vendor/bundle/ruby/3.4.0/extensions/aarch64-linux/3.4.0/json-3.0.2/mkmf.log',
+      'vendor/bundle/ruby/3.4.0/gems/sqlite3-2.9.0/ext/sqlite3/tmp/x86_64-linux-gnu/ports/sqlite3/3.51.1/sqlite-autoconf-3510100/config.log',
+    ]) expect(preparedIdentityEntry('rails', path)).toBe(false);
+    for (const path of [
+      'vendor/bundle/ruby/3.4.0/extensions/x86_64-linux/3.4.0/date-3.5.1/date_core.so',
+      'vendor/bundle/ruby/3.4.0/extensions/x86_64-linux/3.4.0/date-3.5.1/gem.build_complete',
+      'vendor/bundle/ruby/3.4.0/gems/sqlite3-2.9.0/lib/sqlite3/sqlite3_native.so',
+      'vendor/bundle/ruby/3.4.0/gems/rails-8.1.2/lib/rails.rb',
+      'log/gem_make.out',
+    ]) expect(preparedIdentityEntry('rails', path)).toBe(true);
+    expect(preparedIdentityEntry('node', 'vendor/bundle/ruby/3.4.0/extensions/x86_64-linux/3.4.0/date-3.5.1/gem_make.out')).toBe(true);
   });
 
   test('network-policy and exact-command receipt changes are rejected before promotion', async () => {

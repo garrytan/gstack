@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 
 export const ABI = 3;
 export const MAX_OUTPUT = 1024 * 1024;
+/** Longest bounded verification attempt (a Rails attempt prepares two dependency trees); other stacks use 300 s. */
+export const MAX_VERIFICATION_ATTEMPT_MS = 900_000;
 const UNSAFE_STRING_CONTROLS =
   /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u;
 const UNSAFE_PROPERTY_CONTROLS = /[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u;

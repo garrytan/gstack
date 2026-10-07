@@ -6,6 +6,7 @@ import {
   AssertionWitnessBinding,
   AssertionWitnessReceipt,
   CsoError,
+  MAX_VERIFICATION_ATTEMPT_MS,
   PreparationProof,
   RepairBundle,
   RepairReviewArtifact,
@@ -1571,7 +1572,7 @@ export class DockerVerificationExecutor implements VerificationExecutor {
     private runExecutionDeadline = Date.now() + 300_000,
     private onExecutionStarted?: () => void | Promise<void>,
   ) {
-    this.attemptDeadline = Math.min(Date.now() + 300_000, runExecutionDeadline);
+    this.attemptDeadline = Math.min(Date.now() + MAX_VERIFICATION_ATTEMPT_MS, runExecutionDeadline);
   }
   async observe(
     source: string,
@@ -1898,7 +1899,7 @@ export async function verifyRepair(params: {
   }
   let guardedCleanup: (() => Promise<void>) | undefined;
   if (params.watchdogPath) {
-    const deadline = Math.min(params.attemptDeadline ?? Date.now() + 300_000, Date.now() + 300_000);
+    const deadline = Math.min(params.attemptDeadline ?? Date.now() + 300_000, Date.now() + MAX_VERIFICATION_ATTEMPT_MS);
     guardedCleanup = await attemptGuard(params.runDir, work, params.watchdogPath, deadline);
   }
   secureDirectory(observations);
@@ -1957,7 +1958,7 @@ export async function verifyRepair(params: {
       },
       session = new AssertionWitnessSession(
         observations,
-        Math.min(params.attemptDeadline ?? Date.now() + 300_000, Date.now() + 300_000),
+        Math.min(params.attemptDeadline ?? Date.now() + 300_000, Date.now() + MAX_VERIFICATION_ATTEMPT_MS),
       ),
       stable = (
         phase: 'before' | 'after',
