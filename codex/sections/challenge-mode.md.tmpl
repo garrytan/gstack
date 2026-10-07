@@ -40,7 +40,9 @@ fi
 [ -n "${TMPERR:-}" ] || TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 TMPRESP=$(mktemp "$TMP_ROOT/codex-resp-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
-_gstack_codex_select_model exec || exit 1
+_CODEX_ROLE=''
+_gstack_codex_select_model exec '' "$_CODEX_ROLE" "$_REPO_ROOT" || exit 1
+[ -z "$_CODEX_ROLE" ] || _gstack_codex_model_probe exec || exit $?
 PROMPT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not run: $PROMPT_FILE is missing or empty, so the prompt was never written. Write it, then run by hand: codex exec - -C $_REPO_ROOT < $PROMPT_FILE" >&2; exit 1; }
 _gstack_codex_timeout_wrapper 540 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" {{CODEX_MODEL_CONFIG_FLAG}} -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "

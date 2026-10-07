@@ -841,7 +841,7 @@ printf 'DESIGN_BRIEF=%s\\n' "$_DESIGN_BRIEF"
 Write the product brief to that path; remember its absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file for Codex, along with the design-direction request below; substitute its shell-quoted absolute path for the literal <prepared-prompt-file> in the invocation. Keep your draft direction out of both prompts; give the native Agent its absolute path (the product brief's path, not the Codex prompt file). Never paste brief text into shell source.` : ''}
 
 **Check ${outsideVoiceFor(ctx).label} availability:**
-${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in', acceptedOnly: isDesignConsultation })}
+${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in', acceptedOnly: isDesignConsultation, ...(isPlanDesignReview ? { role: 'plan-review' as const } : {}) })}
 
 ${isDesignConsultation ? 'Non-ready CLI: retain its repair notice and use only the native voice. The invocation deliberately rechecks the harness before spawning; native success never replaces external coverage.' : 'Declined: skip both voices. Non-ready: retain the repair notice, use only the native voice, and record `outside_status: unavailable` even if it succeeds. The invocation rechecks the harness before spawning.'}
 
@@ -853,7 +853,7 @@ Prompt (include the actual plan/product/frontend source context, not only file p
 
 "${codexPrompt}"
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort, ...(isDesignConsultation ? { purpose: 'design-direction' as const } : {}) })}
+${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort, ...(isDesignConsultation ? { purpose: 'design-direction' as const } : {}), ...(isPlanDesignReview ? { role: 'plan-review' as const } : {}) })}
 
 2. **${outsideVoiceFor(ctx).nativeLabel} design subagent** (Agent tool, \`run_in_background: false\`; await its result):
 "${subagentPrompt}"

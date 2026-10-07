@@ -473,9 +473,13 @@ then `gpt-6-astra`. Each call prints `CODEX_MODEL: <model> (<kind>; source: ...)
 For a named model, pass it as the second argument of every `_gstack_codex_select_model`
 call, and run `_gstack_codex_select_model exec '<model>'` before the probe below. An
 invalid or unavailable choice stops with a repair message, never the default.
+Only for an explicit `--role plan-review` (e.g. `/codex challenge --role plan-review`),
+set `_CODEX_ROLE='plan-review'` below and in the mode block; the mode block then
+probes and dispatches the policy model.
 
 ```bash
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_ROLE=''
 source ~/.claude/skills/gstack/bin/gstack-codex-probe || { echo "HELPER_UNAVAILABLE"; exit 1; }
 
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -491,7 +495,7 @@ fi
 if ! _gstack_codex_auth_probe >/dev/null; then
   _gstack_codex_log_event "codex_auth_failed"
   echo "AUTH_FAILED"
-elif _gstack_codex_sandbox_preflight; then   # free; Linux only
+elif _gstack_codex_sandbox_preflight && [ -z "$_CODEX_ROLE" ]; then   # free; Linux only
   _gstack_codex_model_probe   # ~10s round trip on first run, cached 1h
 fi
 _gstack_codex_version_check   # warns if known-bad, non-blocking

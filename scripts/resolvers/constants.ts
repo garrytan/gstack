@@ -57,9 +57,11 @@ export const OPENAI_LITMUS_CHECKS = [
 export const CODEX_WEB_SEARCH_FLAG = `-c 'web_search="cached"'`;
 
 /**
- * Default model for gstack-owned Codex invocations when nothing else chooses.
+ * Historical no-role Codex default and the pinned eval ruler some tests import.
+ * It does not follow the role catalog in lib/model-catalog.ts: plan-review
+ * calls resolve their model through lib/model-policy.ts at invocation time.
  *
- * The runtime model is resolved per invocation kind by
+ * A no-role runtime model is resolved per invocation kind by
  * `_gstack_codex_select_model exec|review` (bin/gstack-codex-probe, backed by
  * resolveCodexRuntimeModel in scripts/resolve-codex-generation-model.ts):
  * explicit request, then GSTACK_CODEX_MODEL, then Codex config.toml (`model`;

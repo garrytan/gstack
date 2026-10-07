@@ -151,6 +151,20 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   ID and re-renders; ./setup --claude-model claude
 #                           #   returns to the generic overlay.
 #
+# ─── Model policy (gstack-models shows the effective choices) ───────
+# plan_review_tier: frontier  # frontier | smart | host — model tier for the
+#                           #   opposing-provider plan review. host = the
+#                           #   Codex / Claude Code CLI settings choose.
+#                           #   GSTACK_CLAUDE_MODEL / GSTACK_CODEX_MODEL win.
+# implementation_tier: smart  # frontier | smart — tier gstack recommends for
+#                           #   implementing an approved plan (never switches
+#                           #   your session).
+# model_frontier_claude:    # per-tier model IDs; empty = the shipped catalog
+# model_frontier_openai:    #   recommendation (gstack-models list). Invalid
+# model_smart_claude:       #   values are REJECTED and the stored value kept;
+# model_smart_openai:       #   unset restores the shipped recommendation.
+#                           # Docs: docs/model-policy.md
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Workflow outside review (Codex or Claude Code by harness).
 #                           #   enabled: /review, /ship, /document-release, plan reviews,
@@ -278,6 +292,9 @@ lookup_default() {
     ship_measure_sweep_cases) echo "5" ;;
     ship_measure_sweep_budget_usd) echo "150" ;;
     ship_rerun_backend) echo "local" ;; # local | ubicloud (Ubicloud spend is opt-in)
+    plan_review_tier) echo "frontier" ;; # frontier | smart | host — lib/model-policy.ts reads it strictly
+    implementation_tier) echo "smart" ;; # frontier | smart
+    model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai) echo "" ;; # empty = shipped catalog ID (gstack-models list)
     # Unknown key: exit non-zero instead of printing "". The fallback pattern
     # the preambles use,
     #   VAR=$(gstack-config get <key> 2>/dev/null || echo "<default>")
@@ -678,6 +695,27 @@ case "${1:-}" in
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    case "$KEY" in
+      plan_review_tier|implementation_tier|model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai)
+        _mp_doc="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#model-policy-config"
+        VALUE="${VALUE#"${VALUE%%[![:space:]]*}"}"
+        VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
+        _mp_valid=1
+        case "$KEY" in
+          plan_review_tier) case "$VALUE" in frontier|smart|host) ;; *) _mp_valid="" ; _mp_rule="Valid values: frontier, smart, host." ;; esac ;;
+          implementation_tier) case "$VALUE" in frontier|smart) ;; *) _mp_valid="" ; _mp_rule="Valid values: frontier, smart." ;; esac ;;
+          *_claude) printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[][A-Za-z0-9._:/@+-]{1,512}$' || { _mp_valid=""; _mp_rule="An Anthropic model ID is 1-512 characters from A-Z a-z 0-9 . _ : / @ + [ ] -."; } ;;
+          *_openai) printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[A-Za-z0-9._:/-]{1,100}$' || { _mp_valid=""; _mp_rule="An OpenAI model ID is 1-100 characters from A-Z a-z 0-9 . _ : / -."; } ;;
+        esac
+        if [ -z "$VALUE" ]; then
+          echo "Error: $KEY value is empty. Existing value left unchanged. fix: gstack-config unset $KEY restores the default ($_mp_doc)" >&2
+          exit 1
+        fi
+        if [ -z "$_mp_valid" ]; then
+          echo "Error: $KEY '$VALUE' not recognized. $_mp_rule Existing value left unchanged. fix: gstack-config unset $KEY restores the default ($_mp_doc)" >&2
+          exit 1
+        fi ;;
+    esac
     # The measure-loop controls bound paid spend: reject a typo instead of
     # coercing it, so a bad value never changes how much /ship may spend.
     case "$KEY" in
@@ -882,7 +920,9 @@ case "${1:-}" in
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
-               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend; do
+               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend \
+               plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
+               model_smart_claude model_smart_openai; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -905,7 +945,9 @@ case "${1:-}" in
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
-               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend; do
+               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend \
+               plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
+               model_smart_claude model_smart_openai; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

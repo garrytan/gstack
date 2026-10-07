@@ -102,7 +102,9 @@ cd "$_REPO_ROOT" || exit 1
 PROMPT_FILE="$_REPO_ROOT/.gstack/tmp/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not run: $PROMPT_FILE is missing or empty, so the prompt was never written. Write it, then run by hand: codex exec - -C $_REPO_ROOT < $PROMPT_FILE" >&2; exit 1; }
 source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
-_gstack_codex_select_model exec || exit 1
+_CODEX_ROLE=''
+_gstack_codex_select_model exec '' "$_CODEX_ROLE" "$_REPO_ROOT" || exit 1
+[ -z "$_CODEX_ROLE" ] || _gstack_codex_model_probe exec || exit $?
 _SID=""
 if [ "$_CODEX_MODE" = "resume" ]; then
   _SID=$(cat .context/codex-session-id 2>/dev/null)

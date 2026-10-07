@@ -869,6 +869,7 @@ Add to the standard template:
   `/autoplan` for the full review gauntlet).
 - **For implementation:** the issue itself is the handoff. The implementer can
   open it and execute without re-asking the user.
+  **Implementation model:** relay the model and source from `"$HOME/.claude/skills/gstack/bin/gstack-models" resolve --role implementation --provider anthropic`. A recommendation only; gstack cannot change this session. Switch nothing, start or spawn nothing, edit no config unless asked. On error relay its repair, not a model.
 - **`/ship` integration:** when `/ship` opens a PR for a worktree that contains
   a `/spec` archive (frontmatter `spec_issue_number: <N>`) AND the PR delivers
   the full spec (acceptance criteria checked off per `/ship`'s existing

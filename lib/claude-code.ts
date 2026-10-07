@@ -2,6 +2,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { resolveClaudeCommand, type ClaudeCommand } from './claude-bin';
 import { initializeWindowsReviewJob, WindowsReviewSupervisionError } from './claude-code-windows-job';
+import { ModelPolicyError, describeSelection, resolvePlanReviewModel, type ModelSelection } from './model-policy';
+import { emitModelPolicyNotice } from './model-policy-notice';
 
 export const CLAUDE_CODE_OUTPUT_LIMIT = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 500;
@@ -13,6 +15,18 @@ export interface ClaudeCodeOptions {
   prompt: string;
   resume?: string;
   env?: NodeJS.ProcessEnv;
+  /** Caller-owned workflow role; only plan-review exists. Absent keeps legacy model behavior. */
+  role?: 'plan-review';
+  /** A record already resolved for this invocation; it is used as-is and never re-resolved. */
+  selection?: ModelSelection;
+}
+
+export interface ClaudeCodeSelectionSummary {
+  role: ModelSelection['role'];
+  tier: ModelSelection['tier'];
+  status: ModelSelection['status'];
+  requested_model: string | null;
+  source: string;
 }
 
 export interface ClaudeCodeResult {
@@ -24,6 +38,8 @@ export interface ClaudeCodeResult {
   usage?: Record<string, unknown>;
   modelUsage?: Record<string, unknown>;
   model?: string;
+  /** What gstack requested, separate from the CLI's reported model/modelUsage. */
+  selection?: ClaudeCodeSelectionSummary;
   exit_code?: number | null;
   stderr?: string;
 }
@@ -37,7 +53,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** Keep argument construction separate so wrappers never interpolate a prompt. */
-export function claudeCodeArgs(options: Pick<ClaudeCodeOptions, 'access' | 'resume'>, command: ClaudeCommand, env: NodeJS.ProcessEnv = process.env): string[] {
+export function claudeCodeArgs(options: Pick<ClaudeCodeOptions, 'access' | 'resume' | 'selection'>, command: ClaudeCommand, env: NodeJS.ProcessEnv = process.env): string[] {
   const args = [
     ...command.argsPrefix, '-p', '--output-format', 'json',
     '--disable-slash-commands',
@@ -58,9 +74,12 @@ export function claudeCodeArgs(options: Pick<ClaudeCodeOptions, 'access' | 'resu
       + 'If essential context is missing, identify it explicitly instead of inventing observations.');
   }
   if (options.access === 'read-only') args.push('--allowedTools', 'Read,Grep,Glob');
-  // An explicit gstack override wins; otherwise leave native CLI configuration
-  // and ANTHROPIC_MODEL intact instead of replacing the user's selected model.
-  if (env.GSTACK_CLAUDE_MODEL) args.push('--model', env.GSTACK_CLAUDE_MODEL);
+  // A selected record already ranked GSTACK_CLAUDE_MODEL; delegated host mode
+  // passes no model. One joined argument keeps an ID starting with '-' a value. Without a record, an explicit gstack override wins;
+  // otherwise leave native CLI configuration and ANTHROPIC_MODEL intact.
+  if (options.selection) {
+    if (options.selection.status === 'selected') args.push(`--model=${options.selection.requestedModel}`);
+  } else if (env.GSTACK_CLAUDE_MODEL) args.push('--model', env.GSTACK_CLAUDE_MODEL);
   if (options.resume) args.push('--resume', options.resume);
   return args;
 }
@@ -127,24 +146,43 @@ export function parseClaudeCodeResult(stdout: string, stderr: string, exitCode: 
 export async function runClaudeCode(options: ClaudeCodeOptions): Promise<ClaudeCodeResult> {
   if (!options.cwd || !['none', 'read-only'].includes(options.access) ||
       !Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0 || options.timeoutMs > 2_147_483_647 ||
-      !options.prompt.trim() || (options.resume !== undefined && !options.resume.trim())) {
+      !options.prompt.trim() || (options.resume !== undefined && !options.resume.trim()) ||
+      (options.role !== undefined && options.role !== 'plan-review')) {
     return failure('arguments', 'Provide --cwd, --access none|read-only, a positive --timeout-ms, and a nonempty prompt on stdin.');
   }
   const env = options.env ?? process.env;
   const command = resolveClaudeCommand(env);
   if (!command) return failure('not-found', 'Claude Code CLI not found. Install Claude Code or set GSTACK_CLAUDE_BIN, then retry.', true);
+  let selection = options.selection;
+  if (!selection && options.role === 'plan-review') {
+    try {
+      selection = resolvePlanReviewModel({ provider: 'anthropic', env, cwd: options.cwd });
+    } catch (error) {
+      if (!(error instanceof ModelPolicyError)) throw error;
+      return failure(error.reason, `${error.problem} ${error.cause} Repair: ${error.repair.join('; ')}. ${error.docs} No Claude Code call was made; outside coverage is unavailable.`, true);
+    }
+  }
+  if (selection) {
+    process.stderr.write(`CLAUDE_MODEL: ${describeSelection(selection)}\n`);
+    if (selection.role === 'plan-review') emitModelPolicyNotice(selection, { env });
+  }
+  const summary: ClaudeCodeSelectionSummary | undefined = selection && {
+    role: selection.role, tier: selection.tier, status: selection.status,
+    requested_model: selection.requestedModel, source: selection.source.label,
+  };
+  const withSelection = (result: ClaudeCodeResult): ClaudeCodeResult => (summary ? { ...result, selection: summary } : result);
 
   let child: ChildProcess;
   try {
-    child = spawn(command.command, claudeCodeArgs(options, command, env), {
+    child = spawn(command.command, claudeCodeArgs({ ...options, selection }, command, env), {
       cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe'],
       detached: process.platform !== 'win32', windowsHide: true,
     });
   } catch (error) {
-    return failure('spawn', `Claude Code could not start: ${(error as Error).message}`, true);
+    return withSelection(failure('spawn', `Claude Code could not start: ${(error as Error).message}`, true));
   }
 
-  return await new Promise<ClaudeCodeResult>((resolve) => {
+  return withSelection(await new Promise<ClaudeCodeResult>((resolve) => {
     let settled = false;
     let stopped: ClaudeCodeResult | undefined;
     let exitCode: number | null = null;
@@ -222,7 +260,7 @@ export async function runClaudeCode(options: ClaudeCodeOptions): Promise<ClaudeC
       }
     });
     child.stdin?.end(options.prompt);
-  });
+  }));
 }
 
 export async function claudeCodeMain(argv: string[]): Promise<number> {
@@ -230,22 +268,24 @@ export async function claudeCodeMain(argv: string[]): Promise<number> {
   try {
     const values = new Map<string, string>();
     for (let i = 0; i < argv.length; i += 2) {
-      if (!['--cwd', '--access', '--timeout-ms', '--resume'].includes(argv[i]) || values.has(argv[i]) || argv[i + 1] === undefined) {
-        throw new Error('Usage: gstack-claude-code --cwd <repo> --access none|read-only --timeout-ms <n> [--resume <session-id>] (prompt on stdin)');
+      if (!['--cwd', '--access', '--timeout-ms', '--resume', '--role'].includes(argv[i]) || values.has(argv[i]) || argv[i + 1] === undefined) {
+        throw new Error('Usage: gstack-claude-code --cwd <repo> --access none|read-only --timeout-ms <n> [--resume <session-id>] [--role plan-review] (prompt on stdin)');
       }
       values.set(argv[i], argv[i + 1]);
     }
     const cwd = values.get('--cwd') ?? '';
     const access = values.get('--access') as ClaudeCodeOptions['access'];
     const timeoutMs = Number(values.get('--timeout-ms'));
-    if (!cwd || !['none', 'read-only'].includes(access) || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
-      throw new Error('Provide --cwd, --access none|read-only, and a positive --timeout-ms.');
+    const role = values.get('--role');
+    if (!cwd || !['none', 'read-only'].includes(access) || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647 ||
+        (role !== undefined && role !== 'plan-review')) {
+      throw new Error('Provide --cwd, --access none|read-only, a positive --timeout-ms, and optionally --role plan-review.');
     }
     // This entry runs in a dedicated process. Its Windows job owns the CLI and
     // descendants even after the immediate provider process exits; the final
     // process.exit happens only after the result below has flushed to stdout.
     await initializeWindowsReviewJob();
-    result = await runClaudeCode({ cwd, access, timeoutMs, resume: values.get('--resume'), prompt: await Bun.stdin.text() });
+    result = await runClaudeCode({ cwd, access, timeoutMs, resume: values.get('--resume'), role: role as ClaudeCodeOptions['role'], prompt: await Bun.stdin.text() });
   } catch (error) {
     result = error instanceof WindowsReviewSupervisionError
       ? failure('supervision', error.message, true)

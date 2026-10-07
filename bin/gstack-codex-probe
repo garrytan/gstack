@@ -10,6 +10,8 @@
 #   _gstack_codex_first_use_notice — once per machine: provider, account, how to turn off
 #   _gstack_codex_model_probe     — round-trip probe of the selected model (#2477);
 #                                   exit 4 = the account's Codex usage limit
+#   _gstack_codex_lock_acquire    — bounded mkdir lock with abandoned-owner recovery
+#   _gstack_codex_role_ready      — plan-review selection, auth, sandbox and model probe in one shell
 #   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
 #   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> bash-native watchdog
 #   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
@@ -114,31 +116,63 @@ _gstack_codex_select_model() {
   # One selection record per invocation kind, shared by the probe and the
   # dispatch flag in the same block: explicit request ($2), GSTACK_CODEX_MODEL,
   # Codex config.toml (review_model first for native review), gstack default.
+  # With $3 = plan-review the plan-review policy ranks the choice instead and
+  # its record carries role, tier, source and source-aware repair; $4 names the
+  # target repository whose project settings can route to a custom endpoint.
   # The TOML is read by the TypeScript resolver; bash never parses it.
-  local _kind="${1:-exec}" _explicit="${2:-}" _line _rc
+  local _kind="${1:-exec}" _explicit="${2:-}" _role="${3:-}" _cwd="${4:-}" _line _rc _rest
   case "$_kind" in exec|review) ;; *) echo "ERROR: _gstack_codex_select_model takes exec or review" >&2; return 2 ;; esac
+  case "$_role" in ''|plan-review) ;; *) echo "ERROR: _gstack_codex_select_model role must be plan-review" >&2; return 2 ;; esac
   if ! command -v bun >/dev/null 2>&1; then
     echo "CODEX_MODEL: unresolved — bun is not on PATH, so gstack cannot read the Codex model choice. Reinstall gstack with ./setup; no Codex call was made." >&2
     return 1
   fi
-  if [ -n "$_explicit" ]; then
-    _line=$(bun run "$_GSTACK_CODEX_BIN/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind" --explicit "$_explicit")
-  else
-    _line=$(bun run "$_GSTACK_CODEX_BIN/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind")
-  fi
+  # Function-local argv: each value stays one literal argument in bash and zsh.
+  set -- --runtime "$_kind"
+  [ -n "$_role" ] && set -- "$@" --role "$_role"
+  [ -n "$_explicit" ] && set -- "$@" --explicit "$_explicit"
+  [ -n "$_cwd" ] && set -- "$@" --cwd "$_cwd"
+  _line=$(bun run "$_GSTACK_CODEX_BIN/../scripts/resolve-codex-generation-model.ts" "$@")
   _rc=$?
   _GSTACK_CODEX_SEL="${_line%%$'\t'*}"
-  _GSTACK_CODEX_SEL_SRC="${_line#*$'\t'}"
+  _rest="${_line#*$'\t'}"
+  _GSTACK_CODEX_SEL_TIER=""
+  _GSTACK_CODEX_SEL_REPAIR=""
+  if [ -n "$_role" ]; then
+    _GSTACK_CODEX_SEL_SRC="${_rest%%$'\t'*}"
+    _rest="${_rest#*$'\t'}"
+    _GSTACK_CODEX_SEL_TIER="${_rest%%$'\t'*}"
+    _GSTACK_CODEX_SEL_REPAIR="${_rest#*$'\t'}"
+  else
+    _GSTACK_CODEX_SEL_SRC="$_rest"
+  fi
   case "$_GSTACK_CODEX_SEL" in ''|*[!A-Za-z0-9._:/-]*) _rc=1 ;; esac
   if [ "$_rc" -ne 0 ] || [ "${#_GSTACK_CODEX_SEL}" -gt 100 ]; then
     _GSTACK_CODEX_SEL=""
     _GSTACK_CODEX_SEL_SRC=""
+    _GSTACK_CODEX_SEL_ROLE=""
     echo "CODEX_MODEL: invalid — Codex outside review unavailable; missing coverage. No Codex call was made. Fix the model choice above; gstack never substitutes its default for it." >&2
     return 1
   fi
   _GSTACK_CODEX_SEL_KIND="$_kind"
-  echo "CODEX_MODEL: $_GSTACK_CODEX_SEL ($_kind; source: $_GSTACK_CODEX_SEL_SRC)" >&2
+  _GSTACK_CODEX_SEL_ROLE="$_role"
+  _GSTACK_CODEX_SEL_CWD="$_cwd"
+  if [ -n "$_role" ]; then
+    echo "CODEX_MODEL: $_GSTACK_CODEX_SEL ($_kind; role: $_role, tier: $_GSTACK_CODEX_SEL_TIER; source: $_GSTACK_CODEX_SEL_SRC)" >&2
+  else
+    echo "CODEX_MODEL: $_GSTACK_CODEX_SEL ($_kind; source: $_GSTACK_CODEX_SEL_SRC)" >&2
+  fi
   _gstack_codex_sandbox_mode
+}
+
+_gstack_codex_role_ready() {
+  # $1 exec|review, $2 target repository. Resolves the plan-review model once and
+  # checks auth, the sandbox and that model; the caller dispatches the same record.
+  _gstack_codex_select_model "$1" '' plan-review "${2:-}" || return 1
+  _gstack_codex_auth_probe || return 1
+  _gstack_codex_sandbox_preflight >/dev/null || return 1
+  _gstack_codex_version_check
+  _gstack_codex_model_probe "$1"
 }
 
 # --- Sandbox (B1) -----------------------------------------------------------
@@ -246,7 +280,7 @@ _gstack_codex_model_probe() {
   # auth just measures the auth failure again.
   local _kind="${1:-exec}"
   if [ -z "${_GSTACK_CODEX_SEL:-}" ] || [ "${_GSTACK_CODEX_SEL_KIND:-}" != "$_kind" ]; then
-    if ! _gstack_codex_select_model "$_kind"; then
+    if ! _gstack_codex_select_model "$_kind" "" "${_GSTACK_CODEX_SEL_ROLE:-}" "${_GSTACK_CODEX_SEL_CWD:-}"; then
       echo "MODEL_UNUSABLE"
       echo "HINT: the requested Codex model is not a valid model id; fix it as described above."
       return 1
@@ -286,36 +320,42 @@ _gstack_codex_model_probe() {
   local _now
   _now=$(date +%s 2>/dev/null || echo 0)
   local _docs="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md"
-  if [ -n "$_cache" ] && [ -f "$_cache" ]; then
-    local _c_line _c_status _c_ts _c_sig
-    _c_line=$(head -1 "$_cache" 2>/dev/null)
-    _c_status=$(printf '%s' "$_c_line" | cut -d' ' -f1)
-    _c_ts=$(printf '%s' "$_c_line" | cut -d' ' -f2)
-    _c_sig=$(printf '%s' "$_c_line" | cut -d' ' -f3)
-    case "$_c_ts" in ''|*[!0-9]*) _c_ts=0 ;; esac
-    if [ "$_c_status" = "MODEL_OK" ] && [ "$_c_sig" = "$_sig" ] && [ $((_now - _c_ts)) -lt 3600 ]; then
-      echo "MODEL_OK (cached)"
-      return 0
+  # Up to 16 signatures share one cache file. Same-signature misses serialize
+  # on a bounded lock and recheck the cache, so concurrent callers pay for one
+  # round trip. A lock timeout or unreadable cache is unverified readiness,
+  # never a duplicate paid probe; the review's own result still decides.
+  local _lock="" _rc
+  if [ -n "$_cache" ]; then
+    _gstack_codex_probe_cache_hit; _rc=$?
+    [ "$_rc" -lt 10 ] && return "$_rc"
+    if [ "$_rc" -eq 11 ]; then _gstack_codex_probe_unverified "probe cache $_cache is unreadable"; return 0; fi
+    _lock="$_gstack_home/.codex-model-probe.locks/$_sig"
+    if ! mkdir -p "$_gstack_home/.codex-model-probe.locks" 2>/dev/null; then
+      _gstack_codex_probe_unverified "cannot create the probe lock under $_gstack_home"; return 0
     fi
-    [ "${GSTACK_CODEX_PROBE_RETRY:-}" = "1" ] && _c_sig="retry"
-    if [ "$_c_status" = "MODEL_QUOTA_EXHAUSTED" ] && [ "$_c_sig" = "$_sig" ] && [ $((_now - _c_ts)) -lt 900 ]; then
-      echo "MODEL_QUOTA_EXHAUSTED (cached)"
-      sed -n '2,4p' "$_cache" 2>/dev/null
-      echo "HINT: Codex refused this account's calls for its usage limit (Codex's line above names the reset time); the model choice is fine. No Codex call was made: gstack skips Codex for $(( (_c_ts + 900 - _now + 59) / 60 )) more minute(s). Retry now: GSTACK_CODEX_PROBE_RETRY=1, or delete $_cache. $_docs#codex-quota-exhausted"
-      return 4
-    fi
-    if [ "$_c_status" = "MODEL_UNUSABLE" ] && [ "$_c_sig" = "$_sig" ] && [ $((_now - _c_ts)) -lt 900 ]; then
-      echo "MODEL_UNUSABLE (cached)"
-      echo "HINT: gstack requested model '$_model' (source: $_GSTACK_CODEX_SEL_SRC)."
-      echo "HINT: choose a model your account can use: set GSTACK_CODEX_MODEL=<supported-model>, set model in $_codex_home/config.toml, or name one for this request."
-      return 1
+    _gstack_codex_lock_acquire "$_lock" "${_GSTACK_CODEX_LOCK_WAIT:-45}" "${_GSTACK_CODEX_LOCK_STALE:-90}"; _rc=$?
+    if [ "$_rc" -eq 1 ]; then _gstack_codex_probe_unverified "another probe of this model still holds its lock"; return 0; fi
+    if [ "$_rc" -ne 0 ]; then _gstack_codex_probe_unverified "cannot record ownership of the probe lock under $_gstack_home"; return 0; fi
+    _gstack_codex_probe_cache_hit; _rc=$?
+    if [ "$_rc" -lt 10 ] || [ "$_rc" -eq 11 ]; then
+      _gstack_codex_lock_release "$_lock"
+      [ "$_rc" -eq 11 ] && { _gstack_codex_probe_unverified "probe cache $_cache is unreadable"; return 0; }
+      return "$_rc"
     fi
   fi
+  _gstack_codex_probe_round_trip; _rc=$?
+  [ -n "$_lock" ] && _gstack_codex_lock_release "$_lock"
+  return "$_rc"
+}
+
+_gstack_codex_probe_round_trip() {
+  # The paid round trip and its classification. Called only by
+  # _gstack_codex_model_probe; reads its locals (_model, _sig, _cache, ...).
   local _out _code
   _out=$(_gstack_codex_timeout_wrapper 30 codex exec --skip-git-repo-check -s read-only -c "model=\"$_model\"" -c 'skills.include_instructions=false' "reply OK" </dev/null 2>&1)
   _code=$?
   if [ "$_code" -eq 0 ]; then
-    [ -n "$_cache" ] && { mkdir -p "$_gstack_home" 2>/dev/null; printf 'MODEL_OK %s %s\n' "$_now" "$_sig" > "$_cache" 2>/dev/null; }
+    _gstack_codex_probe_cache_store MODEL_OK
     echo "MODEL_OK"
     return 0
   fi
@@ -335,7 +375,7 @@ _gstack_codex_model_probe() {
   fi
   _q_lines=$(printf '%s' "$_err" | grep -iE "usage limit|insufficient_quota|exceeded your current quota|quota exceeded" | head -3)
   if [ -n "$_q_lines" ]; then
-    [ -n "$_cache" ] && { mkdir -p "$_gstack_home" 2>/dev/null; printf 'MODEL_QUOTA_EXHAUSTED %s %s\n%s\n' "$_now" "$_sig" "$_q_lines" > "$_cache" 2>/dev/null; }
+    _gstack_codex_probe_cache_store MODEL_QUOTA_EXHAUSTED "$_q_lines"
     echo "MODEL_QUOTA_EXHAUSTED"
     printf '%s\n' "$_q_lines"
     echo "HINT: Codex refused the call for this account's usage limit (Codex's line above names the reset time); the model choice is fine. Outside coverage is unavailable: gstack skips Codex for 15 minutes. Retry now: GSTACK_CODEX_PROBE_RETRY=1${_cache:+, or delete $_cache}. $_docs#codex-quota-exhausted"
@@ -357,7 +397,7 @@ _gstack_codex_model_probe() {
   # base_url answers a bare 404; neither is network luck, so neither may fall
   # through to the inconclusive branch below and report ready (#2843).
   if printf '%s' "$_out" | grep -qiE 'model.{0,40}is not supported|"status":[[:space:]]*40[04]|requires a newer version of codex|does not exist or you do not have access|model.{0,40}does not exist|404 not found|status:?[[:space:]]*404'; then
-    [ -n "$_cache" ] && { mkdir -p "$_gstack_home" 2>/dev/null; printf 'MODEL_UNUSABLE %s %s\n' "$_now" "$_sig" > "$_cache" 2>/dev/null; }
+    _gstack_codex_probe_cache_store MODEL_UNUSABLE
     echo "MODEL_UNUSABLE"
     printf '%s\n' "$_out" | grep -iE "model|404" | head -3
     echo "HINT: gstack requested model '$_model' (source: $_GSTACK_CODEX_SEL_SRC)."
@@ -366,10 +406,14 @@ _gstack_codex_model_probe() {
       _gstack_codex_log_event "codex_cli_outdated" 2>/dev/null || true
     elif printf '%s' "$_out" | grep -qiE 'does not exist|404'; then
       echo "HINT: Codex answered 404: either the model is retired or not visible to this account, or a custom provider's base_url in $_codex_home/config.toml is wrong."
-      echo "HINT: choose a current model (GSTACK_CODEX_MODEL=<supported-model> or model in config.toml), or fix that provider's base_url."
+      if [ -n "${_GSTACK_CODEX_SEL_REPAIR:-}" ]; then
+        echo "HINT: choose a current model ($_GSTACK_CODEX_SEL_REPAIR), or fix that provider's base_url."
+      else
+        echo "HINT: choose a current model (GSTACK_CODEX_MODEL=<supported-model> or model in config.toml), or fix that provider's base_url."
+      fi
       _gstack_codex_log_event "codex_model_retired" 2>/dev/null || true
     else
-      echo "HINT: choose a model your account can use: set GSTACK_CODEX_MODEL=<supported-model>, set model in $_codex_home/config.toml, or name one for this request."
+      _gstack_codex_model_repair_hint
       _gstack_codex_log_event "codex_model_unusable" 2>/dev/null || true
     fi
     return 1
@@ -397,6 +441,160 @@ _gstack_codex_model_probe() {
   # skills rendered before this marker keep running the review.
   _GSTACK_CODEX_PROBE_STATE="inconclusive"
   echo "MODEL_PROBE_INCONCLUSIVE (exit $_code) — CODEX_MODE: unverified; proceeding, and the review's own result is still checked. If invocations fail with a model 400, see the codex skill's Error Handling entry."
+  return 0
+}
+
+_gstack_codex_model_repair_hint() {
+  # Repair for the record actually selected: a plan-review record names its
+  # winning source (request, env, tier override, catalog or host mode).
+  if [ -n "${_GSTACK_CODEX_SEL_REPAIR:-}" ]; then
+    echo "HINT: choose a model your account can use: $_GSTACK_CODEX_SEL_REPAIR"
+  else
+    echo "HINT: choose a model your account can use: set GSTACK_CODEX_MODEL=<supported-model>, set model in ${_codex_home:-\$CODEX_HOME}/config.toml, or name one for this request."
+  fi
+}
+
+_gstack_codex_probe_unverified() {
+  _GSTACK_CODEX_PROBE_STATE="inconclusive"
+  echo "MODEL_PROBE_INCONCLUSIVE ($1) — CODEX_MODE: unverified; no duplicate probe was made, and the review's own result is still checked."
+}
+
+_gstack_codex_probe_cache_hit() {
+  # Cache file: one "STATUS EPOCH SIGNATURE" line per entry, newest last, each
+  # followed by its tab-prefixed Codex lines. The pre-v2 one-entry file has the
+  # same first line, so it migrates by TTL; its unprefixed lines are ignored.
+  # Returns 0/1/4 after printing a hit, 10 on a miss, 11 when unreadable.
+  [ -e "$_cache" ] || return 10
+  { [ -f "$_cache" ] && [ -r "$_cache" ]; } || return 11
+  local _hit _head _c_status _c_ts _detail=""
+  _hit=$(awk -v sig="$_sig" '
+    /^(MODEL_OK|MODEL_UNUSABLE|MODEL_QUOTA_EXHAUSTED) [0-9]+ [0-9]+$/ { cur = ($3 == sig); if (cur) out = $1 " " $2; next }
+    /^\t/ { if (cur) out = out "\n" substr($0, 2); next }
+    { cur = 0 }
+    END { if (out != "") print out }' "$_cache" 2>/dev/null) || return 11
+  [ -n "$_hit" ] || return 10
+  _head="${_hit%%$'\n'*}"
+  [ "$_head" != "$_hit" ] && _detail="${_hit#*$'\n'}"
+  _c_status="${_head%% *}"
+  _c_ts="${_head#* }"
+  case "$_c_ts" in ''|*[!0-9]*) return 10 ;; esac
+  [ "$_c_ts" -le "$_now" ] || return 10
+  if [ "$_c_status" = "MODEL_OK" ] && [ $((_now - _c_ts)) -lt 3600 ]; then
+    echo "MODEL_OK (cached)"
+    return 0
+  fi
+  [ "${GSTACK_CODEX_PROBE_RETRY:-}" = "1" ] && return 10
+  if [ "$_c_status" = "MODEL_QUOTA_EXHAUSTED" ] && [ $((_now - _c_ts)) -lt 900 ]; then
+    echo "MODEL_QUOTA_EXHAUSTED (cached)"
+    [ -n "$_detail" ] && printf '%s\n' "$_detail"
+    echo "HINT: Codex refused this account's calls for its usage limit (Codex's line above names the reset time); the model choice is fine. No Codex call was made: gstack skips Codex for $(( (_c_ts + 900 - _now + 59) / 60 )) more minute(s). Retry now: GSTACK_CODEX_PROBE_RETRY=1, or delete $_cache. $_docs#codex-quota-exhausted"
+    return 4
+  fi
+  if [ "$_c_status" = "MODEL_UNUSABLE" ] && [ $((_now - _c_ts)) -lt 900 ]; then
+    echo "MODEL_UNUSABLE (cached)"
+    echo "HINT: gstack requested model '$_model' (source: $_GSTACK_CODEX_SEL_SRC)."
+    _gstack_codex_model_repair_hint
+    return 1
+  fi
+  return 10
+}
+
+_gstack_codex_probe_cache_store() {
+  # $1 status, $2 optional Codex lines. Rewrites the file under a short write
+  # lock and publishes it with one rename: this signature's entry replaces any
+  # older one, expired entries drop, and at most 16 entries remain. A failure
+  # leaves the previous file intact; the probe's own result still stands.
+  [ -n "$_cache" ] || return 0
+  [ -d "$_cache" ] && return 1
+  local _w="$_gstack_home/.codex-model-probe.locks/write" _tmp="$_cache.tmp.$$" _wrc=0
+  mkdir -p "$_gstack_home/.codex-model-probe.locks" 2>/dev/null || return 1
+  _gstack_codex_lock_acquire "$_w" 5 30 || return 1
+  : > "$_tmp" 2>/dev/null || _wrc=1
+  if [ "$_wrc" -eq 0 ] && [ -f "$_cache" ]; then
+    awk -v now="$_now" -v sig="$_sig" -v keep=15 '
+      /^(MODEL_OK|MODEL_UNUSABLE|MODEL_QUOTA_EXHAUSTED) [0-9]+ [0-9]+$/ {
+        ttl = ($1 == "MODEL_OK") ? 3600 : 900
+        cur = ($3 != sig && $2 <= now && now - $2 < ttl)
+        if (cur) entry[++n] = $0
+        next
+      }
+      /^\t/ { if (cur) entry[n] = entry[n] "\n" $0; next }
+      { cur = 0 }
+      END { for (i = (n > keep ? n - keep + 1 : 1); i <= n; i++) print entry[i] }' "$_cache" > "$_tmp" 2>/dev/null || _wrc=1
+  fi
+  if [ "$_wrc" -eq 0 ]; then
+    {
+      printf '%s %s %s\n' "$1" "$_now" "$_sig"
+      [ -z "${2:-}" ] || printf '%s\n' "$2" | awk '{ print "\t" $0 }'
+    } >> "$_tmp" 2>/dev/null && mv -f "$_tmp" "$_cache" 2>/dev/null || _wrc=1
+  fi
+  rm -f "$_tmp" 2>/dev/null
+  _gstack_codex_lock_release "$_w"
+  return "$_wrc"
+}
+
+# --- Bounded lock -----------------------------------------------------------
+
+_gstack_codex_lock_acquire() {
+  # $1 lock directory, $2 seconds to wait, $3 seconds after which even a live
+  # owner is abandoned. mkdir is atomic on every platform bash runs on. A dead
+  # owner on this host is recovered at once; a missing owner file is the
+  # creation window and becomes stale after 5 seconds. 0 = held, 1 = timed
+  # out, 2 = the lock or its owner record cannot be created.
+  local _dir="$1" _tries=$(( ${2:-45} * 10 )) _stale="${3:-90}" _host _owner _pid _ohost _ts _now _i=0 _dead
+  _host=$(uname -n 2>/dev/null || echo unknown)
+  while :; do
+    if mkdir "$_dir" 2>/dev/null; then
+      printf '%s %s %s\n' "$$" "$_host" "$(date +%s 2>/dev/null || echo 0)" > "$_dir/owner" 2>/dev/null && return 0
+      rm -f "$_dir/owner" 2>/dev/null
+      rmdir "$_dir" 2>/dev/null
+      return 2
+    fi
+    [ -d "$_dir" ] || return 2
+    _now=$(date +%s 2>/dev/null || echo 0)
+    _owner=$(cat "$_dir/owner" 2>/dev/null)
+    _dead=0
+    if [ -n "$_owner" ]; then
+      read -r _pid _ohost _ts <<< "$_owner"
+      case "$_pid" in ''|*[!0-9]*) _pid=0 ;; esac
+      case "$_ts" in ''|*[!0-9]*) _ts=0 ;; esac
+      if [ "$_ohost" = "$_host" ] && ! kill -0 "$_pid" 2>/dev/null; then _dead=1; fi
+      [ $((_now - _ts)) -ge "$_stale" ] && _dead=1
+    else
+      _ts=$(stat -c %Y "$_dir" 2>/dev/null || stat -f %m "$_dir" 2>/dev/null || echo 0)
+      case "$_ts" in ''|*[!0-9]*) _ts=0 ;; esac
+      [ $((_now - _ts)) -ge 5 ] && _dead=1
+    fi
+    [ "$_dead" -eq 1 ] && _gstack_codex_lock_break "$_dir" "$_owner"
+    [ "$_i" -ge "$_tries" ] && return 1
+    _i=$((_i + 1))
+    sleep 0.1
+  done
+}
+
+_gstack_codex_lock_break() {
+  # Breakers serialize on $1.break and remove the lock only if it still has the
+  # owner they judged abandoned, so a lock re-taken meanwhile survives.
+  local _dir="$1" _seen="$2" _bt _now
+  if mkdir "$_dir.break" 2>/dev/null; then
+    [ "$(cat "$_dir/owner" 2>/dev/null)" = "$_seen" ] && rm -rf "$_dir" 2>/dev/null
+    rmdir "$_dir.break" 2>/dev/null
+    return 0
+  fi
+  _now=$(date +%s 2>/dev/null || echo 0)
+  _bt=$(stat -c %Y "$_dir.break" 2>/dev/null || stat -f %m "$_dir.break" 2>/dev/null || echo "$_now")
+  case "$_bt" in ''|*[!0-9]*) _bt="$_now" ;; esac
+  [ $((_now - _bt)) -ge 10 ] && rmdir "$_dir.break" 2>/dev/null
+  return 0
+}
+
+_gstack_codex_lock_release() {
+  # Remove only a lock this shell still owns.
+  local _host
+  _host=$(uname -n 2>/dev/null || echo unknown)
+  case "$(cat "$1/owner" 2>/dev/null)" in
+    "$$ $_host "*) rm -rf "$1" 2>/dev/null ;;
+  esac
   return 0
 }
 

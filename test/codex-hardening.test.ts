@@ -937,15 +937,17 @@ describe('codex broken-install detection (#2742)', () => {
   // hand-maintained copy that isn't resolver-generated — it must capture the
   // probe's exit code and route 2 to its own broken-install arm, or /autoplan
   // prints the wrong remedy for a broken binary.
-  test('autoplan preflight (tmpl + rendered) captures the probe exit and routes 2 to broken-install', () => {
-    for (const rel of ['autoplan/SKILL.md.tmpl', 'autoplan/SKILL.md']) {
-      const raw = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      const src = rel.endsWith('.tmpl') ? raw.replace('{{OUTSIDE_PREFLIGHT:autoplan}}', RESOLVERS.OUTSIDE_PREFLIGHT({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'autoplan', tmplPath: rel }, ['autoplan'])) : raw;
-      expect(src).toContain('_gstack_codex_model_probe; _CODEX_MP=$?');
-      expect(src).toMatch(/_CODEX_MP" -eq 2/);
-      expect(src).toContain('binary cannot run');
-      expect(src).not.toContain('elif ! _gstack_codex_model_probe');
+  test('autoplan (tmpl + rendered): availability pays for no probe; the invocation probe exit, 2 included, ends it', () => {
+    const ctx = { host: 'claude' as const, paths: HOST_PATHS.claude, skillName: 'autoplan', tmplPath: 'autoplan/SKILL.md.tmpl' };
+    const rendered = ['autoplan/SKILL.md', ...['ceo', 'design', 'dx', 'eng'].map(phase => `autoplan/sections/${phase}-phase.md`)]
+      .map(rel => fs.readFileSync(path.join(ROOT, rel), 'utf-8')).join('\n');
+    for (const src of [RESOLVERS.OUTSIDE_PREFLIGHT(ctx, ['autoplan']) + RESOLVERS.OUTSIDE_INVOCATION(ctx, ['autoplan']), rendered]) {
+      expect(src).toContain('_gstack_codex_role_ready exec "$_REPO_ROOT" || exit $?');
+      expect(src).not.toMatch(/_gstack_codex_model_probe|_CODEX_MP/);
     }
+    const role = fs.readFileSync(PROBE, 'utf-8').match(/_gstack_codex_role_ready\(\) \{[\s\S]*?\n\}/)![0];
+    expect(role).toContain('_gstack_codex_model_probe "$1"');
+    expect(role.trim().split('\n').at(-2)!.trim()).toBe('_gstack_codex_model_probe "$1"');
   });
 
   test('the preflight resolver routes exit 2 to broken_install', () => {
