@@ -1,7 +1,7 @@
 /**
  * A6 acceptance: the generated ship skill runs the measure-then-fix loop on a
- * red paid eval (classify, measure alone, fix at the cause, re-measure, gate
- * once) and measures a failed free shard before calling it pre-existing, and
+ * red paid eval (classify, measure alone, decide by the measurement bar, fix
+ * at the cause, re-measure, gate once) and measures a failed free shard before calling it pre-existing, and
  * it states the "diagnostic, not verdict" rule. Every ship-measure command and
  * flag the skill names exists in scripts/ship-measure.ts.
  */
@@ -25,8 +25,8 @@ describe('the generated ship skill runs the loop (A6 acceptance)', () => {
     expect(skeleton).toContain('| `sections/measure.md` |');
   });
 
-  test('the loop steps run in order: classify, plan, measure, fix, re-measure, stop, then gate once', () => {
-    const steps = ['1. **Classify.**', '2. **Show the plan.**', '3. **Measure.**', '4. **Fix at the cause.**', '5. **Re-measure.**', '6. **Stop.**', '**Gate once.**'];
+  test('the loop steps run in order: classify, plan, measure, decide, fix, re-measure, stop, then gate once', () => {
+    const steps = ['1. **Classify.**', '2. **Show the plan.**', '3. **Measure.**', '4. **Decide by the exit code**', '5. **Fix at the cause.**', '6. **Re-measure.**', '7. **Stop.**', '**Gate once.**'];
     const positions = steps.map(step => loop.indexOf(step));
     expect(positions.every(p => p >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
@@ -34,6 +34,17 @@ describe('the generated ship skill runs the loop (A6 acceptance)', () => {
     // A push that runs the gate in CI is the gate run; a second dispatch doubles the paid gate.
     expect(loop).toContain('the push is the gate run');
     expect(loop).toContain('do not also start the gate command');
+  });
+
+  test('the decision branches on every exit code the runner returns, with the bar and its rules', () => {
+    const decideStep = loop.slice(loop.indexOf('4. **Decide by the exit code**'), loop.indexOf('5. **Fix at the cause.**'));
+    for (const code of ['- 0: MEETS or MEETS-qualified', '- 5: needs-classify', '- 6: EXTEND', '- 1: BELOW']) expect(decideStep).toContain(code);
+    for (const cls of ['provider', 'judge-noise', 'model-miss', 'timeout', 'hang', 'regression', 'fixable', 'unclassified']) expect(decideStep).toContain(`\`${cls}\``);
+    expect(decideStep).toMatch(/MEETS 9\/10, MEETS-qualified 8\/10[\s\S]*EXTEND 7\/10; behavior 11\/12, 10\/12, 9\/12/);
+    expect(decideStep).toMatch(/never a third batch/i);
+    expect(loop.slice(loop.indexOf('7. **Stop.**'))).toContain('Exit 3 is a named red');
+    const source = fs.readFileSync(path.join(ROOT, 'scripts/lib/measure-bar.ts'), 'utf8');
+    for (const cls of ['provider', 'judge-noise', 'model-miss', 'timeout', 'hang', 'regression', 'fixable', 'unclassified']) expect(source).toContain(`'${cls}'`);
   });
 
   test('the diagnostic-not-verdict rule, the honest-fix rule and the unmeasured label are stated', () => {

@@ -28,26 +28,35 @@ completed at the cap) and one failure capture, then continue the triage.
    before any paid trial. A red that is infrastructure (provider outage, runner
    loss) may skip measurement: `ship-measure skip --case <id> --reason "<why>"`
    labels it `unmeasured` in the PR body. It never counts as a pass.
-2. **Show the plan.** Print `ship-measure table` (trials, pass bar, panels and
-   budget per kind, from the `ship_measure_*` gstack config keys) and the
-   estimate: per-trial cost from pass-rate history times trials, or "estimate unknown".
+2. **Show the plan.** Print `ship-measure table` (trials, bar and budget per
+   kind, from the `ship_measure_*` gstack config keys) and the estimate:
+   per-trial cost from pass-rate history times trials, or "estimate unknown".
 3. **Measure.** `ship-measure measure --case <id> --round baseline [--cost-per-trial <usd>]`
-   runs the case alone on the current head at its kind's count, in parallel. It
-   uses the project's documented single-case eval command,
-   `--command '<command> {case}'`, found the way Step 4 finds test commands
-   (CLAUDE.md/AGENTS.md, then package scripts). gstack's default needs no
-   `--command`: `scripts/test-paid-shards.ts --tier <tier> --case <id>`, and it
-   accepts standalone judge ids. With no documented single-case command, ask
-   once and record the answer in the report. Exit 2 means it needs approval:
-   ask once with the reason it printed, then rerun with `--approved`.
-4. **Fix at the cause.** Root-cause the failed trials from their captures in
+   runs the case alone on the current head at its kind's count, in parallel,
+   through the project's documented single-case eval command,
+   `--command '<command> {case}'` (found the way Step 4 finds test commands;
+   gstack needs none and accepts judge ids). With no documented command, ask
+   once and record the answer in the report. Exit 2 needs approval: ask once
+   with its reason, then rerun with `--approved`.
+4. **Decide by the exit code** (MEETS 9/10, MEETS-qualified 8/10 with every
+   red qualifying, EXTEND 7/10; behavior 11/12, 10/12, 9/12):
+   - 0: MEETS or MEETS-qualified; done.
+   - 5: needs-classify. Record each listed red from its capture:
+     `ship-measure classify --case <id> --round <r> --trials <2,5> --class <class> --evidence "<path:line>"`.
+     Qualifying: `provider` (only on the trial's own provider error),
+     `judge-noise`, `model-miss` (cite the line). Fix round: `timeout`,
+     `hang`, `regression`, `fixable`. `unclassified`: reviewed, no evidence.
+   - 6: EXTEND. `ship-measure extend --case <id> --round <r>` once, on the
+     unchanged tree; never a third batch.
+   - 1: BELOW, a fix round.
+5. **Fix at the cause.** Root-cause the failed trials from their captures in
    `.context/ship-measure/<case>/<round>/tNN/` and change the cause.
-5. **Re-measure.** `ship-measure measure --case <id> --round round-<n> --fix "<cause and change>"`.
-   Exit 0 is at or above target. Exit 1 is below target: return to step 4. Call
-   a case fixed only with a named causal change and every failure in the closing
-   measurement explained; report "observed k/n after fix at <cause>", never a proven rate.
-6. **Stop.** Exit 3 is a named red (repair-round limit or the per-case budget
-   exhausted): stop, do not push, and report `ship-measure report` with every trial.
+6. **Re-measure.** `ship-measure measure --case <id> --round round-<n> --fix "<cause and change>"`,
+   then item 4. Call a case fixed only with a named causal change and every
+   failure in the closing measurement explained;
+   report "observed k/n after fix at <cause>", never a proven rate.
+7. **Stop.** Exit 3 is a named red (round limit, budget, or two void
+   batches): stop, do not push, and report `ship-measure report` with every trial.
 
 **Gate once.** When every red case measures at or above target, run the full
 gate once (Step 6 item 2). When the project's CI runs that gate on push (gstack:
