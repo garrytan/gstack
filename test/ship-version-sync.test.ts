@@ -262,7 +262,9 @@ test("rendered /ship handles every version-source outcome the classifier emits",
   const ship = readFileSync(join(import.meta.dir, "../ship/SKILL.md"), "utf8");
   const changelog = readFileSync(join(import.meta.dir, "../ship/sections/changelog.md"), "utf8");
   const step12 = ship.slice(ship.indexOf("## Step 12:"), ship.indexOf("## Step 14:")).replace(/\s+/g, " ");
-  const step18 = ship.slice(ship.indexOf("Prepare the title from that result"), ship.indexOf("## Step 20:")).replace(/\s+/g, " ");
+  const prBody = readFileSync(join(import.meta.dir, "../ship/sections/pr-body.md"), "utf8");
+  const step18 = prBody.slice(prBody.indexOf("### Prepare the title (Step 18)"), prBody.indexOf("## Step 19:")).replace(/\s+/g, " ");
+  expect(step18.length).toBeGreaterThan(0);
   const classifyCmd = step12.match(/bun run \S+gstack-version-bump classify --base <base>/);
   expect(classifyCmd).not.toBeNull();
   const bin = join(import.meta.dir, "../bin/gstack-version-bump");
