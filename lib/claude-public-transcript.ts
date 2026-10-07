@@ -36,6 +36,8 @@ export interface NativePublicToolEvent {
   content?: unknown;
   file?: unknown;
   isError?: boolean;
+  /** Owned reads only: Claude Code launched this Agent in the background (its result is a launch receipt). */
+  async?: boolean;
 }
 
 export interface PlanCountTranscript {
@@ -54,6 +56,9 @@ export type ClaudeParentPublicEvent = (NativePublicToolEvent | {
   kind: 'message'; sessionId: string; timestamp: string; text: string;
 } | {
   kind: 'end_turn' | 'user_turn'; sessionId: string; timestamp: string; autoplan?: boolean;
+} | {
+  /** Claude Code's completion notice for a background Agent (origin kind task-notification). */
+  kind: 'task_notification'; sessionId: string; timestamp: string; notifiedToolUseId: string;
 }) & { order: number; messageId?: string; requestId?: string };
 
 interface OwnedSnapshot {
@@ -62,6 +67,8 @@ interface OwnedSnapshot {
   events: ClaudeParentPublicEvent[];
   /** Record types (never content) from the journal head to the first turn, set on refusal. */
   rootShape?: string[];
+  /** The newest owned record's Claude Code version (the CLI writing now), when present. */
+  claudeVersion?: string;
 }
 
 /** A rejected/refused call needs an actual later answer, not unrelated progress. */
@@ -87,6 +94,9 @@ const object = (value: unknown): value is Record<string, any> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 const validTimestamp = (value: unknown): value is string =>
   typeof value === 'string' && Number.isFinite(Date.parse(value));
+/** A record's own Claude Code version string, shape-checked; never other content. */
+const claudeVersionOf = (record: Record<string, any>): string | undefined =>
+  typeof record.version === 'string' && /^\d+\.\d+\.\d+[0-9A-Za-z.+-]{0,24}$/.test(record.version) ? record.version : undefined;
 
 /** Read one length-delimited protobuf field, rejecting malformed/ambiguous input. */
 function signatureField(bytes: Uint8Array | undefined, wanted: number): Uint8Array | undefined {
@@ -415,6 +425,11 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
           if (compactContinuation) ancestry.add(record.uuid);
           if (ownedSnapshot && !ancestry.has(record.uuid)) continue;
           if ((!sameNativePath(record.cwd, cwd) && !continuation) || record.isSidechain !== false || !object(record.message)) continue;
+          if (ownedSnapshot) ownedSnapshot.claudeVersion = claudeVersionOf(record) ?? ownedSnapshot.claudeVersion;
+          const notified = ownedSnapshot && record.message.role === 'user' && record.origin?.kind === 'task-notification' &&
+            typeof record.message.content === 'string' ? /<tool-use-id>([A-Za-z0-9_-]{1,160})<\/tool-use-id>/.exec(record.message.content)?.[1] : undefined;
+          if (notified) ownedSnapshot!.events.push({ kind: 'task_notification', sessionId: record.sessionId, timestamp: record.timestamp,
+            order: publicOrder++, notifiedToolUseId: notified });
           if (ownedSnapshot && record.message.role === 'user' && record.origin?.kind === 'human' &&
               record.isMeta !== true && nativeUuid(record.promptId) && typeof record.message.content === 'string') {
             const autoplan = /^<command-message>autoplan<\/command-message>\n<command-name>\/autoplan<\/command-name>(?:\n<command-args>[\s\S]*<\/command-args>)?$/.test(record.message.content);
@@ -445,7 +460,8 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
                          typeof block.tool_use_id === 'string') {
                 const event: NativePublicToolEvent = { sessionId: record.sessionId, timestamp: record.timestamp,
                   toolUseId: block.tool_use_id, kind: 'result', content: block.content,
-                  file: record.toolUseResult?.file, isError: block.is_error === true };
+                  file: record.toolUseResult?.file, isError: block.is_error === true,
+                  ...(ownedSnapshot && record.toolUseResult?.isAsync === true ? { async: true } : {}) };
                 onPublicToolEvent(event);
                 ordered(event);
               }
@@ -540,8 +556,7 @@ function diagnose(bytes: Buffer, sessionId: string, rootShape: string[] = []): O
     let record: unknown;
     try { record = JSON.parse(line); } catch { continue; }
     if (!object(record) || record.sessionId !== sessionId || record.agentId != null || record.isSidechain !== false) continue;
-    if (!claudeVersion && typeof record.version === 'string' && /^\d+\.\d+\.\d+[0-9A-Za-z.+-]{0,24}$/.test(record.version))
-      claudeVersion = record.version;
+    claudeVersion ??= claudeVersionOf(record);
     if (object(record.message) && record.message.role === 'assistant' && Array.isArray(record.message.content))
       for (const block of record.message.content)
         if (object(block) && block.type === 'tool_use' && typeof block.id === 'string') toolUseIds.push(block.id);
@@ -552,7 +567,7 @@ function diagnose(bytes: Buffer, sessionId: string, rootShape: string[] = []): O
 
 /** Read exactly the native hook's parent file; never scan another session. */
 export function readOwnedClaudePublicTranscript(file: string, cwd: string, sessionId: string): {
-  transcript: PlanCountTranscript; events: ClaudeParentPublicEvent[]; diagnostic?: OwnedTranscriptDiagnostic;
+  transcript: PlanCountTranscript; events: ClaudeParentPublicEvent[]; diagnostic?: OwnedTranscriptDiagnostic; claudeVersion?: string;
 } {
   let fd: number | undefined, bytes: Buffer | undefined;
   try {
@@ -581,7 +596,8 @@ export function readOwnedClaudePublicTranscript(file: string, cwd: string, sessi
     const transcript = readPlanCountTranscript(config, cwd, () => {}, file, snapshot);
     if (snapshot.events.some(event => event.sessionId !== sessionId)) throw new OwnedReadError('identity');
     if (transcript.status === 'error') transcript.reason ??= 'malformed';
-    if (transcript.status === 'ready') return { transcript, events: snapshot.events };
+    if (transcript.status === 'ready') return { transcript, events: snapshot.events,
+      ...(snapshot.claudeVersion ? { claudeVersion: snapshot.claudeVersion } : {}) };
     return { transcript, events: [], diagnostic: diagnose(bytes, sessionId, snapshot.rootShape) };
   } catch (error) {
     // A journal Claude has not created yet is unflushed, not an identity failure.

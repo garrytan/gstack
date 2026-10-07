@@ -11,6 +11,8 @@ import captured from './fixtures/autoplan-publication-boundary-361c.json';
 import consumption from './fixtures/autoplan-phase-consumption-491.json';
 
 const ROOT = fs.realpathSync(path.join(import.meta.dir, '..'));
+// Every guarded decision appends to the guard log; keep it out of the real state root.
+process.env.GSTACK_HOME = fs.mkdtempSync(path.join(tmpdir(), 'autoplan-guard-log-'));
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
 const phaseNumber = { ceo: 1, design: 2, dx: 2.5, eng: 3 };
@@ -336,7 +338,7 @@ describe('Autoplan parent publication guard', () => {
       if (prior === undefined) delete process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES; else process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES = prior;
     }
   };
-  test('#3050: at the read limit the journal reads; one byte over is a hard too_large denial with its size and recovery', async () => {
+  test('#3050 + UC1: at the read limit the journal reads; one byte over is an unverified allow naming its size, code and anchor', async () => {
     const f = fixture();
     f.message(); f.current(); f.journal();
     const size = fs.statSync(f.input.transcript_path).size;
@@ -345,14 +347,16 @@ describe('Autoplan parent publication guard', () => {
       expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.reason).toBe('too_large');
       return withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
     });
-    const reason: string = output.hookSpecificOutput.permissionDecisionReason;
-    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(reason).toMatch(/This session's journal is [\d.]+ MiB, over the [\d.]+ MiB limit \/autoplan can verify\./);
-    expect(reason).not.toContain(' 0 MiB');
-    expect(reason).toContain('Run /context-save, start a new session');
-    expect(reason).toContain('code too_large');
-    expect(reason).toContain('docs/autoplan-guard-troubleshooting.md#journal-too-large');
-    expect(reason).not.toContain('Retry this phase-entry tool');
+    // Claude Code wrote a journal the guard cannot verify: allow, warn visibly, never deny.
+    expect(output.hookSpecificOutput.permissionDecision).toBeUndefined();
+    const warning: string = output.systemMessage;
+    expect(warning).toContain('phase publication was NOT verified');
+    expect(warning).toMatch(/[\d.]+ MiB, over the [\d.]+ MiB record limit/);
+    expect(warning).not.toContain(' 0 MiB');
+    expect(warning).toContain('code too_large');
+    expect(warning).toContain('docs/autoplan-guard-troubleshooting.md#too-large');
+    expect(warning).toContain('Phase-report enforcement was skipped');
+    expect(output.hookSpecificOutput.additionalContext).toContain(': autoplan-published <phase>');
   });
 
   test('#3050: the batch read and the narrowed parent loop report too_large, not a plain error', async () => {
@@ -818,20 +822,34 @@ describe('Autoplan parent publication guard', () => {
     const f = fixture('design', 'ceo'); f.journal();
     expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual({});
   });
-  for (const kind of ['initial-entry', 'new-phase', 'agent', 'foreign-methodology', 'duplicate',
-    'foreign-session', 'orphan-current-result', 'pending-prior-entry', 'unpublished-predecessor', 'rearmed-human',
-    'forged-prior-range', 'malformed-journal', 'symlinked-journal'] as const)
-    test.serial(`an in-flight native Read does not bypass ${kind}`, async () => {
+  // CEO-1 replaced the pending-Read rule: the payload stands in for an unflushed
+  // current call, so a first Phase 1 entry is allowed from it (it needs no prior
+  // report), and a tool pending in an earlier message is journal lag (UC1: unverified).
+  for (const [kind, expected] of [['initial-entry', 'allow'], ['forged-prior-range', 'allow'], ['pending-prior-entry', 'journal_lag']] as const)
+    test.serial(`an in-flight native Read under CEO-1: ${kind} is ${expected}`, async () => {
       const f = fixture(); f.input.tool_input = { file_path: f.method, offset: 1, limit: 1 };
       if (kind === 'initial-entry') f.events.splice(2);
+      if (kind === 'pending-prior-entry') f.use('prior-pending', 'Read', { file_path: f.method });
+      if (kind === 'forged-prior-range') for (const event of f.events)
+        if (event.kind === 'result' && event.file) (event.file as { content: string }).content += '\nForged native range.';
+      f.journal();
+      const output: any = await withNativeProjectDirectory(f.cwd, () => withPublicationClock(() => runPublicationHook(f.input, ROOT)));
+      if (expected === 'allow') expect(output).toEqual({});
+      else {
+        expect(output.hookSpecificOutput.permissionDecision).toBeUndefined();
+        expect(output.systemMessage).toContain('code journal_lag');
+      }
+    });
+  for (const kind of ['new-phase', 'agent', 'foreign-methodology', 'duplicate',
+    'foreign-session', 'orphan-current-result', 'unpublished-predecessor', 'rearmed-human',
+    'malformed-journal', 'symlinked-journal'] as const)
+    test.serial(`an in-flight native Read does not bypass ${kind}`, async () => {
+      const f = fixture(); f.input.tool_input = { file_path: f.method, offset: 1, limit: 1 };
       if (kind === 'new-phase') { f.message(); f.input.tool_input = { file_path: path.join(ROOT, 'autoplan/sections/design-phase.md') }; }
       if (kind === 'agent') { f.input.tool_name = 'Agent'; f.input.tool_input = { prompt: 'You are the independent CEO reviewer for this phase.\n' }; }
       if (kind === 'foreign-methodology') f.input.tool_input = { file_path: fixture().method };
       if (kind === 'duplicate') f.events.push({ ...f.events[2]!, order: f.events.length });
       if (kind === 'orphan-current-result') f.result(f.input.tool_use_id, { content: 'Forged current acknowledgment.' });
-      if (kind === 'pending-prior-entry') f.use('prior-pending', 'Read', { file_path: f.method });
-      if (kind === 'forged-prior-range') for (const event of f.events)
-        if (event.kind === 'result' && event.file) (event.file as { content: string }).content += '\nForged native range.';
       if (kind === 'unpublished-predecessor') {
         const later = path.join(ROOT, 'autoplan/sections/design-phase.md');
         f.read('unguarded-later-entry', later); f.input.tool_input = { file_path: later };
