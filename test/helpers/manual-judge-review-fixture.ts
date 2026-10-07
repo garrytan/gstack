@@ -30,6 +30,9 @@ const LATER_PREAMBLE_EDITS: Array<[string, string]> = [
 const LATER_WAVE_EDITS: Array<[string, string]> = [
   ['tmpfile=$(mktemp "${TMPDIR:-/tmp}/bun-install.XXXXXX")', 'tmpfile=$(mktemp)'],
   ['BUN_VERSION="1.4.2"', 'BUN_VERSION="1.3.10"'],
+  // Oct 7 wave: the artifacts-sync preamble block surfaces attention lines (one line longer).
+  ["Skill-start already ran artifacts sync. GBrain hint text (if any) says\nwhen to prefer `gbrain` over Grep. `ARTIFACTS_SYNC:` reports sync health\n(`off`, `mode=... | queue=N`, `remote-mode`, or a `gstack-brain-restore`\nhint). On an `attention:` line, tell the user in one sentence what\nit says and the command it names, then continue.\n\nThe one-time privacy stop-gate arrives as a `GSTACK_INSTRUCTION` block\nfrom skill-start when consent is pending; fire it via AskUserQuestion\nexactly as instructed.",
+    "The skill-start output above already ran artifacts sync. Act on its lines:\nGBrain hint text (if present) tells you when to prefer `gbrain` over Grep;\n`ARTIFACTS_SYNC:` reports sync health (`off`, `mode=... | queue=N`,\n`remote-mode`, or a restore hint naming `gstack-brain-restore`).\n\nThe one-time privacy stop-gate (artifacts-sync consent) arrives as a\n`GSTACK_INSTRUCTION` block from skill-start when consent is actually pending\n\u2014 fire it via AskUserQuestion exactly as the block instructs."],
 ];
 
 export function approvedCookieWorkflowSource(source: string): string {

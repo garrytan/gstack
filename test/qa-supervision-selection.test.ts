@@ -11,6 +11,8 @@ const ptyIds = [
   'office-hours-section-loading', 'office-hours-design-draft', 'plan-ceo-section-loading', 'ship-section-loading',
   'plan-ceo-finding-floor', 'plan-design-finding-floor', 'plan-devex-finding-floor',
   'plan-eng-multi-finding-batching', 'plan-ceo-split-overflow', 'plan-eng-review-artifact', 'plan-eng-review-artifact-full',
+  // The /autoplan guard's live cases drive the same PTY runner (Oct 7 wave).
+  'autoplan-guard-pty', 'autoplan-long-session',
 ].sort();
 
 test('PTY supervision controls select every current runner consumer', () => {

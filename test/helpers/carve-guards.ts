@@ -131,21 +131,23 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       // contain "dispatch the" — so update anchors in lockstep with any
       // touchpoint rewording.
       mustStayInSkeleton: [
-        'v$NEW_VERSION',
-        'gstack-pr-title-rewrite',
+        'The pr-body section prepares the title from that result',
         '## Step 14.5: Documentation audit (every ship)',
         'No documentation writer runs after push',
         'dispatches the /document-release subagent',
       ],
       // ...while the full create/update procedure stays carved into pr-body.md
       // (out of the skeleton, present in the union). Asserts BOTH PR paths
-      // survive: the create path and the idempotent update path. The Step 18
+      // survive: the create path and the idempotent update path, both posted
+      // through gstack-post, and the version-prefixed title preparation that
+      // moved into the section with them (Oct 7 wave B4). The Step 18
       // dispatch imperative stays carved too — pasting that literal into the
       // skeleton (correctly) fails this guard; the skeleton speaks of "the
       // /document-release subagent", never the carved imperative.
       mustMoveToSection: [
-        'gh pr create --base',
-        'gh pr edit --title',
+        'gstack-post pr-create --base',
+        'gstack-post pr-title',
+        'gstack-pr-title-rewrite.sh <new-version> --stdin',
         'Dispatch /document-release as a subagent',
       ],
       // ship is operational (multi-STOP, not a plan review); no single post-STOP gate.
@@ -596,7 +598,7 @@ do not launch the downstream skill or open a browser.`,
       mustMoveToSection: [
         '<<<USER_SPEC>>>',
         'SEMANTIC_REVIEW: clean',
-        'gh issue create --title',
+        'gstack-post issue-create',
         'PIN_SHA=$(git rev-parse HEAD)',
       ],
       gateAfterStop: undefined,

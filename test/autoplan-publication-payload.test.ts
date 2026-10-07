@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { guardFixture, section, denial, codeOf, type GuardFixture } from './helpers/autoplan-guard-fixture';
 import { AGENT_KEYS, CHECKED_CLAUDE_CODE, nativeToolInput, newerThanChecked } from '../autoplan/bin/phase-publication-hook.ts';
+import { nativePathSpelling } from '../lib/claude-public-transcript';
 import captured from './fixtures/claude-agent-payload-2.1.292.json';
 
 const fixtures: GuardFixture[] = [];
@@ -62,7 +63,8 @@ describe('Cause A: the Agent schema strips run_in_background', () => {
     for (const payload of captured.agentPayloads) for (const key of Object.keys(payload.tool_input)) expect(AGENT_KEYS).toContain(key);
     expect(CHECKED_CLAUDE_CODE).toBe(captured.claudeCodeVersion);
     expect(nativeToolInput({ prompt: 'p', run_in_background: 'false' }, '/', 'Agent')).toEqual({ prompt: 'p' });
-    expect(nativeToolInput({ file_path: 'x', run_in_background: true }, '/', 'Read')).toEqual({ file_path: '/x', run_in_background: true });
+    expect(nativeToolInput({ file_path: 'x', run_in_background: true }, '/', 'Read'))
+      .toEqual({ file_path: nativePathSpelling(path.resolve('/', 'x')), run_in_background: true });
   });
 
   test('UC1: a pure strip by a newer, unchecked Claude Code is unverified; the same strip on a checked version is denied', async () => {

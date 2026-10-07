@@ -286,8 +286,9 @@ describe("each input fails on its own (CEO-23, DX-9)", () => {
     expect(found[0]).toContain("CODEOWNERS:2");
   });
 
+  // stubGitLog puts a POSIX shell `git` wrapper first on PATH; Windows CreateProcess cannot exec it.
   for (const behavior of ["fail", "hang"] as const) {
-    test(`a history read that ${behavior === "fail" ? "errors" : "times out"} still honors the pusher's own address and says suppression was limited`, () => {
+    test.skipIf(process.platform === "win32")(`a history read that ${behavior === "fail" ? "errors" : "times out"} still honors the pusher's own address and says suppression was limited`, () => {
       const fx = fixture({ selfEmail: at("me") });
       commitFile(fx, fx.repo, "lib.txt", "code\n", at("colleague"));
       expect(push(fx, ["origin", "main"]).code).toBe(0);

@@ -112,7 +112,9 @@ function storedConsent(env: EarlyEnv): "yes" | "no" | undefined {
   return v === "yes" || v === "no" ? v : undefined;
 }
 
-const config = (env: EarlyEnv) => path.join(env.binDir, "gstack-config");
+/** A gstack helper path as printed for the user's shell: forward slashes on every platform (Git Bash on Windows). */
+const helper = (env: EarlyEnv, name: string) => `${env.binDir.replace(/\\/g, "/").replace(/\/+$/, "")}/${name}`;
+const config = (env: EarlyEnv) => helper(env, "gstack-config");
 const SIGNAL_TEXT: Record<Exclude<Signal, "none">, string> = {
   "config-folder": "a .greptile/ config folder",
   "greptile.json": "greptile.json",

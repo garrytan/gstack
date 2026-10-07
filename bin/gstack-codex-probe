@@ -556,20 +556,19 @@ _gstack_codex_log_hang() {
 # --- Executed subcommands ----------------------------------------------------
 
 _gstack_codex_usage() {
-  cat <<'EOF'
-Usage: gstack-codex-probe <subcommand> [args]
-  select-model <exec|review> [--model <id>]  print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1
-  check-auth                                 exit 0 when Codex credentials exist, 1 otherwise
-  show-sandbox                               print CODEX_SANDBOX: read-only (or danger-full-access)
-  check-sandbox                              free sandbox check; exit 0, or 3 with the reason on stderr
-  probe-model <exec|review> [--model <id>]   paid round trip; print CODEX_PROBE_STATE:; exit 0, 1, 2 or 4
-  check-version                              warn on stderr about known-bad Codex CLI versions; exit 0
-  show-first-use-notice                      once per machine, say where reviews go; exit 0
-  run-with-timeout <secs> <cmd...>           run cmd under a deadline; its exit code, 124 on timeout
-  log-event <event> [detail]                 record a telemetry event when telemetry is on; exit 0
-  log-hang <skill> <prompt-size>             record a timeout learning; exit 0
-  help                                       this text
-EOF
+  printf '%s\n' \
+    'Usage: gstack-codex-probe <subcommand> [args]' \
+    '  select-model <exec|review> [--model <id>]  print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1' \
+    '  check-auth                                 exit 0 when Codex credentials exist, 1 otherwise' \
+    '  show-sandbox                               print CODEX_SANDBOX: read-only (or danger-full-access)' \
+    '  check-sandbox                              free sandbox check; exit 0, or 3 with the reason on stderr' \
+    '  probe-model <exec|review> [--model <id>]   paid round trip; print CODEX_PROBE_STATE:; exit 0, 1, 2 or 4' \
+    '  check-version                              warn on stderr about known-bad Codex CLI versions; exit 0' \
+    '  show-first-use-notice                      once per machine, say where reviews go; exit 0' \
+    '  run-with-timeout <secs> <cmd...>           run cmd under a deadline; its exit code, 124 on timeout' \
+    '  log-event <event> [detail]                 record a telemetry event when telemetry is on; exit 0' \
+    '  log-hang <skill> <prompt-size>             record a timeout learning; exit 0' \
+    '  help                                       this text'
 }
 
 # Parses "<exec|review> [--model <id>]" into _GSTACK_CODEX_ARG_KIND and

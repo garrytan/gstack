@@ -75,8 +75,12 @@ function composed(root: string, opts: { title?: string; top?: string } = {}) {
   return { ...repo, bodyFile, publish: (block: string) => repo.run(fill(block)) };
 }
 
+// The posting cases drive a POSIX stub gh that gstack-post spawns; Windows CreateProcess cannot
+// exec its shebang. gstack-post's argument-array and token logic run in-process on Windows in
+// test/gstack-post.test.ts.
+const postsThroughStubGh = (failure: string) => process.platform === 'win32' && failure === 'none';
 for (const failure of ['none', 'body', 'title'] as const) {
-  test(`publication posts only scanned bytes through gstack-post: ${failure}`, () => {
+  test.skipIf(postsThroughStubGh(failure))(`publication posts only scanned bytes through gstack-post: ${failure}`, () => {
     const root = mkdtempSync(join(tmpdir(), 'ship-post-'));
     try {
       const secret = 'AKIA' + '1234567890ABCDEF';
@@ -100,7 +104,7 @@ for (const failure of ['none', 'body', 'title'] as const) {
   });
 }
 
-test('MEDIUM findings publish nothing until the block reruns with the printed token', () => {
+test.skipIf(process.platform === 'win32')('MEDIUM findings publish nothing until the block reruns with the printed token', () => {
   const root = mkdtempSync(join(tmpdir(), 'ship-post-medium-'));
   try {
     const c = composed(root, { top: '## Summary\nThanks jane.roe@acme-corp.io\n\n## Documentation' });

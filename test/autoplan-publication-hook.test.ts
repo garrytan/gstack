@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,18 @@ import { runPublicationHook } from '../autoplan/bin/phase-publication-hook.ts';
 
 const ROOT = path.join(import.meta.dir, '..');
 // Every guarded decision appends to the guard log; keep it out of the real state root.
-process.env.GSTACK_HOME = fs.mkdtempSync(path.join(tmpdir(), 'autoplan-guard-log-'));
+let previousGstackHome: string | undefined;
+let guardLogHome = '';
+beforeAll(() => {
+  previousGstackHome = process.env.GSTACK_HOME;
+  guardLogHome = fs.mkdtempSync(path.join(tmpdir(), 'autoplan-guard-log-'));
+  process.env.GSTACK_HOME = guardLogHome;
+});
+afterAll(() => {
+  if (previousGstackHome === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = previousGstackHome;
+  fs.rmSync(guardLogHome, { recursive: true, force: true });
+});
 const SHIM = path.join(ROOT, 'autoplan/bin/phase-publication-hook');
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });

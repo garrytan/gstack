@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, jest, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, jest, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -12,7 +12,18 @@ import consumption from './fixtures/autoplan-phase-consumption-491.json';
 
 const ROOT = fs.realpathSync(path.join(import.meta.dir, '..'));
 // Every guarded decision appends to the guard log; keep it out of the real state root.
-process.env.GSTACK_HOME = fs.mkdtempSync(path.join(tmpdir(), 'autoplan-guard-log-'));
+let previousGstackHome: string | undefined;
+let guardLogHome = '';
+beforeAll(() => {
+  previousGstackHome = process.env.GSTACK_HOME;
+  guardLogHome = fs.mkdtempSync(path.join(tmpdir(), 'autoplan-guard-log-'));
+  process.env.GSTACK_HOME = guardLogHome;
+});
+afterAll(() => {
+  if (previousGstackHome === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = previousGstackHome;
+  fs.rmSync(guardLogHome, { recursive: true, force: true });
+});
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
 const phaseNumber = { ceo: 1, design: 2, dx: 2.5, eng: 3 };
