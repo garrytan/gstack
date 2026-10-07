@@ -41,6 +41,9 @@ When /ship's measure loop prints needs-classify, read the listed reds and record
 - Behavior cases are decided on the trial count over 12 (11 meets, 10 qualified, 9 extends; 22 and 20 of 24 pooled) instead of also requiring every panel to pass on its own; a contract violation still sends the case to a fix round at any count.
 - The `ship-measure report` table shows each round's decision and batches, and lists qualified results under their own heading.
 
+#### Fixed
+- `ship-measure measure` no longer refuses a case that shares its test file with other cases (for example `ship-exploratory-late-input`): the no-cost selection check before the first paid trial now accepts the per-case trial shard such a case lists.
+
 #### For contributors
 - The bar is one pure module, `scripts/lib/measure-bar.ts`, pinned by `test/ship-measure-bar.test.ts`; the sweep is `scripts/ship-measure-sweep.ts`, pinned by `test/ship-measure-sweep.test.ts` and `test/eval-sweep-workflow.test.ts`. `eval:pass-rates` history loading is now `loadPassRateHistory()` in `scripts/eval-flake-rank.ts`, shared with the sweep.
 - Diagnostic trials still never become verdicts and never enter pass-rate history or EVAL_POLICY pooling. See `docs/TESTING_INTERNALS.md#ship-measure` and `#ship-measure-sweep`.
