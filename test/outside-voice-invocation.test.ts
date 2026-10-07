@@ -34,7 +34,7 @@ if (process.env.FAKE_MODE === 'timeout') {
   await new Promise(() => {});
 }
 if (process.env.FAKE_MODE === 'auth') { console.error('authentication_error: please log in'); process.exit(1); }
-const response = process.env.FAKE_RESPONSE || 'Recommendation: fix the seeded defect because changed.ts loses data.';
+const response = process.env.FAKE_RESPONSE || 'Medium: changed.ts loses data on retry.\\nRecommendation: fix the seeded defect because changed.ts loses data.';
 if (claude) {
   if (process.env.FAKE_MODE === 'malformed') {console.log('{broken');process.exit(0);}
   console.log(JSON.stringify({result:response,session_id:'outside-session',modelUsage:{'model-a':{inputTokens:4},'model-b':{inputTokens:8}}}));
@@ -359,7 +359,7 @@ esac
     '### Recommendation: fix the guard because it loses data.',
   ]) {
     test(`formatted completion remains valid: ${response}`, () => {
-      expect(invoke('claude', {}, { FAKE_RESPONSE: response }).status).toBe(0);
+      expect(invoke('claude', {}, { FAKE_RESPONSE: `[P2] the guard drops one write.\n${response}` }).status).toBe(0);
     });
   }
 

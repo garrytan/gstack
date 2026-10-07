@@ -31,6 +31,28 @@ P0 or P1 finding blocks exactly like a native P0/P1. `unverified` and
 `unavailable` are missing coverage: /ship and /review continue, show the gap in
 the readiness dashboard and the PR body, and never count it as a pass.
 
+<a id="outside-review-verdict"></a>
+### How the verdict is read from a review
+
+- **Severity tags.** `[P0]`-`[P3]` (or Codex's native `P1:` labels). P0 and P1
+  block; P2 and P3 are advisory.
+- **Severity words in label position.** `Severity: High`, `Priority: low`, a
+  line that starts with `High:`, `High —`, `[High]` or `**High**` (after an
+  optional heading, bullet or number), a bold `**High**` anywhere, or a table
+  cell `| high |`. Critical and High block like P0 and P1; Medium and Low are
+  advisory like P2 and P3. Words inside prose do not count: "high-level",
+  "low-risk", "a medium-term follow-up" and "no critical findings" are not
+  findings.
+- **No findings.** A review with no tag and no label is `clean` only when it
+  says so explicitly (`NO_FINDINGS`, "no issues", "did not find any bugs").
+  Otherwise it is `unverified` (see below), never `clean`.
+- **Design proposals** (the design-direction voices in /design-consultation
+  and /office-hours) are read with the `proposal` gate: a completed proposal
+  needs only its `Recommendation: ... because ...` line.
+
+Outside-review prompts ask the reviewer to label each finding Critical, High,
+Medium or Low, so most reviews land on `findings` or `clean`.
+
 <a id="sourced-helper-location"></a>
 ### `gstack: cannot load gstack-codex-probe` / `gstack: cannot locate <helper> (shell: ...)` / `CODEX_MODE: helper_unavailable`
 
@@ -161,8 +183,9 @@ severity tags.
 <a id="outside-review-unverified"></a>
 ### `... outside review: ran, verdict unverified (...)` / `OUTSIDE_STATUS: unverified` / `GATE: UNVERIFIED`
 
-**Meaning.** The review completed but tagged nothing and gave no explicit
-no-findings conclusion, so no pass or fail can be read from it.
+**Meaning.** The review completed but had no severity tag or label and gave
+no explicit no-findings conclusion, so no pass or fail can be read from it
+([how the verdict is read](#outside-review-verdict)).
 
 **What is kept.** The full answer is shown above.
 

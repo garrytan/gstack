@@ -70,7 +70,7 @@ printf '%s\\n' "$p"
 printf '%s\\n' "$FAKE_REVIEW_ID" >> "$FAKE_CALLS"
 out=; prev=; for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done
 cat > /dev/null
-printf '%s\\n' "$FAKE_REVIEW_ID: current findings" "Recommendation: fix $FAKE_REVIEW_ID because this is the current finding." > "$out"
+printf '%s\\n' "$FAKE_REVIEW_ID: current findings" "No issues found." "Recommendation: fix $FAKE_REVIEW_ID because this is the current finding." > "$out"
 printf '%s\\n' '{"type":"turn.completed"}'
 printf '%s\\n' "$FAKE_REVIEW_ID: current stderr" >&2
 exit "$FAKE_CODEX_STATUS"
@@ -101,7 +101,7 @@ exec ${quote(Bun.which('cat')!)} "$@"
       cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
   }
 
-  const findings = (id: string) => `${id}: current findings\nRecommendation: fix ${id} because this is the current finding.\n`;
+  const findings = (id: string) => `${id}: current findings\nNo issues found.\nRecommendation: fix ${id} because this is the current finding.\n`;
   // INV-1: the verdict-form validator prints its verdict before the completed status.
   const unavailable = (id: string) => `${findings(id)}VERDICT: unavailable\nFINDINGS: none\nREASON: execution_failed\n`;
   const completed = (id: string) => `${findings(id)}VERDICT: clean\nFINDINGS: none\nOUTSIDE_STATUS: completed provider=codex host=claude\n`;
