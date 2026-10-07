@@ -20,6 +20,18 @@ Search this page for the words after `unavailable:` or `not run (`. Each
 section has a stable link anchor; the reason codes and anchors come from
 `lib/gate-outcomes.ts`, and a free test fails if a code has no section here.
 
+<a id="gstack-doctor"></a>
+### Check readiness before a skill runs
+
+Run `~/.claude/skills/gstack/bin/gstack-doctor` (other hosts: `./setup --status`
+in your gstack checkout prints the doctor's absolute path). It prints one row
+each for the install, state root, Bun, hooks, Codex, the cached Codex model
+check, artifacts sync, the browse bundle, Claude Code, the largest session
+journal and recent /autoplan guard codes. Each row is `ok`, `warn`,
+`not configured` or `fail` with its fix; only `fail` exits non-zero. It makes
+no paid call: the Codex rows report the cached model check and its age, and
+`--live` runs that check once. Paste its output into bug reports.
+
 ---
 
 ## Outside reviews (Codex and Claude Code)
