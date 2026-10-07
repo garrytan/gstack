@@ -1,0 +1,204 @@
+name: Eval sweep
+# The weekly off-ship qualification sweep (docs/TESTING_INTERNALS.md#ship-measure-sweep):
+# `ship-measure sweep` ranks the gate cases that cost the gate's all-green
+# probability most (eval:pass-rates history on main) and measures the top K
+# alone at their kind's N on this ref's head, with /ship's runner and
+# measurement bar. Every trial is diagnostic: no verdict, no pass-rate
+# history. The weekly spend cap (ship_measure_sweep_budget_usd, $150) is shared
+# with every sweep report of the last 7 days, downloaded before the sweep runs.
+# This workflow only reads: it never pushes, commits or opens a pull request;
+# an agent fixes from the uploaded report. Pinned by
+# test/eval-sweep-workflow.test.ts.
+on:
+  schedule:
+    - cron: '0 12 * * 1'  # Monday 12:00 UTC, after the 06:00 periodic census
+  workflow_dispatch:
+    inputs:
+      k:
+        description: 'Cases to measure (default: ship_measure_sweep_cases, 5)'
+        type: string
+        default: ''
+      cap_usd:
+        description: 'Weekly spend cap in USD, shared with the last 7 days of sweeps (default: ship_measure_sweep_budget_usd, 150)'
+        type: string
+        default: ''
+      dry_run:
+        description: 'Plan and estimate only ($0)'
+        type: boolean
+        default: false
+
+# One sweep at a time across every ref, never cancelled: two concurrent runs
+# would both read the same week's spend and could exceed the cap together.
+concurrency:
+  group: eval-sweep
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/ci
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      image-ref: ${{ steps.digest.outputs.ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - id: meta
+        # The same content-hash tag the eval workflows build and push
+        # (test/ci-image-tag-binding.test.ts pins the identical input list).
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Run the published image by digest: the digest is part of every
+      # measurement's pooling identity (GSTACK_CI_IMAGE). The sweep never
+      # builds an image; evals.yml and evals-periodic.yml publish it.
+      - name: Resolve the published CI image digest
+        id: digest
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! digest=$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest.Digest}}' | tr -d '"'); then
+            echo "::error::CI image $TAG is not published; run evals-periodic.yml (or an evals.yml PR run) to build it, then rerun the sweep"
+            exit 1
+          fi
+          echo "ref=${IMAGE}@${digest}" >> "$GITHUB_OUTPUT"
+
+  sweep:
+    runs-on: ubicloud-standard-16
+    needs: image
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image-ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    env:
+      EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-eval-sweep
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: selection walks git at module load (evals-periodic.yml).
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fix bun temp
+        uses: ./.github/actions/fix-bun-temp
+
+      - name: Restore deps
+        uses: ./.github/actions/restore-deps
+
+      - run: bun run build
+
+      - name: Seed claude interactive config
+        uses: ./.github/actions/seed-claude-config
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Register gstack skills for PTY tests
+        uses: ./.github/actions/register-gstack-skills
+
+      # Same as evals-periodic.yml: the image ships the pinned Codex CLI
+      # without a credential; Codex cases see it only through the shard runner.
+      - name: Authenticate the Codex CLI
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          codex="${GSTACK_CI_CODEX_BIN_DIR:?}/codex"
+          export CODEX_HOME="$HOME/.gstack-ci-codex"
+          mkdir -p "$CODEX_HOME"
+          echo "GSTACK_CI_CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "::warning::OPENAI_API_KEY is unavailable; Codex eval cases cannot authenticate and will fail."
+            exit 0
+          fi
+          printenv OPENAI_API_KEY | "$codex" login --with-api-key
+          "$codex" login status >/dev/null 2>&1
+
+      # The weekly cap counts every sweep of the last 7 days. A listing failure
+      # fails the job before any spend; a run without a report spent nothing.
+      - name: Download this week's earlier sweep reports
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIOR: /tmp/prior-sweeps
+        run: |
+          set -euo pipefail
+          mkdir -p "$PRIOR"
+          since=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          ids=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow eval-sweep.yml --limit 100 --json databaseId,createdAt \
+            --jq ".[] | select(.createdAt >= \"$since\") | .databaseId")
+          for id in $ids; do
+            [ "$id" = "$GITHUB_RUN_ID" ] && continue
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" --name ship-measure-sweep-report --dir "$PRIOR/$id" 2>/dev/null \
+              || echo "run $id: no sweep report (nothing charged)"
+          done
+
+      - name: Run the sweep
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+          GH_TOKEN: ${{ github.token }}
+          GSTACK_CI_IMAGE: ${{ needs.image.outputs.image-ref }}
+          SWEEP_OUT: /tmp/ship-measure-sweep
+          SWEEP_PRIOR: /tmp/prior-sweeps
+          SWEEP_K: ${{ inputs.k }}
+          SWEEP_CAP_USD: ${{ inputs.cap_usd }}
+          SWEEP_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(--out "$SWEEP_OUT" --prior "$SWEEP_PRIOR" --jobs 4)
+          if [ -n "${SWEEP_K:-}" ]; then args+=(--k "$SWEEP_K"); fi
+          if [ -n "${SWEEP_CAP_USD:-}" ]; then args+=(--cap-usd "$SWEEP_CAP_USD"); fi
+          if [ "${SWEEP_DRY_RUN:-false}" = "true" ]; then args+=(--dry-run); fi
+          bun run scripts/ship-measure.ts sweep "${args[@]}"
+
+      - name: Upload the sweep report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ship-measure-sweep-report
+          path: |
+            /tmp/ship-measure-sweep/sweep-*/sweep-report.json
+            /tmp/ship-measure-sweep/sweep-*/sweep-report.md
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload the sweep captures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ship-measure-sweep-captures
+          include-hidden-files: true
+          path: /tmp/ship-measure-sweep
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Note a sweep that wrote no report
+        if: failure()
+        run: echo "The sweep failed before writing its report; see the Run the sweep step log." >> "$GITHUB_STEP_SUMMARY"

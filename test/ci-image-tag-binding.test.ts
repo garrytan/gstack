@@ -13,7 +13,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const ROOT = path.resolve(__dirname, '..');
-const FILES = ['evals.yml', 'evals-periodic.yml', 'evals-marathon.yml'];
+// eval-sweep.yml only resolves the tag (it never builds), so it must look up the same one.
+const FILES = ['evals.yml', 'evals-periodic.yml', 'evals-marathon.yml', 'eval-sweep.yml'];
 
 function hashFilesCalls(name: string): string[] {
   const source = fs.readFileSync(
