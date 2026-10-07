@@ -565,6 +565,75 @@ export function formatPassRates(report: PassRateReport, options: { caseFilter?: 
   return lines.join('\n');
 }
 
+export interface PassRateHistory {
+  records: TrialRecord[];
+  unattributed: string[];
+  errors: string[];
+  manualReviews: string[];
+  weeklyRuns?: string[];
+  fetched: WeeklyRun[];
+  pooledRunIds?: Set<string>;
+  historyError: string | null;
+  scope: string;
+  cacheDir: string;
+}
+
+/**
+ * The trial history every eval:pass-rates view reads (and the ship-measure
+ * sweep ranks from): local dirs, or the trial-outcomes artifacts of the last
+ * N weekly runs on the branch plus the branch census runs that pool into
+ * main's series. A fetch failure is returned as historyError, never thrown.
+ */
+export function loadPassRateHistory(o: { repo: string; workflow: string; branch: string; runsLimit: number; dirs: string[]; sinceDays: number; backfill?: boolean; runId?: number }): PassRateHistory {
+  const records: TrialRecord[] = [];
+  const unattributed = new Set<string>();
+  const errors: string[] = [];
+  const manualReviews: string[] = [];
+  let historyError: string | null = null;
+  let weeklyRuns: string[] | undefined;
+  let fetched: WeeklyRun[] = [];
+  let pooledRunIds: Set<string> | undefined;
+  const cacheDir = path.join(path.resolve(resolveStateRoot()), 'eval-pass-rates-cache', o.repo.replace('/', '-'));
+  const importDir = (dir: string, run: { run_id: string; sha?: string; timestamp?: string } | undefined, legacyDays: number) => {
+    const trials = readTrialOutcomeDir(dir);
+    records.push(...trials.records);
+    errors.push(...trials.errors);
+    const legacy = backfillEvalFiles(collectEvalFiles(dir, legacyDays), run);
+    records.push(...legacy.records);
+    manualReviews.push(...legacy.manualReviews);
+    legacy.unattributed.forEach(name => unattributed.add(name));
+  };
+  if (o.dirs.length) {
+    for (const dir of o.dirs) importDir(dir, undefined, o.sinceDays);
+  } else {
+    try {
+      const weekly = listWeeklyRuns({ repo: o.repo, workflow: o.workflow, branches: [o.branch], limit: o.runsLimit }).filter(run => o.branch !== 'main' || isWeeklyHistoryRun(run));
+      weeklyRuns = weekly.map(run => run.createdAt);
+      // Branch census trials pool into main's matching series over the same window (isPooledTrialRun).
+      const oldest = weekly[weekly.length - 1]?.createdAt;
+      const pooledRuns = o.branch === 'main' && oldest
+        ? listWeeklyRuns({ repo: o.repo, workflow: o.workflow, branches: [''], limit: 100 }).filter(run => isPooledTrialRun(run) && run.createdAt >= oldest)
+        : [];
+      pooledRunIds = new Set(pooledRuns.map(run => `${run.id}`));
+      const runs = [...weekly, ...pooledRuns];
+      if (o.runId !== undefined && !runs.some(run => run.id === o.runId)) runs.push(GH_JOBS.getRun(o.repo, o.runId));
+      fetched = runs;
+      const match = o.backfill
+        ? (name: string) => name.startsWith('trial-outcomes') || /^(paid-slice-\d+|gate-census-\d+)(-a\d+)?$/.test(name)
+        : (name: string) => name.startsWith('trial-outcomes');
+      for (const run of runs) {
+        const dirsForRun = downloadRunArtifacts({ repo: o.repo, run, match, cacheDir, maxBytes: o.backfill ? 64 * 1024 * 1024 : undefined });
+        for (const dir of dirsForRun) importDir(dir, { run_id: `${run.id}`, sha: run.sha, timestamp: run.createdAt }, 3650);
+      }
+    } catch (error) {
+      historyError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const scope = o.dirs.length ? `local dirs ${o.dirs.join(', ')}` : `${o.repo} ${o.workflow} on ${o.branch}${pooledRunIds?.size ? ` + ${pooledRunIds.size} pooled branch census run(s)` : ''}, `
+    + `last ${o.runsLimit} completed run(s): ${fetched.map(run => run.id).join(', ') || 'none'}`;
+  return { records, unattributed: [...unattributed].sort(), errors, manualReviews, weeklyRuns, fetched, pooledRunIds, historyError, scope, cacheDir };
+}
+
 // --- GitHub history (shared reader: scripts/lib/ci-history.ts) ---
 
 export { downloadRunArtifacts, GH_HISTORY, listWeeklyRuns, TRIAL_OUTCOMES_MAX_BYTES,
@@ -580,55 +649,9 @@ if (import.meta.main) {
   const workflow = parsed.workflow ?? 'evals-periodic.yml';
   const branch = parsed.branch ?? 'main';
 
-  const records: TrialRecord[] = [];
-  const unattributed = new Set<string>();
-  const errors: string[] = [];
-  let historyError: string | null = null;
-  let weeklyRuns: string[] | undefined;
-  let fetched: WeeklyRun[] = [];
-  const cacheDir = path.join(path.resolve(resolveStateRoot()), 'eval-pass-rates-cache', repo.replace('/', '-'));
-  let pooledRunIds: Set<string> | undefined;
-
-  const manualReviews: string[] = [];
-  const importDir = (dir: string, run: { run_id: string; sha?: string; timestamp?: string } | undefined, legacyDays: number) => {
-    const trials = readTrialOutcomeDir(dir);
-    records.push(...trials.records);
-    errors.push(...trials.errors);
-    const legacy = backfillEvalFiles(collectEvalFiles(dir, legacyDays), run);
-    records.push(...legacy.records);
-    manualReviews.push(...legacy.manualReviews);
-    legacy.unattributed.forEach(name => unattributed.add(name));
-  };
-
-  if (dirs.length) {
-    for (const dir of dirs) importDir(dir, undefined, sinceDays);
-  } else {
-    try {
-      const weekly = listWeeklyRuns({ repo, workflow, branches: [branch], limit: runsLimit }).filter(run => branch !== 'main' || isWeeklyHistoryRun(run));
-      weeklyRuns = weekly.map(run => run.createdAt);
-      // Branch census trials pool into main's matching series over the same window (isPooledTrialRun).
-      const oldest = weekly[weekly.length - 1]?.createdAt;
-      const pooledRuns = branch === 'main' && oldest
-        ? listWeeklyRuns({ repo, workflow, branches: [''], limit: 100 }).filter(run => isPooledTrialRun(run) && run.createdAt >= oldest)
-        : [];
-      pooledRunIds = new Set(pooledRuns.map(run => `${run.id}`));
-      const runs = [...weekly, ...pooledRuns];
-      if (parsed.runId !== undefined && !runs.some(run => run.id === parsed.runId)) runs.push(GH_JOBS.getRun(repo, parsed.runId));
-      fetched = runs;
-      const match = backfill
-        ? (name: string) => name.startsWith('trial-outcomes') || /^(paid-slice-\d+|gate-census-\d+)(-a\d+)?$/.test(name)
-        : (name: string) => name.startsWith('trial-outcomes');
-      for (const run of runs) {
-        const dirsForRun = downloadRunArtifacts({ repo, run, match, cacheDir, maxBytes: backfill ? 64 * 1024 * 1024 : undefined });
-        for (const dir of dirsForRun) importDir(dir, { run_id: `${run.id}`, sha: run.sha, timestamp: run.createdAt }, 3650);
-      }
-    } catch (error) {
-      historyError = error instanceof Error ? error.message : String(error);
-    }
-  }
-
-  const scope = dirs.length ? `local dirs ${dirs.join(', ')}` : `${repo} ${workflow} on ${branch}${pooledRunIds?.size ? ` + ${pooledRunIds.size} pooled branch census run(s)` : ''}, `
-    + `last ${runsLimit} completed run(s): ${fetched.map(run => run.id).join(', ') || 'none'}`;
+  const history = loadPassRateHistory({ repo, workflow, branch, runsLimit, dirs, sinceDays, backfill, runId: parsed.runId });
+  const { records, errors, manualReviews, weeklyRuns, fetched, pooledRunIds, historyError, scope, cacheDir } = history;
+  const unattributed = new Set(history.unattributed);
   const scoped = caseFilter ? records.filter(record => record.case === caseFilter) : records;
   const caseHeadroom = headroom(scoped);
   if (view !== 'rates') {
