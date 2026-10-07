@@ -3105,7 +3105,7 @@ generation works again. Update gstack and the wave is yours.
   never enters the transcript.
 - The extension denies token/port reads to content scripts and foreign
   extensions, reimplemented for the v1.63 pinned-origin token model.
-  Contributed by @punksterlabs.
+  Contributed by @Mike-E-Log (#1822).
 - diff 9.0.0 (GHSA-73rr-hh4g-fpgx, @genisis0x); OpenAI key file written
   0600-at-create (@bunlongheng); injection-denylist and phone-pattern
   false positives calibrated (@Masashi-Ono0611, @JonasFocus, @abkrim).
@@ -3153,7 +3153,7 @@ generation works again. Update gstack and the wave is yours.
 - All three plan-tune hooks spawn their bins through a shared
   Windows-aware helper (@rafassousa); setup registers the SessionStart
   hook with a bash prefix (@NikhileshNanduri); BROWSE_BIN gets its .exe
-  (@rroojrooj); the polyfill exposes an exited promise (@punksterlabs)
+  (@rroojrooj); the polyfill exposes an exited promise (@habassa5)
   and the CJK terminal issues are gone (double-send fixed by
   @mindsurf0176, full-width font cells by @tomfluff).
 - New Windows regression tests run on windows-latest CI, not just as
