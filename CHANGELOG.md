@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.91.33.0] - 2026-10-06
+
+**A red eval case now gets one clear verdict from its measurement: meets, qualified, extend once, or fix.**
+**A weekly sweep measures main's flakiest gate cases before any ship hits them.**
+
+/ship already measured a red case alone before rerunning the gate, but every 8 out of 10 was "below target", even when both reds were a provider outage. Now the measurement follows one bar. 9/10 meets it. 8/10 meets it as qualified when every red is a proven provider error, judge noise at the threshold, or a model miss with a cited transcript line. 7/10, or an 8/10 that does not qualify, gets exactly one more batch on the identical tree and is decided once on all 20 trials. Anything else, and any timeout, hang, regression or known fixable cause, is a fix round. Separately, a new weekly workflow picks the gate cases that cost the gate's all-green chance the most and measures them on main, with a hard $150-a-week cap.
+
+### The numbers that matter
+
+The bar numbers are binomial for a case whose true per-trial pass rate is p (rule kind, 10 trials). The sweep numbers come from `bun run scripts/ship-measure.ts sweep --dry-run` against main's pass-rate history on 2026-10-06.
+
+| Case with true pass rate p | Clears the bar in one batch | Clears it with one extension (reds unqualified) | Clears it when every red qualifies |
+|---|---|---|---|
+| 0.95 (healthy) | 91.4% | 95.9% | 99.8% |
+| 0.90 | 73.6% | 80.4% | 97.2% |
+| 0.80 (flaky) | 37.6% | 40.8% | 75.3% |
+
+| Sweep, latest gate census | Value |
+|---|---|
+| Gate verdicts in the census | 106 |
+| Predicted all-green probability from history | 30.7% |
+| Cases flagged (top 5 by cost to that probability) | 87% to 91% per-trial pass rate each |
+| Estimated cost to measure all 5 at 10 trials | about $76, under the $150 weekly cap |
+
+A healthy 95% case used to be sent to a pointless fix round 8.6% of the time; with one extension that drops to 4.1%, while a flaky 80% case still fails the bar about 60% of the time.
+
+### What this means for you
+
+When /ship's measure loop prints needs-classify, read the listed reds and record each one with `ship-measure classify`; it decides for you. A hand-picked "provider" label is refused unless the trial's own failure cause shows a provider or transport error. The weekly sweep report (artifact `ship-measure-sweep-report`, also the job summary) lists each flagged case with its decision, cost and captures, ready for an agent to fix.
+
+### Itemized changes
+
+#### Added
+- `ship-measure classify`, `decide` and `extend`, and exit codes 5 (needs-classify) and 6 (EXTEND). EXTEND refuses to pool when any input changed (working tree, runner, Claude CLI, model, CI image, Bun, eval policy or harness version) and names the field; there is never a third batch.
+- Void batches: more than 30% of trials failing on provider evidence voids a batch, which is redispatched once; both batches are reported.
+- `ship-measure sweep` and `.github/workflows/eval-sweep.yml` (Mondays 12:00 UTC and on dispatch with `k`, `cap_usd` and `dry_run`). Config keys `ship_measure_sweep_cases` (5) and `ship_measure_sweep_budget_usd` (150, per 7 days, shared with every sweep that week). The workflow only reads; it never pushes or opens a pull request.
+
+#### Changed
+- Behavior cases are decided on the trial count over 12 (11 meets, 10 qualified, 9 extends; 22 and 20 of 24 pooled) instead of also requiring every panel to pass on its own; a contract violation still sends the case to a fix round at any count.
+- The `ship-measure report` table shows each round's decision and batches, and lists qualified results under their own heading.
+
+#### For contributors
+- The bar is one pure module, `scripts/lib/measure-bar.ts`, pinned by `test/ship-measure-bar.test.ts`; the sweep is `scripts/ship-measure-sweep.ts`, pinned by `test/ship-measure-sweep.test.ts` and `test/eval-sweep-workflow.test.ts`. `eval:pass-rates` history loading is now `loadPassRateHistory()` in `scripts/eval-flake-rank.ts`, shared with the sweep.
+- Diagnostic trials still never become verdicts and never enter pass-rate history or EVAL_POLICY pooling. See `docs/TESTING_INTERNALS.md#ship-measure` and `#ship-measure-sweep`.
+
 ## [1.91.32.0] - 2026-10-06
 
 **Codex second opinions work on macOS again, and text from a PR or reviewer can no longer run as a shell command.**
