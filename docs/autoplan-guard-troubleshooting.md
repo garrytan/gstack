@@ -38,8 +38,9 @@ to the hook. So the guard counts a phase report only when a later journaled
 record follows it: a tool result, or a record from another assistant message.
 
 The phase-close procedure therefore publishes each report in a message whose
-only tool call is the Bash no-op `: autoplan-published <phase>` (it prints
-nothing and needs no permission), and makes the next phase's `Read` or `Agent`
+only tool call is the Bash no-op `true autoplan-published <phase>` (it prints
+nothing and needs no permission; Claude Code 2.1.292 asks for approval of a bare
+`:` command, so the no-op is `true`), and makes the next phase's `Read` or `Agent`
 call in a later message. Sessions that put the report and the next phase's
 call in one message get one [`publication_unflushed`](#publication-unflushed)
 denial naming that fix.
@@ -191,7 +192,7 @@ be verified, so Claude Code is not writing it to the journal in time.
 ### `publication_missing`
 No filled report for the previous phase appears after its close packet Read.
 Publish it as your own assistant text in a message whose only tool call is
-`: autoplan-published <phase>`, then enter the next phase in a later message.
+`true autoplan-published <phase>`, then enter the next phase in a later message.
 
 <a id="publication-unflushed"></a>
 ### `publication_unflushed`

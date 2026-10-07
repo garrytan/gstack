@@ -356,7 +356,7 @@ describe('Autoplan parent publication guard', () => {
     expect(warning).toContain('code too_large');
     expect(warning).toContain('docs/autoplan-guard-troubleshooting.md#too-large');
     expect(warning).toContain('Phase-report enforcement was skipped');
-    expect(output.hookSpecificOutput.additionalContext).toContain(': autoplan-published <phase>');
+    expect(output.hookSpecificOutput.additionalContext).toContain('true autoplan-published <phase>');
   });
 
   test('#3050: the batch read and the narrowed parent loop report too_large, not a plain error', async () => {

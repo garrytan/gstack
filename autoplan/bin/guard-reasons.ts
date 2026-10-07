@@ -19,7 +19,7 @@ interface Reason { disposition: Disposition; text: (d: Detail) => string }
 export const FALLBACK = 'Fallback: run /plan-ceo-review, then /plan-devex-review, then /plan-eng-review by hand; ' +
   'or run /context-save, start a new Claude Code session (not --resume), run /context-restore, then /autoplan <plan path>.';
 const PUBLISH_SEPARATELY = (d: Detail) => `Publish the filled Phase ${d.phase} report as your own parent assistant text in a message ` +
-  `whose only tool call is the Bash no-op \`: autoplan-published <phase>\`, then make this phase-entry call in a later message.`;
+  `whose only tool call is the Bash no-op \`true autoplan-published <phase>\`, then make this phase-entry call in a later message.`;
 
 export const REASONS = {
   // Journal ownership (lib/claude-public-transcript.ts OwnedTranscriptReason).

@@ -59,7 +59,7 @@ export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: nu
   /** Phase-close step 6: the report and the no-op in their own message, then the no-op's result. */
   const publish = () => {
     const messageId = nextMessage();
-    report(messageId); use(`noop-${messageId}`, 'Bash', { command: `: autoplan-published ${phase}` }, messageId);
+    report(messageId); use(`noop-${messageId}`, 'Bash', { command: `true autoplan-published ${phase}` }, messageId);
     result(`noop-${messageId}`, { content: '' });
   };
 

@@ -651,7 +651,7 @@ function unverifiedOutput(code: string, detail: Detail, version: string | undefi
   const notice = reasonText(code, detail, version);
   return { systemMessage: `[autoplan] ${notice}`, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext:
     `[autoplan] ${notice} This call proceeds unverified. Publish each completed phase report as your own parent ` +
-    'assistant text, in a message whose only tool call is the Bash no-op `: autoplan-published <phase>`, before entering the next phase.' } };
+    'assistant text, in a message whose only tool call is the Bash no-op `true autoplan-published <phase>`, before entering the next phase.' } };
 }
 
 function decided(decision: Decision, via: EvaluationPath, version?: string): object {

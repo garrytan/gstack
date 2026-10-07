@@ -110,7 +110,7 @@ describe('Cause B: the current call is not journaled at hook time (payload path)
     expect(codeOf(await f.hook(f.input('b', 'Agent', dispatch(f, { model: 'haiku' }))))).toBe('agent_key');
     const next = await f.hook(f.input('c', 'Read', { file_path: section('design-phase.md') }));
     expect(codeOf(next)).toBe('publication_missing');
-    expect(denial(next)).toContain(': autoplan-published <phase>');
+    expect(denial(next)).toContain('true autoplan-published <phase>');
   });
 });
 
@@ -121,7 +121,7 @@ describe('Publication flush: a report counts only once a later journaled record 
     const f = make(); f.report(f.nextMessage()); f.journal();
     const output = await f.hook(next(f));
     expect(codeOf(output)).toBe('publication_unflushed');
-    expect(denial(output)).toContain('`: autoplan-published <phase>`');
+    expect(denial(output)).toContain('`true autoplan-published <phase>`');
     expect(denial(output)).not.toMatch(/\bretry\b/i);
   });
 

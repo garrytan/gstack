@@ -575,7 +575,7 @@ do not launch the downstream skill or open a browser.`,
     maxSkeletonBytes: 70_000, // Phase-specific outside coverage, native fallback, and harness guard.
     minUnionBytes: 85_000, // measured union 86,926
     mustContain: ['6 Decision Principles', 'TASTE DECISION', 'USER CHALLENGE', 'consensus', 'Restore Point'],
-    maxSizeRatio: 1.1215, // Four validated outside invocations replace raw CLI calls; phases keep independent coverage. + Oct 7 wave guard (CEO-20): conditional `run_in_background` request plus the background-run recovery at each foreground dispatch site, and phase-close publishing each report with the `: autoplan-published <phase>` no-op before the next phase entry in a later message (CEO-1); measured 114,320 / 101,979 = 1.1210 (2026-10-07).
+    maxSizeRatio: 1.1215, // Four validated outside invocations replace raw CLI calls; phases keep independent coverage. + Oct 7 wave guard (CEO-20): conditional `run_in_background` request plus the background-run recovery at each foreground dispatch site, and phase-close publishing each report with the `true autoplan-published <phase>` no-op before the next phase entry in a later message (CEO-1); measured 114,320 / 101,979 = 1.1210 (2026-10-07).
   },
   spec: {
     skill: 'spec',
