@@ -43,6 +43,8 @@ When /ship's measure loop prints needs-classify, read the listed reds and record
 
 #### Fixed
 - `ship-measure measure` no longer refuses a case that shares its test file with other cases (for example `ship-exploratory-late-input`): the no-cost selection check before the first paid trial now accepts the per-case trial shard such a case lists.
+- `ship-measure measure` runs cases that keep native evidence (functional QA, docs faults) outside CI: each trial gets its own `EVALS_RUN_ID`, where before every trial stopped at "requires EVALS_RUN_ID" without starting a session.
+- The `plan-mode-no-op` gate case no longer times out on large pull requests: its CEO review reads a fixed small plan instead of the branch diff.
 
 #### For contributors
 - The bar is one pure module, `scripts/lib/measure-bar.ts`, pinned by `test/ship-measure-bar.test.ts`; the sweep is `scripts/ship-measure-sweep.ts`, pinned by `test/ship-measure-sweep.test.ts` and `test/eval-sweep-workflow.test.ts`. `eval:pass-rates` history loading is now `loadPassRateHistory()` in `scripts/eval-flake-rank.ts`, shared with the sweep.

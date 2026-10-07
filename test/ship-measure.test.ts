@@ -341,11 +341,13 @@ describe('diagnostic trials prove they ran and never touch the judge cache', () 
     expect(junitExecuted(dirWith(junit('<testcase name="a" time="1"/>')))).toBe(true);
     expect(junitExecuted(dirWith(junit('<testcase name="a" time="1"></testcase><testcase name="b"><skipped/></testcase>')))).toBe(true);
   });
-  test('the judge input cache is never inherited by a diagnostic trial', () => {
-    const env = diagnosticBaseEnv({ EVALS_CACHE_DIR: '/c', EVALS_CACHE_RUNTIME_ID: 'img', KEEP: '1' }, '/e');
+  test('the judge input cache is never inherited by a diagnostic trial; each trial gets its own run id', () => {
+    const env = diagnosticBaseEnv({ EVALS_CACHE_DIR: '/c', EVALS_CACHE_RUNTIME_ID: 'img', KEEP: '1' }, '/e', 'case-baseline-t3');
     expect(env).not.toHaveProperty('EVALS_CACHE_DIR');
     expect(env).not.toHaveProperty('EVALS_CACHE_RUNTIME_ID');
-    expect(env).toMatchObject({ KEEP: '1', GSTACK_EVAL_DIR: '/e', GSTACK_SHIP_MEASURE_LABEL: 'diagnostic' });
+    expect(env).toMatchObject({ KEEP: '1', GSTACK_EVAL_DIR: '/e', GSTACK_SHIP_MEASURE_LABEL: 'diagnostic', EVALS_RUN_ID: 'local-measure-case-baseline-t3' });
+    // Every trial has its own run id (evidence-retaining cases refuse to start without one); CI's id is kept as the prefix.
+    expect(diagnosticBaseEnv({ EVALS_RUN_ID: 'ci-9-1-eval-sweep' }, '/e', 'x-t1').EVALS_RUN_ID).toBe('ci-9-1-eval-sweep-measure-x-t1');
   });
 });
 

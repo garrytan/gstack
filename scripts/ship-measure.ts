@@ -540,9 +540,11 @@ export function caseSelectionPreflight(caseId: string, rootDir = ROOT): { ok: bo
  * and never publish: with the judge input cache enabled, a trial could reuse a
  * stored pass, and its own passes would flow into the gate's reuse.
  */
-export function diagnosticBaseEnv(base: NodeJS.ProcessEnv, evalDir: string): NodeJS.ProcessEnv {
+export function diagnosticBaseEnv(base: NodeJS.ProcessEnv, evalDir: string, trialId: string): NodeJS.ProcessEnv {
   const { EVALS_CACHE_DIR: _cacheDir, EVALS_CACHE_RUNTIME_ID: _cacheRuntime, ...inherited } = base;
-  return { ...inherited, GSTACK_EVAL_DIR: evalDir, GSTACK_SHIP_MEASURE_LABEL: 'diagnostic', EVALS_JOBS: '1' };
+  // Cases that retain native evidence (functional QA, docs faults) require EVALS_RUN_ID, which only CI sets;
+  // each trial gets its own so parallel trials never share an evidence directory.
+  return { ...inherited, GSTACK_EVAL_DIR: evalDir, GSTACK_SHIP_MEASURE_LABEL: 'diagnostic', EVALS_JOBS: '1', EVALS_RUN_ID: `${base.EVALS_RUN_ID || 'local'}-measure-${trialId}` };
 }
 
 /** True when some junit.xml under evalDir holds an executed, passing testcase and no failed or errored one. */
@@ -636,7 +638,7 @@ export function judgeFile(id: string, rootDir = ROOT): string {
  * with the judge selected alone and passes only on its own passing record.
  */
 export function gstackRunner(rootDir = ROOT): TrialRunner {
-  return async ({ caseId, dir }) => {
+  return async ({ caseId, round, trial, dir }) => {
     const evalDir = path.join(dir, 'eval');
     const isJudge = !Object.hasOwn(E2E_TIERS, caseId);
     if (isJudge && !Object.hasOwn(LLM_JUDGE_TOUCHFILES, caseId)) throw new Error(`${caseId} is neither an E2E case nor a standalone judge`);
@@ -644,7 +646,7 @@ export function gstackRunner(rootDir = ROOT): TrialRunner {
       ? [process.execPath, 'test', path.join(rootDir, judgeFile(caseId, rootDir))]
       : [process.execPath, 'run', path.join(rootDir, 'scripts/test-paid-shards.ts'), '--tier', E2E_TIERS[caseId]!, '--case', caseId, '--trials', '1'];
     const env = {
-      ...diagnosticBaseEnv(process.env, evalDir),
+      ...diagnosticBaseEnv(process.env, evalDir, `${caseSlug(caseId)}-${round}-t${trial}-${process.pid}`),
       ...(isJudge ? { EVALS: '1', EVALS_TIER: 'gate', EVALS_ALL: '1', ...paidSelectionEnv('full', { e2e: [], judges: [caseId] }, 'ship-measure judge') } : {}),
     };
     const { code, output } = await runTrialProcess(argv, rootDir, env, dir);
