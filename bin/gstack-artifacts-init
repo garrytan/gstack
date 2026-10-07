@@ -260,6 +260,17 @@ EOF
   exit 1
 fi
 
+# ---- drain lock ----
+# Every gstack writer to the artifacts repo's git state takes the same lock,
+# so a drain never meets this init's git index mid-write (and can treat an
+# old index lock as abandoned).
+. "$SCRIPT_DIR/gstack-brain-lock.sh"
+if ! gstack_brain_lock_acquire "$GSTACK_HOME" wait; then
+  echo "gstack-artifacts-init: another gstack sync (pid ${_GSTACK_BRAIN_LOCK_HOLDER:-unknown}) is using $GSTACK_HOME; re-run when it finishes" >&2
+  exit 1
+fi
+trap 'gstack_brain_lock_release' EXIT
+
 # ---- git init ----
 if [ ! -d "$GSTACK_HOME/.git" ]; then
   git -C "$GSTACK_HOME" init -q -b main 2>/dev/null || git -C "$GSTACK_HOME" init -q
@@ -282,7 +293,7 @@ EOF
 ALLOWLIST="$GSTACK_HOME/.brain-allowlist"
 ALLOWLIST_TMP=$(mktemp "$GSTACK_HOME/.brain-allowlist.XXXXXX")
 ALLOWLIST_ASSEMBLED=$(mktemp "$GSTACK_HOME/.brain-allowlist.XXXXXX")
-trap 'rm -f "$ALLOWLIST_TMP" "$ALLOWLIST_ASSEMBLED"' EXIT
+trap 'rm -f "$ALLOWLIST_TMP" "$ALLOWLIST_ASSEMBLED"; gstack_brain_lock_release' EXIT
 ALLOWLIST_MARKER='# ---- USER ADDITIONS BELOW ---- (survives re-init; above is managed)'
 
 cat > "$ALLOWLIST_TMP" <<'EOF'
