@@ -34,7 +34,7 @@ When Claude Code itself leaves a call impossible to check, /autoplan continues a
 
 #### If the pre-push hook warned on your own email
 
-The scan no longer reports your own address (`git config user.email`) or addresses already in the destination's history: authors and committers of the commits you push, of the remote branch you replace, and, for a new branch, of that remote's other branches. Mailmapped addresses count too. Each MEDIUM finding now names its rule, file and line, never the value. Addresses that only some other remote knows still report, and HIGH secrets still block. To allow a team or support address in one repo, run `git config --add gstack.redact.allowEmail support@yourco.com`. If the hook says "existing-email suppression was limited for this push", it couldn't read the history within 5 seconds, so known authors may be listed that one time.
+The scan no longer reports your own address (`git config user.email`) or addresses already in the destination's history: authors and committers of the commits you push, of the remote branch you replace, and, for a new branch, of that remote's other branches. Mailmapped addresses count too. Each MEDIUM finding now names its rule, file and line, never the value. Addresses that only some other remote knows still report, and HIGH secrets still block. To allow a team or support address in one repo, run `git config --add gstack.redact.allowEmail support@example.com`. If the hook says "existing-email suppression was limited for this push", it couldn't read the history within 5 seconds, so known authors may be listed that one time.
 
 #### If artifacts sync stopped pushing
 
