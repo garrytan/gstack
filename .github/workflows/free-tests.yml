@@ -125,10 +125,13 @@ jobs:
           git config --global user.email "free-tests-ci@gstack.test"
           git config --global user.name "Free Tests CI"
           git config --global init.defaultBranch main
-      - name: Codex probe selects a model when sourced from zsh (macOS default shell, no paid call)
+      - name: Codex probe selects a model from zsh, run as a command and sourced (macOS default shell, no paid call)
         working-directory: ${{ runner.temp }}
         run: |
           set -euo pipefail
+          run="$(zsh -c '"$GITHUB_WORKSPACE/bin/gstack-codex-probe" select-model exec' 2>&1)"
+          printf '%s\n' "$run"
+          printf '%s\n' "$run" | grep -E '^CODEX_SEL: [A-Za-z0-9._:/-]+$'
           out="$(zsh -c 'source "$GITHUB_WORKSPACE/bin/gstack-codex-probe" && _gstack_codex_select_model exec' 2>&1)"
           printf '%s\n' "$out"
           printf '%s\n' "$out" | grep -E '^CODEX_MODEL: [A-Za-z0-9._:/-]+ \(exec; source: '
@@ -139,7 +142,7 @@ jobs:
           resolved="$(realpath "$tmp")"
           echo "temp root: $tmp -> $resolved"
           test "$resolved" != "${tmp%/}"
-          files=(test/gstack-design-detect.test.ts browse/test/chromium-profile-isolation.test.ts test/cso-git-hardening.test.ts test/plan-count-file-permission.test.ts test/spec-quality-gate-secret-sink.test.ts test/gstack-memory-ingest.test.ts test/regression-issue3024-zsh-sourced-helpers.test.ts)
+          files=(test/gstack-design-detect.test.ts browse/test/chromium-profile-isolation.test.ts test/cso-git-hardening.test.ts test/plan-count-file-permission.test.ts test/spec-quality-gate-secret-sink.test.ts test/gstack-memory-ingest.test.ts test/regression-issue3024-zsh-sourced-helpers.test.ts test/codex-probe-subcommands.test.ts)
           for file in "${files[@]}"; do test -f "$file"; done
           bun test "${files[@]}"
 

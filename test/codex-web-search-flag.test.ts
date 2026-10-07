@@ -15,7 +15,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'node:os';
-import { CODEX_MODEL_CONFIG_FLAG, CODEX_REVIEW_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG } from '../scripts/resolvers/constants';
+import { CODEX_MODEL_CONFIG_FLAG, CODEX_REVIEW_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG, codexSelect } from '../scripts/resolvers/constants';
 
 const ROOT = path.join(import.meta.dir, '..');
 const DEPRECATED = '--enable web_search_cached';
@@ -92,11 +92,12 @@ describe('deprecated codex web-search flag is gone (#2525)', () => {
 
 describe('codex frontier model flag is present', () => {
   // #2914: the flag carries the runtime selection, never a hard-coded default.
-  const flagArgv = (flag: string, select: string, env: Record<string, string>, config?: string) => {
+  // The generated selection block, run exactly as skills run it: the executed probe, no sourcing.
+  const flagArgv = (flag: string, kind: 'exec' | 'review', env: Record<string, string>, config?: string) => {
     const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-flag-model-'));
     try {
       if (config !== undefined) fs.writeFileSync(path.join(codexHome, 'config.toml'), config);
-      return execFileSync('bash', ['-c', `source "${path.join(ROOT, 'bin', 'gstack-codex-probe')}" && ${select} 2>/dev/null && printf '%s\\n' ${flag}`], {
+      return execFileSync('bash', ['-c', `exec 2>/dev/null\n${codexSelect(kind, `'${path.join(ROOT, 'bin', 'gstack-codex-probe')}'`)}\nprintf '%s\\n' ${flag}`], {
         env: { ...process.env, GSTACK_CODEX_MODEL: '', CODEX_HOME: codexHome, ...env }, encoding: 'utf8', timeout: 10000,
       }).trim().split('\n');
     } finally {
@@ -105,7 +106,7 @@ describe('codex frontier model flag is present', () => {
   };
 
   test('the model flag passes the selected model: GSTACK_CODEX_MODEL, then config.toml, then gpt-6-astra', () => {
-    const select = '_gstack_codex_select_model exec';
+    const select = 'exec' as const;
     const isolation = ['-c', 'skills.include_instructions=false'];
     expect(flagArgv(CODEX_MODEL_CONFIG_FLAG, select, {})).toEqual(['-c', 'model="gpt-6-astra"', ...isolation]);
     expect(flagArgv(CODEX_MODEL_CONFIG_FLAG, select, {}, 'model = "gpt-5.6-terra"\n')).toEqual(['-c', 'model="gpt-5.6-terra"', ...isolation]);
@@ -120,7 +121,7 @@ describe('codex frontier model flag is present', () => {
       [{ GSTACK_CODEX_MODEL: 'custom-codex' }, 'review_model = "gpt-5.6-luna"\n', 'custom-codex'],
       [{}, 'model = "gpt-5.6-terra"\nreview_model = "gpt-5.6-luna"\n', 'gpt-5.6-luna'],
     ] as const) {
-      const argv = flagArgv(CODEX_REVIEW_MODEL_CONFIG_FLAG, '_gstack_codex_select_model review', { ...env }, config);
+      const argv = flagArgv(CODEX_REVIEW_MODEL_CONFIG_FLAG, 'review', { ...env }, config);
       expect(argv).toEqual(['-c', `review_model="${expected}"`, '-c', `model="${expected}"`, '-c', 'skills.include_instructions=false']);
     }
     for (const file of ['codex/sections/review-mode.md', 'review/sections/adversarial.md', 'ship/sections/adversarial.md']) {

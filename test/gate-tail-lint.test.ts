@@ -14,7 +14,9 @@ import * as path from 'node:path';
 const ROOT = path.resolve(import.meta.dir, '..');
 const QUERY_SCRIPTS = ['bin/gstack-learnings-search', 'bin/gstack-timeline-read'];
 const GATE_CALLS = ['outside-review-result.ts', 'gstack-learnings-search', 'gstack-timeline-read',
-  '_gstack_codex_auth_probe', '_gstack_codex_model_probe', '_gstack_codex_sandbox_preflight'];
+  '_gstack_codex_auth_probe', '_gstack_codex_model_probe', '_gstack_codex_sandbox_preflight',
+  'gstack-codex-probe check-auth', 'gstack-codex-probe probe-model', 'gstack-codex-probe check-sandbox',
+  '"$_CODEX_PROBE" check-auth', '"$_CODEX_PROBE" probe-model', '"$_CODEX_PROBE" check-sandbox'];
 const SILENT_EXIT = /2>\/dev\/null \|\| exit 0\b/;
 
 function walk(dir: string, keep: (file: string) => boolean, out: string[] = []): string[] {

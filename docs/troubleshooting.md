@@ -32,27 +32,37 @@ P0 or P1 finding blocks exactly like a native P0/P1. `unverified` and
 the readiness dashboard and the PR body, and never count it as a pass.
 
 <a id="sourced-helper-location"></a>
-### `gstack: cannot locate gstack-codex-probe (shell: ...)` / `CODEX_MODE: helper_unavailable`
+### `gstack: cannot load gstack-codex-probe` / `gstack: cannot locate <helper> (shell: ...)` / `CODEX_MODE: helper_unavailable`
 
-**Meaning.** Skill blocks load gstack's shell helpers (`gstack-codex-probe`,
-`gstack-egress-lib.sh`) into the shell your agent runs. A helper finds its own
+**Meaning.** Skills run `gstack-codex-probe` as a command, one subcommand per
+check, so the shell your agent uses does not matter. `cannot load
+gstack-codex-probe` and `CODEX_MODE: helper_unavailable` mean the probe file is
+missing or not executable in your install.
+
+`cannot locate <helper> (shell: ...)` comes from a helper that is still loaded
+into your shell with `source` (`gstack-egress-lib.sh`, and the Codex probe when
+a skill rendered before the upgrade sources it). Such a helper finds its own
 directory from bash (`BASH_SOURCE`) or zsh (`%x`). In any other shell (dash,
-sh), or when the shell cannot say which file it is reading, the helper stops
-instead of guessing a path. The message names the shell it saw.
+sh), or when the shell cannot say which file it is reading, it stops instead of
+guessing a path. The message names the shell it saw.
 
-**Fix.** Run the skill from bash or zsh (the macOS and Linux defaults). If
-the shell cannot be changed, tell the helper where gstack is installed:
+**Fix.** For `cannot load`, re-run `./setup` from your gstack checkout (or
+`/gstack-upgrade`). For `cannot locate`, run the skill from bash or zsh (the
+macOS and Linux defaults), or tell the helper where gstack is installed:
 
 ```bash
 export GSTACK_ROOT=~/.claude/skills/gstack   # your install dir; it holds bin/
 ```
 
-If the message says `cannot load ...`, the helper file is missing: re-run
-`./setup` from your gstack checkout.
+If you see `gstack: sourcing gstack-codex-probe is deprecated ...`, a skill
+rendered before the upgrade is still sourcing the probe. It keeps working
+until a release on or after 2026-10-21; run `/gstack-upgrade` to re-render
+your skills now.
 
-**Expected result.** `zsh -c 'source ~/.claude/skills/gstack/bin/gstack-codex-probe && _gstack_codex_select_model exec'`
-prints `CODEX_MODEL: <model> (exec; source: ...)`, and preflights print a
-`CODEX_MODE` other than `helper_unavailable`.
+**Expected result.** `~/.claude/skills/gstack/bin/gstack-codex-probe select-model exec`
+prints `CODEX_SEL: <model>` (and `CODEX_MODEL: <model> (exec; source: ...)` on
+stderr) from any shell, and preflights print a `CODEX_MODE` other than
+`helper_unavailable`. `gstack-codex-probe help` lists every subcommand.
 
 <a id="codex-sandbox-unavailable"></a>
 ### `Codex outside review unavailable: Codex's sandbox could not start here (...)`

@@ -645,20 +645,20 @@ describe('codex timeout wrapper: /review + /ship diff passes', () => {
 
     test(`${relPath}: both diff-review Codex calls run under the wrapper`, () => {
       const wrapped =
-        read().match(/_gstack_codex_timeout_wrapper\s+\d+\s+codex\s+(exec|review)\b/g) ?? [];
+        read().match(/run-with-timeout\s+\d+\s+codex\s+(exec|review)\b/g) ?? [];
       // Adversarial pass + structured review pass.
       expect(wrapped.length).toBeGreaterThanOrEqual(2);
     });
 
     test(`${relPath}: does not claim \`timeout\` is unavailable on macOS`, () => {
-      // _gstack_codex_timeout_wrapper resolves gtimeout -> timeout -> unwrapped,
+      // run-with-timeout resolves gtimeout -> timeout -> a bash watchdog,
       // so the coreutils-less case is already handled. The old claim is what
       // steered these call sites away from the wrapper in the first place.
       expect(read()).not.toMatch(/doesn't exist on macOS/);
     });
 
     test(`${relPath}: wrapper budget stays under the outer Bash gate`, () => {
-      const budgets = [...read().matchAll(/_gstack_codex_timeout_wrapper\s+(\d+)\s+codex\b/g)].map(
+      const budgets = [...read().matchAll(/run-with-timeout\s+(\d+)\s+codex\b/g)].map(
         (m) => Number(m[1]) * 1000,
       );
       expect(budgets.length).toBeGreaterThan(0);
@@ -710,13 +710,13 @@ describe('codex skeleton+sections union: review sandbox + fail-closed gate + tim
     test(`${relPath}: (a) every scoped codex review invocation pins sandbox_mode from the selected sandbox`, () => {
       const invocations = read()
         .split('\n')
-        .filter((l) => /_gstack_codex_timeout_wrapper\s+\d+\s+codex\s+review\b/.test(l));
+        .filter((l) => /run-with-timeout\s+\d+\s+codex\s+review\b/.test(l));
       expect(invocations.length).toBeGreaterThanOrEqual(1);
       for (const line of invocations) {
-        // _gstack_codex_select_model sets read-only (full access only for
+        // select-model reports read-only (full access only for
         // GSTACK_CODEX_NO_SANDBOX=1, test/codex-model-probe.test.ts); :? stops
         // an unselected command instead of inheriting config.toml's default.
-        expect(line).toContain('sandbox_mode=\\"${_GSTACK_CODEX_SANDBOX:?}\\"');
+        expect(line).toContain('sandbox_mode=\\"${_CODEX_SANDBOX_MODE:?}\\"');
         // `codex review` has no -s/--sandbox flag (verified 0.147.0) — the
         // config override is the only lever. `-s read-only` here would fail
         // at argv parsing, which check (b) would then read as a gate FAIL.
@@ -766,13 +766,13 @@ describe('codex skeleton+sections union: review sandbox + fail-closed gate + tim
     test(`${relPath}: (c) every Bash gate sits strictly above its section's wrapper budgets`, () => {
       // Split on `## ` headings; within any section that declares BOTH a Bash
       // tool gate (`timeout: N` in ms) and a wrapper budget
-      // (`_gstack_codex_timeout_wrapper S codex`), every gate must be strictly
+      // (`run-with-timeout S codex`), every gate must be strictly
       // greater than every wrapper budget so the wrapper fires first.
       const sections = read().split(/\n## /);
       const inspected: string[] = [];
       for (const section of sections) {
         const gates = [...section.matchAll(/timeout:\s*(\d{4,})/g)].map((m) => Number(m[1]));
-        const wrappers = [...section.matchAll(/_gstack_codex_timeout_wrapper\s+(\d+)\s+codex\b/g)].map(
+        const wrappers = [...section.matchAll(/run-with-timeout\s+(\d+)\s+codex\b/g)].map(
           (m) => Number(m[1]) * 1000,
         );
         if (gates.length === 0 || wrappers.length === 0) continue;
@@ -941,17 +941,17 @@ describe('codex broken-install detection (#2742)', () => {
     for (const rel of ['autoplan/SKILL.md.tmpl', 'autoplan/SKILL.md']) {
       const raw = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
       const src = rel.endsWith('.tmpl') ? raw.replace('{{OUTSIDE_PREFLIGHT:autoplan}}', RESOLVERS.OUTSIDE_PREFLIGHT({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'autoplan', tmplPath: rel }, ['autoplan'])) : raw;
-      expect(src).toContain('_gstack_codex_model_probe; _CODEX_MP=$?');
+      expect(src).toContain('_CODEX_PO=$("$_CODEX_PROBE" probe-model $_CODEX_KIND); _CODEX_MP=$?');
       expect(src).toMatch(/_CODEX_MP" -eq 2/);
       expect(src).toContain('binary cannot run');
-      expect(src).not.toContain('elif ! _gstack_codex_model_probe');
+      expect(src).not.toContain('elif ! "$_CODEX_PROBE" probe-model');
     }
   });
 
   test('the preflight resolver routes exit 2 to broken_install', () => {
     const src = fs.readFileSync(path.join(ROOT, 'scripts/resolvers/constants.ts'), 'utf8');
     expect(src).toContain('broken_install');
-    // The chain must capture the probe's code; `elif ! _gstack_codex_model_probe`
+    // The chain must capture the probe's code; `elif ! gstack-codex-probe probe-model`
     // collapses 1 and 2 into one branch and loses the distinction.
     expect(src).toContain('_CODEX_MP=$?');
   });

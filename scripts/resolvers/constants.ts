@@ -60,12 +60,12 @@ export const CODEX_WEB_SEARCH_FLAG = `-c 'web_search="cached"'`;
  * Default model for gstack-owned Codex invocations when nothing else chooses.
  *
  * The runtime model is resolved per invocation kind by
- * `_gstack_codex_select_model exec|review` (bin/gstack-codex-probe, backed by
+ * `gstack-codex-probe select-model exec|review` (backed by
  * resolveCodexRuntimeModel in scripts/resolve-codex-generation-model.ts):
- * explicit request, then GSTACK_CODEX_MODEL, then Codex config.toml (`model`;
- * `review_model` first for native review; honors CODEX_HOME), then this default
- * (#2914). The selection is printed before the first paid call and the probe
- * checks the same record the flags below pass.
+ * explicit request (`--model`), then GSTACK_CODEX_MODEL, then Codex config.toml
+ * (`model`; `review_model` first for native review; honors CODEX_HOME), then this
+ * default (#2914). The selection is printed before the first paid call and the
+ * probe checks the same record the flags below pass.
  */
 export const CODEX_FRONTIER_MODEL = 'gpt-6-astra';
 /**
@@ -74,11 +74,29 @@ export const CODEX_FRONTIER_MODEL = 'gpt-6-astra';
  * skill workflow inside its budget (#2847). Read-only sandboxes do not prevent this.
  */
 export const CODEX_SKILLS_ISOLATION_FLAG = '-c skills.include_instructions=false';
-const SELECTED_MODEL = '${_GSTACK_CODEX_SEL:?}';
-/** Requires `_gstack_codex_select_model exec` earlier in the same shell; `:?` stops an unselected command. */
+/** Captured from `select-model` by codexSelect(); `:?` stops an unselected command. */
+const SELECTED_MODEL = '${_CODEX_SEL:?}';
+/** The sandbox codexSelect() captured; read-only unless GSTACK_CODEX_NO_SANDBOX=1. */
+export const CODEX_SANDBOX_REF = '${_CODEX_SANDBOX_MODE:?}';
+/** Requires codexSelect('exec') earlier in the same block. */
 export const CODEX_MODEL_CONFIG_FLAG = `-c "model=\\"${SELECTED_MODEL}\\"" ${CODEX_SKILLS_ISOLATION_FLAG}`;
-/** Requires `_gstack_codex_select_model review`; native review prefers review_model, so both carry the selection. */
+/** Requires codexSelect('review'); native review prefers review_model, so both carry the selection. */
 export const CODEX_REVIEW_MODEL_CONFIG_FLAG = `-c "review_model=\\"${SELECTED_MODEL}\\"" ${CODEX_MODEL_CONFIG_FLAG}`;
+/** The executed probe; pathRewrites map the Claude path per host. */
+export const CODEX_PROBE_PATH = '~/.claude/skills/gstack/bin/gstack-codex-probe';
+
+/**
+ * Runs `gstack-codex-probe select-model` and captures its KEY: value lines into
+ * `_CODEX_SEL` and `_CODEX_SANDBOX_MODE` for CODEX_MODEL_CONFIG_FLAG and
+ * CODEX_SANDBOX_REF. The probe is executed, never sourced, so no shell state
+ * crosses from the helper and the calling shell does not matter.
+ */
+export function codexSelect(kind: 'exec' | 'review', probe: string = CODEX_PROBE_PATH): string {
+  return `_CODEX_PROBE=${probe}
+_CODEX_OUT=$("$_CODEX_PROBE" select-model ${kind}) || exit 1
+_CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
+_CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')`;
+}
 
 /**
  * Shared Codex error handling block for resolver output.
@@ -99,20 +117,20 @@ On any error: continue — ${feature} is informational, not a gate.`;
  * CODEX_PLAN_REVIEW, and CODEX_DOC_REVIEW so install/auth/config detection
  * lives in exactly one place.
  *
- * Emits ONE self-contained bash block (the caller must place it in a single
- * fenced block — CLAUDE.md: each block is a fresh shell, so functions sourced
- * here do NOT persist to later blocks). It:
+ * Emits ONE self-contained bash block that runs `gstack-codex-probe` as a
+ * command (one subcommand per check), so it works from bash, zsh or sh and
+ * nothing it learns persists to later blocks except the echoed mode. It:
  *   1. reads the `codex_reviews` master switch,
- *   2. sources `gstack-codex-probe` with POSIX `.`, so even sh/dash reach the
- *      helper's own diagnostic (`CODEX_MODE: helper_unavailable`),
+ *   2. checks that the probe is installed and executable
+ *      (`CODEX_MODE: helper_unavailable` with the fix otherwise),
  *   3. runs `command -v codex` (literal — keeps the e2e substring assertion),
- *      then `_gstack_codex_auth_probe`, then `_gstack_codex_version_check`,
- *   4. logs the relevant `_gstack_codex_log_event` for each non-ready outcome,
+ *      then `check-auth`, `check-sandbox`, `probe-model` and `check-version`,
+ *   4. logs the relevant `log-event` for each non-ready outcome,
  *   5. sets ONE canonical mode var and echoes `CODEX_MODE: <mode>` so the agent
  *      gates later blocks on the echoed value.
  *
- * Mode values: `disabled` (config off) | `helper_unavailable` (the probe could
- * not be sourced; its own diagnostic is echoed) | `not_installed` | `not_authed` |
+ * Mode values: `disabled` (config off) | `helper_unavailable` (the probe is
+ * missing or not executable) | `not_installed` | `not_authed` |
  * `broken_install` | `sandbox_unavailable` | `model_unusable` | `quota_exhausted` |
  * `unverified` (echoed as `unverified (rate_limited)` after a probe-time 429) | `ready`.
  * The path is host-rewritten at gen-skill-docs time (pathRewrites), so the
@@ -135,27 +153,30 @@ export function codexPreflight(opts: { modeVar?: string; disabledBehavior: 'skip
     ? 'Keep the required Claude adversarial pass; do not dispatch a duplicate.'
     : 'Fall back to the Claude subagent path.';
   return `\`\`\`bash
-# Codex preflight: one block (functions sourced here don't persist to later blocks).
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
+# Codex preflight: the probe runs as a command, so any shell works.
+_CODEX_PROBE=${CODEX_PROBE_PATH}
 _CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
 _gstack_helper_error=""
-. ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || _gstack_helper_error="\${_gstack_helper_error:-gstack: cannot load gstack-codex-probe; re-run ./setup. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location}"
+[ -x "$_CODEX_PROBE" ] || _gstack_helper_error="gstack: cannot load gstack-codex-probe; re-run ./setup. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#sourced-helper-location"
 if [ "$_CODEX_CFG" = "disabled" ]; then
   ${m}="disabled"
 elif { [ -n "\${CODEX_THREAD_ID:-}" ] || [ -n "\${CODEX_SANDBOX:-}" ] || [ "\${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
   ${m}="under_codex"
 elif ! command -v codex >/dev/null 2>&1; then
-  ${m}="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+  ${m}="not_installed"; "$_CODEX_PROBE" log-event codex_cli_missing 2>/dev/null || true
 elif [ -n "$_gstack_helper_error" ]; then
   ${m}="helper_unavailable"; echo "$_gstack_helper_error"
-elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
-  ${m}="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
+elif ! "$_CODEX_PROBE" check-auth >/dev/null 2>&1; then
+  ${m}="not_authed"; "$_CODEX_PROBE" log-event codex_auth_failed 2>/dev/null || true
 else
-  # The free sandbox check runs before the paid model probe. Probe code 2 means
-  # the CLI cannot execute at all, a different fix from an unusable model.
-  _CODEX_MP=0; _gstack_codex_sandbox_preflight || _CODEX_MP=3
-  [ "$_CODEX_MP" -ne 0 ] || { _gstack_codex_model_probe; _CODEX_MP=$?; }${opts.nativeReview ? `
-  [ "$_CODEX_MP" -ne 0 ] || { _gstack_codex_model_probe review; _CODEX_MP=$?; }` : ''}
+  # Free sandbox check before the paid probe; probe exit 2 = the CLI cannot run.
+  _CODEX_MP=0; _CODEX_PS=""
+  "$_CODEX_PROBE" check-sandbox || _CODEX_MP=3
+  for _CODEX_KIND in exec${opts.nativeReview ? ' review' : ''}; do
+    [ "$_CODEX_MP" -eq 0 ] || break
+    _CODEX_PO=$("$_CODEX_PROBE" probe-model $_CODEX_KIND); _CODEX_MP=$?; printf '%s\\n' "$_CODEX_PO"
+    case "$_CODEX_PO" in *"STATE: inconclusive"*) _CODEX_PS=inconclusive ;; *"STATE: rate_limited"*) _CODEX_PS=rate_limited ;; esac
+  done
   if [ "$_CODEX_MP" -eq 3 ]; then
     ${m}="sandbox_unavailable"
   elif [ "$_CODEX_MP" -eq 2 ]; then
@@ -164,12 +185,12 @@ else
     ${m}="quota_exhausted"
   elif [ "$_CODEX_MP" -ne 0 ]; then
     ${m}="model_unusable"
-  elif [ "\${_GSTACK_CODEX_PROBE_STATE:-}" = inconclusive ]; then
+  elif [ "$_CODEX_PS" = inconclusive ]; then
     ${m}="unverified"
-  elif [ "\${_GSTACK_CODEX_PROBE_STATE:-}" = rate_limited ]; then
+  elif [ "$_CODEX_PS" = rate_limited ]; then
     ${m}="unverified (rate_limited)"
   else
-    ${m}="ready"; _gstack_codex_version_check 2>/dev/null || true
+    ${m}="ready"; "$_CODEX_PROBE" check-version || true
   fi
 fi
 echo "CODEX_MODE: $${m}"
@@ -177,7 +198,7 @@ echo "CODEX_MODE: $${m}"
 
 Branch on the echoed \`CODEX_MODE\`:
 - **\`disabled\`** — the user turned Codex reviews off (\`codex_reviews=disabled\`). ${disabledLine}
-- **\`helper_unavailable\`** — the helper could not load; relay the line above (cause and fix). ${nativeRoute}
+- **\`helper_unavailable\`** — the probe is missing or not executable; relay the line above (cause and fix). ${nativeRoute}
 - **\`not_installed\`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: \`npm install -g @openai/codex\`." ${nativeRoute}
 - **\`under_codex\`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
 - **\`not_authed\`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run \`codex login\` or set \`$CODEX_API_KEY\`." ${nativeRoute}

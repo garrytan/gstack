@@ -454,8 +454,7 @@ If `NOT_FOUND`: stop and tell the user:
 
 If `NOT_FOUND`, also log the event:
 ```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null && _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-codex-probe log-event codex_cli_missing 2>/dev/null || true
 ```
 
 ---
@@ -464,19 +463,19 @@ source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null && _gstack_cod
 
 Before building expensive prompts, verify Codex has valid auth, that the account
 can actually USE gstack's selected model, AND the installed CLI version isn't in the
-known-bad list. Sourcing `gstack-codex-probe` loads the shared helpers that both
-`/codex` and `/autoplan` use.
+known-bad list. `gstack-codex-probe` is the shared helper that `/codex`, `/autoplan`
+and every outside review run as a command, one subcommand per check.
 
 Model order: a model the user names for this request, `GSTACK_CODEX_MODEL`, Codex
 `config.toml` `model` (`review_model` first for `codex review`; honors `$CODEX_HOME`),
 then `gpt-6-astra`. Each call prints `CODEX_MODEL: <model> (<kind>; source: ...)` first.
-For a named model, pass it as the second argument of every `_gstack_codex_select_model`
-call, and run `_gstack_codex_select_model exec '<model>'` before the probe below. An
-invalid or unavailable choice stops with a repair message, never the default.
+For a named model, add `--model '<model>'` to every `select-model` and `probe-model`
+call, including the probe below. An invalid or unavailable choice stops with a repair
+message, never the default.
 
 ```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe || { echo "HELPER_UNAVAILABLE"; exit 1; }
+_CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
+[ -x "$_CODEX_PROBE" ] || { echo "HELPER_UNAVAILABLE"; exit 1; }
 
 # GSTACK_ACTIVE_HOST names the harness, never the model.
 if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
@@ -488,20 +487,19 @@ if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK
   fi
   exit 78
 fi
-if ! _gstack_codex_auth_probe >/dev/null; then
-  _gstack_codex_log_event "codex_auth_failed"
+if ! "$_CODEX_PROBE" check-auth >/dev/null; then
+  "$_CODEX_PROBE" log-event codex_auth_failed
   echo "AUTH_FAILED"
-elif _gstack_codex_sandbox_preflight; then   # free; Linux only
-  _gstack_codex_model_probe   # ~10s round trip on first run, cached 1h
+elif "$_CODEX_PROBE" check-sandbox; then   # free; Linux only
+  "$_CODEX_PROBE" probe-model exec   # ~10s round trip on first run, cached 1h
 fi
-_gstack_codex_version_check   # warns if known-bad, non-blocking
+"$_CODEX_PROBE" check-version   # warns if known-bad, non-blocking
 ```
 
 If the runtime guard reports a harness mismatch, stop. Outside coverage is unavailable. Repair with `./setup --host codex`; do not silently substitute another provider or force a same-harness invocation.
 
-If the output contains `HELPER_UNAVAILABLE`, stop: the gstack helper could not load in
-this shell. Relay its `gstack: cannot locate ...` line verbatim; it names the shell and
-links the fix.
+If the output contains `HELPER_UNAVAILABLE`, stop: `gstack-codex-probe` is missing or
+not executable in this install. Tell the user to re-run `./setup` (or `/gstack-upgrade`).
 
 If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
@@ -773,7 +771,7 @@ table-bearing section that must be the file's terminal heading.
 
 ## Model & Reasoning
 
-**Model:** every Codex call passes the selection above via `-c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false`.
+**Model:** every Codex call passes the selection above via `-c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false`.
 Native `codex review` selects with `review` and sets both `model` and `review_model`. The
 flag also keeps installed skills out of Codex's context, so a review cannot become a
 nested skill run.
@@ -871,7 +869,7 @@ If token count is not available, display: `Tokens: unknown`
   before showing it. Show it in full inside the CODEX SAYS block.
 - **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
 - **Bash gate above the wrapper.** Every Bash call to codex sets its `timeout`
-  parameter ABOVE the inner `_gstack_codex_timeout_wrapper` budget (Review:
+  parameter ABOVE the inner `run-with-timeout` budget (Review:
   `timeout: 360000` over the 330s wrapper; Challenge/Consult: `timeout: 600000`
   over the 540s wrappers) so the wrapper fires first with a diagnosable exit 124.
 - **No double-reviewing.** If the user already ran `/review`, Codex provides a second

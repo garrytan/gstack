@@ -258,8 +258,8 @@ describe('outside-voice dispatch contract', () => {
     const apply = rendered.indexOf('**4. Apply the answered row.**');
     expect(answer).toBeGreaterThan(0);
     expect(apply).toBeGreaterThan(answer);
-    // B1: the sandbox comes from _gstack_codex_select_model (read-only unless GSTACK_CODEX_NO_SANDBOX=1).
-    expect(rendered).toContain(`-s "\${_GSTACK_CODEX_SANDBOX:?}" ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="high"'`);
+    // B1: the sandbox comes from the probe's select-model (read-only unless GSTACK_CODEX_NO_SANDBOX=1).
+    expect(rendered).toContain(`-s "\${_CODEX_SANDBOX_MODE:?}" ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="high"'`);
   });
 
   test('the generated-carrier exception rejects missing wait, cancellation or result guards', () => {

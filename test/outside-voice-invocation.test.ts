@@ -332,13 +332,15 @@ describe('generated outside-review dispatch', () => {
   test('autoplan retains its Codex timeout event and hang record', () => {
     const events = path.join(TMP, 'autoplan-events');
     const probe = path.join(BIN, 'gstack-codex-probe');
-    fs.writeFileSync(probe, `_gstack_codex_select_model() { _GSTACK_CODEX_SEL=gpt-6-astra; _GSTACK_CODEX_SANDBOX=read-only; }
-_gstack_codex_sandbox_preflight() { return 0; }
-_gstack_codex_first_use_notice() { :; }
-_gstack_codex_timeout_wrapper() { echo 'Partial finding'; return 124; }
-_gstack_codex_log_event() { printf '%s %s\\n' "$1" "$2" >> "$FAKE_EVENTS"; }
-_gstack_codex_log_hang() { printf '%s %s\\n' "$1" "$2" >> "$FAKE_EVENTS"; }
-`);
+    fs.writeFileSync(probe, `#!/usr/bin/env bash
+case "$1" in
+  select-model) printf 'CODEX_SEL: gpt-6-astra\\nCODEX_SEL_KIND: exec\\nCODEX_SANDBOX: read-only\\n' ;;
+  check-sandbox|show-first-use-notice) ;;
+  run-with-timeout) echo 'Partial finding'; exit 124 ;;
+  log-event|log-hang) printf '%s %s\\n' "$2" "$3" >> "$FAKE_EVENTS" ;;
+  *) exit 64 ;;
+esac
+`, { mode: 0o755 });
     const ctx: TemplateContext = { skillName: 'autoplan', tmplPath: 'autoplan/SKILL.md.tmpl', host: 'claude',
       paths: { ...HOST_PATHS.claude, binDir: BIN, skillRoot: ROOT } };
     const command = outsideVoiceCommand(ctx, { promptFile: PROMPT, timeoutMs: 600000 });
@@ -416,7 +418,7 @@ echo 'Recommendation: approve because the late answer arrived.'
         const rendered = outsideVoiceInvocation(ctx, { timeoutMs: requested });
         const gates = [...rendered.matchAll(/timeout: (\d+)/g)].map(m => Number(m[1]));
         expect(gates).toEqual([provider + 60000]);
-        expect(rendered).toContain(host === 'claude' ? `_gstack_codex_timeout_wrapper ${provider / 1000} codex` : `--timeout-ms ${provider}`);
+        expect(rendered).toContain(host === 'claude' ? `run-with-timeout ${provider / 1000} codex` : `--timeout-ms ${provider}`);
       }
     }
   });
