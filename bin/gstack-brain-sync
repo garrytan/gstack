@@ -4,15 +4,50 @@
 # Usage:
 #   gstack-brain-sync --once           drain queue, commit, push (default)
 #   gstack-brain-sync --status         print sync health as JSON
-#   gstack-brain-sync --skip-file <p>  add <p> to ~/.gstack/.brain-skip.txt
+#   gstack-brain-sync --skip-file <p>  permanently exclude <p> (and any coupled
+#                                      group it belongs to) from future syncs
+#   gstack-brain-sync --unskip-file <p>  undo --skip-file and queue <p> again
 #   gstack-brain-sync --drop-queue --yes   clear queue without committing
 #   gstack-brain-sync --discover-new   scan allowlist dirs, enqueue changed files
+#   gstack-brain-sync --attention      print skill start's attention lines
 #
 # Invoked by the preamble at skill START and END boundaries. No persistent
 # daemon. Typical run <1s when queue empty; ~200-800ms with network push.
 #
-# Singleton enforcement: flock on ~/.gstack/.brain-sync.lock. Concurrent
-# invocations queue and serialize.
+# One drain at a time: the drain lock (bin/gstack-brain-lock.sh) is shared
+# with every other gstack writer to ~/.gstack's git state. A drain that finds
+# it held skips; the next skill boundary catches up.
+#
+# A file the secret scan flags is held back on its own (with the rest of its
+# coupled group) and stays queued; everything else syncs. `--status` lists
+# each held file, the scanner rule that matched (never the matched text) and
+# both fixes.
+#
+# Sync status table. Skill start prints the attention line of every row that
+# applies; `ok` and `idle` print none. <bin> is this script's absolute path
+# and <N> the held count. Rows are read by test/gstack-skill-start.test.ts.
+#
+#   held         trigger: status=held: the secret scan held back flagged files and synced the rest
+#                line:    ARTIFACTS_SYNC: attention: status=held held=<N>. The secret scan is holding back <N> file(s); everything else still syncs. See which files and how to fix them: <bin> --status
+#                fix:     edit the file so the scan no longer matches, or <bin> --skip-file <path> (permanent; undo with <bin> --unskip-file <path>)
+#   blocked      trigger: status=blocked: a re-scan still flagged after the hold, so nothing was committed
+#                line:    ARTIFACTS_SYNC: attention: status=blocked. The secret scan flagged a file it could not hold back on its own, so nothing is syncing. See the fix: <bin> --status
+#                fix:     edit or skip the files named by <bin> --status, or clear the batch with <bin> --drop-queue --yes
+#   push_failed  trigger: status=push_failed: a commit is saved locally but the push failed
+#                line:    ARTIFACTS_SYNC: attention: status=push_failed. Synced files are committed locally but the push failed; it retries at skill start. See the cause: <bin> --status
+#                fix:     the fix <bin> --status names (usually: gh auth status)
+#   error        trigger: status=error: the drain stopped before committing and kept the queue
+#                line:    ARTIFACTS_SYNC: attention: status=error. The last sync stopped before committing; the queue is kept and retried. See the cause: <bin> --status
+#                fix:     the cause <bin> --status names (git index lock, commit hook, git add failure)
+#   unknown      trigger: the status file holds a status code outside this table
+#                line:    ARTIFACTS_SYNC: attention: status=unknown. The sync status file is unreadable. See it: <bin> --status
+#                fix:     run <bin> --once to rewrite it
+#   stale-push   trigger: no push for 24 hours while the drain's drainable count is above zero
+#                line:    ARTIFACTS_SYNC: attention: stale-push. Files are ready to sync but nothing has been pushed for over 24 hours. See why: <bin> --status
+#                fix:     the waiting reason <bin> --status names (a coupled group waiting for a consistent generation, a git add failure)
+#   stale-drain  trigger: last_drain_at older than 24 hours while the queue directory holds records
+#                line:    ARTIFACTS_SYNC: attention: stale-drain. The sync has not run for over 24 hours while files wait in the queue. See why: <bin> --status
+#                fix:     if no gstack process is running, remove ~/.gstack/.brain-sync.lock.d, then run <bin> --once
 #
 # Env:
 #   GSTACK_HOME — override ~/.gstack (aligns with writers).
@@ -45,14 +80,28 @@ PRIVACY_MAP="$GSTACK_HOME/.brain-privacy-map.json"
 SKIP_FILE="$GSTACK_HOME/.brain-skip.txt"
 STATUS_FILE="$GSTACK_HOME/.brain-sync-status.json"
 LAST_PUSH_FILE="$GSTACK_HOME/.brain-last-push"
-LOCK_FILE="$GSTACK_HOME/.brain-sync.lock"
 DISCOVER_CURSOR="$GSTACK_HOME/.brain-discover-cursor"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+SELF_BIN="$SCRIPT_DIR/gstack-brain-sync"
 
 # Egress receipt helpers (_receipted_git): receipt-before-send, fail-closed.
 . "$SCRIPT_DIR/gstack-egress-lib.sh"
+# The drain lock shared with every gstack writer to the artifacts repo.
+. "$SCRIPT_DIR/gstack-brain-lock.sh"
+
+# Coupled groups: artifacts that reference each other and must reach the
+# remote as one generation. Members are globs sharing one "*" segment (the same
+# value binds every member); `check` names the consistency test the staged
+# generation must pass before it is committed. Paths not listed here are
+# independent.
+COUPLED_GROUPS='[{"name": "decisions", "members": ["projects/*/decisions.jsonl", "projects/*/decisions.active.json"], "check": "decisions-active"}]'
+
+# Fields every status write of this drain carries (see write_status).
+ST_HELD='[]'
+ST_DRAINABLE=0
+ST_NOTE=""
 
 # origin host for receipt records (github.com etc).
 remote_host() {
@@ -73,21 +122,45 @@ remote_auth_hint() {
   esac
 }
 
+# Status file schema (one JSON object; readers: --status, --attention, doctor):
+#   status        ok | idle | held | blocked | push_failed | error
+#   held_count    files the secret scan held back this drain (hits + dependents)
+#   drainable     queued files a drain could publish now: excludes scanner-held
+#                 and privacy-held records
+#   last_drain_at UTC time this drain ran (every write happens inside a drain)
+#   last_push_at  UTC time of the last successful push, or null
+#   ts            same as last_drain_at (kept for older readers)
+#   held          [{path, rule, dependents[], fixes[]}]: one entry per flagged
+#                 path; rule is the scanner rule name, never the matched text
+#   message       human detail for --status; never printed at skill start
+# Only status, the counts and the timestamps feed skill start's attention
+# lines, each clamped to a closed set, digits, or a timestamp shape.
 write_status() {
-  # args: status_code message [extra_json_blob]
-  local code="$1"
-  local msg="$2"
-  local extra="${3:-{\}}"
-  local ts
+  local code="$1" msg="$2${ST_NOTE}" ts last_push=""
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
-  python3 - "$STATUS_FILE" "$code" "$msg" "$ts" "$extra" <<'PYEOF' 2>/dev/null || true
-import json, sys
-path, code, msg, ts, extra = sys.argv[1:6]
+  [ -f "$LAST_PUSH_FILE" ] && last_push=$(head -1 "$LAST_PUSH_FILE" 2>/dev/null || echo "")
+  python3 - "$STATUS_FILE" "$code" "$msg" "$ts" "$last_push" "$ST_DRAINABLE" "$ST_HELD" <<'PYEOF' 2>/dev/null || true
+import json, re, sys
+path, code, msg, ts, last_push, drainable, held = sys.argv[1:8]
 try:
-    extra_obj = json.loads(extra) if extra else {}
+    held = [h for h in json.loads(held) if isinstance(h, dict)]
 except Exception:
-    extra_obj = {}
-data = {"status": code, "message": msg, "ts": ts, **extra_obj}
+    held = []
+counted = set()
+for h in held:
+    counted.add(h.get("path"))
+    counted.update(h.get("dependents") or [])
+last_push = last_push.strip()
+data = {
+    "status": code,
+    "held_count": len(counted),
+    "drainable": int(drainable) if drainable.isdigit() else 0,
+    "last_drain_at": ts,
+    "last_push_at": last_push if re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", last_push) else None,
+    "ts": ts,
+    "held": held,
+    "message": msg,
+}
 with open(path, "w") as f:
     json.dump(data, f)
     f.write("\n")
@@ -105,38 +178,73 @@ sync_active() {
   return 0
 }
 
-# Secret regex families — stdin scan. Exits 0 clean, 1 if hit.
-# Echoes the matching pattern family name on hit. Uses python3 -c (not
-# heredoc) so sys.stdin stays available for the diff content.
-secret_scan_stdin() {
-  python3 -c "
-import sys, re
+# Secret scan over a staged diff file. Pattern families are the
+# pre-commit hook's; only the family name ever leaves this function, never the
+# matched text. The diff is read as bytes and decoded with replacement, so
+# undecodable bytes cannot crash the scan into a false "clean".
+#   secret_scan gate <diff>                     exit 0 clean, 3 hit (prints the
+#                                               family names); anything else is
+#                                               a scanner failure (fail closed)
+#   secret_scan attribute <diff> <names> <out>  one pass: splits the diff on its
+#                                               `diff --git` headers, pairs each
+#                                               section with the NUL-separated
+#                                               names from `git diff --name-only
+#                                               -z` (same order), writes
+#                                               "<family>\t<path>" per flagged
+#                                               path; exit 0, or 4 when sections
+#                                               and names disagree
+secret_scan() {
+  python3 - "$@" <<'PYEOF'
+import re, sys
 patterns = [
     ('aws-access-key', re.compile(r'AKIA[0-9A-Z]{16}')),
-    ('github-token', re.compile(r'\\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})')),
-    ('openai-key', re.compile(r'\\bsk-[A-Za-z0-9_-]{20,}')),
+    ('github-token', re.compile(r'\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})')),
+    ('openai-key', re.compile(r'\bsk-[A-Za-z0-9_-]{20,}')),
     ('pem-block', re.compile(r'-----BEGIN [A-Z ]{3,}-----')),
-    ('jwt', re.compile(r'\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b')),
+    ('jwt', re.compile(r'\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b')),
     ('bearer-token-json',
      # JSON-embedded auth headers. The optional Bearer/Basic/Token prefix
      # matters: real auth values include a literal space after the scheme
      # name, but the value charset below does not include spaces, so
      # without the optional prefix every Bearer token in a JSON blob slips
      # past the scanner.
-     re.compile(r'\"(authorization|api[_-]?key|apikey|token|secret|password)\"\\s*:\\s*\"(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}\"',
+     re.compile(r'"(authorization|api[_-]?key|apikey|token|secret|password)"\s*:\s*"(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}"',
                 re.IGNORECASE)),
 ]
-text = sys.stdin.read()
-for name, rx in patterns:
-    m = rx.search(text)
-    if m:
-        snippet = m.group(0)
-        if len(snippet) > 30:
-            snippet = snippet[:30] + '...'
-        print(name + ':' + snippet)
-        sys.exit(1)
-sys.exit(0)
-"
+
+def families(text):
+    return [name for name, rx in patterns if rx.search(text)]
+
+def read(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+mode = sys.argv[1]
+if mode == "gate":
+    hits = families(read(sys.argv[2]).decode("utf-8", "replace"))
+    if hits:
+        print(",".join(hits))
+        sys.exit(3)
+    sys.exit(0)
+
+diff_path, names_path, out_path = sys.argv[2:5]
+names = [n.decode("utf-8", "surrogateescape") for n in read(names_path).split(b"\0") if n]
+sections = []
+for line in read(diff_path).split(b"\n"):
+    if line.startswith(b"diff --git "):
+        sections.append([])
+    elif sections:
+        sections[-1].append(line)
+if len(sections) != len(names):
+    sys.exit(4)
+with open(out_path, "w", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
+    for name, body in zip(names, sections):
+        if "\n" in name or "\t" in name:
+            sys.exit(4)
+        hits = families(b"\n".join(body).decode("utf-8", "replace"))
+        if hits:
+            out.write(hits[0] + "\t" + name + "\n")
+PYEOF
 }
 
 # True (0) if the spool holds at least one record file.
@@ -241,15 +349,24 @@ migrate_legacy_queue() {
 # deletes exactly the manifest's files and never touches records created
 # after this listing — a concurrent enqueue is a separate file by
 # construction, so it simply rides to the next drain.
+#
+# Coupled groups ($COUPLED_GROUPS): a stageable path pulls in the rest of its
+# group (each member that exists, is allowlisted and passes the privacy mode),
+# so a generation is staged whole. A skipped member drops the whole group
+# (skip is per group, so the remote never gets a partial generation); a
+# privacy-held member retains the whole group. When $5 is given, the groups
+# with a staged member land there as JSON:
+#   [{"name", "check", "members": [all member paths], "staged": [...]}]
 compute_paths_to_stage() {
   local mode="$1"
   local class_file="${2:-}"
   local snapshot_file="${3:-}"
   local transcripts_ok="${4:-0}"
-  python3 - "$GSTACK_HOME" "$QUEUE_DIR" "$ALLOWLIST" "$PRIVACY_MAP" "$SKIP_FILE" "$mode" "$class_file" "$snapshot_file" "$transcripts_ok" <<'PYEOF'
-import sys, json, os, fnmatch, glob
+  local groups_file="${5:-}"
+  python3 - "$GSTACK_HOME" "$QUEUE_DIR" "$ALLOWLIST" "$PRIVACY_MAP" "$SKIP_FILE" "$mode" "$class_file" "$snapshot_file" "$transcripts_ok" "$groups_file" "$COUPLED_GROUPS" <<'PYEOF'
+import sys, json, os, fnmatch, glob, re
 
-gstack_home, spool_dir, allowlist_path, privacy_path, skip_path, mode, class_file, snapshot_file, transcripts_ok = sys.argv[1:10]
+gstack_home, spool_dir, allowlist_path, privacy_path, skip_path, mode, class_file, snapshot_file, transcripts_ok, groups_file, coupled = sys.argv[1:12]
 
 def load_lines(path):
     try:
@@ -344,7 +461,17 @@ def mode_allows(cls, mode):
         return cls == "artifact"
     return True  # full
 
+def group_of(path):
+    # (group spec, member paths) when path is a member of a coupled group.
+    for spec in json.loads(coupled):
+        for member in spec["members"]:
+            m = re.fullmatch(re.escape(member).replace(r"\*", "([^/]+)"), path)
+            if m:
+                return spec, [x.replace("*", m.group(1), 1) for x in spec["members"]]
+    return None, []
+
 final = []
+groups = {}
 classified = {"retained": [], "dropped": {"skipped": [], "invalid": [], "unmatched": [], "missing": []}}
 if privacy_corrupt:
     # Fail-safe: with an untrustworthy privacy map, stage NOTHING and drop
@@ -355,7 +482,8 @@ if privacy_corrupt:
     classified["retained"] = sorted(queue_paths)
     queue_paths = set()
 for p in sorted(queue_paths):
-    if p in skip_lines:
+    spec, members = group_of(p)
+    if p in skip_lines or any(m in skip_lines for m in members):
         classified["dropped"]["skipped"].append(p)
         continue
     # Must be under GSTACK_HOME root. Reject absolute + reject ../ escape.
@@ -382,11 +510,34 @@ for p in sorted(queue_paths):
     if not os.path.exists(os.path.join(gstack_home, p)):
         classified["dropped"]["missing"].append(p)
         continue
-    final.append(p)
+    siblings = [m for m in members if m != p
+                and path_matches_any(m, allowlist_globs)
+                and os.path.exists(os.path.join(gstack_home, m))]
+    if any(not mode_allows(privacy_class(m, privacy_map), mode) for m in siblings):
+        classified["retained"].append(p)
+        continue
+    for m in [p] + siblings:
+        if m not in final:
+            final.append(m)
+    if spec:
+        groups.setdefault(members[0], {"name": spec["name"], "check": spec.get("check", ""),
+                                       "members": members, "staged": []})
+
+for g in groups.values():
+    g["staged"] = [m for m in g["members"] if m in final]
 
 if class_file:
     with open(class_file, "w") as f:
         json.dump(classified, f)
+if groups_file:
+    with open(groups_file, "w") as f:
+        json.dump(list(groups.values()), f)
+    # `git cat-file --batch` input for every member's index entry: the
+    # generation check reads exactly the bytes a commit would contain.
+    with open(groups_file + ".batch", "w", newline="\n") as f:
+        for g in groups.values():
+            for m in g["members"]:
+                f.write(":" + m + "\n")
 
 for p in final:
     print(p)
@@ -484,6 +635,10 @@ dropped = set()
 for group in (classified.get("dropped", {}) or {}).values():
     dropped.update(group)
 deletable = staged | dropped
+# A record that stays queued (privacy-held, scanner-held, waiting group) only
+# needs one copy per path: every re-enqueue of such a path used to add a record
+# that was never consumed, so the queue count grew without meaning anything.
+kept = {}
 
 unparseable = 0
 for name in lines(snapshot_file):
@@ -510,11 +665,21 @@ for name in lines(snapshot_file):
             pass                 # quarantine move failed — leave in place; next run retries
         continue
     if p not in deletable:
+        kept.setdefault(p, []).append(name)
         continue                 # retained / unclassified: stays queued (explicit-delete-only)
     try:
         os.unlink(full)          # staged or dropped: fully processed
     except FileNotFoundError:
         pass
+def age_key(name):
+    head = name.split("-", 1)[0]
+    return (int(head) if head.isdigit() else 0, name)
+for names in kept.values():
+    for older in sorted(names, key=age_key)[:-1]:
+        try:
+            os.unlink(os.path.join(spool_dir, older))   # the newest record carries the path
+        except OSError:
+            pass
 if unparseable:
     print(f"BRAIN_SYNC: {unparseable} unparseable spool record(s) moved to quarantine (inspect {os.path.join(spool_dir, 'quarantine')})", file=sys.stderr)
 
@@ -547,44 +712,218 @@ print("; ".join(parts))
 PYEOF
 }
 
+# Remove .git/index.lock when it is older than 10 minutes. Call only while
+# holding the drain lock: every gstack writer takes that lock before running
+# git here, so an old index lock is one a killed git process left behind.
+# Returns 1 when a younger index lock is present (a live git process).
+clear_stale_index_lock() {
+  local idx="$GSTACK_HOME/.git/index.lock"
+  [ -e "$idx" ] || return 0
+  [ -n "$(find "$idx" -maxdepth 0 -mmin +10 2>/dev/null)" ] || return 1
+  rm -f "$idx" 2>/dev/null || return 1
+  ST_NOTE="$ST_NOTE; removed a stale git index lock left by an interrupted git process"
+  echo "BRAIN_SYNC: removed a stale git index lock (older than 10 minutes)" >&2
+  return 0
+}
+
+# Stage the paths listed in $1 with `git add -f` (forces past .gitignore=*).
+# One batched add; when git refuses it, a per-path pass finds the paths it
+# refuses. Rewrites $1 to the staged paths; sets ADD_FAILED and FIRST_ADD_ERR.
+stage_paths() {
+  local paths_file="$1" p err
+  ADD_FAILED=0
+  FIRST_ADD_ERR=""
+  # Windows: compute_paths_to_stage's python print() emits CRLF; a trailing
+  # CR makes the pathspec match nothing.
+  tr -d '\r' < "$paths_file" > "$paths_file.lf"
+  if git --literal-pathspecs -C "$GSTACK_HOME" add -f --pathspec-from-file=- < "$paths_file.lf" >/dev/null 2>&1; then
+    mv -f "$paths_file.lf" "$paths_file"
+    return 0
+  fi
+  : > "$paths_file"
+  while IFS= read -r p; do
+    p="${p%$'\r'}"
+    [ -z "$p" ] && continue
+    if err=$(git --literal-pathspecs -C "$GSTACK_HOME" add -f -- "$p" 2>&1 >/dev/null); then
+      printf '%s\n' "$p" >> "$paths_file"
+    else
+      ADD_FAILED=$(( ADD_FAILED + 1 ))
+      [ -z "$FIRST_ADD_ERR" ] && FIRST_ADD_ERR=$(printf '%s' "$err" | head -1)
+    fi
+  done < "$paths_file.lf"
+  rm -f "$paths_file.lf"
+}
+
+# Plan the holds for one drain (one Python pass):
+#   $1 scanner hits ("<family>\t<path>"), $2 groups JSON from
+#   compute_paths_to_stage, $3 `git cat-file --batch` output for every group
+#   member's index entry, $4 the staged paths.
+# A flagged path is held with the rest of its staged group (its dependents).
+# A group that is not held must stage whole and pass its generation check, or
+# all its staged members wait. Writes the held entries (JSON) to $5, the
+# paths to unstage to $6 and the waiting paths to $7.
+plan_holds() {
+  python3 - "$@" "$SELF_BIN" <<'PYEOF'
+import json, sys
+hits_path, groups_path, blobs_path, staged_path, held_out, unstage_out, wait_out, self_bin = sys.argv[1:9]
+
+def lines(path):
+    with open(path, encoding="utf-8", errors="surrogateescape") as f:
+        return [l.rstrip("\r\n") for l in f if l.strip()]
+
+hits = [tuple(l.split("\t", 1)) for l in lines(hits_path) if "\t" in l]
+with open(groups_path) as f:
+    groups = json.load(f)
+staged = set(lines(staged_path))
+with open(blobs_path, "rb") as f:
+    data = f.read()
+
+# Index blobs in batch order (None for an entry the index does not have).
+blobs, pos = {}, 0
+for g in groups:
+    for m in g["members"]:
+        nl = data.index(b"\n", pos)
+        header = data[pos:nl].split(b" ")
+        pos = nl + 1
+        if header[-1] == b"missing":
+            blobs[m] = None
+            continue
+        size = int(header[2])
+        blobs[m] = data[pos:pos + size]
+        pos += size + 1
+
+def decisions_active(members):
+    log, snap = blobs.get(members[0]), blobs.get(members[1])
+    events = []
+    for line in (log or b"").decode("utf-8", "replace").split("\n"):
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(e, dict):
+            events.append(e)
+    retired = {e.get("supersedes") for e in events if e.get("kind") in ("supersede", "redact")}
+    active = {e.get("id") for e in events if e.get("kind") == "decide" and e.get("id") not in retired}
+    if snap is None:
+        return not active
+    try:
+        rows = json.loads(snap.decode("utf-8", "replace"))
+    except ValueError:
+        return False
+    return isinstance(rows, list) and all(isinstance(r, dict) for r in rows) \
+        and {r.get("id") for r in rows} == active
+
+CHECKS = {"decisions-active": decisions_active}
+
+hit_paths = {p for _, p in hits}
+held, unstage, waiting, held_groups = [], [], [], set()
+for rule, path in hits:
+    group = next((g for g in groups if path in g["members"]), None)
+    deps = [m for m in (group["staged"] if group else []) if m != path and m not in hit_paths and m in staged]
+    if group:
+        held_groups.add(group["members"][0])
+    also = " and the files coupled with it" if deps else ""
+    held.append({
+        "path": path,
+        "rule": rule,
+        "dependents": deps,
+        "fixes": [
+            f"edit {path} so the secret scan no longer matches ({rule}); the next sync re-scans it",
+            f"{self_bin} --skip-file {path}  (permanently excludes it{also} from future syncs; undo with {self_bin} --unskip-file {path})",
+        ],
+    })
+    for m in [path] + deps:
+        if m not in unstage:
+            unstage.append(m)
+for g in groups:
+    if g["members"][0] in held_groups:
+        continue
+    members_staged = [m for m in g["staged"] if m in staged]
+    if not members_staged:
+        continue
+    check = CHECKS.get(g.get("check"))
+    if len(members_staged) == len(g["staged"]) and check and check(g["members"]):
+        continue
+    for m in members_staged:
+        waiting.append(m)
+        if m not in unstage:
+            unstage.append(m)
+
+with open(held_out, "w") as f:
+    json.dump(held, f)
+for path, rows in ((unstage_out, unstage), (wait_out, waiting)):
+    with open(path, "w", encoding="utf-8", errors="surrogateescape", newline="\n") as f:
+        f.writelines(r + "\n" for r in rows)
+PYEOF
+}
+
+# Fail closed: unstage everything, keep the queue, status blocked.
+block_drain() {
+  git -C "$GSTACK_HOME" reset -q HEAD -- . >/dev/null 2>&1 || true
+  ST_DRAINABLE=0
+  write_status "blocked" "$1; nothing was committed and the queue is kept. Edit or skip the flagged files ($SELF_BIN --skip-file <path>), or clear the batch with $SELF_BIN --drop-queue --yes"
+  echo "BRAIN_SYNC: blocked: $1" >&2
+}
+
+# Secret scan and group check for the staged paths in $1 (groups JSON in $2):
+# one scanner pass attributes findings to staged paths, plan_holds decides
+# what is held or waits, those paths are unstaged and leave $1 (their records
+# stay queued), then the whole remaining staged diff must re-scan clean.
+# Sets ST_HELD and WAITING. Returns 1 after falling back to block_drain.
+hold_flagged_paths() {
+  local paths_file="$1" groups_file="$2" scan="$1.scan" rc=0 gate_rc=0 gate_out
+  WAITING=0
+  : > "$scan.hits"
+  : > "$scan.blobs"
+  git -C "$GSTACK_HOME" diff --cached --no-renames > "$scan.diff" 2>/dev/null || rc=1
+  git -C "$GSTACK_HOME" diff --cached --no-renames -z --name-only > "$scan.names" 2>/dev/null || rc=1
+  [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" || rc=1; }
+  if [ "$rc" -eq 0 ] && [ -s "$groups_file.batch" ]; then
+    tr -d '\r' < "$groups_file.batch" | git -C "$GSTACK_HOME" cat-file --batch > "$scan.blobs" 2>/dev/null || rc=1
+  fi
+  [ "$rc" -eq 0 ] && { plan_holds "$scan.hits" "$groups_file" "$scan.blobs" "$paths_file" "$scan.held" "$scan.unstage" "$scan.wait" || rc=1; }
+  if [ "$rc" -ne 0 ]; then
+    block_drain "the secret scan could not tell which staged files it flagged"
+    return 1
+  fi
+  ST_HELD=$(cat "$scan.held")
+  WAITING=$(grep -c . "$scan.wait" 2>/dev/null || true)
+  WAITING=${WAITING:-0}
+  if [ -s "$scan.unstage" ]; then
+    if ! tr -d '\r' < "$scan.unstage" | git --literal-pathspecs -C "$GSTACK_HOME" reset -q HEAD --pathspec-from-file=- >/dev/null 2>&1; then
+      block_drain "git could not unstage the held files"
+      return 1
+    fi
+    { grep -vxF -f "$scan.unstage" "$paths_file" || true; } > "$paths_file.kept"
+    mv -f "$paths_file.kept" "$paths_file"
+  fi
+  if ! git -C "$GSTACK_HOME" diff --cached --no-renames > "$scan.diff" 2>/dev/null; then
+    block_drain "git could not read the staged diff for the re-scan"
+    return 1
+  fi
+  gate_out=$(secret_scan gate "$scan.diff") || gate_rc=$?
+  [ "$gate_rc" -eq 0 ] && return 0
+  if [ "$gate_rc" -eq 3 ]; then
+    block_drain "a re-scan after holding back the flagged files still matched ($gate_out)"
+  else
+    block_drain "the secret scan failed (exit $gate_rc)"
+  fi
+  return 1
+}
+
 subcmd_once() {
   if ! sync_active; then
     # Silent no-op when feature not initialized / disabled.
     exit 0
   fi
 
-  # Singleton lock via atomic mkdir. `flock(1)` isn't on macOS by default;
-  # `mkdir` is atomic on every POSIX filesystem. If another --once is already
-  # running, skip (don't wait) — the next skill boundary will catch up.
-  local lock_dir="${LOCK_FILE}.d"
-  if ! mkdir "$lock_dir" 2>/dev/null; then
-    # Is the lock stale? Check the pidfile inside. If process is dead, clear it.
-    if [ -f "$lock_dir/pid" ]; then
-      local lock_pid
-      lock_pid=$(cat "$lock_dir/pid" 2>/dev/null || echo "")
-      if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
-        # Stale lock — clear and retry once.
-        rm -rf "$lock_dir" 2>/dev/null || true
-        if ! mkdir "$lock_dir" 2>/dev/null; then
-          exit 0
-        fi
-      else
-        # Lock is held by a live process.
-        exit 0
-      fi
-    else
-      # Lock dir without pidfile — treat as held; don't touch.
-      exit 0
-    fi
-  fi
-  echo "$$" > "$lock_dir/pid" 2>/dev/null || true
-  # Release the lock on EVERY exit from here on — including the empty-queue
-  # fast path and an INT during the detector's network push. Leaking it would
-  # rely on next-run stale-pid detection, which PID reuse can defeat (kill -0
-  # matching an unrelated live process wedges sync at every boundary). The
-  # mktemp block below re-traps with tempfile cleanup added; both traps keep
-  # the lock removal.
-  trap 'rm -rf "$lock_dir" 2>/dev/null || true' EXIT INT TERM
+  # One drain at a time, and never while another gstack writer runs git in
+  # $GSTACK_HOME (bin/gstack-brain-lock.sh). A held lock means skip, not wait:
+  # the next skill boundary catches up. Released on EVERY exit from here on,
+  # including the empty-queue fast path and an INT during the detector's
+  # network push; the mktemp block below re-traps with tempfile cleanup added.
+  gstack_brain_lock_acquire "$GSTACK_HOME" try || exit 0
+  trap 'gstack_brain_lock_release' EXIT INT TERM
 
   # Convert any legacy single-file queue lines into spool records before the
   # drain reads the spool (transition window for pre-spool writers).
@@ -647,7 +986,7 @@ subcmd_once() {
   # silently auto-publish a user's manual ~/.gstack commit the moment a bot
   # commit sat in front of it). User commits ride along when a REAL drain
   # pushes, as before — the detector never publishes work it didn't create.
-  local det_branch det_unpushed det_total det_now det_last
+  local det_branch det_unpushed det_total=0 det_now det_last
   det_branch=$(git -C "$GSTACK_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   # Detached HEAD reads as the literal "HEAD" — origin/HEAD usually resolves,
   # so without this exclusion the detector would retry a doomed push forever.
@@ -667,6 +1006,7 @@ subcmd_once() {
       if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$det_host" curated-memory-git-push "artifacts_sync_mode!=off" \
           bash -c 'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
         date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
+        det_total=0
       fi
     fi
   fi
@@ -683,16 +1023,25 @@ subcmd_once() {
   # the queue is empty.) The lock-release trap installed at acquisition
   # covers this exit.
   if ! spool_has_records && [ ! -s "$QUEUE" ] && [ ! -s "$QUEUE.migrating" ]; then
+    # Stranded local commits that this run did not push keep the status at
+    # push_failed: an "idle" here used to erase the failure one boundary later,
+    # so a push that never recovered went silent.
+    if [ "$det_total" -gt 0 ]; then
+      write_status "push_failed" "$det_total local commit(s) are not pushed yet; the push retries at a skill start at most every 10 minutes (commits made outside gstack-brain-sync are never auto-pushed: push them with git -C $GSTACK_HOME push origin HEAD)"
+      exit 0
+    fi
     write_status "idle" "queue empty"
     exit 0
   fi
 
-  local paths_file class_file snapshot_file
-  paths_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-paths.XXXXXX") || { rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
-  class_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-class.XXXXXX") || { rm -f "$paths_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
-  snapshot_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-snapshot.XXXXXX") || { rm -f "$paths_file" "$class_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
-  # Single trap covers all: lock cleanup AND tempfile cleanup.
-  trap 'rm -f "$paths_file" "$class_file" "$snapshot_file" 2>/dev/null; rm -rf "$lock_dir" 2>/dev/null || true' EXIT INT TERM
+  local paths_file class_file snapshot_file groups_file
+  paths_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-paths.XXXXXX") || { write_status "error" "mktemp failed"; exit 1; }
+  class_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-class.XXXXXX") || { rm -f "$paths_file"; write_status "error" "mktemp failed"; exit 1; }
+  snapshot_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-snapshot.XXXXXX") || { rm -f "$paths_file" "$class_file"; write_status "error" "mktemp failed"; exit 1; }
+  groups_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-groups.XXXXXX") || { rm -f "$paths_file" "$class_file" "$snapshot_file"; write_status "error" "mktemp failed"; exit 1; }
+  # Single trap covers all: lock release AND tempfile cleanup (the siblings
+  # are the staging and hold steps' scratch files).
+  trap 'rm -f "$paths_file" "$paths_file".* "$class_file" "$snapshot_file" "$groups_file" "$groups_file".* 2>/dev/null; gstack_brain_lock_release' EXIT INT TERM
 
   # Fail-safe (G1): a classifier that dies mid-run (ENOSPC/OOM/SIGKILL, or a
   # shape the defensive filters don't cover) may have already written the
@@ -704,7 +1053,7 @@ subcmd_once() {
   [ -d "$GSTACK_HOME/transcripts" ] && { transcript_policy --purge || true; }
   local transcripts_ok=0
   transcripts_consented && transcripts_ok=1
-  if ! compute_paths_to_stage "$mode" "$class_file" "$snapshot_file" "$transcripts_ok" > "$paths_file"; then
+  if ! compute_paths_to_stage "$mode" "$class_file" "$snapshot_file" "$transcripts_ok" "$groups_file" > "$paths_file"; then
     echo "BRAIN_SYNC: warning: queue classification failed — no records consumed; next run re-drains" >&2
     write_status "error" "classification failed; queue preserved (next run retries)"
     exit 0
@@ -718,25 +1067,66 @@ subcmd_once() {
     write_status "idle" "no stageable changes${summary:+ ($summary)}"
     exit 0
   fi
+  local n_stageable
+  n_stageable=$(grep -c . "$paths_file" 2>/dev/null || true)
 
-  # Stage with git add -f (forces past .gitignore=*) explicit paths only.
-  while IFS= read -r p; do
-    p="${p%$'\r'}"   # Windows: compute_paths_to_stage's python print() emits CRLF;
-                     # a trailing CR makes the pathspec match nothing (silent no-stage).
-    [ -z "$p" ] && continue
-    git -C "$GSTACK_HOME" add -f -- "$p" 2>/dev/null || true
-  done < "$paths_file"
+  # Every add, reset and commit below needs the git index. The drain lock
+  # proves no other gstack writer is running git here, so an index lock older
+  # than 10 minutes is abandoned and is removed; a younger one is a live git
+  # process (the user's own), which the drain reports and waits out.
+  if ! clear_stale_index_lock; then
+    ST_DRAINABLE=$n_stageable
+    write_status "error" "a git index lock ($GSTACK_HOME/.git/index.lock) younger than 10 minutes shows another git process running in the artifacts repo; queue kept, the next sync retries"
+    echo "BRAIN_SYNC: error: git index lock present; another git process is running in $GSTACK_HOME" >&2
+    exit 0
+  fi
 
-  # Secret-scan staged diff.
-  local scan_out
-  scan_out=$(git -C "$GSTACK_HOME" diff --cached 2>/dev/null | secret_scan_stdin || true)
-  if [ -n "$scan_out" ]; then
-    # Hit — unstage, preserve queue, write loud status.
-    git -C "$GSTACK_HOME" reset HEAD -- . >/dev/null 2>&1 || true
-    local hint
-    hint="secret pattern detected ($scan_out). Remediation: review the staged file, then run: gstack-brain-sync --skip-file <path> OR edit the content."
-    write_status "blocked" "$hint"
-    echo "BRAIN_SYNC: blocked: $scan_out" >&2
+  # Stage explicit paths only. A path git refuses to add leaves $paths_file,
+  # so its record stays queued and the commit count stays honest.
+  stage_paths "$paths_file"
+  if [ ! -s "$paths_file" ]; then
+    ST_DRAINABLE=$n_stageable
+    write_status "error" "git add failed for all $ADD_FAILED path(s): ${FIRST_ADD_ERR:-unknown error}; queue preserved (next run retries)"
+    echo "BRAIN_SYNC: error: git add failed for all $ADD_FAILED path(s): ${FIRST_ADD_ERR:-unknown error}" >&2
+    exit 0
+  fi
+  if [ "$ADD_FAILED" -gt 0 ]; then
+    ST_NOTE="$ST_NOTE; git add failed for $ADD_FAILED path(s), still queued (${FIRST_ADD_ERR:-unknown error})"
+    echo "BRAIN_SYNC: warning: git add failed for $ADD_FAILED path(s): ${FIRST_ADD_ERR:-unknown error}" >&2
+  fi
+
+  # Secret scan: flagged files (with their coupled groups) are held back and
+  # stay queued; groups whose staged generation is inconsistent wait. Nothing
+  # matching a scanner pattern is ever committed: the remaining staged diff
+  # must re-scan clean, or the drain unstages everything (blocked).
+  hold_flagged_paths "$paths_file" "$groups_file" || exit 0
+  ST_DRAINABLE=$(( ADD_FAILED + WAITING ))
+  [ "$WAITING" -gt 0 ] && ST_NOTE="$ST_NOTE; $WAITING file(s) of a coupled group wait for a consistent generation (still queued)"
+  local held_n ok_code="ok"
+  held_n=$(printf '%s' "$ST_HELD" | grep -o '"rule"' | wc -l | tr -d ' ')
+  if [ "$held_n" -gt 0 ]; then
+    ok_code="held"
+    ST_NOTE="$ST_NOTE; the secret scan held back $held_n flagged file(s) (and any coupled files), NOT synced; see held[] for each file's fixes"
+    echo "BRAIN_SYNC: held $held_n flagged file(s); see $SELF_BIN --status" >&2
+  fi
+
+  # A verified empty staged diff is the only "nothing to commit"; anything
+  # else that stops the commit keeps the queue (status error).
+  local cached_rc=0
+  git -C "$GSTACK_HOME" diff --cached --quiet >/dev/null 2>&1 || cached_rc=$?
+  if [ "$cached_rc" -eq 0 ]; then
+    finalize_queue "$snapshot_file" "$class_file" "$paths_file"
+    if [ "$ok_code" = "held" ]; then
+      write_status "held" "nothing else to sync"
+    else
+      write_status "idle" "queue drained but no new changes to commit"
+    fi
+    exit 0
+  fi
+  if [ "$cached_rc" -ne 1 ]; then
+    git -C "$GSTACK_HOME" reset -q >/dev/null 2>&1 || true
+    ST_DRAINABLE=$n_stageable
+    write_status "error" "git could not read the staged changes (exit $cached_rc); queue kept, the next sync retries"
     exit 0
   fi
 
@@ -755,22 +1145,23 @@ subcmd_once() {
     exit 1
   fi
 
-  # Commit with template message.
-  local n ts
+  # Commit with template message. A failed commit (a rejecting hook, a git
+  # error) unstages, keeps the queue and says why.
+  local n ts commit_err
   n=$(wc -l < "$paths_file" | tr -d ' ')
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local msg="sync: $n file(s) | $ts"
-  git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
-    commit -q -m "$msg" 2>/dev/null || {
-      # Nothing to commit (e.g. all files already committed). The drained
-      # records leave the spool; retained + post-snapshot records survive.
-      finalize_queue "$snapshot_file" "$class_file" "$paths_file"
-      write_status "idle" "queue drained but no new changes to commit"
-      exit 0
-    }
+  if ! commit_err=$(git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
+      commit -q -m "$msg" 2>&1 >/dev/null); then
+    git -C "$GSTACK_HOME" reset -q >/dev/null 2>&1 || true
+    ST_DRAINABLE=$(( ST_DRAINABLE + n ))
+    write_status "error" "git commit failed: $(printf '%s' "$commit_err" | head -1 | head -c 200); queue kept, the next sync retries (check $GSTACK_HOME/.git/hooks)"
+    echo "BRAIN_SYNC: error: git commit failed" >&2
+    exit 0
+  fi
 
   # Nothing outside the transcript consent is pushed; a refused rewrite keeps the commit local.
-  guard_unpublished_range || { write_status "blocked" "push blocked: unpushed commits hold transcript pages outside your transcript consent; commit retained locally"; finalize_queue "$snapshot_file" "$class_file" "$paths_file"; exit 0; }
+  guard_unpublished_range || { write_status "push_failed" "push blocked: unpushed commits hold transcript pages outside your transcript consent; commit retained locally"; finalize_queue "$snapshot_file" "$class_file" "$paths_file"; exit 0; }
   # Push. On reject, fetch + merge (merge driver handles JSONL) + retry once.
   local push_err
   push_err=$(git -C "$GSTACK_HOME" push origin HEAD 2>&1 >/dev/null) || {
@@ -799,7 +1190,7 @@ subcmd_once() {
             bash -c 'git -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
           finalize_queue "$snapshot_file" "$class_file" "$paths_file"
           date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
-          write_status "ok" "pushed $n file(s) after rebase"
+          write_status "$ok_code" "pushed $n file(s) after rebase"
           exit 0
         fi
       fi
@@ -813,7 +1204,7 @@ subcmd_once() {
   # Success: drained records leave the spool (retained + post-snapshot survive).
   finalize_queue "$snapshot_file" "$class_file" "$paths_file"
   date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
-  write_status "ok" "pushed $n file(s)"
+  write_status "$ok_code" "pushed $n file(s)"
   exit 0
 }
 
@@ -827,7 +1218,9 @@ subcmd_status() {
   # any not-yet-migrated legacy queue lines (transition window), including a
   # crash-leftover .migrating file — its records are still pending too.
   local queue_depth spool_depth legacy_depth
-  spool_depth=$(ls "$QUEUE_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
+  # find, not `ls "$QUEUE_DIR"/*.json`: a deep spool overflows the argv limit
+  # and the glob form then reported 0.
+  spool_depth=$(find "$QUEUE_DIR" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
   legacy_depth=0
   [ -f "$QUEUE" ] && legacy_depth=$(wc -l < "$QUEUE" | tr -d ' ')
   [ -f "$QUEUE.migrating" ] && legacy_depth=$(( legacy_depth + $(wc -l < "$QUEUE.migrating" | tr -d ' ') ))
@@ -842,7 +1235,7 @@ subcmd_status() {
 subcmd_skip_file() {
   local path="${1:-}"
   if [ -z "$path" ]; then
-    echo "Usage: gstack-brain-sync --skip-file <path>" >&2
+    echo "Usage: $SELF_BIN --skip-file <path>" >&2
     exit 1
   fi
   mkdir -p "$GSTACK_HOME"
@@ -853,7 +1246,83 @@ subcmd_skip_file() {
   fi
   echo "$path" >> "$SKIP_FILE"
   echo "added to skip list: $path"
-  echo "(future writers will not enqueue this path; existing queue entries ignored on next --once)"
+  echo "(permanent: it no longer syncs, nor do the files of any coupled group it belongs to; queued records drop on the next --once; undo with $SELF_BIN --unskip-file $path)"
+}
+
+subcmd_unskip_file() {
+  local path="${1:-}"
+  if [ -z "$path" ]; then
+    echo "Usage: $SELF_BIN --unskip-file <path>" >&2
+    exit 1
+  fi
+  if [ ! -f "$SKIP_FILE" ] || ! grep -Fxq "$path" "$SKIP_FILE"; then
+    echo "not in skip list: $path"
+    exit 0
+  fi
+  local kept
+  kept=$(mktemp "$SKIP_FILE.XXXXXX") || { echo "could not update $SKIP_FILE" >&2; exit 1; }
+  { grep -Fxv "$path" "$SKIP_FILE" || true; } > "$kept"
+  mv -f "$kept" "$SKIP_FILE"
+  echo "removed from skip list: $path"
+  if [ -f "$GSTACK_HOME/$path" ]; then
+    "$SCRIPT_DIR/gstack-brain-enqueue" "$path"
+    echo "(queued; the next sync publishes it, together with any coupled group it belongs to)"
+  fi
+}
+
+# Skill start's attention lines: one per row of the sync status table in this
+# script's header that applies. Every value read from the status file is
+# clamped (status code to the table's closed set, counts to digits,
+# timestamps to their shape); the message, held paths and scanner output never
+# reach this output, only fixed text and this script's absolute path.
+subcmd_attention() {
+  sync_active || exit 0
+  local line="" prefix code="" held="" drainable="" last_drain="" last_push="" bin="$SELF_BIN"
+  if [ -f "$STATUS_FILE" ]; then
+    line=$(head -c 65536 "$STATUS_FILE" 2>/dev/null | tr -d '\r\n')
+    # The counts and timestamps precede every free-text field.
+    prefix=${line%%, \"held\": *}
+    code=$(printf '%s' "$prefix" | sed -n 's/^{"status": *"\([a-z_]*\)".*/\1/p')
+    held=$(printf '%s' "$prefix" | sed -n 's/.*"held_count": *\([0-9][0-9]*\).*/\1/p')
+    drainable=$(printf '%s' "$prefix" | sed -n 's/.*"drainable": *\([0-9][0-9]*\).*/\1/p')
+    last_drain=$(printf '%s' "$prefix" | sed -n 's/.*"last_drain_at": *"\([^"]*\)".*/\1/p')
+    last_push=$(printf '%s' "$prefix" | sed -n 's/.*"last_push_at": *"\([^"]*\)".*/\1/p')
+    case "$code" in ok|idle|held|blocked|push_failed|error) ;; *) code="unknown" ;; esac
+  fi
+  case "$held" in ''|*[!0-9]*) held=0 ;; esac
+  case "$drainable" in ''|*[!0-9]*) drainable=0 ;; esac
+  local iso='[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+  case "$last_drain" in $iso) ;; *) last_drain="" ;; esac
+  case "$last_push" in $iso) ;; *) last_push="" ;; esac
+
+  case "$code" in
+    held) echo "ARTIFACTS_SYNC: attention: status=held held=$held. The secret scan is holding back $held file(s); everything else still syncs. See which files and how to fix them: $bin --status" ;;
+    blocked) echo "ARTIFACTS_SYNC: attention: status=blocked. The secret scan flagged a file it could not hold back on its own, so nothing is syncing. See the fix: $bin --status" ;;
+    push_failed) echo "ARTIFACTS_SYNC: attention: status=push_failed. Synced files are committed locally but the push failed; it retries at skill start. See the cause: $bin --status" ;;
+    error) echo "ARTIFACTS_SYNC: attention: status=error. The last sync stopped before committing; the queue is kept and retried. See the cause: $bin --status" ;;
+    unknown) echo "ARTIFACTS_SYNC: attention: status=unknown. The sync status file is unreadable. See it: $bin --status" ;;
+  esac
+
+  local now cutoff oldest="" oldest_epoch
+  now=$(date +%s 2>/dev/null || echo "")
+  case "$now" in ''|*[!0-9]*) return 0 ;; esac
+  cutoff=$(date -u -d "@$(( now - 86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$(( now - 86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+  [ -n "$cutoff" ] || return 0
+  oldest=$(find "$QUEUE_DIR" -maxdepth 1 -type f -name '*.json' 2>/dev/null | sed 's#.*/##' | sort | head -1)
+  if [ "$drainable" -gt 0 ]; then
+    oldest_epoch=${oldest%%-*}
+    case "$oldest_epoch" in ''|*[!0-9]*) oldest_epoch=$now ;; esac
+    if { [ -n "$last_push" ] && [[ "$last_push" < "$cutoff" ]]; } \
+        || { [ -z "$last_push" ] && [ "$oldest_epoch" -lt $(( now - 86400 )) ]; }; then
+      echo "ARTIFACTS_SYNC: attention: stale-push. Files are ready to sync but nothing has been pushed for over 24 hours. See why: $bin --status"
+    fi
+  fi
+  if [ -n "$oldest" ] || [ -s "$QUEUE" ] || [ -s "$QUEUE.migrating" ]; then
+    if [ -z "$last_drain" ] || [[ "$last_drain" < "$cutoff" ]]; then
+      echo "ARTIFACTS_SYNC: attention: stale-drain. The sync has not run for over 24 hours while files wait in the queue. See why: $bin --status"
+    fi
+  fi
+  return 0
 }
 
 subcmd_drop_queue() {
@@ -999,10 +1468,12 @@ case "${1:-}" in
   --once|"") subcmd_once ;;
   --status) subcmd_status ;;
   --skip-file) shift; subcmd_skip_file "${1:-}" ;;
+  --unskip-file) shift; subcmd_unskip_file "${1:-}" ;;
   --drop-queue) shift; subcmd_drop_queue "${1:-}" ;;
   --discover-new) subcmd_discover_new ;;
+  --attention) subcmd_attention ;;
   --help|-h)
-    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    awk 'NR > 1 && /^# Heredoc delivery guard/ { exit } NR > 1' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *)
     echo "Unknown subcommand: $1" >&2
