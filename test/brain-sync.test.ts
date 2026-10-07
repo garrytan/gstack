@@ -434,7 +434,7 @@ describe('gstack-brain-sync per-file hold', () => {
   const CLEAN = 'projects/p/ceo-plans/clean.md';
   const LOG = 'projects/p/decisions.jsonl';
   const SNAP = 'projects/p/decisions.active.json';
-  const TOKEN = 'ghp_abcdefghij1234567890abcdef1234567890';
+  const TOKEN = ['ghp', 'abcdefghij1234567890abcdef1234567890'].join('_');
   const SELF = path.join(BIN, 'gstack-brain-sync');
   const statusRaw = () => fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8');
   const statusJson = () => JSON.parse(statusRaw());

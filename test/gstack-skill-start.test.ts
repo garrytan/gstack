@@ -531,7 +531,7 @@ describe('ARTIFACTS_SYNC attention lines (sync status table)', () => {
   });
 
   test('attention lines carry no status text, artifact path or bare helper name', () => {
-    const leak = 'ghp_abcdefghij1234567890abcdef1234567890';
+    const leak = ['ghp', 'abcdefghij1234567890abcdef1234567890'].join('_');
     const gh = syncHome(status('held', {
       held_count: 7,
       message: `secret pattern detected (github-token:${leak.slice(0, 30)}...) in projects/p/learnings.jsonl`,
@@ -571,7 +571,7 @@ describe('ARTIFACTS_SYNC attention lines (sync status table)', () => {
       bin('gstack-config', ['set', 'artifacts_sync_mode_prompted', 'true']);
       bin('gstack-config', ['set', 'update_check', 'false']);
       fs.mkdirSync(path.join(gh, 'projects/p/ceo-plans'), { recursive: true });
-      fs.writeFileSync(path.join(gh, 'projects/p/learnings.jsonl'), '{"gh":"ghp_abcdefghij1234567890abcdef1234567890"}\n');
+      fs.writeFileSync(path.join(gh, 'projects/p/learnings.jsonl'), `{"gh":"${['ghp', 'abcdefghij1234567890abcdef1234567890'].join('_')}"}\n`);
       fs.writeFileSync(path.join(gh, 'projects/p/ceo-plans/clean.md'), '# a plan\n');
       bin('gstack-brain-enqueue', ['projects/p/learnings.jsonl']);
       bin('gstack-brain-enqueue', ['projects/p/ceo-plans/clean.md']);
