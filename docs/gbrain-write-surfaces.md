@@ -56,18 +56,33 @@ not retry inline — the user can re-run the skill later.
 
 After completing the skill, save the output. The compact resolver block
 already shows the slug prefix + title + tag for your specific skill (e.g.
-`gbrain put "ceo-plans/<feature-slug>" ...`). The full template:
+`gbrain put "ceo-plans/<feature-slug>" ...`). The page is free text, so it
+never goes into a shell command, heredoc or quoted argument: create a private
+file at the repo root, write the page into it with your file-write tool, and
+let `gbrain put` read it on stdin.
 
 ```bash
-gbrain put "<slug-prefix>/<feature-slug>" --content "$(cat <<'EOF'
+mkdir -p .gstack/tmp && mktemp .gstack/tmp/page.XXXXXX
+```
+
+Write into the printed file, exactly as the page should read:
+
+```markdown
 ---
 title: "<Title>: <feature name>"
 tags: [<tag>, <feature-slug>]
 ---
 <skill output in markdown — the actual deliverable, not a summary>
-EOF
-)"
 ```
+
+Then save it, substituting the printed path for `<page-file>`:
+
+```bash
+gbrain put "<slug-prefix>/<feature-slug>" < "<page-file>" && rm -f "<page-file>"
+```
+
+If the file write fails or is refused, do not save: report the cause and keep
+the output for the user.
 
 Read the page back from the **same working directory and account** before
 reporting it as saved:
@@ -102,15 +117,20 @@ mentioned in the output. For each one:
 # Check if a page exists first
 gbrain search "<entity name>"
 
-# If no match, create a stub
-gbrain put "entities/<entity-slug>" --content "$(cat <<'EOF'
+# If no match, create a stub from a private file you write with your
+# file-write tool (same pattern as the page above)
+mktemp .gstack/tmp/entity.XXXXXX
+gbrain put "entities/<entity-slug>" < "<entity-file>" && rm -f "<entity-file>"
+```
+
+The stub file holds:
+
+```markdown
 ---
 title: "<Person or Company Name>"
 tags: [entity, person]
 ---
 Stub page. Mentioned in <skill name> output. Replace with real bio when relevant.
-EOF
-)"
 ```
 
 **Only extract real names** — actual person names (e.g. "Garry Tan") and
@@ -183,8 +203,8 @@ gbrain get "entities/<person>"         # expect stub per named person
 
 ## Remote / Supabase / thin-client-MCP routing
 
-The resolver emits a single CLI shape — `gbrain put "<slug>" --content
-"..."` — that works against every engine gbrain supports. The CLI
+The resolver emits a single CLI shape — `gbrain put "<slug>" < "<page-file>"`,
+the page on stdin — that works against every engine gbrain supports. The CLI
 internally routes to local PGLite, remote Supabase, or a remote MCP
 endpoint depending on the user's `~/.gbrain/config.json`. **gstack
 doesn't test that routing**: the storage layer is gbrain's contract to

@@ -374,8 +374,11 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
     const pipe = /^printf\s+(?:'%s'|"%s")\s+(?:'[^']*'|"[^"$`\\]*")\s*\|\s*/.exec(command);
     if (pipe) command = command.slice(pipe[0].length);
     const args = cliArgs(command, 'gstack-question-preference');
+    // Accepted forms: a bare check, a legacy summary pipe, or the summary file
+    // the agent wrote for an unregistered id.
+    const summaryFile = !pipe && args?.length === 4 && args[2] === '--summary-file';
     if (!args || args[0] !== '--check' || args[1] !== questionId ||
-        (pipe ? args.length !== 3 || args[2] !== '--summary-stdin' : args.length !== 2)) return [];
+        (pipe ? args.length !== 3 || args[2] !== '--summary-stdin' : args.length !== 2 && !summaryFile)) return [];
     const valid = result && typeof result.content === 'string' &&
       result.content.trim() === (hasStatus ? 'AUTO_DECIDE\nEXIT: 0' : 'AUTO_DECIDE');
     return [{ use, result: valid ? result : null }];

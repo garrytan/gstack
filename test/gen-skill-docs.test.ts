@@ -714,8 +714,12 @@ describe('GitLab support in generated skills', () => {
     expect(retroContent).toContain('glab');
   });
 
-  test('ship contains glab mr create', () => {
-    expect(shipSkillContent).toContain('glab mr create');
+  test('ship creates GitLab MRs through gstack-post, which runs glab mr create', () => {
+    // CEO-19: /ship publishes only through gstack-post; the helper detects
+    // GitLab from the remote and runs glab with argv values.
+    expect(shipSkillContent).toContain('gstack-post pr-create --base <base>');
+    expect(shipSkillContent).toContain('glab mr list --source-branch');
+    expect(fs.readFileSync(path.join(ROOT, 'lib', 'gstack-post.ts'), 'utf-8')).toContain('args: ["mr", "create"');
   });
 
   test('ship checks .gitlab-ci.yml', () => {

@@ -353,10 +353,13 @@ scope expansion comes up", etc).
 
    Only proceed after explicit Y.
 
-4. Write:
+4. Write the user's original phrase, exactly as they said it, into
+   `.gstack/tmp/tune-words.txt` under the project root with your file-write tool
+   (their words never go into the shell command), then:
    ```bash
-   ~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<never-ask|always-ask|ask-only-for-one-way>","source":"plan-tune"}'
+   ~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<never-ask|always-ask|ask-only-for-one-way>","source":"plan-tune"}' --free-text-file .gstack/tmp/tune-words.txt
    ```
+   The helper records the phrase as the event's `free_text` and removes the file.
 
 5. Confirm: "Set `<id>` → `<preference>`. Active immediately. One-way doors
    still override never-ask for safety — I'll note it when that happens."

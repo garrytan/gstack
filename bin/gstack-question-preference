@@ -5,10 +5,14 @@
 # Schema: { "<question_id>": "always-ask" | "never-ask" | "ask-only-for-one-way" }
 #
 # Subcommands:
-#   --check <id> [--summary-stdin] → emit ASK_NORMALLY | AUTO_DECIDE | ASK_ONLY_ONE_WAY
-#                                    (--summary-stdin pipes the question text so the
-#                                    keyword net can catch ad-hoc destructive ids, #2024)
-#   --write '{...}'                → set a preference (user-origin gate + one-way write reject)
+#   --check <id> [--summary-file F | --summary-stdin]
+#                                  → emit ASK_NORMALLY | AUTO_DECIDE | ASK_ONLY_ONE_WAY
+#                                    (the question text lets the keyword net catch
+#                                    ad-hoc destructive ids, #2024; skills write it to
+#                                    an agent-written file, never a shell string)
+#   --write '{...}' [--free-text-file F]
+#                                  → set a preference (user-origin gate + one-way write
+#                                    reject); F carries the user's own words (free_text)
 #   --read                         → dump preferences JSON
 #   --clear [<id>]                 → clear one or all preferences
 #   --stats                        → short summary (inert one-way prefs counted separately)
@@ -44,6 +48,20 @@ mkdir -p "$GSTACK_HOME/projects/$SLUG"
 CMD="${1:-}"
 shift || true
 
+# Read an agent-written text file (a question summary, the user's own tune
+# words). A relative path is tried against the cwd, then the git top level. A
+# file inside a .gstack/tmp directory is scratch and is removed after reading.
+read_text_file() {
+  local f="$1" top
+  if [ ! -f "$f" ] && [ "${f#/}" = "$f" ]; then
+    top=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    [ -n "$top" ] && [ -f "$top/$f" ] && f="$top/$f"
+  fi
+  [ -f "$f" ] || return 1
+  head -c 4096 -- "$f"
+  case "$(cd "$(dirname -- "$f")" && pwd -P)" in */.gstack/tmp) rm -f -- "$f" ;; esac
+}
+
 ensure_file() {
   if [ ! -f "$PREF_FILE" ]; then
     echo '{}' > "$PREF_FILE"
@@ -54,10 +72,11 @@ ensure_file() {
 # --check <question_id>
 # -----------------------------------------------------------------------
 do_check() {
-  local QID="" SUMMARY_STDIN=false
+  local QID="" SUMMARY_STDIN=false SUMMARY_FILE=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --summary-stdin) SUMMARY_STDIN=true; shift ;;
+      --summary-file) SUMMARY_FILE="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
       *) [ -z "$QID" ] && QID="$1"; shift ;;
     esac
   done
@@ -70,7 +89,14 @@ do_check() {
   # and shell metacharacters an argv tail would mangle. Handed to bun via
   # env so no shell re-quoting happens. Empty summary = id-only behavior.
   local QSUMMARY=""
-  if [ "$SUMMARY_STDIN" = true ]; then
+  if [ -n "$SUMMARY_FILE" ]; then
+    # A summary that cannot be read cannot clear the keyword check: ask.
+    if ! QSUMMARY=$(read_text_file "$SUMMARY_FILE"); then
+      echo "ASK_NORMALLY"
+      echo "NOTE: summary file $SUMMARY_FILE is missing; asking normally." >&2
+      return 0
+    fi
+  elif [ "$SUMMARY_STDIN" = true ]; then
     QSUMMARY=$(cat 2>/dev/null || true)
   fi
   ensure_file
@@ -136,9 +162,20 @@ do_check() {
 # --write '{...}' (with user-origin gate)
 # -----------------------------------------------------------------------
 do_write() {
-  local INPUT="${1:-}"
+  local INPUT="${1:-}" FREE_TEXT="" HAS_FREE_TEXT=""
   if [ -z "$INPUT" ]; then
     echo "gstack-question-preference: --write requires a JSON payload" >&2
+    exit 1
+  fi
+  shift
+  if [ "${1:-}" = "--free-text-file" ]; then
+    if ! FREE_TEXT=$(read_text_file "${2:-}"); then
+      echo "gstack-question-preference: cannot read the free-text file ${2:-}; write the user's words into it with your file-write tool, then rerun. Nothing was saved." >&2
+      exit 1
+    fi
+    HAS_FREE_TEXT=1
+  elif [ -n "${1:-}" ]; then
+    echo "gstack-question-preference: unexpected argument after the JSON payload: $1" >&2
     exit 1
   fi
   ensure_file
@@ -150,11 +187,14 @@ do_write() {
 
   set +e
   local RESULT
-  RESULT=$(cd "$ROOT_DIR" && printf '%s' "$INPUT" | PREF_FILE_PATH="$PREF_FILE" EVENT_FILE_PATH="$EVENT_FILE" bun -e "
+  RESULT=$(cd "$ROOT_DIR" && printf '%s' "$INPUT" | PREF_FILE_PATH="$PREF_FILE" EVENT_FILE_PATH="$EVENT_FILE" FREE_TEXT="$FREE_TEXT" HAS_FREE_TEXT="$HAS_FREE_TEXT" bun -e "
     const fs = require('fs');
     const raw = await Bun.stdin.text();
     let j;
     try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-question-preference: invalid JSON\n'); process.exit(1); }
+    // The user's own words arrive in an agent-written file, never inside the
+    // shell-quoted JSON argument.
+    if (process.env.HAS_FREE_TEXT) j.free_text = process.env.FREE_TEXT.trim();
 
     // Required: question_id (kebab-case, <=64)
     if (!j.question_id || !/^[a-z0-9-]+\$/.test(j.question_id) || j.question_id.length > 64) {
