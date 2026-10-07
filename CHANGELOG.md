@@ -70,6 +70,8 @@ Run `~/.claude/skills/gstack/bin/gstack-brain-sync --status`. Each held file is 
 - The outside-review classifier reported reviews with severity words and no `[Pn]` tags as clean.
 - /context-restore picked an older checkpoint from a nested repo or a task worktree. (#3065)
 - Browse cookbook: the script mistakes that look like page bugs (non-serializable `evaluate` results, a top-level `return`, `pg.press`, empty DOM reads). (#3063, #3064)
+- `ship-measure report` no longer crashes on a measurement saved by v1.91.32.0; it lists that round as an older format to re-measure.
+- The paid shared-code cases recognize Claude Code 2.1.292's own internal git probe, which now disables every git hook by name, instead of reading it as an unguarded git call from the skill.
 - Credits in the v1.64.0.0 entry: the extension token fix (#1822) goes to @Mike-E-Log, and the polyfill `exited` promise (#1743) to @habassa5. (#3054)
 
 #### For contributors
