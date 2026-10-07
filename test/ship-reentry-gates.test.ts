@@ -59,10 +59,10 @@ test('late behavioral repairs rebuild before the docs decision and commit only r
   expect(commit).toMatch(/preserve unrelated user files/i);
 });
 
-test('the title is prefixed once before the exact scanned value is published', () => {
+test('the title is prefixed once in Step 18 and posted from its file unchanged', () => {
   const body = compact(read('ship/sections/pr-body.md.tmpl'));
-  expect(body).toContain("Step 18's `NEW_TITLE` unchanged");
-  expect(body).not.toContain('`NEW_TITLE`, prefixed with');
-  expect(body).toContain('--title "$NEW_TITLE"');
-  expect(body).toContain('scanned `NEW_TITLE`');
+  expect(body).toContain("substitute Step 18's title file name");
+  expect(body).not.toContain('prefixed with');
+  expect(body).toContain('--title-file "$TITLE_FILE"');
+  expect(body).toContain('every retry sends the same files');
 });

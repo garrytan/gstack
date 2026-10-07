@@ -17,6 +17,19 @@ fi
 Only `PR: exists` dispatches. `PR: skip (<reason>)` → do not dispatch; record
 "Greptile: not run (<reason>); runs on the PR once it exists" and continue to Step 11.
 
+**Early PR (Step 6.5):** when the record holds `EARLY_PR` and `EARLY_PR_OPENED_AT`, first
+wait for Greptile's review of that PR, substituting both values:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-greptile-early wait <pr-number> --since <opened-at>
+```
+
+Each call returns within about 90 seconds; relay its progress line. Rerun on
+`GREPTILE_REVIEW: pending`. `complete` dispatches below. `timeout` or `unavailable` takes
+the Unavailable triage route with that line as the reason, never a claim of zero
+comments. Comments on the early head are triaged against the current diff
+(`already_fixed` when the code has moved on).
+
 Dispatch a subagent through Agent with `subagent_type: "general-purpose"` and
 `run_in_background: false`, using Step 7's shared foreground-dispatch rule.
 It fetches and classifies all Greptile comments,

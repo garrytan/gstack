@@ -1,0 +1,29 @@
+#!/usr/bin/env bun
+/**
+ * gstack-greptile-early — /ship's early Greptile review (detect, consent, open, wait).
+ *
+ *   gstack-greptile-early detect
+ *   gstack-greptile-early consent yes|no
+ *   gstack-greptile-early open --base <branch> --title-file <file> [--ready] [--confirm <token>]
+ *   gstack-greptile-early wait <pr-number> --since <epoch-seconds>
+ *
+ * On by default when the repo uses Greptile; `gstack-config set
+ * ship_greptile_early false` turns it off. Logic: lib/greptile-early.ts.
+ */
+import * as path from "path";
+import { spawnSync } from "child_process";
+import { runGreptileEarly } from "../lib/greptile-early";
+
+process.exitCode = runGreptileEarly(process.argv.slice(2), {
+  run(cmd, args, input) {
+    const r = spawnSync(cmd, args, { input: input ?? "", encoding: "utf8", timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+    return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? (r.error ? String(r.error) : "") };
+  },
+  vars: process.env,
+  binDir: path.resolve(import.meta.dir),
+  bun: process.execPath,
+  now: () => Date.now(),
+  sleep: (ms) => Bun.sleepSync(ms),
+  out: (t) => process.stdout.write(t),
+  err: (t) => process.stderr.write(t),
+});

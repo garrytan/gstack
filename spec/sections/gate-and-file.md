@@ -250,20 +250,8 @@ interrupt before the work happens.
 
 #### File the issue (always)
 
-**Re-scan before filing** (Phase 4 edits can introduce content the 4.5b scan
-never saw, and the issue is world-readable):
-
-#### Redaction scan — pre-issue (the issue body you're about to file)
-
-Run the SAME scan-at-sink procedure shown above (resolve `$REDACT_VIS` once and
-reuse it; when the issue body you're about to file changed since the last scan, rewrite the same `$REDACT_FILE`
-with your file-write tool; `~/.claude/skills/gstack/bin/gstack-redact --from-file "$REDACT_FILE"
---repo-visibility "$REDACT_VIS" --json`), now on the issue body you're about to file. Apply the same
-exit-3/2/0 handling. On exit 3, do NOT file the issue; HIGH has no skip. Pass the
-same `$REDACT_FILE` downstream so the bytes scanned are the bytes sent.
-
-If `gh` is available and authenticated, file from the scanned file. The title and
-the one-line approach for the decision log are free text too, so they go into their
+If `gh` is available and authenticated, file from the scanned draft file. The title
+and the one-line approach for the decision log are free text too, so they go into their
 own private files:
 
 ```bash
@@ -276,20 +264,31 @@ APPROACH_FILE=$(mktemp "${_GT:?}/approach.XXXXXX") || { echo "Not sent: mktemp f
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
 
-Then file, substituting the three printed names:
+Then file, substituting the three printed names. `gstack-post` scans the exact title
+and body it sends (Phase 4 edits can introduce content the 4.5b scan never saw, and the
+issue is world-readable) and passes both to `gh` as arguments:
 
 ```bash
 REDACT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<redact-file-name>"
 TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
 APPROACH_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<approach-file-name>"
-[ -s "$REDACT_FILE" ] && [ -s "$TITLE_FILE" ] || { echo "Not filed: $REDACT_FILE or $TITLE_FILE is missing or empty. Write them, then file by hand: gh issue create --title \"\$(cat $TITLE_FILE)\" --body-file $REDACT_FILE" >&2; exit 1; }
-ISSUE_URL=$(gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$REDACT_FILE") || exit 1
+[ -s "$REDACT_FILE" ] && [ -s "$TITLE_FILE" ] || { echo "Not filed: $REDACT_FILE or $TITLE_FILE is missing or empty. Write them, then file by hand: ~/.claude/skills/gstack/bin/gstack-post issue-create --title-file $TITLE_FILE --body-file $REDACT_FILE" >&2; exit 1; }
+POST_OUT=$(~/.claude/skills/gstack/bin/gstack-post issue-create --title-file "$TITLE_FILE" --body-file "$REDACT_FILE"); POST_CODE=$?
+printf '%s\n' "$POST_OUT"
+[ "$POST_CODE" = 0 ] || { echo "Not filed (gstack-post exit $POST_CODE)." >&2; exit "$POST_CODE"; }
+ISSUE_URL=$(printf '%s\n' "$POST_OUT" | grep -m1 -E '^https?://')
 ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed -E 's|.*/issues/([0-9]+)$|\1|')
 echo "Filed: $ISSUE_URL (ISSUE_NUMBER: $ISSUE_NUMBER)"
 [ -s "$APPROACH_FILE" ] && ~/.claude/skills/gstack/bin/gstack-decision-log "$(jq -cn --arg n "$ISSUE_NUMBER" --rawfile t "$TITLE_FILE" --rawfile a "$APPROACH_FILE" \
   '{decision: ("Spec filed #" + $n + ": " + ($t | rtrimstr("\n"))), rationale: ($a | rtrimstr("\n")), scope: "issue", issue: $n, source: "skill", confidence: 7}')" 2>/dev/null || true
 rm -f "$APPROACH_FILE"
 ```
+
+Exit 1 (HIGH): do NOT file; rotate and redact at source, no skip. Exit 2 (MEDIUM): ask
+per printed `RULE:` line exactly as in the 4.5b disposition (auto-redact rewrites
+`$REDACT_FILE`, which the archive then uses); when the user accepts a finding as it
+is, rerun the block with `--confirm <confirm-token>` after `--body-file "$REDACT_FILE"`.
+Any edit needs a new scan, so the token no longer applies. Exit 3: `gh` failed; report it.
 
 The last line records the spec as a durable, issue-scoped cross-session decision so a future session (or `/ship` closing the issue) inherits the core approach and why, not just the issue link. Non-interactive, best-effort (`|| true`). The approach file holds the one core approach/decision the spec settled. Only fires when the issue was actually filed.
 

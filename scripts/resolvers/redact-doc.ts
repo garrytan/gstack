@@ -6,9 +6,12 @@
  *                                          and /cso never drift from the engine.
  *   {{REDACT_INVOCATION_BLOCK:<sink>}}   → the canonical scan-at-sink bash + prose
  *                                          for one enforcement point. <sink> is a
- *                                          hyphenated label: pre-codex, pre-issue,
- *                                          pre-archive, pre-pr-body, pre-pr-title,
+ *                                          hyphenated label: pre-codex, pre-archive,
  *                                          pre-commit.
+ *
+ * PR, MR and issue text has no sink here: bin/gstack-post scans the exact
+ * bytes it sends and refuses HIGH itself (CEO-19), so those sites carry no
+ * separate scan.
  *
  * DRY: every skill writes one placeholder per enforcement point; UX/threshold
  * changes land here once. test/redact-doc-resolver.test.ts golden-pins the output.
@@ -25,17 +28,15 @@ interface SinkSpec {
 
 const SINKS: Record<string, SinkSpec> = {
   'pre-codex': { noun: 'the spec body', blockVerb: 'dispatch to the outside reviewer' },
-  'pre-issue': { noun: "the issue body you're about to file", blockVerb: 'file the issue' },
   'pre-archive': { noun: 'the body about to be archived', blockVerb: 'write the archive' },
-  'pre-pr-body': { noun: 'the composed PR body', blockVerb: 'create/edit the PR' },
-  'pre-pr-title': { noun: 'the PR title', blockVerb: 'set the PR title' },
   'pre-commit': { noun: 'the generated docs about to be committed', blockVerb: 'commit' },
 };
+const UNKNOWN_SINK: SinkSpec = { noun: 'the text about to be sent', blockVerb: 'send it' };
 
 export function generateRedactInvocationBlock(ctx: TemplateContext, args?: string[]): string {
-  const sinkLabel = args?.[0] ?? 'pre-issue';
+  const sinkLabel = args?.[0] ?? 'unknown';
   const brief = args?.[1] === 'brief';
-  const sink = SINKS[sinkLabel] ?? SINKS['pre-issue'];
+  const sink = SINKS[sinkLabel] ?? UNKNOWN_SINK;
   const bin = `${ctx.paths.binDir}/gstack-redact`;
   const outsideGate = sinkLabel === 'pre-codex';
   const scan = `REDACT_JSON=$(${outsideGate ? `"${toShellPath(bin)}"` : bin} --from-file "$REDACT_FILE" --repo-visibility "$REDACT_VIS" --self-email "$(git config user.email 2>/dev/null)" --json)`;

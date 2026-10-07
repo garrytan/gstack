@@ -111,19 +111,24 @@ REPLY_FILE=$(mktemp "${_GT:?}/reply.XXXXXX") || { echo "Not sent: mktemp failed 
 
 Line-level comments (from `pulls/$PR/comments`):
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner') && PR_NUMBER=$(gh pr view --json number --jq '.number') || { echo "Not sent: gh could not resolve the repository and PR." >&2; exit 1; }
+PR_NUMBER=$(gh pr view --json number --jq '.number') || { echo "Not sent: gh could not resolve the PR." >&2; exit 1; }
 REPLY_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<reply-file-name>"
-[ -s "$REPLY_FILE" ] || { echo "Not sent: $REPLY_FILE is missing or empty, so the text was never written. Write it, then send by hand: gh api repos/$REPO/pulls/$PR_NUMBER/comments/<comment-id>/replies -F body=@$REPLY_FILE" >&2; exit 1; }
-gh api "repos/$REPO/pulls/$PR_NUMBER/comments/<comment-id>/replies" -F "body=@$REPLY_FILE" >/dev/null && rm -f "$REPLY_FILE"
+[ -s "$REPLY_FILE" ] || { echo "Not sent: $REPLY_FILE is missing or empty, so the text was never written. Write it, then send by hand: ~/.claude/skills/gstack/bin/gstack-post reply $PR_NUMBER --to <comment-id> --body-file $REPLY_FILE" >&2; exit 1; }
+~/.claude/skills/gstack/bin/gstack-post reply "$PR_NUMBER" --to <comment-id> --body-file "$REPLY_FILE" && rm -f "$REPLY_FILE"
 ```
 
 Top-level comments (from `issues/$PR/comments`):
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner') && PR_NUMBER=$(gh pr view --json number --jq '.number') || { echo "Not sent: gh could not resolve the repository and PR." >&2; exit 1; }
+PR_NUMBER=$(gh pr view --json number --jq '.number') || { echo "Not sent: gh could not resolve the PR." >&2; exit 1; }
 REPLY_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<reply-file-name>"
-[ -s "$REPLY_FILE" ] || { echo "Not sent: $REPLY_FILE is missing or empty, so the text was never written. Write it, then send by hand: gh pr comment $PR_NUMBER --body-file $REPLY_FILE" >&2; exit 1; }
-gh api "repos/$REPO/issues/$PR_NUMBER/comments" -F "body=@$REPLY_FILE" >/dev/null && rm -f "$REPLY_FILE"
+[ -s "$REPLY_FILE" ] || { echo "Not sent: $REPLY_FILE is missing or empty, so the text was never written. Write it, then send by hand: ~/.claude/skills/gstack/bin/gstack-post pr-comment $PR_NUMBER --body-file $REPLY_FILE" >&2; exit 1; }
+~/.claude/skills/gstack/bin/gstack-post pr-comment "$PR_NUMBER" --body-file "$REPLY_FILE" && rm -f "$REPLY_FILE"
 ```
+
+`gstack-post` scans the reply before sending it. Exit 1 (HIGH) means the reply quotes a
+credential: rewrite it without the value. Exit 2 (MEDIUM) prints `RULE:` lines and a
+`TOKEN:`: rewrite the reply, or ask the user and rerun the block with
+`--confirm <confirm-token>` added to the `gstack-post` command.
 
 **If a reply POST fails** (e.g., PR was closed, no write permission): warn and continue. Do not stop the workflow for a failed reply.
 
