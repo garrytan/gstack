@@ -4,7 +4,7 @@ Prepare the title in a private file; Step 19 posts that file, never a shell stri
 
 {{FREE_TEXT_FILE:TITLE_FILE=pr-title}}
 
-1. For an existing open PR/MR, fill the file from the platform, substituting the
+1. For an existing open PR/MR (not Step 6.5's early PR, which takes item 2), fill the file from the platform, substituting the
    printed name, the matched number and `NEW_VERSION`; no title text passes through you:
    ```bash
    TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"

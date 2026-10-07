@@ -1368,8 +1368,9 @@ describe('ship step numbering', () => {
   // by test/ship-apple-gate.test.ts), 8.1 (Plan Verification), 8.2 (Scope
   // Drift), 9.1 (Review Army), 9.2 (Findings Merge), 9.3 (Cross-review dedup),
   // 9.4 (Fix-First and persistence), 15.0 (WIP context), 15.1 (Bisectable commits),
-  // 15.2 (safe optional WIP consolidation).
-  const ALLOWED_SUBSTEPS = new Set(['0.9', '8.1', '8.2', '9.1', '9.2', '9.3', '9.4', '11.5', '14.5', '15.0', '15.1', '15.2']);
+  // 15.2 (safe optional WIP consolidation), 6.5 (early Greptile PR, which must
+  // follow the free tests and precede the reviews it runs in parallel with).
+  const ALLOWED_SUBSTEPS = new Set(['0.9', '6.5', '8.1', '8.2', '9.1', '9.2', '9.3', '9.4', '11.5', '14.5', '15.0', '15.1', '15.2']);
 
   test('ship/SKILL.md.tmpl contains no unexpected fractional step numbers', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');

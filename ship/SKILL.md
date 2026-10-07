@@ -457,7 +457,7 @@ not a commit ID. Use `git diff <old-tree> <new-tree>` to compare these snapshots
 You, the **parent** running /ship, own advancement; children return evidence, not
 permission to proceed. Follow the saved work list:
 
-1. Start with Steps 1–21 in order, including 11.5 and 14.5. Advance only after
+1. Start with Steps 1–21 in order, including 6.5, 11.5 and 14.5. Advance only after
    the current item's gates clear.
 2. Expand a repair into individual steps and insert them before the still-pending
    work. This replaces the current item, whose actual result stays in the record.
@@ -486,6 +486,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 |------|-------------------|
 | App Store/TestFlight distribution is requested for an Apple app (.xcodeproj, .xcworkspace, or an app-product Swift package) — read at Step 0.9 before the branch gate; an Apple repository-landing request follows the normal pipeline | `sections/apple-release.md` |
 | running the test suites and (if prompt files changed) the eval suites (Steps 4-6) | `sections/tests.md` |
+| opening the PR early for a parallel Greptile review after the free tests pass (Step 6.5) | `sections/greptile-early.md` |
 | a paid eval case is red or a free-suite shard failed (Steps 5-6) — read from the tests section; diagnostic reruns, then the gate once | `sections/measure.md` |
 | auditing test coverage of the diff (Step 7) | `sections/test-coverage.md` |
 | auditing plan completion, verification, and scope drift (Step 8) | `sections/plan-completion.md` |
@@ -716,6 +717,9 @@ Otherwise continue to Step 4 directly.
 ---
 
 > **STOP.** Before running the test suites and (if prompt files changed) the eval suites (Steps 4-6), Read `~/.claude/skills/gstack/ship/sections/tests.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
+
+> **STOP.** Before opening the PR early for a parallel Greptile review after the free tests pass (Step 6.5), Read `~/.claude/skills/gstack/ship/sections/greptile-early.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 > **STOP.** Before auditing test coverage of the diff (Step 7), Read `~/.claude/skills/gstack/ship/sections/test-coverage.md` and execute it
@@ -1187,6 +1191,8 @@ hand-roll VERSION/package.json writes.
 Follow the numbered gates and their explicit exceptions.
 
 - **Never force push.** Use regular `git push` only.
+- **An early Greptile PR stays up.** A stop after Step 6.5 opened it leaves the draft
+  open with one comment saying why (greptile-early section); never close it.
 - **Use the configured version file's format** (4-digit for VERSION); under NO_VERSION,
   never invent one.
 - **Step 7 generates coverage tests.** They must pass before committing. Never commit failing tests.

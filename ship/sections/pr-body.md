@@ -13,7 +13,7 @@ TITLE_FILE=$(mktemp "${_GT:?}/pr-title.XXXXXX") || { echo "Not sent: mktemp fail
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
 
-1. For an existing open PR/MR, fill the file from the platform, substituting the
+1. For an existing open PR/MR (not Step 6.5's early PR, which takes item 2), fill the file from the platform, substituting the
    printed name, the matched number and `NEW_VERSION`; no title text passes through you:
    ```bash
    TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"

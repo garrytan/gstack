@@ -17,6 +17,12 @@
       "trigger": "running the test suites and (if prompt files changed) the eval suites (Steps 4-6)"
     },
     {
+      "id": "greptile-early",
+      "file": "greptile-early.md",
+      "title": "Early Greptile PR",
+      "trigger": "opening the PR early for a parallel Greptile review after the free tests pass (Step 6.5)"
+    },
+    {
       "id": "measure",
       "file": "measure.md",
       "title": "Measure-then-fix loop for a red eval or free shard",
