@@ -20,6 +20,18 @@ Search this page for the words after `unavailable:` or `not run (`. Each
 section has a stable link anchor; the reason codes and anchors come from
 `lib/gate-outcomes.ts`, and a free test fails if a code has no section here.
 
+<a id="gstack-doctor"></a>
+### Check readiness before a skill runs
+
+Run `~/.claude/skills/gstack/bin/gstack-doctor` (other hosts: `./setup --status`
+in your gstack checkout prints the doctor's absolute path). It prints one row
+each for the install, state root, Bun, hooks, Codex, the cached Codex model
+check, artifacts sync, the browse bundle, Claude Code, the largest session
+journal and recent /autoplan guard codes. Each row is `ok`, `warn`,
+`not configured` or `fail` with its fix; only `fail` exits non-zero. It makes
+no paid call: the Codex rows report the cached model check and its age, and
+`--live` runs that check once. Paste its output into bug reports.
+
 ---
 
 ## Outside reviews (Codex and Claude Code)
@@ -31,28 +43,60 @@ P0 or P1 finding blocks exactly like a native P0/P1. `unverified` and
 `unavailable` are missing coverage: /ship and /review continue, show the gap in
 the readiness dashboard and the PR body, and never count it as a pass.
 
+<a id="outside-review-verdict"></a>
+### How the verdict is read from a review
+
+- **Severity tags.** `[P0]`-`[P3]` (or Codex's native `P1:` labels). P0 and P1
+  block; P2 and P3 are advisory.
+- **Severity words in label position.** `Severity: High`, `Priority: low`, a
+  line that starts with `High:`, `High —`, `[High]` or `**High**` (after an
+  optional heading, bullet or number), a bold `**High**` anywhere, or a table
+  cell `| high |`. Critical and High block like P0 and P1; Medium and Low are
+  advisory like P2 and P3. Words inside prose do not count: "high-level",
+  "low-risk", "a medium-term follow-up" and "no critical findings" are not
+  findings.
+- **No findings.** A review with no tag and no label is `clean` only when it
+  says so explicitly (`NO_FINDINGS`, "no issues", "did not find any bugs").
+  Otherwise it is `unverified` (see below), never `clean`.
+- **Design proposals** (the design-direction voices in /design-consultation
+  and /office-hours) are read with the `proposal` gate: a completed proposal
+  needs only its `Recommendation: ... because ...` line.
+
+Outside-review prompts ask the reviewer to label each finding Critical, High,
+Medium or Low, so most reviews land on `findings` or `clean`.
+
 <a id="sourced-helper-location"></a>
-### `gstack: cannot locate gstack-codex-probe (shell: ...)` / `CODEX_MODE: helper_unavailable`
+### `gstack: cannot load gstack-codex-probe` / `gstack: cannot locate <helper> (shell: ...)` / `CODEX_MODE: helper_unavailable`
 
-**Meaning.** Skill blocks load gstack's shell helpers (`gstack-codex-probe`,
-`gstack-egress-lib.sh`) into the shell your agent runs. A helper finds its own
+**Meaning.** Skills run `gstack-codex-probe` as a command, one subcommand per
+check, so the shell your agent uses does not matter. `cannot load
+gstack-codex-probe` and `CODEX_MODE: helper_unavailable` mean the probe file is
+missing or not executable in your install.
+
+`cannot locate <helper> (shell: ...)` comes from a helper that is still loaded
+into your shell with `source` (`gstack-egress-lib.sh`, and the Codex probe when
+a skill rendered before the upgrade sources it). Such a helper finds its own
 directory from bash (`BASH_SOURCE`) or zsh (`%x`). In any other shell (dash,
-sh), or when the shell cannot say which file it is reading, the helper stops
-instead of guessing a path. The message names the shell it saw.
+sh), or when the shell cannot say which file it is reading, it stops instead of
+guessing a path. The message names the shell it saw.
 
-**Fix.** Run the skill from bash or zsh (the macOS and Linux defaults). If
-the shell cannot be changed, tell the helper where gstack is installed:
+**Fix.** For `cannot load`, re-run `./setup` from your gstack checkout (or
+`/gstack-upgrade`). For `cannot locate`, run the skill from bash or zsh (the
+macOS and Linux defaults), or tell the helper where gstack is installed:
 
 ```bash
 export GSTACK_ROOT=~/.claude/skills/gstack   # your install dir; it holds bin/
 ```
 
-If the message says `cannot load ...`, the helper file is missing: re-run
-`./setup` from your gstack checkout.
+If you see `gstack: sourcing gstack-codex-probe is deprecated ...`, a skill
+rendered before the upgrade is still sourcing the probe. It keeps working
+until a release on or after 2026-10-21; run `/gstack-upgrade` to re-render
+your skills now.
 
-**Expected result.** `zsh -c 'source ~/.claude/skills/gstack/bin/gstack-codex-probe && _gstack_codex_select_model exec'`
-prints `CODEX_MODEL: <model> (exec; source: ...)`, and preflights print a
-`CODEX_MODE` other than `helper_unavailable`.
+**Expected result.** `~/.claude/skills/gstack/bin/gstack-codex-probe select-model exec`
+prints `CODEX_SEL: <model>` (and `CODEX_MODEL: <model> (exec; source: ...)` on
+stderr) from any shell, and preflights print a `CODEX_MODE` other than
+`helper_unavailable`. `gstack-codex-probe help` lists every subcommand.
 
 <a id="codex-sandbox-unavailable"></a>
 ### `Codex outside review unavailable: Codex's sandbox could not start here (...)`
@@ -151,8 +195,9 @@ severity tags.
 <a id="outside-review-unverified"></a>
 ### `... outside review: ran, verdict unverified (...)` / `OUTSIDE_STATUS: unverified` / `GATE: UNVERIFIED`
 
-**Meaning.** The review completed but tagged nothing and gave no explicit
-no-findings conclusion, so no pass or fail can be read from it.
+**Meaning.** The review completed but had no severity tag or label and gave
+no explicit no-findings conclusion, so no pass or fail can be read from it
+([how the verdict is read](#outside-review-verdict)).
 
 **What is kept.** The full answer is shown above.
 
@@ -949,3 +994,21 @@ Bypass once: `GSTACK_REDACT_PREPUSH=skip git push`.
 
 **Fix.** Write it as `version: 1.2.3.4`, `"version": "..."` or `v1.2.3.4`.
 MEDIUM findings do not block pushes.
+
+<a id="redact-prepush-email"></a>
+### `MEDIUM  pii.email  <file>:<line>` from the pre-push hook
+
+**Meaning.** The pushed lines add an email address that is not yours and not
+already in the destination's commit metadata. The hook does not report your
+own address (`git config user.email`), addresses listed in
+`gstack.redact.allowEmail`, or author and committer addresses (mailmapped too)
+from the history of the pushed commits, of the remote tip being replaced, and,
+for a new branch pushed to a configured remote, of that remote's tracking refs.
+An address only another remote knows still reports. If the hook also printed
+`existing-email suppression was limited for this push`, it could not read the
+history in 5 seconds, so known authors may be listed too.
+
+**Fix.** Remove the address, or allow it for this repo:
+`git config --add gstack.redact.allowEmail <address>`. If it is your own
+address, check `git config user.email`. The allowlist only covers `pii.email`;
+it never lets a HIGH finding through.

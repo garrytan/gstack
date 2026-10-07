@@ -41,7 +41,9 @@ preparation does not perform them.
    implementation or accepted-decision edit returns to step 3, including after compaction.
 6. **Publish the parent report.** After successful verification, SEND the filled
    report below now as visible parent assistant text, using actual findings and voice
-   statuses. This message is the next operation before any next-phase tool call.
+   statuses, in its own message whose only tool call is the Bash no-op
+   `true autoplan-published <PHASE>` (no output). The guard counts a report only when a
+   later record follows it, so this message is the next operation before any next-phase tool call.
    Use the packet's `report` fields for this phase, the actual host's reviewer names,
    and N/A when either review voice is missing; confirmed counts require both voices.
    Include the DX metrics line only when `report.includeDxMetrics` is true. Resolve
@@ -54,7 +56,8 @@ Consensus: <N/A (voice coverage missing) | X/<report.total> native+outside confi
 Passing to <applicable report.next>.
 
 7. **Return to the driver.** After sending the actual parent report, continue to
-   the driver in the same turn. The driver alone advances phases and emits applicable
+   the driver in the same turn. Make the next guarded `Read` or `Agent` call (the next
+   phase driver, or the Phase 4 tasks aggregator after any skip messages) in a later message. The driver alone advances phases and emits applicable
    skip messages; a skip is never a completion. Do not wait for a “continue” reply.
 
 The sent conversation message is step 6's output. Saving it in ACTIVE_PLAN or

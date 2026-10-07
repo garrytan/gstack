@@ -27,11 +27,14 @@ function cli(args: string[]) {
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
-const RECOMMEND = 'Recommendation: fix the guard because changed.ts loses data.';
+// A clean review states that it found nothing; an untagged finding is unverified (DX-11).
+const RECOMMEND = 'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.';
+const UNTAGGED = 'Recommendation: fix the guard because changed.ts loses data.';
 
 describe('classifyOutsideReview: separate execution, findings and verdict', () => {
   const cases: Array<[string, { text: string; gate: OutsideGate; stderr?: string; exit?: number }, string, string | null, string | undefined]> = [
     ['clean review', { text: RECOMMEND, gate: 'review' }, 'clean', null, undefined],
+    ['review with an untagged finding', { text: UNTAGGED, gate: 'review' }, 'unverified', null, 'untagged_review'],
     ['review with P1', { text: `[P1] data loss\n${RECOMMEND}`, gate: 'review' }, 'findings', 'P1', undefined],
     ['review with only P2', { text: `[P2] naming\n${RECOMMEND}`, gate: 'review' }, 'clean', 'P2', undefined],
     ['review missing recommendation', { text: 'A few observations.', gate: 'review' }, 'unavailable', null, 'missing_markers'],

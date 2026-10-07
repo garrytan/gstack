@@ -123,16 +123,17 @@ describe('pre-publication documentation lifecycle', () => {
 
   test('PR creation and reruns keep current and blocked audits visible', () => {
     const body = read('ship/sections/pr-body.md.tmpl');
-    expect(body).toContain("Use Step 18's `NEW_TITLE`");
-    expect(body).toContain('`NEW_TITLE` unchanged; its version prefix is already present');
-    expect(body).toContain('printf \'%s\' "$NEW_TITLE" |');
-    expect(body).toContain('gh pr create --base <base> --title "$NEW_TITLE"');
-    expect(body).toContain('gh pr edit --title "$NEW_TITLE"');
-    expect(body).toContain('glab mr create -b <base> -t "$NEW_TITLE"');
+    // Oct 7 wave B4: the title travels in Step 18's agent-written file and both
+    // PR paths publish through gstack-post, which scans the exact bytes it sends.
+    expect(body).toContain('`grep -Eq \'^v<new-version>( |$)\' "$TITLE_FILE"` and never publish an unprefixed title');
+    expect(body).toContain('gstack-pr-title-rewrite.sh <new-version> --stdin > "$TITLE_FILE"');
+    expect(body).toContain('gstack-post pr-create --base <base> --title-file "$TITLE_FILE"');
+    expect(body).toContain('gstack-post pr-title <pr-number> --title-file "$TITLE_FILE"');
+    expect(body).toContain('`gstack-post` detects GitHub or GitLab from the remote');
     expect(body).not.toContain('Dispatch /document-release');
     expectMentions(body, [['never', 'section', 'another']], 'body');
-    expect(body).toContain('gh pr edit --body-file "$PR_BODY_FILE"');
-    expect(body).toContain('gstack-redact --from-file "$PR_BODY_FILE"');
+    expect(body).toContain('gstack-post pr-body <pr-number> --body-file "${PR_BODY_FILE:?restore the composed body path}"');
+    expect(body).toContain('gstack-redact --from-file "$PR_BODY_FILE" --auto-redact');
     expect(read('ship/SKILL.md.tmpl')).toContain('existing PRs and docs-only changes');
     expect(read('ship/sections/apple-release.md.tmpl')).toContain('read-only');
     expect(read('ship/sections/apple-release.md.tmpl')).toContain('ship/sections/documentation.md');

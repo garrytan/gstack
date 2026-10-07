@@ -47,6 +47,7 @@ function env(extra: Record<string, string> = {}): Record<string, string> {
   delete out.GSTACK_STATE_ROOT;
   delete out.GSTACK_STATE_DIR;
   delete out.CURRENT_BRANCH;
+  delete out.CLAUDE_PROJECT_DIR;
   return { ...out, HOME: tmp, GSTACK_HOME: home, ...extra };
 }
 
@@ -66,12 +67,12 @@ function repo(name: string, origin?: string): string {
 }
 
 /** The context-save flow: path block, the agent's Write, then the stamp block. */
-function save(cwd: string, title: string, timestamp: string, branch = 'main'): string {
+function save(cwd: string, title: string, timestamp: string, branch = 'main', extra: Record<string, string> = {}): string {
   const paths = sh(SAVE_PATH_BLOCK, cwd, { TITLE_RAW: title, TEST_TIMESTAMP: timestamp });
   expect(paths.status).toBe(0);
   const file = paths.stdout.match(/^FILE=(.+)$/m)![1];
   fs.writeFileSync(file, `---\nstatus: in-progress\nbranch: ${branch}\ntimestamp: ${timestamp}\n---\n\n## Working on: ${title}\n`);
-  const stamp = sh(STAMP_BLOCK.replace('FILE="<the FILE path printed above>"', `FILE=${JSON.stringify(file)}`), cwd);
+  const stamp = sh(STAMP_BLOCK.replace('FILE="<the FILE path printed above>"', `FILE=${JSON.stringify(file)}`), cwd, extra);
   expect(stamp.stdout).toContain('STAMPED');
   return file;
 }
@@ -277,5 +278,161 @@ describe('gstack-slug --adopt-legacy', () => {
     const r = adopt(gh);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("Nothing to adopt: this project's slug (acme-app) did not change.");
+  });
+});
+
+describe('context-restore offers newer checkpoints it used to skip (#3065)', () => {
+  function git(cwd: string, ...args: string[]) {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf-8', timeout: 30_000 });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+  }
+  /** A main tree with one commit (fixture-local identity) so worktrees can be added. */
+  function mainTree(name: string, origin: string): string {
+    const dir = repo(name, origin);
+    git(dir, 'config', 'user.name', 'Fixture');
+    git(dir, 'config', 'user.email', 'fixture@example.com');
+    git(dir, 'commit', '-q', '--allow-empty', '-m', 'init');
+    return dir;
+  }
+  function worktree(main: string, at: string, branch: string): string {
+    git(main, 'worktree', 'add', '-q', '-b', branch, at);
+    return fs.realpathSync(at);
+  }
+  const pointers = (bucket: string) => {
+    const dir = path.join(home, 'projects', bucket, 'checkpoint-pointers');
+    return fs.existsSync(dir) ? fs.readdirSync(dir).map((f) => path.join(dir, f)) : [];
+  };
+
+  describe('case 1: saved in a nested repo, restored in its non-git parent', () => {
+    function layout() {
+      const mono = path.join(tmp, 'mono');
+      fs.mkdirSync(mono);
+      const pkg = repo('mono/pkg', 'git@gitlab.example.com:grp/sub/repo.git');
+      const stale = save(mono, 'old mono notes', '20260920-100000');
+      return { mono, pkg, stale };
+    }
+
+    test('with $CLAUDE_PROJECT_DIR set, the save leaves a pointer and restore offers the newer checkpoint', () => {
+      const { mono, pkg, stale } = layout();
+      const fresh = save(pkg, 'pkg feature', '20261001-100000', 'main', { CLAUDE_PROJECT_DIR: mono });
+      expect(path.basename(path.dirname(path.dirname(fresh)))).toMatch(/^sub-repo-[0-9a-f]{16}$/);
+
+      const [ptr] = pointers('mono');
+      expect(ptr).toBeDefined();
+      expect(JSON.parse(fs.readFileSync(ptr, 'utf-8'))).toEqual({
+        checkpoint: fresh,
+        bucket: path.basename(path.dirname(path.dirname(fresh))),
+        project_root: pkg,
+      });
+
+      const r = restore(mono);
+      expect(r.latest).toBe(stale);
+      expect(r.lines).toContain(`POINTER ${fresh}`);
+    });
+
+    test('without $CLAUDE_PROJECT_DIR no pointer is written, and the below-cwd scan still finds it', () => {
+      const { mono, pkg, stale } = layout();
+      const fresh = save(pkg, 'pkg feature', '20261001-100000');
+      expect(pointers('mono')).toEqual([]);
+
+      const r = restore(mono);
+      expect(r.latest).toBe(stale);
+      expect(r.lines).toContain(`BELOW_CWD ${fresh}`);
+      expect(r.out).not.toContain('POINTER');
+    });
+
+    test('a save from the starting directory itself writes no pointer', () => {
+      const { pkg } = layout();
+      save(pkg, 'pkg feature', '20261001-100000', 'main', { CLAUDE_PROJECT_DIR: pkg });
+      expect(fs.existsSync(path.join(home, 'projects'))).toBe(true);
+      for (const bucket of fs.readdirSync(path.join(home, 'projects'))) expect(pointers(bucket)).toEqual([]);
+    });
+
+    test('checkpoints not below the cwd are not offered, and the scan reads only the 200 newest', () => {
+      const { mono, pkg } = layout();
+      const sibling = repo('elsewhere', 'git@github.com:acme/elsewhere.git');
+      const outside = save(sibling, 'sibling work', '20261002-100000');
+      const below = save(pkg, 'pkg feature', '20261001-100000');
+      expect(restore(mono).out).not.toContain(outside);
+      expect(restore(mono).lines).toContain(`BELOW_CWD ${below}`);
+
+      // 200 newer checkpoints of another project push the below-cwd one out of the read window.
+      const dir = path.dirname(outside);
+      for (let i = 0; i < 200; i++) {
+        fs.writeFileSync(path.join(dir, `20261003-${String(100000 + i)}-n${i}.md`), `---\nbranch: main\nproject_root: ${sibling}\n---\n`);
+      }
+      expect(restore(mono).out).not.toContain('BELOW_CWD');
+    });
+
+    test('from $HOME, each project below shows only its newest checkpoint', () => {
+      const { pkg } = layout();
+      const older = save(pkg, 'first pass', '20261001-100000');
+      const newer = save(pkg, 'second pass', '20261002-100000');
+      const r = sh(RESTORE_BLOCK, tmp, { CURRENT_BRANCH: 'main' });
+      expect(r.stdout).toContain(`BELOW_CWD ${newer}`);
+      expect(r.stdout).not.toContain(older);
+    });
+
+    test('inside a git repo the below-cwd scan does not run', () => {
+      const outer = repo('outer');
+      const inner = repo('outer/inner', 'git@github.com:acme/inner.git');
+      const file = save(inner, 'inner work', '20261001-100000');
+      expect(restore(outer).out).not.toContain(file);
+      // A pointer from a session that started in the outer repo still surfaces it.
+      save(inner, 'inner work 2', '20261002-100000', 'main', { CLAUDE_PROJECT_DIR: outer });
+      expect(restore(outer).out).toMatch(/^POINTER .*20261002-100000-inner-work-2\.md$/m);
+    });
+  });
+
+  describe('case 2: another branch of the same repository holds a newer checkpoint for the task', () => {
+    test('a ticket worktree below the main tree: restore shows the newer continuation, branch order unchanged', () => {
+      const main = mainTree('app', 'git@github.com:acme/app.git');
+      const plan = save(main, 'Login plan', '20261001-100000', 'master');
+      const wt = worktree(main, path.join(main, '.worktrees', 't12'), 'feature/12-login');
+      const impl = save(wt, 'Implement login', '20261003-100000', 'feature/12-login');
+      expect(fs.readFileSync(impl, 'utf-8')).toContain(`\nworktree: ${wt}\n`);
+      expect(fs.readFileSync(plan, 'utf-8')).not.toContain('worktree:');
+
+      const r = restore(main, 'master');
+      expect(r.latest).toBe(plan);
+      expect(r.lines).toContain(`NEWER_TASK ${impl}`);
+    });
+
+    test('same normalized title, or the same ticket token, on a worktree outside the main tree', () => {
+      const main = mainTree('app', 'git@github.com:acme/app.git');
+      const plan = save(main, 'Auth refactor', '20261001-100000', 'master');
+      const wt = worktree(main, path.join(tmp, 'app-auth'), 'auth-work');
+      const cont = save(wt, '2026-10-03 auth-refactor!', '20261003-100000', 'auth-work');
+      expect(restore(main, 'master').lines).toContain(`NEWER_TASK ${cont}`);
+
+      fs.rmSync(cont);
+      fs.rmSync(plan);
+      save(main, 'PROJ-42 wip', '20261001-110000', 'master');
+      const ticket = save(wt, 'wip', '20261003-110000', 'feature/PROJ-42-x');
+      expect(restore(main, 'master').lines).toContain(`NEWER_TASK ${ticket}`);
+    });
+
+    test('negative controls: generic titles alone, older saves, unrelated sibling worktrees', () => {
+      const main = mainTree('app', 'git@github.com:acme/app.git');
+      const wtA = worktree(main, path.join(main, '.worktrees', 'a'), 'feat-a');
+      const wtB = worktree(main, path.join(main, '.worktrees', 'b'), 'feat-b');
+      const outside = worktree(main, path.join(tmp, 'app-x'), 'feat-x');
+
+      save(main, 'wip', '20261001-100000', 'master');
+      save(outside, 'WIP', '20261003-100000', 'feat-x');
+      expect(restore(main, 'master').out).not.toContain('NEWER_TASK');
+
+      // An older matching checkpoint is not a continuation.
+      save(outside, 'Payments', '20260901-100000', 'feat-x');
+      save(main, 'payments', '20261002-100000', 'master');
+      expect(restore(main, 'master').out).not.toContain('NEWER_TASK');
+
+      // A sibling worktree's own save is never displaced by another worktree's newer one.
+      const own = save(wtA, 'Search box', '20261004-100000', 'feat-a');
+      save(wtB, 'Billing export', '20261005-100000', 'feat-b');
+      const r = restore(wtA, 'feat-a');
+      expect(r.latest).toBe(own);
+      expect(r.out).not.toContain('NEWER_TASK');
+    });
   });
 });

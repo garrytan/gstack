@@ -2,7 +2,7 @@
  * B1 static coverage: every rendered fence that runs `codex exec` or
  * `codex review` as a command routes the result through the shared validator
  * (lib/outside-review-result.ts) later in the same fence, and takes its
- * sandbox from `_GSTACK_CODEX_SANDBOX` (read-only unless GSTACK_CODEX_NO_SANDBOX=1);
+ * sandbox from `_CODEX_SANDBOX_MODE` (read-only unless GSTACK_CODEX_NO_SANDBOX=1);
  * every `codex exec` reads its prompt on stdin (E5).
  * Prose mentions of the commands are ignored: only command positions count.
  */
@@ -16,8 +16,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sites-'));
 afterAll(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
-/** `codex exec|review` at the start of a shell command, optionally behind the timeout wrapper. */
-const COMMAND = /(?:^|[;&|]\s*|\$\(\s*)(?:_gstack_codex_timeout_wrapper\s+\d+\s+)?codex\s+(?:exec|review)\b/;
+/** `codex exec|review` at the start of a shell command, optionally behind the probe's run-with-timeout. */
+const COMMAND = /(?:^|[;&|]\s*|\$\(\s*)(?:"\$_CODEX_PROBE"\s+run-with-timeout\s+\d+\s+)?codex\s+(?:exec|review)\b/;
 const VALIDATOR = /outside-review-result\.ts\b/;
 
 interface Site { file: string; line: string; fence: string; after: string }
@@ -74,8 +74,8 @@ describe('every rendered Codex invocation is classified by the shared validator'
       expect(argv).toEqual([]);
     });
 
-    test(`${host}: each codex exec/review command takes its sandbox from _GSTACK_CODEX_SANDBOX`, () => {
-      const literal = rendered[host]!.filter(site => !site.line.includes('${_GSTACK_CODEX_SANDBOX:?}')).map(s => `${s.file}: ${s.line}`);
+    test(`${host}: each codex exec/review command takes its sandbox from _CODEX_SANDBOX_MODE`, () => {
+      const literal = rendered[host]!.filter(site => !site.line.includes('${_CODEX_SANDBOX_MODE:?}')).map(s => `${s.file}: ${s.line}`);
       expect(literal).toEqual([]);
     });
   }
@@ -86,13 +86,13 @@ describe('every rendered Codex invocation is classified by the shared validator'
       '```bash',
       '# codex exec in a comment',
       'echo "use codex exec later"',
-      '_gstack_codex_timeout_wrapper 30 codex exec "x" -s read-only',
+      '"$_CODEX_PROBE" run-with-timeout 30 codex exec "x" -s read-only',
       '```',
     ].join('\n');
     const sites = codexSites(doc, 'planted.md');
-    expect(sites.map(s => s.line)).toEqual(['_gstack_codex_timeout_wrapper 30 codex exec "x" -s read-only']);
+    expect(sites.map(s => s.line)).toEqual(['"$_CODEX_PROBE" run-with-timeout 30 codex exec "x" -s read-only']);
     expect(VALIDATOR.test(sites[0]!.after)).toBe(false);
-    expect(sites[0]!.line.includes('${_GSTACK_CODEX_SANDBOX:?}')).toBe(false);
+    expect(sites[0]!.line.includes('${_CODEX_SANDBOX_MODE:?}')).toBe(false);
     expect(codexSites('```bash\nX=$(codex exec "y")\n```', 'p.md')).toHaveLength(1);
   });
 });

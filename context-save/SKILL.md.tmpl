@@ -201,17 +201,20 @@ files_modified:
 ```
 
 The `files_modified` list comes from `git status --short` (both staged and unstaged
-modified files). Use relative paths from the repo root. Do not write `remote:` or
-`project_root:` yourself; the stamp step below adds them.
+modified files). Use relative paths from the repo root. Do not write `remote:`,
+`project_root:` or `worktree:` yourself; the stamp step below adds them.
 
 Then stamp the project identity. Several projects can share one checkpoints
 directory, so `/context-restore` needs to know which project wrote each file. The helper adds `remote:` (canonical origin:
-lowercased host, no credentials, port or `.git`) and `project_root:` to the
-frontmatter:
+lowercased host, no credentials, port or `.git`), `project_root:` and, in a
+linked worktree, `worktree:` to the frontmatter. When the session started in
+another directory that files elsewhere (a non-git parent of this repo), it also
+leaves a pointer there so `/context-restore` in that directory finds this save:
 
 ```bash
 FILE="<the FILE path printed above>"
 ~/.claude/skills/gstack/bin/gstack-slug --stamp-checkpoint "$FILE" && echo "STAMPED"
+[ -z "${CLAUDE_PROJECT_DIR:-}" ] || ~/.claude/skills/gstack/bin/gstack-slug --point-from "$CLAUDE_PROJECT_DIR" "$FILE" 2>/dev/null || true
 ```
 
 After writing, confirm to the user:

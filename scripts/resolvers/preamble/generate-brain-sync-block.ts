@@ -20,14 +20,15 @@ export function generateBrainSyncBlock(ctx: TemplateContext): string {
   const isBrainHost = ctx.host === 'gbrain' || ctx.host === 'hermes';
   return `## Artifacts Sync (skill start)
 
-The skill-start output above already ran artifacts sync. Act on its lines:
-GBrain hint text (if present) tells you when to prefer \`gbrain\` over Grep;
-\`ARTIFACTS_SYNC:\` reports sync health (\`off\`, \`mode=... | queue=N\`,
-\`remote-mode\`, or a restore hint naming \`gstack-brain-restore\`).
+Skill-start already ran artifacts sync. GBrain hint text (if any) says
+when to prefer \`gbrain\` over Grep. \`ARTIFACTS_SYNC:\` reports sync health
+(\`off\`, \`mode=... | queue=N\`, \`remote-mode\`, or a \`gstack-brain-restore\`
+hint). On an \`attention:\` line, tell the user in one sentence what
+it says and the command it names, then continue.
 
 ${isBrainHost ? `If output shows \`ARTIFACTS_SYNC: artifacts repo detected\`, offer \`gstack-brain-restore\` via AskUserQuestion; otherwise continue.
 
-` : ''}The one-time privacy stop-gate (artifacts-sync consent) arrives as a
-\`GSTACK_INSTRUCTION\` block from skill-start when consent is actually pending
-— fire it via AskUserQuestion exactly as the block instructs.`;
+` : ''}The one-time privacy stop-gate arrives as a \`GSTACK_INSTRUCTION\` block
+from skill-start when consent is pending; fire it via AskUserQuestion
+exactly as instructed.`;
 }

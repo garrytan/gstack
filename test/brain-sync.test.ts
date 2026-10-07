@@ -270,6 +270,21 @@ describe('init + sync + restore round-trip', () => {
     expect(cfg.stdout).toContain('gstack-jsonl-merge');
   });
 
+  test('the pre-commit hook init and restore write catches a JSON auth header with a Bearer prefix', () => {
+    for (const bin of ['gstack-artifacts-init', 'gstack-brain-restore']) {
+      const src = fs.readFileSync(path.join(BIN, bin), 'utf-8');
+      expect(src).toContain('(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}');
+    }
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+    const token = ['Bearer ', 'abcd', 'efgh', 'ijkl', 'mnop', 'qrst'].join('');
+    fs.writeFileSync(path.join(tmpHome, 'projects/p/headers.json'), `{"authorization": "${token}"}\n`);
+    git(['add', '-f', 'projects/p/headers.json']);
+    const r = git(['commit', '-q', '-m', 'manual commit']);
+    expect(r.status).not.toBe(0);
+    expect(git(['log', '--oneline']).stdout).not.toContain('manual commit');
+  });
+
   test('refuses init on different remote', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     const otherRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-other-'));
@@ -379,9 +394,15 @@ describe('gstack-brain-sync secret scan', () => {
       // No new commit should have been created.
       const log = git(['log', '--oneline']);
       expect(log.stdout.split('\n').filter(Boolean).length).toBeLessThanOrEqual(3);
-      // Status file should report blocked.
-      const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
-      expect(status.status).toBe('blocked');
+      // The flagged file is held back on its own (status held, not blocked):
+      // named with its scanner rule, never the matched text, and still queued.
+      const raw = fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8');
+      const status = JSON.parse(raw);
+      expect(status.status).toBe('held');
+      expect(status.held_count).toBe(1);
+      expect(status.held.map((h: any) => h.path)).toEqual(['projects/p/learnings.jsonl']);
+      expect(raw).not.toContain(content.slice(0, 12));
+      expect(spoolText()).toContain('projects/p/learnings.jsonl');
     });
   }
 
@@ -399,6 +420,448 @@ describe('gstack-brain-sync secret scan', () => {
     run(['gstack-brain-enqueue', leakPath]);
     const skip = fs.readFileSync(path.join(tmpHome, '.brain-skip.txt'), 'utf-8');
     expect(skip).toContain(leakPath);
+  });
+});
+
+// ---------------------------------------------------------------
+// Per-file hold: a flagged file is held back on its own (with its coupled
+// group) and stays queued, the rest syncs, and every failure that used to be
+// silent lands in the status file. Contributor regression tests from
+// PR #3055 (@v639dragoon) are adapted here to the rewritten drain.
+// ---------------------------------------------------------------
+describe('gstack-brain-sync per-file hold', () => {
+  const FLAGGED = 'projects/p/learnings.jsonl';
+  const CLEAN = 'projects/p/ceo-plans/clean.md';
+  const LOG = 'projects/p/decisions.jsonl';
+  const SNAP = 'projects/p/decisions.active.json';
+  const TOKEN = ['ghp', 'abcdefghij1234567890abcdef1234567890'].join('_');
+  const SELF = path.join(BIN, 'gstack-brain-sync');
+  const statusRaw = () => fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8');
+  const statusJson = () => JSON.parse(statusRaw());
+  const remoteFiles = () =>
+    spawnSync('git', ['--git-dir=' + bareRemote, 'ls-tree', '-r', '--name-only', 'main'], { encoding: 'utf-8', timeout: 30_000 }).stdout;
+  const remoteLog = () =>
+    spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 }).stdout;
+  const remoteShow = (p: string) =>
+    spawnSync('git', ['--git-dir=' + bareRemote, 'show', `main:${p}`], { encoding: 'utf-8', timeout: 30_000 });
+  const staged = () => git(['diff', '--cached', '--name-only']).stdout.trim();
+  const drain = (env: Record<string, string> = {}) => run(['gstack-brain-sync', '--once'], { env });
+
+  function init(mode = 'full') {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', mode]);
+    fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+  }
+  function write(p: string, body: string, enqueue = true) {
+    fs.mkdirSync(path.dirname(path.join(tmpHome, p)), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, p), body);
+    if (enqueue) run(['gstack-brain-enqueue', p]);
+  }
+  const decide = (id: string) => JSON.stringify({ id, kind: 'decide', decision: `d ${id}`, scope: 'repo', date: `2026-10-0${id.length}`, source: 'user' });
+  function writeDecisions(ids: string[], snapIds = ids, snapExtra = '') {
+    write(SNAP, JSON.stringify(snapIds.map((id) => ({ id, kind: 'decide', note: snapExtra }))), false);
+    write(LOG, ids.map(decide).join('\n') + '\n');
+  }
+  /** A PATH shim in front of the real git: logs every call, optionally
+   *  injects one fault. Fault injection reaches the drain's fail-closed paths,
+   *  which a correct git never takes. */
+  function gitShim(fault = ''): { env: Record<string, string>; calls: () => string[] } {
+    const dir = fs.mkdtempSync(path.join(tmpHome, 'shim-'));
+    const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
+    const log = path.join(dir, 'calls.log');
+    fs.writeFileSync(path.join(dir, 'git'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\n${fault}\nexec '${real}' "$@"\n`, { mode: 0o755 });
+    return {
+      env: { PATH: `${dir}${path.delimiter}${process.env.PATH}` },
+      calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf-8').split('\n').filter(Boolean) : []),
+    };
+  }
+
+  test('one flagged file is held back; the clean file still syncs and status is held', () => {
+    init();
+    write(FLAGGED, `{"gh":"${TOKEN}"}\n`);
+    write(CLEAN, '# a plan\n');
+    expect(drain().status).toBe(0);
+    expect(remoteFiles()).toContain(CLEAN);
+    expect(remoteFiles()).not.toContain(FLAGGED);
+    expect(remoteLog()).toMatch(/sync: 1 file/);
+    expect(staged()).toBe('');
+    expect(spoolText()).toContain(FLAGGED);
+    expect(spoolText()).not.toContain(CLEAN);
+    const s = statusJson();
+    expect(s.status).toBe('held');
+    expect(s.held_count).toBe(1);
+    expect(s.drainable).toBe(0);
+    expect(s.last_push_at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    expect(s.last_drain_at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    expect(s.held).toHaveLength(1);
+    expect(s.held[0].path).toBe(FLAGGED);
+    expect(s.held[0].rule).toBe('github-token');
+    expect(s.held[0].dependents).toEqual([]);
+    // Both fixes, with the absolute helper path; skip is permanent and reversible.
+    expect(s.held[0].fixes[0]).toContain(`edit ${FLAGGED}`);
+    expect(s.held[0].fixes[1]).toContain(`${SELF} --skip-file ${FLAGGED}`);
+    expect(s.held[0].fixes[1]).toContain('permanently');
+    expect(s.held[0].fixes[1]).toContain(`${SELF} --unskip-file ${FLAGGED}`);
+    // The matched text appears nowhere in the status.
+    expect(statusRaw()).not.toContain('ghp_');
+    // --status prints the held array.
+    expect(run(['gstack-brain-sync', '--status']).stdout).toContain(`"path": "${FLAGGED}"`);
+  });
+
+  test('a held file is re-scanned every drain and clears once its content is edited', () => {
+    init();
+    write(FLAGGED, `{"gh":"${TOKEN}"}\n`);
+    drain();
+    drain();
+    expect(statusJson().status).toBe('held');
+    expect(spoolFiles()).toHaveLength(1);
+    write(FLAGGED, '{"gh":"rotated and removed"}\n');
+    drain();
+    const s = statusJson();
+    expect(s.status).toBe('ok');
+    expect(s.held).toEqual([]);
+    expect(s.held_count).toBe(0);
+    expect(remoteFiles()).toContain(FLAGGED);
+    expect(spoolFiles()).toEqual([]);
+  });
+
+  test('--skip-file clears a hold permanently and --unskip-file resumes syncing', () => {
+    init();
+    write(FLAGGED, `{"gh":"${TOKEN}"}\n`);
+    drain();
+    expect(run(['gstack-brain-sync', '--skip-file', FLAGGED]).stdout).toContain(`--unskip-file ${FLAGGED}`);
+    drain();
+    expect(statusJson().status).toBe('idle');
+    expect(statusJson().held_count).toBe(0);
+    expect(spoolFiles()).toEqual([]);
+    expect(remoteFiles()).not.toContain(FLAGGED);
+
+    write(FLAGGED, '{"gh":"clean now"}\n', false);
+    const r = run(['gstack-brain-sync', '--unskip-file', FLAGGED]);
+    expect(r.stdout).toContain(`removed from skip list: ${FLAGGED}`);
+    expect(fs.readFileSync(path.join(tmpHome, '.brain-skip.txt'), 'utf-8')).not.toContain(FLAGGED);
+    expect(spoolText()).toContain(FLAGGED);
+    drain();
+    expect(statusJson().status).toBe('ok');
+    expect(remoteFiles()).toContain(FLAGGED);
+    expect(run(['gstack-brain-sync', '--unskip-file', FLAGGED]).stdout).toContain('not in skip list');
+  });
+
+  test('undecodable bytes next to a secret cannot pass the scan as clean', () => {
+    init();
+    fs.writeFileSync(path.join(tmpHome, FLAGGED), Buffer.concat([Buffer.from('{"bin":"'), Buffer.from([0xff, 0xfe, 0xc3]), Buffer.from(`","gh":"${TOKEN}"}\n`)]));
+    run(['gstack-brain-enqueue', FLAGGED]);
+    write(CLEAN, '# a plan\n');
+    drain();
+    expect(remoteFiles()).not.toContain(FLAGGED);
+    expect(remoteFiles()).toContain(CLEAN);
+    expect(statusJson().status).toBe('held');
+  });
+
+  test('a re-scan that still flags after the hold falls back to blocked: nothing committed, queue kept', () => {
+    init();
+    write(FLAGGED, `{"gh":"${TOKEN}"}\n`);
+    write(CLEAN, '# a plan\n');
+    const before = git(['rev-list', '--count', 'HEAD']).stdout.trim();
+    // git "succeeds" at unstaging the held file without doing it.
+    const shim = gitShim(`case "$*" in *"reset -q HEAD --pathspec-from-file=-"*) cat >/dev/null; exit 0 ;; esac`);
+    expect(drain(shim.env).status).toBe(0);
+    const s = statusJson();
+    expect(s.status).toBe('blocked');
+    expect(s.message).toContain('re-scan');
+    expect(statusRaw()).not.toContain('ghp_');
+    expect(git(['rev-list', '--count', 'HEAD']).stdout.trim()).toBe(before);
+    expect(staged()).toBe('');
+    expect(spoolText()).toContain(FLAGGED);
+    expect(spoolText()).toContain(CLEAN);
+    expect(remoteFiles()).not.toContain(CLEAN);
+  });
+
+  test('findings the scanner cannot attribute to files block the drain (fail closed)', () => {
+    init();
+    write(CLEAN, '# a plan\n');
+    const shim = gitShim(`case "$*" in *"--name-only"*) '${spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim()}' "$@"; printf 'extra\\0'; exit 0 ;; esac`);
+    drain(shim.env);
+    expect(statusJson().status).toBe('blocked');
+    expect(staged()).toBe('');
+    expect(remoteFiles()).not.toContain(CLEAN);
+    expect(spoolText()).toContain(CLEAN);
+  });
+
+  _test('1,000 queued paths are attributed in one scanner pass and staged in one add', () => {
+    init();
+    for (let i = 0; i < 1000; i++) {
+      const flagged = i % 400 === 7;
+      fs.writeFileSync(path.join(tmpHome, `projects/p/ceo-plans/plan-${i}.md`), flagged ? `token ${TOKEN}\n` : `# plan ${i}\n`);
+      seedSpool(`{"file":"projects/p/ceo-plans/plan-${i}.md","ts":"t"}`);
+    }
+    const shim = gitShim();
+    expect(drain(shim.env).status).toBe(0);
+    const s = statusJson();
+    expect(s.status).toBe('held');
+    expect(s.held.map((h: any) => h.path).sort()).toEqual(
+      ['projects/p/ceo-plans/plan-407.md', 'projects/p/ceo-plans/plan-7.md', 'projects/p/ceo-plans/plan-807.md'],
+    );
+    expect(remoteLog()).toMatch(/sync: 997 file/);
+    const calls = shim.calls();
+    expect(calls.filter((c) => / add /.test(` ${c} `)).length).toBe(1);
+    // attribution diff + name list + post-hold re-scan diff + empty-diff check
+    expect(calls.filter((c) => c.includes('diff --cached')).length).toBeLessThanOrEqual(4);
+    expect(spoolFiles()).toHaveLength(3);
+  }, 120_000);
+
+  test('a git add failure is reported, never swallowed', () => {
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root)
+    init();
+    write(CLEAN, '# a plan\n');
+    const unreadable = 'projects/p/ceo-plans/unreadable.md';
+    write(unreadable, '# cannot be read\n');
+    fs.chmodSync(path.join(tmpHome, unreadable), 0o000);
+    try {
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('ok');
+      expect(s.message).toContain('git add failed for 1 path(s)');
+      expect(s.drainable).toBe(1);
+      expect(remoteLog()).toMatch(/sync: 1 file/);
+      expect(remoteFiles()).toContain(CLEAN);
+      expect(spoolText()).toContain(unreadable);
+      drain();
+      const s2 = statusJson();
+      expect(s2.status).toBe('error');
+      expect(s2.message).toContain('git add failed for all 1 path(s)');
+      expect(spoolText()).toContain(unreadable);
+    } finally {
+      fs.chmodSync(path.join(tmpHome, unreadable), 0o600);
+    }
+  });
+
+  test('duplicate records for a privacy-held path collapse to the newest one', () => {
+    init('artifacts-only');
+    write('projects/p/timeline.jsonl', '{"skill":"x","event":"started"}\n', false);
+    seedSpool('{"file":"projects/p/timeline.jsonl","ts":"a"}');
+    seedSpool('{"file":"projects/p/timeline.jsonl","ts":"b"}');
+    const newest = seedSpool('{"file":"projects/p/timeline.jsonl","ts":"c"}');
+    expect(drain().status).toBe(0);
+    expect(spoolFiles()).toEqual([newest]);
+    expect(statusJson().message).toContain('privacy-held retained');
+    expect(statusJson().drainable).toBe(0);
+  });
+
+  _test('--status counts a spool too deep for a shell glob', () => {
+    init();
+    fs.mkdirSync(spoolDir(), { recursive: true });
+    // 12,000 names of ~200 bytes overflow ARG_MAX on Linux (2 MiB) and macOS alike.
+    const N = 12_000;
+    const pad = 'd'.repeat(180);
+    for (let i = 0; i < N; i++) {
+      fs.writeFileSync(path.join(spoolDir(), `1700000000-1-${pad}${String(i).padStart(6, '0')}.json`), '{"file":"x"}\n');
+    }
+    expect(run(['gstack-brain-sync', '--status']).stdout).toContain(`"queue_depth":${N}`);
+  }, 60_000);
+
+  describe('git index lock and the shared drain lock', () => {
+    const indexLock = () => path.join(tmpHome, '.git', 'index.lock');
+    const age = (p: string, ms: number) => { const t = new Date(Date.now() - ms); fs.utimesSync(p, t, t); };
+
+    test('a fresh index lock is left alone: status error, queue kept', () => {
+      init();
+      write(CLEAN, '# a plan\n');
+      fs.writeFileSync(indexLock(), '');
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('error');
+      expect(s.message).toContain('index lock');
+      expect(s.drainable).toBe(1);
+      expect(fs.existsSync(indexLock())).toBe(true);
+      expect(spoolText()).toContain(CLEAN);
+      expect(remoteFiles()).not.toContain(CLEAN);
+    });
+
+    test('an index lock older than 10 minutes is cleared under the drain lock and the queue syncs', () => {
+      init();
+      write(CLEAN, '# a plan\n');
+      fs.writeFileSync(indexLock(), '');
+      age(indexLock(), 11 * 60_000);
+      expect(drain().status).toBe(0);
+      expect(fs.existsSync(indexLock())).toBe(false);
+      expect(statusJson().status).toBe('ok');
+      expect(statusJson().message).toContain('stale git index lock');
+      expect(remoteFiles()).toContain(CLEAN);
+    });
+
+    test('an old index lock while another writer holds the drain lock is left alone', () => {
+      init();
+      write(CLEAN, '# a plan\n');
+      const lockDir = path.join(tmpHome, '.brain-sync.lock.d');
+      fs.mkdirSync(lockDir);
+      fs.writeFileSync(path.join(lockDir, 'pid'), `${process.pid}\n`);
+      fs.writeFileSync(indexLock(), '');
+      age(indexLock(), 60 * 60_000);
+      const statusBefore = fs.existsSync(path.join(tmpHome, '.brain-sync-status.json')) ? statusRaw() : null;
+      expect(drain().status).toBe(0);
+      expect(fs.existsSync(indexLock())).toBe(true);
+      expect(fs.existsSync(path.join(tmpHome, '.brain-sync-status.json')) ? statusRaw() : null).toBe(statusBefore);
+      expect(spoolText()).toContain(CLEAN);
+      expect(fs.readFileSync(path.join(lockDir, 'pid'), 'utf-8').trim()).toBe(String(process.pid));
+    });
+
+    _test('a concurrent writer: init waits for the drain lock, and gives up after the wait', async () => {
+      init();
+      const holder = Bun.spawn(['bash', '-c', `. '${path.join(BIN, 'gstack-brain-lock.sh')}'; gstack_brain_lock_acquire "$1" try || exit 9; echo held; sleep 3; gstack_brain_lock_release`, '_', tmpHome], { stdout: 'pipe' });
+      const reader = holder.stdout.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toContain('held');
+      // A drain skips while the lock is held; init with no wait budget refuses.
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      expect(spoolText()).toContain(CLEAN);
+      const refused = run(['gstack-artifacts-init', '--remote', bareRemote], { env: { GSTACK_BRAIN_LOCK_WAIT: '0' } });
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain('another gstack sync');
+      // With a wait budget, init runs once the holder releases.
+      const waited = Bun.spawn([path.join(BIN, 'gstack-artifacts-init'), '--remote', bareRemote], {
+        env: { ...process.env, HOME: tmpHome, GSTACK_HOME: tmpHome, GSTACK_BRAIN_LOCK_WAIT: '20' }, stdout: 'pipe', stderr: 'pipe',
+      });
+      expect(await waited.exited).toBe(0);
+      expect(await holder.exited).toBe(0);
+      expect(fs.existsSync(path.join(tmpHome, '.brain-sync.lock.d'))).toBe(false);
+      expect(drain().status).toBe(0);
+      expect(remoteFiles()).toContain(CLEAN);
+    }, 60_000);
+  });
+
+  describe('commit failures keep the queue', () => {
+    for (const [name, hook] of [['a rejecting pre-commit hook', 'pre-commit'], ['a commit failure after staging (commit-msg)', 'commit-msg']]) {
+      test(name, () => {
+        init();
+        write(CLEAN, '# a plan\n');
+        const hookPath = path.join(tmpHome, '.git', 'hooks', hook);
+        const original = fs.existsSync(hookPath) ? fs.readFileSync(hookPath) : null;
+        fs.writeFileSync(hookPath, '#!/bin/sh\necho "refusing this commit" >&2\nexit 1\n', { mode: 0o755 });
+        const before = git(['rev-list', '--count', 'HEAD']).stdout.trim();
+        expect(drain().status).toBe(0);
+        const s = statusJson();
+        expect(s.status).toBe('error');
+        expect(s.message).toContain('git commit failed');
+        expect(s.drainable).toBe(1);
+        expect(git(['rev-list', '--count', 'HEAD']).stdout.trim()).toBe(before);
+        expect(staged()).toBe('');
+        expect(spoolText()).toContain(CLEAN);
+        if (original) fs.writeFileSync(hookPath, original); else fs.rmSync(hookPath);
+        drain();
+        expect(statusJson().status).toBe('ok');
+        expect(remoteFiles()).toContain(CLEAN);
+      });
+    }
+  });
+
+  test('a push that keeps failing stays push_failed on the empty-queue runs after it', () => {
+    init();
+    write(CLEAN, '# a plan\n');
+    drain();
+    const hook = path.join(bareRemote, 'hooks', 'pre-receive');
+    fs.writeFileSync(hook, '#!/bin/sh\necho "403 forbidden" >&2\nexit 1\n', { mode: 0o755 });
+    write(CLEAN, '# a plan, revised\n');
+    drain();
+    expect(statusJson().status).toBe('push_failed');
+    // The queue is empty now and the detector retry is throttled: still failed.
+    drain();
+    expect(spoolFiles()).toEqual([]);
+    expect(statusJson().status).toBe('push_failed');
+    expect(statusJson().message).toContain('not pushed yet');
+  });
+
+  describe('coupled groups (decision log and its active snapshot)', () => {
+    test('a clean update publishes the group in one commit', () => {
+      init();
+      writeDecisions(['a']);
+      drain();
+      writeDecisions(['a', 'bb']);
+      drain();
+      expect(statusJson().status).toBe('ok');
+      const last = spawnSync('git', ['--git-dir=' + bareRemote, 'show', '--name-only', '--format=', 'main'], { encoding: 'utf-8', timeout: 30_000 }).stdout;
+      expect(last).toContain(LOG);
+      expect(last).toContain(SNAP);
+      expect(remoteShow(SNAP).stdout).toContain('"bb"');
+    });
+
+    test('a generation whose snapshot does not match its log waits, then publishes whole', () => {
+      init();
+      writeDecisions(['a']);
+      drain();
+      // The log gained a decision; the snapshot is not rebuilt yet.
+      writeDecisions(['a', 'bb'], ['a']);
+      drain();
+      const s = statusJson();
+      expect(s.status).toBe('idle');
+      expect(s.drainable).toBe(2);
+      expect(s.message).toContain('consistent generation');
+      expect(remoteShow(LOG).stdout).not.toContain('"bb"');
+      expect(spoolText()).toContain(LOG);
+      writeDecisions(['a', 'bb']);
+      drain();
+      expect(statusJson().status).toBe('ok');
+      expect(remoteShow(LOG).stdout).toContain('"bb"');
+      expect(remoteShow(SNAP).stdout).toContain('"bb"');
+    });
+
+    test('a held snapshot holds its log; a second machine restores a consistent generation', async () => {
+      init();
+      writeDecisions(['a']);
+      drain();
+      writeDecisions(['a', 'bb'], ['a', 'bb'], TOKEN);
+      drain();
+      const s = statusJson();
+      expect(s.status).toBe('held');
+      expect(s.held).toHaveLength(1);
+      expect(s.held[0].path).toBe(SNAP);
+      expect(s.held[0].dependents).toEqual([LOG]);
+      expect(s.held_count).toBe(2);
+      expect(s.held[0].fixes[1]).toContain('the files coupled with it');
+      expect(remoteShow(LOG).stdout).not.toContain('"bb"');
+      expect(spoolText()).toContain(LOG);
+
+      const machineB = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-machineB-'));
+      try {
+        expect(run(['gstack-brain-restore', bareRemote], { env: { GSTACK_HOME: machineB } }).status).toBe(0);
+        const { decisionPaths, readSnapshot, readEvents, computeActive } = await import('../lib/gstack-decision');
+        const paths = decisionPaths('p', machineB);
+        const fromSnapshot = readSnapshot(paths).map((d) => d.id).sort();
+        const fromLog = computeActive(readEvents(paths)).map((d) => d.id).sort();
+        expect(fromSnapshot).toEqual(['a']);
+        expect(fromLog).toEqual(fromSnapshot);
+      } finally {
+        fs.rmSync(machineB, { recursive: true, force: true });
+      }
+    });
+
+    test('skipping the blocking path stops the whole group; unskipping publishes it whole', () => {
+      init();
+      writeDecisions(['a']);
+      drain();
+      writeDecisions(['a', 'bb'], ['a', 'bb'], TOKEN);
+      drain();
+      expect(statusJson().status).toBe('held');
+      run(['gstack-brain-sync', '--skip-file', SNAP]);
+      drain();
+      expect(statusJson().held_count).toBe(0);
+      expect(spoolFiles()).toEqual([]);
+      expect(remoteShow(LOG).stdout).not.toContain('"bb"');
+      // Another decision while the group is skipped still never publishes the log alone.
+      writeDecisions(['a', 'bb', 'ccc'], ['a', 'bb', 'ccc'], TOKEN);
+      drain();
+      expect(remoteShow(LOG).stdout).not.toContain('"ccc"');
+
+      writeDecisions(['a', 'bb', 'ccc'], ['a', 'bb', 'ccc'], 'clean');
+      run(['gstack-brain-sync', '--unskip-file', SNAP]);
+      drain();
+      expect(statusJson().status).toBe('ok');
+      const last = spawnSync('git', ['--git-dir=' + bareRemote, 'show', '--name-only', '--format=', 'main'], { encoding: 'utf-8', timeout: 30_000 }).stdout;
+      expect(last).toContain(LOG);
+      expect(last).toContain(SNAP);
+      expect(remoteShow(LOG).stdout).toContain('"ccc"');
+      expect(remoteShow(SNAP).stdout).toContain('"ccc"');
+    });
   });
 });
 

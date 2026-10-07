@@ -1,0 +1,16 @@
+Architecture challenge.
+
+- [P1] Same-phase batches are still timing-dependent on the journal path — autoplan/bin/phase-publication-hook.ts:476
+  A batch whose second call is journaled before the first is evaluated differently depending on flush order.
+- [P1] A 10-minute age does not prove an index lock is abandoned — bin/gstack-skill-start:326
+  The skill-start merge and artifacts init run git outside the drain lock.
+- [P1] Rule-id confirmation cannot bind exact bytes — scripts/resolvers/redact-doc.ts:79
+  Replacing one flagged email with another keeps the same rule ids and lines.
+- [P1] Holding coupled files does not make publication atomic — bin/gstack-decision-log:84
+  Only the log is enqueued; the snapshot follows later.
+- [P1] A failed commit still finalizes the queue as idle — bin/gstack-brain-sync:763
+- [P2] A2 bounds record size, not total memory or evaluation cost — autoplan/bin/phase-publication-hook.ts:441
+- [P1] The long-session PTY case would be observed by the 32 MiB counting reader — lib/claude-public-transcript.ts:349
+- [P2] A3 line numbers are slice-relative — bin/gstack-redact-prepush:310
+
+Recommendation: Revise before implementation because batch handling, sync transactions, posting confirmations, and long-session validation still contain concrete correctness gaps.

@@ -29,33 +29,57 @@ gstack-config set artifacts_sync_mode_prompted true
 
 ---
 
-## `BRAIN_SYNC: blocked: <pattern-family>:<snippet>`
+## `ARTIFACTS_SYNC: attention: ...` at skill start
 
-**Problem.** Sync stopped because the secret scanner detected credential-shaped
-content in a staged file. The queue is preserved; nothing was pushed.
+**Problem.** The artifacts sync is stuck or partly stuck. Skill start prints
+one fixed line per problem; `ok` and `idle` print nothing. Every line names
+the absolute path of `gstack-brain-sync`; run it with `--status` to see the
+cause, the held files and the fix.
 
-**Cause.** One of the pre-commit secret patterns matched the file contents —
-likely an AWS key, GitHub token, OpenAI key, PEM block, JWT, or bearer token
-embedded in JSON.
+| State | Trigger | Attention line (after `ARTIFACTS_SYNC: attention: `) | Fix |
+|---|---|---|---|
+| `held` | The secret scan held back flagged files and synced the rest | `status=held held=<N>. The secret scan is holding back <N> file(s); everything else still syncs. See which files and how to fix them: <bin> --status` | Edit the file so the scan no longer matches, or `<bin> --skip-file <path>` (permanent; undo with `--unskip-file <path>`) |
+| `blocked` | A re-scan still flagged after the hold, so nothing was committed | `status=blocked. The secret scan flagged a file it could not hold back on its own, so nothing is syncing. See the fix: <bin> --status` | Edit or skip the files `--status` names, or clear the batch with `<bin> --drop-queue --yes` |
+| `push_failed` | A commit is saved locally but the push failed | `status=push_failed. Synced files are committed locally but the push failed; it retries at skill start. See the cause: <bin> --status` | The fix `--status` names (usually `gh auth status`) |
+| `error` | The drain stopped before committing and kept the queue | `status=error. The last sync stopped before committing; the queue is kept and retried. See the cause: <bin> --status` | The cause `--status` names: a git index lock, a commit hook, a `git add` failure |
+| `unknown` | The status file holds a status code outside this table | `status=unknown. The sync status file is unreadable. See it: <bin> --status` | Run `<bin> --once` to rewrite it |
+| stale-push | No push for 24 hours while the drain's `drainable` count is above zero | `stale-push. Files are ready to sync but nothing has been pushed for over 24 hours. See why: <bin> --status` | The waiting reason `--status` names (a coupled group waiting for a consistent generation, a `git add` failure) |
+| stale-drain | `last_drain_at` older than 24 hours while the queue holds records | `stale-drain. The sync has not run for over 24 hours while files wait in the queue. See why: <bin> --status` | If no gstack process is running, remove `~/.gstack/.brain-sync.lock.d`, then run `<bin> --once` |
 
-**Fix (three options).**
+`<bin>` is the absolute path, for example
+`~/.claude/skills/gstack/bin/gstack-brain-sync`. The source of truth is the
+usage header of `bin/gstack-brain-sync`; skill start's tests are generated
+from it.
 
-1. **If it's a real secret**: edit the offending file to remove the secret,
-   then re-run any skill to retry sync.
+**Held files.** When the secret scan flags a file, only that file is held
+back (with any file coupled to it, such as a decision log and its active
+snapshot); everything else syncs. The held file stays queued and is
+re-scanned on every sync, so editing it clears the hold automatically.
+`--status` lists each held file under `held`, with the scanner rule that
+matched (never the matched text), the files held with it (`dependents`) and
+both fixes:
 
-2. **If the pattern is a false positive** (e.g., your learning contains a
-   GitHub token pattern in an example string that you *want* to publish):
+1. **If it's a real secret**: edit the file to remove it. The next skill run
+   re-scans and syncs it.
+2. **If the match is a false positive** you never want synced:
    ```bash
-   gstack-brain-sync --skip-file <path>
+   ~/.claude/skills/gstack/bin/gstack-brain-sync --skip-file <path>
    ```
-   This permanently excludes the path from future syncs.
-
-3. **If you want to abandon this sync batch entirely** (start fresh):
+   This permanently excludes the path from future syncs (for a coupled file,
+   the files coupled with it stop too). To undo it and queue the path again:
    ```bash
-   gstack-brain-sync --drop-queue --yes
+   ~/.claude/skills/gstack/bin/gstack-brain-sync --unskip-file <path>
    ```
-   This clears the queue without committing. Future writes will re-populate
-   it normally.
+3. **To abandon the whole batch** (start fresh):
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-brain-sync --drop-queue --yes
+   ```
+
+**Git index lock.** A git process killed mid-write leaves
+`~/.gstack/.git/index.lock`. The sync removes it once it is older than 10
+minutes, because every gstack writer to `~/.gstack` takes the same sync lock
+first. A younger lock means a git process is running there; the sync reports
+`error` and retries at the next skill start.
 
 ---
 

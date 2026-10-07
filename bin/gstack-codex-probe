@@ -1,6 +1,26 @@
 #!/usr/bin/env bash
-# gstack-codex-probe: shared helper for /codex and /autoplan skills.
-# Sourced from template bash blocks; never execute directly.
+# gstack-codex-probe: shared helper for /codex, /autoplan and every outside
+# review. Run it as a command, one subcommand per probe (`gstack-codex-probe
+# help`): it prints KEY: value lines on stdout, human status lines where they
+# went before, and sets nothing in the caller's shell.
+#
+# Subcommands (each wraps one function below):
+#   select-model <exec|review> [--model <id>]  CODEX_SEL:, CODEX_SEL_KIND:, CODEX_SANDBOX:
+#   check-auth                                 exit 0 authed, 1 not
+#   show-sandbox                               CODEX_SANDBOX:
+#   check-sandbox                              exit 0, or 3 with the reason on stderr
+#   probe-model <exec|review> [--model <id>]   CODEX_PROBE_STATE:; exit 0, 1, 2 or 4
+#   check-version                              warnings on stderr; exit 0
+#   show-first-use-notice                      notice on stderr; exit 0
+#   run-with-timeout <secs> <cmd...>           the command's exit code; 124 on timeout
+#   log-event <event> [detail]                 silent; exit 0
+#   log-hang <skill> <prompt-size>             silent; exit 0
+#   help                                       usage; an unknown subcommand exits 64
+#
+# Sourcing (compatibility window): skills rendered before the executed form
+# source this file and call the functions directly. That still works, prints
+# one deprecation line on stderr, and is removed in a release on or after
+# 2026-10-21 together with the zsh self-locate block below.
 #
 # Functions (all prefixed with _gstack_codex_ for namespace hygiene):
 #   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
@@ -14,14 +34,14 @@
 #   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> bash-native watchdog
 #   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
 #
-# Hygiene rules (enforced by test/codex-hardening.test.ts):
+# Hygiene rules for the sourced form (enforced by test/codex-hardening.test.ts):
 #   - Never change -e / -u / traps / IFS / PATH in the caller shell.
 #   - All internal vars prefix with _GSTACK_CODEX_.
 #   - All functions prefix with _gstack_codex_.
-#   - No command execution at source time (only function defs and the shared
-#     self-location block below, which is parameter expansion only; its
-#     _gstack_helper* variables are the one exception to the prefix rule and
-#     are unset once _GSTACK_CODEX_BIN is set).
+#   - No command execution at source time (only function defs, the shared
+#     self-location block below, which is parameter expansion only, and the
+#     deprecation line; its _gstack_helper* variables are the one exception to
+#     the prefix rule and are unset once _GSTACK_CODEX_BIN is set).
 
 # --- Self-location (bash and zsh) -------------------------------------------
 # Under zsh BASH_SOURCE is empty, so every "$dir/../scripts/..." path became
@@ -532,3 +552,92 @@ _gstack_codex_log_hang() {
   "$_log_bin" "$(printf '{"skill":"codex","type":"operational","key":"%s","insight":"Codex hit its timeout wrapper during [%s] invocation. Prompt size: %s. Consider splitting prompt or checking network.","confidence":8,"source":"observed","files":["codex/SKILL.md.tmpl","autoplan/SKILL.md.tmpl"]}' "$_key" "$_mode" "$_prompt_size")" \
     >/dev/null 2>&1 || true
 }
+
+# --- Executed subcommands ----------------------------------------------------
+
+_gstack_codex_usage() {
+  printf '%s\n' \
+    'Usage: gstack-codex-probe <subcommand> [args]' \
+    '  select-model <exec|review> [--model <id>]  print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1' \
+    '  check-auth                                 exit 0 when Codex credentials exist, 1 otherwise' \
+    '  show-sandbox                               print CODEX_SANDBOX: read-only (or danger-full-access)' \
+    '  check-sandbox                              free sandbox check; exit 0, or 3 with the reason on stderr' \
+    '  probe-model <exec|review> [--model <id>]   paid round trip; print CODEX_PROBE_STATE:; exit 0, 1, 2 or 4' \
+    '  check-version                              warn on stderr about known-bad Codex CLI versions; exit 0' \
+    '  show-first-use-notice                      once per machine, say where reviews go; exit 0' \
+    '  run-with-timeout <secs> <cmd...>           run cmd under a deadline; its exit code, 124 on timeout' \
+    '  log-event <event> [detail]                 record a telemetry event when telemetry is on; exit 0' \
+    '  log-hang <skill> <prompt-size>             record a timeout learning; exit 0' \
+    '  help                                       this text'
+}
+
+# Parses "<exec|review> [--model <id>]" into _GSTACK_CODEX_ARG_KIND and
+# _GSTACK_CODEX_ARG_MODEL; returns 64 on anything else.
+_gstack_codex_kind_args() {
+  _GSTACK_CODEX_ARG_KIND="${1:-}"
+  _GSTACK_CODEX_ARG_MODEL=""
+  case "$_GSTACK_CODEX_ARG_KIND" in exec|review) shift ;; *) return 64 ;; esac
+  if [ "$#" -eq 2 ] && [ "$1" = "--model" ] && [ -n "$2" ]; then
+    _GSTACK_CODEX_ARG_MODEL="$2"
+  elif [ "$#" -ne 0 ]; then
+    return 64
+  fi
+}
+
+_gstack_codex_main() {
+  local _cmd="${1:-}" _rc
+  [ "$#" -gt 0 ] && shift
+  case "$_cmd" in
+    log-event|probe-model|check-sandbox|check-version)
+      # Telemetry is the caller's choice when it exports _TEL, else gstack-config's.
+      [ -n "${_TEL+set}" ] || _TEL=$("$_GSTACK_CODEX_BIN/gstack-config" get telemetry 2>/dev/null || echo off) ;;
+  esac
+  case "$_cmd" in
+    help|-h|--help) _gstack_codex_usage ;;
+    select-model)
+      _gstack_codex_kind_args "$@" || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL" || return 1
+      printf 'CODEX_SEL: %s\nCODEX_SEL_KIND: %s\nCODEX_SANDBOX: %s\n' "$_GSTACK_CODEX_SEL" "$_GSTACK_CODEX_SEL_KIND" "$_GSTACK_CODEX_SANDBOX" ;;
+    check-auth) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_auth_probe ;;
+    show-sandbox)
+      [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_sandbox_mode
+      printf 'CODEX_SANDBOX: %s\n' "$_GSTACK_CODEX_SANDBOX" ;;
+    check-sandbox) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_sandbox_preflight >&2 ;;
+    probe-model)
+      _gstack_codex_kind_args "$@" || { _gstack_codex_usage >&2; return 64; }
+      if [ -n "$_GSTACK_CODEX_ARG_MODEL" ] && ! _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL"; then
+        echo "MODEL_UNUSABLE"
+        echo "HINT: the requested Codex model is not a valid model id; fix it as described above."
+        echo "CODEX_PROBE_STATE: unusable"
+        return 1
+      fi
+      _gstack_codex_model_probe "$_GSTACK_CODEX_ARG_KIND"
+      _rc=$?
+      case "$_rc" in
+        0) echo "CODEX_PROBE_STATE: ${_GSTACK_CODEX_PROBE_STATE:-ok}" ;;
+        1) echo "CODEX_PROBE_STATE: unusable" ;;
+        2) echo "CODEX_PROBE_STATE: broken_install" ;;
+        4) echo "CODEX_PROBE_STATE: quota_exhausted" ;;
+        *) echo "CODEX_PROBE_STATE: error" ;;
+      esac
+      return "$_rc" ;;
+    check-version) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_version_check >&2; return 0 ;;
+    show-first-use-notice) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_first_use_notice; return 0 ;;
+    run-with-timeout)
+      case "${1:-}" in ''|*[!0-9.]*) _gstack_codex_usage >&2; return 64 ;; esac
+      [ "$#" -ge 2 ] || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_timeout_wrapper "$@" ;;
+    log-event) [ "$#" -ge 1 ] && _gstack_codex_log_event "$@" >/dev/null 2>&1; return 0 ;;
+    log-hang) _gstack_codex_log_hang "$@" >/dev/null 2>&1; return 0 ;;
+    *) _gstack_codex_usage >&2; return 64 ;;
+  esac
+}
+
+# Executed (bash through the shebang, $0 names this file): run one subcommand.
+# Sourced, including eval and zsh: keep the functions and say the form is going.
+if [ -n "${BASH_VERSION:-}" ] && [ "${0##*/}" = "gstack-codex-probe" ]; then
+  _gstack_codex_main "$@"
+  exit $?
+fi
+printf '%s\n' "gstack: sourcing gstack-codex-probe is deprecated and stops working in a release on or after 2026-10-21. Run /gstack-upgrade so your skills run it as a command (gstack-codex-probe help)." >&2

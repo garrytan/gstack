@@ -128,14 +128,15 @@ RUN case "${TARGETARCH:-amd64}" in \
 # skillify HOME discovery on 2.1.237, guard/freeze hooks on 2.1.162).
 # Bump deliberately, via a PR that runs the PTY gate against the new TUI.
 # test/ci-image-cli-pin.test.ts fails the free suite if this pin is removed.
-# 2.1.284 is the first pin that recognizes the eval model claude-fable-5-1.
-# 2.1.251 already sent it effort "high", but ran it as an unknown model with
-# a generic system prompt. Users on stable (2.1.280) and latest (2.1.285) get
-# the fable-5-1 profile: its own system prompt, 64k max_tokens and per-turn
-# effort, which only moves the same effort value into the conversation.
-# Census 36626737820 on 2.1.284 looked slower mostly because the API was:
-# its SDK-only judge evals, which never start this CLI, were 25% slower too.
-RUN npm i -g @anthropic-ai/claude-code@2.1.284
+# 2.1.292 is the npm latest users run (October 2026). On it the fork-subagent
+# gate is on by default in interactive sessions: the Agent schema drops
+# run_in_background and reviewers run in the background, which broke the
+# /autoplan publication guard while CI still ran 2.1.284 and never saw it.
+# Pinning the version users run is the point; the daily
+# autoplan-schema-canary case watches the latest release ahead of the pin.
+# (2.1.284 was the first pin to recognize the eval model claude-fable-5-1;
+# 2.1.292 keeps that profile.)
+RUN npm i -g @anthropic-ai/claude-code@2.1.292
 
 # Codex CLI — exact pin, same discipline as the claude pin above, so the
 # Codex eval files execute in CI instead of self-skipping. Installed OFF PATH:

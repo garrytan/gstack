@@ -107,11 +107,12 @@ describe('workflow judge excerpts', () => {
     const text = readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Important Rules');
     const publish = text.slice(text.indexOf('## Step 19:'), text.indexOf('## Step 20:'));
     const compose = publish.indexOf('PR_BODY_FILE=$(mktemp');
-    const scan = publish.indexOf('gstack-redact --from-file "$PR_BODY_FILE"');
-    const edit = publish.indexOf('gh pr edit --body-file');
+    // gstack-post owns the scan of the exact bytes it sends (Oct 7 wave B4).
+    const scan = publish.indexOf('`gstack-post` scans the exact title');
+    const edit = publish.indexOf('gstack-post pr-body <pr-number> --body-file');
     expect(compose).toBeGreaterThan(0);
-    expect(scan).toBeGreaterThan(compose);
-    expect(edit).toBeGreaterThan(scan);
+    expect(scan).toBeGreaterThan(0);
+    expect(edit).toBeGreaterThan(compose);
     expect(publish.indexOf('Print the existing URL')).toBeGreaterThan(edit);
     expect(text).not.toContain('Phase 8e.5');
     expectMentions(text, [['never', 'create', 'commit']], 'text');

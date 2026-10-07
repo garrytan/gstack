@@ -141,7 +141,7 @@ test('live periodic census fits the declared CI wall including setup', () => {
 
 test('registered allocation is deterministic and preserves every discovered file', () => {
   const files = collectPaidTestFiles();
-  expect(files).toHaveLength(104); // + skill-e2e-ship-measure-seeded-flake (v1.91.32.0); W5a: 15 carve wrappers became one case-sharded file; + codex-e2e-multiblock-live and skill-e2e-design-model-smoke (v1.91.30.0);
+  expect(files).toHaveLength(107); // + skill-e2e-autoplan-schema-canary, -guard-pty and -long-session (Oct 7 wave, CEO-13, ENG-18, CEO-15); + skill-e2e-ship-measure-seeded-flake (v1.91.32.0); W5a: 15 carve wrappers became one case-sharded file; + codex-e2e-multiblock-live and skill-e2e-design-model-smoke (v1.91.30.0);
   expect(files).toContain('test/skill-e2e-ship-skip.test.ts');
   const m = livePlan(files);
   expect(livePlan([...files].reverse())).toEqual(m);

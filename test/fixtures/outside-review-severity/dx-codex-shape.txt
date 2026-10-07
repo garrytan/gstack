@@ -1,0 +1,27 @@
+Developer experience challenge for the follow-up wave plan.
+
+### Finding 1: Post-after-approval has no contract
+Severity: High
+The posting helper refuses a MEDIUM finding but says nothing about how the caller resumes after the user approves. Define the confirmation and its exit codes.
+
+### Finding 2: select-model drops the per-request model precedence
+Severity: High
+The subcommand list names `select-model <exec|review>` with no `--model`, so a model named for one request silently falls back to the environment or config.
+
+### Finding 3: One-release sourcing window is unsafe
+Severity: High
+Skills rendered before the upgrade keep sourcing the probe; a single release can be skipped by users who upgrade monthly. Keep sourcing for at least one release and 14 days, with a deprecation line.
+
+### Finding 4: The early PR is still automatic
+Severity: High
+B2 pushes and opens a draft whenever Greptile is detected, while the challenge to make it opt-in is still open.
+
+Medium: Doctor cannot tell an intentionally absent Codex from a broken one; give each row ok, warn, not configured or fail.
+
+Medium: Recovery docs are not an acceptance requirement, and docs/troubleshooting.md still teaches sourcing the probe.
+
+Medium: --skip-file is permanent with no undo; add an unskip command.
+
+Medium: The novice hello-world journey under five minutes is unproven.
+
+Recommendation: revise before implementation because approval resumption, model-selection compatibility, upgrade continuity, and early-publication defaults lack complete developer-facing contracts.

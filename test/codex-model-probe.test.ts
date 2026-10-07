@@ -34,6 +34,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { codexPreflight } from '../scripts/resolvers/constants';
+import { withoutDeprecation } from './helpers/codex-probe-sourcing';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const PROBE = path.join(ROOT, 'bin', 'gstack-codex-probe');
@@ -129,7 +130,7 @@ function runProbe(f: Fixture, stubMode: string, extraEnv: Record<string, string>
       timeout: 10000,
     },
   );
-  return { stdout: (result.stdout ?? '').toString(), stderr: (result.stderr ?? '').toString(), status: result.status ?? -1 };
+  return { stdout: (result.stdout ?? '').toString(), stderr: withoutDeprecation((result.stderr ?? '').toString()), status: result.status ?? -1 };
 }
 
 function lastArgs(f: Fixture): string {
