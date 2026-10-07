@@ -1,7 +1,8 @@
 /**
  * Free contracts for scripts/ship-measure.ts, /ship's measure-then-fix runner:
- * per-kind aggregation (rule trials, behavior panels of 3 at their own 2 of 3,
- * judge outputs scored by 3-sample panels), unique artifact directories, the
+ * per-kind batches decided by the measurement bar (rule trials, behavior
+ * trials in panels of 3, judge outputs scored by 3-sample panels; the pure
+ * decision table lives in test/ship-measure-bar.test.ts), unique artifact directories, the
  * diagnostic label, the estimated admission budget, the ask-once rule, the
  * repair-round limit, the unmeasured skip, the PR table and the free-suite
  * reruns with the flaky retry off. Every runner here is a fake; nothing paid.
@@ -12,7 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-  MEASURE_DEFAULTS, aggregate, assertDiagnosticDir, formatKindTable, formatReport, freeParallelism, judgeFile, kindPlan,
+  MEASURE_DEFAULTS, assertDiagnosticDir, formatKindTable, formatReport, freeParallelism, judgeFile, kindPlan,
   measureCase, measureFreeShard, readMeasureConfig, recordUnmeasured,
   type MeasureConfig, type MeasureKind, type TrialRecord, type TrialRequest, type TrialResult,
 } from '../scripts/ship-measure';
@@ -43,29 +44,32 @@ const measure = (kind: MeasureKind, run: FakeRun, extra: Partial<Parameters<type
   const outDir = extra.outDir ?? tmp('ship-measure-out-');
   return measureCase({
     caseId: 'seeded-case', kind, round: 'baseline', config: MEASURE_DEFAULTS, runner: run.runner, outDir, parallel: 4,
-    costPerTrialUsd: 0.5, approved: false, evalDir: tmp('ship-measure-history-'), log: () => {}, ...extra,
+    costPerTrialUsd: 0.5, approved: false, evalDir: tmp('ship-measure-history-'), log: () => {}, identity: () => ({ tree: 'fixed' }), ...extra,
   });
 };
 
 describe('per-kind plans and the printed table (CEO-9, DX-7)', () => {
-  test('defaults: rule 10 trials at 9, behavior 4 panels of 3 at 11 of 12, judge 10 outputs at 9', () => {
-    expect(kindPlan('rule', MEASURE_DEFAULTS)).toEqual({ kind: 'rule', units: 10, trialsPerUnit: 1, trials: 10, unitTarget: 9, trialTarget: 9 });
-    expect(kindPlan('behavior', MEASURE_DEFAULTS)).toEqual({ kind: 'behavior', units: 4, trialsPerUnit: 3, trials: 12, unitTarget: 4, trialTarget: 11 });
-    expect(kindPlan('judge', MEASURE_DEFAULTS)).toEqual({ kind: 'judge', units: 10, trialsPerUnit: 1, trials: 10, unitTarget: 9, trialTarget: 9 });
+  test('defaults: rule 10, behavior 4 panels of 3 (12), judge 10 outputs; the table prints the bar per kind', () => {
+    expect(kindPlan('rule', MEASURE_DEFAULTS)).toMatchObject({ trials: 10, trialsPerUnit: 1, bar: { strict: 9, qualified: 8, floor: 7 }, pooledBar: { trials: 20, strict: 18, qualified: 16 } });
+    expect(kindPlan('behavior', MEASURE_DEFAULTS)).toMatchObject({ trials: 12, trialsPerUnit: 3, bar: { strict: 11, qualified: 10, floor: 9 }, pooledBar: { trials: 24, strict: 22, qualified: 20 } });
+    expect(kindPlan('judge', MEASURE_DEFAULTS)).toMatchObject({ trials: 10, trialsPerUnit: 1, bar: { strict: 9, qualified: 8, floor: 7 } });
     const table = formatKindTable(MEASURE_DEFAULTS);
-    expect(table).toContain('| rule | 10 | at least 9 of 10 trials |');
-    expect(table).toContain('every panel at 2 of 3, no contract violation, at least 11 of 12 trials | 4 of 3 trials');
-    expect(table).toContain('| judge | 10 outputs | at least 9 of 10 outputs | 3 samples per output, passes at 2 of 3');
+    expect(table).toContain('| rule | 10 | 9 of 10 | 8 of 10, every red qualifying | 7 of 10 (or 8 that does not qualify): 10 more on identical inputs, then 18 of 20, or 16 of 20 qualified |');
+    expect(table).toContain('| behavior | 12 (4 panels of 3) | 11 of 12 | 10 of 12, every red qualifying | 9 of 12 (or 10 that does not qualify): 12 more on identical inputs, then 22 of 24, or 20 of 24 qualified |');
+    expect(table).toContain('| judge | 10 outputs, each its median 3-sample panel | 9 of 10 outputs |');
     expect(table).toContain('$25 total; asks above $2/trial');
     expect(table).toContain('Repair rounds: at most 3');
     expect(table).toContain('never changes a recorded verdict');
+    expect(table).toMatch(/more than 30%[^\n]*void[^\n]*redispatched once/);
   });
 
   test('config keys override defaults; an empty value is the default; an invalid value throws', () => {
     const values: Record<string, string> = { ship_measure_rule_trials: '20', ship_measure_budget_usd: '7.5', ship_rerun_backend: 'ubicloud', ship_measure_max_rounds: '' };
     const config = readMeasureConfig(key => values[key]);
     expect(config).toEqual({ ...MEASURE_DEFAULTS, ruleTrials: 20, budgetUsd: 7.5, rerunBackend: 'ubicloud' });
-    expect(kindPlan('rule', config).trialTarget).toBe(18);
+    expect(kindPlan('rule', config).bar.strict).toBe(18);
+    expect(readMeasureConfig(key => ({ ship_measure_sweep_cases: '2', ship_measure_sweep_budget_usd: '12.5' } as Record<string, string>)[key])).toMatchObject({ sweepCases: 2, sweepBudgetUsd: 12.5 });
+    expect(() => readMeasureConfig(key => key === 'ship_measure_sweep_budget_usd' ? '-1' : undefined)).toThrow('ship_measure_sweep_budget_usd');
     expect(() => readMeasureConfig(key => key === 'ship_measure_behavior_panels' ? '0' : undefined)).toThrow('ship_measure_behavior_panels');
     expect(() => readMeasureConfig(key => key === 'ship_rerun_backend' ? 'cloud' : undefined)).toThrow('not local or ubicloud');
   });
@@ -76,60 +80,56 @@ describe('per-kind plans and the printed table (CEO-9, DX-7)', () => {
     const config = (...args: string[]) => spawnSync('bash', [path.join(ROOT, 'bin/gstack-config'), ...args], { encoding: 'utf8', timeout: 30_000, env });
     const defaults = config('defaults').stdout;
     for (const [key, value] of [['ship_measure_rule_trials', '10'], ['ship_measure_behavior_panels', '4'], ['ship_measure_judge_outputs', '10'],
-      ['ship_measure_ask_per_trial_usd', '2'], ['ship_measure_budget_usd', '25'], ['ship_measure_max_rounds', '3'], ['ship_rerun_backend', 'local']]) {
+      ['ship_measure_ask_per_trial_usd', '2'], ['ship_measure_budget_usd', '25'], ['ship_measure_max_rounds', '3'], ['ship_rerun_backend', 'local'],
+      ['ship_measure_sweep_cases', '5'], ['ship_measure_sweep_budget_usd', '150']]) {
       expect(defaults).toMatch(new RegExp(`${key}:\\s+${value}\\n`));
       expect(config('get', key!).stdout.trim()).toBe(value!);
     }
     expect(config('set', 'ship_measure_budget_usd', '0').status).toBe(1);
     expect(config('set', 'ship_measure_rule_trials', '2.5').status).toBe(1);
     expect(config('set', 'ship_rerun_backend', 'cloud').status).toBe(1);
+    expect(config('set', 'ship_measure_sweep_budget_usd', '0').status).toBe(1);
+    expect(config('set', 'ship_measure_sweep_cases', 'two').status).toBe(1);
     expect(config('set', 'ship_measure_budget_usd', '12.5').status).toBe(0);
     expect(readMeasureConfig(key => config('get', key).stdout.trim()).budgetUsd).toBe(12.5);
     expect(config('list').stdout).toMatch(/ship_measure_budget_usd:\s+12\.5 \(set/);
   });
 });
 
-describe('aggregation per kind with fake runners (ENG-12)', () => {
-  test('rule: 8 of 10 is below target, 9 of 10 meets; every trial gets its own diagnostic directory', async () => {
+describe('per-kind batches decided by the measurement bar, with fake runners (ENG-12)', () => {
+  test('rule: 8 of 10 needs its reds classified, 9 of 10 MEETS; every trial gets its own diagnostic directory', async () => {
     const red = fake(trial => ({ passed: ![3, 6].includes(trial), costUsd: 0.5, ...(trial === 3 ? { failureCause: 'assertion', failureDetail: 'unsorted list' } : {}) }));
     const m = await measure('rule', red);
-    expect(m).toMatchObject({ status: 'measured', label: 'diagnostic', verdict: null, unitPasses: 8, meets: false });
+    expect(m).toMatchObject({ status: 'measured', label: 'diagnostic', verdict: null, passes: 8, counted: 10, decision: 'needs-classify', next: 'classify' });
     expect(red.calls).toHaveLength(10);
     const dirs = m.trials.map(t => t.dir);
     expect(new Set(dirs).size).toBe(10);
     for (const dir of dirs) {
       expect(path.basename(path.dirname(dir))).toBe('baseline');
-      expect(JSON.parse(fs.readFileSync(path.join(dir, 'trial.json'), 'utf8'))).toMatchObject({ label: 'diagnostic', verdict: null });
+      expect(JSON.parse(fs.readFileSync(path.join(dir, 'trial.json'), 'utf8'))).toMatchObject({ label: 'diagnostic', verdict: null, set: 'initial' });
     }
     const saved = JSON.parse(fs.readFileSync(path.join(path.dirname(dirs[0]!), 'measurement.json'), 'utf8'));
-    expect(saved).toMatchObject({ label: 'diagnostic', verdict: null, round: 'baseline', unitPasses: 8, meets: false });
+    expect(saved).toMatchObject({ label: 'diagnostic', verdict: null, round: 'baseline', passes: 8, decision: 'needs-classify', identity: { tree: 'fixed' } });
     expect(saved.trials.find((t: TrialRecord) => t.trial === 3)).toMatchObject({ failureCause: 'assertion', failureDetail: 'unsorted list' });
-    expect((await measure('rule', fake(trial => ({ passed: trial !== 4, costUsd: 0.5 })))).meets).toBe(true);
+    expect((await measure('rule', fake(trial => ({ passed: trial !== 4, costUsd: 0.5 })))).decision).toBe('MEETS');
   });
 
-  test('behavior: each panel of 3 needs its own 2 of 3, and 11 of 12 trials overall', async () => {
-    // Trials 1 and 2 fail: 10 of 12 pass, which a single 2-of-12 panel would PASS; panel 1 is 1 of 3.
-    const panelRed = await measure('behavior', fake(trial => ({ passed: trial > 2 })));
-    expect(panelRed).toMatchObject({ unitPasses: 3, trialPasses: 10, meets: false });
-    // One failure in each of two panels: every panel passes at 2 of 3, but 10 of 12 is under 11.
-    const tooMany = await measure('behavior', fake(trial => ({ passed: trial !== 1 && trial !== 4 })));
-    expect(tooMany).toMatchObject({ unitPasses: 4, trialPasses: 10, meets: false });
+  test('behavior: 12 trials in panels of 3, decided on the trial count (11 MEETS, 10 needs classifying); a contract violation is a fix round', async () => {
     const oneMiss = await measure('behavior', fake(trial => ({ passed: trial !== 7 })));
-    expect(oneMiss).toMatchObject({ unitPasses: 4, trialPasses: 11, meets: true });
+    expect(oneMiss).toMatchObject({ passes: 11, counted: 12, decision: 'MEETS' });
     expect(oneMiss.trials.map(t => t.unit)).toEqual([1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4]);
-    // A contract violation fails its panel even when the trial's assertions passed.
+    expect((await measure('behavior', fake(trial => ({ passed: trial > 2 })))).decision).toBe('needs-classify');
     const contract = await measure('behavior', fake(trial => ({ passed: true, ...(trial === 5 ? { contract: true } : {}) })));
-    expect(contract).toMatchObject({ unitPasses: 3, trialPasses: 11, meets: false });
+    expect(contract).toMatchObject({ passes: 11, decision: 'BELOW', next: 'fix' });
   });
 
-  test('judge: an output passes at 2 of its 3 samples, whatever the runner claimed; 9 of 10 outputs meets', async () => {
+  test('judge: an output passes at 2 of its 3 samples, whatever the runner claimed; 9 of 10 outputs MEETS', async () => {
     const judged = await measure('judge', fake(trial => ({ passed: true, samples: trial === 2 ? [true, false, false] : [true, false, true] })));
-    expect(judged).toMatchObject({ unitPasses: 9, meets: true });
+    expect(judged).toMatchObject({ passes: 9, decision: 'MEETS' });
     const red = await measure('judge', fake(trial => ({ passed: true, samples: trial <= 2 ? [false, false, true] : [true, true, true] })));
-    expect(red).toMatchObject({ unitPasses: 8, meets: false });
-    const wrongCount = aggregate(kindPlan('judge', { ...MEASURE_DEFAULTS, judgeOutputs: 1 }),
-      [{ trial: 1, unit: 1, batch: 1, dir: '/x', passed: true, samples: [true, true] }]);
-    expect(wrongCount.meets).toBe(false);
+    expect(red).toMatchObject({ passes: 8, decision: 'needs-classify' });
+    const wrongCount = await measure('judge', fake(() => ({ passed: true, samples: [true, true] })));
+    expect(wrongCount).toMatchObject({ passes: 0, decision: 'BELOW' });
   });
 
   test('standalone judge ids resolve to the one paid file that names them', () => {
@@ -147,7 +147,7 @@ describe('spend, approval, rounds and artifacts', () => {
     expect(baseline).toMatchObject({ status: 'budget_exhausted', estimatedUsd: 24, actualUsd: 24 });
     expect(baseline.trials.map(t => t.batch)).toEqual([1, 1, 1, 1, 2, 2, 2, 2]);
     expect(run.maxConcurrent).toBeLessThanOrEqual(4);
-    expect(baseline.reason).toContain('8 of 10 trials ran');
+    expect(baseline.reason).toContain('8 of 10 initial trials ran');
     // The budget is per red case: a repair round starts from what the baseline spent.
     const round = await measure('rule', fake(() => ({ passed: true, costUsd: 3 })), { outDir, round: 'round-1', costPerTrialUsd: 3 });
     expect(round.status).toBe('budget_exhausted');
@@ -158,7 +158,7 @@ describe('spend, approval, rounds and artifacts', () => {
     const m = await measure('rule', fake(() => ({ passed: true, costUsd: 1 })), { costPerTrialUsd: 2.5, approved: true, config: { ...MEASURE_DEFAULTS, budgetUsd: 12 } });
     // Batch 1 reserves 4 x 2.5 = 10 but spends 4; batch 2 then fits 3 (8 / 2.5); batch 3 fits 2 (5 / 2.5); batch 4 one more.
     expect(m.trials.map(t => t.batch)).toEqual([1, 1, 1, 1, 2, 2, 2, 3, 3, 4]);
-    expect(m).toMatchObject({ status: 'measured', actualUsd: 10, estimatedUsd: 25, meets: true });
+    expect(m).toMatchObject({ status: 'measured', actualUsd: 10, estimatedUsd: 25, decision: 'MEETS' });
   });
 
   test('asks once: no estimate or a per-trial estimate above the threshold runs nothing until approved', async () => {
@@ -205,9 +205,9 @@ describe('spend, approval, rounds and artifacts', () => {
     recordUnmeasured(outDir, 'browse-basic', 'provider outage before the first turn');
     expect(() => recordUnmeasured(outDir, 'other', ' ')).toThrow('--reason');
     const report = formatReport(outDir);
-    expect(report).toContain('| seeded-case | rule | baseline | observed 7/10 | 9/10 | $5.00 | $2.50 | below target |');
-    expect(report).toContain('| seeded-case | rule | round-1: after fix at sort the shuffled list in src/order.js | observed 10/10 | 9/10 | $5.00 | $2.50 | at or above target |');
-    expect(report).toContain('| browse-basic | — | — | — | — | — | — | unmeasured (provider outage before the first turn); not a pass |');
+    expect(report).toContain('| seeded-case | rule | baseline | observed 7/10 | 9/10 strict, 8/10 qualified | needs-classify | $5.00 | $2.50 |');
+    expect(report).toContain('| seeded-case | rule | round-1: after fix at sort the shuffled list in src/order.js | observed 10/10 | 9/10 strict, 8/10 qualified | MEETS | $5.00 | $2.50 |');
+    expect(report).toContain('| browse-basic | — | — | — | — | unmeasured (provider outage before the first turn); not a pass | — | — |');
     expect(report).toContain('never change a recorded verdict');
   });
 });
@@ -226,8 +226,8 @@ if [ "$GSTACK_SHIP_MEASURE_TRIAL" = 2 ]; then echo "failure_cause: assertion"; e
     });
     const out = path.join(project, '.context', 'ship-measure');
     const red = cli('measure', '--case', 'flaky-sort', '--command', './evals.sh case {case}', '--cost-per-trial', '0.1', '--jobs', '3');
-    expect(red.stdout).toContain('| rule | 10 | at least 9 of 10 trials |');
-    expect(red.stdout).toContain('DIAGNOSTIC flaky-sort baseline: observed 9/10 trials (baseline); at or above target');
+    expect(red.stdout).toContain('| rule | 10 | 9 of 10 |');
+    expect(red.stdout).toContain('DIAGNOSTIC flaky-sort baseline: observed 9/10 trials (baseline); MEETS');
     expect(red.status).toBe(0);
     const trial2 = JSON.parse(fs.readFileSync(path.join(out, 'flaky-sort', 'baseline', 't02', 'trial.json'), 'utf8'));
     expect(trial2).toMatchObject({ passed: false, costUsd: 0.1, failureCause: 'assertion', failureDetail: 'order.js:3 unsorted', label: 'diagnostic' });

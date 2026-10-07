@@ -1,43 +1,53 @@
 #!/usr/bin/env bun
 /**
  * ship-measure — /ship's measure-then-fix runner for a red eval case or a red
- * free-suite shard. Every trial it runs is DIAGNOSTIC: it never changes a
- * recorded verdict, its artifacts are labeled `diagnostic` with `verdict:
- * null`, and they live under `.context/ship-measure/`, never in the project
- * eval dir that pass-rate history and CI uploads read. The lane verdict still
- * comes from the one full gate run /ship makes after the case measures at or
- * above target (docs/TESTING_INTERNALS.md#ship-measure).
+ * free-suite shard, and the weekly off-ship qualification sweep. Every trial
+ * it runs is DIAGNOSTIC: it never changes a recorded verdict, its artifacts
+ * are labeled `diagnostic` with `verdict: null`, and they live under
+ * `.context/ship-measure/`, never in the project eval dir that pass-rate
+ * history and CI uploads read. The lane verdict still comes from the one full
+ * gate run /ship makes after the case measures at or above the bar
+ * (docs/TESTING_INTERNALS.md#ship-measure).
  *
- * Per-kind aggregation (config keys in bin/gstack-config, CEO-9 defaults):
- *   rule      N trials (ship_measure_rule_trials, 10); meets at >= 90% of N.
- *   behavior  P panels of 3 (ship_measure_behavior_panels, 4); every panel
- *             passes at its own 2 of 3 with no contract violation, and >= 90%
- *             of all 3P trials pass (11 of 12).
- *   judge     O outputs (ship_measure_judge_outputs, 10), each scored by its
- *             3-sample panel (passes at 2 of 3); meets at >= 90% of O.
+ * Trials per batch (config keys in bin/gstack-config): rule
+ * ship_measure_rule_trials (10); behavior ship_measure_behavior_panels panels
+ * of 3 (4, so 12 trials); judge ship_measure_judge_outputs outputs (10), each
+ * scored by its median 3-sample panel. The decision is the measurement bar in
+ * scripts/lib/measure-bar.ts: MEETS at 9/10, MEETS-qualified at 8/10 with
+ * every red in a qualifying class, EXTEND at 7/10 (N more trials on identical
+ * inputs, decided once on the pooled 2N), else BELOW (a fix round). A batch
+ * with more than 30% provider-evidence failures is void and is redispatched
+ * once.
  *
  * Spend: ship_measure_budget_usd is an estimated ADMISSION budget per red case
- * across the baseline and every repair round. Before each batch the runner
- * reserves the estimated cost of every concurrent trial and admits only what
- * fits beside what was already spent; actual costs are reconciled after the
- * batch. With no per-trial estimate it asks once ("estimate unknown"), then
- * runs one calibration trial alone. ship_measure_ask_per_trial_usd asks first
- * above that per-trial estimate. ship_measure_max_rounds caps repair rounds.
+ * across the baseline, extension, redispatch and every repair round. Before
+ * each batch the runner reserves the estimated cost of every concurrent trial
+ * and admits only what fits beside what was already spent; actual costs are
+ * reconciled after the batch. With no per-trial estimate it asks once
+ * ("estimate unknown"), then runs one calibration trial alone.
+ * ship_measure_ask_per_trial_usd asks first above that per-trial estimate.
+ * ship_measure_max_rounds caps repair rounds.
  *
  * Usage:
  *   bun run scripts/ship-measure.ts table
  *   bun run scripts/ship-measure.ts measure --case ID --round baseline|round-N
  *       [--kind rule|behavior|judge] [--command 'CMD {case}'] [--cost-per-trial USD]
  *       [--approved] [--fix TEXT] [--jobs N] [--out DIR]
+ *   bun run scripts/ship-measure.ts classify --case ID --round R --trials 2,5 --class C --evidence TEXT [--out DIR]
+ *   bun run scripts/ship-measure.ts decide --case ID --round R [--out DIR]
+ *   bun run scripts/ship-measure.ts extend --case ID --round R [--command ..] [--cost-per-trial USD] [--jobs N] [--out DIR]
  *   bun run scripts/ship-measure.ts skip --case ID --reason TEXT [--out DIR]
  *   bun run scripts/ship-measure.ts report [--out DIR]
  *   bun run scripts/ship-measure.ts free (--files a,b,... | --shard I) [--reruns N]
  *       [--concurrency C] [--backend local|ubicloud] [--wall-cap SECS] [--out DIR]
+ *   bun run scripts/ship-measure.ts sweep [--k K] [--cap-usd USD] [--dry-run] [--history-dir DIR]...
+ *       [--prior DIR] [--command 'CMD {case}'] [--jobs N] [--out DIR]   (scripts/ship-measure-sweep.ts)
  *
- * measure exits 0 at or above target, 1 below target, 2 when it needs the
- * user's approval (nothing ran), 3 on a named-red stop (budget exhausted or
- * round limit), 4 on a usage or setup error. free exits 0 when every
- * completed rerun passed, else 1.
+ * measure, extend, classify and decide exit 0 at MEETS or MEETS-qualified, 1
+ * at BELOW (a fix round), 2 when it needs the user's approval (nothing ran), 3
+ * on a named-red stop (budget exhausted, round limit, a void batch twice), 4 on
+ * a usage, setup or refused-classification error, 5 at needs-classify, 6 at
+ * EXTEND. free exits 0 when every completed rerun passed, else 1.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -45,11 +55,16 @@ import * as path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { EVAL_POLICY } from '../test/helpers/periodic-exclude-data';
 import { E2E_KINDS, E2E_TIERS, LLM_JUDGE_TOUCHFILES } from '../test/helpers/touchfiles-data';
-import { getProjectEvalDir, isFinalizedEvalResultFile } from '../test/helpers/eval-store';
+import { getClaudeCliVersion, getProjectEvalDir, isFinalizedEvalResultFile } from '../test/helpers/eval-store';
 import { parseCliFlags } from './lib/shard-engine';
 import { collectPaidTestFiles, paidSelectionEnv } from './lib/paid-select';
 import { DEFAULT_JOBS } from './lib/paid-types';
 import { privateFreeHome } from './lib/free-home-guard';
+import {
+  FAILURE_CLASSES, barThresholds, classificationProblem, decide, identityMismatch,
+  type BarDecision, type BarNext, type BarThresholds, type Classification, type FailureClass, type SetSummary, type TrialSet,
+} from './lib/measure-bar';
+import harnessManifest from './harness-version.json';
 import {
   TREE_MUTATING, assignFilesToShards, collectFreeTestFiles, fullSuiteJobs, loadFreeTestDurations, packShardsByDuration,
   runFreeShard, wallTimeoutForShard, type FreeShardOutcome,
@@ -65,11 +80,15 @@ export const JUDGE_SAMPLES = EVAL_POLICY.judge.samples;
 export interface MeasureConfig {
   ruleTrials: number; behaviorPanels: number; judgeOutputs: number;
   askPerTrialUsd: number; budgetUsd: number; maxRounds: number; rerunBackend: RerunBackend;
+  sweepCases: number; sweepBudgetUsd: number;
 }
 
 export const MEASURE_DEFAULTS: MeasureConfig = {
   ruleTrials: 10, behaviorPanels: 4, judgeOutputs: 10, askPerTrialUsd: 2, budgetUsd: 25, maxRounds: 3, rerunBackend: 'local',
+  sweepCases: 5, sweepBudgetUsd: 150,
 };
+
+const USD_FIELDS = new Set<keyof MeasureConfig>(['askPerTrialUsd', 'budgetUsd', 'sweepBudgetUsd']);
 
 function gstackConfigGet(key: string): string | undefined {
   const r = spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['get', key], { encoding: 'utf8', timeout: 10_000 });
@@ -86,6 +105,8 @@ export function readMeasureConfig(configGet: (key: string) => string | undefined
     ['budgetUsd', 'ship_measure_budget_usd', configGet('ship_measure_budget_usd')],
     ['maxRounds', 'ship_measure_max_rounds', configGet('ship_measure_max_rounds')],
     ['rerunBackend', 'ship_rerun_backend', configGet('ship_rerun_backend')],
+    ['sweepCases', 'ship_measure_sweep_cases', configGet('ship_measure_sweep_cases')],
+    ['sweepBudgetUsd', 'ship_measure_sweep_budget_usd', configGet('ship_measure_sweep_budget_usd')],
   ];
   const config = { ...MEASURE_DEFAULTS };
   for (const [field, key, rawValue] of raw) {
@@ -96,7 +117,7 @@ export function readMeasureConfig(configGet: (key: string) => string | undefined
       config.rerunBackend = value;
       continue;
     }
-    const usd = field === 'askPerTrialUsd' || field === 'budgetUsd';
+    const usd = USD_FIELDS.has(field);
     if (!(usd ? Number.isFinite(Number(value)) && Number(value) > 0 : /^[1-9][0-9]*$/.test(value))) {
       throw new Error(`${key} '${value}' is not a ${usd ? 'positive amount in USD' : 'positive integer'}. Fix: gstack-config set ${key} ${MEASURE_DEFAULTS[field]}`);
     }
@@ -105,51 +126,48 @@ export function readMeasureConfig(configGet: (key: string) => string | undefined
   return config;
 }
 
-const ninetyPercent = (n: number) => Math.ceil((n * 9) / 10);
-
 export interface KindPlan {
   kind: MeasureKind;
-  /** Scored units: trials (rule), panels (behavior), outputs (judge). */
-  units: number;
+  /** Behavior trials launch in panels of 3; rule and judge trials one at a time. */
   trialsPerUnit: number;
+  /** Trials per batch (outputs for judge). */
   trials: number;
-  /** Units that must pass. */
-  unitTarget: number;
-  /** Trials (outputs for judge) that must pass. */
-  trialTarget: number;
+  bar: BarThresholds;
+  pooledBar: BarThresholds;
 }
 
 export function kindPlan(kind: MeasureKind, config: MeasureConfig): KindPlan {
-  if (kind === 'behavior') {
-    const trials = config.behaviorPanels * PANEL.n;
-    return { kind, units: config.behaviorPanels, trialsPerUnit: PANEL.n, trials, unitTarget: config.behaviorPanels, trialTarget: ninetyPercent(trials) };
-  }
-  const units = kind === 'judge' ? config.judgeOutputs : config.ruleTrials;
-  return { kind, units, trialsPerUnit: 1, trials: units, unitTarget: ninetyPercent(units), trialTarget: ninetyPercent(units) };
+  const trials = kind === 'behavior' ? config.behaviorPanels * PANEL.n : kind === 'judge' ? config.judgeOutputs : config.ruleTrials;
+  return { kind, trialsPerUnit: kind === 'behavior' ? PANEL.n : 1, trials, bar: barThresholds(trials), pooledBar: barThresholds(2 * trials) };
 }
 
 /** The per-kind table /ship prints before it runs anything. */
 export function formatKindTable(config: MeasureConfig): string {
-  const rule = kindPlan('rule', config);
-  const behavior = kindPlan('behavior', config);
-  const judge = kindPlan('judge', config);
   const budget = `$${config.budgetUsd} total; asks above $${config.askPerTrialUsd}/trial or with no estimate`;
+  const row = (kind: MeasureKind, label: string) => {
+    const { trials: n, bar, pooledBar } = kindPlan(kind, config);
+    const unit = kind === 'judge' ? ' outputs' : '';
+    return `| ${kind} | ${label} | ${bar.strict} of ${n}${unit} | ${bar.qualified} of ${n}, every red qualifying | ${bar.floor} of ${n} (or ${bar.qualified} that does not qualify): ${n} more on identical inputs, then ${pooledBar.strict} of ${2 * n}, or ${pooledBar.qualified} of ${2 * n} qualified | ${budget} |`;
+  };
   return [
-    '| Kind | Trials | Pass bar | Panels | Budget per red case |',
-    '|---|---|---|---|---|',
-    `| rule | ${rule.trials} | at least ${rule.trialTarget} of ${rule.trials} trials | none | ${budget} |`,
-    `| behavior | ${behavior.trials} | every panel at ${PANEL.k} of ${PANEL.n}, no contract violation, at least ${behavior.trialTarget} of ${behavior.trials} trials | ${behavior.units} of ${PANEL.n} trials | ${budget} |`,
-    `| judge | ${judge.trials} outputs | at least ${judge.unitTarget} of ${judge.trials} outputs | ${JUDGE_SAMPLES} samples per output, passes at 2 of ${JUDGE_SAMPLES} | ${budget} |`,
+    '| Kind | Trials per batch | MEETS | MEETS-qualified | EXTEND, then the pooled decision | Budget per red case |',
+    '|---|---|---|---|---|---|',
+    row('rule', String(config.ruleTrials)),
+    row('behavior', `${config.behaviorPanels * PANEL.n} (${config.behaviorPanels} panels of ${PANEL.n})`),
+    row('judge', `${config.judgeOutputs} outputs, each its median ${JUDGE_SAMPLES}-sample panel`),
     '',
+    'Qualifying reds: provider (affirmative provider or transport evidence only), judge noise at the threshold, a model miss citing its evidence.',
+    'Never qualifying (a fix round): a timeout, a hang, a regression, a contract violation, any known fixable cause. Below the EXTEND floor: BELOW, a fix round.',
+    'A batch with more than 30% of trials failing on provider evidence is void and is redispatched once; both batches are reported. There is never a third batch.',
     `Repair rounds: at most ${config.maxRounds}. Free-suite rerun backend: ${config.rerunBackend}. Every trial is diagnostic and never changes a recorded verdict.`,
   ].join('\n');
 }
 
-// ─── Trials and aggregation ────────────────────────────────────────────────
+// ─── Trials ────────────────────────────────────────────────────────────────
 
 export interface TrialResult {
   passed: boolean;
-  /** A contract violation fails its unit at any count. */
+  /** A contract violation fails the measurement at any count. */
   contract?: boolean;
   /** Billed cost; absent means unknown. */
   costUsd?: number;
@@ -157,38 +175,21 @@ export interface TrialResult {
   samples?: boolean[];
   failureCause?: string;
   failureDetail?: string;
+  /** The eval store's one-line failure_cause_evidence. */
+  failureEvidence?: string;
 }
 
 export interface TrialRequest { caseId: string; kind: MeasureKind; round: string; trial: number; dir: string }
 export type TrialRunner = (request: TrialRequest) => Promise<TrialResult>;
 
-export interface TrialRecord extends TrialResult { trial: number; unit: number; batch: number; dir: string }
-
-export interface Aggregate { unitPasses: number; trialPasses: number; complete: boolean; meets: boolean; unitResults: boolean[] }
-
-function unitPassed(kind: MeasureKind, trials: TrialRecord[]): boolean {
-  if (trials.some(t => t.contract)) return false;
-  if (kind === 'behavior') return trials.length === PANEL.n && trials.filter(t => t.passed).length >= PANEL.k;
-  const [only] = trials;
-  if (!only) return false;
-  if (kind === 'judge' && only.samples) return only.samples.length === JUDGE_SAMPLES && only.samples.filter(Boolean).length >= 2;
-  return only.passed;
-}
-
-export function aggregate(plan: KindPlan, trials: TrialRecord[]): Aggregate {
-  const unitResults = Array.from({ length: plan.units }, (_, i) => unitPassed(plan.kind, trials.filter(t => t.unit === i + 1)));
-  const unitPasses = unitResults.filter(Boolean).length;
-  const trialPasses = plan.kind === 'behavior' ? trials.filter(t => t.passed && !t.contract).length : unitPasses;
-  const complete = trials.length === plan.trials;
-  return { unitPasses, trialPasses, complete, unitResults, meets: complete && unitPasses >= plan.unitTarget && trialPasses >= plan.trialTarget };
-}
+export interface TrialRecord extends TrialResult { trial: number; set: TrialSet; unit: number; batch: number; dir: string }
 
 // ─── One measurement: baseline or a repair round ───────────────────────────
 
 export type MeasureStatus = 'measured' | 'needs_approval' | 'budget_exhausted' | 'round_limit';
 
 export interface Measurement {
-  schema: 'gstack-ship-measure/1';
+  schema: 'gstack-ship-measure/2';
   label: 'diagnostic';
   verdict: null;
   case: string;
@@ -198,10 +199,17 @@ export interface Measurement {
   status: MeasureStatus;
   reason?: string;
   plan: KindPlan;
+  /** Inputs every pooled batch must share: tree, runner, CLI, model, image, policy and harness versions. */
+  identity: Record<string, string>;
   trials: TrialRecord[];
-  unitPasses: number;
-  trialPasses: number;
-  meets: boolean;
+  decision: BarDecision;
+  next: BarNext;
+  decisionReason: string;
+  passes: number;
+  counted: number;
+  sets: SetSummary[];
+  /** The per-trial estimate later batches reserve; null until known. */
+  costPerTrialUsd: number | null;
   /** Reserved before admission; null when a batch ran without an estimate. */
   estimatedUsd: number | null;
   actualUsd: number;
@@ -210,6 +218,9 @@ export interface Measurement {
 }
 
 interface Ledger { case: string; kind: MeasureKind; approved: boolean; spentUsd: number; rounds: string[] }
+
+/** A spend cap shared across cases (the sweep's weekly cap), checked beside each case's own budget. */
+export interface SpendPool { label: string; capUsd: number; spentUsd: number }
 
 export interface MeasureOptions {
   caseId: string;
@@ -224,6 +235,9 @@ export interface MeasureOptions {
   fix?: string;
   /** Pass-rate history directory diagnostic artifacts must stay out of (default: the project eval dir). */
   evalDir?: string;
+  /** The batch identity (default: measurementIdentity of the working tree). */
+  identity?: () => Record<string, string>;
+  pool?: SpendPool;
   log?: (line: string) => void;
 }
 
@@ -244,6 +258,59 @@ function roundNumber(round: string): number {
   return Number(match[1]);
 }
 
+/** The git tree of the working tree as it would be committed now (tracked and unignored files), without touching the real index. */
+export function frozenTree(cwd: string): string {
+  const git = (args: string[], env: NodeJS.ProcessEnv = process.env) => spawnSync('git', args, { cwd, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const top = git(['rev-parse', '--show-toplevel']);
+  if (top.status !== 0) return 'no-git';
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-measure-index-'));
+  try {
+    const index = path.resolve(cwd, git(['rev-parse', '--git-path', 'index']).stdout.trim());
+    if (fs.existsSync(index)) fs.copyFileSync(index, path.join(tmp, 'index'));
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(tmp, 'index') };
+    const add = git(['-C', top.stdout.trim(), 'add', '-A'], env);
+    const tree = add.status === 0 ? git(['write-tree'], env) : add;
+    if (tree.status !== 0) throw new Error(`ship-measure: could not snapshot the working tree: ${tree.stderr.trim()}`);
+    return tree.stdout.trim();
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
+/** Everything a pooled batch must share with the batch it extends. */
+export function measurementIdentity(kind: MeasureKind, trials: number, runner: string, cwd = process.cwd(), env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  return {
+    tree: frozenTree(cwd), kind, trials: String(trials), runner, policy: String(EVAL_POLICY.version), harness: String(harnessManifest.version),
+    claude_cli: getClaudeCliVersion(), model: env.EVALS_MODEL ?? 'default', image: env.GSTACK_CI_IMAGE ?? 'local', bun: Bun.version,
+  };
+}
+
+const roundDirOf = (outDir: string, caseId: string, round: string) => path.join(outDir, caseSlug(caseId), round);
+const classificationsPath = (roundDir: string) => path.join(roundDir, 'classifications.jsonl');
+
+export function readClassifications(roundDir: string): Classification[] {
+  if (!fs.existsSync(classificationsPath(roundDir))) return [];
+  return fs.readFileSync(classificationsPath(roundDir), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as Classification);
+}
+
+/** Apply the bar to the measurement's trials and its classification records. */
+function withDecision(m: Measurement, roundDir: string): Measurement {
+  const outcome = decide(m.kind, m.plan.trials, m.trials, readClassifications(roundDir));
+  return { ...m, decision: outcome.decision, next: outcome.next, decisionReason: outcome.reason, passes: outcome.passes, counted: outcome.thresholds.trials, sets: outcome.sets };
+}
+
+function loadMeasurement(outDir: string, caseId: string, round: string): { m: Measurement; roundDir: string } {
+  const roundDir = roundDirOf(outDir, caseId, round);
+  const m = readJson<Measurement>(path.join(roundDir, 'measurement.json'));
+  if (!m) throw new Error(`ship-measure: no measurement at ${roundDir}; run measure --case ${caseId} --round ${round} first`);
+  return { m, roundDir };
+}
+
+function saveMeasurement(m: Measurement, roundDir: string, log: (line: string) => void): Measurement {
+  const decided = withDecision(m, roundDir);
+  writeJson(path.join(roundDir, 'measurement.json'), decided);
+  log(formatMeasurementLine(decided));
+  return decided;
+}
+
 export async function measureCase(o: MeasureOptions): Promise<Measurement> {
   const log = o.log ?? ((line: string) => console.log(line));
   const plan = kindPlan(o.kind, o.config);
@@ -252,9 +319,9 @@ export async function measureCase(o: MeasureOptions): Promise<Measurement> {
   const ledgerPath = path.join(caseDir, 'ledger.json');
   const ledger: Ledger = readJson<Ledger>(ledgerPath) ?? { case: o.caseId, kind: o.kind, approved: false, spentUsd: 0, rounds: [] };
   const base: Measurement = {
-    schema: 'gstack-ship-measure/1', label: 'diagnostic', verdict: null, case: o.caseId, kind: o.kind, round: o.round,
-    ...(o.fix ? { fix: o.fix } : {}), status: 'measured', plan, trials: [], unitPasses: 0, trialPasses: 0, meets: false,
-    estimatedUsd: 0, actualUsd: 0, costUnknownTrials: 0, parallel: Math.max(1, o.parallel),
+    schema: 'gstack-ship-measure/2', label: 'diagnostic', verdict: null, case: o.caseId, kind: o.kind, round: o.round,
+    ...(o.fix ? { fix: o.fix } : {}), status: 'measured', plan, identity: {}, trials: [], decision: 'incomplete', next: 'stop', decisionReason: '',
+    passes: 0, counted: 0, sets: [], costPerTrialUsd: o.costPerTrialUsd, estimatedUsd: 0, actualUsd: 0, costUnknownTrials: 0, parallel: Math.max(1, o.parallel),
   };
   if (roundNumber(o.round) > o.config.maxRounds) {
     return { ...base, status: 'round_limit', reason: `repair-round limit ${o.config.maxRounds} reached; stop with the named-red report` };
@@ -269,104 +336,167 @@ export async function measureCase(o: MeasureOptions): Promise<Measurement> {
   const roundDir = path.join(caseDir, o.round);
   if (fs.existsSync(roundDir)) throw new Error(`ship-measure: ${roundDir} already exists; measurements are never overwritten. Use the next round.`);
   fs.mkdirSync(roundDir, { recursive: true });
-  const result = await runBatches(o, plan, roundDir, ledger, estimate, log);
-  const totals = aggregate(plan, result.trials);
-  const measurement: Measurement = { ...base, ...result, unitPasses: totals.unitPasses, trialPasses: totals.trialPasses, meets: totals.meets };
+  let m: Measurement = { ...base, identity: (o.identity ?? (() => measurementIdentity(o.kind, plan.trials, 'gstack')))() };
+  m = withDecision(await runSet(o, m, 'initial', roundDir, ledger, log), roundDir);
+  if (m.status === 'measured' && m.next === 'redispatch') {
+    log(`[ship-measure] ${o.caseId} ${o.round}: ${m.decisionReason}`);
+    m = await runSet(o, m, 'redispatch', roundDir, ledger, log);
+  }
   ledger.rounds.push(o.round);
-  writeJson(path.join(roundDir, 'measurement.json'), measurement);
   writeJson(ledgerPath, ledger);
-  log(formatMeasurementLine(measurement));
-  return measurement;
+  return saveMeasurement(m, roundDir, log);
 }
 
-async function runBatches(o: MeasureOptions, plan: KindPlan, roundDir: string, ledger: Ledger, initialEstimate: number | null,
-  log: (line: string) => void): Promise<Pick<Measurement, 'trials' | 'status' | 'reason' | 'estimatedUsd' | 'actualUsd' | 'costUnknownTrials' | 'parallel'>> {
+export interface ExtendOptions extends Omit<MeasureOptions, 'kind' | 'fix' | 'approved' | 'costPerTrialUsd'> { costPerTrialUsd?: number | null }
+
+/** EXTEND: N more trials on identical inputs (the identity must match field for field), decided once on the pooled 2N. */
+export async function extendCase(o: ExtendOptions): Promise<Measurement> {
+  const log = o.log ?? ((line: string) => console.log(line));
+  assertDiagnosticDir(o.outDir, o.evalDir ?? getProjectEvalDir());
+  let { m, roundDir } = loadMeasurement(o.outDir, o.caseId, o.round);
+  m = withDecision(m, roundDir);
+  if (m.trials.some(t => t.set === 'extend')) throw new Error(`ship-measure: ${o.caseId} ${o.round} was already extended; there is never a third batch`);
+  if (m.decision !== 'EXTEND') throw new Error(`ship-measure: ${o.caseId} ${o.round} is ${m.decision}, not EXTEND (${m.decisionReason})`);
+  const now = (o.identity ?? (() => measurementIdentity(m.kind, m.plan.trials, m.identity.runner ?? 'gstack')))();
+  const changed = identityMismatch(m.identity, now);
+  if (changed) throw new Error(`ship-measure: refusing to pool ${o.caseId} ${o.round}: ${changed}. EXTEND needs identical inputs; measure the changed tree as a new round.`);
+  const ledgerPath = path.join(o.outDir, caseSlug(o.caseId), 'ledger.json');
+  const ledger = readJson<Ledger>(ledgerPath) ?? { case: o.caseId, kind: m.kind, approved: true, spentUsd: m.actualUsd, rounds: [o.round] };
+  const opts: MeasureOptions = { ...o, kind: m.kind, approved: true, costPerTrialUsd: o.costPerTrialUsd ?? m.costPerTrialUsd };
+  m = withDecision(await runSet(opts, { ...m, status: 'measured' }, 'extend', roundDir, ledger, log), roundDir);
+  if (m.status === 'measured' && m.next === 'redispatch') {
+    log(`[ship-measure] ${o.caseId} ${o.round}: ${m.decisionReason}`);
+    m = await runSet(opts, m, 'extend-redispatch', roundDir, ledger, log);
+  }
+  writeJson(ledgerPath, ledger);
+  return saveMeasurement(m, roundDir, log);
+}
+
+/** Append one immutable classification record per trial (a later record supersedes, never edits), then re-decide. */
+export function classifyTrials(outDir: string, caseId: string, round: string, trials: number[], cls: string, evidence: string, log = (line: string) => console.log(line)): Measurement {
+  const { m, roundDir } = loadMeasurement(outDir, caseId, round);
+  for (const trial of trials) {
+    const problem = classificationProblem(m.trials.find(t => t.trial === trial), m.kind, cls, evidence);
+    if (problem) throw new Error(`ship-measure: classify t${trial} refused: ${problem}`);
+  }
+  const at = new Date().toISOString();
+  fs.appendFileSync(classificationsPath(roundDir), trials.map(trial => `${JSON.stringify({ trial, class: cls as FailureClass, evidence: evidence.trim(), by: 'agent', at } satisfies Classification)}\n`).join(''));
+  return saveMeasurement(m, roundDir, log);
+}
+
+export function decideRound(outDir: string, caseId: string, round: string, log = (line: string) => console.log(line)): Measurement {
+  const { m, roundDir } = loadMeasurement(outDir, caseId, round);
+  return saveMeasurement(m, roundDir, log);
+}
+
+/** Run one set of N trials (initial, redispatch, extend or extend-redispatch) under the admission budget. */
+async function runSet(o: MeasureOptions, m: Measurement, set: TrialSet, roundDir: string, ledger: Ledger, log: (line: string) => void): Promise<Measurement> {
+  const plan = m.plan;
+  const first = m.trials.length;
   const trials: TrialRecord[] = [];
+  const initialEstimate = m.costPerTrialUsd;
   let estimate = initialEstimate;
-  let estimatedUsd: number | null = 0;
-  let actualUsd = 0;
-  let costUnknownTrials = 0;
-  let knownCosts = 0;
+  let estimatedUsd = m.estimatedUsd;
+  let actualUsd = m.actualUsd;
+  let costUnknownTrials = m.costUnknownTrials;
+  let knownCosts = m.trials.filter(t => typeof t.costUsd === 'number').length;
   let batch = 0;
   const parallel = Math.max(1, o.parallel);
+  const done = (status: MeasureStatus, reason?: string): Measurement => ({
+    ...m, status, ...(reason ? { reason } : {}), trials: [...m.trials, ...trials], estimatedUsd, actualUsd, costUnknownTrials, parallel,
+    costPerTrialUsd: estimate,
+  });
   while (trials.length < plan.trials) {
     const remaining = plan.trials - trials.length;
-    const headroom = o.config.budgetUsd - ledger.spentUsd;
+    const headroom = Math.min(o.config.budgetUsd - ledger.spentUsd, o.pool ? o.pool.capUsd - o.pool.spentUsd : Infinity);
     let size = Math.min(parallel, remaining);
     if (estimate === null) size = knownCosts === 0 && trials.length === 0 ? 1 : size;
     else size = Math.min(size, Math.floor((headroom + 1e-9) / estimate));
     if (size < 1 || headroom <= 0) {
-      return { trials, status: 'budget_exhausted', estimatedUsd, actualUsd, costUnknownTrials, parallel,
-        reason: `budget $${o.config.budgetUsd} per red case: spent $${ledger.spentUsd.toFixed(2)}, next trial reserves $${(estimate ?? 0).toFixed(2)}; ${trials.length} of ${plan.trials} trials ran` };
+      const cap = o.pool && o.pool.capUsd - o.pool.spentUsd <= o.config.budgetUsd - ledger.spentUsd
+        ? `${o.pool.label} $${o.pool.capUsd}: spent $${o.pool.spentUsd.toFixed(2)}`
+        : `budget $${o.config.budgetUsd} per red case: spent $${ledger.spentUsd.toFixed(2)}`;
+      return done('budget_exhausted', `${cap}, next trial reserves $${(estimate ?? 0).toFixed(2)}; ${trials.length} of ${plan.trials} ${set} trials ran`);
     }
     batch += 1;
     estimatedUsd = estimate === null || estimatedUsd === null ? null : estimatedUsd + size * estimate;
-    log(`[ship-measure] ${o.caseId} ${o.round}: batch ${batch} admits ${size} trial(s)${estimate === null ? ' (calibration, no estimate)' : `, reserves $${(size * estimate).toFixed(2)}`}; spent $${ledger.spentUsd.toFixed(2)} of $${o.config.budgetUsd}`);
-    const start = trials.length;
+    log(`[ship-measure] ${o.caseId} ${o.round} ${set}: batch ${batch} admits ${size} trial(s)${estimate === null ? ' (calibration, no estimate)' : `, reserves $${(size * estimate).toFixed(2)}`}; spent $${ledger.spentUsd.toFixed(2)} of $${o.config.budgetUsd}`);
+    const start = first + trials.length;
     const results = await Promise.all(Array.from({ length: size }, async (_, i) => {
       const trial = start + i + 1;
       const dir = path.join(roundDir, `t${String(trial).padStart(2, '0')}`);
       fs.mkdirSync(dir, { recursive: false });
       let result: TrialResult;
-      try { result = await o.runner({ caseId: o.caseId, kind: o.kind, round: o.round, trial, dir }); }
+      try { result = await o.runner({ caseId: o.caseId, kind: m.kind, round: o.round, trial, dir }); }
       catch (error) { result = { passed: false, failureCause: 'unknown', failureDetail: `runner error: ${(error as Error).message}` }; }
-      return { ...result, trial, unit: Math.ceil(trial / plan.trialsPerUnit), batch, dir } satisfies TrialRecord;
+      return { ...result, trial, set, unit: Math.ceil((trial - first) / plan.trialsPerUnit), batch, dir } satisfies TrialRecord;
     }));
     for (const record of results) {
       writeJson(path.join(record.dir, 'trial.json'), { label: 'diagnostic', verdict: null, ...record });
       trials.push(record);
-      if (typeof record.costUsd === 'number' && Number.isFinite(record.costUsd)) {
-        actualUsd += record.costUsd; ledger.spentUsd += record.costUsd; knownCosts += 1;
-      } else {
-        costUnknownTrials += 1;
-        if (estimate !== null) ledger.spentUsd += estimate;
-      }
+      const charge = typeof record.costUsd === 'number' && Number.isFinite(record.costUsd) ? record.costUsd : estimate;
+      if (typeof record.costUsd === 'number' && Number.isFinite(record.costUsd)) { actualUsd += record.costUsd; knownCosts += 1; }
+      else costUnknownTrials += 1;
+      if (charge !== null) { ledger.spentUsd += charge; if (o.pool) o.pool.spentUsd += charge; }
     }
     if (initialEstimate === null && knownCosts > 0) estimate = actualUsd / knownCosts;
   }
-  return { trials, status: 'measured', estimatedUsd, actualUsd, costUnknownTrials, parallel };
+  return done('measured');
 }
 
+const DECISION_WORDS: Record<BarDecision, string> = {
+  MEETS: 'MEETS', 'MEETS-qualified': 'MEETS-qualified', EXTEND: 'EXTEND', BELOW: 'BELOW (fix round)',
+  'needs-classify': 'needs-classify', void: 'void', incomplete: 'incomplete',
+};
+
 export function formatMeasurementLine(m: Measurement): string {
-  const observed = m.kind === 'behavior'
-    ? `${m.trialPasses}/${m.plan.trials} trials, ${m.unitPasses}/${m.plan.units} panels`
-    : `${m.unitPasses}/${m.plan.units} ${m.kind === 'judge' ? 'outputs' : 'trials'}`;
   const when = m.fix ? ` after fix at ${m.fix}` : m.round === 'baseline' ? ' (baseline)' : '';
-  const verdict = m.status === 'measured' ? (m.meets ? 'at or above target' : 'below target') : m.status.replace('_', ' ');
-  return `[ship-measure] DIAGNOSTIC ${m.case} ${m.round}: observed ${observed}${when}; ${verdict}; est ${usd(m.estimatedUsd)}, actual ${usd(m.actualUsd)}${m.costUnknownTrials ? ` (+${m.costUnknownTrials} trial(s) cost unknown)` : ''}`;
+  const verdict = m.status === 'measured' ? DECISION_WORDS[m.decision] : m.status.replace('_', ' ');
+  const sets = m.sets.length > 1 ? `; batches ${m.sets.map(s => `${s.set} ${s.passes}/${s.trials}${s.void ? ' void' : ''}`).join(', ')}` : '';
+  return `[ship-measure] DIAGNOSTIC ${m.case} ${m.round}: observed ${m.passes}/${m.counted} ${m.kind === 'judge' ? 'outputs' : 'trials'}${when}; ${verdict}${m.status === 'measured' ? ` — ${m.decisionReason}` : m.reason ? ` — ${m.reason}` : ''}${sets}; est ${usd(m.estimatedUsd)}, actual ${usd(m.actualUsd)}${m.costUnknownTrials ? ` (+${m.costUnknownTrials} trial(s) cost unknown)` : ''}`;
 }
 
 const usd = (value: number | null) => value === null ? 'unknown' : `$${value.toFixed(2)}`;
+
+/** measure/extend/classify/decide exit code for a measurement (see the header). */
+export function measurementExit(m: Measurement): number {
+  if (m.status === 'needs_approval') return 2;
+  if (m.status !== 'measured') return 3;
+  return ({ MEETS: 0, 'MEETS-qualified': 0, BELOW: 1, 'needs-classify': 5, EXTEND: 6, void: 3, incomplete: 3 } as const)[m.decision];
+}
 
 // ─── Unmeasured skip and the PR-body report ────────────────────────────────
 
 export function recordUnmeasured(outDir: string, caseId: string, reason: string): string {
   if (!reason.trim()) throw new Error('skip needs --reason: why this red is infrastructure and is not measured');
   const file = path.join(outDir, caseSlug(caseId), 'unmeasured.json');
-  writeJson(file, { schema: 'gstack-ship-measure/1', label: 'diagnostic', verdict: null, case: caseId, status: 'unmeasured', reason: reason.trim() });
+  writeJson(file, { schema: 'gstack-ship-measure/2', label: 'diagnostic', verdict: null, case: caseId, status: 'unmeasured', reason: reason.trim() });
   return file;
 }
 
 /** The per-case table for the PR body: every measurement, estimated and actual spend, never a pass for an unmeasured case. */
 export function formatReport(outDir: string): string {
-  const rows = ['| Case | Kind | Measurement | Observed | Target | Est. spend | Actual spend | Status |', '|---|---|---|---|---|---|---|---|'];
+  const rows = ['| Case | Kind | Measurement | Observed | Bar | Decision | Est. spend | Actual spend |', '|---|---|---|---|---|---|---|---|'];
   const cases = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter(name => fs.statSync(path.join(outDir, name)).isDirectory()).sort() : [];
+  const qualified: string[] = [];
   for (const name of cases) {
     const dir = path.join(outDir, name);
     const skip = readJson<{ case: string; reason: string }>(path.join(dir, 'unmeasured.json'));
-    if (skip) { rows.push(`| ${skip.case} | — | — | — | — | — | — | unmeasured (${skip.reason.replace(/\|/g, '/')}); not a pass |`); continue; }
+    if (skip) { rows.push(`| ${skip.case} | — | — | — | — | unmeasured (${skip.reason.replace(/\|/g, '/')}); not a pass | — | — |`); continue; }
     const ledger = readJson<Ledger>(path.join(dir, 'ledger.json'));
     for (const round of ledger?.rounds ?? []) {
       const m = readJson<Measurement>(path.join(dir, round, 'measurement.json'));
       if (!m) continue;
-      const observed = m.kind === 'behavior' ? `${m.trialPasses}/${m.trials.length} trials, ${m.unitPasses}/${m.plan.units} panels` : `${m.unitPasses}/${m.trials.length}`;
-      const target = m.kind === 'behavior' ? `all ${m.plan.units} panels, ${m.plan.trialTarget}/${m.plan.trials}` : `${m.plan.unitTarget}/${m.plan.units}`;
+      const bar = m.counted > m.plan.trials ? m.plan.pooledBar : m.plan.bar;
       const what = m.fix ? `${m.round}: after fix at ${m.fix.replace(/\|/g, '/')}` : m.round;
-      const status = m.status === 'measured' ? (m.meets ? 'at or above target' : 'below target') : m.status.replace('_', ' ');
-      rows.push(`| ${m.case} | ${m.kind} | ${what} | observed ${observed} | ${target} | ${usd(m.estimatedUsd)} | ${usd(m.actualUsd)}${m.costUnknownTrials ? ` (${m.costUnknownTrials} unknown)` : ''} | ${status} |`);
+      const batches = m.sets.length > 1 ? ` (${m.sets.map(s => `${s.set} ${s.passes}/${s.trials}${s.void ? ' void' : ''}`).join(', ')})` : '';
+      const decision = m.status === 'measured' ? DECISION_WORDS[m.decision] : m.status.replace('_', ' ');
+      rows.push(`| ${m.case} | ${m.kind} | ${what} | observed ${m.passes}/${m.counted}${batches} | ${bar.strict}/${bar.trials} strict, ${bar.qualified}/${bar.trials} qualified | ${decision} | ${usd(m.estimatedUsd)} | ${usd(m.actualUsd)}${m.costUnknownTrials ? ` (${m.costUnknownTrials} unknown)` : ''} |`);
+      if (m.status === 'measured' && m.decision === 'MEETS-qualified') qualified.push(`- ${m.case} ${m.round}: ${m.decisionReason.replace(/\|/g, '/')}`);
     }
   }
-  return [...rows, '', 'Diagnostic measurements: they never change a recorded verdict; the lane verdict is the full gate run.'].join('\n');
+  return [...rows, ...(qualified.length ? ['', 'Qualified MEETS (every red classified into a qualifying class):', ...qualified] : []),
+    '', 'Diagnostic measurements: they never change a recorded verdict; the lane verdict is the full gate run.'].join('\n');
 }
 
 // ─── Trial runners ─────────────────────────────────────────────────────────
@@ -454,6 +584,7 @@ function parseTrialOutput(output: string): Partial<TrialResult> {
   return {
     ...(field('failure_cause') ? { failureCause: field('failure_cause') } : {}),
     ...(field('failure_detail') ? { failureDetail: field('failure_detail') } : {}),
+    ...(field('failure_evidence') ? { failureEvidence: field('failure_evidence') } : {}),
     ...(cost !== undefined && Number.isFinite(Number(cost)) ? { costUsd: Number(cost) } : {}),
     ...(samples ? { samples: samples.split(/[,\s]+/).filter(Boolean).map(s => s === '1' || s === 'pass' || s === 'true') } : {}),
     ...(/^\s*contract_violation\b/m.test(output) ? { contract: true } : {}),
@@ -481,6 +612,7 @@ export function commandRunner(template: string, cwd = process.cwd()): TrialRunne
       ...(parsed.costUsd === undefined && costOf(records) !== undefined ? { costUsd: costOf(records) } : {}),
       ...(code !== 0 && !parsed.failureCause && failed?.failure_cause ? { failureCause: String(failed.failure_cause) } : {}),
       ...(code !== 0 && !parsed.failureDetail && failed?.failure_detail ? { failureDetail: JSON.stringify(failed.failure_detail).slice(0, 300) } : {}),
+      ...(code !== 0 && !parsed.failureEvidence && failed?.failure_cause_evidence ? { failureEvidence: String(failed.failure_cause_evidence).slice(0, 300) } : {}),
     };
   };
 }
@@ -526,6 +658,7 @@ export function gstackRunner(rootDir = ROOT): TrialRunner {
       ...(own.some(r => r.failure_class === 'contract') ? { contract: true } : {}),
       ...(passed ? {} : {
         failureCause: failed?.failure_cause ? String(failed.failure_cause) : own.length ? 'assertion' : 'unknown',
+        ...(failed?.failure_cause_evidence ? { failureEvidence: String(failed.failure_cause_evidence).slice(0, 300) } : {}),
         failureDetail: failed?.failure_detail ? JSON.stringify(failed.failure_detail).slice(0, 300)
           : own.length ? String(failed?.error ?? '').slice(0, 300) : `no trial record; exit ${code}; ${output.trim().split('\n').slice(-1)[0] ?? ''}`.slice(0, 300),
       }),
@@ -627,10 +760,11 @@ function positive(raw: string | undefined, flag: string, integer = true): number
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const [command, ...rest] = argv;
+  if (command === 'sweep') return (await import('./ship-measure-sweep')).sweepMain(rest, env);
   const flags: Record<string, string> = {};
   const value = (name: string) => (next: () => string | undefined) => { const v = next(); if (v === undefined) throw new Error(`${name} needs a value`); flags[name] = v; };
   const handlers = Object.fromEntries(['--case', '--round', '--kind', '--command', '--cost-per-trial', '--fix', '--jobs', '--out', '--reason',
-    '--files', '--shard', '--reruns', '--concurrency', '--backend', '--wall-cap'].map(name => [name, value(name)]));
+    '--files', '--shard', '--reruns', '--concurrency', '--backend', '--wall-cap', '--trials', '--class', '--evidence'].map(name => [name, value(name)]));
   parseCliFlags(rest, { ...handlers, '--approved': () => { flags['--approved'] = '1'; } }, 'Usage: see the header of scripts/ship-measure.ts');
   const config = readMeasureConfig();
   const outDir = path.resolve(flags['--out'] ?? path.join(process.cwd(), '.context', 'ship-measure'));
@@ -638,29 +772,43 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   if (command === 'report') { console.log(formatReport(outDir)); return 0; }
   if (command === 'skip') { console.log(`[ship-measure] ${flags['--case']} labeled unmeasured: ${recordUnmeasured(outDir, flags['--case'] ?? '', flags['--reason'] ?? '')}`); return 0; }
   if (command === 'free') return runFreeCli(flags, config, outDir, env);
-  if (command !== 'measure') throw new Error(`Unknown command: ${command ?? '(none)'}. Use table, measure, skip, report or free.`);
+  if (command !== 'measure' && command !== 'classify' && command !== 'decide' && command !== 'extend') {
+    throw new Error(`Unknown command: ${command ?? '(none)'}. Use table, measure, classify, decide, extend, skip, report, free or sweep.`);
+  }
   const caseId = flags['--case'];
-  if (!caseId) throw new Error('measure needs --case');
-  const kind = (flags['--kind'] ?? E2E_KINDS[caseId] ?? 'rule') as MeasureKind;
-  if (!['rule', 'behavior', 'judge'].includes(kind)) throw new Error(`--kind must be rule, behavior or judge. Received: ${kind}`);
+  if (!caseId) throw new Error(`${command} needs --case`);
+  const round = flags['--round'] ?? 'baseline';
+  if (command === 'classify') {
+    const trials = (flags['--trials'] ?? '').split(',').map(t => t.trim().replace(/^t/, '')).filter(Boolean).map(t => positive(t, '--trials'));
+    if (!trials.length || !flags['--class']) throw new Error(`classify needs --trials 2,5 and --class (${FAILURE_CLASSES.join(', ')})`);
+    return measurementExit(classifyTrials(outDir, caseId, round, trials, flags['--class'], flags['--evidence'] ?? ''));
+  }
+  if (command === 'decide') return measurementExit(decideRound(outDir, caseId, round));
   const isGstack = path.resolve(process.cwd()) === ROOT;
   if (!flags['--command'] && !isGstack) throw new Error('No single-case eval command: pass --command \'<documented command> {case}\' (ask the user once and record the answer).');
+  const runner = flags['--command'] ? commandRunner(flags['--command']) : gstackRunner();
+  const runnerId = flags['--command'] ? `command:${flags['--command']}` : 'gstack';
+  const parallel = flags['--jobs'] ? positive(flags['--jobs'], '--jobs') : Number(env.EVALS_JOBS) || DEFAULT_JOBS;
+  const costPerTrialUsd = flags['--cost-per-trial'] !== undefined ? positive(flags['--cost-per-trial'], '--cost-per-trial', false) : null;
+  if (command === 'extend') {
+    return measurementExit(await extendCase({ caseId, round, config, outDir, runner, parallel, ...(costPerTrialUsd !== null ? { costPerTrialUsd } : {}) }));
+  }
+  const kind = (flags['--kind'] ?? E2E_KINDS[caseId] ?? 'rule') as MeasureKind;
+  if (!['rule', 'behavior', 'judge'].includes(kind)) throw new Error(`--kind must be rule, behavior or judge. Received: ${kind}`);
   console.log(formatKindTable(config));
   if (!flags['--command']) {
     const selected = caseSelectionPreflight(caseId);
     if (!selected.ok) throw new Error(`--case ${caseId} does not select its test (no paid call made): ${selected.detail}`);
     console.log(`[ship-measure] preflight: ${selected.detail}`);
   }
+  const plan = kindPlan(kind, config);
   const m = await measureCase({
-    caseId, kind, round: flags['--round'] ?? 'baseline', config, outDir, fix: flags['--fix'],
-    runner: flags['--command'] ? commandRunner(flags['--command']) : gstackRunner(),
-    parallel: flags['--jobs'] ? positive(flags['--jobs'], '--jobs') : Number(env.EVALS_JOBS) || DEFAULT_JOBS,
-    costPerTrialUsd: flags['--cost-per-trial'] !== undefined ? positive(flags['--cost-per-trial'], '--cost-per-trial', false) : null,
-    approved: flags['--approved'] === '1',
+    caseId, kind, round, config, outDir, fix: flags['--fix'], runner, parallel, costPerTrialUsd, approved: flags['--approved'] === '1',
+    identity: () => measurementIdentity(kind, plan.trials, runnerId),
   });
-  if (m.status === 'needs_approval') { console.log(`[ship-measure] NEEDS APPROVAL ${caseId}: ${m.reason}`); return 2; }
-  if (m.status !== 'measured') { console.log(`[ship-measure] NAMED RED ${caseId}: ${m.reason}`); return 3; }
-  return m.meets ? 0 : 1;
+  if (m.status === 'needs_approval') console.log(`[ship-measure] NEEDS APPROVAL ${caseId}: ${m.reason}`);
+  else if (m.status !== 'measured' || m.next === 'stop') console.log(`[ship-measure] NAMED RED ${caseId}: ${m.reason ?? m.decisionReason}`);
+  return measurementExit(m);
 }
 
 async function runFreeCli(flags: Record<string, string>, config: MeasureConfig, outDir: string, env: NodeJS.ProcessEnv): Promise<number> {

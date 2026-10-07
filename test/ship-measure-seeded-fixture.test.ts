@@ -1,7 +1,8 @@
 /**
  * Free checks of the seeded-flake fixture the paid case drives (CEO-3,
  * ENG-13), measured through the real scripts/ship-measure.ts CLI: unsorted it
- * measures 7 of 10 with failures that name the line, parallel trials claim
+ * measures 7 of 10 with failures that name the line, which the bar sends to
+ * needs-classify and, classified fixable, to a fix round; parallel trials claim
  * unique slots that reset per round, an unrelated edit still measures 7 of 10
  * and leaves the gate red, and only the sorting fix measures 10 of 10 and turns
  * the gate green.
@@ -31,8 +32,8 @@ describe('seeded-flake fixture (free)', () => {
     expect(gate().status).toBe(1);
 
     const baseline = measure('baseline');
-    expect(baseline.stdout).toContain(`DIAGNOSTIC ${SEEDED_CASE} baseline: observed 7/10 trials`);
-    expect(baseline.status).toBe(1);
+    expect(baseline.stdout).toContain(`DIAGNOSTIC ${SEEDED_CASE} baseline: observed 7/10 trials (baseline); needs-classify`);
+    expect(baseline.status).toBe(5);
     const failed = fs.readdirSync(roundDir('baseline')).filter(t => /^t\d+$/.test(t))
       .map(t => JSON.parse(fs.readFileSync(path.join(roundDir('baseline'), t, 'trial.json'), 'utf8'))).filter(t => !t.passed);
     expect(failed).toHaveLength(3);
@@ -43,17 +44,22 @@ describe('seeded-flake fixture (free)', () => {
     const slotsOf = (dir: string) => readFixtureRuns(log).filter(r => r.kind === 'case' && r.measureDir?.startsWith(dir)).map(r => r.slot).sort((a, b) => a! - b!);
     expect(slotsOf(roundDir('baseline'))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(readFixtureRuns(log).filter(r => r.kind === 'case' && r.result === 'fail').map(r => r.slot).sort()).toEqual([2, 5, 9]);
+    const classify = spawnSync(process.execPath, ['run', path.join(ROOT, 'scripts/ship-measure.ts'), 'classify', '--case', SEEDED_CASE, '--round', 'baseline',
+      '--trials', failed.map(t => t.trial).join(','), '--class', 'fixable', '--evidence', `src/priorities.js:${SEEDED_LINE} returns storage order`], { cwd: repo, env, encoding: 'utf8', timeout: 60_000 });
+    expect(classify.stdout).toContain('BELOW (fix round)');
+    expect(classify.status).toBe(1);
 
     fs.writeFileSync(path.join(repo, 'src/priorities.js'), UNRELATED_EDIT);
     const control = measure('round-1');
     expect(control.stdout).toContain(`DIAGNOSTIC ${SEEDED_CASE} round-1: observed 7/10 trials`);
-    expect(control.status).toBe(1);
+    expect(control.status).toBe(5);
     expect(slotsOf(roundDir('round-1'))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(gate().status).toBe(1);
 
     fs.writeFileSync(path.join(repo, 'src/priorities.js'), SORTED_FIX);
     const fixed = measure('round-2');
     expect(fixed.stdout).toContain(`DIAGNOSTIC ${SEEDED_CASE} round-2: observed 10/10 trials`);
+    expect(fixed.stdout).toContain('; MEETS');
     expect(fixed.status).toBe(0);
     expect(gate().status).toBe(0);
     const runs = readFixtureRuns(log);

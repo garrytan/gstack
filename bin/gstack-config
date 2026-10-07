@@ -188,15 +188,19 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # ─── /ship measure-then-fix loop ─────────────────────────────────────
 # A red eval case is measured alone before the full gate reruns
 # (scripts/ship-measure.ts; docs/TESTING_INTERNALS.md#ship-measure).
-# ship_measure_rule_trials: 10        # rule cases: trials; pass at 90% (9 of 10)
-# ship_measure_behavior_panels: 4     # behavior cases: panels of 3; every panel
-#                           #   at 2 of 3 and 90% of trials (11 of 12)
-# ship_measure_judge_outputs: 10      # judge cases: outputs, each scored by a
-#                           #   3-sample panel; pass at 90% of outputs
+# Bar (scripts/lib/measure-bar.ts): MEETS at 9/10 of the trials, MEETS-qualified
+# at 8/10 with every red qualifying, EXTEND at 7/10 (one more batch, pooled).
+# ship_measure_rule_trials: 10        # rule cases: trials per batch (MEETS 9 of 10)
+# ship_measure_behavior_panels: 4     # behavior cases: panels of 3 per batch
+#                           #   (12 trials; MEETS 11 of 12)
+# ship_measure_judge_outputs: 10      # judge cases: outputs per batch, each scored
+#                           #   by its median 3-sample panel (MEETS 9 of 10)
 # ship_measure_ask_per_trial_usd: 2   # ask first above this estimated cost per trial
 # ship_measure_budget_usd: 25         # estimated admission budget per red case
-#                           #   (baseline, repair rounds and judge scoring)
+#                           #   (baseline, extension, redispatch, repair rounds)
 # ship_measure_max_rounds: 3          # repair rounds before a named-red stop
+# ship_measure_sweep_cases: 5         # weekly off-ship sweep: cases measured (K)
+# ship_measure_sweep_budget_usd: 150  # weekly off-ship sweep: spend cap per 7 days
 # ship_rerun_backend: local # local | ubicloud — where free-suite flake reruns
 #                           #   run; ubicloud also needs UBICLOUD_API_KEY.
 #                           #   Invalid values are REJECTED (value kept).
@@ -271,6 +275,8 @@ lookup_default() {
     ship_measure_ask_per_trial_usd) echo "2" ;;
     ship_measure_budget_usd) echo "25" ;;
     ship_measure_max_rounds) echo "3" ;;
+    ship_measure_sweep_cases) echo "5" ;;
+    ship_measure_sweep_budget_usd) echo "150" ;;
     ship_rerun_backend) echo "local" ;; # local | ubicloud (Ubicloud spend is opt-in)
     # Unknown key: exit non-zero instead of printing "". The fallback pattern
     # the preambles use,
@@ -675,12 +681,12 @@ case "${1:-}" in
     # The measure-loop controls bound paid spend: reject a typo instead of
     # coercing it, so a bad value never changes how much /ship may spend.
     case "$KEY" in
-      ship_measure_rule_trials|ship_measure_behavior_panels|ship_measure_judge_outputs|ship_measure_max_rounds)
+      ship_measure_rule_trials|ship_measure_behavior_panels|ship_measure_judge_outputs|ship_measure_max_rounds|ship_measure_sweep_cases)
         if ! printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[1-9][0-9]*$'; then
           echo "Error: $KEY '$VALUE' is not a positive integer. Existing value left unchanged." >&2
           exit 1
         fi ;;
-      ship_measure_ask_per_trial_usd|ship_measure_budget_usd)
+      ship_measure_ask_per_trial_usd|ship_measure_budget_usd|ship_measure_sweep_budget_usd)
         if ! printf '%s' "$VALUE" | LC_ALL=C grep -qE '^([0-9]+(\.[0-9]+)?|\.[0-9]+)$' || ! printf '%s' "$VALUE" | LC_ALL=C grep -qE '[1-9]'; then
           echo "Error: $KEY '$VALUE' is not a positive amount in USD (e.g. 25 or 2.50). Existing value left unchanged." >&2
           exit 1
@@ -876,7 +882,7 @@ case "${1:-}" in
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
-               ship_measure_max_rounds ship_rerun_backend; do
+               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -899,7 +905,7 @@ case "${1:-}" in
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
-               ship_measure_max_rounds ship_rerun_backend; do
+               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
