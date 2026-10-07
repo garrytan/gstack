@@ -163,6 +163,7 @@ describe("own and already-public addresses are not reported (#3060)", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("pii.email");
     expect(lines[0]).toContain("notes.md:3");
+    expect(lines[0]).toContain("git config --add gstack.redact.allowEmail <address>");
     expect(stderr).not.toContain("stranger@corp.io");
   });
 
@@ -300,6 +301,28 @@ describe("each input fails on its own (CEO-23, DX-9)", () => {
       expect(stderr).toContain(behavior === "fail" ? "reading commit history failed" : "reading commit history took over 5 s");
     }, 40_000);
   }
+});
+
+describe("per-address allowlist (DX-17)", () => {
+  test("an allowed address is not reported; a different address still is", () => {
+    const fx = fixture();
+    git(fx, fx.repo, ["config", "--add", "gstack.redact.allowEmail", "Team@corp.io"]);
+    commitFile(fx, fx.repo, "CONTACT.md", "team@corp.io\nother@corp.io\n");
+    const { code, stderr } = push(fx, ["origin", "main"]);
+    expect(code).toBe(0);
+    const found = mediumLines(stderr);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("CONTACT.md:2");
+  });
+
+  test("a HIGH secret next to an allowed address still blocks", () => {
+    const fx = fixture();
+    git(fx, fx.repo, ["config", "--add", "gstack.redact.allowEmail", "team@corp.io"]);
+    commitFile(fx, fx.repo, "deploy.env", `OWNER=team@corp.io\nkey ${AWS_KEY}\n`);
+    const { code, stderr } = push(fx, ["origin", "main"]);
+    expect(code).toBe(1);
+    expect(stderr).toContain("aws.access_key");
+  });
 });
 
 describe("MEDIUM lines point at the real file line (ENG-8)", () => {
