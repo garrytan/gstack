@@ -490,15 +490,27 @@ export function isGuardedGitRequest(request: SourceRequest): boolean {
 
 /** Claude's own workspace probes are not commands requested by the skill. */
 export function isInternalClaudeGitRequest(request: SourceRequest, commands: string[]): boolean {
-  const hostPrefix = ['-c', 'protocol.ext.allow=never', '-c', 'submodule.recurse=false',
-    '-c', 'log.showSignature=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+  const head = ['-c', 'protocol.ext.allow=never', '-c', 'submodule.recurse=false', '-c', 'log.showSignature=false'];
+  const tail = ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
     '--literal-pathspecs', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=',
     '-c', 'core.askPass=', '-c', 'core.quotePath=false', '-c', 'core.safecrlf=false'];
+  // Observed host prefixes: Claude Code 2.1.284, and 2.1.292, which adds format.pretty=medium,
+  // then disables every git hook by name before --literal-pathspecs.
+  const hooks292 = [
+    'applypatch-msg', 'pre-applypatch', 'post-applypatch', 'pre-commit', 'pre-merge-commit', 'prepare-commit-msg',
+    'commit-msg', 'post-commit', 'pre-rebase', 'post-checkout', 'post-merge', 'pre-push',
+    'pre-receive', 'update', 'proc-receive', 'post-receive', 'post-update', 'reference-transaction',
+    'push-to-checkout', 'pre-auto-gc', 'post-rewrite', 'sendemail-validate', 'fsmonitor-watchman', 'p4-changelist',
+    'p4-prepare-changelist', 'p4-post-changelist', 'p4-pre-submit', 'post-index-change',
+  ].flatMap(hook => ['-c', `hook.${hook}.enabled=false`]);
+  const [gc, gcAuto, maint, maintAuto, ...afterMaintenance] = tail;
+  const hostPrefixes = [[...head, ...tail],
+    [...head, '-c', 'format.pretty=medium', gc!, gcAuto!, maint!, maintAuto!, ...hooks292, ...afterMaintenance]];
   // Require direct process ancestry AND the exact observed host prefix AND no
   // matching model request. A shell/model-issued unguarded Git call still fails.
   return request.tool === 'git' && !!request.ppid &&
     /(?:^|[/\\])claude(?:\.exe)?$/.test(request.parentExecutable || '') &&
-    JSON.stringify(request.args.slice(0, hostPrefix.length)) === JSON.stringify(hostPrefix) &&
+    hostPrefixes.some(prefix => JSON.stringify(request.args.slice(0, prefix.length)) === JSON.stringify(prefix)) &&
     !commands.some(command => command.includes('core.safecrlf=false') || command.includes('protocol.ext.allow=never'));
 }
 
