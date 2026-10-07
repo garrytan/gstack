@@ -333,6 +333,6 @@ describe('ship source controller', () => {
     expect(push).toMatch(/never bypass failed guards/i);
     const publication = compact(read('ship/sections/pr-body.md.tmpl'));
     expect(publication).toMatch(/repeat Step 18's identity\/title preparation/i);
-    expectMentions(publication, [['before', 'publishing', 'redaction']], 'publication');
+    expectMentions(publication, [['fresh body', 'before', 'publishing']], 'publication');
   });
 });

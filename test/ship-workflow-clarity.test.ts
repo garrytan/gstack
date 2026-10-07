@@ -168,21 +168,24 @@ test('late verified outputs are committed before push, without tags', () => {
   expectTokens(pushFlow, ['`ALREADY_PUSHED`'], 'ship Step 17');
 });
 
-test('Step 18 resolves open PR state before preparing the exact title Step 19 scans', () => {
-  const title = compact(between(entryTemplate, '## Step 18:', '{{SECTION:pr-body}}'));
-  expectOrdered(title, ['gh pr list --head <branch-name> --state open --json number,title,url', 'Prepare the title'], 'ship Step 18');
-  expectTokens(title, ['glab mr list --source-branch <branch-name> --output json', '`NEW_TITLE`', '`v<NEW_VERSION> <type>: <summary>`', '`v$NEW_VERSION `'], 'ship Step 18');
-  expectTokens(prTemplate, [': "${NEW_TITLE:?Restore the saved Step 18 title before scanning}"', 'exit 3'], 'ship pr-body');
-  expectAbsent(prTemplate, ['NEW_TITLE="<final vNEW_VERSION type: summary>"'], 'ship pr-body');
+test('Step 18 resolves open PR state before preparing the title file Step 19 posts', () => {
+  const lookup = compact(between(entryTemplate, '## Step 18:', '{{SECTION:pr-body}}'));
+  expectOrdered(lookup, ['gh pr list --head <branch-name> --state open --json number,title,url', 'prepares the title'], 'ship Step 18');
+  expectTokens(lookup, ['glab mr list --source-branch <branch-name> --output json'], 'ship Step 18');
+  const title = compact(between(prTemplate, '### Prepare the title (Step 18)', '## Step 19:'));
+  expectOrdered(title, ['{{FREE_TEXT_FILE:TITLE_FILE=pr-title}}', 'gstack-pr-title-rewrite.sh <new-version> --stdin > "$TITLE_FILE"'], 'ship Step 18 title');
+  expectTokens(title, ['`v<NEW_VERSION> <type>: <summary>`', '`v$NEW_VERSION `', "grep -Eq '^v<new-version>( |$)' \"$TITLE_FILE\""], 'ship Step 18 title');
+  expectAbsent(compact(entryTemplate + prTemplate), ['"<current title>"', 'NEW_TITLE'], 'ship Steps 18-19');
+  expectTokens(prTemplate, ['--title-file "$TITLE_FILE"', 'exit 1', '**3**'], 'ship pr-body');
   const generated = readTemplate('ship/sections/pr-body.md');
-  expectTokens(generated, ['**Existing open PR/MR:**'], 'ship pr-body section');
+  expectTokens(generated, ['**Existing open PR/MR**'], 'ship pr-body section');
 });
 
 test('linked spec discovery reads frontmatter fields and claims closure only for completed scope', () => {
   const instructions = compact(between(prTemplate, /^/, 'The PR/MR body should contain'));
   expectTokens(instructions, ['`spec_branch`', '`spec_filed_at`', '`spec_issue_number`', '`## Linked Spec`', '`Closes #N`', '`Linked to #N`'], 'ship linked spec');
   expectMentions(instructions, [['frontmatter', 'never', 'source']], 'ship linked spec');
-  const body = between(prTemplate, 'The PR/MR body should contain', '#### Redaction scan');
+  const body = between(prTemplate, 'The PR/MR body should contain', '#### Compose the body');
   expectAbsent(body, ['CURRENT_BRANCH=', 'SPEC_ARCHIVES=', 'SPEC_FILE=$(grep'], 'ship pr body');
   expectAbsent(prTemplate, ['[ -z "$SPEC_FILE" ] && exit'], 'ship pr-body');
 });

@@ -2,7 +2,10 @@
 # Rewrite a PR/MR title to start with v<NEW_VERSION>.
 #
 # Usage:  bin/gstack-pr-title-rewrite.sh <NEW_VERSION> <CURRENT_TITLE>
-# Output: corrected title on stdout.
+#         gh pr view N --json title -q .title | bin/gstack-pr-title-rewrite.sh <NEW_VERSION> --stdin
+# Output: corrected title on stdout. --stdin reads the title from standard
+# input, so /ship pipes the platform's title through without the agent or a
+# shell string ever carrying it.
 #
 # Rule: PR titles MUST start with v<NEW_VERSION>. Three cases:
 #   1. Already starts with "v<NEW_VERSION>" -> no change.
@@ -25,12 +28,17 @@
 set -euo pipefail
 
 if [ $# -lt 2 ]; then
-  echo "usage: $0 <NEW_VERSION> <CURRENT_TITLE>" >&2
+  echo "usage: $0 <NEW_VERSION> <CURRENT_TITLE|--stdin>" >&2
   exit 2
 fi
 
 NEW_VERSION="$1"
 TITLE="$2"
+if [ "$TITLE" = "--stdin" ] && [ $# -eq 2 ]; then
+  TITLE=$(cat)
+  case "$TITLE" in *$'\n'*) echo "error: --stdin title must be one line" >&2; exit 2 ;; esac
+  [ -n "$TITLE" ] || { echo "error: --stdin read an empty title" >&2; exit 2; }
+fi
 
 # Reject malformed NEW_VERSION early. Real values are dot-separated digits;
 # anything with shell pattern metacharacters or whitespace is a caller bug.

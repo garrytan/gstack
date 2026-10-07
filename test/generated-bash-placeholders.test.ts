@@ -52,20 +52,25 @@ function sandbox(name: string) {
   const log = path.join(dir, 'log');
   const runtime = path.join(dir, 'runtime');
   for (const d of [repo, bin, log, path.join(runtime, 'bin'), path.join(dir, 'state')]) fs.mkdirSync(d, { recursive: true });
-  expect(spawnSync('git', ['init', '-q'], { cwd: repo, timeout: 10_000 }).status).toBe(0);
+  // The fixture ignores the machine's git config (a url.insteadOf rewrite
+  // would change the origin gstack-post resolves).
+  fs.writeFileSync(path.join(dir, 'gitconfig'), '');
+  const gitEnv = { GIT_CONFIG_GLOBAL: path.join(dir, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  expect(spawnSync('git', ['init', '-q'], { cwd: repo, timeout: 10_000, env: { ...process.env, ...gitEnv } }).status).toBe(0);
+  expect(spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/o/r.git'], { cwd: repo, timeout: 10_000, env: { ...process.env, ...gitEnv } }).status).toBe(0);
   const stub = (file: string, body: string) => fs.writeFileSync(file, `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
   stub(path.join(bin, 'gh'), `
 LOG="${log}"
 n=$(ls "$LOG" | wc -l | tr -d ' ')
 case "$1 $2" in
-  "repo view") echo o/r; exit 0 ;;
+  "repo view") case "$*" in *visibility*) echo PRIVATE ;; *) echo o/r ;; esac; exit 0 ;;
   "pr view") echo 7; exit 0 ;;
   "issue view") echo "https://github.com/o/r/issues/$3"; exit 0 ;;
 esac
 printf '%s\\n' "$@" > "$LOG/$n.args"
 prev=""
 for a in "$@"; do
-  case "$a" in body=@*) cp "\${a#body=@}" "$LOG/$n.body" ;; esac
+  case "$a" in body=@-|--field=body=@-|--body-file=-) cat > "$LOG/$n.body" ;; body=@*) cp "\${a#body=@}" "$LOG/$n.body" ;; --title=*) printf '%s' "\${a#--title=}" > "$LOG/$n.title" ;; esac
   [ "$prev" = "--body-file" ] && cp "$a" "$LOG/$n.body"
   [ "$prev" = "--title" ] && printf '%s' "$a" > "$LOG/$n.title"
   prev="$a"
@@ -81,11 +86,12 @@ for a in "$@"; do
 done
 printf '%s\\n' "$@" > "$LOG/$n.args"`);
   stub(path.join(runtime, 'bin', 'gstack-decision-log'), `printf '%s' "$1" > "${log}/decision.json"`);
+  stub(path.join(runtime, 'bin', 'gstack-post'), `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(ROOT, 'bin', 'gstack-post'))} "$@"`);
   stub(path.join(runtime, 'bin', 'gstack-paths'), `echo "${path.join(dir, 'state')}"`);
   stub(path.join(runtime, 'bin', 'gstack-slug'), 'echo proj');
   const run = (script: string) => spawnSync('bash', ['-c', script.replaceAll('~/.claude/skills/gstack', runtime)], {
     cwd: repo, encoding: 'utf8', timeout: 15_000,
-    env: { PATH: `${bin}:${process.env.PATH}`, HOME: path.join(dir, 'home'), TMPDIR: dir },
+    env: { PATH: `${bin}:${process.env.PATH}`, HOME: path.join(dir, 'home'), TMPDIR: dir, ...gitEnv },
   });
   /** Run a create block, then do what the agent's file-write tool does: write each printed file. */
   const create = (script: string, texts: Record<string, string>) => {
@@ -158,8 +164,8 @@ describe('identifier grammars (CEO-12, ENG-8)', () => {
 describe('Greptile replies through the real review/greptile-triage.md blocks', () => {
   const doc = fs.readFileSync(path.join(ROOT, 'review/greptile-triage.md'), 'utf8');
   const createBlock = fence(doc, 'REPLY_FILE=$(mktemp');
-  const lineBlock = fence(doc, 'comments/<comment-id>/replies');
-  const topBlock = fence(doc, 'issues/$PR_NUMBER/comments" -F');
+  const lineBlock = fence(doc, 'gstack-post reply "$PR_NUMBER"');
+  const topBlock = fence(doc, 'gstack-post pr-comment "$PR_NUMBER"');
 
   test('the create block is the shared free-text block', () => {
     expect(createBlock).toBe(freeTextFileBash([{ variable: 'REPLY_FILE', stem: 'reply' }]));
@@ -170,7 +176,7 @@ describe('Greptile replies through the real review/greptile-triage.md blocks', (
     expect(fence(doc, 'GREPTILE_DIR=$(mktemp -d')).toContain('"$GREPTILE_DIR/line.json"');
   });
 
-  for (const [kind, block, api] of [['line-level', lineBlock, 'repos/o/r/pulls/7/comments/123/replies'], ['top-level', topBlock, 'repos/o/r/issues/7/comments']] as const) {
+  for (const [kind, block, args] of [['line-level', lineBlock, ['api', '--method=POST', 'repos/{owner}/{repo}/pulls/7/comments/123/replies', '--field=body=@-']], ['top-level', topBlock, ['pr', 'comment', '7', '--body-file=-']]] as const) {
     test(`${kind}: a hostile reply posts byte for byte and nothing in it runs`, () => {
       const s = sandbox(`greptile-${kind}`);
       const canary = path.join(s.dir, 'PWNED');
@@ -179,7 +185,7 @@ describe('Greptile replies through the real review/greptile-triage.md blocks', (
       const r = s.run(block.replaceAll('<reply-file-name>', names.REPLY_FILE).replaceAll('<comment-id>', '123'));
       expect(r.status, r.stderr).toBe(0);
       const [call] = s.calls();
-      expect(call.args.slice(0, 2)).toEqual(['api', api]);
+      expect(call.args).toEqual([...args]);
       expect(call.body).toBe(body);
       expect(ranAnything(s.dir, canary)).toEqual([]);
       expect(fs.readdirSync(path.join(s.repo, '.gstack/tmp'))).toEqual([]);
@@ -195,7 +201,7 @@ describe('Greptile replies through the real review/greptile-triage.md blocks', (
     expect(r.status).toBe(1);
     const file = path.join(fs.realpathSync(s.repo), '.gstack/tmp', names.REPLY_FILE);
     expect(r.stderr).toContain(`Not sent: ${file} is missing or empty`);
-    expect(r.stderr).toContain(`gh api repos/o/r/pulls/7/comments/123/replies -F body=@${file}`);
+    expect(r.stderr).toContain(`gstack-post reply 7 --to 123 --body-file ${file}`);
     expect(s.calls()).toEqual([]);
     expect(fs.existsSync(file)).toBe(true);
   });
@@ -248,7 +254,7 @@ describe('/spec filing and archive through the real generated gate-and-file text
   const doc = fs.readFileSync(path.join(ROOT, 'spec/sections/gate-and-file.md'), 'utf8');
   const draftBlock = fence(doc, 'REDACT_FILE=$(mktemp');
   const titleBlock = fence(doc, 'TITLE_FILE=$(mktemp');
-  const fileBlock = fence(doc, 'ISSUE_URL=$(gh issue create');
+  const fileBlock = fence(doc, 'gstack-post issue-create --title-file "$TITLE_FILE"');
   const archiveBlock = fence(doc, 'ARCHIVE_PATH.tmp');
 
   test('hostile title, body and approach are filed and archived as literal text', () => {
@@ -284,7 +290,7 @@ describe('/spec filing and archive through the real generated gate-and-file text
     const r = s.run(fileBlock.replaceAll('<redact-file-name>', draft.REDACT_FILE).replaceAll('<title-file-name>', files.TITLE_FILE).replaceAll('<approach-file-name>', files.APPROACH_FILE));
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('Not filed:');
-    expect(r.stderr).toContain('gh issue create --title "$(cat ');
+    expect(r.stderr).toContain('gstack-post issue-create --title-file ');
     expect(s.calls()).toEqual([]);
   });
 });

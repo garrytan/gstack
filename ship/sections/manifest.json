@@ -74,7 +74,7 @@
       "id": "pr-body",
       "file": "pr-body.md",
       "title": "PR/MR creation and documentation outcome",
-      "trigger": "creating or updating the PR/MR with the verified documentation outcome (Step 19)"
+      "trigger": "preparing the title and creating or updating the PR/MR with the verified documentation outcome (Steps 18-19)"
     }
   ]
 }

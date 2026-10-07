@@ -496,7 +496,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | the adversarial review and learnings capture (Step 11) | `sections/adversarial.md` |
 | writing the CHANGELOG entry (Step 13) | `sections/changelog.md` |
 | auditing docs before final commit/verification (Step 14.5), on every ship | `sections/documentation.md` |
-| creating or updating the PR/MR with the verified documentation outcome (Step 19) | `sections/pr-body.md` |
+| preparing the title and creating or updating the PR/MR with the verified documentation outcome (Steps 18-19) | `sections/pr-body.md` |
 
 ---
 
@@ -1124,16 +1124,9 @@ A successful empty array means new; one match supplies the existing title/identi
 Lookup failure or ambiguous matches **STOP** for resolution, never mean no PR.
 Save the result for Step 19's recheck.
 
-Prepare the title from that result; Step 19 scans and publishes it:
-1. For an existing open PR/MR, use the matched title and run
-   `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`.
-2. For a new PR/MR, compose `v<NEW_VERSION> <type>: <summary>`.
-3. Save the result as `NEW_TITLE` for Step 19. Every created or updated title MUST
-   start with `v$NEW_VERSION `; never publish an unprefixed title.
-4. **NO_VERSION:** replaces items 1-3: keep an existing title, or compose
-   `<type>: <summary>`; no version prefix.
+The pr-body section prepares the title from that result, then publishes.
 
-> **STOP.** Before creating or updating the PR/MR with the verified documentation outcome (Step 19), Read `~/.claude/skills/gstack/ship/sections/pr-body.md` and execute it
+> **STOP.** Before preparing the title and creating or updating the PR/MR with the verified documentation outcome (Steps 18-19), Read `~/.claude/skills/gstack/ship/sections/pr-body.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ## Step 20: Persist ship metrics

@@ -47,6 +47,8 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<key>': { grammar: ID, what: 'option key' },
   '<summary-slug>': { grammar: ID, what: 'question summary as a kebab-case slug' },
   '<comment-id>': { grammar: NUM, what: 'GitHub comment id from the fetched JSON' },
+  '<pr-number>': { grammar: NUM, what: 'PR/MR number from the open-PR lookup or the early-PR create output' },
+  '<new-version>': { grammar: /^[0-9]+(?:\.[0-9]+)*$/, what: 'NEW_VERSION from the version bump (dot-separated digits)' },
   '<issue-number>': { grammar: /^[0-9]*$/, what: 'filed issue number, or empty when none was filed' },
   '<check-number>': { grammar: NUM, what: 'canary check number' },
   '<run-id>': { grammar: NUM, what: 'GitHub Actions run id' },
