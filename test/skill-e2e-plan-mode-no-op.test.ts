@@ -26,6 +26,12 @@
  *    pasted developer-facing plan: without one it reviews the checkout's
  *    branch diff, and a tests-only diff legitimately ends at its
  *    applicability gate, which is neither 'asked' nor 'plan_ready'.
+ *  - plan-ceo-review reviews a pasted plan too. Without one it reviews the
+ *    checkout's branch diff, so its work before the first question (the
+ *    pre-review audit and landscape searches) grew with whatever PR the gate
+ *    ran on: on a 1,900-line PR it timed out at 300s in 3 of 10 measured
+ *    trials while still researching that diff. A fixed small plan keeps the
+ *    work the same on every branch.
  *  - named-target case: a pasted draft (initialPlanContent) IS an
  *    explicitly-named target, so the gate must NOT ask — and the review
  *    must actually consume the pasted content.
@@ -62,6 +68,15 @@ weekly export emails. One new component, one route, one test file.
 - test/${SEED_TOKEN}.test.tsx (new)
 `;
 
+const CEO_PLAN = `
+# Plan: weekly digest email
+
+## Scope
+Send each workspace owner a weekly digest email listing the tasks closed
+that week. One scheduled job, one email template, one opt-out toggle in
+settings.
+`;
+
 const DEVEX_PLAN = `
 # Plan: tasks export command
 
@@ -96,6 +111,7 @@ describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
           ? { extraArgs: ['--disallowedTools', 'AskUserQuestion'], requireProseEvidence: true }
           : {}),
         ...(skillName === 'plan-devex-review' ? { initialPlanContent: DEVEX_PLAN } : {}),
+        ...(skillName === 'plan-ceo-review' ? { initialPlanContent: CEO_PLAN } : {}),
       });
 
       if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
