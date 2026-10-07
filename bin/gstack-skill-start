@@ -320,12 +320,18 @@ if [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
     # fail-closed (same wiring as bin/gstack-brain-sync's fetch/push).
     . "$_BIN/gstack-egress-lib.sh" 2>/dev/null || true
     _PULL_HOST=$(cd "$_GH" 2>/dev/null && git remote get-url origin 2>/dev/null | sed -E 's|^[a-z+]+://([^/@]*@)?([^/:]+).*|\2|; s|^([^@]+@)?([^:]+):.*|\2|' | head -1)
-    if command -v _receipted_git >/dev/null 2>&1; then
+    # The merge writes the artifacts repo's git state, so it takes the drain
+    # lock every gstack writer shares; when a drain holds it, the pull waits
+    # for the next start (no stamp).
+    . "$_BIN/gstack-brain-lock.sh" 2>/dev/null || true
+    if command -v _receipted_git >/dev/null 2>&1 && command -v gstack_brain_lock_acquire >/dev/null 2>&1 \
+        && gstack_brain_lock_acquire "$_GH" try; then
       # Non-interactive + slow-network bounded (same guards as gstack-update-check):
       # a hung remote or a credential prompt must not stall the preamble.
       ( cd "$_GH" && GSTACK_HOME="$_GH" GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
           _receipted_git closed brain-sync "${_PULL_HOST:-unknown}" curated-memory-git-fetch "artifacts_sync_mode!=off" \
           git fetch origin >/dev/null 2>&1 && git merge --ff-only "origin/$(git rev-parse --abbrev-ref HEAD)" >/dev/null 2>&1 ) || true
+      gstack_brain_lock_release
       # Stamp only when the receipted path actually ran — a missing egress lib
       # must surface as a retry next start, not a silent 24h suppression.
       echo "$_BRAIN_NOW" > "$_BRAIN_LAST_PULL_FILE"

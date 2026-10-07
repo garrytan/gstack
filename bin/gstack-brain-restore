@@ -89,9 +89,18 @@ EOF
   fi
 fi
 
+# ---- drain lock ----
+# Every gstack writer to the artifacts repo's git state takes the same lock;
+# the wireup this script runs at the end inherits it.
+. "$SCRIPT_DIR/gstack-brain-lock.sh"
+if ! gstack_brain_lock_acquire "$GSTACK_HOME" wait; then
+  echo "gstack-brain-restore: another gstack sync (pid ${_GSTACK_BRAIN_LOCK_HOLDER:-unknown}) is using $GSTACK_HOME; re-run when it finishes" >&2
+  exit 1
+fi
+
 # ---- clone to staging ----
 STAGING=$(mktemp -d "${TMPDIR:-/tmp}/gstack-brain-restore.XXXXXX")
-trap 'rm -rf "$STAGING" 2>/dev/null' EXIT
+trap 'rm -rf "$STAGING" 2>/dev/null; gstack_brain_lock_release' EXIT
 
 echo "Cloning $REMOTE_URL to staging..."
 RESTORE_HOST="${REMOTE_URL#*://}"; RESTORE_HOST="${RESTORE_HOST#*@}"; RESTORE_HOST="${RESTORE_HOST%%[/:]*}"
