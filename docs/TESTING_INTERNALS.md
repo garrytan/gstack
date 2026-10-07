@@ -479,25 +479,62 @@ documented single-case command (`--command '<command> {case}'`, split on
 whitespace, no shell).
 
 Counts per kind come from gstack config (`bin/gstack-config`), so a measurement
-is pre-registered before it runs:
+is pre-registered before it runs. Each measurement is decided by the
+measurement bar (`scripts/lib/measure-bar.ts`, approved 2026-10-06), applied in
+this order:
 
-| Kind | Trials (config key, default) | Meets target when |
-|---|---|---|
-| `rule` | `ship_measure_rule_trials`, 10 | at least 90% of trials pass (9 of 10) |
-| `behavior` | `ship_measure_behavior_panels`, 4 panels of 3 (12 trials) | every panel passes at its own 2 of 3 with no contract violation, and at least 90% of trials pass (11 of 12) |
-| `judge` | `ship_measure_judge_outputs`, 10 outputs | at least 90% of outputs pass (9 of 10); an output passes when 2 of its 3 judge samples pass |
+| Kind | Trials per batch (config key, default) | MEETS | MEETS-qualified | EXTEND, then the pooled decision |
+|---|---|---|---|---|
+| `rule` | `ship_measure_rule_trials`, 10 | at least 9 of 10 | 8 of 10, every red qualifying | 7 of 10, or 8 that does not qualify: 10 more trials, then 18 of 20 strict or 16 of 20 qualified |
+| `behavior` | `ship_measure_behavior_panels`, 4 panels of 3 (12 trials) | at least 11 of 12 | 10 of 12, every red qualifying | 9 of 12, or 10 that does not qualify: 12 more trials, then 22 of 24 strict or 20 of 24 qualified |
+| `judge` | `ship_measure_judge_outputs`, 10 outputs | at least 9 of 10 outputs | 8 of 10, every red qualifying | 7 of 10, or 8 that does not qualify: 10 more outputs, then 18 of 20 or 16 of 20 qualified |
+
+A judge output passes when the median of its 3 samples passes (EVAL_POLICY v3,
+so at least 2 of 3). Everything below the EXTEND row is **BELOW**: a fix round.
+
+- **Qualifying reds** (the only reds MEETS-qualified accepts): `provider`, which
+  is mechanical: the trial's own `failure_cause` is `api_error`, or
+  `pre_turn_infra` whose evidence names a 429 or 5xx, a rate limit, an overload
+  or a connection reset (`ship-measure classify` refuses `provider` otherwise);
+  `judge-noise`, a judge sample at the threshold; and `model-miss`, which counts
+  only with a `path:line` citation of the deviation. Never qualifying: a timeout
+  or hang (`session_timeout`, `observer_timeout` and `provider_stall` are
+  classified so without review and cannot be reclassified into a qualifying
+  class), a regression, a contract violation (BELOW at any count), or any red
+  with a known fixable cause (`fixable`): each goes to a fix round.
+- **needs-classify.** A batch below the strict bar but at or above the EXTEND
+  floor, with a failed trial nobody classified, returns needs-classify (exit 5)
+  with the trials to classify. `ship-measure classify --trials 2,5 --class <c>
+  --evidence <text>` appends one immutable record per trial to the round's
+  `classifications.jsonl` (a later record supersedes an earlier one) and
+  re-decides. `unclassified` records "reviewed, no route"; it allows EXTEND but
+  never qualifies.
+- **EXTEND** (exit 6). `ship-measure extend` runs N more trials only when the
+  round decided EXTEND and only on identical inputs: the measurement's identity
+  (the working tree's frozen git tree, kind, trials, runner, Claude CLI, model,
+  CI image `GSTACK_CI_IMAGE`, Bun, EVAL_POLICY and HARNESS_VERSION) must match
+  field for field, and the refusal names the field that changed. The pooled 2N
+  is decided once and is never extended again: there is no third batch.
+- **Void batches.** A batch where more than 30% of trials fail with affirmative
+  provider or transport evidence is void (an outage, not a measurement); the
+  runner redispatches it once, both batches are reported, and a second void
+  batch stops with a named red. A crash or module-load failure without provider
+  evidence never voids a batch.
 
 `ship_measure_budget_usd` (default 25) is an estimated admission budget per red
-case across the baseline, every repair round and judge scoring: before each
+case across the baseline, an extension or redispatch, every repair round and
+judge scoring: before each
 batch the runner reserves the estimated cost of every concurrent trial and
 admits only what fits beside what was already spent, then reconciles actual
 costs after the batch. When the next trial no longer fits it stops with a named
 red. A case with no per-trial estimate, or one above
 `ship_measure_ask_per_trial_usd` (default 2), asks once before any trial runs;
 with no estimate it then runs one calibration trial alone. `ship_measure_max_rounds`
-(default 3) limits repair rounds. `ship-measure report` prints the PR-body table:
-each measurement as "observed k/n" (after the named fix for a repair round),
-target, estimated and actual spend. A red the user declares infrastructure is
+(default 3) limits repair rounds; an extension or a redispatch is not a round.
+`ship-measure report` prints the PR-body table: each measurement as "observed
+k/n" (after the named fix for a repair round, with every batch), the bar, the
+decision, estimated and actual spend, and qualified MEETS under their own
+heading. A red the user declares infrastructure is
 recorded with `ship-measure skip` and shows as `unmeasured`, never as a pass. A
 case is called fixed only with a named causal change and every failure in the
 closing measurement explained; the weekly census, not the loop, reports
@@ -512,7 +549,9 @@ free random ports, as in the normal suite. `ship_rerun_backend=ubicloud` runs th
 reruns on one Ubicloud VM through `bun run test:ubicloud --diagnostic`, which
 also sets the flaky retry off. The seeded paid case `ship-measure-seeded-flake`
 (periodic, `behavior`) drives /ship through this loop against a stub eval
-command that fails trial slots 2, 5 and 9 until its list is sorted.
+command that fails trial slots 2, 5 and 9 until its list is sorted. The weekly
+[off-ship sweep](#ship-measure-sweep) measures main's flakiest gate cases with
+the same runner and bar.
 
 <a id="failure-causes"></a>
 **Failure causes and details** (diagnostic only; verdicts unchanged under v1).
@@ -769,6 +808,45 @@ against a temp `GSTACK_INSTALL_DIR` / `GSTACK_SKILLS_DIR`, and
 `test/hook-scripts.test.ts` runs the real `careful/bin/check-careful.sh` and
 `freeze/bin/check-freeze.sh` with JSON payloads on stdin (including the
 `GSTACK_HOME` state-root parity against `bin/gstack-paths`).
+
+### Ship measure sweep
+
+**Weekly off-ship qualification sweep** (`ship-measure sweep`,
+`scripts/ship-measure-sweep.ts`, `.github/workflows/eval-sweep.yml`; approved
+2026-10-06). With about 130 gate verdicts, an all-green gate is unlikely even
+when every case is healthy (26.8% at 99% per verdict), so flaky cases are
+measured on main before any ship hits them. The sweep reads `eval:pass-rates`
+history (`evals-periodic.yml` on main plus pooled branch census runs), takes the
+latest gate census, and ranks every live, non-quarantined gate case with a
+failed trial or red verdict by its cost to the all-green probability
+Π(1 − p_i) (the shrunk red-verdict rate from `--reds`; ties go to the lower
+per-trial pass rate). It measures the top K (`ship_measure_sweep_cases`,
+default 5; `--k`) at their kind's N on the checked-out head with /ship's runner
+and bar, in rank order. The report (`sweep-report.md` and `.json` under
+`.context/ship-measure/sweep-<time>/`, rewritten after every case) has one row
+per case (history rate, measured count, decision, estimated and actual cost,
+captures path) and the predicted gate all-green probability before (history)
+and after (each measured case's measured failure fraction, shrunk toward the
+pooled rate and converted to panel red risk for behavior cases). Spend is
+capped by `ship_measure_sweep_budget_usd` (default $150 per 7 days, `--cap-usd`)
+through the same admission budget: the cap is shared by the sweep's cases and
+every non-dry-run sweep report of the last 7 days under `--prior` and the local
+sweep root, so a dispatch after the weekly run spends only what is left. When
+the cap is exhausted the sweep stops and lists every skipped case. `--dry-run`
+plans and estimates at $0; `--history-dir` reads local `trial-outcomes`
+directories; `--command '<cmd> {case}'` swaps in another single-case runner.
+History that cannot be read fails closed with nothing measured.
+
+The workflow runs Mondays at 12:00 UTC (after the 06:00 periodic census) and on
+`workflow_dispatch` (inputs `k`, `cap_usd`, `dry_run`), in the CI image with the
+paid-eval secrets setup the census uses. It downloads the last 7 days of sweep
+reports first, uploads the report and captures as the `ship-measure-sweep`
+artifact, and writes the job summary. It holds `contents: read`, never pushes
+or opens a pull request, and runs one sweep at a time repository-wide
+(concurrency group `eval-sweep`, not cancelled) so two runs never spend the
+same weekly cap. Fixing is done by an agent from the report, through /ship's
+measure loop. Sweep trials are diagnostic like every ship-measure trial: they
+never become verdicts and never enter EVAL_POLICY pooling or series history.
 
 ### Pass-rate policy versions
 

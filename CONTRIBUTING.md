@@ -201,6 +201,8 @@ the new defaults.
 | Run the opt-in ML, gitleaks and Swift checks | `gh workflow run platform-qualification.yml --ref <branch>` | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Look at past local eval runs | `bun run eval:list` / `eval:compare` / `eval:summary` | Free | Local eval history |
 | See a case's pass rate across recent weekly runs | `bun run eval:pass-rates --case <case-id>` | Free | `gh` with repo read access |
+| Measure one red case alone against the ship bar (MEETS 9/10) | `bun run scripts/ship-measure.ts measure --case <case-id> --round baseline` ([bar](docs/TESTING_INTERNALS.md#ship-measure)) | API spend for 10 trials (12 for behavior); asks above $2/trial, stops at $25/case | Same as paid coverage |
+| Measure main's flakiest gate cases (the weekly sweep) | `gh workflow run eval-sweep.yml --ref main [-f k=5] [-f cap_usd=150] [-f dry_run=true]`, or locally `bun run scripts/ship-measure.ts sweep --dry-run` ([sweep](docs/TESTING_INTERNALS.md#ship-measure-sweep)) | API spend up to $150 per 7 days (`ship_measure_sweep_budget_usd`); `--dry-run` is free | `gh` with repo read access; CI dispatch needs workflow rights |
 | See the audit success metrics and weekly health | `bun run test:health [--since-days 7] [--json] [--enforce]` | Free; 5–20 minutes of `gh` reads | `gh` with repo read access |
 
 Old command names are listed under [Retired commands](#retired-commands).
