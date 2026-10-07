@@ -92,6 +92,22 @@ The severe items share one pattern: **a guard that is right about safety but wro
   - for any paid red, the ship-measure loop at the #3059 bar.
 - One PR, separate commits per item, patch version bump.
 
+### Gate decisions (2026-10-07)
+
+Garry answered both User Challenges at the final gate. These decisions govern where an amendment below says "pending UC1" or "pending UC2".
+
+- **UC1 accepted (option A): continue with a warning when Claude Code is at fault, and still refuse real cheating.** Each CEO-3 reason code gets one of two classes.
+  - *Environment-unverifiable* states are caused by Claude Code: an unrecognized record shape, a current call whose journal record never arrives (ENG-2's journal lag), a journal rewritten within one hook invocation, an oversized record (`too_large`), or a Claude Code version the canary has not seen. These now allow the call. The hook prints a visible stderr warning that names the cause, its troubleshooting anchor and the fact that phase-report enforcement was skipped for this call. The CEO-12 log records the allow with `disposition: "unverified"`.
+  - *Integrity failures* stay hard denials: a changed reviewer prompt, an added `model` or other key outside the allowlist (ENG-14), a cross-phase sibling in one batch, a phase entry with no journaled previous report, an identity or ownership mismatch (a different session, device or inode, or a journal that shrank), and a missing or tampered snapshot.
+  - Corrective denials (publish the report separately, run init) and named transients keep their CEO-3 dispositions.
+  - Cost Garry accepted: in sessions gstack can't check, it no longer enforces that each phase's report is shown before the next phase starts.
+  - DX-1: the troubleshooting page gains an "Unverified allows" section listing those codes. Its line "no environment variable turns the guard off" stays true, because integrity denials have no override.
+  - Tests: one fixture per unverifiable code allows with the warning and the log line. The CEO-1 negative controls (changed prompt, added `model`, changed description on the journal path, a payload-path entry without a report) stay denied.
+- **UC2 rejected (option B): B2 is on automatically whenever the repo uses Greptile.** The detection rules are DX-10's and CEO-8's. There is no opt-in flag. `gstack-config set ship_greptile_early false` turns it off per user, and the DX-10 status lines name that setting.
+  - On a public repo, the first early push asks once for consent (ENG-20). The answer is remembered per repo in the project's state, and declining falls back to today's order for that repo.
+  - Garry accepted three costs: code is pushed before /ship's own review; a stopped /ship leaves the draft up (ENG-20's comment explains why); /ship can wait up to 10 minutes for Greptile.
+- **Taste choices:** the review's recommended options stand. Those are rows 9, 27, 34, 38, 52, 53, 65, 66 and 71-73 of the Decision Audit Trail, including DX-17, DX-18 and ENG-5, ENG-18 and ENG-19.
+
 ### Accepted review amendments
 
 Each amendment below was accepted by the /autoplan review. The item text above names the amendment it folds in; where they differ, the amendment's conditions and tests apply.
@@ -516,7 +532,7 @@ Critical gaps (RESCUED=N, TEST=N, silent): 0.
   | Lake Score           | N/A (no coverage-scored questions)          |
   | Diagrams produced    | 4 (architecture, data flow, schedule, error)|
   | Stale diagrams found | 2                                           |
-  | Unresolved decisions | 2 (UC1, UC2, at the final gate)             |
+  | Unresolved decisions | 0 (UC1, UC2 decided at the final gate)      |
   +====================================================================+
 ```
 Unresolved decisions: UC1 (fail-soft on environment-unverifiable guard states) and UC2 (B2 behind opt-in) wait for the user at the final gate.
@@ -1145,3 +1161,5 @@ Cross-phase themes: (1) the guard's dependence on Claude Code's private journal 
 | 75 | Eng voices | ENG-7 replaces CEO-17 lock clause; narrows CEO-27 to an explicit group map | Mechanical | P1, P5 | Age cannot prove abandonment; coupling map did not exist | Age-only rule; allowlist-derived groups |
 | 76 | Eng voices | ENG-8 amends CEO-7 for url/unknown targets; line mapping; mailmap | Mechanical | P1 | Private-remote emails must not count as public | All remotes |
 | 77 | Eng TODOs | Collected 6 TODO items as pending writes (no repo edits allowed in this run) | Mechanical | P6 | Parent restricted edits to the plan | Write TODOS.md now |
+| 78 | Final gate | UC1 accepted: Claude-Code-caused unverifiable states allow with warning; integrity failures stay denied | User Challenge (user) | — | Garry chose A | Keep fail-closed |
+| 79 | Final gate | UC2 rejected: B2 on automatically for Greptile repos, per-user off switch, public-repo consent once | User Challenge (user) | — | Garry chose B | Opt-in until measured |
