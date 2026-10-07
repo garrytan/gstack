@@ -134,6 +134,8 @@ describe('running the sweep with a fake runner', () => {
     expect(report.priorWeekUsd).toBe(136);
     // B and C tie (one red in three); ties fall to the case id, so C ranks before B.
     expect(report.rows.map(r => [r.case, r.status])).toEqual([[A, 'measured'], [C, 'budget_exhausted'], [B, 'skipped']]);
+    // A partly funded case reports the trials that ran, not the planned N.
+    expect([report.rows[1]!.measuredPasses, report.rows[1]!.measuredTrials]).toEqual([4, 4]);
     expect(run.calls).toHaveLength(14);
     expect(report.chargedUsd).toBe(14);
     expect(report.rows[2]!.note).toContain('weekly cap $150 exhausted');

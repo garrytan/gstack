@@ -30,6 +30,7 @@ import { CASE_QUARANTINE } from '../test/helpers/periodic-exclude-data';
 import { E2E_KINDS, E2E_TIERS, LLM_JUDGE_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { parseCliFlags } from './lib/shard-engine';
 import { RED_RATE_SHRINK, verdictsOf } from './lib/eval-history';
+import { trialPassed } from './lib/measure-bar';
 import { repoSlug } from './lib/ci-history';
 import { loadPassRateHistory, type TrialRecord as HistoryRecord } from './eval-flake-rank';
 import {
@@ -292,12 +293,14 @@ export async function runSweep(o: SweepOptions): Promise<SweepReport> {
       continue;
     }
     const captures = path.relative(o.outDir, path.join(dir, caseSlug(c.case), 'baseline'));
+    const decided = m.status === 'measured' && m.decision !== 'void' && m.decision !== 'incomplete';
     Object.assign(row, {
       status: m.status === 'measured' ? 'measured' : 'budget_exhausted', decision: m.status === 'measured' ? m.decision : m.status.replace('_', ' '),
-      measuredPasses: m.passes, measuredTrials: m.counted || m.trials.length, actualUsd: m.actualUsd, costUnknownTrials: m.costUnknownTrials, captures,
+      ...(decided ? { measuredPasses: m.passes, measuredTrials: m.counted } : { measuredPasses: m.trials.filter(t => trialPassed(c.kind, t)).length, measuredTrials: m.trials.length }),
+      actualUsd: m.actualUsd, costUnknownTrials: m.costUnknownTrials, captures,
       note: m.status === 'measured' ? m.decisionReason : m.reason ?? '',
     });
-    if (m.status === 'measured' && m.decision !== 'void' && m.decision !== 'incomplete') {
+    if (decided) {
       measuredRates[c.case] = measuredRedRate(c.kind, m.counted - m.passes, m.counted, plan.pooledRate);
       report.allGreenAfter = predictedAllGreen(plan, measuredRates);
     }
