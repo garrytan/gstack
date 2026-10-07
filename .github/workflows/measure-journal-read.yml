@@ -1,0 +1,39 @@
+name: Measure journal read
+
+# CEO-2 / CEO-6: one read plus evaluation of the /autoplan publication guard on
+# synthetic 120 MiB parent journals, on Linux and macOS, while the journal keeps
+# growing. Dispatched by hand on the A2 branch; never on every PR. The Linux
+# numbers are the acceptance record (<= 1000 ms, <= 256 MiB peak RSS); the
+# macOS numbers are recorded and do not gate. Results go to the job summary.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: measure-journal-read-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Measure one guarded read (3 runs per journal)
+        run: |
+          bun scripts/measure-journal-read.ts --runs 3 | tee "$RUNNER_TEMP/measure.md"
+          cat "$RUNNER_TEMP/measure.md" >> "$GITHUB_STEP_SUMMARY"

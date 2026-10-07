@@ -10,7 +10,7 @@
  * Shipped as Release 2 of the self-learning roadmap (SELF_LEARNING_V0.md).
  */
 import type { TemplateContext } from './types';
-import { CC_BACKGROUND_DEFAULT_SINCE } from './constants';
+import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
 import { learningsCapture, LEARNINGS_VERDICT } from './learnings';
 
 function generateSpecialistSelection(ctx: TemplateContext): string {
@@ -132,7 +132,7 @@ Past learnings: {learnings or 'none'}"
 
 **Subagent configuration:**
 - Use \`subagent_type: "general-purpose"\`
-- Pass \`run_in_background: false\` on every specialist Agent call — background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}; omitting the flag is not foreground.
+- Pass ${FOREGROUND_IF_AVAILABLE} on every specialist Agent call — background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}; omitting an available flag is not foreground. ${BACKGROUND_RECOVERY}
 
 **Wait for readers before editing:**
 - Confirm that each task has finished or is stopped. A timeout alone does not prove termination. If a reader or writer is still active, wait; if its state is unknown, inspect its task/process status. If you cannot confirm it stopped, use the parent's Fix-First stop path without edits.
@@ -262,7 +262,7 @@ function generateRedTeam(ctx: TemplateContext): string {
 
 **Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
 
-If activated, dispatch one more subagent via the Agent tool (pass \`run_in_background: false\` — foreground; subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}).
+If activated, dispatch one more subagent via the Agent tool (pass ${FOREGROUND_IF_AVAILABLE} — foreground; subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; ${BACKGROUND_RECOVERY})
 
 The Red Team subagent receives:
 1. The red-team checklist path \`${ctx.paths.skillRoot}/review/specialists/red-team.md\` (it reads the file)

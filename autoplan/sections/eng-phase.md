@@ -14,6 +14,7 @@ bun "<SNAPSHOT_TOOL>" create eng "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyP
 
   **Claude eng subagent** (native tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
+  A launch receipt means it went background: await its completion notice.
   Other hosts: foreground; await completion when supported.
 
   Read `snapshot.json` beside `<ENG_INPUT>`. Send its `nativeDispatchPrompt`
