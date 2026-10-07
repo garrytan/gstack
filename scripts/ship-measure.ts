@@ -528,7 +528,9 @@ export function caseSelectionPreflight(caseId: string, rootDir = ROOT): { ok: bo
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
   if (r.status !== 0) return { ok: false, detail: `--list exited ${r.status}: ${out.trim().split('\n').slice(-1)[0] ?? ''}` };
   const file = new RegExp(`--case ${caseId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: \\d+ trial\\(s\\) of (\\S+)`).exec(out)?.[1];
-  const listed = file && new RegExp(`^\\s+${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(trial 1\\)`, 'm').test(out);
+  const esc = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // A file-mode case lists `<file> (trial 1)`; a name-mode case lists its trial shard `<file>#<id>~t1`.
+  const listed = file && new RegExp(`^\\s+${esc(file)}(?: \\(trial 1\\)|#${esc(caseId)}~t1)$`, 'm').test(out);
   if (!file || !listed || !fs.existsSync(path.join(rootDir, file))) return { ok: false, detail: `--list did not plan a trial of ${caseId}'s test file` };
   return { ok: true, detail: `--case ${caseId} selects ${file}` };
 }

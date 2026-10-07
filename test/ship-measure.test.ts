@@ -350,9 +350,11 @@ describe('diagnostic trials prove they ran and never touch the judge cache', () 
 });
 
 describe('the measure CLI proves --case selection before any paid trial', () => {
-  test('a real case plans its own test file; an unknown case is refused', () => {
+  test('a real case plans its own test file, in file mode or name mode; an unknown case is refused', () => {
     const { caseSelectionPreflight } = require('../scripts/ship-measure');
     expect(caseSelectionPreflight('ship-measure-seeded-flake')).toEqual({ ok: true, detail: '--case ship-measure-seeded-flake selects test/skill-e2e-ship-measure-loop.test.ts' });
     expect(caseSelectionPreflight('no-such-case').ok).toBe(false);
+    // A name-mode case (one of several in its file) lists its trial shard as <file>#<id>~t1.
+    expect(caseSelectionPreflight('ship-exploratory-late-input')).toEqual({ ok: true, detail: '--case ship-exploratory-late-input selects test/skill-e2e-qa-callers.test.ts' });
   });
 });
