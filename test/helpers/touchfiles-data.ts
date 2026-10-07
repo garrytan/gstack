@@ -85,6 +85,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'hermetic-sentinel': [ 'test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
   // Real pinned-claude journals (SessionStart hook, /compact, --fork-session) through the /autoplan guard's reader.
   'autoplan-journal-drift': ['lib/claude-public-transcript.ts', 'lib/claude-bin.ts', '.github/docker/Dockerfile.ci', 'test/skill-e2e-autoplan-journal-drift.test.ts'],
+  // Latest published Claude Code (not the pin): Agent/Read hook payloads vs their journal records, with the guard's own comparison.
+  'autoplan-schema-canary': ['autoplan/bin/phase-publication-hook.ts', 'lib/claude-public-transcript.ts', 'lib/claude-bin.ts', 'test/helpers/schema-canary.ts', 'test/skill-e2e-autoplan-schema-canary.test.ts'],
 
   // P4 first-run scaffold (activation lift) — the detection binary end-to-end
   // through the real runner, plus the script wiring that gates + maps it
@@ -1153,6 +1155,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
   'hermetic-canary': 'gate',
   'hermetic-sentinel': 'gate',
   'autoplan-journal-drift': 'periodic',
+  'autoplan-schema-canary': 'periodic',
 
   // SKILL.md setup — gate (if setup breaks, no skill works)
   'skillmd-setup-discovery': 'gate',
@@ -1648,6 +1651,7 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'hermetic-canary': 'rule',
   'hermetic-sentinel': 'rule',
   'autoplan-journal-drift': 'rule',
+  'autoplan-schema-canary': 'rule',
   'skillmd-setup-discovery': 'rule',
   'skillmd-no-local-binary': 'rule',
   'skillmd-outside-git': 'rule',

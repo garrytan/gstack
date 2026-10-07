@@ -33,7 +33,7 @@ const samePath = (a: unknown, b: unknown): boolean => sameNativePath(a, b);
 const requestedPath = (cwd: string, file: string) =>
   nativePathSpelling(path.resolve(cwd, file.replace(/^~(?=[\\/]|$)/, () => os.homedir())));
 /** Keys Claude Code's schema parse may drop from the journaled raw input (Agent's fork-subagent gate drops run_in_background). */
-const SCHEMA_STRIPPED: Record<string, readonly string[]> = { Agent: ['run_in_background'] };
+export const SCHEMA_STRIPPED: Record<string, readonly string[]> = { Agent: ['run_in_background'] };
 /** The reviewer dispatch input the guard accepts; snapshot manifests are unchanged by it. */
 export const AGENT_KEYS: readonly string[] = ['prompt', 'description', 'subagent_type', 'run_in_background'];
 /** The newest Claude Code release the pinned PTY runs and the schema canary have checked. */
