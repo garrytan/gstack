@@ -14,6 +14,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+// setup builds browse/dist/browse.exe on Windows (Git Bash), browse/dist/browse elsewhere.
+const BROWSE_BIN = process.platform === 'win32' ? 'browse/dist/browse.exe' : 'browse/dist/browse';
+
 const REPO = path.resolve(import.meta.dir, '..');
 const COPIED = [
   'setup', 'VERSION',
@@ -76,7 +79,7 @@ function makeFixture(): Fixture {
   ]);
   const hooks = spawnSync('bash', [path.join(root, 'bin/gstack-hook-check'), '--list', root], { encoding: 'utf8', timeout: 20_000 }).stdout.trim().split('\n');
   for (const hook of hooks) write(path.join(root, hook), '#!/bin/sh\nexit 0\n', 0o755);
-  for (const rel of ['browse/dist/browse', 'browse/dist/server-node.mjs', 'browse/dist/.build-complete']) write(path.join(root, rel), 'built\n', 0o755);
+  for (const rel of [BROWSE_BIN, 'browse/dist/server-node.mjs', 'browse/dist/.build-complete']) write(path.join(root, rel), 'built\n', 0o755);
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   write(path.join(state, 'installs.tsv'),
     ['claude', 'global', '-', path.join(home, '.claude/skills'), root, root, version, 'false', 'committed', '2026-10-07T00:00:00Z'].join('\t') + '\n');
@@ -289,7 +292,7 @@ describe('gstack-doctor', () => {
   test('every fix line names gstack helpers by absolute install-root path', () => {
     const f = makeFixture();
     write(path.join(f.state, 'config.yaml'), 'codex_reviews: disabled\n');
-    fs.rmSync(path.join(f.root, 'browse/dist/browse'));
+    fs.rmSync(path.join(f.root, BROWSE_BIN));
     const other = path.join(f.base, 'other');
     write(path.join(f.state, 'installs.tsv'), ['codex', 'global', '-', path.join(f.home, '.codex/skills'), other, other, '1', 'false', 'committed', 'x'].join('\t') + '\n');
     const r = doctor(f, [], { STUB_BUN_VERSION: '1.3.2' });
