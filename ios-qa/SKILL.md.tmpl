@@ -3,18 +3,19 @@ name: ios-qa
 preamble-tier: 3
 version: 1.0.0
 description: |
-  Live-device iOS QA for SwiftUI apps. Connects to a real iPhone via USB
-  CoreDevice IPv6 tunnel, reads Swift source to understand every screen, then
+  Live-device iOS QA for SwiftUI apps. Connects to a real iPhone or iPad via
+  USB CoreDevice IPv6 tunnel, reads Swift source to understand every screen, then
   runs a vision-driven agent loop: screenshot → analyze → decide → act →
   verify → repeat. All interaction happens via HTTP to an embedded
   StateServer in the app under test. Optionally exposes the device over
   Tailscale so remote agents (OpenClaw, Codex, any HTTP-capable agent) can
   run iOS QA from anywhere without touching the hardware.
-  Use when asked to "ios qa", "test my iPhone app", "find bugs on the device",
-  or "qa the iOS app". (gstack)
+  Use when asked to "ios qa", "test my iPhone app", "test my iPad app",
+  "find bugs on the device", or "qa the iOS app". (gstack)
 voice-triggers:
   - "iOS quality check"
   - "test the iPhone app"
+  - "test the iPad app"
   - "run iOS QA"
 allowed-tools:
   - Bash
@@ -27,6 +28,7 @@ allowed-tools:
 triggers:
   - ios qa
   - test the iphone app
+  - test the ipad app
   - test my ios app
   - find bugs on the device
   - qa the ios app
@@ -36,7 +38,7 @@ triggers:
 
 # Live-device iOS QA
 
-This skill drives a real iPhone via USB. The agent reads your Swift source,
+This skill drives a real iPhone or iPad via USB. The agent reads your Swift source,
 generates typed state accessors, deploys a debug bridge, and runs a closed
 find→fix→verify loop. No simulator, no XCTest, no WebDriverAgent.
 
@@ -68,7 +70,11 @@ tokens (default 1h) for remote agents.
 ## Prerequisites
 
 - macOS (the daemon uses `devicectl` from Xcode).
-- iPhone connected via USB, paired and trusted.
+- iPhone or iPad connected via USB, paired and trusted. With more than one
+  connected, pick one before starting the daemon:
+  `export GSTACK_IOS_TARGET_UDID=<udid>` (`xcrun devicectl list devices` shows
+  UDIDs). Otherwise the daemon refuses to guess, lists each device with its
+  UDID, and prints that export line.
 - Xcode + Swift toolchain installed (`swift --version` reports >= 5.9).
 - App source available on disk, with at least one `@Observable` class.
 - For remote-control mode: Tailscale installed and the user logged in.
@@ -136,6 +142,11 @@ fi
    The regenerator also removes the explicit obsolete flat-file set created by
    older ios-sync versions, preventing a stale second harness from remaining
    in the app target.
+   Source control: `DebugBridge/` is generated; never hand-edit it. Commit it
+   when teammates or CI build the Debug configuration without gstack (re-run
+   the regenerator after a gstack upgrade); otherwise add `DebugBridge/` to
+   `.gitignore` and have each developer run the regenerator. Tell the user
+   which one you picked.
 2. Add the generated `DebugBridge` local SPM dependency to the app's
    `Package.swift`. The package
    ships three Debug-config-only library products:
@@ -165,14 +176,17 @@ fi
    ```
 4. Build + deploy to the device with `xcodebuild -scheme <SchemeName>
    -destination 'platform=iOS,id=<UDID>' build install`.
-5. Launch via `devicectl device process launch --device <UDID> --console <bundle-id>`.
-   Capture the boot token printed to `os_log` on first run.
+5. Launch via `devicectl device process launch --device <UDID> <bundle-id>`.
+   On launch the StateServer writes a one-use boot token to a 0600 file in the
+   app's `tmp/`; the daemon copies it out with `devicectl`. The token is never
+   printed to `os_log`. If the app cannot write that file, it logs `NOT READY`
+   and the daemon reports `boot_token_unavailable` with the cause.
 6. Spawn the Mac-side daemon (on-demand) — `gstack-ios-qa-daemon`. Daemon
    acquires an exclusive flock on `~/.gstack/ios-qa-daemon.pid`. If another
    daemon is alive, the second invocation discovers its port and connects.
 7. Daemon immediately calls `POST /auth/rotate` on the iOS StateServer with a
-   fresh in-memory-only token. The boot token becomes useless ~5s later.
-   Anything scraping `os_log` past this point sees a dead credential.
+   fresh in-memory-only token. Rotation deletes the boot-token file, so a copy
+   taken after this point is a dead credential.
    If a fresh daemon finds the app running after another daemon consumed that
    one-use token, it verifies the bundle owner, relaunches the target once,
    waits for the new token, verifies ownership again, and then rotates.
@@ -247,9 +261,33 @@ live.
 | `curl: connection refused` to daemon | daemon crashed | Re-run `/ios-qa`; spawn-race lock will fail closed |
 | `403 identity_not_allowed` from `/auth/mint` | identity missing from allowlist | Run `gstack-ios-qa-mint --remote <identity>` on the Mac |
 | `409 schema_mismatch` on `/state/restore` | snapshot from older app build | Discard the snapshot; re-capture |
-| `503 device_disconnected` from proxy | USB route dropped or app relaunched | Daemon invalidates the stale tunnel and retries one fresh bootstrap; reconnect/unlock the iPhone if it persists |
+| `503 device_disconnected` / `504 upstream_timeout` from proxy | USB route dropped, app stopped, or app relaunched | Daemon probes the running app with its session bearer and keeps the session (no relaunch, app state intact). It bootstraps only when the app rejected the bearer (401), is not running, or a different device is now selected. A lost `/tap`/`/swipe`/`/type` response is never replayed: check the screen before retrying. If it persists, reconnect/unlock the device |
+| `multiple_devices` at bootstrap | iPhone and iPad (or two devices) connected, no target set | Run the printed `export GSTACK_IOS_TARGET_UDID=<udid>`, then restart the daemon |
+| `boot_token_unavailable ... could not write` | app's `tmp/` not writable | Fix the app container, relaunch the app |
+| App relaunched after the daemon restarted | a new daemon has no session bearer and the one-use boot token is gone | Expected: the first bootstrap relaunches the app once; keep one daemon alive for a session |
 | `429 rate_limited` from `/auth/mint` | >10 mints/min from one identity | Wait 60s; check audit log for anomalies |
 | `413 body_too_large` on `/state/restore` | snapshot >1MB | Increase `--max-body` or trim snapshot |
+
+## Known limits
+
+Device-verified by users, not fixable in the bridge today. Plan around them:
+
+- **SwiftUI gestures on iOS 26.** In-process synthesized touches report success
+  but never reach a SwiftUI `DragGesture` (for example a `Canvas` driven by
+  drag input), even with phase-separated touches (seen on iOS 26.5). Buttons and
+  UIKit controls still respond. For gesture-driven views, have the app expose
+  its input handlers to the bridge under `#if DEBUG` and drive them through a
+  state write, or cover the flow with an XCUITest harness.
+- **`/swipe` scrolls only.** It moves the nearest enclosing `UIScrollView` and
+  returns `false` when there is none; it is not a drag. Custom pan or drag
+  views need the input-routing approach above.
+- **`/elements` on iOS 26.** The in-process SwiftUI accessibility tree is often
+  not materialized: an iPhone 12 Pro on iOS 26.3.1 returned only the three
+  hosting views, with no identifiers or labels. Locate controls from the
+  screenshot and tap by coordinate.
+- **iPad windows.** iPad sessions work like iPhone sessions, but the overlay
+  and window selection have not been verified with Stage Manager or multiple
+  scenes; report what you see.
 
 ## Cleanup
 

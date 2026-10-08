@@ -8,6 +8,7 @@
 //   - Rate limit on /auth/mint
 //   - Tailnet listener never binds 0.0.0.0
 //   - Boot token never leaks in responses
+//   - Route-drop recovery against a simulated device (#1975): no app relaunch
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { createServer } from 'http';
@@ -15,7 +16,8 @@ import type { Server, IncomingMessage } from 'http';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { startDaemon, type RunningDaemon } from '../src/index';
+import { startDaemon, deviceTunnelSource, type RunningDaemon } from '../src/index';
+import { startFakeDevice, type FakeDevice } from './fake-device';
 import { grantIdentity } from '../src/allowlist';
 import type { DeviceTunnel } from '../src/proxy';
 
@@ -509,6 +511,149 @@ describe('daemon — loopback listener', () => {
     } finally {
       await d2.close();
     }
+  });
+});
+
+// Route-drop recovery (#1975 finding 1) through the production wiring
+// (deviceTunnelSource = bootstrapTunnel + recoverTunnel) against a simulated
+// device. A black-holed request times out after PROXY_TIMEOUT_MS, which is how
+// a dropped CoreDevice route looks to the daemon (504 upstream_timeout).
+describe('daemon — route-drop recovery (simulated device)', () => {
+  const BUNDLE = 'com.test.recovery';
+  const PROXY_TIMEOUT_MS = 300;
+  let recoveryDir: string;
+  const cleanups: Array<() => Promise<void>> = [];
+
+  beforeAll(() => { recoveryDir = mkdtempSync(join(tmpdir(), 'ios-qa-daemon-recovery-')); });
+  afterAll(async () => {
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+    rmSync(recoveryDir, { recursive: true, force: true });
+  });
+
+  async function startSession(name: string, fake: FakeDevice) {
+    const logs: string[] = [];
+    const source = deviceTunnelSource({
+      bundleId: BUNDLE,
+      port: fake.port,
+      spawnImpl: fake.spawn,
+      keepalive: () => ({ stop() {} }),
+      log: (line) => logs.push(line),
+    });
+    let recoveries = 0;
+    const d = await startDaemon({
+      loopbackPort: 0,
+      tailnetEnabled: false,
+      pidfilePath: join(recoveryDir, `${name}.pid`),
+      proxyTimeoutMs: PROXY_TIMEOUT_MS,
+      tunnelProvider: source.tunnelProvider,
+      tunnelRecovery: async (failed) => { recoveries++; return source.tunnelRecovery(failed); },
+    });
+    if ('error' in d) throw new Error(d.error);
+    cleanups.push(() => d.close());
+    return { base: `http://127.0.0.1:${d.loopbackPort}`, logs, recoveries: () => recoveries };
+  }
+
+  async function device(udid = 'FAKE-UDID-1', deviceType: 'iPhone' | 'iPad' = 'iPhone') {
+    const fake = await startFakeDevice({ bundleId: BUNDLE, udid, deviceType });
+    cleanups.push(() => fake.close());
+    return fake;
+  }
+
+  const terminations = (fake: FakeDevice) => fake.calls.filter((c) => c.includes('--terminate-existing')).length;
+  const bootTokenReads = (fake: FakeDevice) => fake.calls.filter((c) => c.includes('device copy from')).length;
+
+  test('live app: a route drop keeps the bearer and the app state, with no relaunch', async () => {
+    const fake = await device();
+    const session = await startSession('live-route-drop', fake);
+    expect((await fetchWith('POST', `${session.base}/tap`, { body: '{}' })).status).toBe(200);
+    const bearer = fake.requests.at(-1)?.authorization;
+
+    fake.dropConnections(1);
+    const after = await fetchWith('GET', `${session.base}/state/snapshot`);
+    expect(after.status).toBe(200);
+    expect(JSON.parse(after.bodyText).state).toEqual({ generation: 1, marker: 'tapped' });
+    expect(terminations(fake)).toBe(0);
+    expect(bootTokenReads(fake)).toBe(1);
+    expect(session.recoveries()).toBe(1);
+    expect(fake.requests.at(-1)?.authorization).toBe(bearer);
+    expect(session.logs.some((l) => l.startsWith('tunnel recovered: kept the session'))).toBe(true);
+  });
+
+  test('a tap whose response was lost is not replayed; the recovered session takes the next tap', async () => {
+    const fake = await device();
+    const session = await startSession('ambiguous-tap', fake);
+    expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
+
+    fake.dropConnections(1);
+    const lost = await fetchWith('POST', `${session.base}/tap`, { body: '{}' });
+    expect(lost.status).toBe(504);
+    expect(fake.requests.filter((r) => r.path === '/tap')).toHaveLength(0);
+
+    expect((await fetchWith('POST', `${session.base}/tap`, { body: '{}' })).status).toBe(200);
+    expect(fake.requests.filter((r) => r.path === '/tap')).toHaveLength(1);
+    expect(terminations(fake)).toBe(0);
+    expect(fake.appState.generation).toBe(1);
+  });
+
+  test('concurrent requests during a route drop share one recovery', async () => {
+    const fake = await device();
+    const session = await startSession('concurrent-recovery', fake);
+    expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
+    const listingsBefore = fake.calls.filter((c) => c.includes('list devices')).length;
+
+    fake.dropConnections(3);
+    const responses = await Promise.all([1, 2, 3].map(() => fetchWith('GET', `${session.base}/screenshot`)));
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect(session.recoveries()).toBe(1);
+    expect(fake.calls.filter((c) => c.includes('list devices')).length - listingsBefore).toBe(1);
+    expect(fake.requests.filter((r) => r.path === '/state/snapshot')).toHaveLength(1);
+    expect(terminations(fake)).toBe(0);
+  });
+
+  test('stopped app: one normal launch, never --terminate-existing', async () => {
+    const fake = await device();
+    const session = await startSession('stopped-app', fake);
+    expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
+
+    fake.stopApp();
+    const after = await fetchWith('GET', `${session.base}/screenshot`);
+    expect(after.status).toBe(200);
+    expect(fake.calls.filter((c) => c.includes('device process launch'))).toHaveLength(2);
+    expect(terminations(fake)).toBe(0);
+    expect(fake.appState.generation).toBe(2);
+    expect(session.logs.some((l) => l.includes(`${BUNDLE} is not running`))).toBe(true);
+  });
+
+  test('app relaunched from Xcode during a drop: the probe gets 401 and bootstraps from the fresh token', async () => {
+    const fake = await device();
+    const session = await startSession('relaunched-app', fake);
+    expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
+
+    fake.dropConnections(1);
+    fake.relaunchExternally();
+    expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
+    expect(bootTokenReads(fake)).toBe(2);
+    expect(terminations(fake)).toBe(0);
+    expect(session.logs.some((l) => l.includes('rejected the session bearer'))).toBe(true);
+  });
+
+  test('target device changed: full bootstrap on the new device, old bearer never sent to it', async () => {
+    const fake = await device('PHONE-UDID', 'iPhone');
+    const session = await startSession('udid-change', fake);
+    expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
+    const oldBearer = fake.requests.at(-1)?.authorization;
+
+    fake.dropConnections(1);
+    fake.replaceDevice('PAD-UDID', 'iPad');
+    const after = await fetchWith('GET', `${session.base}/screenshot`);
+    expect(after.status).toBe(200);
+    expect(session.logs.some((l) => l.includes('target device changed from PHONE-UDID to PAD-UDID'))).toBe(true);
+    const padRequests = fake.requests.filter((r) => r.udid === 'PAD-UDID');
+    expect(padRequests.length).toBeGreaterThan(0);
+    expect(padRequests.some((r) => r.authorization === oldBearer)).toBe(false);
+    expect(padRequests.at(-1)).toMatchObject({ path: '/screenshot' });
+    expect(fake.calls.some((c) => c.includes('device copy from --device PAD-UDID'))).toBe(true);
+    expect(terminations(fake)).toBe(0);
   });
 });
 

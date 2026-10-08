@@ -35,9 +35,10 @@ import {
   validateFinding,
   validateVerificationRequest,
 } from './contracts';
-import { capture, containedFile, assertSnapshot } from './snapshot';
+import { capture, containedFile, assertSnapshot, readSnapshotManifest } from './snapshot';
 import {
   assertStateOutside,
+  boundedList,
   event,
   finalizeReplayTemporary,
   loadReport,
@@ -470,32 +471,42 @@ function planned(scope: string): CoverageRecord[] {
     evidence: [],
   }));
 }
+// One 256 KiB budget for the per-entry snapshot lists in report.json, split so
+// material gaps keep the largest share; findings and events keep the rest.
+const SNAPSHOT_DISCLOSURE_BUDGET = { gaps: 128 * 1024, transformations: 96 * 1024, exclusions: 32 * 1024 };
+const UNLISTED = "to keep report.json within its 1 MiB bound; the run's snapshot manifest keeps every entry";
 function snapshotCoverage(manifest: Awaited<ReturnType<typeof capture>>, scope: string): CoverageRecord {
   const omitted = manifest.entries.filter((entry) => !entry.executionHash),
-    excluded = omitted.filter((entry) => entry.transformation?.startsWith('excluded:'));
+    excluded = omitted.filter((entry) => entry.transformation?.startsWith('excluded:')),
+    excludedSet = new Set(excluded);
   // Classify every unexplained omission as a material coverage gap. Coverage
   // must not depend on transformation prose retaining a particular prefix.
-  const unread = omitted.filter((entry) => !excluded.includes(entry));
+  const unread = omitted.filter((entry) => !excludedSet.has(entry));
   const deleted = manifest.deletedPaths ?? [],
-    captured = manifest.entries.filter((entry) => entry.executionHash).length,
+    captured = manifest.entries.length - omitted.length,
     missing = unread.length + deleted.length;
   return {
     domain: 'snapshot-inputs',
     scope,
     status: missing ? (captured ? 'partial' : 'not_assessed') : 'assessed',
     method: 'fail-closed captured source inventory',
-    gaps: [
-      ...unread.map(
-        (entry) =>
-          `${publicSnapshotPath(manifest, entry.path).path}: in-scope source payload was unread and withheld from static and runtime assessment`,
-      ),
-      ...deleted.map(
-        (item) =>
-          `${publicSnapshotPath(manifest, item.path).path}: tracked source is deleted from the worktree; only retained history is available for assessment`,
-      ),
-    ],
-    exclusions: excluded.map(
-      (entry) => `${publicSnapshotPath(manifest, entry.path).path}: ${entry.transformation}`,
+    gaps: boundedList(
+      missing,
+      (index) =>
+        index < unread.length
+          ? `${publicSnapshotPath(manifest, unread[index].path, unread[index].pathId).path}: in-scope source payload was unread and withheld from static and runtime assessment`
+          : `${publicSnapshotPath(manifest, deleted[index - unread.length].path, deleted[index - unread.length].pathId).path}: tracked source is deleted from the worktree; only retained history is available for assessment`,
+      { bytes: SNAPSHOT_DISCLOSURE_BUDGET.gaps },
+      4,
+      (count) => `${count} more unread or deleted in-scope inputs are not listed ${UNLISTED}`,
+    ),
+    exclusions: boundedList(
+      excluded.length,
+      (index) =>
+        `${publicSnapshotPath(manifest, excluded[index].path, excluded[index].pathId).path}: ${excluded[index].transformation}`,
+      { bytes: SNAPSHOT_DISCLOSURE_BUDGET.exclusions },
+      4,
+      (count) => `${count} more explicit exclusions are not listed ${UNLISTED}`,
     ),
     evidence: [
       `${captured} sanitized execution input${captured === 1 ? '' : 's'} captured; ${excluded.length} explicit non-executable exclusion${excluded.length === 1 ? '' : 's'}; ${unread.length} unread in-scope input${unread.length === 1 ? '' : 's'}; ${deleted.length} tracked deletion${deleted.length === 1 ? '' : 's'}`,
@@ -607,6 +618,8 @@ async function start(
     fs.rmSync(run.dir, { recursive: true, force: true });
     throw error;
   }
+  const transformed = manifest.entries.filter((entry) => entry.transformation),
+    deletedPaths = manifest.deletedPaths ?? [];
   const report: RunReportV3 = {
     schemaVersion: 3,
     runId: run.runId,
@@ -621,18 +634,25 @@ async function start(
       snapshotHash: manifest.executionHash,
       originalHash: manifest.originalHash,
       baseCommit: manifest.baseCommit,
-      transformations: [
-        ...manifest.entries
-          .filter((entry) => entry.transformation)
-          .map((entry) => ({
-            path: publicSnapshotPath(manifest, entry.path).path,
-            handling: entry.transformation!,
-          })),
-        ...(manifest.deletedPaths ?? []).map((item) => ({
-          path: publicSnapshotPath(manifest, item.path).path,
-          handling: 'tracked source deleted; retained history only',
-        })),
-      ],
+      transformations: boundedList(
+        transformed.length + deletedPaths.length,
+        (index) =>
+          index < transformed.length
+            ? {
+                path: publicSnapshotPath(manifest, transformed[index].path, transformed[index].pathId).path,
+                handling: transformed[index].transformation!,
+              }
+            : {
+                path: publicSnapshotPath(manifest, deletedPaths[index - transformed.length].path).path,
+                handling: 'tracked source deleted; retained history only',
+              },
+        { bytes: SNAPSHOT_DISCLOSURE_BUDGET.transformations },
+        3,
+        (count) => ({
+          path: '[not listed]',
+          handling: `${count} more transformations are not listed ${UNLISTED}`,
+        }),
+      ),
     },
     application: {
       actors: [],
@@ -655,7 +675,7 @@ async function start(
   event(
     report,
     'snapshot',
-    `Captured ${manifest.entries.length} source entries; ${manifest.entries.filter((e) => e.transformation).length + (manifest.deletedPaths?.length ?? 0)} transformations disclosed`,
+    `Captured ${manifest.entries.length} source entries; ${transformed.length + deletedPaths.length} transformations disclosed`,
   );
   if (policy.mode === 'comprehensive') {
     const plan = inspectPreparation(join(run.dir, 'snapshot'));
@@ -958,9 +978,9 @@ function recoveryEvents(dir: string): string[] {
 function publicSnapshotPath(
   manifest: SnapshotManifest,
   path: string,
+  pathId = manifest.entries.find((item) => item.path === path)?.pathId,
 ): { path: string; displayPath?: string } {
-  const entry = manifest.entries.find((item) => item.path === path),
-    handle = snapshotPathHandle(entry?.pathId ?? snapshotPathId(manifest.root, path));
+  const handle = snapshotPathHandle(pathId ?? snapshotPathId(manifest.root, path));
   let displayPath: string;
   try {
     displayPath = redact(path);
@@ -974,8 +994,8 @@ function publicSnapshotManifest(manifest: SnapshotManifest): Record<string, unkn
     ...manifest,
     root: PUBLIC_SOURCE_ROOT,
     entries: manifest.entries.map((entry) => {
-      const { path, pathId: _, ...rest } = entry;
-      return { ...rest, ...publicSnapshotPath(manifest, path) };
+      const { path, pathId, ...rest } = entry;
+      return { ...rest, ...publicSnapshotPath(manifest, path, pathId) };
     }),
     ...(manifest.deletedPaths?.length
       ? { deletedPaths: manifest.deletedPaths.map((item) => publicSnapshotPath(manifest, item.path)) }
@@ -1059,7 +1079,7 @@ function originalBoundary(report: RunReportV3): {
     throw new CsoError('INVALID_SCHEMA', 'Recheck evidence requires a linked original finding');
   const dir = runDirectory(report.parent.runId),
     original = loadReport(dir),
-    manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest,
+    manifest = readSnapshotManifest(dir),
     finding = original.findings.find((item) => item.id === report.parent!.findingId);
   if (report.repoId !== original.repoId)
     throw new CsoError('INCOMPATIBLE_INPUT', 'Recheck repository identity differs from the original audit');
@@ -1295,7 +1315,7 @@ function submit(args: string[]) {
   const input = rawInput as SubmissionV3;
   return withLock(dir, () => {
     const report = loadReport(dir),
-      manifest = readJson(join(dir, 'snapshot.json'));
+      manifest = readSnapshotManifest(dir);
     assertSnapshot(dir, manifest);
     requireReportingTime(report);
     if (report.status !== 'running')
@@ -1401,7 +1421,7 @@ function finish(args: string[]) {
   if (args.length) throw new CsoError('INVALID_ARGUMENT', 'finish takes only a run ID');
   return withLock(dir, () => {
     const report = loadReport(dir),
-      manifest = readJson(join(dir, 'snapshot.json'));
+      manifest = readSnapshotManifest(dir);
     assertSnapshot(dir, manifest);
     reclaimDeadAttemptScratch(dir);
     for (const c of report.coverage)
@@ -1478,7 +1498,7 @@ async function inspect(args: string[]) {
   const { dir } = run(args);
   if (args.length) throw new CsoError('INVALID_ARGUMENT', 'inspect takes one run ID');
   const report = loadReport(dir),
-    manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+    manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const rawSensitive = readJson(join(dir, 'sensitive-evidence.json')),
     sensitiveEvidence = Array.isArray(rawSensitive)
@@ -1508,7 +1528,7 @@ async function inspect(args: string[]) {
 async function read(args: string[]) {
   const { dir } = run(args);
   if (args.length !== 1) throw new CsoError('INVALID_ARGUMENT', 'read requires one path or opaque handle');
-  const manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+  const manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const selected = resolveSnapshotPath(manifest, args[0], true),
     full = containedFile(join(dir, 'readable'), selected.path),
@@ -1517,7 +1537,7 @@ async function read(args: string[]) {
 }
 async function history(args: string[]) {
   const { dir } = run(args),
-    manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+    manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   let selected: string | undefined;
   if (args.length) selected = resolveSnapshotPath(manifest, args.shift(), false, 'History path', true).path;
@@ -1540,7 +1560,7 @@ function resume(args: string[]) {
   if (args.length) throw new CsoError('INVALID_ARGUMENT', 'resume takes one run ID');
   return withLock(dir, () => {
     const report = loadReport(dir),
-      manifest = readJson(join(dir, 'snapshot.json'));
+      manifest = readSnapshotManifest(dir);
     if (report.status === 'finished')
       throw new CsoError('INVALID_SCHEMA', 'A finished audit cannot be resumed');
     assertSnapshot(dir, manifest);
@@ -1677,7 +1697,7 @@ async function scanner(args: string[], sarif = false) {
         id,
         runId: report.runId,
         runDir: dir,
-        manifest: readJson(join(dir, 'snapshot.json')),
+        manifest: readSnapshotManifest(dir),
         policy: report.policy,
         executionDeadline: Date.parse(report.deadline) - 60_000,
         platform: platform(),
@@ -1828,7 +1848,7 @@ async function recheck(args: string[], dependencies: CsoCliDependencies) {
       throw new CsoError('INVALID_SCHEMA', 'Recheck requires a finished original audit');
     // Keep the original immutable while the fresh snapshot is captured and
     // until its child lineage report has been durably published.
-    const oldManifest = readJson(join(originalDir, 'snapshot.json'));
+    const oldManifest = readSnapshotManifest(originalDir);
     const preserveBase = original.policy.diff || Boolean(original.source.baseCommit),
       report = await start(
         [
@@ -1928,7 +1948,7 @@ function testPlan(args: string[]) {
   if (args.length !== 1 || !['node', 'bun', 'python', 'rails'].includes(args[0]))
     throw new CsoError('INVALID_ARGUMENT', 'test-plan requires one supported stack');
   const stack = args[0] as 'node' | 'bun' | 'python' | 'rails',
-    manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+    manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const preparation = inspectPreparation(join(dir, 'snapshot'), stack);
   if (preparation.status !== 'ready')
@@ -1953,7 +1973,7 @@ function runtimePlan(args: string[]) {
   const port = Number(rawPort);
   if (!Number.isInteger(port) || port < 1024 || port > 65535)
     throw new CsoError('INVALID_ARGUMENT', '--port must be an integer from 1024 to 65535');
-  const manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+  const manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const preparation = inspectPreparation(join(dir, 'snapshot'), stack);
   if (preparation.status !== 'ready')
@@ -2186,7 +2206,7 @@ async function verify(args: string[], dependencies: CsoCliDependencies) {
     request = validateVerificationRequest(raw);
   return await withLock(dir, async () => {
     const report = loadReport(dir),
-      manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+      manifest = readSnapshotManifest(dir);
     assertSnapshot(dir, manifest);
     requireTime(report);
     if (report.policy.mode !== 'comprehensive' || report.status !== 'running')
@@ -2510,7 +2530,7 @@ async function replay(args: string[], dependencies: CsoCliDependencies) {
           throw new CsoError('INCOMPATIBLE_INPUT', 'Supplied source does not match the bundle input hashes');
       };
       if (fs.existsSync(retained)) {
-        manifest = readJson(join(stored.dir, 'snapshot.json'));
+        manifest = readSnapshotManifest(stored.dir);
         const expiresAt =
           typeof manifest?.expiresAt === 'string' ? Date.parse(manifest.expiresAt) : Number.NaN;
         if (!Number.isFinite(expiresAt) || new Date(expiresAt).toISOString() !== manifest.expiresAt)
