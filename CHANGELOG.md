@@ -1,15 +1,48 @@
 # Changelog
 
-## [1.91.35.0] - 2026-10-07
+## [1.91.37.0] - 2026-10-07
 
 ### Added
 - Choose separate model tiers for planning and implementation. Independent plan reviews default to Fable 5.1 or GPT-6 Astra; implementation handoffs recommend Opus 5.5 or GPT-6.1 Sol without switching your session. Explicit model choices still win, and `plan_review_tier smart` or `host` provides an alternative to the frontier default.
 - Inspect effective models, their sources and copyable pin/reset commands with `gstack-models`. Six settings use the existing configuration store, with fail-closed validation and a notice before the first affected review. See the [model-policy guide](docs/model-policy.md).
+- Policy inspection reports native Windows paths and rejects non-directory or unreadable state roots rather than silently selecting defaults.
 - Get weekly advisory checks of official model recommendations and retirement notices. One tracking issue retains source evidence and lifecycle history; upgrades remain human-reviewed, with no automatic model changes or paid benchmarking.
 
 ### Fixed
 - Codex model probes retain up to sixteen selections, serialize concurrent misses and preserve newer entries when another probe finishes later. Plan-review readiness and execution share one deadline, and failed model choices point to the setting that actually selected them.
 - `/review` and `/ship` explicitly require prerequisite QA instructions to be read in earlier responses before a probe, including its evidence capture.
+
+## [1.91.36.0] - 2026-10-07
+
+**Python and Rails repairs can now reach `runtime_tested` and replay, and a killed verification leaves nothing behind.**
+
+Runtime verification had four defects that the private evaluator's Lane R found on its Python, Rails and watchdog checks. First, a verified Python repair could never replay: offline preparation wrote timestamped `.pyc` bytecode, so every preparation hashed differently and `replay` reported "Replay changed verification outcomes, preparation, or provenance inputs". Second, Rails replays failed the same way, because RubyGems build logs record a random temporary directory. Third, no Rails verification could finish on a 4-vCPU host: an attempt prepares the application twice, each Rails preparation compiles native extensions for about four minutes, and the attempt watchdog, executor and assertion witness were each capped at five minutes. Fourth, after a helper was killed mid-verification, the watchdog removed every container, but `resume` and `finish` left the dead attempt's control directory and archive staging in the run directory.
+
+### The numbers that matter
+
+Measured on amd64 (4 vCPU) with `gstack-cso` built from 28f1385 plus these fixes, the staged runtime images from staging run 37555192492, and the evaluator's private corpus.
+
+| Check | Before | After |
+|---|---|---|
+| Two Python offline preparations of the same app | prepared dependency trees differ | 0 differing files |
+| One Rails offline preparation | about 245 s | unchanged |
+| Rails verification attempt | ended by the 300 s watchdog during its second preparation | certifies within the 900 s bound |
+| Helper SIGKILL during preparation or with the app running, then `resume` and `finish` | `preparation-execution` (and `archive-staging`) not empty | empty |
+
+### What this means for you
+
+Python projects locked with `requirements.txt` or `uv.lock`, and Rails projects with native gems, can now be verified and replayed. Node and Bun keep their 300-second attempt. If a verification is interrupted, `resume` now reclaims its scratch once the watchdog has recorded cleanup.
+
+### Itemized changes
+
+#### Fixed
+- Python offline preparation sets `SOURCE_DATE_EPOCH`, so `venv`, ensurepip and pip write checked-hash `.pyc` files and two preparations of the same app produce identical trees.
+- The prepared manifest and dependency hashes leave out RubyGems and mini_portile build diagnostics (`extensions/**/gem_make.out`, `extensions/**/mkmf.log`, `gems/*/ext/**/tmp/**/*.log`). These logs name random build directories and are never loaded; the compiled extensions stay in the identity.
+- A Rails verification attempt and a Rails replay get 900 seconds instead of 300, still capped by the run's reporting deadline. The attempt watchdog, the Docker verification executor and the assertion witness lifetime now share that one bound (`MAX_VERIFICATION_ATTEMPT_MS`) instead of each enforcing 300 seconds. Other stacks keep 300 seconds.
+- `resume` and `finish` reclaim a killed attempt's `supervision`, `preparation-execution`, `archive-staging`, `archive-materializations` and `verification` scratch. They do this under the run lock and only when no detached watchdog cleanup is still pending.
+
+#### For contributors
+- `preparedIdentityEntry()` in `lib/cso/preparation-executor.ts`, `verificationAttemptMs()` in `lib/cso/cli.ts`, `MAX_VERIFICATION_ATTEMPT_MS` in `lib/cso/contracts.ts`, and `reclaimDeadAttemptScratch()` in `lib/cso/state.ts`. They are pinned by `test/cso-preparation-executor.test.ts`, `test/cso-preparation.test.ts`, `test/cso-cli-lifecycle.test.ts`, `test/cso-witness.test.ts` and `test/cso-snapshot-state.test.ts`.
 
 ## [1.91.34.0] - 2026-10-07
 
