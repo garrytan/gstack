@@ -627,7 +627,7 @@ Device-verified by users, not fixable in the bridge today. Plan around them:
 
 - **SwiftUI gestures on iOS 26.** In-process synthesized touches report success
   but never reach a SwiftUI `DragGesture` (for example a `Canvas` driven by
-  drag input), even with phase-separated touches (iOS 26.5, #1975). Buttons and
+  drag input), even with phase-separated touches (seen on iOS 26.5). Buttons and
   UIKit controls still respond. For gesture-driven views, have the app expose
   its input handlers to the bridge under `#if DEBUG` and drive them through a
   state write, or cover the flow with an XCUITest harness.
