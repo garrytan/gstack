@@ -201,7 +201,9 @@ if OpenAI rejects it, the error names `GSTACK_DESIGN_MODEL`. Set
 value that is not a gpt-image model name is refused before any request. Check a
 key against the defaults with `bun run design/scripts/live-model-check.ts`,
 which always tests the default models and ignores both overrides; the weekly
-periodic census runs the same check.
+periodic census runs the same check. Set `OPENAI_BASE_URL` to send every `$D`
+call to an OpenAI-compatible gateway instead of `api.openai.com`; egress
+receipts record the gateway host.
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 Rendering a new agent is one TypeScript config file; installing it also needs a
