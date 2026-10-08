@@ -39,6 +39,8 @@ lib/cso/images/gstack-cso-preparation
 .hermes/
 .gbrain/
 .gbrain-source
+# Hosts installed from this checkout (bin/gstack-host-renders.sh, #1694)
+.gstack-installed-hosts
 .context/
 extension/.auth.json
 # xterm assets are vendored from npm at build time; not source-of-truth.

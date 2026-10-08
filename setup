@@ -316,6 +316,7 @@ SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 gstack_state_root_select; GSTACK_STATE_ROOT="$_gstack_sr_root"
 . "$SOURCE_GSTACK_DIR/bin/gstack-install-registry.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-install-registry.sh is missing. fix: reinstall from a fresh clone (docs/ADDING_A_HOST.md)" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-render-claude.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-render-claude.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
+. "$SOURCE_GSTACK_DIR/bin/gstack-host-renders.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-host-renders.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 SETUP_VERSION="$(cat "$SOURCE_GSTACK_DIR/VERSION" 2>/dev/null || echo unknown)"
 
 # --claude-model is validated before anything is written, and persisted once
@@ -1712,6 +1713,23 @@ fi
 # (bin/gstack-render-claude.sh).
 gstack_claude_overlay "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/bin/gstack-config"
 
+# Installed-hosts record (#1694): the build renders skills only for these
+# hosts, and step 7b prunes every other host's render from this checkout. The
+# record only grows; installs made before it existed are discovered first.
+gstack_render_hosts_seed "$SOURCE_GSTACK_DIR"
+_RENDER_HOSTS_SELECTED=""
+[ "$INSTALL_CLAUDE" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED claude"
+[ "$INSTALL_CODEX" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED codex"
+[ "$INSTALL_KIRO" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED kiro"
+[ "$INSTALL_FACTORY" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED factory"
+[ "$INSTALL_OPENCODE" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED opencode"
+[ "$INSTALL_CURSOR" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED cursor"
+[ "$INSTALL_COPILOT" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED copilot"
+# shellcheck disable=SC2086 # the host list splits on purpose
+if ! gstack_render_hosts_add "$SOURCE_GSTACK_DIR" $_RENDER_HOSTS_SELECTED; then
+  echo "  warning: could not write $(gstack_render_hosts_file "$SOURCE_GSTACK_DIR"); this build renders every host and nothing is pruned" >&2
+fi
+
 # Migrate existing wrappers BEFORE build can regenerate/prune shared host trees.
 # This also repairs existing Codex/Kiro installs during a Claude-only setup.
 # A failed/foreign replacement retains its old render even when build runs
@@ -1911,14 +1929,16 @@ if [ ! -x "$BROWSE_BIN" ]; then
   exit 1
 fi
 
-# 1b. Generate .agents/ Codex skill docs — always regenerate to prevent stale descriptions.
+# 1b. Generate .agents/ Codex skill docs whenever this checkout serves Codex.
 # .agents/ is no longer committed — generated at setup time from .tmpl templates.
 # bun run build generates the host-default artifact. Always render Codex again
 # with the resolved user profile so a build cannot overwrite a Sol-specific render.
 # Always regenerate: generation is fast (<2s) and mtime-based staleness checks are fragile
-# (miss stale files when timestamps match after clone/checkout/upgrade).
+# (miss stale files when timestamps match after clone/checkout/upgrade). A
+# checkout with no Codex install renders none (#1694).
 AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
-NEEDS_AGENTS_GEN=1
+NEEDS_AGENTS_GEN=0
+if [ "$INSTALL_CODEX" -eq 1 ] || gstack_render_hosts_has "$SOURCE_GSTACK_DIR" codex; then NEEDS_AGENTS_GEN=1; fi
 
 if [ "$NEEDS_AGENTS_GEN" -eq 1 ]; then
   log "Generating .agents/ skill docs..."
