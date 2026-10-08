@@ -136,8 +136,37 @@ helpers_of() {
   done
 }
 
-META=0
-"$BUN" build --help 2>/dev/null | grep -q -- '--metafile' && META=1
+# ts_entries <shim> — the TypeScript files a shim runs, beside it.
+ts_entries() {
+  grep -v '^[[:space:]]*#' "$1" | grep -oE '[A-Za-z0-9._-]+\.ts([^A-Za-z0-9_]|$)' | sed -E 's/\.ts.*$/.ts/' | awk '!seen[$0]++'
+}
+
+# One bun process bundles every hook's TypeScript entries (a bun start costs
+# seconds on Windows). Each line is "<entry>\tok\t<input>" per bundled input,
+# or "<entry>\tfail\t<file:line>\t<message>".
+ENTRIES=""
+for hook in $HOOKS; do
+  shim="$ROOT/$hook"
+  [ -f "$shim" ] || continue
+  for entry in $(ts_entries "$shim"); do
+    [ -f "$(dirname "$shim")/$entry" ] && ENTRIES="$ENTRIES$(dirname "$shim")/$entry$NL"
+  done
+done
+BUILT="$TMP_OUT/built.tsv"
+: > "$BUILT"
+if [ -n "$ENTRIES" ]; then
+  # shellcheck disable=SC2086 # newline-split list (IFS is set to a newline below)
+  (cd "$ROOT" && IFS=$NL && "$BUN" -e '
+    for (const entry of process.argv.slice(1)) {
+      const r = await Bun.build({ entrypoints: [entry], target: "bun", packages: "external", metafile: true, throw: false }).catch(e => ({ success: false, logs: [e] }));
+      if (r.success) for (const input of Object.keys(r.metafile?.inputs ?? {})) console.log(`${entry}\tok\t${input}`);
+      else {
+        const log = (r.logs ?? []).find(l => l?.level === "error") ?? r.logs?.[0] ?? {};
+        const at = log.position ? `${log.position.file}:${log.position.line}` : entry;
+        console.log(`${entry}\tfail\t${at}\t${String(log.message ?? log).split("\n")[0]}`);
+      }
+    }' $ENTRIES) > "$BUILT" 2>/dev/null || true
+fi
 
 for hook in $HOOKS; do
   shim="$ROOT/$hook"
@@ -166,23 +195,26 @@ for hook in $HOOKS; do
     scan="$scan$NL$helper"
   done
   dir=$(dirname "$shim")
-  for entry in $(grep -v '^[[:space:]]*#' "$shim" | grep -oE '[A-Za-z0-9._-]+\.ts([^A-Za-z0-9_]|$)' | sed -E 's/\.ts.*$/.ts/' | awk '!seen[$0]++'); do
+  for entry in $(ts_entries "$shim"); do
     if [ ! -f "$dir/$entry" ]; then
       fail "$hook" "$dir/$entry:1" "missing TypeScript entry (the hook runs it)"
       hook_ok=0
       continue
     fi
-    meta="$TMP_OUT/meta.json" metaflag=""
-    rm -f "$meta"
-    [ "$META" -eq 1 ] && metaflag="--metafile=$meta"
-    if ! err=$(cd "$ROOT" && "$BUN" build --target=bun --packages=external --outdir "$TMP_OUT/$(basename "$hook")" \
-        ${metaflag:+"$metaflag"} "$dir/$entry" 2>&1 >/dev/null); then
-      fail "$hook" "$(first_location "$dir/$entry" "$err")" "$(first_message "$err")"
-      hook_ok=0
-    fi
     scan="$scan$NL$dir/$entry"
-    [ -f "$meta" ] || continue
-    for rel in $(cd "$ROOT" && "$BUN" -e 'for (const f of Object.keys(JSON.parse(await Bun.file(process.argv[1]).text()).inputs)) console.log(f)' "$meta" 2>/dev/null); do
+    result=$(awk -F '\t' -v e="$dir/$entry" '$1 == e' "$BUILT")
+    if [ -z "$result" ]; then
+      fail "$hook" "$dir/$entry:1" "bun could not bundle the TypeScript entry"
+      hook_ok=0
+      continue
+    fi
+    failed=$(printf '%s\n' "$result" | awk -F '\t' '$2 == "fail" { print $3 "\t" $4; exit }')
+    if [ -n "$failed" ]; then
+      fail "$hook" "${failed%%	*}" "${failed#*	}"
+      hook_ok=0
+      continue
+    fi
+    for rel in $(printf '%s\n' "$result" | awk -F '\t' '$2 == "ok" { print $3 }'); do
       case "$rel" in /*|../*) ;; *) scan="$scan$NL$ROOT/$rel" ;; esac
     done
   done
