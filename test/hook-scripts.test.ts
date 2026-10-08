@@ -992,6 +992,22 @@ describe('check-careful.sh PowerShell and cmd coverage (#3067)', () => {
     expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
   });
 
+  test('Windows text-mode Python output (\\n written as \\r\\n) still dispatches on tool_name', () => {
+    // windows-free-tests run 37739845723: python3's text-mode stdout turned
+    // "PowerShell\n" into "PowerShell\r\n", so the PowerShell table never ran.
+    // A sitecustomize that rewraps stdout with newline='\r\n' reproduces it.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-careful-crlf-'));
+    fs.writeFileSync(path.join(dir, 'sitecustomize.py'),
+      "import io, sys\nsys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', newline='\\r\\n')\n");
+    try {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, psInput('Remove-Item -Recurse x'), { PYTHONPATH: dir });
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('pattern: ps_remove_item');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('a payload without tool_name is checked as Bash, exactly as before', () => {
     expect(carefulDecision(carefulInput('rm -rf /var/data')).decision).toBe('ask');
     expect(carefulDecision(carefulInput('Remove-Item -Recurse x')).decision).toBeUndefined();

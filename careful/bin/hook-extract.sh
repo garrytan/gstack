@@ -43,6 +43,8 @@ sys.stdout.write(c if isinstance(c, str) else "")' "$_ghef_field" 2>/dev/null &&
 #                        (the same shape $(gstack_hook_extract_field ...) gave)
 #   Returns 1 when no parser is available or the payload is not parseable
 #   JSON; the caller decides the polarity, exactly as for the field extractor.
+#   Python reads and writes bytes: Windows text-mode stdout turns every "\n"
+#   into "\r\n", which left tool_name as "PowerShell\r" and never matched.
 #   Payload shapes (Claude Code hooks reference, PreToolUse input): Bash and
 #   PowerShell carry tool_input.command; Edit and Write carry file_path;
 #   NotebookEdit carries notebook_path.
@@ -56,7 +58,7 @@ gstack_hook_extract_tool() {
   _ghet_ok=1
   if command -v python3 >/dev/null 2>&1; then
     _ghet_out=$(printf '%s' "$_ghet_payload" | python3 -c 'import sys,json
-d = json.loads(sys.stdin.read())
+d = json.loads(sys.stdin.buffer.read())
 t = d.get("tool_name", "") if isinstance(d, dict) else ""
 i = d.get("tool_input", {}) if isinstance(d, dict) else {}
 i = i if isinstance(i, dict) else {}
@@ -66,7 +68,7 @@ for k in sys.argv[1:]:
     if isinstance(c, str) and c:
         f, v = k, c
         break
-sys.stdout.write((t if isinstance(t, str) else "").replace("\n", " ") + "\n" + f + "\n" + v.rstrip("\n") + ".")' "$@" 2>/dev/null) && _ghet_ok=0
+sys.stdout.buffer.write(((t if isinstance(t, str) else "").replace("\n", " ") + "\n" + f + "\n" + v.rstrip("\n") + ".").encode("utf-8", "surrogatepass"))' "$@" 2>/dev/null) && _ghet_ok=0
   fi
   if [ "$_ghet_ok" -ne 0 ] && command -v node >/dev/null 2>&1; then
     _ghet_out=$(printf '%s' "$_ghet_payload" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch(e){process.exit(3)}const o=j&&typeof j==="object"?j:{};const t=typeof o.tool_name==="string"?o.tool_name:"";const i=o.tool_input&&typeof o.tool_input==="object"?o.tool_input:{};let f="",v="";for(const k of process.argv.slice(1)){const c=i[k];if(typeof c==="string"&&c){f=k;v=c;break}}process.stdout.write(t.replace(/\n/g," ")+"\n"+f+"\n"+v.replace(/\n+$/,"")+".")})' "$@" 2>/dev/null) && _ghet_ok=0
@@ -169,7 +171,7 @@ gstack_hook_decision() {
 gstack_hook_state_root() {
   gstack_state_root
 }
-_ghsr_twin="${BASH_SOURCE[0]%/*}/../../bin/gstack-state-root.sh"
+_ghsr_twin="${BASH_SOURCE[0]%[/\\]*}/../../bin/gstack-state-root.sh"
 if ! { [ -f "$_ghsr_twin" ] && . "$_ghsr_twin" 2>/dev/null; } || ! command -v gstack_state_root >/dev/null 2>&1; then
   unset -f gstack_hook_state_root
 fi
