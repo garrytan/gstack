@@ -20,6 +20,9 @@ run-name: ${{ inputs.nonce && format('Periodic Evals [eval-bg {0}]', inputs.nonc
 on:
   schedule:
     - cron: '0 6 * * 1'  # Monday 6 AM UTC; build-image below builds or reuses the CI image
+    # Daily, for autoplan-schema-canary alone (latest Claude Code vs the /autoplan
+    # guard's payload assumptions); every census job below skips this schedule.
+    - cron: '30 7 * * *'
   workflow_dispatch:
     inputs:
       redispatch_of:
@@ -38,13 +41,17 @@ on:
         description: 'eval-bg: dispatch nonce carried in the run name'
         type: string
         default: ''
+      schema_canary_only:
+        description: 'Run only autoplan-schema-canary (the daily latest-Claude-Code canary), not the census'
+        type: boolean
+        default: false
 
 # One group per ref AND event: a branch dispatch never cancels main's census,
 # and a manual main dispatch never cancels the scheduled one. A re-dispatch
 # runs in its own group so it never cancels the run that dispatched it; both
 # runs are reported.
 concurrency:
-  group: evals-periodic-${{ github.ref }}-${{ github.event_name }}${{ inputs.redispatch_of && format('-redispatch-{0}', inputs.redispatch_of) || '' }}
+  group: evals-periodic-${{ github.ref }}-${{ github.event_name }}${{ inputs.redispatch_of && format('-redispatch-{0}', inputs.redispatch_of) || '' }}${{ (github.event.schedule == '30 7 * * *' || inputs.schema_canary_only) && '-schema-canary' || '' }}
   cancel-in-progress: true
 
 env:
@@ -110,6 +117,9 @@ jobs:
   plan-slices:
     runs-on: ubicloud-standard-8
     timeout-minutes: 10
+    # The daily schedule and a canary-only dispatch run schema-canary alone;
+    # every census job needs this one, so they all skip with it.
+    if: ${{ github.event.schedule != '30 7 * * *' && !inputs.schema_canary_only }}
     permissions:
       contents: read
     outputs:
@@ -175,6 +185,54 @@ jobs:
           name: gate-census-plan
           path: /tmp/gate-census-plan/manifest.json
           retention-days: 30
+
+  # autoplan-schema-canary: installs the latest published Claude Code with
+  # install scripts off, audits registry signatures, and checks the Agent and
+  # Read hook payloads against the journal with the /autoplan guard's own
+  # comparison. Daily, so a schema strip reds within a day of a release; the
+  # weekly census also runs it. Read-only token; the key's spend is capped by
+  # the case (one haiku session, about $0.02).
+  schema-canary:
+    runs-on: ubicloud-standard-2
+    needs: build-image
+    if: ${{ github.event.schedule == '30 7 * * *' || inputs.schema_canary_only }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    env:
+      EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-schema-canary
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Fix bun temp
+        uses: ./.github/actions/fix-bun-temp
+
+      - name: Restore deps
+        uses: ./.github/actions/restore-deps
+
+      - name: Run autoplan-schema-canary on the latest Claude Code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GSTACK_EVAL_DIR: /tmp/schema-canary-results
+        run: EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --case autoplan-schema-canary --trials 1
+
+      - name: Upload canary results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: schema-canary-a${{ github.run_attempt }}
+          path: /tmp/schema-canary-results
+          if-no-files-found: ignore
+          retention-days: 90
 
   eval-slices:
     runs-on: ubicloud-standard-8

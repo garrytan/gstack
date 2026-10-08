@@ -1,0 +1,6 @@
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 1 | high | The retry loop ignores the configured cap. | Check the cap before each attempt. |
+| 2 | medium | The backoff constant is duplicated. | Import it from config. |
+
+Recommendation: fix the retry cap because callers can loop forever.

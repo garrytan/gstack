@@ -50,6 +50,8 @@ describe('generated Codex plan-review shell invocation', () => {
     const state = path.join(dir, 'state');
     fs.mkdirSync(state);
     fs.writeFileSync(path.join(state, '.codex-review-notice-shown'), '');
+    fs.writeFileSync(path.join(state, '.model-policy-notice-v1'), '');
+    fs.writeFileSync(path.join(dir, 'auth.json'), '{}');
     const calls = path.join(dir, 'calls');
     const stale = path.join(dir, 'codex-out-foreign');
     const staleError = path.join(dir, 'codex-planreview-foreign');
@@ -67,10 +69,12 @@ printf '%s\\n' "$p"
     // and writes its final message to -o (stdout carries --json events).
     writeBin('codex', `
 [ "$1" = sandbox ] && exit 0
-printf '%s\\n' "$FAKE_REVIEW_ID" >> "$FAKE_CALLS"
+[ "$1" = --version ] && { printf '%s\\n' 'codex-cli 0.160.0'; exit 0; }
 out=; prev=; for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done
+[ -n "$out" ] || { printf '%s\\n' OK; exit 0; }
+printf '%s\\n' "$FAKE_REVIEW_ID" >> "$FAKE_CALLS"
 cat > /dev/null
-printf '%s\\n' "$FAKE_REVIEW_ID: current findings" "Recommendation: fix $FAKE_REVIEW_ID because this is the current finding." > "$out"
+printf '%s\\n' "$FAKE_REVIEW_ID: current findings" "No issues found." "Recommendation: fix $FAKE_REVIEW_ID because this is the current finding." > "$out"
 printf '%s\\n' '{"type":"turn.completed"}'
 printf '%s\\n' "$FAKE_REVIEW_ID: current stderr" >&2
 exit "$FAKE_CODEX_STATUS"
@@ -95,13 +99,13 @@ exec ${quote(Bun.which('cat')!)} "$@"
       }));
     };
     // #2914: the selected model and its source are printed before the paid call.
-    const selected = `CODEX_MODEL: gpt-6-astra (exec; source: gstack default (no ${path.join(dir, 'config.toml')}))\n`;
+    const selected = (cached = false) => `CODEX_MODEL: gpt-6-astra (exec; role: plan-review, tier: frontier; source: gstack catalog frontier/openai (verified 2026-10-07))\nAUTH_OK\nMODEL_OK${cached ? ' (cached)' : ''}\n`;
     return { dir, run, stale, staleError, calls, selected,
       created: () => fs.existsSync(created) ? fs.readFileSync(created, 'utf8').trim().split('\n') : [],
       cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
   }
 
-  const findings = (id: string) => `${id}: current findings\nRecommendation: fix ${id} because this is the current finding.\n`;
+  const findings = (id: string) => `${id}: current findings\nNo issues found.\nRecommendation: fix ${id} because this is the current finding.\n`;
   // INV-1: the verdict-form validator prints its verdict before the completed status.
   const unavailable = (id: string) => `${findings(id)}VERDICT: unavailable\nFINDINGS: none\nREASON: execution_failed\n`;
   const completed = (id: string) => `${findings(id)}VERDICT: clean\nFINDINGS: none\nOUTSIDE_STATUS: completed provider=codex host=claude\n`;
@@ -112,7 +116,7 @@ exec ${quote(Bun.which('cat')!)} "$@"
       const results = f.run('current');
       expect(results.map(result => result.status)).toEqual([0]);
       expect(results[0]!.stdout).toBe(completed('current'));
-      expect(results[0]!.stderr).toBe(`${f.selected}current: current stderr\n`);
+      expect(results[0]!.stderr).toBe(`${f.selected()}current: current stderr\n`);
       expect(f.created()).toHaveLength(1);
       expect(f.created().every(file => !fs.existsSync(file))).toBe(true);
     } finally { f.cleanup(); }
@@ -147,7 +151,7 @@ exec ${quote(Bun.which('cat')!)} "$@"
         const results = f.run(id);
         expect(results.map(result => result.status)).toEqual([0]);
         expect(results[0]!.stdout).toBe(completed(id));
-        expect(results[0]!.stderr).toBe(`${f.selected}${id}: current stderr\n`);
+        expect(results[0]!.stderr).toBe(`${f.selected(id === 'second')}${id}: current stderr\n`);
       }
       expect(new Set(f.created()).size).toBe(2);
       expect(f.created().every(file => !fs.existsSync(file))).toBe(true);
@@ -258,8 +262,8 @@ describe('outside-voice dispatch contract', () => {
     const apply = rendered.indexOf('**4. Apply the answered row.**');
     expect(answer).toBeGreaterThan(0);
     expect(apply).toBeGreaterThan(answer);
-    // B1: the sandbox comes from _gstack_codex_select_model (read-only unless GSTACK_CODEX_NO_SANDBOX=1).
-    expect(rendered).toContain(`-s "\${_GSTACK_CODEX_SANDBOX:?}" ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="high"'`);
+    // B1: the sandbox comes from the probe's select-model (read-only unless GSTACK_CODEX_NO_SANDBOX=1).
+    expect(rendered).toContain(`-s "\${_CODEX_SANDBOX_MODE:?}" ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="high"'`);
   });
 
   test('the generated-carrier exception rejects missing wait, cancellation or result guards', () => {
@@ -274,10 +278,9 @@ describe('outside-voice dispatch contract', () => {
   });
 
   test('expanded Codex availability states preserve the same bounded dispatch guards', () => {
-    const earlier = rendered.replaceAll('broken_install', 'not_installed')
-      .replaceAll('model_unusable', 'not_authed');
-    expect(earlier).not.toBe(rendered);
-    for (const content of [earlier, rendered]) {
+    const expanded = rendered.replace('**If `CODEX_MODE: ready`', '**If `CODEX_MODE: ready` or `unverified (rate_limited)`');
+    expect(expanded).not.toBe(rendered);
+    for (const content of [rendered, expanded]) {
       expect(hasBoundedOutsideVoiceWait(content)).toBe(true);
       expect(hasBoundedOutsideVoiceWait(content.replace('call TaskStop with the same ID', 'missing cancellation'))).toBe(false);
     }

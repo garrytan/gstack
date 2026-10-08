@@ -1,0 +1,61 @@
+{
+  "claudeCodeVersion": "2.1.292",
+  "captured": "2026-10-07, interactive PTY session with default settings (clean config, no CLAUDE_CODE_FORK_SUBAGENT override), claude-haiku-4-5. A PreToolUse hook recorded each payload and, after the turn, its journal record.",
+  "payloadKeys": [
+    "session_id",
+    "transcript_path",
+    "cwd",
+    "prompt_id",
+    "permission_mode",
+    "hook_event_name",
+    "tool_name",
+    "tool_input",
+    "tool_use_id"
+  ],
+  "agentPayloads": [
+    {
+      "case": "lone dispatch, no run_in_background",
+      "tool_input": {
+        "description": "probe",
+        "prompt": "Reply with the single word OK.",
+        "subagent_type": "general-purpose"
+      }
+    },
+    {
+      "case": "forced run_in_background false",
+      "tool_input": {
+        "description": "probe2",
+        "prompt": "Reply with the single word OK.",
+        "subagent_type": "general-purpose"
+      }
+    }
+  ],
+  "forcedRunInBackground": {
+    "payloadInput": {
+      "description": "probe2",
+      "prompt": "Reply with the single word OK.",
+      "subagent_type": "general-purpose"
+    },
+    "journalInput": {
+      "description": "probe2",
+      "subagent_type": "general-purpose",
+      "prompt": "Reply with the single word OK.",
+      "run_in_background": "false"
+    }
+  },
+  "readPayload": {
+    "tool_input": {
+      "file_path": "<repo>/autoplan/sections/ceo-phase.md",
+      "offset": 1,
+      "limit": 5
+    }
+  },
+  "journalAtHookEntry": {
+    "present": false,
+    "appearedAfterMs": [
+      152,
+      152,
+      152
+    ]
+  }
+}

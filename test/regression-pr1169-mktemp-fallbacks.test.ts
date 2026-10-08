@@ -79,10 +79,11 @@ describe("#2679: skill-content mktemp guards", () => {
     expect(body).toMatch(/PR_BODY_FILE=\$\(mktemp "\$\{TMPDIR:-\/tmp\}\/[^"]+"\)\s*\|\|\s*\{[^}]*exit 1/);
   });
 
-  test("ship pr-body GitLab path sends the SCANNED file, never a re-rendered heredoc", () => {
+  test("ship pr-body GitLab path sends the SCANNED file through gstack-post, never a re-rendered heredoc", () => {
     const body = readScript("ship/sections/pr-body.md.tmpl");
-    expect(body).toContain('-d "$(cat "$PR_BODY_FILE")"');
-    expect(body).not.toMatch(/glab mr create[^\n]*-d "\$\(cat <<'EOF'/);
+    expect(body).toContain('gstack-post pr-create --base <base> --title-file "$TITLE_FILE" --body-file "${PR_BODY_FILE:?restore the composed body path}"');
+    expect(body).not.toMatch(/glab mr (?:create|update)/);
+    expect(body).not.toMatch(/cat <<'EOF'/);
   });
 
   test("gstack-upgrade vendored block guards mktemp -d and clone with loud aborts", () => {

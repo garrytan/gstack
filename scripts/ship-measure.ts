@@ -487,6 +487,10 @@ export function formatReport(outDir: string): string {
     for (const round of ledger?.rounds ?? []) {
       const m = readJson<Measurement>(path.join(dir, round, 'measurement.json'));
       if (!m) continue;
+      if (m.schema !== 'gstack-ship-measure/2') {
+        rows.push(`| ${m.case} | ${m.kind ?? '—'} | ${round} | — | — | older measurement format (${String(m.schema).replace(/\|/g, '/')}); not read, re-measure on this release | — | — |`);
+        continue;
+      }
       const bar = m.counted > m.plan.trials ? m.plan.pooledBar : m.plan.bar;
       const what = m.fix ? `${m.round}: after fix at ${m.fix.replace(/\|/g, '/')}` : m.round;
       const batches = m.sets.length > 1 ? ` (${m.sets.map(s => `${s.set} ${s.passes}/${s.trials}${s.void ? ' void' : ''}`).join(', ')})` : '';

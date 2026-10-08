@@ -120,7 +120,7 @@ describe('content-binding template drift', () => {
     const codex = rendered('codex/sections/review-mode.md');
     const starts = [...codex.matchAll(/gstack-review-log --start codex-review/g)];
     expect(starts).toHaveLength(2);
-    expect(starts[0].index).toBeLessThan(codex.indexOf('_gstack_codex_timeout_wrapper 330 codex review'));
+    expect(starts[0].index).toBeLessThan(codex.indexOf('run-with-timeout 330 codex review'));
     expect(starts[1].index).toBeLessThan(codex.indexOf('git diff "<base>...HEAD"'));
     expect(codex).toContain('--finish CODEX_REVIEW_START');
     expect(codex).toContain('"completed":COMPLETED,"converged":CONVERGED');

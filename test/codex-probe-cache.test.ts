@@ -85,6 +85,21 @@ describe('bounded multi-signature probe cache', () => {
     expect(entries(f)).toHaveLength(1);
   }));
 
+  test('a slow writer keeps another signature published while its round trip ran; same-signature still replaces', withFixture(async (f) => {
+    const slow = probeAsync(f, { ...model('gpt-slow'), STUB_SLEEP: '3' });
+    await Bun.sleep(1500);
+    expect(probe(f, { ...model('gpt-fast'), STUB_MODE: 'quota' }).stdout).toContain('rc=4');
+    expect(await slow).toMatch(/MODEL_OK\nrc=0/);
+    expect(entries(f)).toHaveLength(2);
+    expect(probe(f, model('gpt-fast')).stdout).toContain('MODEL_QUOTA_EXHAUSTED (cached)');
+    expect(probe(f, model('gpt-slow')).stdout).toContain('MODEL_OK (cached)');
+    expect(calls(f)).toBe(2);
+    expect(probe(f, { ...model('gpt-fast'), GSTACK_CODEX_PROBE_RETRY: '1' }).stdout).toContain('MODEL_OK\n');
+    expect(entries(f).map(line => line.split(' ')[0]).sort()).toEqual(['MODEL_OK', 'MODEL_OK']);
+    expect(probe(f, model('gpt-fast')).stdout).toContain('MODEL_OK (cached)');
+    expect(calls(f)).toBe(3);
+  }));
+
   test('the 17th signature evicts the oldest entry; the file never exceeds 16', withFixture((f) => {
     for (let i = 1; i <= 17; i++) expect(probe(f, model(`gpt-m${i}`)).stdout).toContain('MODEL_OK');
     expect(entries(f)).toHaveLength(16);

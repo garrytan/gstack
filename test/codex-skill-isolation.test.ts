@@ -43,7 +43,7 @@ describe('Codex skill isolation (#2847)', () => {
     const calls: string[] = [];
     for (const file of renderedSkillFiles()) {
       for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-        if (/_gstack_codex_timeout_wrapper\s+\d+\s+codex\s+(exec|review)\b/.test(line)) calls.push(`${path.relative(ROOT, file)}: ${line}`);
+        if (/run-with-timeout\s+\d+\s+codex\s+(exec|review)\b/.test(line)) calls.push(`${path.relative(ROOT, file)}: ${line}`);
       }
     }
     expect(calls.length).toBeGreaterThan(10);

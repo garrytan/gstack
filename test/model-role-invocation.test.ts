@@ -30,11 +30,12 @@ fs.writeFileSync(FAKE, `
 import { appendFileSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (args[0] === 'sandbox') process.exit(0);
-if (args[0] === '--version') { console.log('codex-cli ' + (process.env.FAKE_CODEX_VERSION ?? '0.160.0')); process.exit(0); }
+if (args[0] === '--version') { if (process.env.FAKE_VERSION_SLEEP) Bun.sleepSync(Number(process.env.FAKE_VERSION_SLEEP) * 1000); console.log('codex-cli ' + (process.env.FAKE_CODEX_VERSION ?? '0.160.0')); process.exit(0); }
 const claude = process.env.FAKE_AS === 'claude';
 const probe = !claude && args.includes('reply OK');
 appendFileSync(process.env.CALLS!, JSON.stringify({ args, probe }) + '\\n');
 if (probe) {
+  if (process.env.FAKE_PROBE_SLEEP) Bun.sleepSync(Number(process.env.FAKE_PROBE_SLEEP) * 1000);
   if (process.env.REPLACE_CONFIG) writeFileSync(process.env.GSTACK_HOME + '/config.yaml', process.env.REPLACE_CONFIG);
   if (process.env.FAKE_PROBE === 'model400') { console.error('ERROR: {"status":400,"error":{"message":"The model is not supported."}}'); process.exit(1); }
   if (process.env.FAKE_PROBE === 'broken') { console.error('Error: spawn codex-vendor ENOENT'); process.exit(1); }
@@ -42,11 +43,14 @@ if (probe) {
   process.exit(0);
 }
 if (!claude || args.includes('-')) await Bun.stdin.text();
-const response = 'Recommendation: split the migration because the plan couples two rollouts.';
+const response = 'Medium: the plan couples two rollouts.\\nRecommendation: split the migration because the plan couples two rollouts.';
 if (claude) console.log(JSON.stringify({ result: response, session_id: 's', modelUsage: { 'model-actual': { inputTokens: 1 } } }));
 else writeFileSync(args[args.indexOf('-o') + 1], response);
 `);
 fs.writeFileSync(path.join(BIN, 'codex'), `#!/usr/bin/env bash\nexec bun "${FAKE}" "$@"\n`, { mode: 0o755 });
+// Records when each supervised command starts and the deadline it was given.
+const TIMEOUT_LOG = path.join(TMP, 'timeout.log');
+fs.writeFileSync(path.join(BIN, 'timeout'), `#!/usr/bin/env bash\n[ -z "\${TIMEOUT_LOG:-}" ] || printf '%s %s\\n' "$(date +%s.%N)" "$*" >> "$TIMEOUT_LOG"\nexec "${Bun.which('timeout')}" "$@"\n`, { mode: 0o755 });
 
 const git = (args: string[]) => {
   const r = spawnSync('git', args, { cwd: REPO, encoding: 'utf8', timeout: 5000, env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
@@ -118,14 +122,12 @@ describe('plan-review role membership in shared generators', () => {
     ['document-release', generateCodexDocReview],
   ];
   for (const host of ['claude', 'codex'] as const) {
-    const roleMarker = host === 'claude' ? '_gstack_codex_role_ready exec "$_REPO_ROOT" || exit $?' : '--role plan-review';
+    const roleMarker = host === 'claude' ? '_CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?' : '--role plan-review';
     for (const [skill, render] of roleBearing) {
       test(`${host}: ${skill} invokes with the plan-review role only`, () => {
         const text = render(ctxFor(skill, host, HOST_PATHS.claude));
         expect(text).toContain(roleMarker);
-        expect(text).not.toMatch(/_gstack_codex_select_model (exec|review) \|\| exit 1/);
-        expect(text).not.toContain('_gstack_codex_model_probe');
-        expect(text).not.toContain('_CODEX_MP');
+        expect(text).not.toMatch(/select-model (exec|review)|probe-model|_gstack_codex_/);
         expect(text).not.toContain('without overriding either');
       });
     }
@@ -141,7 +143,8 @@ describe('plan-review role membership in shared generators', () => {
   test('spec keeps medium effort, its 120s deadline and spec gate on both providers', () => {
     const codex = RESOLVERS.OUTSIDE_INVOCATION(ctxFor('spec', 'claude'), ['spec']);
     expect(codex).toContain(`model_reasoning_effort="medium"`);
-    expect(codex).toContain('_gstack_codex_timeout_wrapper 120 codex exec');
+    expect(codex).toContain('export _CODEX_DEADLINE=$(($(date +%s)+120));');
+    expect(codex).toContain('run-with-timeout 120 codex exec');
     expect(codex).toMatch(/ spec "\$_OUTSIDE_TMP\/text"/);
     const claude = RESOLVERS.OUTSIDE_INVOCATION(ctxFor('spec', 'codex'), ['spec']);
     expect(claude).toContain('--timeout-ms 120000 --role plan-review');
@@ -154,14 +157,19 @@ describe('plan-review role membership in shared generators', () => {
         RESOLVERS.OUTSIDE_PREFLIGHT(ctxFor('spec', host, HOST_PATHS.claude), ['opt-in', 'plan-review']),
         outsideVoicePreflight(ctxFor('plan-eng-review', host, HOST_PATHS.claude), { disabledBehavior: 'skip-all', role: 'plan-review' }),
       ]) {
-        expect(text).not.toMatch(/_gstack_codex_(model|auth)_probe|_CODEX_MP|without overriding either/);
-        expect(text).toContain('the plan-review model (policy-selected, printed with its source) are checked by the actual invocation');
+        expect(text).not.toMatch(/probe-model|without overriding either/);
+        expect(text).toContain('[policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md)');
       }
     }
-    expect(RESOLVERS.OUTSIDE_PREFLIGHT(ctxFor('spec', 'claude', HOST_PATHS.claude), ['opt-in'])).toContain('without overriding either');
-    expect(generateCodexDocReview(ctxFor('document-release', 'claude', HOST_PATHS.claude))).toContain('{ _gstack_codex_model_probe; _CODEX_MP=$?; }');
-    expect(generateAdversarialStep(ctxFor('review', 'claude', HOST_PATHS.claude))).toContain('_gstack_codex_model_probe review');
-    expect(RESOLVERS.OUTSIDE_PREFLIGHT(ctxFor('spec', 'claude', HOST_PATHS.claude), ['opt-in'])).not.toContain('_gstack_codex_model_probe');
+    const noRoleSpec = RESOLVERS.OUTSIDE_PREFLIGHT(ctxFor('spec', 'claude', HOST_PATHS.claude), ['opt-in']);
+    expect(noRoleSpec).toContain('without overriding either');
+    expect(noRoleSpec).not.toContain('probe-model');
+    expect(noRoleSpec).not.toContain('model-policy.md');
+    const probeLoop = '_CODEX_PO=$("$_CODEX_PROBE" probe-model $_CODEX_KIND); _CODEX_MP=$?';
+    expect(generateCodexDocReview(ctxFor('document-release', 'claude', HOST_PATHS.claude))).toContain(probeLoop);
+    const adversarial = generateAdversarialStep(ctxFor('review', 'claude', HOST_PATHS.claude));
+    expect(adversarial).toContain('for _CODEX_KIND in exec review; do');
+    expect(adversarial).toContain(probeLoop);
   });
 });
 
@@ -169,7 +177,7 @@ describe('Codex plan-review invocation binds one selection', () => {
   test('a known-bad CLI version still warns without changing its advisory policy', () => {
     const result = run('claude', home(), { FAKE_CODEX_VERSION: '0.120.2' });
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/WARN:.*0\.120\.2.*known stdin deadlock/);
+    expect(result.stderr).toMatch(/WARN:.*0\.120\.2.*known stdin deadlock/);
     expect(result.calls.filter(call => call.probe)).toHaveLength(1);
     expect(result.calls.filter(call => !call.probe)).toHaveLength(1);
     expect(result.calls.every(call => codexModel(call) === 'model="gpt-6-astra"')).toBe(true);
@@ -190,7 +198,7 @@ describe('Codex plan-review invocation binds one selection', () => {
     const second = run('claude', h);
     expect(second.status).toBe(0);
     expect(second.stderr).not.toContain('NOTICE: gstack plan reviews');
-    expect(second.stdout).toContain('MODEL_OK (cached)');
+    expect(second.stderr).toContain('MODEL_OK (cached)');
     expect(second.calls.map(c => c.probe)).toEqual([false]);
   });
 
@@ -244,18 +252,19 @@ describe('Codex plan-review invocation binds one selection', () => {
     const r = run('claude', home(), { FAKE_PROBE: 'model400' });
     expect(r.status).toBe(1);
     expect(r.calls.map(c => c.probe)).toEqual([true]);
-    expect(r.stdout).toContain('MODEL_UNUSABLE');
-    expect(r.stdout).toContain('source: gstack catalog frontier/openai');
-    expect(r.stdout).toContain('gstack-config set model_frontier_openai <model-id>');
-    expect(r.stdout).not.toContain('set model in');
+    expect(r.stderr).toContain('MODEL_UNUSABLE');
+    expect(r.stderr).toContain('source: gstack catalog frontier/openai');
+    expect(r.stderr).toContain('gstack-config set model_frontier_openai <model-id>');
+    expect(r.stderr).not.toContain('set model in');
+    expect(r.stdout).not.toContain('OUTSIDE_STATUS');
   });
 
   test('a broken CLI found by the role probe exits 2 and never dispatches', () => {
     const r = run('claude', home(), { FAKE_PROBE: 'broken' });
     expect(r.status).toBe(2);
     expect(r.calls.map(c => c.probe)).toEqual([true]);
-    expect(r.stdout).toContain('MODEL_UNUSABLE_INSTALL');
-    expect(r.stdout).toContain('npm install -g @openai/codex');
+    expect(r.stderr).toContain('MODEL_UNUSABLE_INSTALL');
+    expect(r.stderr).toContain('npm install -g @openai/codex');
     expect(r.stdout).not.toContain('OUTSIDE_STATUS: completed');
   });
 
@@ -263,16 +272,98 @@ describe('Codex plan-review invocation binds one selection', () => {
     const r = run('claude', home(), { CODEX_API_KEY: '' });
     expect(r.status).toBe(1);
     expect(r.calls).toEqual([]);
-    expect(r.stdout).toContain('AUTH_FAILED');
+    expect(r.stderr).toContain('AUTH_FAILED');
   });
 
-  test('an explicit request outranks GSTACK_CODEX_MODEL in the probe helper', () => {
+  test('role-ready: a named model outranks GSTACK_CODEX_MODEL and is the model it probes; KEY lines only on stdout', () => {
     const h = home();
-    const r = spawnSync('bash', ['-c', `source "${ROOT}/bin/gstack-codex-probe" && _gstack_codex_select_model exec gpt-request plan-review && echo "SEL=$_GSTACK_CODEX_SEL"`],
+    fs.rmSync(CALLS, { force: true });
+    const r = spawnSync(path.join(ROOT, 'bin', 'gstack-codex-probe'), ['role-ready', 'exec', '--model', 'gpt-request', '--cwd', REPO],
       { env: env(h, 'claude', { GSTACK_CODEX_MODEL: 'gpt-env' }), encoding: 'utf8', timeout: 15000 });
-    expect(r.stdout).toContain('SEL=gpt-request');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('CODEX_SEL: gpt-request\nCODEX_SEL_KIND: exec\nCODEX_SANDBOX: read-only\nCODEX_PROBE_STATE: ok\n');
+    expect(r.stderr).toContain('CODEX_MODEL: gpt-request (exec; role: plan-review');
     expect(r.stderr).toContain('source: explicit request');
+    expect(fs.readFileSync(CALLS, 'utf8').trim().split('\n').map(line => codexModel(JSON.parse(line)))).toEqual(['model="gpt-request"']);
+    for (const bad of [['role-ready'], ['role-ready', 'plan'], ['role-ready', 'exec', '--model'], ['role-ready', 'exec', '--role', 'x']]) {
+      const u = spawnSync(path.join(ROOT, 'bin', 'gstack-codex-probe'), bad, { env: env(h, 'claude'), encoding: 'utf8', timeout: 15000 });
+      expect({ bad, status: u.status, stdout: u.stdout }).toEqual({ bad, status: 64, stdout: '' });
+    }
   });
+});
+
+describe('one deadline bounds Codex role readiness and dispatch (native F3)', () => {
+  const T = 10;
+  interface Supervised { at: number; duration: number; command: string }
+  function timed(h: { dir: string; state: string }, extra: Record<string, string> = {}) {
+    fs.rmSync(TIMEOUT_LOG, { force: true });
+    fs.rmSync(CALLS, { force: true });
+    const command = outsideVoiceCommand(ctxFor('plan-eng-review', 'claude'), { promptFile: PROMPT, timeoutMs: T * 1000, role: 'plan-review' });
+    const t0 = Date.now() / 1000;
+    const r = spawnSync('bash', ['-c', command], { cwd: REPO, env: env(h, 'claude', { TIMEOUT_LOG, ...extra }), encoding: 'utf8', timeout: 60000 });
+    const supervised: Supervised[] = (fs.existsSync(TIMEOUT_LOG) ? fs.readFileSync(TIMEOUT_LOG, 'utf8').split('\n').filter(Boolean) : []).map(line => {
+      const [at, , , duration, ...command] = line.split(' ');
+      return { at: Number(at) - t0, duration: Number(duration), command: command.join(' ') };
+    });
+    const calls = fs.existsSync(CALLS) ? fs.readFileSync(CALLS, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
+    return { ...r, out: `${r.stdout}${r.stderr}`, calls, dispatch: supervised.find(s => / exec - /.test(s.command)) };
+  }
+  // Readiness time already spent plus the dispatch's own limit stays within the
+  // provider budget (1.5s covers whole-second clock rounding and process start).
+  const withinBudget = (d: Supervised) => expect(d.at + d.duration).toBeLessThanOrEqual(T + 1.5);
+
+  test('cache hit: the dispatch keeps nearly the whole budget', () => {
+    const h = home();
+    expect(timed(h).status).toBe(0);
+    const r = timed(h);
+    expect(r.status).toBe(0);
+    expect(r.calls.filter((c: { probe: boolean }) => c.probe)).toHaveLength(0);
+    withinBudget(r.dispatch!);
+    expect(r.dispatch!.duration).toBeGreaterThanOrEqual(T - 2);
+  }, 60000);
+
+  test('cold cache: the probe elapsed time is charged to the dispatch', () => {
+    const r = timed(home(), { FAKE_PROBE_SLEEP: '3' });
+    expect(r.status).toBe(0);
+    expect(r.calls.map((c: { probe: boolean }) => c.probe)).toEqual([true, false]);
+    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6-astra"', 'model="gpt-6-astra"']);
+    withinBudget(r.dispatch!);
+  }, 60000);
+
+  test('contention: a waiter behind a live probe owner gives up within half the budget, unverified, without a probe', () => {
+    const h = home();
+    expect(timed(h).status).toBe(0);
+    const cache = path.join(h.state, '.codex-model-probe');
+    const sig = fs.readFileSync(cache, 'utf8').split('\n')[0]!.split(' ')[2]!;
+    fs.rmSync(cache);
+    const lock = path.join(h.state, '.codex-model-probe.locks', sig);
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, 'owner'), `${process.pid} ${os.hostname()} ${Math.floor(Date.now() / 1000)}\n`);
+    const r = timed(h, { _GSTACK_CODEX_LOCK_WAIT: '4' });
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('MODEL_PROBE_INCONCLUSIVE (another probe of this model still holds its lock)');
+    expect(r.calls.map((c: { probe: boolean }) => c.probe)).toEqual([false]);
+    expect(r.dispatch!.at).toBeLessThanOrEqual(T / 2 + 1.5);
+    withinBudget(r.dispatch!);
+  }, 60000);
+
+  test('transient: a probe still running at half the budget ends unverified and the dispatch gets only what remains', () => {
+    const h = home();
+    const r = timed(h, { FAKE_PROBE_SLEEP: '8' });
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('MODEL_PROBE_INCONCLUSIVE');
+    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6-astra"', 'model="gpt-6-astra"']);
+    withinBudget(r.dispatch!);
+    expect(fs.existsSync(path.join(h.state, '.codex-model-probe')) ? fs.readFileSync(path.join(h.state, '.codex-model-probe'), 'utf8') : '').not.toContain('MODEL_OK');
+  }, 60000);
+
+  test('exhausted: readiness that outlives the whole budget dispatches nothing and is missing coverage', () => {
+    const r = timed(home(), { FAKE_VERSION_SLEEP: String(T + 1) });
+    expect(r.status).toBe(124);
+    expect(r.calls).toEqual([]);
+    expect(r.dispatch).toBeUndefined();
+    expect(r.out).not.toContain('OUTSIDE_STATUS: completed');
+  }, 60000);
 });
 
 describe('Claude plan-review invocation emits one selected model or none', () => {
@@ -365,19 +456,20 @@ describe('Claude plan-review invocation emits one selected model or none', () =>
 
 describe('manual /codex entry: explicit role only, paid probe only for the dispatched model', () => {
   const skill = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md.tmpl'), 'utf8');
-  const preflight = skill.match(/```bash\n(_TEL=[^\n]*\n_CODEX_ROLE=''[\s\S]*?)\n```/)![1]!
+  const preflight = skill.match(/```bash\n(_CODEX_PROBE=[^\n]*\n_CODEX_ROLE=''[\s\S]*?)\n```/)![1]!
     .replace('{{OUTSIDE_SELF_GUARD:codex}}', RESOLVERS.OUTSIDE_SELF_GUARD(ctxFor('codex', 'claude', HOST_PATHS.claude), ['codex']));
   const withRole = (text: string, role: string) => text.replaceAll("_CODEX_ROLE=''", `_CODEX_ROLE='${role}'`);
-  const shell = (h: { dir: string; state: string }, script: string) => {
+  const shell = (h: { dir: string; state: string }, script: string, sh = 'bash') => {
     fs.mkdirSync(path.join(h.dir, '.claude', 'skills'), { recursive: true });
     if (!fs.existsSync(path.join(h.dir, '.claude', 'skills', 'gstack'))) fs.symlinkSync(ROOT, path.join(h.dir, '.claude', 'skills', 'gstack'));
     fs.rmSync(CALLS, { force: true });
-    const r = spawnSync('bash', ['-c', script], { cwd: REPO, env: env(h, 'claude', { CLAUDECODE: '', GSTACK_ACTIVE_HOST: '' }), encoding: 'utf8', timeout: 30000 });
+    const r = spawnSync(sh, sh === 'zsh' ? ['-f', '-c', script] : ['-c', script], { cwd: REPO, env: env(h, 'claude', { CLAUDECODE: '', GSTACK_ACTIVE_HOST: '' }), encoding: 'utf8', timeout: 30000 });
     const calls = fs.existsSync(CALLS) ? fs.readFileSync(CALLS, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
     return { ...r, calls: calls.filter((c: { args: string[] }) => c.args[0] === 'exec') };
   };
 
   test('Step 0.5 probes the native model without a role and makes no model call with it', () => {
+    expect(skill).toContain('[Policy setup](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md)');
     const plain = shell(home(), preflight);
     expect(plain.status).toBe(0);
     expect(plain.stdout).toContain('MODEL_OK');
@@ -391,30 +483,58 @@ describe('manual /codex entry: explicit role only, paid probe only for the dispa
 
   for (const file of ['challenge-mode', 'consult-mode', 'review-mode']) {
     const template = fs.readFileSync(path.join(ROOT, 'codex', 'sections', `${file}.md.tmpl`), 'utf8');
-    const selections = [...template.matchAll(/_CODEX_ROLE=''\n(_gstack_codex_select_model (exec|review) '' "\$_CODEX_ROLE" "\$_REPO_ROOT" \|\| exit 1\n\[ -z "\$_CODEX_ROLE" \] \|\| _gstack_codex_model_probe \2 \|\| exit \$\?)\n/g)];
-    test(`${file}: every dispatch block selects then, with the role only, probes that same model`, () => {
+    const selections = [...template.matchAll(/\{\{CODEX_SELECT:(exec|review):(\d+)\}\}/g)];
+    test(`${file}: every dispatch block selects then, with the role only, probes that same model under the block's own deadline`, () => {
       expect(selections.length).toBe(file === 'review-mode' ? 2 : 1);
-      expect(template.match(/_gstack_codex_select_model/g)!.length).toBe(selections.length + (file === 'review-mode' ? 1 : 0));
-      for (const [block, , kind] of selections) {
-        const script = (role: string) => `_REPO_ROOT='${REPO}'\nsource "${ROOT}/bin/gstack-codex-probe" || exit 1\n${withRole(block, role)}\necho "DISPATCH=$_GSTACK_CODEX_SEL"`;
+      expect(template.match(/\{\{CODEX_SELECT/g)!.length).toBe(selections.length);
+      for (const block of template.split(/\{\{CODEX_SELECT:/).slice(1)) {
+        const [kind, budget] = block.split('}}')[0]!.split(':');
+        const wrappers = [...block.split('```')[0]!.matchAll(/run-with-timeout (\d+) codex/g)].map(m => m[1]);
+        expect(wrappers.length).toBeGreaterThan(0);
+        expect(new Set(wrappers)).toEqual(new Set([budget]));
+        expect(kind).toMatch(/^(exec|review)$/);
+      }
+      for (const [, kind, budget] of selections) {
+        const rendered = RESOLVERS.CODEX_SELECT(ctxFor('codex', 'claude', HOST_PATHS.claude), [kind!, budget!]);
+        const script = (role: string, edit = (t: string) => t) => `_REPO_ROOT='${REPO}'\n${edit(withRole(rendered, role))}\necho "DISPATCH=$_CODEX_SEL DEADLINE=\${_CODEX_DEADLINE:-none}"`;
         const plain = shell(home(), script(''));
         expect(plain.status).toBe(0);
-        expect(plain.stdout).toContain('DISPATCH=gpt-5.6-terra');
+        expect(plain.stdout).toContain('DISPATCH=gpt-5.6-terra DEADLINE=none');
         expect(plain.calls).toEqual([]);
         const h = home();
+        const before = Math.floor(Date.now() / 1000);
         const role = shell(h, script('plan-review'));
         expect(role.status).toBe(0);
         expect(role.stdout).toContain('DISPATCH=gpt-6-astra');
+        const deadline = Number(role.stdout.match(/DEADLINE=(\d+)/)![1]);
+        expect(deadline).toBeGreaterThanOrEqual(before + Number(budget));
+        expect(deadline).toBeLessThanOrEqual(Math.ceil(Date.now() / 1000) + Number(budget));
         expect(role.calls.map(codexModel)).toEqual(['model="gpt-6-astra"']);
         expect(role.stderr).toContain(`CODEX_MODEL: gpt-6-astra (${kind}; role: plan-review, tier: frontier`);
         expect(role.stderr).toContain(NOTICE);
+        const named = shell(home(), script('plan-review', t => t.replace(`role-ready ${kind}`, `role-ready ${kind} --model 'gpt-named'`)));
+        expect(named.status).toBe(0);
+        expect(named.stdout).toContain('DISPATCH=gpt-named');
+        expect(named.stderr).toContain('source: explicit request');
+        expect(named.calls.map(codexModel)).toEqual(['model="gpt-named"']);
         const rejected = shell(home(), `export FAKE_PROBE=model400\n${script('plan-review')}`);
         expect(rejected.status).toBe(1);
         expect(rejected.stdout).not.toContain('DISPATCH=');
-        expect(rejected.stdout).toContain('gstack-config set model_frontier_openai <model-id>');
+        expect(rejected.stderr).toContain('gstack-config set model_frontier_openai <model-id>');
       }
-    });
+    }, 60000);
   }
+
+  test.skipIf(!Bun.which('zsh'))('zsh runs the same executed role selection and its deadline-capped dispatch', () => {
+    const rendered = RESOLVERS.CODEX_SELECT(ctxFor('codex', 'claude', HOST_PATHS.claude), ['exec', '540']);
+    const script = `_REPO_ROOT='${REPO}'\n${withRole(rendered, 'plan-review')}\n_CODEX_DEADLINE=$(( $(date +%s) + 1 ))\n"$_CODEX_PROBE" run-with-timeout 540 sleep 5; echo "RC=$? SEL=$_CODEX_SEL MODE=$_CODEX_SANDBOX_MODE"`;
+    const started = Date.now();
+    const r = shell(home(), script, 'zsh');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('RC=124 SEL=gpt-6-astra MODE=read-only');
+    expect(Date.now() - started).toBeLessThan(15000);
+    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6-astra"']);
+  }, 30000);
 });
 
 describe('invocation-boundary migration notice', () => {

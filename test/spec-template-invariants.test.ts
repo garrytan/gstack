@@ -177,14 +177,14 @@ describe('/spec fail-closed redaction (shared engine)', () => {
 });
 
 describe('/spec redaction at every sink (scan-at-sink, carved: gate-and-file section)', () => {
-  test('scan precedes the gh issue create (pre-issue)', () => {
-    const scanIdx = SEC_GEN.indexOf('Re-scan before filing');
-    const fileIdx = SEC_GEN.indexOf('gh issue create --title');
-    expect(scanIdx).toBeGreaterThan(-1);
-    expect(fileIdx).toBeGreaterThan(scanIdx);
+  test('the issue is filed only through gstack-post, which scans the title and body it sends (CEO-19)', () => {
+    const fileIdx = SEC_GEN.indexOf('gstack-post issue-create --title-file "$TITLE_FILE" --body-file "$REDACT_FILE")');
+    expect(fileIdx).toBeGreaterThan(-1);
+    expect(SEC_GEN).not.toMatch(/gh issue create --title/);
+    expect(SEC_GEN.slice(fileIdx)).toMatch(/Exit 1 \(HIGH\): do NOT file/);
   });
   test('files from the scanned temp file (exact bytes, not a re-render)', () => {
-    expect(SEC_GEN).toContain('ISSUE_URL=$(gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$REDACT_FILE")');
+    expect(SEC_GEN).toContain('POST_OUT=$(~/.claude/skills/gstack/bin/gstack-post issue-create --title-file "$TITLE_FILE" --body-file "$REDACT_FILE"); POST_CODE=$?');
     // CEO-12: the title is an agent-written file; no heredoc or quoted placeholder carries it.
     expect(SEC_GEN).toContain('TITLE_FILE=$(mktemp "${_GT:?}/title.XXXXXX")');
     expect(SEC_GEN).not.toContain('<<\'GSTACK_TITLE\'');

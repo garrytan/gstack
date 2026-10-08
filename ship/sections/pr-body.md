@@ -1,10 +1,40 @@
 <!-- AUTO-GENERATED from pr-body.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+### Prepare the title (Step 18)
+
+Prepare the title in a private file; Step 19 posts that file, never a shell string:
+
+```bash
+_GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
+mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
+TITLE_FILE=$(mktemp "${_GT:?}/pr-title.XXXXXX") || { echo "Not sent: mktemp failed in $_GT." >&2; exit 1; }; echo "TITLE_FILE: $TITLE_FILE (name: ${TITLE_FILE##*/})"
+```
+
+Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
+
+1. For an existing open PR/MR (not Step 6.5's early PR, which takes item 2), fill the file from the platform, substituting the
+   printed name, the matched number and `NEW_VERSION`; no title text passes through you:
+   ```bash
+   TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
+   gh pr view <pr-number> --json title -q .title | ~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh <new-version> --stdin > "$TITLE_FILE" || exit 1
+   ```
+   GitLab reads `glab mr view <pr-number> --output json | jq -r .title` into the same pipe.
+2. For a new PR/MR, write `v<NEW_VERSION> <type>: <summary>` into the file with your file-write tool.
+3. Every created or updated title MUST start with `v$NEW_VERSION `; check the file with
+   `grep -Eq '^v<new-version>( |$)' "$TITLE_FILE"` and never publish an unprefixed title.
+4. **NO_VERSION:** replaces items 1-3: keep an existing title (the platform title
+   piped straight into the file), or write `<type>: <summary>`; no version prefix.
+
+Save the title file name for Step 19.
+
+---
+
 ## Step 19: Create PR/MR
 
 Recheck Step 18's PR/MR lookup and record it. Errors or ambiguous matches STOP publication.
 If the open PR/MR or title changed, repeat Step 18's identity/title preparation,
-then return here for a new lookup, fresh body and both redaction scans before publishing.
+then return here for a new lookup and a fresh body before publishing.
 
 ### Resolve Linked Spec before composing the body
 
@@ -24,7 +54,7 @@ then return here for a new lookup, fresh body and both redaction scans before pu
    completed Step 8 plan scope permits `Closes #N`, with every spec criterion
    verified. Partial, deferred, failed, dropped or unverified scope uses `Linked to #N`
    and names the remaining work; never auto-close it. Include the archive filename
-   and `spec_filed_at`, not a private absolute path. Send these fields through the same redaction scan.
+   and `spec_filed_at`, not a private absolute path; `gstack-post` scans them with the body.
 
 The PR/MR body should contain these sections (never reuse a prior run's body):
 
@@ -92,7 +122,7 @@ Unavailable/inconclusive is never PASS.>
 
 ## Documentation
 <Embed Step 14.5's vetted nonempty `documentation_section` for this invocation:
-its saved section file, inserted unchanged by the scan block's `DOCS_SECTION_FILE` lines.
+its saved section file, inserted unchanged by the compose block's `DOCS_SECTION_FILE` lines.
 A blocked audit shipped under a user exception has no section file: state its
 blocked status, scope and exception here and drop the block's `DOCS_SECTION_FILE` guard
 and its `cat -- "$DOCS_SECTION_FILE" && echo &&` step.>
@@ -104,14 +134,14 @@ and its `cat -- "$DOCS_SECTION_FILE" && echo &&` step.>
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
-#### Redaction scan (PR body + title) — runs before create AND edit
+#### Compose the body, then publish through gstack-post
 
-The PR body is world-readable on a public repo. Scan-at-sink before sending:
-compose the body into a temp file, scan THAT file with the shared engine,
-and pass the same file to `gh`/`glab`. Wrap any Codex / Greptile / eval output
-sections in tool-attributed fences (` ```codex-review ` / ` ```greptile `) so the
-engine WARN-degrades the example credentials those tools quote instead of blocking
-the PR (a live-format credential inside the fence still blocks).
+The PR body is world-readable on a public repo. `gstack-post` scans the exact title
+and body bytes it sends and passes them to `gh`/`glab` as arguments, so there is no
+separate scan here. Wrap any Codex / Greptile / eval output sections in
+tool-attributed fences (` ```codex-review ` / ` ```greptile `) so the scanner
+WARN-degrades the example credentials those tools quote instead of blocking the PR
+(a live-format credential inside the fence still blocks).
 
 Write the body from above into two private files: the first through the
 `## Documentation` heading line, the second from `## Test plan` on.
@@ -126,69 +156,60 @@ BODY_REST_FILE=$(mktemp "${_GT:?}/pr-body-rest.XXXXXX") || { echo "Not sent: mkt
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
 
-Use Step 18's `NEW_TITLE` unchanged; its version prefix is already present.
-In a new shell, restore the saved literal title before this block, and Step 14.5's
-saved section file path as `DOCS_SECTION_FILE`. Substitute the printed names. The
-block deletes both drafts; to change the body, write fresh ones.
+In a new shell, restore Step 14.5's saved section file path as `DOCS_SECTION_FILE`
+and substitute the printed names. The block deletes both drafts; to change the body,
+write fresh ones.
 
 ```bash
-: "${NEW_TITLE:?Restore the saved Step 18 title before scanning}"
 : "${DOCS_SECTION_FILE:?Restore the saved Step 14.5 section file path before composing}"
-REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibility 2>/dev/null)
-[ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
-REDACT_VIS="${REDACT_VIS:-unknown}"
-PR_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-pr-body.XXXXXX") || { echo "ERROR: mktemp failed — cannot scan the PR body; refusing to create the PR unscanned." >&2; exit 1; }
+PR_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-pr-body.XXXXXX") || { echo "ERROR: mktemp failed — cannot compose the PR body; refusing to publish." >&2; exit 1; }
 BODY_TOP_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<body-top-file-name>"
 BODY_REST_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<body-rest-file-name>"
-[ -s "$BODY_TOP_FILE" ] && [ -s "$BODY_REST_FILE" ] || { echo "Not scanned: $BODY_TOP_FILE or $BODY_REST_FILE is empty, so the body was never written. Write both, then rerun." >&2; exit 1; }
+[ -s "$BODY_TOP_FILE" ] && [ -s "$BODY_REST_FILE" ] || { echo "Not composed: $BODY_TOP_FILE or $BODY_REST_FILE is empty, so the body was never written. Write both, then rerun." >&2; exit 1; }
 { awk 1 "$BODY_TOP_FILE" && cat -- "$DOCS_SECTION_FILE" && echo && awk 1 "$BODY_REST_FILE"; } > "$PR_BODY_FILE" || exit 1
 rm -f "$BODY_TOP_FILE" "$BODY_REST_FILE"
-~/.claude/skills/gstack/bin/gstack-redact --from-file "$PR_BODY_FILE" --repo-visibility "$REDACT_VIS" --self-email "$(git config user.email 2>/dev/null)" --json
-case $? in
-  0) ;;
-  3) echo "BLOCKED — credential in PR body. Rotate + redact, do not create the PR."; exit 1 ;;
-  2) echo "MEDIUM findings — confirm per finding (sterner on public) before proceeding." ;;
-  *) echo "BLOCKED — PR body scan failed. Repair the scanner and repeat before publication."; exit 1 ;;
-esac
-printf '%s' "$NEW_TITLE" | ~/.claude/skills/gstack/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
+echo "PR_BODY_FILE: $PR_BODY_FILE"
 ```
 
-Check both scan results: exit 0 permits publication; exit 2 requires
-AskUserQuestion per MEDIUM finding (PII offers `--auto-redact`); exit 3 blocks for
-HIGH findings. Exit 1 or any other error blocks until the scanner works and both
-scans pass. When visibility lookup is unavailable, including on GitLab, `unknown`
-uses the scanner's public-strict policy.
+In each block below, restore the literal `PR_BODY_FILE` path and substitute Step 18's
+title file name; `gstack-post` detects GitHub or GitLab from the remote and the repo's
+visibility (an unavailable lookup, including on GitLab, uses the scanner's
+public-strict policy). Never re-render the body: every retry sends the same files.
 
-For every create/edit command below, send the same scanned bytes. Never re-render
-the body. In a new shell, restore the literal `PR_BODY_FILE` path and `NEW_TITLE`.
-
-**Existing open PR/MR:** update using `gh pr edit --body-file "$PR_BODY_FILE"` (GitHub)
-or `glab mr update -d "$(cat "$PR_BODY_FILE")"` (GitLab).
-
-Update the title with the same scanned `NEW_TITLE`: `gh pr edit --title "$NEW_TITLE"` (or `glab mr update -t "$NEW_TITLE"`).
-
-**REST fallback:** if `gh pr edit` fails with the `repository.pullRequest.projectCards` GraphQL deprecation, do not re-ask for auth. Use the SAME scanned file: `PR_NUMBER=$(gh pr view --json number -q .number)`, then `gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" -X PATCH -F body=@"$PR_BODY_FILE"`; for the title use `gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" -X PATCH -f title="$NEW_TITLE"`.
-
-**Self-check:** re-fetch the title and assert it equals `NEW_TITLE`. Retry once if wrong, then surface any failure. Print the existing URL and continue to Step 20; do not run the create commands below.
-
-**No open PR/MR, GitHub:**
+**Existing open PR/MR** (`<pr-number>` from the recheck):
 
 ```bash
-[ -s "$PR_BODY_FILE" ] || { echo "ERROR: scanned body file missing/empty — re-run the scan block." >&2; exit 1; }
-gh pr create --base <base> --title "$NEW_TITLE" --body-file "$PR_BODY_FILE"
-rm -f "$PR_BODY_FILE"
+TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
+~/.claude/skills/gstack/bin/gstack-post pr-body <pr-number> --body-file "${PR_BODY_FILE:?restore the composed body path}" && \
+~/.claude/skills/gstack/bin/gstack-post pr-title <pr-number> --title-file "$TITLE_FILE"
 ```
 
-**No open PR/MR, GitLab:**
+It updates the body, then the title, retries a retired-GraphQL edit through REST and
+reads the title back. If Step 6.5 opened this PR as an early draft and the user did not
+ask for a draft, mark it ready now: `gh pr ready <pr-number>`. Print the existing URL
+and continue to Step 20; do not run the create command below.
+
+**No open PR/MR:**
 
 ```bash
-[ -s "$PR_BODY_FILE" ] || { echo "ERROR: scanned body file missing/empty — re-run the scan block." >&2; exit 1; }
-glab mr create -b <base> -t "$NEW_TITLE" -d "$(cat "$PR_BODY_FILE")"
-rm -f "$PR_BODY_FILE"
+TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
+~/.claude/skills/gstack/bin/gstack-post pr-create --base <base> --title-file "$TITLE_FILE" --body-file "${PR_BODY_FILE:?restore the composed body path}"
 ```
 
-**If neither CLI is available:**
-Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
+Branch on the exit code of either block:
+- **0** posted. Remove `$PR_BODY_FILE` and the title file.
+- **1** HIGH finding: BLOCKED — do not publish. Rotate and redact at the source, then
+  compose fresh files.
+- **2** MEDIUM findings, printed as `RULE:` lines with a `TOKEN:`. AskUserQuestion per
+  finding (sterner on public repos, no batch acknowledge). PII offers auto-redact:
+  write `~/.claude/skills/gstack/bin/gstack-redact --from-file "$PR_BODY_FILE" --auto-redact <ids>`
+  output back into the body file and rerun the block, which scans again. Only when the
+  user accepts the findings as they are, rerun the same block with
+  `--confirm <confirm-token>` added to the command that printed it; any edit needs a new token.
+- **3** `gh`/`glab` failed, or **64** no usable remote or CLI: print the error, the
+  branch name, the remote URL and the block for posting by hand. Do not stop — the code
+  is pushed — but never report a PR that was not created.
+- Any other exit is an error that blocks publication until its cause is fixed.
 
 **Output the PR/MR URL** — then proceed to Step 20.
 

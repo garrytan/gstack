@@ -32,7 +32,8 @@ Options:
   --no-prefix       Install skills with short names (e.g. /review). Default.
   --team            Switch to team mode (per-repo gstack with auto-update).
   --no-team         Force solo install even if a team-mode repo is detected.
-  --status          Print one row per gstack install (read-only) and exit.
+  --status          Print one row per gstack install, a Codex row and the
+                    path to gstack-doctor (read-only), then exit.
   --refresh-registered
                     Refresh every install registered for this checkout (what
                     /gstack-upgrade runs), then print one row per install.
@@ -135,11 +136,13 @@ for _arg in "$@"; do
     --status)
       _STATUS_DIR="$(cd "$(dirname "$0")" && pwd -P)"
       . "$_STATUS_DIR/bin/gstack-state-root.sh" && . "$_STATUS_DIR/bin/gstack-install-registry.sh" \
-        && . "$_STATUS_DIR/bin/gstack-render-claude.sh" || exit 1
+        && . "$_STATUS_DIR/bin/gstack-render-claude.sh" && . "$_STATUS_DIR/bin/gstack-codex-status.sh" || exit 1
       gstack_state_root_select; GSTACK_STATE_ROOT="$_gstack_sr_root"
       gstack_install_status
       _status_install_checks
       gstack_claude_overlay_status
+      gstack_codex_status_line "$_STATUS_DIR" "$GSTACK_STATE_ROOT"
+      echo "Readiness check: $(cd "$(dirname "$0")" && pwd)/bin/gstack-doctor"
       exit 0 ;;
   esac
 done

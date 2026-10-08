@@ -4,7 +4,7 @@
  * A content script runs in web-page context and can be influenced by page
  * content; a foreign extension is not us. Neither may read or spend the
  * browse server's auth token or port through background.js's message
- * surface. PR #1822 (@punksterlabs) found getPort handing the token to any
+ * surface. PR #1822 (@Mike-E-Log) found getPort handing the token to any
  * caller that passed the type allowlist; this suite pins the reimplemented
  * gate BEHAVIORALLY — it drives the real background.js onMessage listener
  * under a chrome stub with four sender shapes (own extension page, own

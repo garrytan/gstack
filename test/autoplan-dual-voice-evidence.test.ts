@@ -263,8 +263,8 @@ test.each(['assignment-only','set-config','other-config','foreign-reader','or-co
  if(kind==='inside-body')input.command=input.command.replace(guards+'\n','').replace('_OUTSIDE_EXIT=0','_OUTSIDE_EXIT=0\n'+guards);
  if(kind==='before-cd')input.command=guards+'\ncd '+f.dir+'\n'+f.options.commands.outside.replace("'<prepared-prompt-file>'","'"+f.file+"'");
  if(kind==='changed-harness')input.command=input.command.replace('exit 78','exit 0');
- if(kind==='changed-timeout')input.command=input.command.replace('_gstack_codex_timeout_wrapper 540','_gstack_codex_timeout_wrapper 1');
- if(kind==='changed-sandbox')input.command=input.command.replace('-s "${_GSTACK_CODEX_SANDBOX:?}"','-s danger-full-access');
+ if(kind==='changed-timeout')input.command=input.command.replace('run-with-timeout 540','run-with-timeout 1');
+ if(kind==='changed-sandbox')input.command=input.command.replace('-s "${_CODEX_SANDBOX_MODE:?}"','-s danger-full-access');
  if(kind==='changed-prompt')input.command=input.command.replace('codex exec - ','codex exec "Different plan" ');
  if(kind==='skipped-validator')input.command=input.command.replace(/^bun .*outside-review-result.*\n/m,'');
  if(kind==='suffix')input.command+='\ntrue';

@@ -40,7 +40,7 @@ import { generateTasksSectionEmit, generateTasksSectionAggregate } from './tasks
 import { SECTION, SECTION_INDEX } from './sections';
 import { generateRedactInvocationBlock } from './redact-doc';
 import { generateFreeTextFile } from './free-text-file';
-import { FOREGROUND_DISPATCH_NOTE } from './constants';
+import { FOREGROUND_DISPATCH_NOTE, codexSelect } from './constants';
 import { generateThirdPartyActions } from './third-party-actions';
 import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, generateUntrustedContentWarning, asideExecPrelude, asideResearchSend } from './aside';
 import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup, generateBrowseFallback } from './browse';
@@ -66,6 +66,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   CODEX_WEB_SEARCH_FLAG: generateCodexWebSearchFlag,
   CODEX_MODEL_CONFIG_FLAG: generateCodexModelConfigFlag,
   CODEX_REVIEW_MODEL_CONFIG_FLAG: generateCodexReviewModelConfigFlag,
+  CODEX_SELECT: (_ctx, args) => codexSelect(args?.[0] === 'review' ? 'review' : 'exec', undefined, args?.[1] ? { budgetSecs: Number(args[1]), optional: true } : undefined),
   CLAUDE_MODEL_FLAG: generateClaudeModelFlag,
   REDACT_INVOCATION_BLOCK: generateRedactInvocationBlock,
   FREE_TEXT_FILE: generateFreeTextFile,

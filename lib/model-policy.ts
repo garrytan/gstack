@@ -385,7 +385,10 @@ function claudeSettingsEnv(file: string): Record<string, unknown> | null {
   } catch {
     throw unresolved('anthropic', file, `${file} is not valid JSON`, `fix the JSON in ${file}`);
   }
-  const block = (parsed as { env?: unknown } | null)?.env;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw unresolved('anthropic', file, `${file} does not contain a settings object`, `fix the settings object in ${file}`);
+  }
+  const block = (parsed as { env?: unknown }).env;
   if (block === undefined) return {};
   if (typeof block !== 'object' || block === null || Array.isArray(block)) {
     throw unresolved('anthropic', file, `the env block in ${file} is not an object`, `fix the env block in ${file}`);
@@ -655,7 +658,5 @@ export function modelPolicyCommands() {
     useSmart: 'gstack-config set plan_review_tier smart',
     useHost: 'gstack-config set plan_review_tier host',
     restoreDefault: 'gstack-config unset plan_review_tier',
-    overrideExample: (provider: ModelProvider, tier: ModelTier) => `gstack-config set ${MODEL_OVERRIDE_KEYS[provider][tier]} <model-id>`,
-    unsetOverride: (provider: ModelProvider, tier: ModelTier) => `gstack-config unset ${MODEL_OVERRIDE_KEYS[provider][tier]}`,
   };
 }

@@ -2,44 +2,48 @@
 
 ## NEXT PRIORITY
 
-### P1–P3: Oct 6 fix-wave follow-ups (filed 2026-10-06)
+### P2/P3: Oct 7 fix-wave follow-ups (filed 2026-10-07)
 
-Deferred from the approved plan (docs/designs/FIX_WAVE_2026_10_06.md), each with its reason.
+Left open by the Oct 7 wave (docs/designs/FOLLOWUP_WAVE_2026_10_07.md), each with its reason.
 
-- **Bounded or incremental owned-journal read (P1, next wave)** — /autoplan's
-  guard reads the whole parent journal and refuses at 32 MiB (`too_large`,
-  #3050); long sessions reach 50-70 MiB. Read incrementally while keeping every
-  ownership and ancestry check. Acceptance: /autoplan completes in a session
-  whose journal is over 100 MiB, with phase-entry latency and peak memory
-  measured on macOS and Linux. **Effort:** L. **Priority:** P1.
-- **Greptile in parallel during /ship (#3020, full version)** — push early so
-  Greptile reviews while /ship runs its other passes, then merge its findings
-  into the review. This wave only skips triage when no PR exists.
+- **/autoplan permission cards after a background reviewer finishes (Claude Code
+  2.1.292)** — once a background reviewer's completion notice starts a new turn,
+  Claude Code stops applying the skill's allowed tools, so Reads outside the
+  project (the close packet, the next phase's section file) show permission
+  cards. Seen in both foreground and `--bg` PTY runs. Options: keep those
+  artifacts readable without a card, or detect it and explain it once.
   **Effort:** M. **Priority:** P2.
-- **Executed-subcommand Codex probe** — turn `bin/gstack-codex-probe` into an
-  executed command (`gstack-codex-probe select-model exec` printing its status
-  lines) so skills stop depending on the calling shell. The zsh fix (#3024)
-  keeps sourcing because skills call its functions across a block.
-  **Effort:** M. **Priority:** P2.
-- **Argument-array posting helper** — one gstack helper that posts PR and issue
-  text by passing arguments as an array, never through a shell string (the
-  stronger form of the free-text file rule). **Effort:** M. **Priority:** P2.
-- **Free text the lint cannot see yet** — question tuning's inline
-  `printf '%s' "<question summary>" | … --summary-stdin`, /ship's `NEW_TITLE`
-  restore and Step 18's `"<current title>"` prose, and the heredoc template in
-  `docs/gbrain-write-surfaces.md` should use the agent-written file too.
-  **Effort:** S. **Priority:** P2.
-- **/plan-tune free-text tune events** — preference writes from skills no
-  longer pass the user's own words (`free_text`), because they travelled
-  inside a single-quoted JSON argument. Pass them through the agent-written
-  file. **Effort:** S. **Priority:** P2.
+- **macOS numbers for the bounded journal read** — the guard's 120 MiB read
+  meets the Linux budget (0.43-0.87 s, at most 235 MiB peak RSS on 4 vCPU) and a
+  resumed 102 MiB session entered Phase 1 end to end. The macOS run is recorded
+  by dispatching `.github/workflows/measure-journal-read.yml`, which GitHub only
+  allows once the workflow is on main. **Effort:** S. **Priority:** P3.
+- **Every-transition manual /autoplan session on 2.1.292** — the replay
+  fixtures and the scripted live boundary (foreground and `--bg`) cover the
+  guard; one full recorded run through every phase transition is still to do.
+  **Effort:** S. **Priority:** P3.
+- **Remove the sourced Codex probe (on or after 2026-10-21)** — delete the
+  sourcing path of `bin/gstack-codex-probe`, its deprecation line, the zsh
+  self-locate block, the probe's entry in the zsh sourced-helper test and
+  `test/helpers/codex-probe-sourcing.ts`. **Effort:** S. **Priority:** P3.
+- **Move the remaining PR and issue writers to gstack-post** — /document-release's
+  PR body and title edit (with its own scan) and the test-failure triage issue
+  (`--assignee`) still call gh/glab directly. **Effort:** S. **Priority:** P3.
+- **`gstack-doctor --json`** — machine-readable rows for CI and bug-report
+  bots. Deferred as DX polish. **Effort:** S. **Priority:** P3.
+- **Doctor guard check against a named session journal** — run the guard's
+  reader on a given journal from `gstack-doctor`. Deferred: doctor runs outside
+  a session and the design is unclear. **Effort:** M. **Priority:** P3.
+- **One secret scanner for artifacts sync** — replace `bin/gstack-brain-sync`'s
+  Python scanner (and the hook copies written by init and restore) with
+  `lib/redact-engine.ts`. Deferred: a cross-language rewrite outside the
+  per-file hold. **Effort:** L. **Priority:** P3.
+- **Timed novice install journey** — measure a fresh install to a first skill
+  run, end to end. Deferred: outside a fix wave. **Effort:** M. **Priority:** P3.
 - **Native Windows Docker transport for /cso (#3028)** — `lib/cso/docker.ts`
   accepts only `unix:///` endpoints, so /cso on Windows reports "static
   assessment only" even with a trusted `docker.exe`. Add named-pipe transport
   with the same trust checks. **Effort:** L. **Priority:** P2.
-- **Readiness command** — a `gstack doctor` (or a Codex row in
-  `./setup --status`) that shows CODEX_MODE, the self-locate result and the
-  hook check without starting a skill. **Effort:** S. **Priority:** P3.
 
 ### P2/P3: reliability follow-ups deferrals (filed 2026-10-04, v1.91.30.0)
 

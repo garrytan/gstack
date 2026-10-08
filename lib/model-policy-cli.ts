@@ -161,6 +161,7 @@ function renderSelections(role: ModelRole, config: ModelPolicyConfig, selections
 
 function renderList(config: ModelPolicyConfig, selections: ModelSelection[]): string {
   const commands = modelPolicyCommands();
+  const configCommand = `'${CONFIG_BIN.replaceAll('\\', '/').replaceAll("'", "'\\''")}'`;
   const lines = [
     `gstack model policy (${OFFLINE_NOTE})`,
     `config: ${config.path}${config.exists ? '' : ' (not created yet; defaults apply)'}`,
@@ -175,6 +176,8 @@ function renderList(config: ModelPolicyConfig, selections: ModelSelection[]): st
       const entry = MODEL_CATALOG.find(e => e.tier === tier && e.provider === provider)!;
       const override = config.overrides[provider][tier];
       lines.push(`  ${tier.padEnd(8)} ${provider.padEnd(9)} ${entry.model.padEnd(18)} verified ${entry.verifiedAt}  ${MODEL_OVERRIDE_KEYS[provider][tier]}: ${override ?? 'unset'}`);
+      lines.push(`    ${configCommand} set ${MODEL_OVERRIDE_KEYS[provider][tier]} '${override ?? entry.model}'`);
+      lines.push(`    ${configCommand} unset ${MODEL_OVERRIDE_KEYS[provider][tier]}`);
     }
   }
   lines.push(
@@ -183,8 +186,6 @@ function renderList(config: ModelPolicyConfig, selections: ModelSelection[]): st
     `  ${commands.useSmart}`,
     `  ${commands.useHost}`,
     `  ${commands.restoreDefault}`,
-    `  ${commands.overrideExample('openai', 'frontier')}`,
-    `  ${commands.unsetOverride('openai', 'frontier')}`,
     'environment overrides GSTACK_CLAUDE_MODEL / GSTACK_CODEX_MODEL outrank plan-review tier settings',
     'custom-endpoint detection reads local settings files only; server-managed/MDM policy and CLI flags are not visible (see --help)',
   );

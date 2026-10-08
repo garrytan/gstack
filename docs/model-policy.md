@@ -64,6 +64,12 @@ uses the existing [gstack state root](state-root.md), not a new per-repository
 settings file. Invalid writes are rejected and leave the previous value intact;
 use `unset`, not an empty value, to restore a default.
 
+Codex plan-review readiness and dispatch share one deadline. Readiness is
+budgeted half the remaining time, with the existing termination grace. A slow
+preflight leaves less time for the review instead of extending the caller's
+limit. An expired deadline starts no new command and means missing review
+coverage, not a completed review.
+
 ## Settings and precedence
 
 | Key | Default | Accepted value |

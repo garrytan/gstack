@@ -39,13 +39,10 @@ fi
 # capture stderr to $TMPERR for auth error detection (was: 2>/dev/null).
 [ -n "${TMPERR:-}" ] || TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 TMPRESP=$(mktemp "$TMP_ROOT/codex-resp-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
-source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
-_CODEX_ROLE=''
-_gstack_codex_select_model exec '' "$_CODEX_ROLE" "$_REPO_ROOT" || exit 1
-[ -z "$_CODEX_ROLE" ] || _gstack_codex_model_probe exec || exit $?
+{{CODEX_SELECT:exec:540}}
 PROMPT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not run: $PROMPT_FILE is missing or empty, so the prompt was never written. Write it, then run by hand: codex exec - -C $_REPO_ROOT < $PROMPT_FILE" >&2; exit 1; }
-_gstack_codex_timeout_wrapper 540 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" {{CODEX_MODEL_CONFIG_FLAG}} -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+"$_CODEX_PROBE" run-with-timeout 540 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" {{CODEX_MODEL_CONFIG_FLAG}} -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
 turn_failed = False
@@ -87,20 +84,20 @@ elif turn_completed_count == 0:
 _CODEX_EXIT=${PIPESTATUS[0]:-${pipestatus[1]}}  # bash sets PIPESTATUS; zsh (lowercase, 1-indexed) falls through
 # Fix 1: hang detection — log + surface actionable message
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "540"
-  _gstack_codex_log_hang "challenge" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
+  "$_CODEX_PROBE" log-event codex_timeout "540"
+  "$_CODEX_PROBE" log-hang "challenge" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "Codex stalled past 9 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
 elif [ "$_CODEX_EXIT" != "0" ]; then
   # Surface non-zero exits so the calling agent doesn't read "no output" as
   # a silent model/API stall.
   echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
-  _gstack_codex_log_event "codex_nonzero_exit" "challenge:$_CODEX_EXIT"
+  "$_CODEX_PROBE" log-event codex_nonzero_exit "challenge:$_CODEX_EXIT"
 fi
 # Fix 2: surface auth errors from captured stderr instead of dropping them
 if grep -qiE "auth|login|unauthorized" "$TMPERR" 2>/dev/null; then
   echo "[codex auth error] $(head -1 "$TMPERR")"
-  _gstack_codex_log_event "codex_auth_failed"
+  "$_CODEX_PROBE" log-event codex_auth_failed
 fi
 bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex challenge' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPRESP.events" execution "$TMPRESP"
 rm -f "$TMPRESP" "$TMPRESP.events" "$PROMPT_FILE"

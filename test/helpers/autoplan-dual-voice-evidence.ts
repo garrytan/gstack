@@ -34,7 +34,7 @@ function block(source: string, needle: string): string {
 }
 export function loadAutoplanDualCommandContract(root: string) {
   return { probe: block(readFileSync(join(root, 'autoplan/SKILL.md'), 'utf8'), 'echo "CODEX_MODE: $_CODEX_MODE"'),
-    outside: block(readFileSync(join(root, 'autoplan/sections/ceo-phase.md'), 'utf8'), '_gstack_codex_timeout_wrapper 540 codex exec') };
+    outside: block(readFileSync(join(root, 'autoplan/sections/ceo-phase.md'), 'utf8'), 'run-with-timeout 540 codex exec') };
 }
 export interface AutoplanDualEvidenceOptions {
   ownedRoots: string[];

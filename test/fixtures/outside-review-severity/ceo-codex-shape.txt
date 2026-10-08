@@ -1,0 +1,17 @@
+Reviewed the CEO implementation snapshot end to end, including the release promises, Tier 1 items and the validation plan.
+
+1. **High** — P1 promises more than its acceptance proves. The plan declares /autoplan recovered on current Claude Code, but the only live proof is a single foreground phase entry. Require live phase transitions in the foreground and through `claude attach`, or narrow P1 and leave the issue open.
+
+2. **High** — The plan deepens the private-journal dependency. The payload path, flush rules and allowlist all read Claude Code's private journal. Time-box a supported-hook-event alternative, prove the canary catches a deliberate incompatibility, and test a working fallback.
+
+3. **High** — A4 can publish inconsistent artifact groups. Holding one flagged file while pushing its siblings can leave a decision log without its active snapshot on the remote. Hold coupled groups and restore onto a second machine in acceptance.
+
+4. **High** — Optional work can hold urgent recovery. Tier 2 rides in the same PR as the P0 fix. Keep one PR, but name the mandatory set and an admission cutoff, and produce the eval schedule and its cost before Tier 2 is admitted.
+
+5. **Medium** — B2 may not deliver faster review. Pushing early only helps when Greptile finishes before /ship's other passes. Measure it and keep it optional.
+
+6. **Medium** — There is no denominator to show the guards stopped crying wolf. Log every guarded attempt and its outcome, not only denials.
+
+7. **Medium** — The blanket contributor rewrite loses tested edge cases. Reuse contributors' regression tests when they pass review.
+
+Recommendation: Revise before implementation because the plan can declare recovery without proving its release promises and can publish partially usable state while optional work delays the fixes.

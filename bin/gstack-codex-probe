@@ -1,6 +1,34 @@
 #!/usr/bin/env bash
-# gstack-codex-probe: shared helper for /codex and /autoplan skills.
-# Sourced from template bash blocks; never execute directly.
+# gstack-codex-probe: shared helper for /codex, /autoplan and every outside
+# review. Run it as a command, one subcommand per probe (`gstack-codex-probe
+# help`): it prints KEY: value lines on stdout, human status lines where they
+# went before, and sets nothing in the caller's shell.
+#
+# Subcommands (each wraps one function below):
+#   select-model <exec|review> [--model <id>]  CODEX_SEL:, CODEX_SEL_KIND:, CODEX_SANDBOX:
+#   check-auth                                 exit 0 authed, 1 not
+#   show-sandbox                               CODEX_SANDBOX:
+#   check-sandbox                              exit 0, or 3 with the reason on stderr
+#   probe-model <exec|review> [--model <id>]   CODEX_PROBE_STATE:; exit 0, 1, 2 or 4
+#   role-ready <exec|review> [--model <id>] [--cwd <dir>]
+#                                              plan-review select, auth, sandbox and probe once:
+#                                              CODEX_SEL:, CODEX_SEL_KIND:, CODEX_SANDBOX:,
+#                                              CODEX_PROBE_STATE:; exit 0, 1, 2, 3 or 4
+#   check-version                              warnings on stderr; exit 0
+#   show-first-use-notice                      notice on stderr; exit 0
+#   run-with-timeout <secs> <cmd...>           the command's exit code; 124 on timeout
+#   log-event <event> [detail]                 silent; exit 0
+#   log-hang <skill> <prompt-size>             silent; exit 0
+#   help                                       usage; an unknown subcommand exits 64
+#
+# One deadline: an exported _CODEX_DEADLINE (epoch seconds) caps every
+# supervised command at the time left, and one that would start after it does
+# not run (exit 124). role-ready spends at most half of that time.
+#
+# Sourcing (compatibility window): skills rendered before the executed form
+# source this file and call the functions directly. That still works, prints
+# one deprecation line on stderr, and is removed in a release on or after
+# 2026-10-21 together with the zsh self-locate block below.
 #
 # Functions (all prefixed with _gstack_codex_ for namespace hygiene):
 #   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
@@ -11,19 +39,19 @@
 #   _gstack_codex_model_probe     — round-trip probe of the selected model (#2477);
 #                                   exit 4 = the account's Codex usage limit
 #   _gstack_codex_lock_acquire    — bounded mkdir lock with abandoned-owner recovery
-#   _gstack_codex_role_ready      — plan-review selection, auth, sandbox and model probe in one shell
+#   _gstack_codex_role_ready      — plan-review selection, auth, sandbox and model probe (role-ready)
 #   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
 #   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> bash-native watchdog
 #   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
 #
-# Hygiene rules (enforced by test/codex-hardening.test.ts):
+# Hygiene rules for the sourced form (enforced by test/codex-hardening.test.ts):
 #   - Never change -e / -u / traps / IFS / PATH in the caller shell.
 #   - All internal vars prefix with _GSTACK_CODEX_.
 #   - All functions prefix with _gstack_codex_.
-#   - No command execution at source time (only function defs and the shared
-#     self-location block below, which is parameter expansion only; its
-#     _gstack_helper* variables are the one exception to the prefix rule and
-#     are unset once _GSTACK_CODEX_BIN is set).
+#   - No command execution at source time (only function defs, the shared
+#     self-location block below, which is parameter expansion only, and the
+#     deprecation line; its _gstack_helper* variables are the one exception to
+#     the prefix rule and are unset once _GSTACK_CODEX_BIN is set).
 
 # --- Self-location (bash and zsh) -------------------------------------------
 # Under zsh BASH_SOURCE is empty, so every "$dir/../scripts/..." path became
@@ -166,11 +194,18 @@ _gstack_codex_select_model() {
 }
 
 _gstack_codex_role_ready() {
-  # $1 exec|review, $2 target repository. Resolves the plan-review model once and
-  # checks auth, the sandbox and that model; the caller dispatches the same record.
-  _gstack_codex_select_model "$1" '' plan-review "${2:-}" || return 1
+  # $1 exec|review, $2 target repository, $3 a model named for this request.
+  # Resolves the plan-review model once and checks auth, the sandbox and that
+  # model; the caller dispatches the same record. Under _CODEX_DEADLINE these
+  # checks get the first half of the time left, so the dispatch keeps the rest.
+  local _end="${_CODEX_DEADLINE:-}" _now
+  case "$_end" in
+    ''|*[!0-9]*) local _CODEX_DEADLINE="" ;;
+    *) _now=$(date +%s 2>/dev/null || echo 0); local _CODEX_DEADLINE=$(( _now + (_end - _now) / 2 )) ;;
+  esac
+  _gstack_codex_select_model "$1" "${3:-}" plan-review "${2:-}" || return 1
   _gstack_codex_auth_probe || return 1
-  _gstack_codex_sandbox_preflight >/dev/null || return 1
+  _gstack_codex_sandbox_preflight || return $?
   _gstack_codex_version_check
   _gstack_codex_model_probe "$1"
 }
@@ -324,7 +359,13 @@ _gstack_codex_model_probe() {
   # on a bounded lock and recheck the cache, so concurrent callers pay for one
   # round trip. A lock timeout or unreadable cache is unverified readiness,
   # never a duplicate paid probe; the review's own result still decides.
-  local _lock="" _rc
+  local _lock="" _rc _wait="${_GSTACK_CODEX_LOCK_WAIT:-45}"
+  # Under a deadline, wait only while the 30-second round trip still fits.
+  case "${_CODEX_DEADLINE:-}" in
+    ''|*[!0-9]*) ;;
+    *) [ $((_CODEX_DEADLINE - _now - 30)) -lt "$_wait" ] && _wait=$((_CODEX_DEADLINE - _now - 30))
+       [ "$_wait" -ge 0 ] || _wait=0 ;;
+  esac
   if [ -n "$_cache" ]; then
     _gstack_codex_probe_cache_hit; _rc=$?
     [ "$_rc" -lt 10 ] && return "$_rc"
@@ -333,9 +374,10 @@ _gstack_codex_model_probe() {
     if ! mkdir -p "$_gstack_home/.codex-model-probe.locks" 2>/dev/null; then
       _gstack_codex_probe_unverified "cannot create the probe lock under $_gstack_home"; return 0
     fi
-    _gstack_codex_lock_acquire "$_lock" "${_GSTACK_CODEX_LOCK_WAIT:-45}" "${_GSTACK_CODEX_LOCK_STALE:-90}"; _rc=$?
+    _gstack_codex_lock_acquire "$_lock" "$_wait" "${_GSTACK_CODEX_LOCK_STALE:-90}"; _rc=$?
     if [ "$_rc" -eq 1 ]; then _gstack_codex_probe_unverified "another probe of this model still holds its lock"; return 0; fi
     if [ "$_rc" -ne 0 ]; then _gstack_codex_probe_unverified "cannot record ownership of the probe lock under $_gstack_home"; return 0; fi
+    _now=$(date +%s 2>/dev/null || echo "$_now")
     _gstack_codex_probe_cache_hit; _rc=$?
     if [ "$_rc" -lt 10 ] || [ "$_rc" -eq 11 ]; then
       _gstack_codex_lock_release "$_lock"
@@ -504,14 +546,17 @@ _gstack_codex_probe_cache_store() {
   # lock and publishes it with one rename: this signature's entry replaces any
   # older one, expired entries drop, and at most 16 entries remain. A failure
   # leaves the previous file intact; the probe's own result still stands.
+  # Timestamps are publication time, read under the write lock: a slow round
+  # trip must not judge entries other probes published meanwhile as future.
   [ -n "$_cache" ] || return 0
   [ -d "$_cache" ] && return 1
-  local _w="$_gstack_home/.codex-model-probe.locks/write" _tmp="$_cache.tmp.$$" _wrc=0
+  local _w="$_gstack_home/.codex-model-probe.locks/write" _tmp="$_cache.tmp.$$" _wrc=0 _pub
   mkdir -p "$_gstack_home/.codex-model-probe.locks" 2>/dev/null || return 1
   _gstack_codex_lock_acquire "$_w" 5 30 || return 1
+  _pub=$(date +%s 2>/dev/null || echo "$_now")
   : > "$_tmp" 2>/dev/null || _wrc=1
   if [ "$_wrc" -eq 0 ] && [ -f "$_cache" ]; then
-    awk -v now="$_now" -v sig="$_sig" -v keep=15 '
+    awk -v now="$_pub" -v sig="$_sig" -v keep=15 '
       /^(MODEL_OK|MODEL_UNUSABLE|MODEL_QUOTA_EXHAUSTED) [0-9]+ [0-9]+$/ {
         ttl = ($1 == "MODEL_OK") ? 3600 : 900
         cur = ($3 != sig && $2 <= now && now - $2 < ttl)
@@ -524,7 +569,7 @@ _gstack_codex_probe_cache_store() {
   fi
   if [ "$_wrc" -eq 0 ]; then
     {
-      printf '%s %s %s\n' "$1" "$_now" "$_sig"
+      printf '%s %s %s\n' "$1" "$_pub" "$_sig"
       [ -z "${2:-}" ] || printf '%s\n' "$2" | awk '{ print "\t" $0 }'
     } >> "$_tmp" 2>/dev/null && mv -f "$_tmp" "$_cache" 2>/dev/null || _wrc=1
   fi
@@ -639,10 +684,22 @@ _gstack_codex_timeout_wrapper() {
   # (_GSTACK_CODEX_KILL_AFTER seconds, default 10), so the deadline always
   # ends the provider before the caller's outer tool gate (#2776). Either
   # way a deadline reports timeout(1)'s exit 124; output already written stays.
+  # An exported _CODEX_DEADLINE (epoch seconds) caps the duration at the time
+  # left; past it the command never starts.
   local _duration="$1"
   shift
   local _grace="${_GSTACK_CODEX_KILL_AFTER:-10}"
-  local _to _rc _start
+  local _to _rc _start _left
+  case "${_CODEX_DEADLINE:-}" in
+    ''|*[!0-9]*) ;;
+    *) _left=$(( _CODEX_DEADLINE - $(date +%s 2>/dev/null || echo 0) ))
+       if [ "$_left" -le 0 ]; then
+         echo "gstack: the invocation's deadline passed before this command started; nothing ran." >&2
+         return 124
+       fi
+       _start="${_duration%%.*}"
+       [ "${_start:-0}" -ge "$_left" ] && _duration="$_left" ;;
+  esac
   _to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
   if [ -n "$_to" ]; then
     _start=$(date +%s 2>/dev/null || echo 0)
@@ -730,3 +787,118 @@ _gstack_codex_log_hang() {
   "$_log_bin" "$(printf '{"skill":"codex","type":"operational","key":"%s","insight":"Codex hit its timeout wrapper during [%s] invocation. Prompt size: %s. Consider splitting prompt or checking network.","confidence":8,"source":"observed","files":["codex/SKILL.md.tmpl","autoplan/SKILL.md.tmpl"]}' "$_key" "$_mode" "$_prompt_size")" \
     >/dev/null 2>&1 || true
 }
+
+# --- Executed subcommands ----------------------------------------------------
+
+_gstack_codex_usage() {
+  printf '%s\n' \
+    'Usage: gstack-codex-probe <subcommand> [args]' \
+    '  select-model <exec|review> [--model <id>]  print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1' \
+    '  check-auth                                 exit 0 when Codex credentials exist, 1 otherwise' \
+    '  show-sandbox                               print CODEX_SANDBOX: read-only (or danger-full-access)' \
+    '  check-sandbox                              free sandbox check; exit 0, or 3 with the reason on stderr' \
+    '  probe-model <exec|review> [--model <id>]   paid round trip; print CODEX_PROBE_STATE:; exit 0, 1, 2 or 4' \
+    '  role-ready <exec|review> [--model <id>] [--cwd <dir>]' \
+    '                                             plan-review selection, auth, sandbox and probe once; print' \
+    '                                             CODEX_SEL:, CODEX_SEL_KIND:, CODEX_SANDBOX:, CODEX_PROBE_STATE:' \
+    '  check-version                              warn on stderr about known-bad Codex CLI versions; exit 0' \
+    '  show-first-use-notice                      once per machine, say where reviews go; exit 0' \
+    '  run-with-timeout <secs> <cmd...>           run cmd under a deadline; its exit code, 124 on timeout' \
+    '  log-event <event> [detail]                 record a telemetry event when telemetry is on; exit 0' \
+    '  log-hang <skill> <prompt-size>             record a timeout learning; exit 0' \
+    '  help                                       this text'
+}
+
+# Parses "<exec|review> [--model <id>]" into _GSTACK_CODEX_ARG_KIND and
+# _GSTACK_CODEX_ARG_MODEL; returns 64 on anything else.
+_gstack_codex_kind_args() {
+  _GSTACK_CODEX_ARG_KIND="${1:-}"
+  _GSTACK_CODEX_ARG_MODEL=""
+  case "$_GSTACK_CODEX_ARG_KIND" in exec|review) shift ;; *) return 64 ;; esac
+  if [ "$#" -eq 2 ] && [ "$1" = "--model" ] && [ -n "$2" ]; then
+    _GSTACK_CODEX_ARG_MODEL="$2"
+  elif [ "$#" -ne 0 ]; then
+    return 64
+  fi
+}
+
+# Parses "<exec|review> [--model <id>] [--cwd <dir>]" for role-ready.
+_gstack_codex_role_args() {
+  _GSTACK_CODEX_ARG_KIND="${1:-}"
+  _GSTACK_CODEX_ARG_MODEL=""
+  _GSTACK_CODEX_ARG_CWD=""
+  case "$_GSTACK_CODEX_ARG_KIND" in exec|review) shift ;; *) return 64 ;; esac
+  while [ "$#" -gt 0 ]; do
+    { [ "$#" -ge 2 ] && [ -n "$2" ]; } || return 64
+    case "$1" in
+      --model) _GSTACK_CODEX_ARG_MODEL="$2" ;;
+      --cwd) _GSTACK_CODEX_ARG_CWD="$2" ;;
+      *) return 64 ;;
+    esac
+    shift 2
+  done
+}
+
+_gstack_codex_main() {
+  local _cmd="${1:-}" _rc
+  [ "$#" -gt 0 ] && shift
+  case "$_cmd" in
+    log-event|probe-model|role-ready|check-sandbox|check-version)
+      # Telemetry is the caller's choice when it exports _TEL, else gstack-config's.
+      [ -n "${_TEL+set}" ] || _TEL=$("$_GSTACK_CODEX_BIN/gstack-config" get telemetry 2>/dev/null || echo off) ;;
+  esac
+  case "$_cmd" in
+    help|-h|--help) _gstack_codex_usage ;;
+    select-model)
+      _gstack_codex_kind_args "$@" || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL" || return 1
+      printf 'CODEX_SEL: %s\nCODEX_SEL_KIND: %s\nCODEX_SANDBOX: %s\n' "$_GSTACK_CODEX_SEL" "$_GSTACK_CODEX_SEL_KIND" "$_GSTACK_CODEX_SANDBOX" ;;
+    check-auth) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_auth_probe ;;
+    show-sandbox)
+      [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_sandbox_mode
+      printf 'CODEX_SANDBOX: %s\n' "$_GSTACK_CODEX_SANDBOX" ;;
+    check-sandbox) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_sandbox_preflight >&2 ;;
+    probe-model)
+      _gstack_codex_kind_args "$@" || { _gstack_codex_usage >&2; return 64; }
+      if [ -n "$_GSTACK_CODEX_ARG_MODEL" ] && ! _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL"; then
+        echo "MODEL_UNUSABLE"
+        echo "HINT: the requested Codex model is not a valid model id; fix it as described above."
+        echo "CODEX_PROBE_STATE: unusable"
+        return 1
+      fi
+      _gstack_codex_model_probe "$_GSTACK_CODEX_ARG_KIND"
+      _rc=$?
+      case "$_rc" in
+        0) echo "CODEX_PROBE_STATE: ${_GSTACK_CODEX_PROBE_STATE:-ok}" ;;
+        1) echo "CODEX_PROBE_STATE: unusable" ;;
+        2) echo "CODEX_PROBE_STATE: broken_install" ;;
+        4) echo "CODEX_PROBE_STATE: quota_exhausted" ;;
+        *) echo "CODEX_PROBE_STATE: error" ;;
+      esac
+      return "$_rc" ;;
+    role-ready)
+      _gstack_codex_role_args "$@" || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_role_ready "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_CWD" "$_GSTACK_CODEX_ARG_MODEL" >&2
+      _rc=$?
+      [ "$_rc" -eq 0 ] || return "$_rc"
+      printf 'CODEX_SEL: %s\nCODEX_SEL_KIND: %s\nCODEX_SANDBOX: %s\nCODEX_PROBE_STATE: %s\n' "$_GSTACK_CODEX_SEL" "$_GSTACK_CODEX_SEL_KIND" "$_GSTACK_CODEX_SANDBOX" "${_GSTACK_CODEX_PROBE_STATE:-ok}" ;;
+    check-version) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_version_check >&2; return 0 ;;
+    show-first-use-notice) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_first_use_notice; return 0 ;;
+    run-with-timeout)
+      case "${1:-}" in ''|*[!0-9.]*) _gstack_codex_usage >&2; return 64 ;; esac
+      [ "$#" -ge 2 ] || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_timeout_wrapper "$@" ;;
+    log-event) [ "$#" -ge 1 ] && _gstack_codex_log_event "$@" >/dev/null 2>&1; return 0 ;;
+    log-hang) _gstack_codex_log_hang "$@" >/dev/null 2>&1; return 0 ;;
+    *) _gstack_codex_usage >&2; return 64 ;;
+  esac
+}
+
+# Executed (bash through the shebang, $0 names this file): run one subcommand.
+# Sourced, including eval and zsh: keep the functions and say the form is going.
+if [ -n "${BASH_VERSION:-}" ] && [ "${0##*/}" = "gstack-codex-probe" ]; then
+  _gstack_codex_main "$@"
+  exit $?
+fi
+printf '%s\n' "gstack: sourcing gstack-codex-probe is deprecated and stops working in a release on or after 2026-10-21. Run /gstack-upgrade so your skills run it as a command (gstack-codex-probe help)." >&2

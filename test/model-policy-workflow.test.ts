@@ -1,7 +1,7 @@
 import { describe, expect, test, spyOn } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { MODEL_CATALOG, modelCatalogSha256 } from '../lib/model-catalog';
-import { assessFreshness, freshnessCatalogIdentity } from '../lib/model-policy-freshness';
+import { assessFreshness, freshnessCatalogIdentity, validLifecycle, validState } from '../lib/model-policy-freshness';
 import { FRESHNESS_SOURCES, FRESHNESS_BOUNDS, sha256 } from '../lib/model-policy-freshness-sources';
 import { FRESHNESS_ISSUE_AUTHOR, FRESHNESS_ISSUE_MARKER, FRESHNESS_REGION_BEGIN, FRESHNESS_REGION_END, publishFreshness, readFreshnessIssue, writeFreshnessIssue, type FreshnessGitHub, type TrackingIssue } from '../lib/model-policy-freshness-publication';
 import { freshnessGitHub } from '../lib/model-policy-freshness-github';
@@ -108,6 +108,148 @@ describe('stable-marker issue ownership and evidence lifecycle', () => {
     expect(api.issues[0].body).toContain(Buffer.from(broken.slice(broken.indexOf(FRESHNESS_REGION_BEGIN) + FRESHNESS_REGION_BEGIN.length, broken.indexOf(FRESHNESS_REGION_END)).trim(), 'utf8').toString('base64'));
     const next = await publishFreshness(freshnessObservation('102', '2026-10-09T12:00:00.000Z'), api.github, 'refs/heads/main');
     expect(next.report?.state.recoveryRequired).toBe(true);
+  });
+
+  test('valid empty state cannot erase independent retirement history during partial publication', async () => {
+    const initial = assessFreshness(freshnessObservation('100', undefined, { 'anthropic-lifecycle': retirementFixture() }));
+    const state = { ...initial.state, lifecycle: [] };
+    const broken = writeFreshnessIssue('', initial).replace(/(<!-- gstack:model-policy-freshness:state:begin -->\n)[^\n]+/, (_, marker) => marker + JSON.stringify(state));
+    const api = mockGitHub([{ number: 7, body: `Human retain decision\n${broken}\nHuman footer`, state: 'closed' }]);
+    const recovered = readFreshnessIssue(api.issues[0].body);
+    expect(validState(recovered.state)).toBe(true);
+    expect(recovered.state?.lifecycle).toEqual([]);
+    expect(recovered.lifecycle).toEqual(initial.state.lifecycle);
+    expect(recovered.recoveryRequired).toBe(true);
+    const result = await publishFreshness(freshnessObservation('101', '2026-10-08T12:00:00.000Z', { 'anthropic-lifecycle': null, 'openai-lifecycle': null }), api.github, 'refs/heads/main');
+    expect(result.action).toBe('updated');
+    expect(result.report?.state.lifecycle).toEqual(initial.state.lifecycle);
+    expect(result.report?.state.lastSuccess).toEqual(initial.state.lastSuccess);
+    expect(result.report?.status).toBe('unknown/source-unavailable');
+    expect(result.report?.complete).toBe(false);
+    const stored = readFreshnessIssue(api.issues[0].body);
+    expect(stored.state?.lifecycle).toEqual(initial.state.lifecycle);
+    expect(stored.lifecycle).toEqual(initial.state.lifecycle);
+    expect(stored.recoveryRequired).toBe(true);
+    expect(api.issues[0].state).toBe('open');
+    expect(api.issues[0].body).toContain('- URGENT: claude-fable-5-1 is deprecated; removal deadline 2026-11-01.');
+    expect(api.issues[0].body.startsWith('Human retain decision\n')).toBe(true);
+    expect(api.issues[0].body.endsWith('\nHuman footer')).toBe(true);
+    expect(api.issues[0].body).toContain(Buffer.from(broken.slice(broken.indexOf(FRESHNESS_REGION_BEGIN) + FRESHNESS_REGION_BEGIN.length, broken.indexOf(FRESHNESS_REGION_END)).trim(), 'utf8').toString('base64'));
+    const next = await publishFreshness(freshnessObservation('102', '2026-10-09T12:00:00.000Z'), api.github, 'refs/heads/main');
+    expect(next.report?.state.lifecycle).toEqual(initial.state.lifecycle);
+    expect(next.report?.state.lastSuccess).toEqual(initial.state.lastSuccess);
+    expect(next.report?.state.recoveryRequired).toBe(true);
+    expect(next.report?.complete).toBe(false);
+    expect(api.issues[0].state).toBe('open');
+  });
+
+  test('distinct valid state and history findings are both retained regardless of copy ownership', async () => {
+    const initial = assessFreshness(freshnessObservation('100', undefined, {
+      'anthropic-lifecycle': retirementFixture(),
+      'openai-lifecycle': freshnessFixture('openai-lifecycle').replace('`gpt-5.3-codex`', '`gpt-6-astra`'),
+    }));
+    expect(initial.state.lifecycle).toHaveLength(2);
+    for (const reversed of [false, true]) {
+      const findings = reversed ? initial.state.lifecycle.toReversed() : initial.state.lifecycle;
+      const state = { ...initial.state, lifecycle: [findings[0]] };
+      const history = [findings[1]];
+      const body = writeFreshnessIssue('', initial)
+        .replace(/(<!-- gstack:model-policy-freshness:state:begin -->\n)[^\n]+/, (_, marker) => marker + JSON.stringify(state))
+        .replace(/(<!-- gstack:model-policy-freshness:lifecycle:begin -->\n)[^\n]+/, (_, marker) => marker + JSON.stringify(history));
+      const recovered = readFreshnessIssue(body);
+      expect(validState(recovered.state)).toBe(true);
+      expect(validLifecycle(recovered.lifecycle)).toBe(true);
+      expect(recovered.state?.lifecycle).toEqual(state.lifecycle);
+      expect(recovered.lifecycle).toEqual(history);
+      const api = mockGitHub([{ number: 7, body, state: 'open' }]);
+      const result = await publishFreshness(freshnessObservation('101', '2026-10-08T12:00:00.000Z', { 'anthropic-lifecycle': null, 'openai-lifecycle': null }), api.github, 'refs/heads/main');
+      expect(result.report?.state.lifecycle).toEqual(initial.state.lifecycle);
+      expect(readFreshnessIssue(api.issues[0].body).lifecycle).toEqual(initial.state.lifecycle);
+      expect(result.report?.state.recoveryRequired).toBe(true);
+      expect(result.report?.state.lastSuccess).toEqual(initial.state.lastSuccess);
+      expect(api.issues[0].body).toContain('- URGENT: claude-fable-5-1 is deprecated; removal deadline 2026-11-01.');
+      expect(api.issues[0].body).toContain('- URGENT: gpt-6-astra is deprecated; removal deadline 2027-04-01.');
+      expect(api.issues[0].state).toBe('open');
+    }
+  });
+
+  test('conflicting copies retain the strongest severity, earliest deadline and full observation chronology', async () => {
+    const initial = assessFreshness(freshnessObservation('100', undefined, { 'anthropic-lifecycle': retirementFixture() }));
+    const finding = initial.state.lifecycle[0];
+    const severe = { ...finding, state: 'removed' as const, deadline: '2026-10-01', firstObservedAt: '2026-09-15T12:00:00.000Z', lastObservedAt: '2026-10-05T12:00:00.000Z' };
+    const early = { ...finding, state: 'legacy' as const, deadline: '2026-09-30', firstObservedAt: '2026-09-01T12:00:00.000Z', lastObservedAt: '2026-10-06T12:00:00.000Z', resolvedByCatalog: 'b'.repeat(64) };
+    for (const reversed of [false, true]) {
+      const state = { ...initial.state, lifecycle: [reversed ? early : severe] };
+      const history = [reversed ? severe : early];
+      const body = writeFreshnessIssue('', initial)
+        .replace(/(<!-- gstack:model-policy-freshness:state:begin -->\n)[^\n]+/, (_, marker) => marker + JSON.stringify(state))
+        .replace(/(<!-- gstack:model-policy-freshness:lifecycle:begin -->\n)[^\n]+/, (_, marker) => marker + JSON.stringify(history));
+      expect(validState(readFreshnessIssue(body).state)).toBe(true);
+      expect(validLifecycle(readFreshnessIssue(body).lifecycle)).toBe(true);
+      const api = mockGitHub([{ number: 7, body, state: 'closed' }]);
+      const result = await publishFreshness(freshnessObservation('101', '2026-10-08T12:00:00.000Z', { 'anthropic-lifecycle': null }), api.github, 'refs/heads/main');
+      const expected = [{ ...severe, deadline: early.deadline, firstObservedAt: early.firstObservedAt, lastObservedAt: early.lastObservedAt }];
+      expect(result.report?.state.lifecycle).toEqual(expected);
+      expect(validState(result.report?.state)).toBe(true);
+      expect(readFreshnessIssue(api.issues[0].body).lifecycle).toEqual(expected);
+      expect(result.report?.state.recoveryRequired).toBe(true);
+      expect(result.report?.state.lastSuccess).toEqual(initial.state.lastSuccess);
+      expect(api.issues[0].body).toContain('- URGENT: claude-fable-5-1 is removed; removal deadline 2026-09-30.');
+      expect(api.issues[0].state).toBe('open');
+    }
+  });
+
+  test('conflicting historical dispositions stay unresolved until manual repair even after a complete replacement check', async () => {
+    const initial = assessFreshness(freshnessObservation('100', undefined, { 'anthropic-lifecycle': retirementFixture() }));
+    const replacement = freshnessReplacementObservation();
+    const replaced = assessFreshness(replacement, initial.state);
+    const finding = replaced.state.lifecycle[0];
+    expect(finding.resolvedByCatalog).toBe(replacement.catalog.sha256);
+    for (const disposition of [undefined, 'd'.repeat(64)]) for (const reversed of [false, true]) for (const unavailable of [false, true]) {
+      const disagreement = { ...finding, resolvedByCatalog: disposition };
+      const state = { ...replaced.state, lifecycle: [reversed ? disagreement : finding] };
+      const history = [reversed ? finding : disagreement];
+      const body = writeFreshnessIssue('', replaced)
+        .replace(/(<!-- gstack:model-policy-freshness:state:begin -->\n)[^\n]+/, (_, marker) => marker + JSON.stringify(state))
+        .replace(/(<!-- gstack:model-policy-freshness:lifecycle:begin -->\n)[^\n]+/, (_, marker) => marker + JSON.stringify(history));
+      const api = mockGitHub([{ number: 7, body, state: 'closed' }]);
+      api.setIdentity({ defaultBranch: 'main', sourceSha256: replacement.catalog.sourceSha256 });
+      const next = structuredClone(replacement);
+      next.run.id = '102';
+      next.checkedAt = '2026-10-09T12:00:00.000Z';
+      if (unavailable) next.sources[3] = { id: 'openai-lifecycle', error: 'http-503' };
+      const result = await publishFreshness(next, api.github, 'refs/heads/main');
+      expect(result.report?.state.lifecycle).toHaveLength(1);
+      expect(result.report?.state.lifecycle[0].resolvedByCatalog).toBeUndefined();
+      expect(readFreshnessIssue(api.issues[0].body).lifecycle[0].resolvedByCatalog).toBeUndefined();
+      expect(result.report?.state.recoveryRequired).toBe(true);
+      expect(result.report?.state.lastSuccess).toEqual(replaced.state.lastSuccess);
+      expect(result.report?.status).toBe('unknown/source-unavailable');
+      expect(result.report?.complete).toBe(false);
+      expect(api.issues[0].body).toContain('- URGENT: claude-fable-5-1 is deprecated; removal deadline 2026-11-01.');
+      expect(api.issues[0].state).toBe('open');
+    }
+  });
+
+  test('matching resolved history remains resolved without recovery and only complete evidence closes the issue', async () => {
+    const initial = assessFreshness(freshnessObservation('100', undefined, { 'anthropic-lifecycle': retirementFixture() }));
+    const replacement = freshnessReplacementObservation();
+    const replaced = assessFreshness(replacement, initial.state);
+    for (const unavailable of [false, true]) {
+      const api = mockGitHub([{ number: 7, body: writeFreshnessIssue('', replaced), state: 'closed' }]);
+      api.setIdentity({ defaultBranch: 'main', sourceSha256: replacement.catalog.sourceSha256 });
+      const next = structuredClone(replacement);
+      next.run.id = '102';
+      next.checkedAt = '2026-10-09T12:00:00.000Z';
+      if (unavailable) next.sources[3] = { id: 'openai-lifecycle', error: 'http-503' };
+      const result = await publishFreshness(next, api.github, 'refs/heads/main');
+      expect(result.report?.state.lifecycle).toEqual(replaced.state.lifecycle);
+      expect(result.report?.state.recoveryRequired).toBe(false);
+      expect(result.report?.complete).toBe(!unavailable);
+      expect(result.report?.status).toBe(unavailable ? 'unknown/source-unavailable' : 'current');
+      expect(api.issues[0].state).toBe(unavailable ? 'open' : 'closed');
+      expect(api.issues[0].body).not.toContain('- URGENT:');
+    }
   });
 
   test('missing machine state is recovery, malformed owned boundary is not overwritten, and output is bounded', async () => {

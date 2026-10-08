@@ -120,7 +120,21 @@ function family(id: string): string {
 
 export function assessFreshness(observation: FreshnessObservation, previous: FreshnessState | null = null, recoveredLifecycle: LifecycleFinding[] = [], recoveryRequired = false): FreshnessReport {
   if (!validCatalog(observation.catalog) || !validRun(observation.run) || !isFreshnessDate(observation.checkedAt) || Date.parse(observation.checkedAt) < Date.parse(observation.run.startedAt)) throw new Error('invalid-observation-identity');
-  const lifecycle = new Map((previous?.lifecycle ?? recoveredLifecycle).map(finding => [finding.key, { ...finding }]));
+  const recovery = recoveryRequired || previous?.recoveryRequired === true;
+  const rank = { legacy: 1, deprecated: 2, removed: 3 };
+  const lifecycle = new Map<string, LifecycleFinding>();
+  for (const finding of [...(previous?.lifecycle ?? []), ...recoveredLifecycle]) {
+    const existing = lifecycle.get(finding.key);
+    if (!existing) {
+      lifecycle.set(finding.key, { ...finding });
+      continue;
+    }
+    if (rank[finding.state] > rank[existing.state]) existing.state = finding.state;
+    if (finding.deadline && (!existing.deadline || finding.deadline < existing.deadline)) existing.deadline = finding.deadline;
+    if (finding.firstObservedAt < existing.firstObservedAt) existing.firstObservedAt = finding.firstObservedAt;
+    if (finding.lastObservedAt > existing.lastObservedAt) existing.lastObservedAt = finding.lastObservedAt;
+    if (finding.resolvedByCatalog !== existing.resolvedByCatalog) delete existing.resolvedByCatalog;
+  }
   for (const finding of lifecycle.values()) {
     if (observation.catalog.models.some(model => model.provider === finding.provider && model.modelId === finding.modelId)) delete finding.resolvedByCatalog;
   }
@@ -134,7 +148,6 @@ export function assessFreshness(observation: FreshnessObservation, previous: Fre
     if (row && row.state !== 'active') {
       const key = `${model.provider}/${model.modelId}`;
       const previousFinding = lifecycle.get(key);
-      const rank = { legacy: 1, deprecated: 2, removed: 3 };
       const observedState = row.state === 'deprecated' && row.deadline && row.deadline <= observation.checkedAt.slice(0, 10) ? 'removed' : row.state;
       const state = previousFinding && rank[previousFinding.state] > rank[observedState] ? previousFinding.state : observedState;
       const deadline = previousFinding?.deadline && (!row.deadline || previousFinding.deadline < row.deadline) ? previousFinding.deadline : row.deadline;
@@ -145,10 +158,9 @@ export function assessFreshness(observation: FreshnessObservation, previous: Fre
     if (models?.lineup && !models.lineup.includes(model.modelId) && proposed === model.modelId) errors.push(`${model.provider}-models:inconsistent-default:${model.modelId}`);
   }
   const complete = errors.length === 0;
-  if (complete) for (const finding of lifecycle.values()) {
+  if (complete && !recovery) for (const finding of lifecycle.values()) {
     if (!observation.catalog.models.some(model => model.provider === finding.provider && model.modelId === finding.modelId)) finding.resolvedByCatalog = observation.catalog.sha256;
   }
-  const recovery = recoveryRequired || previous?.recoveryRequired === true;
   if (recovery) errors.push('authoritative-state-recovery-required:manual-triage');
   const lastSuccess: FreshnessEvidence | null = complete && !recovery ? {
     schemaVersion: 1, parserVersion: FRESHNESS_PARSER_VERSION, catalog: observation.catalog, checkedAt: observation.checkedAt,

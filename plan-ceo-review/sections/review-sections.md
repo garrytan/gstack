@@ -377,7 +377,7 @@ else
 fi
 ```
 
-The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and the plan-review model (policy-selected, printed with its source) are checked by the actual invocation. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Disabled ends this entire extra review step, including the native fallback; record outside_status: disabled and continue after the section. Disabled is not an unavailable provider and never triggers a replacement reviewer. Provider failure is missing outside coverage; follow the caller’s existing fallback only when reviews are enabled. Never substitute another external provider.
+The historical `CODEX_MODE` variable describes **Codex** availability here. The invocation checks auth and the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) plan-review model. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Disabled ends this entire extra review step, including the native fallback; record outside_status: disabled and continue after the section. Disabled is not an unavailable provider and never triggers a replacement reviewer. Provider failure is missing outside coverage; follow the caller’s existing fallback only when reviews are enabled. Never substitute another external provider.
 
 **Outcome routing:** Follow the row for the current result. After an invocation, route its result
 again. Leave only after recording disabled/unavailable coverage, or after
@@ -456,7 +456,7 @@ Its opening harness guard rechecks the fresh shell: exit 78 uses the same Native
 fallback below, never a replacement provider. Finish termination before fallback and consume only
 completed output. Use private temporary paths, with no background jobs.
 
-Create a private prompt file: run `umask 077; mktemp "${TMPDIR:-/tmp}/gstack-plan-prompt.XXXXXXXX"` in Bash and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in that file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
+Create a private prompt file: run `umask 077; mktemp "${TMPDIR:-/tmp}/gstack-plan-prompt.XXXXXXXX"` in Bash and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in that file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a severity (Critical, High, Medium or Low) per finding and a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -476,10 +476,13 @@ trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
-source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_role_ready exec "$_REPO_ROOT" || exit $?
-_gstack_codex_first_use_notice
+_CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
+export _CODEX_DEADLINE=$(($(date +%s)+300)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?
+_CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
+_CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
+"$_CODEX_PROBE" show-first-use-notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 300 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+"$_CODEX_PROBE" run-with-timeout 300 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
 cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }

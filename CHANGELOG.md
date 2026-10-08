@@ -1,5 +1,85 @@
 # Changelog
 
+## [1.91.34.0] - 2026-10-07
+
+**/autoplan works again on current Claude Code, including long sessions and `claude --bg`.**
+**The pre-push scan and the artifacts sync stop raising false alarms, and neither got weaker.**
+
+On Claude Code 2.1.29x, /autoplan refused every reviewer it dispatched and said "retry", which never helped. Two Claude Code changes caused it. In interactive sessions the fork-subagent setting drops `run_in_background` from the copy of the reviewer dispatch that hooks see, while the session journal keeps it, so the guard decided the call had been tampered with. Claude Code also often writes a tool call to the journal only after the hook has returned, so the guard waited two seconds for a record that never came. Sessions with a journal over 32 MiB were refused outright. The pre-push scan flagged your own email and emails already in the repo's history. One flagged file stopped the artifacts sync entirely, without telling you: one contributor's machine went 18 days without a push.
+
+### The numbers that matter
+
+All measured on Claude Code 2.1.292 unless marked otherwise. The paid runs are single trials.
+
+| Check | Before | After |
+|---|---|---|
+| Reviewer dispatches allowed in a default interactive session | 0 (each denied, "retry") | all; the live PTY case logs 3 verified allows |
+| Same, through `claude --bg` + `claude attach` | 0 | 3 verified allows |
+| Largest session journal the guard accepts | 32 MiB | any size; only a single record over 32 MiB counts as too large |
+| One guarded read of a 120 MiB journal (4 vCPU Linux, appending during the read) | refused | 0.43-0.87 s, 170-235 MiB peak memory |
+| Resumed 102 MiB session entering Phase 1 | refused | allowed, in 70 s |
+| Replay fixtures shaped like the reported timelines | 3 of 28 pass (the controls) | 28 of 28 |
+| Codex reviews listing 7 and 8 High/Medium findings | reported `VERDICT: clean` | reported as findings |
+| Artifacts sync with one flagged file | nothing pushes, no notice | that file waits, the rest pushes, and every skill start says so |
+
+### What this means for you
+
+Run `/gstack-upgrade`. No restart is needed. An /autoplan run already in progress may get one denial asking you to publish the phase report in its own message; do that and continue. You no longer need `CLAUDE_CODE_FORK_SUBAGENT=false` (keeping it is harmless). Then try `~/.claude/skills/gstack/bin/gstack-doctor` to see what's ready before you start a skill.
+
+#### If /autoplan denied every reviewer on Claude Code 2.1.29x
+
+The guard now ignores only the one key Claude Code drops. When the current call isn't in the journal yet, it checks the call Claude Code handed to the hook against everything already written. A phase report counts once something later in the journal follows it, so each phase now publishes its report in its own message, whose only tool call is `true autoplan-published <phase>` (no output, no permission prompt).
+
+When Claude Code itself leaves a call impossible to check, /autoplan continues and prints a visible warning instead of blocking. That covers an unknown journal shape, a journal that never catches up, a rewritten journal, an oversized record, or a newer Claude Code that drops another key. A changed reviewer prompt, a model override, a skipped report or any other integrity problem is still refused. Every message names a code with its own section in `docs/autoplan-guard-troubleshooting.md`. If a denial still appears, the fallback is `/plan-ceo-review`, then `/plan-devex-review`, then `/plan-eng-review`; or `/context-save`, a new session, `/context-restore`, then `/autoplan <plan path>`.
+
+#### If the pre-push hook warned on your own email
+
+The scan no longer reports your own address (`git config user.email`) or addresses already in the destination's history: authors and committers of the commits you push, of the remote branch you replace, and, for a new branch, of that remote's other branches. Mailmapped addresses count too. Each MEDIUM finding now names its rule, file and line, never the value. Addresses that only some other remote knows still report, and HIGH secrets still block. To allow a team or support address in one repo, run `git config --add gstack.redact.allowEmail support@example.com`. If the hook says "existing-email suppression was limited for this push", it couldn't read the history within 5 seconds, so known authors may be listed that one time.
+
+#### If artifacts sync stopped pushing
+
+Run `~/.claude/skills/gstack/bin/gstack-brain-sync --status`. Each held file is listed with the scanner rule that matched and two fixes. Edit the file and the next skill run syncs it. If you never want it synced, run `~/.claude/skills/gstack/bin/gstack-brain-sync --skip-file <path>`; undo that with `--unskip-file <path>`. A git index lock left behind by a killed sync is now cleared once it is 10 minutes old.
+
+### Behavior changes you may notice
+
+- **/ship opens the PR early in repos that use Greptile.** That means a `.greptile/` folder, a `greptile.json`, or Greptile comments on PRs in the last 90 days. /ship pushes and opens a draft as soon as its tests pass, Greptile reviews while /ship runs its own checks, and /ship waits up to 10 minutes for that review, then folds the comments into the same pass. On a public repo it asks once first, and remembers your answer for that repo. If /ship stops partway, the draft stays open with a comment saying why. To keep the old order, run `~/.claude/skills/gstack/bin/gstack-config set ship_greptile_early false`.
+- **Outside reviews that list findings without a tag, a severity label or a "no issues" statement show `unverified`, never `clean`.** Severity labels such as `High:` or `Severity: Medium` now count the same as `[P1]`-style tags.
+- **Skills run the Codex probe as a command.** Skills rendered before this release still source it. That keeps working, but prints one line saying it is deprecated; sourcing stops working in a release on or after 2026-10-21. `/gstack-upgrade` re-renders them.
+- **Browser skills offer a tab you're already signed in to** (title and origin only, for the site you named). They attach only after you confirm it once, instead of looping on "sign in again" for apps that keep the session in the tab or URL.
+- **/context-restore no longer hands you an older checkpoint without saying so.** When another branch's worktree saved a newer checkpoint for the same task, restore shows both and proposes the newer one. Generic titles like "wip" need a matching ticket number. Restoring from a folder above a repo also offers saves made in that repo.
+
+### Itemized changes
+
+#### Added
+- `bin/gstack-doctor`: one row each for install, state root, Bun, hooks, Codex (with the last cached model check and its age), artifacts sync, the browse bundle, the Claude Code version, your largest session journal, and the last five /autoplan guard codes. Each row reads ok, warn, not configured or fail, and only fail makes the exit code non-zero. Every fix line is a full path you can paste. It spends nothing unless you add `--live`. `./setup --status` gains a Codex row and ends with the doctor's path, and a new bug-report issue template asks for the doctor's output.
+- `bin/gstack-post`: posts PR and issue comments, replies, titles, bodies and new PRs or issues. Every value goes to `gh` or `glab` as an argument, never through a shell string, so a title like `--repo evil/x` is posted as text. It scans exactly the bytes it sends: a credential is refused, and a MEDIUM finding needs a confirmation token tied to those exact bytes. /ship, /spec and Greptile replies post through it.
+- `gstack-codex-probe` subcommands: `select-model`, `check-auth`, `show-sandbox`, `check-sandbox`, `probe-model`, `check-version`, `show-first-use-notice`, `run-with-timeout`, `log-event`, `log-hang` and `help`.
+- `gstack-brain-sync --unskip-file <path>` and `--attention`. The `--status` JSON gains `held` (path, rule and fixes for each held file), `held_count`, `drainable`, `last_drain_at` and `last_push_at`.
+- Every /autoplan guard decision, allow or deny, is logged without content to `~/.gstack/analytics/autoplan-guard.jsonl` (the last 1,000 lines are kept).
+- `ship_greptile_early` config key (default `true`).
+
+#### Changed
+- CI runs Claude Code 2.1.292 (was 2.1.284). A daily `autoplan-schema-canary` installs the newest Claude Code release and fails when its hook payload and journal record disagree in a new way.
+- Question tuning, /plan-tune and brain saves pass your words through a file. /plan-tune once again records what you said when you tune a question.
+- Phase reports in /autoplan are published in their own message, before the next phase starts in a later one.
+
+#### Fixed
+- /autoplan's publication guard on Claude Code 2.1.29x, in the foreground and with `--bg`: the dropped `run_in_background` key, a current call not yet in the journal, journals over 32 MiB, and a background reviewer that finishes after the turn ended. (#3062, #3050)
+- The pre-push scan's false alarms on your own email and on emails already in the repo history. MEDIUM findings now name rule, file and line. (#3060)
+- Artifacts sync: one flagged file no longer blocks every push. Decision logs and their active snapshots are held together, so the remote never gets half of a pair. Every gstack writer to the sync repo shares one lock. A failed commit keeps the queue. Undecodable bytes can no longer pass the scanner as clean. The pre-commit hooks written by init and restore now catch `Bearer`/`Basic`/`Token`-prefixed JSON auth headers, like the drain does. (#3055)
+- The outside-review classifier reported reviews with severity words and no `[Pn]` tags as clean.
+- /context-restore picked an older checkpoint from a nested repo or a task worktree. (#3065)
+- Browse cookbook: the script mistakes that look like page bugs (non-serializable `evaluate` results, a top-level `return`, `pg.press`, empty DOM reads). (#3063, #3064)
+- `ship-measure report` no longer crashes on a measurement saved by v1.91.32.0; it lists that round as an older format to re-measure.
+- The paid shared-code cases recognize Claude Code 2.1.292's own internal git probe, which now disables every git hook by name, instead of reading it as an unguarded git call from the skill.
+- Credits in the v1.64.0.0 entry: the extension token fix (#1822) goes to @Mike-E-Log, and the polyfill `exited` promise (#1743) to @habassa5. (#3054)
+
+#### For contributors
+- The guard's reason codes, dispositions and anchors live in `autoplan/bin/guard-reasons.ts`. The journal reader is `lib/claude-owned-journal.ts` (two-pass, append-tolerant) over the shared extractor `lib/claude-journal-records.ts`, and `autoplan/bin/guard-journal.ts` holds the invocation window. A free test fails on any denial that advises a retry without naming what to do first.
+- New paid cases: `autoplan-guard-pty` (gate, haiku) and `autoplan-long-session` (periodic). `autoplan-schema-canary` runs daily from `evals-periodic.yml`, or on dispatch with `schema_canary_only: true`. `scripts/measure-journal-read.ts` and the dispatch-only `measure-journal-read.yml` record read latency and memory.
+- `gstack-post`, the probe subcommands and `gstack-greptile-early` are not supported on native Windows yet; their CLI tests are excluded from the curated Windows subset, and the in-process tests for `gstack-post`, Greptile detection and the doctor run there.
+- Thanks to @yolo-jared and @crblabs (#3062), @akmandhania (#3060), @v639dragoon (#3055), @tomg65 (#3063, #3064, #3065), @Mike-E-Log (#3054) and @dgrant (#3020).
+
 ## [1.91.33.0] - 2026-10-06
 
 **A red eval case now gets one clear verdict from its measurement: meets, qualified, extend once, or fix.**
@@ -3105,7 +3185,7 @@ generation works again. Update gstack and the wave is yours.
   never enters the transcript.
 - The extension denies token/port reads to content scripts and foreign
   extensions, reimplemented for the v1.63 pinned-origin token model.
-  Contributed by @punksterlabs.
+  Contributed by @Mike-E-Log (#1822).
 - diff 9.0.0 (GHSA-73rr-hh4g-fpgx, @genisis0x); OpenAI key file written
   0600-at-create (@bunlongheng); injection-denylist and phone-pattern
   false positives calibrated (@Masashi-Ono0611, @JonasFocus, @abkrim).
@@ -3153,7 +3233,7 @@ generation works again. Update gstack and the wave is yours.
 - All three plan-tune hooks spawn their bins through a shared
   Windows-aware helper (@rafassousa); setup registers the SessionStart
   hook with a bash prefix (@NikhileshNanduri); BROWSE_BIN gets its .exe
-  (@rroojrooj); the polyfill exposes an exited promise (@punksterlabs)
+  (@rroojrooj); the polyfill exposes an exited promise (@habassa5)
   and the CJK terminal issues are gone (double-send fixed by
   @mindsurf0176, full-width font cells by @tomfluff).
 - New Windows regression tests run on windows-latest CI, not just as

@@ -660,6 +660,16 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 ## Troubleshooting
 
+**Not sure what's wrong?** Run the doctor: `~/.claude/skills/gstack/bin/gstack-doctor`
+(on other hosts, `./setup --status` in your gstack checkout ends with the
+doctor's absolute path). Without starting a skill or spending anything, it
+prints one row per check (install, state root, Bun, hooks, Codex and its cached
+model probe, artifacts sync, the browse bundle, Claude Code, your largest
+session journal and recent /autoplan guard codes), each `ok`, `warn`,
+`not configured` or `fail` with the command that fixes it. It exits non-zero
+only on `fail`. `--live` also runs the paid Codex model check (one short call).
+Paste its output into bug reports.
+
 **A message says `not run`, `unavailable` or names a fix?** Look it up in
 [docs/troubleshooting.md](docs/troubleshooting.md): every gate message gstack
 prints, what it means, what was kept, and the command that fixes it.

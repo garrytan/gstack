@@ -87,10 +87,10 @@ export function generateGBrainSaveResults(ctx: TemplateContext): string {
 
 **Skip this entire section if \`gbrain\` is not on PATH.**
 
-If the skill output is worth preserving, save it via
-\`gbrain put "<slug>" --content "<frontmatter + markdown>"\`. Full template
-(heredoc body, frontmatter shape, entity-stub instructions, throttle
-handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
+If the skill output is worth preserving, write the page (frontmatter + markdown)
+into a private file with your file-write tool and run
+\`gbrain put "<slug>" < "<page-file>"\`. Full template (frontmatter shape,
+entity stubs, throttle handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
   }
 
   return `## Save Results to Brain

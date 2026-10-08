@@ -1,0 +1,34 @@
+#!/usr/bin/env bun
+/**
+ * gstack-post — post PR/MR and issue text from agent-written files.
+ *
+ *   gstack-post {pr-comment|issue-comment|reply|pr-title|pr-body} <target> --body-file F|--title-file F
+ *   gstack-post pr-create --base <branch> [--head <branch>] [--draft] --title-file F --body-file F
+ *   gstack-post issue-create --title-file F --body-file F
+ *
+ * Scans the exact bytes it sends (lib/redact-engine.ts) and passes every value
+ * to gh/glab as an argv element or on stdin, never through a shell string.
+ * Exit: 0 posted · 1 HIGH refused · 2 MEDIUM needs --confirm <token> ·
+ * 3 gh/glab failed · 64 usage. Logic and full usage: lib/gstack-post.ts.
+ */
+import * as fs from "fs";
+import * as path from "path";
+import { spawnSync } from "child_process";
+import { runPost } from "../lib/gstack-post";
+
+const code = runPost(process.argv.slice(2), {
+  run(cmd, args, input) {
+    const r = spawnSync(cmd, args, {
+      input: input ?? "",
+      encoding: "utf8",
+      timeout: 120_000,
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? (r.error ? String(r.error) : "") };
+  },
+  readFile: (p) => fs.readFileSync(p, "utf8"),
+  out: (t) => process.stdout.write(t),
+  err: (t) => process.stderr.write(t),
+}, path.join(import.meta.dir, "gstack-config"));
+process.exitCode = code;

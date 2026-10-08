@@ -101,10 +101,12 @@ fi
 cd "$_REPO_ROOT" || exit 1
 PROMPT_FILE="$_REPO_ROOT/.gstack/tmp/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not run: $PROMPT_FILE is missing or empty, so the prompt was never written. Write it, then run by hand: codex exec - -C $_REPO_ROOT < $PROMPT_FILE" >&2; exit 1; }
-source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
+_CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
 _CODEX_ROLE=''
-_gstack_codex_select_model exec '' "$_CODEX_ROLE" "$_REPO_ROOT" || exit 1
-[ -z "$_CODEX_ROLE" ] || _gstack_codex_model_probe exec || exit $?
+if [ -n "$_CODEX_ROLE" ]; then export _CODEX_DEADLINE=$(($(date +%s)+540)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?
+else _CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1; fi
+_CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
+_CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
 _SID=""
 if [ "$_CODEX_MODE" = "resume" ]; then
   _SID=$(cat .context/codex-session-id 2>/dev/null)
@@ -113,9 +115,9 @@ fi
 _LABEL=consult${_SID:+-resume}
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
 if [ -n "$_SID" ]; then
-  _gstack_codex_timeout_wrapper 540 codex exec resume "$_SID" - -c "sandbox_mode=\"${_GSTACK_CODEX_SANDBOX:?}\"" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR"
+  "$_CODEX_PROBE" run-with-timeout 540 codex exec resume "$_SID" - -c "sandbox_mode=\"${_CODEX_SANDBOX_MODE:?}\"" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR"
 else
-  _gstack_codex_timeout_wrapper 540 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR"
+  "$_CODEX_PROBE" run-with-timeout 540 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR"
 fi | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
@@ -161,15 +163,15 @@ elif turn_completed_count == 0:
 # Fix 1: hang detection
 _CODEX_EXIT=${PIPESTATUS[0]:-${pipestatus[1]}}  # bash sets PIPESTATUS; zsh (lowercase, 1-indexed) falls through
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "540"
-  _gstack_codex_log_hang "$_LABEL" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
+  "$_CODEX_PROBE" log-event codex_timeout "540"
+  "$_CODEX_PROBE" log-hang "$_LABEL" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "Codex stalled past 9 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
 elif [ "$_CODEX_EXIT" != "0" ]; then
   # Surface non-zero exits so the calling agent doesn't read "no output" as
   # a silent model/API stall.
   echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
-  _gstack_codex_log_event "codex_nonzero_exit" "$_LABEL:$_CODEX_EXIT"
+  "$_CODEX_PROBE" log-event codex_nonzero_exit "$_LABEL:$_CODEX_EXIT"
 fi
 bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex consult' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPRESP.events" execution "$TMPRESP"
 rm -f "$PROMPT_FILE"

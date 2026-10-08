@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { modelCatalogSha256 } from '../lib/model-catalog';
 import { validatePolicyValue, type PolicyConfigKey } from '../lib/model-policy';
+import { CLAUDE_CODE_RUNTIME_FILES } from '../lib/claude-code-migration';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MODELS = path.join(ROOT, 'bin', 'gstack-models');
@@ -83,6 +84,33 @@ describe('gstack-models inspector', () => {
     expect(doc.selections[0]).toMatchObject({ status: 'selected', role: 'plan-review', provider: 'openai', tier: 'frontier', requestedModel: 'gpt-pinned', source: { kind: 'config', key: 'model_frontier_openai' } });
     const envWins = json(['resolve', '--role=plan-review', '--provider=openai'], { ...env, GSTACK_CODEX_MODEL: 'gpt-env' });
     expect(envWins.doc.selections[0]).toMatchObject({ requestedModel: 'gpt-env', source: { kind: 'env', name: 'GSTACK_CODEX_MODEL' } });
+  });
+
+  test('every tier entry includes executable pin and reset commands', () => {
+    const { env, root } = fixture();
+    const install = path.join(root, "installed gstack's runtime");
+    for (const file of CLAUDE_CODE_RUNTIME_FILES) {
+      const target = path.join(install, file);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.join(ROOT, file), target);
+    }
+    const listed = spawnSync(process.execPath, [path.join(install, 'bin/gstack-models'), 'list'], { cwd: root, env, encoding: 'utf-8', timeout: 30_000 });
+    expect(listed.status).toBe(0);
+    const lines = listed.stdout.split('\n').map(line => line.trim());
+    const { doc } = json([], env);
+    for (const entry of doc.tiers) {
+      const pin = lines.find(line => line.includes(` set ${entry.overrideKey} `));
+      const reset = lines.find(line => line.endsWith(` unset ${entry.overrideKey}`));
+      expect(pin).toBeDefined();
+      expect(reset).toBeDefined();
+      for (const command of [pin!, reset!]) {
+        const result = spawnSync('bash', ['-c', command], { cwd: root, env, encoding: 'utf-8', timeout: 30_000 });
+        expect(result.status).toBe(0);
+        const setting = json([], env).doc.settings[entry.overrideKey];
+        expect(setting.origin).toBe(command === pin ? 'config' : 'default');
+        expect(setting.effective).toBe(entry.catalogModel);
+      }
+    }
   });
 
   test('resolve implementation returns both providers unless one is named', () => {
@@ -169,6 +197,25 @@ describe('gstack-models inspector', () => {
     expect(doc.providerDetection.unscanned.anthropic.join(' ')).toContain('server-managed');
     expect(json(['resolve', '--role', 'plan-review', '--provider', 'anthropic'], env).code).toBe(0);
     expect(models(['--help'], env).stdout).toContain('cannot see server-managed or MDM policy');
+  });
+
+  test.each(['[]', 'null', '"unsupported"', 'true', '42'])('unsupported native settings root %s fails closed without writes', (contents) => {
+    const { root, home, env } = fixture();
+    const directory = path.join(home, '.claude');
+    fs.mkdirSync(directory);
+    const settings = path.join(directory, 'settings.json');
+    fs.writeFileSync(settings, '{}');
+    const args = ['resolve', '--role', 'plan-review', '--provider', 'anthropic'];
+    expect(json(args, env).code).toBe(0);
+    fs.writeFileSync(settings, contents);
+    const before = tree(root);
+    const result = json(args, env);
+    expect(result.code).toBe(1);
+    expect(result.doc.selections).toEqual([]);
+    expect(result.doc.errors[0]).toMatchObject({ reason: 'native_provider_unresolved', key: settings });
+    expect(result.doc.errors[0].repair).toContain(`fix the settings object in ${settings}`);
+    expect(tree(root)).toEqual(before);
+    expect(json(args, { ...env, GSTACK_CLAUDE_MODEL: 'claude-explicit' }).doc.selections[0].requestedModel).toBe('claude-explicit');
   });
 
   test('inspection never writes to the state root or home', () => {

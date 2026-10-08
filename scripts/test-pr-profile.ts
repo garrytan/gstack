@@ -227,6 +227,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/free-tests.yml',
   '.github/workflows/make-pdf-gate.yml',
   '.github/workflows/model-policy-freshness.yml',
+  '.github/workflows/measure-journal-read.yml',
   '.github/workflows/native-qualification.yml',
   '.github/workflows/osv-scanner.yml',
   '.github/workflows/platform-qualification.yml',

@@ -664,7 +664,7 @@ describe('outside-voice commitment queue', () => {
         expect(eng).not.toContain('codex exec');
       } else {
         expect(eng).toContain('codex exec');
-        expect(eng).toContain('_gstack_codex_role_ready exec');
+        expect(eng).toContain('_CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?');
       }
     }
   });

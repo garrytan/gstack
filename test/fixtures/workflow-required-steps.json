@@ -126,6 +126,9 @@
       "sections/changelog.md": [
         "## Step 13: CHANGELOG (auto-generate)"
       ],
+      "sections/greptile-early.md": [
+        "## Step 6.5: Early Greptile PR (after the free tests pass)"
+      ],
       "sections/greptile.md": [
         "## Step 10: Address Greptile review comments (if PR exists)"
       ],

@@ -163,7 +163,7 @@ If Codex is available, run a lightweight design check on the diff:
 
 Prompt: "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line."
 
-Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
+Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a severity (Critical, High, Medium or Low) per finding and a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -183,11 +183,14 @@ trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
-source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_select_model exec || exit 1
-_gstack_codex_sandbox_preflight >/dev/null || exit 1
-_gstack_codex_first_use_notice
+_CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
+_CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1
+_CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
+_CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
+"$_CODEX_PROBE" check-sandbox || exit 1
+"$_CODEX_PROBE" show-first-use-notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 300 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+"$_CODEX_PROBE" run-with-timeout 300 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
 cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
@@ -338,7 +341,7 @@ Past learnings: {learnings or 'none'}"
 
 **Subagent configuration:**
 - Use `subagent_type: "general-purpose"`
-- Pass `run_in_background: false` on every specialist Agent call — background is the default since Claude Code v2.1.198; omitting the flag is not foreground.
+- Pass `run_in_background: false` when available on every specialist Agent call — background is the default since Claude Code v2.1.198; omitting an available flag is not foreground. A launch receipt means it went background: await its completion notice.
 
 **Wait for readers before editing:**
 - Confirm that each task has finished or is stopped. A timeout alone does not prove termination. If a reader or writer is still active, wait; if its state is unknown, inspect its task/process status. If you cannot confirm it stopped, use the parent's Fix-First stop path without edits.
@@ -460,7 +463,7 @@ completion. Advice never permits edits while readers are active or replaces a re
 
 **Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
 
-If activated, dispatch one more subagent via the Agent tool (pass `run_in_background: false` — foreground; subagents default to background since Claude Code v2.1.198).
+If activated, dispatch one more subagent via the Agent tool (pass `run_in_background: false` when available — foreground; subagents default to background since Claude Code v2.1.198; A launch receipt means it went background: await its completion notice.)
 
 The Red Team subagent receives:
 1. The red-team checklist path `~/.claude/skills/gstack/review/specialists/red-team.md` (it reads the file)

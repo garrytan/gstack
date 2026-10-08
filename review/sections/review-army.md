@@ -114,7 +114,7 @@ Past learnings: {learnings or 'none'}"
 
 **Subagent configuration:**
 - Use `subagent_type: "general-purpose"`
-- Pass `run_in_background: false` on every specialist Agent call — background is the default since Claude Code v2.1.198; omitting the flag is not foreground.
+- Pass `run_in_background: false` when available on every specialist Agent call — background is the default since Claude Code v2.1.198; omitting an available flag is not foreground. A launch receipt means it went background: await its completion notice.
 
 **Wait for readers before editing:**
 - Confirm that each task has finished or is stopped. A timeout alone does not prove termination. If a reader or writer is still active, wait; if its state is unknown, inspect its task/process status. If you cannot confirm it stopped, use the parent's Fix-First stop path without edits.
@@ -236,7 +236,7 @@ completion. Advice never permits edits while readers are active or replaces a re
 
 **Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
 
-If activated, dispatch one more subagent via the Agent tool (pass `run_in_background: false` — foreground; subagents default to background since Claude Code v2.1.198).
+If activated, dispatch one more subagent via the Agent tool (pass `run_in_background: false` when available — foreground; subagents default to background since Claude Code v2.1.198; A launch receipt means it went background: await its completion notice.)
 
 The Red Team subagent receives:
 1. The red-team checklist path `~/.claude/skills/gstack/review/specialists/red-team.md` (it reads the file)

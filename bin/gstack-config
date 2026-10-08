@@ -159,7 +159,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # implementation_tier: smart  # frontier | smart — tier gstack recommends for
 #                           #   implementing an approved plan (never switches
 #                           #   your session).
-# model_frontier_claude:    # per-tier model IDs; empty = the shipped catalog
+# model_frontier_claude:    # per-tier model IDs; unset = the shipped catalog
 # model_frontier_openai:    #   recommendation (gstack-models list). Invalid
 # model_smart_claude:       #   values are REJECTED and the stored value kept;
 # model_smart_openai:       #   unset restores the shipped recommendation.
@@ -217,6 +217,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # ship_measure_sweep_budget_usd: 150  # weekly off-ship sweep: spend cap per 7 days
 # ship_rerun_backend: local # local | ubicloud — where free-suite flake reruns
 #                           #   run; ubicloud also needs UBICLOUD_API_KEY.
+#                           #   Invalid values are REJECTED (value kept).
+# ship_greptile_early: true # true | false — when the repo uses Greptile, /ship
+#                           #   pushes and opens a draft PR after its free tests
+#                           #   so Greptile reviews in parallel (a public repo
+#                           #   asks once). false keeps the old order.
 #                           #   Invalid values are REJECTED (value kept).
 #
 # ─── Workspace-aware ship ────────────────────────────────────────────
@@ -295,6 +300,7 @@ lookup_default() {
     plan_review_tier) echo "frontier" ;; # frontier | smart | host — lib/model-policy.ts reads it strictly
     implementation_tier) echo "smart" ;; # frontier | smart
     model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai) echo "" ;; # empty = shipped catalog ID (gstack-models list)
+    ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
     # Unknown key: exit non-zero instead of printing "". The fallback pattern
     # the preambles use,
     #   VAR=$(gstack-config get <key> 2>/dev/null || echo "<default>")
@@ -727,6 +733,11 @@ case "${1:-}" in
       ship_measure_ask_per_trial_usd|ship_measure_budget_usd|ship_measure_sweep_budget_usd)
         if ! printf '%s' "$VALUE" | LC_ALL=C grep -qE '^([0-9]+(\.[0-9]+)?|\.[0-9]+)$' || ! printf '%s' "$VALUE" | LC_ALL=C grep -qE '[1-9]'; then
           echo "Error: $KEY '$VALUE' is not a positive amount in USD (e.g. 25 or 2.50). Existing value left unchanged." >&2
+          exit 1
+        fi ;;
+      ship_greptile_early)
+        if [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
+          echo "Error: ship_greptile_early '$VALUE' not recognized. Valid values: true, false. Existing value left unchanged." >&2
           exit 1
         fi ;;
       ship_rerun_backend)

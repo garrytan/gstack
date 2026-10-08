@@ -240,6 +240,7 @@ export const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   { file: 'test/generator-eexist.test.ts',
     reason: 'E4: runs the generators through Bun argv with the Windows EEXIST emulation preload; no shebang execution' },
   { file: 'test/gstack-config-gbrain-refresh.test.ts', reason: 'E6: runs bin/gstack-config through explicit bash; its gbrain/python3 shims are found by bash PATH lookup, never launched by CreateProcess' },
+  { file: 'test/gstack-doctor.test.ts', reason: 'runs bin/gstack-doctor and setup --status through explicit bash argv in an os.tmpdir fixture; its bun/codex/claude/probe stubs are found by bash PATH lookup, and expected paths use bash spellings' },
   {
     file: 'test/qa-evidence.test.ts',
     reason: 'invokes the production helper through Bun argv and exercises native Windows job cleanup, private file captures and backpressured receipt output',

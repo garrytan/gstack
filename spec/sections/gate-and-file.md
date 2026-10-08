@@ -149,7 +149,7 @@ else
 fi
 ```
 
-The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and the plan-review model (policy-selected, printed with its source) are checked by the actual invocation. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
+The historical `CODEX_MODE` variable describes **Codex** availability here. The invocation checks auth and the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) plan-review model. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
 
 Write the prompt with the exact redaction-approved spec bytes using the Write tool; never shell-interpolate the raw draft. Keep hard delimiters and this boundary:
 
@@ -178,10 +178,13 @@ trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
-source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_role_ready exec "$_REPO_ROOT" || exit $?
-_gstack_codex_first_use_notice
+_CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
+export _CODEX_DEADLINE=$(($(date +%s)+120)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?
+_CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
+_CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
+"$_CODEX_PROBE" show-first-use-notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 120 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+"$_CODEX_PROBE" run-with-timeout 120 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
 cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
@@ -246,20 +249,8 @@ interrupt before the work happens.
 
 #### File the issue (always)
 
-**Re-scan before filing** (Phase 4 edits can introduce content the 4.5b scan
-never saw, and the issue is world-readable):
-
-#### Redaction scan — pre-issue (the issue body you're about to file)
-
-Run the SAME scan-at-sink procedure shown above (resolve `$REDACT_VIS` once and
-reuse it; when the issue body you're about to file changed since the last scan, rewrite the same `$REDACT_FILE`
-with your file-write tool; `~/.claude/skills/gstack/bin/gstack-redact --from-file "$REDACT_FILE"
---repo-visibility "$REDACT_VIS" --json`), now on the issue body you're about to file. Apply the same
-exit-3/2/0 handling. On exit 3, do NOT file the issue; HIGH has no skip. Pass the
-same `$REDACT_FILE` downstream so the bytes scanned are the bytes sent.
-
-If `gh` is available and authenticated, file from the scanned file. The title and
-the one-line approach for the decision log are free text too, so they go into their
+If `gh` is available and authenticated, file from the scanned draft file. The title
+and the one-line approach for the decision log are free text too, so they go into their
 own private files:
 
 ```bash
@@ -272,20 +263,31 @@ APPROACH_FILE=$(mktemp "${_GT:?}/approach.XXXXXX") || { echo "Not sent: mktemp f
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
 
-Then file, substituting the three printed names:
+Then file, substituting the three printed names. `gstack-post` scans the exact title
+and body it sends (Phase 4 edits can introduce content the 4.5b scan never saw, and the
+issue is world-readable) and passes both to `gh` as arguments:
 
 ```bash
 REDACT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<redact-file-name>"
 TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
 APPROACH_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<approach-file-name>"
-[ -s "$REDACT_FILE" ] && [ -s "$TITLE_FILE" ] || { echo "Not filed: $REDACT_FILE or $TITLE_FILE is missing or empty. Write them, then file by hand: gh issue create --title \"\$(cat $TITLE_FILE)\" --body-file $REDACT_FILE" >&2; exit 1; }
-ISSUE_URL=$(gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$REDACT_FILE") || exit 1
+[ -s "$REDACT_FILE" ] && [ -s "$TITLE_FILE" ] || { echo "Not filed: $REDACT_FILE or $TITLE_FILE is missing or empty. Write them, then file by hand: ~/.claude/skills/gstack/bin/gstack-post issue-create --title-file $TITLE_FILE --body-file $REDACT_FILE" >&2; exit 1; }
+POST_OUT=$(~/.claude/skills/gstack/bin/gstack-post issue-create --title-file "$TITLE_FILE" --body-file "$REDACT_FILE"); POST_CODE=$?
+printf '%s\n' "$POST_OUT"
+[ "$POST_CODE" = 0 ] || { echo "Not filed (gstack-post exit $POST_CODE)." >&2; exit "$POST_CODE"; }
+ISSUE_URL=$(printf '%s\n' "$POST_OUT" | grep -m1 -E '^https?://')
 ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed -E 's|.*/issues/([0-9]+)$|\1|')
 echo "Filed: $ISSUE_URL (ISSUE_NUMBER: $ISSUE_NUMBER)"
 [ -s "$APPROACH_FILE" ] && ~/.claude/skills/gstack/bin/gstack-decision-log "$(jq -cn --arg n "$ISSUE_NUMBER" --rawfile t "$TITLE_FILE" --rawfile a "$APPROACH_FILE" \
   '{decision: ("Spec filed #" + $n + ": " + ($t | rtrimstr("\n"))), rationale: ($a | rtrimstr("\n")), scope: "issue", issue: $n, source: "skill", confidence: 7}')" 2>/dev/null || true
 rm -f "$APPROACH_FILE"
 ```
+
+Exit 1 (HIGH): do NOT file; rotate and redact at source, no skip. Exit 2 (MEDIUM): ask
+per printed `RULE:` line exactly as in the 4.5b disposition (auto-redact rewrites
+`$REDACT_FILE`, which the archive then uses); when the user accepts a finding as it
+is, rerun the block with `--confirm <confirm-token>` after `--body-file "$REDACT_FILE"`.
+Any edit needs a new scan, so the token no longer applies. Exit 3: `gh` failed; report it.
 
 The last line records the spec as a durable, issue-scoped cross-session decision so a future session (or `/ship` closing the issue) inherits the core approach and why, not just the issue link. Non-interactive, best-effort (`|| true`). The approach file holds the one core approach/decision the spec settled. Only fires when the issue was actually filed.
 

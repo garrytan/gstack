@@ -210,6 +210,18 @@ describe('spend, approval, rounds and artifacts', () => {
     expect(report).toContain('| browse-basic | — | — | — | — | unmeasured (provider outage before the first turn); not a pass | — | — |');
     expect(report).toContain('never change a recorded verdict');
   });
+
+  test('a measurement in the older v1 format is listed as not read instead of crashing the report', () => {
+    const outDir = tmp('ship-measure-report-v1-');
+    const dir = path.join(outDir, 'old-case');
+    fs.mkdirSync(path.join(dir, 'round-1'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'ledger.json'), JSON.stringify({ rounds: ['round-1'] }));
+    fs.writeFileSync(path.join(dir, 'round-1', 'measurement.json'), JSON.stringify({
+      schema: 'gstack-ship-measure/1', label: 'diagnostic', verdict: null, case: 'old-case', kind: 'rule', round: 'round-1',
+      status: 'measured', plan: { kind: 'rule', units: 10, trialsPerUnit: 1, trials: 10, unitTarget: 9, trialTarget: 9 }, trials: [],
+    }));
+    expect(formatReport(outDir)).toContain('| old-case | rule | round-1 | — | — | older measurement format (gstack-ship-measure/1); not read, re-measure on this release | — | — |');
+  });
 });
 
 describe('ship-measure CLI with a documented single-case command', () => {
