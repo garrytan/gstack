@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.35.0] - 2026-10-07
+## [1.91.36.0] - 2026-10-07
 
 **Python and Rails repairs can now reach `runtime_tested` and replay, and a killed verification leaves nothing behind.**
 
