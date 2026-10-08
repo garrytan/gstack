@@ -45,7 +45,7 @@ contradicting this skill's read-only contract:
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 ~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
-{{CODEX_SELECT:review}}
+{{CODEX_SELECT:review:330}}
 # The 330s wrapper sits BELOW the 360s Bash gate so the wrapper fires FIRST
 # and a stall surfaces as a diagnosable exit 124 with an explicit message,
 # never as a silent harness kill that downstream reads as "no findings".
@@ -93,7 +93,7 @@ cd "$_REPO_ROOT"
 FOCUS_FILE="$_REPO_ROOT/.gstack/tmp/<focus-file-name>"
 [ -s "$FOCUS_FILE" ] || { echo "Not run: $FOCUS_FILE is missing or empty, so the focus text was never written. Write it, then run this block again." >&2; exit 1; }
 ~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
-{{CODEX_SELECT:exec}}
+{{CODEX_SELECT:exec:330}}
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 {
   printf '%s\n' "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do not invoke any installed skill (Codex home skills/, .agents/); answer directly. Do NOT modify agents/openai.yaml. Stay focused on repository code only."

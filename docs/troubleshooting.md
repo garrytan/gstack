@@ -35,6 +35,113 @@ no paid call: the Codex rows report the cached model check and its age, and
 
 ---
 
+## Model policy
+
+The [model-policy guide](model-policy.md) explains the two tiers, all six
+settings, precedence and the read-only inspection command. A resolved selection
+is not proof that the requested provider or model can run.
+
+<a id="model-policy-config"></a>
+### Model policy configuration is invalid or unreadable
+
+**Meaning.** The new policy path could not read a coherent configuration or a
+configured value is invalid. An unreadable file is not treated as an absent
+setting: doing that could silently select the premium default.
+
+**Fix.** Repair the file or key named by the error. `plan_review_tier` accepts
+`frontier`, `smart` or `host`; `implementation_tier` accepts `frontier` or
+`smart`. Use `gstack-config unset <key>` to restore a default, not an empty
+value. A rejected `set` leaves the old value intact. Correct ownership/read
+permissions rather than deleting an unrelated state directory.
+For a malformed line such as `plan_review_tier = smart`, edit the reported file
+and correct or remove that line first: `unset` only removes canonical `key:`
+records and cannot repair a misspelled delimiter or quoted key.
+
+**Expected result.** `gstack-models list` or the corresponding `resolve`
+command explains the winning source. No outside model call ran on this error.
+
+<a id="model-policy-provider"></a>
+### A custom provider needs an explicit model or host mode
+
+**Meaning.** Native settings or environment flags route the reviewer to a
+custom endpoint or partner platform. A public API catalog identifier is not
+necessarily a valid deployment identifier there. Malformed native provider
+configuration also prevents gstack from assuming the public endpoint.
+
+**Fix.** Supply a compatible model for that request, set the provider's gstack
+environment override or tier-model setting, or choose
+`gstack-config set plan_review_tier host`. Keep credentials in the provider's
+normal authentication mechanism, never in a model setting. If the error names
+a malformed native configuration, fix that source first.
+
+**Expected result.** Inspection reports an explicit selection or honest
+host-managed delegation. It does not certify account entitlement or send a
+public default to an inferred custom endpoint.
+
+<a id="model-policy-selection"></a>
+### The selected review model could not be used
+
+**Meaning.** The requested model was rejected or the provider could not
+complete the review. A model may be nonexistent, unavailable to the account,
+retired, or behind a misconfigured endpoint; preserve the provider's evidence
+rather than treating all of these as the same diagnosis. No successful outside
+review is implied, and gstack does not substitute a different model.
+
+**Fix.** Change the source named in the error. For example, an environment
+override beats a tier setting, so editing the tier cannot replace it. Unset or
+correct that override, or explicitly name a supported model for the request.
+Follow the existing auth, quota, sandbox or timeout repair when that is the
+reported failure. Missing usage identity remains unknown, even if inspection
+showed a requested ID.
+
+**Expected result.** The next invocation announces its model and source,
+checks that same selection and reports the actual provider result. A cached
+probe or a native fallback is not a completed outside review.
+
+<a id="model-policy-freshness"></a>
+### Model-catalog freshness is unknown, stale or needs an update
+
+**Meaning.** Official evidence changed, a required source could not be
+checked, or the retained evidence does not match this catalog and parser.
+`unknown/source-unavailable` is not current. A later source failure must not
+erase an earlier retirement finding or close its maintenance issue.
+
+**Fix.** Read the failed source and evidence details in the freshness workflow
+report and tracking issue. Repair the source parser or publication access when
+needed, then run the workflow manually against the default branch. If a model
+was superseded or deprecated, follow the [maintainer checklist](model-policy.md#maintainer-update-checklist)
+to qualify a replacement or record a supported mitigation. Do not clear the
+issue just because a new release has not been adopted yet.
+
+**Expected result.** Complete source checks produce evidence bound to the
+current catalog, while unresolved lifecycle findings remain visible. Personal
+pins and unrelated PRs are unchanged. Check the workflow's last run date too:
+a scheduled job that never runs cannot report its own absence.
+
+#### Repairing `recoveryRequired` state
+
+This flag deliberately keeps the issue open until a maintainer repairs the
+record. Another successful fetch alone cannot certify corrupted history.
+
+1. Save the current issue body, including its retained recovery archive, and
+   download the latest trustworthy workflow report. Use its `report.state` as
+   the starting state; do not invent run IDs, catalog hashes or check dates.
+2. Reconcile its `lifecycle` array with the issue's independent lifecycle block
+   and any retained archive. Preserve known retirements, deadlines and human
+   dispositions. A model currently in the catalog must not keep an old
+   `resolvedByCatalog` flag from a previous replacement.
+3. In the issue editor, restore valid JSON between the `state:begin` and
+   `state:end` marker lines. Put that same lifecycle array between
+   `lifecycle:begin` and `lifecycle:end`. Restore the standalone ownership and
+   region markers, and leave human text outside the owned region intact.
+4. Set `recoveryRequired` to `false` only after that reconciliation. If prior
+   successful evidence cannot be verified, set `lastSuccess` to `null` rather
+   than making up a fresh success. If lifecycle history cannot be recovered,
+   leave the flag set and the issue open for investigation.
+5. Run **Model-policy freshness** against the default branch. Only complete,
+   current evidence with no unresolved findings can close the issue. A parsing
+   or source error leaves it open; do not clear history to manufacture a pass.
+
 ## Outside reviews (Codex and Claude Code)
 
 Outside reviews send your diff, plan or question to a second AI provider. Their

@@ -76,6 +76,7 @@ export const CASE_TEST_NAMES: Record<string, string> = {
   'plan-ceo-review-plan-mode': 'first terminal outcome is asked (Step 0 fires before any plan write)',
   'plan-eng-review-artifact': 'an interactive review writes one QA test plan about the reviewed change',
   'plan-eng-review-artifact-full': 'a fresh interactive review reaches Test review and writes one QA test plan',
+  'office-hours-auto-mode': 'AskUserQuestion surfaces when --disallowedTools AskUserQuestion is set',
 };
 
 export const CASE_KEY_SEPARATOR = '#';

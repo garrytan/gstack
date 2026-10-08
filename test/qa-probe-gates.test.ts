@@ -59,6 +59,14 @@ function assertPlanExecution(text: string, shared = generateQAExploratory({ host
 }
 
 describe('QA probe entry and checkpoint gates', () => {
+  test('the caller exposes the response boundary before the first QA instruction read', () => {
+    for (const skillName of ['review', 'ship']) {
+      const text = generateQAReviewPreflight({ host: 'claude', skillName, tmplPath: '', paths: HOST_PATHS.claude });
+      const beforeRead = text.slice(0, text.indexOf('{{QA_RESOURCE:exploratory}}'));
+      expectMentions(beforeRead, [['reads', 'earlier', 'responses'], ['capture', 'probe'], ['never', 'batch', 'read']], 'caller entry gate');
+    }
+  });
+
   test('the native CI preparation excerpt lacks the required acknowledged-read gate', () => {
     const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/qa-functional-ci-36505065023.json'), 'utf8'));
     const output = captured.omittedReadEvents.flatMap(event => event.message.content)
@@ -88,7 +96,9 @@ describe('QA probe entry and checkpoint gates', () => {
         const ctx = { host: host.name, skillName, tmplPath: '', paths: HOST_PATHS[host.name] };
         const preflight = generateQAReviewPreflight(ctx).replace(/\s+/g, ' ');
         const body = generateQAReview(ctx).replace(/\s+/g, ' ');
-        expect(preflight).toMatch(/`sections\/\.\.\.` and `templates\/\.\.\.` paths from that installed QA SKILL\.md directory, not the caller or product directory/i);
+        expect(preflight).toContain('`sections/...`');
+        expect(preflight).toContain('`templates/...`');
+        expectMentions(preflight, [['paths', 'installed qa skill.md', 'not', 'caller', 'product']], 'QA asset resolution');
         expect(body).toContain('Read QA\'s `sections/browser-setup.md`');
         expect(body).toContain('Read QA\'s `templates/functional-report-template.md`');
         if (skillName === 'review') {

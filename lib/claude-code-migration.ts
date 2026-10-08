@@ -7,7 +7,12 @@ import { spawnSync } from 'node:child_process';
 const OLD = 'gstack-claude';
 const NEXT = 'gstack-claude-code';
 const BANNER = '<!-- AUTO-GENERATED from';
-const RUNTIME_FILES = ['bin/gstack-claude-code', 'lib/claude-code.ts', 'lib/claude-code-windows-job.ts', 'lib/claude-bin.ts', 'lib/outside-review-result.ts'];
+export const CLAUDE_CODE_RUNTIME_FILES = [
+  'bin/gstack-claude-code', 'bin/gstack-models', 'bin/gstack-config', 'bin/gstack-state-root.sh',
+  'lib/claude-code.ts', 'lib/claude-code-windows-job.ts', 'lib/claude-bin.ts',
+  'lib/outside-review-result.ts', 'lib/gate-outcomes.ts', 'lib/state-root.ts',
+  'lib/model-catalog.ts', 'lib/model-policy.ts', 'lib/model-policy-cli.ts', 'lib/model-policy-notice.ts',
+];
 
 export interface RenameOptions {
   installDir: string;
@@ -171,7 +176,7 @@ export function migrateClaudeCodeSkills(opts: RenameOptions): { migrated: number
         (fs.lstatSync(runtime).isSymbolicLink() && !linkIsOurs(runtime, root)) ||
         (fs.existsSync(path.join(runtime, 'SKILL.md')) && !generated(path.join(runtime, 'SKILL.md')))
       )) throw new Error(`runtime root is not gstack-managed: ${runtime}`);
-      for (const rel of RUNTIME_FILES) {
+      for (const rel of CLAUDE_CODE_RUNTIME_FILES) {
         if (!fs.existsSync(path.join(root, rel))) throw new Error(`replacement runtime is missing ${rel}`);
         const parent = path.join(runtime, path.dirname(rel));
         if (fs.lstatSync(parent, { throwIfNoEntry: false })?.isSymbolicLink() && !linkIsOurs(parent, root)) {
@@ -190,7 +195,7 @@ export function migrateClaudeCodeSkills(opts: RenameOptions): { migrated: number
         throw new Error(`replacement render is not a managed directory: ${canonical}`);
       }
       copySkill(skill, canonical, root);
-      for (const rel of RUNTIME_FILES) {
+      for (const rel of CLAUDE_CODE_RUNTIME_FILES) {
         const src = path.join(root, rel);
         const dst = path.join(runtime, rel);
         if (fs.existsSync(dst) && fs.realpathSync(dst) === fs.realpathSync(src)) continue;
@@ -206,7 +211,7 @@ export function migrateClaudeCodeSkills(opts: RenameOptions): { migrated: number
       if (!/^name:\s*(?:gstack-)?claude-code\s*$/m.test(fs.readFileSync(path.join(next, 'SKILL.md'), 'utf8'))) {
         throw new Error('installed replacement could not be verified');
       }
-      for (const rel of RUNTIME_FILES) fs.accessSync(path.join(runtime, rel), fs.constants.R_OK);
+      for (const rel of CLAUDE_CODE_RUNTIME_FILES) fs.accessSync(path.join(runtime, rel), fs.constants.R_OK);
       // Existing copied workflows must receive the same native host routing as
       // the new wrapper, including when setup selected a different host. Only
       // refresh installed managed entries; this never installs another host or
