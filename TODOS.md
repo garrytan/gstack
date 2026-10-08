@@ -2,11 +2,11 @@
 
 ## NEXT PRIORITY
 
-### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.37.0)
+### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.38.0)
 
 Left open by the iPad and route-drop release, each with its reason.
 
-- **Device verification of v1.91.37.0** — the iPad bootstrap, route-drop
+- **Device verification of v1.91.38.0** — the iPad bootstrap, route-drop
   recovery on a real Xcode 26 tunnel drop, the multiple-devices error and the
   `NOT READY` path were proven only against the simulated device; the changed
   `StateServer` passed `swiftc -parse` but no Apple-SDK build. Run
@@ -236,7 +236,7 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
 - **Global-discover Codex session schema (#2750)**, **absolute bun path for
   compiled browse spawns (#931; macOS repro unclear)** and **GitLab CI
   `curl | bash` (#1713)** — out of the wave's scope. (The ios-qa boot-token
-  items #1837 and #1975 landed in v1.91.37.0.) **Priority:** P3 each.
+  items #1837 and #1975 landed in v1.91.38.0.) **Priority:** P3 each.
 - **Upstream gbrain batch lookup** — a per-slug existence lookup and a separate
   `pending` list in `gbrain import --json`, so the landing check need not list a
   whole source and spawn `get` per page. **Effort:** M (upstream). **Priority:** P2.

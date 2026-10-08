@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.37.0] - 2026-10-07
+## [1.91.38.0] - 2026-10-07
 
 **`/ios-qa` works on iPads, and a dropped USB route no longer restarts the app you are testing.**
 
