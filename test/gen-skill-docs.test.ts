@@ -1999,6 +1999,16 @@ describe('office-hours closing reads the builder profile before logging the sess
     expectAbsent(tiers, ['[SESSION_COUNT]', 'from profile]'], 'tier paths');
   });
 
+  test('welcome_back and regular greetings drop a last-session clause whose value is empty', () => {
+    const welcomeBack = between(handoff, '### If TIER = welcome_back', '### If TIER = regular');
+    const regular = between(handoff, '### If TIER = regular', '### If TIER = inner_circle');
+    expectTokens(welcomeBack, ['[LAST_ASSIGNMENT]', '[LAST_PROJECT]', '"Welcome back."'], 'welcome_back');
+    expectMentions(welcomeBack, [['last_assignment', 'last_project', 'empty', 'skip']], 'welcome_back');
+    expectOrdered(welcomeBack, ['Last time we talked about [LAST_PROJECT]', 'empty'], 'welcome_back');
+    expectTokens(regular, ['Last time: [LAST_ASSIGNMENT]'], 'regular');
+    expectMentions(regular, [['last_assignment', 'empty', 'skip']], 'regular');
+  });
+
   test('executing the rendered blocks in order: a first session reads introduction, a failed read is marked', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oh-tier-'));
     try {

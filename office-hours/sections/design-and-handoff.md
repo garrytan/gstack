@@ -446,6 +446,9 @@ If CROSS_PROJECT is false (same project as last time):
 If CROSS_PROJECT is true (different project):
 "Welcome back. Last time we talked about [LAST_PROJECT]. Still on that, or onto something new?"
 
+If the value a greeting names (LAST_ASSIGNMENT or LAST_PROJECT) is empty, skip that clause and
+its question and say only "Welcome back." Backfilled profiles can have a tier without them.
+
 Then: "No pitch this time. You already know about YC. Let's talk about your work."
 
 **Tone examples (prevent generic AI voice):**
@@ -468,6 +471,7 @@ Then proceed to Founder Resources below.
 Lead with recognition and session count.
 
 "Welcome back. This is session [PRIOR_SESSION_COUNT + 1]. Last time: [LAST_ASSIGNMENT]. How'd it go?"
+If LAST_ASSIGNMENT is empty, skip the "Last time" clause and its question.
 
 **Tone examples:**
 - GOOD: "You've been at this for 5 sessions now. Your designs keep getting sharper. Let me show you what I've noticed."
