@@ -97,7 +97,7 @@ const BUILDERS: Record<string, (sandbox: string, src: string) => Built> = {
   },
 };
 
-const FUNCTIONS = ['_link_or_copy', '_link_runtime_dists', '_copy_skill_md', '_sidecar_root_user_owned', '_gstack_generated_header', 'create_agents_sidecar', 'create_codex_runtime_root']
+const FUNCTIONS = ['_link_or_copy', '_link_runtime_dists', '_copy_runtime_skill_refs', '_copy_skill_md', '_sidecar_root_user_owned', '_gstack_generated_header', 'create_agents_sidecar', 'create_codex_runtime_root']
   .filter(name => SETUP_SRC.includes(`\n${name}() {`))
   .map(extractFunction)
   .join('\n');

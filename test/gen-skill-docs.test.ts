@@ -3492,13 +3492,13 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
-    expect(fnBody).toContain('checklist.md');
-    expect(fnBody).toContain('TODOS-format.md');
+    // Review checklists and the other read-on-demand files come from the shared
+    // helpers, the same set every env-var root gets (#1077 residue): the Cursor
+    // render reads design-checklist.md and review/specialists too.
+    expect(fnBody).toContain('_link_runtime_dists "$gstack_dir" "$cursor_gstack"');
+    expect(fnBody).toContain('_copy_runtime_skill_refs "$cursor_dir" "$cursor_gstack"');
     // bin scripts import ../lib — the two must travel together.
     expect(fnBody).toContain('$cursor_gstack/lib');
-    expect(fnBody).not.toContain('design-checklist.md');
-    expect(fnBody).not.toContain('greptile-triage.md');
-    expect(fnBody).not.toContain('review/specialists');
     expect(fnBody).not.toContain('qa/templates');
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$cursor_gstack"');
   });
@@ -3572,19 +3572,22 @@ describe('setup script validation', () => {
 
   test('create_codex_runtime_root exposes only runtime assets', () => {
     const fnStart = setupContent.indexOf('create_codex_runtime_root()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
+    const fnEnd = setupContent.indexOf('\n}\n', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
     expect(fnBody).toContain('$codex_gstack/lib');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
-    // Review runtime assets (individual files, not the whole dir)
-    expect(fnBody).toContain('checklist.md');
-    expect(fnBody).toContain('design-checklist.md');
-    expect(fnBody).toContain('greptile-triage.md');
-    expect(fnBody).toContain('TODOS-format.md');
+    expect(fnBody).toContain('_link_runtime_dists "$gstack_dir" "$codex_gstack"');
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
+    // Review runtime assets: individual files from the shared helper, never
+    // the whole review/ dir, which has a SKILL.md.
+    const shared = setupContent.slice(setupContent.indexOf('_link_runtime_dists() {'), setupContent.indexOf('_copy_runtime_skill_refs() {'));
+    for (const f of ['review/checklist.md', 'review/design-checklist.md', 'review/greptile-triage.md', 'review/TODOS-format.md']) {
+      expect(shared).toContain(f);
+    }
+    expect(shared).not.toMatch(/for d in [^;]*\breview(?:\s|;)/);
   });
 
   test('create_factory_runtime_root links shared lib modules beside bin', () => {

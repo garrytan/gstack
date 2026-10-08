@@ -74,6 +74,28 @@ export function preambleToolGlossary(glossary: string): Record<string, string> {
 }
 
 /**
+ * The runtime-root assets setup installs for every env-var host: the tools
+ * the skills run plus every file they read as "$GSTACK_ROOT/<path>". Mirrors
+ * setup's _link_runtime_dists and _copy_runtime_skill_refs (each root also
+ * links bin, lib, browse and ETHOS.md); test/runtime-root-assets.test.ts
+ * checks the staged roots on disk. `extraSymlinks` appends host-only assets.
+ */
+export function sharedRuntimeRoot(extraSymlinks: string[] = []): HostConfig['runtimeRoot'] {
+  return {
+    globalSymlinks: ['bin', 'lib', 'browse/dist', 'browse/bin', 'design/dist', 'make-pdf/dist', 'freeze/bin', 'careful/bin',
+      'review/specialists', 'design-html/vendor', 'gstack-upgrade', 'ETHOS.md', 'VERSION', ...extraSymlinks],
+    globalFiles: {
+      'review': ['checklist.md', 'design-checklist.md', 'greptile-triage.md', 'TODOS-format.md'],
+      'scripts': ['jargon-list.json', 'question-registry.ts'],
+      'docs': ['askuserquestion-split.md', 'askuserquestion-cjk.md', 'test-value-bar.md'],
+      'plan-devex-review': ['dx-hall-of-fame.md'],
+      'office-hours': ['SKILL.md'],
+      'plan-design-review': ['SKILL.md'],
+    },
+  };
+}
+
+/**
  * Host definition input: name + displayName are required, everything else is
  * an override on the common external-host defaults documented above.
  *
@@ -125,12 +147,7 @@ export function defineHost<const N extends string>(overrides: HostOverrides<N>):
     extraPathRewrites,
     toolRewrites,
     suppressedResolvers = [...GBRAIN_RESOLVERS],
-    runtimeRoot = {
-      globalSymlinks: ['bin', 'lib', 'browse/dist', 'browse/bin', 'design/dist', 'make-pdf/dist', 'freeze/bin', 'careful/bin', 'gstack-upgrade', 'ETHOS.md'],
-      globalFiles: {
-        'review': ['checklist.md', 'TODOS-format.md'],
-      },
-    },
+    runtimeRoot = sharedRuntimeRoot(),
     install = {
       linkingStrategy: 'symlink-generated',
     },
