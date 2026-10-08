@@ -148,3 +148,92 @@ EOF
   # shellcheck disable=SC2086 # word-split the host list on purpose
   gstack_render_hosts_add "$root" $found
 }
+
+# _gstack_hr_generated FILE TREE REAL — WEAK proof that FILE is a gstack
+# render or copy: gen-skill-docs' two-line banner (setup's
+# _gstack_generated_header rule), the generator's exact openai.yaml shape for
+# its own skill directory, byte identity with this checkout (a Windows sidecar
+# copy), or setup's runtime pointers naming this checkout.
+_gstack_hr_generated() {
+  local f="$1" tree="$2" real="$3" skill rel first
+  case "$(head -c 8192 "$f" 2>/dev/null)" in
+    *'<!-- AUTO-GENERATED from '*'<!-- Regenerate: bun run gen:skill-docs -->'*) return 0 ;;
+  esac
+  case "$f" in
+    */agents/openai.yaml)
+      skill="${f%/agents/openai.yaml}"; skill="${skill##*/}"
+      [ "$(head -1 "$f" 2>/dev/null)" = "interface:" ] \
+        && grep -qxF "  display_name: \"$skill\"" "$f" \
+        && grep -qxF "  default_prompt: \"Use $skill for this task.\"" "$f" \
+        && [ "$(wc -l < "$f" | tr -d ' ')" -le 6 ] && return 0 ;;
+    */.gstack-owned|*/.source-path)
+      first="$(head -1 "$f" 2>/dev/null)"
+      [ -n "$first" ] && [ "$(cd "$first" 2>/dev/null && pwd -P)" = "$real" ] && return 0 ;;
+  esac
+  case "$f" in
+    "$tree"/skills/gstack/*)
+      rel="${f#"$tree"/skills/gstack/}"
+      [ -f "$real/$rel" ] && cmp -s "$f" "$real/$rel" && return 0 ;;
+  esac
+  return 1
+}
+
+# gstack_prune_host_renders ROOT — prune the render dir of every host the
+# record does not name. For each tree it changes, prints the kept paths and a
+# summary; every path is listed in the backup's prune.log. A tree with nothing
+# left to remove (only kept files) is silent. Returns 1 when a proven file
+# could not be backed up (it is then left in place). Needs GSTACK_STATE_ROOT.
+gstack_prune_host_renders() {
+  local root="$1" real recorded pair host dir tree backup e rel target rc=0
+  local n_backed n_links n_kept n_dirs kept_lines lines nl='
+'
+  real="$(cd "$root" 2>/dev/null && pwd -P)" || return 0
+  [ -f "$(gstack_render_hosts_file "$root")" ] || return 0
+  recorded=" $(gstack_render_hosts_read "$root" | tr '\n' ' ') "
+  backup="${GSTACK_STATE_ROOT:?gstack-host-renders: GSTACK_STATE_ROOT is not set}/backups/host-renders/$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%s' "$real" | cksum | awk '{print $1}')"
+  for pair in $GSTACK_HOST_RENDER_DIRS; do
+    host="${pair%%:*}"; dir="${pair#*:}"; tree="$real/$dir"
+    case "$recorded" in *" $host "*) continue ;; esac
+    if [ -L "$tree" ] || [ ! -d "$tree" ]; then continue; fi
+    n_backed=0; n_links=0; n_kept=0; n_dirs=0; kept_lines=""; lines=""
+    while IFS= read -r e; do
+      [ -n "$e" ] || continue
+      rel="${e#"$real"/}"
+      if [ -L "$e" ]; then
+        target="$(_gstack_hr_link_abs "$e")" || target=""
+        case "$target" in
+          "$real"|"$root") n_kept=$((n_kept + 1)); kept_lines="$kept_lines  kept $rel: links to the checkout itself (bin/dev-setup)$nl"; lines="${lines}kept	$rel	links to the checkout itself$nl" ;;
+          "$real"/*|"$root"/*) rm -f "$e" && { n_links=$((n_links + 1)); lines="${lines}removed link	$rel	-> $target$nl"; } ;;
+          *) n_kept=$((n_kept + 1)); kept_lines="$kept_lines  kept $rel: links outside this checkout$nl"; lines="${lines}kept	$rel	links outside this checkout$nl" ;;
+        esac
+      elif _gstack_hr_generated "$e" "$tree" "$real"; then
+        if mkdir -p "$backup/${rel%/*}" && mv -f "$e" "$backup/$rel"; then
+          n_backed=$((n_backed + 1)); lines="${lines}backed up	$rel	generated$nl"
+        else
+          rc=1; n_kept=$((n_kept + 1)); echo "  kept $rel: could not back it up to $backup" >&2
+        fi
+      else
+        n_kept=$((n_kept + 1)); kept_lines="$kept_lines  kept $rel: not proven generated (no gstack banner or byte match)$nl"
+        lines="${lines}kept	$rel	not proven generated$nl"
+      fi
+    done <<EOF
+$(find "$tree" \( -type f -o -type l \) -print 2>/dev/null)
+EOF
+    # -depth with -exec removes children first, so a directory emptied by its
+    # children's removal goes in the same pass.
+    while IFS= read -r e; do
+      [ -n "$e" ] || continue
+      n_dirs=$((n_dirs + 1)); lines="${lines}removed dir	${e#"$real"/}	empty$nl"
+    done <<EOF
+$(find "$tree" -depth -type d -empty -exec rmdir {} \; -print 2>/dev/null)
+EOF
+    [ $((n_backed + n_links + n_dirs)) -gt 0 ] || continue
+    mkdir -p "$backup" && printf '%s' "$lines" >> "$backup/prune.log"
+    printf '%s' "$kept_lines"
+    echo "  pruned $dir ($host is not installed from this checkout): $n_backed generated files backed up, $n_links links removed, $n_dirs empty dirs removed, $n_kept kept"
+  done
+  if [ -f "$backup/prune.log" ]; then
+    echo "  host-render backup: $backup (every path: $backup/prune.log; restore a file with mv)"
+  fi
+  return "$rc"
+}

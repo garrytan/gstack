@@ -255,6 +255,7 @@ case "$HOST" in
     echo "To integrate gstack with OpenClaw:"
     echo "  1. Tell your OpenClaw agent: 'install gstack for openclaw'"
     echo "  2. Or generate artifacts: bun run gen:skill-docs --host openclaw"
+    echo "     (in an install, add 'openclaw' to .gstack-installed-hosts first, or ./setup prunes them)"
     echo "  3. See docs/OPENCLAW.md for the full architecture"
     print_instruction_tier
     exit 0 ;;
@@ -268,6 +269,8 @@ case "$HOST" in
     echo "  2. Render Hermes-flavoured skills yourself (not certified; #2826):"
     echo "       bun run gen:skill-docs --host hermes"
     echo "     then point a Hermes profile's skills.external_dirs at .hermes/skills."
+    echo "     Add 'hermes' to .gstack-installed-hosts in this checkout first: ./setup"
+    echo "     prunes renders of hosts that file does not name (#1694)."
     print_instruction_tier
     exit 0 ;;
   gbrain)
@@ -278,6 +281,7 @@ case "$HOST" in
     echo ""
     echo "To generate brain-aware skills:"
     echo "  bun run gen:skill-docs --host gbrain"
+    echo "  (in an install, add 'gbrain' to .gstack-installed-hosts first, or ./setup prunes them)"
     echo ""
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
@@ -3611,6 +3615,14 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   _setup_arm_begin codex "$_CX_SCOPE" "$CODEX_SKILLS"
   create_agents_sidecar "$SOURCE_GSTACK_DIR"
   _setup_arm_publish codex "$_CX_SCOPE" "$_CX_PROJECT" "$CODEX_SKILLS" "$CODEX_GSTACK" - "${_CODEX_RENDER_ROOT:-committed}"
+fi
+
+# 7b. Prune the skill renders of hosts this checkout does not serve (#1694),
+# on every run, so each install converges on its own recorded hosts even when
+# several installs share one state root. Generated files go to the state
+# root's backups; anything not proven generated stays in place.
+if ! gstack_prune_host_renders "$SOURCE_GSTACK_DIR"; then
+  echo "  warning: some generated host renders could not be backed up, so they were left in place; the next ./setup retries" >&2
 fi
 
 # 8. Run pending version migrations
