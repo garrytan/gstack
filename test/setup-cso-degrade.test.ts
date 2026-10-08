@@ -44,12 +44,13 @@ function probe(tools: Record<string, string>) {
   ].join('\n'), { env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }, timeout: 30_000 });
 }
 
-function summary(record: string | null, opts: { launcher?: boolean } = {}) {
+function summary(record: string | null, opts: { launcher?: boolean; probe?: [reason: string, detail: string] } = {}) {
   const dir = temp('gstack-cso-summary-');
   fs.mkdirSync(path.join(dir, 'bin'));
   if (record !== null) fs.writeFileSync(path.join(dir, 'bin/.gstack-cso-build-result'), record);
   if (opts.launcher) for (const name of ['gstack-cso-launcher', 'gstack-cso-core']) stub(path.join(dir, 'bin'), name, 'echo OLD');
-  const r = runBashScript(['QUIET=0', '_EXE=""', `SOURCE_GSTACK_DIR="${dir}"`, fn('log').trim() || 'log() { echo "$@"; }', SUMMARY].join('\n'), { timeout: 15_000 });
+  const probe = opts.probe ? `CSO_BUILD_AVAILABLE=0\nCSO_FAIL_REASON='${opts.probe[0]}'\nCSO_PROBE_DETAIL='${opts.probe[1]}'` : 'CSO_BUILD_AVAILABLE=1';
+  const r = runBashScript(['QUIET=0', '_EXE=""', `SOURCE_GSTACK_DIR="${dir}"`, probe, 'log() { echo "$@"; }', SUMMARY].join('\n'), { timeout: 15_000 });
   expect(r.status).toBe(0);
   return { out: r.stdout, dir };
 }
@@ -82,7 +83,7 @@ describe.skipIf(process.platform === 'win32')('setup: CSO summary reads the buil
     `result=failed\nstage=${stage}\nreason=${reason}\nrevision=1.91.99.0 (abcdef123456)\ninstalled=${installed}\nlauncher=${installed ? 'yes' : 'no'}\ndiagnostic=/src/bin/.gstack-cso-build.log\n`;
 
   test('a probe failure keeps the prerequisite instruction and names the probe stage', () => {
-    const { out } = summary('result=unavailable\nstage=probe\nreason=windows-toolchain-probe\nrevision=1.0\ninstalled=\nlauncher=no\ndiagnostic=pwsh exited 139: Fatal error\n');
+    const { out } = summary(null, { probe: ['windows-toolchain-probe', 'pwsh exited 139: Fatal error'] });
     expect(out).toContain('CSO unavailable: its native helper was not built (windows-toolchain-probe).');
     expect(out).toContain('Failed stage: probe.');
     expect(out).toContain('fix the PowerShell toolchain probe failure (pwsh exited 139: Fatal error)');
@@ -117,6 +118,12 @@ describe.skipIf(process.platform === 'win32')('setup: CSO summary reads the buil
     expect(summary('result=ok\nstage=publish\nreason=committed\nrevision=1\ninstalled=1\nlauncher=yes\ndiagnostic=x\n').out).toBe('');
     expect(summary(null).out).toBe('');
   });
+});
+
+test('a probe failure removes a stale build record and writes nothing into the source checkout', () => {
+  const block = between('if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then\n  rm -f', '\nfi\n');
+  expect(block).toContain('rm -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-build-result"');
+  expect(block).not.toContain('>');
 });
 
 describe.skipIf(process.platform === 'win32')('setup: an incomplete CSO set is fatal only under GSTACK_STRICT_BUILD=1 (#3071)', () => {

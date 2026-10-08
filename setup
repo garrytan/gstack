@@ -1698,13 +1698,11 @@ _EXE=""
 if [ "$IS_WINDOWS" -eq 1 ]; then _EXE=".exe"; fi
 # Never leave a trusted helper from an earlier toolchain/version available when
 # this setup run cannot reproduce it. The /cso skill then reports not assessed.
-# The build-result record (written by scripts/build-cso.sh for build and
-# publish) gets the probe outcome here; the summary and gstack-doctor read it.
+# An earlier build's result record no longer describes the removed helper;
+# setup never writes into the source checkout when nothing is built.
 if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
-  mkdir -p "$SOURCE_GSTACK_DIR/bin"
-  printf 'result=unavailable\nstage=probe\nreason=%s\nrevision=%s\ninstalled=\nlauncher=no\ndiagnostic=%s\n' \
-    "$CSO_FAIL_REASON" "$SETUP_VERSION" "$CSO_PROBE_DETAIL" > "$SOURCE_GSTACK_DIR/bin/.gstack-cso-build-result" || true
-  rm -f "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher" \
+  rm -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-build-result" \
+    "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher" \
     "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher.exe" \
     "$SOURCE_GSTACK_DIR/bin/gstack-cso-core" \
     "$SOURCE_GSTACK_DIR/bin/gstack-cso-core.exe" \
@@ -4412,13 +4410,11 @@ fi
 _setup_print_summary
 
 # ─── CSO native-helper summary ────────────────────────────────────────────────
-# From bin/.gstack-cso-build-result, the record gstack-doctor also reads: the
-# probe outcome (written above) or scripts/build-cso.sh's build/publish result.
+# A missing prerequisite comes from this run's probe. A build or publish
+# failure comes from bin/.gstack-cso-build-result, which scripts/build-cso.sh
+# writes and gstack-doctor also reads.
 _cso_field() { sed -n "s/^$1=//p" "$SOURCE_GSTACK_DIR/bin/.gstack-cso-build-result" 2>/dev/null | head -1; }
-_CSO_RESULT="$(_cso_field result)"
-if [ "$_CSO_RESULT" = "unavailable" ]; then
-  CSO_FAIL_REASON="$(_cso_field reason)"
-  CSO_PROBE_DETAIL="$(_cso_field diagnostic)"
+if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
   case "$CSO_FAIL_REASON" in
     bun-compile-flags) _CSO_PREREQ="upgrade Bun to a release supporting all four --no-compile-autoload-* build flags" ;;
     c-compiler) _CSO_PREREQ="install a C compiler (cc, Clang, or GCC)" ;;
@@ -4437,7 +4433,7 @@ if [ "$_CSO_RESULT" = "unavailable" ]; then
   log "CSO unavailable: its native helper was not built ($CSO_FAIL_REASON)."
   log "  Failed stage: probe. /cso will report not assessed and the install prerequisite; it will not use repository tooling."
   log "  Everything else is installed and works. To enable /cso, $_CSO_PREREQ, then re-run ./setup."
-elif [ "$_CSO_RESULT" = "failed" ]; then
+elif [ "$(_cso_field result)" = "failed" ]; then
   _CSO_STAGE="$(_cso_field stage)"
   _CSO_INSTALLED="$(_cso_field installed)"
   _CSO_WHAT="failed ($(_cso_field reason))"

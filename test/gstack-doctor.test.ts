@@ -407,9 +407,10 @@ describe('gstack-doctor launch and CSO rows', () => {
 
   test('the CSO row reads the build-result record', () => {
     const f = makeFixture();
-    expect(doctor(f).row('cso').state).toBe('not configured');
-    record(f, 'result=unavailable\nstage=probe\nreason=windows-msvc-toolchain\nrevision=1\ninstalled=\nlauncher=no\ndiagnostic=\n');
-    expect(doctor(f).row('cso').detail).toContain('unavailable: a build prerequisite is missing (windows-msvc-toolchain)');
+    const none = doctor(f).row('cso');
+    expect(none.state).toBe('not configured');
+    expect(none.detail).toBe('native helper not built; /cso reports not assessed');
+    expect(none.fix).toContain('./setup (it names any missing build prerequisite)');
     record(f, 'result=failed\nstage=build\nreason=exit 42\nrevision=1.2 (abc)\ninstalled=\nlauncher=no\ndiagnostic=/x/cso.log\n');
     let r = doctor(f);
     expect(r.row('cso').state).toBe('warn');

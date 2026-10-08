@@ -334,7 +334,6 @@ check_cso() {
   case "$result" in
     ok) if [ "$usable" -eq 1 ]; then row ok cso "native helper $installed"
         else row warn cso "the last build succeeded but the native helper is missing; /cso reports not assessed" "cd $SRC && ./setup"; fi ;;
-    unavailable) row "not configured" cso "unavailable: a build prerequisite is missing ($reason${diag:+: $diag}); /cso reports not assessed" "cd $SRC && ./setup names the prerequisite to install" ;;
     failed)
       if [ "$usable" -eq 1 ] && [ -n "$installed" ]; then
         row warn cso "$stage step failed ($reason) for $(cso_field revision); previous CSO kept: $installed" "cd $SRC && bun run build:cso && ./setup (log: ${diag:-none}; $DOCS#cso-build-or-publish-failed)"
@@ -342,7 +341,7 @@ check_cso() {
         row warn cso "unavailable: the $stage step failed ($reason); /cso reports not assessed" "cd $SRC && bun run build:cso && ./setup (log: ${diag:-none}; $DOCS#cso-build-or-publish-failed)"
       fi ;;
     *) if [ "$usable" -eq 1 ]; then row ok cso "native helper built (no build record yet)"
-       else row "not configured" cso "native helper not built; /cso reports not assessed" "cd $SRC && ./setup"; fi ;;
+       else row "not configured" cso "native helper not built; /cso reports not assessed" "cd $SRC && ./setup (it names any missing build prerequisite)"; fi ;;
   esac
 }
 
