@@ -90,7 +90,7 @@ gstack_render_hosts_select() {
   for h in $(gstack_render_hosts_read "$root"); do
     [ "$h" = claude ] || GSTACK_RENDER_HOST_LIST="$GSTACK_RENDER_HOST_LIST $h"
   done
-  GSTACK_RENDER_HOST_REASON="the hosts installed from this checkout ($file); GSTACK_RENDER_HOSTS=all renders every host"
+  GSTACK_RENDER_HOST_REASON="recorded in $file; GSTACK_RENDER_HOSTS=all renders every host"
 }
 
 # _gstack_hr_link_abs LINK — absolute target of LINK, its directory part

@@ -67,7 +67,7 @@ describe.skipIf(process.platform === 'win32')('installed-hosts record (bin/gstac
     const select = (env: Record<string, string> = {}) => sh(`gstack_render_hosts_select "${root}"; echo "$GSTACK_RENDER_HOST_LIST|$GSTACK_RENDER_HOST_REASON"`, env);
     expect(select().stdout).toBe('all|no installed-hosts record, so this is a development checkout\n');
     sh(`gstack_render_hosts_add "${root}" codex`);
-    expect(select().stdout).toStartWith('claude codex|the hosts installed from this checkout');
+    expect(select().stdout).toStartWith('claude codex|recorded in ');
     expect(select({ GSTACK_RENDER_HOSTS: 'all' }).stdout).toBe('all|GSTACK_RENDER_HOSTS=all\n');
     const odd = select({ GSTACK_RENDER_HOSTS: 'codex' });
     expect(odd.stdout).toStartWith('claude codex|');
@@ -102,7 +102,7 @@ describe.skipIf(process.platform === 'win32')('scripts/build.sh renders the reco
     const r = renderCalls(root);
     expect(r.status, r.stderr).toBe(0);
     expect(r.calls).toEqual(['run gen:skill-docs --host claude', 'run gen:skill-docs --host codex', 'run gen:skill-docs --host factory']);
-    expect(r.stdout).toContain('Rendering skills for: claude codex factory (the hosts installed from this checkout');
+    expect(r.stdout).toContain(`Rendering skills for: claude codex factory (recorded in ${root}/.gstack-installed-hosts; GSTACK_RENDER_HOSTS=all renders every host)`);
   });
 
   test('GSTACK_RENDER_HOSTS=all renders every host inside an install', () => {
