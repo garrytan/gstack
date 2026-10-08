@@ -10,7 +10,9 @@ BUILD_STAMP="$ROOT/browse/dist/.build-complete"
 BUILD_STAMP_TMP="$BUILD_STAMP.tmp.$$"
 
 # Setup trusts this stamp as proof that the selected multi-binary build completed.
-# Ordinary/direct builds include CSO and remain strict. Setup may explicitly omit
+# CSO is optional: a failed CSO build or publish is reported and recorded in
+# bin/.gstack-cso-build-result, and the rest of the build still completes (#3071).
+# GSTACK_STRICT_BUILD=1 (CI) makes a CSO failure fatal. Setup may explicitly omit
 # CSO after its host capability probe, while still publishing the general build.
 # Invalidate before touching output so an interrupted build cannot hide staleness.
 rm -f "$BUILD_STAMP" "$BUILD_STAMP_TMP"
@@ -47,7 +49,15 @@ if [ "${GSTACK_SETUP_RUNNING:-0}" = "1" ] && [ "${GSTACK_SETUP_SKIP_CSO_BUILD:-0
     bin/gstack-cso-core bin/gstack-cso-core.exe bin/gstack-cso-watchdog \
     bin/.gstack-cso-generation bin/.gstack-cso-generation.lock
 else
-  BUN_CMD="$BUN_CMD" bash scripts/build-cso.sh
+  CSO_BUILD_LOG_FILE="$ROOT/bin/.gstack-cso-build.log"
+  if ! (set -o pipefail; GSTACK_CSO_BUILD_LOG="$CSO_BUILD_LOG_FILE" BUN_CMD="$BUN_CMD" bash scripts/build-cso.sh 2>&1 | tee "$CSO_BUILD_LOG_FILE"); then
+    cso_stage="$(sed -n 's/^stage=//p' bin/.gstack-cso-build-result 2>/dev/null | head -1)"
+    if [ "${GSTACK_STRICT_BUILD:-0}" = "1" ]; then
+      echo "CSO ${cso_stage:-build} failed and GSTACK_STRICT_BUILD=1 makes it fatal. Log: $CSO_BUILD_LOG_FILE" >&2
+      exit 1
+    fi
+    echo "CSO unavailable: the ${cso_stage:-build} step failed; the rest of the build continues. Log: $CSO_BUILD_LOG_FILE. Retry: cd $ROOT && bun run build:cso" >&2
+  fi
 fi
 bash browse/scripts/build-node-server.sh
 bash scripts/write-version-files.sh browse/dist/.version design/dist/.version make-pdf/dist/.version

@@ -80,6 +80,8 @@ jobs:
 
       - name: Build binaries
         run: bun run build
+        env:
+          GSTACK_STRICT_BUILD: '1'
 
       - name: ad-hoc codesign (Apple Silicon)
         if: matrix.os == 'macos-latest'
