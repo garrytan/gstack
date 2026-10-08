@@ -436,6 +436,20 @@ describe('gen-skill-docs', () => {
     expect(content).not.toContain('## Completeness Principle');
   });
 
+  test('benchmark routing is scoped to web page performance', () => {
+    const generated = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md'), 'utf-8');
+    const template = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md.tmpl'), 'utf-8');
+    for (const content of [generated, template]) {
+      const useWhen = content.match(/Use when:[\s\S]*?(?=\n\n|\(gstack\))/)?.[0] ?? '';
+      expect(useWhen).toContain('"web performance benchmark"');
+      expect(useWhen).not.toMatch(/"benchmark"|"performance"/);
+      expect(content).toContain('/benchmark-models');
+    }
+    const router = fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
+    expect(router).toContain('web performance regression → invoke `/benchmark`');
+    expect(router).toContain('model or skill benchmarks → invoke `/benchmark-models`');
+  });
+
   test('telemetry producer lives in the scripts; render documents the analytics sink', () => {
     // The skill-usage.jsonl producers moved into the scripts (Phase 1).
     expect(SKILL_START_SCRIPT).toContain('analytics/skill-usage.jsonl');

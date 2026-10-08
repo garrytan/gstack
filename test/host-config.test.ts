@@ -26,6 +26,7 @@ import {
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
+import { runGeneration } from '../scripts/gen-skill-docs';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
@@ -789,4 +790,30 @@ describe('host renders name the host\'s own tools and identities (#2626, #2015, 
       if (fs.existsSync(md)) expect(fs.readFileSync(md, 'utf8')).not.toMatch(/\.Codex\//);
     }
   });
+});
+
+describe('agent-runtime hosts never leak the Claude "Agent tool" name', () => {
+  const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-agent-tool-'));
+  afterAll(() => fs.rmSync(OUT, { recursive: true, force: true }));
+
+  test.each([
+    ['hermes', 'delegate_task'],
+    ['gbrain', 'sessions_spawn'],
+    ['openclaw', 'sessions_spawn'],
+    ['factory', 'delegation'],
+  ])('%s renders map every Agent tool phrasing to %s', async (host, token) => {
+    const result = await runGeneration({ host: host as 'hermes', outputRoot: path.join(OUT, host), contentLinkRoot: null });
+    expect(result.exitCode).toBe(0);
+    const rendered = result.artifacts.filter(a => a.kind === 'skill' || a.kind === 'section');
+    expect(rendered.length).toBeGreaterThan(20);
+    const leaks: string[] = [];
+    let mentions = 0;
+    for (const artifact of rendered) {
+      const content = fs.readFileSync(path.join(OUT, host, artifact.relativePath), 'utf8');
+      if (/\bAgent tool\b/.test(content)) leaks.push(artifact.relativePath);
+      if (content.includes(`via ${token}`)) mentions++;
+    }
+    expect(leaks).toEqual([]);
+    expect(mentions).toBeGreaterThan(0);
+  }, 120_000);
 });

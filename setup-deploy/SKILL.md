@@ -480,7 +480,7 @@ If vercel.json or .vercel detected:
 
 1. Check for `vercel` CLI: `which vercel 2>/dev/null`
 2. If installed: `vercel ls --prod 2>/dev/null | head -3`
-3. Vercel deploys automatically on push — preview on PR, production on merge to the default branch
+3. Vercel deploys automatically on push — preview on PR, production on merge to the default branch — only when the Vercel project is connected to this Git repository. For a CLI-only project, ask how production deploys run and record that command as the deploy trigger
 4. Set health check: the production URL from vercel project settings
 Ask for the production URL if not available from the CLI, then confirm it before writing.
 
@@ -509,6 +509,8 @@ If deploy workflows detected but no platform config:
 #### Custom / Manual
 
 If nothing detected:
+
+A project deployed only with the Vercel CLI has no `vercel.json` or `.vercel/`; `vercel link` creates `.vercel/`, so a re-run detects it.
 
 Use AskUserQuestion to gather the information:
 

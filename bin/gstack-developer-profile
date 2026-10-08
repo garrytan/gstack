@@ -20,6 +20,9 @@
 #   --log-session    append a session entry (from /office-hours) to
 #                       sessions[] and update aggregates. Required fields:
 #                       date, mode. Silent skip on invalid input.
+#   --reconcile         backfill count-only sessions[] entries from office-hours
+#                       `completed` events in projects/*/timeline.jsonl.
+#                       Idempotent; backfilled rows count for tenure only.
 #
 # Profile file: ~/.gstack/developer-profile.json (unified schema — see
 # docs/designs/PLAN_TUNING_V0.md). Event file: ~/.gstack/projects/{SLUG}/
@@ -227,6 +230,86 @@ do_log_session() {
 }
 
 # -----------------------------------------------------------------------
+# Reconcile: sessions[] is written only at office-hours Phase 4.5, so runs
+# that ended earlier never count toward tenure. Backfill one count-only row
+# per office-hours `completed` timeline event that has no sessions[] entry
+# for the same project within 60 minutes (extended back by the run's
+# duration_s when it is under 8h, since Phase 4.5 logs mid-run). The file is
+# rewritten only when something was added.
+# -----------------------------------------------------------------------
+do_reconcile() {
+  ensure_profile
+
+  local TMPOUT
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.tmp.XXXXXX")
+  trap 'rm -f "$TMPOUT"' EXIT
+
+  PROFILE_FILE_PATH="$PROFILE_FILE" PROJECTS_DIR="$GSTACK_HOME/projects" TMPOUT_PATH="$TMPOUT" bun -e "
+    const fs = require('fs');
+    const path = require('path');
+    const profile = JSON.parse(fs.readFileSync(process.env.PROFILE_FILE_PATH, 'utf-8'));
+    profile.sessions = profile.sessions || [];
+
+    const runs = [];
+    let slugs = [];
+    try { slugs = fs.readdirSync(process.env.PROJECTS_DIR); } catch {}
+    for (const slug of slugs) {
+      let lines = [];
+      try { lines = fs.readFileSync(path.join(process.env.PROJECTS_DIR, slug, 'timeline.jsonl'), 'utf-8').split('\n'); } catch { continue; }
+      for (const line of lines) {
+        let e;
+        try { e = JSON.parse(line); } catch { continue; }
+        if (!e || e.skill !== 'office-hours' || e.event !== 'completed') continue;
+        const t = Date.parse(e.ts);
+        if (Number.isNaN(t)) continue;
+        const dur = Number(e.duration_s);
+        runs.push({ t, ts: e.ts, slug, mode: e.mode, span: dur > 0 && dur < 8 * 3600 ? dur * 1000 : 0 });
+      }
+    }
+    runs.sort((a, b) => a.t - b.t);
+
+    const HOUR = 60 * 60 * 1000;
+    const covered = profile.sessions
+      .filter(s => s && s.mode !== 'resources')
+      .map(s => ({ t: Date.parse(s.ts || s.date || ''), slug: s.project_slug || null }))
+      .filter(c => !Number.isNaN(c.t));
+
+    let added = 0;
+    for (const run of runs) {
+      const matched = covered.some(c => (c.slug === null || c.slug === run.slug)
+        && c.t >= run.t - run.span - HOUR && c.t <= run.t + HOUR);
+      if (matched) continue;
+      covered.push({ t: run.t, slug: run.slug });
+      profile.sessions.push({
+        date: run.ts,
+        mode: run.mode && run.mode !== 'resources' ? run.mode : 'unknown',
+        project_slug: run.slug,
+        signal_count: 0,
+        signals: [],
+        backfilled: true,
+      });
+      added++;
+    }
+
+    if (added > 0) {
+      const at = s => { const t = Date.parse(s.ts || s.date || ''); return Number.isNaN(t) ? Infinity : t; };
+      profile.sessions.sort((a, b) => at(a) - at(b));
+      fs.writeFileSync(process.env.TMPOUT_PATH, JSON.stringify(profile, null, 2));
+    }
+    console.log('RECONCILE: ' + added + ' backfilled from ' + runs.length + ' office-hours run(s)');
+  "
+
+  if [ -s "$TMPOUT" ]; then
+    mv "$TMPOUT" "$PROFILE_FILE"
+    trap - EXIT
+    "$SCRIPT_DIR/gstack-brain-enqueue" "developer-profile.json" 2>/dev/null &
+  else
+    rm -f "$TMPOUT"
+    trap - EXIT
+  fi
+}
+
+# -----------------------------------------------------------------------
 # Read: emit legacy KEY: VALUE output for /office-hours compat.
 # -----------------------------------------------------------------------
 do_read() {
@@ -241,20 +324,22 @@ do_read() {
     // the count (bumping TIER), clobbers LAST_PROJECT/LAST_ASSIGNMENT/LAST_DESIGN_TITLE,
     // and pushes NUDGE_ELIGIBLE over its threshold from bookkeeping alone.
     const realSessions = sessions.filter(e => e.mode !== 'resources');
+    // Backfilled rows (--reconcile) carry no content: they count for tenure only.
+    const loggedSessions = realSessions.filter(e => !e.backfilled);
 
     const count = realSessions.length;
     let tier = 'introduction';
     if (count >= 8) tier = 'inner_circle';
     else if (count >= 4) tier = 'regular';
     else if (count >= 1) tier = 'welcome_back';
-    const last = realSessions[realSessions.length - 1] || {};
-    const prev = realSessions[realSessions.length - 2] || {};
+    const last = loggedSessions[loggedSessions.length - 1] || {};
+    const prev = loggedSessions[loggedSessions.length - 2] || {};
     const crossProject = prev.project_slug && last.project_slug
       ? prev.project_slug !== last.project_slug
       : false;
 
-    const designs = realSessions.map(e => e.design_doc || '').filter(Boolean);
-    const designTitles = realSessions
+    const designs = loggedSessions.map(e => e.design_doc || '').filter(Boolean);
+    const designTitles = loggedSessions
       .map(e => (e.design_doc ? (e.project_slug || 'unknown') : ''))
       .filter(Boolean);
 
@@ -267,7 +352,7 @@ do_read() {
     // someone who keeps returning to *build*, not startup-mode diagnostics and not
     // resources bookkeeping. (Was \`e.mode !== 'startup'\`, which counted resources
     // entries and excluded real startup sessions.)
-    const builderSessions = realSessions.filter(e => e.mode === 'builder').length;
+    const builderSessions = loggedSessions.filter(e => e.mode === 'builder').length;
     const nudgeEligible = builderSessions >= 3 && totalSignals >= 5;
 
     const resources = p.resources_shown || [];
@@ -529,6 +614,7 @@ case "$CMD" in
   --check-mismatch) do_check_mismatch ;;
   --migrate) do_migrate ;;
   --log-session) do_log_session "$@" ;;
+  --reconcile) do_reconcile ;;
   --help|-h) sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||' ;;
   *)
     echo "gstack-developer-profile: unknown subcommand '$CMD'" >&2
