@@ -36,7 +36,20 @@ esac
 # inside untrusted repos, and dotenv could set security switches such as
 # GSTACK_CHROMIUM_NO_SANDBOX while a bunfig preload runs arbitrary code (D0).
 "$BUN_CMD" run vendor:xterm
-"$BUN_CMD" run gen:skill-docs --host all
+# Inside an install, render only the hosts setup installed from this checkout
+# (#1694): every host's render under ~/.claude/skills/gstack is scanned by
+# Claude Code and Cursor. bin/gstack-host-renders.sh owns the record.
+. "$ROOT/bin/gstack-host-renders.sh"
+gstack_render_hosts_select "$ROOT"
+if [ "$GSTACK_RENDER_HOST_LIST" = all ]; then
+  echo "Rendering skills for every host: $GSTACK_RENDER_HOST_REASON"
+  "$BUN_CMD" run gen:skill-docs --host all
+else
+  echo "Rendering skills for: $GSTACK_RENDER_HOST_LIST ($GSTACK_RENDER_HOST_REASON)"
+  for render_host in $GSTACK_RENDER_HOST_LIST; do
+    "$BUN_CMD" run gen:skill-docs --host "$render_host"
+  done
+fi
 "$BUN_CMD" build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig browse/src/cli.ts --outfile browse/dist/browse
 "$BUN_CMD" build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig browse/src/find-browse.ts --outfile browse/dist/find-browse
 "$BUN_CMD" build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig design/src/cli.ts --outfile design/dist/design

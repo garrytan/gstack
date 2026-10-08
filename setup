@@ -255,6 +255,7 @@ case "$HOST" in
     echo "To integrate gstack with OpenClaw:"
     echo "  1. Tell your OpenClaw agent: 'install gstack for openclaw'"
     echo "  2. Or generate artifacts: bun run gen:skill-docs --host openclaw"
+    echo "     (in an install, add 'openclaw' to .gstack-installed-hosts first, or ./setup prunes them)"
     echo "  3. See docs/OPENCLAW.md for the full architecture"
     print_instruction_tier
     exit 0 ;;
@@ -268,6 +269,8 @@ case "$HOST" in
     echo "  2. Render Hermes-flavoured skills yourself (not certified; #2826):"
     echo "       bun run gen:skill-docs --host hermes"
     echo "     then point a Hermes profile's skills.external_dirs at .hermes/skills."
+    echo "     Add 'hermes' to .gstack-installed-hosts in this checkout first: ./setup"
+    echo "     prunes renders of hosts that file does not name (#1694)."
     print_instruction_tier
     exit 0 ;;
   gbrain)
@@ -278,6 +281,7 @@ case "$HOST" in
     echo ""
     echo "To generate brain-aware skills:"
     echo "  bun run gen:skill-docs --host gbrain"
+    echo "  (in an install, add 'gbrain' to .gstack-installed-hosts first, or ./setup prunes them)"
     echo ""
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
@@ -316,6 +320,7 @@ SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 gstack_state_root_select; GSTACK_STATE_ROOT="$_gstack_sr_root"
 . "$SOURCE_GSTACK_DIR/bin/gstack-install-registry.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-install-registry.sh is missing. fix: reinstall from a fresh clone (docs/ADDING_A_HOST.md)" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-render-claude.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-render-claude.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
+. "$SOURCE_GSTACK_DIR/bin/gstack-host-renders.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-host-renders.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 SETUP_VERSION="$(cat "$SOURCE_GSTACK_DIR/VERSION" 2>/dev/null || echo unknown)"
 
 # --claude-model is validated before anything is written, and persisted once
@@ -630,8 +635,15 @@ _link_or_copy() {
 # "$GSTACK_ROOT/freeze/bin/...". Subdirectories only, never the whole skill
 # directory: make-pdf/, freeze/ and careful/ ship a Claude SKILL.md a host
 # scanning its skills root would discover as a duplicate skill.
+# Also the files the skills read on demand as "$GSTACK_ROOT/<path>" (#1077
+# residue): the preamble's jargon list, question registry and AskUserQuestion
+# docs, the review checklists and specialists, /plan-devex-review's Hall of
+# Fame, the test-value bar, design-html's vendored pretext.js and VERSION.
+# Pinned by test/runtime-root-assets.test.ts. A destination that already exists
+# as a real entry is left alone: in the repo-local sidecar review/ is a link to
+# the source, so its files already resolve and must never be linked over.
 _link_runtime_dists() {
-  local d
+  local d f
   # Record the source checkout (#3026): on Windows the root's browse/dist is a
   # copy with no node_modules beside it, and the browse CLI runs the checkout's
   # Node server bundle from here instead. /gstack-upgrade reads it too.
@@ -640,12 +652,36 @@ _link_runtime_dists() {
   else
     printf '%s\n' "$1" > "$2/.source-path"
   fi
-  for d in design/dist make-pdf/dist freeze/bin careful/bin; do
+  for d in design/dist make-pdf/dist freeze/bin careful/bin review/specialists design-html/vendor; do
     [ -d "$1/$d" ] || continue
     if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$2/$d" ] || [ ! -e "$2/$d" ]; then
       mkdir -p "$2/${d%/*}"
       _link_or_copy "$1/$d" "$2/$d"
     fi
+  done
+  for f in VERSION scripts/jargon-list.json scripts/question-registry.ts \
+    docs/askuserquestion-split.md docs/askuserquestion-cjk.md docs/test-value-bar.md \
+    review/checklist.md review/design-checklist.md review/greptile-triage.md review/TODOS-format.md \
+    plan-devex-review/dx-hall-of-fame.md; do
+    [ -f "$1/$f" ] || continue
+    if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$2/$f" ] || [ ! -e "$2/$f" ]; then
+      case "$f" in */*) mkdir -p "$2/${f%/*}" ;; esac
+      _link_or_copy "$1/$f" "$2/$f"
+    fi
+  done
+}
+
+# _copy_runtime_skill_refs RENDER_SKILLS ROOT — skills that read another
+# skill's instructions as "$GSTACK_ROOT/<skill>/SKILL.md" get that host's
+# rendered copy there: plan-eng-review's inline office-hours step (#2449) and
+# the plan-design-review sections. Real-file copies, like every SKILL.md in a
+# runtime root, and only the SKILL.md, never the skill's source directory.
+_copy_runtime_skill_refs() {
+  local s
+  for s in office-hours plan-design-review; do
+    [ -f "$1/gstack-$s/SKILL.md" ] || continue
+    mkdir -p "$2/$s"
+    _copy_skill_md "$1/gstack-$s/SKILL.md" "$2/$s/SKILL.md"
   done
 }
 
@@ -1681,6 +1717,23 @@ fi
 # (bin/gstack-render-claude.sh).
 gstack_claude_overlay "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/bin/gstack-config"
 
+# Installed-hosts record (#1694): the build renders skills only for these
+# hosts, and step 7b prunes every other host's render from this checkout. The
+# record only grows; installs made before it existed are discovered first.
+gstack_render_hosts_seed "$SOURCE_GSTACK_DIR"
+_RENDER_HOSTS_SELECTED=""
+[ "$INSTALL_CLAUDE" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED claude"
+[ "$INSTALL_CODEX" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED codex"
+[ "$INSTALL_KIRO" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED kiro"
+[ "$INSTALL_FACTORY" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED factory"
+[ "$INSTALL_OPENCODE" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED opencode"
+[ "$INSTALL_CURSOR" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED cursor"
+[ "$INSTALL_COPILOT" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED copilot"
+# shellcheck disable=SC2086 # the host list splits on purpose
+if ! gstack_render_hosts_add "$SOURCE_GSTACK_DIR" $_RENDER_HOSTS_SELECTED; then
+  echo "  warning: could not write $(gstack_render_hosts_file "$SOURCE_GSTACK_DIR"); this build renders every host and nothing is pruned" >&2
+fi
+
 # Migrate existing wrappers BEFORE build can regenerate/prune shared host trees.
 # This also repairs existing Codex/Kiro installs during a Claude-only setup.
 # A failed/foreign replacement retains its old render even when build runs
@@ -1880,14 +1933,16 @@ if [ ! -x "$BROWSE_BIN" ]; then
   exit 1
 fi
 
-# 1b. Generate .agents/ Codex skill docs — always regenerate to prevent stale descriptions.
+# 1b. Generate .agents/ Codex skill docs whenever this checkout serves Codex.
 # .agents/ is no longer committed — generated at setup time from .tmpl templates.
 # bun run build generates the host-default artifact. Always render Codex again
 # with the resolved user profile so a build cannot overwrite a Sol-specific render.
 # Always regenerate: generation is fast (<2s) and mtime-based staleness checks are fragile
-# (miss stale files when timestamps match after clone/checkout/upgrade).
+# (miss stale files when timestamps match after clone/checkout/upgrade). A
+# checkout with no Codex install renders none (#1694).
 AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
-NEEDS_AGENTS_GEN=1
+NEEDS_AGENTS_GEN=0
+if [ "$INSTALL_CODEX" -eq 1 ] || gstack_render_hosts_has "$SOURCE_GSTACK_DIR" codex; then NEEDS_AGENTS_GEN=1; fi
 
 if [ "$NEEDS_AGENTS_GEN" -eq 1 ]; then
   log "Generating .agents/ skill docs..."
@@ -2716,19 +2771,7 @@ create_codex_runtime_root() {
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     _copy_skill_md "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
   fi
-  # plan-eng-review's inline office-hours step reads
-  # $GSTACK_ROOT/office-hours/SKILL.md (#2449) — install the codex-rendered
-  # variant there so the documented path exists.
-  if [ -f "${agents_dir}/gstack-office-hours/SKILL.md" ]; then
-    mkdir -p "${codex_gstack}/office-hours"
-    _copy_skill_md "${agents_dir}/gstack-office-hours/SKILL.md" "${codex_gstack}/office-hours/SKILL.md"
-  fi
-  # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
-  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-    if [ -f "$gstack_dir/review/$f" ]; then
-      _link_or_copy "$gstack_dir/review/$f" "$codex_gstack/review/$f"
-    fi
-  done
+  _copy_runtime_skill_refs "$agents_dir" "$codex_gstack"
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
@@ -2772,18 +2815,7 @@ create_factory_runtime_root() {
   if [ -f "$factory_dir/gstack-upgrade/SKILL.md" ]; then
     _copy_skill_md "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
   fi
-  # plan-eng-review's inline office-hours step reads
-  # $GSTACK_ROOT/office-hours/SKILL.md (#2449) — install the factory-rendered
-  # variant there so the documented path exists.
-  if [ -f "${factory_dir}/gstack-office-hours/SKILL.md" ]; then
-    mkdir -p "${factory_gstack}/office-hours"
-    _copy_skill_md "${factory_dir}/gstack-office-hours/SKILL.md" "${factory_gstack}/office-hours/SKILL.md"
-  fi
-  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-    if [ -f "$gstack_dir/review/$f" ]; then
-      _link_or_copy "$gstack_dir/review/$f" "$factory_gstack/review/$f"
-    fi
-  done
+  _copy_runtime_skill_refs "$factory_dir" "$factory_gstack"
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$factory_gstack/ETHOS.md"
   fi
@@ -2805,7 +2837,7 @@ create_opencode_runtime_root() {
     rm -rf "$opencode_gstack"
   fi
 
-  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
+  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa"
 
   if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
     _copy_skill_md "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
@@ -2826,29 +2858,12 @@ create_opencode_runtime_root() {
   if [ -f "$opencode_dir/gstack-upgrade/SKILL.md" ]; then
     _copy_skill_md "$opencode_dir/gstack-upgrade/SKILL.md" "$opencode_gstack/gstack-upgrade/SKILL.md"
   fi
-  # plan-eng-review's inline office-hours step reads
-  # $GSTACK_ROOT/office-hours/SKILL.md (#2449) — install the opencode-rendered
-  # variant there so the documented path exists.
-  if [ -f "${opencode_dir}/gstack-office-hours/SKILL.md" ]; then
-    mkdir -p "${opencode_gstack}/office-hours"
-    _copy_skill_md "${opencode_dir}/gstack-office-hours/SKILL.md" "${opencode_gstack}/office-hours/SKILL.md"
-  fi
-  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-    if [ -f "$gstack_dir/review/$f" ]; then
-      _link_or_copy "$gstack_dir/review/$f" "$opencode_gstack/review/$f"
-    fi
-  done
-  if [ -d "$gstack_dir/review/specialists" ]; then
-    _link_or_copy "$gstack_dir/review/specialists" "$opencode_gstack/review/specialists"
-  fi
+  _copy_runtime_skill_refs "$opencode_dir" "$opencode_gstack"
   if [ -d "$gstack_dir/qa/templates" ]; then
     _link_or_copy "$gstack_dir/qa/templates" "$opencode_gstack/qa/templates"
   fi
   if [ -d "$gstack_dir/qa/references" ]; then
     _link_or_copy "$gstack_dir/qa/references" "$opencode_gstack/qa/references"
-  fi
-  if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
-    _link_or_copy "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$opencode_gstack/plan-devex-review/dx-hall-of-fame.md"
   fi
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$opencode_gstack/ETHOS.md"
@@ -2989,12 +3004,7 @@ create_cursor_runtime_root() {
   if [ -f "$cursor_dir/gstack-upgrade/SKILL.md" ]; then
     _copy_skill_md "$cursor_dir/gstack-upgrade/SKILL.md" "$cursor_gstack/gstack-upgrade/SKILL.md"
   fi
-  # Review runtime assets — the cursor host config ships the lean pair.
-  for f in checklist.md TODOS-format.md; do
-    if [ -f "$gstack_dir/review/$f" ]; then
-      _link_or_copy "$gstack_dir/review/$f" "$cursor_gstack/review/$f"
-    fi
-  done
+  _copy_runtime_skill_refs "$cursor_dir" "$cursor_gstack"
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$cursor_gstack/ETHOS.md"
   fi
@@ -3049,13 +3059,6 @@ create_cursor_sidecar() {
       _link_or_copy "$cursor_dir/gstack-upgrade/SKILL.md" "$cursor_gstack/gstack-upgrade/SKILL.md"
     fi
   fi
-  for f in checklist.md TODOS-format.md; do
-    if [ -f "$repo_root/review/$f" ]; then
-      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$cursor_gstack/review/$f" ] || [ ! -e "$cursor_gstack/review/$f" ]; then
-        _link_or_copy "$repo_root/review/$f" "$cursor_gstack/review/$f"
-      fi
-    fi
-  done
   if [ -f "$repo_root/ETHOS.md" ]; then
     if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$cursor_gstack/ETHOS.md" ] || [ ! -e "$cursor_gstack/ETHOS.md" ]; then
       _link_or_copy "$repo_root/ETHOS.md" "$cursor_gstack/ETHOS.md"
@@ -3161,15 +3164,7 @@ create_copilot_runtime_root() {
   if [ -f "$copilot_dir/gstack-upgrade/SKILL.md" ]; then
     _copy_skill_md "$copilot_dir/gstack-upgrade/SKILL.md" "$copilot_gstack/gstack-upgrade/SKILL.md"
   fi
-  if [ -f "$copilot_dir/gstack-office-hours/SKILL.md" ]; then
-    mkdir -p "$copilot_gstack/office-hours"
-    _copy_skill_md "$copilot_dir/gstack-office-hours/SKILL.md" "$copilot_gstack/office-hours/SKILL.md"
-  fi
-  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-    if [ -f "$gstack_dir/review/$f" ]; then
-      _link_or_copy "$gstack_dir/review/$f" "$copilot_gstack/review/$f"
-    fi
-  done
+  _copy_runtime_skill_refs "$copilot_dir" "$copilot_gstack"
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$copilot_gstack/ETHOS.md"
   fi
@@ -3460,15 +3455,7 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
     if [ -f "$KIRO_DIR/gstack/SKILL.md" ]; then
       _copy_skill_md "$KIRO_DIR/gstack/SKILL.md" "$KIRO_GSTACK/SKILL.md"
     fi
-    if [ -f "$KIRO_DIR/gstack-office-hours/SKILL.md" ]; then
-      mkdir -p "$KIRO_GSTACK/office-hours"
-      _copy_skill_md "$KIRO_DIR/gstack-office-hours/SKILL.md" "$KIRO_GSTACK/office-hours/SKILL.md"
-    fi
-    for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-      if [ -f "$SOURCE_GSTACK_DIR/review/$f" ]; then
-        _link_or_copy "$SOURCE_GSTACK_DIR/review/$f" "$KIRO_GSTACK/review/$f"
-      fi
-    done
+    _copy_runtime_skill_refs "$KIRO_DIR" "$KIRO_GSTACK"
     for skill_dir in "$KIRO_DIR"/gstack*/; do
       [ -f "$skill_dir/SKILL.md" ] || continue
       skill_name="$(basename "$skill_dir")"
@@ -3628,6 +3615,14 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   _setup_arm_begin codex "$_CX_SCOPE" "$CODEX_SKILLS"
   create_agents_sidecar "$SOURCE_GSTACK_DIR"
   _setup_arm_publish codex "$_CX_SCOPE" "$_CX_PROJECT" "$CODEX_SKILLS" "$CODEX_GSTACK" - "${_CODEX_RENDER_ROOT:-committed}"
+fi
+
+# 7b. Prune the skill renders of hosts this checkout does not serve (#1694),
+# on every run, so each install converges on its own recorded hosts even when
+# several installs share one state root. Generated files go to the state
+# root's backups; anything not proven generated stays in place.
+if ! gstack_prune_host_renders "$SOURCE_GSTACK_DIR"; then
+  echo "  warning: some generated host renders could not be backed up, so they were left in place; the next ./setup retries" >&2
 fi
 
 # 8. Run pending version migrations

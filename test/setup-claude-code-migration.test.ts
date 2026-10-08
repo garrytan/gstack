@@ -30,7 +30,7 @@ function fixture(copy: boolean) {
   put(path.join(root, 'VERSION'), '2.0.0.0\n');
   put(path.join(root, 'ETHOS.md'), 'Fixture ethos\n');
   put(path.join(root, 'package.json'), JSON.stringify({ type: 'module', scripts: { 'gen:skill-docs': 'bun run scripts/gen-skill-docs.ts' } }));
-  for (const bin of ['gstack-config', 'gstack-patch-names', 'gstack-relink', 'gstack-migrate-claude-code', 'gstack-claude-code', 'gstack-models', 'gstack-state-root.sh', 'gstack-bun-version.sh', 'gstack-install-registry.sh', 'gstack-render-claude.sh']) {
+  for (const bin of ['gstack-config', 'gstack-patch-names', 'gstack-relink', 'gstack-migrate-claude-code', 'gstack-claude-code', 'gstack-models', 'gstack-state-root.sh', 'gstack-bun-version.sh', 'gstack-install-registry.sh', 'gstack-render-claude.sh', 'gstack-host-renders.sh']) {
     const target = path.join(root, 'bin', bin);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.copyFileSync(path.join(ROOT, 'bin', bin), target);

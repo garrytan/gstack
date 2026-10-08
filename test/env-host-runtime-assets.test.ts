@@ -93,7 +93,7 @@ describe.skipIf(process.platform === 'win32')('Codex global install: the freeze 
       const rootDir = path.join(codexHome, 'skills', 'gstack');
       const project = path.join(sandbox, 'project', 'src');
       fs.mkdirSync(project, { recursive: true });
-      const functions = ['_link_or_copy', '_link_runtime_dists', '_copy_skill_md', '_gstack_generated_header', 'create_codex_runtime_root']
+      const functions = ['_link_or_copy', '_link_runtime_dists', '_copy_runtime_skill_refs', '_copy_skill_md', '_gstack_generated_header', 'create_codex_runtime_root']
         .filter(name => SETUP_SRC.includes(`\n${name}() {`)).map(extractFunction).join('\n');
       const built = spawnSync('bash', ['-c', `IS_WINDOWS=0\n_CODEX_RENDER_ROOT="${renderDir}"\n${functions}\ncreate_codex_runtime_root "${ROOT}" "${rootDir}"`],
         { encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home } });

@@ -455,7 +455,7 @@ describe('setup --team / --no-team / -q', () => {
     try {
       for (const rel of [
         'setup', 'VERSION', 'SKILL.md', 'qa/SKILL.md', 'bin/gstack-config', 'bin/gstack-patch-names',
-        'bin/gstack-state-root.sh', 'bin/gstack-bun-version.sh', 'bin/gstack-install-registry.sh', 'bin/gstack-render-claude.sh',
+        'bin/gstack-state-root.sh', 'bin/gstack-bun-version.sh', 'bin/gstack-install-registry.sh', 'bin/gstack-render-claude.sh', 'bin/gstack-host-renders.sh',
         'scripts/resolve-codex-generation-model.ts', 'scripts/models.ts', 'scripts/preflight-codex-overlap.ts',
         'scripts/discover-skills.ts', 'scripts/external-skill-names.ts', 'scripts/host-config.ts',
         'lib/claude-code-migration.ts', 'lib/model-policy.ts', 'lib/model-catalog.ts',

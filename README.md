@@ -119,6 +119,16 @@ An explicit `--host X` installs for X only and never changes another agent's
 install. `/gstack-upgrade` refreshes every install it registered, one row per
 host, and says which ones failed.
 
+A checkout carries skills only for the agents installed from it. Setup records
+them in `.gstack-installed-hosts` and never drops one, so adding an agent later
+is just `./setup --host <name>`. Copies rendered for other agents are pruned:
+generated files move to `~/.gstack/backups/host-renders/`, and files gstack
+can't prove it generated stay where they are. A global Claude install went
+from 632 `SKILL.md` files (34.7 MB) to its own 63 (2.5 MB), which keeps Cursor-agent
+from freezing on the skills tree (#1694). In a development checkout,
+`bun run build` still renders every agent; inside an install it renders the
+recorded ones, and `GSTACK_RENDER_HOSTS=all bun run build` renders them all.
+
 Tiers: **full** is certified by a real workflow run (see
 [Certify your host](docs/ADDING_A_HOST.md#certify-your-host)); **experimental**
 installs and passes the conformance tests but has no certification run yet;
@@ -686,6 +696,8 @@ it. The usual fix is to re-run setup from that row's source for that host, e.g.
 `cd ~/.claude/skills/gstack && ./setup` (Claude) or `cd ~/gstack && ./setup --host codex`.
 A project install lives in the project's `.claude/skills/gstack` or
 `.agents/skills/gstack`; run its `setup` from inside the project.
+
+**Cursor freezes on load, or an agent's gstack skills went missing after an upgrade?** Each checkout now renders skills only for the agents installed from it (#1694). `./setup --status` lists them; `./setup --host <name>` adds one back. Pruned copies are in `~/.gstack/backups/host-renders/<time>-<id>/`, with every path in its `prune.log` ([troubleshooting](docs/troubleshooting.md#host-renders-pruned)).
 
 **`/browse` (or `/qa`, `/design-review`) says `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`?** That's the probe telling you it's about to use the fallback browser. Want Aside? Open the app and sign in — `aside --version` should print a version and `aside repl 'console.log("ok")'` should print `ok` — then re-run. gstack never installs it for you. Want the fallback on purpose while Aside is open? `GSTACK_SKIP_ASIDE=1` makes every skill, the renderer, and `./setup` treat Aside as absent. When Aside is absent the probe prints `NEEDS_ASIDE: <OS>` and skills trust that line for the macOS-only download pitch; `GSTACK_PLATFORM` overrides the OS it names, for tests and unusual hosts (set it in your shell — gstack never reads it from a project `.env`).
 

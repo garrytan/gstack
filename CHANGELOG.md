@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.63.0] - 2026-10-08
+## [1.91.66.0] - 2026-10-08
 
 **/autoplan no longer asks permission to read its own files after a background reviewer finishes.**
 **34 contributor PRs from the outside-PR backlog land in this release, rewritten on current code with credit.**
@@ -72,6 +72,46 @@ Both are tracked in TODOS.md.
 - `autoplan/bin/owned-read.ts` approves only this install's `autoplan/sections/*.md` and immutable phase artifacts under the repo's `.gstack/tmp/autoplan/`. It never denies, and it runs only when the guard returned nothing.
 - The paid `autoplan-guard-pty` case asserts zero permission cards across a background reviewer's notice turn.
 - TODOS.md gains "Parked contributor ideas (Oct 8 triage)", which keeps 35 parked PRs grouped by theme with their authors.
+
+## [1.91.65.0] - 2026-10-08
+
+**A gstack install carries skills only for the agents you installed: a global Claude install drops from 632 SKILL.md files (34.7 MB) to 63 (2.5 MB).**
+**Codex and the other non-Claude agents get every file their skills read, instead of failing those reads silently.**
+
+`./setup` rendered every agent's copy of the skills inside the install (#1694). A global Claude install at `~/.claude/skills/gstack` held Codex, Factory, Kiro, OpenCode, Cursor, Copilot, Slate, OpenClaw, Hermes and GBrain renders next to its own skills. Claude Code and Cursor-agent scan that tree, and Cursor-agent freezes above about 11 MB of skill files. Separately, the runtime directories setup builds for Codex, Factory, Kiro, OpenCode, Cursor and Copilot were missing files the skills read on demand: the jargon list, the question registry, the AskUserQuestion guides, the review checklists, the DX Hall of Fame and more (#1077's remaining part).
+
+### The numbers that matter
+
+Measured on Linux with a sandboxed HOME, installing from a fresh clone of the commit before this release (4637fae) and of this branch. The setup builds were real; Chromium and fonts were skipped.
+
+| Install | Before | After |
+|---|---|---|
+| Global Claude install (`./setup`) | 632 `SKILL.md`, 34,738,066 bytes | 63 `SKILL.md`, 2,520,330 bytes |
+| Existing install upgraded, then `./setup` | 632 `SKILL.md`, 34,738,066 bytes | 63 `SKILL.md`, 2,520,330 bytes; 569 generated `SKILL.md` (36.3 MB with their other files) moved to the backup |
+| Development checkout with `./setup --host codex` | 632 `SKILL.md`, 34,738,066 bytes | 119 `SKILL.md`, 5,772,984 bytes (Claude plus Codex) |
+| Same checkout, `GSTACK_RENDER_HOSTS=all bun run build` | 632 | 632; the next `./setup` prunes back to 119 |
+| `$GSTACK_ROOT` paths missing from the Codex runtime root | 10 of 80 | 1 of 80 (`scripts/ship-measure.ts`, deferred) |
+
+### What this means for you
+
+Run `/gstack-upgrade` (or `git pull && ./setup`). The first setup prints one `pruned <dir>` line per agent you don't use from this checkout and a `host-render backup:` line naming where the generated files went; the next `./setup` prints none. `./setup --status` lists your agents, and `./setup --host <name>` adds one back. Nothing gstack can't prove it generated is removed.
+
+### Itemized changes
+
+#### Fixed
+- An install renders skills only for the agents installed from it. setup records them in `.gstack-installed-hosts` in the checkout and never drops one, so `./setup --host codex` keeps a Factory render. The first run seeds the record from what the checkout already serves: install registry rows, install directories that resolve to it, agent skills that link into its renders, and legacy copy installs. `scripts/build.sh` renders Claude plus the recorded agents and prints which and why. A checkout with no record (a development checkout) still renders every agent, and `GSTACK_RENDER_HOSTS=all` forces that inside an install. (#1694)
+- Every `./setup`, and a migration for upgrades, prunes the renders of agents missing from the record, using `gstack-relink`'s proof rules. Links into the checkout are removed. Files proven generated (gstack's generated-file banner, the generator's exact `openai.yaml`, or byte identity) are moved to `~/.gstack/backups/host-renders/<time>-<id>/`. Every other file stays where it is, and only emptied directories are removed. setup prints each kept file and a summary per agent, and `prune.log` in the backup lists every path. Two installs that share one state root are each cleaned. (#1694)
+- The Codex `.agents/` render is made only when Codex is installed or recorded; a Claude-only setup used to make it every time. (#1694)
+- Codex, Factory, Kiro, OpenCode, Cursor and Copilot runtime roots carry every file their skills read as `$GSTACK_ROOT/<path>`: `VERSION`, `scripts/jargon-list.json`, `scripts/question-registry.ts`, the AskUserQuestion split and CJK guides, `docs/test-value-bar.md`, all four review checklists and the review specialists, `plan-devex-review/dx-hall-of-fame.md`, design-html's vendored `pretext.js`, and host-rendered `office-hours` and `plan-design-review` `SKILL.md` copies. Cursor had two of the four checklists and only OpenCode had the specialists. (#1077)
+
+#### Added
+- README and `docs/troubleshooting.md` explain the record, the prune and its backup, and how to get an agent back. `docs/ADDING_A_HOST.md` documents the render contract and the new host checklist step. setup's Hermes, OpenClaw and GBrain hints say to add the agent to the record before rendering it by hand.
+
+#### For contributors
+- `bin/gstack-host-renders.sh` owns the record, the build's host selection and the prune; `scripts/build.sh`, setup, `bin/dev-setup` and `gstack-upgrade/migrations/v1.91.65.0.sh` source it. `bin/dev-setup` records Codex because it serves the repo's `.agents/`. `hosts/define-host.ts`' `sharedRuntimeRoot()` mirrors setup's new `_link_runtime_dists` list and `_copy_runtime_skill_refs`.
+- New tests: `test/runtime-root-assets.test.ts` builds each runtime root with setup's own functions and checks every `$GSTACK_ROOT` literal in that agent's render on disk (it fails on the previous setup for all five roots); `test/host-renders.test.ts` (record, build selection, sequential installs, the upgrade refresh path); `test/host-renders-prune.test.ts` (a real all-agent render with a customized file, a user file, a look-alike skill and links; two installs on one state root; link-based seeding; the migration).
+- Not verified: Cursor-agent and Claude Code were not re-run against the trimmed tree; the numbers are on-disk counts. The Windows copy-install paths are covered by stubbed tests only.
+- Thanks to @vschoener for reporting #1694 and for the first fix attempt in #1695, @skyzer for the relocation approach in #1819 (both closed in favor of this one), @Saisreenivas for the Cursor-agent freeze report, and @el-analista for #1077.
 
 ## [1.91.62.0] - 2026-10-08
 
