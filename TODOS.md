@@ -20,6 +20,36 @@ Left open by the PowerShell/NotebookEdit hook fix (v1.91.41.0, #3067), each with
   today; a native PowerShell hook launcher would lift that. **Effort:** M.
   **Priority:** P3.
 
+### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.38.0)
+
+Left open by the iPad and route-drop release, each with its reason.
+
+- **Device verification of v1.91.38.0** — the iPad bootstrap, route-drop
+  recovery on a real Xcode 26 tunnel drop, the multiple-devices error and the
+  `NOT READY` path were proven only against the simulated device; the changed
+  `StateServer` passed `swiftc -parse` but no Apple-SDK build. Run
+  `test/skill-e2e-ios-device.test.ts` and the Swift build lane on a Mac with an
+  iPhone and an iPad. **Effort:** S. **Priority:** P2.
+- **`GSTACK_IOS_LAUNCH_ENV` (split from #1796, @Bmathews721)** — pass launch
+  environment to the app through `devicectl process launch`. Nothing equivalent
+  exists on main; land it as its own small PR with credit, then close #1796.
+  **Effort:** S. **Priority:** P2.
+- **A restarted daemon still relaunches the app once** — a new daemon has no
+  session bearer and the one-use boot token is gone. Fixing it needs either a
+  device-side re-mint with proof of the old session or a persisted bearer under
+  the state root, and both change the token's security model. Needs a design.
+  **Effort:** M. **Priority:** P3.
+- **iPad Stage Manager and multiple scenes** — overlay and window selection
+  (`frontmostWindow`, `searchRoots`) are unverified on iPad multi-window
+  layouts. **Effort:** S (verify) / M (fix). **Priority:** P3.
+- **Stale "Session warm-start" phase in `/ios-qa`** — Phase 0 describes an
+  `ios-qa-session.json` cache that no daemon code writes. Implement it with the
+  state-root chain or remove the phase. **Effort:** S. **Priority:** P3.
+- **Sanctioned input-routing hook for SwiftUI gestures** (#1975 finding 2) —
+  synthesized touches miss `DragGesture` on iOS 26; a documented `#if DEBUG`
+  hook would let gesture-driven apps route `/tap` and `/swipe` to their own
+  handlers. **Effort:** M. **Priority:** P3.
+
 ### P2/P3: Oct 7 fix-wave follow-ups (filed 2026-10-07)
 
 Left open by the Oct 7 wave (docs/designs/FOLLOWUP_WAVE_2026_10_07.md), each with its reason.
@@ -221,10 +251,10 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
 - **Redaction repo allowlist (#2598)** — a per-repo `+++ b/<path>` skip list
   (generated `*.svg`/`*.excalidraw`, #2827) for noise context rules cannot
   cover. New config surface, so out of the wave. **Effort:** M. **Priority:** P2.
-- **Global-discover Codex session schema (#2750)**, **ios-qa boot-token fixes
-  (#1837, #1975; need a device)**, **absolute bun path for compiled browse
-  spawns (#931; macOS repro unclear)** and **GitLab CI `curl | bash` (#1713)** —
-  out of the wave's scope. **Priority:** P3 each.
+- **Global-discover Codex session schema (#2750)**, **absolute bun path for
+  compiled browse spawns (#931; macOS repro unclear)** and **GitLab CI
+  `curl | bash` (#1713)** — out of the wave's scope. (The ios-qa boot-token
+  items #1837 and #1975 landed in v1.91.38.0.) **Priority:** P3 each.
 - **Upstream gbrain batch lookup** — a per-slug existence lookup and a separate
   `pending` list in `gbrain import --json`, so the landing check need not list a
   whole source and spawn `get` per page. **Effort:** M (upstream). **Priority:** P2.
