@@ -134,6 +134,9 @@ determined leaker (a CHANGELOG line that does would fail a hostile screenshotter
 - **Config keys:** `redact_repo_visibility` (public|private|unknown, local-only
   override for repos gh/glab can't read), `redact_prepush_hook` (true|false).
   There is intentionally NO key to disable HIGH blocking.
+- **Committed allowlist:** `.gstack-redact-allowlist` at the root of the pushed commit lists
+  exact matched spans reviewed as benign; the pre-push hook suppresses only a
+  finding whose span equals an entry and lists every suppression on each push.
 - **Audit:** the /spec semantic pass appends a content-free record (categories +
   body sha256, no spec text) to `~/.gstack/security/semantic-reviews.jsonl` (0600).
 

@@ -1120,6 +1120,24 @@ up deployed, so it still blocks.
 **Fix.** Use `postgres://postgres:postgres@localhost:5432/...` in local and CI
 config, or read the URL from an env var. If the credential is real, rotate it.
 Bypass once: `GSTACK_REDACT_PREPUSH=skip git push`.
+If the URL is a reviewed, public dev-only value, list it in
+[`.gstack-redact-allowlist`](#redact-allowlist).
+
+<a id="redact-allowlist"></a>
+### `.gstack-redact-allowlist (<n> entries) suppressed <m> finding(s) in this push`
+
+**Meaning.** The pushed commit carries `.gstack-redact-allowlist` at the repo
+root. Each line (after trimming; `#` starts a comment) is one exact matched
+span: the whole `postgres://USER:PASSWORD@host:port` URL for
+`db.url_with_password`, the key for a key pattern, the address for `pii.email`. A finding is suppressed only when its
+matched text equals an entry, so a password alone, a substring, or a different
+key still reports and still blocks. The hook reads the file from each pushed
+commit, never the working tree, and ignores a file over 64 KiB. Every push that
+carries entries prints this line and each suppressed finding's file and line.
+It works alongside `gstack.redact.allowEmail`, which stays a local setting.
+
+**Fix.** Nothing, if every listed suppression is the reviewed value. Remove an
+entry that no longer applies; rotate a credential that is real.
 
 <a id="redact-version-as-ip"></a>
 ### `pii.ip_public` MEDIUM on a four-part version number

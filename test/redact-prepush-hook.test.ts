@@ -191,6 +191,100 @@ describe("release version exemption (#2856)", () => {
   });
 });
 
+describe("committed allowlist (.gstack-redact-allowlist)", () => {
+  const HOOK_ALLOWLIST = ".gstack-redact-allowlist";
+  const pushOf = (base: string, head: string) => `refs/heads/main ${head} refs/heads/main ${base}\n`;
+  const commitAllowlist = (content: string): string => {
+    return commit(HOOK_ALLOWLIST, content, "allowlist");
+  };
+  const DEV_URL = ["postgres://", "app:devpass", "@db:5432"].join("");
+
+  test("an exact committed span passes and the suppression is listed", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    commit("config.txt", "key " + FAKE_AWS_KEY + "\n", "add key");
+    const head = commitAllowlist("# docs sample key\n" + FAKE_AWS_KEY + "\n");
+    const { code, stderr } = runHook(pushOf(base, head));
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("BLOCKED");
+    expect(stderr).toContain(".gstack-redact-allowlist (1 entry) suppressed 2 finding(s) in this push:");
+    expect(stderr).toContain("HIGH  aws.access_key  config.txt:1");
+    expect(stderr).toContain("HIGH  aws.access_key  .gstack-redact-allowlist:2");
+  });
+
+  test("a different credential still blocks next to an allowlisted one", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const otherKey = ["AKIA", "FEDCBA0987654321"].join("");
+    commit("config.txt", "ok " + FAKE_AWS_KEY + "\nleak " + otherKey + "\n", "one benign one real");
+    const head = commitAllowlist(FAKE_AWS_KEY + "\n");
+    const { code, stderr } = runHook(pushOf(base, head));
+    expect(code).toBe(1);
+    expect(stderr).toContain("BLOCKED");
+    expect(stderr).toContain("suppressed 2 finding(s)");
+    const blocked = stderr.slice(stderr.indexOf("BLOCKED"));
+    expect(blocked.match(/HIGH {2}aws\.access_key/g)).toHaveLength(1);
+  });
+
+  test("a substring of the matched span does not suppress it", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    commit("compose.txt", "DATABASE_URL=" + DEV_URL + "\n", "dev url");
+    const head = commitAllowlist("app:devpass\n");
+    const { code, stderr } = runHook(pushOf(base, head));
+    expect(code).toBe(1);
+    expect(stderr).toContain("db.url_with_password");
+    expect(stderr).toContain("suppressed 0 finding(s) in this push.");
+  });
+
+  test("the whole matched URL suppresses that URL only", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const prodUrl = ["postgres://", "app:devpass", "@prod.internal:5432"].join("");
+    commit("compose.txt", "DATABASE_URL=" + DEV_URL + "\nPROD_URL=" + prodUrl + "\n", "two urls");
+    const head = commitAllowlist(DEV_URL + "\n");
+    const { code, stderr } = runHook(pushOf(base, head));
+    expect(code).toBe(1);
+    expect(stderr).toContain("HIGH  db.url_with_password  compose.txt:1");
+    expect(stderr).toMatch(/BLOCKED[\s\S]*HIGH {2}db\.url_with_password/);
+  });
+
+  test("an uncommitted allowlist in the working tree suppresses nothing", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("config.txt", "key " + FAKE_AWS_KEY + "\n", "add key");
+    fs.writeFileSync(path.join(repo, HOOK_ALLOWLIST), FAKE_AWS_KEY + "\n");
+    const { code, stderr } = runHook(pushOf(base, head));
+    expect(code).toBe(1);
+    expect(stderr).not.toContain("suppressed");
+  });
+
+  test("an oversized allowlist is ignored and the scan stays strict", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    commit("config.txt", "key " + FAKE_AWS_KEY + "\n", "add key");
+    const head = commitAllowlist(FAKE_AWS_KEY + "\n" + "#".repeat(65 * 1024) + "\n");
+    const { code, stderr } = runHook(pushOf(base, head));
+    expect(code).toBe(1);
+    expect(stderr).toContain("is over 65536 bytes; ignoring it");
+  });
+
+  test("entries cover MEDIUM emails alongside gstack.redact.allowEmail", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    git(["config", "--add", "gstack.redact.allowEmail", "carol@corp.io"]);
+    commit("notes.md", "contact bob@corp.io or carol@corp.io or dave@corp.io\n", "contacts");
+    const head = commitAllowlist("  bob@corp.io  \n");
+    const { code, stderr } = runHook(pushOf(base, head));
+    expect(code).toBe(0);
+    expect(stderr).toContain("MEDIUM  pii.email  notes.md:1");
+    expect(stderr).toContain("suppressed 2 finding(s)");
+    expect(stderr).toContain("1 MEDIUM finding(s) in pushed diff");
+  });
+
+  test("the block message names the allowlist without one present", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("config.txt", "key " + FAKE_AWS_KEY + "\n", "add key");
+    const { code, stderr } = runHook(pushOf(base, head));
+    expect(code).toBe(1);
+    expect(stderr).toContain("commit its exact matched text as a line of .gstack-redact-allowlist");
+    expect(stderr).not.toContain("suppressed");
+  });
+});
+
 describe("diff direction + special refs", () => {
   test("only NEW content is scanned (remote..local), not pre-existing", () => {
     // Put a secret in the FIRST commit (already on remote), then push a clean commit.
