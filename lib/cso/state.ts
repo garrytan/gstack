@@ -2182,6 +2182,35 @@ export function hasPendingWatchdogCleanup(dir: string, admit: () => void = () =>
   return false;
 }
 
+const ATTEMPT_SCRATCH = [
+  'supervision',
+  'preparation-execution',
+  'archive-staging',
+  'archive-materializations',
+  'verification',
+] as const;
+/**
+ * Reclaim the scratch a killed verification attempt left in its run directory. The caller holds the
+ * run lock, so no live attempt owns these trees; a watchdog that has not recorded cleanup still does,
+ * and then nothing is removed. Returns whether the scratch was reclaimed.
+ */
+export function reclaimDeadAttemptScratch(dir: string): boolean {
+  if (hasPendingWatchdogCleanup(dir)) return false;
+  for (const name of ATTEMPT_SCRATCH) {
+    const root = join(dir, name);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(root);
+    } catch {
+      continue;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new CsoError('UNSAFE_PATH', 'Attempt scratch is not a private directory');
+    for (const entry of fs.readdirSync(root)) fs.rmSync(join(root, entry), { recursive: true, force: true });
+  }
+  return true;
+}
+
 const EPHEMERAL_REPLAY = '.ephemeral-replay.json';
 /** Delete a replay-only snapshot unless detached cleanup still owns its control tree. */
 export function finalizeReplayTemporary(dir: string): void {
