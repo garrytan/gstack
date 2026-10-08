@@ -908,6 +908,16 @@ function dependencyOutput(stack: CsoStack, path: string): boolean {
     return first === '.venv' || first === '.cso-uv-cache' || path === '.gstack-cso-public-requirements.txt';
   return path.startsWith('vendor/bundle/') || first === '.cso-bundle' || first === '.cso-gems';
 }
+/**
+ * RubyGems and mini_portile build diagnostics name random temporary build directories, so they differ on
+ * every native-extension build. They are never loaded, and the built extensions themselves are
+ * reproducible, so the prepared identity covers everything except these logs.
+ */
+const RUBY_BUILD_DIAGNOSTIC =
+  /^vendor\/bundle\/ruby\/[^/]+\/(?:extensions\/[^/]+\/[^/]+\/[^/]+\/(?:gem_make\.out|mkmf\.log)|gems\/[^/]+\/ext\/(?:[^/]+\/)*tmp\/(?:[^/]+\/)*[^/]+\.log)$/;
+export function preparedIdentityEntry(stack: CsoStack, path: string): boolean {
+  return !(stack === 'rails' && RUBY_BUILD_DIAGNOSTIC.test(path));
+}
 function installedDependencyOutput(stack: CsoStack, path: string): boolean {
   const first = path.split('/')[0];
   return stack === 'node' || stack === 'bun'
@@ -1019,9 +1029,13 @@ function provePreparedProjection(
   return {
     hash: sha256(canonical({ source, transformations: actualTransformations })),
     transformations: actualTransformations,
-    manifestHash: sha256(canonical(prepared)),
+    manifestHash: sha256(canonical(prepared.filter((entry) => preparedIdentityEntry(stack, entry.path)))),
     dependencyHash: sha256(
-      canonical(prepared.filter((entry) => installedDependencyOutput(stack, entry.path))),
+      canonical(
+        prepared.filter(
+          (entry) => installedDependencyOutput(stack, entry.path) && preparedIdentityEntry(stack, entry.path),
+        ),
+      ),
     ),
   };
 }
