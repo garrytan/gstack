@@ -7,7 +7,7 @@
  * one. Per-provider auth/timeout/rate-limit errors don't abort the batch.
  */
 
-import type { ProviderAdapter, RunOpts, RunResult } from './providers/types';
+import type { ProviderAdapter, RunOpts, RunResult, TokenUsage } from './providers/types';
 import { ClaudeAdapter } from './providers/claude';
 import { GptAdapter } from './providers/gpt';
 import { GeminiAdapter } from './providers/gemini';
@@ -99,21 +99,21 @@ export async function runBenchmark(input: BenchmarkInput): Promise<BenchmarkRepo
 }
 
 export function formatTable(report: BenchmarkReport): string {
-  const header = `Model                Latency   In→Out Tokens       Cost       Quality   Tool Calls   Notes`;
+  const header = `Model                Latency   In(+cached)→Out Tokens   Cost       Quality   Tool Calls   Notes`;
   const sep = '-'.repeat(header.length);
   const rows: string[] = [header, sep];
   for (const e of report.entries) {
     if (!e.available) {
-      rows.push(`${pad(e.provider, 20)} ${pad('-', 9)} ${pad('-', 20)} ${pad('-', 10)} ${pad('-', 9)} ${pad('-', 12)} unavailable: ${e.unavailable_reason ?? 'unknown'}`);
+      rows.push(`${pad(e.provider, 20)} ${pad('-', 9)} ${pad('-', 24)} ${pad('-', 10)} ${pad('-', 9)} ${pad('-', 12)} unavailable: ${e.unavailable_reason ?? 'unknown'}`);
       continue;
     }
     const r = e.result!;
     if (r.error) {
-      rows.push(`${pad(r.modelUsed, 20)} ${pad(msToStr(r.durationMs), 9)} ${pad(`${r.tokens.input}→${r.tokens.output}`, 20)} ${pad(fmtCost(e.costUsd), 10)} ${pad('-', 9)} ${pad(String(r.toolCalls), 12)} ERROR ${r.error.code}: ${r.error.reason.slice(0, 40)}`);
+      rows.push(`${pad(r.modelUsed, 20)} ${pad(msToStr(r.durationMs), 9)} ${pad(fmtTokens(r.tokens), 24)} ${pad(fmtCost(e.costUsd), 10)} ${pad('-', 9)} ${pad(String(r.toolCalls), 12)} ERROR ${r.error.code}: ${r.error.reason.slice(0, 40)}`);
       continue;
     }
     const quality = e.qualityScore !== undefined ? `${e.qualityScore.toFixed(1)}/10` : '-';
-    rows.push(`${pad(r.modelUsed, 20)} ${pad(msToStr(r.durationMs), 9)} ${pad(`${r.tokens.input}→${r.tokens.output}`, 20)} ${pad(fmtCost(e.costUsd), 10)} ${pad(quality, 9)} ${pad(String(r.toolCalls), 12)}`);
+    rows.push(`${pad(r.modelUsed, 20)} ${pad(msToStr(r.durationMs), 9)} ${pad(fmtTokens(r.tokens), 24)} ${pad(fmtCost(e.costUsd), 10)} ${pad(quality, 9)} ${pad(String(r.toolCalls), 12)}`);
   }
   return rows.join('\n');
 }
@@ -130,8 +130,8 @@ export function formatMarkdown(report: BenchmarkReport): string {
     `**Workdir:** \`${report.workdir}\``,
     `**Total duration:** ${msToStr(report.durationMs)}`,
     '',
-    '| Model | Latency | Tokens (in→out) | Cost | Quality | Tools | Notes |',
-    '|-------|---------|-----------------|------|---------|-------|-------|',
+    '| Model | Latency | Tokens (in+cached→out) | Cost | Quality | Tools | Notes |',
+    '|-------|---------|------------------------|------|---------|-------|-------|',
   ];
   for (const e of report.entries) {
     if (!e.available) {
@@ -140,17 +140,23 @@ export function formatMarkdown(report: BenchmarkReport): string {
     }
     const r = e.result!;
     if (r.error) {
-      lines.push(`| ${r.modelUsed} | ${msToStr(r.durationMs)} | ${r.tokens.input}→${r.tokens.output} | ${fmtCost(e.costUsd)} | - | ${r.toolCalls} | ERROR ${r.error.code}: ${r.error.reason.slice(0, 80)} |`);
+      lines.push(`| ${r.modelUsed} | ${msToStr(r.durationMs)} | ${fmtTokens(r.tokens)} | ${fmtCost(e.costUsd)} | - | ${r.toolCalls} | ERROR ${r.error.code}: ${r.error.reason.slice(0, 80)} |`);
       continue;
     }
     const quality = e.qualityScore !== undefined ? `${e.qualityScore.toFixed(1)}/10` : '-';
-    lines.push(`| ${r.modelUsed} | ${msToStr(r.durationMs)} | ${r.tokens.input}→${r.tokens.output} | ${fmtCost(e.costUsd)} | ${quality} | ${r.toolCalls} | |`);
+    lines.push(`| ${r.modelUsed} | ${msToStr(r.durationMs)} | ${fmtTokens(r.tokens)} | ${fmtCost(e.costUsd)} | ${quality} | ${r.toolCalls} | |`);
   }
   return lines.join('\n');
 }
 
 function pad(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
+}
+
+function fmtTokens(tokens: TokenUsage): string {
+  return tokens.cached === undefined
+    ? `${tokens.input}→${tokens.output}`
+    : `${tokens.input}+${tokens.cached}→${tokens.output}`;
 }
 
 function msToStr(ms: number): string {
