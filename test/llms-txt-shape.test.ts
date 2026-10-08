@@ -36,6 +36,13 @@ describe('gen-llms-txt — shape', () => {
     }
   });
 
+  test('every link in the index resolves to an existing file', () => {
+    const links = [...generated.content.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1]);
+    expect(links.length).toBeGreaterThanOrEqual(generated.skills.length);
+    const missing = links.filter((href) => !fs.existsSync(path.join(ROOT, href)));
+    expect(missing).toEqual([]);
+  });
+
   test('every browse command in COMMAND_DESCRIPTIONS appears in the index', () => {
     expect(generated.browseCommands.length).toBeGreaterThan(0);
     for (const cmd of generated.browseCommands) {
