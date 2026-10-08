@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { prepareMethodology } from '../bin/gstack-autoplan-snapshot';
+import { canonicalDestination, prepareMethodology } from '../bin/gstack-autoplan-snapshot';
 
 const ROOT = resolve(import.meta.dir, '..');
 const TOOL = join(ROOT, 'bin/gstack-autoplan-snapshot.ts');
@@ -41,7 +41,7 @@ test('actual raw R input initializes before scope and reaches a complete CEO dis
   expect(missing.status).toBe(1);
   expect(missing.stderr).toContain('Expected one Implementation plan section');
   const initialized = invoke('init', f.source, f.source, f.restore);
-  expect(initialized.activePlan).toBe(f.source);
+  expect(initialized.activePlan).toBe(canonicalDestination(f.source));
   expect(initialized.originalBytes).toBe(4607);
   expect(initialized.originalSha256).toBe(hash(original));
   expect(readFileSync(f.restore)).toEqual(original);
@@ -64,8 +64,8 @@ test('assigned active path preserves the separate original source and exact rest
     if (emptyAssigned) writeFileSync(f.active, '');
     const sourceMtime = statSync(f.source).mtimeMs;
     const initialized = invoke('init', f.source, f.active, f.restore);
-    expect(initialized.activePlan).toBe(f.active);
-    expect(initialized.restorePath).toBe(f.restore);
+    expect(initialized.activePlan).toBe(canonicalDestination(f.active));
+    expect(initialized.restorePath).toBe(canonicalDestination(f.restore));
     expect(readFileSync(f.source)).toEqual(original);
     expect(statSync(f.source).mtimeMs).toBe(sourceMtime);
     expect(readFileSync(f.restore)).toEqual(original);
@@ -79,8 +79,8 @@ test('the observed missing harness plans directory is initialized without a sepa
   const active = join(f.dir, 'harness', 'plans', 'assigned.md');
   const restore = join(f.dir, 'state', 'project', 'restore.md');
   const initialized = invoke('init', f.source, active, restore);
-  expect(initialized.activePlan).toBe(active);
-  expect(initialized.restorePath).toBe(restore);
+  expect(initialized.activePlan).toBe(canonicalDestination(active));
+  expect(initialized.restorePath).toBe(canonicalDestination(restore));
   expect(initialized.scope.dxRequired).toBe(true);
   expect(readFileSync(f.source)).toEqual(original);
   expect(readFileSync(restore)).toEqual(original);
@@ -240,4 +240,30 @@ catch (error) { console.error(error.message); process.exitCode = 1; }
   expect(readdirSync(f.dir).sort()).toEqual(['fail-stage.ts', 'source plan.md']);
   expect(existsSync(active)).toBe(false);
   expect(existsSync(restore)).toBe(false);
+});
+
+test.skipIf(process.platform === 'win32')('PAX-3638 Fix A: init through a symlinked plan directory reports the canonical destinations', () => {
+  const f = fixture();
+  const real = join(f.dir, 'real'), alias = join(f.dir, 'alias');
+  mkdirSync(real); symlinkSync(real, alias, 'dir');
+  const active = join(alias, 'nested', 'active.md'), restore = join(alias, 'restore.md');
+  const canonicalActive = join(realpathSync(real), 'nested', 'active.md');
+  expect(canonicalDestination(active)).toBe(canonicalActive);
+  expect(canonicalDestination(restore)).toBe(join(realpathSync(real), 'restore.md'));
+  const initialized = invoke('init', f.source, active, restore);
+  expect(initialized.activePlan).toBe(canonicalActive);
+  expect(initialized.restorePath).toBe(join(realpathSync(real), 'restore.md'));
+  expect(initialized.activePlan).not.toBe(active);
+  expect(readFileSync(canonicalActive, 'utf8')).toContain('## Implementation plan\n');
+});
+
+test('PAX-3638 Fix A: canonicalDestination is pure path math and leaves a leaf link or directory to initializePlan', () => {
+  const f = fixture();
+  const dirLeaf = join(f.dir, 'a-directory'); mkdirSync(dirLeaf);
+  expect(canonicalDestination(dirLeaf)).toBe(join(realpathSync(f.dir), 'a-directory'));
+  expect(existsSync(join(f.dir, 'missing', 'deeper'))).toBe(false);
+  expect(canonicalDestination(join(f.dir, 'missing', 'deeper', 'x.md'))).toBe(join(realpathSync(f.dir), 'missing', 'deeper', 'x.md'));
+  expect(existsSync(join(f.dir, 'missing'))).toBe(false);
+  // initializePlan still refuses a directory destination.
+  expect(cli('init', f.source, dirLeaf, f.restore).status).not.toBe(0);
 });
