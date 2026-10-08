@@ -44,9 +44,10 @@ const samePath = (a: unknown, b: unknown): boolean => sameNativePath(a, b);
 const requestedPath = (cwd: string, file: string) =>
   nativePathSpelling(path.resolve(cwd, file.replace(/^~(?=[\\/]|$)/, () => os.homedir())));
 /**
- * The file a Write/Edit/Read path names, with directory links resolved, so a
- * symlinked plan directory compares equal to init's canonical paths. A missing or
- * leaf-linked target falls back to the literal spelling.
+ * The file a Write/Edit path names, realpathed so a symlinked plan directory
+ * compares equal to init's canonical paths. realpath resolves a leaf link too; a
+ * missing target or dangling link keeps the literal spelling. An aliased active
+ * plan never binds, because invocation() reads it through read(), which denies aliases.
  */
 const canonicalRequested = (cwd: string, file: unknown): string | undefined => {
   if (typeof file !== 'string') return;
