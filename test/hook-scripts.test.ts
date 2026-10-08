@@ -134,7 +134,7 @@ describe('frontmatter hook command paths', () => {
 
 // Claude Code fires a hook only for the tools its matcher names. The
 // PowerShell tool is the primary shell on Windows (and the only one without
-// Git Bash) (#3067).
+// Git Bash), and NotebookEdit edits files without a file_path (#3067).
 function hookCommandsFor(rel: string, matcher: string): string[] {
   const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
   const frontmatter = content.split('\n---')[0];
@@ -144,12 +144,20 @@ function hookCommandsFor(rel: string, matcher: string): string[] {
     .flatMap((b) => b.split('\n').filter((l) => l.trim().startsWith('command:')));
 }
 
-describe('generated hook matchers cover PowerShell (#3067)', () => {
+describe('generated hook matchers cover PowerShell and NotebookEdit (#3067)', () => {
   test.each(['careful/SKILL.md', 'guard/SKILL.md'])('%s routes Bash and PowerShell to check-careful.sh', (rel) => {
     for (const matcher of ['Bash', 'PowerShell']) {
       const commands = hookCommandsFor(rel, matcher);
       expect(commands.length).toBe(1);
       expect(commands[0]).toContain('careful/bin/check-careful.sh');
+    }
+  });
+
+  test.each(['freeze/SKILL.md', 'guard/SKILL.md', 'investigate/SKILL.md'])('%s routes Edit, Write and NotebookEdit to check-freeze.sh', (rel) => {
+    for (const matcher of ['Edit', 'Write', 'NotebookEdit']) {
+      const commands = hookCommandsFor(rel, matcher);
+      expect(commands.length).toBe(1);
+      expect(commands[0]).toContain('freeze/bin/check-freeze.sh');
     }
   });
 
@@ -1225,6 +1233,102 @@ describe('check-freeze.sh', () => {
         fs.rmSync(base, { recursive: true, force: true });
       }
     });
+  });
+});
+
+// ============================================================
+// check-freeze.sh on NotebookEdit (#3067)
+// ============================================================
+// Payload shape: NotebookEdit sends tool_input.notebook_path (plus cell_id,
+// new_source, cell_type, edit_mode) and no file_path (Claude Code Agent SDK
+// reference, NotebookEditInput, code.claude.com/docs/en/agent-sdk/typescript).
+function notebookInput(notebookPath: string) {
+  return { tool_name: 'NotebookEdit', tool_input: { notebook_path: notebookPath, new_source: 'print(1)', edit_mode: 'replace' } };
+}
+
+describe('check-freeze.sh NotebookEdit boundary (#3067)', () => {
+  const BOUNDARY = '/Users/dev/project/src/';
+
+  test('a notebook inside the boundary allows', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { exitCode, output } = runHook(FREEZE_SCRIPT, notebookInput('/Users/dev/project/src/analysis.ipynb'), freezeEnv(stateDir));
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    });
+  });
+
+  test('a notebook outside the boundary denies, naming tool, notebook_path, boundary and /unfreeze', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { exitCode, output } = runHook(FREEZE_SCRIPT, notebookInput('/etc/x.ipynb'), freezeEnv(stateDir));
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+      const reason: string = output.hookSpecificOutput?.permissionDecisionReason ?? '';
+      expect(reason).toContain('NotebookEdit');
+      expect(reason).toContain('notebook_path');
+      expect(reason).toContain('/etc/x.ipynb');
+      expect(reason).toContain('/Users/dev/project/src');
+      expect(reason).toContain('/unfreeze');
+    });
+  });
+
+  test('a C:/ notebook path is normalized and denied outside a POSIX boundary', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { output } = runHook(FREEZE_SCRIPT, notebookInput('C:/Users/dev/other/x.ipynb'), freezeEnv(stateDir));
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('/c/Users/dev/other/x.ipynb');
+    });
+  });
+
+  test('a C:\\ notebook inside a C:\\ boundary allows', () => {
+    withFreezeDir('C:\\dev\\proj\\', (stateDir) => {
+      const { output } = runHook(FREEZE_SCRIPT, notebookInput('C:\\dev\\proj\\nb\\x.ipynb'), freezeEnv(stateDir));
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    });
+  });
+
+  test('file_path wins when both fields are present', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const input = { tool_name: 'NotebookEdit', tool_input: { file_path: '/etc/x.ipynb', notebook_path: '/Users/dev/project/src/a.ipynb' } };
+      const { output } = runHook(FREEZE_SCRIPT, input, freezeEnv(stateDir));
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+    });
+  });
+
+  test('a malformed NotebookEdit payload denies (fail closed)', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { exitCode, output } = runHookRaw(FREEZE_SCRIPT, '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/etc/x', freezeEnv(stateDir));
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+    });
+  });
+
+  test('Edit denials name the tool and file_path too', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { output } = runHook(FREEZE_SCRIPT, { tool_name: 'Edit', tool_input: { file_path: '/etc/hosts' } }, freezeEnv(stateDir));
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('Edit file_path /etc/hosts');
+    });
+  });
+
+  test('a hook helper that lacks gstack_hook_extract_tool DENIES as out of date', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-oldextract-'));
+    const freezeBin = path.join(base, 'freeze', 'bin');
+    const carefulBin = path.join(base, 'careful', 'bin');
+    fs.mkdirSync(freezeBin, { recursive: true });
+    fs.mkdirSync(carefulBin, { recursive: true });
+    fs.copyFileSync(FREEZE_SCRIPT, path.join(freezeBin, 'check-freeze.sh'));
+    const helper = fs.readFileSync(HOOK_EXTRACT, 'utf-8');
+    const start = helper.indexOf('gstack_hook_extract_tool() {');
+    const end = helper.indexOf('\n}\n', start) + 3;
+    fs.writeFileSync(path.join(carefulBin, 'hook-extract.sh'), helper.slice(0, start) + helper.slice(end));
+    try {
+      withFreezeDir(BOUNDARY, (stateDir) => {
+        const { output } = runHook(path.join(freezeBin, 'check-freeze.sh'), notebookInput('/Users/dev/project/src/a.ipynb'), freezeEnv(stateDir));
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('out of date');
+      });
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 
