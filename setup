@@ -4454,6 +4454,50 @@ elif [ "$_CSO_RESULT" = "failed" ]; then
   log "  Details: https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#cso-build-or-publish-failed"
 fi
 
+# ─── Windows launch probe (#2595, #2124) ──────────────────────────────────────
+# Smart App Control blocks unsigned executables at launch, which `[ -x ]` cannot
+# see and Git Bash reports as "Permission denied". Probe each compiled binary.
+_windows_launch_summary() {
+  local rel detail shell wsl
+  . "$SOURCE_GSTACK_DIR/bin/gstack-launch-probe.sh" || return 0
+  gstack_launch_probe_all "$SOURCE_GSTACK_DIR" ".exe"
+  if [ -n "$_glp_blocked" ]; then
+    case "$(uname -s)" in
+      MINGW*|MSYS*) shell="Git Bash" ;;
+      CYGWIN*) shell="Cygwin" ;;
+      *) shell="$(uname -s)" ;;
+    esac
+    if command -v wsl.exe >/dev/null 2>&1; then wsl="WSL is installed"; else wsl="WSL is not installed (wsl --install)"; fi
+    log ""
+    log "Windows blocked compiled gstack binaries at launch (Smart App Control or another application-control policy, #2595):"
+    while IFS='	' read -r rel detail; do
+      [ -n "$rel" ] || continue
+      log "  $rel.exe: ${detail:-no output} -> $(gstack_launch_probe_skills "$rel")"
+    done <<EOF
+$_glp_blocked
+EOF
+    log "  This is code integrity, not file permissions: the binaries are compiled on this machine and unsigned."
+    log "  Everything else is installed. You ran setup from $shell, where the block applies; $wsl, and gstack inside WSL is not affected."
+    log "  Workarounds: install gstack inside WSL, or turn Smart App Control off in Windows Security > App & browser control."
+    log "  To undo: once Windows allows the binaries, re-run ./setup and this message goes away."
+    log "  Details: https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#windows-smart-app-control"
+  fi
+  if [ -n "$_glp_broken" ]; then
+    log ""
+    log "Compiled gstack binaries launched but failed (a build problem, not Smart App Control):"
+    while IFS='	' read -r rel detail; do
+      [ -n "$rel" ] || continue
+      log "  $rel.exe: $detail -> $(gstack_launch_probe_skills "$rel")"
+    done <<EOF
+$_glp_broken
+EOF
+    log "  Rebuild: cd $SOURCE_GSTACK_DIR && bun run build"
+  fi
+}
+if [ "$IS_WINDOWS" -eq 1 ]; then
+  _windows_launch_summary
+fi
+
 # ─── Chromium bootstrap summary (best-effort browser, see # 2) ───────────────
 # Printed LAST so it is the thing the user sees, after every skill registered.
 # The skills that drive Aside first and use the bundled browser only as fallback
