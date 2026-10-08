@@ -1148,10 +1148,10 @@ This is my **second opinion mode**.
 
 `/codex` brings OpenAI Codex CLI to review the same diff independently. It is available on every harness except Codex itself. External harnesses install it as `/gstack-codex`. Compare its findings with the native review to distinguish corroborated findings from issues only one reviewer caught.
 
-gstack-owned Codex calls default to `gpt-6-astra`, including resumed consult
-sessions. Set `GSTACK_CODEX_MODEL=<model>` to change the default, or name a
-model in your request to override it for that invocation. Generated commands
-pass the selection through `-c model=...`, overriding the CLI's configured model.
+Without a role, gstack-owned Codex calls select a request-specific model, then
+`GSTACK_CODEX_MODEL`, then Codex native settings, falling back to `gpt-6-astra`.
+This also applies to resumed consultations. Generated commands pass the selection
+through `-c model=...`, overriding the CLI's configured model for that call.
 Native review also sets `-c review_model=...` to that selection, overriding any
 separate review-model pin.
 
@@ -1160,6 +1160,10 @@ review, challenge, and consult calls preserve Claude's configured model.
 `GSTACK_CLAUDE_MODEL=<model>` supplies an explicit override, including resumed
 sessions; a model named in your request takes precedence. Harness routing is
 independent of model selection.
+
+An explicit `--role plan-review` uses the configured plan-review tier instead;
+request and environment overrides still win, and `host` mode restores native
+selection. See [model policy](model-policy.md) for pins, precedence and recovery.
 
 ### Three modes
 
@@ -1200,7 +1204,7 @@ Claude Code provides the outside reviewer when gstack runs in Codex. Other non-C
 
 **Review** supplies the branch diff for a read-only pass/fail review. **Challenge** asks Claude Code to find concrete failure cases in the same diff. **Consult** supports read-only repository exploration and resumes the session saved in `.context/claude-session-id`. Review and challenge receive context from the parent workflow and run without tools; consultation can read and search files.
 
-The Claude Code CLI must be installed and authenticated. Its existing model configuration and `GSTACK_CLAUDE_BIN` / `GSTACK_CLAUDE_BIN_ARGS` executable overrides are honored. Errors, timeouts, and invalid responses report missing outside coverage instead of a clean review. Automatic reviews start fresh; consult session continuity is explicit.
+The Claude Code CLI must be installed and authenticated. Without a role, its existing model configuration is honored; explicit `--role plan-review` follows the [model policy](model-policy.md). `GSTACK_CLAUDE_BIN` / `GSTACK_CLAUDE_BIN_ARGS` executable overrides remain in force. Errors, timeouts, and invalid responses report missing outside coverage instead of a clean review. Automatic reviews start fresh; consult session continuity is explicit.
 
 Outside-review routing follows the harness, independently of the configured model. Generic second-opinion requests choose `/claude-code` on Codex and `/codex` elsewhere; explicit provider requests keep that provider. The existing `codex_reviews` setting controls the selected automatic reviewer in workflows that already use that setting. Existing opt-in and skip controls still apply in office hours, design, and spec workflows.
 

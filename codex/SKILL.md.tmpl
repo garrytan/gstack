@@ -317,11 +317,12 @@ If token count is not available, display: `Tokens: unknown`
   None of these is an auth or network failure, and the auth probe cannot catch them.
   Recovery, in order:
   1. Read the `CODEX_MODEL:` line: it names the model and where it came from.
-  2. Fix that source: name another model for this request, update
-     `GSTACK_CODEX_MODEL`, or change `model` (or `review_model`) in the Codex
-     `config.toml`. With none of these set, gstack uses `gpt-6-astra`; set any of
-     them to a model the account can use.
-  3. If Codex printed `[notice.model_migrations]`, use that replacement model.
+  2. Fix that source and relay its HINT/Repair lines. With `--role plan-review`,
+     tier pins outrank native settings; native `model`/`review_model` applies
+     only in `host` mode. Without a role, request, `GSTACK_CODEX_MODEL`, then
+     native settings choose the model, falling back to `gpt-6-astra`.
+  3. If Codex printed `[notice.model_migrations]`, use that replacement for
+     no-role calls. For a role, offer an explicit override; do not silently substitute.
   Never present this as a model stall or a PASS — it is a fail-closed gate result.
 - **`VERDICT: unavailable`:** the shared validator found the run did not execute (for
   example `Codex's sandbox could not start here`). Relay its line and fix verbatim; it is

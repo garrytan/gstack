@@ -552,6 +552,14 @@ describe('Claude plan-review invocation emits one selected model or none', () =>
 
 describe('manual /codex entry: explicit role only, paid probe only for the dispatched model', () => {
   const skill = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md.tmpl'), 'utf8');
+  test('manual model recovery distinguishes role pins from native no-role settings', () => {
+    const recovery = skill.slice(skill.indexOf('Recovery, in order:'), skill.indexOf('- **`VERDICT: unavailable`:'));
+    expect(recovery).toContain('With `--role plan-review`');
+    expect(recovery).toContain('tier pins outrank native settings');
+    expect(recovery).toContain('only in `host` mode');
+    expect(recovery).toContain('Without a role');
+    expect(recovery).toContain('do not silently substitute');
+  });
   const preflight = skill.match(/```bash\n(_CODEX_PROBE=[^\n]*\n_CODEX_ROLE=''[\s\S]*?)\n```/)![1]!
     .replace('{{OUTSIDE_SELF_GUARD:codex}}', RESOLVERS.OUTSIDE_SELF_GUARD(ctxFor('codex', 'claude', HOST_PATHS.claude), ['codex']));
   const withRole = (text: string, role: string) => text.replaceAll("_CODEX_ROLE=''", `_CODEX_ROLE='${role}'`);

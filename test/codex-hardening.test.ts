@@ -947,7 +947,7 @@ describe('codex broken-install detection (#2742)', () => {
       expect(src).toContain('echo "CODEX_MODE: $_CODEX_MODE"');
     }
     const role = fs.readFileSync(PROBE, 'utf-8').match(/_gstack_codex_role_ready\(\) \{[\s\S]*?\n\}/)![0];
-    expect(role.trim().split('\n').at(-2)!.trim()).toBe('_gstack_codex_model_probe "$1"');
+    expect(role).toContain('_gstack_codex_model_probe "$1" || return $?');
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-role-broken-'));
     try {
       const bin = path.join(home, 'bin');
