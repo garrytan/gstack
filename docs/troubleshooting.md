@@ -615,13 +615,21 @@ Bun first.
 
 **Meaning.** Claude Code runs gstack's hook shims through `/bin/sh`, and a hook
 that does not parse exits 2, which blocks the tool call it guards in every
-session. Setup parse-checks every hook it registers (the shim, and the
-TypeScript it runs with its local imports). It registers the hooks that parse,
-skips the ones listed, finishes the rest of the install, and exits non-zero.
-Claude Code runs hooks straight from `~/.claude/skills/gstack`, so a skipped
-hook that an earlier setup registered keeps running the broken file until it
-is fixed. This is a gstack bug, or a half-applied edit or merge in your
-checkout: report the printed `<file>:<line>`.
+session. Setup parse-checks every hook it registers and every hook a skill's
+frontmatter runs (`/autoplan`, `/careful`, `/freeze`, `/guard`, `/investigate`
+and `/plan-ceo-review`): the shim, the gstack shell helpers it sources (such as
+`careful/bin/hook-extract.sh` and `bin/gstack-state-root.sh`), and the
+TypeScript it runs with its local imports. A merge conflict marker line in any
+of those files fails as `unresolved merge conflict marker`, even when the file
+still parses (markers inside a heredoc, a string or a template literal do).
+The TypeScript is bundled from the gstack checkout, so the `tsconfig.json` or
+`bunfig.toml` of the project you run it from is never read. It registers the
+hooks that parse, skips the ones listed, finishes the rest of the install, and
+exits non-zero. Claude Code runs hooks straight from `~/.claude/skills/gstack`,
+so a skipped hook that an earlier setup registered, or that a skill runs,
+keeps running the broken file until it is fixed. This is a gstack bug, or a
+half-applied edit or merge in your checkout: report the printed
+`<file>:<line>`.
 
 **Fix.**
 
@@ -637,7 +645,8 @@ cd ~/.claude/skills/gstack && ./setup
 ### `gstack auto-update: update held (hook-does-not-parse: <file>:<line>: <error>); nothing was installed or changed, and your current hooks keep running. ...`
 
 **Meaning.** Team-mode auto-update fetched a release with a hook that does not
-parse. It checked the incoming revision before moving your checkout, so your
+parse or still holds a merge conflict marker (the same check setup runs). It
+checked the incoming revision before moving your checkout, so your
 checkout, installed skills and registered hooks stay at the current revision.
 gstack checks again at the next update check and installs the first release
 whose hooks parse. This is a gstack bug: report the printed `<file>:<line>`.
