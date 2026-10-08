@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.60.0] - 2026-10-08
+## [1.91.62.0] - 2026-10-08
 
 **A Rails repair can now finish verifying on arm64.**
 
