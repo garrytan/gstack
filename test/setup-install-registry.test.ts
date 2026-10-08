@@ -225,6 +225,8 @@ describe.skipIf(process.platform === 'win32')('Antigravity CLI shares ~/.gemini 
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(registryRows(f).map(row => [row[0], row[3]])).toEqual([['agy', join(f.home, '.gemini/antigravity-cli/skills')]]);
     expect(readFileSync(join(f.home, '.gemini/antigravity-cli/skills/gstack/.source-path'), 'utf8').trim()).toBe(src);
+    expect(readFileSync(join(src, '.gstack-installed-hosts'), 'utf8').split('\n')).toContain('agy');
+    expect(existsSync(join(src, '.agy/skills/gstack-review/SKILL.md'))).toBe(true);
     expect(geminiCliFiles(f.home)).toEqual(before);
 
     const un = spawnSync('bash', [join(src, 'bin/gstack-uninstall'), '--force', '--keep-state'], { cwd: f.home, env: f.env, encoding: 'utf8', timeout: 30_000 });
