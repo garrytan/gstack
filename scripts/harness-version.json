@@ -10,7 +10,7 @@
     "test/helpers/llm-judge.ts"
   ],
   "files": {
-    "scripts/lib/paid-cases.ts": {"blob":"9bacd52446192a7ecf3dfaae901ea443cf9c9ae2","since":2},
+    "scripts/lib/paid-cases.ts": {"blob":"c2c16290522e12df7bec88047737920636daad44","since":2,"nonBehavioral":"CASE_TEST_NAMES gains office-hours-auto-mode's real Bun test name: the PR lane's -t filter matched 0 tests and now selects the one test the full lane already runs; no case verdict rule changes"},
     "scripts/lib/paid-plan.ts": {"blob":"45721ce128a112666a0caed6c13c66637b74ca54","since":2},
     "scripts/lib/paid-report.ts": {"blob":"3fda96a8b1f7f3d55797934847353f254cc4d054","since":2},
     "scripts/lib/published-text.ts": {"blob":"3f2e4d616b5dd0204035710c66b64d49055c5714","since":2},
