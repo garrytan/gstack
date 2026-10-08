@@ -12,6 +12,7 @@ import { guardFixture, section, denial, codeOf, type GuardFixture } from './help
 import { AGENT_KEYS, CHECKED_CLAUDE_CODE, nativeToolInput, newerThanChecked } from '../autoplan/bin/phase-publication-hook.ts';
 import { nativePathSpelling } from '../lib/claude-public-transcript';
 import captured from './fixtures/claude-agent-payload-2.1.292.json';
+import { OWNED_READ_APPROVAL } from '../autoplan/bin/owned-read';
 
 const fixtures: GuardFixture[] = [];
 afterEach(() => { for (const f of fixtures.splice(0)) f.cleanup(); });
@@ -140,9 +141,9 @@ describe('Publication flush: a report counts only once a later journaled record 
 
   test('after the no-op publication message the transition is allowed on both paths', async () => {
     const f = make(); f.publish(); f.journal();
-    expect(await f.hook(next(f))).toEqual({});
+    expect(await f.hook(next(f))).toEqual(OWNED_READ_APPROVAL);
     f.use('next2', 'Read', { file_path: section('design-phase.md') }); f.journal();
-    expect(await f.hook(next(f, 'next2'))).toEqual({});
+    expect(await f.hook(next(f, 'next2'))).toEqual(OWNED_READ_APPROVAL);
     expect(f.log().map(e => e.path)).toEqual(['payload', 'journal']);
   });
 
@@ -160,7 +161,7 @@ describe('Publication flush: a report counts only once a later journaled record 
     const f = make(); const m = f.nextMessage(); f.report(m);
     f.use('denied', 'Read', { file_path: section('design-phase.md') }, m);
     f.result('denied', { isError: true, content: '(code publication_unflushed, Claude Code 2.1.292)' }); f.journal();
-    expect(await f.hook(next(f))).toEqual({});
+    expect(await f.hook(next(f))).toEqual(OWNED_READ_APPROVAL);
   });
 
   test('DX-3: an old-template close (report and next driver in one message) recovers after one denial, no restart', async () => {
@@ -170,7 +171,7 @@ describe('Publication flush: a report counts only once a later journaled record 
     expect(codeOf(first)).toBe('publication_unflushed');
     f.result('old', { isError: true, content: denial(first) });
     f.publish(); f.journal();
-    expect(await f.hook(next(f, 'retry-after-publish'))).toEqual({});
+    expect(await f.hook(next(f, 'retry-after-publish'))).toEqual(OWNED_READ_APPROVAL);
   });
 });
 
@@ -184,7 +185,7 @@ describe('ENG-3: one batch rule on both paths', () => {
         if (order === 'sibling-done') f.readResult('s1', section('design-phase.md'), 1, 50);
         if (flushed === 'journal') f.use('s2', 'Read', designEntry(f, 51), m);
         f.journal();
-        expect(await f.hook(f.input('s2', 'Read', designEntry(f, 51)))).toEqual({});
+        expect(await f.hook(f.input('s2', 'Read', designEntry(f, 51)))).toEqual(OWNED_READ_APPROVAL);
       });
 
   for (const flushed of ['journal', 'payload'] as const)
@@ -231,7 +232,7 @@ describe('ENG-1: a background reviewer keeps the invocation armed', () => {
     f.add({ kind: 'end_turn', messageId: f.nextMessage() });
     f.add({ kind: 'typed', text: 'Thanks, something else now.' });
     f.journal();
-    expect(await f.hook(f.input('next', 'Read', { file_path: section('design-phase.md') }))).toEqual({});
+    expect(await f.hook(f.input('next', 'Read', { file_path: section('design-phase.md') }))).toEqual(OWNED_READ_APPROVAL);
   });
 });
 

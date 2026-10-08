@@ -299,6 +299,36 @@ completion notice. Wait for that notice before closing the phase. A background
 reviewer keeps the invocation armed, so a typed message while it runs does not
 end `/autoplan`.
 
+### Permission cards after a background reviewer
+
+A skill's `allowed-tools` applies only to the turn that invoked it, and a
+background reviewer's completion notice starts a new turn. From then on Claude
+Code's normal permission rules apply, so Reads outside the session's working
+directory can show a card, and in Manual mode so do Bash commands that are not
+read-only. Skill hooks stay registered for the whole session but do not run
+inside subagents.
+
+`/autoplan` therefore keeps its own files readable without a card:
+
+- The restore point and every phase artifact (methodology, reviewer input,
+  snapshots, close packet) live in the project's `.gstack/tmp/autoplan/`, which
+  Step 1 adds to `.git/info/exclude`. Claude Code reads files in the working
+  directory without a card, for `/autoplan` and for its reviewer subagents. A
+  `git clean -x` deletes them, restore point included.
+- The publication hook approves `/autoplan`'s own Reads outside the working
+  directory: this installation's `autoplan/sections/*.md`, and the immutable
+  artifacts in `<repo>/.gstack/tmp/autoplan/` when the session started in a
+  subdirectory of the repository. It approves nothing else, and never a call
+  the guard denies.
+
+A session started in a repository subdirectory still shows a card when a
+reviewer reads its input: subagents run without the skill's hook. Start the
+session at the repository root, or answer the card with "Yes, allow reading
+from ... during this session". In Manual mode, `/autoplan`'s Bash commands
+after the first background reviewer also show cards; auto mode, the default
+starting mode on current Claude Code for supported models, sends them to its
+classifier instead.
+
 ## Supported journal roots
 
 The guard accepts exactly one root per journal file:

@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { guardFixture, section, type GuardFixture } from './helpers/autoplan-guard-fixture';
 import { padBeforeCompactBoundary } from './helpers/journal-padding';
 import { readPlanCountTranscript } from '../lib/claude-public-transcript';
+import { OWNED_READ_APPROVAL } from '../autoplan/bin/owned-read';
 
 const fixtures: GuardFixture[] = [];
 const prior = process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES;
@@ -44,7 +45,7 @@ test('a padded long-session journal: the counting reader refuses it, the guard l
   process.env.GSTACK_TRANSCRIPT_TEST_MAX_BYTES = String(256 * 1024);
   const counting = readPlanCountTranscript(path.join(f.cwd, 'config'), f.cwd);
   expect(counting).toMatchObject({ status: 'error', reason: 'too_large' });
-  expect(await f.hook(f.input('next', 'Read', { file_path: section('design-phase.md') }))).toEqual({});
+  expect(await f.hook(f.input('next', 'Read', { file_path: section('design-phase.md') }))).toEqual(OWNED_READ_APPROVAL);
   expect(f.log()).toEqual([expect.objectContaining({ decision: 'allow', disposition: 'allow', code: null, path: 'payload' })]);
 });
 

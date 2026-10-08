@@ -9,6 +9,7 @@ import { readOwnedClaudePublicTranscript, readPlanCountTranscript, transcriptRea
 import { prematureAutoplanPhaseEntry } from './helpers/autoplan-method-read-audit';
 import captured from './fixtures/autoplan-publication-boundary-361c.json';
 import consumption from './fixtures/autoplan-phase-consumption-491.json';
+import { OWNED_READ_APPROVAL, renderSectionBase } from '../autoplan/bin/owned-read';
 
 const ROOT = fs.realpathSync(path.join(import.meta.dir, '..'));
 // Every guarded decision appends to the guard log; keep it out of the real state root.
@@ -167,7 +168,7 @@ describe('Autoplan parent publication guard', () => {
     expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT)))
       .toMatchObject({ hookSpecificOutput: { permissionDecisionReason: expect.stringContaining('Publish the filled Phase 3') } });
     f.events.pop(); f.message('Phase 3 complete.'); f.current(); f.journal();
-    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual({});
+    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual(OWNED_READ_APPROVAL);
   });
 
   for (const phase of ['ceo', 'design', 'dx', 'eng'] as const)
@@ -297,7 +298,7 @@ describe('Autoplan parent publication guard', () => {
   test('native project ownership survives a Bash cd through the installed skill link', async () => {
     const { f } = changedDirectory();
     expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.status).toBe('missing');
-    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual({});
+    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual(OWNED_READ_APPROVAL);
   });
 
   test('native project ownership still requires publication and permits same-phase repair after cd', async () => {
@@ -305,7 +306,7 @@ describe('Autoplan parent publication guard', () => {
     const output: any = await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('Publish the filled Phase 1');
     const same = changedDirectory(false, 'ceo-phase.md');
-    expect(await withNativeProjectDirectory(same.f.cwd, () => runPublicationHook(same.f.input, ROOT))).toEqual({});
+    expect(await withNativeProjectDirectory(same.f.cwd, () => runPublicationHook(same.f.input, ROOT))).toEqual(OWNED_READ_APPROVAL);
   });
 
   test('the literal init parser retains Windows drive and UNC identities', () => {
@@ -357,7 +358,7 @@ describe('Autoplan parent publication guard', () => {
     expect(size).toBeGreaterThan(record);
     await withReadLimit(record, async () => {
       expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.status).toBe('ready');
-      expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual({});
+      expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual(OWNED_READ_APPROVAL);
     });
     const output: any = await withReadLimit(record - 1, async () => {
       expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.input.cwd, f.sessionId).transcript.reason).toBe('too_large');
@@ -404,7 +405,7 @@ describe('Autoplan parent publication guard', () => {
     // The same actual hook receives native separators in Windows CI.
     const f = fixture();
     f.message(); f.current(); f.journal();
-    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual({});
+    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual(OWNED_READ_APPROVAL);
     const command = f.events[0]!.input!.command as string;
     for (const suffix of ['; true', ' && true', ' | cat']) {
       f.events[0]!.input!.command = command + suffix; f.journal();
@@ -420,7 +421,7 @@ describe('Autoplan parent publication guard', () => {
 
   test('native project ownership preserves the absent-env same-directory adapter', async () => {
     const f = fixture(); f.message(); f.current(); f.journal();
-    expect(await withNativeProjectDirectory(undefined, () => runPublicationHook(f.input, ROOT))).toEqual({});
+    expect(await withNativeProjectDirectory(undefined, () => runPublicationHook(f.input, ROOT))).toEqual(OWNED_READ_APPROVAL);
   });
 
   for (const project of ['absent', 'empty', 'relative', 'foreign', 'unnormalized'] as const) {
@@ -801,7 +802,7 @@ describe('Autoplan parent publication guard', () => {
     await withNativeProjectDirectory(f.cwd, () => withPublicationClock(async () => {
       const started = performance.now();
       setTimeout(() => f.journal(), 1_950);
-      expect(await runPublicationHook(f.input, ROOT)).toEqual({});
+      expect(await runPublicationHook(f.input, ROOT)).toEqual(OWNED_READ_APPROVAL);
       expect(performance.now() - started).toBe(1_950);
       const decoded = readOwnedClaudePublicTranscript(f.input.transcript_path, f.cwd, f.sessionId);
       expect(decoded.transcript.status).toBe('ready');
@@ -811,7 +812,7 @@ describe('Autoplan parent publication guard', () => {
   test('the actual owned native reader and asynchronous hook admit a flushed same-response report', async () => {
     const f = fixture(); f.message(); f.current();
     setTimeout(() => f.journal(), 100);
-    expect(await runPublicationHook(f.input, ROOT)).toEqual({});
+    expect(await runPublicationHook(f.input, ROOT)).toEqual(OWNED_READ_APPROVAL);
     const decoded = readOwnedClaudePublicTranscript(f.input.transcript_path, f.cwd, f.sessionId);
     expect(decoded.transcript.status).toBe('ready');
     const report = decoded.events.find(e => e.kind === 'message')!, current = decoded.events.find(e => e.kind === 'use' && e.toolUseId === 'next')!;
@@ -836,7 +837,7 @@ describe('Autoplan parent publication guard', () => {
   });
   test('an in-flight Read can revisit an earlier established phase', async () => {
     const f = fixture('design', 'ceo'); f.journal();
-    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual({});
+    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual(OWNED_READ_APPROVAL);
   });
   // CEO-1 replaced the pending-Read rule: the payload stands in for an unflushed
   // current call, so a first Phase 1 entry is allowed from it (it needs no prior
@@ -915,7 +916,7 @@ describe('Autoplan parent publication guard', () => {
       const decoded = readOwnedClaudePublicTranscript(f.input.transcript_path, f.cwd, f.sessionId);
       expect(decoded.events.filter(e => e.kind === 'user_turn')).toHaveLength(kind === 'human' || kind === 'no-end-turn' ? 2 : 1);
       const result: any = await runPublicationHook(f.input, ROOT);
-      if (kind === 'human') expect(result).toEqual({});
+      if (kind === 'human') expect(result).toEqual(OWNED_READ_APPROVAL);
       else expect(result.hookSpecificOutput?.permissionDecision).toBe('deny');
     });
 
@@ -932,7 +933,7 @@ describe('Autoplan parent publication guard', () => {
     const message: any = { ...current, uuid: randomUUID(), message: { role: 'assistant', content: [{ type: 'text', text: 'Phase 1 complete.' }] } };
     current.parentUuid = message.uuid; rows.splice(-1, 0, message);
     fs.writeFileSync(f.input.transcript_path, rows.map(x => JSON.stringify(x)).join('\n') + '\n');
-    expect(await runPublicationHook(f.input, ROOT)).toEqual({});
+    expect(await runPublicationHook(f.input, ROOT)).toEqual(OWNED_READ_APPROVAL);
     boundary.logicalParentUuid = randomUUID();
     fs.writeFileSync(f.input.transcript_path, rows.map(x => JSON.stringify(x)).join('\n') + '\n');
     expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.cwd, f.sessionId).events.some(e => e.kind === 'use' && e.toolUseId === 'next')).toBe(false);
@@ -1229,7 +1230,7 @@ describe('Autoplan native journal roots and Windows spellings', () => {
       rows[0].parentUuid = chain.at(-1)!.uuid;
       rows.unshift(...(shape === 'stray-before' ? [attachment(f, null)] : []), ...chain); save();
       expect(status(f)).toBe('ready');
-      expect(await hook(f)).toEqual({});
+      expect(await hook(f)).toEqual(OWNED_READ_APPROVAL);
     });
 
   test('an attachment root still requires the parent publication', async () => {
@@ -1340,10 +1341,7 @@ describe('Autoplan phase entry through the gbrain :user render (#2569)', () => {
     const linkRoot = path.join(scratch(), 'render', 'claude');
     for (const name of [...sections, 'phase-close.md']) {
       const text = fs.readFileSync(path.join(ROOT, 'autoplan/sections', name), 'utf8');
-      const hook = fs.readFileSync(path.join(ROOT, 'autoplan/bin/phase-publication-hook.ts'), 'utf8');
-      const fn = hook.slice(hook.indexOf('function renderSectionBase('), hook.indexOf('\n}\n', hook.indexOf('function renderSectionBase(')) + 2);
-      const ours = new Function(new Bun.Transpiler({ loader: 'ts' }).transformSync(fn) + '\nreturn renderSectionBase;')();
-      expect(ours(text, linkRoot)).toBe(rewriteSectionBase(text, linkRoot));
+      expect(renderSectionBase(text, linkRoot)).toBe(rewriteSectionBase(text, linkRoot));
     }
   });
 
@@ -1452,7 +1450,7 @@ describe('Autoplan ownership in a linked git worktree session', () => {
   test('the repository root owns its linked worktree journal', async () => {
     const f = fixture(); f.message(); f.current(); f.journal();
     const root = repo(); pointer(f.cwd, admin(root, f.cwd));
-    expect(await run(f, root)).toEqual({});
+    expect(await run(f, root)).toEqual(OWNED_READ_APPROVAL);
   });
 
   test('a linked worktree journal still requires the parent publication', async () => {
@@ -1476,14 +1474,14 @@ describe('Autoplan ownership in a linked git worktree session', () => {
     // Exactly what git 2.55 `-c worktree.useRelativePaths=true worktree add` writes.
     fs.writeFileSync(path.join(entry, 'gitdir'), posix(path.relative(entry, path.join(f.cwd, '.git'))) + '\n');
     fs.writeFileSync(path.join(f.cwd, '.git'), `gitdir: ${posix(path.relative(f.cwd, entry))}\n`);
-    expect(await run(f, root)).toEqual({});
+    expect(await run(f, root)).toEqual(OWNED_READ_APPROVAL);
   });
 
   test('an unrelated linked worktree leaves the exact project-directory owner unchanged', async () => {
     const f = fixture(); f.message(); f.current(); f.journal();
     const elsewhere = repo(); fs.mkdirSync(path.join(f.cwd, '.git', 'worktrees', 'session'), { recursive: true });
     fs.writeFileSync(path.join(f.cwd, '.git', 'worktrees', 'session', 'gitdir'), posix(path.join(elsewhere, '.git')) + '\n');
-    expect(await run(f, f.cwd)).toEqual({});
+    expect(await run(f, f.cwd)).toEqual(OWNED_READ_APPROVAL);
   });
 
   for (const kind of ['no-link', 'worktree-file-only', 'admin-entry-only', 'other-repository',
