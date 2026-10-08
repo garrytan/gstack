@@ -286,6 +286,30 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
   paid PR profile from the same touchfile closure so one command answers "what
   does my diff need?". **Effort:** M. **Priority:** P3.
 
+### P2: Windows follow-ups from the October fix wave (PR C1)
+
+- **Sign the Windows binaries so Smart App Control allows them (#2595, #2124)** —
+  `browse`, `find-browse`, `design`, `pdf` and `gstack-global-discover` are
+  compiled on the user's machine with `bun build --compile`, so they are
+  unsigned and never gain reputation; Smart App Control blocks all five. PR C1
+  only detects and explains the block (setup hint, gstack-doctor rows,
+  troubleshooting section). The fix is Authenticode-signed release artifacts
+  (for example Azure Trusted Signing) that setup downloads and verifies instead
+  of compiling, or a signed launcher. **Needs:** Garry's code-signing account
+  and certificate decision; a Windows 11 machine with Smart App Control on to
+  verify. **Effort:** L. **Priority:** P2.
+- **Find what deletes the staged CSO files during publish on #3071's machine** —
+  PR C1 made the failure non-fatal, cleared the parent's EXIT trap before the
+  native publisher `exec`, and records the outcome, but the root cause is
+  unproven (one reporter; `windows-latest` CI publishes fine). Ask for
+  `bin/.gstack-cso-build.log`, `bash -x scripts/build-cso.sh` and a Process
+  Monitor trace of the stage directory. **Effort:** M (needs the reporter's
+  machine). **Priority:** P3.
+- **Verify the Smart App Control error text on a real SAC machine** — the
+  launch probe (`bin/gstack-launch-probe.sh`) classifies exit 126/127 and
+  application-control messages as blocked from reporters' captures; nobody has
+  run it on an enforcing machine. **Effort:** S. **Priority:** P3.
+
 ### P2/P3: severe fix wave follow-ups (filed 2026-10-03, v1.91.19.0)
 
 Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10.md), each with its reason.
@@ -296,11 +320,15 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   and `--no-env-file` (verified with 1.3.2), so D0's protection against a
   project's `.env`/`bunfig.toml` is silently off there. Setup should refuse or
   warn below the floor. **Effort:** S. **Priority:** P2.
-- **Windows Node CLI lane for Smart App Control (E3; #2596, #2595, #2124)** —
-  a `dist/browse` wrapper would shadow `browse.exe` for every Windows user;
-  launcher precedence (browse vs browse.exe vs browse.cmd under Git Bash and
-  cmd) and the node-missing message need a Windows SAC machine to verify.
-  **Effort:** M. **Priority:** P2.
+- ~~**Windows Node CLI lane for Smart App Control (E3; #2596, #2595, #2124)**~~ —
+  superseded by the fix wave's PR C1: setup and gstack-doctor now detect
+  SAC-blocked binaries, and the fix wave decided against a launcher or shim
+  (it cannot be called from PowerShell, and a `bun run` shim would load the
+  caller's project `.env`/`bunfig.toml`). Signing is the follow-up below.
+  Original note: — a `dist/browse` wrapper would shadow `browse.exe` for every
+  Windows user; launcher precedence (browse vs browse.exe vs browse.cmd under
+  Git Bash and cmd) and the node-missing message need a Windows SAC machine to
+  verify. **Effort:** M. **Priority:** P2.
 - **C8 router wording behind a routing panel** — disabled skills now leave the
   router, but the "When in doubt, invoke the skill" wording change (Tier 3) was
   not run through a routing eval panel. **Effort:** S. **Priority:** P3.

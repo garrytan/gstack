@@ -141,7 +141,7 @@ describe('CSO native Windows build contract', () => {
   test('Windows builds use MSVC with a static CRT and no Bun-hosted public launcher', () => {
     const build = fs.readFileSync(path.join(ROOT, 'scripts/build-cso.sh'), 'utf8');
     const msvc = fs.readFileSync(path.join(ROOT, 'scripts/build-cso-windows.ps1'), 'utf8');
-    expect(build).toContain('powershell.exe -NoProfile -NonInteractive');
+    expect(build).toContain('"$CSO_POWERSHELL" -NoProfile -NonInteractive');
     expect(build).toContain('build-cso-windows.ps1');
     expect(build).toContain('-OutputPath "$(cygpath -w "$CSO_STAGE_LAUNCHER")"');
     expect(build).toContain('-LockOutputPath "$(cygpath -w "$CSO_STAGE_LOCKER")"');

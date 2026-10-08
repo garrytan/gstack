@@ -1563,10 +1563,11 @@ _cso_unavailable() {
 
 # CSO has a native startup boundary. Its extra toolchain is optional for setup:
 # when unavailable, install every other skill and leave /cso visibly fail-closed.
-# A successful probe is only a prerequisite check; any later source build failure
-# still aborts setup and therefore cannot be mistaken for a missing local tool.
+# A successful probe is only a prerequisite check. A later build or publish
+# failure is recorded by scripts/build-cso.sh and reported by stage, not as a
+# missing tool; only GSTACK_STRICT_BUILD=1 makes it abort setup (#3071).
 probe_cso_build_prerequisites() {
-  local _help _flag _platform _compiler _tmp _ps_script _repo_root _git_path _probe_out
+  local _help _flag _platform _compiler _tmp _ps _ps_script _repo_root _git_path _probe_out _probe_rc
   CSO_BUILD_AVAILABLE=1
   CSO_FAIL_REASON=""
   CSO_PROBE_DETAIL=""
@@ -1585,7 +1586,9 @@ probe_cso_build_prerequisites() {
 
   _platform="$(uname -s)"
   if [ "$IS_WINDOWS" -eq 1 ]; then
-    if ! command -v powershell.exe >/dev/null 2>&1 || ! command -v cygpath >/dev/null 2>&1; then
+    # #3071: PowerShell 7 first; Windows PowerShell 5.1 can crash outright.
+    _ps="$(command -v pwsh 2>/dev/null || command -v powershell.exe 2>/dev/null || true)"
+    if [ -z "$_ps" ] || ! command -v cygpath >/dev/null 2>&1; then
       _cso_unavailable "windows-shell-toolchain"
       return 0
     fi
@@ -1598,13 +1601,20 @@ probe_cso_build_prerequisites() {
     fi
     # E2 (#3015): a probe that found MSVC but could not compile is not a
     # missing toolchain; keep the probe's own first diagnostic for the summary.
-    if ! _probe_out="$(powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-      -File "$_ps_script" -RepoRoot "$_repo_root" -GitExePath "$(cygpath -aw "$_git_path")" -CheckOnly 2>&1)"; then
+    # #3071: neither is a probe that failed for another reason (a crashed
+    # PowerShell); keep its exit status and first output line.
+    _probe_rc=0
+    _probe_out="$("$_ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+      -File "$_ps_script" -RepoRoot "$_repo_root" -GitExePath "$(cygpath -aw "$_git_path")" -CheckOnly 2>&1)" || _probe_rc=$?
+    if [ "$_probe_rc" -ne 0 ]; then
       case "$_probe_out" in
         *"compiler probe failed"*|*"compiler probe was not produced"*)
           _cso_unavailable "windows-msvc-compile"
           CSO_PROBE_DETAIL="$(printf '%s\n' "$_probe_out" | grep -m1 -E 'error [A-Z]*[0-9]+|probe (failed|was not produced)' | tr -d '\r' | head -c 200)" ;;
-        *) _cso_unavailable "windows-msvc-toolchain" ;;
+        *"requires Visual Studio 2022"*) _cso_unavailable "windows-msvc-toolchain" ;;
+        *)
+          _cso_unavailable "windows-toolchain-probe"
+          CSO_PROBE_DETAIL="${_ps##*/} exited $_probe_rc: $(printf '%s\n' "$_probe_out" | tr -d '\r' | grep -m1 -v '^[[:space:]]*$' | head -c 200)" ;;
       esac
     fi
     return 0
@@ -1688,8 +1698,11 @@ _EXE=""
 if [ "$IS_WINDOWS" -eq 1 ]; then _EXE=".exe"; fi
 # Never leave a trusted helper from an earlier toolchain/version available when
 # this setup run cannot reproduce it. The /cso skill then reports not assessed.
+# An earlier build's result record no longer describes the removed helper;
+# setup never writes into the source checkout when nothing is built.
 if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
-  rm -f "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher" \
+  rm -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-build-result" \
+    "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher" \
     "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher.exe" \
     "$SOURCE_GSTACK_DIR/bin/gstack-cso-core" \
     "$SOURCE_GSTACK_DIR/bin/gstack-cso-core.exe" \
@@ -1827,11 +1840,20 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   fi
 fi
 
+# A failed CSO build or publish leaves an incomplete set; the summary reports
+# it from the build-result record. Fatal only under GSTACK_STRICT_BUILD=1 (#3071).
+_CSO_READY=0
 if [ "$CSO_BUILD_AVAILABLE" -eq 1 ]; then
   if [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher$_EXE" ] || [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-core$_EXE" ] || [ ! -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-generation" ] || { [ "$IS_WINDOWS" -eq 0 ] && [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-watchdog" ]; } || { [ "$IS_WINDOWS" -eq 1 ] && [ ! -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-generation.lock" ]; }; then
-    echo "gstack setup failed: CSO build completed without its required native artifact set" >&2
-    exit 1
+    if [ "${GSTACK_STRICT_BUILD:-0}" = "1" ]; then
+      echo "gstack setup failed: CSO build completed without its required native artifact set (GSTACK_STRICT_BUILD=1)" >&2
+      exit 1
+    fi
+  else
+    _CSO_READY=1
   fi
+fi
+if [ "$_CSO_READY" -eq 1 ]; then
   # Evaluation-only helpers embed an unqualified cso-eval-* catalog for the
   # private evaluator. Setup never installs one, whether marked or copied bare.
   if [ -e "$SOURCE_GSTACK_DIR/bin/.gstack-cso-evaluation" ] || "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher$_EXE" --version 2>/dev/null | grep -q '"evaluationOnly": *true'; then
@@ -4388,15 +4410,20 @@ fi
 _setup_print_summary
 
 # ─── CSO native-helper summary ────────────────────────────────────────────────
+# A missing prerequisite comes from this run's probe. A build or publish
+# failure comes from bin/.gstack-cso-build-result, which scripts/build-cso.sh
+# writes and gstack-doctor also reads.
+_cso_field() { sed -n "s/^$1=//p" "$SOURCE_GSTACK_DIR/bin/.gstack-cso-build-result" 2>/dev/null | head -1; }
 if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
   case "$CSO_FAIL_REASON" in
     bun-compile-flags) _CSO_PREREQ="upgrade Bun to a release supporting all four --no-compile-autoload-* build flags" ;;
     c-compiler) _CSO_PREREQ="install a C compiler (cc, Clang, or GCC)" ;;
     static-c-toolchain) _CSO_PREREQ="install a C toolchain capable of static linking" ;;
     macos-codesign|macos-native-toolchain) _CSO_PREREQ="install the macOS compiler and codesign command-line tools" ;;
-    windows-shell-toolchain) _CSO_PREREQ="run setup from Git Bash with Windows PowerShell available" ;;
+    windows-shell-toolchain) _CSO_PREREQ="run setup from Git Bash with PowerShell (pwsh or Windows PowerShell) available" ;;
     windows-msvc-toolchain) _CSO_PREREQ="install Visual Studio 2022 Build Tools with Desktop development with C++" ;;
     windows-msvc-compile) _CSO_PREREQ="fix the MSVC compile error its toolchain probe reported (${CSO_PROBE_DETAIL:-see scripts/build-cso-windows.ps1 -CheckOnly}); Visual Studio is already installed" ;;
+    windows-toolchain-probe) _CSO_PREREQ="fix the PowerShell toolchain probe failure (${CSO_PROBE_DETAIL:-no output}); run scripts/build-cso-windows.ps1 -CheckOnly from pwsh to see it" ;;
     windows-git) _CSO_PREREQ="install Git for Windows and run setup from its Git Bash" ;;
     unsupported-platform) _CSO_PREREQ="use a supported macOS, Linux, or Windows host" ;;
     skipped-by-request) _CSO_PREREQ="re-run without GSTACK_SETUP_SKIP_CSO_BUILD=1" ;;
@@ -4404,8 +4431,67 @@ if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
   esac
   log ""
   log "CSO unavailable: its native helper was not built ($CSO_FAIL_REASON)."
-  log "  /cso will report not assessed and the install prerequisite; it will not use repository tooling."
+  log "  Failed stage: probe. /cso will report not assessed and the install prerequisite; it will not use repository tooling."
   log "  Everything else is installed and works. To enable /cso, $_CSO_PREREQ, then re-run ./setup."
+elif [ "$(_cso_field result)" = "failed" ]; then
+  _CSO_STAGE="$(_cso_field stage)"
+  _CSO_INSTALLED="$(_cso_field installed)"
+  _CSO_WHAT="failed ($(_cso_field reason))"
+  [ "$(_cso_field reason)" != "interrupted" ] || _CSO_WHAT="was interrupted"
+  log ""
+  if [ -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher$_EXE" ] && [ -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-core$_EXE" ] && [ -n "$_CSO_INSTALLED" ]; then
+    log "CSO $_CSO_STAGE step $_CSO_WHAT for $(_cso_field revision); previous CSO kept: $_CSO_INSTALLED."
+    log "  /cso keeps using that helper until a rebuild succeeds."
+  else
+    log "CSO unavailable: the native helper's $_CSO_STAGE step $_CSO_WHAT, so /cso will report not assessed."
+  fi
+  log "  Diagnostic: $(_cso_field diagnostic)"
+  log "  Everything else is installed and works. Retry: cd $SOURCE_GSTACK_DIR && bun run build:cso && ./setup"
+  log "  Details: https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#cso-build-or-publish-failed"
+fi
+
+# ─── Windows launch probe (#2595, #2124) ──────────────────────────────────────
+# Smart App Control blocks unsigned executables at launch, which `[ -x ]` cannot
+# see and Git Bash reports as "Permission denied". Probe each compiled binary.
+_windows_launch_summary() {
+  local rel detail shell wsl
+  . "$SOURCE_GSTACK_DIR/bin/gstack-launch-probe.sh" || return 0
+  gstack_launch_probe_all "$SOURCE_GSTACK_DIR" ".exe"
+  if [ -n "$_glp_blocked" ]; then
+    case "$(uname -s)" in
+      MINGW*|MSYS*) shell="Git Bash" ;;
+      CYGWIN*) shell="Cygwin" ;;
+      *) shell="$(uname -s)" ;;
+    esac
+    if command -v wsl.exe >/dev/null 2>&1; then wsl="WSL is installed"; else wsl="WSL is not installed (wsl --install)"; fi
+    log ""
+    log "Windows blocked compiled gstack binaries at launch (Smart App Control or another application-control policy, #2595):"
+    while IFS='	' read -r rel detail; do
+      [ -n "$rel" ] || continue
+      log "  $rel.exe: ${detail:-no output} -> $(gstack_launch_probe_skills "$rel")"
+    done <<EOF
+$_glp_blocked
+EOF
+    log "  This is code integrity, not file permissions: the binaries are compiled on this machine and unsigned."
+    log "  Everything else is installed. You ran setup from $shell, where the block applies; $wsl, and gstack inside WSL is not affected."
+    log "  Workarounds: install gstack inside WSL, or turn Smart App Control off in Windows Security > App & browser control."
+    log "  To undo: once Windows allows the binaries, re-run ./setup and this message goes away."
+    log "  Details: https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#windows-smart-app-control"
+  fi
+  if [ -n "$_glp_broken" ]; then
+    log ""
+    log "Compiled gstack binaries launched but failed (a build problem, not Smart App Control):"
+    while IFS='	' read -r rel detail; do
+      [ -n "$rel" ] || continue
+      log "  $rel.exe: $detail -> $(gstack_launch_probe_skills "$rel")"
+    done <<EOF
+$_glp_broken
+EOF
+    log "  Rebuild: cd $SOURCE_GSTACK_DIR && bun run build"
+  fi
+}
+if [ "$IS_WINDOWS" -eq 1 ]; then
+  _windows_launch_summary
 fi
 
 # ─── Chromium bootstrap summary (best-effort browser, see # 2) ───────────────

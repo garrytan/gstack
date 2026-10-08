@@ -664,8 +664,9 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 (on other hosts, `./setup --status` in your gstack checkout ends with the
 doctor's absolute path). Without starting a skill or spending anything, it
 prints one row per check (install, state root, Bun, hooks, Codex and its cached
-model probe, artifacts sync, the browse bundle, Claude Code, your largest
-session journal and recent /autoplan guard codes), each `ok`, `warn`,
+model probe, artifacts sync, the browse bundle, the other compiled binaries,
+the /cso native helper, Claude Code, your largest session journal and recent
+/autoplan guard codes), each `ok`, `warn`,
 `not configured` or `fail` with the command that fixes it. It exits non-zero
 only on `fail`. `--live` also runs the paid Codex model check (one short call).
 Paste its output into bug reports.
@@ -706,7 +707,9 @@ types into that element; bare `browse type <text>` types into whatever has focus
 
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. `${CODEX_HOME:-~/.codex}/skills/gstack` is a runtime directory, not the checkout: `./setup --status` shows the Codex row's source checkout. Fix: `cd <that source> && git pull && ./setup --host codex` — for a repo-local install, run it from inside the project.
 
-**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Aside is macOS-only, so on Windows (and Linux) the browser skills, `/make-pdf`, and `/diagram` always use gstack's bundled browser. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH. Native `/cso` additionally requires Windows PowerShell and Visual Studio 2022 Build Tools with the Desktop development with C++ workload; setup leaves that skill explicitly unavailable when they are absent.
+**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Aside is macOS-only, so on Windows (and Linux) the browser skills, `/make-pdf`, and `/diagram` always use gstack's bundled browser. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH. Native `/cso` additionally requires PowerShell (PowerShell 7 `pwsh` is preferred; Windows PowerShell 5.1 is the fallback) and Visual Studio 2022 Build Tools with the Desktop development with C++ workload; setup leaves that skill explicitly unavailable when they are absent. /cso is optional: if its native helper fails to build or publish, setup still finishes, says which step failed with the log path and retry command, and keeps an earlier helper when it has one (`GSTACK_STRICT_BUILD=1` makes that failure fatal, as CI does).
+
+**Known issue: Windows Smart App Control** ([#2595](https://github.com/garrytan/gstack/issues/2595)). gstack's compiled binaries (`browse`, `find-browse`, `design`, `pdf`, `gstack-global-discover`) are built on your machine and unsigned, so Windows 11 with Smart App Control on refuses to start them; Git Bash shows `Permission denied`. setup detects this, names the blocked binaries and the skills that need them, and `gstack-doctor` reports them as `blocked`. Today's workarounds are running gstack inside WSL, or turning Smart App Control off. Details: [troubleshooting](docs/troubleshooting.md#windows-smart-app-control). The sidebar terminal uses Consolas on Windows, so its text no longer renders spaced out.
 
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 
