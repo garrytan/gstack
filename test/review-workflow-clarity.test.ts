@@ -477,3 +477,13 @@ test('testing specialist treats negative assertions as decisions and catches one
     ['grep', 'negative assertions', 'old value'],
   ], 'testing specialist');
 });
+
+test('security specialist checks authorization paths a route-guard read misses', () => {
+  const auth = compact(between(readFileSync(join(root, 'review/specialists/security.md'), 'utf8'), '### Auth & Authorization Bypass', '\n### '));
+  expectMentions(auth, [
+    ['error', 'renderer', 'outside', 'guard'],
+    ['ownership', 'role', 'downgrade'],
+    ['list', 'detail', 'download', 'separately'],
+    ['session', 'before', 'validating', 'callback'],
+  ], 'security specialist');
+});
