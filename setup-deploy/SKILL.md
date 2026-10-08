@@ -513,6 +513,8 @@ If nothing detected:
 
 A project deployed only with the Vercel CLI has no `vercel.json` or `.vercel/`; `vercel link` creates `.vercel/`, so a re-run detects it.
 
+If nothing is live yet, there is no production URL and no deploy trigger to record: say that and stop here instead of asking for values that do not exist. This skill configures how `/land-and-deploy` verifies a deploy; the first bring-up is its own step, done with the platform's own CLI or whatever bring-up tool the user chooses. Bring the project up first, and re-run `/setup-deploy` after the first production deploy exists. A library or CLI that never deploys still gets the `none` configuration from Step 4.
+
 Use AskUserQuestion to gather the information:
 
 1. **How are deploys triggered?**
@@ -520,7 +522,7 @@ Use AskUserQuestion to gather the information:
    - B) Via GitHub Actions workflow
    - C) Via a deploy script or CLI command (describe it)
    - D) Manually (SSH, dashboard, etc.)
-   - E) This project doesn't deploy (library, CLI, tool)
+   - E) Nothing is deployed yet, or this project never deploys (library, CLI, tool)
 
 2. **What's the production URL?** (Free text — the URL where the app runs)
 
