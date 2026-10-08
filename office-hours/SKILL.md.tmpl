@@ -341,6 +341,21 @@ selection in Phase 6 (Founder Resources).
 
 Confirm you Read every section the Section index named as applying to this run, and executed it. The conversation phase is section-backed too — if you ran the diagnostic or brainstorm from memory without Reading `sections/phase-2a-startup-diagnostic.md` (startup mode) or `sections/phase-2b-builder-brainstorm.md` (builder mode), the questions lost their teeth. If you produced the design doc or handoff from memory without Reading `sections/design-and-handoff.md`, stop and Read it now.
 
+## Before telemetry: confirm this run's design doc
+
+Check the `~/.gstack` copy this run wrote in Phase 5, by its exact path (never the newest file in
+the folder; another session may have written it):
+
+```bash
+GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+DOC="DESIGN_DOC_PATH"
+case "$DOC" in "$GSTACK_STATE_ROOT"/projects/*-design-*.md) [ -s "$DOC" ] && echo "DESIGN_DOC: ok" || echo "DESIGN_DOC: missing" ;; *) echo "DESIGN_DOC: missing" ;; esac
+```
+
+Replace DESIGN_DOC_PATH with that path, or with nothing if no doc was written. OUTCOME is `success`
+only after `DESIGN_DOC: ok`; otherwise use `abort` if the user ended the session, else `error`
+with FAILED_STEP `design_doc`.
+
 ---
 
 {{LEARNINGS_LOG}}
