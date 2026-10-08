@@ -81,7 +81,9 @@ function makeFixture(): Fixture {
     '  *) exit 64 ;;',
     'esac',
   ]);
-  const hooks = spawnSync('bash', [path.join(root, 'bin/gstack-hook-check'), '--list', root], { encoding: 'utf8', timeout: 20_000 }).stdout.trim().split('\n');
+  const listed = spawnSync('bash', [path.join(root, 'bin/gstack-hook-check'), '--list', root], { encoding: 'utf8', timeout: 20_000 });
+  const hooks = listed.stdout.split('\n').map(line => line.trim()).filter(Boolean);
+  if (!hooks.includes('autoplan/bin/phase-publication-hook')) throw new Error(`gstack-hook-check --list missed the autoplan hook: ${listed.stdout}${listed.stderr}`);
   for (const hook of hooks) write(path.join(root, hook), '#!/bin/sh\nexit 0\n', 0o755);
   // The doctor launches each compiled binary's --version (#2595), so the
   // stand-ins answer it like the real binaries do.

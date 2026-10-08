@@ -51,7 +51,9 @@ if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
   echo "usage: gstack-hook-check [--setup <file>] [--list] <gstack root>" >&2
   exit 2
 fi
-case "$ROOT" in /*) ;; *) ROOT="$PWD/$ROOT" ;; esac
+# A Windows path (D:\x or D:/x) from a native caller: use Git Bash's spelling.
+case "$ROOT" in [A-Za-z]:[\\/]*) command -v cygpath >/dev/null 2>&1 && ROOT=$(cygpath -u "$ROOT") ;; esac
+case "$ROOT" in /*|[A-Za-z]:[\\/]*) ;; *) ROOT="$PWD/$ROOT" ;; esac
 [ "$ROOT" = / ] || ROOT=${ROOT%/}
 SETUP_FILE="${SETUP_FILE:-$ROOT/setup}"
 
