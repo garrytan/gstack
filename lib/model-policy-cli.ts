@@ -60,13 +60,14 @@ Settings (gstack-config set|unset <key>):
   model_frontier_claude, model_frontier_openai,
   model_smart_claude, model_smart_openai           (default: shipped catalog ID)
 
-A custom Anthropic or OpenAI endpoint (Bedrock, Vertex, Foundry, a base-URL
+A detected custom Anthropic or OpenAI endpoint (Bedrock, Vertex, Foundry, a base-URL
 override or a Codex model_provider) never receives a shipped public ID: set a
 per-tier model, an environment override (plan-review only) or host mode.
 Detection reads the environment, the env block of Claude's user, project
 (.claude/settings.json, .claude/settings.local.json in the working directory
 and repository root) and managed settings files, and Codex's user and system
-config.toml. It cannot see server-managed or MDM policy, claude --settings, or
+config.toml. Project-local Codex config is not inspected.
+It cannot see server-managed or MDM policy, claude --settings, or
 codex -c/--profile flags: if you route those to a custom endpoint, set a
 per-tier model or host mode.
 

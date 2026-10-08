@@ -710,7 +710,7 @@ case "${1:-}" in
         case "$KEY" in
           plan_review_tier) case "$VALUE" in frontier|smart|host) ;; *) _mp_valid="" ; _mp_rule="Valid values: frontier, smart, host." ;; esac ;;
           implementation_tier) case "$VALUE" in frontier|smart) ;; *) _mp_valid="" ; _mp_rule="Valid values: frontier, smart." ;; esac ;;
-          *_claude) printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[][A-Za-z0-9._:/@+-]{1,512}$' || { _mp_valid=""; _mp_rule="An Anthropic model ID is 1-512 characters from A-Z a-z 0-9 . _ : / @ + [ ] -."; } ;;
+          *_claude) { [ "${#VALUE}" -le 512 ] && printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[][A-Za-z0-9._:/@+-]+$'; } || { _mp_valid=""; _mp_rule="An Anthropic model ID is 1-512 characters from A-Z a-z 0-9 . _ : / @ + [ ] -."; } ;;
           *_openai) printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[A-Za-z0-9._:/-]{1,100}$' || { _mp_valid=""; _mp_rule="An OpenAI model ID is 1-100 characters from A-Z a-z 0-9 . _ : / -."; } ;;
         esac
         if [ -z "$VALUE" ]; then

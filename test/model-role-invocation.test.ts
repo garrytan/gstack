@@ -257,6 +257,16 @@ describe('Codex plan-review invocation binds one selection', () => {
     expect(custom.stderr).not.toContain('NOTICE: gstack plan reviews');
   });
 
+  test('malformed known policy records stop both provider invocations before any CLI dispatch', () => {
+    for (const host of ['claude', 'codex'] as const) {
+      const r = run(host, home('plan_review_tier = smart\n'));
+      expect(r.status).not.toBe(0);
+      expect(r.calls).toEqual([]);
+      expect(r.stdout + r.stderr).toContain('remove or correct the malformed plan_review_tier line');
+      expect(r.stderr).not.toContain(NOTICE);
+    }
+  });
+
   test('a rejected role model is unusable with a source-aware repair and never dispatches', () => {
     const r = run('claude', home(), { FAKE_PROBE: 'model400' });
     expect(r.status).toBe(1);

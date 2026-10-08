@@ -64,6 +64,10 @@ uses the existing [gstack state root](state-root.md), not a new per-repository
 settings file. Invalid writes are rejected and leave the previous value intact;
 use `unset`, not an empty value, to restore a default.
 
+A malformed known setting (for example `plan_review_tier = smart`) stops
+selection rather than acting as an absent key. Correct or remove the named line
+in the reported config file; `unset` only removes correctly spelled `key:` records.
+
 Codex plan-review readiness and dispatch share one deadline. Readiness is
 budgeted half the remaining time, with the existing termination grace. A slow
 preflight leaves less time for the review instead of extending the caller's
@@ -107,7 +111,8 @@ is not proof of account availability. See [provider recovery](troubleshooting.md
 Detection is conservative, not a replacement for the CLI's settings engine.
 Claude checks environment, user settings, project/shared/local settings, local
 settings at the repository and worktree's main checkout, and local managed files.
-Codex checks environment, user/active-profile settings and system configuration.
+Codex checks environment, user/active-profile settings and system configuration;
+project-local Codex config is not inspected.
 Any detected local custom-route signal requires an explicit model, even if
 native trust or precedence rules might suppress it. Server-managed or MDM
 policy and extra native CLI flags are not visible to this check; `--help` and

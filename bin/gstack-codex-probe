@@ -146,7 +146,7 @@ _gstack_codex_select_model() {
   # Codex config.toml (review_model first for native review), gstack default.
   # With $3 = plan-review the plan-review policy ranks the choice instead and
   # its record carries role, tier, source and source-aware repair; $4 names the
-  # target repository whose project settings can route to a custom endpoint.
+  # working-directory context forwarded to the shared role resolver.
   # The TOML is read by the TypeScript resolver; bash never parses it.
   local _kind="${1:-exec}" _explicit="${2:-}" _role="${3:-}" _cwd="${4:-}" _line _rc _rest
   case "$_kind" in exec|review) ;; *) echo "ERROR: _gstack_codex_select_model takes exec or review" >&2; return 2 ;; esac

@@ -216,14 +216,14 @@ export function parseModelPolicyConfig(text: string, configPath: string): ModelP
     for (const key of POLICY_CONFIG_KEYS) {
       if (line.startsWith(`${key}:`)) {
         records.set(key, line.slice(key.length + 1).trim());
-      } else if (new RegExp(`^\\s*${key}\\s*:`).test(line)) {
+      } else if (new RegExp(`^\\s*(?:-\\s+)?["']?${key}(?=[^A-Za-z0-9_@]|$)`).test(line)) {
         throw new ModelPolicyError({
           reason: 'config_malformed',
           problem: `${configPath} has a malformed ${key} record`,
           cause: `write it as '${key}: <value>' at the start of the line, with no indentation or space before the colon`,
           key,
           source: 'config',
-          repair: [`gstack-config unset ${key}`, `gstack-config set ${key} <value>`],
+          repair: [`edit ${configPath} and remove or correct the malformed ${key} line`, `then use gstack-config set ${key} <value>`],
           docs: DOCS_CONFIG,
         });
       }
@@ -320,7 +320,7 @@ export interface CustomProviderDetection {
 
 export const CUSTOM_PROVIDER_UNSCANNED: Readonly<Record<ModelProvider, readonly string[]>> = Object.freeze({
   anthropic: Object.freeze(['server-managed settings from the claude.ai console', 'MDM or OS policy (macOS profile, Windows registry)', 'a --settings flag passed to claude']),
-  openai: Object.freeze(['cloud-managed Codex config', '-c, --config or --profile flags passed to codex']),
+  openai: Object.freeze(['project-local Codex config.toml', 'cloud-managed Codex config', '-c, --config or --profile flags passed to codex']),
 });
 
 function claudeManagedDir(platform: NodeJS.Platform): string {

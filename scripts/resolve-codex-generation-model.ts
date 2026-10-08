@@ -200,7 +200,7 @@ export function resolveCodexPlanReviewModel(opts: {
   env?: Record<string, string | undefined>;
   codexHome?: string;
   home?: string;
-  /** Target repository; its project settings can route to a custom endpoint. */
+  /** Invocation context forwarded to the shared role resolver. */
   cwd?: string;
 }): CodexPlanReviewSelection {
   const env = opts.env ?? process.env;

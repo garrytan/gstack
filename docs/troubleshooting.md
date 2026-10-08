@@ -52,6 +52,9 @@ setting: doing that could silently select the premium default.
 `smart`. Use `gstack-config unset <key>` to restore a default, not an empty
 value. A rejected `set` leaves the old value intact. Correct ownership/read
 permissions rather than deleting an unrelated state directory.
+For a malformed line such as `plan_review_tier = smart`, edit the reported file
+and correct or remove that line first: `unset` only removes canonical `key:`
+records and cannot repair a misspelled delimiter or quoted key.
 
 **Expected result.** `gstack-models list` or the corresponding `resolve`
 command explains the winning source. No outside model call ran on this error.

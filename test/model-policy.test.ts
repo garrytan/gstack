@@ -179,7 +179,12 @@ describe('strict policy config snapshot', () => {
     const error = policyError(() => parseModelPolicyConfig(text, '/c.yaml'));
     expect(error.reason).toBe(reason as ModelPolicyError['reason']);
     expect(error.key).toBe(key);
-    expect(error.repair.join('\n')).toContain(`gstack-config unset ${key}`);
+    if (reason === 'config_malformed') {
+      expect(error.repair.join('\n')).toContain(`edit /c.yaml and remove or correct the malformed ${key} line`);
+      expect(error.repair.join('\n')).not.toContain('gstack-config unset');
+    } else {
+      expect(error.repair.join('\n')).toContain(`gstack-config unset ${key}`);
+    }
     expect(error.docs).toContain('troubleshooting.md#model-policy-config');
     for (const step of error.repair) expect(step).not.toMatch(/[|]/);
   });
@@ -187,6 +192,21 @@ describe('strict policy config snapshot', () => {
   test('an invalid unused override still fails closed', () => {
     const { env } = fixture('plan_review_tier: smart\nmodel_frontier_claude: bad value\n');
     expect(policyError(() => resolvePlanReviewModel({ provider: 'openai', env })).reason).toBe('invalid_model_id');
+  });
+
+  test('recognizable policy records never become absent keys because of malformed delimiters', () => {
+    const keys = ['plan_review_tier', 'implementation_tier', 'model_frontier_claude', 'model_frontier_openai', 'model_smart_claude', 'model_smart_openai'];
+    for (const key of keys) {
+      const value = key.startsWith('model_') ? 'custom-model' : 'smart';
+      for (const line of [`${key} = ${value}`, `${key} ${value}`, `${key}; ${value}`, key, `"${key}": ${value}`, `- ${key}: ${value}`]) {
+        const error = policyError(() => parseModelPolicyConfig(`${line}\n`, '/owned/config.yaml'));
+        expect(error).toMatchObject({ reason: 'config_malformed', source: 'config', key });
+        expect(error.repair).toContain(`edit /owned/config.yaml and remove or correct the malformed ${key} line`);
+      }
+    }
+    const absent = parseModelPolicyConfig('# plan_review_tier = smart\nlegacy_key = value\nplan_review_tier_notes: unrelated\nbrain_trust_policy@local: shared\n', '/owned/config.yaml');
+    expect(absent.planReviewTier).toMatchObject({ value: 'frontier', origin: 'default' });
+    expect(parseModelPolicyConfig('plan_review_tier: host\nplan_review_tier: smart\n', '/owned/config.yaml').planReviewTier).toMatchObject({ value: 'smart', origin: 'config' });
   });
 
   test('a directory, an unreadable file or a file state root is an error, never the default', () => {

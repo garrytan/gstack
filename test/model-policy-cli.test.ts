@@ -230,6 +230,32 @@ describe('gstack-models inspector', () => {
 });
 
 describe('gstack-config model policy keys', () => {
+  test('Anthropic pins preserve the 512-character contract with a POSIX-bounded regex engine', () => {
+    const { root, env, state } = fixture();
+    const bin = path.join(root, 'portable-bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'grep'), `#!/usr/bin/env bun
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+if (args.some(arg => [...arg.matchAll(/\\{\\d+,(\\d+)\\}/g)].some(match => Number(match[1]) > 255))) {
+  console.error('REG_BADMAX: repetition exceeds the BSD RE_DUP_MAX of 255');
+  process.exit(2);
+}
+const result = spawnSync(${JSON.stringify(Bun.which('grep'))}, args, { stdio: 'inherit', timeout: 5000 });
+process.exit(result.status ?? 1);
+`, { mode: 0o755 });
+    const portable = { ...env, PATH: `${bin}${path.delimiter}${env.PATH}` };
+    for (const key of ['model_frontier_claude', 'model_smart_claude']) {
+      for (const value of ['claude-fable-5-1', 'a'.repeat(512)]) {
+        expect(config(['set', key, value], portable).code).toBe(0);
+        expect(config(['get', key], portable).stdout).toBe(value);
+      }
+      const before = fs.readFileSync(path.join(state, 'config.yaml'), 'utf-8');
+      expect(config(['set', key, 'a'.repeat(513)], portable).code).toBe(1);
+      expect(fs.readFileSync(path.join(state, 'config.yaml'), 'utf-8')).toBe(before);
+    }
+  });
+
   test('defaults, set, resolve again and unset restore', () => {
     const { env } = fixture();
     expect(config(['get', 'plan_review_tier'], env)).toMatchObject({ code: 0, stdout: 'frontier' });
