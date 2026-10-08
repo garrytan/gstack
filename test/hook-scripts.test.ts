@@ -1209,7 +1209,8 @@ describe('check-freeze.sh', () => {
     // The old resolver followed the parent directory but NOT the final path
     // component, so an in-boundary symlink pointing outside the boundary was
     // allowed while the write landed outside.
-    test('an in-boundary symlink to an outside target denies', () => {
+    // Windows CI runners lack Developer Mode, so symlinkSync throws EPERM there.
+    test.skipIf(process.platform === 'win32')('an in-boundary symlink to an outside target denies', () => {
       const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-link-'));
       const boundary = path.join(base, 'boundary');
       const outside = path.join(base, 'outside');
@@ -1453,7 +1454,8 @@ describe('gstack_hook_log_fire writes under the resolved state root', () => {
     });
   });
 
-  test('a GSTACK_HOME ending in a newline round-trips exactly (writer %q and reader sentinel agree)', () => {
+  // NTFS rejects a newline in a directory name.
+  test.skipIf(process.platform === 'win32')('a GSTACK_HOME ending in a newline round-trips exactly (writer %q and reader sentinel agree)', () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-nl-'));
     const nlDir = path.join(base, 'root\n');
     fs.mkdirSync(nlDir);
@@ -1468,7 +1470,8 @@ describe('gstack_hook_log_fire writes under the resolved state root', () => {
     }
   });
 
-  test('an unexpected set -e death inside the hook (a tool on PATH failing) DENIES via the EXIT backstop instead of exiting with no JSON', () => {
+  // The fake tool is prepended with a POSIX ':' PATH separator.
+  test.skipIf(process.platform === 'win32')('an unexpected set -e death inside the hook (a tool on PATH failing) DENIES via the EXIT backstop instead of exiting with no JSON', () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-backstop-'));
     const fakeBin = path.join(base, 'bin');
     fs.mkdirSync(fakeBin);
