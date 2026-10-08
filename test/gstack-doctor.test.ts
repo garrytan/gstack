@@ -22,6 +22,7 @@ const COPIED = [
   'setup', 'VERSION',
   'bin/gstack-doctor', 'bin/gstack-codex-status.sh', 'bin/gstack-state-root.sh', 'bin/gstack-install-registry.sh',
   'bin/gstack-render-claude.sh', 'bin/gstack-bun-version.sh', 'bin/gstack-hook-check', 'bin/gstack-config',
+  'autoplan/SKILL.md', // its frontmatter registers the autoplan hook the hooks-row test breaks
 ];
 const bases: string[] = [];
 afterEach(() => { for (const b of bases.splice(0)) fs.rmSync(b, { recursive: true, force: true }); });
