@@ -116,7 +116,8 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
  * Severity words count as findings only in label position, never inside prose
  * ("high-level", "a low-risk change", "no critical findings"): `Severity: High`
  * or `Priority: high`, a leading `High:` / `High —` / `[High]` (after an
- * optional heading, bullet or number), a bold `**High**`, or a table cell.
+ * optional heading, bullet or number), a bold `**High**`, a table cell, or a
+ * trailing `… — Medium.` / `… (High)` at the end of a finding line.
  * Critical and high block like P0/P1; medium and low are advisory like P2/P3.
  */
 const SEVERITY_WORDS: Record<string, Severity> = { critical: 'P0', high: 'P1', medium: 'P2', low: 'P3' };
@@ -126,6 +127,8 @@ const SEVERITY_LABELS = [
   new RegExp(`^[\\t ]*(?:>[\\t ]*)?(?:#{1,6}[\\t ]+|[-+*][\\t ]+|\\(?\\d{1,3}[.)][\\t ]+)?(?:\\*\\*|__)?\\[?${WORD}\\]?(?:\\*\\*|__)?[\\t ]*(?::|\u2014|\u2013|-[\\t ]|\\]|\\(|\\*\\*[\\t ]*(?:\u2014|\u2013|-[\\t ]))`, 'gim'),
   new RegExp(`(?:\\*\\*|__)\\[?${WORD}\\]?:?(?:\\*\\*|__)`, 'gi'),
   new RegExp(`\\|[\\t ]*(?:\\*\\*)?${WORD}(?:\\*\\*)?[\\t ]*(?=\\|)`, 'gi'),
+  new RegExp(`[\\t ](?:\u2014|\u2013|-)[\\t ]+(?:\\*\\*|__)?${WORD}(?:\\*\\*|__)?[\\t ]*[.;]?[\\t ]*$`, 'gim'),
+  new RegExp(`\\((?:severity:[\\t ]*)?${WORD}\\)[\\t ]*[.;]?[\\t ]*$`, 'gim'),
 ];
 function severityWords(text: string): Severity[] {
   return SEVERITY_LABELS.flatMap(re => [...text.matchAll(re)].map(m => SEVERITY_WORDS[m[1]!.toLowerCase()]!));

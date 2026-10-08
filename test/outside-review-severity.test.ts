@@ -49,6 +49,9 @@ describe('severity words count as findings in label position', () => {
       ['| 1 | high | cap ignored |', 'P1', 'findings'],
       ['Low: rename the helper.', 'P3', 'clean'],
       ['Medium: the docs lag.\nLow: a typo.', 'P2', 'clean'],
+      ['1. The guard trusts the payload without a flush check — High.', 'P1', 'findings'],
+      ['2. The docs lag the new flag – Medium.', 'P2', 'clean'],
+      ['- The retry loop never stops (high)', 'P1', 'findings'],
     ];
     for (const [text, highest, verdict] of cases) {
       const r = classifyOutsideReview({ text: `${text}\n${REC}`, gate: 'review' });
@@ -60,7 +63,8 @@ describe('severity words count as findings in label position', () => {
     const r = classifyOutsideReview({ text: read('prose-negative.txt'), gate: 'review' });
     expect([r.verdict, r.findings.highest]).toEqual(['clean', null]);
     for (const text of ['A high-level plan.', 'Highly consistent.', 'This is low-risk.', 'A medium-term follow-up.',
-      'There are no critical findings.', 'High availability: kept.', 'The high number of retries is fine.', 'Lower the limit.']) {
+      'There are no critical findings.', 'High availability: kept.', 'The high number of retries is fine.', 'Lower the limit.',
+      'Latency stays low.', 'The cost is high-ish - acceptable.', 'Keep the trade-off low.']) {
       expect({ text, highest: classifyOutsideReview({ text: `${text}\nNo issues found.\n${REC}`, gate: 'review' }).findings.highest })
         .toEqual({ text, highest: null });
     }
