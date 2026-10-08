@@ -31,6 +31,7 @@ if [ ! -x "$HOME/.bun/bin/bun" ]; then
   echo "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913  $bun_tmp/bun.zip" | sha256sum -c - >/dev/null
   unzip -q "$bun_tmp/bun.zip" -d "$bun_tmp"
   install -D -m 0755 "$bun_tmp/bun-linux-x64/bun" "$HOME/.bun/bin/bun"
+  ln -sf bun "$HOME/.bun/bin/bunx"
   rm -rf "$bun_tmp"
 fi
 grep -q '.bun/bin' "$HOME/.profile" || echo 'export PATH="$HOME/.bun/bin:$PATH"' >>"$HOME/.profile"

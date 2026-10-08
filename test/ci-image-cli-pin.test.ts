@@ -201,6 +201,11 @@ describe('other CI Bun installs match the image (#1713, #1706)', () => {
       expect(source).toContain('test "$(bun --version)" = "$BUN_VERSION"');
     });
 
+    test(`${rel} links bunx next to the verified bun, as the bun.sh installer did`, () => {
+      expect(source).toContain('ln -sf bun "$HOME/.bun/bin/bunx"');
+      expect(source.indexOf('ln -sf bun "$HOME/.bun/bin/bunx"')).toBeGreaterThan(source.indexOf('unzip -q'));
+    });
+
     test(`${rel} pins the same Bun version and SHA-256 as Dockerfile.ci`, () => {
       expect(imageSha).toMatch(/^[0-9a-f]{64}$/);
       const hashes = [...source.matchAll(/echo "([0-9a-f]{64}) /g)].map((m) => m[1]);

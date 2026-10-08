@@ -19,6 +19,7 @@ variables:
     echo "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913  /tmp/bun.zip" | sha256sum -c -
     unzip -q /tmp/bun.zip -d /tmp/bun
     install -D -m 0755 /tmp/bun/bun-linux-x64/bun "$HOME/.bun/bin/bun"
+    ln -sf bun "$HOME/.bun/bin/bunx"
     rm -rf /tmp/bun /tmp/bun.zip
   - export PATH="$HOME/.bun/bin:$PATH"
   - test "$(bun --version)" = "$BUN_VERSION"
