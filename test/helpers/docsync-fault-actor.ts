@@ -46,7 +46,7 @@ function save(file: string, state: DocsActorState) {
 }
 
 function locked<T>(file: string, body: () => T): T {
-  const lock = file + '.lock';
+  const lock = owned(load(file).root, file + '.lock');
   const fd = fs.openSync(lock, 'wx', 0o600);
   try { return body(); }
   finally { fs.closeSync(fd); fs.unlinkSync(lock); }

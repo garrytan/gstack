@@ -2,7 +2,7 @@
 
 ## NEXT PRIORITY
 
-### P2/P3: office-hours and timeline follow-ups (filed 2026-10-08, v1.91.44.0)
+### P2/P3: office-hours and timeline follow-ups (filed 2026-10-08, v1.91.49.0)
 
 Left open by the office-hours tier fix (#2801, #879, #1049, #1958, #1723, #1651 part A).
 

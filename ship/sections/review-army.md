@@ -491,12 +491,12 @@ Never overwrite another run's reports. Batch only independent Reads.
 
 **1. Load methods before any QA or explicit-verification probe.**
 
-> **STOP.** Before any probe, including plan checks, complete the ordered scope/method Reads below and await them. Templates cannot replace them.
+> **STOP.** Before any probe, including plan checks, complete the ordered scope/method Reads below in earlier responses. Never batch a probe (capture included) with its prerequisite Read; templates cannot replace Reads.
 
 From the installed /ship SKILL.md's directory, Read `../qa/sections/exploratory.md` in full. If the caller directory is prefixed `gstack-ship`, use `../gstack-qa/sections/exploratory.md` instead. Use this host's installation, never the product tree. If missing or unreadable, report a QA setup blocker and its affected probes as blocked; continue other safe probes (independent functional/static checks). Missing/unreadable assets block required QA.
-Reading exploratory.md does not complete them: when it returns, Read the scope section and selected surface methods it lists, in order, and await them.
+After exploratory returns, Read scope then selected methods in order; it is only the entrypoint.
 
-Resolve QA's `sections/...` and `templates/...` paths from that installed QA SKILL.md directory, not the caller or product directory.
+QA's `sections/...` and `templates/...` paths resolve from installed QA SKILL.md, not the caller or product directory.
 
 **2. List required checks.**
 Run the shared preflight; start its smoke guard once. Guard every smoke probe. For browsers, Read QA's `sections/browser-setup.md` for report-only rules.

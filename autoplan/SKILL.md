@@ -773,26 +773,10 @@ elif [ -n "$_gstack_helper_error" ]; then
 elif ! "$_CODEX_PROBE" check-auth >/dev/null 2>&1; then
   _CODEX_MODE="not_authed"; "$_CODEX_PROBE" log-event codex_auth_failed 2>/dev/null || true
 else
-  # Free sandbox check before the paid probe; probe exit 2 = the CLI cannot run.
-  _CODEX_MP=0; _CODEX_PS=""
+  _CODEX_MP=0
   "$_CODEX_PROBE" check-sandbox || _CODEX_MP=3
-  for _CODEX_KIND in exec; do
-    [ "$_CODEX_MP" -eq 0 ] || break
-    _CODEX_PO=$("$_CODEX_PROBE" probe-model $_CODEX_KIND); _CODEX_MP=$?; printf '%s\n' "$_CODEX_PO"
-    case "$_CODEX_PO" in *"STATE: inconclusive"*) _CODEX_PS=inconclusive ;; *"STATE: rate_limited"*) _CODEX_PS=rate_limited ;; esac
-  done
   if [ "$_CODEX_MP" -eq 3 ]; then
     _CODEX_MODE="sandbox_unavailable"
-  elif [ "$_CODEX_MP" -eq 2 ]; then
-    _CODEX_MODE="broken_install"
-  elif [ "$_CODEX_MP" -eq 4 ]; then
-    _CODEX_MODE="quota_exhausted"
-  elif [ "$_CODEX_MP" -ne 0 ]; then
-    _CODEX_MODE="model_unusable"
-  elif [ "$_CODEX_PS" = inconclusive ]; then
-    _CODEX_MODE="unverified"
-  elif [ "$_CODEX_PS" = rate_limited ]; then
-    _CODEX_MODE="unverified (rate_limited)"
   else
     _CODEX_MODE="ready"; "$_CODEX_PROBE" check-version || true
   fi
@@ -807,10 +791,11 @@ Branch on the echoed `CODEX_MODE`:
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
 - **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Keep the required Claude adversarial pass; do not dispatch a duplicate. The ~10s round trip is cached for 1h.
+- **`model_unusable`** — the role invocation rejected policy, auth or model selection. Relay its reason and source-specific Repair/HINT lines, not a lower-priority setting. `AUTH_FAILED` needs `codex login`; never substitute a model. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out or, with `(rate_limited)`, hit a 429; say so, and let the pass's own verdict decide.
+Plan-review readiness probes the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) model. Relay its diagnostics; never infer quota from the review block's exit status.
 
 Disabled/unavailable retains applicable native passes. Recheck each outside dispatch.
 Record provider and completed/unavailable/disabled/skipped per phase; CEO covers
@@ -996,5 +981,7 @@ Retain the historical review-log skill ID; add `"host":"claude","outside_provide
 
 Present a phase coverage table (CEO, design, DX, eng): host, outside provider/status,
 native completion, findings, and partial coverage. Replace N with actual counts.
+
+**Implementation model:** relay model/source from `"$HOME/.claude/skills/gstack/bin/gstack-models" resolve --role implementation --provider anthropic`. gstack cannot change this session. Recommend only; no spawn or config edits unless asked. On error, relay its repair, not a model. [Policy setup](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md).
 
 Suggest next step: `/ship` when ready to create the PR.

@@ -138,8 +138,7 @@ describe('CI workflow clarity regressions', () => {
   test('CEO fallback names the current host mode and needs completed findings before the later report exists', () => {
     for (const host of ALL_HOST_CONFIGS) {
       const source = generateCodexPlanReview({ skillName: 'plan-ceo-review', host: host.name, paths: HOST_PATHS[host.name] } as TemplateContext);
-      const mode = host.name === 'codex' ? 'under_current_harness' : 'under_codex';
-      expect([...new Set(source.match(/under_codex|under_current_harness/g))]).toEqual([mode]);
+      expect([...new Set(source.match(/under_codex|under_current_harness/g))]).toEqual(['under_current_harness']);
       expect(source).toMatch(/SOURCE=in-host, OUTSIDE_STATUS=unavailable, and STATUS=clean or issues_found/);
       expect(source).not.toContain('Sections 1-10/11 and current report');
     }
@@ -646,7 +645,7 @@ describe('outside-voice commitment queue', () => {
     for (const host of ALL_HOST_CONFIGS) {
       const eng = generateCodexPlanReview({ host: host.name, paths: HOST_PATHS[host.name]!, skillName: 'plan-eng-review' } as TemplateContext);
       const provider = host.name === 'codex' ? 'Claude Code' : 'Codex';
-      const mismatch = host.name === 'codex' ? 'under_current_harness' : 'under_codex';
+      const mismatch = 'under_current_harness';
       // B1: the heading also admits `unverified`.
       expect(eng).toContain('**If `CODEX_MODE: ready`');
       expect(eng).toContain(`— run ${provider}:**`);
@@ -665,7 +664,7 @@ describe('outside-voice commitment queue', () => {
         expect(eng).not.toContain('codex exec');
       } else {
         expect(eng).toContain('codex exec');
-        expect(eng).toMatch(/then follow \*\*Native fallback\*\*/i);
+        expect(eng).toContain('_CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?');
       }
     }
   });

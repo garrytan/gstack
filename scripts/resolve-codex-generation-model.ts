@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
+import { ModelPolicyError, resolvePlanReviewModel, selectionRepair, type ModelSelection } from '../lib/model-policy';
+import { emitModelPolicyNotice } from '../lib/model-policy-notice';
 
 export interface CodexGenerationModelResolution {
   model: Model;
@@ -181,6 +183,45 @@ export function resolveCodexRuntimeModel(opts: {
   return { kind: opts.kind, model: CODEX_DEFAULT_MODEL, source: `gstack default (no model in ${stripControl(configPath)})` };
 }
 
+export interface CodexPlanReviewSelection extends CodexRuntimeModelSelection {
+  selection: ModelSelection;
+  /** Source-aware repair for this record, never a lower-priority setting. */
+  repair: string;
+}
+
+/**
+ * Role-bearing Codex selection: the plan-review policy ranks request, env,
+ * tier config and catalog. Host mode keeps the legacy native resolver,
+ * labelled as delegated so its origin stays honest.
+ */
+export function resolveCodexPlanReviewModel(opts: {
+  kind: CodexInvocationKind;
+  explicit?: string;
+  env?: Record<string, string | undefined>;
+  codexHome?: string;
+  home?: string;
+  /** Invocation context forwarded to the shared role resolver. */
+  cwd?: string;
+}): CodexPlanReviewSelection {
+  const env = opts.env ?? process.env;
+  const selection = resolvePlanReviewModel({ provider: 'openai', requestedModel: opts.explicit || undefined, env, cwd: opts.cwd });
+  const repair = stripControl(selectionRepair(selection).join('; '));
+  if (selection.status === 'selected') {
+    const model = selection.requestedModel;
+    if (!CODEX_RUNTIME_MODEL_PATTERN.test(model)) {
+      throw new Error(`Invalid Codex model '${sanitize(model)}' from ${sanitize(selection.source.label)}. ${repair}`);
+    }
+    return { kind: opts.kind, model, source: stripControl(selection.source.label), selection, repair };
+  }
+  const native = resolveCodexRuntimeModel({ kind: opts.kind, env, codexHome: opts.codexHome, home: opts.home });
+  return { ...native, source: stripControl(`${selection.source.label}; ${native.source}`), selection, repair: repair || REPAIR };
+}
+
+function policyFailure(error: unknown): string {
+  if (!(error instanceof ModelPolicyError)) return (error as Error).message;
+  return [`${error.problem} ${error.cause}`.trim(), ...error.repair.map(step => `Repair: ${step}`), `Docs: ${error.docs}`].join('\n');
+}
+
 function readArg(name: string): string | undefined {
   const exact = process.argv.indexOf(name);
   if (exact >= 0) return process.argv[exact + 1];
@@ -193,7 +234,15 @@ if (import.meta.main) {
   try {
     const runtime = readArg('--runtime');
     if (runtime !== undefined) {
-      if (runtime !== 'exec' && runtime !== 'review') throw new Error('Usage: --runtime exec|review [--explicit <model>]');
+      if (runtime !== 'exec' && runtime !== 'review') throw new Error('Usage: --runtime exec|review [--explicit <model>] [--role plan-review]');
+      const role = readArg('--role');
+      if (role !== undefined) {
+        if (role !== 'plan-review') throw new Error('Usage: --role plan-review');
+        const record = resolveCodexPlanReviewModel({ kind: runtime, explicit: readArg('--explicit'), cwd: readArg('--cwd') });
+        emitModelPolicyNotice(record.selection);
+        process.stdout.write(`${record.model}\t${record.source}\t${record.selection.tier}\t${record.repair}\n`);
+        process.exit(0);
+      }
       const selection = resolveCodexRuntimeModel({ kind: runtime, explicit: readArg('--explicit') });
       process.stdout.write(`${selection.model}\t${selection.source}\n`);
       process.exit(0);
@@ -209,7 +258,7 @@ if (import.meta.main) {
     // so a hostile CODEX_HOME cannot smuggle tabs/newlines into the TSV contract.
     process.stdout.write(`${result.model}\t${stripControl(result.source)}\n`);
   } catch (error) {
-    process.stderr.write(`${(error as Error).message}\n`);
+    process.stderr.write(`${policyFailure(error)}\n`);
     process.exit(1);
   }
 }
