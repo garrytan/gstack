@@ -4,7 +4,7 @@
 
 ### P3: Oct 8 fix wave, safety hooks follow-ups (filed 2026-10-08)
 
-Left open by the PowerShell/NotebookEdit hook fix (v1.91.45.0, #3067), each with its reason.
+Left open by the PowerShell/NotebookEdit hook fix (v1.91.47.0, #3067), each with its reason.
 
 - **Forced overwrite patterns for `/careful`** — `Set-Content -Force` / `Out-File
   -Force` over an existing file (and the Bash `>` overwrite twin) still pass.
