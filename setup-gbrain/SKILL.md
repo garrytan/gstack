@@ -611,14 +611,38 @@ binary. User scope makes the MCP available in every Claude Code session on
 this machine, not just the current workspace. Absolute path avoids PATH
 resolution issues when Claude Code spawns `gbrain serve` as a subprocess.
 
+On Windows (Git Bash/MSYS) the `gbrain.exe` binstub starts bun in a new
+console, so every Claude Code session would open a visible terminal for the
+MCP. Register `bun.exe` with gbrain's entry instead, which attaches to Claude
+Code's hidden console. Without them, register `gbrain.exe` by its full name,
+because Claude Code does not add `.exe` to a stored path.
+
 ```bash
 GBRAIN_BIN=$(command -v gbrain)
 [ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
 claude mcp remove gbrain -s user 2>/dev/null || true
 claude mcp remove gbrain 2>/dev/null || true
-claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    BUN_ROOT="${BUN_INSTALL:-$HOME/.bun}"
+    GBRAIN_ENTRY="$BUN_ROOT/install/global/node_modules/gbrain/src/cli.ts"
+    if [ -f "$BUN_ROOT/bin/bun.exe" ] && [ -f "$GBRAIN_ENTRY" ]; then
+      claude mcp add --scope user gbrain -- "$BUN_ROOT/bin/bun.exe" "$GBRAIN_ENTRY" serve
+    else
+      claude mcp add --scope user gbrain -- "$BUN_ROOT/bin/gbrain.exe" serve
+    fi
+    ;;
+  *)
+    claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
+    ;;
+esac
 claude mcp list | grep gbrain  # verify: should show "✓ Connected"
 ```
+
+On a local PGLite brain, `claude mcp list` can show `Failed to connect`
+while an open Claude Code session's gbrain holds the database's single-writer
+lock. If `mcp__gbrain__*` tools work in that session, the registration is
+fine.
 
 ### Both paths
 
