@@ -30,7 +30,7 @@ import {
 } from './devicectl';
 
 export interface BootstrapOptions {
-  /** Target iPhone UDID. If null, picks the best connected paired iPhone. */
+  /** Target iPhone/iPad UDID. If null, picks the best connected paired device. */
   udid?: string;
   /** Bundle ID of the iOS app hosting the StateServer. */
   bundleId: string;
@@ -54,6 +54,7 @@ export type BootstrapErrorReason =
   | 'no_devices'
   | 'no_paired_device'
   | 'device_not_found'
+  | 'multiple_devices'
   | 'launch_failed'
   | 'device_locked'
   | 'state_server_unreachable'
@@ -103,17 +104,60 @@ function defaultDeviceRank(device: DeviceEntry): number {
     + (state.startsWith('available') ? 1 : 0);
 }
 
-function pickDefaultDevice(devices: DeviceEntry[]): DeviceEntry | undefined {
-  let best: DeviceEntry | undefined;
-  let bestRank = -1;
-  for (const device of devices) {
-    const rank = defaultDeviceRank(device);
-    if (rank > bestRank) {
-      best = device;
-      bestRank = rank;
-    }
+type DeviceSelection =
+  | { ok: true; device: DeviceEntry }
+  | { ok: false; error: BootstrapErrorReason; detail?: string };
+
+/**
+ * Choose the device a QA session targets: the explicit UDID when one is set,
+ * otherwise the best-ranked paired iPhone or iPad. Ranks that tie (an iPhone
+ * and an iPad both on USB, say) are ambiguous, so the caller gets every
+ * candidate with its UDID instead of a silent pick. `prefer` breaks a tie in
+ * favor of the device a live session already uses.
+ */
+export function selectDevice(devices: DeviceEntry[], udid?: string, prefer?: string): DeviceSelection {
+  if (devices.length === 0) return { ok: false, error: 'no_devices' };
+  if (udid) {
+    const explicit = devices.find((d) => d.identifier === udid);
+    return explicit ? { ok: true, device: explicit } : { ok: false, error: 'device_not_found', detail: udid };
   }
-  return best;
+
+  const bestRank = Math.max(...devices.map(defaultDeviceRank));
+  const best = bestRank < 0 ? [] : devices.filter((d) => defaultDeviceRank(d) === bestRank);
+  if (best.length === 1) return { ok: true, device: best[0]! };
+  if (best.length > 1) {
+    const preferred = best.find((d) => d.identifier === prefer);
+    if (preferred) return { ok: true, device: preferred };
+    const listing = best.map((d) => `  ${d.name} (${d.deviceType || d.model}): ${d.identifier}`).join('\n');
+    return {
+      ok: false,
+      error: 'multiple_devices',
+      detail: `${best.length} iPhones/iPads are connected and none is selected:\n${listing}\n`
+        + `Pick one, then restart the daemon:\n  export GSTACK_IOS_TARGET_UDID=${best[0]!.identifier}`,
+    };
+  }
+
+  const pairedIOS = devices.find((d) => d.paired && isSupportedIOSDevice(d));
+  if (pairedIOS) {
+    return {
+      ok: false,
+      error: 'device_not_found',
+      detail: `paired device ${pairedIOS.name} (${pairedIOS.identifier}) is ${pairedIOS.state}; connect it over USB and unlock it`,
+    };
+  }
+  const firstIOS = devices.find(isSupportedIOSDevice);
+  if (!firstIOS) {
+    return {
+      ok: false,
+      error: 'device_not_found',
+      detail: 'no iPhone or iPad is connected; non-iOS devices are not eligible for iOS QA',
+    };
+  }
+  return {
+    ok: false,
+    error: 'no_paired_device',
+    detail: `device ${firstIOS.name} (${firstIOS.identifier}) is ${firstIOS.state}; run \`xcrun devicectl manage pair --device ${firstIOS.identifier}\` and tap Trust on the device`,
+  };
 }
 
 const defaultSpawn: SpawnImpl = (cmd, args) => spawnSync(cmd, args, {
@@ -155,39 +199,9 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
   const fetchFn = opts.fetchImpl ?? fetch;
 
   // Step 1: pick a device
-  const devices = listDevices(spawn);
-  if (devices.length === 0) {
-    return { ok: false, error: 'no_devices' };
-  }
-  const target = opts.udid
-    ? devices.find((d) => d.identifier === opts.udid)
-    : pickDefaultDevice(devices);
-  if (!target) {
-    if (opts.udid) {
-      return { ok: false, error: 'device_not_found', detail: opts.udid };
-    }
-    const pairedIOS = devices.find((d) => d.paired && isSupportedIOSDevice(d));
-    if (pairedIOS) {
-      return {
-        ok: false,
-        error: 'device_not_found',
-        detail: `paired device ${pairedIOS.name} (${pairedIOS.identifier}) is ${pairedIOS.state}; connect it over USB and unlock it`,
-      };
-    }
-    const firstIOS = devices.find(isSupportedIOSDevice);
-    if (!firstIOS) {
-      return {
-        ok: false,
-        error: 'device_not_found',
-        detail: 'no iPhone or iPad is connected; non-iOS devices are not eligible for iOS QA',
-      };
-    }
-    return {
-      ok: false,
-      error: 'no_paired_device',
-      detail: `device ${firstIOS.name} (${firstIOS.identifier}) is ${firstIOS.state}; run \`xcrun devicectl manage pair --device ${firstIOS.identifier}\` and tap Trust on the device`,
-    };
-  }
+  const selection = selectDevice(listDevices(spawn), opts.udid);
+  if (!selection.ok) return selection;
+  const target = selection.device;
   if (!isSupportedIOSDevice(target)) {
     return {
       ok: false,

@@ -3,7 +3,7 @@
 // rotate_failed, success) without needing a real iPhone connected.
 
 import { describe, test, expect } from 'bun:test';
-import { bootstrapTunnel } from '../src/tunnel-bootstrap';
+import { bootstrapTunnel, selectDevice } from '../src/tunnel-bootstrap';
 import {
   getDeviceTunnelIPv6FromDevicectl,
   resolveTunnelIPv6,
@@ -257,6 +257,49 @@ describe('bootstrapTunnel', () => {
     if (!r.ok) {
       expect(r.error).toBe('resolve_failed');
     }
+  });
+
+  test('iPhone and iPad both on USB: lists each UDID and a ready export line instead of guessing', async () => {
+    const wired = { tunnelState: 'connected', pairingState: 'paired', transportType: 'wired' };
+    const spawn = makeSpawn([{
+      argsMatch: /devicectl list devices/,
+      jsonOutput: {
+        result: { devices: [
+          {
+            identifier: 'IPHONE-UDID',
+            connectionProperties: wired,
+            deviceProperties: { name: 'Test iPhone' },
+            hardwareProperties: { productType: 'iPhone15,2', platform: 'iOS', deviceType: 'iPhone' },
+          },
+          {
+            identifier: 'IPAD-UDID',
+            connectionProperties: wired,
+            deviceProperties: { name: 'Test iPad' },
+            hardwareProperties: { productType: 'iPad14,5', platform: 'iOS', deviceType: 'iPad' },
+          },
+        ] },
+      },
+    }]);
+    const r = await bootstrapTunnel({ bundleId: 'com.test', spawnImpl: spawn });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe('multiple_devices');
+    expect(r.detail).toContain('Test iPhone (iPhone): IPHONE-UDID');
+    expect(r.detail).toContain('Test iPad (iPad): IPAD-UDID');
+    expect(r.detail).toMatch(/^  export GSTACK_IOS_TARGET_UDID=IPHONE-UDID$/m);
+  });
+
+  test('selectDevice: explicit UDID picks the iPad; a live session breaks a tie for its own device', () => {
+    const entry = (identifier: string, deviceType: string) => ({
+      identifier, name: identifier, model: `${deviceType}1,1`, platform: 'iOS', deviceType,
+      state: 'connected', transport: 'wired', paired: true,
+    });
+    const devices = [entry('PHONE', 'iPhone'), entry('PAD', 'iPad')];
+    expect(selectDevice(devices, 'PAD')).toMatchObject({ ok: true, device: { identifier: 'PAD' } });
+    expect(selectDevice(devices, undefined, 'PAD')).toMatchObject({ ok: true, device: { identifier: 'PAD' } });
+    expect(selectDevice(devices)).toMatchObject({ ok: false, error: 'multiple_devices' });
+    expect(selectDevice([{ ...entry('PAD', 'iPad'), transport: '' }, entry('PHONE', 'iPhone')]))
+      .toMatchObject({ ok: true, device: { identifier: 'PHONE' } });
   });
 
   test('skips an unavailable paired device for a connected or available paired device', async () => {
