@@ -37,6 +37,7 @@ import {
 import { capture, containedFile, assertSnapshot, readSnapshotManifest } from './snapshot';
 import {
   assertStateOutside,
+  boundedList,
   event,
   finalizeReplayTemporary,
   loadReport,
@@ -468,32 +469,42 @@ function planned(scope: string): CoverageRecord[] {
     evidence: [],
   }));
 }
+// One 256 KiB budget for the per-entry snapshot lists in report.json, split so
+// material gaps keep the largest share; findings and events keep the rest.
+const SNAPSHOT_DISCLOSURE_BUDGET = { gaps: 128 * 1024, transformations: 96 * 1024, exclusions: 32 * 1024 };
+const UNLISTED = "to keep report.json within its 1 MiB bound; the run's snapshot manifest keeps every entry";
 function snapshotCoverage(manifest: Awaited<ReturnType<typeof capture>>, scope: string): CoverageRecord {
   const omitted = manifest.entries.filter((entry) => !entry.executionHash),
-    excluded = omitted.filter((entry) => entry.transformation?.startsWith('excluded:'));
+    excluded = omitted.filter((entry) => entry.transformation?.startsWith('excluded:')),
+    excludedSet = new Set(excluded);
   // Classify every unexplained omission as a material coverage gap. Coverage
   // must not depend on transformation prose retaining a particular prefix.
-  const unread = omitted.filter((entry) => !excluded.includes(entry));
+  const unread = omitted.filter((entry) => !excludedSet.has(entry));
   const deleted = manifest.deletedPaths ?? [],
-    captured = manifest.entries.filter((entry) => entry.executionHash).length,
+    captured = manifest.entries.length - omitted.length,
     missing = unread.length + deleted.length;
   return {
     domain: 'snapshot-inputs',
     scope,
     status: missing ? (captured ? 'partial' : 'not_assessed') : 'assessed',
     method: 'fail-closed captured source inventory',
-    gaps: [
-      ...unread.map(
-        (entry) =>
-          `${publicSnapshotPath(manifest, entry.path).path}: in-scope source payload was unread and withheld from static and runtime assessment`,
-      ),
-      ...deleted.map(
-        (item) =>
-          `${publicSnapshotPath(manifest, item.path).path}: tracked source is deleted from the worktree; only retained history is available for assessment`,
-      ),
-    ],
-    exclusions: excluded.map(
-      (entry) => `${publicSnapshotPath(manifest, entry.path).path}: ${entry.transformation}`,
+    gaps: boundedList(
+      missing,
+      (index) =>
+        index < unread.length
+          ? `${publicSnapshotPath(manifest, unread[index].path, unread[index].pathId).path}: in-scope source payload was unread and withheld from static and runtime assessment`
+          : `${publicSnapshotPath(manifest, deleted[index - unread.length].path, deleted[index - unread.length].pathId).path}: tracked source is deleted from the worktree; only retained history is available for assessment`,
+      { bytes: SNAPSHOT_DISCLOSURE_BUDGET.gaps },
+      4,
+      (count) => `${count} more unread or deleted in-scope inputs are not listed ${UNLISTED}`,
+    ),
+    exclusions: boundedList(
+      excluded.length,
+      (index) =>
+        `${publicSnapshotPath(manifest, excluded[index].path, excluded[index].pathId).path}: ${excluded[index].transformation}`,
+      { bytes: SNAPSHOT_DISCLOSURE_BUDGET.exclusions },
+      4,
+      (count) => `${count} more explicit exclusions are not listed ${UNLISTED}`,
     ),
     evidence: [
       `${captured} sanitized execution input${captured === 1 ? '' : 's'} captured; ${excluded.length} explicit non-executable exclusion${excluded.length === 1 ? '' : 's'}; ${unread.length} unread in-scope input${unread.length === 1 ? '' : 's'}; ${deleted.length} tracked deletion${deleted.length === 1 ? '' : 's'}`,
@@ -605,6 +616,8 @@ async function start(
     fs.rmSync(run.dir, { recursive: true, force: true });
     throw error;
   }
+  const transformed = manifest.entries.filter((entry) => entry.transformation),
+    deletedPaths = manifest.deletedPaths ?? [];
   const report: RunReportV3 = {
     schemaVersion: 3,
     runId: run.runId,
@@ -619,18 +632,25 @@ async function start(
       snapshotHash: manifest.executionHash,
       originalHash: manifest.originalHash,
       baseCommit: manifest.baseCommit,
-      transformations: [
-        ...manifest.entries
-          .filter((entry) => entry.transformation)
-          .map((entry) => ({
-            path: publicSnapshotPath(manifest, entry.path).path,
-            handling: entry.transformation!,
-          })),
-        ...(manifest.deletedPaths ?? []).map((item) => ({
-          path: publicSnapshotPath(manifest, item.path).path,
-          handling: 'tracked source deleted; retained history only',
-        })),
-      ],
+      transformations: boundedList(
+        transformed.length + deletedPaths.length,
+        (index) =>
+          index < transformed.length
+            ? {
+                path: publicSnapshotPath(manifest, transformed[index].path, transformed[index].pathId).path,
+                handling: transformed[index].transformation!,
+              }
+            : {
+                path: publicSnapshotPath(manifest, deletedPaths[index - transformed.length].path).path,
+                handling: 'tracked source deleted; retained history only',
+              },
+        { bytes: SNAPSHOT_DISCLOSURE_BUDGET.transformations },
+        3,
+        (count) => ({
+          path: '[not listed]',
+          handling: `${count} more transformations are not listed ${UNLISTED}`,
+        }),
+      ),
     },
     application: {
       actors: [],
@@ -653,7 +673,7 @@ async function start(
   event(
     report,
     'snapshot',
-    `Captured ${manifest.entries.length} source entries; ${manifest.entries.filter((e) => e.transformation).length + (manifest.deletedPaths?.length ?? 0)} transformations disclosed`,
+    `Captured ${manifest.entries.length} source entries; ${transformed.length + deletedPaths.length} transformations disclosed`,
   );
   if (policy.mode === 'comprehensive') {
     const plan = inspectPreparation(join(run.dir, 'snapshot'));
@@ -956,9 +976,9 @@ function recoveryEvents(dir: string): string[] {
 function publicSnapshotPath(
   manifest: SnapshotManifest,
   path: string,
+  pathId = manifest.entries.find((item) => item.path === path)?.pathId,
 ): { path: string; displayPath?: string } {
-  const entry = manifest.entries.find((item) => item.path === path),
-    handle = snapshotPathHandle(entry?.pathId ?? snapshotPathId(manifest.root, path));
+  const handle = snapshotPathHandle(pathId ?? snapshotPathId(manifest.root, path));
   let displayPath: string;
   try {
     displayPath = redact(path);
@@ -972,8 +992,8 @@ function publicSnapshotManifest(manifest: SnapshotManifest): Record<string, unkn
     ...manifest,
     root: PUBLIC_SOURCE_ROOT,
     entries: manifest.entries.map((entry) => {
-      const { path, pathId: _, ...rest } = entry;
-      return { ...rest, ...publicSnapshotPath(manifest, path) };
+      const { path, pathId, ...rest } = entry;
+      return { ...rest, ...publicSnapshotPath(manifest, path, pathId) };
     }),
     ...(manifest.deletedPaths?.length
       ? { deletedPaths: manifest.deletedPaths.map((item) => publicSnapshotPath(manifest, item.path)) }

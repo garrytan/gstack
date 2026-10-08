@@ -15,7 +15,7 @@ import {
   MAX_OUTPUT,
 } from './contracts';
 import { childEnvironment, executable, git, redact, runProcess } from './process';
-import { readJson, secureDirectory, writeHelperJson, writeJson } from './state';
+import { boundedList, readJson, secureDirectory, writeHelperJson, writeJson } from './state';
 import { scan } from '../redact-engine';
 import { atomicWriteSync } from '../fs-atomic';
 
@@ -54,6 +54,7 @@ const SECRET_FILE =
 const SOURCE_LIMIT = 64 * 1024 * 1024;
 /** snapshot.json holds one entry per source file, so it gets its own cap; other private state stays at 1 MiB. */
 export const SNAPSHOT_MANIFEST_LIMIT = 16 * 1024 * 1024;
+const SENSITIVE_EVIDENCE_BUDGET = 512 * 1024;
 const CAPACITY_ISSUE = 'https://github.com/garrytan/gstack/issues/2993';
 const COUNTED_SOURCE =
   'every tracked or nonignored untracked file outside dependency and VCS directories (node_modules, .git, .venv, vendor/bundle and similar)';
@@ -886,7 +887,19 @@ export async function capture(
     guard();
     assertAbsent();
     admission.time();
-    writeHelperJson(join(runDir, 'sensitive-evidence.json'), sensitiveEvidence);
+    writeHelperJson(
+      join(runDir, 'sensitive-evidence.json'),
+      boundedList<Record<string, unknown>>(
+        sensitiveEvidence.length,
+        (index) => sensitiveEvidence[index],
+        { bytes: SENSITIVE_EVIDENCE_BUDGET },
+        1,
+        (omitted) => ({
+          omitted,
+          note: `${omitted} more files with sensitive-pattern findings are not listed, to keep this artifact within its 1 MiB bound`,
+        }),
+      ),
+    );
     // The manifest contains helper-computed identities and source pathnames but
     // never source payloads. Persist it exactly in private state: generic
     // content redaction would silently break the path/hash identity relation.

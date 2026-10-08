@@ -868,6 +868,35 @@ export function readJson(path: string, maxBytes = MAX_STATE_FILE): any {
     throw new CsoError('MISSING_INPUT', 'Private state file is missing or invalid');
   }
 }
+/**
+ * Keep the leading items of a per-entry list that fit `budget.bytes`, measured
+ * as pretty-printed JSON nested `depth` levels deep, and replace the rest with
+ * one summary item carrying the omitted count. A shared budget object bounds
+ * several lists in one artifact together.
+ */
+export function boundedList<T>(
+  total: number,
+  at: (index: number) => T,
+  budget: { bytes: number },
+  depth: number,
+  summary: (omitted: number) => T,
+): T[] {
+  const indent = ' '.repeat(2 * depth),
+    size = (item: T) =>
+      Buffer.byteLength(indent + JSON.stringify(item, null, 2).replaceAll('\n', '\n' + indent) + ',\n'),
+    reserve = size(summary(total)),
+    kept: T[] = [];
+  for (let index = 0; index < total; index++) {
+    const item = at(index),
+      bytes = size(item);
+    if (index < total - 1 ? bytes + reserve > budget.bytes : bytes > budget.bytes) break;
+    kept.push(item);
+    budget.bytes -= bytes;
+  }
+  if (kept.length === total) return kept;
+  budget.bytes -= reserve;
+  return [...kept, summary(total - kept.length)];
+}
 export const PUBLIC_SOURCE_ROOT = '<REDACTED-internal.user_path>';
 /** A report is public evidence; the real root remains in the private snapshot. */
 export function publicReport(report: RunReportV3): RunReportV3 {
