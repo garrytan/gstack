@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.37.0] - 2026-10-08
+## [1.91.39.0] - 2026-10-08
 
 **`/careful` and `/guard` now check PowerShell commands, and `/freeze` now covers notebook edits.**
 
