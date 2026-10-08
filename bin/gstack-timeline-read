@@ -5,7 +5,8 @@
 # Session timeline: local-only, never sent anywhere.
 # Reads ~/.gstack/projects/$SLUG/timeline.jsonl, filters, formats.
 # Exit 0 silently if no timeline file exists or nothing matches. Missing bun
-# exits 127 and a failed read exits non-zero with its stderr (#2790).
+# exits 127 and a failed read exits non-zero with its stderr (#2790). A missing
+# or non-positive-integer --limit exits 2 before any read (#1723).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
@@ -20,7 +21,16 @@ BRANCH=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --since) SINCE="$2"; shift 2 ;;
-    --limit) LIMIT="$2"; shift 2 ;;
+    --limit)
+      if [[ $# -lt 2 ]]; then
+        echo "gstack-timeline-read: --limit must be a positive integer (got no value); example: --limit 20" >&2
+        exit 2
+      fi
+      if [[ ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+        echo "gstack-timeline-read: --limit must be a positive integer (got '$2'); example: --limit 20" >&2
+        exit 2
+      fi
+      LIMIT="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
     *) shift ;;
   esac
@@ -41,9 +51,7 @@ cat "$TIMELINE_FILE" | GSTACK_TIMELINE_SINCE="$SINCE" GSTACK_TIMELINE_BRANCH="$B
 const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
 const since = process.env.GSTACK_TIMELINE_SINCE || '';
 const branch = process.env.GSTACK_TIMELINE_BRANCH || '';
-const limitRaw = process.env.GSTACK_TIMELINE_LIMIT || '20';
-const parsedLimit = Number.parseInt(limitRaw, 10);
-const limit = Number.isSafeInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
+const limit = Number(process.env.GSTACK_TIMELINE_LIMIT);
 
 let sinceMs = 0;
 if (since) {
