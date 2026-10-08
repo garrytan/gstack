@@ -15,7 +15,7 @@ import {
   MAX_OUTPUT,
 } from './contracts';
 import { childEnvironment, executable, git, redact, runProcess } from './process';
-import { secureDirectory, writeHelperJson, writeJson } from './state';
+import { boundedList, readJson, secureDirectory, writeHelperJson, writeJson } from './state';
 import { scan } from '../redact-engine';
 import { atomicWriteSync } from '../fs-atomic';
 
@@ -52,6 +52,22 @@ function omittedPath(path: string): boolean {
 const SECRET_FILE =
   /(?:^|\/)(?:\.env(?:\..*)?|\.npmrc|\.yarnrc(?:\.yml)?|\.pypirc|pip\.conf|credentials(?:\.yml(?:\.enc)?)?|master\.key|id_(?:rsa|ed25519)|.*\.(?:pem|p12|pfx|key)|AGENTS\.md|CLAUDE\.md|GEMINI\.md|bunfig\.toml)$/i;
 const SOURCE_LIMIT = 64 * 1024 * 1024;
+/** snapshot.json holds one entry per source file, so it gets its own cap; other private state stays at 1 MiB. */
+export const SNAPSHOT_MANIFEST_LIMIT = 16 * 1024 * 1024;
+const SENSITIVE_EVIDENCE_BUDGET = 512 * 1024;
+const CAPACITY_ISSUE = 'https://github.com/garrytan/gstack/issues/2993';
+const COUNTED_SOURCE =
+  'every tracked or nonignored untracked file outside dependency and VCS directories (node_modules, .git, .venv, vendor/bundle and similar)';
+const mib = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+export function snapshotManifestCapMessage(entries: number, bytes: number): string {
+  return `Snapshot manifest cap exceeded: ${entries} source entries need a ${mib(bytes)} (${bytes} byte) manifest; the snapshot manifest cap is ${mib(SNAPSHOT_MANIFEST_LIMIT)}. One entry is recorded for ${COUNTED_SOURCE}. Next step: run /cso on a smaller checkout of the code you want audited, and add your entry count to ${CAPACITY_ISSUE}. No supported workaround raises this cap.`;
+}
+export function sourceCapMessage(bytes: number, files: number): string {
+  return `64 MiB source cap exceeded: ${files} source files hold about ${mib(bytes)} (${bytes} bytes); the source admission cap is ${mib(SOURCE_LIMIT)}. The full size of ${COUNTED_SOURCE} counts, including files over 1 MiB whose payloads are withheld from the audit. Next step: run /cso on a smaller checkout of the code you want audited, and add your measured size to ${CAPACITY_ISSUE}. No supported workaround raises this cap.`;
+}
+export function readSnapshotManifest(runDir: string): SnapshotManifest {
+  return readJson(join(runDir, 'snapshot.json'), SNAPSHOT_MANIFEST_LIMIT) as SnapshotManifest;
+}
 const SNAPSHOT_ENTRY_LIMIT = 100_000;
 const GIT_POINTER_LIMIT = 8192;
 export interface SnapshotCaptureLimits {
@@ -447,9 +463,19 @@ async function paths(
   // for, while still collecting nonignored untracked source.
   admission.time();
   const [working, head] = await Promise.all([
-      git(repo, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], home),
+      git(
+        repo,
+        ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+        home,
+        SNAPSHOT_MANIFEST_LIMIT,
+      ),
       headCommit
-        ? git(repo, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', headCommit, '--'], home)
+        ? git(
+            repo,
+            ['ls-tree', '-r', '-z', '--name-only', '--full-tree', headCommit, '--'],
+            home,
+            SNAPSHOT_MANIFEST_LIMIT,
+          )
         : Promise.resolve(''),
     ]),
     seen = new Set<string>();
@@ -478,6 +504,7 @@ async function rejectSpecialFiles(
       repo,
       ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'],
       home,
+      SNAPSHOT_MANIFEST_LIMIT,
     ),
     ignoredDirectories = new Set<string>();
   admission.time();
@@ -611,10 +638,23 @@ export async function capture(
       manifest.baseCommit = (await git(repo, ['rev-parse', '--verify', `${base}^{commit}`], home)).trim();
       guard();
     }
+    const sourceCapError = () => {
+      let measured = 0,
+        files = 0;
+      for (const candidate of list) {
+        if (noReadPath(candidate)) continue;
+        try {
+          measured += fs.lstatSync(join(repo, candidate)).size;
+          files++;
+        } catch {}
+      }
+      return new CsoError('MISSING_INPUT', sourceCapMessage(Math.max(measured, total), files));
+    };
     for (const path of list) {
       guard();
+      let size: number;
       try {
-        fs.lstatSync(join(repo, path));
+        size = fs.lstatSync(join(repo, path)).size;
       } catch (error: any) {
         if (error?.code === 'ENOENT') {
           absentPaths.add(path);
@@ -640,11 +680,11 @@ export async function capture(
         guard();
         continue;
       }
+      if (total + size > SOURCE_LIMIT) throw sourceCapError();
       const { data, mode } = readStable(repo, path, SOURCE_LIMIT);
       total += data.length;
       guard();
-      if (total > SOURCE_LIMIT)
-        throw new CsoError('MISSING_INPUT', 'Source exceeds the 64 MiB snapshot admission limit');
+      if (total > SOURCE_LIMIT) throw sourceCapError();
       const entry: SnapshotEntry = {
         path,
         pathId: snapshotPathId(repo, path),
@@ -749,7 +789,12 @@ export async function capture(
       canonical(entries.filter((e) => e.executionHash).map((e) => [e.path, e.executionHash, e.mode])),
     );
     if (manifest.baseCommit) {
-      const tree = await git(repo, ['ls-tree', '-r', '-z', '--full-tree', manifest.baseCommit, '--'], home),
+      const tree = await git(
+          repo,
+          ['ls-tree', '-r', '-z', '--full-tree', manifest.baseCommit, '--'],
+          home,
+          SNAPSHOT_MANIFEST_LIMIT,
+        ),
         baseFiles = new Map<string, { hash: string; mode: string }>();
       guard();
       for (const row of tree.split('\0').filter(Boolean)) {
@@ -858,15 +903,27 @@ export async function capture(
     guard();
     assertAbsent();
     admission.time();
-    writeHelperJson(join(runDir, 'sensitive-evidence.json'), sensitiveEvidence);
+    writeHelperJson(
+      join(runDir, 'sensitive-evidence.json'),
+      boundedList<Record<string, unknown>>(
+        sensitiveEvidence.length,
+        (index) => sensitiveEvidence[index],
+        { bytes: SENSITIVE_EVIDENCE_BUDGET },
+        1,
+        (omitted) => ({
+          omitted,
+          note: `${omitted} more files with sensitive-pattern findings are not listed, to keep this artifact within its 1 MiB bound`,
+        }),
+      ),
+    );
     // The manifest contains helper-computed identities and source pathnames but
     // never source payloads. Persist it exactly in private state: generic
     // content redaction would silently break the path/hash identity relation.
-    const serialized = JSON.stringify(manifest, null, 2);
-    if (Buffer.byteLength(serialized) + 1 > MAX_OUTPUT)
+    const serialized = JSON.stringify(manifest);
+    if (Buffer.byteLength(serialized) + 1 > SNAPSHOT_MANIFEST_LIMIT)
       throw new CsoError(
         'MISSING_INPUT',
-        'Snapshot manifest exceeds the 1 MiB private-state admission limit',
+        snapshotManifestCapMessage(entries.length, Buffer.byteLength(serialized) + 1),
       );
     atomicWriteSync(join(runDir, 'snapshot.json'), serialized + '\n', { mode: 0o600 });
     return manifest;
