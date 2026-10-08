@@ -9,7 +9,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { runCapturedCommand } from './helpers/sync-command-capture';
-import { expectMentions, expectTokens } from './helpers/prompt-structure';
+import { between, expectAbsent, expectMentions, expectOrdered, expectTokens } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
@@ -1950,6 +1950,139 @@ describe('BENEFITS_FROM resolver', () => {
   test('BENEFITS_FROM delegates to INVOKE_SKILL pattern', () => {
     // Should contain the INVOKE_SKILL-style loading prose (not the old manual skip list)
     expect(engContent).toContain('skipping these sections');
+  });
+  // #1958: spawned/headless sessions have no human to answer the offer.
+  test('every prerequisite offer is skipped in spawned and headless sessions, before any option', () => {
+    const renders: Array<[string, string]> = [
+      ['plan-ceo-review', ceoContent],
+      ['plan-eng-review', engContent],
+      ['plan-devex-review', readSkillUnion('plan-devex-review')],
+      ['autoplan', readSkillUnion('autoplan')],
+    ];
+    for (const [skill, content] of renders) {
+      const offer = extractMarkdownSection(content, '## Prerequisite Skill Offer');
+      expectTokens(offer, ['`SESSION_KIND`', '`spawned`', '`headless`'], `${skill} offer`);
+      expectMentions(offer, [['skip', 'offer', 'session_kind']], `${skill} offer`);
+      expectOrdered(offer, ['`SESSION_KIND`', 'A) Run /office-hours now'], `${skill} offer`);
+    }
+  });
+});
+
+describe('office-hours closing reads the builder profile before logging the session (#2801)', () => {
+  const skeleton = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  const handoff = fs.readFileSync(path.join(ROOT, 'office-hours', 'sections', 'design-and-handoff.md'), 'utf-8');
+  const phase45 = extractMarkdownSection(skeleton, '## Phase 4.5: Founder Signal Synthesis');
+  const step1 = between(handoff, '### Step 1: Builder Profile', '### Step 2:');
+  const fence = (text: string, after: string) => between(text, after).match(/```bash\n([\s\S]*?)\n```/)![1]!;
+  const readBlock = fence(phase45, '### Builder Profile Read');
+  const logBlock = fence(phase45, '### Builder Profile Append');
+  const CARRY = 'Builder profile before this session:';
+
+  test('Phase 4.5 reads the profile before --log-session and records the prior tier for Phase 6', () => {
+    expect(readBlock).toContain('bin/gstack-builder-profile');
+    expect(logBlock).toContain('bin/gstack-developer-profile --log-session');
+    expectOrdered(phase45, ['bin/gstack-builder-profile', 'bin/gstack-developer-profile --log-session'], 'Phase 4.5');
+    expectTokens(phase45, [CARRY, 'PROFILE_READ=', 'SESSION_TIER=', 'PRIOR_SESSION_COUNT=', 'LAST_ASSIGNMENT=', 'CROSS_PROJECT='], 'Phase 4.5');
+  });
+
+  test('a failed profile read proceeds as a first session and says so', () => {
+    expect(readBlock).toContain('PROFILE_READ: failed');
+    expectMentions(phase45, [['failed', 'introduction']], 'Phase 4.5');
+    expectMentions(step1, [['failed', 'introduction'], ["couldn't read", 'builder profile', 'first']], 'Phase 6 Step 1');
+  });
+
+  test('Phase 6 takes tier and last-session fields from the Phase 4.5 line, never from a post-log read', () => {
+    expectTokens(step1, [CARRY, 'PRIOR_SESSION_COUNT + 1'], 'Phase 6 Step 1');
+    expectMentions(step1, [['never', 'tier', 'session_count']], 'Phase 6 Step 1');
+    expectAbsent(step1, ['SESSION_TIER=$(', 'SESSION_COUNT=$('], 'Phase 6 Step 1');
+    const tiers = between(handoff, '### Step 2: Follow the Tier Path', '## Founder Resources');
+    expectAbsent(tiers, ['[SESSION_COUNT]', 'from profile]'], 'tier paths');
+  });
+
+  test('executing the rendered blocks in order: a first session reads introduction, a failed read is marked', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oh-tier-'));
+    try {
+      const home = path.join(dir, 'home'), state = path.join(dir, 'state');
+      const bin = path.join(home, '.claude/skills/gstack/bin');
+      fs.mkdirSync(bin, { recursive: true });
+      for (const file of ['gstack-builder-profile', 'gstack-developer-profile', 'gstack-state-root.sh', 'gstack-slug', 'gstack-remote-identity.sh']) {
+        fs.copyFileSync(path.join(ROOT, 'bin', file), path.join(bin, file));
+        fs.chmodSync(path.join(bin, file), 0o755);
+      }
+      const env = { ...process.env, HOME: home, GSTACK_HOME: state, GSTACK_STATE_ROOT: state, GIT_CEILING_DIRECTORIES: dir };
+      const run = (command: string) => runCapturedCommand('bash', ['-c', command], { cwd: dir, env, timeout: 15000, captureStdout: true });
+      const log = logBlock
+        .replace('TIMESTAMP', '2026-10-07T00:00:00Z').replace('MODE', 'builder').replace('"SLUG"', '"proj"')
+        .replace(':N,', ':2,').replace('SIGNALS_ARRAY', '["taste"]').replace('DOC_PATH', 'd.md')
+        .replace('ASSIGNMENT_TEXT', 'Talk to five users').replace('TOPICS_ARRAY', '[]');
+      const first = run(readBlock);
+      expect(first.status, first.stderr).toBe(0);
+      expect(first.stdout).toMatch(/^SESSION_COUNT: 0$/m);
+      expect(first.stdout).toMatch(/^TIER: introduction$/m);
+      expect(run(log).status).toBe(0);
+      const afterLog = run(readBlock);
+      expect(afterLog.stdout).toMatch(/^TIER: welcome_back$/m);
+      expect(afterLog.stdout).toContain('LAST_ASSIGNMENT: Talk to five users');
+      fs.writeFileSync(path.join(bin, 'gstack-builder-profile'), '#!/usr/bin/env bash\nexit 3\n', { mode: 0o755 });
+      const failed = run(readBlock);
+      expect(failed.status).toBe(0);
+      expect(failed.stdout.trim()).toBe('PROFILE_READ: failed');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('office-hours reports success only when this run wrote its design doc (#1049)', () => {
+  const skeleton = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  const check = between(skeleton, "## Before telemetry: confirm this run's design doc", '\n## ');
+  const block = check.match(/```bash\n([\s\S]*?)\n```/)![1]!;
+
+  test('success requires DESIGN_DOC: ok; a missing doc maps to abort or error, not success', () => {
+    expect(block).toContain('bin/gstack-paths --get GSTACK_STATE_ROOT');
+    expect(block).not.toMatch(/\bls -t\b|find /);
+    expectMentions(check, [['success', 'design_doc: ok'], ['abort', 'error', 'design_doc']], 'design doc check');
+    expectOrdered(skeleton, ['## Phase 4.5', "## Before telemetry: confirm this run's design doc", '## Important Rules'], 'office-hours');
+  });
+
+  test('the rendered check accepts only this run\'s non-empty doc under the state root', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oh-doc-'));
+    try {
+      const home = path.join(dir, 'home'), state = path.join(dir, 'state');
+      const bin = path.join(home, '.claude/skills/gstack/bin');
+      fs.mkdirSync(bin, { recursive: true });
+      for (const file of ['gstack-paths', 'gstack-state-root.sh']) {
+        fs.copyFileSync(path.join(ROOT, 'bin', file), path.join(bin, file));
+        fs.chmodSync(path.join(bin, file), 0o755);
+      }
+      const doc = path.join(state, 'projects', 'proj', 'me-main-design-20261007-120000.md');
+      fs.mkdirSync(path.dirname(doc), { recursive: true });
+      fs.writeFileSync(path.join(path.dirname(doc), 'other-main-design-20261007-130000.md'), '# Another session\n');
+      const outside = path.join(dir, 'me-main-design-20261007-120000.md');
+      fs.writeFileSync(outside, '# Outside the state root\n');
+      const env = { ...process.env, HOME: home, GSTACK_HOME: state, GSTACK_STATE_ROOT: state };
+      const run = (docPath: string) => {
+        const result = runCapturedCommand('bash', ['-c', block.replace('DESIGN_DOC_PATH', docPath)], { cwd: dir, env, timeout: 15000, captureStdout: true });
+        expect(result.status, result.stderr).toBe(0);
+        return result.stdout.trim();
+      };
+      expect(run(doc)).toBe('DESIGN_DOC: missing');
+      expect(run('')).toBe('DESIGN_DOC: missing');
+      expect(run(outside)).toBe('DESIGN_DOC: missing');
+      fs.writeFileSync(doc, '');
+      expect(run(doc)).toBe('DESIGN_DOC: missing');
+      fs.writeFileSync(doc, '# Design: fixture\n');
+      expect(run(doc)).toBe('DESIGN_DOC: ok');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('office-hours shows the design doc before asking for approval (#879)', () => {
+  const handoff = fs.readFileSync(path.join(ROOT, 'office-hours', 'sections', 'design-and-handoff.md'), 'utf-8');
+
+  test('the full doc is printed inline as assistant text, after spec review and before the approval question', () => {
+    const approval = 'Present the reviewed design doc to the user via AskUserQuestion';
+    const beforeApproval = between(handoff, 'spec-review.jsonl', approval);
+    expectMentions(beforeApproval, [['full', 'design doc', 'inline'], ['tool', 'collapsed']], 'pre-approval');
+    expectOrdered(handoff, ['spec-review.jsonl', 'output the full design doc inline', approval, 'A) Approve'], 'design-and-handoff');
   });
 });
 
