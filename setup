@@ -22,7 +22,7 @@ Usage: ./setup [options]
 Options:
   --host <name>     Install for one host. Default: claude. Hosts by tier:
                       full:             claude
-                      experimental:     codex, kiro, factory, opencode, cursor, copilot
+                      experimental:     codex, kiro, factory, opencode, cursor, copilot, agy
                       instruction-only: slate, openclaw, hermes, gbrain
                       auto:             every installed agent that setup detects
                     An explicit --host never changes another host's install.
@@ -193,7 +193,7 @@ _setup_unknown_option() {
 }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, copilot, slate, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; HOST_FLAG_SET=1; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, copilot, agy, slate, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; HOST_FLAG_SET=1; shift 2 ;;
     --host=*) HOST="${1#--host=}"; HOST_FLAG_SET=1; shift ;;
     --model) [ -z "$2" ] && echo "Missing value for --model" >&2 && exit 1; MODEL_OVERRIDE="$2"; MODEL_OVERRIDE_SET=1; shift 2 ;;
     --model=*) MODEL_OVERRIDE="${1#--model=}"; MODEL_OVERRIDE_SET=1; shift ;;
@@ -234,8 +234,9 @@ print_instruction_tier() {
   echo ""
 }
 
+[ "$HOST" = "antigravity" ] && HOST="agy"  # Antigravity CLI is named after its binary
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|cursor|copilot|auto) ;;
+  claude|codex|kiro|factory|opencode|cursor|copilot|agy|auto) ;;
   slate)
     echo ""
     echo "Slate is not yet a first-class install target (docs/designs/SLATE_HOST.md —"
@@ -283,7 +284,7 @@ case "$HOST" in
     echo ""
     exit 0 ;;
   *)
-    echo "Unknown --host value: $HOST — nothing was installed or changed. Expected one of: claude (default), codex, kiro, factory, opencode, cursor, copilot, slate, openclaw, hermes, gbrain, or auto. Tiers: ./setup --help" >&2; exit 1 ;;
+    echo "Unknown --host value: $HOST — nothing was installed or changed. Expected one of: claude (default), codex, kiro, factory, opencode, cursor, copilot, agy (alias antigravity), slate, openclaw, hermes, gbrain, or auto. Tiers: ./setup --help" >&2; exit 1 ;;
 esac
 
 # Bun versions come from one sourced file (floor and tested; E1).
@@ -476,6 +477,8 @@ CURSOR_GSTACK="$CURSOR_SKILLS/gstack"
 KIRO_SKILLS="$HOME/.kiro/skills"
 COPILOT_SKILLS="$HOME/.copilot/skills"
 COPILOT_GSTACK="$COPILOT_SKILLS/gstack"
+AGY_SKILLS="$HOME/.gemini/antigravity-cli/skills"
+AGY_GSTACK="$AGY_SKILLS/gstack"
 
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -1263,6 +1266,7 @@ INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
 INSTALL_CURSOR=0
 INSTALL_COPILOT=0
+INSTALL_AGY=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
@@ -1274,8 +1278,13 @@ if [ "$HOST" = "auto" ]; then
   command -v cursor >/dev/null 2>&1 && INSTALL_CURSOR=1
   [ -d "$HOME/.cursor" ] && INSTALL_CURSOR=1
   command -v copilot >/dev/null 2>&1 && INSTALL_COPILOT=1
+  # agy's installer puts the binary in ~/.local/bin, which may not be on PATH;
+  # ~/.gemini/antigravity-cli is agy's own config dir. A bare ~/.gemini is
+  # Gemini CLI's and never selects Antigravity.
+  command -v agy >/dev/null 2>&1 && INSTALL_AGY=1
+  [ -d "$HOME/.gemini/antigravity-cli" ] && INSTALL_AGY=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_AGY" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -1292,13 +1301,15 @@ elif [ "$HOST" = "cursor" ]; then
   INSTALL_CURSOR=1
 elif [ "$HOST" = "copilot" ]; then
   INSTALL_COPILOT=1
+elif [ "$HOST" = "agy" ]; then
+  INSTALL_AGY=1
 fi
 
 # A host that passes --host validation but sets no INSTALL_* flag would
 # silently configure nothing and exit 0 (the #2361 slate failure class).
 # Fail loudly if a future host lands in the accept-list without a dispatch arm.
-if [ "$HOST" != "auto" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ]; then
-  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor, copilot (informational: slate, openclaw, hermes, gbrain)." >&2
+if [ "$HOST" != "auto" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_AGY" -eq 0 ]; then
+  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor, copilot, agy (informational: slate, openclaw, hermes, gbrain)." >&2
   exit 1
 fi
 
@@ -1914,6 +1925,16 @@ if [ "$INSTALL_COPILOT" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
     bun_cmd run gen:skill-docs --host copilot ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"}
+  )
+fi
+
+# 1g. Generate .agy/ Antigravity CLI skill docs
+if [ "$INSTALL_AGY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .agy/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host agy ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"}
   )
 fi
 
@@ -3196,6 +3217,91 @@ link_copilot_skill_dirs() {
   fi
 }
 
+# ─── Helper: ~/.gemini/antigravity-cli/skills/gstack runtime root ────────────
+# Same shape as the Copilot root (root SKILL.md + runtime assets + .source-path
+# for /gstack-upgrade). Antigravity CLI and Gemini CLI share ~/.gemini; setup
+# writes only gstack entries under ~/.gemini/antigravity-cli/skills, never
+# Gemini CLI's ~/.gemini/skills. Built through _activate_runtime_root.
+create_agy_runtime_root() {
+  local gstack_dir="$1"
+  local agy_gstack="$2"
+  local agy_dir="$gstack_dir/.agy/skills"
+  local asset f
+
+  mkdir -p "$agy_gstack" "$agy_gstack/browse" "$agy_gstack/gstack-upgrade" "$agy_gstack/review"
+  printf '%s\n' "$gstack_dir" > "$agy_gstack/.source-path"
+  if [ -f "$agy_dir/gstack/SKILL.md" ]; then
+    _copy_skill_md "$agy_dir/gstack/SKILL.md" "$agy_gstack/SKILL.md"
+  fi
+  for asset in bin lib browse/dist browse/bin; do
+    if [ -d "$gstack_dir/$asset" ]; then
+      _link_or_copy "$gstack_dir/$asset" "$agy_gstack/$asset"
+    fi
+  done
+  _link_runtime_dists "$gstack_dir" "$agy_gstack"
+  if [ -f "$agy_dir/gstack-upgrade/SKILL.md" ]; then
+    _copy_skill_md "$agy_dir/gstack-upgrade/SKILL.md" "$agy_gstack/gstack-upgrade/SKILL.md"
+  fi
+  if [ -f "$agy_dir/gstack-office-hours/SKILL.md" ]; then
+    mkdir -p "$agy_gstack/office-hours"
+    _copy_skill_md "$agy_dir/gstack-office-hours/SKILL.md" "$agy_gstack/office-hours/SKILL.md"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      _link_or_copy "$gstack_dir/review/$f" "$agy_gstack/review/$f"
+    fi
+  done
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    _link_or_copy "$gstack_dir/ETHOS.md" "$agy_gstack/ETHOS.md"
+  fi
+  if [ -f "$gstack_dir/supabase/config.sh" ]; then
+    mkdir -p "$agy_gstack/supabase"
+    _link_or_copy "$gstack_dir/supabase/config.sh" "$agy_gstack/supabase/config.sh"
+  fi
+}
+
+# Frontmatter names already equal the gstack-<skill> directories
+# (nameMatchesDirectory), so no name patching. Fails when nothing was linked.
+link_agy_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local agy_dir="$gstack_dir/.agy/skills"
+  local linked=()
+
+  if [ ! -d "$agy_dir" ]; then
+    echo "  Generating .agy/ skill docs..."
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host agy ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} )
+  fi
+  if [ ! -d "$agy_dir" ]; then
+    echo "  warning: .agy/skills/ generation failed — run 'bun run gen:skill-docs --host agy' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$agy_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      case "${_DISABLED_SKILLS:- }" in *" ${skill_name#gstack-} "*) _remove_disabled_host_entry "$skills_dir/$skill_name"; continue ;; esac
+      target="$skills_dir/$skill_name"
+      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$target" ] || [ ! -e "$target" ]; then
+        if _owned_for_windows_refresh "$target"; then
+          _link_or_copy "$skill_dir" "$target"
+          linked+=("$skill_name")
+        else
+          echo "  left in place (existing dir not gstack-managed — no generated banner): $target" >&2
+        fi
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+  if ! ls "$skills_dir"/gstack-*/SKILL.md >/dev/null 2>&1; then
+    echo "  error: no gstack skills are installed in $skills_dir" >&2
+    return 1
+  fi
+}
+
 # 4. Install for Claude (default)
 # _claude_scope SKILLS_DIR — "global" for the user's Claude skills dir, else
 # "project <root>".
@@ -3596,6 +3702,25 @@ if [ "$INSTALL_COPILOT" -eq 1 ]; then
     echo "  browse: $BROWSE_BIN"
     _browser_hint
     echo "  copilot skills: $COPILOT_SKILLS (invoke as /gstack-<skill>)"
+  fi
+fi
+
+# 6f. Install for Antigravity CLI (agy)
+if [ "$INSTALL_AGY" -eq 1 ]; then
+  if _sidecar_root_user_owned "$AGY_GSTACK"; then
+    echo "  left in place (existing dir not gstack-managed — no generated banner): $AGY_GSTACK" >&2
+    _setup_row agy global "$AGY_SKILLS" - "$SETUP_VERSION" skipped "left alone: $AGY_GSTACK is not gstack-managed (no generated banner)"
+  else
+    _setup_arm_begin agy global "$AGY_SKILLS"
+    mkdir -p "$AGY_SKILLS"
+    _prune_stale_generated "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/.agy/skills" "$AGY_SKILLS"
+    link_agy_skill_dirs "$SOURCE_GSTACK_DIR" "$AGY_SKILLS"
+    _activate_runtime_root create_agy_runtime_root "$SOURCE_GSTACK_DIR" "$AGY_GSTACK"
+    _setup_arm_publish agy global - "$AGY_SKILLS" "$AGY_GSTACK" -
+    echo "gstack ready (agy)."
+    echo "  browse: $BROWSE_BIN"
+    _browser_hint
+    echo "  agy skills: $AGY_SKILLS (invoke as /gstack-<skill>)"
   fi
 fi
 

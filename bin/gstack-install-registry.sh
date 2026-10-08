@@ -160,7 +160,7 @@ gstack_install_render_for() {
 gstack_host_tier() {
   case "$1" in
     claude) echo full ;;
-    codex|kiro|factory|opencode|cursor|copilot) echo experimental ;;
+    codex|kiro|factory|opencode|cursor|copilot|agy) echo experimental ;;
     slate|openclaw|hermes|gbrain) echo instruction-only ;;
     *) echo unknown ;;
   esac
@@ -231,6 +231,7 @@ gstack_install_known_roots() {
   printf 'opencode\tglobal\t%s\t%s\n' "$HOME/.config/opencode/skills" "$HOME/.config/opencode/skills/gstack"
   printf 'cursor\tglobal\t%s\t%s\n' "$HOME/.cursor/skills" "$HOME/.cursor/skills/gstack"
   printf 'copilot\tglobal\t%s\t%s\n' "$HOME/.copilot/skills" "$HOME/.copilot/skills/gstack"
+  printf 'agy\tglobal\t%s\t%s\n' "$HOME/.gemini/antigravity-cli/skills" "$HOME/.gemini/antigravity-cli/skills/gstack"
   proj="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$proj" ] && [ "$proj" != "$HOME" ]; then
     printf 'claude\tproject\t%s\t%s\n' "$proj/.claude/skills" "$proj/.claude/skills/gstack"

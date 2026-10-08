@@ -133,6 +133,7 @@ installs and passes the conformance tests but has no certification run yet;
 | Factory Droid | experimental | `--host factory` → `~/.factory/skills/gstack-*/` | ask for `gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host factory` |
 | Kiro | experimental | `--host kiro` → `~/.kiro/skills/gstack-*/` | ask for `gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host kiro` |
 | GitHub Copilot CLI | experimental | `--host copilot` → `~/.copilot/skills/gstack-*/` | `/gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host copilot` |
+| Antigravity CLI | experimental | `--host agy` (or `--host antigravity`) → `~/.gemini/antigravity-cli/skills/gstack-*/` | `/gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host agy` |
 | Slate | instruction-only | `--host slate` (points at the Claude install; Slate reads `.claude/skills`) | `/office-hours` via the Claude install | advisory, not blocked | — | `./setup --host claude` |
 | OpenClaw | instruction-only | `--host openclaw` (prints the digest path; ACP spawns Claude Code — [docs/OPENCLAW.md](docs/OPENCLAW.md)) | "Load gstack. Run /review" | advisory, not blocked | — | re-copy the digest after upgrades |
 | Hermes | instruction-only | `--host hermes` (prints the digest path and `gen:skill-docs --host hermes`) | copy the digest, or render skills yourself | advisory, not blocked | — | re-copy the digest after upgrades |
@@ -142,6 +143,13 @@ Copilot invokes gstack skills by their prefixed names (`/gstack-review`) because
 `/review` is a Copilot built-in. Copilot ignores skill hooks, so `/careful` and
 `/freeze` only advise there, and `COPILOT_HOME` other than `~/.copilot` is not
 supported yet (setup refuses and changes nothing).
+
+Antigravity CLI also invokes skills by prefixed name (`/gstack-review`). Setup
+writes only `~/.gemini/antigravity-cli/skills/gstack*`: Gemini CLI's
+`~/.gemini/skills` and settings are never touched, and `--host auto` selects
+Antigravity only when `agy` is on `PATH` or `~/.gemini/antigravity-cli` exists,
+never for a Gemini-CLI-only `~/.gemini`. The Antigravity 2.0 app and IDE read
+`~/.gemini/config/skills`, which this host does not install.
 
 Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
@@ -548,6 +556,7 @@ rm -rf ~/.kiro/skills/gstack* 2>/dev/null
 rm -rf ~/.openclaw/skills/gstack* 2>/dev/null
 rm -rf ~/.cursor/skills/gstack* 2>/dev/null
 rm -rf ~/.config/opencode/skills/gstack* 2>/dev/null
+rm -rf ~/.gemini/antigravity-cli/skills/gstack* 2>/dev/null
 
 # 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null

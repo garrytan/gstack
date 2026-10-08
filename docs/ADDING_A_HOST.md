@@ -2,7 +2,7 @@
 
 gstack uses a declarative host config system. Each supported AI coding agent
 (Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes,
-GBrain) is defined as a typed TypeScript config object built by the
+GBrain, Copilot, Antigravity) is defined as a typed TypeScript config object built by the
 `defineHost()` factory. Rendering a new host means creating one file and
 re-exporting it: the generator, tests, and validation pick it up. Installing
 it is not free: setup still has one install arm per installable host (see
@@ -75,12 +75,12 @@ Inventory of every setup side effect, by phase (line numbers are approximate):
 | Phase | Writes | Scope |
 |---|---|---|
 | Build | `browse/dist`, `design/dist`, `make-pdf/dist`, `bin/gstack-cso-*` in the source checkout | source |
-| Generation | `.agents/`, `.kiro/`, `.factory/`, `.opencode/`, `.cursor/` renders in the source checkout; `gstack-patch-names` rewrites Claude `name:` fields in place | source |
+| Generation | `.agents/`, `.kiro/`, `.factory/`, `.opencode/`, `.cursor/`, `.copilot/`, `.agy/` renders in the source checkout; `gstack-patch-names` rewrites Claude `name:` fields in place | source |
 | Chromium | Playwright cache (`~/.cache/ms-playwright`), lock under the state root | machine |
 | Config | `skill_prefix`, `timeline_stop_hook`, team-mode keys in `$GSTACK_STATE_ROOT/config.yaml` | state root |
 | Claude arm | `~/.claude/skills/gstack` link, one dir per skill with a `SKILL.md` link, alias copies | selected host |
 | Codex arm | `${CODEX_HOME:-~/.codex}/skills/gstack` runtime root, `gstack-*` links into `.agents/skills`, `.agents/skills/gstack` sidecar | selected host |
-| Kiro, Factory, OpenCode, Cursor, Copilot arms | the host's `skills/gstack` runtime root (built beside the live one and swapped in) and `gstack-*` links | selected host |
+| Kiro, Factory, OpenCode, Cursor, Copilot, Antigravity arms | the host's `skills/gstack` runtime root (built beside the live one and swapped in) and `gstack-*` links | selected host |
 | OpenCode commands | `~/.config/opencode/commands/gstack-*.md` with a managed marker (#2629); user command files are never touched | selected host |
 | Registry | one row per activated install in `installs.tsv` | state root |
 | Migrations | whatever each `v*.sh` repairs; marker in the state root | state root |
@@ -186,6 +186,70 @@ answer `ask_user` itself, plan mode blocks mutating shell commands, symlinked
 skill dirs need Copilot CLI 1.0.62 or later, and `COPILOT_HOME` other than
 `~/.copilot` is refused for now.
 
+## Antigravity CLI
+
+Shipped as `experimental` (`hosts/agy.ts`, `./setup --host agy`, alias
+`--host antigravity`) for Google's Antigravity CLI. The host is named after the
+`agy` binary: with the longer name, the per-fence runtime prelude was 408 bytes
+against its 400-byte budget (the global root is long); `agy` renders at
+exactly 400, so the next byte added to that prelude must come with a budget
+change. Verified against Google's docs on 2026-10-08:
+
+| Fact | Value | Source |
+|---|---|---|
+| Global skills | `~/.gemini/antigravity-cli/skills/<skill>/SKILL.md` | [Agent skills](https://antigravity.google/docs/skills/) (CLI section), [Plugins & skills](https://antigravity.google/docs/cli/plugins/), [Migrating from Gemini CLI](https://antigravity.google/docs/cli/gcli-migration/) |
+| Workspace skills | `.agents/skills/<skill>/SKILL.md` | same pages |
+| Frontmatter | `name` (optional, defaults to the directory), `description` (required) | [Agent skills](https://antigravity.google/docs/skills/) |
+| Description limit | 1024 characters (Agent Skills format) | [What are Agent Skills?](https://cloud.google.com/discover/ai-agent-skills) |
+| Tool names | `run_command`, `view_file`, `write_to_file`, `replace_file_content`, `multi_replace_file_content`, `grep_search`, `find_by_name`, `invoke_subagent`, `ask_question` | [Hooks: supported tools](https://antigravity.google/docs/hooks/) |
+| Plan mode | `agy --mode=plan` / `/plan`, no exit-plan tool | [Execution modes](https://antigravity.google/docs/cli/modes/) |
+| Binary | `agy`, installed to `~/.local/bin/agy`; config in `~/.gemini/antigravity-cli/` | [Installation](https://antigravity.google/docs/cli/install/), [Settings](https://antigravity.google/docs/cli/settings/) |
+
+What the host does: skills in `~/.gemini/antigravity-cli/skills/gstack-*`,
+runtime root `~/.gemini/antigravity-cli/skills/gstack` with `.source-path` for
+`/gstack-upgrade`, `name:` equal to the `gstack-<skill>` directory (the CLI
+turns each name into a slash command, and has `/plan`, `/diff`, `/skills` and
+other built-ins), frontmatter limited to `name` and `description`, the Gemini
+model overlay, and a one-paragraph tool glossary ahead of the preamble's STATUS
+rules. The glossary also tells the agent to keep reading when `view_file`
+returns only part of a long SKILL.md: users report a first read that stops at
+800 lines ([forum](https://discuss.ai.google.dev/t/make-the-800-line-forced-first-read-in-view-file-configurable-or-opt-out/172257)),
+which Google's docs do not state, so the rendered text names no number.
+
+**Shared `~/.gemini`.** Antigravity CLI and Gemini CLI both live under
+`~/.gemini`. Gemini CLI reads `~/.gemini/skills` (and `~/.agents/skills`);
+Antigravity CLI reads `~/.gemini/antigravity-cli/skills`. Setup writes only
+gstack entries in the latter, uninstall removes only gstack-managed entries
+there, and `--host auto` selects Antigravity only for `agy` on `PATH` or an
+existing `~/.gemini/antigravity-cli`, never for a bare `~/.gemini`.
+`test/setup-install-registry.test.ts` holds both directions. Gemini CLI as a
+host is not supported. Two overlaps remain: workspace `.agents/skills` is also
+where a project-local Codex install puts its Codex-flavored `gstack-*`
+skills, which Antigravity will list in that repo, and the Antigravity 2.0 app
+and IDE read `~/.gemini/config/skills`, which this host does not install
+(Google's codelab says that directory also reaches the CLI; the CLI docs do
+not, so setup follows the CLI docs).
+
+Disposition of the community attempts:
+
+| PR | Decision | Why |
+|---|---|---|
+| #2134 (@0xshae) | Selectively reused, with credit | Kept: `agy` as the host name and binary, `.agents/skills` as the workspace root, and a `.agy` render directory separate from Codex's `.agents`. Not kept: the hand-written config (predates `defineHost()`), `~/.gemini/config/skills` as the CLI root, and the setup arm without the ownership gates. |
+| #2893 (@ManchalaSashank) | Selectively reused, with credit | Kept: `agy`/`antigravity` as host name and alias in setup and generation, the Gemini overlay, uninstall coverage. Not kept: `~/.gemini/config/skills`, auto-detect on a bare `~/.gemini` (Gemini CLI's directory), `.gemini` as the render directory, and the repo-local `.gemini/skills` sidecar. |
+| #2726 (@voipexpert) | Selectively reused, with credit | Kept: Antigravity's tool names from its own docs, and that `manage_task` (background processes) is not a to-do tool. Not kept: blanket tool-name rewrites (a preamble glossary replaces them) and suppressing outside reviews, which run through the shell. |
+| #2244 (@KiDDarn) | Selectively reused, with credit | Kept: fail the install when no skill was linked. Not kept: the `~/.gemini/config/plugins` plugin layout (CLI plugins live under `~/.gemini/antigravity-cli/plugins` and are installed by `agy plugin install`), the benchmark provider work, and extra frontmatter fields. |
+| #413 (@jnMetaCode) | Rejected | Installs to `~/.gemini/skills` and detects `gemini`: that is Gemini CLI. A comment there (@doogiehowzer) reported the partial `view_file` read the glossary now handles. |
+| #2079 (@FACUTUCCI10) | Rejected | Gemini CLI paths (`~/.gemini/skills`). |
+| #2187 (@NotArsal) | Rejected | Duplicate of #2134 without setup. |
+| #1490 (@7H0M45-4N70NY) | Rejected | `~/.antigravity/skills`, which no Antigravity surface reads. |
+| #565 (@ChetanTekur) | Rejected | Gemini CLI `GEMINI.md` support; Gemini CLI is out of scope. |
+
+Unverified without a real Antigravity CLI (why it is not `full`): that the
+CLI follows symlinked skill directories, that it does not import the runtime
+root's extra markdown files (`ETHOS.md`, `review/*.md`) as skills, the
+partial-read behavior of `view_file` on long skills, `ask_question` option
+handling, and an upgrade from an existing install.
+
 ## Instruction-only hosts
 
 OpenClaw, Hermes, Slate and GBrain have no install arm. Hermes stays
@@ -209,6 +273,8 @@ hosts/
 ├── openclaw.ts      # OpenClaw
 ├── hermes.ts        # Hermes (Nous Research)
 ├── gbrain.ts        # GBrain
+├── copilot.ts       # GitHub Copilot CLI
+├── agy.ts           # Google Antigravity CLI
 └── index.ts         # Registry: imports all, derives Host type
 ```
 

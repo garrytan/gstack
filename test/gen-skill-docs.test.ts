@@ -3567,7 +3567,7 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('--host');
     // #2361: slate moved OUT of the install accept-list (it was accepted but
     // never dispatched — a silent exit-0 no-op) into an informational arm.
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|copilot|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|copilot|agy|auto');
     expect(setupContent).toMatch(/^ {2}slate\)/m);
   });
 

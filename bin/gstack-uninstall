@@ -23,6 +23,7 @@
 #   ~/.cursor/skills/gstack*      — Cursor skill install + per-skill symlinks
 #   ~/.config/opencode/skills/gstack* — OpenCode skill install + per-skill symlinks
 #   ~/.copilot/skills/gstack*     — GitHub Copilot CLI skill install + per-skill symlinks
+#   ~/.gemini/antigravity-cli/skills/gstack* — Antigravity CLI skill install + per-skill symlinks
 #   installs.tsv rows             — install registry rows for removed installs
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
@@ -135,6 +136,7 @@ if [ "$FORCE" -eq 0 ]; then
   [ -d "$HOME/.cursor/skills" ] && echo "  ~/.cursor/skills/gstack*"
   [ -d "$HOME/.config/opencode/skills" ] && echo "  ~/.config/opencode/skills/gstack*"
   [ -d "$HOME/.copilot/skills" ] && echo "  ~/.copilot/skills/gstack*"
+  [ -d "$HOME/.gemini/antigravity-cli/skills" ] && echo "  ~/.gemini/antigravity-cli/skills/gstack*"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
   [ -n "$_LEAVE_ROOT" ] && echo "  (kept) $_LEAVE_ROOT: state root selected by $RESOLVED_VAR; left in place"
 
@@ -506,6 +508,22 @@ if [ -d "$COPILOT_SKILLS" ]; then
     if _cursor_item_is_gstack_managed "$_ITEM"; then
       rm -rf "$_ITEM"
       REMOVED+=("copilot/$(basename "$_ITEM")")
+    else
+      _SKIPPED_DIRS+=("$_ITEM")
+    fi
+  done
+fi
+
+# ─── Remove Antigravity CLI skills ──────────────────────────
+# Same provenance gate. Only gstack* entries under antigravity-cli/skills go:
+# the rest of ~/.gemini belongs to Antigravity and Gemini CLI.
+ANTIGRAVITY_SKILLS="$HOME/.gemini/antigravity-cli/skills"
+if [ -d "$ANTIGRAVITY_SKILLS" ]; then
+  for _ITEM in "$ANTIGRAVITY_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    if _cursor_item_is_gstack_managed "$_ITEM"; then
+      rm -rf "$_ITEM"
+      REMOVED+=("agy/$(basename "$_ITEM")")
     else
       _SKIPPED_DIRS+=("$_ITEM")
     fi
