@@ -291,6 +291,95 @@ describe("gstack-global-discover", () => {
     });
   });
 
+  describe("codex originator buckets", () => {
+    let tmpDir: string;
+    let codexDir: string;
+    let repoDir: string;
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), "gstack-codex-orig-"));
+      const now = new Date();
+      const y = now.getFullYear().toString();
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      codexDir = join(tmpDir, "codex-home", "sessions", y, m, d);
+      mkdirSync(codexDir, { recursive: true });
+      repoDir = join(tmpDir, "fake-repo");
+      mkdirSync(repoDir);
+      spawnSync("git", ["init", "-q"], { cwd: repoDir, stdio: "pipe", timeout: 30_000 });
+    });
+
+    afterEach(() => {
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    // Pass no argument to omit originator from the payload.
+    function writeCodex(...originator: unknown[]) {
+      const payload: Record<string, unknown> = { id: `t-${Math.random()}`, timestamp: new Date().toISOString(), cwd: repoDir };
+      if (originator.length) payload.originator = originator[0];
+      const name = `rollout-${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2)}.jsonl`;
+      writeFileSync(join(codexDir, name), JSON.stringify({ timestamp: new Date().toISOString(), type: "session_meta", payload }) + "\n");
+    }
+
+    function discover(format: "json" | "summary" = "json") {
+      const r = spawnSync("bun", ["run", scriptPath, "--since", "1h", "--format", format], {
+        encoding: "utf-8",
+        timeout: 30_000,
+        env: { ...process.env, CODEX_SESSIONS_DIR: join(tmpDir, "codex-home", "sessions") },
+      });
+      expect(r.status).toBe(0);
+      return r.stdout;
+    }
+
+    const originators = () => JSON.parse(discover()).tools.codex.originators;
+
+    test("Codex Desktop goes to desktop", () => {
+      writeCodex("Codex Desktop");
+      expect(originators()).toEqual({ desktop: 1, exec: 0, claude_code: 0, other: 0 });
+    });
+
+    test("codex_exec goes to exec", () => {
+      writeCodex("codex_exec");
+      expect(originators()).toEqual({ desktop: 0, exec: 1, claude_code: 0, other: 0 });
+    });
+
+    test("Claude Code goes to claude_code", () => {
+      writeCodex("Claude Code");
+      expect(originators()).toEqual({ desktop: 0, exec: 0, claude_code: 1, other: 0 });
+    });
+
+    test("surrounding whitespace and case are ignored", () => {
+      writeCodex("  CODEX DESKTOP  ");
+      expect(originators()).toEqual({ desktop: 1, exec: 0, claude_code: 0, other: 0 });
+    });
+
+    test("missing, null, numeric and unknown originators go to other", () => {
+      writeCodex();
+      writeCodex(null);
+      writeCodex(42);
+      writeCodex("future-agent");
+      const json = JSON.parse(discover());
+      expect(json.tools.codex.total_sessions).toBe(4);
+      expect(json.tools.codex.originators).toEqual({ desktop: 0, exec: 0, claude_code: 0, other: 4 });
+    });
+
+    test("per-repo and global buckets sum to the codex total and print in the summary", () => {
+      writeCodex("Codex Desktop");
+      writeCodex("codex_exec");
+      writeCodex("codex_exec");
+      writeCodex("Claude Code");
+      writeCodex();
+      const json = JSON.parse(discover());
+      const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
+      expect(json.tools.codex.total_sessions).toBe(5);
+      expect(sum(json.tools.codex.originators)).toBe(5);
+      const repo = json.repos.find((r: { paths: string[] }) => r.paths.includes(repoDir));
+      expect(repo.codex_originators).toEqual({ desktop: 1, exec: 2, claude_code: 1, other: 1 });
+      expect(sum(repo.codex_originators)).toBe(repo.sessions.codex);
+      expect(discover("summary")).toContain("Codex originators: desktop=1, exec=2, claude_code=1, other=1");
+    });
+  });
+
   describe("discovery output structure", () => {
     test("repos have required fields", () => {
       const result = spawnSync(

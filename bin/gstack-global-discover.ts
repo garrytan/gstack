@@ -17,9 +17,13 @@ import { canonicalRemote } from "../lib/remote-identity";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+type CodexOriginator = "desktop" | "exec" | "claude_code" | "other";
+type CodexOriginatorCounts = Record<CodexOriginator, number>;
+
 interface Session {
   tool: "claude_code" | "codex" | "gemini";
   cwd: string;
+  codexOriginator?: CodexOriginator;
 }
 
 interface Repo {
@@ -27,6 +31,7 @@ interface Repo {
   remote: string;
   paths: string[];
   sessions: { claude_code: number; codex: number; gemini: number };
+  codex_originators: CodexOriginatorCounts;
 }
 
 interface DiscoveryResult {
@@ -35,7 +40,7 @@ interface DiscoveryResult {
   repos: Repo[];
   tools: {
     claude_code: { total_sessions: number; repos: number };
-    codex: { total_sessions: number; repos: number };
+    codex: { total_sessions: number; repos: number; originators: CodexOriginatorCounts };
     gemini: { total_sessions: number; repos: number };
   };
   total_sessions: number;
@@ -283,6 +288,30 @@ export function extractCwdFromJsonl(filePath: string): string | null {
   return null;
 }
 
+// Separates interactive Codex Desktop work from codex exec runs and Claude
+// Code-driven calls. Missing, unknown and non-string values count as "other",
+// so the buckets always sum to the Codex session total.
+function normalizeCodexOriginator(raw: unknown): CodexOriginator {
+  if (typeof raw !== "string") return "other";
+  const value = raw.trim().toLowerCase();
+  if (value === "codex desktop" || value === "codex_desktop") return "desktop";
+  if (value === "codex_exec" || value === "codex exec") return "exec";
+  if (value === "claude code" || value === "claude_code") return "claude_code";
+  return "other";
+}
+
+function countCodexOriginators(sessions: Session[]): CodexOriginatorCounts {
+  const counts: CodexOriginatorCounts = { desktop: 0, exec: 0, claude_code: 0, other: 0 };
+  for (const s of sessions) {
+    if (s.tool === "codex") counts[s.codexOriginator ?? "other"]++;
+  }
+  return counts;
+}
+
+function formatCodexOriginators(o: CodexOriginatorCounts): string {
+  return `desktop=${o.desktop}, exec=${o.exec}, claude_code=${o.claude_code}, other=${o.other}`;
+}
+
 function scanCodex(since: Date): Session[] {
   const sessionsDir = process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions");
   if (!existsSync(sessionsDir)) return [];
@@ -332,7 +361,11 @@ function scanCodex(since: Date): Session[] {
               if (!firstLine) continue;
               const meta = JSON.parse(firstLine);
               if (meta.type === "session_meta" && meta.payload?.cwd) {
-                sessions.push({ tool: "codex", cwd: meta.payload.cwd });
+                sessions.push({
+                  tool: "codex",
+                  cwd: meta.payload.cwd,
+                  codexOriginator: normalizeCodexOriginator(meta.payload.originator),
+                });
               }
             } catch {
               console.error(`Warning: could not parse Codex session ${filePath}`);
@@ -503,6 +536,7 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
       remote,
       paths: data.paths,
       sessions: sessionCounts,
+      codex_originators: countCodexOriginators(data.sessions),
     });
   }
 
@@ -545,13 +579,15 @@ async function main() {
   const codexRepos = new Set(repos.filter((r) => r.sessions.codex > 0).map((r) => r.remote)).size;
   const geminiRepos = new Set(repos.filter((r) => r.sessions.gemini > 0).map((r) => r.remote)).size;
 
+  const codexOriginators = countCodexOriginators(codexSessions);
+
   const result: DiscoveryResult = {
     window: since,
     start_date: startDate,
     repos,
     tools: {
       claude_code: { total_sessions: ccSessions.length, repos: ccRepos },
-      codex: { total_sessions: codexSessions.length, repos: codexRepos },
+      codex: { total_sessions: codexSessions.length, repos: codexRepos, originators: codexOriginators },
       gemini: { total_sessions: geminiSessions.length, repos: geminiRepos },
     },
     total_sessions: allSessions.length,
@@ -564,13 +600,14 @@ async function main() {
     // Summary format
     console.log(`Window: ${since} (since ${startDate})`);
     console.log(`Sessions: ${allSessions.length} total (CC: ${ccSessions.length}, Codex: ${codexSessions.length}, Gemini: ${geminiSessions.length})`);
+    if (codexSessions.length > 0) console.log(`  Codex originators: ${formatCodexOriginators(codexOriginators)}`);
     console.log(`Repos: ${repos.length} unique`);
     console.log("");
     for (const repo of repos) {
       const total = repo.sessions.claude_code + repo.sessions.codex + repo.sessions.gemini;
       const tools = [];
       if (repo.sessions.claude_code > 0) tools.push(`CC:${repo.sessions.claude_code}`);
-      if (repo.sessions.codex > 0) tools.push(`Codex:${repo.sessions.codex}`);
+      if (repo.sessions.codex > 0) tools.push(`Codex:${repo.sessions.codex} (${formatCodexOriginators(repo.codex_originators)})`);
       if (repo.sessions.gemini > 0) tools.push(`Gemini:${repo.sessions.gemini}`);
       console.log(`  ${repo.name} (${total} sessions) — ${tools.join(", ")}`);
       console.log(`    Remote: ${repo.remote}`);
