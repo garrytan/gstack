@@ -203,7 +203,9 @@ key against the defaults with `bun run design/scripts/live-model-check.ts`,
 which always tests the default models and ignores both overrides; the weekly
 periodic census runs the same check. Set `OPENAI_BASE_URL` to send every `$D`
 call to an OpenAI-compatible gateway instead of `api.openai.com`; egress
-receipts record the gateway host.
+receipts record the gateway host. On Codex, `/design-shotgun` generates mockups
+with Codex's built-in `$imagegen` skill instead, so it needs no
+`OPENAI_API_KEY`; `$D` still builds and serves the comparison board.
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 Rendering a new agent is one TypeScript config file; installing it also needs a

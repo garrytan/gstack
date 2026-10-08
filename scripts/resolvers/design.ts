@@ -1184,6 +1184,15 @@ fi
 \`\`\``;
 }
 
+const CODEX_SHOTGUN_SETUP = `On Codex, mockups come from the built-in \`$imagegen\` skill in its default built-in mode
+(the host \`image_gen\` tool), which needs no \`OPENAI_API_KEY\`; never use its CLI fallback.
+\`$D\` only builds and serves the comparison board (\`$D compare --images-file
+/path/board-images.json --output /path/board.html --serve\`, \`$D serve --html /path/board.html\`).
+Never run \`$D generate\`, \`variants\`, \`evolve\`, \`iterate\` or \`check\` here.
+
+If \`DESIGN_NOT_AVAILABLE\`: still generate with \`$imagegen\`, then show the images inline and
+collect feedback with AskUserQuestion instead of a board.`;
+
 export function generateDesignSetup(ctx: TemplateContext): string {
   return `## DESIGN SETUP (run this check BEFORE any design mockup command)
 
@@ -1192,7 +1201,7 @@ ${binaryAssignment(ctx, 'design')}
 ${designReadyProbe(ctx)}
 \`\`\`
 
-${ctx.skillName === 'design-consultation' ? `If \`DESIGN_NOT_AVAILABLE\`: use Phase 5 Path B (HTML preview). Mockups are optional.
+${ctx.host === 'codex' && ctx.skillName === 'design-shotgun' ? CODEX_SHOTGUN_SETUP : `${ctx.skillName === 'design-consultation' ? `If \`DESIGN_NOT_AVAILABLE\`: use Phase 5 Path B (HTML preview). Mockups are optional.
 
 For interactive feedback, use \`compare --serve\` and its printed HTTP URL; opening board HTML directly is only a static preview.` : `If \`DESIGN_NOT_AVAILABLE\`: skip visual mockup generation and fall back to the
 existing HTML wireframe approach (\`DESIGN_SKETCH\`). Design mockups are a
@@ -1213,7 +1222,7 @@ Commands:
 Image commands never overwrite (a taken name gets \`-2\`) and always print JSON (\`requested\`, \`saved\`, \`failures\`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without \`set -e\`: \`_OUT=$($D ...); _RC=$?\`. Briefs and feedback are free text: write each into a private \`mktemp\` file under \`.gstack/tmp\` and pass \`"$(cat "$FILE")"\`, never inline.${ctx.skillName === 'design-consultation' ? `
 - \`$D extract --image /absolute/path.png\` — print tokens and automatically update DESIGN.md in the current Git repository; no read-only flag
 
-\`generate\` returns \`sessionFile\`; \`iterate\` requires that existing session. \`variants\` returns \`paths\` but creates no session: regenerate with an updated brief instead.` : ''}
+\`generate\` returns \`sessionFile\`; \`iterate\` requires that existing session. \`variants\` returns \`paths\` but creates no session: regenerate with an updated brief instead.` : ''}`}
 
 **Path rule:** Design artifacts belong in \`$GSTACK_STATE_ROOT/projects/$SLUG/designs/\`.
 Use \`bin/gstack-paths\` (docs/state-root.md). Keep it even if temporary; never substitute
@@ -1308,6 +1317,96 @@ ${designApprovalBlock('mockup', false)}
 Reference the printed \`APPROVED_IMAGE\` in the design doc or plan.`;
 }
 
+/**
+ * /design-shotgun Step 3c-3d. Codex generates with its built-in $imagegen skill
+ * (no OpenAI API key); every other host uses the design binary.
+ */
+export function generateDesignShotgunGeneration(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') return `**Generate each variant with Codex's built-in \`$imagegen\` skill.** Invoke it once per
+confirmed concept, in concept order (A, B, C, ...), at most 7, in its default built-in mode
+so it uses the host \`image_gen\` tool. Give each call the full variant-specific brief, starting
+with \`Use case: ui-mockup\` and carrying the DESIGN.md or taste constraints. When evolving,
+load \`$_DESIGN_DIR/current.png\` with \`view_image\` first and use \`$imagegen\` edit mode with
+that screenshot as the input, keeping the product, content and purpose recognizable. Do not
+run \`scripts/image_gen.py\`, ask for \`OPENAI_API_KEY\`, or run any \`$D\` generation command.
+If the built-in tool is unavailable, report that and stop: Codex has no API fallback here.
+
+**Publish without overwriting.** \`$imagegen\` reports where it saved each image. Never \`cp\` or
+\`mv\` one. Publish each with
+\`FINAL=$(${ctx.paths.binDir}/gstack-design-claim "<saved path>" "$_DESIGN_DIR/variant-{letter}.png")\`.
+It never overwrites and prints the final (possibly bumped) path; use FINAL from here on. If a
+claim fails, report the error; the image stays at its saved path.
+
+### Step 3d: Results
+
+<!-- design:round-accounting -->
+1. Round accounting first: this round's images are exactly the published paths (never a
+   directory listing; older rounds stay on disk). Tell the user "{saved} of {N} images
+   saved", listing every published path. There is no automated vision check on Codex:
+   compare each image with its brief yourself and say so.
+2. For any failure: report it explicitly with the error, then retry that variant once with
+   \`$imagegen\`. Do NOT silently skip. If nothing was saved, report the failures and stop: no board.
+3. Load each published image with \`view_image\` so the user sees all variants at once.
+4. Proceed to Step 4 with each variant's published path, in letter order, as this round's
+   board images.`;
+  return `**Generate every variant with one \`$D variants --briefs-file\` call.** Write one entry per
+confirmed concept to \`$_DESIGN_DIR/briefs.json\`: a JSON array of \`{"brief": "<the full
+variant-specific brief>"}\` objects, in concept order (A, B, C, ...), at most 7. When
+evolving, add \`"screenshot": "<_DESIGN_DIR>/current.png"\` to every entry. Then run this
+Bash call with \`timeout: 600000\` and wait for it to return. It stages in a fresh per-run
+directory: in sandboxed sessions \`$D\` output under \`~/.gstack/\` can abort ("The operation
+was aborted"), while the temp dir works.
+
+\`\`\`bash
+_VARIANT_TMP=$(mktemp -d "\${TMPDIR:-/tmp}/gstack-variants-XXXXXXXX")
+_VARIANTS_JSON=$("$D" variants --briefs-file "$_DESIGN_DIR/briefs.json" --output-dir "$_VARIANT_TMP"); _RC=$?
+echo "$_VARIANTS_JSON"; echo "EXIT: $_RC"
+\`\`\`
+
+The command starts the variants 1.5s apart, retries rate limits with backoff, regenerates an
+empty image once, runs the vision check on each image and regenerates once when it fails
+(both images are kept), and starts no new work after 9 minutes. It never overwrites an
+image. It prints one \`VARIANT_<letter>_DONE\`, \`_FAILED\` or \`_RATE_LIMITED\` line per variant
+on stderr and JSON on stdout. Each \`variants[]\` entry has \`saved\` (every image it saved, in
+order; the last is its pick), \`operation\`, \`status\`, \`error\`, \`retryable\` and
+\`check.status\` (\`pass\`, \`fail\` or \`skipped\`). Exit 0 means at least one variant was
+generated (read each status), 2 means nothing was saved, and 1 means the briefs file was
+invalid and nothing was billed (the error names the entry and field; fix it and rerun).
+
+**Publish without overwriting.** Never \`cp\` or \`mv\` an image. For each variant, publish every
+path in its \`saved\` list, in order, with
+\`FINAL=$(${ctx.paths.binDir}/gstack-design-claim "<saved path>" "$_DESIGN_DIR/variant-{letter}.png")\`.
+It never overwrites and prints the final (possibly bumped) path; use FINAL from here on and
+report every published path. A variant's last FINAL is its pick. If a claim fails, report the
+error; the staged image stays at its saved path.
+
+### Step 3d: Results
+
+After the command returns and its images are published:
+
+<!-- design:round-accounting -->
+1. Round accounting first: this round's images are exactly the published paths (never a
+   directory listing; older rounds stay on disk). Tell the user: "{saved} of {N} paid images
+   saved in ~{actual time}", listing every published path. A \`skipped\` check is missing
+   automated coverage, not a pass: say so.
+2. For any failures: report explicitly with the error. Do NOT silently skip. Rerun each
+   failed variant with \`retryable: true\` once, using its own operation and its brief read
+   from \`briefs.json\` as data:
+   \`_BRIEF=$(jq -r --arg v "<letter>" '.[($v | explode[0]) - 65].brief' "$_DESIGN_DIR/briefs.json")\`, then
+   \`"$D" generate --brief "$_BRIEF" --output "$_VARIANT_TMP/variant-<letter>.png"\`, or for a
+   screenshot entry \`"$D" evolve --screenshot "$_DESIGN_DIR/current.png" --brief "$_BRIEF" --output "$_VARIANT_TMP/variant-<letter>.png"\`.
+   Capture its JSON and exit code, then publish its \`outputPath\` with the claim helper.
+3. If zero variants succeeded: fall back to sequential generation, running \`$D generate\`
+   yourself one variant at a time into \`$_VARIANT_TMP\`, publishing each with the claim
+   helper and showing each as it lands. Tell the user: "Parallel generation failed (likely
+   rate limiting). Falling back to sequential..." If that also saves nothing, report the
+   failures and stop: no board.
+4. Read each published image inline (Read tool, the published paths) so the user sees all
+   variants at once.
+5. Proceed to Step 4 with each variant's pick (its last published path), in letter order,
+   as this round's board images.`;
+}
+
 export function generateDesignShotgunLoop(ctx: TemplateContext): string {
   if (ctx.skillName === 'design-consultation') return `### Comparison Board + Feedback Loop
 
@@ -1342,6 +1441,9 @@ After the response, read current feedback next to the board HTML:
 **SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline with Read, then AskUserQuestion: "The comparison board server failed to start. Which variant? Any changes?" Route chat feedback as above.
 
 **After receiving feedback (any path):** summarize PREFERRED, RATINGS, YOUR NOTES, DIRECTION; AskUserQuestion "Is this right?" A confirmed final choice permits Write of \`$_DESIGN_DIR/approved.json\` with \`approved_variant\`, \`approved_path\` (file name of that letter's entry in this board's \`board-images.json\`, never the directory listing), \`feedback\`, \`date\` (UTC), \`screen\` (the product page depicted by the chosen mockup), and \`branch\` (the current \`git branch --show-current\` result, empty if detached). Use valid JSON, never shell interpolation. This approves the image only; Q-final gates project writes.`;
+  const regenerate = ctx.host === 'codex' && ctx.skillName === 'design-shotgun'
+    ? 'Generate new variants with `$imagegen` as in Step 3c, using edit mode on the chosen variant for `more_like_<letter>` or remix, then publish and do round accounting as for the first round'
+    : 'Generate new variants with `$D iterate` or `$D variants` using updated brief (capture the JSON and do round accounting as for the first round)';
   return `### Comparison Board + Feedback Loop
 
 Create the comparison board and serve it over HTTP:
@@ -1404,7 +1506,7 @@ the approved variant.
 1. Read \`regenerateAction\` from the JSON (\`"different"\`, \`"match"\`, \`"more_like_B"\`,
    \`"remix"\`, or custom text)
 2. If \`regenerateAction\` is \`"remix"\`, read \`remixSpec\` (e.g. \`{"layout":"A","colors":"B"}\`)
-3. Generate new variants with \`$D iterate\` or \`$D variants\` using updated brief (capture the JSON and do round accounting as for the first round)
+3. ${regenerate}
 4. Rebuild with the board block above (it archives feedback.json and rewrites board-images.json), without \`--serve\`
 5. Reload the board in the user's browser (same tab) — the URL is per-board
    under daemon mode, so use \`<BOARD_URL>\` (from the \`BOARD_URL:\` stderr
