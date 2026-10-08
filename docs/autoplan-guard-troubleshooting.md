@@ -177,8 +177,14 @@ previous report.
 
 <a id="init-mismatch"></a>
 ### `init_mismatch`
-The snapshot init result or its artifacts (restore point, active plan header)
-do not match this invocation.
+Snapshot init returned paths that do not match the canonical form of its own
+command arguments, or its artifacts (restore point, active plan header) do not
+match this invocation. The guard canonicalizes the `<active>` and `<restore>`
+arguments the way `init` does (see
+[Symlinked plan directories](#symlinked-plan-directories)) before comparing, so
+a retargeted or forged init result is denied here. Zero results or duplicate
+results for one init use also deny as `init_mismatch`. Do not re-run the same
+call: run init with the paths the guard expects.
 
 <a id="snapshot"></a>
 ### `snapshot`
@@ -241,7 +247,10 @@ A new `/autoplan` turn needs its own init (it may answer `reused: true`).
 
 <a id="init-failed"></a>
 ### `init_failed`
-The init step failed. Complete it first.
+The most recent snapshot init call failed; re-run the same init command with
+the same three paths. An errored init is skipped, so a later successful init
+still binds. This denial applies when no init ever succeeded, or when an
+errored init follows a good one.
 
 <a id="init-unbindable"></a>
 ### `init_unbindable`
@@ -335,3 +344,18 @@ write it never changes a decision.
 Claude Code and Git Bash can spell one path as `C:\x`, `c:\x`, `C:/x` or `/c/x`.
 The guard treats these as the same path. It does not resolve `.` or `..`, so a
 path containing them is still rejected.
+
+<a id="symlinked-plan-directories"></a>
+## Symlinked plan directories (macOS /tmp, /var)
+
+The guard compares plan paths canonically, not by argv spelling. On macOS
+`/tmp` and `/var` are symlinks to `/private/tmp` and `/private/var`, so a plan
+under `/tmp` or `/var/folders` is expected to appear as `/private/...` in the
+init JSON. That is by design: `init` reports canonical paths (the deepest
+existing ancestor is resolved with `realpath` and the missing segments are
+re-joined, `canonicalDestination` in `bin/gstack-autoplan-snapshot.ts`), and
+the guard canonicalizes the init command's `<active>` and `<restore>` the same
+way. Writes and Edits to the active plan are matched by canonical path too, so
+editing the plan through an alias spelling is recognized. Symlinked plan
+directories are allowed; only a result that differs from the canonical form of
+its own arguments is denied (`init_mismatch`).
