@@ -7,7 +7,7 @@ Everything below has been verified end-to-end on a real iPhone 17 Pro Max runnin
 ## What you'll need
 
 - macOS with Xcode 16.0+ installed (`xcrun devicectl --version` must succeed). Xcode 16 ships the CoreDevice tunnel `devicectl` uses to reach the device over USB.
-- A real iPhone running iOS 16 or later. Unlocked, paired with your Mac, with **Developer Mode** enabled in Settings → Privacy & Security.
+- A real iPhone or iPad running iOS/iPadOS 16 or later (iPad Stage Manager and multi-window layouts are not device-verified yet). Unlocked, paired with your Mac, with **Developer Mode** enabled in Settings → Privacy & Security.
 - An Apple developer team — the free personal team works fine for live-device debug deploys. You'll need the team ID (e.g. `623FYQ2M88`), not the certificate ID. Find it in Xcode → Settings → Accounts → your Apple ID → team list. The setup signs the app for your device on first deploy via `-allowProvisioningUpdates -allowProvisioningDeviceRegistration`.
 - gstack installed (`./setup` complete; `gstack-ios-qa-regen` and `gstack-ios-qa-daemon` must be on PATH).
 - Bun runtime on PATH (`bun --version`). The Mac-side daemon is a bun process.
@@ -24,7 +24,7 @@ For the optional remote-agent (Tailscale) mode, you'll additionally need Tailsca
 └─────────────────┘                    └──────────────────────┘                     └─────────────────────┘
 ```
 
-- iOS app embeds a `StateServer` (`DebugBridge` SPM library, `#if DEBUG` only) listening on `::1` + `127.0.0.1` port 9999. Bearer-token gated. Boot token rotates within ~5 seconds of daemon spawn so anything scraping `os_log` past then sees a dead credential.
+- iOS app embeds a `StateServer` (`DebugBridge` SPM library, `#if DEBUG` only) listening on `::1` + `127.0.0.1` port 9999. Bearer-token gated. The one-use boot token lives in a 0600 file in the app's `tmp/` (never `os_log`); the daemon copies it out and rotates it within ~5 seconds, which deletes the file, so a later copy is a dead credential. If the app cannot write the file, it logs `NOT READY` and `/healthz` carries `boot_token_error`.
 - Mac daemon brokers traffic over the CoreDevice IPv6 tunnel that `xcrun devicectl` opens automatically when a paired device is connected.
 - In Tailscale mode, the daemon exposes a separate listener bound to your tailnet IP, with capability tiers (observe / interact / mutate / restore) enforced per session token. Tokens are minted explicitly by the Mac owner via `gstack-ios-qa-mint`; remote callers never auto-allowlist.
 
@@ -131,11 +131,18 @@ GSTACK_IOS_DAEMON_PORT=9099       # loopback listener port; default 9099
 ```
 
 If `GSTACK_IOS_TARGET_UDID` is unset, the daemon picks the best paired,
-available iPhone.
-Automatic selection is restricted to available iPhones and prefers a wired
-phone. The daemon keeps a healthy rotated tunnel, then invalidates and
-rebootstraps once on an app-relaunch 401 or recoverable CoreDevice connection
-failure.
+available iPhone or iPad, preferring a wired device. When two devices tie (an
+iPhone and an iPad both on USB), it refuses to guess: the bootstrap error lists
+each device with its UDID and prints a ready
+`export GSTACK_IOS_TARGET_UDID=<udid>` line.
+The daemon keeps a healthy rotated tunnel for its lifetime. When the CoreDevice
+route drops (`503 device_disconnected` / `504 upstream_timeout`), it re-resolves
+the tunnel address for the same UDID and probes the running app with the bearer
+it already holds, so the app keeps its state. It bootstraps again only when the
+app rejects that bearer (401, the app was relaunched), the app is not running
+(one normal launch), or a different device is now selected; the old bearer is
+never sent to another device. A tap or other mutation whose response was lost
+is never replayed.
 If a newly started daemon reaches an already-running target whose one-use boot
 token was consumed by an earlier daemon, it verifies the bundle owner, force
 relaunches that target once, waits for a fresh token, verifies ownership again,
@@ -222,6 +229,9 @@ Before you ship to TestFlight or the App Store, run `/ios-clean`. It removes the
 | First install on a paired device fails with no clear error | The phone needs to Trust the Mac. Open Settings → General → VPN & Device Management on the phone and confirm. |
 | `Developer Mode` toggle missing from Settings → Privacy | Connect the device to Xcode → Window → Devices and Simulators once, or try any `devicectl device install` against it. iOS will surface the toggle after the first attempt. |
 | `xcrun devicectl device copy from` returns ERROR 7000 | The source path is wrong — boot token lives at `tmp/gstack-ios-qa.token` inside the app's data container (NSTemporaryDirectory), not at the path's root. |
+| Bootstrap fails with `multiple_devices` | More than one iPhone/iPad is connected. Run the printed `export GSTACK_IOS_TARGET_UDID=<udid>` and restart the daemon. |
+| `boot_token_unavailable ... could not write tmp/gstack-ios-qa.token` | The app could not write its boot-token file. Fix the app's `tmp/` directory and relaunch the app. |
+| A SwiftUI `DragGesture` or `Canvas` ignores taps and swipes on iOS 26 | Synthesized in-process touches do not reach SwiftUI gesture recognizers on iOS 26, and `/swipe` only scrolls a `UIScrollView`. See "Known limits" in the `/ios-qa` skill for the input-routing workaround. |
 | `/healthz` returns 200 but `/tap` returns ok:true with no UI change | The phone is paired but the StateServer port may have changed across launches. Re-resolve the CoreDevice IPv6 (`dscacheutil -q host -a name '<DeviceName>.coredevice.local'`). |
 | `403 identity_not_allowed` from `/auth/mint` | The remote caller's identity isn't on the Mac's allowlist. Run `gstack-ios-qa-mint grant --remote <identity> --capability interact` on the Mac. |
 | Daemon won't open the tailnet listener | Tailscale isn't installed, or `/var/run/tailscale.sock` is unreadable. Fix Tailscale, then restart the daemon. Loopback still runs in the meantime. |

@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.37.0] - 2026-10-07
+## [1.91.44.0] - 2026-10-08
 
 **Your first /office-hours session gets the first-session closing again, and you see the design doc before you approve it.**
 
@@ -24,6 +24,48 @@ Run `/gstack-upgrade`, then start `/office-hours` on a new idea. Before the doc 
 - New tests in `test/gen-skill-docs.test.ts` run the rendered office-hours profile read, session log and design-doc check against a temporary state root. `test/timeline.test.ts` covers each bad `--limit` on empty and populated histories. `test/gstack-skill-start.test.ts` covers the `SESSIONS` count. The office-hours, plan-eng-review and autoplan parity caps include the measured growth.
 
 Contributed by @kikearciniegas (#2801), @kichinosukey (#879), @RyanAlberts (#1116), @walton-chris (#1049), @aviraldua93 (#1958), @jbetala7 (#1723, #1724), @TJ-NomoAI (#1651) and @0xDevNinja (#1747).
+
+## [1.91.38.0] - 2026-10-07
+
+**`/ios-qa` works on iPads, and a dropped USB route no longer restarts the app you are testing.**
+
+Three things went wrong on real devices. The daemon accepted only iPhones, so a paired iPad was refused with "not an iPhone" (#2743). Once a session was running, any blip in Xcode 26's CoreDevice tunnel made the daemon start over: the app had already deleted its one-use boot token, so the only way back in was `devicectl process launch --terminate-existing`, which threw away the app's in-memory QA state in the middle of a test flow (#1975). And if the app could not write that boot token in the first place, `StateServer` failed silently with `try?`, so the daemon kept relaunching an app that could never let it in (#1837).
+
+### The numbers that matter
+
+Measured with the simulated-device tests in `ios-qa/daemon/test/daemon-integration.test.ts` (a `devicectl` emulator plus a StateServer with the real token rules). Real iPhone and iPad runs have not been done for this release.
+
+| Check | Before | After |
+|---|---|---|
+| Paired iPad on USB, no target set | refused ("not an iPhone") | bootstraps |
+| iPhone and iPad both on USB, no target set | silently drives whichever devicectl listed first | stops and lists both UDIDs with a ready `export GSTACK_IOS_TARGET_UDID=...` line |
+| One route drop during a session | 1 `--terminate-existing` relaunch, in-app state lost | 0 relaunches, state kept, same bearer |
+| Three requests failing on the same drop | one bootstrap and one relaunch | one shared recovery, no relaunch |
+| App that cannot write its boot token | silent; daemon relaunches it once, then `boot_token_unavailable` with no cause | `NOT READY` in the device log; daemon names the cause and does not relaunch |
+
+### What this means for you
+
+Run `/gstack-upgrade`, then rerun `gstack-ios-qa-regen` in your app so the new `StateServer` lands in `DebugBridge/`. Plug in an iPad and run `/ios-qa`: it connects like an iPhone. With an iPhone and an iPad both plugged in, the daemon prints both UDIDs and the `export GSTACK_IOS_TARGET_UDID=<udid>` line to run. When the tunnel drops mid-session, the daemon log says `tunnel recovered: kept the session` and the app keeps its state. A restarted daemon still relaunches the app once, because a new daemon has no session bearer.
+
+### Itemized changes
+
+#### Fixed
+- **Physical iPads are accepted** (#2743). Device selection takes iPhones and iPads (platform iOS or iPadOS); errors say "iPhone or iPad". Watches, Vision Pro and other devices are still refused. Contributed by @loulanyue (#2779), reported by @Artic0din.
+- **Two devices are never guessed between.** When an iPhone and an iPad (or any two devices) tie for the default, bootstrap fails with `multiple_devices`, lists each device with its UDID, and prints the export line.
+- **A route drop keeps the session** (#1975, finding 1). On `503 device_disconnected` or `504 upstream_timeout` the daemon re-selects the device with the same rules, re-resolves the tunnel address for the same UDID, checks the unauthenticated `/healthz` owner, and probes `/state/snapshot` with the bearer it already holds. If the app accepts it, the session continues. It bootstraps only when the app rejects the bearer (401, the app was relaunched), the app is confirmed not running (one normal launch), or a different device is now selected. The bearer is only sent to the address `devicectl` reports for that UDID, or to the address the session already used, never to another device. Concurrent failures share one recovery, and a tap or other mutation whose response was lost is still never replayed. Diagnosis by @jpb33333 in #1975; @Bmathews721 traced the same rotate-then-rebootstrap failure in #1796.
+- **A failed boot-token write is loud** (#1837). `StateServer.start()` writes the 0600 token file in a `do`/`catch`, logs the path and error (never the token), logs `gstack-ios-qa-bootstrap NOT READY`, and reports `boot_token_error` on `/healthz`. The daemon turns that into `boot_token_unavailable` with the cause instead of relaunching the app. Reported by @aweevenson-sea.
+
+#### Docs
+- `/ios-qa` no longer tells you to capture the boot token from `os_log`; the token left `os_log` in v1.65.0.0. The stale comments in `StateServer` are gone too (#1837, #1735 item 7).
+- Source-control guidance for the generated `DebugBridge/` package: commit it or ignore it, never hand-edit it (#1735 item 7, reported by @frank-alvarado).
+- A new "Known limits" section: in-process synthesized touches do not reach SwiftUI `DragGesture` on iOS 26 and `/swipe` only scrolls a `UIScrollView` (#1975 findings 2 and 3, @jpb33333); on iOS 26.3.1 `/elements` returns only the hosting views (device data from @sternryan in #1755); iPad Stage Manager is not verified.
+- The iOS how-to, README and skill index cover iPads, `GSTACK_IOS_TARGET_UDID`, and the new failure rows.
+
+#### For contributors
+- `selectDevice()` and `recoverTunnel()` in `ios-qa/daemon/src/tunnel-bootstrap.ts`; `refreshTunnel` in `startDaemon()` coalesces refreshes per failed tunnel. The CLI wiring is `deviceTunnelSource()` in `ios-qa/daemon/src/index.ts`, so tests drive exactly what the daemon runs.
+- `ios-qa/daemon/test/fake-device.ts` simulates a device: a `devicectl` emulator plus a StateServer with the one-use token file, rotation, relaunch and black-holed requests.
+- Pinned by `ios-qa/daemon/test/daemon-integration.test.ts` (live route drop, lost tap, concurrent drops, stopped app, Xcode relaunch, device change), `ios-qa/daemon/test/tunnel-bootstrap.test.ts` (iPad, Watch, multiple devices, recovery address and owner rules, token-write error) and `test/ios-qa-stateserver-hardening.test.ts` (no silent `try?` write, no os_log claim) on both the template and the fixture copy.
+- Not verified here: Swift compilation of the changed `StateServer` (only `swiftc -parse` ran; no Apple SDK), and any iPhone or iPad run.
 
 ## [1.91.36.0] - 2026-10-07
 
