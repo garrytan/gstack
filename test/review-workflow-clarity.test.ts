@@ -7,7 +7,7 @@ import { generatePlanCompletionAuditReview, generatePlanCompletionAuditShip, gen
 import { generateQAReview } from '../scripts/resolvers/qa';
 import { generateConfidenceCalibration } from '../scripts/resolvers/confidence';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
-import { between, compact, expectMentions, expectTokens } from './helpers/prompt-structure';
+import { between, compact, expectAbsent, expectMentions, expectTokens } from './helpers/prompt-structure';
 
 const root = join(import.meta.dir, '..');
 const skill = readFileSync(join(root, 'review/SKILL.md.tmpl'), 'utf8');
@@ -486,4 +486,11 @@ test('security specialist checks authorization paths a route-guard read misses',
     ['list', 'detail', 'download', 'separately'],
     ['session', 'before', 'validating', 'callback'],
   ], 'security specialist');
+});
+
+test('review suppressions allow a clean result and skip common false positives but never suppress missing validation or a missing await', () => {
+  const suppressions = between(readFileSync(join(root, 'review/checklist.md'), 'utf8'), '## Suppressions');
+  expectMentions(compact(suppressions), [['zero findings', 'valid']], 'suppressions');
+  expectTokens(suppressions, ['"Function too long"', '"Possible null dereference"', '"N+1 query"', '"Hardcoded value"', '`Math.random()`'], 'suppressions');
+  expectAbsent(suppressions, [/missing input validation/i, /missing await/i], 'suppressions');
 });

@@ -172,6 +172,8 @@ the fix, it's ASK.
 
 ## Suppressions — DO NOT flag these
 
+Zero findings is a valid outcome. Flag only what a senior engineer on this team would change in review; if the diff is clean, say so.
+
 - "X is redundant with Y" when the redundancy is harmless and aids readability (e.g., `present?` redundant with `length > 20`)
 - "Add a comment explaining why this threshold/constant was chosen" — thresholds change during tuning, comments rot
 - "This assertion could be tighter" when the assertion already covers the behavior
@@ -181,4 +183,10 @@ the fix, it's ASK.
 - Eval threshold changes (max_actionable, min scores) — these are tuned empirically and change constantly
 - Harmless no-ops (e.g., `.reject` on an element that's never in the array)
 - ANYTHING already addressed in the diff you're reviewing — read the FULL diff before commenting
+- "Consider adding error handling" on a call whose errors the caller or framework already owns (error middleware, an error boundary, a top-level try/catch, an upstream `.catch`)
+- "Function too long" for an exhaustive `switch`, a config object, a test table or generated code — length is not complexity
+- "Possible null dereference" when a type guard or `if` check in scope already narrows the value — trace the type flow
+- "N+1 query" on a loop with a small fixed cardinality, or on a path that is already batched
+- "Hardcoded value" in test fixtures, example code or docs — tests are supposed to hardcode their expectations
+- `Math.random()` in a non-cryptographic context (jitter, sampling, animation) — security-sensitive randomness is still flagged
 - A gap covered by a `gstack-shortcut(dec-*)` marker naming a ceiling and upgrade trigger — that is acknowledged debt with a ledger entry, not a Completeness Gaps finding. **Verify before honoring:** resolve the id with `~/.claude/skills/gstack/bin/gstack-decision-search --query "<dec-id>"` — a marker whose decision id has no ledger entry is UNVERIFIED (any diff author can type a marker); report the gap normally and flag the orphan marker itself
