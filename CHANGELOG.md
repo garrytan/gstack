@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.55.0] - 2026-10-08
+## [1.91.58.0] - 2026-10-08
 
 **A gstack install carries skills only for the agents you installed: a global Claude install drops from 632 SKILL.md files (34.7 MB) to 63 (2.5 MB).**
 **Codex and the other non-Claude agents get every file their skills read, instead of failing those reads silently.**
@@ -35,12 +35,12 @@ Run `/gstack-upgrade` (or `git pull && ./setup`). The first setup prints one `pr
 - README and `docs/troubleshooting.md` explain the record, the prune and its backup, and how to get an agent back. `docs/ADDING_A_HOST.md` documents the render contract and the new host checklist step. setup's Hermes, OpenClaw and GBrain hints say to add the agent to the record before rendering it by hand.
 
 #### For contributors
-- `bin/gstack-host-renders.sh` owns the record, the build's host selection and the prune; `scripts/build.sh`, setup, `bin/dev-setup` and `gstack-upgrade/migrations/v1.91.55.0.sh` source it. `bin/dev-setup` records Codex because it serves the repo's `.agents/`. `hosts/define-host.ts`' `sharedRuntimeRoot()` mirrors setup's new `_link_runtime_dists` list and `_copy_runtime_skill_refs`.
+- `bin/gstack-host-renders.sh` owns the record, the build's host selection and the prune; `scripts/build.sh`, setup, `bin/dev-setup` and `gstack-upgrade/migrations/v1.91.58.0.sh` source it. `bin/dev-setup` records Codex because it serves the repo's `.agents/`. `hosts/define-host.ts`' `sharedRuntimeRoot()` mirrors setup's new `_link_runtime_dists` list and `_copy_runtime_skill_refs`.
 - New tests: `test/runtime-root-assets.test.ts` builds each runtime root with setup's own functions and checks every `$GSTACK_ROOT` literal in that agent's render on disk (it fails on the previous setup for all five roots); `test/host-renders.test.ts` (record, build selection, sequential installs, the upgrade refresh path); `test/host-renders-prune.test.ts` (a real all-agent render with a customized file, a user file, a look-alike skill and links; two installs on one state root; link-based seeding; the migration).
 - Not verified: Cursor-agent and Claude Code were not re-run against the trimmed tree; the numbers are on-disk counts. The Windows copy-install paths are covered by stubbed tests only.
 - Thanks to @vschoener for reporting #1694 and for the first fix attempt in #1695, @skyzer for the relocation approach in #1819 (both closed in favor of this one), @Saisreenivas for the Cursor-agent freeze report, and @el-analista for #1077.
 
-## [1.91.53.0] - 2026-10-08
+## [1.91.57.0] - 2026-10-08
 
 **Windows setup finishes when the optional /cso helper fails to build, and it tells you when Smart App Control blocks gstack's binaries.**
 
@@ -82,6 +82,31 @@ Run `/gstack-upgrade` (or `git pull && ./setup`), then run `~/.claude/skills/gst
 - `windows-setup-e2e` checks that all five binaries answer `--version`, and adds two forced CSO failures: fatal under `GSTACK_STRICT_BUILD=1`, and a completed setup with a doctor `cso` warning under `GSTACK_STRICT_BUILD=0`.
 - Deliberately not done: a `bun run` shim for blocked binaries. PowerShell callers could not use it, and it would load the calling project's `.env` and `bunfig.toml`.
 - Thanks to @dviolante for the #3071 report and its diagnosis, including the PowerShell 5.1 crash and the `pwsh` fix. Thanks to @tomfluff for the font fix (#2287, landed with original authorship). The Smart App Control diagnosis came from @knetics9000 (#2595, #2596), @smartjelic-sys (#2595), @pstilwell90 (#2124), @cko32002 (#2265) and @salluexez (#2127).
+
+## [1.91.54.0] - 2026-10-08
+
+**Your first /office-hours session gets the first-session closing again, and you see the design doc before you approve it.**
+
+/office-hours logged the session to your builder profile and then read the profile to choose its closing, so every run counted itself as history. A first-time user got the "welcome back" closing, never saw the introduction, and was asked how the assignment they had just been given went. Every later tier was one session early too. Separately, the approval question showed up while the design doc sat in a collapsed tool output, and a session that never wrote a doc could still be logged as a success.
+
+### What this means for you
+
+Run `/gstack-upgrade`, then start `/office-hours` on a new idea. Before the doc is saved you'll see a `Builder profile before this session:` line. On a first session it says `SESSION_TIER=introduction PRIOR_SESSION_COUNT=0`, and the closing is the introduction. `gstack-timeline-read --limit 1abc` now exits 2 and shows an example instead of quietly reading one event.
+
+### Itemized changes
+
+#### Fixed
+- /office-hours reads your builder profile before it logs the session and carries the earlier tier, count and last assignment to the closing. This session is counted as the prior count plus one. If the profile can't be read, it treats the session as your first and tells you so. A returning greeting skips "last time" when the profile has no last assignment or project, and just says "Welcome back." (#2801)
+- /office-hours prints the complete design doc in the conversation before asking you to approve it. (#879)
+- /office-hours logs `success` only when this run's own design doc exists and isn't empty. It checks the doc's exact path under your gstack state root. A session that ends without a doc is logged as `abort` or `error` with failed step `design_doc`. (#1049)
+- `/plan-ceo-review`, `/plan-eng-review`, `/plan-devex-review` and `/autoplan` skip the "run /office-hours first?" offer in spawned and headless sessions, where nobody can answer it, and continue with the standard review. (#1958)
+- `gstack-timeline-read --limit` takes only a positive integer. A missing value, `0`, `-5`, `abc` or `1abc` exits 2 with `--limit must be a positive integer (got '<value>'); example: --limit 20`, whether or not the project has a timeline. Without the flag you still get 20 events. (#1723)
+- Skill start prints `SESSIONS: N`, the number of gstack sessions active in the last two hours, so CLAUDE.md rules that read the session count have a value. (#1651, part A)
+
+#### For contributors
+- New tests in `test/gen-skill-docs.test.ts` run the rendered office-hours profile read, session log and design-doc check against a temporary state root. `test/timeline.test.ts` covers each bad `--limit` on empty and populated histories. `test/gstack-skill-start.test.ts` covers the `SESSIONS` count. The office-hours, plan-eng-review and autoplan parity caps include the measured growth.
+
+Contributed by @kikearciniegas (#2801), @kichinosukey (#879), @RyanAlberts (#1116), @walton-chris (#1049), @aviraldua93 (#1958), @jbetala7 (#1723, #1724), @TJ-NomoAI (#1651) and @0xDevNinja (#1747).
 
 ## [1.91.52.0] - 2026-10-08
 

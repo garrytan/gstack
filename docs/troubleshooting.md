@@ -779,7 +779,7 @@ add its name to `.gstack-installed-hosts` first, then run
 `bun run gen:skill-docs --host <name>`. To restore one file, `mv` it back from
 the backup. A `kept` file is yours: move or delete it when you no longer need it.
 The backup sits in gstack's state root, which no agent scans; delete it once
-you are sure you don't need it (about 36 MB for a pre-1.91.55 Claude install).
+you are sure you don't need it (about 36 MB for a pre-1.91.58 Claude install).
 
 **Expected result.** The next `./setup` prints no `pruned` line, and
 `./setup --status` lists the agents you use.

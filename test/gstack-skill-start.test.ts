@@ -204,6 +204,24 @@ describe('gstack-skill-start behavior', () => {
     expect(fs.existsSync(path.join(tmpGstackHome, 'sessions', '424242'))).toBe(true);
   });
 
+  test('echoes SESSIONS: the count of live session markers, this one included (#1651)', () => {
+    const state = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-sessions-'));
+    fs.writeFileSync(path.join(state, 'config.yaml'), 'update_check: false\n');
+    try {
+      const sessions = path.join(state, 'sessions');
+      fs.mkdirSync(sessions);
+      fs.writeFileSync(path.join(sessions, '111'), '');
+      fs.writeFileSync(path.join(sessions, 'stale'), '');
+      const threeHoursAgo = new Date(Date.now() - 3 * 3600_000);
+      fs.utimesSync(path.join(sessions, 'stale'), threeHoursAgo, threeHoursAgo);
+      const out = runStart(['--parent-pid', '222'], { GSTACK_HOME: state });
+      expect(out).toMatch(/^SESSIONS: 2$/m);
+      expect(fs.readdirSync(sessions).sort()).toEqual(['111', '222']);
+    } finally {
+      fs.rmSync(state, { recursive: true, force: true });
+    }
+  });
+
   test('without --parent-pid the script derives the harness pid past tool-call shells (#2763)', () => {
     // Claude Code runs each Bash call in a fresh `bash -c`; the session must be
     // the harness (here: this bun process), not that per-call shell, even
