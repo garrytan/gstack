@@ -12,6 +12,7 @@
 import type { TemplateContext } from './types';
 import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
 import { learningsCapture, LEARNINGS_VERDICT } from './learnings';
+import { DEFENSIVE_REVIEW_FRAMING, FIXTURE_SUMMARY_MODE } from './defensive-review';
 
 function generateSpecialistSelection(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
@@ -107,7 +108,12 @@ ${LEARNINGS_VERDICT}
 
 If learnings are found, include them: "Past learnings for this domain: {learnings}"
 
-4. Instructions:
+4. **Defensive framing (Security specialist and the Red Team below only).** Begin the prompt with:
+"${DEFENSIVE_REVIEW_FRAMING}"
+and replace its full-diff command with: "${FIXTURE_SUMMARY_MODE}"
+Every other specialist, including Testing, reads the full diff with fixtures.
+
+5. Instructions:
 
 "You are a specialist code reviewer. Read the checklist at {checklist path}, then run
 \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\` to get the full diff. Apply the checklist against the diff.
@@ -269,9 +275,9 @@ The Red Team subagent receives:
 2. The merged specialist findings from Step ${stepMerge}, one line each (so it knows what was already caught)
 3. The git diff command
 
-Prompt: "You are a red team reviewer. The code has already been reviewed by N specialists
+Prompt, after the defensive framing and fixture handling from item 4 of the specialist dispatch: "You are a red team reviewer. The code has already been reviewed by N specialists
 who found the following issues: {merged findings summary}. Your job is to find what they
-MISSED. Read the checklist at {red-team checklist path}, run \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\`, and look for gaps.
+MISSED. Read the checklist at {red-team checklist path}, list changed files with \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff --name-status "$DIFF_BASE"\`, read them as that fixture handling says, and look for gaps.
 Output findings as JSON objects (same schema as the specialists). Focus on cross-cutting
 concerns, integration boundary issues, and failure modes that specialist checklists
 don't cover."
