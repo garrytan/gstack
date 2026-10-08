@@ -92,6 +92,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# artifacts_sync_removals: off  # on | off — on: each sync also publishes the
+#                           #   removal of synced files gone from disk; more than
+#                           #   20 at once is held for gstack-brain-sync
+#                           #   --publish-removals. See docs/gbrain-sync.md.
+#
 # ─── Transcript ingest (gbrain memory) ───────────────────────────────
 # transcript_ingest_mode: off  # recent | all | off | new@<UTC> — consent for
 #                           #   /sync-gbrain to ingest Claude Code and Codex
@@ -252,6 +257,7 @@ lookup_default() {
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
+    artifacts_sync_removals) echo "off" ;; # on | off — publish removals of synced files gone from disk
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
     timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
 
@@ -665,6 +671,10 @@ case "${1:-}" in
       echo "Warning: artifacts_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
       VALUE="off"
     fi
+    if [ "$KEY" = "artifacts_sync_removals" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Warning: artifacts_sync_removals '$VALUE' not recognized. Valid values: on, off. Using off." >&2
+      VALUE="off"
+    fi
     # redact_repo_visibility: a LOCAL override for repos gh/glab can't read (e.g.
     # self-hosted GitLab). It lives in ~/.gstack/config.yaml (never committed), so
     # it can't be used to weaken the gate repo-wide for other contributors.
@@ -925,7 +935,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
@@ -950,7 +960,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
