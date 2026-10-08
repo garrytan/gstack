@@ -521,6 +521,8 @@ export function commandTimeoutMs(
     Math.min(phase === 'preparation' ? PREPARATION_COMMAND_TIMEOUT_MS : COMMAND_TIMEOUT_MS, deadline - now),
   );
 }
+/** Raw output is never printed or persisted, so a caller may opt in to more than MAX_OUTPUT (snapshot path listings). */
+const RAW_OUTPUT_LIMIT = 16 * 1024 * 1024;
 export async function runProcess(
   file: string,
   args: string[],
@@ -546,7 +548,7 @@ export async function runProcess(
     throw new CsoError('INVALID_ARGUMENT', 'Invalid child argument');
   const hardened = hardenGit(file, args);
   args = hardened.args;
-  const cap = Math.min(opts.maxBytes ?? MAX_OUTPUT, MAX_OUTPUT);
+  const cap = Math.min(opts.maxBytes ?? MAX_OUTPUT, opts.raw ? RAW_OUTPUT_LIMIT : MAX_OUTPUT);
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, {
       cwd: opts.cwd,
@@ -640,12 +642,13 @@ export async function runProcess(
     child.stdin.end(opts.input);
   });
 }
-export async function git(repo: string, args: string[], home: string): Promise<string> {
+export async function git(repo: string, args: string[], home: string, maxBytes?: number): Promise<string> {
   const result = await runProcess(executable('git'), ['--no-optional-locks', '-C', repo, ...args], {
     cwd: home,
     env: childEnvironment(home),
     raw: true,
     timeoutMs: 15_000,
+    maxBytes,
   });
   if (result.code || result.timedOut || result.truncated) {
     // Git stderr and argv can contain repository paths, refs, and configured

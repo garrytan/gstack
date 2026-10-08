@@ -6,8 +6,8 @@
 //
 // Threat model: this surface is reachable from the local Mac via the CoreDevice
 // IPv6 tunnel. It MUST refuse any caller without a current bearer token. The
-// boot token is rotated within ~5 seconds of daemon spawn so anything scraping
-// os_log past that window sees a dead credential.
+// boot token is rotated within ~5 seconds of daemon spawn, and rotation deletes
+// its file, so a copy taken past that window is a dead credential.
 
 import Foundation
 import Network
@@ -34,9 +34,11 @@ public final class StateServer {
     private var ipv6Listener: NWListener?
     private var ipv4Listener: NWListener?
 
-    // Auth state. The boot token is what we wrote to os_log on first launch.
-    // It exists ONLY long enough for the daemon to call /auth/rotate.
+    // Auth state. The boot token is written to a 0600 file in tmp/ on launch
+    // (never to os_log). It exists ONLY long enough for the daemon to call
+    // /auth/rotate. A failed write is kept here and reported on /healthz.
     private var bootToken: String
+    private var bootTokenWriteError: String?
     private var rotatedToken: String?  // set after first /auth/rotate
     private var bootTokenValid: Bool = true
 
@@ -92,17 +94,28 @@ public final class StateServer {
     }
 
     public func start() {
-        // 1. Persist boot token to a 0600 file (best-effort fallback for the
-        //    daemon if os_log scrape misses).
-        try? bootToken.write(toFile: bootTokenPath, atomically: true, encoding: .utf8)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: bootTokenPath)
+        // 1. Persist the boot token to a 0600 file. This is the ONLY way the
+        //    daemon can authenticate (devicectl copies it out of tmp/), so a
+        //    failed write is an error, not a silent skip.
+        let tokenFile = bootTokenPath
+        do {
+            try bootToken.write(toFile: tokenFile, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenFile)
+        } catch {
+            bootTokenWriteError = error.localizedDescription
+            logger.error("Boot token file write failed at \(tokenFile, privacy: .public): \(error.localizedDescription, privacy: .public). No daemon can authenticate until the app relaunches with a writable tmp/.")
+        }
 
         // 2. Announce bootstrap WITHOUT the token. The daemon reads the boot
         //    token from the 0600 file above (copyFileFromAppContainer); the
         //    os_log line that used to carry it had no consumer and handed a
         //    live credential to anything reading the unified log during the
         //    launch window. Port/build stay for diagnostics.
-        logger.notice("gstack-ios-qa-bootstrap port=\(self.port, privacy: .public) build=\(self.appBuildId, privacy: .public)")
+        if let failure = bootTokenWriteError {
+            logger.error("gstack-ios-qa-bootstrap NOT READY port=\(self.port, privacy: .public): boot token file unwritable (\(failure, privacy: .public))")
+        } else {
+            logger.notice("gstack-ios-qa-bootstrap port=\(self.port, privacy: .public) build=\(self.appBuildId, privacy: .public)")
+        }
 
         // 3. Bind both IPv6 and IPv4 loopback. CoreDevice tunnel uses IPv6;
         //    local tooling may use IPv4. Never bind 0.0.0.0 or ::.
@@ -296,12 +309,14 @@ public final class StateServer {
 
         // 1. Public on loopback: /healthz.
         if request.method == "GET" && path == "/healthz" {
-            send(connection: connection, status: 200, body: [
+            var health: JSONDict = [
                 "version": "1.0.0",
                 "build": appBuildId,
                 "accessor_hash": accessorHash,
                 "bundle_id": Bundle.main.bundleIdentifier ?? "unknown",
-            ])
+            ]
+            if let failure = bootTokenWriteError { health["boot_token_error"] = failure }
+            send(connection: connection, status: 200, body: health)
             return
         }
 

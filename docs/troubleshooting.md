@@ -704,6 +704,24 @@ Linux) with a local Docker socket. On Windows, static assessment is the
 supported mode; if the refusal named a user directory, install Docker Desktop
 under Program Files.
 
+<a id="cso-capacity"></a>
+### `Snapshot manifest cap exceeded: ...` / `64 MiB source cap exceeded: ...` / `Symlink or special source file: <path>`
+
+**Meaning.** /cso copies the repository into a private snapshot before any
+audit starts, and refuses the whole run when the snapshot would be incomplete
+or too large. Each message names the cap that applied:
+
+- **Snapshot manifest cap (16 MiB).** One entry per tracked or nonignored
+  untracked file; about 50,000 files fit.
+- **64 MiB source cap.** The full size of every such file outside dependency
+  and VCS directories counts, including files over 1 MiB whose contents are
+  withheld from the audit.
+- **Symlinks.** A tracked symlink anywhere in the repository stops the run.
+
+**Fix.** No setting raises these caps. Run /cso on a smaller checkout that
+holds the code you want audited and no symlinks. Add your file count or size to
+[#2993](https://github.com/garrytan/gstack/issues/2993).
+
 <a id="conductor-auq-hook-removed"></a>
 ### `removed the AskUserQuestion preference hook: it breaks Conductor's native AskUserQuestion (#2207). ...`
 
