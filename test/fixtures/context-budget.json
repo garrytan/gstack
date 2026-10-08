@@ -1,6 +1,6 @@
 {
   "_comment": "Context-budget ratchet ceilings (~tokens). Regenerate: bun test/helpers/capture-context-budget.ts. Headroom: alwaysOnTotal x1.05, eagerPerInvocation x1.1. Graded by test/context-budget-ratchet.test.ts via lib/context-bill.ts checkBudget.",
-  "alwaysOnTotal": 6892,
+  "alwaysOnTotal": 7273,
   "eagerPerInvocation": {
     "autoplan": 16511,
     "benchmark": 7701,
@@ -8,7 +8,7 @@
     "browse": 8166,
     "browser-skills/hackernews-frontpage": 371,
     "canary": 13356,
-    "careful": 976,
+    "careful": 1328,
     "codex": 15204,
     "context-restore": 10531,
     "context-save": 10376,
@@ -25,7 +25,7 @@
     "freeze": 1073,
     "gstack": 4151,
     "gstack-upgrade": 5793,
-    "guard": 963,
+    "guard": 1082,
     "health": 11408,
     "investigate": 12130,
     "ios-clean": 8167,

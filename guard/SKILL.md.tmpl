@@ -22,6 +22,11 @@ hooks:
         - type: command
           command: 'bash -c "exec bash \"$HOME/.claude/skills/gstack/careful/bin/check-careful.sh\""'
           statusMessage: "Checking for destructive commands..."
+    - matcher: "PowerShell"
+      hooks:
+        - type: command
+          command: 'bash -c "exec bash \"$HOME/.claude/skills/gstack/careful/bin/check-careful.sh\""'
+          statusMessage: "Checking for destructive commands..."
     - matcher: "Edit"
       hooks:
         - type: command

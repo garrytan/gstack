@@ -32,6 +32,54 @@ sys.stdout.write(c if isinstance(c, str) else "")' "$_ghef_field" 2>/dev/null &&
   return 1
 }
 
+# gstack_hook_extract_tool PAYLOAD FIELD [FIELD...]
+#   One parser call that reads the top-level tool_name together with the first
+#   non-empty string among tool_input.FIELD..., so tool dispatch costs no
+#   extra fork on the per-command hot path. Sets three globals (stdout stays
+#   the hook's decision channel):
+#     GSTACK_HOOK_TOOL   tool_name ("" when absent or non-string)
+#     GSTACK_HOOK_FIELD  the FIELD that supplied the value ("" when none did)
+#     GSTACK_HOOK_VALUE  that field's string value, trailing newlines dropped
+#                        (the same shape $(gstack_hook_extract_field ...) gave)
+#   Returns 1 when no parser is available or the payload is not parseable
+#   JSON; the caller decides the polarity, exactly as for the field extractor.
+#   Payload shapes (Claude Code hooks reference, PreToolUse input): Bash and
+#   PowerShell carry tool_input.command; Edit and Write carry file_path;
+#   NotebookEdit carries notebook_path.
+GSTACK_HOOK_TOOL=""
+GSTACK_HOOK_FIELD=""
+GSTACK_HOOK_VALUE=""
+gstack_hook_extract_tool() {
+  _ghet_payload="$1"
+  shift
+  _ghet_out=""
+  _ghet_ok=1
+  if command -v python3 >/dev/null 2>&1; then
+    _ghet_out=$(printf '%s' "$_ghet_payload" | python3 -c 'import sys,json
+d = json.loads(sys.stdin.read())
+t = d.get("tool_name", "") if isinstance(d, dict) else ""
+i = d.get("tool_input", {}) if isinstance(d, dict) else {}
+i = i if isinstance(i, dict) else {}
+f = v = ""
+for k in sys.argv[1:]:
+    c = i.get(k, "")
+    if isinstance(c, str) and c:
+        f, v = k, c
+        break
+sys.stdout.write((t if isinstance(t, str) else "").replace("\n", " ") + "\n" + f + "\n" + v.rstrip("\n") + ".")' "$@" 2>/dev/null) && _ghet_ok=0
+  fi
+  if [ "$_ghet_ok" -ne 0 ] && command -v node >/dev/null 2>&1; then
+    _ghet_out=$(printf '%s' "$_ghet_payload" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch(e){process.exit(3)}const o=j&&typeof j==="object"?j:{};const t=typeof o.tool_name==="string"?o.tool_name:"";const i=o.tool_input&&typeof o.tool_input==="object"?o.tool_input:{};let f="",v="";for(const k of process.argv.slice(1)){const c=i[k];if(typeof c==="string"&&c){f=k;v=c;break}}process.stdout.write(t.replace(/\n/g," ")+"\n"+f+"\n"+v.replace(/\n+$/,"")+".")})' "$@" 2>/dev/null) && _ghet_ok=0
+  fi
+  [ "$_ghet_ok" -eq 0 ] || return 1
+  _ghet_out="${_ghet_out%.}"
+  GSTACK_HOOK_TOOL="${_ghet_out%%$'\n'*}"
+  _ghet_out="${_ghet_out#*$'\n'}"
+  GSTACK_HOOK_FIELD="${_ghet_out%%$'\n'*}"
+  GSTACK_HOOK_VALUE="${_ghet_out#*$'\n'}"
+  return 0
+}
+
 # Windows bash (Git Bash / MSYS / Cygwin), read from bash's own OSTYPE so the
 # check never costs a fork: careful sources this file on every Bash call.
 case "${OSTYPE:-}" in
