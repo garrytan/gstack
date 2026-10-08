@@ -17,7 +17,7 @@ import { canonicalRemote } from "../lib/remote-identity";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type CodexOriginator = "desktop" | "exec" | "claude_code" | "other";
+type CodexOriginator = "cli" | "desktop" | "exec" | "claude_code" | "other";
 type CodexOriginatorCounts = Record<CodexOriginator, number>;
 
 interface Session {
@@ -288,12 +288,14 @@ export function extractCwdFromJsonl(filePath: string): string | null {
   return null;
 }
 
-// Separates interactive Codex Desktop work from codex exec runs and Claude
-// Code-driven calls. Missing, unknown and non-string values count as "other",
+// Separates interactive Codex CLI and Desktop work from codex exec runs and
+// Claude Code-driven calls. The interactive CLI's default originator is
+// codex_cli_rs. Missing, unknown and non-string values count as "other",
 // so the buckets always sum to the Codex session total.
 function normalizeCodexOriginator(raw: unknown): CodexOriginator {
   if (typeof raw !== "string") return "other";
   const value = raw.trim().toLowerCase();
+  if (value === "codex_cli_rs") return "cli";
   if (value === "codex desktop" || value === "codex_desktop") return "desktop";
   if (value === "codex_exec" || value === "codex exec") return "exec";
   if (value === "claude code" || value === "claude_code") return "claude_code";
@@ -301,7 +303,7 @@ function normalizeCodexOriginator(raw: unknown): CodexOriginator {
 }
 
 function countCodexOriginators(sessions: Session[]): CodexOriginatorCounts {
-  const counts: CodexOriginatorCounts = { desktop: 0, exec: 0, claude_code: 0, other: 0 };
+  const counts: CodexOriginatorCounts = { cli: 0, desktop: 0, exec: 0, claude_code: 0, other: 0 };
   for (const s of sessions) {
     if (s.tool === "codex") counts[s.codexOriginator ?? "other"]++;
   }
@@ -309,7 +311,7 @@ function countCodexOriginators(sessions: Session[]): CodexOriginatorCounts {
 }
 
 function formatCodexOriginators(o: CodexOriginatorCounts): string {
-  return `desktop=${o.desktop}, exec=${o.exec}, claude_code=${o.claude_code}, other=${o.other}`;
+  return `cli=${o.cli}, desktop=${o.desktop}, exec=${o.exec}, claude_code=${o.claude_code}, other=${o.other}`;
 }
 
 function scanCodex(since: Date): Session[] {

@@ -333,24 +333,29 @@ describe("gstack-global-discover", () => {
 
     const originators = () => JSON.parse(discover()).tools.codex.originators;
 
+    test("the interactive Codex CLI (codex_cli_rs) goes to cli", () => {
+      writeCodex("codex_cli_rs");
+      expect(originators()).toEqual({ cli: 1, desktop: 0, exec: 0, claude_code: 0, other: 0 });
+    });
+
     test("Codex Desktop goes to desktop", () => {
       writeCodex("Codex Desktop");
-      expect(originators()).toEqual({ desktop: 1, exec: 0, claude_code: 0, other: 0 });
+      expect(originators()).toEqual({ cli: 0, desktop: 1, exec: 0, claude_code: 0, other: 0 });
     });
 
     test("codex_exec goes to exec", () => {
       writeCodex("codex_exec");
-      expect(originators()).toEqual({ desktop: 0, exec: 1, claude_code: 0, other: 0 });
+      expect(originators()).toEqual({ cli: 0, desktop: 0, exec: 1, claude_code: 0, other: 0 });
     });
 
     test("Claude Code goes to claude_code", () => {
       writeCodex("Claude Code");
-      expect(originators()).toEqual({ desktop: 0, exec: 0, claude_code: 1, other: 0 });
+      expect(originators()).toEqual({ cli: 0, desktop: 0, exec: 0, claude_code: 1, other: 0 });
     });
 
     test("surrounding whitespace and case are ignored", () => {
       writeCodex("  CODEX DESKTOP  ");
-      expect(originators()).toEqual({ desktop: 1, exec: 0, claude_code: 0, other: 0 });
+      expect(originators()).toEqual({ cli: 0, desktop: 1, exec: 0, claude_code: 0, other: 0 });
     });
 
     test("missing, null, numeric and unknown originators go to other", () => {
@@ -360,7 +365,7 @@ describe("gstack-global-discover", () => {
       writeCodex("future-agent");
       const json = JSON.parse(discover());
       expect(json.tools.codex.total_sessions).toBe(4);
-      expect(json.tools.codex.originators).toEqual({ desktop: 0, exec: 0, claude_code: 0, other: 4 });
+      expect(json.tools.codex.originators).toEqual({ cli: 0, desktop: 0, exec: 0, claude_code: 0, other: 4 });
     });
 
     test("per-repo and global buckets sum to the codex total and print in the summary", () => {
@@ -374,9 +379,9 @@ describe("gstack-global-discover", () => {
       expect(json.tools.codex.total_sessions).toBe(5);
       expect(sum(json.tools.codex.originators)).toBe(5);
       const repo = json.repos.find((r: { paths: string[] }) => r.paths.includes(repoDir));
-      expect(repo.codex_originators).toEqual({ desktop: 1, exec: 2, claude_code: 1, other: 1 });
+      expect(repo.codex_originators).toEqual({ cli: 0, desktop: 1, exec: 2, claude_code: 1, other: 1 });
       expect(sum(repo.codex_originators)).toBe(repo.sessions.codex);
-      expect(discover("summary")).toContain("Codex originators: desktop=1, exec=2, claude_code=1, other=1");
+      expect(discover("summary")).toContain("Codex originators: cli=0, desktop=1, exec=2, claude_code=1, other=1");
     });
   });
 
