@@ -814,7 +814,7 @@ export function writeJsonExclusive(path: string, value: unknown): void {
     throw new CsoError('PERSISTENCE_FAILED', 'Private immutable artifact could not be written');
   }
 }
-function readPrivateJson(path: string): unknown {
+function readPrivateJson(path: string, maxBytes: number): unknown {
   let fd: number | undefined;
   try {
     const before = exactLstat(path);
@@ -823,7 +823,7 @@ function readPrivateJson(path: string): unknown {
       before.isSymbolicLink() ||
       before.nlink !== 1 ||
       before.size <= 0 ||
-      before.size > MAX_STATE_FILE ||
+      before.size > maxBytes ||
       (process.getuid && before.uid !== process.getuid()) ||
       (process.platform !== 'win32' && (before.mode & 0o077) !== 0)
     )
@@ -857,11 +857,12 @@ function readPrivateJson(path: string): unknown {
       } catch {}
   }
 }
-export function readJson(path: string): any {
+/** maxBytes is a per-artifact cap; only the snapshot manifest passes a larger one. */
+export function readJson(path: string, maxBytes = MAX_STATE_FILE): any {
   try {
     secureDirectory(dirname(path));
-    recoverAtomicNoReplaceJson(path, { label: 'Private immutable artifact', maxBytes: MAX_STATE_FILE });
-    return readPrivateJson(path);
+    recoverAtomicNoReplaceJson(path, { label: 'Private immutable artifact', maxBytes });
+    return readPrivateJson(path, maxBytes);
   } catch (e) {
     if (e instanceof CsoError) throw e;
     throw new CsoError('MISSING_INPUT', 'Private state file is missing or invalid');

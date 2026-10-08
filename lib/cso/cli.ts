@@ -34,7 +34,7 @@ import {
   validateFinding,
   validateVerificationRequest,
 } from './contracts';
-import { capture, containedFile, assertSnapshot } from './snapshot';
+import { capture, containedFile, assertSnapshot, readSnapshotManifest } from './snapshot';
 import {
   assertStateOutside,
   event,
@@ -1057,7 +1057,7 @@ function originalBoundary(report: RunReportV3): {
     throw new CsoError('INVALID_SCHEMA', 'Recheck evidence requires a linked original finding');
   const dir = runDirectory(report.parent.runId),
     original = loadReport(dir),
-    manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest,
+    manifest = readSnapshotManifest(dir),
     finding = original.findings.find((item) => item.id === report.parent!.findingId);
   if (report.repoId !== original.repoId)
     throw new CsoError('INCOMPATIBLE_INPUT', 'Recheck repository identity differs from the original audit');
@@ -1293,7 +1293,7 @@ function submit(args: string[]) {
   const input = rawInput as SubmissionV3;
   return withLock(dir, () => {
     const report = loadReport(dir),
-      manifest = readJson(join(dir, 'snapshot.json'));
+      manifest = readSnapshotManifest(dir);
     assertSnapshot(dir, manifest);
     requireReportingTime(report);
     if (report.status !== 'running')
@@ -1399,7 +1399,7 @@ function finish(args: string[]) {
   if (args.length) throw new CsoError('INVALID_ARGUMENT', 'finish takes only a run ID');
   return withLock(dir, () => {
     const report = loadReport(dir),
-      manifest = readJson(join(dir, 'snapshot.json'));
+      manifest = readSnapshotManifest(dir);
     assertSnapshot(dir, manifest);
     for (const c of report.coverage)
       if (
@@ -1475,7 +1475,7 @@ async function inspect(args: string[]) {
   const { dir } = run(args);
   if (args.length) throw new CsoError('INVALID_ARGUMENT', 'inspect takes one run ID');
   const report = loadReport(dir),
-    manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+    manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const rawSensitive = readJson(join(dir, 'sensitive-evidence.json')),
     sensitiveEvidence = Array.isArray(rawSensitive)
@@ -1505,7 +1505,7 @@ async function inspect(args: string[]) {
 async function read(args: string[]) {
   const { dir } = run(args);
   if (args.length !== 1) throw new CsoError('INVALID_ARGUMENT', 'read requires one path or opaque handle');
-  const manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+  const manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const selected = resolveSnapshotPath(manifest, args[0], true),
     full = containedFile(join(dir, 'readable'), selected.path),
@@ -1514,7 +1514,7 @@ async function read(args: string[]) {
 }
 async function history(args: string[]) {
   const { dir } = run(args),
-    manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+    manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   let selected: string | undefined;
   if (args.length) selected = resolveSnapshotPath(manifest, args.shift(), false, 'History path', true).path;
@@ -1537,7 +1537,7 @@ function resume(args: string[]) {
   if (args.length) throw new CsoError('INVALID_ARGUMENT', 'resume takes one run ID');
   return withLock(dir, () => {
     const report = loadReport(dir),
-      manifest = readJson(join(dir, 'snapshot.json'));
+      manifest = readSnapshotManifest(dir);
     if (report.status === 'finished')
       throw new CsoError('INVALID_SCHEMA', 'A finished audit cannot be resumed');
     assertSnapshot(dir, manifest);
@@ -1671,7 +1671,7 @@ async function scanner(args: string[], sarif = false) {
         id,
         runId: report.runId,
         runDir: dir,
-        manifest: readJson(join(dir, 'snapshot.json')),
+        manifest: readSnapshotManifest(dir),
         policy: report.policy,
         executionDeadline: Date.parse(report.deadline) - 60_000,
         platform: platform(),
@@ -1822,7 +1822,7 @@ async function recheck(args: string[], dependencies: CsoCliDependencies) {
       throw new CsoError('INVALID_SCHEMA', 'Recheck requires a finished original audit');
     // Keep the original immutable while the fresh snapshot is captured and
     // until its child lineage report has been durably published.
-    const oldManifest = readJson(join(originalDir, 'snapshot.json'));
+    const oldManifest = readSnapshotManifest(originalDir);
     const preserveBase = original.policy.diff || Boolean(original.source.baseCommit),
       report = await start(
         [
@@ -1922,7 +1922,7 @@ function testPlan(args: string[]) {
   if (args.length !== 1 || !['node', 'bun', 'python', 'rails'].includes(args[0]))
     throw new CsoError('INVALID_ARGUMENT', 'test-plan requires one supported stack');
   const stack = args[0] as 'node' | 'bun' | 'python' | 'rails',
-    manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+    manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const preparation = inspectPreparation(join(dir, 'snapshot'), stack);
   if (preparation.status !== 'ready')
@@ -1947,7 +1947,7 @@ function runtimePlan(args: string[]) {
   const port = Number(rawPort);
   if (!Number.isInteger(port) || port < 1024 || port > 65535)
     throw new CsoError('INVALID_ARGUMENT', '--port must be an integer from 1024 to 65535');
-  const manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+  const manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const preparation = inspectPreparation(join(dir, 'snapshot'), stack);
   if (preparation.status !== 'ready')
@@ -2180,7 +2180,7 @@ async function verify(args: string[], dependencies: CsoCliDependencies) {
     request = validateVerificationRequest(raw);
   return await withLock(dir, async () => {
     const report = loadReport(dir),
-      manifest = readJson(join(dir, 'snapshot.json')) as SnapshotManifest;
+      manifest = readSnapshotManifest(dir);
     assertSnapshot(dir, manifest);
     requireTime(report);
     if (report.policy.mode !== 'comprehensive' || report.status !== 'running')
@@ -2493,7 +2493,7 @@ async function replay(args: string[], dependencies: CsoCliDependencies) {
           throw new CsoError('INCOMPATIBLE_INPUT', 'Supplied source does not match the bundle input hashes');
       };
       if (fs.existsSync(retained)) {
-        manifest = readJson(join(stored.dir, 'snapshot.json'));
+        manifest = readSnapshotManifest(stored.dir);
         const expiresAt =
           typeof manifest?.expiresAt === 'string' ? Date.parse(manifest.expiresAt) : Number.NaN;
         if (!Number.isFinite(expiresAt) || new Date(expiresAt).toISOString() !== manifest.expiresAt)
