@@ -1,5 +1,6 @@
-// Bootstrap the CoreDevice tunnel to a connected iPhone running the iOS app
-// under test. Orchestrates the full hand-rolled flow we verified end-to-end:
+// Bootstrap the CoreDevice tunnel to a connected iPhone or iPad running the
+// iOS app under test. Orchestrates the full hand-rolled flow we verified
+// end-to-end:
 //
 //   1. find a paired, connected device via devicectl list devices
 //   2. launch the app on it (no-op if already running)
@@ -11,9 +12,13 @@
 //   6. return a DeviceTunnel pointing at the device's IPv6 with the rotated
 //      bearer that subsequent proxied requests carry
 //
-// Step 5 is critical: after rotation, anything scraping os_log or the
-// on-disk token file sees a dead credential. The Mac daemon holds the only
-// live token, which it scopes per-tailnet-session via /auth/mint.
+// Step 5 is critical: rotation deletes the on-disk token file, so anything
+// that copied it sees a dead credential. The Mac daemon holds the only live
+// token, which it scopes per-tailnet-session via /auth/mint.
+//
+// recoverTunnel() handles a dropped route afterwards without repeating this
+// flow: the app still holds the rotated bearer, and a second bootstrap could
+// only get a new token by relaunching the app.
 
 import { randomBytes } from 'crypto';
 import { spawnSync } from 'child_process';
@@ -21,6 +26,8 @@ import type { DeviceTunnel } from './proxy';
 import {
   listDevices,
   resolveTunnelIPv6,
+  getDeviceTunnelIPv6,
+  getDeviceTunnelIPv6FromDevicectl,
   isAppRunning,
   launchApp,
   copyFileFromAppContainer,
@@ -354,4 +361,88 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
       bootTokenRotated: rotatedToken,
     },
   };
+}
+
+export type TunnelRecovery =
+  /** The app still holds the bearer; keep the session at this (maybe new) address. */
+  | { action: 'reuse'; tunnel: DeviceTunnel }
+  /** Full bootstrap needed. The old bearer was not sent to anything unproven. */
+  | { action: 'bootstrap'; reason: string }
+  /** Route still down with the app running: surface the error, keep the session. */
+  | { action: 'unavailable'; reason: string };
+
+export interface RecoveryOptions {
+  /** Same explicit UDID the bootstrap used, if any. */
+  udid?: string;
+  bundleId: string;
+  probeTimeoutMs?: number;
+  spawnImpl?: SpawnImpl;
+  resolveImpl?: ResolveImpl;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Decide how to recover a cached tunnel after a route failure (503
+ * device_disconnected / 504 upstream_timeout) without relaunching the app.
+ * CoreDevice routes blip while the app keeps running with the rotated bearer
+ * in memory, and the one-shot boot-token file is already gone, so a full
+ * bootstrap would have to relaunch the app and wipe its QA state (#1975).
+ *
+ * The bearer is only ever sent to the address `devicectl` reports for the
+ * pinned UDID, or to the address this session already used. Only a 401 (the
+ * app was replaced) or a confirmed app-absent state asks for a bootstrap.
+ */
+export async function recoverTunnel(failed: DeviceTunnel, opts: RecoveryOptions): Promise<TunnelRecovery> {
+  const spawn = opts.spawnImpl;
+  const fetchFn = opts.fetchImpl ?? fetch;
+  const timeoutMs = opts.probeTimeoutMs ?? 3_000;
+
+  const selection = selectDevice(listDevices(spawn), opts.udid, failed.udid);
+  if (!selection.ok) {
+    return { action: 'unavailable', reason: `${selection.error}${selection.detail ? `: ${selection.detail}` : ''}` };
+  }
+  const device = selection.device;
+  if (device.identifier !== failed.udid) {
+    return { action: 'bootstrap', reason: `target device changed from ${failed.udid} to ${device.identifier}` };
+  }
+
+  let address = getDeviceTunnelIPv6FromDevicectl(device.identifier, spawn);
+  if (!address) {
+    const byName = await getDeviceTunnelIPv6(device.name, opts.resolveImpl);
+    if (byName && byName !== failed.ipv6Addr) {
+      return { action: 'bootstrap', reason: `tunnel address changed to ${byName} and devicectl could not tie it to ${failed.udid}` };
+    }
+    address = failed.ipv6Addr;
+  }
+
+  const base = `http://[${address}]:${failed.port}`;
+  const appGone = (reason: string): TunnelRecovery => (isAppRunning(device.identifier, opts.bundleId, spawn)
+    ? { action: 'unavailable', reason: `${reason}; ${opts.bundleId} is still running, so the session is kept` }
+    : { action: 'bootstrap', reason: `${opts.bundleId} is not running on ${device.identifier}` });
+
+  let health: Response;
+  try {
+    health = await fetchFn(`${base}/healthz`, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch {
+    return appGone(`no /healthz response from ${base}`);
+  }
+  const owner = (await health.json().catch(() => null) as { bundle_id?: string } | null)?.bundle_id;
+  if (owner && owner !== opts.bundleId) {
+    return { action: 'bootstrap', reason: `StateServer at ${base} now belongs to ${owner}` };
+  }
+
+  let probe: Response;
+  try {
+    probe = await fetchFn(`${base}/state/snapshot`, {
+      headers: { 'Authorization': `Bearer ${failed.bootTokenRotated}` },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch {
+    return appGone(`authenticated probe to ${base} failed`);
+  }
+  await probe.arrayBuffer().catch(() => undefined);
+  if (probe.status === 401) {
+    return { action: 'bootstrap', reason: `${opts.bundleId} rejected the session bearer (the app was relaunched)` };
+  }
+  return { action: 'reuse', tunnel: { ...failed, ipv6Addr: address } };
 }
