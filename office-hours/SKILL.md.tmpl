@@ -291,9 +291,25 @@ Track which of these signals appeared during the session:
 
 Count the signals. You'll use this count in Phase 6 to determine which tier of closing message to use.
 
+### Builder Profile Read (before this session is logged)
+
+Read the profile before the append below: a read after it counts this session as history, so a
+first-timer gets the welcome-back closing about an assignment they haven't been given yet.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-builder-profile 2>/dev/null || echo "PROFILE_READ: failed"
+```
+
+Write this line in your reply (it must survive context compaction until Phase 6):
+`Builder profile before this session: PROFILE_READ=ok SESSION_TIER=<TIER> PRIOR_SESSION_COUNT=<SESSION_COUNT> LAST_PROJECT=<LAST_PROJECT> LAST_ASSIGNMENT=<LAST_ASSIGNMENT> CROSS_PROJECT=<true|false>`
+CROSS_PROJECT is true only when LAST_PROJECT is non-empty and differs from this session's SLUG
+(the output's own CROSS_PROJECT compares the two previous sessions). If the output says
+`PROFILE_READ: failed` or has no `TIER:` line, write `PROFILE_READ=failed SESSION_TIER=introduction
+PRIOR_SESSION_COUNT=0` with the rest empty or false.
+
 ### Builder Profile Append
 
-After counting signals, append a session entry to the builder profile. This is the single
+After the read above, append a session entry to the builder profile. This is the single
 source of truth for all closing state (tier, resource dedup, journey tracking). The
 `gstack-developer-profile --log-session` binary handles its own directory creation
 and writes via atomic mktemp+mv to `$GSTACK_STATE_ROOT/developer-profile.json`.
