@@ -223,7 +223,7 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - User asks to import cookies for authenticated testing → invoke `/setup-browser-cookies` (fallback browser; Aside already has the sessions)
 - User asks to share the browser with another agent, "pair OpenClaw/Codex with my browser" → invoke `/pair-agent` (fallback browser)
 - User asks to codify or save the last `/scrape` as a reusable skill → invoke `/skillify` (fallback browser)
-- User asks about page speed, performance regression, benchmarks → invoke `/benchmark`
+- User asks about page speed, web performance regression → invoke `/benchmark`; model or skill benchmarks → invoke `/benchmark-models`
 - User asks what gstack has learned, "show learnings" → invoke `/learn`
 - User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
 - User asks for code quality dashboard, "health check" → invoke `/health`

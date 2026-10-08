@@ -3,18 +3,19 @@ name: benchmark
 preamble-tier: 1
 version: 1.0.0
 description: |
-  Performance regression detection. Establishes
+  Web performance regression detection. Establishes
   baselines for page load times, Core Web Vitals, and resource sizes.
   Compares before/after on every PR. Tracks performance trends over time.
-  Use when: "performance", "benchmark", "page speed", "lighthouse", "web vitals",
-  "bundle size", "load time". (gstack)
+  Use when: "web performance benchmark", "page speed", "lighthouse", "web vitals",
+  "bundle size", "load time". Not for AI model, agent eval or business
+  benchmarks; use /benchmark-models for cross-model skill comparisons. (gstack)
 voice-triggers:
   - "speed test"
   - "check performance"
 triggers:
-  - performance benchmark
+  - web performance benchmark
   - check page speed
-  - detect performance regression
+  - detect page performance regression
 allowed-tools:
   - Bash
   - Read
