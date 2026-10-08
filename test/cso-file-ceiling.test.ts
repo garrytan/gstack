@@ -15,6 +15,7 @@ import {
   sourceCapMessage,
 } from '../lib/cso/snapshot';
 import { boundedList, newRun, readJson } from '../lib/cso/state';
+import { runProcess } from '../lib/cso/process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const launcher = path.join(ROOT, 'bin', process.platform === 'win32' ? 'gstack-cso-launcher.exe' : 'gstack-cso-launcher');
@@ -174,6 +175,30 @@ describe('CSO above the old file-count ceiling', () => {
     expect(manifest.entries).toHaveLength(2500);
     expect(readSnapshotManifest(run.dir)).toEqual(manifest);
   }, 120_000);
+
+  test('Git path listings over 1 MiB are admitted, with and without a comparison base', async () => {
+    const files: Record<string, string> = {},
+      dir = Array.from({ length: 6 }, (_, i) => `workspace-segment-with-a-long-descriptive-name-${i}`).join('/');
+    for (let i = 1; i <= 5000; i++) files[`${dir}/file_number_${i}.ts`] = `export const v${i} = ${i};\n`;
+    const repo = makeRepo('long-listing', files);
+    expect(Buffer.byteLength(git(repo, 'ls-files', '-z'))).toBeGreaterThan(MIB);
+    const plain = await capture(repo, newRun(repo).dir);
+    expect(plain.entries).toHaveLength(5000);
+    const based = await capture(repo, newRun(repo).dir, 'HEAD');
+    expect(based.entries).toHaveLength(5000);
+    expect(based.changedPaths).toEqual([]);
+  }, 180_000);
+
+  test('only raw callers can opt in to output above MAX_OUTPUT', async () => {
+    const cwd = fs.mkdtempSync(path.join(root, 'raw-')),
+      script = ['-c', 'head -c 1200000 /dev/zero | tr "\\0" a'],
+      env = { PATH: '/usr/bin:/bin' };
+    expect((await runProcess('/bin/sh', script, { cwd, env, maxBytes: 2 * MIB })).truncated).toBe(true);
+    expect((await runProcess('/bin/sh', script, { cwd, env, raw: true })).truncated).toBe(true);
+    const raw = await runProcess('/bin/sh', script, { cwd, env, raw: true, maxBytes: 2 * MIB });
+    expect(raw.truncated).toBe(false);
+    expect(raw.stdout).toHaveLength(1_200_000);
+  });
 
   test('5,000 long nested paths, mostly excluded or withheld with many scanner hits, run start to final report and recheck', () => {
     const repo = makeRepo('hostile-5000', hostileFiles(5000)),

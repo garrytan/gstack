@@ -463,9 +463,19 @@ async function paths(
   // for, while still collecting nonignored untracked source.
   admission.time();
   const [working, head] = await Promise.all([
-      git(repo, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], home),
+      git(
+        repo,
+        ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+        home,
+        SNAPSHOT_MANIFEST_LIMIT,
+      ),
       headCommit
-        ? git(repo, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', headCommit, '--'], home)
+        ? git(
+            repo,
+            ['ls-tree', '-r', '-z', '--name-only', '--full-tree', headCommit, '--'],
+            home,
+            SNAPSHOT_MANIFEST_LIMIT,
+          )
         : Promise.resolve(''),
     ]),
     seen = new Set<string>();
@@ -494,6 +504,7 @@ async function rejectSpecialFiles(
       repo,
       ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'],
       home,
+      SNAPSHOT_MANIFEST_LIMIT,
     ),
     ignoredDirectories = new Set<string>();
   admission.time();
@@ -778,7 +789,12 @@ export async function capture(
       canonical(entries.filter((e) => e.executionHash).map((e) => [e.path, e.executionHash, e.mode])),
     );
     if (manifest.baseCommit) {
-      const tree = await git(repo, ['ls-tree', '-r', '-z', '--full-tree', manifest.baseCommit, '--'], home),
+      const tree = await git(
+          repo,
+          ['ls-tree', '-r', '-z', '--full-tree', manifest.baseCommit, '--'],
+          home,
+          SNAPSHOT_MANIFEST_LIMIT,
+        ),
         baseFiles = new Map<string, { hash: string; mode: string }>();
       guard();
       for (const row of tree.split('\0').filter(Boolean)) {
