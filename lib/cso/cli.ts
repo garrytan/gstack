@@ -9,6 +9,7 @@ import {
   ApplicationModel,
   CoverageRecord,
   CsoError,
+  MAX_VERIFICATION_ATTEMPT_MS,
   FindingV3,
   PreparationProof,
   RunPolicy,
@@ -46,6 +47,7 @@ import {
   publicReport,
   PUBLIC_SOURCE_ROOT,
   readJson,
+  reclaimDeadAttemptScratch,
   repoId,
   requireTime,
   retention,
@@ -1421,6 +1423,7 @@ function finish(args: string[]) {
     const report = loadReport(dir),
       manifest = readSnapshotManifest(dir);
     assertSnapshot(dir, manifest);
+    reclaimDeadAttemptScratch(dir);
     for (const c of report.coverage)
       if (
         c.status === 'not_assessed' &&
@@ -1561,9 +1564,12 @@ function resume(args: string[]) {
     if (report.status === 'finished')
       throw new CsoError('INVALID_SCHEMA', 'A finished audit cannot be resumed');
     assertSnapshot(dir, manifest);
-    for (const message of recoveryEvents(dir))
+    const recovery = recoveryEvents(dir);
+    for (const message of recovery)
       if (!report.events.some((e) => e.kind === 'watchdog-recovery' && e.message === message))
         event(report, 'watchdog-recovery', message);
+    saveReport(dir, report);
+    reclaimDeadAttemptScratch(dir);
     if (Date.now() >= Date.parse(report.deadline)) {
       report.status = 'interrupted';
       event(report, 'deadline', 'Original budget is exhausted; resume did not replenish it');
@@ -1577,7 +1583,7 @@ function resume(args: string[]) {
       runId: report.runId,
       deadline: report.deadline,
       policy: report.policy,
-      recovery: recoveryEvents(dir),
+      recovery,
     };
   });
 }
@@ -2256,7 +2262,10 @@ async function verify(args: string[], dependencies: CsoCliDependencies) {
     writeJson(join(dir, `preparation-${runtime.stack}.json`), plan);
     const endpoint = await dockerEndpoint(secureDirectory(join(dir, 'home'))),
       watchdogPath = dependencies.watchdogPath(),
-      attemptDeadline = Math.min(Date.now() + 300_000, Date.parse(report.deadline) - 60_000);
+      attemptDeadline = Math.min(
+        Date.now() + verificationAttemptMs(runtime.stack),
+        Date.parse(report.deadline) - 60_000,
+      );
     const admission = admitPreparationRuntime({
         plan,
         platform: targetPlatform,
@@ -2477,9 +2486,17 @@ function replayManifestValue(manifest: any): unknown {
     };
   return { ...stable, before: observation(before), after: observation(after) };
 }
+/**
+ * One bounded verification attempt (and one replay) prepares the application twice, before and after the
+ * patch. Rails offline preparation compiles native extensions, which takes about four minutes per phase on
+ * a 4-vCPU host, so a five-minute attempt could never finish for a Rails application.
+ */
+export function verificationAttemptMs(stack: string): number {
+  return stack === 'rails' ? MAX_VERIFICATION_ATTEMPT_MS : 300_000;
+}
 async function replay(args: string[], dependencies: CsoCliDependencies) {
   const replayStarted = Date.now(),
-    replayDeadline = replayStarted + 300_000;
+    replayDeadline = replayStarted + MAX_VERIFICATION_ATTEMPT_MS;
   retention(replayStarted, {
     deadlineMs: replayStarted + RETENTION_MAINTENANCE_MS,
     maxEntries: RETENTION_MAX_ENTRIES,
@@ -2548,7 +2565,7 @@ async function replay(args: string[], dependencies: CsoCliDependencies) {
         throw new CsoError('INCOMPATIBLE_INPUT', 'Qualified runtime digest does not match the bundle');
       const endpoint = await dockerEndpoint(secureDirectory(join(workDir, 'home'))),
         watchdogPath = dependencies.watchdogPath(),
-        attemptDeadline = replayDeadline,
+        attemptDeadline = Math.min(replayDeadline, replayStarted + verificationAttemptMs(runtime.stack)),
         delegate = new DockerVerificationExecutor(endpoint, watchdogPath, attemptDeadline);
       let executor: VerificationExecutor = delegate,
         archives: string[] = [],

@@ -14,6 +14,7 @@ import {
   Command,
   CsoError,
   MAX_OUTPUT,
+  MAX_VERIFICATION_ATTEMPT_MS,
   VerificationObservation,
   canonical,
   object,
@@ -48,7 +49,7 @@ const HASH = /^[a-f0-9]{64}$/;
 const PUBLIC_KEY = /^[a-f0-9]{88}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
 const PROTOCOL = 'gstack-cso-assertion-witness-v1' as const;
-const MAX_RECEIPT_AGE = 300_000;
+const MAX_RECEIPT_AGE = MAX_VERIFICATION_ATTEMPT_MS;
 const exact = (value: Record<string, any>, allowed: readonly string[], name: string) => {
   for (const key of Object.keys(value))
     if (!allowed.includes(key)) throw new CsoError('INVALID_SCHEMA', `Unexpected ${name} field: ${key}`);
