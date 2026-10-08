@@ -11,9 +11,9 @@ import { autoplanPhaseCompletions } from '../../lib/autoplan-phase-publication';
 import { nativePathSpelling, ownedNativePath, sameNativePath, type ClaudeParentPublicEvent } from '../../lib/claude-journal-records';
 import { ownedRecordLimit, ownedRetainedLimit, type JournalPrefix, type OwnedRead, type OwnedReadMeasure } from '../../lib/claude-owned-journal';
 import { readGuardJournal, textResult, DEDUP_REPLY } from './guard-journal';
-import { resolveStateRoot } from '../../lib/state-root';
 import { REASONS, reasonCode, reasonText, type Detail, type ReasonCode } from './guard-reasons';
 import { logGuardDecision } from './guard-log';
+import { approveOwnedRead, renderSectionBase, userRenderRoot } from './owned-read';
 
 const PHASES = ['ceo', 'design', 'dx', 'eng', 'tasks'] as const;
 type Phase = typeof PHASES[number];
@@ -127,20 +127,6 @@ function driver(file: unknown, cwd: string, root: string): Phase | undefined {
         read(actual) === renderSectionBase(read(canonical), render)) return phase;
   }
   return fail('foreign_install');
-}
-
-/** setup's `${GSTACK_USER_RENDER_DIR:-$GSTACK_STATE_ROOT/render/claude}`, realpath'd. */
-function userRenderRoot(): string | undefined {
-  const configured = process.env.GSTACK_USER_RENDER_DIR || path.join(resolveStateRoot(), 'render', 'claude');
-  try { return fs.realpathSync(path.resolve(nativePathSpelling(configured))); } catch { return; }
-}
-
-/** scripts/gen-skill-docs.ts rewriteSectionBase, which writes that render. */
-function renderSectionBase(content: string, linkRoot: string): string {
-  return content.replace(
-    /~\/\.claude\/skills\/gstack\/([^\s)`"'*]+\/sections\/)/g,
-    (_m, p1: string) => `${linkRoot}/${p1}`,
-  );
 }
 
 interface Consumer { phase: Phase; content?: string; kind: 'Read' | 'Agent' }
@@ -688,6 +674,10 @@ export function ownedRead(journal: string, owners: string[], input: PublicationH
  * read. Claude Code's appends never fail a read; a changed prefix is `rewritten`.
  */
 export async function runPublicationHook(value: unknown, root: string): Promise<object> {
+  return approveOwnedRead(value, await guardOutput(value, root), root);
+}
+
+async function guardOutput(value: unknown, root: string): Promise<object> {
   let version: string | undefined;
   try {
     if (!object(value) || value.hook_event_name !== 'PreToolUse' || typeof value.tool_name !== 'string') return denied('hook_input');
