@@ -146,9 +146,11 @@ reviews stay disabled; an unavailable model is reported, never silently replaced
 
 Policy setup and a completed review are different milestones. Install and
 authenticate the opposing CLI using the [host setup instructions](../README.md#install--about-30-seconds)
-before invoking a paid review. From Claude Code, use `/codex challenge --role
-plan-review` with your plan. From Codex, use `/claude-code challenge --role
-plan-review` (or its installed namespaced name).
+before invoking a paid review. From Claude Code, use `/codex consult --role
+plan-review`. From Codex, use `/claude-code consult --role plan-review` (or its
+installed namespaced name). Ask it to challenge the plan and supply the full plan
+text. Consult is prompt-driven and works before there is a repository diff;
+Challenge mode is for reviewing code changes.
 
 Confirm the announced selection, the provider's actual result and the coverage
 status. A resolved model, a successful availability probe or a native fallback
@@ -186,8 +188,11 @@ source check without changing an issue; unlike `gstack-models`, it uses the
 network. The workflow's guarded `--publish` path owns issue updates. Its JSON
 report and job summary retain the source evidence.
 
-The report distinguishes `current`, `update-candidate`, `stale` and
-`unknown/source-unavailable`. Newer or newly recommended models are candidates,
+The report's primary status distinguishes `current`, `update-candidate` and
+`unknown/source-unavailable`. Its separate `evidenceStatus` marks retained
+successful evidence `stale` after thirty days; a failed fetch remains unknown
+in the headline even when that retained evidence is stale.
+Newer or newly recommended models are candidates,
 not automatic replacements. A support promise such as “not sooner than” is not
 a scheduled retirement, and an incidental model mention is not a new default.
 This evidence covers public API recommendations, not partner-platform entitlement.

@@ -793,7 +793,7 @@ Branch on the echoed `CODEX_MODE`:
 - **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out or, with `(rate_limited)`, hit a 429; say so, and let the pass's own verdict decide.
-Plan-review role: the invocation probes the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) model; its exit 1, 2 or 4 is `model_unusable`, `broken_install` or `quota_exhausted`.
+Plan-review readiness probes the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) model. Relay its diagnostics; never infer quota from the review block's exit status.
 
 Disabled/unavailable retains applicable native passes. Recheck each outside dispatch.
 Record provider and completed/unavailable/disabled/skipped per phase; CEO covers

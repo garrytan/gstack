@@ -30,7 +30,7 @@ fs.writeFileSync(FAKE, `
 import { appendFileSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (args[0] === 'sandbox') process.exit(0);
-if (args[0] === '--version') { if (process.env.FAKE_VERSION_SLEEP) Bun.sleepSync(Number(process.env.FAKE_VERSION_SLEEP) * 1000); console.log('codex-cli ' + (process.env.FAKE_CODEX_VERSION ?? '0.160.0')); process.exit(0); }
+if (args[0] === '--version') { if (process.env.FAKE_VERSION_IGNORE_TERM) process.on('SIGTERM', () => {}); if (process.env.FAKE_VERSION_SLEEP) Bun.sleepSync(Number(process.env.FAKE_VERSION_SLEEP) * 1000); console.log('codex-cli ' + (process.env.FAKE_CODEX_VERSION ?? '0.160.0')); process.exit(0); }
 const claude = process.env.FAKE_AS === 'claude';
 const probe = !claude && args.includes('reply OK');
 appendFileSync(process.env.CALLS!, JSON.stringify({ args, probe }) + '\\n');
@@ -43,14 +43,30 @@ if (probe) {
   process.exit(0);
 }
 if (!claude || args.includes('-')) await Bun.stdin.text();
-const response = 'Medium: the plan couples two rollouts.\\nRecommendation: split the migration because the plan couples two rollouts.';
+const response = process.env.FAKE_RESPONSE || 'Medium: the plan couples two rollouts.\\nRecommendation: split the migration because the plan couples two rollouts.';
 if (claude) console.log(JSON.stringify({ result: response, session_id: 's', modelUsage: { 'model-actual': { inputTokens: 1 } } }));
 else writeFileSync(args[args.indexOf('-o') + 1], response);
 `);
 fs.writeFileSync(path.join(BIN, 'codex'), `#!/usr/bin/env bash\nexec bun "${FAKE}" "$@"\n`, { mode: 0o755 });
 // Records when each supervised command starts and the deadline it was given.
 const TIMEOUT_LOG = path.join(TMP, 'timeout.log');
-fs.writeFileSync(path.join(BIN, 'timeout'), `#!/usr/bin/env bash\n[ -z "\${TIMEOUT_LOG:-}" ] || printf '%s %s\\n' "$(date +%s.%N)" "$*" >> "$TIMEOUT_LOG"\nexec "${Bun.which('timeout')}" "$@"\n`, { mode: 0o755 });
+const TIMEOUT_FAKE = path.join(TMP, 'timeout.ts');
+fs.writeFileSync(TIMEOUT_FAKE, `
+import { appendFileSync } from 'node:fs';
+const original = process.argv.slice(2);
+if (process.env.TIMEOUT_LOG) appendFileSync(process.env.TIMEOUT_LOG, (Date.now()/1000) + ' ' + original.join(' ') + '\\n');
+const args = [...original];
+const grace = args[0] === '-k' ? (args.shift(), Number(args.shift())) : 10;
+const duration = Number(args.shift());
+const child = Bun.spawn(args, { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
+let expired = false;
+let killTimer;
+const timer = setTimeout(() => { expired = true; child.kill('SIGTERM'); killTimer = setTimeout(() => child.kill('SIGKILL'), grace*1000); }, duration*1000);
+const code = await child.exited;
+clearTimeout(timer); clearTimeout(killTimer);
+process.exit(expired ? 124 : code);
+`);
+for (const name of ['gtimeout', 'timeout']) fs.writeFileSync(path.join(BIN, name), `#!/usr/bin/env bash\nexec bun "${TIMEOUT_FAKE}" "$@"\n`, { mode: 0o755 });
 
 const git = (args: string[]) => {
   const r = spawnSync('git', args, { cwd: REPO, encoding: 'utf8', timeout: 5000, env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
@@ -110,6 +126,17 @@ describe('plan-review role membership in shared generators', () => {
     expect(role).not.toContain('or config.toml `model`');
     const legacy = outsideVoicePreflight(ctxFor('review', 'claude', HOST_PATHS.claude), { disabledBehavior: 'codex-only' });
     expect(legacy).toContain('or config.toml `model`');
+  });
+
+  test('readiness guidance never assigns quota meaning to the whole review exit status', () => {
+    const role = outsideVoicePreflight(ctxFor('autoplan', 'claude', HOST_PATHS.claude), { disabledBehavior: 'codex-only', role: 'plan-review' });
+    expect(role).not.toContain('its exit 1, 2 or 4 is');
+    expect(role).toContain("never infer quota from the review block's exit status");
+    const result = run('claude', home(), { FAKE_RESPONSE: 'Recommendation: proceed because this is a synthetic incomplete-format response.' });
+    expect(result.status).toBe(4);
+    expect(result.stdout).toContain('OUTSIDE_STATUS: unverified');
+    expect(result.stderr).not.toContain('MODEL_QUOTA_EXHAUSTED');
+    expect(result.calls.map((call: { probe: boolean }) => call.probe)).toEqual([true, false]);
   });
 
   const roleBearing: Array<[string, (ctx: TemplateContext) => string]> = [
@@ -325,7 +352,7 @@ describe('one deadline bounds Codex role readiness and dispatch (native F3)', ()
       return { at: Number(at) - t0, duration: Number(duration), command: command.join(' ') };
     });
     const calls = fs.existsSync(CALLS) ? fs.readFileSync(CALLS, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
-    return { ...r, out: `${r.stdout}${r.stderr}`, calls, dispatch: supervised.find(s => / exec - /.test(s.command)) };
+    return { ...r, out: `${r.stdout}${r.stderr}`, calls, supervised, dispatch: supervised.find(s => / exec - /.test(s.command)) };
   }
   // Readiness time already spent plus the dispatch's own limit stays within the
   // provider budget (1.5s covers whole-second clock rounding and process start).
@@ -377,11 +404,21 @@ describe('one deadline bounds Codex role readiness and dispatch (native F3)', ()
   }, 60000);
 
   test('exhausted: readiness that outlives the whole budget dispatches nothing and is missing coverage', () => {
-    const r = timed(home(), { FAKE_VERSION_SLEEP: String(T + 1) });
+    const r = timed(home(), { FAKE_VERSION_SLEEP: String(T + 1), FAKE_VERSION_IGNORE_TERM: '1' });
     expect(r.status).toBe(124);
     expect(r.calls).toEqual([]);
     expect(r.dispatch).toBeUndefined();
     expect(r.out).not.toContain('OUTSIDE_STATUS: completed');
+  }, 60000);
+
+  test('a hanging version command is supervised before model readiness and dispatch', () => {
+    const r = timed(home(), { FAKE_VERSION_SLEEP: '8' });
+    expect(r.status).toBe(0);
+    const version = r.supervised.find(command => command.command === 'codex --version');
+    expect(version).toBeDefined();
+    expect(version!.duration).toBeLessThanOrEqual(5);
+    expect(r.out).toContain('codex --version` timed out');
+    withinBudget(r.dispatch!);
   }, 60000);
 });
 

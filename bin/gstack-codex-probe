@@ -654,9 +654,13 @@ _gstack_codex_version_check() {
   # Capture the code from codex, not from `head` — a pipeline reports the LAST
   # command's status, which is why a CLI that only ever printed a spawn error
   # still read as healthy here (#2742). Keep stderr: it carries the diagnosis.
-  _ver=$(codex --version 2>&1)
+  _ver=$(_gstack_codex_timeout_wrapper 5 codex --version </dev/null 2>&1)
   _vcode=$?
   _ver=$(printf '%s' "$_ver" | head -1)
+  if [ "$_vcode" -eq 124 ]; then
+    echo 'WARN: `codex --version` timed out; version unknown. The invocation keeps its existing deadline.'
+    return 0
+  fi
   # Only a NON-ZERO exit is evidence of a broken CLI. Empty-but-successful
   # output stays silent by design (a CLI may legitimately print nothing), which
   # the "empty output → OK" case in this file's suite pins.
