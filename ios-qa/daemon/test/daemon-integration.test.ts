@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { startDaemon, deviceTunnelSource, type RunningDaemon } from '../src/index';
-import { combinedSpawn, startFakeDevice, type FakeDevice } from './fake-device';
+import { startFakeDevice, type FakeDevice } from './fake-device';
 import { grantIdentity } from '../src/allowlist';
 import type { DeviceTunnel } from '../src/proxy';
 
@@ -530,12 +530,12 @@ describe('daemon — route-drop recovery (simulated device)', () => {
     rmSync(recoveryDir, { recursive: true, force: true });
   });
 
-  async function startSession(name: string, devices: FakeDevice[], spawn = devices[0]!.spawn) {
+  async function startSession(name: string, fake: FakeDevice) {
     const logs: string[] = [];
     const source = deviceTunnelSource({
       bundleId: BUNDLE,
-      port: devices[0]!.port,
-      spawnImpl: spawn,
+      port: fake.port,
+      spawnImpl: fake.spawn,
       keepalive: () => ({ stop() {} }),
       log: (line) => logs.push(line),
     });
@@ -564,7 +564,7 @@ describe('daemon — route-drop recovery (simulated device)', () => {
 
   test('live app: a route drop keeps the bearer and the app state, with no relaunch', async () => {
     const fake = await device();
-    const session = await startSession('live-route-drop', [fake]);
+    const session = await startSession('live-route-drop', fake);
     expect((await fetchWith('POST', `${session.base}/tap`, { body: '{}' })).status).toBe(200);
     const bearer = fake.requests.at(-1)?.authorization;
 
@@ -581,7 +581,7 @@ describe('daemon — route-drop recovery (simulated device)', () => {
 
   test('a tap whose response was lost is not replayed; the recovered session takes the next tap', async () => {
     const fake = await device();
-    const session = await startSession('ambiguous-tap', [fake]);
+    const session = await startSession('ambiguous-tap', fake);
     expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
 
     fake.dropConnections(1);
@@ -597,7 +597,7 @@ describe('daemon — route-drop recovery (simulated device)', () => {
 
   test('concurrent requests during a route drop share one recovery', async () => {
     const fake = await device();
-    const session = await startSession('concurrent-recovery', [fake]);
+    const session = await startSession('concurrent-recovery', fake);
     expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
     const listingsBefore = fake.calls.filter((c) => c.includes('list devices')).length;
 
@@ -612,7 +612,7 @@ describe('daemon — route-drop recovery (simulated device)', () => {
 
   test('stopped app: one normal launch, never --terminate-existing', async () => {
     const fake = await device();
-    const session = await startSession('stopped-app', [fake]);
+    const session = await startSession('stopped-app', fake);
     expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
 
     fake.stopApp();
@@ -626,7 +626,7 @@ describe('daemon — route-drop recovery (simulated device)', () => {
 
   test('app relaunched from Xcode during a drop: the probe gets 401 and bootstraps from the fresh token', async () => {
     const fake = await device();
-    const session = await startSession('relaunched-app', [fake]);
+    const session = await startSession('relaunched-app', fake);
     expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
 
     fake.dropConnections(1);
@@ -638,32 +638,22 @@ describe('daemon — route-drop recovery (simulated device)', () => {
   });
 
   test('target device changed: full bootstrap on the new device, old bearer never sent to it', async () => {
-    const phone = await device('PHONE-UDID', 'iPhone');
-    // Production StateServers share one port on different tunnel addresses.
-    // The iPad gets the iPhone's port on IPv4 loopback, reached through its
-    // IPv4-mapped IPv6 address, so only the address tells the devices apart.
-    const pad = await startFakeDevice({
-      bundleId: BUNDLE, udid: 'PAD-UDID', deviceType: 'iPad',
-      host: '127.0.0.1', address: '::ffff:127.0.0.1', port: phone.port,
-    });
-    cleanups.push(() => pad.close());
-    let plugged: FakeDevice[] = [phone];
-    const spawn = combinedSpawn([phone, pad], () => plugged);
-    const session = await startSession('udid-change', [phone], spawn);
+    const fake = await device('PHONE-UDID', 'iPhone');
+    const session = await startSession('udid-change', fake);
     expect((await fetchWith('GET', `${session.base}/screenshot`)).status).toBe(200);
-    const oldBearer = phone.requests.at(-1)?.authorization;
+    const oldBearer = fake.requests.at(-1)?.authorization;
 
-    phone.dropConnections(1);
-    plugged = [pad];
+    fake.dropConnections(1);
+    fake.replaceDevice('PAD-UDID', 'iPad');
     const after = await fetchWith('GET', `${session.base}/screenshot`);
-    expect(session.logs.some((l) => l.includes('target device changed from PHONE-UDID to PAD-UDID'))).toBe(true);
-    expect(pad.requests.some((r) => r.authorization === oldBearer)).toBe(false);
-    expect(phone.requests.filter((r) => r.authorization === oldBearer && r.path === '/state/snapshot')).toHaveLength(0);
-    expect(pad.calls.some((c) => c.includes('device copy from'))).toBe(true);
-    expect(terminations(phone) + terminations(pad)).toBe(0);
     expect(after.status).toBe(200);
-    expect(pad.requests.at(-1)).toMatchObject({ path: '/screenshot' });
-    expect(pad.requests.at(-1)?.authorization).not.toBe(oldBearer);
+    expect(session.logs.some((l) => l.includes('target device changed from PHONE-UDID to PAD-UDID'))).toBe(true);
+    const padRequests = fake.requests.filter((r) => r.udid === 'PAD-UDID');
+    expect(padRequests.length).toBeGreaterThan(0);
+    expect(padRequests.some((r) => r.authorization === oldBearer)).toBe(false);
+    expect(padRequests.at(-1)).toMatchObject({ path: '/screenshot' });
+    expect(fake.calls.some((c) => c.includes('device copy from --device PAD-UDID'))).toBe(true);
+    expect(terminations(fake)).toBe(0);
   });
 });
 

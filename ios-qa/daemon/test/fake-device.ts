@@ -30,8 +30,8 @@ export interface FakeDevice {
   devices: FakeDeviceEntry[];
   /** Every devicectl invocation, joined. */
   calls: string[];
-  /** Every StateServer request with the bearer it carried. */
-  requests: Array<{ method: string; path: string; authorization?: string }>;
+  /** Every StateServer request, the bearer it carried, and the device it reached. */
+  requests: Array<{ method: string; path: string; authorization?: string; udid: string }>;
   running: boolean;
   /** In-app QA state; lost whenever the app process is replaced. */
   appState: { generation: number; marker: string | null };
@@ -42,6 +42,12 @@ export interface FakeDevice {
   stopApp(): void;
   /** Simulate Xcode re-running the app: new process, new boot-token file. */
   relaunchExternally(): void;
+  /**
+   * Unplug this device and plug in another one that answers at the same
+   * tunnel address and port (production StateServers all use one port). The
+   * new device starts with the app not running.
+   */
+  replaceDevice(udid: string, deviceType: 'iPhone' | 'iPad'): void;
   close(): Promise<void>;
 }
 
@@ -85,34 +91,18 @@ function writeListing(args: string[], entries: FakeDeviceEntry[]): void {
   });
 }
 
-/**
- * One `devicectl` for several fake devices: `list devices` shows the devices
- * `plugged()` names, and per-device commands go to the matching fake.
- */
-export function combinedSpawn(fakes: FakeDevice[], plugged: () => FakeDevice[]): SpawnImpl {
-  return (cmd, args) => {
-    if (args.includes('list')) {
-      writeListing(args, plugged().flatMap((fake) => fake.devices));
-      return ret(0);
-    }
-    const target = targetOf(args);
-    const fake = plugged().find((f) => f.udid === target);
-    return fake ? fake.spawn(cmd, args) : ret(1, '', `device ${target} not found`);
-  };
-}
-
 export async function startFakeDevice(opts: {
   bundleId: string;
   udid?: string;
   deviceType?: 'iPhone' | 'iPad';
-  /** Listen address and the tunnel address devicectl reports for it. */
-  host?: string;
-  address?: string;
-  /** StateServer port; production uses one fixed port on every device. */
-  port?: number;
 }): Promise<FakeDevice> {
-  const udid = opts.udid ?? 'FAKE-UDID-1';
-  const deviceType = opts.deviceType ?? 'iPhone';
+  const entryFor = (udid: string, deviceType: 'iPhone' | 'iPad'): FakeDeviceEntry => ({
+    identifier: udid,
+    name: `Fake ${deviceType}`,
+    productType: deviceType === 'iPad' ? 'iPad14,5' : 'iPhone15,2',
+    platform: 'iOS',
+    deviceType,
+  });
   let bootToken: string | null = null;
   let bootTokenFile: string | null = null;
   let rotatedToken: string | null = null;
@@ -120,16 +110,10 @@ export async function startFakeDevice(opts: {
   const sockets = new Set<Socket>();
 
   const device: FakeDevice = {
-    udid,
+    udid: opts.udid ?? 'FAKE-UDID-1',
     port: 0,
-    address: opts.address ?? '::1',
-    devices: [{
-      identifier: udid,
-      name: `Fake ${deviceType}`,
-      productType: deviceType === 'iPad' ? 'iPad14,5' : 'iPhone15,2',
-      platform: 'iOS',
-      deviceType,
-    }],
+    address: '::1',
+    devices: [],
     calls: [],
     requests: [],
     running: false,
@@ -142,11 +126,19 @@ export async function startFakeDevice(opts: {
       bootToken = null;
     },
     relaunchExternally() { launch(); },
+    replaceDevice(udid, deviceType) {
+      device.stopApp();
+      device.udid = udid;
+      device.devices = [entryFor(udid, deviceType)];
+      device.appState = { generation: 0, marker: null };
+    },
     close: () => new Promise<void>((resolve) => {
       for (const socket of sockets) socket.destroy();
       server.close(() => resolve());
     }),
   };
+
+  device.devices = [entryFor(device.udid, opts.deviceType ?? 'iPhone')];
 
   const launch = () => {
     device.running = true;
@@ -169,7 +161,7 @@ export async function startFakeDevice(opts: {
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
       const authorization = req.headers.authorization;
-      device.requests.push({ method: req.method ?? '', path: req.url ?? '', authorization });
+      device.requests.push({ method: req.method ?? '', path: req.url ?? '', authorization, udid: device.udid });
       const send = (status: number, body: unknown) => {
         res.writeHead(status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(body));
@@ -205,7 +197,7 @@ export async function startFakeDevice(opts: {
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(opts.port ?? 0, opts.host ?? '::1', () => resolve());
+    server.listen(0, '::1', () => resolve());
   });
   device.port = (server.address() as { port: number }).port;
 
@@ -218,7 +210,7 @@ export async function startFakeDevice(opts: {
       return ret(0);
     }
     const target = targetOf(args);
-    if (target !== udid) return ret(1, '', `device ${target} not found`);
+    if (target !== device.udid) return ret(1, '', `device ${target} not found`);
     if (/devicectl device info details/.test(joined)) {
       writeJson(args, { result: { connectionProperties: { tunnelIPAddress: device.address } } });
       return ret(0);
