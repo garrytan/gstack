@@ -114,6 +114,28 @@ gstack-config set artifacts_sync_mode full
 gstack-config set artifacts_sync_mode off
 ```
 
+## Removed and moved files
+
+By default the sync never publishes a removal: delete a synced design doc,
+or move a project directory (a project slug migration does), and the old
+path stays on the remote, where the brain keeps indexing it next to the new
+copy. To publish removals too:
+
+```bash
+gstack-config set artifacts_sync_removals on
+```
+
+Each sync then commits the removal of synced files that are gone from disk.
+Transcript pages are left alone, and a decision log and its active snapshot
+go only together. A sync that would remove more than 20 files at once
+publishes none of them: that looks like a loss, not a cleanup. Review and
+publish those yourself, whatever the setting:
+
+```bash
+gstack-brain-sync --publish-removals        # list them
+gstack-brain-sync --publish-removals --yes  # commit and push their removal
+```
+
 ## Secret protection
 
 Every commit is scanned for credential-shaped content before it leaves
