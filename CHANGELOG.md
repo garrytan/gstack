@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.61.0] - 2026-10-08
+## [1.91.65.0] - 2026-10-08
 
 **A gstack install carries skills only for the agents you installed: a global Claude install drops from 632 SKILL.md files (34.7 MB) to 63 (2.5 MB).**
 **Codex and the other non-Claude agents get every file their skills read, instead of failing those reads silently.**
@@ -35,10 +35,39 @@ Run `/gstack-upgrade` (or `git pull && ./setup`). The first setup prints one `pr
 - README and `docs/troubleshooting.md` explain the record, the prune and its backup, and how to get an agent back. `docs/ADDING_A_HOST.md` documents the render contract and the new host checklist step. setup's Hermes, OpenClaw and GBrain hints say to add the agent to the record before rendering it by hand.
 
 #### For contributors
-- `bin/gstack-host-renders.sh` owns the record, the build's host selection and the prune; `scripts/build.sh`, setup, `bin/dev-setup` and `gstack-upgrade/migrations/v1.91.61.0.sh` source it. `bin/dev-setup` records Codex because it serves the repo's `.agents/`. `hosts/define-host.ts`' `sharedRuntimeRoot()` mirrors setup's new `_link_runtime_dists` list and `_copy_runtime_skill_refs`.
+- `bin/gstack-host-renders.sh` owns the record, the build's host selection and the prune; `scripts/build.sh`, setup, `bin/dev-setup` and `gstack-upgrade/migrations/v1.91.65.0.sh` source it. `bin/dev-setup` records Codex because it serves the repo's `.agents/`. `hosts/define-host.ts`' `sharedRuntimeRoot()` mirrors setup's new `_link_runtime_dists` list and `_copy_runtime_skill_refs`.
 - New tests: `test/runtime-root-assets.test.ts` builds each runtime root with setup's own functions and checks every `$GSTACK_ROOT` literal in that agent's render on disk (it fails on the previous setup for all five roots); `test/host-renders.test.ts` (record, build selection, sequential installs, the upgrade refresh path); `test/host-renders-prune.test.ts` (a real all-agent render with a customized file, a user file, a look-alike skill and links; two installs on one state root; link-based seeding; the migration).
 - Not verified: Cursor-agent and Claude Code were not re-run against the trimmed tree; the numbers are on-disk counts. The Windows copy-install paths are covered by stubbed tests only.
 - Thanks to @vschoener for reporting #1694 and for the first fix attempt in #1695, @skyzer for the relocation approach in #1819 (both closed in favor of this one), @Saisreenivas for the Cursor-agent freeze report, and @el-analista for #1077.
+
+## [1.91.62.0] - 2026-10-08
+
+**A Rails repair can now finish verifying on arm64.**
+
+On arm64, every Rails verification failed with `ISOLATION_FAILED`, reporting either "Exact reproduction cleanup failed" or "Attempt watchdog did not acknowledge execution-copy cleanup". Neither cleanup was broken. One attempt prepares the application twice, and an offline Rails preparation that compiles native gems takes 6.8 to 8.5 minutes on a 4-vCPU arm64 runner, against about 3.5 minutes on amd64. The 900-second attempt bound expired during the second preparation, the watchdogs cleaned up on schedule, and the helper reported that deadline as a cleanup failure.
+
+### The numbers that matter
+
+Measured on Ubicloud 4-vCPU runners with the staged Rails image from staging run 37735865870 and gstack 1d1ce39b4. Each figure is the start-to-kill time of one Docker group, taken from `docker events`.
+
+| Rails verification step | amd64 | arm64 |
+|---|---|---|
+| Offline preparation (each of the two phases) | 3.3–3.5 min | 6.8–8.5 min |
+| Phase observation (boot, controls, tests) | 8–10 s | 14–26 s |
+| Where the 900 s attempt ended | finished in about 8 min | killed during the second preparation, 3 of 3 arm64 reference repairs |
+| Attempt bound | 900 s | 1,800 s, still cut to the run's reporting deadline |
+
+### What this means for you
+
+Rails repairs on arm64 hosts, including Apple silicon Docker, can now reach `runtime_tested` and replay. Node, Bun and Python keep their 300-second attempt.
+
+### Itemized changes
+
+#### Fixed
+- `MAX_VERIFICATION_ATTEMPT_MS`, the Rails attempt and replay bound, is now 1,800 seconds. That equals the longest comprehensive run budget, and each attempt is still cut to the run's reporting deadline. The attempt watchdog, the Docker verification executor and the assertion witness lifetime share this bound.
+
+#### For contributors
+- `test/cso-cli-lifecycle.test.ts` pins the new bound.
 
 ## [1.91.60.0] - 2026-10-08
 

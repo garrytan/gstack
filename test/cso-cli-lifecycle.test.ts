@@ -90,6 +90,6 @@ describe('bounded verification attempts', () => {
     const { MAX_VERIFICATION_ATTEMPT_MS } = await import('../lib/cso/contracts');
     for (const stack of ['node', 'bun', 'python']) expect(verificationAttemptMs(stack)).toBe(300_000);
     expect(verificationAttemptMs('rails')).toBe(MAX_VERIFICATION_ATTEMPT_MS);
-    expect(MAX_VERIFICATION_ATTEMPT_MS).toBe(900_000);
+    expect(MAX_VERIFICATION_ATTEMPT_MS).toBe(1_800_000);
   });
 });
