@@ -180,3 +180,34 @@ describe('ci image codex authentication', () => {
     }
   });
 });
+
+describe('other CI Bun installs match the image (#1713, #1706)', () => {
+  const docker = fs.readFileSync(DOCKERFILE, 'utf-8');
+  const imageSha = bunArchiveArms(docker).get('amd64');
+  const imageVersion = docker.match(/^ARG BUN_VERSION=(\S+)$/m)?.[1];
+  const engines = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8')).engines.bun;
+
+  for (const rel of ['.gitlab-ci.yml', 'scripts/ubicloud/setup-free-suite.sh']) {
+    const source = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+
+    test(`${rel} downloads the verified linux-x64 archive instead of piping an installer into a shell`, () => {
+      expect(curlPipedToShell(source)).toEqual([]);
+      const download = source.indexOf('/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip');
+      const verify = source.indexOf('sha256sum -c');
+      const unpack = source.indexOf('unzip -q');
+      expect(download).toBeGreaterThan(-1);
+      expect(verify).toBeGreaterThan(download);
+      expect(unpack).toBeGreaterThan(verify);
+      expect(source).toContain('test "$(bun --version)" = "$BUN_VERSION"');
+    });
+
+    test(`${rel} pins the same Bun version and SHA-256 as Dockerfile.ci`, () => {
+      expect(imageSha).toMatch(/^[0-9a-f]{64}$/);
+      const hashes = [...source.matchAll(/echo "([0-9a-f]{64}) /g)].map((m) => m[1]);
+      expect(hashes).toEqual([imageSha!]);
+      const version = source.match(/^\s*BUN_VERSION[=:]\s*"?([\d.]+)"?\s*$/m)?.[1];
+      expect(version).toBe(imageVersion!);
+      expect(engines).toBe(`>=${imageVersion}`);
+    });
+  }
+});
