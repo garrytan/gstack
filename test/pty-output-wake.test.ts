@@ -58,17 +58,29 @@ process.stdout.write('TERMINAL_READY');
 `, { mode: 0o755 });
   const originalBinary = process.env.BROWSE_TERMINAL_BINARY;
   let session: ClaudePtySession | undefined;
+  let terminal: Bun.Terminal | undefined;
+  const spawn = Bun.spawn;
+  const spawnSpy = spyOn(Bun, 'spawn').mockImplementation(((...args: any[]) => {
+    const child = (spawn as any)(...args);
+    if (args[1]?.cwd === dir && args[1]?.terminal) terminal = child.terminal;
+    return child;
+  }) as typeof Bun.spawn);
   try {
     process.env.BROWSE_TERMINAL_BINARY = fake;
     session = await launchClaudePty({ cwd: dir, model: 'fixture', timeoutMs: 5000, sessionLedger: false });
     await session.waitFor('TERMINAL_READY', { timeoutMs: 3000 });
+    expect(terminal?.closed).toBe(false);
     expect(descriptors().length).toBeGreaterThan(before.length);
     await session.close();
     expect(session.exited()).toBe(true);
+    expect(terminal?.closed).toBe(true);
+    const settledBy = performance.now() + 1000;
+    while (JSON.stringify(descriptors()) !== JSON.stringify(before) && performance.now() < settledBy) await Bun.sleep(10);
     expect(descriptors()).toEqual(before);
   } finally {
     try { await session?.close(); }
     finally {
+      spawnSpy.mockRestore();
       if (originalBinary === undefined) delete process.env.BROWSE_TERMINAL_BINARY;
       else process.env.BROWSE_TERMINAL_BINARY = originalBinary;
       fs.rmSync(dir, { recursive: true, force: true });

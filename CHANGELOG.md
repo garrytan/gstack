@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.37.0] - 2026-10-07
+## [1.91.39.0] - 2026-10-07
 
 ### Added
 - Choose separate model tiers for planning and implementation. Independent plan reviews default to Fable 5.1 or GPT-6 Astra; implementation handoffs recommend Opus 5.5 or GPT-6.1 Sol without switching your session. Explicit model choices still win, and `plan_review_tier smart` or `host` provides an alternative to the frontier default.
