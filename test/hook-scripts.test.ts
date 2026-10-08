@@ -902,6 +902,12 @@ describe('check-careful.sh PowerShell and cmd coverage (#3067)', () => {
       expect(decision).toBe('ask');
       expect(reason).toContain('force-push');
     });
+
+    test('Invoke-Sqlcmd with DROP TABLE through the PowerShell tool asks (the #3067 report example)', () => {
+      const { decision, reason } = carefulDecision(psInput('Invoke-Sqlcmd -Query "DROP TABLE users" -ServerInstance db'));
+      expect(decision).toBe('ask');
+      expect(reason).toContain('DROP');
+    });
   });
 
   describe('encoded and dynamic PowerShell asks with an explanation', () => {
