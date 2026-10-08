@@ -52,7 +52,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | | | |
 | **Safety & Utility** | | |
 | [`/careful`](#safety--guardrails) | **Safety Guardrails** | Warns before destructive commands (rm -rf, DROP TABLE, force-push, git reset --hard). Override any MEDIUM warning; root/home recursive deletes and default-branch force-pushes are hard-denied. Common build cleanups whitelisted. |
-| [`/freeze`](#safety--guardrails) | **Edit Lock** | Restrict all file edits to a single directory. Blocks Edit and Write outside the boundary. Accident prevention for debugging. |
+| [`/freeze`](#safety--guardrails) | **Edit Lock** | Restrict all file edits to a single directory. Blocks Edit, Write and NotebookEdit outside the boundary. Accident prevention for debugging. |
 | [`/guard`](#safety--guardrails) | **Full Safety** | Combines /careful + /freeze in one command. Maximum safety for prod work. |
 | [`/unfreeze`](#safety--guardrails) | **Unlock** | Remove the /freeze boundary, allowing edits everywhere again. |
 | [`/open-gstack-browser`](#open-gstack-browser) | **GStack Browser** | Launch gstack's own browser headed, with sidebar, anti-bot stealth, auto model routing, cookie import, and Claude Code integration. The visible face of the fallback engine; with Aside open you watch the agent's tabs there. |
@@ -1212,7 +1212,7 @@ Four skills that add safety rails to any Claude Code session. They work via Clau
 
 ### `/careful`
 
-Say "be careful" or run `/careful` when you're working near production, running destructive commands, or just want a safety net. Every Bash command gets checked against known-dangerous patterns:
+Say "be careful" or run `/careful` when you're working near production, running destructive commands, or just want a safety net. Every Bash and PowerShell command gets checked against known-dangerous patterns:
 
 - `rm -rf` / `rm -r` — recursive delete
 - `DROP TABLE` / `DROP DATABASE` / `TRUNCATE` — data loss
@@ -1222,13 +1222,15 @@ Say "be careful" or run `/careful` when you're working near production, running 
 - `kubectl delete` — production resource deletion
 - `docker rm -f` / `docker system prune` — container/image loss
 
+On Windows the same hook checks Claude Code's PowerShell tool and any `pwsh`/`powershell`/`cmd` launched from Bash: `Remove-Item` and its aliases with `-Recurse`/`-Force` (any parameter prefix), cmd `rd /s` and `del /s`, `Format-Volume`, `Clear-Disk`, `Clear-Content` and .NET deletes ask, and encoded or dynamic PowerShell (`-EncodedCommand`, `iex`, `Start-Process` of a shell, `& $cmd`) asks because it can't be inspected. PowerShell coverage is best-effort; Claude Code permission deny rules such as `"PowerShell(Remove-Item *)"` are the hard stop.
+
 Common build artifact cleanups (`rm -rf node_modules`, `dist`, `.next`, `__pycache__`, `build`, `coverage`) are whitelisted — no false alarms on routine operations.
 
 You can override any MEDIUM warning. Two catastrophic shapes are hard-denied instead of asked: recursive deletes of the filesystem root or your home directory (including the `/*`, `~/`, and `$HOME/` forms), and force-pushes to the repo's default branch (`--force-with-lease` never triggers the deny; the escape hatch is ending the session-scoped `/careful` session). You can also add your own warn rules — one POSIX ERE per line — in `~/.gstack/careful-patterns.txt` (global) or `~/.gstack/projects/<slug>/careful-patterns.txt` (per-project); custom patterns only ever add warnings, never suppress the built-ins. The guardrails are accident prevention, not access control.
 
 ### `/freeze`
 
-Restrict all file edits to a single directory. When you're debugging a billing bug, you don't want Claude accidentally "fixing" unrelated code in `src/auth/`. `/freeze src/billing` blocks all Edit and Write operations outside that path.
+Restrict all file edits to a single directory. When you're debugging a billing bug, you don't want Claude accidentally "fixing" unrelated code in `src/auth/`. `/freeze src/billing` blocks all Edit, Write and NotebookEdit (Jupyter notebook) operations outside that path.
 
 `/investigate` activates this automatically — it detects the module being debugged and freezes edits to that directory.
 
