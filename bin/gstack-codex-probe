@@ -207,7 +207,9 @@ _gstack_codex_role_ready() {
   _gstack_codex_auth_probe || return 1
   _gstack_codex_sandbox_preflight || return $?
   _gstack_codex_version_check
-  _gstack_codex_model_probe "$1"
+  _gstack_codex_model_probe "$1" || return $?
+  [ -z "${_GSTACK_CODEX_SEL_REPAIR:-}" ] || echo "HINT: If the review rejects the selected model, repair its winning source: $_GSTACK_CODEX_SEL_REPAIR."
+  return 0
 }
 
 # --- Sandbox (B1) -----------------------------------------------------------
@@ -595,7 +597,14 @@ _gstack_codex_lock_acquire() {
       rmdir "$_dir" 2>/dev/null
       return 2
     fi
-    [ -d "$_dir" ] || return 2
+    if [ ! -d "$_dir" ]; then
+      { [ -e "$_dir" ] || [ -L "$_dir" ]; } && return 2
+      { [ -d "${_dir%/*}" ] && [ -w "${_dir%/*}" ] && [ -x "${_dir%/*}" ]; } || return 2
+      [ "$_i" -ge "$_tries" ] && return 2
+      _i=$((_i + 1))
+      sleep 0.1
+      continue
+    fi
     _now=$(date +%s 2>/dev/null || echo 0)
     _owner=$(cat "$_dir/owner" 2>/dev/null)
     _dead=0

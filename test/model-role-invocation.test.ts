@@ -43,6 +43,7 @@ if (probe) {
   process.exit(0);
 }
 if (!claude || args.includes('-')) await Bun.stdin.text();
+if (!claude && process.env.FAKE_DISPATCH_MODEL_ERROR) { console.error('ERROR: The model is not supported by this account.'); process.exit(1); }
 const response = process.env.FAKE_RESPONSE || 'Medium: the plan couples two rollouts.\\nRecommendation: split the migration because the plan couples two rollouts.';
 if (claude && process.env.FAKE_PROVIDER_ERROR) { console.log(JSON.stringify({ is_error: true, result: process.env.FAKE_PROVIDER_ERROR })); process.exit(Number(process.env.FAKE_ERROR_EXIT ?? '1')); }
 if (claude) console.log(JSON.stringify({ result: response, session_id: 's', modelUsage: { 'model-actual': { inputTokens: 1 } } }));
@@ -304,6 +305,18 @@ describe('Codex plan-review invocation binds one selection', () => {
     expect(r.stderr).toContain('gstack-config set model_frontier_openai <model-id>');
     expect(r.stderr).not.toContain('set model in');
     expect(r.stdout).not.toContain('OUTSIDE_STATUS');
+  });
+
+  test('a dispatch-only Codex model rejection retains the selected-source repair after unverified readiness', () => {
+    const h = home();
+    fs.writeFileSync(path.join(h.state, '.codex-model-probe.locks'), 'not a directory');
+    const r = run('claude', h, { GSTACK_CODEX_MODEL: 'gpt-env', FAKE_DISPATCH_MODEL_ERROR: '1' });
+    expect(r.status).toBe(1);
+    expect(r.calls.map((call: { probe: boolean }) => call.probe)).toEqual([false]);
+    expect(r.stderr).toContain('MODEL_PROBE_INCONCLUSIVE');
+    expect(r.stderr).toContain('If the review rejects the selected model');
+    expect(r.stderr).toContain('unset GSTACK_CODEX_MODEL');
+    expect(r.stderr).toContain('model is not supported');
   });
 
   test('a broken CLI found by the role probe exits 2 and never dispatches', () => {

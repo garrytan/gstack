@@ -67,6 +67,30 @@ const withFixture = (body: (f: Fixture) => void | Promise<void>) => async () => 
 };
 
 describe('bounded multi-signature probe cache', () => {
+  test('a write-lock holder releasing after a failed mkdir does not drop a negative entry', withFixture((f) => {
+    const lock = path.join(f.locks, 'write');
+    const once = path.join(f.home, 'release-once');
+    fs.mkdirSync(lock, { recursive: true });
+    expect(fs.realpathSync(lock).startsWith(`${fs.realpathSync(f.home)}${path.sep}`)).toBe(true);
+    fs.writeFileSync(path.join(lock, 'owner'), `${process.pid} ${os.hostname()} ${Math.floor(Date.now() / 1000)}\n`);
+    fs.writeFileSync(once, 'armed');
+    fs.writeFileSync(path.join(f.home, 'bin/mkdir'), `#!/usr/bin/env bash
+if [ "$#" -eq 1 ] && [ "$1" = "$RACE_LOCK" ] && [ -f "$RACE_ONCE" ]; then
+  rm -f "$RACE_ONCE" "$RACE_LOCK/owner"
+  rmdir "$RACE_LOCK"
+  exit 1
+fi
+exec ${JSON.stringify(Bun.which('mkdir'))} "$@"
+`, { mode: 0o755 });
+    const result = probe(f, { ...model('gpt-race'), STUB_MODE: 'quota', RACE_LOCK: lock, RACE_ONCE: once });
+    expect(result.stdout).toContain('rc=4');
+    expect(fs.existsSync(f.cache)).toBe(true);
+    expect(entries(f)).toHaveLength(1);
+    expect(entries(f)[0]).toStartWith('MODEL_QUOTA_EXHAUSTED ');
+    expect(probe(f, model('gpt-race')).stdout).toContain('MODEL_QUOTA_EXHAUSTED (cached)');
+    expect(calls(f)).toBe(1);
+  }));
+
   test('A -> B -> A makes exactly two paid probes', withFixture((f) => {
     expect(probe(f, model('gpt-a')).stdout).toContain('MODEL_OK');
     expect(probe(f, model('gpt-b')).stdout).toContain('MODEL_OK');
