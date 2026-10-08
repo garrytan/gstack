@@ -201,14 +201,15 @@ Send phase announcements and the final approval request in the conversation.
 Resolve SNAPSHOT_TOOL once:
 {{AUTOPLAN_SNAPSHOT_TOOL}}
 
-Fresh external RESTORE_PATH:
+Fresh RESTORE_PATH, beside its phase artifacts in the project's git-excluded `.gstack/tmp/autoplan/`:
 ```bash
 {{SLUG_EVAL}}
-GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
-mkdir -p "$GSTACK_STATE_ROOT/projects/$SLUG"
+_AP="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/autoplan"; mkdir -p "$_AP" && chmod 700 "$_AP"
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "${_EX%/*}" && { grep -qxF /.gstack/tmp/ "$_EX" 2>/dev/null || echo /.gstack/tmp/ >> "$_EX"; }
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
 DATETIME=$(date +%Y%m%d-%H%M%S)
-echo "RESTORE_PATH=$GSTACK_STATE_ROOT/projects/$SLUG/${BRANCH}-autoplan-restore-${DATETIME}.md"
+echo "SLUG=$SLUG"
+echo "RESTORE_PATH=$_AP/${BRANCH}-autoplan-restore-${DATETIME}.md"
 ```
 
 Before scope/review:

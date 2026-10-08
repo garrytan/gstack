@@ -112,6 +112,24 @@ describe('/autoplan owned reads after the skill turn', () => {
     expect(await runPublicationHook({ ...read(c.session, c.packet), tool_name: 'Bash', tool_input: { command: `cat ${c.packet}` } }, ROOT)).toEqual({});
   });
 
+  test('Step 1 puts the restore point in the repository\'s git-excluded store, from a subdirectory too', () => {
+    const skill = fs.readFileSync(path.join(ROOT, 'autoplan/SKILL.md'), 'utf8');
+    const start = skill.indexOf('```bash\n', skill.indexOf('Fresh RESTORE_PATH')) + 8;
+    const block = skill.slice(start, skill.indexOf('\n```', start));
+    const home = scratch('autoplan-owned-home-'), repo = scratch('autoplan-owned-git-'), session = path.join(repo, 'packages', 'app');
+    fs.mkdirSync(path.join(home, '.claude', 'skills'), { recursive: true }); fs.mkdirSync(session, { recursive: true });
+    fs.symlinkSync(ROOT, path.join(home, '.claude', 'skills', 'gstack'), 'dir');
+    expect(spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: repo, timeout: 10_000 }).status).toBe(0);
+    const run = () => spawnSync('bash', ['-c', block], { cwd: session, encoding: 'utf8', timeout: 15_000, env: { ...process.env, HOME: home } });
+    const first = run(), second = run();
+    expect(first.status).toBe(0); expect(second.status).toBe(0);
+    const restore = /^RESTORE_PATH=(.+)$/m.exec(first.stdout)?.[1] ?? '';
+    expect(path.dirname(restore)).toBe(path.join(repo, '.gstack', 'tmp', 'autoplan'));
+    expect(path.basename(restore)).toMatch(/-autoplan-restore-\d{8}-\d{6}\.md$/);
+    expect(fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8').split('\n').filter(l => l === '/.gstack/tmp/')).toHaveLength(1);
+    expect(spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo, encoding: 'utf8', timeout: 10_000 }).stdout).toBe('');
+  });
+
   test('a guard denial is never turned into an approval', async () => {
     const cwd = scratch('autoplan-owned-deny-');
     const output: any = await runPublicationHook(read(cwd, path.join(ROOT, 'autoplan/sections/design-phase.md')), ROOT);
