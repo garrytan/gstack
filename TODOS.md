@@ -2,6 +2,24 @@
 
 ## NEXT PRIORITY
 
+### P3: Oct 8 fix wave, safety hooks follow-ups (filed 2026-10-08)
+
+Left open by the PowerShell/NotebookEdit hook fix (v1.91.37.0, #3067), each with its reason.
+
+- **Forced overwrite patterns for `/careful`** — `Set-Content -Force` / `Out-File
+  -Force` over an existing file (and the Bash `>` overwrite twin) still pass.
+  Deferred: the Bash side has no overwrite pattern either, and adding one is a
+  new family for both shells, not PowerShell parity. **Effort:** S. **Priority:** P3.
+- **Quote-aware masking in `check-careful.sh` (#1060)** — `git commit -m "rm -rf
+  build"` still asks. Deferred: masking quoted text inside a safety hook can open
+  bypasses (PR #1110's `echo hi; rm -rf ~` showed how); it needs its own design
+  with the #1110 strings as controls. **Effort:** M. **Priority:** P3.
+- **Hooks on Windows without Git Bash** — the frontmatter hook commands run
+  `bash -c ...`, and Claude Code runs hook commands through PowerShell when Git
+  Bash is absent, so the guards cannot start there. gstack requires Git Bash
+  today; a native PowerShell hook launcher would lift that. **Effort:** M.
+  **Priority:** P3.
+
 ### P2/P3: Oct 7 fix-wave follow-ups (filed 2026-10-07)
 
 Left open by the Oct 7 wave (docs/designs/FOLLOWUP_WAVE_2026_10_07.md), each with its reason.

@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.91.37.0] - 2026-10-08
+
+**`/careful` and `/guard` now check PowerShell commands, and `/freeze` now covers notebook edits.**
+
+On Windows, Claude Code runs shell commands through its PowerShell tool, and on a machine without Git Bash that is the only shell it has. `/careful` and `/guard` listened only to the Bash tool, so they never saw those commands: `Remove-Item -Recurse -Force C:\proj` and `rmdir /s /q C:\proj` went through with no prompt. The hook also had no PowerShell or cmd patterns at all. Separately, on every platform, `NotebookEdit` was missing from the `/freeze`, `/guard` and `/investigate` hooks, and the freeze check read only `file_path`. A notebook edit outside the boundary was allowed.
+
+### The numbers that matter
+
+Checked by piping hook payloads into the real scripts (`test/hook-scripts.test.ts`) on Linux.
+
+| Check | Before | After |
+|---|---|---|
+| PowerShell tool: `Remove-Item -Recurse -Force C:\proj`, `rmdir /s /q C:\proj` | allowed (the hook never ran, and had no pattern) | ask, naming the matched pattern |
+| Bash: `pwsh -c "Remove-Item -r -fo x"`, `cmd /c "rd /s /q x"`, `cmd //c "r^d /s /q x"` | allowed | ask |
+| `-EncodedCommand`, `iex`, `Start-Process pwsh`, `& $cmd`, `[IO.Directory]::Delete` | allowed | ask, explaining that encoded or dynamic PowerShell can't be inspected |
+| `NotebookEdit` on `/etc/x.ipynb` with `/freeze` set elsewhere | allowed | denied, naming the tool, `notebook_path`, the boundary and `/unfreeze` |
+| Negative controls (`git branch -d`, `ord`, `--del`, a `/rd/` path, `Remove-Item x.txt`), on Bash and PowerShell | allowed | still allowed |
+| New #3067 hook tests run against the old scripts | — | 54 of 98 fail; the other 44 (controls and unchanged behavior) pass on both |
+
+### What this means for you
+
+Run `/gstack-upgrade`, then start `/careful` in a new session. On Windows, ask Claude to run `Remove-Item -Recurse -Force .\scratch` through PowerShell: you'll get an approval prompt that names `ps_remove_item`. PowerShell coverage is best-effort, because PowerShell can build a command at runtime that string matching can't see. If you need a hard stop, add Claude Code permission deny rules, such as `"deny": ["PowerShell(Remove-Item *)"]`. Those rules parse PowerShell and match aliases. The hooks run through `bash`, so on Windows they still need Git Bash, which gstack already requires.
+
+### Itemized changes
+
+#### Fixed
+- `/careful` and `/guard` register a `PowerShell` hook matcher beside `Bash` (#3067).
+- `check-careful.sh` runs one PowerShell and cmd pattern table. It covers commands from the PowerShell tool, and the rest of any Bash command from the point where it launches `pwsh`, `powershell` or `cmd` (including Git Bash's `cmd //c`). Matching ignores case and covers aliases (`rm`, `ri`, `del`, `erase`, `rd`, `rmdir`). Command names match only where a command starts. Parameters match any prefix PowerShell accepts (`-r`, `-rec`, `-fo`, `-forc`, `-Recurse:$true`). cmd `^` escapes and PowerShell backtick escapes are removed before matching. The covered commands are `Remove-Item` with `-Recurse` or `-Force`, `rd`/`rmdir`/`del`/`erase` with `/s`, `Format-Volume`, `Clear-Disk`, `Clear-Content` (the same as `truncate`), `[IO.Directory]::Delete` and `[IO.File]::Delete`, plus asks for `-EncodedCommand`/`-enc`, `Invoke-Expression`/`iex`, `Start-Process` of a shell and `& $cmd`. Patterns that apply to any shell (`git push --force`, `DROP TABLE`, and the rest) apply to PowerShell commands too.
+- `/freeze`, `/guard` and `/investigate` register a `NotebookEdit` matcher beside `Edit` and `Write`. `check-freeze.sh` reads `notebook_path` when `file_path` is absent (#3067). Every freeze denial now names the tool, the path field and `/unfreeze`.
+- PR #1110's bypass strings (`echo hi; rm -rf ~`, `echo $(rm -rf /)`, `git commit -m "$(rm -rf ~)"`) are pinned as negative controls and still ask.
+
+#### For contributors
+- `gstack_hook_extract_tool` in `careful/bin/hook-extract.sh` reads `tool_name` and the first non-empty field in one parser call, so dispatch adds no process per command. A `check-careful.sh` paired with an older helper falls back to the Bash-only reader. A `check-freeze.sh` paired with an older helper denies as out of date.
+- The payload shapes come from Claude Code's docs. PowerShell sends `tool_input.command` (hooks reference, "PreToolUse > PowerShell"). NotebookEdit sends `tool_input.notebook_path` (Agent SDK `NotebookEditInput`). `MultiEdit` no longer appears in the tools reference, the hooks reference or the SDK tool list, so it gets no matcher.
+- The careful and freeze hook matchers are separate per-tool entries, matching the existing `Edit`/`Write` entries. Claude Code treats them the same as one `Bash|PowerShell` list, and the safety-prose parser in `scripts/gen-skill-docs.ts` keeps reading them.
+- `test/hook-scripts.test.ts` is now named Windows coverage in `scripts/lib/windows-curation.ts`. Its symlink, newline-path and POSIX-`PATH` cases are skipped on win32.
+- `careful/bin/check-careful.sh` is listed in `FREE_ONLY_PR_FILES`. No paid fixture runs it, and as an unknown dependency it used to restore the full paid gate on every `/careful` change.
+- Thanks to @jtheyse for the #3067 report and its suggested fix shape, @JiayuuWang for PR #1110, whose bypass strings became negative controls, and @BenjaminDSmithy for PR #3066's frontmatter hook-check derivation. The new matchers pass #3066's `bin/gstack-hook-check` and its test as well as main's.
+
 ## [1.91.36.0] - 2026-10-07
 
 **Python and Rails repairs can now reach `runtime_tested` and replay, and a killed verification leaves nothing behind.**
