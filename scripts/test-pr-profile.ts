@@ -212,6 +212,7 @@ export const FREE_ONLY_PR_FILES = [
   'tsconfig.test.json', // Read only by `tsc -p tsconfig.test.json` (typecheck:test); Bun's runtime reads tsconfig.json.
   '.gitignore', // Changes which untracked files git reports, never tracked content a case reads.
   'scripts/retired-command.ts', // One-release stubs for retired package scripts; no paid case imports it.
+  'careful/bin/check-careful.sh', // /careful PreToolUse hook: covered by test/hook-scripts.test.ts; no paid fixture copies or runs it.
   // Reporting and launch tools: they read CI history or start a lane, never run inside a paid case.
   'scripts/test-health-report.ts',
   'scripts/bump-harness-version.ts',
