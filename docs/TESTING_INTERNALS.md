@@ -807,7 +807,9 @@ two anchors: every binary and source set flips it, Windows `.exe` suffixes).
 against a temp `GSTACK_INSTALL_DIR` / `GSTACK_SKILLS_DIR`, and
 `test/hook-scripts.test.ts` runs the real `careful/bin/check-careful.sh` and
 `freeze/bin/check-freeze.sh` with JSON payloads on stdin (including the
-`GSTACK_HOME` state-root parity against `bin/gstack-paths`).
+`GSTACK_HOME` state-root parity against `bin/gstack-paths`, PowerShell tool and
+NotebookEdit payloads); it is named Windows coverage in the curated
+`windows-free-tests` lane.
 
 ### Ship measure sweep
 

@@ -417,7 +417,7 @@ completed output. Use private temporary paths, with no background jobs.` : `Run 
 Finish a failed attempt's termination before fallback; consume only its completed
 output. No background jobs or shared temporary paths.`}
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 300000 })}
+${outsideVoiceInvocation(ctx, { timeoutMs: 300000, role: 'plan-review' })}
 
 Present the full output verbatim:
 
@@ -458,7 +458,7 @@ Immediately before dispatching, check the preflight result again. On
 do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
 authentication/model selection, a failed preflight${needsApprovalReadiness ? ' (including harness mismatch)' : ''}, or a failed outside invocation.
 The disabled branch never reaches this fallback.
-${needsApprovalReadiness ? '' : `On \`CODEX_MODE: ${outsideVoiceFor(ctx).id === 'codex' ? 'under_codex' : 'under_current_harness'}\`, report the setup repair and
+${needsApprovalReadiness ? '' : `On \`CODEX_MODE: under_current_harness\`, report the setup repair and
 \`outside_status: unavailable\`, run no outside CLI, and use the native subagent below.
 A native result never supplies outside coverage.`}`}`;
 }
@@ -634,7 +634,7 @@ review. The user turns this off only by asking explicitly
 
 **Preflight — decide whether and how the outside voice runs:**
 
-${outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all' })}
+${outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all', role: 'plan-review' })}
 
 ${codexPlanOutcomeRouting(ctx, ceo, needsApprovalReadiness)}
 

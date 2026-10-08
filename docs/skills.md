@@ -52,7 +52,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | | | |
 | **Safety & Utility** | | |
 | [`/careful`](#safety--guardrails) | **Safety Guardrails** | Warns before destructive commands (rm -rf, DROP TABLE, force-push, git reset --hard). Override any MEDIUM warning; root/home recursive deletes and default-branch force-pushes are hard-denied. Common build cleanups whitelisted. |
-| [`/freeze`](#safety--guardrails) | **Edit Lock** | Restrict all file edits to a single directory. Blocks Edit and Write outside the boundary. Accident prevention for debugging. |
+| [`/freeze`](#safety--guardrails) | **Edit Lock** | Restrict all file edits to a single directory. Blocks Edit, Write and NotebookEdit outside the boundary. Accident prevention for debugging. |
 | [`/guard`](#safety--guardrails) | **Full Safety** | Combines /careful + /freeze in one command. Maximum safety for prod work. |
 | [`/unfreeze`](#safety--guardrails) | **Unlock** | Remove the /freeze boundary, allowing edits everywhere again. |
 | [`/open-gstack-browser`](#open-gstack-browser) | **GStack Browser** | Launch gstack's own browser headed, with sidebar, anti-bot stealth, auto model routing, cookie import, and Claude Code integration. The visible face of the fallback engine; with Aside open you watch the agent's tabs there. |
@@ -60,7 +60,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/gstack-upgrade`](#gstack-upgrade) | **Self-Updater** | Upgrade gstack to the latest version. Detects global vs vendored install, syncs both, shows what changed. |
 | [`/make-pdf`](#make-pdf) | **PDF Generator** | Turn any markdown file into a publication-quality PDF. Proper margins, page numbers, cover pages, clickable TOC. Mermaid/excalidraw fences render as vector diagrams; `--to html\|docx` for other formats. Prints through your Aside browser (macOS 15+), or gstack's bundled browser when Aside is absent. |
 | [`/diagram`](#diagram) | **Diagram Maker** | English in, diagram out: mermaid source + editable `.excalidraw` (open it on excalidraw.com, hand-drawn style) + rendered SVG/PNG. Fully offline, rendered through your Aside browser (macOS 15+) or gstack's bundled browser when Aside is absent. |
-| [`/ios-qa`](#ios-qa) | **iOS QA Lead** | Live-device iOS QA via USB CoreDevice tunnel + embedded StateServer. Reads Swift source, codegens accessors, drives the real iPhone. Optionally exposes the device over Tailscale for remote agents. |
+| [`/ios-qa`](#ios-qa) | **iOS QA Lead** | Live-device iOS QA via USB CoreDevice tunnel + embedded StateServer. Reads Swift source, codegens accessors, drives the real iPhone or iPad. Optionally exposes the device over Tailscale for remote agents. |
 | [`/ios-fix`](#ios-fix) | **iOS Autonomous Fixer** | Closes the find→fix→verify loop on a real iPhone. Captures a reproducing snapshot, fixes the source, rebuilds, redeploys, verifies. |
 | [`/ios-design-review`](#ios-design-review) | **iOS Designer's Eye** | 10-dimension Apple HIG audit on a real iPhone. Rates each screen, says what would make it a 10. |
 | [`/ios-clean`](#ios-clean) | **iOS Bridge Cleanup** | Convenience wrapper to strip DebugBridge SPM + `#if DEBUG` wiring. The structural Release-build guard is in Package.swift + CI; this skill is for guided manual removals. |
@@ -1148,10 +1148,10 @@ This is my **second opinion mode**.
 
 `/codex` brings OpenAI Codex CLI to review the same diff independently. It is available on every harness except Codex itself. External harnesses install it as `/gstack-codex`. Compare its findings with the native review to distinguish corroborated findings from issues only one reviewer caught.
 
-gstack-owned Codex calls default to `gpt-6-astra`, including resumed consult
-sessions. Set `GSTACK_CODEX_MODEL=<model>` to change the default, or name a
-model in your request to override it for that invocation. Generated commands
-pass the selection through `-c model=...`, overriding the CLI's configured model.
+Without a role, gstack-owned Codex calls select a request-specific model, then
+`GSTACK_CODEX_MODEL`, then Codex native settings, falling back to `gpt-6-astra`.
+This also applies to resumed consultations. Generated commands pass the selection
+through `-c model=...`, overriding the CLI's configured model for that call.
 Native review also sets `-c review_model=...` to that selection, overriding any
 separate review-model pin.
 
@@ -1160,6 +1160,10 @@ review, challenge, and consult calls preserve Claude's configured model.
 `GSTACK_CLAUDE_MODEL=<model>` supplies an explicit override, including resumed
 sessions; a model named in your request takes precedence. Harness routing is
 independent of model selection.
+
+An explicit `--role plan-review` uses the configured plan-review tier instead;
+request and environment overrides still win, and `host` mode restores native
+selection. See [model policy](model-policy.md) for pins, precedence and recovery.
 
 ### Three modes
 
@@ -1200,7 +1204,7 @@ Claude Code provides the outside reviewer when gstack runs in Codex. Other non-C
 
 **Review** supplies the branch diff for a read-only pass/fail review. **Challenge** asks Claude Code to find concrete failure cases in the same diff. **Consult** supports read-only repository exploration and resumes the session saved in `.context/claude-session-id`. Review and challenge receive context from the parent workflow and run without tools; consultation can read and search files.
 
-The Claude Code CLI must be installed and authenticated. Its existing model configuration and `GSTACK_CLAUDE_BIN` / `GSTACK_CLAUDE_BIN_ARGS` executable overrides are honored. Errors, timeouts, and invalid responses report missing outside coverage instead of a clean review. Automatic reviews start fresh; consult session continuity is explicit.
+The Claude Code CLI must be installed and authenticated. Without a role, its existing model configuration is honored; explicit `--role plan-review` follows the [model policy](model-policy.md). `GSTACK_CLAUDE_BIN` / `GSTACK_CLAUDE_BIN_ARGS` executable overrides remain in force. Errors, timeouts, and invalid responses report missing outside coverage instead of a clean review. Automatic reviews start fresh; consult session continuity is explicit.
 
 Outside-review routing follows the harness, independently of the configured model. Generic second-opinion requests choose `/claude-code` on Codex and `/codex` elsewhere; explicit provider requests keep that provider. The existing `codex_reviews` setting controls the selected automatic reviewer in workflows that already use that setting. Existing opt-in and skip controls still apply in office hours, design, and spec workflows.
 
@@ -1212,7 +1216,7 @@ Four skills that add safety rails to any Claude Code session. They work via Clau
 
 ### `/careful`
 
-Say "be careful" or run `/careful` when you're working near production, running destructive commands, or just want a safety net. Every Bash command gets checked against known-dangerous patterns:
+Say "be careful" or run `/careful` when you're working near production, running destructive commands, or just want a safety net. Every Bash and PowerShell command gets checked against known-dangerous patterns:
 
 - `rm -rf` / `rm -r` — recursive delete
 - `DROP TABLE` / `DROP DATABASE` / `TRUNCATE` — data loss
@@ -1222,13 +1226,15 @@ Say "be careful" or run `/careful` when you're working near production, running 
 - `kubectl delete` — production resource deletion
 - `docker rm -f` / `docker system prune` — container/image loss
 
+On Windows the same hook checks Claude Code's PowerShell tool and any `pwsh`/`powershell`/`cmd` launched from Bash: `Remove-Item` and its aliases with `-Recurse`/`-Force` (any parameter prefix), cmd `rd /s` and `del /s`, `Format-Volume`, `Clear-Disk`, `Clear-Content` and .NET deletes ask, and encoded or dynamic PowerShell (`-EncodedCommand`, `iex`, `Start-Process` of a shell, `& $cmd`) asks because it can't be inspected. PowerShell coverage is best-effort; Claude Code permission deny rules such as `"PowerShell(Remove-Item *)"` are the hard stop.
+
 Common build artifact cleanups (`rm -rf node_modules`, `dist`, `.next`, `__pycache__`, `build`, `coverage`) are whitelisted — no false alarms on routine operations.
 
 You can override any MEDIUM warning. Two catastrophic shapes are hard-denied instead of asked: recursive deletes of the filesystem root or your home directory (including the `/*`, `~/`, and `$HOME/` forms), and force-pushes to the repo's default branch (`--force-with-lease` never triggers the deny; the escape hatch is ending the session-scoped `/careful` session). You can also add your own warn rules — one POSIX ERE per line — in `~/.gstack/careful-patterns.txt` (global) or `~/.gstack/projects/<slug>/careful-patterns.txt` (per-project); custom patterns only ever add warnings, never suppress the built-ins. The guardrails are accident prevention, not access control.
 
 ### `/freeze`
 
-Restrict all file edits to a single directory. When you're debugging a billing bug, you don't want Claude accidentally "fixing" unrelated code in `src/auth/`. `/freeze src/billing` blocks all Edit and Write operations outside that path.
+Restrict all file edits to a single directory. When you're debugging a billing bug, you don't want Claude accidentally "fixing" unrelated code in `src/auth/`. `/freeze src/billing` blocks all Edit, Write and NotebookEdit (Jupyter notebook) operations outside that path.
 
 `/investigate` activates this automatically — it detects the module being debugged and freezes edits to that directory.
 

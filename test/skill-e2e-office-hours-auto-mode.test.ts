@@ -24,12 +24,13 @@ import { assertNoPlanFileDecisions } from './helpers/plan-mode-evidence';
 
 const describeE2E = describeE2ETier('gate');
 
-describeE2E('office-hours AskUserQuestion-blocked smoke (gate)', () => {
+// The PR lane selects this case by a test name ending in its id.
+describeE2E('office-hours AskUserQuestion-blocked smoke (gate): AskUserQuestion surfaces when --disallowedTools AskUserQuestion is set', () => {
   // With AskUserQuestion blocked the mode question must still be asked (the
   // prose fallback, observed as 'asked'); a plan-file ## Decisions section is
   // not a substitute. Failure signals also include 'auto_decided' +
   // silent_write/exited/timeout.
-  test('AskUserQuestion surfaces when --disallowedTools AskUserQuestion is set', async () => {
+  test('office-hours-auto-mode', async () => {
     const obs = await runPlanSkillObservation({
       skillName: 'office-hours',
       inPlanMode: true,

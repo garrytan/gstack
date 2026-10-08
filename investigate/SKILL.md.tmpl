@@ -37,6 +37,11 @@ hooks:
         - type: command
           command: 'bash -c "test -x \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\" && exec bash \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\"; exit 0"'
           statusMessage: "Checking debug scope boundary..."
+    - matcher: "NotebookEdit"
+      hooks:
+        - type: command
+          command: 'bash -c "test -x \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\" && exec bash \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\"; exit 0"'
+          statusMessage: "Checking debug scope boundary..."
 gbrain:
   schema: 1
   context_queries:
@@ -133,7 +138,7 @@ bash "{{RUNTIME_ROOT}}/freeze/bin/freeze-state.sh" acquire "<detected-directory>
 
 Substitute `<detected-directory>` with the actual path (e.g., `src/auth/`). Retain the exact returned `FREEZE_OWNER` token in this run's context (including any checkpoint); never reconstruct it from the current state file. Only a returned token means this run owns a new lock. `FREEZE_PRESERVED` means keep the existing boundary and do not clean it up. On acquisition error, pause before edits and report it; never claim a lock was acquired. Relative legacy state is ambiguous: ask the user to re-establish an absolute boundary via `/freeze`, rather than guessing its original cwd.
 
-Tell the user the boundary and its owner disposition. Hooks enforce Edit/Write restrictions only on hosts supporting those callbacks; on Capy they are advisory. Bash remains outside hook enforcement.
+Tell the user the boundary and its owner disposition. Hooks enforce Edit/Write/NotebookEdit restrictions only on hosts supporting those callbacks; on Capy they are advisory. Bash remains outside hook enforcement.
 
 **Terminal cleanup:** On completion, explicit abort, or any known error that ends this investigation, run the following with this run's retained token, before the final response. Skip it when this run acquired no token:
 

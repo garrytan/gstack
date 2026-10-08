@@ -1,5 +1,231 @@
 # Changelog
 
+## [1.91.54.0] - 2026-10-08
+
+**Your first /office-hours session gets the first-session closing again, and you see the design doc before you approve it.**
+
+/office-hours logged the session to your builder profile and then read the profile to choose its closing, so every run counted itself as history. A first-time user got the "welcome back" closing, never saw the introduction, and was asked how the assignment they had just been given went. Every later tier was one session early too. Separately, the approval question showed up while the design doc sat in a collapsed tool output, and a session that never wrote a doc could still be logged as a success.
+
+### What this means for you
+
+Run `/gstack-upgrade`, then start `/office-hours` on a new idea. Before the doc is saved you'll see a `Builder profile before this session:` line. On a first session it says `SESSION_TIER=introduction PRIOR_SESSION_COUNT=0`, and the closing is the introduction. `gstack-timeline-read --limit 1abc` now exits 2 and shows an example instead of quietly reading one event.
+
+### Itemized changes
+
+#### Fixed
+- /office-hours reads your builder profile before it logs the session and carries the earlier tier, count and last assignment to the closing. This session is counted as the prior count plus one. If the profile can't be read, it treats the session as your first and tells you so. A returning greeting skips "last time" when the profile has no last assignment or project, and just says "Welcome back." (#2801)
+- /office-hours prints the complete design doc in the conversation before asking you to approve it. (#879)
+- /office-hours logs `success` only when this run's own design doc exists and isn't empty. It checks the doc's exact path under your gstack state root. A session that ends without a doc is logged as `abort` or `error` with failed step `design_doc`. (#1049)
+- `/plan-ceo-review`, `/plan-eng-review`, `/plan-devex-review` and `/autoplan` skip the "run /office-hours first?" offer in spawned and headless sessions, where nobody can answer it, and continue with the standard review. (#1958)
+- `gstack-timeline-read --limit` takes only a positive integer. A missing value, `0`, `-5`, `abc` or `1abc` exits 2 with `--limit must be a positive integer (got '<value>'); example: --limit 20`, whether or not the project has a timeline. Without the flag you still get 20 events. (#1723)
+- Skill start prints `SESSIONS: N`, the number of gstack sessions active in the last two hours, so CLAUDE.md rules that read the session count have a value. (#1651, part A)
+
+#### For contributors
+- New tests in `test/gen-skill-docs.test.ts` run the rendered office-hours profile read, session log and design-doc check against a temporary state root. `test/timeline.test.ts` covers each bad `--limit` on empty and populated histories. `test/gstack-skill-start.test.ts` covers the `SESSIONS` count. The office-hours, plan-eng-review and autoplan parity caps include the measured growth.
+
+Contributed by @kikearciniegas (#2801), @kichinosukey (#879), @RyanAlberts (#1116), @walton-chris (#1049), @aviraldua93 (#1958), @jbetala7 (#1723, #1724), @TJ-NomoAI (#1651) and @0xDevNinja (#1747).
+
+## [1.91.52.0] - 2026-10-08
+
+**`/qa` says exactly what shape `annotations.json` takes, and the `qa-quick` gate eval stops timing out at its 300 s budget.**
+
+Before writing its report, `/qa` records an `annotations.json` file and runs `gstack-qa-evidence materialize` on it. The section that describes the file listed its fields as `{evidence: [...], limits}` and told browser-only runs to put "checkpoints in limits", but it never said what type `limits` is. The validator only accepts a non-empty array of strings. In 11 of 15 recent `qa-quick` CI transcripts, the agent's first attempt wrote `limits` as an object, the call failed, and the agent had to retry. Anyone running `/qa` or `/qa-only` could hit the same retry.
+
+`qa-quick` runs on every PR that touches `browse/src`. It passed 13 of 15 recent CI runs in 206-280 s, and the other 2 hit the 300 s session timeout. Two parts of the case's own setup were adding work. Its fixture directory was not a git repository, so in all 15 runs `materialize` first failed with "revision is required when git rev-parse HEAD is unavailable". Its prompt also put the fixture's `/page1` and `/page2` links in scope. Both links return 404 on the test server, so each run spent part of its 30 s probe window, and its wrap-up, investigating and reporting them. The session budget, the thresholds and the `/qa` workflow are unchanged.
+
+### The numbers that matter
+
+Diagnostic `ship-measure` trials in the CI image (Claude Code 2.1.292, Bun 1.4.2, `--jobs 2`, `CI=true`). They never change a recorded verdict.
+
+| `qa-quick` | Before (CI, 15 runs) | After (10 trials) |
+|---|---|---|
+| Passed | 13 of 15 | 10 of 10 |
+| Pass duration, median (range) | 252 s (206-280 s) | 187 s (155-256 s) |
+| Mean cost per trial | $1.75 | $1.46 |
+| Runs with a failed `materialize` call | 15 of 15 | 0 of 10 |
+
+### What this means for you
+
+`/qa` and `/qa-only` now get `annotations.json` right on the first try, which saves a failed tool call near the end of a run. A browse PR's `qa-quick` check should no longer time out. Its slowest measured trial (256 s) sits right at the 85% headroom line (255 s), so the weekly gate's headroom alarm may still flag the case now and then.
+
+### Itemized changes
+
+#### Fixed
+- `qa/sections/exploratory.md` §4 (shared by `/qa` and `/qa-only` through the `QA_EXPLORATORY` resolver) shows `limits` as `["checkpoint 001"]` and says it is a non-empty string array, never an object. That matches what `lib/qa-evidence.ts` already enforces.
+
+#### For contributors
+- `qa-quick` commits its fixture directory to git before the session starts, as `qa-only-no-fix` already does. `/qa`'s clean-tree check and the evidence recorder's revision now work the way they do in a real repository.
+- `qa-quick` limits Quick scope to the fixture page itself: its load, console health and rendered content. The two same-origin links are listed as untested coverage. The qa-b6/b7/b8 and qa-fix-loop cases still cover link following and defect detection.
+
+## [1.91.47.0] - 2026-10-08
+
+**`/careful` and `/guard` now check PowerShell commands, and `/freeze` now covers notebook edits.**
+
+On Windows, Claude Code runs shell commands through its PowerShell tool, and on a machine without Git Bash that is the only shell it has. `/careful` and `/guard` listened only to the Bash tool, so they never saw those commands: `Remove-Item -Recurse -Force C:\proj` and `rmdir /s /q C:\proj` went through with no prompt. The hook also had no PowerShell or cmd patterns at all. Separately, on every platform, `NotebookEdit` was missing from the `/freeze`, `/guard` and `/investigate` hooks, and the freeze check read only `file_path`. A notebook edit outside the boundary was allowed.
+
+### The numbers that matter
+
+Checked by piping hook payloads into the real scripts (`test/hook-scripts.test.ts`) on Linux.
+
+| Check | Before | After |
+|---|---|---|
+| PowerShell tool: `Remove-Item -Recurse -Force C:\proj`, `rmdir /s /q C:\proj` | allowed (the hook never ran, and had no pattern) | ask, naming the matched pattern |
+| Bash: `pwsh -c "Remove-Item -r -fo x"`, `cmd /c "rd /s /q x"`, `cmd //c "r^d /s /q x"` | allowed | ask |
+| `-EncodedCommand`, `iex`, `Start-Process pwsh`, `& $cmd`, `[IO.Directory]::Delete` | allowed | ask, explaining that encoded or dynamic PowerShell can't be inspected |
+| `NotebookEdit` on `/etc/x.ipynb` with `/freeze` set elsewhere | allowed | denied, naming the tool, `notebook_path`, the boundary and `/unfreeze` |
+| Negative controls (`git branch -d`, `ord`, `--del`, a `/rd/` path, `Remove-Item x.txt`), on Bash and PowerShell | allowed | still allowed |
+| New #3067 hook tests run against the old scripts | — | 54 of 98 fail; the other 44 (controls and unchanged behavior) pass on both |
+
+### What this means for you
+
+Run `/gstack-upgrade`, then start `/careful` in a new session. On Windows, ask Claude to run `Remove-Item -Recurse -Force .\scratch` through PowerShell: you'll get an approval prompt that names `ps_remove_item`. PowerShell coverage is best-effort, because PowerShell can build a command at runtime that string matching can't see. If you need a hard stop, add Claude Code permission deny rules, such as `"deny": ["PowerShell(Remove-Item *)"]`. Those rules parse PowerShell and match aliases. The hooks run through `bash`, so on Windows they still need Git Bash, which gstack already requires.
+
+### Itemized changes
+
+#### Fixed
+- `/careful` and `/guard` register a `PowerShell` hook matcher beside `Bash` (#3067).
+- `check-careful.sh` runs one PowerShell and cmd pattern table. It covers commands from the PowerShell tool, and the rest of any Bash command from the point where it launches `pwsh`, `powershell` or `cmd` (including Git Bash's `cmd //c`). Matching ignores case and covers aliases (`rm`, `ri`, `del`, `erase`, `rd`, `rmdir`). Command names match only where a command starts. Parameters match any prefix PowerShell accepts (`-r`, `-rec`, `-fo`, `-forc`, `-Recurse:$true`). cmd `^` escapes and PowerShell backtick escapes are removed before matching. The covered commands are `Remove-Item` with `-Recurse` or `-Force`, `rd`/`rmdir`/`del`/`erase` with `/s`, `Format-Volume`, `Clear-Disk`, `Clear-Content` (the same as `truncate`), `[IO.Directory]::Delete` and `[IO.File]::Delete`, plus asks for `-EncodedCommand`/`-enc`, `Invoke-Expression`/`iex`, `Start-Process` of a shell and `& $cmd`. Patterns that apply to any shell (`git push --force`, `DROP TABLE`, and the rest) apply to PowerShell commands too.
+- `/freeze`, `/guard` and `/investigate` register a `NotebookEdit` matcher beside `Edit` and `Write`. `check-freeze.sh` reads `notebook_path` when `file_path` is absent (#3067). Every freeze denial now names the tool, the path field and `/unfreeze`.
+- PR #1110's bypass strings (`echo hi; rm -rf ~`, `echo $(rm -rf /)`, `git commit -m "$(rm -rf ~)"`) are pinned as negative controls and still ask.
+
+#### For contributors
+- `gstack_hook_extract_tool` in `careful/bin/hook-extract.sh` reads `tool_name` and the first non-empty field in one parser call, so dispatch adds no process per command. A `check-careful.sh` paired with an older helper falls back to the Bash-only reader. A `check-freeze.sh` paired with an older helper denies as out of date.
+- The payload shapes come from Claude Code's docs. PowerShell sends `tool_input.command` (hooks reference, "PreToolUse > PowerShell"). NotebookEdit sends `tool_input.notebook_path` (Agent SDK `NotebookEditInput`). `MultiEdit` no longer appears in the tools reference, the hooks reference or the SDK tool list, so it gets no matcher.
+- The careful and freeze hook matchers are separate per-tool entries, matching the existing `Edit`/`Write` entries. Claude Code treats them the same as one `Bash|PowerShell` list, and the safety-prose parser in `scripts/gen-skill-docs.ts` keeps reading them.
+- `test/hook-scripts.test.ts` is now named Windows coverage in `scripts/lib/windows-curation.ts`. Its symlink, newline-path and POSIX-`PATH` cases are skipped on win32.
+- The hook payload reader writes bytes from Python. Windows text-mode output had turned `PowerShell` into `PowerShell\r`, so the table never ran there; the first `windows-free-tests` run of these tests caught it. `hook-extract.sh` also finds `gstack-state-root.sh` when sourced through a `C:\` path.
+- The PR paid lane's `office-hours-auto-mode` case matched 0 tests because its Bun test name differs from its id. `CASE_TEST_NAMES` now maps it, and `test/test-pr-profile.test.ts` checks that every audited PR-profile case is addressable by name.
+- `careful/bin/check-careful.sh` is listed in `FREE_ONLY_PR_FILES`. No paid fixture runs it, and as an unknown dependency it used to restore the full paid gate on every `/careful` change.
+- Thanks to @jtheyse for the #3067 report and its suggested fix shape, @JiayuuWang for PR #1110, whose bypass strings became negative controls, and @BenjaminDSmithy for PR #3066's frontmatter hook-check derivation. The new matchers pass #3066's `bin/gstack-hook-check` and its test as well as main's.
+
+## [1.91.45.0] - 2026-10-08
+
+### Added
+- Choose separate model tiers for planning and implementation. Independent plan reviews default to Fable 5.1 or GPT-6 Astra; implementation handoffs recommend Opus 5.5 or GPT-6.1 Sol without switching your session. Explicit model choices still win, and `plan_review_tier smart` or `host` provides an alternative to the frontier default.
+- Inspect effective models, their sources and copyable pin/reset commands with `gstack-models`. Six settings use the existing configuration store, with fail-closed validation and a notice before the first affected review. See the [model-policy guide](docs/model-policy.md).
+- Policy inspection reports native Windows paths and rejects non-directory or unreadable state roots rather than silently selecting defaults.
+- Get weekly advisory checks of official model recommendations and retirement notices. One tracking issue retains source evidence and lifecycle history; upgrades remain human-reviewed, with no automatic model changes or paid benchmarking.
+
+### Fixed
+- Codex model probes retain up to sixteen selections, serialize concurrent misses and preserve newer entries when another probe finishes later. Plan-review readiness and execution share one deadline, and failed model choices point to the setting that actually selected them.
+- `/review` and `/ship` explicitly require prerequisite QA instructions to be read in earlier responses before a probe, including its evidence capture.
+
+## [1.91.42.0] - 2026-10-08
+
+**/cso lifts its file-count ceiling: repositories with tens of thousands of files reach the audit.**
+**Repositories with more than 64 MiB of tracked source, or with a tracked symlink, are still refused, and the message now says which limit applied and what to do.**
+
+/cso refused any repository with more than about 3,100 files before an audit started, with "Snapshot manifest exceeds the 1 MiB private-state admission limit" (#3068). The snapshot's file list shared a 1 MiB limit with every other private file /cso keeps, and so did the report it writes, the list of files with secret-like findings, and Git's own file listing. The snapshot list now has its own 16 MiB limit (about 50,000 files) and is written compactly. Per-file lists in the report and the evidence file keep their first entries and end with one line saying how many more there are. The counts in the report stay exact.
+
+### The numbers that matter
+
+Shallow clones measured on 2026-10-08 with `start --offline`, before and after this release:
+
+| Repository | Files | Tracked source | Before | After |
+|---|---|---|---|---|
+| sveltejs/svelte | 9,182 | 6.9 MiB | refused (file list over 1 MiB) | audit starts; 2.8 MiB file list, 10 KB report |
+| facebook/react | 7,252 | 38.7 MiB | refused (file list over 1 MiB) | audit starts; 2.3 MiB file list, 53 KB report |
+| laravel/framework | 3,439 | 25.7 MiB | refused (file list over 1 MiB) | audit starts; 1.0 MiB file list, 30 KB report |
+| django/django | 7,085 | 44.0 MiB | refused (4 tracked symlinks) | refused (symlinks); starts once they are removed |
+| rails/rails | 5,007 | 38.1 MiB | refused (1 tracked symlink) | refused (symlink); starts once it is removed |
+| hashicorp/terraform | 5,562 | 25.6 MiB | refused (10 tracked symlinks) | refused (symlinks); starts once they are removed |
+| grafana/grafana | 23,749 | 210.7 MiB | refused (Git file listing over 1 MiB) | refused (symlinks); then the 64 MiB source cap |
+| microsoft/vscode | 20,238 | 540.0 MiB | refused (Git file listing over 1 MiB) | refused (symlink); then the 64 MiB source cap |
+
+On a synthetic 5,000-file repository with long nested paths, where most files are excluded or withheld and 1,000 files carry secret-like strings, the report is 267 KB and the evidence file 524 KB. Unbounded, the same lists took 1.97 MB and 1.68 MB, over the 1 MiB limit. A free test drives that shape through start, inspect, findings, finish and recheck.
+
+### What this means for you
+
+Run `/gstack-upgrade`, then run `/cso` on a repository with more than 3,100 files: the audit starts instead of stopping at the snapshot. If /cso still refuses, the message names the limit (the 16 MiB snapshot list, the 64 MiB source cap, or a symlink), the measured size, what counts toward it and the next step. No setting raises these limits yet; the 64 MiB source cap is tracked in #2993, and `docs/troubleshooting.md#cso-capacity` explains all three.
+
+### Itemized changes
+
+#### Fixed
+- /cso refused repositories with more than about 3,100 files before an audit. The snapshot file list is written compactly and capped at 16 MiB; every other private file keeps its 1 MiB limit. Snapshot lists written by earlier releases still load in recheck and inspect. (#3068)
+- Report coverage gaps, exclusions and transformations, and the evidence file of secret-like findings, keep their first entries and end with an omitted count, so a large repository no longer overflows the report partway through an audit.
+- Git's file listings during capture are allowed up to the snapshot list size, so repositories past roughly 11,000 to 23,000 files, depending on path length (7,000 to 10,000 with `--diff` or `--base`), no longer fail with "Could not read bounded Git metadata: ls-tree exceeded the output limit".
+- The snapshot-list and 64 MiB source-cap errors state the measured value, the limit, what counts toward it, the next step and the #2993 link. A single file that would cross 64 MiB now gets the same message before it is read. (#2993)
+
+#### For contributors
+- `readJson` takes a per-artifact size cap. `readSnapshotManifest(dir)` is the only reader of `snapshot.json`, and a source test fails on a direct read.
+- `boundedList` in `lib/cso/state.ts` bounds a per-entry list by the pretty-printed bytes it adds and appends one omitted-count item.
+- `runProcess` lets raw callers opt in to up to 16 MiB of output; everything else keeps the `MAX_OUTPUT` clamp, which stays 1 MiB.
+- Thanks to @almoatasemm for the report (#3068) and @saanjay for the capacity diagnosis of the manifest, reader and source caps (#2993).
+
+## [1.91.38.0] - 2026-10-07
+
+**`/ios-qa` works on iPads, and a dropped USB route no longer restarts the app you are testing.**
+
+Three things went wrong on real devices. The daemon accepted only iPhones, so a paired iPad was refused with "not an iPhone" (#2743). Once a session was running, any blip in Xcode 26's CoreDevice tunnel made the daemon start over: the app had already deleted its one-use boot token, so the only way back in was `devicectl process launch --terminate-existing`, which threw away the app's in-memory QA state in the middle of a test flow (#1975). And if the app could not write that boot token in the first place, `StateServer` failed silently with `try?`, so the daemon kept relaunching an app that could never let it in (#1837).
+
+### The numbers that matter
+
+Measured with the simulated-device tests in `ios-qa/daemon/test/daemon-integration.test.ts` (a `devicectl` emulator plus a StateServer with the real token rules). Real iPhone and iPad runs have not been done for this release.
+
+| Check | Before | After |
+|---|---|---|
+| Paired iPad on USB, no target set | refused ("not an iPhone") | bootstraps |
+| iPhone and iPad both on USB, no target set | silently drives whichever devicectl listed first | stops and lists both UDIDs with a ready `export GSTACK_IOS_TARGET_UDID=...` line |
+| One route drop during a session | 1 `--terminate-existing` relaunch, in-app state lost | 0 relaunches, state kept, same bearer |
+| Three requests failing on the same drop | one bootstrap and one relaunch | one shared recovery, no relaunch |
+| App that cannot write its boot token | silent; daemon relaunches it once, then `boot_token_unavailable` with no cause | `NOT READY` in the device log; daemon names the cause and does not relaunch |
+
+### What this means for you
+
+Run `/gstack-upgrade`, then rerun `gstack-ios-qa-regen` in your app so the new `StateServer` lands in `DebugBridge/`. Plug in an iPad and run `/ios-qa`: it connects like an iPhone. With an iPhone and an iPad both plugged in, the daemon prints both UDIDs and the `export GSTACK_IOS_TARGET_UDID=<udid>` line to run. When the tunnel drops mid-session, the daemon log says `tunnel recovered: kept the session` and the app keeps its state. A restarted daemon still relaunches the app once, because a new daemon has no session bearer.
+
+### Itemized changes
+
+#### Fixed
+- **Physical iPads are accepted** (#2743). Device selection takes iPhones and iPads (platform iOS or iPadOS); errors say "iPhone or iPad". Watches, Vision Pro and other devices are still refused. Contributed by @loulanyue (#2779), reported by @Artic0din.
+- **Two devices are never guessed between.** When an iPhone and an iPad (or any two devices) tie for the default, bootstrap fails with `multiple_devices`, lists each device with its UDID, and prints the export line.
+- **A route drop keeps the session** (#1975, finding 1). On `503 device_disconnected` or `504 upstream_timeout` the daemon re-selects the device with the same rules, re-resolves the tunnel address for the same UDID, checks the unauthenticated `/healthz` owner, and probes `/state/snapshot` with the bearer it already holds. If the app accepts it, the session continues. It bootstraps only when the app rejects the bearer (401, the app was relaunched), the app is confirmed not running (one normal launch), or a different device is now selected. The bearer is only sent to the address `devicectl` reports for that UDID, or to the address the session already used, never to another device. Concurrent failures share one recovery, and a tap or other mutation whose response was lost is still never replayed. Diagnosis by @jpb33333 in #1975; @Bmathews721 traced the same rotate-then-rebootstrap failure in #1796.
+- **A failed boot-token write is loud** (#1837). `StateServer.start()` writes the 0600 token file in a `do`/`catch`, logs the path and error (never the token), logs `gstack-ios-qa-bootstrap NOT READY`, and reports `boot_token_error` on `/healthz`. The daemon turns that into `boot_token_unavailable` with the cause instead of relaunching the app. Reported by @aweevenson-sea.
+
+#### Docs
+- `/ios-qa` no longer tells you to capture the boot token from `os_log`; the token left `os_log` in v1.65.0.0. The stale comments in `StateServer` are gone too (#1837, #1735 item 7).
+- Source-control guidance for the generated `DebugBridge/` package: commit it or ignore it, never hand-edit it (#1735 item 7, reported by @frank-alvarado).
+- A new "Known limits" section: in-process synthesized touches do not reach SwiftUI `DragGesture` on iOS 26 and `/swipe` only scrolls a `UIScrollView` (#1975 findings 2 and 3, @jpb33333); on iOS 26.3.1 `/elements` returns only the hosting views (device data from @sternryan in #1755); iPad Stage Manager is not verified.
+- The iOS how-to, README and skill index cover iPads, `GSTACK_IOS_TARGET_UDID`, and the new failure rows.
+
+#### For contributors
+- `selectDevice()` and `recoverTunnel()` in `ios-qa/daemon/src/tunnel-bootstrap.ts`; `refreshTunnel` in `startDaemon()` coalesces refreshes per failed tunnel. The CLI wiring is `deviceTunnelSource()` in `ios-qa/daemon/src/index.ts`, so tests drive exactly what the daemon runs.
+- `ios-qa/daemon/test/fake-device.ts` simulates a device: a `devicectl` emulator plus a StateServer with the one-use token file, rotation, relaunch and black-holed requests.
+- Pinned by `ios-qa/daemon/test/daemon-integration.test.ts` (live route drop, lost tap, concurrent drops, stopped app, Xcode relaunch, device change), `ios-qa/daemon/test/tunnel-bootstrap.test.ts` (iPad, Watch, multiple devices, recovery address and owner rules, token-write error) and `test/ios-qa-stateserver-hardening.test.ts` (no silent `try?` write, no os_log claim) on both the template and the fixture copy.
+- Not verified here: Swift compilation of the changed `StateServer` (only `swiftc -parse` ran; no Apple SDK), and any iPhone or iPad run.
+
+## [1.91.36.0] - 2026-10-07
+
+**Python and Rails repairs can now reach `runtime_tested` and replay, and a killed verification leaves nothing behind.**
+
+Runtime verification had four defects that the private evaluator's Lane R found on its Python, Rails and watchdog checks. First, a verified Python repair could never replay: offline preparation wrote timestamped `.pyc` bytecode, so every preparation hashed differently and `replay` reported "Replay changed verification outcomes, preparation, or provenance inputs". Second, Rails replays failed the same way, because RubyGems build logs record a random temporary directory. Third, no Rails verification could finish on a 4-vCPU host: an attempt prepares the application twice, each Rails preparation compiles native extensions for about four minutes, and the attempt watchdog, executor and assertion witness were each capped at five minutes. Fourth, after a helper was killed mid-verification, the watchdog removed every container, but `resume` and `finish` left the dead attempt's control directory and archive staging in the run directory.
+
+### The numbers that matter
+
+Measured on amd64 (4 vCPU) with `gstack-cso` built from 28f1385 plus these fixes, the staged runtime images from staging run 37555192492, and the evaluator's private corpus.
+
+| Check | Before | After |
+|---|---|---|
+| Two Python offline preparations of the same app | prepared dependency trees differ | 0 differing files |
+| One Rails offline preparation | about 245 s | unchanged |
+| Rails verification attempt | ended by the 300 s watchdog during its second preparation | certifies within the 900 s bound |
+| Helper SIGKILL during preparation or with the app running, then `resume` and `finish` | `preparation-execution` (and `archive-staging`) not empty | empty |
+
+### What this means for you
+
+Python projects locked with `requirements.txt` or `uv.lock`, and Rails projects with native gems, can now be verified and replayed. Node and Bun keep their 300-second attempt. If a verification is interrupted, `resume` now reclaims its scratch once the watchdog has recorded cleanup.
+
+### Itemized changes
+
+#### Fixed
+- Python offline preparation sets `SOURCE_DATE_EPOCH`, so `venv`, ensurepip and pip write checked-hash `.pyc` files and two preparations of the same app produce identical trees.
+- The prepared manifest and dependency hashes leave out RubyGems and mini_portile build diagnostics (`extensions/**/gem_make.out`, `extensions/**/mkmf.log`, `gems/*/ext/**/tmp/**/*.log`). These logs name random build directories and are never loaded; the compiled extensions stay in the identity.
+- A Rails verification attempt and a Rails replay get 900 seconds instead of 300, still capped by the run's reporting deadline. The attempt watchdog, the Docker verification executor and the assertion witness lifetime now share that one bound (`MAX_VERIFICATION_ATTEMPT_MS`) instead of each enforcing 300 seconds. Other stacks keep 300 seconds.
+- `resume` and `finish` reclaim a killed attempt's `supervision`, `preparation-execution`, `archive-staging`, `archive-materializations` and `verification` scratch. They do this under the run lock and only when no detached watchdog cleanup is still pending.
+
+#### For contributors
+- `preparedIdentityEntry()` in `lib/cso/preparation-executor.ts`, `verificationAttemptMs()` in `lib/cso/cli.ts`, `MAX_VERIFICATION_ATTEMPT_MS` in `lib/cso/contracts.ts`, and `reclaimDeadAttemptScratch()` in `lib/cso/state.ts`. They are pinned by `test/cso-preparation-executor.test.ts`, `test/cso-preparation.test.ts`, `test/cso-cli-lifecycle.test.ts`, `test/cso-witness.test.ts` and `test/cso-snapshot-state.test.ts`.
+
 ## [1.91.34.0] - 2026-10-07
 
 **/autoplan works again on current Claude Code, including long sessions and `claude --bg`.**

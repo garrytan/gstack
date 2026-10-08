@@ -48,7 +48,9 @@ _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo"
 cd "$_REPO_ROOT"
 ~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
 _CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
-_CODEX_OUT=$("$_CODEX_PROBE" select-model review) || exit 1
+_CODEX_ROLE=''
+if [ -n "$_CODEX_ROLE" ]; then export _CODEX_DEADLINE=$(($(date +%s)+330)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready review) || exit $?
+else _CODEX_OUT=$("$_CODEX_PROBE" select-model review) || exit 1; fi
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
 _CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
 # The 330s wrapper sits BELOW the 360s Bash gate so the wrapper fires FIRST
@@ -106,7 +108,9 @@ FOCUS_FILE="$_REPO_ROOT/.gstack/tmp/<focus-file-name>"
 [ -s "$FOCUS_FILE" ] || { echo "Not run: $FOCUS_FILE is missing or empty, so the focus text was never written. Write it, then run this block again." >&2; exit 1; }
 ~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
 _CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
-_CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1
+_CODEX_ROLE=''
+if [ -n "$_CODEX_ROLE" ]; then export _CODEX_DEADLINE=$(($(date +%s)+330)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?
+else _CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1; fi
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
 _CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }

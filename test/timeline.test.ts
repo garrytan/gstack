@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { execFileSync, execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
+import { execFileSync, execSync, spawnSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -54,6 +54,16 @@ function runReadArgs(args: string[] = []): string {
   } catch {
     return '';
   }
+}
+
+function runReadStatus(args: string[]): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync(path.join(BIN, 'gstack-timeline-read'), args, {
+    cwd: ROOT,
+    env: { ...process.env, GSTACK_HOME: tmpDir },
+    encoding: 'utf-8',
+    timeout: 15000,
+  });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
 beforeEach(() => {
@@ -176,4 +186,40 @@ describe('gstack-timeline-read', () => {
     expect(unlimitedEvents).toBe(5);
     expect(limitedEvents).toBe(2);
   });
+
+  test('no --limit still shows the 20 most recent events', () => {
+    for (let i = 0; i < 25; i++) {
+      runLog(JSON.stringify({ skill: 'review', event: 'completed', branch: 'main', ts: `2026-03-01T10:${String(i).padStart(2, '0')}:00Z` }));
+    }
+    const result = runReadStatus([]);
+    expect(result.status).toBe(0);
+    const events = result.stdout.split('\n').filter(l => l.startsWith('- '));
+    expect(events.length).toBe(20);
+    expect(events[0]).toContain('10:05:00Z');
+  });
+
+  // #1723: a malformed --limit used to be parsed leniently (1abc -> 1) or
+  // silently replaced by the default; a bare --limit crashed on unbound $2.
+  const badLimits: Array<[string, string[], string]> = [
+    ['missing value', ['--limit'], 'got no value'],
+    ['zero', ['--limit', '0'], "got '0'"],
+    ['negative', ['--limit', '-5'], "got '-5'"],
+    ['non-numeric', ['--limit', 'abc'], "got 'abc'"],
+    ['trailing garbage', ['--limit', '1abc'], "got '1abc'"],
+  ];
+  for (const history of ['empty', 'populated'] as const) {
+    for (const [label, args, got] of badLimits) {
+      test(`--limit ${label} exits 2 with an example on ${history} history`, () => {
+        if (history === 'populated') {
+          runLog(JSON.stringify({ skill: 'review', event: 'completed', branch: 'main', ts: '2026-03-28T10:00:00Z' }));
+        }
+        const result = runReadStatus(args);
+        expect(result.status).toBe(2);
+        expect(result.stdout).toBe('');
+        expect(result.stderr).toContain('--limit must be a positive integer');
+        expect(result.stderr).toContain(got);
+        expect(result.stderr).toContain('example: --limit 20');
+      });
+    }
+  }
 });

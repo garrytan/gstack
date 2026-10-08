@@ -3,7 +3,7 @@
 // rotate_failed, success) without needing a real iPhone connected.
 
 import { describe, test, expect } from 'bun:test';
-import { bootstrapTunnel } from '../src/tunnel-bootstrap';
+import { bootstrapTunnel, recoverTunnel, selectDevice } from '../src/tunnel-bootstrap';
 import {
   getDeviceTunnelIPv6FromDevicectl,
   resolveTunnelIPv6,
@@ -158,7 +158,7 @@ describe('bootstrapTunnel', () => {
     if (r.ok) expect(r.tunnel.udid).toBe('IPHONE');
   });
 
-  test('fails clearly when only non-iPhone platforms are connected', async () => {
+  test('fails clearly when only non-iOS platforms are connected', async () => {
     const spawn = makeSpawn([
       {
         argsMatch: /devicectl list devices/,
@@ -175,13 +175,13 @@ describe('bootstrapTunnel', () => {
               },
             },
             {
-              identifier: 'IPAD',
+              identifier: 'WATCH',
               connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
-              deviceProperties: { name: 'iPad' },
+              deviceProperties: { name: 'Apple Watch' },
               hardwareProperties: {
-                productType: 'iPad16,6',
-                platform: 'iOS',
-                deviceType: 'iPad',
+                productType: 'Watch7,5',
+                platform: 'watchOS',
+                deviceType: 'watch',
               },
             },
           ] },
@@ -193,11 +193,11 @@ describe('bootstrapTunnel', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toBe('device_not_found');
-      expect(r.detail).toContain('no iPhone');
+      expect(r.detail).toContain('no iPhone or iPad');
     }
   });
 
-  test('rejects an explicitly targeted non-iPhone device', async () => {
+  test('rejects an explicitly targeted non-iPhone/iPad device', async () => {
     const spawn = makeSpawn([
       {
         argsMatch: /devicectl list devices/,
@@ -220,8 +220,86 @@ describe('bootstrapTunnel', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toBe('device_not_found');
-      expect(r.detail).toContain('not an iPhone');
+      expect(r.detail).toContain('not an iPhone or iPad');
     }
+  });
+
+  test('accepts a physical iPad alongside iPhones', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [{
+            identifier: 'IPAD-14-5',
+            connectionProperties: { tunnelState: 'connected', pairingState: 'paired', transportType: 'wired' },
+            deviceProperties: { name: 'Test iPad' },
+            hardwareProperties: {
+              productType: 'iPad14,5',
+              platform: 'iOS',
+              deviceType: 'iPad',
+            },
+          }] },
+        },
+      },
+      {
+        argsMatch: /devicectl device process launch --device IPAD-14-5/,
+        exitCode: 0,
+      },
+    ]);
+
+    // Fast-fail at resolution stage so we verify device acceptance
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      resolveImpl: () => Promise.reject(new Error('no mDNS record')),
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toBe('resolve_failed');
+    }
+  });
+
+  test('iPhone and iPad both on USB: lists each UDID and a ready export line instead of guessing', async () => {
+    const wired = { tunnelState: 'connected', pairingState: 'paired', transportType: 'wired' };
+    const spawn = makeSpawn([{
+      argsMatch: /devicectl list devices/,
+      jsonOutput: {
+        result: { devices: [
+          {
+            identifier: 'IPHONE-UDID',
+            connectionProperties: wired,
+            deviceProperties: { name: 'Test iPhone' },
+            hardwareProperties: { productType: 'iPhone15,2', platform: 'iOS', deviceType: 'iPhone' },
+          },
+          {
+            identifier: 'IPAD-UDID',
+            connectionProperties: wired,
+            deviceProperties: { name: 'Test iPad' },
+            hardwareProperties: { productType: 'iPad14,5', platform: 'iOS', deviceType: 'iPad' },
+          },
+        ] },
+      },
+    }]);
+    const r = await bootstrapTunnel({ bundleId: 'com.test', spawnImpl: spawn });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe('multiple_devices');
+    expect(r.detail).toContain('Test iPhone (iPhone): IPHONE-UDID');
+    expect(r.detail).toContain('Test iPad (iPad): IPAD-UDID');
+    expect(r.detail).toMatch(/^  export GSTACK_IOS_TARGET_UDID=IPHONE-UDID$/m);
+  });
+
+  test('selectDevice: explicit UDID picks the iPad; a live session breaks a tie for its own device', () => {
+    const entry = (identifier: string, deviceType: string) => ({
+      identifier, name: identifier, model: `${deviceType}1,1`, platform: 'iOS', deviceType,
+      state: 'connected', transport: 'wired', paired: true,
+    });
+    const devices = [entry('PHONE', 'iPhone'), entry('PAD', 'iPad')];
+    expect(selectDevice(devices, 'PAD')).toMatchObject({ ok: true, device: { identifier: 'PAD' } });
+    expect(selectDevice(devices, undefined, 'PAD')).toMatchObject({ ok: true, device: { identifier: 'PAD' } });
+    expect(selectDevice(devices)).toMatchObject({ ok: false, error: 'multiple_devices' });
+    expect(selectDevice([{ ...entry('PAD', 'iPad'), transport: '' }, entry('PHONE', 'iPhone')]))
+      .toMatchObject({ ok: true, device: { identifier: 'PHONE' } });
   });
 
   test('skips an unavailable paired device for a connected or available paired device', async () => {
@@ -552,6 +630,47 @@ describe('bootstrapTunnel', () => {
     expect(fetchCalls.at(-1)?.authorization).toBe('Bearer FRESH-BOOT-TOKEN');
   });
 
+  test('an app that reports a failed boot-token write gets a clear error, not a relaunch (#1837)', async () => {
+    const calls: string[] = [];
+    const scripted = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [{
+            identifier: 'TEST-UDID',
+            connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+            deviceProperties: { name: 'Test Device' },
+            hardwareProperties: { productType: 'iPhone18,2' },
+          }] },
+        },
+      },
+      {
+        argsMatch: /devicectl device info processes/,
+        jsonOutput: { result: { runningProcesses: [{ executable: 'file:///var/containers/Bundle/Application/X/com.test.app/com.test' }] } },
+      },
+      {
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd99::beef' } } },
+      },
+      { argsMatch: /devicectl device copy from/, exitCode: 1, stderr: 'source does not exist' },
+    ]);
+    const spawn: SpawnImpl = (cmd, args) => { calls.push(args.join(' ')); return scripted(cmd, args); };
+
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      fetchImpl: (async () => new Response(
+        JSON.stringify({ bundle_id: 'com.test', boot_token_error: 'You don’t have permission to save the file.' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch,
+      startupTimeoutMs: 1_000,
+    });
+
+    expect(r).toMatchObject({ ok: false, error: 'boot_token_unavailable' });
+    if (!r.ok) expect(r.detail).toContain('could not write tmp/gstack-ios-qa.token: You don’t have permission');
+    expect(calls.some((c) => c.includes('--terminate-existing'))).toBe(false);
+  });
+
   test('rechecks bundle ownership after recovering a consumed boot token', async () => {
     const spawn = makeSpawn([
       {
@@ -672,6 +791,112 @@ describe('bootstrapTunnel', () => {
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.tunnel.udid).toBe('B');
+  });
+});
+
+describe('recoverTunnel (route drop, #1975)', () => {
+  const failed = { udid: 'PHONE', ipv6Addr: 'fd00::1', port: 9999, bootTokenRotated: 'session-bearer-XXXXXXXX' };
+  const listing = {
+    argsMatch: /devicectl list devices/,
+    jsonOutput: {
+      result: { devices: [{
+        identifier: 'PHONE',
+        connectionProperties: { tunnelState: 'connected', pairingState: 'paired', transportType: 'wired' },
+        deviceProperties: { name: 'Test iPhone' },
+        hardwareProperties: { productType: 'iPhone15,2', platform: 'iOS', deviceType: 'iPhone' },
+      }] },
+    },
+  };
+  const details = (addr: string | null) => addr
+    ? { argsMatch: /devicectl device info details --device PHONE/, jsonOutput: { result: { connectionProperties: { tunnelIPAddress: addr } } } }
+    : { argsMatch: /devicectl device info details --device PHONE/, exitCode: 1 };
+  const processes = (running: boolean) => ({
+    argsMatch: /devicectl device info processes -d PHONE/,
+    jsonOutput: { result: { runningProcesses: running ? [{ executable: 'file:///x/com.test.app/App' }] : [] } },
+  });
+
+  function recordingFetch(reply: (url: string) => Response | Error) {
+    const seen: Array<{ url: string; authorization?: string }> = [];
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      seen.push({ url, authorization: headers['Authorization'] });
+      const r = reply(url);
+      if (r instanceof Error) throw r;
+      return r;
+    }) as unknown as typeof fetch;
+    return { seen, fetchImpl };
+  }
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+
+  test('keeps the bearer and follows a new address devicectl reports for the pinned UDID', async () => {
+    const { seen, fetchImpl } = recordingFetch((url) => url.endsWith('/healthz')
+      ? json(200, { bundle_id: 'com.test.app' })
+      : json(200, { state: {} }));
+    const r = await recoverTunnel(failed, {
+      bundleId: 'com.test.app', spawnImpl: makeSpawn([listing, details('fd00::2')]), fetchImpl,
+    });
+    expect(r).toEqual({ action: 'reuse', tunnel: { ...failed, ipv6Addr: 'fd00::2' } });
+    expect(seen.map((s) => s.url)).toEqual(['http://[fd00::2]:9999/healthz', 'http://[fd00::2]:9999/state/snapshot']);
+    expect(seen[0]!.authorization).toBeUndefined();
+    expect(seen[1]!.authorization).toBe(`Bearer ${failed.bootTokenRotated}`);
+  });
+
+  test('an mDNS address devicectl cannot tie to the UDID gets no bearer: bootstrap instead', async () => {
+    const { seen, fetchImpl } = recordingFetch(() => new Error('must not be called'));
+    const r = await recoverTunnel(failed, {
+      bundleId: 'com.test.app',
+      spawnImpl: makeSpawn([listing, details(null)]),
+      resolveImpl: async () => ['fd99::7'],
+      fetchImpl,
+    });
+    expect(r.action).toBe('bootstrap');
+    expect(seen).toHaveLength(0);
+  });
+
+  test('a StateServer now owned by another bundle gets no bearer', async () => {
+    const { seen, fetchImpl } = recordingFetch(() => json(200, { bundle_id: 'com.other.app' }));
+    const r = await recoverTunnel(failed, {
+      bundleId: 'com.test.app', spawnImpl: makeSpawn([listing, details('fd00::1')]), fetchImpl,
+    });
+    expect(r.action).toBe('bootstrap');
+    expect(seen.every((s) => s.authorization === undefined)).toBe(true);
+  });
+
+  test('401 from the probe means the app was replaced: bootstrap', async () => {
+    const { fetchImpl } = recordingFetch((url) => url.endsWith('/healthz') ? json(200, {}) : json(401, { error: 'unauthorized' }));
+    const r = await recoverTunnel(failed, {
+      bundleId: 'com.test.app', spawnImpl: makeSpawn([listing, details('fd00::1')]), fetchImpl,
+    });
+    expect(r).toMatchObject({ action: 'bootstrap', reason: expect.stringContaining('rejected the session bearer') });
+  });
+
+  test('route still down: running app keeps the session, absent app bootstraps', async () => {
+    const down = () => new Error('connect EHOSTUNREACH');
+    const running = await recoverTunnel(failed, {
+      bundleId: 'com.test.app',
+      spawnImpl: makeSpawn([listing, details('fd00::1'), processes(true)]),
+      fetchImpl: recordingFetch(down).fetchImpl,
+    });
+    expect(running.action).toBe('unavailable');
+    const absent = await recoverTunnel(failed, {
+      bundleId: 'com.test.app',
+      spawnImpl: makeSpawn([listing, details('fd00::1'), processes(false)]),
+      fetchImpl: recordingFetch(down).fetchImpl,
+    });
+    expect(absent).toMatchObject({ action: 'bootstrap', reason: expect.stringContaining('is not running') });
+  });
+
+  test('pinned UDID unplugged: surface the error and send nothing', async () => {
+    const { seen, fetchImpl } = recordingFetch(() => new Error('must not be called'));
+    const r = await recoverTunnel(failed, {
+      udid: 'PHONE',
+      bundleId: 'com.test.app',
+      spawnImpl: makeSpawn([{ argsMatch: /devicectl list devices/, jsonOutput: { result: { devices: [] } } }]),
+      fetchImpl,
+    });
+    expect(r.action).toBe('unavailable');
+    expect(seen).toHaveLength(0);
   });
 });
 

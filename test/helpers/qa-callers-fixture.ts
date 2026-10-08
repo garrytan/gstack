@@ -110,6 +110,11 @@ export function callerTools(transcript: unknown[]): CallerTool[] {
   return tools;
 }
 
+export function callerProbeReadErrors(probe: CallerTool, resources: readonly (readonly [string, CallerTool | undefined])[]): string[] {
+  const premature = (read: CallerTool) => probe.index <= read.resultIndex || !!probe.messageId && probe.messageId === read.messageId;
+  return resources.flatMap(([name, read]) => read && premature(read) ? [`probe preceded resource read: ${name}`] : []);
+}
+
 export interface CallerProbe {
   id: string;
   charter: string;
@@ -358,10 +363,7 @@ export function validateCallerEvidence(input: {
     else {
       checkpointProbes.push({ command: String(tool.input.command), observed: probe, index: tool.index });
       if (parentRead && (tool.index <= parentRead.resultIndex || tool.messageId && tool.messageId === parentRead.messageId)) errors.push(`probe preceded parent entrypoint: ${probe.id}`);
-      for (const id of ['exploratory', 'system-functional']) {
-        const resource = readOf(`/qa/sections/${id}.md`);
-        if (resource && (tool.index <= resource.resultIndex || tool.messageId && tool.messageId === resource.messageId)) errors.push(`probe preceded resource read: ${id}`);
-      }
+      errors.push(...callerProbeReadErrors(tool, ['exploratory', 'system-functional'].map(id => [id, readOf(`/qa/sections/${id}.md`)] as const)));
       if (input.requireGuardedSmoke) {
         const command = String(tool.input.command);
         const guarded = callerDeadlineCommand(command, deadline);

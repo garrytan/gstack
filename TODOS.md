@@ -2,6 +2,126 @@
 
 ## NEXT PRIORITY
 
+### P2/P3: office-hours and timeline follow-ups (filed 2026-10-08, v1.91.54.0)
+
+Left open by the office-hours tier fix (#2801, #879, #1049, #1958, #1723, #1651 part A).
+
+- **Session markers that reflect "currently active" (#1651 part B)** — skill
+  start touches `sessions/<pid>` only when a skill starts, so a long session
+  with no new skill for two hours drops out of `SESSIONS: N`. Fix shape: refresh
+  the marker per tool call from a hook. **Effort:** M. **Priority:** P3.
+- **Live eval for the first-session closing** — free tests run the rendered
+  profile read and session log in order, but no paid case checks that a model
+  follows the carried `SESSION_TIER` through Phase 6 (first run gets the
+  introduction, second run asks about the earlier assignment). No office-hours
+  quality judge exists either. **Effort:** M. **Priority:** P2.
+- **`gstack-timeline-read --since`/`--branch` without a value** — both still
+  read an unbound `$2` under `set -u` and crash with exit 1, the class #1723
+  fixed for `--limit`. **Effort:** S. **Priority:** P3.
+
+### P3: Oct 8 fix wave, safety hooks follow-ups (filed 2026-10-08)
+
+Left open by the PowerShell/NotebookEdit hook fix (v1.91.47.0, #3067), each with its reason.
+
+- **Forced overwrite patterns for `/careful`** — `Set-Content -Force` / `Out-File
+  -Force` over an existing file (and the Bash `>` overwrite twin) still pass.
+  Deferred: the Bash side has no overwrite pattern either, and adding one is a
+  new family for both shells, not PowerShell parity. **Effort:** S. **Priority:** P3.
+- **Quote-aware masking in `check-careful.sh` (#1060)** — `git commit -m "rm -rf
+  build"` still asks. Deferred: masking quoted text inside a safety hook can open
+  bypasses (PR #1110's `echo hi; rm -rf ~` showed how); it needs its own design
+  with the #1110 strings as controls. **Effort:** M. **Priority:** P3.
+- **Hooks on Windows without Git Bash** — the frontmatter hook commands run
+  `bash -c ...`, and Claude Code runs hook commands through PowerShell when Git
+  Bash is absent, so the guards cannot start there. gstack requires Git Bash
+  today; a native PowerShell hook launcher would lift that. **Effort:** M.
+  **Priority:** P3.
+
+### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.38.0)
+
+Left open by the iPad and route-drop release, each with its reason.
+
+- **Device verification of v1.91.38.0** — the iPad bootstrap, route-drop
+  recovery on a real Xcode 26 tunnel drop, the multiple-devices error and the
+  `NOT READY` path were proven only against the simulated device; the changed
+  `StateServer` passed `swiftc -parse` but no Apple-SDK build. Run
+  `test/skill-e2e-ios-device.test.ts` and the Swift build lane on a Mac with an
+  iPhone and an iPad. **Effort:** S. **Priority:** P2.
+- **`GSTACK_IOS_LAUNCH_ENV` (split from #1796, @Bmathews721)** — pass launch
+  environment to the app through `devicectl process launch`. Nothing equivalent
+  exists on main; land it as its own small PR with credit, then close #1796.
+  **Effort:** S. **Priority:** P2.
+- **A restarted daemon still relaunches the app once** — a new daemon has no
+  session bearer and the one-use boot token is gone. Fixing it needs either a
+  device-side re-mint with proof of the old session or a persisted bearer under
+  the state root, and both change the token's security model. Needs a design.
+  **Effort:** M. **Priority:** P3.
+- **iPad Stage Manager and multiple scenes** — overlay and window selection
+  (`frontmostWindow`, `searchRoots`) are unverified on iPad multi-window
+  layouts. **Effort:** S (verify) / M (fix). **Priority:** P3.
+- **Stale "Session warm-start" phase in `/ios-qa`** — Phase 0 describes an
+  `ios-qa-session.json` cache that no daemon code writes. Implement it with the
+  state-root chain or remove the phase. **Effort:** S. **Priority:** P3.
+- **Sanctioned input-routing hook for SwiftUI gestures** (#1975 finding 2) —
+  synthesized touches miss `DragGesture` on iOS 26; a documented `#if DEBUG`
+  hook would let gesture-driven apps route `/tap` and `/swipe` to their own
+  handlers. **Effort:** M. **Priority:** P3.
+
+### P1/P2: /cso capacity follow-ups (filed 2026-10-08)
+
+Left open by v1.91.42.0, which lifted the snapshot file-count ceiling.
+
+- **Tracked symlinks refuse the whole /cso run** — `capture()` fails closed on
+  any tracked symlink ("Symlink or special source file"). 5 of 8 mid-size OSS
+  repos measured for v1.91.42.0 stop there (django, rails, terraform, grafana,
+  vscode; 1-10 symlinks each, mostly test fixtures). Recording them as unread
+  exclusions in the manifest, like dependency trees, is a security design call
+  for Garry. **Effort:** M. **Priority:** P1.
+- **64 MiB aggregate source cap (#2993)** — files over 1 MiB are withheld from
+  the audit but still read and counted. Stream-hash them without counting
+  toward the cap, report them as unread coverage, and add an admission estimate
+  to `doctor`. grafana (211 MiB) and vscode (540 MiB) hit it once symlinks are
+  out of the way. A `GSTACK_CSO_SNAPSHOT_MAX_BYTES` knob was deferred with it.
+  **Effort:** L. **Priority:** P2.
+- **`inspect` prints the whole public manifest** — about 2.8 MB of stdout for
+  5,000 files, more than an agent's tool output keeps. The skill reads paths
+  from it, so trimming it is a skill-contract change with evals.
+  **Effort:** M. **Priority:** P2.
+- **Repair bundles carry every transformation** — `lib/cso/verification.ts`
+  binds the full transformation list into a 1 MiB immutable bundle. Only
+  runtime verification writes bundles, and no qualified runtime catalog exists
+  yet. **Effort:** M. **Priority:** P3.
+
+### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.38.0)
+
+Left open by the iPad and route-drop release, each with its reason.
+
+- **Device verification of v1.91.38.0** — the iPad bootstrap, route-drop
+  recovery on a real Xcode 26 tunnel drop, the multiple-devices error and the
+  `NOT READY` path were proven only against the simulated device; the changed
+  `StateServer` passed `swiftc -parse` but no Apple-SDK build. Run
+  `test/skill-e2e-ios-device.test.ts` and the Swift build lane on a Mac with an
+  iPhone and an iPad. **Effort:** S. **Priority:** P2.
+- **`GSTACK_IOS_LAUNCH_ENV` (split from #1796, @Bmathews721)** — pass launch
+  environment to the app through `devicectl process launch`. Nothing equivalent
+  exists on main; land it as its own small PR with credit, then close #1796.
+  **Effort:** S. **Priority:** P2.
+- **A restarted daemon still relaunches the app once** — a new daemon has no
+  session bearer and the one-use boot token is gone. Fixing it needs either a
+  device-side re-mint with proof of the old session or a persisted bearer under
+  the state root, and both change the token's security model. Needs a design.
+  **Effort:** M. **Priority:** P3.
+- **iPad Stage Manager and multiple scenes** — overlay and window selection
+  (`frontmostWindow`, `searchRoots`) are unverified on iPad multi-window
+  layouts. **Effort:** S (verify) / M (fix). **Priority:** P3.
+- **Stale "Session warm-start" phase in `/ios-qa`** — Phase 0 describes an
+  `ios-qa-session.json` cache that no daemon code writes. Implement it with the
+  state-root chain or remove the phase. **Effort:** S. **Priority:** P3.
+- **Sanctioned input-routing hook for SwiftUI gestures** (#1975 finding 2) —
+  synthesized touches miss `DragGesture` on iOS 26; a documented `#if DEBUG`
+  hook would let gesture-driven apps route `/tap` and `/swipe` to their own
+  handlers. **Effort:** M. **Priority:** P3.
+
 ### P2/P3: Oct 7 fix-wave follow-ups (filed 2026-10-07)
 
 Left open by the Oct 7 wave (docs/designs/FOLLOWUP_WAVE_2026_10_07.md), each with its reason.
@@ -203,10 +323,10 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
 - **Redaction repo allowlist (#2598)** — a per-repo `+++ b/<path>` skip list
   (generated `*.svg`/`*.excalidraw`, #2827) for noise context rules cannot
   cover. New config surface, so out of the wave. **Effort:** M. **Priority:** P2.
-- **Global-discover Codex session schema (#2750)**, **ios-qa boot-token fixes
-  (#1837, #1975; need a device)**, **absolute bun path for compiled browse
-  spawns (#931; macOS repro unclear)** and **GitLab CI `curl | bash` (#1713)** —
-  out of the wave's scope. **Priority:** P3 each.
+- **Global-discover Codex session schema (#2750)**, **absolute bun path for
+  compiled browse spawns (#931; macOS repro unclear)** and **GitLab CI
+  `curl | bash` (#1713)** — out of the wave's scope. (The ios-qa boot-token
+  items #1837 and #1975 landed in v1.91.38.0.) **Priority:** P3 each.
 - **Upstream gbrain batch lookup** — a per-slug existence lookup and a separate
   `pending` list in `gbrain import --json`, so the landing check need not list a
   whole source and spawn `get` per page. **Effort:** M (upstream). **Priority:** P2.

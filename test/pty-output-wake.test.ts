@@ -4,6 +4,90 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { launchClaudePty, runPlanSkillCounting, type ClaudePtySession } from './helpers/claude-pty-runner';
+
+test.each(['exited', 'running', 'unresponsive'])('closes the owned terminal once after %s child cleanup', async mode => {
+  const originalBinary = process.env.BROWSE_TERMINAL_BINARY;
+  const events: string[] = [];
+  let resolveExit!: (code: number) => void;
+  const exited = new Promise<number>(resolve => { resolveExit = resolve; });
+  if (mode === 'exited') resolveExit(0);
+  const spawn = Bun.spawn;
+  const spawnSpy = spyOn(Bun, 'spawn').mockImplementation(((...args: any[]) =>
+    args[1]?.env?.GSTACK_TEST_TERMINAL_CLEANUP === mode ? {
+      exited,
+      kill(signal: string) {
+        events.push(signal);
+        if (mode === 'running') resolveExit(0);
+      },
+      terminal: { write() {}, close() { events.push('close'); } },
+    } : (spawn as any)(...args)) as typeof Bun.spawn);
+  let session: ClaudePtySession | undefined;
+  try {
+    process.env.BROWSE_TERMINAL_BINARY = process.execPath;
+    session = await launchClaudePty({ timeoutMs: 200, sessionLedger: false,
+      env: { GSTACK_TEST_TERMINAL_CLEANUP: mode } });
+    await Promise.all([session.close(), session.close()]);
+    await session.close();
+    expect(events.filter(event => event === 'close')).toHaveLength(1);
+    expect(events.at(-1)).toBe('close');
+    if (mode === 'exited') expect(events).toEqual(['close']);
+    if (mode === 'running') expect(events).toEqual(['SIGINT', 'close']);
+    if (mode === 'unresponsive') expect(events).toContain('SIGKILL');
+  } finally {
+    try { await session?.close(); }
+    finally {
+      spawnSpy.mockRestore();
+      if (originalBinary === undefined) delete process.env.BROWSE_TERMINAL_BINARY;
+      else process.env.BROWSE_TERMINAL_BINARY = originalBinary;
+    }
+  }
+});
+
+test.skipIf(process.platform !== 'linux')('closes the owned terminal without retaining native PTY descriptors', async () => {
+  const descriptors = () => fs.readdirSync('/proc/self/fd').filter(fd => {
+    try { return /\/dev\/(?:pts\/)?ptmx$/.test(fs.readlinkSync(`/proc/self/fd/${fd}`)); }
+    catch { return false; }
+  }).sort();
+  const before = descriptors();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-pty-close-'));
+  const fake = path.join(dir, 'fake-claude');
+  fs.writeFileSync(fake, `#!${process.execPath}
+process.on('SIGINT', () => process.exit(0));
+process.stdin.resume();
+process.stdout.write('TERMINAL_READY');
+`, { mode: 0o755 });
+  const originalBinary = process.env.BROWSE_TERMINAL_BINARY;
+  let session: ClaudePtySession | undefined;
+  let terminal: Bun.Terminal | undefined;
+  const spawn = Bun.spawn;
+  const spawnSpy = spyOn(Bun, 'spawn').mockImplementation(((...args: any[]) => {
+    const child = (spawn as any)(...args);
+    if (args[1]?.cwd === dir && args[1]?.terminal) terminal = child.terminal;
+    return child;
+  }) as typeof Bun.spawn);
+  try {
+    process.env.BROWSE_TERMINAL_BINARY = fake;
+    session = await launchClaudePty({ cwd: dir, model: 'fixture', timeoutMs: 5000, sessionLedger: false });
+    await session.waitFor('TERMINAL_READY', { timeoutMs: 3000 });
+    expect(terminal?.closed).toBe(false);
+    expect(descriptors().length).toBeGreaterThan(before.length);
+    await session.close();
+    expect(session.exited()).toBe(true);
+    expect(terminal?.closed).toBe(true);
+    const settledBy = performance.now() + 1000;
+    while (JSON.stringify(descriptors()) !== JSON.stringify(before) && performance.now() < settledBy) await Bun.sleep(10);
+    expect(descriptors()).toEqual(before);
+  } finally {
+    try { await session?.close(); }
+    finally {
+      spawnSpy.mockRestore();
+      if (originalBinary === undefined) delete process.env.BROWSE_TERMINAL_BINARY;
+      else process.env.BROWSE_TERMINAL_BINARY = originalBinary;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}, 10000);
+
 test.skipIf(process.platform === 'win32')('PTY output and exit wake observers without leaving deadline timers', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-pty-output-'));
   const fake = path.join(dir, 'fake-claude');

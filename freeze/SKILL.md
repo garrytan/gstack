@@ -22,6 +22,11 @@ hooks:
         - type: command
           command: 'bash -c "exec bash \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\""'
           statusMessage: "Checking freeze boundary..."
+    - matcher: "NotebookEdit"
+      hooks:
+        - type: command
+          command: 'bash -c "exec bash \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\""'
+          statusMessage: "Checking freeze boundary..."
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -29,16 +34,17 @@ hooks:
 
 ## When to invoke this skill
 
-Blocks Edit and
-Write outside the allowed path. Use when debugging to prevent accidentally
+Blocks Edit,
+Write and NotebookEdit outside the allowed path. Use when debugging to prevent accidentally
 "fixing" unrelated code, or when you want to scope changes to one module.
 Use when asked to "freeze", "restrict edits", "only edit this folder",
 or "lock down edits".
 
 # /freeze — Restrict Edits to a Directory
 
-Lock file edits to a specific directory. Any Edit or Write operation targeting
-a file outside the allowed path will be **blocked** (not just warned).
+Lock file edits to a specific directory. Any Edit, Write or NotebookEdit
+operation targeting a file outside the allowed path will be **blocked** (not
+just warned).
 
 ```bash
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
@@ -62,13 +68,14 @@ bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" set "<user-provide
 
 Only report success if the helper succeeds. On `FREEZE_BUSY` or unexpected state, preserve it and ask the user to inspect recovery after any active writer finishes; never write or delete the state file directly.
 
-Tell the user: "Edits are now restricted to `<path>/`. Any Edit or Write
-outside this directory will be blocked. To change the boundary, run `/freeze`
+Tell the user: "Edits are now restricted to `<path>/`. Any Edit, Write or
+NotebookEdit outside this directory will be blocked. To change the boundary, run `/freeze`
 again. To remove it, run `/unfreeze`."
 
 ## How it works
 
-The hook reads `file_path` from the Edit/Write tool input JSON (shared
+The hook reads `file_path` from the Edit/Write tool input JSON, or
+`notebook_path` from a NotebookEdit (Jupyter notebook) call (shared
 real-JSON extractor with /careful — one copy, sourced by both hooks), then
 checks whether the path starts with the freeze directory. If not, it returns a
 `hookSpecificOutput` payload with `permissionDecision: "deny"` to block the
@@ -77,17 +84,18 @@ operation (nested under `hookSpecificOutput` — Claude Code ignores a top-level
 
 Polarity is fail-closed: a tool payload the hook cannot parse is DENIED, not
 allowed — a boundary that fails open is not a boundary. A payload that parses
-but has no `file_path` (a non-file tool) is allowed. Symlinks are resolved
+but has neither path field (a non-file tool) is allowed. A deny names the
+tool, the path field, the boundary and `/unfreeze`. Symlinks are resolved
 through their FINAL component, so an in-boundary symlink pointing outside the
 boundary is checked against its target.
 
 The freeze boundary persists until explicitly removed via the state file. The hook
-script reads it on every Edit/Write invocation. Boundaries containing spaces
+script reads it on every Edit/Write/NotebookEdit invocation. Boundaries containing spaces
 are supported.
 
 ## Notes
 
 - The trailing `/` on the freeze directory prevents `/src` from matching `/src-old`
-- Freeze applies to Edit and Write tools only — Read, Bash, Glob, Grep are unaffected
-- This prevents accidental edits, not a security boundary — Bash commands like `sed` can still modify files outside the boundary
+- Freeze applies to Edit, Write and NotebookEdit only — Read, Bash, PowerShell, Glob, Grep are unaffected
+- This prevents accidental edits, not a security boundary — Bash or PowerShell commands like `sed` or `Set-Content` can still modify files outside the boundary
 - To deactivate, run `/unfreeze`; ending or killing a conversation does not remove persisted state

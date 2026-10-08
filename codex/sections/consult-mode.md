@@ -102,7 +102,9 @@ cd "$_REPO_ROOT" || exit 1
 PROMPT_FILE="$_REPO_ROOT/.gstack/tmp/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not run: $PROMPT_FILE is missing or empty, so the prompt was never written. Write it, then run by hand: codex exec - -C $_REPO_ROOT < $PROMPT_FILE" >&2; exit 1; }
 _CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
-_CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1
+_CODEX_ROLE=''
+if [ -n "$_CODEX_ROLE" ]; then export _CODEX_DEADLINE=$(($(date +%s)+540)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?
+else _CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1; fi
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
 _CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
 _SID=""

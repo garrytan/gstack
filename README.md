@@ -165,8 +165,18 @@ override applies to that run only; set `model` in your Codex `config.toml` to
 make it stick across upgrades. After changing your Codex model, rerun
 `./setup --host codex` to regenerate the skills.
 
-**Which Codex model gstack uses.** For every Codex call (outside voices,
-`/codex`, review and ship adversarial passes), gstack picks the model in this
+**Plan-review and implementation tiers.** Plan workflows use an independent
+`frontier` reviewer: Fable 5.1 from Codex, or GPT-6 Astra from Claude Code.
+Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.1 Sol.
+Choose a different tier, pin either provider's model, or use `host` mode to
+preserve native model settings. The read-only `gstack-models` command explains
+the effective choices; changing these settings does not require regenerating
+skills or switch your running session. A weekly maintenance check flags changed
+official recommendations and retirement notices without automatically changing
+models. See [model policy: setup, overrides and freshness](docs/model-policy.md).
+
+**Other Codex calls keep their existing selection.** Without the explicit
+`plan-review` role (including ordinary review and ship adversarial passes), gstack picks the model in this
 order: a model you name for that request, then `GSTACK_CODEX_MODEL`, then
 `model` in your Codex `config.toml` (for native `codex review`, `review_model`
 first; a custom `CODEX_HOME` is honored), and only then gstack's default,
@@ -177,7 +187,7 @@ repair message and reports the outside review as unavailable. It never silently
 switches to its default. Nested Codex reviews also run with installed skills
 hidden (`-c skills.include_instructions=false`), so a review cannot turn into a
 whole nested skill run. Runtime model selection is separate from the setup-time
-behavioral profile above. `/claude-code` (`gstack-claude-code`
+behavioral profile above. Without the plan-review role, `/claude-code` (`gstack-claude-code`
 on Codex) preserves Claude's configured model. Set `GSTACK_CLAUDE_MODEL=<model>`
 or name a model in your request to override it for the invocation, including
 resumed consultations. See [eval defaults and overrides](CONTRIBUTING.md#testing--evals)
@@ -353,7 +363,7 @@ and PR publication; the docs helper does not commit or push independently.
 | `/setup-gbrain` | **GBrain Onboarding** — from zero to running gbrain in under 5 minutes. PGLite local, Supabase existing URL, or auto-provision a new Supabase project via Management API. MCP registration for Claude Code + per-repo trust triad (read-write/read-only/deny). [Full guide](USING_GBRAIN_WITH_GSTACK.md). |
 | `/sync-gbrain` | **Keep Brain Current** — re-index this repo's code into gbrain via `gbrain sources add` + `gbrain sync --strategy code`, refresh the `## GBrain Search Guidance` block in CLAUDE.md, and auto-remove guidance when the capability check fails. `--incremental` (default), `--full`, `--dry-run`. Idempotent; safe to re-run. |
 | `/gstack-upgrade` | **Self-Updater** — upgrade gstack to latest. Detects global vs vendored install, syncs both, shows what changed. |
-| `/ios-qa` | **iOS Live-Device QA (v1.43.0.0+)** — drive a real iPhone over USB CoreDevice via an embedded `StateServer` in the app. Read Swift source, codegen typed `@Observable` accessors, run the agent loop. Optional `--tailnet` flag exposes the device to OpenClaw or any HTTP-capable agent on your Tailscale tailnet so remote agents can run iOS QA without ever touching the hardware. Capability-tier allowlist (observe/interact/mutate/restore), per-device session lock, audit log. |
+| `/ios-qa` | **iOS Live-Device QA (v1.43.0.0+)** — drive a real iPhone or iPad over USB CoreDevice via an embedded `StateServer` in the app. Read Swift source, codegen typed `@Observable` accessors, run the agent loop. Optional `--tailnet` flag exposes the device to OpenClaw or any HTTP-capable agent on your Tailscale tailnet so remote agents can run iOS QA without ever touching the hardware. Capability-tier allowlist (observe/interact/mutate/restore), per-device session lock, audit log. |
 | `/ios-fix`, `/ios-design-review`, `/ios-clean`, `/ios-sync` | iOS bug-fix loop, designer's-eye HIG audit, debug-bridge cleanup, and accessor resync. See `docs/skills.md`. End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md). |
 
 ### Standalone binaries
@@ -374,7 +384,7 @@ Beyond the slash-command skills, gstack ships standalone CLIs for workflows that
 | `gstack-review-read` | **Review freshness** — emits review records with computed `review_freshness.status` and `reason`: CURRENT, STALE, or UNVERIFIED for diff reviews. `/ship` and `/land-and-deploy` use the same grade; a matching commit alone never certifies a diff review. [Dashboard rules](docs/skills.md#review-readiness-dashboard). |
 | `gstack-evidence` | **Verification-evidence ledger** — `run --label <lane> -- <cmd>` transparently wraps any test command (the child's exit code always passes through) and records what ran against which working-tree fingerprint; `check` grades each label FRESH/STALE/MISSING with `--expect-cmd`, `--max-age`, and `--allow-paths` binding. /ship and /land-and-deploy cite fresh evidence instead of re-running suites. Per-run logs are 0600, capped at 2MB, pruned after 30 days; the ledger and logs stay machine-local by design. |
 | `gstack-issue-guard` | **Tracker-text trust envelope** — fetches GitHub issue/PR text (`issue <n>`, `pr-body`, `pr-comments`, or `--stdin`) and wraps it in a labeled envelope so agents treat it as data: injection-shaped lines get labeled even through fullwidth and invisible-character evasion, and forged envelope banners are defused. Every tracker-text ingress in gstack routes through it, enforced by a CI scanner. |
-| `gstack-ios-qa-daemon` | **iOS QA daemon** — Mac-side broker between an agent and a connected iPhone over USB CoreDevice. Loopback by default; `--tailnet` opens a Tailscale-facing listener with identity-gated capability tiers. Single-instance via flock on `~/.gstack/ios-qa-daemon.pid`. See [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md). |
+| `gstack-ios-qa-daemon` | **iOS QA daemon** — Mac-side broker between an agent and a connected iPhone or iPad over USB CoreDevice. Loopback by default; `--tailnet` opens a Tailscale-facing listener with identity-gated capability tiers. Single-instance via flock on `~/.gstack/ios-qa-daemon.pid`. See [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md). |
 | `gstack-ios-qa-mint` | **iOS allowlist manager** — owner-grant CLI for the tailnet allowlist. `grant`/`revoke`/`list` against `~/.gstack/ios-qa-allowlist.json` (mode 0600). Remote agents never auto-allowlist; this is the explicit-intent path. |
 | `gstack-ios-qa-regen` | **iOS bridge regenerator** — deterministically installs the canonical DebugBridge package, generates typed state accessors, and records the installed gstack version. Safe to rerun after source changes or upgrades. |
 
