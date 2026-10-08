@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.91.63.0] - 2026-10-08
+
+**/autoplan no longer asks permission to read its own files after a background reviewer finishes.**
+**34 contributor PRs from the outside-PR backlog land in this release, rewritten on current code with credit.**
+
+On Claude Code 2.1.292, interactive sessions run /autoplan's reviewers in the background. When a reviewer finishes, its completion notice starts a new turn, and in that turn Claude Code no longer applies the skill's allowed tools. So reading the next phase's instructions, the phase close packet and later reviewers' own inputs each raised an "allow this?" prompt. This release also works through the outside-PR backlog together with GSTA-27: every open PR was checked against current main, and the open count went from about 200 to about 20.
+
+### The numbers that matter
+
+| Check | Before | After |
+|---|---|---|
+| Permission prompts for /autoplan's own files in the scripted live run (2.1.292, default settings) | 2 | 0 |
+| Same, through `claude --bg` and `claude attach` | 1 | 0 |
+| Outside PRs adopted in this release, rewritten with credit | 0 | 34 |
+| Outside PRs closed by this thread, each with a specific reason | 0 | 113 (46 already fixed or stale, 32 declined, 35 parked in TODOS.md) |
+
+### What this means for you
+
+Run `/gstack-upgrade`. /autoplan now keeps its restore point and phase artifacts in the project's git-excluded `.gstack/tmp/autoplan/`. Both /autoplan and its reviewers read files there without a prompt, and a `git clean -x` removes them. Two prompts remain:
+- In Manual permission mode, /autoplan's Bash commands still ask after the first background reviewer.
+- A session started in a subdirectory of the repo still asks when a reviewer reads its input.
+
+Both are tracked in TODOS.md.
+
+### Behavior changes you may notice
+
+- **Skills reply in the language of your latest message.** Code, commands, paths, identifiers and question markers stay as written. Thanks @shrektan (#679).
+- **`/benchmark` routes only web page performance requests.** Model and skill benchmarks go to `/benchmark-models`. Thanks @creatornader (#2302, #2083).
+- **Required team mode's hook is now `check-gstack.cjs`, registered with a command that has no shell variables.** It now allows and denies correctly under cmd.exe, PowerShell and Copilot CLI. Re-running `gstack-team-init required` migrates an old `.sh` registration in place. Thanks @neallee2012 (#2217).
+
+### Itemized changes
+
+#### Added
+- `browse viewport auto` (aliases `reset`, `unpin`) undoes a `viewport WxH` pin without a restart. In headed mode the page follows the real browser window again, keeping cookies, storage, the tab and loaded HTML; headless returns to 1280x720. Thanks @loulanyue (#2782) and @jbetala7 (#1881).
+- `browse screenshot` accepts `--clip=x,y,w,h` and `--selector=<css>` alongside the space-separated forms. Thanks @techcenter68 (#1563).
+- Pre-push redaction: a committed `.gstack-redact-allowlist` at the repo root clears a reviewed, known-benign value by its exact matched text, and every push lists what it suppressed. A substring or a different credential still blocks. Thanks @boyard (#2598).
+- Artifacts sync can publish removals. With `gstack-config set artifacts_sync_removals on`, deleted or slug-moved files stop lingering on the remote and in the brain. More than 20 removals at once wait for `gstack-brain-sync --publish-removals --yes`. Thanks @Jey2311 (#2892).
+- Windows: `.\setup.ps1` checks for Git for Windows, Bun and Node.js, then runs `./setup` in Git Bash with your arguments passed through unchanged. Thanks @jimmckeeth (#657).
+- The design binary honors `OPENAI_BASE_URL`, so image generation and screenshot analysis can go through an OpenAI-compatible gateway; egress receipts record the gateway host. Thanks @jackjin1997 (#932).
+- On Codex, /design-shotgun generates and edits mockups with Codex's built-in `$imagegen`, so ChatGPT-signed-in users need no `OPENAI_API_KEY`. The design binary still serves the comparison board. Thanks @jinzheio (#2175).
+- The sidebar terminal toolbar has an XS–XL text-size picker. It defaults to today's 13px and remembers your choice. Thanks @tomfluff (#2288).
+- `gstack-developer-profile --reconcile` backfills office-hours tenure from `timeline.jsonl`. Backfilled rows count toward the tier but never appear as "last time" context. Thanks @briacSck (#2668).
+- `/retro` saves its "3 Things to Improve" in the snapshot, and the next retro reports how many prior recommendations were addressed. Thanks @jbetala7 (#1853).
+- `gstack-global-discover` splits Codex sessions by originator (interactive CLI, Desktop, `codex exec`, Claude Code, other), per repo and in total, so `/retro global` can tell interactive work from scripted runs. Thanks @0xDevNinja (#1488).
+
+#### Changed
+- `/review`'s testing specialist treats a new negative assertion as a behavior decision that needs cited intent, and catches old negative assertions that a rename or removal made vacuous. Thanks @EmilianoU26 (#2861).
+- `/review`'s security specialist checks four access-control leaks that a route-guard read misses: error pages built outside the guard, ownership surviving a role downgrade, list/detail/download paths checked as one, and a session changed before the identity-switch callback is validated. Thanks @EmilianoU26 (#2859).
+- `/review` says a clean diff can come back with zero findings, and stops flagging six common false positives. Thanks @frosimanuel (#2820).
+- `/review`'s value-completeness check also fires when a diff loosens what an input accepts, and the maintainability specialist flags user-facing strings whose guarding condition changed. Thanks @aversini (#2141).
+- `/review` and `/ship` give the security specialist and the Red Team the same defensive-security framing as the adversarial pass, so repos with attack-payload test corpora no longer get those passes refused. Thanks @bmajewski (#1921).
+- `/design-review` reads your code's design tokens before falling back to universal principles, and its target mockups reuse your palette, fonts, radii and spacing. Thanks @tomdinh24 (#1920).
+- `/setup-deploy` no longer assumes Vercel deploys on push; CLI-only projects record their real deploy command. Thanks @mikehasa (#2992).
+- The shared voice bans "load-bearing", and the closer guidance is shorter. Thanks @creatornader (#1795).
+- GitLab CI and the Ubicloud free-suite setup install Bun from the SHA-256-verified release archive instead of piping bun.sh/install into bash. Thanks @spacegeologist (#1713).
+- CI's GitHub Actions SHA pins are refreshed (docker/setup-buildx-action 4.4.1, docker/build-push-action 7.4.0, actions/attest 4.2.2, actions/setup-node 7.0.0), each with its exact version comment (#2988).
+
+#### Fixed
+- /autoplan's own section files and phase artifacts no longer raise permission prompts after a background reviewer's completion notice, in the foreground or with `claude --bg`. The publication guard's checks are unchanged.
+- The outside-review classifier reads a trailing `— Medium.` or `(High)` severity on a finding line, the shape Codex now writes. Before this, such a review was reported `unverified`.
+- `gstack-hook-check` checks the hooks skills register (/careful, /freeze, /guard, /investigate, /plan-ceo-review), the shell helpers they source, and conflict markers that still parse, including in imported modules. It also ignores the calling project's tsconfig.json and bunfig.toml. Thanks @BenjaminDSmithy (#3066).
+- On Windows, /setup-gbrain registers the gbrain MCP through bun.exe, so Claude Code no longer opens a console window each session. The skill also explains a PGLite "Failed to connect" that is only lock contention. Thanks @pmaxhogan (#2007) and @maxpetrusenkoagent (#1963).
+- Hermes, GBrain, OpenClaw and Factory skills no longer leak Claude's "Agent tool" name. Thanks @katlun-lgtm (#1935).
+- Benchmarks bill Codex cached input at the cache-read rate, and a stored Gemini OAuth file alone is no longer reported as ready. Thanks @KiDDarn (#2283).
+- `gstack/llms.txt` links every skill to a file that exists. Thanks @creatornader (#2279).
+- The OpenClaw docs no longer tell you to pass `env` to `sessions_spawn`, which has no env argument. Thanks @DanCanadian (#2749).
+- A broken link in `docs/TESTING_INTERNALS.md`. Thanks @thearbajonart (#3070).
+
+#### For contributors
+- `autoplan/bin/owned-read.ts` approves only this install's `autoplan/sections/*.md` and immutable phase artifacts under the repo's `.gstack/tmp/autoplan/`. It never denies, and it runs only when the guard returned nothing.
+- The paid `autoplan-guard-pty` case asserts zero permission cards across a background reviewer's notice turn.
+- TODOS.md gains "Parked contributor ideas (Oct 8 triage)", which keeps 35 parked PRs grouped by theme with their authors.
+
 ## [1.91.62.0] - 2026-10-08
 
 **A Rails repair can now finish verifying on arm64.**
