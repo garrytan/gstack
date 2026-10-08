@@ -367,17 +367,28 @@ export function amendImplementation(phase: string, activePlan: string, snapshotP
   return checkPhaseImplementation(phase, source, snapshotPath, extractImplementationPlan(next) === prior ? 'unchanged' : 'changed');
 }
 
+/**
+ * The canonical spelling of an init destination: the deepest existing ancestor is
+ * realpathed (so /tmp -> /private/tmp on macOS) and any missing segments plus the
+ * basename are re-joined. Pure path computation; the regular-file check stays in
+ * initializePlan. Init reports this spelling, so callers comparing against the
+ * argv they passed must canonicalize the argv the same way.
+ */
+export function canonicalDestination(file: string): string {
+  let parent = dirname(file);
+  const missing: string[] = [];
+  while (!lstatSync(parent, { throwIfNoEntry: false })) {
+    missing.unshift(basename(parent)); parent = dirname(parent);
+  }
+  return join(realpathSync(parent), ...missing, basename(file));
+}
+
 /** Initialize the existing strict section contract before any scope or review call. */
 export function initializePlan(sourcePlan: string, activePlan: string, restorePath: string) {
   if (![sourcePlan, activePlan, restorePath].every(isAbsolute)) throw new Error('Initialization requires three absolute paths');
   const source = realpathSync(sourcePlan);
   const destination = (file: string) => {
-    let parent = dirname(file);
-    const missing: string[] = [];
-    while (!lstatSync(parent, { throwIfNoEntry: false })) {
-      missing.unshift(basename(parent)); parent = dirname(parent);
-    }
-    const canonical = join(realpathSync(parent), ...missing, basename(file));
+    const canonical = canonicalDestination(file);
     const state = lstatSync(canonical, { throwIfNoEntry: false, bigint: true });
     if (state && !state.isFile()) throw new Error('Initialization destinations must be regular files, not links or directories');
     return { file: canonical, state, bytes: state ? readFileSync(canonical) : undefined };

@@ -54,11 +54,11 @@ export const REASONS = {
   foreign_install: { disposition: 'corrective', text: () => 'Autoplan phase entry belongs to a different or unavailable installation. Restore this invocation’s hook installation (run ./setup), then make this call again.' },
   init_required: { disposition: 'corrective', text: () => 'Autoplan invocation evidence is unavailable. Complete the existing snapshot init step before phase entry.' },
   init_own: { disposition: 'corrective', text: () => 'This Autoplan invocation needs its own successful init before phase entry. Complete the existing snapshot init step.' },
-  init_failed: { disposition: 'corrective', text: () => 'Autoplan initialization did not succeed. Complete the existing init step first.' },
+  init_failed: { disposition: 'corrective', text: d => d.cause ? `${d.cause}.` : 'Autoplan initialization did not succeed. Complete the existing init step first.' },
   init_unbindable: { disposition: 'corrective', text: () => 'Autoplan invocation evidence is unavailable: snapshot init ran through a shell variable, substitution, chaining, ' +
     'a pipe or a redirect, which this guard cannot bind. Re-run it as one Bash call with the literal absolute paths: ' +
     '`bun "<SNAPSHOT_TOOL>" init "<SOURCE_PLAN>" "<ACTIVE_PLAN>" "<RESTORE_PATH>"` (it answers reused:true), then make this call again.' },
-  init_mismatch: { disposition: 'fallback', text: () => 'Autoplan initialization artifacts do not match this parent invocation.' },
+  init_mismatch: { disposition: 'fallback', text: d => 'Autoplan initialization artifacts do not match this parent invocation.' + (d.cause ? ` ${d.cause}.` : '') },
   snapshot: { disposition: 'fallback', text: d => `${d.cause ?? 'A native phase artifact is unavailable or changed'}. The immutable phase snapshot is missing or was changed.` },
   dispatch_prompt: { disposition: 'fallback', text: () => 'Native phase dispatch differs from its exact immutable snapshot prompt.' },
   phase_order: { disposition: 'corrective', text: () => 'Read the current Phase 1 CEO entry successfully before entering a later phase.' },
