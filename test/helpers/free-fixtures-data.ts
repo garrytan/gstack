@@ -140,6 +140,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/parity-baseline-v1.81.0.0.json': ['test/skill-size-budget.test.ts'],
   'test/fixtures/plan-count-design-questionless-report.md': ['test/plan-count-empty-review.test.ts'],
   'test/fixtures/plan-create-cropped-title-batching.json': ['test/plan-create-combined-permission.test.ts'],
+  'test/fixtures/plan-ceo-floor-unasked-decisions-872e154.json': ['test/plan-ceo-floor-interactive-boundary.test.ts'],
   'test/fixtures/plan-floor-edit-wrap-37176835584.json': ['test/plan-floor-edit-wrap.test.ts'],
   'test/fixtures/plan-format-kind-notes.json': ['test/plan-format-kind-note.test.ts'],
   'test/fixtures/qa-caller-read-probe-mtb1007a.json': ['test/qa-exploratory-callers.test.ts'],
