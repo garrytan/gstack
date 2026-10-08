@@ -122,22 +122,23 @@ Left open by the iPad and route-drop release, each with its reason.
   hook would let gesture-driven apps route `/tap` and `/swipe` to their own
   handlers. **Effort:** M. **Priority:** P3.
 
+### P3: Parked contributor ideas (Oct 8 triage)
+
+Contributor PRs closed as "later" during the Oct 8 triage. Each is a reasonable idea parked until its theme is picked up; credit and reference the PR when it is.
+
+- **New hosts** — Kimi Code (#2674), Pi (#2507, the most complete), Gemini CLI (#2309, decide together with Antigravity since both use `~/.gemini`), Qoder (#2116, its `--dir` setup flag could land on its own), Grok Build (#2028), Zed (#1785, the `~/.agents/skills` collision with Codex needs a decision), Mistral Vibe (#1640), Factory Droid symlink discovery (#660, verify on a real Droid install first), Claude Code plugin marketplace (#526, once /browse, /careful and /freeze work from plugin installs). New hosts wait for the host-config work; Antigravity ships first. **Priority:** P3.
+- **Backup-browser (`$B`) features** — `record` video evidence (#2497), WebAuthn virtual authenticator (#2297), device/geo/locale/timezone emulation (#2064), request interception `route` (#2063, needs a deny-default allowlist design), Chromium launch overrides with a denylist (#1933), extra Chrome extensions via the existing `BROWSE_EXTENSIONS_DIR` (#1144), Flutter Web semantics for snapshots (#511). Revisit each alongside an Aside equivalent. **Priority:** P3.
+- **Outside voice and Codex** — a reasoning-effort knob in the model-tier config from v1.91.45.0 instead of new env vars (#2934), cross-host plugin distribution (#2723), Review Army on Codex behind a paid quality eval (#2648), the /investigate falsification prompt as a Codex outside voice (#2535), Codex install paths moving to `~/.agents/skills` as a planned migration (#2123), Codex CLI freshness in gstack-doctor's Codex row (#1861). **Priority:** P3.
+- **Memory and learnings** — signal-gated learnings capture with helpful/harmful counters (#2030), semantic dedup folded into `/learn prune` (#2029), docs-aware gbrain sync on the current orchestrator (#2438), a registry-independent plan-tune autonomy signal after fixing signal keys vs logged labels (#2625). **Priority:** P3.
+- **Ship and review** — a pre-PR upstream duplicate audit as an opt-in (#1696), preview deploy plus browser check before PR creation as a designed section (#685), the header-derived-gate testing bullet (#2860). **Priority:** P3.
+- **QA, design and other skills** — accessibility review folded into /design-review or /qa (#2476), per-finding QA evidence layout (#1484), a cognitive-load checklist item in the shared design checklist (#696), local-model benchmarking via an Ollama adapter (#1495), measured context-bill benefit estimates (#3021), a REMOTE_CONTROL trigger for the AskUserQuestion prose fallback if the host bug persists (#459). **Priority:** P3.
+
 ### P2/P3: Oct 7 fix-wave follow-ups (filed 2026-10-07)
 
 Left open by the Oct 7 wave (docs/designs/FOLLOWUP_WAVE_2026_10_07.md), each with its reason.
 
-- **/autoplan permission cards after a background reviewer finishes (Claude Code
-  2.1.292)** — once a background reviewer's completion notice starts a new turn,
-  Claude Code stops applying the skill's allowed tools, so Reads outside the
-  project (the close packet, the next phase's section file) show permission
-  cards. Seen in both foreground and `--bg` PTY runs. Options: keep those
-  artifacts readable without a card, or detect it and explain it once.
-  **Effort:** M. **Priority:** P2.
-- **macOS numbers for the bounded journal read** — the guard's 120 MiB read
-  meets the Linux budget (0.43-0.87 s, at most 235 MiB peak RSS on 4 vCPU) and a
-  resumed 102 MiB session entered Phase 1 end to end. The macOS run is recorded
-  by dispatching `.github/workflows/measure-journal-read.yml`, which GitHub only
-  allows once the workflow is on main. **Effort:** S. **Priority:** P3.
+- **/autoplan Bash cards in Manual mode after a background reviewer** — after a background reviewer's notice starts a new turn, the skill's allowed tools stop applying, so /autoplan's Bash calls (snapshot tool, outside voice, review log) ask in Manual mode; auto mode routes them to its classifier. Options: hook approval of exact snapshot-tool invocations, or a one-time explanation. **Effort:** M. **Priority:** P3.
+- **Reviewer input card for sessions started below the repo root** — skill hooks don't run inside subagents, so a reviewer reading its input from the repo's `.gstack/tmp/autoplan/` asks when the session started in a subdirectory. **Effort:** S. **Priority:** P3.
 - **Every-transition manual /autoplan session on 2.1.292** — the replay
   fixtures and the scripted live boundary (foreground and `--bg`) cover the
   guard; one full recorded run through every phase transition is still to do.
