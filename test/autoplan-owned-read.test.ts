@@ -124,7 +124,7 @@ describe('/autoplan owned reads after the skill turn', () => {
     const first = run(), second = run();
     expect(first.status).toBe(0); expect(second.status).toBe(0);
     const restore = /^RESTORE_PATH=(.+)$/m.exec(first.stdout)?.[1] ?? '';
-    expect(path.dirname(restore)).toBe(path.join(repo, '.gstack', 'tmp', 'autoplan'));
+    expect(path.resolve(path.dirname(restore))).toBe(path.join(repo, '.gstack', 'tmp', 'autoplan'));
     expect(path.basename(restore)).toMatch(/-autoplan-restore-\d{8}-\d{6}\.md$/);
     expect(fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8').split('\n').filter(l => l === '/.gstack/tmp/')).toHaveLength(1);
     expect(spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo, encoding: 'utf8', timeout: 10_000 }).stdout).toBe('');

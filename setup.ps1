@@ -44,11 +44,22 @@ if (-not $bash -or -not (Test-Path -LiteralPath $bash -PathType Leaf)) {
     exit 1
 }
 
+# Arguments travel NUL-separated in a private file, never on the native command
+# line: PowerShell's native-argument quoting splits or merges arguments that
+# contain double quotes, so bash reads them back as an exact array instead.
+$argFile = [System.IO.Path]::GetTempFileName()
+$writer = New-Object System.IO.StreamWriter($argFile, $false, (New-Object System.Text.UTF8Encoding($false)))
+try {
+    foreach ($arg in $args) { $writer.Write([string]$arg); $writer.Write([char]0) }
+} finally {
+    $writer.Close()
+}
 Push-Location -LiteralPath $PSScriptRoot
 try {
-    & $bash -c 'exec ./setup "$@"' setup @args
+    & $bash -c 'mapfile -d "" -t argv < "$1"; rm -f "$1"; exec ./setup "${argv[@]}"' setup $argFile
     $code = $LASTEXITCODE
 } finally {
     Pop-Location
+    Remove-Item -LiteralPath $argFile -Force -ErrorAction SilentlyContinue
 }
 exit $code

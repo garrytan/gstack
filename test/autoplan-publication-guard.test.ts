@@ -1274,8 +1274,8 @@ describe('Autoplan native journal roots and Windows spellings', () => {
 
   test.if(windows)('CLAUDE_PROJECT_DIR spelled C:/ or c:\\ names the native journal cwd', async () => {
     const { f } = published();
-    expect(await hook(f, f.cwd.replaceAll('\\', '/'))).toEqual({});
-    expect(await hook(f, f.cwd[0]!.toLowerCase() + f.cwd.slice(1))).toEqual({});
+    expect(await hook(f, f.cwd.replaceAll('\\', '/'))).toEqual(OWNED_READ_APPROVAL);
+    expect(await hook(f, f.cwd[0]!.toLowerCase() + f.cwd.slice(1))).toEqual(OWNED_READ_APPROVAL);
     expect((await hook(f, f.cwd + '\\.') as any).hookSpecificOutput?.permissionDecision).toBe('deny');
   });
 
@@ -1465,7 +1465,7 @@ describe('Autoplan ownership in a linked git worktree session', () => {
     const entry = path.join(root, '.git', 'worktrees', 'session'); fs.mkdirSync(entry, { recursive: true });
     fs.writeFileSync(path.join(entry, 'gitdir'), lower(path.join(f.cwd, '.git')) + '\n');
     fs.writeFileSync(path.join(f.cwd, '.git'), `gitdir: ${lower(entry)}\n`);
-    expect(await run(f, lower(root))).toEqual({});
+    expect(await run(f, lower(root))).toEqual(OWNED_READ_APPROVAL);
   });
 
   test('worktree.useRelativePaths links resolve against each file\'s own directory', async () => {

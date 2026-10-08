@@ -35,7 +35,7 @@ const artifactFiles = (phase: string) => ['methodology.md', 'methodology.json', 
   'source-implementation.md', `${phase}-implementation.md`, 'close-packet.md'];
 
 /** True only for this installation's autoplan/sections/*.md, or an immutable artifact in
- *  <repo>/.gstack/tmp/autoplan/autoplan-<phase>-*\/ where <repo> is the session's project directory or contains it. */
+ *  <repo>/.gstack/tmp/autoplan/autoplan-<phase>-*\/ (read-only: mode 0444, or the read-only attribute on Windows) where <repo> is the session's project directory or contains it. */
 export function ownedAutoplanRead(file: unknown, cwd: string, root: string): boolean {
   if (typeof file !== 'string') return false;
   try {
@@ -55,7 +55,7 @@ export function ownedAutoplanRead(file: unknown, cwd: string, root: string): boo
     const project = fs.realpathSync(nativePathSpelling(process.env.CLAUDE_PROJECT_DIR || cwd));
     return stat.isFile() && sameNativePath(store, path.join(owner, '.gstack', 'tmp', 'autoplan')) &&
       (sameNativePath(project, owner) || nativePathSpelling(project).startsWith(nativePathSpelling(owner) + path.sep)) &&
-      (process.platform === 'win32' || (stat.mode & 0o777) === 0o444);
+      (process.platform === 'win32' ? (stat.mode & 0o222) === 0 : (stat.mode & 0o777) === 0o444);
   } catch { return false; }
 }
 

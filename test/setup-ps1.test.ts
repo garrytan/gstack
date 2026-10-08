@@ -39,8 +39,9 @@ function runPs1(dir: string, args: string[], env: Record<string, string | undefi
 }
 
 describe('setup.ps1', () => {
-  test('passes arguments as an array to a constant bash script', () => {
-    expect(SOURCE).toContain(`& $bash -c 'exec ./setup "$@"' setup @args`);
+  test('passes arguments NUL-separated through a private file to a constant bash script', () => {
+    expect(SOURCE).toContain(`& $bash -c 'mapfile -d "" -t argv < "$1"; rm -f "$1"; exec ./setup "\${argv[@]}"' setup $argFile`);
+    expect(SOURCE).toContain('foreach ($arg in $args) { $writer.Write([string]$arg); $writer.Write([char]0) }');
     expect(SOURCE).not.toMatch(/-join|Invoke-Expression|\biex\b|git-bash\.exe/);
     expect([...SOURCE].every((c) => c.charCodeAt(0) < 128)).toBe(true);
   });
