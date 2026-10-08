@@ -251,12 +251,27 @@ export function parseModelPolicyConfig(text: string, configPath: string): ModelP
 }
 
 export function readModelPolicyConfig(opts: { env?: StateRootEnv; platform?: NodeJS.Platform } = {}): ModelPolicyConfig {
-  const configPath = `${resolveStateRoot(opts.env ?? process.env, opts.platform ?? process.platform)}/config.yaml`;
+  const configPath = path.join(resolveStateRoot(opts.env ?? process.env, opts.platform ?? process.platform), 'config.yaml');
   let text: string;
   try {
     text = fs.readFileSync(configPath, 'utf-8');
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code ?? 'unknown error';
+    let code = (error as NodeJS.ErrnoException).code ?? 'unknown error';
+    if (code === 'ENOENT') {
+      let ancestor = path.dirname(configPath);
+      while (true) {
+        try {
+          if (!fs.statSync(ancestor).isDirectory()) code = 'ENOTDIR';
+          break;
+        } catch (ancestorError) {
+          code = (ancestorError as NodeJS.ErrnoException).code ?? 'unknown error';
+          const parent = path.dirname(ancestor);
+          if (code !== 'ENOENT') break;
+          if (parent === ancestor) { code = 'ENOTDIR'; break; }
+          ancestor = parent;
+        }
+      }
+    }
     if (code === 'ENOENT') return { ...parseModelPolicyConfig('', configPath), exists: false };
     const cause = code === 'EISDIR' ? 'config.yaml is a directory'
       : code === 'EACCES' || code === 'EPERM' ? 'permission denied'

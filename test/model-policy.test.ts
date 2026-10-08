@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -225,6 +225,43 @@ describe('strict policy config snapshot', () => {
       fs.chmodSync(path.join(denied.state, 'config.yaml'), 0o000);
       expect(policyError(() => resolvePlanReviewModel({ provider: 'openai', env: denied.env }))).toMatchObject({ reason: 'config_unreadable', cause: 'permission denied' });
     }
+  });
+
+  test.each(['file-root', 'file-ancestor'])('Windows ENOENT cannot hide a %s', kind => {
+    const dir = fixture();
+    const fileRoot = path.join(dir.root, 'file-root');
+    fs.writeFileSync(fileRoot, '');
+    const stateRoot = kind === 'file-ancestor' ? path.join(fileRoot, 'missing', 'child') : fileRoot;
+    const configPath = path.join(stateRoot, 'config.yaml');
+    const read = fs.readFileSync;
+    const stat = fs.statSync;
+    let configReads = 0;
+    const missing = () => Object.assign(new Error('fixture Windows missing-path error'), { code: 'ENOENT' });
+    const readSpy = spyOn(fs, 'readFileSync').mockImplementation(((...args: any[]) => {
+      if (path.normalize(String(args[0])) === configPath) { configReads++; throw missing(); }
+      return (read as any)(...args);
+    }) as typeof fs.readFileSync);
+    const statSpy = spyOn(fs, 'statSync').mockImplementation(((...args: any[]) => {
+      if (String(args[0]).startsWith(fileRoot + path.sep)) throw missing();
+      return (stat as any)(...args);
+    }) as typeof fs.statSync);
+    try {
+      expect(policyError(() => readModelPolicyConfig({ env: { ...dir.env, GSTACK_STATE_ROOT: stateRoot } })))
+        .toMatchObject({ reason: 'config_unreadable', cause: 'the state root is not a directory' });
+      expect(configReads).toBe(1);
+    } finally {
+      statSpy.mockRestore();
+      readSpy.mockRestore();
+    }
+  });
+
+  test('a genuinely missing state directory keeps defaults without creating it and reports a native path', () => {
+    const dir = fixture();
+    const stateRoot = path.join(dir.root, 'missing', 'nested');
+    const config = readModelPolicyConfig({ env: { ...dir.env, GSTACK_STATE_ROOT: stateRoot } });
+    expect(config).toMatchObject({ exists: false, path: path.join(stateRoot, 'config.yaml'),
+      planReviewTier: { value: 'frontier', origin: 'default' }, implementationTier: { value: 'smart', origin: 'default' } });
+    expect(fs.existsSync(stateRoot)).toBe(false);
   });
 
   test('a bound snapshot is used for the whole resolution even if the file is replaced', () => {
