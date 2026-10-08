@@ -790,6 +790,30 @@ describe('Visual', () => {
     }
   });
 
+  test('screenshot accepts --clip=x,y,w,h and --selector=<css>', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const p = tmpp(`browse-test-clip-eq-${Date.now()}.png`);
+    try {
+      expect(await handleMetaCommand('screenshot', ['--clip=0,0,10,10', p], bm, async () => {})).toContain('Screenshot saved (clip 0,0,10,10)');
+      const png = fs.readFileSync(p);
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([10, 10]);
+      expect(await handleMetaCommand('screenshot', ['--selector=#title', p], bm, async () => {})).toContain('Screenshot saved (element)');
+    } finally {
+      fs.rmSync(p, { force: true });
+    }
+  });
+
+  test('screenshot --clip= keeps the usage errors and the selector conflict', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const run = (args: string[]) => handleMetaCommand('screenshot', args, bm, async () => {});
+    await expect(run(['--clip='])).rejects.toThrow('Usage: screenshot --clip x,y,w,h');
+    await expect(run(['--clip=1,2,3'])).rejects.toThrow('all must be numbers');
+    await expect(run(['--selector='])).rejects.toThrow('Usage: screenshot --selector');
+    await expect(run(['--clip=0,0,10,10', '#title'])).rejects.toThrow('Cannot use --clip with a selector/ref');
+    await expect(run(['--selector=#title', '--clip=0,0,10,10'])).rejects.toThrow('Cannot use --clip with a selector/ref');
+    await expect(run(['--viewport=1'])).rejects.toThrow('Unknown screenshot flag');
+  });
+
   test('screenshot unknown flag throws', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     try {
