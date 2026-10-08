@@ -87,6 +87,8 @@ jobs:
         env:
           GSTACK_CSO_MACOS_TESTS: "1"
       - name: Build browser lifecycle prerequisites
+        env:
+          GSTACK_STRICT_BUILD: '1'
         run: |
           bunx playwright install chromium
           bun run build
@@ -117,6 +119,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Build browser prerequisites
+        env:
+          GSTACK_STRICT_BUILD: '1'
         run: |
           bunx playwright install chromium
           bun run build

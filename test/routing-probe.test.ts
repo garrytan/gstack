@@ -8,7 +8,7 @@
  *    HAS_ROUTING: no and got nagged to create CLAUDE.md.
  *
  * 2. gstack-team-init's required-mode enforcement (the CLAUDE.md
- *    verification snippet and the generated check-gstack.sh hook) must
+ *    verification snippet and the generated check-gstack.cjs hook) must
  *    resolve the install root across GSTACK_ROOT + every host's global
  *    install location, never hardcode ~/.claude/skills/gstack. The drift
  *    test pins the probe list against the hosts registry so a new host
@@ -118,8 +118,14 @@ describe('team-init resolves GSTACK_ROOT across every host (#2500)', () => {
   });
 
   test('generated hook blocks only when NO install root resolves', () => {
-    // The hook's block branch must gate on the resolved root being empty,
-    // not on any single hardcoded directory.
-    expect(teamInit).toContain('if [ -z "$_GSTACK_ROOT" ]; then');
+    // The hook (CommonJS, so it runs under any hook shell) probes GSTACK_ROOT
+    // and every host's global root, and its block branch gates on none
+    // resolving, not on any single hardcoded directory.
+    const hook = teamInit.slice(teamInit.indexOf("cat > \"$HOOKS_DIR/check-gstack.cjs\""), teamInit.indexOf('\nHOOK_EOF\n'));
+    expect(hook).toContain('process.env.GSTACK_ROOT');
+    for (const config of ALL_HOST_CONFIGS) expect(hook).toContain(`'${config.globalRoot}'`);
+    expect(hook).toContain("'.gstack/repos/gstack'");
+    expect(hook).toContain('const gstackRoot = roots.find(');
+    expect(hook).toContain('if (gstackRoot) {');
   });
 });

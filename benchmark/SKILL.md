@@ -2,11 +2,11 @@
 name: benchmark
 preamble-tier: 1
 version: 1.0.0
-description: Performance regression detection. (gstack)
+description: Web performance regression detection. (gstack)
 triggers:
-  - performance benchmark
+  - web performance benchmark
   - check page speed
-  - detect performance regression
+  - detect page performance regression
 allowed-tools:
   - Bash
   - Read
@@ -23,8 +23,9 @@ allowed-tools:
 Establishes
 baselines for page load times, Core Web Vitals, and resource sizes.
 Compares before/after on every PR. Tracks performance trends over time.
-Use when: "performance", "benchmark", "page speed", "lighthouse", "web vitals",
-"bundle size", "load time".
+Use when: "web performance benchmark", "page speed", "lighthouse", "web vitals",
+"bundle size", "load time". Not for AI model, agent eval or business
+benchmarks; use /benchmark-models for cross-model skill comparisons.
 
 Voice triggers (speech-to-text aliases): "speed test", "check performance".
 
@@ -100,7 +101,9 @@ find, grep). The dedicated tools are cheaper and clearer.
 
 Direct, concrete, builder-to-builder. Name the file, function, command, and user-visible impact. No filler.
 
-No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted. Never corporate or academic. Short paragraphs. End with what to do.
+No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted, load-bearing. Never corporate or academic. Short paragraphs. End with what to do.
+
+Reply in the language of the user's latest message unless asked otherwise. Code, commands, paths, identifiers and quoted output stay verbatim.
 
 The user has context you do not. Cross-model agreement is a recommendation, not a decision. The user decides.
 

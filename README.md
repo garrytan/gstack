@@ -119,6 +119,16 @@ An explicit `--host X` installs for X only and never changes another agent's
 install. `/gstack-upgrade` refreshes every install it registered, one row per
 host, and says which ones failed.
 
+A checkout carries skills only for the agents installed from it. Setup records
+them in `.gstack-installed-hosts` and never drops one, so adding an agent later
+is just `./setup --host <name>`. Copies rendered for other agents are pruned:
+generated files move to `~/.gstack/backups/host-renders/`, and files gstack
+can't prove it generated stay where they are. A global Claude install went
+from 632 `SKILL.md` files (34.7 MB) to its own 63 (2.5 MB), which keeps Cursor-agent
+from freezing on the skills tree (#1694). In a development checkout,
+`bun run build` still renders every agent; inside an install it renders the
+recorded ones, and `GSTACK_RENDER_HOSTS=all bun run build` renders them all.
+
 Tiers: **full** is certified by a real workflow run (see
 [Certify your host](docs/ADDING_A_HOST.md#certify-your-host)); **experimental**
 installs and passes the conformance tests but has no certification run yet;
@@ -209,7 +219,11 @@ if OpenAI rejects it, the error names `GSTACK_DESIGN_MODEL`. Set
 value that is not a gpt-image model name is refused before any request. Check a
 key against the defaults with `bun run design/scripts/live-model-check.ts`,
 which always tests the default models and ignores both overrides; the weekly
-periodic census runs the same check.
+periodic census runs the same check. Set `OPENAI_BASE_URL` to send every `$D`
+call to an OpenAI-compatible gateway instead of `api.openai.com`; egress
+receipts record the gateway host. On Codex, `/design-shotgun` generates mockups
+with Codex's built-in `$imagegen` skill instead, so it needs no
+`OPENAI_API_KEY`; `$D` still builds and serves the comparison board.
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 Rendering a new agent is one TypeScript config file; installing it also needs a
@@ -673,8 +687,9 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 (on other hosts, `./setup --status` in your gstack checkout ends with the
 doctor's absolute path). Without starting a skill or spending anything, it
 prints one row per check (install, state root, Bun, hooks, Codex and its cached
-model probe, artifacts sync, the browse bundle, Claude Code, your largest
-session journal and recent /autoplan guard codes), each `ok`, `warn`,
+model probe, artifacts sync, the browse bundle, the other compiled binaries,
+the /cso native helper, Claude Code, your largest session journal and recent
+/autoplan guard codes), each `ok`, `warn`,
 `not configured` or `fail` with the command that fixes it. It exits non-zero
 only on `fail`. `--live` also runs the paid Codex model check (one short call).
 Paste its output into bug reports.
@@ -690,6 +705,8 @@ it. The usual fix is to re-run setup from that row's source for that host, e.g.
 `cd ~/.claude/skills/gstack && ./setup` (Claude) or `cd ~/gstack && ./setup --host codex`.
 A project install lives in the project's `.claude/skills/gstack` or
 `.agents/skills/gstack`; run its `setup` from inside the project.
+
+**Cursor freezes on load, or an agent's gstack skills went missing after an upgrade?** Each checkout now renders skills only for the agents installed from it (#1694). `./setup --status` lists them; `./setup --host <name>` adds one back. Pruned copies are in `~/.gstack/backups/host-renders/<time>-<id>/`, with every path in its `prune.log` ([troubleshooting](docs/troubleshooting.md#host-renders-pruned)).
 
 **`/browse` (or `/qa`, `/design-review`) says `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`?** That's the probe telling you it's about to use the fallback browser. Want Aside? Open the app and sign in — `aside --version` should print a version and `aside repl 'console.log("ok")'` should print `ok` — then re-run. gstack never installs it for you. Want the fallback on purpose while Aside is open? `GSTACK_SKIP_ASIDE=1` makes every skill, the renderer, and `./setup` treat Aside as absent. When Aside is absent the probe prints `NEEDS_ASIDE: <OS>` and skills trust that line for the macOS-only download pitch; `GSTACK_PLATFORM` overrides the OS it names, for tests and unusual hosts (set it in your shell — gstack never reads it from a project `.env`).
 
@@ -715,7 +732,11 @@ types into that element; bare `browse type <text>` types into whatever has focus
 
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. `${CODEX_HOME:-~/.codex}/skills/gstack` is a runtime directory, not the checkout: `./setup --status` shows the Codex row's source checkout. Fix: `cd <that source> && git pull && ./setup --host codex` — for a repo-local install, run it from inside the project.
 
-**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Aside is macOS-only, so on Windows (and Linux) the browser skills, `/make-pdf`, and `/diagram` always use gstack's bundled browser. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH. Native `/cso` additionally requires Windows PowerShell and Visual Studio 2022 Build Tools with the Desktop development with C++ workload; setup leaves that skill explicitly unavailable when they are absent.
+**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Aside is macOS-only, so on Windows (and Linux) the browser skills, `/make-pdf`, and `/diagram` always use gstack's bundled browser. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH. Native `/cso` additionally requires PowerShell (PowerShell 7 `pwsh` is preferred; Windows PowerShell 5.1 is the fallback) and Visual Studio 2022 Build Tools with the Desktop development with C++ workload; setup leaves that skill explicitly unavailable when they are absent. /cso is optional: if its native helper fails to build or publish, setup still finishes, says which step failed with the log path and retry command, and keeps an earlier helper when it has one (`GSTACK_STRICT_BUILD=1` makes that failure fatal, as CI does).
+
+**Known issue: Windows Smart App Control** ([#2595](https://github.com/garrytan/gstack/issues/2595)). gstack's compiled binaries (`browse`, `find-browse`, `design`, `pdf`, `gstack-global-discover`) are built on your machine and unsigned, so Windows 11 with Smart App Control on refuses to start them; Git Bash shows `Permission denied`. setup detects this, names the blocked binaries and the skills that need them, and `gstack-doctor` reports them as `blocked`. Today's workarounds are running gstack inside WSL, or turning Smart App Control off. Details: [troubleshooting](docs/troubleshooting.md#windows-smart-app-control). The sidebar terminal uses Consolas on Windows, so its text no longer renders spaced out.
+
+From PowerShell, `.\setup.ps1` (same arguments as `./setup`) checks that Git for Windows, Bun and Node.js are on PATH, prints the `winget` command for any that are missing, and otherwise runs `./setup` in Git Bash.
 
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 

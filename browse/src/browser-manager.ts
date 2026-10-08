@@ -1589,6 +1589,41 @@ export class BrowserManager {
     await this.getPage().setViewportSize({ width, height });
   }
 
+  /**
+   * Undo a `viewport WxH` pin. Headless contexts restore the 1280x720 launch
+   * default. Headed contexts launch with `viewport: null`, but Playwright has no
+   * way to drop a page's emulated size, so the active tab gets a fresh page in
+   * the same context (cookies and storage persist, refs reset as on navigation).
+   */
+  async resetViewport(): Promise<'window' | 'default'> {
+    this.currentViewport = { width: 1280, height: 720 };
+    if (this.connectionMode !== 'headed') {
+      await this.getPage().setViewportSize(this.currentViewport);
+      return 'default';
+    }
+    if (!this.context) throw new Error('Browser not launched');
+
+    const tabId = this.activeTabId;
+    const pinned = this.getPage();
+    const loaded = this.getActiveSession().getLoadedHtml();
+    const url = pinned.url();
+    const page = await this.context.newPage();
+    const session = new TabSession(page);
+    this.wirePageEvents(page);
+    try {
+      if (loaded) await session.setTabContent(loaded.html, { waitUntil: loaded.waitUntil });
+      else if (url !== 'about:blank') await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    } catch (err) {
+      await page.close().catch(() => {});
+      throw err;
+    }
+    this.pages.set(tabId, page);
+    this.tabSessions.set(tabId, session);
+    await pinned.close().catch(() => {});
+    await page.bringToFront().catch(() => {});
+    return 'window';
+  }
+
   // ─── Extra Headers ─────────────────────────────────────────
   async setExtraHeader(name: string, value: string) {
     this.extraHeaders[name] = value;

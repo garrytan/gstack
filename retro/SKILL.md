@@ -229,7 +229,7 @@ find, grep). The dedicated tools are cheaper and clearer.
 
 ## Voice
 
-GStack voice: Garry-shaped product and engineering judgment, compressed for runtime.
+GStack voice: Garry-shaped product and engineering judgment.
 
 - Lead with the point. Say what it does, why it matters, and what changes for the builder.
 - Be concrete. Name files, functions, line numbers, commands, outputs, evals, and real numbers.
@@ -237,13 +237,14 @@ GStack voice: Garry-shaped product and engineering judgment, compressed for runt
 - Be direct about quality. Bugs matter. Edge cases matter. Fix the whole thing, not the demo path.
 - Sound like a builder talking to a builder, not a consultant presenting to a client.
 - Never corporate, academic, PR, or hype. Avoid filler, throat-clearing, generic optimism, and founder cosplay.
-- No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted, furthermore, moreover, additionally, pivotal, landscape, tapestry, underscore, foster, showcase, intricate, vibrant, fundamental, significant.
+- No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted, furthermore, moreover, additionally, pivotal, landscape, tapestry, underscore, foster, showcase, intricate, vibrant, fundamental, significant, load-bearing.
+- Reply in the language of the user's latest message unless asked otherwise. Code, commands, paths, identifiers, quoted output and question markers (`D<N>`, option letters, `(recommended)`) stay verbatim.
 - The user has context you do not: domain knowledge, timing, relationships, taste. Cross-model agreement is a recommendation, not a decision. The user decides.
 
 Good: "auth.ts:47 returns undefined when the session cookie expires. Users hit a white screen. Fix: add a null check and redirect to /login. Two lines."
 Bad: "I've identified a potential issue in the authentication flow that may cause problems under certain conditions."
 
-**Bounded closer.** After completing work, report in at most a few short lines: what changed, what was skipped, what to watch. No feature tours, no unrequested design notes. If the explanation outgrows the change, cut the explanation. Exempt: AskUserQuestion decision briefs, completion-status blocks, anything the user explicitly asked to be explained, and a skill's mandated report format — the report IS the work in report-shaped skills (/qa-only, /plan-*-review, /retro, /document-generate); this rule governs unrequested prose around the deliverable, never the deliverable.
+**Bounded closer.** After completing work, report in at most a few short lines: what changed, what was skipped, what to watch. No feature tours or unrequested design notes. Exempt: decision briefs, completion-status blocks, requested explanations, and a skill's mandated report (/qa-only, /plan-*-review, /retro, /document-generate). The rule limits prose around the deliverable, never the deliverable.
 
 Good closer: "Renamed the flag in 3 files, regenerated docs, tests green. Skipped the CLI alias (unused since v1.2); watch the Windows job."
 Bad closer: a tour of every edit, a restatement of the plan, and three paragraphs justifying choices nobody questioned.
@@ -761,11 +762,13 @@ Commits:            32     →    47          ↑47%
 Deep sessions:      3      →    5           ↑2
 ```
 
+**Recommendation follow-through:** If that matching-window snapshot has a `recommendations` key, score each prior recommendation as `addressed`, `partial` or `open` against this window's commits, changed files and metrics, citing the evidence. Render a **Recommendation follow-through** line in the report (for example "2 of 3 prior recommendations addressed"), then one line per item with its verdict. If the snapshot has no `recommendations` key, skip this silently.
+
 **If no prior retros exist:** Skip the comparison section and append: "First retro recorded — run again next week to see trends."
 
 ### Step 13: Save Retro History
 
-After computing all metrics (including streak) and loading any prior history for comparison, draft the tweetable summary using the format in Step 14, then save a JSON snapshot. The Step 14 narrative must reuse this exact summary. `streak_days` is the live **team** streak from Step 11 (0 when broken); put the personal streak in `user_streak_days`.
+After computing all metrics (including streak) and loading any prior history for comparison, draft the tweetable summary and the "3 Things to Improve" items using the format in Step 14, then save a JSON snapshot. The Step 14 narrative must reuse this exact summary and these exact items. `streak_days` is the live **team** streak from Step 11 (0 when broken); put the personal streak in `user_streak_days`.
 
 ```bash
 mkdir -p .context/retros
@@ -812,6 +815,9 @@ Use the Write tool to save the JSON file with this schema:
   "streak_days": 47,
   "user_streak_days": 32,
   "tweetable": "Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm",
+  "recommendations": [
+    { "category": "testing", "text": "Stabilize the auth fixture in test/fixtures/ that flakes about 1 run in 4" }
+  ],
   "greptile": {
     "fixes": 3,
     "fps": 1,
@@ -820,6 +826,8 @@ Use the Write tool to save the JSON file with this schema:
   }
 }
 ```
+
+**Always include `recommendations`:** one object per "3 Things to Improve" item, with a one-word lowercase `category` and the item's text verbatim. Write `[]` when there are none; never pad.
 
 **Note:** Only include the `greptile` field if `greptile-history.md` (the path `GREPTILE_HISTORY` printed) exists and has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. Only include the `test_health` field if test files were found (`TEST_FILES_TOTAL` > 0). If any has no data, omit the field entirely.
 

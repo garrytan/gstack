@@ -65,7 +65,8 @@ beforeEach(() => {
   calls = [];
   errors = [];
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "design-models-"));
-  for (const k of ["HOME", "GSTACK_HOME", "OPENAI_API_KEY", DESIGN_MODEL_ENV]) saved[k] = process.env[k];
+  for (const k of ["HOME", "GSTACK_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL", DESIGN_MODEL_ENV]) saved[k] = process.env[k];
+  delete process.env.OPENAI_BASE_URL;
   process.env.HOME = dir;
   process.env.GSTACK_HOME = dir;
   process.env.OPENAI_API_KEY = "test-openai-key";
@@ -201,6 +202,16 @@ describe("image-generation call sites (Responses API)", () => {
     names(errors.at(-1)!);
     names(errors.find((e) => e.includes("Screenshot analysis failed"))!);
   });
+});
+
+test("OPENAI_BASE_URL sends image and vision calls to the gateway", async () => {
+  process.env.OPENAI_BASE_URL = "https://gateway.example/openai/v1/";
+  stubFetch((u) => ok(u, "a centered card"));
+  await evolve({ screenshot: path.join(dir, "shot.png"), brief: "darker", output: path.join(dir, "e.png") });
+  expect(calls.map((c) => c.url)).toEqual([
+    "https://gateway.example/openai/v1/chat/completions",
+    "https://gateway.example/openai/v1/responses",
+  ]);
 });
 
 describe("vision call sites (Chat Completions)", () => {

@@ -10,6 +10,9 @@
 #   gstack-brain-sync --drop-queue --yes   clear queue without committing
 #   gstack-brain-sync --discover-new   scan allowlist dirs, enqueue changed files
 #   gstack-brain-sync --attention      print skill start's attention lines
+#   gstack-brain-sync --publish-removals [--yes]
+#                                      list (or, with --yes, commit and push)
+#                                      the removal of synced files gone from disk
 #
 # Invoked by the preamble at skill START and END boundaries. No persistent
 # daemon. Typical run <1s when queue empty; ~200-800ms with network push.
@@ -17,6 +20,14 @@
 # One drain at a time: the drain lock (bin/gstack-brain-lock.sh) is shared
 # with every other gstack writer to ~/.gstack's git state. A drain that finds
 # it held skips; the next skill boundary catches up.
+#
+# Removals: with artifacts_sync_removals=on, each drain also publishes the
+# removal of synced files that are gone from disk (a deleted design doc, the
+# old directory after a project slug migration), so the remote and the brain
+# stop serving stale copies. A drain that would remove more than
+# REMOVAL_VALVE files at once publishes none of them and says so: that many
+# at once looks like a loss, not a cleanup. --publish-removals --yes publishes
+# them on demand, whatever the setting.
 #
 # A file the secret scan flags is held back on its own (with the rest of its
 # coupled group) and stays queued; everything else syncs. `--status` lists
@@ -97,6 +108,8 @@ SELF_BIN="$SCRIPT_DIR/gstack-brain-sync"
 # generation must pass before it is committed. Paths not listed here are
 # independent.
 COUPLED_GROUPS='[{"name": "decisions", "members": ["projects/*/decisions.jsonl", "projects/*/decisions.active.json"], "check": "decisions-active"}]'
+
+REMOVAL_VALVE=20
 
 # Fields every status write of this drain carries (see write_status).
 ST_HELD='[]'
@@ -911,6 +924,104 @@ hold_flagged_paths() {
   return 1
 }
 
+# Write to $1 the tracked files gone from disk that the sync may remove, one
+# per line: allowlisted, not transcript pages (their consent guard owns those),
+# and a coupled group only when every member is gone.
+removal_candidates() {
+  git -C "$GSTACK_HOME" ls-files -d -z > "$1.gone" 2>/dev/null || { rm -f "$1.gone"; return 1; }
+  python3 - "$GSTACK_HOME" "$ALLOWLIST" "$COUPLED_GROUPS" "$1" <<'PYEOF'
+import fnmatch, json, os, re, sys
+home, allowlist_path, coupled, out = sys.argv[1:5]
+try:
+    with open(allowlist_path) as f:
+        globs = [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
+except FileNotFoundError:
+    globs = []
+with open(out + ".gone", "rb") as f:
+    gone = {p for p in f.read().decode("utf-8", "surrogateescape").split("\0") if p}
+os.remove(out + ".gone")
+def removable(p):
+    if p.split("/")[0] == "transcripts" or not any(fnmatch.fnmatchcase(p, g) for g in globs):
+        return False
+    for spec in json.loads(coupled):
+        for member in spec["members"]:
+            m = re.fullmatch(re.escape(member).replace(r"\*", "([^/]+)"), p)
+            if m:
+                return all(not os.path.exists(os.path.join(home, x.replace("*", m.group(1), 1))) for x in spec["members"])
+    return True
+with open(out, "w", newline="\n", encoding="utf-8", errors="surrogateescape") as f:
+    for p in sorted(gone):
+        if removable(p):
+            f.write(p + "\n")
+PYEOF
+}
+
+# Commit the removal of the paths listed in $1 and push it, receipted like
+# every push. Returns 0 pushed, 1 commit failed, 2 committed but not pushed
+# (the run-start detector retries it).
+publish_removals() {
+  local list="$1" n
+  n=$(grep -c . "$list" 2>/dev/null || true)
+  git --literal-pathspecs -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
+    commit -q -m "sync: remove $n file(s) | $(date -u +%Y-%m-%dT%H:%M:%SZ)" --pathspec-from-file="$list" >/dev/null 2>&1 || return 1
+  guard_unpublished_range || return 2
+  GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$(remote_host)" curated-memory-git-push "artifacts_sync_mode!=off" \
+    bash -c 'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME" || return 2
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
+}
+
+# The drain's removal step (artifacts_sync_removals=on). Records the outcome
+# in ST_NOTE; sets REMOVALS_PUSHED when the removals reached the remote.
+sync_removals() {
+  local list n rc=0
+  REMOVALS_PUSHED=0
+  list=$(mktemp "${TMPDIR:-/tmp}/brain-sync-removals.XXXXXX") || return 0
+  if ! removal_candidates "$list"; then
+    rm -f "$list" "$list.gone"
+    ST_NOTE="$ST_NOTE; could not list removed files; none published"
+    return 0
+  fi
+  n=$(grep -c . "$list" 2>/dev/null || true)
+  if [ "$n" -gt "$REMOVAL_VALVE" ]; then
+    ST_NOTE="$ST_NOTE; $n synced file(s) are gone from disk, more than $REMOVAL_VALVE at once, so none of the removals were published (review: $SELF_BIN --publish-removals; publish: $SELF_BIN --publish-removals --yes)"
+    echo "BRAIN_SYNC: holding $n removal(s), more than $REMOVAL_VALVE at once; review with $SELF_BIN --publish-removals" >&2
+  elif [ "$n" -gt 0 ]; then
+    publish_removals "$list" || rc=$?
+    case "$rc" in
+      0) REMOVALS_PUSHED=1; ST_NOTE="$ST_NOTE; published $n removal(s)" ;;
+      1) ST_NOTE="$ST_NOTE; committing $n removal(s) failed; the next sync retries" ;;
+      *) ST_NOTE="$ST_NOTE; $n removal(s) committed locally but not pushed" ;;
+    esac
+  fi
+  rm -f "$list"
+}
+
+subcmd_publish_removals() {
+  local confirm="${1:-}" list n rc=0
+  sync_active || { echo "BRAIN_SYNC: artifacts sync is not active; nothing to publish" >&2; exit 1; }
+  gstack_brain_lock_acquire "$GSTACK_HOME" try || { echo "BRAIN_SYNC: another sync is running; try again" >&2; exit 1; }
+  list=$(mktemp "${TMPDIR:-/tmp}/brain-sync-removals.XXXXXX") || exit 1
+  trap 'rm -f "$list" "$list.gone"; gstack_brain_lock_release' EXIT INT TERM
+  removal_candidates "$list" || { echo "BRAIN_SYNC: could not list removed files" >&2; exit 1; }
+  n=$(grep -c . "$list" 2>/dev/null || true)
+  if [ "$n" -eq 0 ]; then
+    echo "no removals to publish"
+    exit 0
+  fi
+  if [ "$confirm" != "--yes" ]; then
+    echo "$n synced file(s) are gone from disk:"
+    sed 's/^/  /' "$list"
+    echo "publish their removal: $SELF_BIN --publish-removals --yes"
+    exit 0
+  fi
+  publish_removals "$list" || rc=$?
+  case "$rc" in
+    0) echo "published $n removal(s)" ;;
+    1) echo "BRAIN_SYNC: error: committing the removals failed" >&2; exit 1 ;;
+    *) echo "BRAIN_SYNC: $n removal(s) committed locally; the push failed and retries at skill start" >&2; exit 1 ;;
+  esac
+}
+
 subcmd_once() {
   if ! sync_active; then
     # Silent no-op when feature not initialized / disabled.
@@ -961,6 +1072,11 @@ subcmd_once() {
       fi
     fi
   fi
+
+  # Removals go first, so a removal commit whose push fails is one more
+  # unpushed commit for the detector below.
+  REMOVALS_PUSHED=0
+  [ "$("$CONFIG_BIN" get artifacts_sync_removals 2>/dev/null || echo off)" = "on" ] && sync_removals
 
   # #2549 unpushed-commit detector: a prior drain may have COMMITTED but
   # failed to push (auth blip, offline). The data was never lost — it sits in
@@ -1030,7 +1146,7 @@ subcmd_once() {
       write_status "push_failed" "$det_total local commit(s) are not pushed yet; the push retries at a skill start at most every 10 minutes (commits made outside gstack-brain-sync are never auto-pushed: push them with git -C $GSTACK_HOME push origin HEAD)"
       exit 0
     fi
-    write_status "idle" "queue empty"
+    if [ "$REMOVALS_PUSHED" = 1 ]; then write_status "ok" "queue empty"; else write_status "idle" "queue empty"; fi
     exit 0
   fi
 
@@ -1472,6 +1588,7 @@ case "${1:-}" in
   --drop-queue) shift; subcmd_drop_queue "${1:-}" ;;
   --discover-new) subcmd_discover_new ;;
   --attention) subcmd_attention ;;
+  --publish-removals) shift; subcmd_publish_removals "${1:-}" ;;
   --help|-h)
     awk 'NR > 1 && /^# Heredoc delivery guard/ { exit } NR > 1' "$0" | sed 's/^# \{0,1\}//'
     ;;

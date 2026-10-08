@@ -9,9 +9,20 @@ variables:
   BUN_VERSION: "1.4.2"
 
 .setup-bun: &setup-bun
-  - apt-get update -qq && apt-get install -qq -y curl jq git
-  - curl -fsSL https://bun.sh/install | bash -s "bun-v$BUN_VERSION"
+  - apt-get update -qq && apt-get install -qq -y curl jq git unzip
+  # The exact release archive, verified by SHA-256 before it is unpacked, as
+  # in .github/docker/Dockerfile.ci. test/ci-image-cli-pin.test.ts keeps the
+  # hash and BUN_VERSION equal to that file's linux-x64 arm.
+  - |
+    curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL \
+      "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip" -o /tmp/bun.zip
+    echo "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913  /tmp/bun.zip" | sha256sum -c -
+    unzip -q /tmp/bun.zip -d /tmp/bun
+    install -D -m 0755 /tmp/bun/bun-linux-x64/bun "$HOME/.bun/bin/bun"
+    ln -sf bun "$HOME/.bun/bin/bunx"
+    rm -rf /tmp/bun /tmp/bun.zip
   - export PATH="$HOME/.bun/bin:$PATH"
+  - test "$(bun --version)" = "$BUN_VERSION"
 
 version-gate:
   stage: check

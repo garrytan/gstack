@@ -4,7 +4,7 @@
  */
 
 import fs from "fs";
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { modelRejectionHint, visionRequestBody } from "./models";
 
@@ -34,7 +34,7 @@ export async function checkMockup(imagePath: string, brief: string, opts: CheckO
   const signal = opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal;
 
   try {
-    const response = await receiptedFetch("check-screenshot-request", "https://api.openai.com/v1/chat/completions", {
+    const response = await receiptedFetch("check-screenshot-request", openaiUrl("chat/completions"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,

@@ -8,7 +8,11 @@ name: Windows Setup E2E
 # an isolated HOME and drives the installed runtime root's browse from an
 # unrelated directory: a piped two-command `chain` flow must print the page
 # text (the runtime root has no node_modules, so this is the checkout-bundle
-# path from #3026, and the piped-stdin path from #3039).
+# path from #3026, and the piped-stdin path from #3039). Every compiled
+# binary must answer the side-effect-free --version that setup's Smart App
+# Control probe runs (#2595). Last, two forced CSO failures: fatal under
+# GSTACK_STRICT_BUILD=1, and a completed setup with the failure reported
+# under GSTACK_STRICT_BUILD=0 (#3071).
 #
 # Separate from windows-free-tests.yml because that one runs a curated
 # unit-test subset; this one exercises the install path itself.
@@ -21,6 +25,8 @@ on:
     paths:
       - 'package.json'
       - 'scripts/build.sh'
+      - 'scripts/build-cso.sh'
+      - 'scripts/build-cso-windows.ps1'
       - 'scripts/write-version-files.sh'
       - 'setup'
       - 'browse/src/cli.ts'
@@ -28,7 +34,12 @@ on:
       - 'browse/src/server.ts'
       - 'browse/src/meta-commands.ts'
       - 'browse/scripts/build-node-server.sh'
+      - 'design/src/cli.ts'
+      - 'make-pdf/src/cli.ts'
+      - 'bin/gstack-global-discover.ts'
       - 'bin/gstack-paths'
+      - 'bin/gstack-doctor'
+      - 'bin/gstack-launch-probe.sh'
       - '.github/workflows/windows-setup-e2e.yml'
   workflow_dispatch:
 
@@ -45,7 +56,7 @@ permissions:
 jobs:
   windows-setup:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -85,6 +96,7 @@ jobs:
         shell: bash
         env:
           GSTACK_SKIP_PLAYWRIGHT: '1'
+          GSTACK_STRICT_BUILD: '1'
 
       - name: Verify binaries exist (with .exe extension on Windows)
         run: |
@@ -94,6 +106,15 @@ jobs:
           test -f design/dist/design.exe || test -f design/dist/design || (echo "MISSING: design" && exit 1)
           test -f bin/gstack-global-discover.exe || test -f bin/gstack-global-discover || (echo "MISSING: gstack-global-discover" && exit 1)
           echo "All binaries present"
+        shell: bash
+
+      - name: 'Every compiled binary launches with --version (Smart App Control probe, #2595)'
+        run: |
+          set -euo pipefail
+          . bin/gstack-launch-probe.sh
+          gstack_launch_probe_all "$PWD" .exe
+          printf 'blocked: %s\nbroken: %s\nmissing: %s\n' "$_glp_blocked" "$_glp_broken" "$_glp_missing"
+          test -z "$_glp_blocked$_glp_broken$_glp_missing" || (echo "a compiled binary did not answer --version" && exit 1)
         shell: bash
 
       - name: Verify find-browse resolves to the .exe variant
@@ -127,7 +148,7 @@ jobs:
           set -euo pipefail
           E2E_HOME="$RUNNER_TEMP/gstack-e2e-home"
           mkdir -p "$E2E_HOME"
-          HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")" ./setup --host codex
+          HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")" GSTACK_STRICT_BUILD=1 ./setup --host codex
           ROOT="$E2E_HOME/.codex/skills/gstack"
           test -f "$ROOT/.source-path" || (echo "MISSING: $ROOT/.source-path" && exit 1)
           test ! -e "$ROOT/node_modules" || (echo "UNEXPECTED: $ROOT/node_modules (the journey must exercise the copy without it)" && exit 1)
@@ -168,4 +189,39 @@ jobs:
           echo "$EMPTY_OUT"
           test "$EMPTY_CODE" -eq 1 || (echo "empty chain exited $EMPTY_CODE, expected 1" && exit 1)
           echo "$EMPTY_OUT" | grep -q 'no flow to run' || (echo "empty chain lacks the usage error" && exit 1)
+        shell: bash
+
+      - name: A forced CSO failure is fatal under GSTACK_STRICT_BUILD=1 (#3071)
+        run: |
+          set -uo pipefail
+          rm -f browse/dist/.build-complete
+          set +e
+          GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_STRICT_BUILD=1 GSTACK_CSO_BUILD_TESTING=1 GSTACK_CSO_BUILD_TEST_FAIL_AFTER=core bun run build > strict.log 2>&1
+          CODE=$?
+          set -e
+          tail -n 20 strict.log
+          test "$CODE" -ne 0 || (echo "strict build passed despite the injected CSO failure" && exit 1)
+          grep -q 'GSTACK_STRICT_BUILD=1 makes it fatal' strict.log || (echo "strict failure lacks its message" && exit 1)
+        shell: bash
+
+      - name: A forced CSO publish failure still completes setup (#3071)
+        run: |
+          set -euo pipefail
+          E2E_HOME="$RUNNER_TEMP/gstack-e2e-cso-fail"
+          mkdir -p "$E2E_HOME"
+          rm -f browse/dist/.build-complete
+          set +e
+          OUT=$(HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")" GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_STRICT_BUILD=0 \
+            GSTACK_CSO_BUILD_TESTING=1 GSTACK_CSO_BUILD_TEST_FAIL_AFTER=publish-core ./setup --host codex 2>&1)
+          CODE=$?
+          set -e
+          echo "$OUT" | tail -n 40
+          test "$CODE" -eq 0 || (echo "setup exited $CODE after an optional CSO failure" && exit 1)
+          echo "$OUT" | grep -qE 'CSO publish step failed \(exit 86\).*previous CSO kept|CSO unavailable: the native helper.s publish step failed' || (echo "setup did not report the CSO publish failure" && exit 1)
+          grep -q '^result=failed' bin/.gstack-cso-build-result
+          grep -q '^stage=publish' bin/.gstack-cso-build-result
+          test -f browse/dist/.build-complete || (echo "the build stopped at CSO" && exit 1)
+          DOCTOR=$(HOME="$E2E_HOME" bash bin/gstack-doctor 2>&1 || true)
+          echo "$DOCTOR"
+          echo "$DOCTOR" | grep -qE '^warn +cso +' || (echo "doctor did not report the CSO failure" && exit 1)
         shell: bash

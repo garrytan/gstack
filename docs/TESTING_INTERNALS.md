@@ -1048,7 +1048,7 @@ runtime match; records preserve original provenance. The cookie workflow's custo
 input, the other 11 judge cases, dynamic agent tests, and local runs without
 scoped cache configuration stay fresh.
 Scheduled/manual full coverage and `test:release` always run fresh.
-See [testing policy](CONTRIBUTING.md#test-tiers) for commands and measured targets.
+See [testing policy](../CONTRIBUTING.md#test-tiers) for commands and measured targets.
 Anything that needs Aside
 itself (`test/skill-e2e-aside.test.ts`, the Aside qa/design E2E cases, the
 live render in `test/aside-render.test.ts`) runs only on a Mac with the Aside

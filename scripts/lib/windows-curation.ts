@@ -76,6 +76,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'the fixture invokes real POSIX detector/verifier helpers through executable shebang wrappers',
   },
   {
+    file: 'test/setup-gbrain-windows-mcp.test.ts',
+    reason: 'drives the Windows MCP registration branch on POSIX by putting uname/claude shebang stubs on a colon-separated PATH and comparing POSIX path spellings; the console behavior it guards needs a manual Windows check',
+  },
+  {
     file: 'test/hermetic-skills-seeding.test.ts',
     reason: 'seeds the POSIX PTY skill runtime, whose embedded shell paths require a POSIX temporary root',
   },

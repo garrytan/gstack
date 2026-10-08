@@ -55,6 +55,9 @@ export const EXEC_STYLE_TOOL_REWRITES: Record<string, string> = {
   'use the Read tool': 'use the read tool',
   'use the Edit tool': 'use the edit tool',
   'use the Agent tool': 'use sessions_spawn',
+  "Claude Code's Agent tool": 'sessions_spawn',
+  'the Agent tool': 'sessions_spawn',
+  'Agent tool': 'sessions_spawn',
   'use the Grep tool': 'search for',
   'use the Glob tool': 'find files matching',
   'the Bash tool': 'the exec tool',
@@ -71,6 +74,28 @@ export const EXEC_STYLE_TOOL_REWRITES: Record<string, string> = {
 export const PREAMBLE_GLOSSARY_ANCHOR = 'Read the echoed `KEY: value` STATUS lines';
 export function preambleToolGlossary(glossary: string): Record<string, string> {
   return { [PREAMBLE_GLOSSARY_ANCHOR]: `${glossary}\n\n${PREAMBLE_GLOSSARY_ANCHOR}` };
+}
+
+/**
+ * The runtime-root assets setup installs for every env-var host: the tools
+ * the skills run plus every file they read as "$GSTACK_ROOT/<path>". Mirrors
+ * setup's _link_runtime_dists and _copy_runtime_skill_refs (each root also
+ * links bin, lib, browse and ETHOS.md); test/runtime-root-assets.test.ts
+ * checks the staged roots on disk. `extraSymlinks` appends host-only assets.
+ */
+export function sharedRuntimeRoot(extraSymlinks: string[] = []): HostConfig['runtimeRoot'] {
+  return {
+    globalSymlinks: ['bin', 'lib', 'browse/dist', 'browse/bin', 'design/dist', 'make-pdf/dist', 'freeze/bin', 'careful/bin',
+      'review/specialists', 'design-html/vendor', 'gstack-upgrade', 'ETHOS.md', 'VERSION', ...extraSymlinks],
+    globalFiles: {
+      'review': ['checklist.md', 'design-checklist.md', 'greptile-triage.md', 'TODOS-format.md'],
+      'scripts': ['jargon-list.json', 'question-registry.ts'],
+      'docs': ['askuserquestion-split.md', 'askuserquestion-cjk.md', 'test-value-bar.md'],
+      'plan-devex-review': ['dx-hall-of-fame.md'],
+      'office-hours': ['SKILL.md'],
+      'plan-design-review': ['SKILL.md'],
+    },
+  };
 }
 
 /**
@@ -125,12 +150,7 @@ export function defineHost<const N extends string>(overrides: HostOverrides<N>):
     extraPathRewrites,
     toolRewrites,
     suppressedResolvers = [...GBRAIN_RESOLVERS],
-    runtimeRoot = {
-      globalSymlinks: ['bin', 'lib', 'browse/dist', 'browse/bin', 'design/dist', 'make-pdf/dist', 'freeze/bin', 'careful/bin', 'gstack-upgrade', 'ETHOS.md'],
-      globalFiles: {
-        'review': ['checklist.md', 'TODOS-format.md'],
-      },
-    },
+    runtimeRoot = sharedRuntimeRoot(),
     install = {
       linkingStrategy: 'symlink-generated',
     },

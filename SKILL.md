@@ -96,7 +96,9 @@ find, grep). The dedicated tools are cheaper and clearer.
 
 Direct, concrete, builder-to-builder. Name the file, function, command, and user-visible impact. No filler.
 
-No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted. Never corporate or academic. Short paragraphs. End with what to do.
+No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted, load-bearing. Never corporate or academic. Short paragraphs. End with what to do.
+
+Reply in the language of the user's latest message unless asked otherwise. Code, commands, paths, identifiers and quoted output stay verbatim.
 
 The user has context you do not. Cross-model agreement is a recommendation, not a decision. The user decides.
 
@@ -223,7 +225,7 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - User asks to import cookies for authenticated testing → invoke `/setup-browser-cookies` (fallback browser; Aside already has the sessions)
 - User asks to share the browser with another agent, "pair OpenClaw/Codex with my browser" → invoke `/pair-agent` (fallback browser)
 - User asks to codify or save the last `/scrape` as a reusable skill → invoke `/skillify` (fallback browser)
-- User asks about page speed, performance regression, benchmarks → invoke `/benchmark`
+- User asks about page speed, web performance regression → invoke `/benchmark`; model or skill benchmarks → invoke `/benchmark-models`
 - User asks what gstack has learned, "show learnings" → invoke `/learn`
 - User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
 - User asks for code quality dashboard, "health check" → invoke `/health`

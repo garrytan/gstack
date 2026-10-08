@@ -26,8 +26,9 @@ section has a stable link anchor; the reason codes and anchors come from
 Run `~/.claude/skills/gstack/bin/gstack-doctor` (other hosts: `./setup --status`
 in your gstack checkout prints the doctor's absolute path). It prints one row
 each for the install, state root, Bun, hooks, Codex, the cached Codex model
-check, artifacts sync, the browse bundle, Claude Code, the largest session
-journal and recent /autoplan guard codes. Each row is `ok`, `warn`,
+check, artifacts sync, the browse bundle, the other compiled binaries, the
+/cso native helper, Claude Code, the largest session journal and recent
+/autoplan guard codes. Each row is `ok`, `warn`,
 `not configured` or `fail` with its fix; only `fail` exits non-zero. It makes
 no paid call: the Codex rows report the cached model check and its age, and
 `--live` runs that check once. Paste its output into bug reports.
@@ -722,13 +723,21 @@ Bun first.
 
 **Meaning.** Claude Code runs gstack's hook shims through `/bin/sh`, and a hook
 that does not parse exits 2, which blocks the tool call it guards in every
-session. Setup parse-checks every hook it registers (the shim, and the
-TypeScript it runs with its local imports). It registers the hooks that parse,
-skips the ones listed, finishes the rest of the install, and exits non-zero.
-Claude Code runs hooks straight from `~/.claude/skills/gstack`, so a skipped
-hook that an earlier setup registered keeps running the broken file until it
-is fixed. This is a gstack bug, or a half-applied edit or merge in your
-checkout: report the printed `<file>:<line>`.
+session. Setup parse-checks every hook it registers and every hook a skill's
+frontmatter runs (`/autoplan`, `/careful`, `/freeze`, `/guard`, `/investigate`
+and `/plan-ceo-review`): the shim, the gstack shell helpers it sources (such as
+`careful/bin/hook-extract.sh` and `bin/gstack-state-root.sh`), and the
+TypeScript it runs with its local imports. A merge conflict marker line in any
+of those files fails as `unresolved merge conflict marker`, even when the file
+still parses (markers inside a heredoc, a string or a template literal do).
+The TypeScript is bundled from the gstack checkout, so the `tsconfig.json` or
+`bunfig.toml` of the project you run it from is never read. It registers the
+hooks that parse, skips the ones listed, finishes the rest of the install, and
+exits non-zero. Claude Code runs hooks straight from `~/.claude/skills/gstack`,
+so a skipped hook that an earlier setup registered, or that a skill runs,
+keeps running the broken file until it is fixed. This is a gstack bug, or a
+half-applied edit or merge in your checkout: report the printed
+`<file>:<line>`.
 
 **Fix.**
 
@@ -744,7 +753,8 @@ cd ~/.claude/skills/gstack && ./setup
 ### `gstack auto-update: update held (hook-does-not-parse: <file>:<line>: <error>); nothing was installed or changed, and your current hooks keep running. ...`
 
 **Meaning.** Team-mode auto-update fetched a release with a hook that does not
-parse. It checked the incoming revision before moving your checkout, so your
+parse or still holds a merge conflict marker (the same check setup runs). It
+checked the incoming revision before moving your checkout, so your
 checkout, installed skills and registered hooks stay at the current revision.
 gstack checks again at the next update check and installs the first release
 whose hooks parse. This is a gstack bug: report the printed `<file>:<line>`.
@@ -752,6 +762,36 @@ whose hooks parse. This is a gstack bug: report the printed `<file>:<line>`.
 **Fix.** Nothing to do locally. A manual `git pull` followed by `./setup`
 cannot be checked before the pull; setup then refuses the broken hook (see the
 entry above).
+
+<a id="host-renders-pruned"></a>
+### `pruned <dir> (<host> is not installed from this checkout): ...` / `kept <path>: not proven generated (...)` / `host-render backup: <dir> (...)`
+
+**Meaning.** A gstack checkout keeps skills only for the agents installed from
+it, listed in `.gstack-installed-hosts` in the checkout (#1694). Older installs
+rendered every agent's copy, so a global Claude install carried 632 `SKILL.md`
+files (34.7 MB) that Claude Code and Cursor-agent scan. setup removed the copy
+for an agent that is not installed from this checkout. Generated files were
+moved to the backup directory it printed; links into the checkout were removed;
+files it could not prove gstack generated (`kept ...`) were left in place.
+`prune.log` in the backup lists every path. The same prune runs once from the
+upgrade migration. Agents in the record are never pruned.
+
+**Fix.** Nothing, if you don't use that agent. To get an agent back, install
+it from this checkout, which records it and renders its skills:
+
+```bash
+./setup --host <name>
+```
+
+For an instruction-only agent you render by hand (Hermes, OpenClaw, GBrain),
+add its name to `.gstack-installed-hosts` first, then run
+`bun run gen:skill-docs --host <name>`. To restore one file, `mv` it back from
+the backup. A `kept` file is yours: move or delete it when you no longer need it.
+The backup sits in gstack's state root, which no agent scans; delete it once
+you are sure you don't need it (about 36 MB for a pre-1.91.65 Claude install).
+
+**Expected result.** The next `./setup` prints no `pruned` line, and
+`./setup --status` lists the agents you use.
 
 <a id="cso-windows-msvc-compile"></a>
 ### `CSO unavailable: its native helper was not built (windows-msvc-compile)`
@@ -761,6 +801,35 @@ not compile. setup prints the first compiler error. It used to say "install
 Visual Studio".
 
 **Fix.** Fix the printed compiler error, then re-run `./setup`.
+
+<a id="cso-build-or-publish-failed"></a>
+### `CSO unavailable: the native helper's <stage> step failed (...)` / `CSO publish step failed (...) for <revision>; previous CSO kept: <revision>`
+
+**Meaning.** The /cso native helper is optional. Its build prerequisites were
+present, but the `build` step (compiling the helper) or the `publish` step
+(swapping the new helper into `bin/` under a lock) failed. setup used to stop
+here (#3071); now it finishes everything else and says which step failed. When
+an earlier helper was installed and the failed publish restored it, setup
+prints `previous CSO kept` and /cso keeps using that helper; otherwise /cso
+reports `not assessed`. `interrupted` means the step was killed before it could
+record a result. The outcome is in `bin/.gstack-cso-build-result`, and
+`gstack-doctor`'s `cso` row reads the same record. The build output is in
+`bin/.gstack-cso-build.log`.
+
+**Fix.** Read the log, fix what it reports, then retry from your gstack checkout:
+
+```bash
+bun run build:cso && ./setup
+```
+
+On Windows, setup and the build use PowerShell 7 (`pwsh`) when it is installed
+and fall back to Windows PowerShell 5.1. The root cause of the staged files
+vanishing during publish in #3071 is still unknown; attach the log there if you
+hit it. CI sets `GSTACK_STRICT_BUILD=1`, which makes these failures fatal so
+build regressions cannot hide.
+
+**Expected result.** setup prints no CSO line, and the doctor's `cso` row is
+`ok`.
 
 <a id="cso-windows-docker"></a>
 ### `Docker found at <path>, but native Windows Docker transport is not supported yet; static assessment only.` / `docker.exe at <path> is outside the trusted install locations (...)`
@@ -924,6 +993,45 @@ killed.
 
 **Fix.** After `browse stop`, check for a leftover browser with
 `ps aux | grep -i chrom` and end it with `kill <pid>`.
+
+---
+
+## Windows
+
+<a id="windows-smart-app-control"></a>
+### `Windows blocked compiled gstack binaries at launch (Smart App Control or another application-control policy, #2595)` / `bash: .../browse.exe: Permission denied`
+
+**Meaning.** Known issue (#2595, #2124). gstack compiles five binaries on your
+machine with Bun: `browse`, `find-browse`, `design`, `pdf` and
+`gstack-global-discover`. They are unsigned, and a binary built on one machine
+never earns the reputation Smart App Control accepts instead of a signature, so
+Windows 11 with Smart App Control on refuses to start them. Git Bash reports
+that as `Permission denied`, which looks like a file-permission problem but is
+code integrity (PowerShell says `An Application Control policy has blocked this
+file`). setup now runs each binary's `--version` and names the blocked ones and
+the skills that need them: the gstack browser fallback (`/browse`, `/qa`,
+`/qa-only`, `/design-review`, `/canary`, `/benchmark`, `/pair-agent`,
+`/scrape`, `/make-pdf`), the design binary (`/design-consultation`,
+`/design-shotgun`, `/design-html`, `/plan-design-review`) and `/retro global`.
+Every other skill works. `gstack-doctor` shows the same state in its
+`browse bundle` and `binaries` rows. The exact Windows error text has not been
+verified on a Smart App Control machine; setup prints the raw first line beside
+its classification.
+
+**Fix.** There is no per-file allowlist for Smart App Control. Today's options:
+
+- Run gstack inside WSL (`wsl --install`, then install gstack in the Linux
+  distro). WSL runs gstack's Linux build, which Smart App Control does not check.
+- Or turn Smart App Control off in Windows Security > App & browser control >
+  Smart App Control settings. On Windows 11 with the April 2026 update you can
+  turn it back on later without reinstalling Windows; on older builds turning it
+  off is permanent. gstack's binaries stay blocked whenever it is on.
+
+Signed release binaries are the real fix and are tracked in `TODOS.md`. After
+Windows allows the binaries, re-run `./setup`; the message goes away.
+
+**Expected result.** setup prints no "Windows blocked" line, and
+`gstack-doctor` shows `ok` for `browse bundle` and `binaries`.
 
 ---
 
@@ -1111,6 +1219,24 @@ up deployed, so it still blocks.
 **Fix.** Use `postgres://postgres:postgres@localhost:5432/...` in local and CI
 config, or read the URL from an env var. If the credential is real, rotate it.
 Bypass once: `GSTACK_REDACT_PREPUSH=skip git push`.
+If the URL is a reviewed, public dev-only value, list it in
+[`.gstack-redact-allowlist`](#redact-allowlist).
+
+<a id="redact-allowlist"></a>
+### `.gstack-redact-allowlist (<n> entries) suppressed <m> finding(s) in this push`
+
+**Meaning.** The pushed commit carries `.gstack-redact-allowlist` at the repo
+root. Each line (after trimming; `#` starts a comment) is one exact matched
+span: the whole `postgres://USER:PASSWORD@host:port` URL for
+`db.url_with_password`, the key for a key pattern, the address for `pii.email`. A finding is suppressed only when its
+matched text equals an entry, so a password alone, a substring, or a different
+key still reports and still blocks. The hook reads the file from each pushed
+commit, never the working tree, and ignores a file over 64 KiB. Every push that
+carries entries prints this line and each suppressed finding's file and line.
+It works alongside `gstack.redact.allowEmail`, which stays a local setting.
+
+**Fix.** Nothing, if every listed suppression is the reviewed value. Remove an
+entry that no longer applies; rotate a credential that is real.
 
 <a id="redact-version-as-ip"></a>
 ### `pii.ip_public` MEDIUM on a four-part version number

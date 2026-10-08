@@ -447,15 +447,18 @@ export async function handleMetaCommand(
       const remaining: string[] = [];
       let flagSelector: string | undefined;
       for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--viewport') {
+        const inline = /^(--clip|--selector)=(.*)$/s.exec(args[i]);
+        const flag = inline ? inline[1] : args[i];
+        const flagValue = () => (inline ? inline[2] : args[++i]);
+        if (flag === '--viewport') {
           viewportOnly = true;
-        } else if (args[i] === '--base64') {
+        } else if (flag === '--base64') {
           base64Mode = true;
-        } else if (args[i] === '--selector') {
-          flagSelector = args[++i];
+        } else if (flag === '--selector') {
+          flagSelector = flagValue();
           if (!flagSelector) throw new Error('Usage: screenshot --selector <css> [path]');
-        } else if (args[i] === '--clip') {
-          const coords = args[++i];
+        } else if (flag === '--clip') {
+          const coords = flagValue();
           if (!coords) throw new Error('Usage: screenshot --clip x,y,w,h [path]');
           const parts = coords.split(',').map(Number);
           if (parts.length !== 4 || parts.some(isNaN))

@@ -5,7 +5,7 @@
  */
 
 import fs from "fs";
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { modelRejectionHint, visionRequestBody } from "./models";
 
@@ -30,7 +30,7 @@ export async function diffMockups(
   const timeout = setTimeout(() => controller.abort(), 60_000);
 
   try {
-    const response = await receiptedFetch("diff-screenshots-request", "https://api.openai.com/v1/chat/completions", {
+    const response = await receiptedFetch("diff-screenshots-request", openaiUrl("chat/completions"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
