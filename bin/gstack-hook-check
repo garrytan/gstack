@@ -60,11 +60,12 @@ SETUP_FILE="${SETUP_FILE:-$ROOT/setup}"
 # Frontmatter is the block between a SKILL.md's first two `---` lines.
 hook_list() {
   sed -n 's/.*\$(_hook_command_path \([A-Za-z0-9._/-]*\).*/\1/p' "$SETUP_FILE" 2>/dev/null
-  for skill in "$ROOT"/*/SKILL.md; do
-    [ -f "$skill" ] || continue
-    tr -d '\r' < "$skill" | awk 'NR == 1 && !/^---/ { exit } NR > 1 && /^---/ { exit } /^[[:space:]]*command:/' \
-      | grep -oE 'skills/gstack/[A-Za-z0-9._/-]+' | sed 's|^skills/gstack/||'
-  done
+  # One awk over every skill (a process start is slow on Windows): only lines
+  # inside each file's leading frontmatter block count.
+  set -- "$ROOT"/*/SKILL.md
+  [ -f "$1" ] || return 0
+  awk 'FNR == 1 { fm = /^---/; next } { sub(/\r$/, "") } fm && /^---/ { fm = 0 } fm && /^[[:space:]]*command:/' "$@" \
+    | grep -oE 'skills/gstack/[A-Za-z0-9._/-]+' | sed 's|^skills/gstack/||'
 }
 HOOKS=$(hook_list | awk '!seen[$0]++')
 
@@ -108,12 +109,12 @@ fail() { echo "fail $1 $2: $3"; FAILED=1; }
 # <file> without its first segment (a `$DIR/` prefix); only files inside
 # <root> count.
 sourced_by() {
-  _sdir=$(dirname "$1")
+  _sdir=${1%/*}
   grep -E '^[[:space:]]*#[[:space:]]*shellcheck[[:space:]].*source=|(^|[;&|({[:space:]])(\.|source)[[:space:]]|^[[:space:]]*(local |export |readonly )?[A-Za-z_][A-Za-z0-9_]*=' "$1" \
     | grep -oE '[A-Za-z0-9._/-]*\.sh([^A-Za-z0-9_]|$)' | sed -E 's/\.sh.*$/.sh/' | awk '!seen[$0]++' | while IFS= read -r _tok; do
     for _cand in "$ROOT/$_tok" "$_sdir/$_tok" "$_sdir/${_tok#*/}"; do
       [ -f "$_cand" ] || continue
-      _cand="$(cd "$(dirname "$_cand")" && pwd)/$(basename "$_cand")"
+      _cand="$(cd "${_cand%/*}" && pwd)/${_cand##*/}"
       case "$_cand" in "$ROOT"/*) [ "$_cand" != "$1" ] && echo "$_cand"; break ;; esac
     done
   done
@@ -149,7 +150,7 @@ for hook in $HOOKS; do
   shim="$ROOT/$hook"
   [ -f "$shim" ] || continue
   for entry in $(ts_entries "$shim"); do
-    [ -f "$(dirname "$shim")/$entry" ] && ENTRIES="$ENTRIES$(dirname "$shim")/$entry$NL"
+    [ -f "${shim%/*}/$entry" ] && ENTRIES="$ENTRIES${shim%/*}/$entry$NL"
   done
 done
 BUILT="$TMP_OUT/built.tsv"
@@ -194,7 +195,7 @@ for hook in $HOOKS; do
     fi
     scan="$scan$NL$helper"
   done
-  dir=$(dirname "$shim")
+  dir=${shim%/*}
   for entry in $(ts_entries "$shim"); do
     if [ ! -f "$dir/$entry" ]; then
       fail "$hook" "$dir/$entry:1" "missing TypeScript entry (the hook runs it)"
@@ -218,10 +219,15 @@ for hook in $HOOKS; do
       case "$rel" in /*|../*) ;; *) scan="$scan$NL$ROOT/$rel" ;; esac
     done
   done
-  for file in $(printf '%s\n' "$scan" | awk '!seen[$0]++'); do
-    marker=$(grep -nE '^(<<<<<<<|=======|>>>>>>>)( |$)' "$file" 2>/dev/null | head -1 | cut -d: -f1)
-    [ -n "$marker" ] || continue
-    fail "$hook" "$file:$marker" "unresolved merge conflict marker"
+  # One grep for every scanned file: -m1 stops at each file's first marker,
+  # and -H prefixes "<file>:<line>:" (the line is the last colon field before
+  # the marker text, so paths containing colons still split right).
+  # shellcheck disable=SC2046 # newline-split list (IFS is a newline)
+  for found in $(grep -HnE -m1 '^(<<<<<<<|=======|>>>>>>>)( |$)' $(printf '%s\n' "$scan" | awk '!seen[$0]++') 2>/dev/null); do
+    marker_file=${found%%:[0-9]*:[<=>]*}
+    marker_line=${found#"$marker_file":}
+    marker_line=${marker_line%%:*}
+    fail "$hook" "$marker_file:$marker_line" "unresolved merge conflict marker"
     hook_ok=0
   done
   [ "$hook_ok" -eq 1 ] && echo "ok $hook"
