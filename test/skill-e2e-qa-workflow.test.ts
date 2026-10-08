@@ -49,6 +49,13 @@ describeIfSelected('QA skill E2E', ['qa-quick'], () => {
 
     // Create report directory
     fs.mkdirSync(path.join(qaDir, 'qa-reports'), { recursive: true });
+
+    for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@test.com'], ['config', 'user.name', 'Test'],
+      ['add', '.'], ['commit', '-m', 'initial']]) {
+      const git = spawnSync('git', args, { cwd: qaDir, stdio: 'pipe', timeout: 5000 });
+      if (git.error) throw git.error;
+      if (git.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${git.stderr}`);
+    }
   });
 
   afterAll(() => {
