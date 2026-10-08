@@ -127,6 +127,12 @@ describe('CSO inert Python preparation', () => {
     expect(plan.acquisition[0].args).toContain('--only-binary=:all:'); expect(plan.acquisition[0].args).toContain('--require-hashes');
     expect(plan.metadata).toHaveLength(1); expect(plan.offline[1].args).toContain('--no-index');
   });
+  test('offline Python preparation writes reproducible checked-hash bytecode', () => {
+    const plan = inspectPreparation(fixture({ 'requirements.txt': `Flask==3.1.0 --hash=sha256:${hash}\n` }));
+    expect(plan.status).toBe('ready');
+    // venv/ensurepip and pip compile .pyc files; without a fixed epoch each preparation differs and replay cannot match.
+    for (const command of plan.offline) expect(command.env.SOURCE_DATE_EPOCH).toMatch(/^[0-9]+$/);
+  });
   for (const requirement of ['flask>=3', '-e .', 'flask @ https://evil.invalid/x.whl', '--index-url https://evil.invalid', '-r other.txt', 'flask==3.1.0']) test(`rejects unpinned or executable requirement ${requirement}`, () => {
     expect(inspectPreparation(fixture({ 'requirements.txt': requirement })).prerequisites[0].code).toBe('UNPINNED_REQUIREMENTS');
   });
