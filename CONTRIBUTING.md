@@ -173,8 +173,9 @@ defaults are `claude-fable-5-1`, resolved through `lib/eval-model.ts`:
 
 Warmup stays on `claude-haiku-4-5`; distill stays on
 `claude-haiku-4-5-20251001`. Explicit test and historical benchmark model
-selections still win. Known frontier defaults are maintained in releases;
-there is no automatic model discovery. Paid-run costs shown below are
+selections still win. These eval defaults stay pinned independently from the
+[runtime model tiers](docs/model-policy.md); the tier freshness workflow does
+not discover or change evaluation models automatically. Paid-run costs shown below are
 historical estimates from before this default change, not measurements of
 the new defaults.
 

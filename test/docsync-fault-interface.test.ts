@@ -7,7 +7,50 @@ import { DOC_PATH, docsCandidate, fixtureDocs, repoSnapshot } from './helpers/do
 import { DOCS_CHECKPOINT_MARKER, DOCS_SEEDED_AUDIT_ID, docsActorCommand, docsActorHook, docsActorSeeded, installDocsActor, seedDocsFirstAttempt, type DocsActorState } from './helpers/docsync-fault-actor';
 import { docsActorVerdict } from './helpers/docsync-fault-eval';
 import { extractDocsDispatch, parseDocsCompletion } from './helpers/docsync-contract';
-import { docsNativeInterface } from './helpers/docsync-observer';
+import { docsNativeInterface, docsWriteFailures, observeDocsWrites } from './helpers/docsync-observer';
+
+test.skipIf(process.platform !== 'linux')('actor CLI validates owned state before creating even transient locks', async () => {
+  const fixture = fixtureDocs('current');
+  let observer: Awaited<ReturnType<typeof observeDocsWrites>> | undefined;
+  try {
+    const stateFile = installDocsActor(fixture, 'missing-asset');
+    const stateBefore = fs.readFileSync(stateFile, 'utf8');
+    const actor = path.join(import.meta.dir, 'helpers/docsync-fault-actor.ts');
+    const malformed = path.join(fixture.repo, 'malformed-state.json');
+    const foreign = path.join(fixture.repo, 'foreign-state.json');
+    const otherRoot = path.join(fixture.home, 'other-owner');
+    fs.mkdirSync(otherRoot);
+    fs.writeFileSync(malformed, '{');
+    fs.writeFileSync(foreign, JSON.stringify({ root: otherRoot }));
+    const invalid = [['--help'], [], ['inspect'], ['hook'],
+      ['inspect', path.join(fixture.repo, 'missing-state.json')], ['inspect', malformed], ['inspect', foreign]];
+    for (const args of invalid) {
+      observer = await observeDocsWrites(fixture);
+      const result = Bun.spawnSync([process.execPath, actor, ...args], { cwd: fixture.repo,
+        stdin: Buffer.from('{}'), stdout: 'pipe', stderr: 'pipe', timeout: 5000 });
+      const observation = observer.stop(); observer = undefined;
+      expect(result.exitCode, JSON.stringify(args)).not.toBe(0);
+      expect(observation.complete).toBe(true);
+      expect(docsWriteFailures(observation, [])).toEqual([]);
+      expect(fs.readFileSync(stateFile, 'utf8')).toBe(stateBefore);
+    }
+    observer = await observeDocsWrites(fixture);
+    expect(docsActorCommand(stateFile, 'inspect').exit).toBe(0);
+    const valid = observer.stop(); observer = undefined;
+    expect(valid.complete).toBe(true);
+    expect(docsWriteFailures(valid, [])).toEqual([]);
+
+    observer = await observeDocsWrites(fixture);
+    const forbidden = path.join(fixture.repo, 'unapproved.lock');
+    fs.writeFileSync(forbidden, ''); fs.unlinkSync(forbidden);
+    const control = observer.stop(); observer = undefined;
+    expect(control.complete).toBe(true);
+    expect(docsWriteFailures(control, [])).toEqual(['forbidden docs write: unapproved.lock']);
+  } finally {
+    observer?.stop();
+    fixture.clean();
+  }
+});
 
 test('prepare copies the exact generated prompt and snapshots actual inputs without accepting an audit', () => {
   const fixture = fixtureDocs('current');

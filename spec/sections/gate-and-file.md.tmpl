@@ -60,7 +60,7 @@ dispatch. `spec-quality-gate-secret-sink.test.ts` enforces this.
 
 **Dispatch (only when redaction passes):** No reviewer preflight/dispatch before the redaction decision. When blocked, STOP before Phase 5 and all downstream sinks. On --no-gate record skipped after redaction succeeds.
 
-{{OUTSIDE_PREFLIGHT:opt-in}}
+{{OUTSIDE_PREFLIGHT:opt-in:plan-review}}
 
 Write the prompt with the exact redaction-approved spec bytes using the Write tool; never shell-interpolate the raw draft. Keep hard delimiters and this boundary:
 

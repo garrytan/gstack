@@ -1,0 +1,115 @@
+{
+  "source": "ship-exploratory-late-input, mtb1007a, 2026-10-07; public synthetic fixture events only",
+  "events": [
+    {
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "session_id": "00ad7471-736b-4592-af5e-eace35c1d20d",
+      "message": {
+        "id": "msg_011CfoeQHondqjCMbvsEwUxZ",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01PYaVcvVGnQUhMN7ZSxsQ5q",
+            "name": "Read",
+            "input": {
+              "file_path": "/tmp/gstack-paid-shard-I5IeEv/tmp/qc-nJNpah/host/runtime/qa/sections/exploratory.md"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "parent_tool_use_id": null,
+      "session_id": "00ad7471-736b-4592-af5e-eace35c1d20d",
+      "message": {
+        "content": [
+          {
+            "tool_use_id": "toolu_01PYaVcvVGnQUhMN7ZSxsQ5q",
+            "type": "tool_result",
+            "content": "1\t<!-- AUTO-GENERATED from exploratory.md.tmpl \u2014 do not edit directly -->\n2\t<!-- Regenerate: bun run gen:skill-docs -->\n3\t# Shared exploratory QA\n4\t\n5\tThe **caller** (/qa, /qa-only, /review or /ship) owns decisions, tests, fixes and publication. Discovery writes only reports/evidence\n6\tand owned fixture state; no workflows, framework installs or publication.\n7\t\n8\tComplete these Reads in order before writing charters or probing. Await their results before the first probe, never in the same response. Do not repeat a Read already completed in this invocation.\n9\t1. Read `sections/scope.md` relative to the installed `qa`/`gstack-qa` SKILL.md directory in full and select the surfaces.\n10\t2. Read the selected surface methods below in full.\n11\t\n12\t**Functional surfaces:**\n13\tRead `sections/system-functional.md` in full.\n14\t\n15\t**Browser surfaces only:**\n16\tRead `sections/qa-patterns.md` in full.\n17\t\n18\tMissing or unreadable assets, prerequisites or permission block affected probes, not independent safe checks. Report QA setup blockers.\n19\t\n20\t## 1. Charter and preflight\n21\t\n22\tReuse resolved REPORT_DIR; otherwise own a fresh `.gstack/qa-reports` subdirectory.\n23\tWrite a **charter** per behavior: contract, risk, entrypoint, isolation, exit condition, source, commands and inputs. Save charters as Markdown in the report.\n24\t\n25\tFor /review and /ship, no plan/server is required.\n26\tStop after 5 minutes or 12 probes, whichever comes first (SECONDS=300 across surfaces).\n27\tExplicit plan checks and revalidation remain required beyond this smoke budget.\n28\tFor /qa and /qa-only:\n29\t- Browser Quick: SECONDS=180. Browser Full/Regression: SECONDS=900.\n30\t- Functional Full, Quick and Regression have no default total timer.\n31\tSet SECONDS to the shorter mode/caller limit; an unlimited mode uses the caller's bound.\n32\tWithout a total time limit, do not create DEADLINE_FILE; announce finite command timeouts.\n33\tStop when scoped contracts are tested or blocked.\n34\tClocks/checkpoints use REPORT_DIR; mixed standalone runs use REPORT_DIR/browser and REPORT_DIR/functional, with one final report at REPORT_DIR. Caller paths win.\n35\tNames used below (quote every path):\n36\t- PROBE_DIR: this surface's owned probe directory per the line above. DEADLINE_FILE: `PROBE_DIR/deadline.json`, which exists only for a bounded run.\n37\t- SECONDS: the total probe budget set above. NNN: a fresh three-digit ID (001, 002, ...) for each capture or checkpoint; never reuse one.\n38\t- DEADLINE_TOOL = `/tmp/gstack-paid-shard-I5IeEv/tmp/qc-nJNpah/host/runtime/bin/gstack-qa-deadline`, the deadline guard: `start` creates DEADLINE_FILE, `status` prints `remainingMs` and `expired`, and `run` executes one command, stopping it at the deadline.\n39\t- EVIDENCE_TOOL = `/tmp/gstack-paid-shard-I5IeEv/tmp/qc-nJNpah/host/runtime/bin/gstack-qa-evidence`, the functional evidence recorder: `capture` runs one command, stores its exit code, stdout and stderr under `PROBE_DIR/.qa-evidence/NNN/`, and prints status `complete`, `incomplete` or `sensitive`.\n40\t\n41\tStart once before baseline: `bun DEADLINE_TOOL start DEADLINE_FILE SECONDS [EARLIER_UTC]` if bounded.\n42\tEARLIER_UTC = caller's absolute deadline, if set.\n43\tFunctional: `bun EVIDENCE_TOOL capture PROBE_DIR NNN [--public] --deadline DEADLINE_FILE -- COMMAND ARGS`.\n44\tUnbounded: use `--timeout-ms MS` instead of `--deadline DEADLINE_FILE`.\n45\t--public requires approved public/synthetic output; EVIDENCE_TOOL screens credentials. For complete private captures, await a safe Read of `PROBE_DIR/.qa-evidence/NNN/observation.json` (the decoded stdout). Sensitive/incomplete captures cannot anchor checkpoints.\n46\tBounded browsers: `bun DEADLINE_TOOL run DEADLINE_FILE -- COMMAND ARGS`. No detached probes.\n47\tNever reset DEADLINE_FILE/bypass DEADLINE_TOOL. Expiry or an invalid/missing DEADLINE_FILE stops probes; report unfinished coverage. QA_DEADLINE receipts are not observations.\n48\t\n49\t## 2. Probe loop\n50\t\n51\tEach probe is one native command/interaction plus checks, excluding bookkeeping.\n52\tNever batch probes.\n53\t\n54\t1. First demonstrate success: output AND durable effects. Guard if bounded; await completion.\n55\t2. **Decide whether another probe is needed.** If bounded, run `bun DEADLINE_TOOL status DEADLINE_FILE`.\n56\t   If expired or no safe next probe remains, STOP exploration; write the report (\u00a74), not a checkpoint.\n57\t   **Publish before probing.** Create (browser) or compose (functional) `exploration-NNN.json` in the probe directory, beside its deadline if bounded, with exactly four top-level fields:\n58\t   observationCommand: last completed probe's full outer command, including guard.\n59\t   observed: its exact decoded child JSON (no wrapper/extra keys), or its full non-JSON text.\n60\t   hypothesis: why nextCommand. nextCommand: exact command/request, guarded if bounded.\n61\t   Preserve every safe program-JSON key/value and identity hash unchanged.\n62\t   Withhold unsafe values, disclose limits and stop that chain.\n63\t   Check fields before publication. No drafts/placeholders or invented safe-path redactions; corrections cannot repair published notes.\n64\t   Functional: do not write this file; the next capture publishes it: `bun EVIDENCE_TOOL capture PROBE_DIR NNN --deadline DEADLINE_FILE --after PREV --hypothesis 'why' -- CMD` (PREV: the last complete capture's ID). EVIDENCE_TOOL supplies observed; never transcribe it.\n65\t   Browser checkpoints use Write.\n66\t   Wait for successful checkpoint publication before dispatch.\n67\t   Never backfill or overwrite notes.\n68\t3. Run that exact probe; DEADLINE_TOOL enforces the deadline when bounded.\n69\t   Report refusals as not-run; retain initial state/inputs/results. Repeat from step 2.\n70\t4. Replay the exact failing command/request from the same initial fixture state via steps 2\u20133 (same native command, fresh capture ID)\n71\t   before repair, then minimize via those gates. Expiry leaves confirmation/minimization incomplete.\n72\t   Another input or a regression test is not that replay.\n73\t5. After source/commands/fixtures change, re-review and return to step 2 for each affected revalidation (unproven=affected). Keep limits/notes; status requires fresh evidence.\n74\t\n75\t## 3. Parent handoff\n76\t\n77\t- **/qa:** parent owns severity, root-cause and Phase 8 regression gates before verified repair.\n78\t- **/review:** return before Fix-First; test_stub proposals require ASK approval.\n79\t- **Planning:** propose charters only; no execution.\n80\t\n81\tChoose the smallest native test: unit for logic, integration for state/requests; E2E only if smaller tests miss the journey, not automatically both.\n82\tMock only unrelated services.\n83\tNever freeze buggy output, weaken tests or delete valid red tests.\n84\t\n85\t## 4. Final report\n86\t\n87\tUse the surface report template; link each checkpoint. Separate browser scores, functional outcomes and proposed/executed tests.\n88\tWrite PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits} (browser-only: evidence [], checkpoints in limits); before Markdown `bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change `superseded`; it closes when the same command reran on current inputs. Disclose withheld/incomplete evidence.\n89\tEvidence is invocation-local; /ship reruns once per invocation.\n90\tMissing prerequisites/expectations/observations, timeouts and refusal never pass.\n91\tPass requires all required current-input contracts to pass with no required remainder.\n92\tRequired failure leaves /review incomplete and /ship blocked unless the user explicitly accepts that named risk; noninteractive runs return blocked. Only nonbehavioral diffs may be not applicable (give a reason); prompts/templates are behavioral.\n93\t"
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "session_id": "00ad7471-736b-4592-af5e-eace35c1d20d",
+      "message": {
+        "id": "msg_011CfoeQHondqjCMbvsEwUxZ",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01YbU4FzEXBhHBftjs4URWf5",
+            "name": "Bash",
+            "input": {
+              "command": "bun /tmp/gstack-paid-shard-I5IeEv/tmp/qc-nJNpah/host/runtime/bin/gstack-qa-evidence capture /tmp/gstack-paid-shard-I5IeEv/tmp/qc-nJNpah/product/reports 001 --public --deadline /tmp/gstack-paid-shard-I5IeEv/tmp/qc-nJNpah/product/reports/deadline.json -- bun scripts/probe.ts 3",
+              "description": "Capture happy-path probe for input 3"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "parent_tool_use_id": null,
+      "session_id": "00ad7471-736b-4592-af5e-eace35c1d20d",
+      "message": {
+        "content": [
+          {
+            "tool_use_id": "toolu_01YbU4FzEXBhHBftjs4URWf5",
+            "type": "tool_result",
+            "content": "{\"id\":\"probe-ba7e52d4-ad96-4df9-97d0-6dd79e52f184\",\"charter\":\"happy\",\"input\":\"3\",\"snapshot\":\"936ff5b3b13172fb2357a120804c1cf5cac68d911c82cae5bce630f04dd62b57\",\"status\":\"pass\",\"stdout\":\"6\\n\",\"stderr\":\"\",\"exit\":0}\n\nQA_EVIDENCE {\"producer\":\"gstack-qa-evidence\",\"version\":1,\"action\":\"capture\",\"id\":\"001\",\"status\":\"complete\",\"sha256\":\"135ce1a8f804e3c6d953e0f284ab4e1e7fe5ded56f3a35706ea73f630876d0be\",\"exitCode\":0,\"signal\":null,\"publicOutput\":true,\"startedAt\":\"2026-10-07T22:13:30.620Z\",\"completedAt\":\"2026-10-07T22:13:30.675Z\",\"durationMs\":55,\"remainingMs\":182686,\"next\":\"Another probe requires a checkpoint anchored on capture 001: add --after 001 --hypothesis 'TEXT' before --. To stop exploring, run none.\"}",
+            "is_error": false
+          }
+        ]
+      },
+      "tool_use_result": {
+        "interrupted": false
+      }
+    },
+    {
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "session_id": "00ad7471-736b-4592-af5e-eace35c1d20d",
+      "message": {
+        "id": "msg_011CfoeRZyA2j8av6NchLTmY",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01CPUvNXrNHnLrEUa4n5PdWC",
+            "name": "Read",
+            "input": {
+              "file_path": "/tmp/gstack-paid-shard-I5IeEv/tmp/qc-nJNpah/host/runtime/qa/sections/system-functional.md"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "parent_tool_use_id": null,
+      "session_id": "00ad7471-736b-4592-af5e-eace35c1d20d",
+      "message": {
+        "content": [
+          {
+            "tool_use_id": "toolu_01CPUvNXrNHnLrEUa4n5PdWC",
+            "type": "tool_result",
+            "content": "1\t<!-- AUTO-GENERATED from system-functional.md.tmpl \u2014 do not edit directly -->\n2\t<!-- Regenerate: bun run gen:skill-docs -->\n3\t# Functional QA with repository-native tools\n4\t\n5\tUse documented repository commands, CLI/API clients and job/queue tools, not a new\n6\tharness or browser substitution.\n7\t\n8\t## Functional modes\n9\t\n10\tFor /qa and /qa-only, within the selected scope:\n11\t- **Full** (default): cover every applicable documented contract below.\n12\t- **Quick** (`--quick`): check success and the highest-risk changed edge; mark other\n13\t  contracts not run.\n14\t- **Regression** (`--regression <previous-report>`): before probes, read the supplied\n15\t  functional report and linked replay evidence. A missing, unreadable or wrong-target\n16\t  baseline blocks regression mode. A browser-only `baseline.json` is not a functional\n17\t  baseline. Re-establish owned setup; replay prior failed probes against the documented\n18\t  expectation, never recorded buggy output, then check changed adjacent behavior.\n19\t  Preserve the prior report; report fixed, still failing and new findings separately.\n20\t  Missing safe replay inputs block affected probes, never count as passes.\n21\t\n22\tMixed runs apply each surface's mode separately. /review and /ship retain their caller's\n23\tbounded smoke and explicit plan checks, not Full exploration.\n24\t\n25\t## Contract map\n26\t\n27\tRecord each contract/source, isolated setup, exact probe, expectation and outcome:\n28\tpass/fail/blocked/not run/inconclusive/not applicable (reason).\n29\t\n30\t| Contract | Observe |\n31\t|---|---|\n32\t| Successful execution | Expected return/output and final business effect, not just launch/acceptance |\n33\t| Invalid/missing input | Declared rejection, correct status and no forbidden state change |\n34\t| Authentication/authorization | Valid identity, missing/invalid identity, wrong owner/role and durable no-effect boundary |\n35\t| CLI process contract | Exact exit code, stdout and stderr separately; resulting file/state changes |\n36\t| State transitions | Initial, intermediate and completed/failed states and their permitted transitions |\n37\t| Timeout/cancellation | Deadline, partial state, termination of owned work and recovery |\n38\t| Retry | Attempts/backoff/terminal state promised by the repository; no unbounded retry |\n39\t| Duplicates/idempotency | Repeated request/event and number of durable effects under the documented guarantee |\n40\t| Concurrency/order | Controlled competing operations in both relevant completion orders; final invariant |\n41\t| Partial-failure recovery | Interrupt after an effect, restart/replay, inspect completion/dead-letter state and duplicates |\n42\t\n43\tDo not impose universal exactly-once delivery. Separate acceptance, enqueue, processing,\n44\tretry/dead-letter and final effect; 2xx is not completion. Expected rejection/injected\n45\tfailure may pass; a missing service preventing execution blocks coverage.\n46\t\n47\t## Execute and retain evidence\n48\t\n49\t1. Apply the shared isolation/permission preflight. Verify cwd, command, environment\n50\t   NAMES and safe reset; use synthetic data/credentials.\n51\t2. Follow the shared exploratory loop's order and written checkpoints.\n52\t   For every probe, inspect initial/final durable state and retain exit/status and\n53\t   stdout/stderr separately without masking failure.\n54\t3. On timeout, retain partial output/state and stop only owned work. Record setup errors\n55\t   and untested contracts; never patch product code to hide missing prerequisites.\n56\t4. Record exact command or method/path/headers/body, setup/reset, expected contract/source,\n57\t   observed output/state, revision/runtime, evidence paths and limits. Secrets are referenced\n58\t   only by environment name. Disclose replay limits caused by redaction.\n59\t5. Use `templates/functional-report-template.md` relative to the installed QA SKILL.md.\n60\t   Preserve evidence before owned cleanup and disclose leftovers. Return to the caller\n61\t   without expanding discovery authority.\n62\t"
+          }
+        ]
+      }
+    }
+  ]
+}

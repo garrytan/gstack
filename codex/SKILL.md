@@ -470,12 +470,16 @@ and every outside review run as a command, one subcommand per check.
 Model order: a model the user names for this request, `GSTACK_CODEX_MODEL`, Codex
 `config.toml` `model` (`review_model` first for `codex review`; honors `$CODEX_HOME`),
 then `gpt-6-astra`. Each call prints `CODEX_MODEL: <model> (<kind>; source: ...)` first.
-For a named model, add `--model '<model>'` to every `select-model` and `probe-model`
-call, including the probe below. An invalid or unavailable choice stops with a repair
-message, never the default.
+For a named model, add `--model '<model>'` to every `select-model`, `probe-model` and
+`role-ready` call, including the probe below. An invalid or unavailable choice stops
+with a repair message, never the default; a named model also wins over a role.
+Only for an explicit `--role plan-review` (e.g. `/codex challenge --role plan-review`),
+set `_CODEX_ROLE='plan-review'` below and in the mode block; the mode block then
+probes and dispatches the policy model within its own timeout. [Policy setup](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md).
 
 ```bash
 _CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
+_CODEX_ROLE=''
 [ -x "$_CODEX_PROBE" ] || { echo "HELPER_UNAVAILABLE"; exit 1; }
 
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -491,7 +495,7 @@ fi
 if ! "$_CODEX_PROBE" check-auth >/dev/null; then
   "$_CODEX_PROBE" log-event codex_auth_failed
   echo "AUTH_FAILED"
-elif "$_CODEX_PROBE" check-sandbox; then   # free; Linux only
+elif "$_CODEX_PROBE" check-sandbox && [ -z "$_CODEX_ROLE" ]; then   # free; Linux only
   "$_CODEX_PROBE" probe-model exec   # ~10s round trip on first run, cached 1h
 fi
 "$_CODEX_PROBE" check-version   # warns if known-bad, non-blocking
@@ -847,11 +851,12 @@ If token count is not available, display: `Tokens: unknown`
   None of these is an auth or network failure, and the auth probe cannot catch them.
   Recovery, in order:
   1. Read the `CODEX_MODEL:` line: it names the model and where it came from.
-  2. Fix that source: name another model for this request, update
-     `GSTACK_CODEX_MODEL`, or change `model` (or `review_model`) in the Codex
-     `config.toml`. With none of these set, gstack uses `gpt-6-astra`; set any of
-     them to a model the account can use.
-  3. If Codex printed `[notice.model_migrations]`, use that replacement model.
+  2. Fix that source and relay its HINT/Repair lines. With `--role plan-review`,
+     tier pins outrank native settings; native `model`/`review_model` applies
+     only in `host` mode. Without a role, request, `GSTACK_CODEX_MODEL`, then
+     native settings choose the model, falling back to `gpt-6-astra`.
+  3. If Codex printed `[notice.model_migrations]`, use that replacement for
+     no-role calls. For a role, offer an explicit override; do not silently substitute.
   Never present this as a model stall or a PASS — it is a fail-closed gate result.
 - **`VERDICT: unavailable`:** the shared validator found the run did not execute (for
   example `Codex's sandbox could not start here`). Relay its line and fix verbatim; it is

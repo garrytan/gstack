@@ -651,7 +651,7 @@ Sanitize every query before it leaves the machine: strip hostnames, IPs, file pa
 
 ## Step 4: Critical pass (core review)
 
-> **STOP.** Before any probe, including plan checks, complete the ordered scope/method Reads below and await them. Templates cannot replace them.
+> **STOP.** Before any probe, including plan checks, complete the ordered scope/method Reads below in earlier responses. Never batch a probe (capture included) with its prerequisite Read; templates cannot replace Reads.
 Step 4 is read-only: defer charters, setup and probes to Step 4.7.
 
 From the installed /review SKILL.md's directory, choose one path:
@@ -659,9 +659,9 @@ From the installed /review SKILL.md's directory, choose one path:
 - If the caller directory is prefixed `gstack-review`, use `../gstack-qa/sections/exploratory.md` instead and read it in full.
 - If neither layout applies, report an unresolved QA installation as a setup blocker; do not guess another path.
 Use this host's installation, never the product tree. If missing or unreadable, report a QA setup blocker and its affected probes as blocked; continue other safe probes (independent functional/static checks). Missing/unreadable assets block required QA.
-Reading exploratory.md does not complete them: when it returns, Read the scope section and selected surface methods it lists, in order, and await them.
+After exploratory returns, Read scope then selected methods in order; it is only the entrypoint.
 
-Resolve QA's `sections/...` and `templates/...` paths from that installed QA SKILL.md directory, not the caller or product directory.
+QA's `sections/...` and `templates/...` paths resolve from installed QA SKILL.md, not the caller or product directory.
 
 Apply both checklist passes in order: CRITICAL, then INFORMATIONAL. Respect its suppressions.
 

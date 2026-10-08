@@ -175,8 +175,18 @@ override applies to that run only; set `model` in your Codex `config.toml` to
 make it stick across upgrades. After changing your Codex model, rerun
 `./setup --host codex` to regenerate the skills.
 
-**Which Codex model gstack uses.** For every Codex call (outside voices,
-`/codex`, review and ship adversarial passes), gstack picks the model in this
+**Plan-review and implementation tiers.** Plan workflows use an independent
+`frontier` reviewer: Fable 5.1 from Codex, or GPT-6 Astra from Claude Code.
+Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.1 Sol.
+Choose a different tier, pin either provider's model, or use `host` mode to
+preserve native model settings. The read-only `gstack-models` command explains
+the effective choices; changing these settings does not require regenerating
+skills or switch your running session. A weekly maintenance check flags changed
+official recommendations and retirement notices without automatically changing
+models. See [model policy: setup, overrides and freshness](docs/model-policy.md).
+
+**Other Codex calls keep their existing selection.** Without the explicit
+`plan-review` role (including ordinary review and ship adversarial passes), gstack picks the model in this
 order: a model you name for that request, then `GSTACK_CODEX_MODEL`, then
 `model` in your Codex `config.toml` (for native `codex review`, `review_model`
 first; a custom `CODEX_HOME` is honored), and only then gstack's default,
@@ -187,7 +197,7 @@ repair message and reports the outside review as unavailable. It never silently
 switches to its default. Nested Codex reviews also run with installed skills
 hidden (`-c skills.include_instructions=false`), so a review cannot turn into a
 whole nested skill run. Runtime model selection is separate from the setup-time
-behavioral profile above. `/claude-code` (`gstack-claude-code`
+behavioral profile above. Without the plan-review role, `/claude-code` (`gstack-claude-code`
 on Codex) preserves Claude's configured model. Set `GSTACK_CLAUDE_MODEL=<model>`
 or name a model in your request to override it for the invocation, including
 resumed consultations. See [eval defaults and overrides](CONTRIBUTING.md#testing--evals)

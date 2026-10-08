@@ -49,6 +49,13 @@ describeIfSelected('QA skill E2E', ['qa-quick'], () => {
 
     // Create report directory
     fs.mkdirSync(path.join(qaDir, 'qa-reports'), { recursive: true });
+
+    for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@test.com'], ['config', 'user.name', 'Test'],
+      ['add', '.'], ['commit', '-m', 'initial']]) {
+      const git = spawnSync('git', args, { cwd: qaDir, stdio: 'pipe', timeout: 5000 });
+      if (git.error) throw git.error;
+      if (git.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${git.stderr}`);
+    }
   });
 
   afterAll(() => {
@@ -68,7 +75,7 @@ qa is a carved skill: when SKILL.md tells you to Read ~/.claude/skills/gstack/qa
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
 
 Run a Quick-depth QA test on ${testServer.url}/basic.html
-This fixture is one static page with two same-origin navigation links (/page1, /page2) and one external link; Quick scope is that page and its two same-origin links.
+This fixture is one static page with two same-origin navigation links (/page1, /page2) and one external link. Quick scope is that page only: its load, console health and rendered content. Do not follow or probe its links; list them as untested coverage.
 As the caller, I set a 30-second total probe limit for this run (shorter than Browser Quick's own budget), so start the deadline with SECONDS=30.
 Write concise checkpoints and a concise report, retaining required evidence, scores and untested-coverage fields; cite evidence IDs instead of repeating commands.
 Do NOT use AskUserQuestion — run Quick tier directly.

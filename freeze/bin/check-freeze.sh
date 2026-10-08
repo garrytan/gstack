@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # check-freeze.sh — PreToolUse hook for /freeze skill
-# Reads JSON from stdin, checks if file_path is within the freeze boundary.
+# Reads JSON from stdin, checks if the edited path is within the freeze
+# boundary: file_path for Edit/Write, notebook_path for NotebookEdit (#3067).
 # Returns a PreToolUse hookSpecificOutput with permissionDecision "deny" to block,
 # or {} to allow. The decision MUST be nested under hookSpecificOutput — Claude
 # Code ignores a top-level permissionDecision, which silently no-ops the block.
@@ -56,7 +57,7 @@ fi
 # A helper from an older install that lacks the function must fail CLOSED
 # (the existence check above only proves the file sourced), never exit 127
 # with no JSON — Claude Code treats that as non-blocking.
-if ! command -v gstack_hook_state_root >/dev/null 2>&1 || ! command -v gstack_hook_normalize_path >/dev/null 2>&1; then
+if ! command -v gstack_hook_state_root >/dev/null 2>&1 || ! command -v gstack_hook_normalize_path >/dev/null 2>&1 || ! command -v gstack_hook_extract_tool >/dev/null 2>&1; then
   _FREEZE_DECIDED=1
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[freeze] Hook helpers out of date (partial upgrade?) - blocked, fail closed. Re-run ./setup or /unfreeze."}}\n'
   exit 0
@@ -108,11 +109,16 @@ case "$FREEZE_DIR" in
     ;;
 esac
 
-# Extract file_path from tool_input with the shared real-JSON parser.
+# Extract the edited path with the shared real-JSON parser. Edit and Write
+# carry tool_input.file_path; NotebookEdit carries tool_input.notebook_path
+# (Claude Code Agent SDK reference, NotebookEditInput), so a notebook edit
+# used to parse as "no path" and pass every boundary.
 set +e
-FILE_PATH=$(gstack_hook_extract_field "$INPUT" file_path)
+gstack_hook_extract_tool "$INPUT" file_path notebook_path
 EXTRACT_RC=$?
 set -e
+FILE_PATH="$GSTACK_HOOK_VALUE"
+TOOL_LABEL="${GSTACK_HOOK_TOOL:+$GSTACK_HOOK_TOOL }$GSTACK_HOOK_FIELD"
 
 # Unparseable payload (or no parser available): DENY. A boundary hook that
 # allows what it cannot read is not a boundary.
@@ -122,7 +128,7 @@ if [ "$EXTRACT_RC" -ne 0 ] && [ -n "$INPUT" ]; then
   exit 0
 fi
 
-# Parsed fine but no file_path field: a non-file tool payload — allow.
+# Parsed fine but no path field: a non-file tool payload — allow.
 if [ -z "$FILE_PATH" ]; then
   _FREEZE_DECIDED=1
   echo '{}'
@@ -198,7 +204,7 @@ case "$FILE_PATH" in
     # The reason is JSON-encoded by the shared helper. Never interpolate paths
     # into hand-built JSON: a path containing a quote or newline produced
     # malformed JSON here, and the deny silently no-oped.
-    gstack_hook_decision deny "[freeze] Blocked: $FILE_PATH is outside the freeze boundary ($FREEZE_DIR). Only edits within the frozen directory are allowed."
+    gstack_hook_decision deny "[freeze] Blocked: $TOOL_LABEL $FILE_PATH is outside the freeze boundary ($FREEZE_DIR). Only edits within the frozen directory are allowed; run /unfreeze to remove the boundary."
     _FREEZE_DECIDED=1
     ;;
 esac

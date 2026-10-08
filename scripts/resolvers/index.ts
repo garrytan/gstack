@@ -27,6 +27,7 @@ import { generateReviewDashboard, generatePlanFileReviewReport } from './review-
 import { generatePlanReviewApprovalCheck, generateExitPlanModeGate, generatePlanCompletionAuditShip, generatePlanCompletionGateShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './plan-gates';
 import { generateAntiShortcutClause, generateSpecReviewLoop, generateBenefitsFrom } from './spec-review';
 import { generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generateCodexDocReview } from './outside-voice-steps';
+import { generateImplementationModelHandoff } from './plan-review';
 import { generateScopeDrift, generateCrossReviewDedup, generateSharedCodeReuse } from './review-scope';
 import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer, generateChangelogWorkflow, generateCodexWebSearchFlag, generateCodexModelConfigFlag, generateCodexReviewModelConfigFlag, generateClaudeModelFlag, generateSetupCommand } from './utility';
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
@@ -57,15 +58,15 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   NATIVE_LABEL: (ctx) => outsideVoiceFor(ctx).nativeLabel,
   OUTSIDE_PROVIDER: (ctx) => outsideVoiceFor(ctx).id,
   HOST_ID: (ctx) => ctx.host,
-  OUTSIDE_PREFLIGHT: (ctx, args) => outsideVoicePreflight(ctx, { disabledBehavior: args?.[0] === 'opt-in' ? 'opt-in' : 'codex-only' }),
-  OUTSIDE_INVOCATION: (ctx, args) => outsideVoiceInvocation(ctx, { timeoutMs: args?.[0] === 'spec' ? 120000 : 540000, gate: args?.[0] === 'spec' ? 'spec' : 'review', reasoningEffort: args?.[0] === 'spec' ? 'medium' : 'high' }),
+  OUTSIDE_PREFLIGHT: (ctx, args) => outsideVoicePreflight(ctx, { disabledBehavior: args?.[0] === 'opt-in' ? 'opt-in' : 'codex-only', ...(args?.[0] === 'autoplan' || args?.[1] === 'plan-review' ? { role: 'plan-review' as const } : {}) }),
+  OUTSIDE_INVOCATION: (ctx, args) => outsideVoiceInvocation(ctx, { timeoutMs: args?.[0] === 'spec' ? 120000 : 540000, gate: args?.[0] === 'spec' ? 'spec' : 'review', reasoningEffort: args?.[0] === 'spec' ? 'medium' : 'high', ...(args?.[0] === 'autoplan' || args?.[0] === 'spec' ? { role: 'plan-review' as const } : {}) }),
   OUTSIDE_PROVENANCE: (ctx, args) => outsideVoiceProvenance(ctx, args?.[0] ?? ctx.skillName),
   SLUG_EVAL: generateSlugEval,
   SLUG_SETUP: generateSlugSetup,
   CODEX_WEB_SEARCH_FLAG: generateCodexWebSearchFlag,
   CODEX_MODEL_CONFIG_FLAG: generateCodexModelConfigFlag,
   CODEX_REVIEW_MODEL_CONFIG_FLAG: generateCodexReviewModelConfigFlag,
-  CODEX_SELECT: (_ctx, args) => codexSelect(args?.[0] === 'review' ? 'review' : 'exec'),
+  CODEX_SELECT: (_ctx, args) => codexSelect(args?.[0] === 'review' ? 'review' : 'exec', undefined, args?.[1] ? { budgetSecs: Number(args[1]), optional: true } : undefined),
   CLAUDE_MODEL_FLAG: generateClaudeModelFlag,
   REDACT_INVOCATION_BLOCK: generateRedactInvocationBlock,
   FREE_TEXT_FILE: generateFreeTextFile,
@@ -126,6 +127,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   SCOPE_DRIFT: generateScopeDrift,
   DEPLOY_BOOTSTRAP: generateDeployBootstrap,
   CODEX_PLAN_REVIEW: generateCodexPlanReview,
+  IMPLEMENTATION_MODEL_HANDOFF: generateImplementationModelHandoff,
   CODEX_DOC_REVIEW: generateCodexDocReview,
   PLAN_COMPLETION_AUDIT_SHIP: generatePlanCompletionAuditShip,
   PLAN_COMPLETION_GATE_SHIP: generatePlanCompletionGateShip,

@@ -147,7 +147,7 @@ Never freeze buggy output, weaken tests or delete valid red tests.`}
 ## 4. Final report
 
 Use the surface report template; link each checkpoint. Separate browser scores, functional outcomes and proposed/executed tests.
-Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits} (browser-only: evidence [], checkpoints in limits); before Markdown \`bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json\` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change \`superseded\`; it closes when the same command reran on current inputs. Disclose withheld/incomplete evidence.
+Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits: ["checkpoint 001"]} (limits: non-empty string array, not an object; browser-only: evidence []); before Markdown \`bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json\` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change \`superseded\`; it closes when the same command reran on current inputs. Disclose withheld/incomplete evidence.
 Evidence is invocation-local${reportOnly ? '.' : '; /ship reruns once per invocation.'}
 Missing prerequisites/expectations/observations, timeouts and refusal never pass.
 Pass requires all required current-input contracts to pass with no required remainder.
@@ -228,12 +228,12 @@ ${setup ? 'Read `sections/browser-setup.md` in full unless already completed;\n'
 
 export function generateQAReviewPreflight(ctx: TemplateContext): string {
   sectionPath(ctx, 'qa', 'exploratory');
-  return `> **STOP.** Before any probe, including plan checks, complete the ordered scope/method Reads below and await them. Templates cannot replace them.
+  return `> **STOP.** Before any probe, including plan checks, complete the ordered scope/method Reads below in earlier responses. Never batch a probe (capture included) with its prerequisite Read; templates cannot replace Reads.
 ${ctx.skillName === 'review' ? 'Step 4 is read-only: defer charters, setup and probes to Step 4.7.\n' : ''}
 {{QA_RESOURCE:exploratory}}
-Reading exploratory.md does not complete them: when it returns, Read the scope section and selected surface methods it lists, in order, and await them.
+After exploratory returns, Read scope then selected methods in order; it is only the entrypoint.
 
-Resolve QA's \`sections/...\` and \`templates/...\` paths from that installed QA SKILL.md directory, not the caller or product directory.`;
+QA's \`sections/...\` and \`templates/...\` paths resolve from installed QA SKILL.md, not the caller or product directory.`;
 }
 
 export function generateQAReview(ctx: TemplateContext): string {
