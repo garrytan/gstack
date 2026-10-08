@@ -152,18 +152,16 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   returns to the generic overlay.
 #
 # ─── Model policy (gstack-models shows the effective choices) ───────
-# plan_review_tier: frontier  # frontier | smart | host — model tier for the
-#                           #   opposing-provider plan review. host = the
-#                           #   Codex / Claude Code CLI settings choose.
-#                           #   GSTACK_CLAUDE_MODEL / GSTACK_CODEX_MODEL win.
-# implementation_tier: smart  # frontier | smart — tier gstack recommends for
-#                           #   implementing an approved plan (never switches
-#                           #   your session).
-# model_frontier_claude:    # per-tier model IDs; unset = the shipped catalog
-# model_frontier_openai:    #   recommendation (gstack-models list). Invalid
-# model_smart_claude:       #   values are REJECTED and the stored value kept;
-# model_smart_openai:       #   unset restores the shipped recommendation.
-#                           # Docs: docs/model-policy.md
+# Plan review tier: frontier | smart | host. host delegates to the CLI settings;
+# GSTACK_CLAUDE_MODEL / GSTACK_CODEX_MODEL still win.
+# plan_review_tier: frontier
+# Implementation recommendation: frontier | smart. Never switches your session.
+# implementation_tier: smart
+# Optional pins: model_frontier_claude, model_frontier_openai,
+# model_smart_claude and model_smart_openai. Leave pins absent for catalog defaults;
+# empty pins are invalid. gstack-models list prints copyable set/unset commands.
+# Invalid writes are rejected and preserve the stored value.
+# Docs: docs/model-policy.md
 #
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Workflow outside review (Codex or Claude Code by harness).

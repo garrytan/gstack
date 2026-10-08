@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { resolveClaudeCommand, type ClaudeCommand } from './claude-bin';
 import { initializeWindowsReviewJob, WindowsReviewSupervisionError } from './claude-code-windows-job';
-import { ModelPolicyError, describeSelection, resolvePlanReviewModel, type ModelSelection } from './model-policy';
+import { ModelPolicyError, describeSelection, resolvePlanReviewModel, selectionRepair, type ModelSelection } from './model-policy';
 import { emitModelPolicyNotice } from './model-policy-notice';
 
 export const CLAUDE_CODE_OUTPUT_LIMIT = 32 * 1024 * 1024;
@@ -170,7 +170,18 @@ export async function runClaudeCode(options: ClaudeCodeOptions): Promise<ClaudeC
     role: selection.role, tier: selection.tier, status: selection.status,
     requested_model: selection.requestedModel, source: selection.source.label,
   };
-  const withSelection = (result: ClaudeCodeResult): ClaudeCodeResult => (summary ? { ...result, selection: summary } : result);
+  const withSelection = (result: ClaudeCodeResult): ClaudeCodeResult => {
+    if (!summary || !selection) return result;
+    const diagnostic = `${result.error?.message ?? ''}\n${result.stderr ?? ''}`;
+    const rejectedModel = /\b(?:model_not_found|model_not_supported|invalid_model)\b|\b(?:unknown|unsupported|invalid|unavailable) model\b|\bmodel\b[^\n]{0,1024}\b(?:not found|not exist|not available|not supported|unavailable)\b/i.test(diagnostic)
+      || (/\bmodel\b/i.test(diagnostic) && /\bnot_found_error\b/i.test(diagnostic));
+    if (result.status !== 'completed' && result.error && ['exit', 'provider-error'].includes(result.error.code) && rejectedModel) {
+      return { ...result, selection: summary, error: { ...result.error,
+        message: `${result.error.message} Selection: ${describeSelection(selection)}. Repair: ${selectionRepair(selection).join('; ')}. No outside review completed; model existence and account access remain provider-controlled. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#model-policy-selection`,
+      } };
+    }
+    return { ...result, selection: summary };
+  };
 
   let child: ChildProcess;
   try {

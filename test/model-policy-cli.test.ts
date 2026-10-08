@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { modelCatalogSha256 } from '../lib/model-catalog';
-import { validatePolicyValue, type PolicyConfigKey } from '../lib/model-policy';
+import { parseModelPolicyConfig, validatePolicyValue, type PolicyConfigKey } from '../lib/model-policy';
 import { CLAUDE_CODE_RUNTIME_FILES } from '../lib/claude-code-migration';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -230,6 +230,18 @@ describe('gstack-models inspector', () => {
 });
 
 describe('gstack-config model policy keys', () => {
+  test('the annotated header has valid uncommentable tier settings and no empty pin examples', () => {
+    const { env, state } = fixture();
+    expect(config(['set', 'telemetry', 'off'], env).code).toBe(0);
+    const text = fs.readFileSync(path.join(state, 'config.yaml'), 'utf8');
+    const tiers = text.split('\n').filter(line => /^# (plan_review_tier|implementation_tier):/.test(line)).map(line => line.slice(2));
+    expect(tiers).toHaveLength(2);
+    const parsed = parseModelPolicyConfig(tiers.join('\n'), '/example/config.yaml');
+    expect(parsed.planReviewTier.value).toBe('frontier');
+    expect(parsed.implementationTier.value).toBe('smart');
+    expect(text).not.toMatch(/^# model_(frontier|smart)_(claude|openai):\s*(?:#.*)?$/m);
+  });
+
   test('Anthropic pins preserve the 512-character contract with a POSIX-bounded regex engine', () => {
     const { root, env, state } = fixture();
     const bin = path.join(root, 'portable-bin');

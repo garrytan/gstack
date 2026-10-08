@@ -207,7 +207,8 @@ user-owned issues are not trusted state.
 
 A documented retain decision preserves the current default, but does not make a
 vendor mismatch `current`: the advisory issue stays open, or reopens, while that
-candidate remains. Keep the rationale outside the tool-owned report region.
+candidate remains. Record retain rationales in issue comments, which the workflow
+never edits, rather than racing a scheduled update to the issue body.
 
 Thirty-day staleness means an absence of trustworthy freshness evidence, not
 that a model was released thirty days ago. An unchanged recommendation does not

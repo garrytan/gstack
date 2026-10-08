@@ -44,6 +44,7 @@ if (probe) {
 }
 if (!claude || args.includes('-')) await Bun.stdin.text();
 const response = process.env.FAKE_RESPONSE || 'Medium: the plan couples two rollouts.\\nRecommendation: split the migration because the plan couples two rollouts.';
+if (claude && process.env.FAKE_PROVIDER_ERROR) { console.log(JSON.stringify({ is_error: true, result: process.env.FAKE_PROVIDER_ERROR })); process.exit(Number(process.env.FAKE_ERROR_EXIT ?? '1')); }
 if (claude) console.log(JSON.stringify({ result: response, session_id: 's', modelUsage: { 'model-actual': { inputTokens: 1 } } }));
 else writeFileSync(args[args.indexOf('-o') + 1], response);
 `);
@@ -425,6 +426,32 @@ describe('one deadline bounds Codex role readiness and dispatch (native F3)', ()
 describe('Claude plan-review invocation emits one selected model or none', () => {
   const result = (r: Run) => JSON.parse(r.stdout.split('\n').find(line => line.startsWith('{"status"'))!);
 
+  test('provider model rejections identify the winning selection and its actionable repair without substitution', () => {
+    const rejection = 'API Error: 404 {"error":{"type":"not_found_error","message":"model: requested-model"}}';
+    for (const [config, extra, repair] of [
+      ['', {}, 'gstack-config set plan_review_tier smart'],
+      ['model_frontier_claude: claude-pin\n', {}, 'gstack-config unset model_frontier_claude'],
+      ['', { GSTACK_CLAUDE_MODEL: 'claude-env' }, 'unset GSTACK_CLAUDE_MODEL'],
+      ['plan_review_tier: host\n', {}, 'choose the model in Claude Code settings'],
+    ] as const) {
+      for (const exit of ['0', '1']) {
+        const r = run('codex', home(config), { ...extra, FAKE_PROVIDER_ERROR: rejection, FAKE_ERROR_EXIT: exit });
+        expect(r.status).not.toBe(0);
+        expect(r.calls).toHaveLength(1);
+        const failed = result(r);
+        expect(failed.error.message).toContain(failed.selection.source);
+        expect(failed.error.message).toContain(repair);
+        expect(failed.error.message).toContain('#model-policy-selection');
+        expect(failed.error.message).toContain('No outside review completed');
+        if ('GSTACK_CLAUDE_MODEL' in extra) expect(failed.error.message).not.toContain('gstack-config set');
+      }
+    }
+    for (const message of ['authentication_error: invalid API key for model', 'API Error: 429 insufficient_quota for model', 'API Error: 503 server_error']) {
+      const r = run('codex', home(), { FAKE_PROVIDER_ERROR: message });
+      expect(result(r).error.message).not.toContain('gstack-config set plan_review_tier');
+    }
+  });
+
   test('catalog frontier model: exactly one --model, selection reported apart from modelUsage, notice once', () => {
     const h = home();
     const r = run('codex', h, { GSTACK_CLAUDE_MODEL: '' });
@@ -535,6 +562,20 @@ describe('manual /codex entry: explicit role only, paid probe only for the dispa
     expect(role.stdout).not.toMatch(/MODEL_OK|MODEL_UNUSABLE|AUTH_FAILED/);
     expect(role.calls).toEqual([]);
     expect(role.stderr).not.toContain('NOTICE: gstack plan reviews');
+  });
+
+  test('a missing manual challenge prompt stops before the paid readiness probe or notice', () => {
+    const h = home();
+    const template = fs.readFileSync(path.join(ROOT, 'codex/sections/challenge-mode.md.tmpl'), 'utf8');
+    const body = template.match(/```bash\n([\s\S]*?)\n```/)![1]!;
+    const prefix = body.slice(0, body.indexOf('"$_CODEX_PROBE" run-with-timeout'))
+      .replace('{{CODEX_SELECT:exec:540}}', RESOLVERS.CODEX_SELECT(ctxFor('codex', 'claude', HOST_PATHS.claude), ['exec', '540']))
+      .replaceAll('<prompt-file-name>', 'missing-plan-prompt');
+    const r = shell(h, `TMP_ROOT='${h.dir}'\n${withRole(prefix, 'plan-review')}`);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('prompt was never written');
+    expect(r.calls).toEqual([]);
+    expect(fs.existsSync(marker(h.state))).toBe(false);
   });
 
   for (const file of ['challenge-mode', 'consult-mode', 'review-mode']) {
