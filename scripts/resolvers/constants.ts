@@ -57,9 +57,11 @@ export const OPENAI_LITMUS_CHECKS = [
 export const CODEX_WEB_SEARCH_FLAG = `-c 'web_search="cached"'`;
 
 /**
- * Default model for gstack-owned Codex invocations when nothing else chooses.
+ * Historical no-role Codex default and the pinned eval ruler some tests import.
+ * It does not follow the role catalog in lib/model-catalog.ts: plan-review
+ * calls resolve their model through lib/model-policy.ts at invocation time.
  *
- * The runtime model is resolved per invocation kind by
+ * A no-role runtime model is resolved per invocation kind by
  * `gstack-codex-probe select-model exec|review` (backed by
  * resolveCodexRuntimeModel in scripts/resolve-codex-generation-model.ts):
  * explicit request (`--model`), then GSTACK_CODEX_MODEL, then Codex config.toml
@@ -90,10 +92,18 @@ export const CODEX_PROBE_PATH = '~/.claude/skills/gstack/bin/gstack-codex-probe'
  * `_CODEX_SEL` and `_CODEX_SANDBOX_MODE` for CODEX_MODEL_CONFIG_FLAG and
  * CODEX_SANDBOX_REF. The probe is executed, never sourced, so no shell state
  * crosses from the helper and the calling shell does not matter.
+ *
+ * With `role`, `role-ready` supplies the plan-review record instead: one
+ * selection, auth, sandbox and model probe. It and the block's later
+ * `run-with-timeout <budgetSecs>` dispatch share one exported deadline, so
+ * readiness time is charged to the review instead of extending it. `optional`
+ * (manual /codex) keeps select-model unless the agent sets `_CODEX_ROLE`.
  */
-export function codexSelect(kind: 'exec' | 'review', probe: string = CODEX_PROBE_PATH): string {
+export function codexSelect(kind: 'exec' | 'review', probe: string = CODEX_PROBE_PATH, role?: { budgetSecs: number; optional?: boolean }): string {
+  const select = `_CODEX_OUT=$("$_CODEX_PROBE" select-model ${kind}) || exit 1`;
+  const ready = `export _CODEX_DEADLINE=$(($(date +%s)+${role?.budgetSecs})); _CODEX_OUT=$("$_CODEX_PROBE" role-ready ${kind}) || exit $?`;
   return `_CODEX_PROBE=${probe}
-_CODEX_OUT=$("$_CODEX_PROBE" select-model ${kind}) || exit 1
+${!role ? select : role.optional ? `_CODEX_ROLE=''\nif [ -n "$_CODEX_ROLE" ]; then ${ready}\nelse ${select}; fi` : ready}
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
 _CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')`;
 }
@@ -144,7 +154,7 @@ On any error: continue — ${feature} is informational, not a gate.`;
  *   - `codex-only` (diff adversarial): disabled gates only the Codex passes; the
  *     free Claude adversarial subagent still runs.
  */
-export function codexPreflight(opts: { modeVar?: string; disabledBehavior: 'skip-all' | 'codex-only'; nativeReview?: boolean }): string {
+export function codexPreflight(opts: { modeVar?: string; disabledBehavior: 'skip-all' | 'codex-only'; nativeReview?: boolean; role?: boolean }): string {
   const m = opts.modeVar ?? '_CODEX_MODE';
   const disabledLine = opts.disabledBehavior === 'codex-only'
     ? 'Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."'
@@ -168,10 +178,12 @@ elif [ -n "$_gstack_helper_error" ]; then
   ${m}="helper_unavailable"; echo "$_gstack_helper_error"
 elif ! "$_CODEX_PROBE" check-auth >/dev/null 2>&1; then
   ${m}="not_authed"; "$_CODEX_PROBE" log-event codex_auth_failed 2>/dev/null || true
-else
-  # Free sandbox check before the paid probe; probe exit 2 = the CLI cannot run.
-  _CODEX_MP=0; _CODEX_PS=""
-  "$_CODEX_PROBE" check-sandbox || _CODEX_MP=3
+else${opts.role ? '' : `
+  # Free sandbox check before the paid probe; probe exit 2 = the CLI cannot run.`}
+  _CODEX_MP=0${opts.role ? '' : '; _CODEX_PS=""'}
+  "$_CODEX_PROBE" check-sandbox || _CODEX_MP=3${opts.role ? `
+  if [ "$_CODEX_MP" -eq 3 ]; then
+    ${m}="sandbox_unavailable"` : `
   for _CODEX_KIND in exec${opts.nativeReview ? ' review' : ''}; do
     [ "$_CODEX_MP" -eq 0 ] || break
     _CODEX_PO=$("$_CODEX_PROBE" probe-model $_CODEX_KIND); _CODEX_MP=$?; printf '%s\\n' "$_CODEX_PO"
@@ -188,7 +200,7 @@ else
   elif [ "$_CODEX_PS" = inconclusive ]; then
     ${m}="unverified"
   elif [ "$_CODEX_PS" = rate_limited ]; then
-    ${m}="unverified (rate_limited)"
+    ${m}="unverified (rate_limited)"`}
   else
     ${m}="ready"; "$_CODEX_PROBE" check-version || true
   fi
@@ -203,10 +215,11 @@ Branch on the echoed \`CODEX_MODE\`:
 - **\`under_codex\`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
 - **\`not_authed\`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run \`codex login\` or set \`$CODEX_API_KEY\`." ${nativeRoute}
 - **\`broken_install\`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: \`npm install -g @openai/codex\`." Relay the probe's HINT lines. ${nativeRoute}
-- **\`model_unusable\`** — the selected model (see \`CODEX_MODEL:\`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (\`GSTACK_CODEX_MODEL=<supported-model>\` or config.toml \`model\`); never substitute a model. ${nativeRoute} The ~10s round trip is cached for 1h.
+- **\`model_unusable\`** — ${opts.role ? 'the role invocation rejected policy, auth or model selection. Relay its reason and source-specific Repair/HINT lines, not a lower-priority setting. `AUTH_FAILED` needs `codex login`; never substitute a model.' : "the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model."} ${nativeRoute}${opts.role ? '' : ' The ~10s round trip is cached for 1h.'}
 - **\`quota_exhausted\`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. ${nativeRoute}
 - **\`sandbox_unavailable\`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. ${nativeRoute}
-- **\`ready\`** or **\`unverified\`** — run the Codex pass below. \`unverified\` means the model check timed out or, with \`(rate_limited)\`, hit a 429; say so, and let the pass's own verdict decide.`;
+- **\`ready\`** or **\`unverified\`** — run the Codex pass below. \`unverified\` means the model check timed out or, with \`(rate_limited)\`, hit a 429; say so, and let the pass's own verdict decide.${opts.role ? `
+Plan-review readiness probes the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) model. Relay its diagnostics; never infer quota from the review block's exit status.` : ''}`;
 }
 
 /**

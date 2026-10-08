@@ -90,7 +90,7 @@ describe('under-codex wiring renders (#2519)', () => {
   test('all three codexPreflight consumers render the probe', () => {
     for (const file of [
       path.join(ROOT, 'ship', 'sections', 'adversarial.md'),
-      path.join(ROOT, 'plan-ceo-review', 'sections', 'review-sections.md'),
+      path.join(ROOT, 'review', 'sections', 'adversarial.md'),
       path.join(ROOT, 'document-release', 'sections', 'release-body.md'),
     ]) {
       const rendered = fs.readFileSync(file, 'utf-8');

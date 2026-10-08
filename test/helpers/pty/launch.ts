@@ -493,6 +493,7 @@ async function closePty(pty: PtyProcess, wallTimer: ReturnType<typeof setTimeout
   } finally {
     clearTimeout(cleanupTimer);
     clearTimeout(wallTimer);
+    pty.proc.terminal?.close?.();
   }
 }
 

@@ -41,6 +41,18 @@ Run `/gstack-upgrade`, then start `/careful` in a new session. On Windows, ask C
 - `careful/bin/check-careful.sh` is listed in `FREE_ONLY_PR_FILES`. No paid fixture runs it, and as an unknown dependency it used to restore the full paid gate on every `/careful` change.
 - Thanks to @jtheyse for the #3067 report and its suggested fix shape, @JiayuuWang for PR #1110, whose bypass strings became negative controls, and @BenjaminDSmithy for PR #3066's frontmatter hook-check derivation. The new matchers pass #3066's `bin/gstack-hook-check` and its test as well as main's.
 
+## [1.91.45.0] - 2026-10-08
+
+### Added
+- Choose separate model tiers for planning and implementation. Independent plan reviews default to Fable 5.1 or GPT-6 Astra; implementation handoffs recommend Opus 5.5 or GPT-6.1 Sol without switching your session. Explicit model choices still win, and `plan_review_tier smart` or `host` provides an alternative to the frontier default.
+- Inspect effective models, their sources and copyable pin/reset commands with `gstack-models`. Six settings use the existing configuration store, with fail-closed validation and a notice before the first affected review. See the [model-policy guide](docs/model-policy.md).
+- Policy inspection reports native Windows paths and rejects non-directory or unreadable state roots rather than silently selecting defaults.
+- Get weekly advisory checks of official model recommendations and retirement notices. One tracking issue retains source evidence and lifecycle history; upgrades remain human-reviewed, with no automatic model changes or paid benchmarking.
+
+### Fixed
+- Codex model probes retain up to sixteen selections, serialize concurrent misses and preserve newer entries when another probe finishes later. Plan-review readiness and execution share one deadline, and failed model choices point to the setting that actually selected them.
+- `/review` and `/ship` explicitly require prerequisite QA instructions to be read in earlier responses before a probe, including its evidence capture.
+
 ## [1.91.42.0] - 2026-10-08
 
 **/cso lifts its file-count ceiling: repositories with tens of thousands of files reach the audit.**

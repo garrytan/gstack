@@ -937,15 +937,30 @@ describe('codex broken-install detection (#2742)', () => {
   // hand-maintained copy that isn't resolver-generated — it must capture the
   // probe's exit code and route 2 to its own broken-install arm, or /autoplan
   // prints the wrong remedy for a broken binary.
-  test('autoplan preflight (tmpl + rendered) captures the probe exit and routes 2 to broken-install', () => {
-    for (const rel of ['autoplan/SKILL.md.tmpl', 'autoplan/SKILL.md']) {
-      const raw = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      const src = rel.endsWith('.tmpl') ? raw.replace('{{OUTSIDE_PREFLIGHT:autoplan}}', RESOLVERS.OUTSIDE_PREFLIGHT({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'autoplan', tmplPath: rel }, ['autoplan'])) : raw;
-      expect(src).toContain('_CODEX_PO=$("$_CODEX_PROBE" probe-model $_CODEX_KIND); _CODEX_MP=$?');
-      expect(src).toMatch(/_CODEX_MP" -eq 2/);
-      expect(src).toContain('binary cannot run');
-      expect(src).not.toContain('elif ! "$_CODEX_PROBE" probe-model');
+  test('autoplan (tmpl + rendered): availability pays for no probe; role-ready in the invocation probes, and its exit, 2 included, ends it', () => {
+    const ctx = { host: 'claude' as const, paths: HOST_PATHS.claude, skillName: 'autoplan', tmplPath: 'autoplan/SKILL.md.tmpl' };
+    const rendered = ['autoplan/SKILL.md', ...['ceo', 'design', 'dx', 'eng'].map(phase => `autoplan/sections/${phase}-phase.md`)]
+      .map(rel => fs.readFileSync(path.join(ROOT, rel), 'utf-8')).join('\n');
+    for (const src of [RESOLVERS.OUTSIDE_PREFLIGHT(ctx, ['autoplan']) + RESOLVERS.OUTSIDE_INVOCATION(ctx, ['autoplan']), rendered]) {
+      expect(src).toContain('_CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?');
+      expect(src).not.toMatch(/probe-model|_gstack_codex_/);
+      expect(src).toContain('echo "CODEX_MODE: $_CODEX_MODE"');
     }
+    const role = fs.readFileSync(PROBE, 'utf-8').match(/_gstack_codex_role_ready\(\) \{[\s\S]*?\n\}/)![0];
+    expect(role).toContain('_gstack_codex_model_probe "$1" || return $?');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-role-broken-'));
+    try {
+      const bin = path.join(home, 'bin');
+      fs.mkdirSync(bin);
+      fs.mkdirSync(path.join(home, '.codex'));
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+      fs.writeFileSync(path.join(bin, 'codex'), `#!/usr/bin/env bash\n[ "$1" = sandbox ] && exit 0\n[ "$1" = --version ] && { echo codex-cli 0.160.0; exit 0; }\necho 'Error: spawn /usr/lib/codex/vendor/codex ENOENT' >&2\nexit 1\n`, { mode: 0o755 });
+      const r = spawnSync(PROBE, ['role-ready', 'exec'], { encoding: 'utf8', timeout: 20000,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, HOME: home, CODEX_HOME: path.join(home, '.codex'), GSTACK_HOME: path.join(home, 'state'), _TEL: 'off' } });
+      expect(r.status).toBe(2);
+      expect(r.stdout).toBe('');
+      expect(r.stderr).toContain('MODEL_UNUSABLE_INSTALL');
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 
   test('the preflight resolver routes exit 2 to broken_install', () => {

@@ -172,7 +172,7 @@ export async function runPlanSkillFloorCheck(opts: PlanSkillFloorOptions): Promi
     // Runs 36626737820 and 36776104571: CEO read scope preservation as approving
     // approach A, so the seeded premise gap never reached a question. Run 36794871032:
     // CEO read this request as supplying every answer up front and asked nothing.
-    ...(opts.skillName === 'plan-ceo-review' ? ['Preserving scope does not approve the plan\'s premise, approach or any remedy. This request answers only the routing, recall, outside-reviewer and review-mode questions named above.'] : []),
+    ...(opts.skillName === 'plan-ceo-review' ? ['Preserving scope does not approve the plan\'s premise, approach or any remedy. The routing, recall, outside-reviewer and review-mode choices above are already answered. Premise, approach and remedy decisions remain unanswered; follow the skill\'s normal interactive decision workflow for those choices.'] : []),
     ...(opts.productType === 'sdk-documentation' ? [
       'Product type is confirmed: SDK quickstart documentation, with the complete journey to the first SDK call as context. If asked to classify, choose SDK + Docs when offered, otherwise Documentation. This confirms the review lens; it does not expand the plan.',
       'Target persona is confirmed: a hands-on developer integrating this SDK for the first time, trying to make one successful call. Product type and persona setup are already answered; proceed to reviewing the supplied plan.',
