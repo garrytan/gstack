@@ -542,7 +542,12 @@ function inspectPython(root: string, plan: PreparationPlan) {
   // py_compile reads SOURCE_DATE_EPOCH from os.environ even under `python -I` and then writes
   // checked-hash .pyc files. venv/ensurepip and pip compile bytecode during offline preparation; with
   // timestamp .pyc files every preparation differed, so a replay could never match its verification.
-  const offlineEnv = { ...acquisitionEnv, UV_CACHE_DIR: '/work/.cso-uv-cache', UV_LINK_MODE: 'copy', SOURCE_DATE_EPOCH: '315532800' };
+  const offlineEnv = {
+    ...acquisitionEnv,
+    UV_CACHE_DIR: '/work/.cso-uv-cache',
+    UV_LINK_MODE: 'copy',
+    SOURCE_DATE_EPOCH: '315532800',
+  };
   let requirementsPath = 'requirements.txt';
   let publicRequirements = '/metadata/requirements.txt';
   const localBuildPaths: string[] = [];

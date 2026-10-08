@@ -2242,7 +2242,10 @@ async function verify(args: string[], dependencies: CsoCliDependencies) {
     writeJson(join(dir, `preparation-${runtime.stack}.json`), plan);
     const endpoint = await dockerEndpoint(secureDirectory(join(dir, 'home'))),
       watchdogPath = dependencies.watchdogPath(),
-      attemptDeadline = Math.min(Date.now() + verificationAttemptMs(runtime.stack), Date.parse(report.deadline) - 60_000);
+      attemptDeadline = Math.min(
+        Date.now() + verificationAttemptMs(runtime.stack),
+        Date.parse(report.deadline) - 60_000,
+      );
     const admission = admitPreparationRuntime({
         plan,
         platform: targetPlatform,

@@ -1899,7 +1899,10 @@ export async function verifyRepair(params: {
   }
   let guardedCleanup: (() => Promise<void>) | undefined;
   if (params.watchdogPath) {
-    const deadline = Math.min(params.attemptDeadline ?? Date.now() + 300_000, Date.now() + MAX_VERIFICATION_ATTEMPT_MS);
+    const deadline = Math.min(
+      params.attemptDeadline ?? Date.now() + 300_000,
+      Date.now() + MAX_VERIFICATION_ATTEMPT_MS,
+    );
     guardedCleanup = await attemptGuard(params.runDir, work, params.watchdogPath, deadline);
   }
   secureDirectory(observations);
