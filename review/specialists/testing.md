@@ -58,6 +58,17 @@ red tests. Unit tests suit logic; real integration/E2E tests protect boundaries 
 - Unicode and special characters in user-facing inputs
 - Concurrent access patterns with no race-condition test
 
+### Negative Assertions
+- A new assertion that something is absent (`not.toContain`, `not in`, `assertNotIn`,
+  `pytest.raises` on a call that used to succeed) records a behavior removal, not coverage.
+  Cite the spec line, plan item or PR text that authorizes the removal; with none, report it
+  as a product decision shipped as a test.
+- A rename or removal in this diff can empty a standing negative assertion: a test asserting
+  the old token is absent now passes forever and guards nothing. For each identifier, flag,
+  heading or string the diff renames or deletes, grep the test suite for negative assertions
+  naming the old value, including inside tests that assert something else, and report each
+  as a coverage gap whose fix names the new value.
+
 ### Test Isolation Violations
 - Tests sharing mutable state (class variables, global singletons, DB records not cleaned up)
 - Order-dependent tests (pass in sequence, fail when randomized)

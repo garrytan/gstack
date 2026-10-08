@@ -982,7 +982,7 @@ ${bin} check DESIGN.md
 
 ${check}
 
-\`${SENTINEL.DESIGN_MD_FORMAT}: spec\`: the front matter is normative. Run \`${bin} tokens DESIGN.md\` and calibrate against the flat token map: a value present there is never a finding, and a finding that departs from a token names the token. \`legacy\` or \`unknown\`: read the file as prose. The \`DESIGN_MD_MARKER\` line is the user's persisted format choice; respect it and never offer a conversion here (that is /design-consultation's question). \`missing\`: universal principles.`;
+\`${SENTINEL.DESIGN_MD_FORMAT}: spec\`: the front matter is normative. Run \`${bin} tokens DESIGN.md\` and calibrate against the flat token map: a value present there is never a finding, and a finding that departs from a token names the token. \`legacy\` or \`unknown\`: read the file as prose. The \`DESIGN_MD_MARKER\` line is the user's persisted format choice; respect it and never offer a conversion here (that is /design-consultation's question). \`missing\`: calibrate against the code tokens captured above, or universal principles when there are none.`;
   }
   return `**Update-only gate:** Only **Update** with DESIGN.md enters this block (command and all result branches). **Start fresh**, **No existing file**, or a lone design-system.md: skip to **Gather product context from the codebase**. **Cancel** has already stopped the skill.
 

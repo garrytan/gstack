@@ -26,6 +26,10 @@ This checklist goes deeper than the main CRITICAL pass. The main agent already c
 - Direct object reference vulnerabilities (user A accesses user B's data by changing an ID)
 - Session fixation or session hijacking opportunities
 - Token/API key validation that doesn't check expiration
+- Error pages that leak past a correct guard: the shared 403/404/500 renderer builds its body outside the authorization path, so a blocked request still returns internal names, counts or navigation the role must not see. Read the error template and its context builder, not just the guard
+- Ownership that survives a role downgrade: a grant recorded at creation still opens the object after the user's role is reduced and they sign in again. Ownership must be re-checked against the current role on every read
+- List, detail and file/download access to one object audited as a single entry: each usually resolves the object through a different code path, so check each against the role matrix separately
+- Account or identity switch that clears, regenerates or rebinds the session before validating the callback's single-use state value: any forced navigation to that URL logs the user out (CSRF). Also check the denied, cancelled and error branches, where leaving the prior session live keeps the user acting as the previous identity
 
 ### Injection Vectors (beyond SQL)
 - Command injection via subprocess calls with user-controlled arguments
