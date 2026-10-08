@@ -260,6 +260,7 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
 
   // Step 4: wait for StateServer to become reachable, then scrape boot token.
   // Probe /healthz with retries (the listener can take a moment to bind).
+  let bootTokenWriteError: string | undefined;
   const waitForStateServer = async (): Promise<BootstrapResult | null> => {
     const deadline = Date.now() + startupTimeoutMs;
     while (Date.now() < deadline) {
@@ -268,7 +269,7 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
           signal: AbortSignal.timeout(2_000),
         });
         if (r.ok) {
-          const health = await r.json().catch(() => null) as { bundle_id?: string } | null;
+          const health = await r.json().catch(() => null) as { bundle_id?: string; boot_token_error?: string } | null;
           // Older bridges did not identify their bundle. Preserve compatibility,
           // but reject an explicit mismatch from current bridges: another debug
           // app already owns the fixed StateServer port on this device.
@@ -279,6 +280,7 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
               detail: `expected ${opts.bundleId} but StateServer port ${port} belongs to ${health.bundle_id}; terminate the other debug app`,
             };
           }
+          bootTokenWriteError = health?.boot_token_error;
           return null;
         }
       } catch { /* retry */ }
@@ -302,6 +304,15 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
   });
 
   let bootToken = readBootToken();
+  if (!bootToken && bootTokenWriteError) {
+    // The app reported that it could not write the file. A relaunch would
+    // only fail the same way and wipe the app's state, so stop here.
+    return {
+      ok: false,
+      error: 'boot_token_unavailable',
+      detail: `${opts.bundleId} could not write ${tokenPath}: ${bootTokenWriteError}; fix the app's tmp/ directory, then relaunch the app`,
+    };
+  }
   if (!bootToken) {
     // A healthy running app can lack a boot token when an earlier daemon
     // already rotated it. A new daemon has no way to recover that in-memory

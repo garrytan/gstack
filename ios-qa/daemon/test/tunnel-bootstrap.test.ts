@@ -630,6 +630,47 @@ describe('bootstrapTunnel', () => {
     expect(fetchCalls.at(-1)?.authorization).toBe('Bearer FRESH-BOOT-TOKEN');
   });
 
+  test('an app that reports a failed boot-token write gets a clear error, not a relaunch (#1837)', async () => {
+    const calls: string[] = [];
+    const scripted = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [{
+            identifier: 'TEST-UDID',
+            connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+            deviceProperties: { name: 'Test Device' },
+            hardwareProperties: { productType: 'iPhone18,2' },
+          }] },
+        },
+      },
+      {
+        argsMatch: /devicectl device info processes/,
+        jsonOutput: { result: { runningProcesses: [{ executable: 'file:///var/containers/Bundle/Application/X/com.test.app/com.test' }] } },
+      },
+      {
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd99::beef' } } },
+      },
+      { argsMatch: /devicectl device copy from/, exitCode: 1, stderr: 'source does not exist' },
+    ]);
+    const spawn: SpawnImpl = (cmd, args) => { calls.push(args.join(' ')); return scripted(cmd, args); };
+
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      fetchImpl: (async () => new Response(
+        JSON.stringify({ bundle_id: 'com.test', boot_token_error: 'You don’t have permission to save the file.' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch,
+      startupTimeoutMs: 1_000,
+    });
+
+    expect(r).toMatchObject({ ok: false, error: 'boot_token_unavailable' });
+    if (!r.ok) expect(r.detail).toContain('could not write tmp/gstack-ios-qa.token: You don’t have permission');
+    expect(calls.some((c) => c.includes('--terminate-existing'))).toBe(false);
+  });
+
   test('rechecks bundle ownership after recovering a consumed boot token', async () => {
     const spawn = makeSpawn([
       {
