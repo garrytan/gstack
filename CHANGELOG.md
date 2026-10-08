@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.91.67.0] - 2026-10-08
+
+**Antigravity CLI is now a gstack host.**
+
+Eight contributors sent PRs asking for Antigravity support. This release builds one host on the current host system, using paths and tool names checked against Google's Antigravity docs on 2026-10-08.
+
+### What this means for you
+
+Run `./setup --host agy` (or `--host antigravity`). Every skill installs into `~/.gemini/antigravity-cli/skills/`, and you invoke each one as `/gstack-<skill>`. `--host auto` picks Antigravity up when `agy` is on your PATH or `~/.gemini/antigravity-cli` exists.
+
+Skills are rendered with Antigravity's own tool names (`run_command`, `view_file`, `ask_question`, `invoke_subagent` and the rest) and the Gemini model profile. The host is experimental until a real Antigravity session certifies it.
+
+### Behavior changes you may notice
+
+- **Gemini CLI's files are left alone.** Gemini CLI shares `~/.gemini`, but gstack never touches `~/.gemini/skills` or Gemini CLI's settings. A machine with only Gemini CLI is never detected as Antigravity.
+- **Not covered yet:** the Antigravity 2.0 app and the IDE, which read `~/.gemini/config/skills`.
+
+### Itemized changes
+
+#### Added
+- The `agy` host (alias `antigravity`):
+  - Frontmatter is limited to `name` and `description`, and the build fails if a description exceeds 1,024 characters.
+  - A tool glossary, the Gemini overlay, and an `AGENTS.md` rewrite.
+  - Advisory-only safety skills, with Review Army suppressed, as on Copilot.
+- Setup, `--status`, uninstall and team-init cover the host. Its render is kept under "render only installed hosts", and setup fails if no skills were linked.
+
+#### For contributors
+- docs/ADDING_A_HOST.md records how each of the nine Antigravity PRs was used, or why it wasn't.
+- Built on work by @0xshae (#2134), @ManchalaSashank (#2893), @voipexpert (#2726) and @KiDDarn (#2244).
+- Still to verify on a real install: symlinked skill directories, the `/gstack-*` commands appearing, `ask_question` option handling, partial `view_file` reads on long skills, and upgrading an existing install.
+
 ## [1.91.66.0] - 2026-10-08
 
 **/autoplan no longer asks permission to read its own files after a background reviewer finishes.**
