@@ -195,6 +195,10 @@ fresh. A catalog rollback reopens historical findings for a model put back in
 use. Only current default-branch runs may update that issue; copied markers in
 user-owned issues are not trusted state.
 
+A documented retain decision preserves the current default, but does not make a
+vendor mismatch `current`: the advisory issue stays open, or reopens, while that
+candidate remains. Keep the rationale outside the tool-owned report region.
+
 Thirty-day staleness means an absence of trustworthy freshness evidence, not
 that a model was released thirty days ago. An unchanged recommendation does not
 require a date-only catalog commit or a monthly paid benchmark. The recorded

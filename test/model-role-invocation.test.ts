@@ -103,6 +103,15 @@ const NOTICE = 'NOTICE: gstack plan reviews now use an independent plan-review m
 const marker = (state: string) => path.join(state, '.model-policy-notice-v1');
 
 describe('plan-review role membership in shared generators', () => {
+  test('role failures relay source-aware repairs while legacy native-setting advice stays no-role', () => {
+    const role = outsideVoicePreflight(ctxFor('autoplan', 'claude', HOST_PATHS.claude), { disabledBehavior: 'codex-only', role: 'plan-review' });
+    expect(role).toContain('source-specific Repair/HINT lines');
+    expect(role).toContain('policy, auth or model selection');
+    expect(role).not.toContain('or config.toml `model`');
+    const legacy = outsideVoicePreflight(ctxFor('review', 'claude', HOST_PATHS.claude), { disabledBehavior: 'codex-only' });
+    expect(legacy).toContain('or config.toml `model`');
+  });
+
   const roleBearing: Array<[string, (ctx: TemplateContext) => string]> = [
     ['autoplan', ctx => RESOLVERS.OUTSIDE_INVOCATION(ctx, ['autoplan'])],
     ['spec', ctx => RESOLVERS.OUTSIDE_INVOCATION(ctx, ['spec'])],

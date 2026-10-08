@@ -11,7 +11,7 @@ export function modelPolicyNoticeMarker(env: StateRootEnv = process.env, platfor
 export function modelPolicyNoticeText(selection: ModelSelection): string {
   const commands = modelPolicyCommands();
   return [
-    'NOTICE: gstack plan reviews now use an independent plan-review model (default: frontier tier), not your general coding-model setting.',
+    'NOTICE: gstack plan reviews now use an independent plan-review model by default (frontier tier), rather than general coding-model settings. Explicit overrides and host mode still apply.',
     `This review: ${describeSelection(selection)}.`,
     `Explicit choices still win, in order: a model named for the request, ${PROVIDER_ENV_OVERRIDES[selection.provider]}, then the per-tier config override.`,
     `Use the smart tier: ${commands.useSmart}. Keep host model settings: ${commands.useHost}. Shown once. Docs: https://github.com/garrytan/gstack/blob/main/docs/model-policy.md`,

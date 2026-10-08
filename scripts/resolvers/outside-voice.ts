@@ -124,12 +124,11 @@ _OUTSIDE_EXIT=0
 "$_CODEX_PROBE" run-with-timeout ${Math.ceil(opts.timeoutMs / 1000)} ${codex} >"$_OUTSIDE_TMP/${opts.structuredBase ? 'text' : 'events'}" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
 ${opts.structuredBase ? 'cat "$_OUTSIDE_TMP/text"' : 'cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"'}`
     : `_OUTSIDE_EXIT=0
-"${bin}/gstack-claude-code" --cwd "$_REPO_ROOT" --access ${opts.access ?? 'none'} --timeout-ms ${opts.timeoutMs}${opts.role ? ` --role ${opts.role}` : ''} <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/result.json" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+: >"$_OUTSIDE_TMP/stderr" || exit 1
+"${bin}/gstack-claude-code" --cwd "$_REPO_ROOT" --access ${opts.access ?? 'none'} --timeout-ms ${opts.timeoutMs}${opts.role ? ` --role ${opts.role}` : ''} <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/result.json" || _OUTSIDE_EXIT=$?
 # Preserve session/usage/modelUsage from this JSON; multiple models have no invented primary.
 cat "$_OUTSIDE_TMP/result.json" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -eq 0 ]; then
-  bun -e 'const r=await Bun.file(process.argv[1]).json(); if(r.status!=="completed" || typeof r.result!=="string" || !r.result.trim()) process.exit(1); await Bun.write(process.argv[2],r.result)' "$_OUTSIDE_TMP/result.json" "$_OUTSIDE_TMP/text" || _OUTSIDE_EXIT=1
-fi`;
+bun -e 'const r=await Bun.file(process.argv[1]).json(); await Bun.write(process.argv[3],typeof r.stderr==="string"?r.stderr:""); if(r.status!=="completed" || typeof r.result!=="string" || !r.result.trim()) process.exit(1); await Bun.write(process.argv[2],r.result)' "$_OUTSIDE_TMP/result.json" "$_OUTSIDE_TMP/text" "$_OUTSIDE_TMP/stderr" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }`;
   return `${outsideVoiceGuard(ctx)}
 ${runtimeRootPrelude(ctx)}
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
