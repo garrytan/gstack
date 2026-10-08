@@ -39,7 +39,14 @@
     ended: document.getElementById('terminal-ended'),
     restart: document.getElementById('terminal-restart'),
     restartNow: document.getElementById('terminal-restart-now'),
+    fontSize: document.getElementById('terminal-fontsize'),
   };
+
+  // Toolbar text-size picker. 'sm' (13px) stays the default; a picked size
+  // persists in chrome.storage.local.
+  const FONT_SIZES = { xs: 11, sm: 13, md: 15, lg: 17, xl: 20 };
+  const FONT_SIZE_KEY = 'terminalFontSize';
+  let fontSize = 'sm';
 
   /** State machine. */
   const STATE = {
@@ -392,7 +399,7 @@
     if (term) return;
     term = new Terminal({
       fontFamily: '"JetBrains Mono", "SF Mono", Menlo, "Noto Sans Mono CJK KR", "Malgun Gothic", monospace',
-      fontSize: 13,
+      fontSize: FONT_SIZES[fontSize],
       theme: { background: '#0a0a0a', foreground: '#e5e5e5' },
       cursorBlink: true,
       scrollback: 5000,
@@ -914,6 +921,30 @@
     els.restart?.addEventListener('click', forceRestart);
     els.restartNow?.addEventListener('click', forceRestart);
 
+    // xterm re-measures its character cell on the next render frame, so a
+    // live size change fits and tells the PTY its new cols/rows two frames
+    // later; fitting in the same tick reads the old cell size.
+    const applyFontSize = (size, persist) => {
+      fontSize = FONT_SIZES[size] ? size : 'sm';
+      if (els.fontSize) els.fontSize.value = fontSize;
+      if (persist) {
+        try { chrome.storage.local.set({ [FONT_SIZE_KEY]: fontSize }); } catch {}
+      }
+      if (!term) return;
+      term.options.fontSize = FONT_SIZES[fontSize];
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        try {
+          fitAddon && fitAddon.fit();
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          }
+        } catch {}
+      }));
+    };
+    els.fontSize?.addEventListener('change', (e) => applyFontSize(e.target.value, true));
+    try {
+      chrome.storage.local.get([FONT_SIZE_KEY], (r) => applyFontSize(r && r[FONT_SIZE_KEY], false));
+    } catch {}
 
     // Live browser-tab state. background.js → sidepanel.js → us. We
     // forward over the live PTY WebSocket; terminal-agent.ts writes

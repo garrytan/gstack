@@ -516,8 +516,8 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo
 ```
 
 If the user referenced a URL or said something like "I don't like how this looks,"
-screenshot that page with Aside in Step 3c and use `$D evolve` instead of `$D variants`
-to generate improvement variants from the existing design. If they didn't name the URL,
+screenshot that page with Aside in Step 3c and generate improvement variants from that
+screenshot instead of from text alone. If they didn't name the URL,
 ask for it — never guess which page they mean. If the probe above printed `200`, offer
 `http://localhost:3000` as the default in the AskUserQuestion below (still ask — never assume).
 
@@ -662,7 +662,7 @@ If D: drop specified concepts, re-present, re-confirm.
 ### Step 3c: Parallel Generation
 
 **If evolving from a screenshot** (user said "I don't like THIS"), take ONE screenshot
-of the page the user named, in Aside (PNG — `$D evolve` reads PNG):
+of the page the user named, in Aside (PNG, the format the evolve step reads):
 
 ```bash
 aside repl '

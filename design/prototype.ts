@@ -8,6 +8,8 @@
 
 import fs from "fs";
 import path from "path";
+import { openaiUrl } from "./src/auth";
+import { receiptedFetch } from "./src/receipted-fetch";
 
 const API_KEY = process.env.OPENAI_API_KEY;
 
@@ -44,7 +46,7 @@ async function generateMockup(brief: { name: string; prompt: string }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000); // 2 min timeout
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await receiptedFetch("prototype-image-request", openaiUrl("responses"), {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${API_KEY}`,

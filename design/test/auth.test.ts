@@ -13,6 +13,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   describeApiKeySource,
+  openaiUrl,
   requireApiKey,
   resolveApiKey,
   resolveApiKeyInfo,
@@ -23,6 +24,7 @@ let tmpDir: string;
 let tmpHome: string;
 let originalHome: string | undefined;
 let originalKey: string | undefined;
+let originalBaseUrl: string | undefined;
 let originalNodeEnv: string | undefined;
 let originalCwd: string;
 
@@ -33,11 +35,13 @@ beforeEach(() => {
 
   originalHome = process.env.HOME;
   originalKey = process.env.OPENAI_API_KEY;
+  originalBaseUrl = process.env.OPENAI_BASE_URL;
   originalNodeEnv = process.env.NODE_ENV;
   originalCwd = process.cwd();
 
   process.env.HOME = tmpHome;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_BASE_URL;
   delete process.env.NODE_ENV;
   process.chdir(tmpDir);
 });
@@ -48,6 +52,8 @@ afterEach(() => {
   else process.env.HOME = originalHome;
   if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
   else process.env.OPENAI_API_KEY = originalKey;
+  if (originalBaseUrl === undefined) delete process.env.OPENAI_BASE_URL;
+  else process.env.OPENAI_BASE_URL = originalBaseUrl;
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = originalNodeEnv;
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -129,6 +135,34 @@ describe("saveApiKey", () => {
     expect(mode).toBe(0o600);
     // No group/other read/write/exec bits.
     expect(mode & 0o077).toBe(0);
+  });
+});
+
+describe("openaiUrl", () => {
+  test("defaults to OpenAI; a blank OPENAI_BASE_URL is unset", () => {
+    expect(openaiUrl("responses")).toBe("https://api.openai.com/v1/responses");
+    process.env.OPENAI_BASE_URL = "   ";
+    expect(openaiUrl("chat/completions")).toBe("https://api.openai.com/v1/chat/completions");
+  });
+
+  test("uses a trimmed OPENAI_BASE_URL without duplicate slashes", () => {
+    process.env.OPENAI_BASE_URL = "  https://gateway.example/openai/v1///  ";
+    expect(openaiUrl("responses")).toBe("https://gateway.example/openai/v1/responses");
+  });
+
+  test("no design source outside auth.ts hardcodes an OpenAI API URL", () => {
+    const designDir = path.resolve(import.meta.dir, "..");
+    const walk = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) return e.name === "test" || e.name === "node_modules" || e.name === "dist" ? [] : walk(p);
+        return /\.[cm]?[jt]s$/.test(e.name) ? [p] : [];
+      });
+    const hardcoded = walk(designDir)
+      .filter((p) => p !== path.join(designDir, "src", "auth.ts"))
+      .filter((p) => fs.readFileSync(p, "utf-8").includes("https://api.openai.com"))
+      .map((p) => path.relative(designDir, p));
+    expect(hardcoded).toEqual([]);
   });
 });
 

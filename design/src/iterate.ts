@@ -6,7 +6,7 @@
  * with original brief + accumulated feedback in a single prompt.
  */
 
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { imageRequestBody, modelRejectionHint } from "./models";
 import { readSession, updateSession } from "./session";
@@ -88,7 +88,7 @@ async function callWithThreading(
   const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
-    const response = await receiptedFetch("iterate-threaded-image-request", "https://api.openai.com/v1/responses", {
+    const response = await receiptedFetch("iterate-threaded-image-request", openaiUrl("responses"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -135,7 +135,7 @@ async function callFresh(
   const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
-    const response = await receiptedFetch("iterate-fresh-image-request", "https://api.openai.com/v1/responses", {
+    const response = await receiptedFetch("iterate-fresh-image-request", openaiUrl("responses"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,

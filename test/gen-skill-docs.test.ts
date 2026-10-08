@@ -3182,6 +3182,22 @@ describe('Codex generation (--host codex)', () => {
     expect(codexContent).toContain('gstack-claude-code');
   });
 
+  test('codex design-shotgun generates with built-in $imagegen and keeps $D for the board only', () => {
+    const codex = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-design-shotgun', 'SKILL.md'), 'utf-8');
+    for (const phrase of ['`$imagegen`', 'default built-in mode', 'needs no `OPENAI_API_KEY`', 'view_image', 'gstack-design-claim', '$D compare --images-file']) {
+      expect(codex).toContain(phrase);
+    }
+    for (const generator of ['"$D" variants', '"$D" generate', '"$D" evolve', '$D iterate', '`$D variants --brief']) {
+      expect(codex).not.toContain(generator);
+    }
+    const claude = fs.readFileSync(path.join(ROOT, 'design-shotgun', 'SKILL.md'), 'utf-8');
+    expect(claude).toContain('"$D" variants --briefs-file');
+    expect(claude).not.toContain('$imagegen');
+    for (const skill of ['plan-design-review', 'design-consultation']) {
+      expect(readExternalSkillUnion(EXTERNAL_OUT, '.agents', skill)).not.toContain('$imagegen');
+    }
+  });
+
   test('codex host does not include Codex design block in ship', () => {
     const codexContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(codexContent).not.toContain('Codex design voice');

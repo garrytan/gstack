@@ -21,7 +21,7 @@ import { outsideVoiceFor, outsideVoiceGuard, outsideVoiceInvocation, outsideVoic
 // Domain modules
 import { generatePreamble } from './preamble';
 import { generateTestFailureTriage } from './preamble';
-import { generateDesignMethodology, generateDesignHardRules, generateDesignOutsideVoices, generateDesignReviewLite, generateDesignSketch, generateDesignSetup, generateDesignMockup, generateDesignShotgunLoop, generateTasteProfile, generateUXPrinciples, generateOverusedFonts, generateDesignSlopBullets, generateDesignDetector, generateDesignMdCheck } from './design';
+import { generateDesignMethodology, generateDesignHardRules, generateDesignOutsideVoices, generateDesignReviewLite, generateDesignSketch, generateDesignSetup, generateDesignMockup, generateDesignShotgunGeneration, generateDesignShotgunLoop, generateTasteProfile, generateUXPrinciples, generateOverusedFonts, generateDesignSlopBullets, generateDesignDetector, generateDesignMdCheck } from './design';
 import { generateTestBootstrap, generateTestCoverageAuditPlan, generateTestCoverageAuditShip, generateTestCoverageGateShip } from './testing';
 import { generateReviewDashboard, generatePlanFileReviewReport } from './review-dashboard';
 import { generatePlanReviewApprovalCheck, generateExitPlanModeGate, generatePlanCompletionAuditShip, generatePlanCompletionGateShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './plan-gates';
@@ -120,6 +120,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   DESIGN_SKETCH: generateDesignSketch,
   DESIGN_SETUP: generateDesignSetup,
   DESIGN_MOCKUP: generateDesignMockup,
+  DESIGN_SHOTGUN_GENERATION: generateDesignShotgunGeneration,
   DESIGN_SHOTGUN_LOOP: generateDesignShotgunLoop,
   BENEFITS_FROM: generateBenefitsFrom,
   CODEX_SECOND_OPINION: generateCodexSecondOpinion,
