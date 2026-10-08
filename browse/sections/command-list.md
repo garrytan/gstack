@@ -107,7 +107,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `type [--selector <sel>] [--] <text>` | Send keystrokes to the focused element, or to <sel> with --selector (focuses it first). Text that starts with -- goes after a -- separator. |
 | `upload <sel> <file> [file2...]` | Upload file(s) |
 | `useragent <string>` | Set user agent |
-| `viewport [<WxH>] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. |
+| `viewport [<WxH>|auto] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. `auto` (alias `reset`) unpins: headed follows the window again, headless returns to 1280x720. |
 | `wait <sel|--networkidle|--load>` | Wait for element, network idle, or page load (timeout: 15s) |
 
 ### Inspection

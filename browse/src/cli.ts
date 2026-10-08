@@ -1744,7 +1744,7 @@ Navigation:     goto <url> | back | forward | reload | url
 Content:        text | html [sel] | links | forms | accessibility
 Interaction:    click <sel> | fill <sel> <val> | select <sel> <val>
                 hover <sel> | type [--selector <sel>] <text> | press <key>
-                scroll [sel] | wait <sel|--networkidle|--load> | viewport <WxH>
+                scroll [sel] | wait <sel|--networkidle|--load> | viewport <WxH|auto>
                 upload <sel> <file1> [file2...]
                 cookie-import <json-file>
                 cookie-import-browser [browser] [--domain <d> | --all] [--profile <p>] [--clear-storage] [--verify-auth]

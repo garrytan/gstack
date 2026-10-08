@@ -545,18 +545,25 @@ export async function handleWriteCommand(
         } else if (sizeArg === undefined) {
           sizeArg = args[i];
         } else {
-          throw new Error(`Unexpected positional arg: ${args[i]}. Usage: viewport [WxH] [--scale <n>]`);
+          throw new Error(`Unexpected positional arg: ${args[i]}. Usage: viewport [WxH|auto] [--scale <n>]`);
         }
       }
 
       if (sizeArg === undefined && scaleArg === undefined) {
-        throw new Error('Usage: browse viewport [<WxH>] [--scale <n>]  (e.g. 375x812, or --scale 2 to keep current size)');
+        throw new Error('Usage: browse viewport [<WxH>|auto] [--scale <n>]  (e.g. 375x812, auto to unpin, or --scale 2 to keep current size)');
+      }
+
+      if (sizeArg !== undefined && ['auto', 'reset', 'unpin'].includes(sizeArg.toLowerCase())) {
+        if (scaleArg !== undefined) throw new Error('viewport auto cannot be combined with --scale or a size.');
+        return (await bm.resetViewport()) === 'window'
+          ? 'Viewport unpinned: the page follows the browser window again (refs cleared)'
+          : 'Viewport reset to default 1280x720';
       }
 
       // Resolve width/height: either from sizeArg or from current viewport if --scale-only.
       let w: number, h: number;
       if (sizeArg) {
-        if (!sizeArg.includes('x')) throw new Error('Usage: browse viewport [<WxH>] [--scale <n>] (e.g., 375x812)');
+        if (!sizeArg.includes('x')) throw new Error('Usage: browse viewport [<WxH>|auto] [--scale <n>] (e.g., 375x812)');
         const [rawW, rawH] = sizeArg.split('x').map(Number);
         w = Math.min(Math.max(Math.round(rawW) || 1280, 1), 16384);
         h = Math.min(Math.max(Math.round(rawH) || 720, 1), 16384);
