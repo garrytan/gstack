@@ -310,7 +310,7 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
   application-control messages as blocked from reporters' captures; nobody has
   run it on an enforcing machine. **Effort:** S. **Priority:** P3.
 
-### P2/P3: install footprint follow-ups from the October fix wave (PR C2, v1.91.58.0)
+### P2/P3: install footprint follow-ups from the October fix wave (PR C2, v1.91.61.0)
 
 - **`scripts/ship-measure.ts` on env-var hosts** — /ship's measure loop runs
   `$GSTACK_ROOT/scripts/ship-measure.ts`, which imports gstack's test helpers

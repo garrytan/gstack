@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Migration: v1.91.58.0 — install footprint (#1694). The release queue may
+# Migration: v1.91.61.0 — install footprint (#1694). The release queue may
 # rename this file at /ship; it must match VERSION.
 #
 # Installs used to render every host's skills inside the checkout, so a global
