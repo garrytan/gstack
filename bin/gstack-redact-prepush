@@ -339,7 +339,8 @@ function collectAddedLines(diff: string, commit?: string): AddedFile[] {
     const inResult = inHunk && !line.startsWith("\\") && !line.slice(0, parents).includes("-");
     const lineNumber = inResult ? nextLine++ : 0;
     if (line.startsWith("+")) {
-      fileLines.push(line.slice(1));
+      // A combined (--cc) body line carries one prefix column per parent.
+      fileLines.push(line.slice(inHunk ? parents : 1));
       lineNumbers.push(lineNumber);
     }
   }

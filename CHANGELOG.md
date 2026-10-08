@@ -58,6 +58,7 @@ Both are tracked in TODOS.md.
 - CI's GitHub Actions SHA pins are refreshed (docker/setup-buildx-action 4.4.1, docker/build-push-action 7.4.0, actions/attest 4.2.2, actions/setup-node 7.0.0), each with its exact version comment (#2988).
 
 #### Fixed
+- The pre-push scan reads merge-commit lines without their second parent column, so a merge that resolves a release bump no longer reports its version strings as public IPs.
 - /autoplan's own section files and phase artifacts no longer raise permission prompts after a background reviewer's completion notice, in the foreground or with `claude --bg`. The publication guard's checks are unchanged.
 - The outside-review classifier reads a trailing `— Medium.` or `(High)` severity on a finding line, the shape Codex now writes. Before this, such a review was reported `unverified`.
 - `gstack-hook-check` checks the hooks skills register (/careful, /freeze, /guard, /investigate, /plan-ceo-review), the shell helpers they source, and conflict markers that still parse, including in imported modules. It also ignores the calling project's tsconfig.json and bunfig.toml. Thanks @BenjaminDSmithy (#3066).
