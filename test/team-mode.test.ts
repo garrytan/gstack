@@ -233,7 +233,7 @@ describe('gstack-team-init', () => {
 
   test('required: creates enforcement hook', () => {
     run(`${TEAM_INIT} required`, { cwd: tmpDir });
-    const hookPath = path.join(tmpDir, '.claude', 'hooks', 'check-gstack.sh');
+    const hookPath = path.join(tmpDir, '.claude', 'hooks', 'check-gstack.cjs');
     expect(fs.existsSync(hookPath)).toBe(true);
     const hook = fs.readFileSync(hookPath, 'utf-8');
     expect(hook).toContain('BLOCKED: gstack is not installed');
@@ -265,6 +265,93 @@ describe('gstack-team-init', () => {
     run(`${TEAM_INIT} required`, { cwd: tmpDir });
     const pre = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')).hooks.PreToolUse;
     expect(pre.map((e: { matcher: string }) => e.matcher)).toEqual(['Bash', 'Skill|skill']);
+  });
+
+  const registeredCommand = () => {
+    const pre = JSON.parse(fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8')).hooks.PreToolUse;
+    return pre.flatMap((e: { hooks: { command: string }[] }) => e.hooks.map(h => h.command)).find((c: string) => c.includes('check-gstack'));
+  };
+
+  test('required: the registered command is shell-neutral (no shell variable syntax, node reads CLAUDE_PROJECT_DIR)', () => {
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const command = registeredCommand();
+    expect(command).toStartWith('node -e "');
+    expect(command).toContain('process.env.CLAUDE_PROJECT_DIR');
+    expect(command).toContain('check-gstack.cjs');
+    expect(command).not.toContain('$');
+    expect(command).not.toContain('%');
+    expect(command).not.toContain('.sh');
+  });
+
+  test('required: the registered command, run from another directory, allows when gstack resolves and denies when not', () => {
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const command = registeredCommand();
+    const home = mkTmpDir();
+    const elsewhere = mkTmpDir();
+    const hook = (env: Record<string, string>) => {
+      const r = Bun.spawnSync(['sh', '-c', command], { cwd: elsewhere, env: { PATH: process.env.PATH!, CLAUDE_PROJECT_DIR: tmpDir, ...env }, timeout: 10_000 });
+      return { code: r.exitCode, out: r.stdout.toString().trim(), err: r.stderr.toString() };
+    };
+    try {
+      const denied = hook({ HOME: home });
+      expect(denied.code).toBe(2);
+      expect(JSON.parse(denied.out).hookSpecificOutput.permissionDecision).toBe('deny');
+      expect(denied.err).toContain('BLOCKED: gstack is not installed globally.');
+
+      expect(hook({ HOME: home, GSTACK_ROOT: path.join(ROOT) })).toEqual({ code: 0, out: '{}', err: '' });
+      fs.mkdirSync(path.join(home, '.codex', 'skills', 'gstack', 'bin'), { recursive: true });
+      expect(hook({ HOME: home })).toEqual({ code: 0, out: '{}', err: '' });
+      // No HOME (a Windows hook runner): USERPROFILE is next.
+      expect(hook({ USERPROFILE: home })).toEqual({ code: 0, out: '{}', err: '' });
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  test('required: re-running over a legacy .sh registration leaves exactly one handler and removes the tracked .sh', () => {
+    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(path.join(hooksDir, 'check-gstack.sh'), '#!/bin/bash\necho "{}"\n', { mode: 0o755 });
+    const legacy = { type: 'command', command: '"$CLAUDE_PROJECT_DIR/.claude/hooks/check-gstack.sh"' };
+    fs.writeFileSync(path.join(tmpDir, '.claude', 'settings.json'), JSON.stringify({ hooks: { PreToolUse: [
+      { matcher: 'Skill', hooks: [{ type: 'command', command: 'team-audit' }, legacy] },
+      { matcher: 'Skill|skill', hooks: [legacy] },
+      { matcher: 'Bash', hooks: [{ type: 'command', command: 'my-own-hook' }] },
+    ] } }));
+    execSync('git add .claude && git commit -q -m legacy', { cwd: tmpDir, timeout: 30_000 });
+
+    const first = run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    expect(first.exitCode).toBe(0);
+    expect(fs.existsSync(path.join(hooksDir, 'check-gstack.sh'))).toBe(false);
+    expect(first.stdout).toMatch(/git add .*\.claude\/hooks\/check-gstack\.sh/);
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+
+    const pre = JSON.parse(fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8')).hooks.PreToolUse;
+    expect(pre).toEqual([
+      { matcher: 'Skill|skill', hooks: [{ type: 'command', command: 'team-audit' }, { type: 'command', command: registeredCommand() }] },
+      { matcher: 'Bash', hooks: [{ type: 'command', command: 'my-own-hook' }] },
+    ]);
+    expect(registeredCommand()).not.toContain('$');
+  });
+
+  test('required: without bun the legacy .sh stays, since nothing re-registers its replacement', () => {
+    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(path.join(hooksDir, 'check-gstack.sh'), '#!/bin/bash\necho "{}"\n', { mode: 0o755 });
+    const bin = mkTmpDir();
+    try {
+      for (const tool of ['git', 'bash', 'cat', 'mkdir', 'chmod', 'grep', 'dirname', 'rm']) {
+        const real = execSync(`command -v ${tool}`, { encoding: 'utf-8', shell: '/bin/bash' }).trim();
+        fs.symlinkSync(real, path.join(bin, tool));
+      }
+      const r = run(`${bin}/bash ${TEAM_INIT} required`, { cwd: tmpDir, env: { PATH: bin } });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain('bun not found');
+      expect(fs.existsSync(path.join(hooksDir, 'check-gstack.sh'))).toBe(true);
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true });
+    }
   });
 
   test('idempotent: running twice does not duplicate CLAUDE.md section', () => {

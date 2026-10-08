@@ -36,11 +36,14 @@ describe('gstack-team-init required: PreToolUse hook schema (#2413)', () => {
     fs.rmSync(fakeHomePresent, { recursive: true, force: true });
   });
 
+  // Run the command exactly as registered in settings.json, the way a hook
+  // runner does: through a shell, with CLAUDE_PROJECT_DIR set.
   function runHook(home: string): { status: number; stdout: string; stderr: string } {
-    const hookPath = path.join(repoDir, '.claude', 'hooks', 'check-gstack.sh');
+    const settings = JSON.parse(fs.readFileSync(path.join(repoDir, '.claude', 'settings.json'), 'utf-8'));
+    const command = settings.hooks.PreToolUse[0].hooks[0].command;
     try {
-      const stdout = execSync(`bash "${hookPath}"`, {
-        env: { ...process.env, HOME: home },
+      const stdout = execSync(command, {
+        env: { ...process.env, HOME: home, CLAUDE_PROJECT_DIR: repoDir, GSTACK_ROOT: '' },
         encoding: 'utf-8',
         timeout: 30_000,
       });
@@ -52,11 +55,12 @@ describe('gstack-team-init required: PreToolUse hook schema (#2413)', () => {
   }
 
   test('generates the hook and registers it in settings.json', () => {
-    expect(fs.existsSync(path.join(repoDir, '.claude', 'hooks', 'check-gstack.sh'))).toBe(true);
+    expect(fs.existsSync(path.join(repoDir, '.claude', 'hooks', 'check-gstack.cjs'))).toBe(true);
     const settings = JSON.parse(
       fs.readFileSync(path.join(repoDir, '.claude', 'settings.json'), 'utf-8'),
     );
-    expect(JSON.stringify(settings)).toContain('check-gstack.sh');
+    expect(JSON.stringify(settings)).toContain('check-gstack.cjs');
+    expect(settings.hooks.PreToolUse[0].hooks[0].command).not.toContain('$');
   });
 
   test('gstack absent: exits 2 (blocking) with schema-valid deny JSON', () => {
