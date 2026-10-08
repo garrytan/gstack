@@ -4,11 +4,11 @@
 
 ### P1/P2: /cso capacity follow-ups (filed 2026-10-08)
 
-Left open by v1.91.37.0, which lifted the snapshot file-count ceiling.
+Left open by v1.91.42.0, which lifted the snapshot file-count ceiling.
 
 - **Tracked symlinks refuse the whole /cso run** — `capture()` fails closed on
   any tracked symlink ("Symlink or special source file"). 5 of 8 mid-size OSS
-  repos measured for v1.91.37.0 stop there (django, rails, terraform, grafana,
+  repos measured for v1.91.42.0 stop there (django, rails, terraform, grafana,
   vscode; 1-10 symlinks each, mostly test fixtures). Recording them as unread
   exclusions in the manifest, like dependency trees, is a security design call
   for Garry. **Effort:** M. **Priority:** P1.
