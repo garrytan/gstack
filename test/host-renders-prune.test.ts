@@ -122,8 +122,13 @@ describe.skipIf(process.platform === 'win32')('gstack-upgrade migration prunes e
   const migrations = fs.readdirSync(path.join(ROOT, 'gstack-upgrade/migrations'))
     .filter(n => fs.readFileSync(path.join(ROOT, 'gstack-upgrade/migrations', n), 'utf8').includes('gstack-host-renders.sh'));
 
-  test('exactly one migration owns the prune', () => {
+  test('exactly one migration owns the prune, and setup runs it (not newer than VERSION)', () => {
     expect(migrations).toEqual([expect.stringMatching(/^v\d+\.\d+\.\d+\.\d+\.sh$/)]);
+    const parts = (v: string) => v.split('.').map(Number);
+    const mine = parts(migrations[0]!.slice(1, -3));
+    const version = parts(fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf8').trim());
+    const cmp = mine.map((n, i) => n - version[i]!).find(d => d !== 0) ?? 0;
+    expect(cmp).toBeLessThanOrEqual(0);
   });
 
   function migrate(f: Fixture, install: string) {

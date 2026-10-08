@@ -245,6 +245,43 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
   application-control messages as blocked from reporters' captures; nobody has
   run it on an enforcing machine. **Effort:** S. **Priority:** P3.
 
+### P2/P3: install footprint follow-ups from the October fix wave (PR C2, v1.91.50.0)
+
+- **`scripts/ship-measure.ts` on env-var hosts** — /ship's measure loop runs
+  `$GSTACK_ROOT/scripts/ship-measure.ts`, which imports gstack's test helpers
+  and eval harness, so a Codex/Factory/... runtime root would need most of the
+  development tree. It is the one `$GSTACK_ROOT` path
+  `test/runtime-root-assets.test.ts` defers. Either make ship-measure
+  self-contained or have the skill call it from the source checkout
+  (`.source-path`). **Effort:** M. **Priority:** P3.
+- **Rendered `SKILL.md` copies inside runtime roots are discoverable** —
+  `office-hours/SKILL.md` (#2449) and now `plan-design-review/SKILL.md` sit in
+  `~/.codex/skills/gstack/<skill>/` because skills read them as
+  `$GSTACK_ROOT/<skill>/SKILL.md`. A host that scans its skills dir
+  recursively may list them beside `gstack-<skill>`. Pointing those reads at
+  the sibling registry path, as /autoplan does, removes the copies; that is a
+  prompt change and needs its evals. **Effort:** M. **Priority:** P3.
+- **Removing one host from a checkout** — the installed-hosts record only
+  grows, and `gstack-uninstall` removes every install. A per-host uninstall
+  should drop the host from `.gstack-installed-hosts` so its render is pruned;
+  today that is a hand edit. **Effort:** S. **Priority:** P3.
+- **Recording an instruction-only host from setup** — Hermes, OpenClaw and
+  GBrain renders made by hand inside an install survive only when the user adds
+  the host to `.gstack-installed-hosts` first (setup's hint says so). A
+  `./setup --host hermes --render`-style path would record and render in one
+  step; it needs a product call because those tiers install nothing today.
+  **Effort:** S. **Priority:** P3.
+- **Host-render backups never expire** — each install's first pruning setup
+  moves about 36 MB of generated files to
+  `$GSTACK_STATE_ROOT/backups/host-renders/`. Add a retention rule (for example
+  keep 30 days) once nobody has asked for a restore. **Effort:** S.
+  **Priority:** P3.
+- **Verify the Cursor-agent freeze and Claude Code's listing on a real
+  install** — #1694's symptoms (Cursor-agent freezing above about 11 MB, Claude
+  Code dropping skill descriptions) were measured as on-disk bytes only: 632
+  `SKILL.md` / 34.7 MB before, 63 / 2.5 MB after. Nobody re-ran Cursor or
+  Claude Code against the trimmed tree. **Effort:** S. **Priority:** P3.
+
 ### P2/P3: severe fix wave follow-ups (filed 2026-10-03, v1.91.19.0)
 
 Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10.md), each with its reason.

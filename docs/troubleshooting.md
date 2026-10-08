@@ -647,6 +647,36 @@ whose hooks parse. This is a gstack bug: report the printed `<file>:<line>`.
 cannot be checked before the pull; setup then refuses the broken hook (see the
 entry above).
 
+<a id="host-renders-pruned"></a>
+### `pruned <dir> (<host> is not installed from this checkout): ...` / `kept <path>: not proven generated (...)` / `host-render backup: <dir> (...)`
+
+**Meaning.** A gstack checkout keeps skills only for the agents installed from
+it, listed in `.gstack-installed-hosts` in the checkout (#1694). Older installs
+rendered every agent's copy, so a global Claude install carried 632 `SKILL.md`
+files (34.7 MB) that Claude Code and Cursor-agent scan. setup removed the copy
+for an agent that is not installed from this checkout. Generated files were
+moved to the backup directory it printed; links into the checkout were removed;
+files it could not prove gstack generated (`kept ...`) were left in place.
+`prune.log` in the backup lists every path. The same prune runs once from the
+upgrade migration. Agents in the record are never pruned.
+
+**Fix.** Nothing, if you don't use that agent. To get an agent back, install
+it from this checkout, which records it and renders its skills:
+
+```bash
+./setup --host <name>
+```
+
+For an instruction-only agent you render by hand (Hermes, OpenClaw, GBrain),
+add its name to `.gstack-installed-hosts` first, then run
+`bun run gen:skill-docs --host <name>`. To restore one file, `mv` it back from
+the backup. A `kept` file is yours: move or delete it when you no longer need it.
+The backup sits in gstack's state root, which no agent scans; delete it once
+you are sure you don't need it (about 36 MB for a pre-1.91.50 Claude install).
+
+**Expected result.** The next `./setup` prints no `pruned` line, and
+`./setup --status` lists the agents you use.
+
 <a id="cso-windows-msvc-compile"></a>
 ### `CSO unavailable: its native helper was not built (windows-msvc-compile)`
 
