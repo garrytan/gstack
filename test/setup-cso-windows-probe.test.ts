@@ -28,7 +28,11 @@ afterEach(() => { for (const t of tmps.splice(0)) fs.rmSync(t, { recursive: true
 function probe(powershellOutput: string) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-cso-win-'));
   tmps.push(tmp);
-  fs.writeFileSync(path.join(tmp, 'powershell.exe'), `#!/bin/sh\ncat <<'OUT' >&2\n${powershellOutput}\nOUT\nexit 1\n`, { mode: 0o755 });
+  // setup resolves pwsh before powershell.exe (#3071); stub both so a runner's
+  // real PowerShell 7 never answers the probe.
+  for (const name of ['pwsh', 'powershell.exe']) {
+    fs.writeFileSync(path.join(tmp, name), `#!/bin/sh\ncat <<'OUT' >&2\n${powershellOutput}\nOUT\nexit 1\n`, { mode: 0o755 });
+  }
   fs.writeFileSync(path.join(tmp, 'cygpath'), '#!/bin/sh\nshift; echo "$1"\n', { mode: 0o755 });
   return runBashScript([
     'IS_WINDOWS=1', `SOURCE_GSTACK_DIR="${ROOT}"`,

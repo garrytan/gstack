@@ -6,7 +6,7 @@
 #   gstack-doctor --live   also run the paid Codex model probe (one short call)
 #
 # Rows: install root, state root, bun, hooks, codex, codex probe, artifacts
-# sync, browse bundle, claude code, session journal, guard log. Each row is
+# sync, browse bundle, binaries, cso, claude code, session journal, guard log. Each row is
 # `ok`, `warn`, `not configured` or `fail`; a row that is not ok carries a fix
 # line, and every gstack helper in a fix line is an absolute path under this
 # install root. Exit 1 when any row is `fail`, 2 on a usage error, else 0.
@@ -15,8 +15,9 @@
 # install registry rows behind `./setup --status`, bin/gstack-bun-version.sh,
 # bin/gstack-hook-check, bin/gstack-codex-probe's subcommands (the paid
 # `probe-model` only with --live; otherwise the cached result and its age),
-# the status file bin/gstack-brain-sync writes, and setup's browse build
-# outputs. The sync row prints only a clamped status code and counts, never
+# the status file bin/gstack-brain-sync writes, setup's browse build
+# outputs, setup's launch probe (bin/gstack-launch-probe.sh, which runs each
+# compiled binary's side-effect-free --version) and the CSO build-result record. The sync row prints only a clamped status code and counts, never
 # the status message or file paths: the message can quote a matched secret.
 # Bash 3.2 plus POSIX tools; it still reports when bun or python3 is missing.
 
@@ -272,19 +273,76 @@ check_sync() {
   fi
 }
 
+# launch_fix — the fix line for a binary the OS refuses to start.
+launch_fix() {
+  if [ -n "$EXE" ]; then
+    echo "Windows Smart App Control (or another application-control policy) blocks unsigned local builds (#2595): run gstack inside WSL or turn Smart App Control off, then cd $SRC && ./setup ($DOCS#windows-smart-app-control)"
+  else
+    echo "the OS refused to execute it (permissions or a noexec mount under $ROOT); fix that, then cd $SRC && ./setup"
+  fi
+}
+
 check_browse() {
-  local exe="" missing="" f
-  case "${OSTYPE:-}" in msys*|cygwin*|win32*) exe=".exe" ;; esac
-  if [ ! -x "$ROOT/browse/dist/browse$exe" ]; then
+  local missing="" f
+  if [ ! -x "$ROOT/browse/dist/browse$EXE" ]; then
     row warn "browse bundle" "not built; the gstack browser fallback for /browse, /qa, /qa-only, /design-review, /make-pdf, /pair-agent is unavailable (the Aside browser is unaffected)" "cd $SRC && ./setup"
     return
   fi
+  gstack_launch_probe "$ROOT/browse/dist/browse$EXE"
+  case "$_glp_state" in
+    blocked) row warn "browse bundle" "built, but blocked at launch (${_glp_detail:-no output}); the gstack browser fallback is unavailable (the Aside browser is unaffected)" "$(launch_fix)"; return ;;
+    broken) row warn "browse bundle" "built, but browse --version failed (${_glp_detail})" "cd $SRC && bun run build"; return ;;
+  esac
   for f in server-node.mjs .build-complete; do [ -e "$ROOT/browse/dist/$f" ] || missing="${missing:+$missing, }$f"; done
   if [ -n "$missing" ]; then
     row warn "browse bundle" "incomplete build (missing browse/dist: $missing)" "cd $SRC && ./setup"
   else
     row ok "browse bundle" "browse/dist built"
   fi
+}
+
+# check_binaries — the other compiled binaries, by launch state (browse has its own row).
+check_binaries() {
+  local rel detail blocked="" broken="" missing="" skills="" n=0
+  for rel in browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover; do
+    gstack_launch_probe "$ROOT/$rel$EXE"
+    detail="${rel##*/}"
+    case "$_glp_state" in
+      native) n=$((n + 1)) ;;
+      blocked) blocked="${blocked:+$blocked, }$detail (${_glp_detail:-no output})"; skills="${skills:+$skills, }$(gstack_launch_probe_skills "$rel")" ;;
+      broken) broken="${broken:+$broken, }$detail (${_glp_detail})" ;;
+      missing) missing="${missing:+$missing, }$detail" ;;
+    esac
+  done
+  if [ -n "$blocked" ]; then
+    row warn binaries "blocked at launch: $blocked; unavailable: $skills" "$(launch_fix)"
+  elif [ -n "$broken" ]; then
+    row warn binaries "launched but failed: $broken" "cd $SRC && bun run build"
+  elif [ -n "$missing" ]; then
+    row warn binaries "not built: $missing" "cd $SRC && ./setup"
+  else
+    row ok binaries "find-browse, design, pdf, gstack-global-discover launch ($n of 4)"
+  fi
+}
+
+# check_cso — from the build-result record setup and scripts/build-cso.sh write.
+check_cso() {
+  local file="$SRC/bin/.gstack-cso-build-result" result stage reason installed diag usable=0
+  [ -x "$SRC/bin/gstack-cso-launcher$EXE" ] && [ -x "$SRC/bin/gstack-cso-core$EXE" ] && usable=1
+  cso_field() { sed -n "s/^$1=//p" "$file" 2>/dev/null | head -1 | clamp ' -~' 200; }
+  result=$(cso_field result) stage=$(cso_field stage) reason=$(cso_field reason) installed=$(cso_field installed) diag=$(cso_field diagnostic)
+  case "$result" in
+    ok) if [ "$usable" -eq 1 ]; then row ok cso "native helper $installed"
+        else row warn cso "the last build succeeded but the native helper is missing; /cso reports not assessed" "cd $SRC && ./setup"; fi ;;
+    failed)
+      if [ "$usable" -eq 1 ] && [ -n "$installed" ]; then
+        row warn cso "$stage step failed ($reason) for $(cso_field revision); previous CSO kept: $installed" "cd $SRC && bun run build:cso && ./setup (log: ${diag:-none}; $DOCS#cso-build-or-publish-failed)"
+      else
+        row warn cso "unavailable: the $stage step failed ($reason); /cso reports not assessed" "cd $SRC && bun run build:cso && ./setup (log: ${diag:-none}; $DOCS#cso-build-or-publish-failed)"
+      fi ;;
+    *) if [ "$usable" -eq 1 ]; then row ok cso "native helper built (no build record yet)"
+       else row "not configured" cso "native helper not built; /cso reports not assessed" "cd $SRC && ./setup (it names any missing build prerequisite)"; fi ;;
+  esac
 }
 
 check_claude() {
@@ -376,6 +434,10 @@ STATE_ROOT="$_gstack_sr_root"
 GSTACK_STATE_ROOT="$STATE_ROOT"
 . "$BIN/gstack-codex-status.sh" 2>/dev/null || { echo "gstack-doctor: $BIN/gstack-codex-status.sh is missing; reinstall with cd $SRC && ./setup" >&2; exit 1; }
 
+. "$BIN/gstack-launch-probe.sh" 2>/dev/null || { echo "gstack-doctor: $BIN/gstack-launch-probe.sh is missing; reinstall with cd $SRC && ./setup" >&2; exit 1; }
+EXE=""
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) EXE=".exe" ;; esac
+
 echo "gstack doctor $(head -1 "$ROOT/VERSION" 2>/dev/null | clamp '0-9A-Za-z.+-' 40)"
 check_install
 check_state_root
@@ -385,6 +447,8 @@ check_codex
 [ "$CODEX_READY" -eq 1 ] && check_codex_probe
 check_sync
 check_browse
+check_binaries
+check_cso
 check_claude
 check_journal
 check_guard_log

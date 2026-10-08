@@ -26,8 +26,9 @@ section has a stable link anchor; the reason codes and anchors come from
 Run `~/.claude/skills/gstack/bin/gstack-doctor` (other hosts: `./setup --status`
 in your gstack checkout prints the doctor's absolute path). It prints one row
 each for the install, state root, Bun, hooks, Codex, the cached Codex model
-check, artifacts sync, the browse bundle, Claude Code, the largest session
-journal and recent /autoplan guard codes. Each row is `ok`, `warn`,
+check, artifacts sync, the browse bundle, the other compiled binaries, the
+/cso native helper, Claude Code, the largest session journal and recent
+/autoplan guard codes. Each row is `ok`, `warn`,
 `not configured` or `fail` with its fix; only `fail` exits non-zero. It makes
 no paid call: the Codex rows report the cached model check and its age, and
 `--live` runs that check once. Paste its output into bug reports.
@@ -771,6 +772,35 @@ Visual Studio".
 
 **Fix.** Fix the printed compiler error, then re-run `./setup`.
 
+<a id="cso-build-or-publish-failed"></a>
+### `CSO unavailable: the native helper's <stage> step failed (...)` / `CSO publish step failed (...) for <revision>; previous CSO kept: <revision>`
+
+**Meaning.** The /cso native helper is optional. Its build prerequisites were
+present, but the `build` step (compiling the helper) or the `publish` step
+(swapping the new helper into `bin/` under a lock) failed. setup used to stop
+here (#3071); now it finishes everything else and says which step failed. When
+an earlier helper was installed and the failed publish restored it, setup
+prints `previous CSO kept` and /cso keeps using that helper; otherwise /cso
+reports `not assessed`. `interrupted` means the step was killed before it could
+record a result. The outcome is in `bin/.gstack-cso-build-result`, and
+`gstack-doctor`'s `cso` row reads the same record. The build output is in
+`bin/.gstack-cso-build.log`.
+
+**Fix.** Read the log, fix what it reports, then retry from your gstack checkout:
+
+```bash
+bun run build:cso && ./setup
+```
+
+On Windows, setup and the build use PowerShell 7 (`pwsh`) when it is installed
+and fall back to Windows PowerShell 5.1. The root cause of the staged files
+vanishing during publish in #3071 is still unknown; attach the log there if you
+hit it. CI sets `GSTACK_STRICT_BUILD=1`, which makes these failures fatal so
+build regressions cannot hide.
+
+**Expected result.** setup prints no CSO line, and the doctor's `cso` row is
+`ok`.
+
 <a id="cso-windows-docker"></a>
 ### `Docker found at <path>, but native Windows Docker transport is not supported yet; static assessment only.` / `docker.exe at <path> is outside the trusted install locations (...)`
 
@@ -933,6 +963,45 @@ killed.
 
 **Fix.** After `browse stop`, check for a leftover browser with
 `ps aux | grep -i chrom` and end it with `kill <pid>`.
+
+---
+
+## Windows
+
+<a id="windows-smart-app-control"></a>
+### `Windows blocked compiled gstack binaries at launch (Smart App Control or another application-control policy, #2595)` / `bash: .../browse.exe: Permission denied`
+
+**Meaning.** Known issue (#2595, #2124). gstack compiles five binaries on your
+machine with Bun: `browse`, `find-browse`, `design`, `pdf` and
+`gstack-global-discover`. They are unsigned, and a binary built on one machine
+never earns the reputation Smart App Control accepts instead of a signature, so
+Windows 11 with Smart App Control on refuses to start them. Git Bash reports
+that as `Permission denied`, which looks like a file-permission problem but is
+code integrity (PowerShell says `An Application Control policy has blocked this
+file`). setup now runs each binary's `--version` and names the blocked ones and
+the skills that need them: the gstack browser fallback (`/browse`, `/qa`,
+`/qa-only`, `/design-review`, `/canary`, `/benchmark`, `/pair-agent`,
+`/scrape`, `/make-pdf`), the design binary (`/design-consultation`,
+`/design-shotgun`, `/design-html`, `/plan-design-review`) and `/retro global`.
+Every other skill works. `gstack-doctor` shows the same state in its
+`browse bundle` and `binaries` rows. The exact Windows error text has not been
+verified on a Smart App Control machine; setup prints the raw first line beside
+its classification.
+
+**Fix.** There is no per-file allowlist for Smart App Control. Today's options:
+
+- Run gstack inside WSL (`wsl --install`, then install gstack in the Linux
+  distro). WSL runs gstack's Linux build, which Smart App Control does not check.
+- Or turn Smart App Control off in Windows Security > App & browser control >
+  Smart App Control settings. On Windows 11 with the April 2026 update you can
+  turn it back on later without reinstalling Windows; on older builds turning it
+  off is permanent. gstack's binaries stay blocked whenever it is on.
+
+Signed release binaries are the real fix and are tracked in `TODOS.md`. After
+Windows allows the binaries, re-run `./setup`; the message goes away.
+
+**Expected result.** setup prints no "Windows blocked" line, and
+`gstack-doctor` shows `ok` for `browse bundle` and `binaries`.
 
 ---
 

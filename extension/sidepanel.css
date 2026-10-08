@@ -38,7 +38,9 @@
 
   /* Typography */
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', 'Noto Sans Mono CJK KR', 'Malgun Gothic', monospace;
+  /* Consolas (always on Windows) before the CJK fallbacks — else Latin text resolves to
+     Malgun Gothic and renders full-width/spaced-out. Same fix as the xterm fontFamily. */
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Mono', 'Cascadia Code', Consolas, 'DejaVu Sans Mono', 'Noto Sans Mono CJK KR', 'Malgun Gothic', monospace;
 
   /* Radius */
   --radius-sm: 4px;

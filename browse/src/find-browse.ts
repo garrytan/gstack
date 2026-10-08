@@ -5,8 +5,8 @@
  * Outputs the absolute path to the browse binary on stdout, or exits 1 if not found.
  */
 
-import { accessSync, constants } from 'fs';
-import { join } from 'path';
+import { accessSync, constants, readFileSync } from 'fs';
+import { dirname, join } from 'path';
 import { homedir } from 'os';
 
 // ─── Binary Discovery ───────────────────────────────────────────
@@ -91,6 +91,13 @@ export function locateBinary(): string | null {
 // ─── Main ───────────────────────────────────────────────────────
 
 function main() {
+  // setup's and gstack-doctor's launch probe (#2595): no git, no discovery.
+  if (process.argv[2] === '--version') {
+    let version = 'unknown';
+    try { version = readFileSync(join(dirname(process.execPath), '.version'), 'utf8').trim() || version; } catch {}
+    console.log(version);
+    process.exit(0);
+  }
   const bin = locateBinary();
   if (!bin) {
     process.stderr.write('ERROR: browse binary not found. Run: cd <skill-dir> && ./setup\n');

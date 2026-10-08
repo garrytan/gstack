@@ -10,7 +10,7 @@
  */
 
 import { existsSync, readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from "fs";
-import { join, basename } from "path";
+import { join, basename, dirname } from "path";
 import { execSync } from "child_process";
 import { homedir } from "os";
 import { canonicalRemote } from "../lib/remote-identity";
@@ -55,10 +55,22 @@ function printUsage(): void {
   --since <window>   Time window: e.g. 7d, 14d, 30d, 24h
   --format <fmt>     Output format: json (default) or summary
   --help             Show this help
+  --version          Print the gstack version and exit (no scan)
 
 Examples:
   gstack-global-discover --since 7d
   gstack-global-discover --since 14d --format summary`);
+}
+
+function readGstackVersion(): string {
+  // The compiled binary and this source file both live in bin/, one level below VERSION.
+  for (const dir of [dirname(process.execPath), import.meta.dir]) {
+    try {
+      const version = readFileSync(join(dir, "..", "VERSION"), "utf8").trim();
+      if (version) return version;
+    } catch {}
+  }
+  return "unknown";
 }
 
 function parseArgs(): { since: string; format: "json" | "summary" } {
@@ -69,6 +81,10 @@ function parseArgs(): { since: string; format: "json" | "summary" } {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--help" || args[i] === "-h") {
       printUsage();
+      process.exit(0);
+    } else if (args[i] === "--version") {
+      // setup's and gstack-doctor's launch probe (#2595): exits before any scan.
+      console.log(readGstackVersion());
       process.exit(0);
     } else if (args[i] === "--since" && args[i + 1]) {
       since = args[++i];

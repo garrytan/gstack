@@ -19,6 +19,8 @@ bin/.gstack-cso-stage.*
 bin/.gstack-cso-build.lock/
 bin/.gstack-cso-generation.lock
 bin/.gstack-cso-generation
+bin/.gstack-cso-build-result
+bin/.gstack-cso-build.log
 lib/cso/images/gstack-cso-verifier
 lib/cso/images/gstack-cso-preparation
 .gstack/

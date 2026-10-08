@@ -1,5 +1,100 @@
 # Changelog
 
+## [1.91.62.0] - 2026-10-08
+
+**A Rails repair can now finish verifying on arm64.**
+
+On arm64, every Rails verification failed with `ISOLATION_FAILED`, reporting either "Exact reproduction cleanup failed" or "Attempt watchdog did not acknowledge execution-copy cleanup". Neither cleanup was broken. One attempt prepares the application twice, and an offline Rails preparation that compiles native gems takes 6.8 to 8.5 minutes on a 4-vCPU arm64 runner, against about 3.5 minutes on amd64. The 900-second attempt bound expired during the second preparation, the watchdogs cleaned up on schedule, and the helper reported that deadline as a cleanup failure.
+
+### The numbers that matter
+
+Measured on Ubicloud 4-vCPU runners with the staged Rails image from staging run 37735865870 and gstack 1d1ce39b4. Each figure is the start-to-kill time of one Docker group, taken from `docker events`.
+
+| Rails verification step | amd64 | arm64 |
+|---|---|---|
+| Offline preparation (each of the two phases) | 3.3–3.5 min | 6.8–8.5 min |
+| Phase observation (boot, controls, tests) | 8–10 s | 14–26 s |
+| Where the 900 s attempt ended | finished in about 8 min | killed during the second preparation, 3 of 3 arm64 reference repairs |
+| Attempt bound | 900 s | 1,800 s, still cut to the run's reporting deadline |
+
+### What this means for you
+
+Rails repairs on arm64 hosts, including Apple silicon Docker, can now reach `runtime_tested` and replay. Node, Bun and Python keep their 300-second attempt.
+
+### Itemized changes
+
+#### Fixed
+- `MAX_VERIFICATION_ATTEMPT_MS`, the Rails attempt and replay bound, is now 1,800 seconds. That equals the longest comprehensive run budget, and each attempt is still cut to the run's reporting deadline. The attempt watchdog, the Docker verification executor and the assertion witness lifetime share this bound.
+
+#### For contributors
+- `test/cso-cli-lifecycle.test.ts` pins the new bound.
+
+## [1.91.60.0] - 2026-10-08
+
+**Windows setup finishes when the optional /cso helper fails to build, and it tells you when Smart App Control blocks gstack's binaries.**
+
+On Windows, `./setup` stopped completely when the native /cso helper failed to build or publish (#3071), even though /cso is optional and every other skill was ready. On Windows 11 with Smart App Control on, setup reported success while Windows refused to start all five binaries gstack compiles (`browse`, `find-browse`, `design`, `pdf`, `gstack-global-discover`). Git Bash shows that as `Permission denied`, so `/qa`, `/browse`, `/design-*` and `/make-pdf` failed later with a misleading error (#2595, #2124). And the sidebar terminal rendered every character double-width on Windows (#2287).
+
+### The numbers that matter
+
+Measured on Linux (4 vCPU) at f67c478 (before) and on this branch (after). The Windows-only paths are covered by stubbed tests here and by the `windows-setup-e2e` job on `windows-latest`. Nobody has run this on a machine with Smart App Control on.
+
+| Check | Before | After |
+|---|---|---|
+| `scripts/build.sh` with a CSO publish failure injected | exit 86; no browse server bundle, no build stamp | exit 0; bundle and stamp written; failure recorded with stage and log |
+| `./setup --host codex` with the same failure | stops (exit 86) | finishes; prints `CSO publish step failed (exit 86) ...; previous CSO kept: <revision>` |
+| Same failure with `GSTACK_STRICT_BUILD=1` | exit 86 | exit 1 with the reason (CI keeps catching regressions) |
+| `browse --version` | started a browse server, then exited 1 | prints the build hash, exits 0, starts nothing |
+| `pdf --version` / `gstack-global-discover --version` | exit 1 (usage) | exit 0 |
+| Compiled binaries setup and `gstack-doctor` launch-check | 0 of 5 | 5 of 5 |
+
+### What this means for you
+
+Run `/gstack-upgrade` (or `git pull && ./setup`), then run `~/.claude/skills/gstack/bin/gstack-doctor`: its new `binaries` and `cso` rows show whether every compiled binary starts and whether /cso's helper is installed. On Windows with Smart App Control on, setup now lists the blocked binaries and the skills that need them, and points to the two workarounds that work today: run gstack inside WSL, or turn Smart App Control off. Signed binaries are the real fix and are tracked in `TODOS.md`.
+
+### Itemized changes
+
+#### Fixed
+- A failed /cso helper build or publish no longer stops `scripts/build.sh` or `./setup`. setup says which step failed (`probe`, `build` or `publish`), where the log is (`bin/.gstack-cso-build.log`), what still works, and the retry command (`bun run build:cso && ./setup`). When a failed publish restores the earlier helper, setup says `previous CSO kept: <revision>` and /cso keeps using it. `GSTACK_STRICT_BUILD=1` makes the failure fatal; the free-tests, make-pdf-gate and windows-setup-e2e builds set it. (#3071)
+- `scripts/build-cso.sh` clears its EXIT trap before it hands the stage to the native publisher, so on Git Bash the parent can no longer delete the staged files while the publisher runs. If the publisher cannot start, the parent cleans up and records why. Whether this was the cause of #3071's vanishing files is unproven. (#3071)
+- The Windows /cso toolchain probe and build prefer PowerShell 7 (`pwsh`) and fall back to Windows PowerShell 5.1. A probe that fails for another reason keeps its exit status and first output line (`windows-toolchain-probe`) instead of being labeled a missing Visual Studio install. (#3071)
+- `browse`, `find-browse`, `pdf` and `gstack-global-discover` answer `--version` before doing anything else, like `design` already did.
+- The sidebar terminal and the sidepanel's monospace text list Consolas and the Cascadia faces before the CJK fallbacks, so Windows no longer renders `C l a u d e`. (#2287)
+
+#### Added
+- setup on Windows runs each compiled binary's `--version` after the build. Binaries that cannot start are reported as blocked by Smart App Control or another application-control policy, with the skills that need them, the shell setup ran from, whether WSL is installed, how to undo it, and a new troubleshooting section. A binary that starts but fails is reported as a build problem. setup prints the raw Windows error beside its classification because that text is unverified. (#2595, #2124)
+- `gstack-doctor`: the `browse bundle` row says `blocked at launch` instead of passing, a new `binaries` row covers the other four compiled binaries, and a new `cso` row reads the build-result record.
+- README documents Smart App Control as a known issue and /cso as optional on Windows; `docs/troubleshooting.md` gains a Windows section and an entry for CSO build and publish failures.
+
+#### For contributors
+- `bin/gstack-launch-probe.sh` is the shared launch classifier (`native`, `blocked`, `broken`, `missing`) for setup and the doctor. `bin/.gstack-cso-build-result` is the CSO outcome record that `scripts/build-cso.sh` writes; setup removes it with the helper when a prerequisite is missing, so it never writes into a source checkout that needed no build. They are pinned by `test/gstack-launch-probe.test.ts`, `test/build-cso-result-record.test.ts`, `test/build-cso-nonfatal.test.ts`, `test/setup-cso-degrade.test.ts`, `test/setup-windows-launch-hint.test.ts`, `test/binary-version-probe.test.ts`, and new cases in `test/gstack-doctor.test.ts` and `browse/test/sidebar-ux.test.ts`.
+- `windows-setup-e2e` checks that all five binaries answer `--version`, and adds two forced CSO failures: fatal under `GSTACK_STRICT_BUILD=1`, and a completed setup with a doctor `cso` warning under `GSTACK_STRICT_BUILD=0`.
+- Deliberately not done: a `bun run` shim for blocked binaries. PowerShell callers could not use it, and it would load the calling project's `.env` and `bunfig.toml`.
+- Thanks to @dviolante for the #3071 report and its diagnosis, including the PowerShell 5.1 crash and the `pwsh` fix. Thanks to @tomfluff for the font fix (#2287, landed with original authorship). The Smart App Control diagnosis came from @knetics9000 (#2595, #2596), @smartjelic-sys (#2595), @pstilwell90 (#2124), @cko32002 (#2265) and @salluexez (#2127).
+
+## [1.91.59.0] - 2026-10-08
+
+**/autoplan's phase guard accepts a plan under a symlinked directory, and a failed snapshot init no longer blocks a corrected re-run.**
+
+The /autoplan publication guard checks that snapshot `init` reported the same active-plan and restore paths it was given. `init` reports canonical paths, with every directory link resolved, but the guard compared them against the command arguments as typed. On macOS `/tmp` and `/var` are links to `/private/tmp` and `/private/var`, so every plan under them, and any plan reached through a symlinked directory elsewhere, was denied with `init_mismatch` at the first phase. Separately, the guard stopped at the first `init` call that errored, so one bad call denied the whole session even after a correct `init` succeeded.
+
+### What this means for you
+
+Run `/gstack-upgrade`. `/autoplan` on a plan under `/tmp`, `/var/folders` or another symlinked directory now enters its phases instead of stopping at `init_mismatch`. If an `init` call fails, re-run the same command with the same three paths: the later success binds, and `init_failed` now tells you to do exactly that.
+
+### Itemized changes
+
+#### Fixed
+- The phase publication guard canonicalizes `init`'s `<active>` and `<restore>` arguments the same way `init` does before comparing them with its result. Writes and Edits to the active plan are matched by canonical path, so a pending Edit through a symlinked spelling still counts as pending. (#3072)
+- An errored `init` call is skipped. The guard denies `init_failed` only when the most recent `init` call errored, and the message says to re-run the same command. A mistyped snapshot-tool path is treated as an unbindable call rather than crashing the hook. (#3072)
+- `init_mismatch` explains that `init` returned paths that don't match its own arguments and no longer suggests re-running the same call. (#3072)
+
+#### For contributors
+- `bin/gstack-autoplan-snapshot.ts` exports `canonicalDestination`, the path computation `initializePlan` already used, so the guard and `init` share one definition. `init`'s output is unchanged.
+- New `PAX-3638` cases in `test/autoplan-publication-guard.test.ts` and `test/autoplan-init.test.ts` drive the guard through a symlinked fixture directory, so the bug reproduces on Linux: 9 of the 11 new guard cases fail against the previous hook. `docs/autoplan-guard-troubleshooting.md` gains a "Symlinked plan directories" section and updated `init_mismatch` and `init_failed` entries.
+
+Contributed by @wyatt-paxiv (#3072).
+
 ## [1.91.54.0] - 2026-10-08
 
 **Your first /office-hours session gets the first-session closing again, and you see the design doc before you approve it.**

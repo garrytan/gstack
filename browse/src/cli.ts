@@ -1715,6 +1715,12 @@ export function withLoopbackNoProxy(env: Record<string, string | undefined>): st
 }
 
 async function main() {
+  // setup's and gstack-doctor's launch probe: proves the binary starts, with no
+  // server, flags or network (Smart App Control detection, #2595).
+  if (process.argv[2] === '--version') {
+    console.log(readVersionHash() ?? 'unknown');
+    process.exit(0);
+  }
   process.env.NO_PROXY = process.env.no_proxy = withLoopbackNoProxy(process.env);
   const rawArgs = process.argv.slice(2);
 

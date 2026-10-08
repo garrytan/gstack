@@ -1508,3 +1508,91 @@ describe('Autoplan ownership in a linked git worktree session', () => {
       expect(output.hookSpecificOutput.permissionDecisionReason).toContain('code foreign_cwd');
     });
 });
+
+describe('PAX-3638: symlinked plan directory and superseded failed inits', () => {
+  const skipWin = process.platform === 'win32';
+  /** The init Bash command spells active/restore through a symlinked directory; the journaled JSON stays canonical. */
+  function aliasFixture() {
+    const f = fixture();
+    const aliasDir = `${f.cwd}-alias`; dirs.push(aliasDir);
+    fs.symlinkSync(f.cwd, aliasDir, 'dir');
+    const aliasActive = path.join(aliasDir, 'active.md'), aliasRestore = path.join(aliasDir, 'restore.md');
+    const command = `bun "${ROOT}/bin/gstack-autoplan-snapshot.ts" init "${f.source}" "${aliasActive}" "${aliasRestore}"`;
+    (f.events[0] as any).input.command = command;
+    expect(f.init.activePlan).toBe(f.active); // canonical, unlike the argv above
+    expect(aliasActive).not.toBe(f.active);
+    const erroredInit = (id: string) => [
+      { ...(structuredClone(f.events[0]!) as any), toolUseId: id },
+      { ...(structuredClone(f.events[1]!) as any), toolUseId: id, isError: true, content: 'Error: Initialization source must be nonempty UTF-8 text' },
+    ];
+    const ready = () => { f.message(); f.current(); f.reorder(); };
+    return { ...f, aliasDir, aliasActive, aliasRestore, command, erroredInit, ready };
+  }
+
+  test.skipIf(skipWin)('PAX-3638 Fix A: alias argv binds to init canonical paths', () => {
+    const f = aliasFixture(); f.ready();
+    expect(f.evaluate()).toEqual({ allow: true });
+  });
+
+  test.skipIf(skipWin)('PAX-3638 Fix B: errored first init followed by a correct init binds', () => {
+    const f = aliasFixture(); f.events.unshift(...f.erroredInit('bad-init') as any); f.ready();
+    expect(f.evaluate()).toEqual({ allow: true });
+  });
+
+  test.skipIf(skipWin)('PAX-3638 Fix C: errored init with no later success is init_failed and says re-run', () => {
+    const f = aliasFixture(); (f.events[1] as any).isError = true; f.ready();
+    const decision = f.evaluate() as any, reason: string = decision.reason;
+    expect(decision.allow).toBe(false); expect(reason).toContain('(code init_failed,');
+    expect(reason).toContain('re-run');
+    expect(reason).toContain('The most recent snapshot init call failed');
+  });
+
+  test.skipIf(skipWin)('PAX-3638 Fix B: a trailing errored init after a good bind is init_failed', () => {
+    const f = aliasFixture(); f.events.splice(2, 0, ...f.erroredInit('late-bad-init') as any); f.ready();
+    expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('(code init_failed,') });
+  });
+
+  test.skipIf(skipWin)('PAX-3638 Fix B: a later good init supersedes a trailing errored one', () => {
+    const f = aliasFixture(); f.events.splice(2, 0, ...f.erroredInit('late-bad-init') as any);
+    f.events.splice(4, 0, { ...(structuredClone(f.events[0]!) as any), toolUseId: 'again' },
+      { ...(structuredClone(f.events[1]!) as any), toolUseId: 'again', content: JSON.stringify({ ...f.init, reused: true }) });
+    f.ready();
+    expect(f.evaluate()).toEqual({ allow: true });
+  });
+
+  for (const field of ['activePlan', 'restorePath'] as const)
+    test.skipIf(skipWin)(`PAX-3638 Fix C: retargeted ${field} is init_mismatch without a re-run hint`, () => {
+      const f = aliasFixture(); (f.events[1] as any).content = JSON.stringify({ ...f.init, [field]: f.source }); f.ready();
+      const decision = f.evaluate() as any, reason: string = decision.reason;
+      expect(decision.allow).toBe(false); expect(reason).toContain('(code init_mismatch,');
+      expect(reason).toContain('do not match the canonical form of its own command arguments');
+      expect(reason).not.toContain('re-run');
+    });
+
+  test.skipIf(skipWin)('PAX-3638 Fix B: zero results for an init use still denies', () => {
+    const f = aliasFixture(); f.events.splice(1, 1); f.ready();
+    expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('(code init_mismatch,') });
+  });
+
+  test.skipIf(skipWin)('PAX-3638 Fix A: an argv that cannot be canonicalized is init_mismatch, not a hook crash', () => {
+    const f = aliasFixture();
+    (f.events[0] as any).input.command = `bun "${ROOT}/bin/gstack-autoplan-snapshot.ts" init "${f.source}" "${f.source}/not-a-dir/active.md" "${f.aliasRestore}"`;
+    f.ready();
+    expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('(code init_mismatch,') });
+  });
+
+  test.skipIf(skipWin)('PAX-3638 Fix A: a mistyped tool path is unbindable, and a later correct init still binds', () => {
+    const f = aliasFixture();
+    const bad = { ...(structuredClone(f.events[0]!) as any), toolUseId: 'typo' };
+    bad.input.command = bad.input.command.replace('gstack-autoplan-snapshot.ts', 'gstack-autoplan-snapshto.ts');
+    f.events.unshift(bad); f.ready();
+    expect(f.evaluate()).toEqual({ allow: true });
+  });
+
+  test.skipIf(skipWin)('PAX-3638 Fix A2: a pending Edit through the alias spelling is the same file', () => {
+    const f = aliasFixture(); f.message();
+    f.use('alias-edit', 'Edit', { file_path: f.aliasActive, old_string: 'Keep documented behavior.', new_string: 'Implement new behavior.' });
+    f.current(); f.reorder();
+    expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('(code mutation_pending,') });
+  });
+});

@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { extractImplementationPlan, checkPhaseImplementation, acceptedBlocks } from '../../bin/gstack-autoplan-snapshot';
+import { extractImplementationPlan, checkPhaseImplementation, acceptedBlocks, canonicalDestination } from '../../bin/gstack-autoplan-snapshot';
 import { autoplanPhaseCompletions } from '../../lib/autoplan-phase-publication';
 import { nativePathSpelling, ownedNativePath, sameNativePath, type ClaudeParentPublicEvent } from '../../lib/claude-journal-records';
 import { ownedRecordLimit, ownedRetainedLimit, type JournalPrefix, type OwnedRead, type OwnedReadMeasure } from '../../lib/claude-owned-journal';
@@ -43,6 +43,17 @@ const samePath = (a: unknown, b: unknown): boolean => sameNativePath(a, b);
 /** Claude's Read expands a leading ~ before the tool runs; resolve the same file. */
 const requestedPath = (cwd: string, file: string) =>
   nativePathSpelling(path.resolve(cwd, file.replace(/^~(?=[\\/]|$)/, () => os.homedir())));
+/**
+ * The file a Write/Edit path names, realpathed so a symlinked plan directory
+ * compares equal to init's canonical paths. realpath resolves a leaf link too; a
+ * missing target or dangling link keeps the literal spelling. An aliased active
+ * plan never binds, because invocation() reads it through read(), which denies aliases.
+ */
+const canonicalRequested = (cwd: string, file: unknown): string | undefined => {
+  if (typeof file !== 'string') return;
+  const literal = requestedPath(cwd, file);
+  try { return fs.realpathSync(literal); } catch { return literal; }
+};
 /** Keys Claude Code's schema parse may drop from the journaled raw input (Agent's fork-subagent gate drops run_in_background). */
 export const SCHEMA_STRIPPED: Record<string, readonly string[]> = { Agent: ['run_in_background'] };
 /** The reviewer dispatch input the guard accepts; snapshot manifests are unchanged by it. */
@@ -240,9 +251,15 @@ function initArguments(command: unknown, root: string): string[] | undefined {
     // Git Bash accepts forward slashes and hands native programs /c/x as C:/x.
     // Fold that spelling only; every canonical-path check still applies.
     .map(x => nativePathSpelling(x, path));
-  if (!args.every(ownPath) || !samePath(fs.realpathSync(args[0]!), path.join(root, 'bin', 'gstack-autoplan-snapshot.ts'))) return;
+  if (!args.every(ownPath)) return;
+  // A mistyped tool path is unbindable, not a hook crash.
+  try { if (!samePath(fs.realpathSync(args[0]!), path.join(root, 'bin', 'gstack-autoplan-snapshot.ts'))) return; }
+  catch { return; }
   return args.slice(1);
 }
+
+const INIT_MISMATCH_CAUSE = 'Snapshot init returned paths that do not match the canonical form of its own command arguments';
+const INIT_FAILED_CAUSE = 'The most recent snapshot init call failed; re-run the same init command with the same three paths';
 
 /** Diagnostic only, never binds: a Bash call that ran snapshot init in a shape the guard cannot bind (#3045). */
 const UNBINDABLE_INIT = /(?:gstack-autoplan-snapshot|SNAPSHOT_TOOL|\$\{?[A-Z_]+\}?"?)\S*\s+init\s/;
@@ -251,6 +268,8 @@ function invocation(events: Event[], root: string): Invocation {
   let bound: Invocation | undefined;
   let chosen: Record<string, any> | undefined;
   let unbindable = false;
+  // True while the most recent bindable init use errored (a later success clears it).
+  let lastErrored = false;
   const tools = byTool(events);
   for (const use of events) {
     if (use.kind !== 'use' || use.name !== 'Bash') continue;
@@ -258,17 +277,25 @@ function invocation(events: Event[], root: string): Invocation {
     if (!args) { unbindable ||= typeof use.input?.command === 'string' && UNBINDABLE_INIT.test(use.input.command) && /\.md\b/.test(use.input.command); continue; }
     const results = tools.results(use.toolUseId).filter(x => x.order > use.order);
     if (results.length !== 1) fail('init_mismatch');
+    // An errored init published nothing; a later correct init may still bind.
+    if (results[0]!.isError === true) { lastErrored = true; continue; }
     const text = textResult(results[0]!);
     if (text === undefined) fail('init_failed');
     const result = JSON.parse(text);
-    if (!object(result) || !samePath(result.sourcePlan, fs.realpathSync(args[0]!)) || !samePath(result.activePlan, args[1]) ||
-        !samePath(result.restorePath, args[2]) || typeof result.reused !== 'boolean' || !positive(result.originalBytes) ||
-        !/^[a-f0-9]{64}$/.test(result.originalSha256)) fail('init_mismatch');
+    // init reports canonical destinations (macOS /tmp is /private/tmp); canonicalize the argv the same way.
+    let active: string, restore: string;
+    try { active = canonicalDestination(args[1]!); restore = canonicalDestination(args[2]!); }
+    catch { fail('init_mismatch', { cause: INIT_MISMATCH_CAUSE }); }
+    if (!object(result) || !samePath(result.sourcePlan, fs.realpathSync(args[0]!)) || !samePath(result.activePlan, active) ||
+        !samePath(result.restorePath, restore) || typeof result.reused !== 'boolean' || !positive(result.originalBytes) ||
+        !/^[a-f0-9]{64}$/.test(result.originalSha256)) fail('init_mismatch', { cause: INIT_MISMATCH_CAUSE });
+    lastErrored = false;
     if (result.reused && bound && bound.activePlan === result.activePlan && bound.restorePath === result.restorePath) continue;
     chosen = result;
     bound = { activePlan: result.activePlan, restorePath: result.restorePath,
       originalSha256: result.originalSha256, start: results[0]!.order };
   }
+  if (lastErrored) fail('init_failed', { cause: INIT_FAILED_CAUSE });
   if ((!chosen || !bound) && unbindable) fail('init_unbindable');
   if (!chosen || !bound) fail('init_required');
   const restore = read(bound.restorePath, true), active = read(bound.activePlan);
@@ -375,9 +402,9 @@ function disarmedAt(events: Event[], root: string): boolean[] {
 }
 
 /** Only exact reversible successful Edits can establish a report-only change. */
-function verifyCloseEdits(events: Event[], closeOrder: number, init: Invocation): void {
+function verifyCloseEdits(events: Event[], closeOrder: number, init: Invocation, cwd: string): void {
   const edits = events.filter((e): e is Use => e.kind === 'use' && e.order > closeOrder &&
-    ['Write', 'Edit'].includes(e.name ?? '') && samePath(e.input?.file_path, init.activePlan));
+    ['Write', 'Edit'].includes(e.name ?? '') && samePath(canonicalRequested(cwd, e.input?.file_path), init.activePlan));
   if (!edits.length) return;
   const current = read(init.activePlan), tools = byTool(events);
   let prior = current;
@@ -413,7 +440,7 @@ function verifyCloseEdits(events: Event[], closeOrder: number, init: Invocation)
 const sameMessage = (a: Event, b: Event) => a.messageId !== undefined && a.messageId === b.messageId;
 interface Flush { current: Use; journaled: boolean }
 function requirePublication(phase: Phase, entryOrder: number, entered: Event[], init: Invocation, current: boolean,
-  checkpoint?: string, flush?: Flush): void {
+  cwd: string, checkpoint?: string, flush?: Flush): void {
   const native = (e: Event) => e.kind === 'use' && typeof e.input?.file_path === 'string' ? nativePathSpelling(e.input.file_path) : undefined;
   const closeReads = entered.filter((e): e is Use => e.kind === 'use' && e.name === 'Read' && e.order >= entryOrder &&
     ownPath(native(e)) && path.basename(native(e)!) === 'close-packet.md' &&
@@ -436,9 +463,9 @@ function requirePublication(phase: Phase, entryOrder: number, entered: Event[], 
   }
   if (covered.size !== content.split('\n').length) fail('close_incomplete', { phase: number[phase] });
   const pending = entered.some(e => e.kind === 'use' && e.order > closeOrder && ['Write', 'Edit'].includes(e.name ?? '') &&
-    samePath(e.input?.file_path, init.activePlan) && !tools.results(e.toolUseId).length);
+    samePath(canonicalRequested(cwd, e.input?.file_path), init.activePlan) && !tools.results(e.toolUseId).length);
   if (pending) fail('mutation_pending');
-  if (current) verifyCloseEdits(entered, closeOrder, init);
+  if (current) verifyCloseEdits(entered, closeOrder, init, cwd);
   const reports = entered.filter((e): e is Event & { kind: 'message' } => e.kind === 'message' && e.order > closeOrder &&
     autoplanPhaseCompletions({ status: 'ready', calls: [], assistantMessages: [e] }, 0).some(hit => hit.phase === number[phase]));
   if (!reports.length) fail('publication_missing', { phase: number[phase] });
@@ -575,7 +602,7 @@ function phaseDecision(input: PublicationHookInput, root: string, before: Event[
     if (!phase || number[next.phase] > number[phase]) {
       // An unguarded earlier delivery cannot erase its predecessor's missing
       // publication. Recovery still uses that predecessor's existing close.
-      if (phase) try { requirePublication(phase, entryOrder, entered.filter(e => e.order < use.order), init, false, checkpoint); }
+      if (phase) try { requirePublication(phase, entryOrder, entered.filter(e => e.order < use.order), init, false, input.cwd, checkpoint); }
       catch { continue; }
       phase = next.phase; entryOrder = use.order;
       checkpoint = preparedCheckpoints.get(phase); preparedCheckpoints.delete(phase);
@@ -592,7 +619,7 @@ function phaseDecision(input: PublicationHookInput, root: string, before: Event[
     return { allow: true };
   }
   if (number[target] <= number[phase]) return { allow: true };
-  requirePublication(phase, entryOrder, entered, init, true, checkpoint, { current, journaled });
+  requirePublication(phase, entryOrder, entered, init, true, input.cwd, checkpoint, { current, journaled });
   return { allow: true };
 }
 
