@@ -251,7 +251,7 @@ describe('bootstrapTunnel', () => {
     const r = await bootstrapTunnel({
       bundleId: 'com.test',
       spawnImpl: spawn,
-      resolveImpl: () => Promise.resolve(null),
+      resolveImpl: () => Promise.reject(new Error('no mDNS record')),
     });
     expect(r.ok).toBe(false);
     if (!r.ok) {
