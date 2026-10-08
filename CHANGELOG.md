@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.49.0] - 2026-10-08
+## [1.91.54.0] - 2026-10-08
 
 **Your first /office-hours session gets the first-session closing again, and you see the design doc before you approve it.**
 
@@ -24,6 +24,38 @@ Run `/gstack-upgrade`, then start `/office-hours` on a new idea. Before the doc 
 - New tests in `test/gen-skill-docs.test.ts` run the rendered office-hours profile read, session log and design-doc check against a temporary state root. `test/timeline.test.ts` covers each bad `--limit` on empty and populated histories. `test/gstack-skill-start.test.ts` covers the `SESSIONS` count. The office-hours, plan-eng-review and autoplan parity caps include the measured growth.
 
 Contributed by @kikearciniegas (#2801), @kichinosukey (#879), @RyanAlberts (#1116), @walton-chris (#1049), @aviraldua93 (#1958), @jbetala7 (#1723, #1724), @TJ-NomoAI (#1651) and @0xDevNinja (#1747).
+
+## [1.91.52.0] - 2026-10-08
+
+**`/qa` says exactly what shape `annotations.json` takes, and the `qa-quick` gate eval stops timing out at its 300 s budget.**
+
+Before writing its report, `/qa` records an `annotations.json` file and runs `gstack-qa-evidence materialize` on it. The section that describes the file listed its fields as `{evidence: [...], limits}` and told browser-only runs to put "checkpoints in limits", but it never said what type `limits` is. The validator only accepts a non-empty array of strings. In 11 of 15 recent `qa-quick` CI transcripts, the agent's first attempt wrote `limits` as an object, the call failed, and the agent had to retry. Anyone running `/qa` or `/qa-only` could hit the same retry.
+
+`qa-quick` runs on every PR that touches `browse/src`. It passed 13 of 15 recent CI runs in 206-280 s, and the other 2 hit the 300 s session timeout. Two parts of the case's own setup were adding work. Its fixture directory was not a git repository, so in all 15 runs `materialize` first failed with "revision is required when git rev-parse HEAD is unavailable". Its prompt also put the fixture's `/page1` and `/page2` links in scope. Both links return 404 on the test server, so each run spent part of its 30 s probe window, and its wrap-up, investigating and reporting them. The session budget, the thresholds and the `/qa` workflow are unchanged.
+
+### The numbers that matter
+
+Diagnostic `ship-measure` trials in the CI image (Claude Code 2.1.292, Bun 1.4.2, `--jobs 2`, `CI=true`). They never change a recorded verdict.
+
+| `qa-quick` | Before (CI, 15 runs) | After (10 trials) |
+|---|---|---|
+| Passed | 13 of 15 | 10 of 10 |
+| Pass duration, median (range) | 252 s (206-280 s) | 187 s (155-256 s) |
+| Mean cost per trial | $1.75 | $1.46 |
+| Runs with a failed `materialize` call | 15 of 15 | 0 of 10 |
+
+### What this means for you
+
+`/qa` and `/qa-only` now get `annotations.json` right on the first try, which saves a failed tool call near the end of a run. A browse PR's `qa-quick` check should no longer time out. Its slowest measured trial (256 s) sits right at the 85% headroom line (255 s), so the weekly gate's headroom alarm may still flag the case now and then.
+
+### Itemized changes
+
+#### Fixed
+- `qa/sections/exploratory.md` §4 (shared by `/qa` and `/qa-only` through the `QA_EXPLORATORY` resolver) shows `limits` as `["checkpoint 001"]` and says it is a non-empty string array, never an object. That matches what `lib/qa-evidence.ts` already enforces.
+
+#### For contributors
+- `qa-quick` commits its fixture directory to git before the session starts, as `qa-only-no-fix` already does. `/qa`'s clean-tree check and the evidence recorder's revision now work the way they do in a real repository.
+- `qa-quick` limits Quick scope to the fixture page itself: its load, console health and rendered content. The two same-origin links are listed as untested coverage. The qa-b6/b7/b8 and qa-fix-loop cases still cover link following and defect detection.
 
 ## [1.91.47.0] - 2026-10-08
 

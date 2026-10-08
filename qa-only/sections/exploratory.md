@@ -100,7 +100,7 @@ with their failing contract and expected assertion; never create tests or freeze
 ## 4. Final report
 
 Use the surface report template; link each checkpoint. Separate browser scores, functional outcomes and proposed/executed tests.
-Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits} (browser-only: evidence [], checkpoints in limits); before Markdown `bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change `superseded`; it closes when the same command reran on current inputs. Disclose withheld/incomplete evidence.
+Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits: ["checkpoint 001"]} (limits: non-empty string array, not an object; browser-only: evidence []); before Markdown `bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change `superseded`; it closes when the same command reran on current inputs. Disclose withheld/incomplete evidence.
 Evidence is invocation-local.
 Missing prerequisites/expectations/observations, timeouts and refusal never pass.
 Pass requires all required current-input contracts to pass with no required remainder.
