@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.91.58.0] - 2026-10-08
+
+**A Rails repair can now finish verifying on arm64.**
+
+On arm64, every Rails verification failed with `ISOLATION_FAILED`, reporting either "Exact reproduction cleanup failed" or "Attempt watchdog did not acknowledge execution-copy cleanup". Neither cleanup was broken. One attempt prepares the application twice, and an offline Rails preparation that compiles native gems takes 6.8 to 8.5 minutes on a 4-vCPU arm64 runner, against about 3.5 minutes on amd64. The 900-second attempt bound expired during the second preparation, the watchdogs cleaned up on schedule, and the helper reported that deadline as a cleanup failure.
+
+### The numbers that matter
+
+Measured on Ubicloud 4-vCPU runners with the staged Rails image from staging run 37735865870 and gstack 1d1ce39b4. Each figure is the start-to-kill time of one Docker group, taken from `docker events`.
+
+| Rails verification step | amd64 | arm64 |
+|---|---|---|
+| Offline preparation (each of the two phases) | 3.3–3.5 min | 6.8–8.5 min |
+| Phase observation (boot, controls, tests) | 8–10 s | 14–26 s |
+| Where the 900 s attempt ended | finished in about 8 min | killed during the second preparation, 3 of 3 arm64 reference repairs |
+| Attempt bound | 900 s | 1,800 s, still cut to the run's reporting deadline |
+
+### What this means for you
+
+Rails repairs on arm64 hosts, including Apple silicon Docker, can now reach `runtime_tested` and replay. Node, Bun and Python keep their 300-second attempt.
+
+### Itemized changes
+
+#### Fixed
+- `MAX_VERIFICATION_ATTEMPT_MS`, the Rails attempt and replay bound, is now 1,800 seconds. That equals the longest comprehensive run budget, and each attempt is still cut to the run's reporting deadline. The attempt watchdog, the Docker verification executor and the assertion witness lifetime share this bound.
+
+#### For contributors
+- `test/cso-cli-lifecycle.test.ts` pins the new bound.
+
 ## [1.91.54.0] - 2026-10-08
 
 **Your first /office-hours session gets the first-session closing again, and you see the design doc before you approve it.**
