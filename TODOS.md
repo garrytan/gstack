@@ -19,6 +19,31 @@ Left open by the office-hours tier fix (#2801, #879, #1049, #1958, #1723, #1651 
   read an unbound `$2` under `set -u` and crash with exit 1, the class #1723
   fixed for `--limit`. **Effort:** S. **Priority:** P3.
 
+### P1/P2: /cso capacity follow-ups (filed 2026-10-08)
+
+Left open by v1.91.42.0, which lifted the snapshot file-count ceiling.
+
+- **Tracked symlinks refuse the whole /cso run** — `capture()` fails closed on
+  any tracked symlink ("Symlink or special source file"). 5 of 8 mid-size OSS
+  repos measured for v1.91.42.0 stop there (django, rails, terraform, grafana,
+  vscode; 1-10 symlinks each, mostly test fixtures). Recording them as unread
+  exclusions in the manifest, like dependency trees, is a security design call
+  for Garry. **Effort:** M. **Priority:** P1.
+- **64 MiB aggregate source cap (#2993)** — files over 1 MiB are withheld from
+  the audit but still read and counted. Stream-hash them without counting
+  toward the cap, report them as unread coverage, and add an admission estimate
+  to `doctor`. grafana (211 MiB) and vscode (540 MiB) hit it once symlinks are
+  out of the way. A `GSTACK_CSO_SNAPSHOT_MAX_BYTES` knob was deferred with it.
+  **Effort:** L. **Priority:** P2.
+- **`inspect` prints the whole public manifest** — about 2.8 MB of stdout for
+  5,000 files, more than an agent's tool output keeps. The skill reads paths
+  from it, so trimming it is a skill-contract change with evals.
+  **Effort:** M. **Priority:** P2.
+- **Repair bundles carry every transformation** — `lib/cso/verification.ts`
+  binds the full transformation list into a 1 MiB immutable bundle. Only
+  runtime verification writes bundles, and no qualified runtime catalog exists
+  yet. **Effort:** M. **Priority:** P3.
+
 ### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.38.0)
 
 Left open by the iPad and route-drop release, each with its reason.

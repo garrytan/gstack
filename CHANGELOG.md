@@ -25,6 +25,48 @@ Run `/gstack-upgrade`, then start `/office-hours` on a new idea. Before the doc 
 
 Contributed by @kikearciniegas (#2801), @kichinosukey (#879), @RyanAlberts (#1116), @walton-chris (#1049), @aviraldua93 (#1958), @jbetala7 (#1723, #1724), @TJ-NomoAI (#1651) and @0xDevNinja (#1747).
 
+## [1.91.42.0] - 2026-10-08
+
+**/cso lifts its file-count ceiling: repositories with tens of thousands of files reach the audit.**
+**Repositories with more than 64 MiB of tracked source, or with a tracked symlink, are still refused, and the message now says which limit applied and what to do.**
+
+/cso refused any repository with more than about 3,100 files before an audit started, with "Snapshot manifest exceeds the 1 MiB private-state admission limit" (#3068). The snapshot's file list shared a 1 MiB limit with every other private file /cso keeps, and so did the report it writes, the list of files with secret-like findings, and Git's own file listing. The snapshot list now has its own 16 MiB limit (about 50,000 files) and is written compactly. Per-file lists in the report and the evidence file keep their first entries and end with one line saying how many more there are. The counts in the report stay exact.
+
+### The numbers that matter
+
+Shallow clones measured on 2026-10-08 with `start --offline`, before and after this release:
+
+| Repository | Files | Tracked source | Before | After |
+|---|---|---|---|---|
+| sveltejs/svelte | 9,182 | 6.9 MiB | refused (file list over 1 MiB) | audit starts; 2.8 MiB file list, 10 KB report |
+| facebook/react | 7,252 | 38.7 MiB | refused (file list over 1 MiB) | audit starts; 2.3 MiB file list, 53 KB report |
+| laravel/framework | 3,439 | 25.7 MiB | refused (file list over 1 MiB) | audit starts; 1.0 MiB file list, 30 KB report |
+| django/django | 7,085 | 44.0 MiB | refused (4 tracked symlinks) | refused (symlinks); starts once they are removed |
+| rails/rails | 5,007 | 38.1 MiB | refused (1 tracked symlink) | refused (symlink); starts once it is removed |
+| hashicorp/terraform | 5,562 | 25.6 MiB | refused (10 tracked symlinks) | refused (symlinks); starts once they are removed |
+| grafana/grafana | 23,749 | 210.7 MiB | refused (Git file listing over 1 MiB) | refused (symlinks); then the 64 MiB source cap |
+| microsoft/vscode | 20,238 | 540.0 MiB | refused (Git file listing over 1 MiB) | refused (symlink); then the 64 MiB source cap |
+
+On a synthetic 5,000-file repository with long nested paths, where most files are excluded or withheld and 1,000 files carry secret-like strings, the report is 267 KB and the evidence file 524 KB. Unbounded, the same lists took 1.97 MB and 1.68 MB, over the 1 MiB limit. A free test drives that shape through start, inspect, findings, finish and recheck.
+
+### What this means for you
+
+Run `/gstack-upgrade`, then run `/cso` on a repository with more than 3,100 files: the audit starts instead of stopping at the snapshot. If /cso still refuses, the message names the limit (the 16 MiB snapshot list, the 64 MiB source cap, or a symlink), the measured size, what counts toward it and the next step. No setting raises these limits yet; the 64 MiB source cap is tracked in #2993, and `docs/troubleshooting.md#cso-capacity` explains all three.
+
+### Itemized changes
+
+#### Fixed
+- /cso refused repositories with more than about 3,100 files before an audit. The snapshot file list is written compactly and capped at 16 MiB; every other private file keeps its 1 MiB limit. Snapshot lists written by earlier releases still load in recheck and inspect. (#3068)
+- Report coverage gaps, exclusions and transformations, and the evidence file of secret-like findings, keep their first entries and end with an omitted count, so a large repository no longer overflows the report partway through an audit.
+- Git's file listings during capture are allowed up to the snapshot list size, so repositories past roughly 11,000 to 23,000 files, depending on path length (7,000 to 10,000 with `--diff` or `--base`), no longer fail with "Could not read bounded Git metadata: ls-tree exceeded the output limit".
+- The snapshot-list and 64 MiB source-cap errors state the measured value, the limit, what counts toward it, the next step and the #2993 link. A single file that would cross 64 MiB now gets the same message before it is read. (#2993)
+
+#### For contributors
+- `readJson` takes a per-artifact size cap. `readSnapshotManifest(dir)` is the only reader of `snapshot.json`, and a source test fails on a direct read.
+- `boundedList` in `lib/cso/state.ts` bounds a per-entry list by the pretty-printed bytes it adds and appends one omitted-count item.
+- `runProcess` lets raw callers opt in to up to 16 MiB of output; everything else keeps the `MAX_OUTPUT` clamp, which stays 1 MiB.
+- Thanks to @almoatasemm for the report (#3068) and @saanjay for the capacity diagnosis of the manifest, reader and source caps (#2993).
+
 ## [1.91.38.0] - 2026-10-07
 
 **`/ios-qa` works on iPads, and a dropped USB route no longer restarts the app you are testing.**
