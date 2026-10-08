@@ -284,6 +284,19 @@ reviewer-confirmed resolutions. An unavailable score is null, never invented.
 
 ---
 
+**Before asking for approval, output the full design doc inline.**
+
+Print the complete contents of the design doc as direct assistant text in the
+conversation — do NOT ask the user to open the file, and do NOT rely on a
+`Bash cat` or `Read` tool call to show it. Tool outputs are frequently
+collapsed in the Claude Code UI, which leaves the user approving a document
+they cannot actually see. The one place the full doc is guaranteed to render
+is the assistant message itself.
+
+Format: a short preamble (`Here is the design doc saved to {path} — please
+review before approving:`) followed by the verbatim document body. Then
+proceed to the AskUserQuestion below.
+
 Present the reviewed design doc to the user via AskUserQuestion:
 - A) Approve — mark Status: APPROVED and proceed to handoff
 - B) Revise — specify which sections need changes (loop back to revise those sections)
@@ -340,16 +353,22 @@ Once the design doc is APPROVED, deliver the closing sequence. The closing adapt
 on how many times this user has done office hours, creating a relationship that deepens
 over time.
 
-### Step 1: Read Builder Profile
+### Step 1: Builder Profile
+
+Use SESSION_TIER, PRIOR_SESSION_COUNT, LAST_PROJECT, LAST_ASSIGNMENT and CROSS_PROJECT from the
+`Builder profile before this session:` line you wrote in Phase 4.5. This is session
+PRIOR_SESSION_COUNT + 1. If that line says `PROFILE_READ=failed` or is gone, use the introduction
+tier and tell the user: "I couldn't read your builder profile, so I'm treating this as your first
+office hours session."
+
+Then read the running totals, which now include this session:
 
 ```bash
-PROFILE=$(~/.claude/skills/gstack/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
-TIER: introduction"
-SESSION_TIER=$(echo "$PROFILE" | grep "^TIER:" | awk '{print $2}')
-SESSION_COUNT=$(echo "$PROFILE" | grep "^SESSION_COUNT:" | awk '{print $2}')
+~/.claude/skills/gstack/bin/gstack-builder-profile 2>/dev/null || echo "PROFILE_READ: failed"
 ```
 
-Read the full profile output. You will use these values throughout the closing.
+Use only its DESIGN_COUNT, DESIGN_TITLES, ACCUMULATED_SIGNALS, TOTAL_SIGNAL_COUNT, NUDGE_ELIGIBLE
+and RESOURCES_SHOWN(_COUNT); never its TIER, SESSION_COUNT, LAST_* or CROSS_PROJECT.
 
 ### Step 2: Follow the Tier Path
 
@@ -415,17 +434,17 @@ Then proceed to Founder Resources below.
 
 ---
 
-### If TIER = welcome_back (sessions 2-3)
+### If TIER = welcome_back (sessions 2-4)
 
 Lead with recognition. The magical moment is immediate.
 
-Read LAST_ASSIGNMENT and CROSS_PROJECT from the profile output.
+Use LAST_ASSIGNMENT, LAST_PROJECT and CROSS_PROJECT from Step 1 (the Phase 4.5 values).
 
 If CROSS_PROJECT is false (same project as last time):
-"Welcome back. Last time you were working on [LAST_ASSIGNMENT from profile]. How's it going?"
+"Welcome back. Last time you were working on [LAST_ASSIGNMENT]. How's it going?"
 
 If CROSS_PROJECT is true (different project):
-"Welcome back. Last time we talked about [LAST_PROJECT from profile]. Still on that, or onto something new?"
+"Welcome back. Last time we talked about [LAST_PROJECT]. Still on that, or onto something new?"
 
 Then: "No pitch this time. You already know about YC. Let's talk about your work."
 
@@ -444,11 +463,11 @@ Then proceed to Founder Resources below.
 
 ---
 
-### If TIER = regular (sessions 4-7)
+### If TIER = regular (sessions 5-8)
 
 Lead with recognition and session count.
 
-"Welcome back. This is session [SESSION_COUNT]. Last time: [LAST_ASSIGNMENT]. How'd it go?"
+"Welcome back. This is session [PRIOR_SESSION_COUNT + 1]. Last time: [LAST_ASSIGNMENT]. How'd it go?"
 
 **Tone examples:**
 - GOOD: "You've been at this for 5 sessions now. Your designs keep getting sharper. Let me show you what I've noticed."
@@ -480,9 +499,9 @@ Then proceed to Founder Resources below.
 
 ---
 
-### If TIER = inner_circle (sessions 8+)
+### If TIER = inner_circle (sessions 9+)
 
-"You've done [SESSION_COUNT] sessions. You've iterated [DESIGN_COUNT] designs. Most people who show this pattern end up shipping."
+"You've done [PRIOR_SESSION_COUNT + 1] sessions. You've iterated [DESIGN_COUNT] designs. Most people who show this pattern end up shipping."
 
 The data speaks. No pitch needed.
 
