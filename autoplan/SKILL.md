@@ -453,6 +453,8 @@ chosen approach as input to the review pipeline.
 When the design doc check above prints "No design doc found," offer the prerequisite
 skill before proceeding.
 
+Skip the offer and proceed with the standard review when the preamble echoed `SESSION_KIND` `spawned` or `headless`.
+
 Say to the user via AskUserQuestion:
 
 > "No design doc found for this branch. `/office-hours` produces a structured problem

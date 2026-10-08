@@ -51,9 +51,19 @@ afterEach(async () => {
 
 function spawnServer(env: Record<string, string>): Subprocess {
   const stateFile = path.join(tmpDir, 'browse-state.json');
+  const home = path.join(tmpDir, 'home');
+  fs.mkdirSync(home, { recursive: true });
   return spawn(['bun', 'run', SERVER_SCRIPT], {
     env: {
       ...process.env,
+      // The headed server writes ~/.gstack/.auth.json for its extension.
+      HOME: home,
+      USERPROFILE: home,
+      GSTACK_HOME: path.join(home, '.gstack'),
+      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(
+        process.env.XDG_CACHE_HOME || path.join(os.homedir(), process.platform === 'darwin' ? 'Library/Caches' : '.cache'),
+        'ms-playwright',
+      ),
       BROWSE_STATE_FILE: stateFile,
       BROWSE_PORT: '0', // Use the existing available-port allocator; fixed ports can collide across shards.
       ...env,
