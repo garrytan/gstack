@@ -16,6 +16,11 @@ hooks:
         - type: command
           command: 'bash -c "exec bash \"$HOME/.claude/skills/gstack/careful/bin/check-careful.sh\""'
           statusMessage: "Checking for destructive commands..."
+    - matcher: "PowerShell"
+      hooks:
+        - type: command
+          command: 'bash -c "exec bash \"$HOME/.claude/skills/gstack/careful/bin/check-careful.sh\""'
+          statusMessage: "Checking for destructive commands..."
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -31,8 +36,8 @@ or working in a shared environment. Use when asked to "be careful", "safety mode
 
 # /careful — Destructive Command Guardrails
 
-Safety mode is now **active**. Every bash command will be checked for destructive
-patterns before running. If a destructive command is detected, you'll be warned
+Safety mode is now **active**. Every Bash and PowerShell command will be checked
+for destructive patterns before running. If a destructive command is detected, you'll be warned
 and can choose to proceed or cancel.
 
 ```bash
@@ -54,6 +59,25 @@ echo '{"skill":"careful","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(base
 | `kubectl delete` | `kubectl delete pod` | Production impact |
 | `docker rm -f` / `docker system prune` | `docker system prune -a` | Container/image loss |
 
+## PowerShell and cmd (Windows)
+
+The hook also checks the PowerShell tool (Claude Code's main Windows shell)
+and any `pwsh`/`powershell`/`cmd` launched from Bash. Matching ignores case,
+covers aliases in command position, accepts parameter prefixes (`-r`, `-fo`)
+and strips cmd `^` escapes. All rows above apply there too.
+
+| Pattern | Example |
+|---------|---------|
+| `Remove-Item`/`rm`/`ri`/`del`/`erase`/`rd`/`rmdir` + `-Recurse` or `-Force` | `gci \| ri -r -fo` |
+| cmd `rd /s`, `rmdir /s`, `del /s`, `erase /s` | `cmd /c rd /s /q C:\proj` |
+| `Format-Volume`, `Clear-Disk`, `Clear-Content`, `[IO.Directory]::Delete`, `[IO.File]::Delete` | `Clear-Disk -Number 1` |
+| `-EncodedCommand`, `iex`, `Start-Process` of a shell, `& $cmd` (can't be inspected) | `irm $url \| iex` |
+
+**Best-effort on PowerShell.** String matching can't see a command built at
+runtime. For a hard stop, add Claude Code permission deny rules, which parse
+PowerShell and its aliases: `"deny": ["PowerShell(Remove-Item *)"]` in
+`.claude/settings.json`. The hook runs through `bash`, so Windows needs Git Bash.
+
 ## Safe exceptions
 
 These patterns are allowed without warning:
@@ -61,7 +85,7 @@ These patterns are allowed without warning:
 
 ## How it works
 
-The hook reads the command from the tool input JSON, checks it against the
+The hook reads `tool_name` and the command from the tool input JSON, checks it against the
 patterns above, and returns a `hookSpecificOutput` payload with
 `permissionDecision: "ask"` and a warning reason if a match is found (the
 decision must be nested under `hookSpecificOutput` — Claude Code ignores a

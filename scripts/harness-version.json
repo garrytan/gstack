@@ -10,13 +10,13 @@
     "test/helpers/llm-judge.ts"
   ],
   "files": {
-    "scripts/lib/paid-cases.ts": {"blob":"9bacd52446192a7ecf3dfaae901ea443cf9c9ae2","since":4},
+    "scripts/lib/paid-cases.ts": {"blob":"9bacd52446192a7ecf3dfaae901ea443cf9c9ae2","since":4,"nonBehavioral":"Merge with #3075: office-hours-auto-mode's Bun test is now named after its case id, so its CASE_TEST_NAMES label is removed; selection only, no case verdict rule changes"},
     "scripts/lib/paid-plan.ts": {"blob":"45721ce128a112666a0caed6c13c66637b74ca54","since":4},
     "scripts/lib/paid-report.ts": {"blob":"3fda96a8b1f7f3d55797934847353f254cc4d054","since":4},
     "scripts/lib/published-text.ts": {"blob":"3f2e4d616b5dd0204035710c66b64d49055c5714","since":4},
     "scripts/lib/shard-engine.ts": {"blob":"3cd0b1aaa84018b00bf9ea0ce48093f3c8492f66","since":4},
     "scripts/test-paid-shards.ts": {"blob":"8ddee5f11ed7856876135520dd8025ab989e2db9","since":4},
-    "scripts/test-pr-profile.ts": {"blob":"54363c3d3aad9743b9e79219da7ec8a0f4ab0832","since":4},
+    "scripts/test-pr-profile.ts": {"blob":"791d101b37e81bdc200e33f72abc3cc12eeaab0f","since":4,"nonBehavioral":"Merge with main (HARNESS_VERSION 4): FREE_ONLY_PR_FILES gains careful/bin/check-careful.sh and CASE_TEST_NAMES maps office-hours-auto-mode to its real Bun test name; selection only, no case verdict rule changes"},
     "scripts/test-strict-output.ts": {"blob":"01185d20dc9761b04b9b2f751ec98664fe0eaf93","since":4},
     "test/helpers/agent-sdk-runner.ts": {"blob":"210bba92d241a90df578b2c7fc943ac5755d0025","since":4},
     "test/helpers/auq-substance-panel.ts": {"blob":"4881260ef793668e4963a062db6d06a5e1f7a40f","since":4},
