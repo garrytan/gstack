@@ -354,6 +354,35 @@ describe("MEDIUM lines point at the real file line (ENG-8)", () => {
     expect(found[0]).toContain("big.txt:20001");
   });
 
+  test("a merge that resolves a release bump does not read its version strings as public IPs", () => {
+    const fx = fixture();
+    const release = (v: string) => `# Changelog\n\n## [${v}] - 2026-01-02\n\n- change\n`;
+    commitFile(fx, fx.repo, "VERSION", "1.0.0.0\n");
+    commitFile(fx, fx.repo, "CHANGELOG.md", release("1.0.0.0"));
+    expect(push(fx, ["origin", "main"]).code).toBe(0);
+    git(fx, fx.repo, ["checkout", "-q", "-b", "feature"]);
+    commitFile(fx, fx.repo, "VERSION", "1.0.1.0\n");
+    const featureTip = commitFile(fx, fx.repo, "CHANGELOG.md", release("1.0.1.0"));
+    expect(push(fx, ["origin", "feature"]).code).toBe(0);
+    git(fx, fx.repo, ["checkout", "-q", "main"]);
+    commitFile(fx, fx.repo, "VERSION", "1.0.2.0\n");
+    const mainTip = commitFile(fx, fx.repo, "CHANGELOG.md", release("1.0.2.0"));
+    expect(push(fx, ["origin", "main"]).code).toBe(0);
+    git(fx, fx.repo, ["checkout", "-q", "feature"]);
+    fs.writeFileSync(path.join(fx.repo, "VERSION"), "1.0.3.0\n");
+    fs.writeFileSync(path.join(fx.repo, "CHANGELOG.md"), release("1.0.3.0"));
+    git(fx, fx.repo, ["add", "VERSION", "CHANGELOG.md"]);
+    const tree = git(fx, fx.repo, ["write-tree"]);
+    const stamp = `${clock++} +0000`;
+    const object = [`tree ${tree}`, `parent ${featureTip}`, `parent ${mainTip}`, `author Someone <${at("me")}> ${stamp}`,
+      `committer Someone <${at("me")}> ${stamp}`, "", "merge main and re-slot", ""].join("\n");
+    const merge = spawnSync("git", ["hash-object", "-t", "commit", "-w", "--stdin"], { cwd: fx.repo, input: object, encoding: "utf8", env: fx.env, timeout: 30_000 });
+    git(fx, fx.repo, ["update-ref", "HEAD", merge.stdout.trim()]);
+    const { code, stderr } = push(fx, ["origin", "feature"]);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("pii.ip_public");
+  });
+
   test("content removed before the pushed tip names the commit that added it", () => {
     const fx = fixture();
     git(fx, fx.repo, ["checkout", "-q", "-b", "feature"]);

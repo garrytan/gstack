@@ -126,8 +126,8 @@ The same `gen:skill-docs` run writes two more generated files from `lib/`:
 and commit both; never edit the generated file
 (`test/design-checklist-sync.test.ts` fails on drift).
 
-Generation uses each host's `defaultModel` (`claude` for existing hosts, `gpt`
-for Codex) unless `--model` is explicit. Codex installs additionally read the
+Generation uses each host's `defaultModel` (`claude` for most hosts, `gpt`
+for Codex, `gemini` for Antigravity's `agy`) unless `--model` is explicit. Codex installs additionally read the
 top-level model from `${CODEX_HOME:-~/.codex}/config.toml`; rerun
 `./setup --host codex` after changing that model. Note: `bun run build` and a
 bare `gen:skill-docs --host codex` render the host default (gpt) — if your
@@ -515,6 +515,13 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 1. Push your branch
 2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
 3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
+
+`bun run build` renders every host in a checkout setup never ran in. In an
+install (any checkout with `.gstack-installed-hosts`, including one set up with
+`bin/dev-setup`, which records Claude and Codex) it renders only the recorded
+hosts and prints them (#1694); `GSTACK_RENDER_HOSTS=all bun run build` renders
+every host there, and the next `./setup` prunes the extra renders to
+`$GSTACK_STATE_ROOT/backups/host-renders/` again.
 
 **If you use gbrain:** the `git reset --hard` in step 2 reverts the brain-aware
 (`GBRAIN_CONTEXT_LOAD` / `GBRAIN_SAVE_RESULTS`) blocks that `gstack-config

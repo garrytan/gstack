@@ -56,6 +56,11 @@ if [ ! -e "$AGENTS_LINK" ]; then
   ln -s "$REPO_ROOT" "$AGENTS_LINK"
 fi
 
+# 5b. Record Codex as a host this checkout serves (bin/gstack-host-renders.sh),
+# so setup and `bun run build` keep rendering .agents/ for it (#1694).
+. "$REPO_ROOT/bin/gstack-host-renders.sh"
+gstack_render_hosts_add "$REPO_ROOT" codex
+
 # 6. Run setup via the symlink so it detects .claude/skills/ as its parent.
 #
 # Workspace/dev setup MUST be non-interactive: Conductor runs this under a

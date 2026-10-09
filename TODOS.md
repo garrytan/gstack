@@ -2,22 +2,143 @@
 
 ## NEXT PRIORITY
 
+### P2/P3: office-hours and timeline follow-ups (filed 2026-10-08, v1.91.54.0)
+
+Left open by the office-hours tier fix (#2801, #879, #1049, #1958, #1723, #1651 part A).
+
+- **Session markers that reflect "currently active" (#1651 part B)** — skill
+  start touches `sessions/<pid>` only when a skill starts, so a long session
+  with no new skill for two hours drops out of `SESSIONS: N`. Fix shape: refresh
+  the marker per tool call from a hook. **Effort:** M. **Priority:** P3.
+- **Live eval for the first-session closing** — free tests run the rendered
+  profile read and session log in order, but no paid case checks that a model
+  follows the carried `SESSION_TIER` through Phase 6 (first run gets the
+  introduction, second run asks about the earlier assignment). No office-hours
+  quality judge exists either. **Effort:** M. **Priority:** P2.
+- **`gstack-timeline-read --since`/`--branch` without a value** — both still
+  read an unbound `$2` under `set -u` and crash with exit 1, the class #1723
+  fixed for `--limit`. **Effort:** S. **Priority:** P3.
+
+### P3: Oct 8 fix wave, safety hooks follow-ups (filed 2026-10-08)
+
+Left open by the PowerShell/NotebookEdit hook fix (v1.91.47.0, #3067), each with its reason.
+
+- **Forced overwrite patterns for `/careful`** — `Set-Content -Force` / `Out-File
+  -Force` over an existing file (and the Bash `>` overwrite twin) still pass.
+  Deferred: the Bash side has no overwrite pattern either, and adding one is a
+  new family for both shells, not PowerShell parity. **Effort:** S. **Priority:** P3.
+- **Quote-aware masking in `check-careful.sh` (#1060)** — `git commit -m "rm -rf
+  build"` still asks. Deferred: masking quoted text inside a safety hook can open
+  bypasses (PR #1110's `echo hi; rm -rf ~` showed how); it needs its own design
+  with the #1110 strings as controls. **Effort:** M. **Priority:** P3.
+- **Hooks on Windows without Git Bash** — the frontmatter hook commands run
+  `bash -c ...`, and Claude Code runs hook commands through PowerShell when Git
+  Bash is absent, so the guards cannot start there. gstack requires Git Bash
+  today; a native PowerShell hook launcher would lift that. **Effort:** M.
+  **Priority:** P3.
+
+### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.38.0)
+
+Left open by the iPad and route-drop release, each with its reason.
+
+- **Device verification of v1.91.38.0** — the iPad bootstrap, route-drop
+  recovery on a real Xcode 26 tunnel drop, the multiple-devices error and the
+  `NOT READY` path were proven only against the simulated device; the changed
+  `StateServer` passed `swiftc -parse` but no Apple-SDK build. Run
+  `test/skill-e2e-ios-device.test.ts` and the Swift build lane on a Mac with an
+  iPhone and an iPad. **Effort:** S. **Priority:** P2.
+- **`GSTACK_IOS_LAUNCH_ENV` (split from #1796, @Bmathews721)** — pass launch
+  environment to the app through `devicectl process launch`. Nothing equivalent
+  exists on main; land it as its own small PR with credit, then close #1796.
+  **Effort:** S. **Priority:** P2.
+- **A restarted daemon still relaunches the app once** — a new daemon has no
+  session bearer and the one-use boot token is gone. Fixing it needs either a
+  device-side re-mint with proof of the old session or a persisted bearer under
+  the state root, and both change the token's security model. Needs a design.
+  **Effort:** M. **Priority:** P3.
+- **iPad Stage Manager and multiple scenes** — overlay and window selection
+  (`frontmostWindow`, `searchRoots`) are unverified on iPad multi-window
+  layouts. **Effort:** S (verify) / M (fix). **Priority:** P3.
+- **Stale "Session warm-start" phase in `/ios-qa`** — Phase 0 describes an
+  `ios-qa-session.json` cache that no daemon code writes. Implement it with the
+  state-root chain or remove the phase. **Effort:** S. **Priority:** P3.
+- **Sanctioned input-routing hook for SwiftUI gestures** (#1975 finding 2) —
+  synthesized touches miss `DragGesture` on iOS 26; a documented `#if DEBUG`
+  hook would let gesture-driven apps route `/tap` and `/swipe` to their own
+  handlers. **Effort:** M. **Priority:** P3.
+
+### P1/P2: /cso capacity follow-ups (filed 2026-10-08)
+
+Left open by v1.91.42.0, which lifted the snapshot file-count ceiling.
+
+- **Tracked symlinks refuse the whole /cso run** — `capture()` fails closed on
+  any tracked symlink ("Symlink or special source file"). 5 of 8 mid-size OSS
+  repos measured for v1.91.42.0 stop there (django, rails, terraform, grafana,
+  vscode; 1-10 symlinks each, mostly test fixtures). Recording them as unread
+  exclusions in the manifest, like dependency trees, is a security design call
+  for Garry. **Effort:** M. **Priority:** P1.
+- **64 MiB aggregate source cap (#2993)** — files over 1 MiB are withheld from
+  the audit but still read and counted. Stream-hash them without counting
+  toward the cap, report them as unread coverage, and add an admission estimate
+  to `doctor`. grafana (211 MiB) and vscode (540 MiB) hit it once symlinks are
+  out of the way. A `GSTACK_CSO_SNAPSHOT_MAX_BYTES` knob was deferred with it.
+  **Effort:** L. **Priority:** P2.
+- **`inspect` prints the whole public manifest** — about 2.8 MB of stdout for
+  5,000 files, more than an agent's tool output keeps. The skill reads paths
+  from it, so trimming it is a skill-contract change with evals.
+  **Effort:** M. **Priority:** P2.
+- **Repair bundles carry every transformation** — `lib/cso/verification.ts`
+  binds the full transformation list into a 1 MiB immutable bundle. Only
+  runtime verification writes bundles, and no qualified runtime catalog exists
+  yet. **Effort:** M. **Priority:** P3.
+
+### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.38.0)
+
+Left open by the iPad and route-drop release, each with its reason.
+
+- **Device verification of v1.91.38.0** — the iPad bootstrap, route-drop
+  recovery on a real Xcode 26 tunnel drop, the multiple-devices error and the
+  `NOT READY` path were proven only against the simulated device; the changed
+  `StateServer` passed `swiftc -parse` but no Apple-SDK build. Run
+  `test/skill-e2e-ios-device.test.ts` and the Swift build lane on a Mac with an
+  iPhone and an iPad. **Effort:** S. **Priority:** P2.
+- **`GSTACK_IOS_LAUNCH_ENV` (split from #1796, @Bmathews721)** — pass launch
+  environment to the app through `devicectl process launch`. Nothing equivalent
+  exists on main; land it as its own small PR with credit, then close #1796.
+  **Effort:** S. **Priority:** P2.
+- **A restarted daemon still relaunches the app once** — a new daemon has no
+  session bearer and the one-use boot token is gone. Fixing it needs either a
+  device-side re-mint with proof of the old session or a persisted bearer under
+  the state root, and both change the token's security model. Needs a design.
+  **Effort:** M. **Priority:** P3.
+- **iPad Stage Manager and multiple scenes** — overlay and window selection
+  (`frontmostWindow`, `searchRoots`) are unverified on iPad multi-window
+  layouts. **Effort:** S (verify) / M (fix). **Priority:** P3.
+- **Stale "Session warm-start" phase in `/ios-qa`** — Phase 0 describes an
+  `ios-qa-session.json` cache that no daemon code writes. Implement it with the
+  state-root chain or remove the phase. **Effort:** S. **Priority:** P3.
+- **Sanctioned input-routing hook for SwiftUI gestures** (#1975 finding 2) —
+  synthesized touches miss `DragGesture` on iOS 26; a documented `#if DEBUG`
+  hook would let gesture-driven apps route `/tap` and `/swipe` to their own
+  handlers. **Effort:** M. **Priority:** P3.
+
+### P3: Parked contributor ideas (Oct 8 triage)
+
+Contributor PRs closed as "later" during the Oct 8 triage. Each is a reasonable idea parked until its theme is picked up; credit and reference the PR when it is.
+
+- **New hosts** — Kimi Code (#2674), Pi (#2507, the most complete), Gemini CLI (#2309, decide together with Antigravity since both use `~/.gemini`), Qoder (#2116, its `--dir` setup flag could land on its own), Grok Build (#2028), Zed (#1785, the `~/.agents/skills` collision with Codex needs a decision), Mistral Vibe (#1640), Factory Droid symlink discovery (#660, verify on a real Droid install first), Claude Code plugin marketplace (#526, once /browse, /careful and /freeze work from plugin installs). New hosts wait for the host-config work; Antigravity ships first. **Priority:** P3.
+- **Backup-browser (`$B`) features** — `record` video evidence (#2497), WebAuthn virtual authenticator (#2297), device/geo/locale/timezone emulation (#2064), request interception `route` (#2063, needs a deny-default allowlist design), Chromium launch overrides with a denylist (#1933), extra Chrome extensions via the existing `BROWSE_EXTENSIONS_DIR` (#1144), Flutter Web semantics for snapshots (#511). Revisit each alongside an Aside equivalent. **Priority:** P3.
+- **Outside voice and Codex** — a reasoning-effort knob in the model-tier config from v1.91.45.0 instead of new env vars (#2934), cross-host plugin distribution (#2723), Review Army on Codex behind a paid quality eval (#2648), the /investigate falsification prompt as a Codex outside voice (#2535), Codex install paths moving to `~/.agents/skills` as a planned migration (#2123), Codex CLI freshness in gstack-doctor's Codex row (#1861). **Priority:** P3.
+- **Memory and learnings** — signal-gated learnings capture with helpful/harmful counters (#2030), semantic dedup folded into `/learn prune` (#2029), docs-aware gbrain sync on the current orchestrator (#2438), a registry-independent plan-tune autonomy signal after fixing signal keys vs logged labels (#2625). **Priority:** P3.
+- **Ship and review** — a pre-PR upstream duplicate audit as an opt-in (#1696), preview deploy plus browser check before PR creation as a designed section (#685), the header-derived-gate testing bullet (#2860). **Priority:** P3.
+- **QA, design and other skills** — accessibility review folded into /design-review or /qa (#2476), per-finding QA evidence layout (#1484), a cognitive-load checklist item in the shared design checklist (#696), local-model benchmarking via an Ollama adapter (#1495), measured context-bill benefit estimates (#3021), a REMOTE_CONTROL trigger for the AskUserQuestion prose fallback if the host bug persists (#459). **Priority:** P3.
+
 ### P2/P3: Oct 7 fix-wave follow-ups (filed 2026-10-07)
 
 Left open by the Oct 7 wave (docs/designs/FOLLOWUP_WAVE_2026_10_07.md), each with its reason.
 
-- **/autoplan permission cards after a background reviewer finishes (Claude Code
-  2.1.292)** — once a background reviewer's completion notice starts a new turn,
-  Claude Code stops applying the skill's allowed tools, so Reads outside the
-  project (the close packet, the next phase's section file) show permission
-  cards. Seen in both foreground and `--bg` PTY runs. Options: keep those
-  artifacts readable without a card, or detect it and explain it once.
-  **Effort:** M. **Priority:** P2.
-- **macOS numbers for the bounded journal read** — the guard's 120 MiB read
-  meets the Linux budget (0.43-0.87 s, at most 235 MiB peak RSS on 4 vCPU) and a
-  resumed 102 MiB session entered Phase 1 end to end. The macOS run is recorded
-  by dispatching `.github/workflows/measure-journal-read.yml`, which GitHub only
-  allows once the workflow is on main. **Effort:** S. **Priority:** P3.
+- **/autoplan Bash cards in Manual mode after a background reviewer** — after a background reviewer's notice starts a new turn, the skill's allowed tools stop applying, so /autoplan's Bash calls (snapshot tool, outside voice, review log) ask in Manual mode; auto mode routes them to its classifier. Options: hook approval of exact snapshot-tool invocations, or a one-time explanation. **Effort:** M. **Priority:** P3.
+- **Reviewer input card for sessions started below the repo root** — skill hooks don't run inside subagents, so a reviewer reading its input from the repo's `.gstack/tmp/autoplan/` asks when the session started in a subdirectory. **Effort:** S. **Priority:** P3.
 - **Every-transition manual /autoplan session on 2.1.292** — the replay
   fixtures and the scripted live boundary (foreground and `--bg`) cover the
   guard; one full recorded run through every phase transition is still to do.
@@ -166,6 +287,67 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
   paid PR profile from the same touchfile closure so one command answers "what
   does my diff need?". **Effort:** M. **Priority:** P3.
 
+### P2: Windows follow-ups from the October fix wave (PR C1)
+
+- **Sign the Windows binaries so Smart App Control allows them (#2595, #2124)** —
+  `browse`, `find-browse`, `design`, `pdf` and `gstack-global-discover` are
+  compiled on the user's machine with `bun build --compile`, so they are
+  unsigned and never gain reputation; Smart App Control blocks all five. PR C1
+  only detects and explains the block (setup hint, gstack-doctor rows,
+  troubleshooting section). The fix is Authenticode-signed release artifacts
+  (for example Azure Trusted Signing) that setup downloads and verifies instead
+  of compiling, or a signed launcher. **Needs:** Garry's code-signing account
+  and certificate decision; a Windows 11 machine with Smart App Control on to
+  verify. **Effort:** L. **Priority:** P2.
+- **Find what deletes the staged CSO files during publish on #3071's machine** —
+  PR C1 made the failure non-fatal, cleared the parent's EXIT trap before the
+  native publisher `exec`, and records the outcome, but the root cause is
+  unproven (one reporter; `windows-latest` CI publishes fine). Ask for
+  `bin/.gstack-cso-build.log`, `bash -x scripts/build-cso.sh` and a Process
+  Monitor trace of the stage directory. **Effort:** M (needs the reporter's
+  machine). **Priority:** P3.
+- **Verify the Smart App Control error text on a real SAC machine** — the
+  launch probe (`bin/gstack-launch-probe.sh`) classifies exit 126/127 and
+  application-control messages as blocked from reporters' captures; nobody has
+  run it on an enforcing machine. **Effort:** S. **Priority:** P3.
+
+### P2/P3: install footprint follow-ups from the October fix wave (PR C2, v1.91.65.0)
+
+- **`scripts/ship-measure.ts` on env-var hosts** — /ship's measure loop runs
+  `$GSTACK_ROOT/scripts/ship-measure.ts`, which imports gstack's test helpers
+  and eval harness, so a Codex/Factory/... runtime root would need most of the
+  development tree. It is the one `$GSTACK_ROOT` path
+  `test/runtime-root-assets.test.ts` defers. Either make ship-measure
+  self-contained or have the skill call it from the source checkout
+  (`.source-path`). **Effort:** M. **Priority:** P3.
+- **Rendered `SKILL.md` copies inside runtime roots are discoverable** —
+  `office-hours/SKILL.md` (#2449) and now `plan-design-review/SKILL.md` sit in
+  `~/.codex/skills/gstack/<skill>/` because skills read them as
+  `$GSTACK_ROOT/<skill>/SKILL.md`. A host that scans its skills dir
+  recursively may list them beside `gstack-<skill>`. Pointing those reads at
+  the sibling registry path, as /autoplan does, removes the copies; that is a
+  prompt change and needs its evals. **Effort:** M. **Priority:** P3.
+- **Removing one host from a checkout** — the installed-hosts record only
+  grows, and `gstack-uninstall` removes every install. A per-host uninstall
+  should drop the host from `.gstack-installed-hosts` so its render is pruned;
+  today that is a hand edit. **Effort:** S. **Priority:** P3.
+- **Recording an instruction-only host from setup** — Hermes, OpenClaw and
+  GBrain renders made by hand inside an install survive only when the user adds
+  the host to `.gstack-installed-hosts` first (setup's hint says so). A
+  `./setup --host hermes --render`-style path would record and render in one
+  step; it needs a product call because those tiers install nothing today.
+  **Effort:** S. **Priority:** P3.
+- **Host-render backups never expire** — each install's first pruning setup
+  moves about 36 MB of generated files to
+  `$GSTACK_STATE_ROOT/backups/host-renders/`. Add a retention rule (for example
+  keep 30 days) once nobody has asked for a restore. **Effort:** S.
+  **Priority:** P3.
+- **Verify the Cursor-agent freeze and Claude Code's listing on a real
+  install** — #1694's symptoms (Cursor-agent freezing above about 11 MB, Claude
+  Code dropping skill descriptions) were measured as on-disk bytes only: 632
+  `SKILL.md` / 34.7 MB before, 63 / 2.5 MB after. Nobody re-ran Cursor or
+  Claude Code against the trimmed tree. **Effort:** S. **Priority:** P3.
+
 ### P2/P3: severe fix wave follow-ups (filed 2026-10-03, v1.91.19.0)
 
 Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10.md), each with its reason.
@@ -176,11 +358,15 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   and `--no-env-file` (verified with 1.3.2), so D0's protection against a
   project's `.env`/`bunfig.toml` is silently off there. Setup should refuse or
   warn below the floor. **Effort:** S. **Priority:** P2.
-- **Windows Node CLI lane for Smart App Control (E3; #2596, #2595, #2124)** —
-  a `dist/browse` wrapper would shadow `browse.exe` for every Windows user;
-  launcher precedence (browse vs browse.exe vs browse.cmd under Git Bash and
-  cmd) and the node-missing message need a Windows SAC machine to verify.
-  **Effort:** M. **Priority:** P2.
+- ~~**Windows Node CLI lane for Smart App Control (E3; #2596, #2595, #2124)**~~ —
+  superseded by the fix wave's PR C1: setup and gstack-doctor now detect
+  SAC-blocked binaries, and the fix wave decided against a launcher or shim
+  (it cannot be called from PowerShell, and a `bun run` shim would load the
+  caller's project `.env`/`bunfig.toml`). Signing is the follow-up below.
+  Original note: — a `dist/browse` wrapper would shadow `browse.exe` for every
+  Windows user; launcher precedence (browse vs browse.exe vs browse.cmd under
+  Git Bash and cmd) and the node-missing message need a Windows SAC machine to
+  verify. **Effort:** M. **Priority:** P2.
 - **C8 router wording behind a routing panel** — disabled skills now leave the
   router, but the "When in doubt, invoke the skill" wording change (Tier 3) was
   not run through a routing eval panel. **Effort:** S. **Priority:** P3.
@@ -203,10 +389,10 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
 - **Redaction repo allowlist (#2598)** — a per-repo `+++ b/<path>` skip list
   (generated `*.svg`/`*.excalidraw`, #2827) for noise context rules cannot
   cover. New config surface, so out of the wave. **Effort:** M. **Priority:** P2.
-- **Global-discover Codex session schema (#2750)**, **ios-qa boot-token fixes
-  (#1837, #1975; need a device)**, **absolute bun path for compiled browse
-  spawns (#931; macOS repro unclear)** and **GitLab CI `curl | bash` (#1713)** —
-  out of the wave's scope. **Priority:** P3 each.
+- **Global-discover Codex session schema (#2750)**, **absolute bun path for
+  compiled browse spawns (#931; macOS repro unclear)** and **GitLab CI
+  `curl | bash` (#1713)** — out of the wave's scope. (The ios-qa boot-token
+  items #1837 and #1975 landed in v1.91.38.0.) **Priority:** P3 each.
 - **Upstream gbrain batch lookup** — a per-slug existence lookup and a separate
   `pending` list in `gbrain import --json`, so the landing check need not list a
   whole source and spawn `get` per page. **Effort:** M (upstream). **Priority:** P2.

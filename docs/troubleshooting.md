@@ -26,13 +26,121 @@ section has a stable link anchor; the reason codes and anchors come from
 Run `~/.claude/skills/gstack/bin/gstack-doctor` (other hosts: `./setup --status`
 in your gstack checkout prints the doctor's absolute path). It prints one row
 each for the install, state root, Bun, hooks, Codex, the cached Codex model
-check, artifacts sync, the browse bundle, Claude Code, the largest session
-journal and recent /autoplan guard codes. Each row is `ok`, `warn`,
+check, artifacts sync, the browse bundle, the other compiled binaries, the
+/cso native helper, Claude Code, the largest session journal and recent
+/autoplan guard codes. Each row is `ok`, `warn`,
 `not configured` or `fail` with its fix; only `fail` exits non-zero. It makes
 no paid call: the Codex rows report the cached model check and its age, and
 `--live` runs that check once. Paste its output into bug reports.
 
 ---
+
+## Model policy
+
+The [model-policy guide](model-policy.md) explains the two tiers, all six
+settings, precedence and the read-only inspection command. A resolved selection
+is not proof that the requested provider or model can run.
+
+<a id="model-policy-config"></a>
+### Model policy configuration is invalid or unreadable
+
+**Meaning.** The new policy path could not read a coherent configuration or a
+configured value is invalid. An unreadable file is not treated as an absent
+setting: doing that could silently select the premium default.
+
+**Fix.** Repair the file or key named by the error. `plan_review_tier` accepts
+`frontier`, `smart` or `host`; `implementation_tier` accepts `frontier` or
+`smart`. Use `gstack-config unset <key>` to restore a default, not an empty
+value. A rejected `set` leaves the old value intact. Correct ownership/read
+permissions rather than deleting an unrelated state directory.
+For a malformed line such as `plan_review_tier = smart`, edit the reported file
+and correct or remove that line first: `unset` only removes canonical `key:`
+records and cannot repair a misspelled delimiter or quoted key.
+
+**Expected result.** `gstack-models list` or the corresponding `resolve`
+command explains the winning source. No outside model call ran on this error.
+
+<a id="model-policy-provider"></a>
+### A custom provider needs an explicit model or host mode
+
+**Meaning.** Native settings or environment flags route the reviewer to a
+custom endpoint or partner platform. A public API catalog identifier is not
+necessarily a valid deployment identifier there. Malformed native provider
+configuration also prevents gstack from assuming the public endpoint.
+
+**Fix.** Supply a compatible model for that request, set the provider's gstack
+environment override or tier-model setting, or choose
+`gstack-config set plan_review_tier host`. Keep credentials in the provider's
+normal authentication mechanism, never in a model setting. If the error names
+a malformed native configuration, fix that source first.
+
+**Expected result.** Inspection reports an explicit selection or honest
+host-managed delegation. It does not certify account entitlement or send a
+public default to an inferred custom endpoint.
+
+<a id="model-policy-selection"></a>
+### The selected review model could not be used
+
+**Meaning.** The requested model was rejected or the provider could not
+complete the review. A model may be nonexistent, unavailable to the account,
+retired, or behind a misconfigured endpoint; preserve the provider's evidence
+rather than treating all of these as the same diagnosis. No successful outside
+review is implied, and gstack does not substitute a different model.
+
+**Fix.** Change the source named in the error. For example, an environment
+override beats a tier setting, so editing the tier cannot replace it. Unset or
+correct that override, or explicitly name a supported model for the request.
+Follow the existing auth, quota, sandbox or timeout repair when that is the
+reported failure. Missing usage identity remains unknown, even if inspection
+showed a requested ID.
+
+**Expected result.** The next invocation announces its model and source,
+checks that same selection and reports the actual provider result. A cached
+probe or a native fallback is not a completed outside review.
+
+<a id="model-policy-freshness"></a>
+### Model-catalog freshness is unknown, stale or needs an update
+
+**Meaning.** Official evidence changed, a required source could not be
+checked, or the retained evidence does not match this catalog and parser.
+`unknown/source-unavailable` is not current. A later source failure must not
+erase an earlier retirement finding or close its maintenance issue.
+
+**Fix.** Read the failed source and evidence details in the freshness workflow
+report and tracking issue. Repair the source parser or publication access when
+needed, then run the workflow manually against the default branch. If a model
+was superseded or deprecated, follow the [maintainer checklist](model-policy.md#maintainer-update-checklist)
+to qualify a replacement or record a supported mitigation. Do not clear the
+issue just because a new release has not been adopted yet.
+
+**Expected result.** Complete source checks produce evidence bound to the
+current catalog, while unresolved lifecycle findings remain visible. Personal
+pins and unrelated PRs are unchanged. Check the workflow's last run date too:
+a scheduled job that never runs cannot report its own absence.
+
+#### Repairing `recoveryRequired` state
+
+This flag deliberately keeps the issue open until a maintainer repairs the
+record. Another successful fetch alone cannot certify corrupted history.
+
+1. Save the current issue body, including its retained recovery archive, and
+   download the latest trustworthy workflow report. Use its `report.state` as
+   the starting state; do not invent run IDs, catalog hashes or check dates.
+2. Reconcile its `lifecycle` array with the issue's independent lifecycle block
+   and any retained archive. Preserve known retirements, deadlines and human
+   dispositions. A model currently in the catalog must not keep an old
+   `resolvedByCatalog` flag from a previous replacement.
+3. In the issue editor, restore valid JSON between the `state:begin` and
+   `state:end` marker lines. Put that same lifecycle array between
+   `lifecycle:begin` and `lifecycle:end`. Restore the standalone ownership and
+   region markers, and leave human text outside the owned region intact.
+4. Set `recoveryRequired` to `false` only after that reconciliation. If prior
+   successful evidence cannot be verified, set `lastSuccess` to `null` rather
+   than making up a fresh success. If lifecycle history cannot be recovered,
+   leave the flag set and the issue open for investigation.
+5. Run **Model-policy freshness** against the default branch. Only complete,
+   current evidence with no unresolved findings can close the issue. A parsing
+   or source error leaves it open; do not clear history to manufacture a pass.
 
 ## Outside reviews (Codex and Claude Code)
 
@@ -615,13 +723,21 @@ Bun first.
 
 **Meaning.** Claude Code runs gstack's hook shims through `/bin/sh`, and a hook
 that does not parse exits 2, which blocks the tool call it guards in every
-session. Setup parse-checks every hook it registers (the shim, and the
-TypeScript it runs with its local imports). It registers the hooks that parse,
-skips the ones listed, finishes the rest of the install, and exits non-zero.
-Claude Code runs hooks straight from `~/.claude/skills/gstack`, so a skipped
-hook that an earlier setup registered keeps running the broken file until it
-is fixed. This is a gstack bug, or a half-applied edit or merge in your
-checkout: report the printed `<file>:<line>`.
+session. Setup parse-checks every hook it registers and every hook a skill's
+frontmatter runs (`/autoplan`, `/careful`, `/freeze`, `/guard`, `/investigate`
+and `/plan-ceo-review`): the shim, the gstack shell helpers it sources (such as
+`careful/bin/hook-extract.sh` and `bin/gstack-state-root.sh`), and the
+TypeScript it runs with its local imports. A merge conflict marker line in any
+of those files fails as `unresolved merge conflict marker`, even when the file
+still parses (markers inside a heredoc, a string or a template literal do).
+The TypeScript is bundled from the gstack checkout, so the `tsconfig.json` or
+`bunfig.toml` of the project you run it from is never read. It registers the
+hooks that parse, skips the ones listed, finishes the rest of the install, and
+exits non-zero. Claude Code runs hooks straight from `~/.claude/skills/gstack`,
+so a skipped hook that an earlier setup registered, or that a skill runs,
+keeps running the broken file until it is fixed. This is a gstack bug, or a
+half-applied edit or merge in your checkout: report the printed
+`<file>:<line>`.
 
 **Fix.**
 
@@ -637,7 +753,8 @@ cd ~/.claude/skills/gstack && ./setup
 ### `gstack auto-update: update held (hook-does-not-parse: <file>:<line>: <error>); nothing was installed or changed, and your current hooks keep running. ...`
 
 **Meaning.** Team-mode auto-update fetched a release with a hook that does not
-parse. It checked the incoming revision before moving your checkout, so your
+parse or still holds a merge conflict marker (the same check setup runs). It
+checked the incoming revision before moving your checkout, so your
 checkout, installed skills and registered hooks stay at the current revision.
 gstack checks again at the next update check and installs the first release
 whose hooks parse. This is a gstack bug: report the printed `<file>:<line>`.
@@ -645,6 +762,36 @@ whose hooks parse. This is a gstack bug: report the printed `<file>:<line>`.
 **Fix.** Nothing to do locally. A manual `git pull` followed by `./setup`
 cannot be checked before the pull; setup then refuses the broken hook (see the
 entry above).
+
+<a id="host-renders-pruned"></a>
+### `pruned <dir> (<host> is not installed from this checkout): ...` / `kept <path>: not proven generated (...)` / `host-render backup: <dir> (...)`
+
+**Meaning.** A gstack checkout keeps skills only for the agents installed from
+it, listed in `.gstack-installed-hosts` in the checkout (#1694). Older installs
+rendered every agent's copy, so a global Claude install carried 632 `SKILL.md`
+files (34.7 MB) that Claude Code and Cursor-agent scan. setup removed the copy
+for an agent that is not installed from this checkout. Generated files were
+moved to the backup directory it printed; links into the checkout were removed;
+files it could not prove gstack generated (`kept ...`) were left in place.
+`prune.log` in the backup lists every path. The same prune runs once from the
+upgrade migration. Agents in the record are never pruned.
+
+**Fix.** Nothing, if you don't use that agent. To get an agent back, install
+it from this checkout, which records it and renders its skills:
+
+```bash
+./setup --host <name>
+```
+
+For an instruction-only agent you render by hand (Hermes, OpenClaw, GBrain),
+add its name to `.gstack-installed-hosts` first, then run
+`bun run gen:skill-docs --host <name>`. To restore one file, `mv` it back from
+the backup. A `kept` file is yours: move or delete it when you no longer need it.
+The backup sits in gstack's state root, which no agent scans; delete it once
+you are sure you don't need it (about 36 MB for a pre-1.91.65 Claude install).
+
+**Expected result.** The next `./setup` prints no `pruned` line, and
+`./setup --status` lists the agents you use.
 
 <a id="cso-windows-msvc-compile"></a>
 ### `CSO unavailable: its native helper was not built (windows-msvc-compile)`
@@ -654,6 +801,35 @@ not compile. setup prints the first compiler error. It used to say "install
 Visual Studio".
 
 **Fix.** Fix the printed compiler error, then re-run `./setup`.
+
+<a id="cso-build-or-publish-failed"></a>
+### `CSO unavailable: the native helper's <stage> step failed (...)` / `CSO publish step failed (...) for <revision>; previous CSO kept: <revision>`
+
+**Meaning.** The /cso native helper is optional. Its build prerequisites were
+present, but the `build` step (compiling the helper) or the `publish` step
+(swapping the new helper into `bin/` under a lock) failed. setup used to stop
+here (#3071); now it finishes everything else and says which step failed. When
+an earlier helper was installed and the failed publish restored it, setup
+prints `previous CSO kept` and /cso keeps using that helper; otherwise /cso
+reports `not assessed`. `interrupted` means the step was killed before it could
+record a result. The outcome is in `bin/.gstack-cso-build-result`, and
+`gstack-doctor`'s `cso` row reads the same record. The build output is in
+`bin/.gstack-cso-build.log`.
+
+**Fix.** Read the log, fix what it reports, then retry from your gstack checkout:
+
+```bash
+bun run build:cso && ./setup
+```
+
+On Windows, setup and the build use PowerShell 7 (`pwsh`) when it is installed
+and fall back to Windows PowerShell 5.1. The root cause of the staged files
+vanishing during publish in #3071 is still unknown; attach the log there if you
+hit it. CI sets `GSTACK_STRICT_BUILD=1`, which makes these failures fatal so
+build regressions cannot hide.
+
+**Expected result.** setup prints no CSO line, and the doctor's `cso` row is
+`ok`.
 
 <a id="cso-windows-docker"></a>
 ### `Docker found at <path>, but native Windows Docker transport is not supported yet; static assessment only.` / `docker.exe at <path> is outside the trusted install locations (...)`
@@ -673,6 +849,24 @@ container or runtime check runs.
 Linux) with a local Docker socket. On Windows, static assessment is the
 supported mode; if the refusal named a user directory, install Docker Desktop
 under Program Files.
+
+<a id="cso-capacity"></a>
+### `Snapshot manifest cap exceeded: ...` / `64 MiB source cap exceeded: ...` / `Symlink or special source file: <path>`
+
+**Meaning.** /cso copies the repository into a private snapshot before any
+audit starts, and refuses the whole run when the snapshot would be incomplete
+or too large. Each message names the cap that applied:
+
+- **Snapshot manifest cap (16 MiB).** One entry per tracked or nonignored
+  untracked file; about 50,000 files fit.
+- **64 MiB source cap.** The full size of every such file outside dependency
+  and VCS directories counts, including files over 1 MiB whose contents are
+  withheld from the audit.
+- **Symlinks.** A tracked symlink anywhere in the repository stops the run.
+
+**Fix.** No setting raises these caps. Run /cso on a smaller checkout that
+holds the code you want audited and no symlinks. Add your file count or size to
+[#2993](https://github.com/garrytan/gstack/issues/2993).
 
 <a id="conductor-auq-hook-removed"></a>
 ### `removed the AskUserQuestion preference hook: it breaks Conductor's native AskUserQuestion (#2207). ...`
@@ -799,6 +993,45 @@ killed.
 
 **Fix.** After `browse stop`, check for a leftover browser with
 `ps aux | grep -i chrom` and end it with `kill <pid>`.
+
+---
+
+## Windows
+
+<a id="windows-smart-app-control"></a>
+### `Windows blocked compiled gstack binaries at launch (Smart App Control or another application-control policy, #2595)` / `bash: .../browse.exe: Permission denied`
+
+**Meaning.** Known issue (#2595, #2124). gstack compiles five binaries on your
+machine with Bun: `browse`, `find-browse`, `design`, `pdf` and
+`gstack-global-discover`. They are unsigned, and a binary built on one machine
+never earns the reputation Smart App Control accepts instead of a signature, so
+Windows 11 with Smart App Control on refuses to start them. Git Bash reports
+that as `Permission denied`, which looks like a file-permission problem but is
+code integrity (PowerShell says `An Application Control policy has blocked this
+file`). setup now runs each binary's `--version` and names the blocked ones and
+the skills that need them: the gstack browser fallback (`/browse`, `/qa`,
+`/qa-only`, `/design-review`, `/canary`, `/benchmark`, `/pair-agent`,
+`/scrape`, `/make-pdf`), the design binary (`/design-consultation`,
+`/design-shotgun`, `/design-html`, `/plan-design-review`) and `/retro global`.
+Every other skill works. `gstack-doctor` shows the same state in its
+`browse bundle` and `binaries` rows. The exact Windows error text has not been
+verified on a Smart App Control machine; setup prints the raw first line beside
+its classification.
+
+**Fix.** There is no per-file allowlist for Smart App Control. Today's options:
+
+- Run gstack inside WSL (`wsl --install`, then install gstack in the Linux
+  distro). WSL runs gstack's Linux build, which Smart App Control does not check.
+- Or turn Smart App Control off in Windows Security > App & browser control >
+  Smart App Control settings. On Windows 11 with the April 2026 update you can
+  turn it back on later without reinstalling Windows; on older builds turning it
+  off is permanent. gstack's binaries stay blocked whenever it is on.
+
+Signed release binaries are the real fix and are tracked in `TODOS.md`. After
+Windows allows the binaries, re-run `./setup`; the message goes away.
+
+**Expected result.** setup prints no "Windows blocked" line, and
+`gstack-doctor` shows `ok` for `browse bundle` and `binaries`.
 
 ---
 
@@ -986,6 +1219,24 @@ up deployed, so it still blocks.
 **Fix.** Use `postgres://postgres:postgres@localhost:5432/...` in local and CI
 config, or read the URL from an env var. If the credential is real, rotate it.
 Bypass once: `GSTACK_REDACT_PREPUSH=skip git push`.
+If the URL is a reviewed, public dev-only value, list it in
+[`.gstack-redact-allowlist`](#redact-allowlist).
+
+<a id="redact-allowlist"></a>
+### `.gstack-redact-allowlist (<n> entries) suppressed <m> finding(s) in this push`
+
+**Meaning.** The pushed commit carries `.gstack-redact-allowlist` at the repo
+root. Each line (after trimming; `#` starts a comment) is one exact matched
+span: the whole `postgres://USER:PASSWORD@host:port` URL for
+`db.url_with_password`, the key for a key pattern, the address for `pii.email`. A finding is suppressed only when its
+matched text equals an entry, so a password alone, a substring, or a different
+key still reports and still blocks. The hook reads the file from each pushed
+commit, never the working tree, and ignores a file over 64 KiB. Every push that
+carries entries prints this line and each suppressed finding's file and line.
+It works alongside `gstack.redact.allowEmail`, which stays a local setting.
+
+**Fix.** Nothing, if every listed suppression is the reviewed value. Remove an
+entry that no longer applies; rotate a credential that is real.
 
 <a id="redact-version-as-ip"></a>
 ### `pii.ip_public` MEDIUM on a four-part version number

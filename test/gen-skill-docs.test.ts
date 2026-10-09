@@ -9,7 +9,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { runCapturedCommand } from './helpers/sync-command-capture';
-import { expectMentions, expectTokens } from './helpers/prompt-structure';
+import { between, expectAbsent, expectMentions, expectOrdered, expectTokens } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
@@ -434,6 +434,20 @@ describe('gen-skill-docs', () => {
     const content = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md'), 'utf-8');
     expect(content).not.toContain('## AskUserQuestion Format');
     expect(content).not.toContain('## Completeness Principle');
+  });
+
+  test('benchmark routing is scoped to web page performance', () => {
+    const generated = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md'), 'utf-8');
+    const template = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md.tmpl'), 'utf-8');
+    for (const content of [generated, template]) {
+      const useWhen = content.match(/Use when:[\s\S]*?(?=\n\n|\(gstack\))/)?.[0] ?? '';
+      expect(useWhen).toContain('"web performance benchmark"');
+      expect(useWhen).not.toMatch(/"benchmark"|"performance"/);
+      expect(content).toContain('/benchmark-models');
+    }
+    const router = fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
+    expect(router).toContain('web performance regression → invoke `/benchmark`');
+    expect(router).toContain('model or skill benchmarks → invoke `/benchmark-models`');
   });
 
   test('telemetry producer lives in the scripts; render documents the analytics sink', () => {
@@ -1951,6 +1965,149 @@ describe('BENEFITS_FROM resolver', () => {
     // Should contain the INVOKE_SKILL-style loading prose (not the old manual skip list)
     expect(engContent).toContain('skipping these sections');
   });
+  // #1958: spawned/headless sessions have no human to answer the offer.
+  test('every prerequisite offer is skipped in spawned and headless sessions, before any option', () => {
+    const renders: Array<[string, string]> = [
+      ['plan-ceo-review', ceoContent],
+      ['plan-eng-review', engContent],
+      ['plan-devex-review', readSkillUnion('plan-devex-review')],
+      ['autoplan', readSkillUnion('autoplan')],
+    ];
+    for (const [skill, content] of renders) {
+      const offer = extractMarkdownSection(content, '## Prerequisite Skill Offer');
+      expectTokens(offer, ['`SESSION_KIND`', '`spawned`', '`headless`'], `${skill} offer`);
+      expectMentions(offer, [['skip', 'offer', 'session_kind']], `${skill} offer`);
+      expectOrdered(offer, ['`SESSION_KIND`', 'A) Run /office-hours now'], `${skill} offer`);
+    }
+  });
+});
+
+describe('office-hours closing reads the builder profile before logging the session (#2801)', () => {
+  const skeleton = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  const handoff = fs.readFileSync(path.join(ROOT, 'office-hours', 'sections', 'design-and-handoff.md'), 'utf-8');
+  const phase45 = extractMarkdownSection(skeleton, '## Phase 4.5: Founder Signal Synthesis');
+  const step1 = between(handoff, '### Step 1: Builder Profile', '### Step 2:');
+  const fence = (text: string, after: string) => between(text, after).match(/```bash\n([\s\S]*?)\n```/)![1]!;
+  const readBlock = fence(phase45, '### Builder Profile Read');
+  const logBlock = fence(phase45, '### Builder Profile Append');
+  const CARRY = 'Builder profile before this session:';
+
+  test('Phase 4.5 reads the profile before --log-session and records the prior tier for Phase 6', () => {
+    expect(readBlock).toContain('bin/gstack-builder-profile');
+    expect(logBlock).toContain('bin/gstack-developer-profile --log-session');
+    expectOrdered(phase45, ['bin/gstack-builder-profile', 'bin/gstack-developer-profile --log-session'], 'Phase 4.5');
+    expectTokens(phase45, [CARRY, 'PROFILE_READ=', 'SESSION_TIER=', 'PRIOR_SESSION_COUNT=', 'LAST_ASSIGNMENT=', 'CROSS_PROJECT='], 'Phase 4.5');
+  });
+
+  test('a failed profile read proceeds as a first session and says so', () => {
+    expect(readBlock).toContain('PROFILE_READ: failed');
+    expectMentions(phase45, [['failed', 'introduction']], 'Phase 4.5');
+    expectMentions(step1, [['failed', 'introduction'], ["couldn't read", 'builder profile', 'first']], 'Phase 6 Step 1');
+  });
+
+  test('Phase 6 takes tier and last-session fields from the Phase 4.5 line, never from a post-log read', () => {
+    expectTokens(step1, [CARRY, 'PRIOR_SESSION_COUNT + 1'], 'Phase 6 Step 1');
+    expectMentions(step1, [['never', 'tier', 'session_count']], 'Phase 6 Step 1');
+    expectAbsent(step1, ['SESSION_TIER=$(', 'SESSION_COUNT=$('], 'Phase 6 Step 1');
+    const tiers = between(handoff, '### Step 2: Follow the Tier Path', '## Founder Resources');
+    expectAbsent(tiers, ['[SESSION_COUNT]', 'from profile]'], 'tier paths');
+  });
+
+  test('welcome_back and regular greetings drop a last-session clause whose value is empty', () => {
+    const welcomeBack = between(handoff, '### If TIER = welcome_back', '### If TIER = regular');
+    const regular = between(handoff, '### If TIER = regular', '### If TIER = inner_circle');
+    expectTokens(welcomeBack, ['[LAST_ASSIGNMENT]', '[LAST_PROJECT]', '"Welcome back."'], 'welcome_back');
+    expectMentions(welcomeBack, [['last_assignment', 'last_project', 'empty', 'skip']], 'welcome_back');
+    expectOrdered(welcomeBack, ['Last time we talked about [LAST_PROJECT]', 'empty'], 'welcome_back');
+    expectTokens(regular, ['Last time: [LAST_ASSIGNMENT]'], 'regular');
+    expectMentions(regular, [['last_assignment', 'empty', 'skip']], 'regular');
+  });
+
+  test('executing the rendered blocks in order: a first session reads introduction, a failed read is marked', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oh-tier-'));
+    try {
+      const home = path.join(dir, 'home'), state = path.join(dir, 'state');
+      const bin = path.join(home, '.claude/skills/gstack/bin');
+      fs.mkdirSync(bin, { recursive: true });
+      for (const file of ['gstack-builder-profile', 'gstack-developer-profile', 'gstack-state-root.sh', 'gstack-slug', 'gstack-remote-identity.sh']) {
+        fs.copyFileSync(path.join(ROOT, 'bin', file), path.join(bin, file));
+        fs.chmodSync(path.join(bin, file), 0o755);
+      }
+      const env = { ...process.env, HOME: home, GSTACK_HOME: state, GSTACK_STATE_ROOT: state, GIT_CEILING_DIRECTORIES: dir };
+      const run = (command: string) => runCapturedCommand('bash', ['-c', command], { cwd: dir, env, timeout: 15000, captureStdout: true });
+      const log = logBlock
+        .replace('TIMESTAMP', '2026-10-07T00:00:00Z').replace('MODE', 'builder').replace('"SLUG"', '"proj"')
+        .replace(':N,', ':2,').replace('SIGNALS_ARRAY', '["taste"]').replace('DOC_PATH', 'd.md')
+        .replace('ASSIGNMENT_TEXT', 'Talk to five users').replace('TOPICS_ARRAY', '[]');
+      const first = run(readBlock);
+      expect(first.status, first.stderr).toBe(0);
+      expect(first.stdout).toMatch(/^SESSION_COUNT: 0$/m);
+      expect(first.stdout).toMatch(/^TIER: introduction$/m);
+      expect(run(log).status).toBe(0);
+      const afterLog = run(readBlock);
+      expect(afterLog.stdout).toMatch(/^TIER: welcome_back$/m);
+      expect(afterLog.stdout).toContain('LAST_ASSIGNMENT: Talk to five users');
+      fs.writeFileSync(path.join(bin, 'gstack-builder-profile'), '#!/usr/bin/env bash\nexit 3\n', { mode: 0o755 });
+      const failed = run(readBlock);
+      expect(failed.status).toBe(0);
+      expect(failed.stdout.trim()).toBe('PROFILE_READ: failed');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('office-hours reports success only when this run wrote its design doc (#1049)', () => {
+  const skeleton = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  const check = between(skeleton, "## Before telemetry: confirm this run's design doc", '\n## ');
+  const block = check.match(/```bash\n([\s\S]*?)\n```/)![1]!;
+
+  test('success requires DESIGN_DOC: ok; a missing doc maps to abort or error, not success', () => {
+    expect(block).toContain('bin/gstack-paths --get GSTACK_STATE_ROOT');
+    expect(block).not.toMatch(/\bls -t\b|find /);
+    expectMentions(check, [['success', 'design_doc: ok'], ['abort', 'error', 'design_doc']], 'design doc check');
+    expectOrdered(skeleton, ['## Phase 4.5', "## Before telemetry: confirm this run's design doc", '## Important Rules'], 'office-hours');
+  });
+
+  test('the rendered check accepts only this run\'s non-empty doc under the state root', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oh-doc-'));
+    try {
+      const home = path.join(dir, 'home'), state = path.join(dir, 'state');
+      const bin = path.join(home, '.claude/skills/gstack/bin');
+      fs.mkdirSync(bin, { recursive: true });
+      for (const file of ['gstack-paths', 'gstack-state-root.sh']) {
+        fs.copyFileSync(path.join(ROOT, 'bin', file), path.join(bin, file));
+        fs.chmodSync(path.join(bin, file), 0o755);
+      }
+      const doc = path.join(state, 'projects', 'proj', 'me-main-design-20261007-120000.md');
+      fs.mkdirSync(path.dirname(doc), { recursive: true });
+      fs.writeFileSync(path.join(path.dirname(doc), 'other-main-design-20261007-130000.md'), '# Another session\n');
+      const outside = path.join(dir, 'me-main-design-20261007-120000.md');
+      fs.writeFileSync(outside, '# Outside the state root\n');
+      const env = { ...process.env, HOME: home, GSTACK_HOME: state, GSTACK_STATE_ROOT: state };
+      const run = (docPath: string) => {
+        const result = runCapturedCommand('bash', ['-c', block.replace('DESIGN_DOC_PATH', docPath)], { cwd: dir, env, timeout: 15000, captureStdout: true });
+        expect(result.status, result.stderr).toBe(0);
+        return result.stdout.trim();
+      };
+      expect(run(doc)).toBe('DESIGN_DOC: missing');
+      expect(run('')).toBe('DESIGN_DOC: missing');
+      expect(run(outside)).toBe('DESIGN_DOC: missing');
+      fs.writeFileSync(doc, '');
+      expect(run(doc)).toBe('DESIGN_DOC: missing');
+      fs.writeFileSync(doc, '# Design: fixture\n');
+      expect(run(doc)).toBe('DESIGN_DOC: ok');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('office-hours shows the design doc before asking for approval (#879)', () => {
+  const handoff = fs.readFileSync(path.join(ROOT, 'office-hours', 'sections', 'design-and-handoff.md'), 'utf-8');
+
+  test('the full doc is printed inline as assistant text, after spec review and before the approval question', () => {
+    const approval = 'Present the reviewed design doc to the user via AskUserQuestion';
+    const beforeApproval = between(handoff, 'spec-review.jsonl', approval);
+    expectMentions(beforeApproval, [['full', 'design doc', 'inline'], ['tool', 'collapsed']], 'pre-approval');
+    expectOrdered(handoff, ['spec-review.jsonl', 'output the full design doc inline', approval, 'A) Approve'], 'design-and-handoff');
+  });
 });
 
 // --- {{INVOKE_SKILL}} resolver tests ---
@@ -3025,6 +3182,22 @@ describe('Codex generation (--host codex)', () => {
     expect(codexContent).toContain('gstack-claude-code');
   });
 
+  test('codex design-shotgun generates with built-in $imagegen and keeps $D for the board only', () => {
+    const codex = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-design-shotgun', 'SKILL.md'), 'utf-8');
+    for (const phrase of ['`$imagegen`', 'default built-in mode', 'needs no `OPENAI_API_KEY`', 'view_image', 'gstack-design-claim', '$D compare --images-file']) {
+      expect(codex).toContain(phrase);
+    }
+    for (const generator of ['"$D" variants', '"$D" generate', '"$D" evolve', '$D iterate', '`$D variants --brief']) {
+      expect(codex).not.toContain(generator);
+    }
+    const claude = fs.readFileSync(path.join(ROOT, 'design-shotgun', 'SKILL.md'), 'utf-8');
+    expect(claude).toContain('"$D" variants --briefs-file');
+    expect(claude).not.toContain('$imagegen');
+    for (const skill of ['plan-design-review', 'design-consultation']) {
+      expect(readExternalSkillUnion(EXTERNAL_OUT, '.agents', skill)).not.toContain('$imagegen');
+    }
+  });
+
   test('codex host does not include Codex design block in ship', () => {
     const codexContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(codexContent).not.toContain('Codex design voice');
@@ -3424,7 +3597,7 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('--host');
     // #2361: slate moved OUT of the install accept-list (it was accepted but
     // never dispatched — a silent exit-0 no-op) into an informational arm.
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|copilot|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|copilot|agy|auto');
     expect(setupContent).toMatch(/^ {2}slate\)/m);
   });
 
@@ -3492,13 +3665,13 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
-    expect(fnBody).toContain('checklist.md');
-    expect(fnBody).toContain('TODOS-format.md');
+    // Review checklists and the other read-on-demand files come from the shared
+    // helpers, the same set every env-var root gets (#1077 residue): the Cursor
+    // render reads design-checklist.md and review/specialists too.
+    expect(fnBody).toContain('_link_runtime_dists "$gstack_dir" "$cursor_gstack"');
+    expect(fnBody).toContain('_copy_runtime_skill_refs "$cursor_dir" "$cursor_gstack"');
     // bin scripts import ../lib — the two must travel together.
     expect(fnBody).toContain('$cursor_gstack/lib');
-    expect(fnBody).not.toContain('design-checklist.md');
-    expect(fnBody).not.toContain('greptile-triage.md');
-    expect(fnBody).not.toContain('review/specialists');
     expect(fnBody).not.toContain('qa/templates');
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$cursor_gstack"');
   });
@@ -3572,19 +3745,22 @@ describe('setup script validation', () => {
 
   test('create_codex_runtime_root exposes only runtime assets', () => {
     const fnStart = setupContent.indexOf('create_codex_runtime_root()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
+    const fnEnd = setupContent.indexOf('\n}\n', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
     expect(fnBody).toContain('$codex_gstack/lib');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
-    // Review runtime assets (individual files, not the whole dir)
-    expect(fnBody).toContain('checklist.md');
-    expect(fnBody).toContain('design-checklist.md');
-    expect(fnBody).toContain('greptile-triage.md');
-    expect(fnBody).toContain('TODOS-format.md');
+    expect(fnBody).toContain('_link_runtime_dists "$gstack_dir" "$codex_gstack"');
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
+    // Review runtime assets: individual files from the shared helper, never
+    // the whole review/ dir, which has a SKILL.md.
+    const shared = setupContent.slice(setupContent.indexOf('_link_runtime_dists() {'), setupContent.indexOf('_copy_runtime_skill_refs() {'));
+    for (const f of ['review/checklist.md', 'review/design-checklist.md', 'review/greptile-triage.md', 'review/TODOS-format.md']) {
+      expect(shared).toContain(f);
+    }
+    expect(shared).not.toMatch(/for d in [^;]*\breview(?:\s|;)/);
   });
 
   test('create_factory_runtime_root links shared lib modules beside bin', () => {

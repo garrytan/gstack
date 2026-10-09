@@ -7,7 +7,7 @@ import { generatePlanCompletionAuditReview, generatePlanCompletionAuditShip, gen
 import { generateQAReview } from '../scripts/resolvers/qa';
 import { generateConfidenceCalibration } from '../scripts/resolvers/confidence';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
-import { expectMentions } from './helpers/prompt-structure';
+import { between, compact, expectAbsent, expectMentions, expectTokens } from './helpers/prompt-structure';
 
 const root = join(import.meta.dir, '..');
 const skill = readFileSync(join(root, 'review/SKILL.md.tmpl'), 'utf8');
@@ -465,4 +465,32 @@ test('ship and review count unverified or unavailable outside reviews as missing
   for (const rel of ['ship/SKILL.md', 'ship/sections/pr-body.md', 'review/SKILL.md']) {
     expect(read(rel)).toMatch(/`unverified` or `unavailable` is (listed as )?missing coverage[^.]*never (as )?(a )?pass/i);
   }
+});
+
+test('testing specialist treats negative assertions as decisions and catches ones a rename emptied', () => {
+  const specialist = between(readFileSync(join(root, 'review/specialists/testing.md'), 'utf8'), '### Negative Assertions', '\n### ');
+  expectTokens(specialist, ['not.toContain', 'assertNotIn'], 'testing specialist');
+  expectMentions(compact(specialist), [
+    ['new', 'absent', 'removal', 'not coverage'],
+    ['authorizes', 'removal'],
+    ['rename', 'negative assertion', 'passes forever'],
+    ['grep', 'negative assertions', 'old value'],
+  ], 'testing specialist');
+});
+
+test('security specialist checks authorization paths a route-guard read misses', () => {
+  const auth = compact(between(readFileSync(join(root, 'review/specialists/security.md'), 'utf8'), '### Auth & Authorization Bypass', '\n### '));
+  expectMentions(auth, [
+    ['error', 'renderer', 'outside', 'guard'],
+    ['ownership', 'role', 'downgrade'],
+    ['list', 'detail', 'download', 'separately'],
+    ['session', 'before', 'validating', 'callback'],
+  ], 'security specialist');
+});
+
+test('review suppressions allow a clean result and skip common false positives but never suppress missing validation or a missing await', () => {
+  const suppressions = between(readFileSync(join(root, 'review/checklist.md'), 'utf8'), '## Suppressions');
+  expectMentions(compact(suppressions), [['zero findings', 'valid']], 'suppressions');
+  expectTokens(suppressions, ['"Function too long"', '"Possible null dereference"', '"N+1 query"', '"Hardcoded value"', '`Math.random()`'], 'suppressions');
+  expectAbsent(suppressions, [/missing input validation/i, /missing await/i], 'suppressions');
 });

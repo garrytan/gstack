@@ -939,6 +939,16 @@ describe('Enum & Value Completeness in review checklist', () => {
     expect(checklist).toContain('allowlist');
   });
 
+  test('Enum & Value Completeness covers loosened input acceptance and stale user-facing strings', () => {
+    const start = checklist.indexOf('#### Enum & Value Completeness');
+    const section = checklist.slice(start, checklist.indexOf('### Pass 2', start));
+    expect(section).toContain('loosens what an input accepts');
+    expect(section).toContain('Loosened acceptance breaks unchanged consumers');
+    const maintainability = fs.readFileSync(path.join(ROOT, 'review', 'specialists', 'maintainability.md'), 'utf-8');
+    const stale = maintainability.slice(maintainability.indexOf('### Stale Comments & Docstrings'));
+    expect(stale.slice(0, stale.indexOf('\n### ', 5))).toContain('User-facing strings (errors, toasts, labels) whose guarding condition changed');
+  });
+
   test('Enum & Value Completeness is in the severity classification as CRITICAL', () => {
     const gateSection = checklist.slice(checklist.indexOf('## Severity Classification'));
     // The ASCII art has CRITICAL on the left and INFORMATIONAL on the right

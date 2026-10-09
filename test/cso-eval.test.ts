@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import * as childProcess from 'node:child_process';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -899,18 +899,24 @@ describe('CSO matched producer orchestration', () => {
     }
   });
 
-  test('withholds the receipt when the bound provider executable changes during a cell', async () => {
+  const expectIntegrityReceipt = (receipt: ProducerReceipt, receiptPath: string, error: { code: string; reason: string }) => {
+    expect(receipt).toMatchObject({ status: 'failed', error, output: '', outputHash: sha256(''), durationMs: 1234, toolCalls: 4, usage: { inputTokens: 120, outputTokens: 30, cachedTokens: 10, estimatedCostUSD: 0.0042 } });
+    expect(receipt.artifacts.entries).toEqual([]);
+    expect(JSON.parse(readFileSync(receiptPath, 'utf8'))).toEqual(receipt);
+  };
+
+  test('records a failed receipt with usage when the bound provider executable changes during a cell', async () => {
     const destination = join(root(), 'provider-race-prepared'), cell = selected[0];
     prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
     const isolated = isolate(destination, cell), launcher = helperBundle();
     const outputRoot = join(root(), 'provider-race-receipts'); mkdirSync(outputRoot);
     const receiptPath = join(outputRoot, `${cell.id}.json`);
     const adapter = new FakeAdapter(opts => writeFileSync(opts.csoProducer!.providerCommand.executable, '#!/bin/sh\nexit 1\n'));
-    await expect(runProducerCell(isolated.input, receiptPath, withHelper({ adapter, paidExecutionAuthorized: true }, launcher))).rejects.toThrow('PRODUCER_PROVIDER_INSTALLATION_RACE');
-    expect(existsSync(receiptPath)).toBe(false);
+    const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter, paidExecutionAuthorized: true }, launcher));
+    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_PROVIDER_INSTALLATION_RACE', reason: 'provider executable changed during the run' });
   });
 
-  test('withholds the receipt when the helper generation changes during a cell', async () => {
+  test('records a failed receipt with usage when the helper generation changes during a cell', async () => {
     const destination = join(root(), 'helper-generation-race-prepared'), cell = selected[0];
     prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
     const isolated = isolate(destination, cell), launcher = helperBundle();
@@ -921,8 +927,40 @@ describe('CSO matched producer orchestration', () => {
       writeFileSync(core, process.platform === 'win32' ? 'new test executable\n' : '#!/bin/sh\nexit 1\n', { mode: 0o755 });
       writeFileSync(opts.csoProducer!.helperGeneration, `${sha256(readFileSync(core))}\n`);
     });
-    await expect(runProducerCell(isolated.input, receiptPath, withHelper({ adapter, paidExecutionAuthorized: true }, launcher))).rejects.toThrow('PRODUCER_HELPER_GENERATION_CHANGED');
-    expect(existsSync(receiptPath)).toBe(false);
+    const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter, paidExecutionAuthorized: true }, launcher));
+    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_HELPER_GENERATION_CHANGED', reason: 'installed helper identity changed during the run' });
+  });
+
+  test('records a failed receipt with usage when the provider output exceeds the limit', async () => {
+    const destination = join(root(), 'output-limit-prepared'), cell = selected[0];
+    prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
+    const isolated = isolate(destination, cell), receiptPath = join(root(), `${cell.id}.json`);
+    const output = 'x'.repeat(32 * 1024 * 1024 + 1);
+    const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter: new FakeAdapter(() => {}, 'gpt-5.4', 'gpt', { output }), paidExecutionAuthorized: true }));
+    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_OUTPUT_TOO_LARGE', reason: `output is ${output.length} bytes; the limit is ${32 * 1024 * 1024}` });
+  });
+
+  test('names the first offending source path and rule in a failed receipt that keeps usage', async () => {
+    if (process.platform === 'win32') return;
+    const writable = (directory: string, change: () => void) => { chmodSync(directory, 0o755); try { change(); } finally { chmodSync(directory, 0o555); } };
+    const cases: Array<[string, (source: string, outside: string) => void, string]> = [
+      ['mount-point', source => writable(source, () => writeFileSync(join(source, '.mcp.json'), '', { mode: 0o444 })), '".mcp.json" is not in the expected source listing'],
+      ['missing', source => writable(source, () => rmSync(join(source, 'app.mjs'))), '"app.mjs" is missing from the source'],
+      ['hard-link', (source, outside) => linkSync(join(source, 'app.mjs'), join(outside, 'app.mjs')), '"app.mjs" has 2 hard links; expected 1'],
+      ['content', source => {
+        const file = join(source, 'app.mjs'), size = statSync(file).size;
+        chmodSync(file, 0o644); writeFileSync(file, 'y'.repeat(size)); chmodSync(file, 0o444);
+      }, '"app.mjs" does not match its expected sha256'],
+    ];
+    for (const [name, mutate, reason] of cases) {
+      const destination = join(root(), `${name}-prepared`), cell = selected[0], outside = root();
+      const schedule = prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
+      const isolated = isolate(destination, cell), receiptPath = join(root(), `${cell.id}.json`);
+      const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter: new FakeAdapter(opts => mutate(opts.csoProducer!.sourceDirectory, outside)), paidExecutionAuthorized: true }));
+      expectIntegrityReceipt(receipt, receiptPath, { code: 'INVALID_PRODUCER_SOURCE', reason });
+      const group = collectProducerReceipts(producerMatrix, schedule, [receipt]).summary.groups.find(item => item.version === cell.version && item.mode === cell.mode);
+      expect(group).toMatchObject({ submitted: 1, succeeded: 0, failed: 1, estimatedCost: { measured: 1, totalUSD: 0.0042 } });
+    }
   });
 
   test('fails closed without a receipt or raw console reason when redaction cannot inspect output', async () => {
@@ -986,7 +1024,7 @@ describe('CSO matched producer orchestration', () => {
     expect(written).not.toMatch(/caseId|variant|vulnerable|"fixed"/); expect(written).not.toContain(native.caseId);
   });
 
-  test('seals source read-only and withholds a receipt after a mode/content mutation', async () => {
+  test('seals source read-only and records a failed receipt after a mode/content mutation', async () => {
     const destination = join(root(), 'prepared');
     const cell = selected[0];
     prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
@@ -1004,8 +1042,10 @@ describe('CSO matched producer orchestration', () => {
       }
       writeFileSync(join(source, 'app.mjs'), 'changed by producer\n');
     });
-    await expect(runProducerCell(isolated.input, receipt, withHelper({ adapter, paidExecutionAuthorized: true }))).rejects.toThrow(process.platform === 'win32' ? 'INVALID_PRODUCER_SOURCE' : 'PRODUCER_CHANGED_SOURCE_MODE');
+    const written = await runProducerCell(isolated.input, receipt, withHelper({ adapter, paidExecutionAuthorized: true }));
+    expectIntegrityReceipt(written, receipt, process.platform === 'win32'
+      ? { code: 'INVALID_PRODUCER_SOURCE', reason: `"app.mjs" is ${'changed by producer\n'.length} bytes; expected ${Buffer.byteLength(original)}` }
+      : { code: 'PRODUCER_CHANGED_SOURCE_MODE', reason: '"app.mjs" has mode 644; expected 444' });
     expect(readFileSync(join(isolated.source, 'app.mjs'), 'utf8')).not.toBe(original);
-    expect(existsSync(receipt)).toBe(false);
   });
 });

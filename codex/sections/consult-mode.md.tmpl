@@ -92,7 +92,7 @@ fi
 cd "$_REPO_ROOT" || exit 1
 PROMPT_FILE="$_REPO_ROOT/.gstack/tmp/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not run: $PROMPT_FILE is missing or empty, so the prompt was never written. Write it, then run by hand: codex exec - -C $_REPO_ROOT < $PROMPT_FILE" >&2; exit 1; }
-{{CODEX_SELECT:exec}}
+{{CODEX_SELECT:exec:540}}
 _SID=""
 if [ "$_CODEX_MODE" = "resume" ]; then
   _SID=$(cat .context/codex-session-id 2>/dev/null)

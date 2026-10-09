@@ -24,6 +24,10 @@
  *   - `pii.email` skips the pusher's own address, `gstack.redact.allowEmail`
  *     entries, and addresses already in the destination's commit metadata
  *     (see emailScanOptions).
+ *   - `.gstack-redact-allowlist`, read from each pushed commit (never the
+ *     working tree), lists exact matched spans reviewed as benign, one per
+ *     line, `#` comments. Only a finding whose matched text equals an entry is
+ *     suppressed; every push that carries entries lists what they suppressed.
  *   - GSTACK_REDACT_PREPUSH=skip → log + exit 0 (escape valve).
  *
  * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
@@ -335,7 +339,8 @@ function collectAddedLines(diff: string, commit?: string): AddedFile[] {
     const inResult = inHunk && !line.startsWith("\\") && !line.slice(0, parents).includes("-");
     const lineNumber = inResult ? nextLine++ : 0;
     if (line.startsWith("+")) {
-      fileLines.push(line.slice(1));
+      // A combined (--cc) body line carries one prefix column per parent.
+      fileLines.push(line.slice(inHunk ? parents : 1));
       lineNumbers.push(lineNumber);
     }
   }
@@ -549,11 +554,40 @@ function emailScanOptions(historyRevs: string[], trackingRemote: string | null):
   };
 }
 
+const ALLOWLIST_PATH = ".gstack-redact-allowlist";
+const ALLOWLIST_MAX_BYTES = 64 * 1024;
+
+/**
+ * Entries of the allowlist committed in `sha`. Read from the pushed commit so
+ * a suppression exists only as a reviewable commit. Absent, unreadable or
+ * oversized means no entries: the file can record a reviewed exception, never
+ * loosen the scan by accident.
+ */
+function committedAllowlist(sha: string): string[] {
+  const spec = `${sha}:${ALLOWLIST_PATH}`;
+  const size = Number(git(["cat-file", "-s", spec]).trim());
+  if (!size) return [];
+  if (size > ALLOWLIST_MAX_BYTES) {
+    process.stderr.write(
+      `gstack-redact-prepush: ${ALLOWLIST_PATH} in ${sha.slice(0, 12)} is over ${ALLOWLIST_MAX_BYTES} bytes; ignoring it.\n`,
+    );
+    return [];
+  }
+  return git(["cat-file", "blob", spec]).split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+}
+
+/** File line (and commit) of a finding. Never the matched value. */
+function findingWhere(f: Finding, part: AddedFile): string {
+  const line = part.lines[f.line - 1];
+  return `${part.file || "(unknown file)"}${line ? `:${line}` : ""}` +
+    (part.commit ? ` in commit ${part.commit.slice(0, 12)}` : "");
+}
+
 /** One MEDIUM report line: rule id, file line (and commit), and the fix. Never the matched value. */
 function mediumLine(f: Finding, part: AddedFile): string {
-  const line = part.lines[f.line - 1];
-  const where = `${part.file || "(unknown file)"}${line ? `:${line}` : ""}` +
-    (part.commit ? ` in commit ${part.commit.slice(0, 12)}` : "");
+  const where = findingWhere(f, part);
   const fix = f.id === "pii.email"
     ? "remove the address, or allow it: git config --add gstack.redact.allowEmail <address>"
     : "remove the value before it becomes public";
@@ -574,7 +608,8 @@ function main() {
     .filter(Boolean)
     .map((l) => l.split(/\s+/));
 
-  const parts: AddedFile[] = [];
+  const parts: Array<{ part: AddedFile; allowlist: string[] }> = [];
+  const allowEntries = new Set<string>();
   const historyRevs = new Set<string>();
   let trackingRemote: string | null = null;
 
@@ -610,7 +645,9 @@ function main() {
       );
       process.exit(1);
     }
-    parts.push(...added.filter((part) => part.text.trim()));
+    const allowlist = committedAllowlist(localSha);
+    for (const entry of allowlist) allowEntries.add(entry);
+    for (const part of added) if (part.text.trim()) parts.push({ part, allowlist });
     historyRevs.add(localSha);
     if (!ZERO.test(remoteSha) && objectExists(remoteSha)) historyRevs.add(remoteSha);
     else {
@@ -628,15 +665,35 @@ function main() {
   // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
   // scanned rather than blocked unscanned on the engine's size cap.
   // Scanned per file so a pattern can use the file's type (#3048).
-  for (const part of parts) {
+  // An allowlisted span is found by scanning with and without the entries,
+  // so the report names exactly what they suppressed.
+  const allowed: string[] = [];
+  const findingKey = (f: Finding) => `${f.id}:${f.line}:${f.col}`;
+  for (const { part, allowlist } of parts) {
     const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file ? { sourcePath: part.file } : {}) };
-    for (const f of scanAddedLines(part.text, opts)) {
+    const findings = scanAddedLines(part.text, opts);
+    const kept = allowlist.length
+      ? new Set(scanAddedLines(part.text, { ...opts, allowlist }).map(findingKey))
+      : null;
+    for (const f of findings) {
+      if (kept && !kept.has(findingKey(f))) {
+        if (f.severity === "HIGH" || f.severity === "MEDIUM") allowed.push(`  ${f.severity}  ${f.id}  ${findingWhere(f, part)}\n`);
+        continue;
+      }
       if (f.severity === "HIGH") allHigh.push(f);
       else if (f.severity === "MEDIUM") {
         mediums.push(mediumLine(f, part));
         if (f.id === "pii.email") emailMedium = true;
       }
     }
+  }
+
+  if (allowEntries.size > 0) {
+    process.stderr.write(
+      `gstack-redact-prepush: ${ALLOWLIST_PATH} (${allowEntries.size} entr${allowEntries.size === 1 ? "y" : "ies"}) ` +
+        `suppressed ${allowed.length} finding(s) in this push${allowed.length ? ":" : "."}\n`,
+    );
+    for (const line of allowed) process.stderr.write(line);
   }
 
   if (mediums.length > 0) {
@@ -673,7 +730,9 @@ function main() {
         process.stderr.write(`  HIGH  ${f.id}  ${f.preview}\n`);
       }
       process.stderr.write(
-        "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n",
+        "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n" +
+          `If the value is a known-benign sample, commit its exact matched text as a line of ${ALLOWLIST_PATH}\n` +
+          "at the repo root instead of reshaping code to dodge the pattern; every push lists what that file suppresses.\n",
       );
     }
 

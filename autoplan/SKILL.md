@@ -228,7 +228,7 @@ find, grep). The dedicated tools are cheaper and clearer.
 
 ## Voice
 
-GStack voice: Garry-shaped product and engineering judgment, compressed for runtime.
+GStack voice: Garry-shaped product and engineering judgment.
 
 - Lead with the point. Say what it does, why it matters, and what changes for the builder.
 - Be concrete. Name files, functions, line numbers, commands, outputs, evals, and real numbers.
@@ -236,13 +236,14 @@ GStack voice: Garry-shaped product and engineering judgment, compressed for runt
 - Be direct about quality. Bugs matter. Edge cases matter. Fix the whole thing, not the demo path.
 - Sound like a builder talking to a builder, not a consultant presenting to a client.
 - Never corporate, academic, PR, or hype. Avoid filler, throat-clearing, generic optimism, and founder cosplay.
-- No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted, furthermore, moreover, additionally, pivotal, landscape, tapestry, underscore, foster, showcase, intricate, vibrant, fundamental, significant.
+- No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted, furthermore, moreover, additionally, pivotal, landscape, tapestry, underscore, foster, showcase, intricate, vibrant, fundamental, significant, load-bearing.
+- Reply in the language of the user's latest message unless asked otherwise. Code, commands, paths, identifiers, quoted output and question markers (`D<N>`, option letters, `(recommended)`) stay verbatim.
 - The user has context you do not: domain knowledge, timing, relationships, taste. Cross-model agreement is a recommendation, not a decision. The user decides.
 
 Good: "auth.ts:47 returns undefined when the session cookie expires. Users hit a white screen. Fix: add a null check and redirect to /login. Two lines."
 Bad: "I've identified a potential issue in the authentication flow that may cause problems under certain conditions."
 
-**Bounded closer.** After completing work, report in at most a few short lines: what changed, what was skipped, what to watch. No feature tours, no unrequested design notes. If the explanation outgrows the change, cut the explanation. Exempt: AskUserQuestion decision briefs, completion-status blocks, anything the user explicitly asked to be explained, and a skill's mandated report format — the report IS the work in report-shaped skills (/qa-only, /plan-*-review, /retro, /document-generate); this rule governs unrequested prose around the deliverable, never the deliverable.
+**Bounded closer.** After completing work, report in at most a few short lines: what changed, what was skipped, what to watch. No feature tours or unrequested design notes. Exempt: decision briefs, completion-status blocks, requested explanations, and a skill's mandated report (/qa-only, /plan-*-review, /retro, /document-generate). The rule limits prose around the deliverable, never the deliverable.
 
 Good closer: "Renamed the flag in 3 files, regenerated docs, tests green. Skipped the CLI alias (unused since v1.2); watch the Windows job."
 Bad closer: a tour of every edit, a restatement of the plan, and three paragraphs justifying choices nobody questioned.
@@ -452,6 +453,8 @@ chosen approach as input to the review pipeline.
 
 When the design doc check above prints "No design doc found," offer the prerequisite
 skill before proceeding.
+
+Skip the offer and proceed with the standard review when the preamble echoed `SESSION_KIND` `spawned` or `headless`.
 
 Say to the user via AskUserQuestion:
 
@@ -672,14 +675,15 @@ Resolve SNAPSHOT_TOOL once:
 bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "$HOME/.claude/skills/gstack/bin/gstack-autoplan-snapshot.ts"
 ```
 
-Fresh external RESTORE_PATH:
+Fresh RESTORE_PATH, beside its phase artifacts in the project's git-excluded `.gstack/tmp/autoplan/`:
 ```bash
 SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
-GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
-mkdir -p "$GSTACK_STATE_ROOT/projects/$SLUG"
+_AP="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/autoplan"; mkdir -p "$_AP" && chmod 700 "$_AP"
+_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "${_EX%/*}" && { grep -qxF /.gstack/tmp/ "$_EX" 2>/dev/null || echo /.gstack/tmp/ >> "$_EX"; }
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
 DATETIME=$(date +%Y%m%d-%H%M%S)
-echo "RESTORE_PATH=$GSTACK_STATE_ROOT/projects/$SLUG/${BRANCH}-autoplan-restore-${DATETIME}.md"
+echo "SLUG=$SLUG"
+echo "RESTORE_PATH=$_AP/${BRANCH}-autoplan-restore-${DATETIME}.md"
 ```
 
 Before scope/review:
@@ -771,26 +775,10 @@ elif [ -n "$_gstack_helper_error" ]; then
 elif ! "$_CODEX_PROBE" check-auth >/dev/null 2>&1; then
   _CODEX_MODE="not_authed"; "$_CODEX_PROBE" log-event codex_auth_failed 2>/dev/null || true
 else
-  # Free sandbox check before the paid probe; probe exit 2 = the CLI cannot run.
-  _CODEX_MP=0; _CODEX_PS=""
+  _CODEX_MP=0
   "$_CODEX_PROBE" check-sandbox || _CODEX_MP=3
-  for _CODEX_KIND in exec; do
-    [ "$_CODEX_MP" -eq 0 ] || break
-    _CODEX_PO=$("$_CODEX_PROBE" probe-model $_CODEX_KIND); _CODEX_MP=$?; printf '%s\n' "$_CODEX_PO"
-    case "$_CODEX_PO" in *"STATE: inconclusive"*) _CODEX_PS=inconclusive ;; *"STATE: rate_limited"*) _CODEX_PS=rate_limited ;; esac
-  done
   if [ "$_CODEX_MP" -eq 3 ]; then
     _CODEX_MODE="sandbox_unavailable"
-  elif [ "$_CODEX_MP" -eq 2 ]; then
-    _CODEX_MODE="broken_install"
-  elif [ "$_CODEX_MP" -eq 4 ]; then
-    _CODEX_MODE="quota_exhausted"
-  elif [ "$_CODEX_MP" -ne 0 ]; then
-    _CODEX_MODE="model_unusable"
-  elif [ "$_CODEX_PS" = inconclusive ]; then
-    _CODEX_MODE="unverified"
-  elif [ "$_CODEX_PS" = rate_limited ]; then
-    _CODEX_MODE="unverified (rate_limited)"
   else
     _CODEX_MODE="ready"; "$_CODEX_PROBE" check-version || true
   fi
@@ -805,10 +793,11 @@ Branch on the echoed `CODEX_MODE`:
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
 - **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Keep the required Claude adversarial pass; do not dispatch a duplicate. The ~10s round trip is cached for 1h.
+- **`model_unusable`** — the role invocation rejected policy, auth or model selection. Relay its reason and source-specific Repair/HINT lines, not a lower-priority setting. `AUTH_FAILED` needs `codex login`; never substitute a model. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out or, with `(rate_limited)`, hit a 429; say so, and let the pass's own verdict decide.
+Plan-review readiness probes the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) model. Relay its diagnostics; never infer quota from the review block's exit status.
 
 Disabled/unavailable retains applicable native passes. Recheck each outside dispatch.
 Record provider and completed/unavailable/disabled/skipped per phase; CEO covers
@@ -994,5 +983,7 @@ Retain the historical review-log skill ID; add `"host":"claude","outside_provide
 
 Present a phase coverage table (CEO, design, DX, eng): host, outside provider/status,
 native completion, findings, and partial coverage. Replace N with actual counts.
+
+**Implementation model:** relay model/source from `"$HOME/.claude/skills/gstack/bin/gstack-models" resolve --role implementation --provider anthropic`. gstack cannot change this session. Recommend only; no spawn or config edits unless asked. On error, relay its repair, not a model. [Policy setup](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md).
 
 Suggest next step: `/ship` when ready to create the PR.

@@ -19,6 +19,8 @@ bin/.gstack-cso-stage.*
 bin/.gstack-cso-build.lock/
 bin/.gstack-cso-generation.lock
 bin/.gstack-cso-generation
+bin/.gstack-cso-build-result
+bin/.gstack-cso-build.log
 lib/cso/images/gstack-cso-verifier
 lib/cso/images/gstack-cso-preparation
 .gstack/
@@ -33,10 +35,13 @@ lib/cso/images/gstack-cso-preparation
 .slate/
 .cursor/
 .copilot/
+.agy/
 .openclaw/
 .hermes/
 .gbrain/
 .gbrain-source
+# Hosts installed from this checkout (bin/gstack-host-renders.sh, #1694)
+.gstack-installed-hosts
 .context/
 extension/.auth.json
 # xterm assets are vendored from npm at build time; not source-of-truth.

@@ -101,6 +101,7 @@ fi
 mkdir -p "$_GH/sessions" 2>/dev/null || true
 touch "$_GH/sessions/$PARENT_PID" 2>/dev/null || true
 find "$_GH/sessions" -mmin +120 -type f -exec rm {} + 2>/dev/null || true
+_SESSIONS=$(find "$_GH/sessions" -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 
 _PROACTIVE=$("$_BIN/gstack-config" get proactive 2>/dev/null || echo "true")
 _PROACTIVE_PROMPTED=$([ -f "$_GH/.proactive-prompted" ] && echo "yes" || echo "no")
@@ -118,6 +119,7 @@ eval "$("$_BIN/gstack-repo-mode" 2>/dev/null)" 2>/dev/null || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
 echo "SESSION_KIND: $_SESSION_KIND"
+echo "SESSIONS: ${_SESSIONS:-0}"
 # Tamper visibility (#2733 review): a repo-provided settings env block or a CI
 # wrapper could set GSTACK_SESSION_KIND or OPENCLAW_SESSION for a real human's
 # session, silently flipping every gate to auto-choose. Surface the env-driven

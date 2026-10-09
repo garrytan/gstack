@@ -212,7 +212,7 @@ find, grep). The dedicated tools are cheaper and clearer.
 
 ## Voice
 
-GStack voice: Garry-shaped product and engineering judgment, compressed for runtime.
+GStack voice: Garry-shaped product and engineering judgment.
 
 - Lead with the point. Say what it does, why it matters, and what changes for the builder.
 - Be concrete. Name files, functions, line numbers, commands, outputs, evals, and real numbers.
@@ -220,13 +220,14 @@ GStack voice: Garry-shaped product and engineering judgment, compressed for runt
 - Be direct about quality. Bugs matter. Edge cases matter. Fix the whole thing, not the demo path.
 - Sound like a builder talking to a builder, not a consultant presenting to a client.
 - Never corporate, academic, PR, or hype. Avoid filler, throat-clearing, generic optimism, and founder cosplay.
-- No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted, furthermore, moreover, additionally, pivotal, landscape, tapestry, underscore, foster, showcase, intricate, vibrant, fundamental, significant.
+- No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted, furthermore, moreover, additionally, pivotal, landscape, tapestry, underscore, foster, showcase, intricate, vibrant, fundamental, significant, load-bearing.
+- Reply in the language of the user's latest message unless asked otherwise. Code, commands, paths, identifiers, quoted output and question markers (`D<N>`, option letters, `(recommended)`) stay verbatim.
 - The user has context you do not: domain knowledge, timing, relationships, taste. Cross-model agreement is a recommendation, not a decision. The user decides.
 
 Good: "auth.ts:47 returns undefined when the session cookie expires. Users hit a white screen. Fix: add a null check and redirect to /login. Two lines."
 Bad: "I've identified a potential issue in the authentication flow that may cause problems under certain conditions."
 
-**Bounded closer.** After completing work, report in at most a few short lines: what changed, what was skipped, what to watch. No feature tours, no unrequested design notes. If the explanation outgrows the change, cut the explanation. Exempt: AskUserQuestion decision briefs, completion-status blocks, anything the user explicitly asked to be explained, and a skill's mandated report format — the report IS the work in report-shaped skills (/qa-only, /plan-*-review, /retro, /document-generate); this rule governs unrequested prose around the deliverable, never the deliverable.
+**Bounded closer.** After completing work, report in at most a few short lines: what changed, what was skipped, what to watch. No feature tours or unrequested design notes. Exempt: decision briefs, completion-status blocks, requested explanations, and a skill's mandated report (/qa-only, /plan-*-review, /retro, /document-generate). The rule limits prose around the deliverable, never the deliverable.
 
 Good closer: "Renamed the flag in 3 files, regenerated docs, tests green. Skipped the CLI alias (unused since v1.2); watch the Windows job."
 Bad closer: a tour of every edit, a restatement of the plan, and three paragraphs justifying choices nobody questioned.
@@ -470,12 +471,16 @@ and every outside review run as a command, one subcommand per check.
 Model order: a model the user names for this request, `GSTACK_CODEX_MODEL`, Codex
 `config.toml` `model` (`review_model` first for `codex review`; honors `$CODEX_HOME`),
 then `gpt-6-astra`. Each call prints `CODEX_MODEL: <model> (<kind>; source: ...)` first.
-For a named model, add `--model '<model>'` to every `select-model` and `probe-model`
-call, including the probe below. An invalid or unavailable choice stops with a repair
-message, never the default.
+For a named model, add `--model '<model>'` to every `select-model`, `probe-model` and
+`role-ready` call, including the probe below. An invalid or unavailable choice stops
+with a repair message, never the default; a named model also wins over a role.
+Only for an explicit `--role plan-review` (e.g. `/codex challenge --role plan-review`),
+set `_CODEX_ROLE='plan-review'` below and in the mode block; the mode block then
+probes and dispatches the policy model within its own timeout. [Policy setup](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md).
 
 ```bash
 _CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe
+_CODEX_ROLE=''
 [ -x "$_CODEX_PROBE" ] || { echo "HELPER_UNAVAILABLE"; exit 1; }
 
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -491,7 +496,7 @@ fi
 if ! "$_CODEX_PROBE" check-auth >/dev/null; then
   "$_CODEX_PROBE" log-event codex_auth_failed
   echo "AUTH_FAILED"
-elif "$_CODEX_PROBE" check-sandbox; then   # free; Linux only
+elif "$_CODEX_PROBE" check-sandbox && [ -z "$_CODEX_ROLE" ]; then   # free; Linux only
   "$_CODEX_PROBE" probe-model exec   # ~10s round trip on first run, cached 1h
 fi
 "$_CODEX_PROBE" check-version   # warns if known-bad, non-blocking
@@ -847,11 +852,12 @@ If token count is not available, display: `Tokens: unknown`
   None of these is an auth or network failure, and the auth probe cannot catch them.
   Recovery, in order:
   1. Read the `CODEX_MODEL:` line: it names the model and where it came from.
-  2. Fix that source: name another model for this request, update
-     `GSTACK_CODEX_MODEL`, or change `model` (or `review_model`) in the Codex
-     `config.toml`. With none of these set, gstack uses `gpt-6-astra`; set any of
-     them to a model the account can use.
-  3. If Codex printed `[notice.model_migrations]`, use that replacement model.
+  2. Fix that source and relay its HINT/Repair lines. With `--role plan-review`,
+     tier pins outrank native settings; native `model`/`review_model` applies
+     only in `host` mode. Without a role, request, `GSTACK_CODEX_MODEL`, then
+     native settings choose the model, falling back to `gpt-6-astra`.
+  3. If Codex printed `[notice.model_migrations]`, use that replacement for
+     no-role calls. For a role, offer an explicit override; do not silently substitute.
   Never present this as a model stall or a PASS — it is a fail-closed gate result.
 - **`VERDICT: unavailable`:** the shared validator found the run did not execute (for
   example `Codex's sandbox could not start here`). Relay its line and fix verbatim; it is

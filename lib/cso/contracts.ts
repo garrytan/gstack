@@ -3,6 +3,13 @@ import { createHash } from 'node:crypto';
 
 export const ABI = 3;
 export const MAX_OUTPUT = 1024 * 1024;
+/**
+ * Longest bounded verification attempt, used by Rails: one attempt prepares two dependency trees, and an
+ * offline Rails preparation that compiles native gems takes about 3.5 minutes on amd64 and 8.5 on arm64.
+ * It equals the longest comprehensive run budget, and every attempt is still cut to the run's reporting
+ * deadline. Other stacks use 300 s.
+ */
+export const MAX_VERIFICATION_ATTEMPT_MS = 1_800_000;
 const UNSAFE_STRING_CONTROLS =
   /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u;
 const UNSAFE_PROPERTY_CONTROLS = /[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u;

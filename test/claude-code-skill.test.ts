@@ -71,7 +71,7 @@ console.log(JSON.stringify({result:process.env.FAKE_TEXT || '[P1] Review found a
 });
 afterAll(() => fs.rmSync(DIR, {recursive:true, force:true}));
 
-function shell(mode: Mode, extra: NodeJS.ProcessEnv = {}, options: {resume?: boolean; runtime?: string; cwd?: string} = {}) {
+function shell(mode: Mode, extra: NodeJS.ProcessEnv = {}, options: {resume?: boolean; runtime?: string; cwd?: string; planReview?: boolean} = {}) {
   fs.rmSync(CAPTURE, {force:true});
   fs.writeFileSync(PROMPT, PROMPT_TEXT, {mode:0o600});
   // These are precisely the literal substitutions the skill requests. Do not
@@ -80,7 +80,8 @@ function shell(mode: Mode, extra: NodeJS.ProcessEnv = {}, options: {resume?: boo
     .replace("'<prepared-prompt-file>'", q(PROMPT))
     .replace("'<gstack-runtime-root>'", q(options.runtime ?? RUNTIME))
     .replace("'<base>'", q('main'))
-    .replace("'<fresh-or-resume>'", q(options.resume ? 'resume' : 'fresh'));
+    .replace("'<fresh-or-resume>'", q(options.resume ? 'resume' : 'fresh'))
+    .replaceAll('"$CLAUDE_RUNNER" --cwd', `"$CLAUDE_RUNNER"${options.planReview ? ' --role plan-review' : ''} --cwd`);
   return spawnSync('bash', ['-c',script], {cwd:options.cwd ?? REPO, env:{...ENV,...extra}, encoding:'utf8',timeout:10000});
 }
 function captured() { return JSON.parse(fs.readFileSync(CAPTURE,'utf8')); }
@@ -202,5 +203,23 @@ describe('complete generated Claude Code wrapper modes', () => {
       expect(fs.existsSync(CAPTURE)).toBe(false);
       expectTempsCleaned();
     }
+  });
+
+  test('the documented plan-review consultation consumes a plan even without a repository diff', () => {
+    const clean = fs.mkdtempSync(path.join(DIR, 'plan-only-'));
+    git(['init', '-b', 'main'], clean);
+    fs.writeFileSync(path.join(clean, 'file.txt'), 'unchanged\n');
+    git(['add', 'file.txt'], clean);
+    git(['commit', '-m', 'baseline'], clean);
+    const result = shell('consult', { HOME: clean, CLAUDE_CONFIG_DIR: path.join(clean, '.claude'),
+      GSTACK_STATE_ROOT: path.join(clean, 'policy'), GSTACK_CLAUDE_MODEL: '', FAKE_TEXT: 'The plan needs an overflow check.' },
+      { cwd: clean, planReview: true });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('The plan needs an overflow check.');
+    const observed = JSON.parse(fs.readFileSync(CAPTURE, 'utf8'));
+    expect(observed.prompt).toBe(PROMPT_TEXT);
+    expect(observed.args).toContain('--model=claude-fable-5-1');
+    expect(result.stdout).not.toContain('Nothing to review');
+    expectTempsCleaned();
   });
 });

@@ -99,9 +99,13 @@ export class GptAdapter implements ProviderAdapter {
   }
 }
 
-/** Map `codex exec --json` output while requiring evidence-bearing text for paid producers. */
+/**
+ * Map `codex exec --json` output while requiring evidence-bearing text for paid producers.
+ * Codex reports cached_input_tokens as a subset of input_tokens; split them so
+ * tokens.input is uncached-only and tokens.cached is the disjoint cache-read count.
+ */
 export function resultFromCodexStream(raw:string,opts:{model?:string;durationMs?:number;producer?:boolean}={}):RunResult{
-  let output='',input=0,out=0,toolCalls=0,modelUsed:string|undefined;
+  let output='',input=0,cached=0,out=0,toolCalls=0,modelUsed:string|undefined;
   for(const line of raw.split('\n')){
     const text=line.trim();if(!text)continue;
     try{
@@ -110,14 +114,14 @@ export function resultFromCodexStream(raw:string,opts:{model?:string;durationMs?
         if(obj.item.type==='agent_message'&&typeof obj.item.text==='string')output+=(output?'\n':'')+obj.item.text;
         else if(obj.item.type==='command_execution')toolCalls++;
       }else if(obj.type==='turn.completed'){
-        const usage=obj.usage??{};input+=usage.input_tokens??0;out+=usage.output_tokens??0;
+        const usage=obj.usage??{},turnCached=usage.cached_input_tokens??0;input+=Math.max(0,(usage.input_tokens??0)-turnCached);cached+=turnCached;out+=usage.output_tokens??0;
         if(typeof obj.model==='string'&&obj.model)modelUsed=obj.model;
       }
     }catch{/* Codex can mix diagnostic text into the JSONL stream. */}
   }
   const durationMs=opts.durationMs??0,resolvedModel=modelUsed||opts.model||CODEX_FRONTIER_MODEL;
   if(opts.producer&&!output.trim())return{output:'',tokens:{input:0,output:0},durationMs,toolCalls:0,modelUsed:resolvedModel,error:{code:'unknown',reason:'empty output from codex CLI (exit 0)'}};
-  return{output,tokens:{input,output:out},durationMs,toolCalls,modelUsed:resolvedModel};
+  return{output,tokens:{input,cached,output:out},durationMs,toolCalls,modelUsed:resolvedModel};
 }
 
 export interface CodexProducerPaths {

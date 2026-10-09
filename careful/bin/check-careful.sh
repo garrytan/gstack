@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # check-careful.sh — PreToolUse hook for /careful skill
-# Reads JSON from stdin, checks Bash command for destructive patterns.
+# Reads JSON from stdin, checks a Bash or PowerShell command for destructive
+# patterns (best-effort string matching, not a security boundary).
 # Two tiers:
 #   HIGH   — a tiny set of catastrophic SIMPLE commands returns "deny"
 #            (best-effort advisory hard-stop, not a policy boundary).
@@ -39,9 +40,23 @@ fi
 # Parse the payload properly instead, and fail CLOSED when it cannot be parsed
 # at all — a hook that gates destructive commands must not allow-by-default on
 # unreadable input.
+#
+# The same parser call reads tool_name: the PowerShell tool (Claude Code's
+# primary shell on Windows, and the only one without Git Bash) carries its
+# command in the same tool_input.command field as Bash (hooks reference,
+# "PreToolUse > PowerShell"). An older hook-extract.sh without the combined
+# reader (partial upgrade) still checks the command, as Bash.
+TOOL_NAME=""
 set +e
-CMD=$(gstack_hook_extract_field "$INPUT" command)
-EXTRACT_RC=$?
+if command -v gstack_hook_extract_tool >/dev/null 2>&1; then
+  gstack_hook_extract_tool "$INPUT" command
+  EXTRACT_RC=$?
+  TOOL_NAME="$GSTACK_HOOK_TOOL"
+  CMD="$GSTACK_HOOK_VALUE"
+else
+  CMD=$(gstack_hook_extract_field "$INPUT" command)
+  EXTRACT_RC=$?
+fi
 set -e
 
 # No parser available, or the payload is not parseable JSON. Fail closed.
@@ -50,7 +65,7 @@ if [ "$EXTRACT_RC" -ne 0 ] && [ -n "$INPUT" ]; then
   exit 0
 fi
 
-# Parsed fine, but there is genuinely no command field (non-Bash payload) — allow.
+# Parsed fine, but there is genuinely no command field (non-shell payload) — allow.
 if [ -z "$CMD" ]; then
   echo '{}'
   exit 0
@@ -209,8 +224,86 @@ esac
 WARN=""
 PATTERN=""
 
+# --- PowerShell and cmd table (#3067) ---
+# Runs on the PowerShell tool's command, and on the part of any command from a
+# nested `powershell`/`pwsh`/`cmd` launcher onward (`pwsh -c "..."`,
+# `cmd /c rd /s /q x`, Git Bash's `cmd //c`). Plain Bash commands never reach
+# it, so Bash keeps exactly its old behavior. Best-effort: PowerShell can
+# build commands at runtime, so encoded and dynamic forms ask instead of being
+# parsed, and Claude Code permission deny rules stay the stronger layer.
+# Matching is bash [[ =~ ]] on the already-lowercased command (POSIX ERE,
+# bash 3.2 compatible): no added subprocess on the per-command path.
+_WIN_SCAN=""
+[ "$TOOL_NAME" = "PowerShell" ] && _WIN_SCAN="$CMD_LOWER"
+_WIN_LAUNCH_RE='(^|[^a-z0-9_.$-])((powershell|pwsh|cmd)(\.exe)?([[:space:]].*)?)$'
+if [ -z "$_WIN_SCAN" ] && [[ $CMD_LOWER =~ $_WIN_LAUNCH_RE ]]; then
+  _WIN_SCAN="${BASH_REMATCH[2]}"
+fi
+if [ -n "$_WIN_SCAN" ]; then
+  # cmd escapes with ^ (r^d is rd) and PowerShell with a backtick
+  # (Re`move-Item is Remove-Item); dropping both only joins characters.
+  _WIN_SCAN="${_WIN_SCAN//^/}"
+  _WIN_SCAN="${_WIN_SCAN//\`/}"
+  _NL=$'\n'
+  # Command position: start of text, a statement/pipeline separator, an
+  # opening bracket or quote, or right after a shell launcher and its
+  # switches. Names elsewhere (ord, --del, /rd/, git branch -d) never match.
+  _CP="(^|[;&|({}\"'${_NL}]|(powershell|pwsh|cmd)(\.exe)?([[:space:]]+(-|/+)[a-z]+([[:space:]:=]+[a-z0-9_.-]+)?)*)[[:space:]]*"
+  _STMT="[^;|${_NL}]*"
+  _CMD_STMT="[^;|&${_NL}]*"
+  _WHY_DYNAMIC="Encoded or dynamic PowerShell can't be inspected, so /careful cannot tell what it will run. Read it before approving; Claude Code permission deny rules (for example \"PowerShell(Remove-Item *)\") are the stronger layer."
+  # One table: pattern name, ERE, warning. Parameters match any unique
+  # prefix PowerShell accepts (-r/-rec/-recurse, -fo/-forc/-force; -f alone
+  # is ambiguous with -Filter), with or without a :$true value.
+  _WIN_RULES=(
+    ps_remove_item
+    "${_CP}(remove-item|rm|ri|del|erase|rd|rmdir)[[:space:]](${_STMT}[[:space:]])?-(r|re|rec|recu|recur|recurs|recurse|fo|for|forc|force)([[:space:]:]|$)"
+    "Destructive: PowerShell Remove-Item (or rm/ri/del/erase/rd/rmdir) with -Recurse or -Force. This permanently removes files."
+    cmd_rd_s
+    "${_CP}(rd|rmdir)[[:space:]]${_CMD_STMT}/s([[:space:]/]|$)"
+    "Destructive: cmd rd/rmdir /s deletes a whole directory tree."
+    cmd_del_s
+    "${_CP}(del|erase)[[:space:]]${_CMD_STMT}/s([[:space:]/]|$)"
+    "Destructive: cmd del/erase /s deletes matching files in every subdirectory."
+    ps_format_volume
+    "${_CP}format-volume([[:space:]]|$)"
+    "Destructive: Format-Volume erases a whole volume."
+    ps_clear_disk
+    "${_CP}clear-disk([[:space:]]|$)"
+    "Destructive: Clear-Disk wipes every partition on a disk."
+    ps_clear_content
+    "${_CP}(clear-content|clc)([[:space:]]|$)"
+    "Destructive: Clear-Content empties files (like truncate)."
+    ps_dotnet_delete
+    '\[(system\.)?io\.(directory|file)\]::delete'
+    "Destructive: .NET [IO.Directory]::Delete / [IO.File]::Delete removes files without Remove-Item."
+    ps_encoded_command
+    "(^|[^a-z0-9_.$-])(powershell|pwsh)(\.exe)?[[:space:]](${_STMT}[[:space:]])?-(e|ec|en|enc[a-z]*)([[:space:]:]|$)"
+    "PowerShell -EncodedCommand. ${_WHY_DYNAMIC}"
+    ps_invoke_expression
+    "${_CP}(invoke-expression|iex)([[:space:](]|$)"
+    "PowerShell Invoke-Expression (iex). ${_WHY_DYNAMIC}"
+    ps_start_process_shell
+    "${_CP}(start-process|saps|start)[[:space:]](${_STMT}[[:space:]\"',])?(powershell|pwsh|cmd|bash|wsl|sh)(\.exe)?([[:space:]\"',]|$)"
+    "Start-Process launching another shell. ${_WHY_DYNAMIC}"
+    ps_call_operator
+    "(^|[^&])&[[:space:]]*[\$(]"
+    "PowerShell call operator on a variable or expression (& \$cmd). ${_WHY_DYNAMIC}"
+  )
+  _WI=0
+  while [ "$_WI" -lt "${#_WIN_RULES[@]}" ]; do
+    _WRE="${_WIN_RULES[$((_WI + 1))]}"
+    if [[ $_WIN_SCAN =~ $_WRE ]]; then
+      PATTERN="${_WIN_RULES[$_WI]}"
+      WARN="${_WIN_RULES[$((_WI + 2))]} (pattern: $PATTERN)"
+      break
+    fi
+    _WI=$((_WI + 3))
+  done
+fi
+
 # rm -rf / rm -r / rm -R / rm --recursive (capital -R is BSD/macOS recursive)
-if grep -qE 'rm\s+(-[a-zA-Z]*[rR]|--recursive)' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'rm\s+(-[a-zA-Z]*[rR]|--recursive)' <<< "$CMD" 2>/dev/null; then
   WARN="Destructive: recursive delete (rm -r). This permanently removes files."
   PATTERN="rm_recursive"
 fi

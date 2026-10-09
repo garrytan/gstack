@@ -698,3 +698,111 @@ describe('gstack-developer-profile resources entries do not inflate count/tier/n
   });
 });
 
+
+// -----------------------------------------------------------------------
+// --reconcile: backfill tenure from office-hours timeline history (#2657)
+// -----------------------------------------------------------------------
+
+describe('gstack-developer-profile --reconcile', () => {
+  const completed = (ts: string, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ skill: 'office-hours', event: 'completed', ts, ...extra });
+
+  function writeTimeline(slug: string, lines: string[]) {
+    const dir = path.join(tmpHome, 'projects', slug);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'timeline.jsonl'), lines.join('\n') + '\n');
+  }
+
+  function logSession(entry: Record<string, unknown>) {
+    expect(runDev('--log-session', JSON.stringify({ mode: 'builder', signal_count: 0, signals: [], ...entry })).status).toBe(0);
+  }
+
+  const readKey = (out: string, key: string) => out.match(new RegExp(`^${key}: (.*)$`, 'm'))?.[1];
+
+  test('backfills one row per office-hours completed run and counts it for tenure', () => {
+    writeTimeline('alpha', [
+      completed('2026-09-01T10:00:00Z'),
+      JSON.stringify({ skill: 'office-hours', event: 'started', ts: '2026-09-02T09:00:00Z' }),
+      completed('2026-09-02T10:00:00Z'),
+      JSON.stringify({ skill: 'review', event: 'completed', ts: '2026-09-03T10:00:00Z' }),
+    ]);
+    writeTimeline('beta', [completed('2026-09-04T10:00:00Z')]);
+    const r = runDev('--reconcile');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('RECONCILE: 3 backfilled from 3 office-hours run(s)');
+    const sessions = readProfile().sessions as Array<Record<string, unknown>>;
+    expect(sessions).toHaveLength(3);
+    expect(sessions[2]).toEqual({
+      date: '2026-09-04T10:00:00Z', mode: 'unknown', project_slug: 'beta',
+      signal_count: 0, signals: [], backfilled: true,
+    });
+    const read = runDev('--read').stdout;
+    expect(readKey(read, 'SESSION_COUNT')).toBe('3');
+    expect(readKey(read, 'TIER')).toBe('welcome_back');
+  });
+
+  test('a second run adds nothing and leaves the profile file untouched', () => {
+    writeTimeline('alpha', [completed('2026-09-01T10:00:00Z'), completed('2026-09-05T10:00:00Z')]);
+    expect(runDev('--reconcile').stdout).toContain('RECONCILE: 2 backfilled');
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const before = fs.readFileSync(file, 'utf-8');
+    const old = new Date('2026-01-01T00:00:00Z');
+    fs.utimesSync(file, old, old);
+    expect(runDev('--reconcile').stdout).toContain('RECONCILE: 0 backfilled from 2 office-hours run(s)');
+    expect(fs.readFileSync(file, 'utf-8')).toBe(before);
+    expect(fs.statSync(file).mtimeMs).toBe(old.getTime());
+  });
+
+  test('a logged session minutes before the run across an hour boundary covers it, per project', () => {
+    logSession({ date: '2026-09-01T10:55:00Z', ts: '2026-09-01T10:55:00Z', project_slug: 'alpha' });
+    writeTimeline('alpha', [completed('2026-09-01T11:20:00Z')]);
+    writeTimeline('beta', [completed('2026-09-01T11:20:00Z')]);
+    expect(runDev('--reconcile').stdout).toContain('RECONCILE: 1 backfilled from 2 office-hours run(s)');
+    const backfilled = (readProfile().sessions as Array<Record<string, unknown>>).filter(s => s.backfilled);
+    expect(backfilled.map(s => s.project_slug)).toEqual(['beta']);
+  });
+
+  test('a long session logged hours before completion is not double-counted; garbage durations are not trusted', () => {
+    logSession({ date: '2026-09-01T09:00:00Z', ts: '2026-09-01T09:00:00Z', project_slug: 'alpha' });
+    logSession({ date: '2026-09-02T09:00:00Z', ts: '2026-09-02T09:00:00Z', project_slug: 'alpha' });
+    writeTimeline('alpha', [
+      completed('2026-09-01T12:00:00Z', { duration_s: '11000' }),
+      completed('2026-09-02T19:00:00Z', { duration_s: '40000' }),
+    ]);
+    expect(runDev('--reconcile').stdout).toContain('RECONCILE: 1 backfilled from 2 office-hours run(s)');
+    const backfilled = (readProfile().sessions as Array<Record<string, unknown>>).filter(s => s.backfilled);
+    expect(backfilled.map(s => s.date)).toEqual(['2026-09-02T19:00:00Z']);
+  });
+
+  test('malformed timeline lines are skipped', () => {
+    writeTimeline('alpha', ['{not json', 'null', completed('not-a-date'), completed('2026-09-01T10:00:00Z')]);
+    const r = runDev('--reconcile');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('RECONCILE: 1 backfilled from 1 office-hours run(s)');
+  });
+
+  test('backfilled rows never surface as LAST_*, DESIGN_* or CROSS_PROJECT', () => {
+    logSession({
+      date: '2026-09-01T10:00:00Z', ts: '2026-09-01T10:00:00Z', project_slug: 'alpha',
+      assignment: 'Talk to five users', design_doc: 'docs/alpha-design.md',
+    });
+    writeTimeline('beta', [completed('2026-09-03T10:00:00Z'), completed('2026-09-04T10:00:00Z')]);
+    expect(runDev('--reconcile').stdout).toContain('RECONCILE: 2 backfilled');
+    const read = runDev('--read').stdout;
+    expect(readKey(read, 'SESSION_COUNT')).toBe('3');
+    expect(readKey(read, 'LAST_PROJECT')).toBe('alpha');
+    expect(readKey(read, 'LAST_ASSIGNMENT')).toBe('Talk to five users');
+    expect(readKey(read, 'LAST_DESIGN_TITLE')).toBe('docs/alpha-design.md');
+    expect(readKey(read, 'DESIGN_COUNT')).toBe('1');
+    expect(readKey(read, 'CROSS_PROJECT')).toBe('false');
+  });
+
+  test('a backfill-only profile reaches welcome_back with empty LAST_*', () => {
+    writeTimeline('alpha', [completed('2026-09-01T10:00:00Z')]);
+    runDev('--reconcile');
+    const read = runDev('--read').stdout;
+    expect(readKey(read, 'TIER')).toBe('welcome_back');
+    expect(readKey(read, 'LAST_PROJECT')).toBe('');
+    expect(readKey(read, 'LAST_ASSIGNMENT')).toBe('');
+  });
+});

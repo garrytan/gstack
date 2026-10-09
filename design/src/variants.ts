@@ -6,7 +6,7 @@
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { imageRequestBody, modelRejectionHint } from "./models";
 import { parseBrief } from "./brief";
@@ -118,7 +118,7 @@ export async function requestVariantImage(
 
     let response: Response;
     try {
-      response = await receiptedFetch("variants-image-request", "https://api.openai.com/v1/responses", {
+      response = await receiptedFetch("variants-image-request", openaiUrl("responses"), {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,

@@ -29,9 +29,10 @@ const DISCOVERY: Record<string, string> = {
   opencode: '.config/opencode/skills',
   cursor: '.cursor/skills',
   copilot: '.copilot/skills',
+  agy: '.gemini/antigravity-cli/skills',
 };
-/** Every directory any host (or a shared agents layout) reads. */
-const ALL_DISCOVERY_DIRS = [...Object.values(DISCOVERY), '.agents/skills', '.copilot/skills', '.hermes/skills'];
+/** Every directory any host (or a shared agents layout) reads; .gemini/skills is Gemini CLI's. */
+const ALL_DISCOVERY_DIRS = [...Object.values(DISCOVERY), '.agents/skills', '.copilot/skills', '.hermes/skills', '.gemini/skills'];
 
 const installable = ALL_HOST_CONFIGS.filter(c => c.tier !== 'instruction-only').map(c => c.name);
 const instructionOnly = ALL_HOST_CONFIGS.filter(c => c.tier === 'instruction-only').map(c => c.name);

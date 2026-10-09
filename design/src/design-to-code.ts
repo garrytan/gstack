@@ -5,7 +5,7 @@
  */
 
 import fs from "fs";
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { modelRejectionHint, visionRequestBody } from "./models";
 import { readDesignConstraints } from "./memory";
@@ -39,7 +39,7 @@ export async function generateDesignToCodePrompt(
       ? `\n\nExisting DESIGN.md (use these as constraints):\n${designConstraints}`
       : "";
 
-    const response = await receiptedFetch("design-to-code-request", "https://api.openai.com/v1/chat/completions", {
+    const response = await receiptedFetch("design-to-code-request", openaiUrl("chat/completions"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,

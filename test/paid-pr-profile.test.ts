@@ -12,6 +12,7 @@ import {
   type PaidCaseSelection, type SliceResult,
 } from '../scripts/test-paid-shards';
 import { PR_PROFILE_CASE_IDS, PR_PROFILE_FILES } from '../scripts/test-pr-profile';
+import { fileCaseRegistration } from '../scripts/lib/paid-cases';
 import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
 import { resolveModuleSelection } from './helpers/e2e-helpers';
 
@@ -61,6 +62,19 @@ describe('PR profile paid-runner integration', () => {
     for (const [file, cases] of Object.entries(PR_PROFILE_FILES)) {
       expect(fs.existsSync(path.join(ROOT, file)), file).toBe(true);
       for (const id of cases) expect(E2E_TOUCHFILES[id], id).toContain(file);
+    }
+  });
+
+  test('every short probe with literal test names has a test the PR lane name pattern selects', () => {
+    for (const [file, cases] of Object.entries(PR_PROFILE_FILES)) {
+      const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
+      if (fileCaseRegistration(file, source).computed) continue;
+      const titles = [...source.matchAll(/\b(?:describe\w*|test\w*|it)(?:\.\w+)?\(\s*(['"`])((?:(?!\1)[^\\]|\\.)*)\1/g)].map(m => m[2]!);
+      const names = titles.flatMap(outer => [outer, ...titles.map(inner => `${outer} ${inner}`)]);
+      for (const id of cases) {
+        const pattern = new RegExp(prProfileTestNamePattern(file, { e2e: [id], judges: [] }));
+        expect(names.some(name => pattern.test(name)), `${file} has no test named for ${id}`).toBe(true);
+      }
     }
   });
 

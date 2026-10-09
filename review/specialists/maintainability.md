@@ -27,6 +27,7 @@ If no findings: output `NO FINDINGS` and nothing else.
 - TODO/FIXME comments that reference completed work
 - Docstrings with parameter lists that don't match the current function signature
 - ASCII diagrams in comments that no longer match the code flow
+- User-facing strings (errors, toasts, labels) whose guarding condition changed in this diff while the text did not
 
 ### Duplicated Behavior with Defects
 - Divergent copies that produce a demonstrated incorrect result, miss required error handling, or violate the same contract

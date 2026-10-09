@@ -99,6 +99,16 @@ export function resolveApiKey(): string | null {
   return resolveApiKeyInfo()?.key ?? null;
 }
 
+/**
+ * OpenAI API URL for one endpoint. OPENAI_BASE_URL (the OpenAI SDK convention)
+ * points every design call at an OpenAI-compatible gateway; egress receipts
+ * record whichever host is used.
+ */
+export function openaiUrl(endpoint: "responses" | "chat/completions"): string {
+  const base = process.env.OPENAI_BASE_URL?.trim().replace(/\/+$/, "") || "https://api.openai.com/v1";
+  return `${base}/${endpoint}`;
+}
+
 export function describeApiKeySource(resolution: ApiKeyResolution): string {
   if (resolution.source === "config") return "~/.gstack/openai.json";
   if (resolution.envFile) return `OPENAI_API_KEY environment variable (matches ${resolution.envFile} in current directory)`;

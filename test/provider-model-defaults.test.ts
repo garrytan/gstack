@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { ClaudeAdapter, claudeExecArgs, claudeExecEnvironment, claudeExecWorkingDirectory, claudeProducerPaths, resultFromClaudeOutput } from './helpers/providers/claude';
+import { assertClaudeProducerSandboxPolicy, ClaudeAdapter, claudeExecArgs, claudeExecEnvironment, claudeExecWorkingDirectory, claudeProducerPaths, resultFromClaudeOutput } from './helpers/providers/claude';
 import { codexExecArgs, codexExecEnvironment, codexExecWorkingDirectory, codexProducerConfig, codexProducerPaths, GptAdapter, resultFromCodexStream } from './helpers/providers/gpt';
 import { geminiExecArgs, geminiExecEnvironment, geminiExecWorkingDirectory, geminiProducerPaths, geminiProducerSystemSettings } from './helpers/providers/gemini';
 import { CSO_PRODUCER_SHELL_ENV, csoProducerChildEnvironment } from './helpers/providers/types';
@@ -79,13 +79,45 @@ describe('CSO producer provider policies', () => {
       '--tools', 'Bash,Write',
       '--allowed-tools', `Bash(${helper}),Bash(${helper} *),Write`,
       '--add-dir', claudeProducerPaths(state).workdir,
-      '--add-dir', source,
       '--add-dir', join(state, 'cso-home'),
+      '--settings', JSON.stringify({ sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: false, excludedCommands: [helper, `${helper} *`] } }),
       '--strict-mcp-config', '--no-chrome',
     ]);
+    expect(claudeExecArgs(producer, 'claude-test')).not.toContain(source);
     expect(claudeExecWorkingDirectory(common)).toBe(work);
     expect(claudeExecWorkingDirectory(producer)).toBe(claudeProducerPaths(state).workdir);
     expect(claudeExecArgs(producer, 'claude-test').join(' ')).not.toMatch(/bypassPermissions|danger/);
+  });
+
+  test('fails the Claude producer closed unless its sandbox exempts exactly the launcher', () => {
+    const work = join(tmpdir(), 'gstack-claude-sandbox-policy');
+    const state = join(work, 'state');
+    const helper = helperAt(join(work, 'installed'));
+    const producer = { prompt: '', workdir: work, timeoutMs: 1, csoProducer: policy(state, join(work, 'source'), helper) };
+    const args = claudeExecArgs(producer, 'claude-test'), env = claudeExecEnvironment(producer, { PATH: '/bin', ANTHROPIC_API_KEY: 'key' });
+    expect(() => assertClaudeProducerSandboxPolicy(args, env, helper)).not.toThrow();
+    const at = args.indexOf('--settings'), settings = JSON.parse(args[at + 1]);
+    const withSettings = (change: (sandbox: Record<string, unknown>) => void) => {
+      const next = structuredClone(settings); change(next.sandbox);
+      return args.map((arg, index) => index === at + 1 ? JSON.stringify(next) : arg);
+    };
+    const withoutSettings = args.filter((_, index) => index !== at && index !== at + 1);
+    for (const [tampered, tamperedEnv, detail] of [
+      [withoutSettings, env, 'expected exactly one --settings'],
+      [[...args, '--settings', args[at + 1]], env, 'expected exactly one --settings'],
+      [[...withoutSettings, `--settings=${args[at + 1]}`], env, 'expected exactly one --settings'],
+      [withSettings(sandbox => { sandbox.excludedCommands = [helper, `${helper} *`, 'cat']; }), env, 'sandbox.excludedCommands'],
+      [withSettings(sandbox => { sandbox.excludedCommands = [`${helper}-link`, `${helper}-link *`]; }), env, 'sandbox.excludedCommands'],
+      [withSettings(sandbox => { sandbox.allowUnsandboxedCommands = true; }), env, 'sandbox.allowUnsandboxedCommands'],
+      [withSettings(sandbox => { delete sandbox.autoAllowBashIfSandboxed; }), env, 'keys differ'],
+      [withSettings(sandbox => { sandbox.enabled = false; }), env, 'sandbox.enabled'],
+      [withSettings(sandbox => { sandbox.dangerouslyDisableSandbox = true; }), env, 'keys differ'],
+      [args.map(arg => arg.startsWith('Bash(') ? `${arg},Bash(cat *)` : arg), env, '--allowed-tools'],
+      [args, { ...env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' }, 'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'],
+    ] as Array<[string[], Record<string, string>, string]>) {
+      expect(() => assertClaudeProducerSandboxPolicy(tampered, tamperedEnv, helper)).toThrow(`CLAUDE_PRODUCER_SANDBOX_POLICY_MISMATCH: `);
+      expect(() => assertClaudeProducerSandboxPolicy(tampered, tamperedEnv, helper)).toThrow(detail);
+    }
   });
 
   test('keeps exact Gemini defaults and replaces deprecated yolo only for the producer', () => {
@@ -154,7 +186,7 @@ describe('CSO producer provider policies', () => {
     const claudePaths = claudeProducerPaths(state);
     expect(claudeExecEnvironment(common, sourceEnv)).toEqual({
       ...safe, HOME: claudePaths.home, GSTACK_HOME: join(state, 'cso-home'),
-      ANTHROPIC_API_KEY: 'anthropic-auth', CLAUDE_CODE_OAUTH_TOKEN: 'claude-auth', CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
+      ANTHROPIC_API_KEY: 'anthropic-auth', CLAUDE_CODE_OAUTH_TOKEN: 'claude-auth',
     });
     const geminiPaths = geminiProducerPaths(state);
     expect(geminiExecEnvironment(common, sourceEnv)).toEqual({

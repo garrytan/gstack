@@ -22,6 +22,7 @@ import {
   imageToolModel,
   visionRequestBody,
 } from "../src/models";
+import { openaiUrl } from "../src/auth";
 import { receiptedFetch } from "../src/receipted-fetch";
 
 const TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
@@ -78,7 +79,7 @@ let image = TINY_PNG;
     failed = true;
   }
   if (body) {
-    const r = await post("live-check-image-request", "https://api.openai.com/v1/responses", body, 240_000);
+    const r = await post("live-check-image-request", openaiUrl("responses"), body, 240_000);
     const item = r.json?.output?.find((o: any) => o.type === "image_generation_call");
     const pass = r.ok && typeof item?.result === "string" && item.result.length > 0;
     if (pass) image = item.result;
@@ -101,7 +102,7 @@ let image = TINY_PNG;
       { type: "text", text: "Reply with exactly one word: PASS." },
     ],
   }], 20);
-  const r = await post("live-check-vision-request", "https://api.openai.com/v1/chat/completions", body, 120_000);
+  const r = await post("live-check-vision-request", openaiUrl("chat/completions"), body, 120_000);
   const choice = r.json?.choices?.[0];
   const content = String(choice?.message?.content ?? "").trim();
   const pass = r.ok && content.length > 0;

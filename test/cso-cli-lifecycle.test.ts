@@ -45,12 +45,13 @@ afterEach(()=>fs.rmSync(root,{recursive:true,force:true}));
 describe('CSO interrupted-run and replay commands',()=>{
   test('resume reports watchdog recovery without replenishing the original policy or deadline',()=>{
     const run=JSON.parse(command(['start','--repo',repo,'--scope','auth','--offline','--budget','120']).stdout),dir=runDir(run),reportPath=path.join(dir,'report.json'),original=JSON.parse(fs.readFileSync(reportPath,'utf8'));
-    const recovery='supervisor-death execution-copy cleanup complete',dockerRecovery='deadline cleanup complete',control=path.join(dir,'supervision','repair-attempt'),preparationControl=path.join(dir,'preparation-execution','offline-attempt');fs.mkdirSync(control,{recursive:true});fs.mkdirSync(preparationControl,{recursive:true});fs.writeFileSync(path.join(control,'attempt.event'),`${recovery}\n`);fs.writeFileSync(path.join(preparationControl,'watchdog.event'),`${dockerRecovery}\n`);
+    const recovery='supervisor-death execution-copy cleanup complete',dockerRecovery='deadline cleanup complete',control=path.join(dir,'supervision','repair-attempt'),preparationControl=path.join(dir,'preparation-execution','offline-attempt');fs.mkdirSync(control,{recursive:true});fs.mkdirSync(preparationControl,{recursive:true});fs.writeFileSync(path.join(control,'attempt.event'),`${recovery}\n`);fs.writeFileSync(path.join(preparationControl,'watchdog.event'),`${dockerRecovery}\n`);const staging=path.join(dir,'archive-staging','acquire-partial');fs.mkdirSync(staging,{recursive:true});fs.writeFileSync(path.join(staging,'partial.tgz'),'partial');
     original.status='interrupted';saveReport(dir,original);
 
     const resumed=command(['resume',run.runId]);expect(resumed.status).toBe(0);const result=JSON.parse(resumed.stdout),active=JSON.parse(fs.readFileSync(reportPath,'utf8'));
     expect(result).toMatchObject({runId:run.runId,deadline:original.deadline,policy:original.policy,recovery:[recovery,dockerRecovery]});expect(active.status).toBe('running');expect(active.deadline).toBe(original.deadline);expect(active.policy).toEqual(original.policy);
     expect(active.events.filter((item:any)=>item.kind==='watchdog-recovery'&&[recovery,dockerRecovery].includes(item.message))).toHaveLength(2);expect(active.events.at(-1)).toMatchObject({kind:'resume',message:'Continued retained snapshot under original policy'});
+    for(const name of ['supervision','preparation-execution','archive-staging'])expect(fs.readdirSync(path.join(dir,name))).toEqual([]);
 
     active.status='interrupted';active.deadline=new Date(Date.now()-1_000).toISOString();const exhaustedDeadline=active.deadline;saveReport(dir,active);
     const expired=command(['resume',run.runId]);expect(expired.status).not.toBe(0);expect(expired.stderr).toContain('DEADLINE');expect(expired.stderr).toContain('Original run budget is exhausted');
@@ -81,4 +82,14 @@ describe('CSO interrupted-run and replay commands',()=>{
     fs.writeFileSync(path.join(repo,'app.js'),'module.exports = "changed"\n');const changed=command(['replay',verified.bundle.id,'--source',repo]);expect(changed.status).not.toBe(0);expect(changed.stderr).toContain('INCOMPATIBLE_INPUT');expect(changed.stderr).toContain('does not match the bundle input hashes');
     fs.writeFileSync(path.join(repo,'app.js'),'module.exports = "vulnerable"\n');const supplied=command(['replay',verified.bundle.id,'--source',repo]);expect(supplied.status).not.toBe(0);expect(supplied.stderr).toContain('PREREQUISITE');expect(supplied.stderr).toContain('MISSING_QUALIFIED_RUNTIME');expect(supplied.stderr).not.toContain('does not match the bundle input hashes');
   },30_000);
+});
+
+describe('bounded verification attempts', () => {
+  test('a Rails attempt can prepare both phases; other stacks keep the five-minute bound', async () => {
+    const { verificationAttemptMs } = await import('../lib/cso/cli');
+    const { MAX_VERIFICATION_ATTEMPT_MS } = await import('../lib/cso/contracts');
+    for (const stack of ['node', 'bun', 'python']) expect(verificationAttemptMs(stack)).toBe(300_000);
+    expect(verificationAttemptMs('rails')).toBe(MAX_VERIFICATION_ATTEMPT_MS);
+    expect(MAX_VERIFICATION_ATTEMPT_MS).toBe(1_800_000);
+  });
 });

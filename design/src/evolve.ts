@@ -6,7 +6,7 @@
  */
 
 import fs from "fs";
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { imageRequestBody, modelRejectionHint, visionRequestBody } from "./models";
 import { emitResult, exitCodeFor, newAccounting, persistImage, recordOutcome, type ExitCode } from "./persist";
@@ -76,7 +76,7 @@ async function requestEvolvedImage(apiKey: string, evolvedPrompt: string): Promi
   const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
-    const response = await receiptedFetch("evolve-image-request", "https://api.openai.com/v1/responses", {
+    const response = await receiptedFetch("evolve-image-request", openaiUrl("responses"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -141,7 +141,7 @@ export async function analyzeScreenshot(
   const signal = batchSignal ? AbortSignal.any([controller.signal, batchSignal]) : controller.signal;
 
   try {
-    const response = await receiptedFetch("evolve-screenshot-analysis-request", "https://api.openai.com/v1/chat/completions", {
+    const response = await receiptedFetch("evolve-screenshot-analysis-request", openaiUrl("chat/completions"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,

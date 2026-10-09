@@ -790,6 +790,30 @@ describe('Visual', () => {
     }
   });
 
+  test('screenshot accepts --clip=x,y,w,h and --selector=<css>', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const p = tmpp(`browse-test-clip-eq-${Date.now()}.png`);
+    try {
+      expect(await handleMetaCommand('screenshot', ['--clip=0,0,10,10', p], bm, async () => {})).toContain('Screenshot saved (clip 0,0,10,10)');
+      const png = fs.readFileSync(p);
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([10, 10]);
+      expect(await handleMetaCommand('screenshot', ['--selector=#title', p], bm, async () => {})).toContain('Screenshot saved (element)');
+    } finally {
+      fs.rmSync(p, { force: true });
+    }
+  });
+
+  test('screenshot --clip= keeps the usage errors and the selector conflict', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const run = (args: string[]) => handleMetaCommand('screenshot', args, bm, async () => {});
+    await expect(run(['--clip='])).rejects.toThrow('Usage: screenshot --clip x,y,w,h');
+    await expect(run(['--clip=1,2,3'])).rejects.toThrow('all must be numbers');
+    await expect(run(['--selector='])).rejects.toThrow('Usage: screenshot --selector');
+    await expect(run(['--clip=0,0,10,10', '#title'])).rejects.toThrow('Cannot use --clip with a selector/ref');
+    await expect(run(['--selector=#title', '--clip=0,0,10,10'])).rejects.toThrow('Cannot use --clip with a selector/ref');
+    await expect(run(['--viewport=1'])).rejects.toThrow('Unknown screenshot flag');
+  });
+
   test('screenshot unknown flag throws', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     try {
@@ -2613,6 +2637,65 @@ describe('viewport --scale', () => {
       expect(true).toBe(false);
     } catch (err: any) {
       expect(err.message).toMatch(/Usage: browse viewport/);
+    }
+  });
+});
+
+describe('viewport auto (unpin a pinned size)', () => {
+  test('headless: viewport 375x812 then auto returns to the 1280x720 default', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    await handleWriteCommand('viewport', ['375x812'], bm);
+    expect(await handleWriteCommand('viewport', ['auto'], bm)).toBe('Viewport reset to default 1280x720');
+    expect(bm.getPage().viewportSize()).toEqual({ width: 1280, height: 720 });
+    expect(await bm.getPage().evaluate(() => window.innerWidth)).toBe(1280);
+    expect(bm.getCurrentViewport()).toEqual({ width: 1280, height: 720 });
+  });
+
+  test('reset and unpin are aliases', async () => {
+    for (const alias of ['reset', 'unpin']) {
+      await handleWriteCommand('viewport', ['400x300'], bm);
+      await handleWriteCommand('viewport', [alias], bm);
+      expect(bm.getPage().viewportSize()).toEqual({ width: 1280, height: 720 });
+    }
+  });
+
+  test('auto rejects --scale', async () => {
+    await expect(handleWriteCommand('viewport', ['auto', '--scale', '2'], bm)).rejects.toThrow(/cannot be combined/);
+  });
+
+  test('handler reports which reset the manager performed', async () => {
+    for (const [mode, expected] of [['window', /follows the browser window/], ['default', /default 1280x720/]] as const) {
+      const fakeBm = { resetViewport: async () => mode } as unknown as BrowserManager;
+      expect(await _handleWriteCommand('viewport', ['auto'], bm.getActiveSession(), fakeBm)).toMatch(expected);
+    }
+  });
+
+  test('headed: auto replaces the pinned page with a window-following one in the same tab', async () => {
+    const context = await (bm as any).browser.newContext({ viewport: null });
+    const headed = new BrowserManager();
+    Object.assign(headed as any, { connectionMode: 'headed', context });
+    try {
+      const tabId = await headed.newTab(baseUrl + '/basic.html');
+      await handleWriteCommand('viewport', ['600x400'], headed);
+      const pinned = headed.getPage();
+      expect(pinned.viewportSize()).toEqual({ width: 600, height: 400 });
+
+      expect(await handleWriteCommand('viewport', ['auto'], headed)).toMatch(/follows the browser window/);
+      const fresh = headed.getPage();
+      expect(fresh).not.toBe(pinned);
+      expect(pinned.isClosed()).toBe(true);
+      expect(fresh.viewportSize()).toBeNull();
+      expect(fresh.url()).toBe(baseUrl + '/basic.html');
+      expect(headed.getActiveTabId()).toBe(tabId);
+      expect(headed.getTabCount()).toBe(1);
+
+      await headed.getActiveSession().setTabContent('<p id="kept">kept</p>');
+      await handleWriteCommand('viewport', ['500x300'], headed);
+      await handleWriteCommand('viewport', ['auto'], headed);
+      expect(await headed.getPage().textContent('#kept')).toBe('kept');
+      expect(headed.getPage().viewportSize()).toBeNull();
+    } finally {
+      await context.close();
     }
   });
 });

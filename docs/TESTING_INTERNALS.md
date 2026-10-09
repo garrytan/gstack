@@ -807,7 +807,9 @@ two anchors: every binary and source set flips it, Windows `.exe` suffixes).
 against a temp `GSTACK_INSTALL_DIR` / `GSTACK_SKILLS_DIR`, and
 `test/hook-scripts.test.ts` runs the real `careful/bin/check-careful.sh` and
 `freeze/bin/check-freeze.sh` with JSON payloads on stdin (including the
-`GSTACK_HOME` state-root parity against `bin/gstack-paths`).
+`GSTACK_HOME` state-root parity against `bin/gstack-paths`, PowerShell tool and
+NotebookEdit payloads); it is named Windows coverage in the curated
+`windows-free-tests` lane.
 
 ### Ship measure sweep
 
@@ -1046,7 +1048,7 @@ runtime match; records preserve original provenance. The cookie workflow's custo
 input, the other 11 judge cases, dynamic agent tests, and local runs without
 scoped cache configuration stay fresh.
 Scheduled/manual full coverage and `test:release` always run fresh.
-See [testing policy](CONTRIBUTING.md#test-tiers) for commands and measured targets.
+See [testing policy](../CONTRIBUTING.md#test-tiers) for commands and measured targets.
 Anything that needs Aside
 itself (`test/skill-e2e-aside.test.ts`, the Aside qa/design E2E cases, the
 live render in `test/aside-render.test.ts`) runs only on a Mac with the Aside

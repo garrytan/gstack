@@ -15,6 +15,12 @@ CSO_FINAL_CORE="$CSO_BUILD_ROOT/bin/gstack-cso-core$CSO_EXE"
 CSO_FINAL_LAUNCHER="$CSO_BUILD_ROOT/bin/gstack-cso-launcher$CSO_EXE"
 CSO_FINAL_WATCHDOG="$CSO_BUILD_ROOT/bin/gstack-cso-watchdog"
 CSO_FINAL_GENERATION="$CSO_BUILD_ROOT/bin/.gstack-cso-generation"
+# Build-result record read by setup's summary and gstack-doctor (#3071).
+CSO_RESULT_FILE="$CSO_BUILD_ROOT/bin/.gstack-cso-build-result"
+CSO_RESULT_RECORDING=0
+CSO_RESULT_STAGE=build
+CSO_REVISION=""
+CSO_PREVIOUS_INSTALLED=""
 CSO_STAGE=""
 CSO_PUBLISHING=0
 CSO_COMMITTED=0
@@ -38,6 +44,25 @@ cso_checkpoint() {
   if [ "${GSTACK_CSO_BUILD_TEST_KILL_AFTER:-}" = "$1" ]; then
     kill -KILL "$$"
   fi
+  if [ "${GSTACK_CSO_BUILD_TEST_REMOVE_LOCKER_AFTER:-}" = "$1" ]; then
+    rm -f "$CSO_STAGE_LOCKER"
+  fi
+}
+
+cso_record_field() { sed -n "s/^$1=//p" "$CSO_RESULT_FILE" 2>/dev/null | head -1; }
+
+# One record per run: result (ok/failed), stage (build/publish), reason, this
+# checkout's revision, the revision of the CSO generation still installed, and
+# whether that launcher is usable. A SIGKILL leaves the last "interrupted" entry.
+cso_write_result() {
+  launcher=no
+  if cso_valid_artifact "$CSO_FINAL_LAUNCHER" && cso_valid_artifact "$CSO_FINAL_CORE"; then launcher=yes; fi
+  installed=""
+  if [ "$1" = ok ]; then installed=$CSO_REVISION
+  elif [ "$launcher" = yes ]; then installed=${CSO_PREVIOUS_INSTALLED:-an earlier build}; fi
+  # Written in place: publication's signal tests count on mv moving artifacts only.
+  printf 'result=%s\nstage=%s\nreason=%s\nrevision=%s\ninstalled=%s\nlauncher=%s\ndiagnostic=%s\n' \
+    "$1" "$2" "$3" "$CSO_REVISION" "$installed" "$launcher" "${GSTACK_CSO_BUILD_LOG:-the scripts/build-cso.sh output}" > "$CSO_RESULT_FILE" || true
 }
 
 cso_restore_previous() {
@@ -89,6 +114,10 @@ cso_cleanup() {
   fi
   if [ "$cleanup_stage" -eq 1 ] && [ -n "$CSO_STAGE" ] && [ ! -f "$CSO_STAGE/.retain-recovery" ]; then rm -rf "$CSO_STAGE"; fi
   if [ -n "$CSO_EVALUATION_UNIT" ]; then rm -rf "$CSO_EVALUATION_UNIT"; fi
+  if [ "$CSO_RESULT_RECORDING" -eq 1 ]; then
+    if [ "$status" -eq 0 ] && [ "$CSO_COMMITTED" -eq 1 ]; then cso_write_result ok publish committed
+    else cso_write_result failed "$CSO_RESULT_STAGE" "exit $status"; fi
+  fi
   exit "$status"
 }
 trap 'cso_cleanup $?' EXIT
@@ -281,8 +310,18 @@ cso_publish_locked() {
   CSO_COMMITTED=1
 }
 
+cso_start_result() {
+  CSO_RESULT_RECORDING=1
+  CSO_RESULT_STAGE=$1
+  CSO_REVISION="$(head -1 "$CSO_BUILD_ROOT/VERSION" 2>/dev/null | tr -cd '0-9A-Za-z.+-')"
+  revision_sha="$(git -C "$CSO_BUILD_ROOT" rev-parse --short=12 HEAD 2>/dev/null | tr -cd '0-9a-f')"
+  CSO_REVISION="${CSO_REVISION:-unknown}${revision_sha:+ ($revision_sha)}"
+  CSO_PREVIOUS_INSTALLED="$(cso_record_field installed)"
+}
+
 if [ "${1:-}" = __publish_locked ];then
   shift
+  cso_start_result publish
   cso_publish_locked "$@"
   exit 0
 fi
@@ -291,6 +330,8 @@ if [ "${1:-}" = --evaluation-candidate ];then
   exit 0
 fi
 [ "$#" -eq 0 ] || { echo 'Usage: build-cso.sh [--evaluation-candidate <cso-eval-catalog.json> --output <new-directory>]' >&2;exit 64; }
+cso_start_result build
+cso_write_result failed build interrupted
 # Distribution builds embed only the committed catalog, never an evaluation one.
 if [ -f lib/cso/runtime-catalog.json ] && grep -q '"revision": *"cso-eval-' lib/cso/runtime-catalog.json;then
   echo 'lib/cso/runtime-catalog.json is an evaluation-only catalog; distribution builds refuse it. Restore the committed catalog.' >&2
@@ -339,12 +380,14 @@ CSO_CORE_SHA256="$(cso_sha256 "$CSO_STAGE_CORE")"
 printf '%s\n' "$CSO_CORE_SHA256" > "$CSO_STAGE_GENERATION"
 
 if [ -n "$CSO_EXE" ];then
-  if ! command -v powershell.exe >/dev/null 2>&1||! command -v cygpath >/dev/null 2>&1;then
-    echo 'CSO Windows build requires Git Bash and Windows PowerShell with MSVC Build Tools.' >&2;exit 1
+  # PowerShell 7 first: Windows PowerShell 5.1 can crash outright (#3071).
+  CSO_POWERSHELL="$(command -v pwsh 2>/dev/null || command -v powershell.exe 2>/dev/null || true)"
+  if [ -z "$CSO_POWERSHELL" ]||! command -v cygpath >/dev/null 2>&1;then
+    echo 'CSO Windows build requires Git Bash and PowerShell (pwsh or Windows PowerShell) with MSVC Build Tools.' >&2;exit 1
   fi
   CSO_WINDOWS_GIT="$(type -P git 2>/dev/null || true)"
   [ -n "$CSO_WINDOWS_GIT" ] && [ -f "$CSO_WINDOWS_GIT" ] || { echo 'CSO Windows build requires the Git for Windows git.exe selected by Git Bash.' >&2;exit 1; }
-  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+  "$CSO_POWERSHELL" -NoProfile -NonInteractive -ExecutionPolicy Bypass \
     -File "$(cygpath -w "$CSO_BUILD_ROOT/scripts/build-cso-windows.ps1")" \
     -RepoRoot "$(cygpath -w "$CSO_BUILD_ROOT")" \
     -OutputPath "$(cygpath -w "$CSO_STAGE_LAUNCHER")" \
@@ -376,4 +419,18 @@ if [ -n "$CSO_EXE" ];then
 else
   case "${BASH:-}" in /*) CSO_PUBLISH_SHELL=$BASH;; *) echo 'CSO publication requires an absolute Bash executable.' >&2;exit 1;;esac
 fi
+cso_valid_artifact "$CSO_STAGE_LOCKER" || { echo 'Staged CSO publisher lock is not one executable regular file.' >&2; exit 1; }
+CSO_RESULT_STAGE=publish
+cso_write_result failed publish interrupted
+cso_checkpoint before-exec
+# From here the locked child owns the stage: its own EXIT trap restores and
+# cleans it. Git Bash's exec of a native program may not replace this shell,
+# so this trap must not be armed under the running child (#3071). If the exec
+# itself fails, clean up here.
+set +e
+shopt -s execfail
+trap - EXIT
 exec "$CSO_STAGE_LOCKER" "$CSO_BUILD_ROOT/bin" "$CSO_PUBLISH_SHELL" "$CSO_BUILD_ROOT/scripts/build-cso.sh" __publish_locked "$CSO_STAGE"
+cso_exec_status=$?
+echo "CSO publication could not start $CSO_STAGE_LOCKER (exit $cso_exec_status)." >&2
+cso_cleanup "$cso_exec_status"

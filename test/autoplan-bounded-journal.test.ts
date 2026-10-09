@@ -11,6 +11,7 @@ import { guardFixture, section, denial, codeOf, ROOT, type GuardFixture } from '
 import { ownedRead } from '../autoplan/bin/phase-publication-hook.ts';
 import { DEDUP_REPLY } from '../autoplan/bin/guard-journal';
 import { readOwnedClaudePublicTranscript, ownedRetainedLimit, OWNED_RETAINED_MAX_BYTES, type OwnedReadMeasure } from '../lib/claude-owned-journal';
+import { OWNED_READ_APPROVAL } from '../autoplan/bin/owned-read';
 
 const RECORD = 32 * 1024, RETAINED = 64 * 1024;
 const fixtures: GuardFixture[] = [];
@@ -52,7 +53,7 @@ const next = (f: GuardFixture) => { f.use('next', 'Read', { file_path: section('
 describe('A2: the guard decides on a journal larger than its shrunk bounds', () => {
   test('a published Phase 1 enters Phase 2; the same journal without the report is denied', async () => {
     const allowed = make(); allowed.publish(); const input = next(allowed); long(allowed);
-    expect(await bounded(() => allowed.hook(input))).toEqual({});
+    expect(await bounded(() => allowed.hook(input))).toEqual(OWNED_READ_APPROVAL);
     expect(allowed.log().at(-1)).toMatchObject({ decision: 'allow', disposition: 'allow', path: 'journal' });
     const unpublished = make(); const blocked = next(unpublished); long(unpublished);
     const output = await bounded(() => unpublished.hook(blocked));
@@ -83,7 +84,7 @@ describe('A2: the guard decides on a journal larger than its shrunk bounds', () 
 
   test('a run started by a typed request and the Skill tool (no /autoplan slash turn) binds its init', async () => {
     const f = make('ceo', { opening: 'skill' }); f.publish(); const input = next(f); long(f);
-    expect(await bounded(() => f.hook(input))).toEqual({});
+    expect(await bounded(() => f.hook(input))).toEqual(OWNED_READ_APPROVAL);
     const unpublished = make('ceo', { opening: 'skill' }); const blocked = next(unpublished); long(unpublished);
     expect(codeOf(await bounded(() => unpublished.hook(blocked)))).toBe('publication_missing');
   });
@@ -129,7 +130,7 @@ describe('A2: append-tolerant reads with prefix identity', () => {
       const grown = fs.statSync(f.transcript).size;
       for (let i = 0; i < 50 && fs.statSync(f.transcript).size === grown; i++) await Bun.sleep(10);
       expect(fs.statSync(f.transcript).size).toBeGreaterThan(grown);
-      expect(await f.hook(input)).toEqual({});
+      expect(await f.hook(input)).toEqual(OWNED_READ_APPROVAL);
     } finally { appender.kill(); await appender.exited; }
   });
 
@@ -185,6 +186,6 @@ describe('A2: append-tolerant reads with prefix identity', () => {
     // A record still being written (no newline yet) is not evidence: the read ends at the last complete line.
     const partial = make(); partial.publish(); const current = next(partial); long(partial);
     fs.appendFileSync(partial.transcript, JSON.stringify({ type: 'assistant', sessionId: partial.sessionId }).slice(0, -2));
-    expect(await bounded(() => partial.hook(current))).toEqual({});
+    expect(await bounded(() => partial.hook(current))).toEqual(OWNED_READ_APPROVAL);
   });
 });

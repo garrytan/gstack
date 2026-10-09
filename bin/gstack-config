@@ -92,6 +92,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# artifacts_sync_removals: off  # on | off — on: each sync also publishes the
+#                           #   removal of synced files gone from disk; more than
+#                           #   20 at once is held for gstack-brain-sync
+#                           #   --publish-removals. See docs/gbrain-sync.md.
+#
 # ─── Transcript ingest (gbrain memory) ───────────────────────────────
 # transcript_ingest_mode: off  # recent | all | off | new@<UTC> — consent for
 #                           #   /sync-gbrain to ingest Claude Code and Codex
@@ -150,6 +155,18 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   ./setup --claude-model <id>, which validates the
 #                           #   ID and re-renders; ./setup --claude-model claude
 #                           #   returns to the generic overlay.
+#
+# ─── Model policy (gstack-models shows the effective choices) ───────
+# Plan review tier: frontier | smart | host. host delegates to the CLI settings;
+# GSTACK_CLAUDE_MODEL / GSTACK_CODEX_MODEL still win.
+# plan_review_tier: frontier
+# Implementation recommendation: frontier | smart. Never switches your session.
+# implementation_tier: smart
+# Optional pins: model_frontier_claude, model_frontier_openai,
+# model_smart_claude and model_smart_openai. Leave pins absent for catalog defaults;
+# empty pins are invalid. gstack-models list prints copyable set/unset commands.
+# Invalid writes are rejected and preserve the stored value.
+# Docs: docs/model-policy.md
 #
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Workflow outside review (Codex or Claude Code by harness).
@@ -240,6 +257,7 @@ lookup_default() {
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
+    artifacts_sync_removals) echo "off" ;; # on | off — publish removals of synced files gone from disk
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
     timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
 
@@ -283,6 +301,9 @@ lookup_default() {
     ship_measure_sweep_cases) echo "5" ;;
     ship_measure_sweep_budget_usd) echo "150" ;;
     ship_rerun_backend) echo "local" ;; # local | ubicloud (Ubicloud spend is opt-in)
+    plan_review_tier) echo "frontier" ;; # frontier | smart | host — lib/model-policy.ts reads it strictly
+    implementation_tier) echo "smart" ;; # frontier | smart
+    model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai) echo "" ;; # empty = shipped catalog ID (gstack-models list)
     ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
     # Unknown key: exit non-zero instead of printing "". The fallback pattern
     # the preambles use,
@@ -650,6 +671,10 @@ case "${1:-}" in
       echo "Warning: artifacts_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
       VALUE="off"
     fi
+    if [ "$KEY" = "artifacts_sync_removals" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Warning: artifacts_sync_removals '$VALUE' not recognized. Valid values: on, off. Using off." >&2
+      VALUE="off"
+    fi
     # redact_repo_visibility: a LOCAL override for repos gh/glab can't read (e.g.
     # self-hosted GitLab). It lives in ~/.gstack/config.yaml (never committed), so
     # it can't be used to weaken the gate repo-wide for other contributors.
@@ -684,6 +709,27 @@ case "${1:-}" in
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    case "$KEY" in
+      plan_review_tier|implementation_tier|model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai)
+        _mp_doc="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#model-policy-config"
+        VALUE="${VALUE#"${VALUE%%[![:space:]]*}"}"
+        VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
+        _mp_valid=1
+        case "$KEY" in
+          plan_review_tier) case "$VALUE" in frontier|smart|host) ;; *) _mp_valid="" ; _mp_rule="Valid values: frontier, smart, host." ;; esac ;;
+          implementation_tier) case "$VALUE" in frontier|smart) ;; *) _mp_valid="" ; _mp_rule="Valid values: frontier, smart." ;; esac ;;
+          *_claude) { [ "${#VALUE}" -le 512 ] && printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[][A-Za-z0-9._:/@+-]+$'; } || { _mp_valid=""; _mp_rule="An Anthropic model ID is 1-512 characters from A-Z a-z 0-9 . _ : / @ + [ ] -."; } ;;
+          *_openai) printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[A-Za-z0-9._:/-]{1,100}$' || { _mp_valid=""; _mp_rule="An OpenAI model ID is 1-100 characters from A-Z a-z 0-9 . _ : / -."; } ;;
+        esac
+        if [ -z "$VALUE" ]; then
+          echo "Error: $KEY value is empty. Existing value left unchanged. fix: gstack-config unset $KEY restores the default ($_mp_doc)" >&2
+          exit 1
+        fi
+        if [ -z "$_mp_valid" ]; then
+          echo "Error: $KEY '$VALUE' not recognized. $_mp_rule Existing value left unchanged. fix: gstack-config unset $KEY restores the default ($_mp_doc)" >&2
+          exit 1
+        fi ;;
+    esac
     # The measure-loop controls bound paid spend: reject a typo instead of
     # coercing it, so a bad value never changes how much /ship may spend.
     case "$KEY" in
@@ -889,11 +935,13 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
-               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend; do
+               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend \
+               plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
+               model_smart_claude model_smart_openai; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -912,11 +960,13 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
-               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend; do
+               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend \
+               plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
+               model_smart_claude model_smart_openai; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

@@ -40,6 +40,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     printUsage();
     process.exit(ExitCode.Success);
   }
+  // setup's and gstack-doctor's launch probe (#2595): the version command needs no browser.
+  if (args[0] === "--version") return { command: "version", positional: [], flags: {} };
 
   // First non-flag arg is the command.
   let command = "";

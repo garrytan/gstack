@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { runPublicationHook } from '../autoplan/bin/phase-publication-hook.ts';
+import { OWNED_READ_APPROVAL } from '../autoplan/bin/owned-read';
 
 const ROOT = path.join(import.meta.dir, '..');
 // Every guarded decision appends to the guard log; keep it out of the real state root.
@@ -34,9 +35,11 @@ function run(bytes: string, shim = SHIM, env = process.env) {
 }
 
 describe('Autoplan hook transport', () => {
-  test('ordinary project and non-Read tools abstain without a parent journal', () => {
+  test('ordinary project files and non-Read tools abstain without a parent journal; the close section is approved', () => {
     expect(run(JSON.stringify({ ...input, tool_name: 'Bash' })).output).toEqual({});
-    expect(run(JSON.stringify({ ...input, tool_input: { file_path: path.join(ROOT, 'autoplan/sections/phase-close.md') } })).output).toEqual({});
+    expect(run(JSON.stringify({ ...input, tool_input: { file_path: path.join(ROOT, 'package.json') } })).output).toEqual({});
+    expect(run(JSON.stringify({ ...input, tool_input: { file_path: path.join(ROOT, 'autoplan/sections/phase-close.md') } })).output)
+      .toEqual(OWNED_READ_APPROVAL);
   });
   test('invalid input fails closed with one nested native denial', () => {
     const { child, output } = run('{'); expect(child.status).toBe(0);

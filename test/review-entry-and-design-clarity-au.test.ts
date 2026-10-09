@@ -8,7 +8,7 @@ import {generatePreambleBash} from '../scripts/resolvers/preamble/generate-pream
 import {generatePlanModeInfo} from '../scripts/resolvers/preamble/generate-completion-status';
 import {generateDesignHardRules} from '../scripts/resolvers/design';
 import {E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES, selectTests} from './helpers/touchfiles';
-import { expectMentions } from './helpers/prompt-structure';
+import { between, compact, expectMentions, expectTokens } from './helpers/prompt-structure';
 
 const root = path.resolve(import.meta.dir, '..');
 const announcement = 'Scope gate: plan mode — auto-selected B (reviewing <target>).';
@@ -104,4 +104,14 @@ test('new regression and changed preamble sources select all Design and Eng owne
       for (const owner of affected) expect(selected).toContain(owner);
     }
   }
+});
+
+test('design-review captures code tokens before universal principles and reuses them in target mockups', () => {
+  const skill = fs.readFileSync(path.join(root, 'design-review/SKILL.md'), 'utf8');
+  const capture = between(skill, '**Capture the project\'s design system:**', '## Phase 1');
+  expectTokens(capture, ['`tailwind.config.*`', '`:root`'], 'design-system capture');
+  expectMentions(compact(capture), [['universal', 'only', 'neither', 'code tokens']], 'design-system capture');
+  const mockup = compact(between(skill, '### 8a.5. Target Mockup', '### 8b.'));
+  expectMentions(mockup, [['brief', 'reuses', 'captured', 'colors', 'fonts']], 'target mockup');
+  expectMentions(mockup, [['never', 'new palette', 'already has one']], 'target mockup');
 });

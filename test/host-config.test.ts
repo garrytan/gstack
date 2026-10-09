@@ -23,9 +23,12 @@ import {
   slate,
   cursor,
   openclaw,
+  agy,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
+import { expectTokens } from './helpers/prompt-structure';
+import { runGeneration } from '../scripts/gen-skill-docs';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
@@ -33,8 +36,8 @@ const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 11 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(11);
+  test('ALL_HOST_CONFIGS has 12 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(12);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -56,6 +59,7 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(agy.name).toBe('agy');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -77,6 +81,7 @@ describe('hosts/index.ts', () => {
   test('resolveHostArg resolves aliases', () => {
     expect(resolveHostArg('agents')).toBe('codex');
     expect(resolveHostArg('droid')).toBe('factory');
+    expect(resolveHostArg('antigravity')).toBe('agy');
   });
 
   test('resolveHostArg throws on unknown alias', () => {
@@ -444,7 +449,7 @@ describe('golden-file regression', () => {
   const GOLDEN_OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-golden-out-'));
 
   beforeAll(() => {
-    for (const host of ['codex', 'factory']) {
+    for (const host of ['codex', 'factory', 'agy']) {
       const result = Bun.spawnSync(
         ['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', host, '--out-dir', GOLDEN_OUT],
         { cwd: ROOT, timeout: 120_000 },
@@ -497,14 +502,21 @@ describe('golden-file regression', () => {
     const current = fs.readFileSync(path.join(GOLDEN_OUT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
   });
+
+  test('Antigravity ship skill matches golden baseline', () => {
+    const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'agy-ship-SKILL.md'), 'utf-8');
+    const current = fs.readFileSync(path.join(GOLDEN_OUT, '.agy', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(current).toBe(golden);
+  });
 });
 
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('Codex host renders with generic GPT overlay while existing hosts retain Claude overlay', () => {
+  test('Codex renders the GPT overlay, Antigravity the Gemini overlay, every other host the Claude overlay', () => {
     expect(codex.defaultModel).toBe('gpt');
-    for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex')) {
+    expect(agy.defaultModel).toBe('gemini');
+    for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex' && h.name !== 'agy')) {
       expect(host.defaultModel).toBe('claude');
     }
   });
@@ -755,6 +767,49 @@ describe('Copilot host render (#393)', () => {
   });
 });
 
+describe('Antigravity CLI host render', () => {
+  const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-agy-'));
+  beforeAll(() => {
+    const r = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'agy', '--out-dir', OUT], { cwd: ROOT, timeout: 120_000 });
+    if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+  });
+  afterAll(() => fs.rmSync(OUT, { recursive: true, force: true }));
+  const dir = path.join(OUT, '.agy', 'skills');
+  const read = (skill: string) => fs.readFileSync(path.join(dir, skill, 'SKILL.md'), 'utf8');
+
+  test('paths name the Antigravity CLI install, never Claude, Codex or Gemini CLI skill dirs', () => {
+    for (const skill of ['gstack-review', 'gstack-ship', 'gstack-careful', 'gstack-upgrade']) {
+      const md = read(skill);
+      expect(md).not.toContain('~/.claude/skills/gstack');
+      expect(md).not.toContain('$HOME/.claude/skills/gstack');
+      expect(md).not.toContain('.codex/skills');
+      expect(md).not.toMatch(/\.gemini\/(?:config\/)?skills/);
+    }
+    expect(read('gstack-review')).toContain('_r=~/.gemini/antigravity-cli/skills/gstack');
+    expect(read('gstack-upgrade')).toContain('$HOME/.gemini/antigravity-cli/skills/gstack/.source-path');
+    expect(read('gstack-upgrade')).toContain('./setup --host agy --refresh-registered');
+  });
+
+  test('the tool-name glossary names the documented tools ahead of the preamble STATUS rules', () => {
+    const md = read('gstack-review');
+    const glossary = md.indexOf('**Antigravity tool names:**');
+    expect(glossary).toBeGreaterThan(-1);
+    expect(glossary).toBeLessThan(md.indexOf('Read the echoed `KEY: value` STATUS lines'));
+    const line = md.slice(glossary, md.indexOf('\n', glossary));
+    expectTokens(line, ['`ask_question`', '`run_command`', '`view_file`', '`write_to_file`', '`replace_file_content`', '`grep_search`', '`find_by_name`', '`invoke_subagent`']);
+  });
+
+  test('frontmatter keeps only name and description, and every name equals its directory', () => {
+    const names = fs.readdirSync(dir).filter(d => fs.existsSync(path.join(dir, d, 'SKILL.md')));
+    expect(names.length).toBeGreaterThan(20);
+    for (const name of names) {
+      const fm = read(name).split('\n---\n')[0];
+      expect(fm.match(/^name:\s*(\S+)/m)![1]).toBe(name);
+      expect(fm.split('\n').filter(l => /^[a-z-]+:/.test(l)).map(l => l.split(':')[0])).toEqual(['name', 'description']);
+    }
+  });
+});
+
 describe('host renders name the host\'s own tools and identities (#2626, #2015, #2825, #2338)', () => {
   const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-host-tools-'));
   beforeAll(() => {
@@ -789,4 +844,30 @@ describe('host renders name the host\'s own tools and identities (#2626, #2015, 
       if (fs.existsSync(md)) expect(fs.readFileSync(md, 'utf8')).not.toMatch(/\.Codex\//);
     }
   });
+});
+
+describe('agent-runtime hosts never leak the Claude "Agent tool" name', () => {
+  const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-agent-tool-'));
+  afterAll(() => fs.rmSync(OUT, { recursive: true, force: true }));
+
+  test.each([
+    ['hermes', 'delegate_task'],
+    ['gbrain', 'sessions_spawn'],
+    ['openclaw', 'sessions_spawn'],
+    ['factory', 'delegation'],
+  ])('%s renders map every Agent tool phrasing to %s', async (host, token) => {
+    const result = await runGeneration({ host: host as 'hermes', outputRoot: path.join(OUT, host), contentLinkRoot: null });
+    expect(result.exitCode).toBe(0);
+    const rendered = result.artifacts.filter(a => a.kind === 'skill' || a.kind === 'section');
+    expect(rendered.length).toBeGreaterThan(20);
+    const leaks: string[] = [];
+    let mentions = 0;
+    for (const artifact of rendered) {
+      const content = fs.readFileSync(path.join(OUT, host, artifact.relativePath), 'utf8');
+      if (/\bAgent tool\b/.test(content)) leaks.push(artifact.relativePath);
+      if (content.includes(`via ${token}`)) mentions++;
+    }
+    expect(leaks).toEqual([]);
+    expect(mentions).toBeGreaterThan(0);
+  }, 120_000);
 });

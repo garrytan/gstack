@@ -11,12 +11,11 @@ Conventions:
 ## Skills
 
 - [/autoplan](autoplan/SKILL.md): Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.
-- [/benchmark](benchmark/SKILL.md): Performance regression detection.
+- [/benchmark](benchmark/SKILL.md): Web performance regression detection.
 - [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.
 - [/browse](browse/SKILL.md): Drive a real browser through Aside: open a page, read it, click through a flow, take screenshots, check console errors.
 - [/canary](canary/SKILL.md): Post-deploy canary monitoring.
 - [/careful](careful/SKILL.md): Safety guardrails for destructive commands.
-- [/claude-code](claude-code/SKILL.md): Claude Code CLI second opinion for non-Claude Code hosts.
 - [/codex](codex/SKILL.md): OpenAI Codex CLI wrapper — three modes.
 - [/context-restore](context-restore/SKILL.md): Restore working context saved earlier by /context-save.
 - [/context-save](context-save/SKILL.md): Save working context.
@@ -31,7 +30,7 @@ Conventions:
 - [/document-generate](document-generate/SKILL.md): Generate missing documentation from scratch for a feature, module, or entire project.
 - [/document-release](document-release/SKILL.md): Release documentation audit.
 - [/freeze](freeze/SKILL.md): Restrict file edits to a specific directory for the session.
-- [/gstack](gstack/SKILL.md): Router for the gstack skill suite.
+- [/gstack](SKILL.md): Router for the gstack skill suite.
 - [/gstack-upgrade](gstack-upgrade/SKILL.md): Upgrade gstack to the latest version.
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
 - [/health](health/SKILL.md): Code quality dashboard.
@@ -111,7 +110,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `type [--selector <sel>] [--] <text>`: Send keystrokes to the focused element, or to <sel> with --selector (focuses it first).
 - `upload <sel> <file> [file2...]`: Upload file(s)
 - `useragent <string>`: Set user agent
-- `viewport [<WxH>] [--scale <n>]`: Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots).
+- `viewport [<WxH>|auto] [--scale <n>]`: Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots).
 - `wait <sel|--networkidle|--load>`: Wait for element, network idle, or page load (timeout: 15s)
 
 ### Meta

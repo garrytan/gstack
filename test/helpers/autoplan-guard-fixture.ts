@@ -24,9 +24,12 @@ export interface Step {
 
 /** A completed Phase `phase` (init, entry, close packet Read) with a reviewer snapshot for `phase`. */
 /** `opening: 'skill'` starts the run from a typed request and a Skill tool call instead of the /autoplan slash turn. */
-export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: number; version?: string; opening?: 'slash' | 'skill' } = {}) {
+/** `restoreInProject` puts the restore point and phase artifacts in the project's `.gstack/tmp/autoplan/`, where /autoplan writes them. */
+export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: number; version?: string; opening?: 'slash' | 'skill'; restoreInProject?: boolean } = {}) {
   const cwd = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'autoplan-guard-replay-')));
-  const source = path.join(cwd, 'source.md'), active = path.join(cwd, 'active.md'), restore = path.join(cwd, 'restore.md');
+  const stateRoot = path.join(cwd, 'state'), restoreDir = opts.restoreInProject ? path.join(cwd, '.gstack', 'tmp', 'autoplan') : cwd;
+  fs.mkdirSync(restoreDir, { recursive: true });
+  const source = path.join(cwd, 'source.md'), active = path.join(cwd, 'active.md'), restore = path.join(restoreDir, 'restore.md');
   fs.writeFileSync(source, '# Current plan\nKeep documented behavior.\n');
   const init = initializePlan(source, active, restore);
   const skill = path.join(cwd, 'SKILL.md');
@@ -38,7 +41,6 @@ export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: nu
   const packet = preparePhaseClose(phase, active, snapshot.snapshotPath, restore, method);
   const sessionId = randomUUID(), steps: Step[] = [];
   const transcript = path.join(cwd, 'config', 'projects', 'fixture', `${sessionId}.jsonl`);
-  const stateRoot = path.join(cwd, 'state');
   let message = 0;
   const nextMessage = () => `msg_fixture${++message}`;
   const add = (step: Step) => { steps.push(step); return step; };

@@ -983,3 +983,24 @@ describe('cookie import button (sidebar)', () => {
     expect(js).toContain('cookie-picker');
   });
 });
+
+// #2287 (@tomfluff): xterm sizes its cell from the first font that resolves.
+// On Windows none of the Mac/Linux monospace fonts exist, so Malgun Gothic won
+// and every Latin glyph sat in a double-wide cell. Consolas ships with every
+// Windows install and must come before the CJK fallbacks in both stacks.
+describe('sidebar mono font stacks put a Windows Latin monospace before the CJK fallbacks (#2287)', () => {
+  const stacks: Record<string, string | undefined> = {
+    'sidepanel-terminal.js fontFamily': fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel-terminal.js'), 'utf-8').match(/fontFamily:\s*'([^']+)'/)?.[1],
+    'sidepanel.css --font-mono': fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8').match(/--font-mono:\s*([^;]+);/)?.[1],
+  };
+  for (const [name, stack] of Object.entries(stacks)) {
+    test(name, () => {
+      expect(stack).toBeDefined();
+      const fonts = stack!.split(',').map(f => f.trim().replace(/^['"]|['"]$/g, ''));
+      const consolas = fonts.indexOf('Consolas');
+      expect(consolas).toBeGreaterThanOrEqual(0);
+      for (const cjk of ['Noto Sans Mono CJK KR', 'Malgun Gothic']) expect(fonts.indexOf(cjk)).toBeGreaterThan(consolas);
+      expect(fonts.at(-1)).toBe('monospace');
+    });
+  }
+});

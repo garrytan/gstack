@@ -109,9 +109,10 @@ export function resultFromGeminiStream(
 /**
  * Gemini adapter — wraps the `gemini` CLI.
  *
- * Auth: GEMINI_API_KEY / GOOGLE_API_KEY (preferred), or ~/.gemini oauth.
- *   Personal OAuth free-tier is no longer supported by gemini CLI — use an
- *   AI Studio API key. Antigravity is a separate product/quota path.
+ * Auth: GEMINI_API_KEY / GOOGLE_API_KEY. Stored ~/.gemini OAuth alone is
+ *   reported as not ready: personal OAuth free-tier is no longer supported by
+ *   gemini CLI — use an AI Studio API key. Antigravity is a separate
+ *   product/quota path.
  *
  * Headless flags always passed:
  *   --output-format stream-json  — NDJSON events (message/tool_use/result)
@@ -134,17 +135,15 @@ export class GeminiAdapter implements ProviderAdapter {
     const legacyCfgDir = path.join(os.homedir(), '.config', 'gemini');
     const newCfgDir = path.join(os.homedir(), '.gemini');
     const newOauth = path.join(newCfgDir, 'oauth_creds.json');
-    const hasCfg = !opts?.csoProducer && (fs.existsSync(legacyCfgDir) || fs.existsSync(newOauth));
     // CLI accepts either name; Google AI Studio keys are usually GEMINI_API_KEY.
-    const hasKey = !!(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
-    if (!hasCfg && !hasKey) {
-      return {
-        ok: false,
-        reason:
-          'No Gemini auth found. Export GEMINI_API_KEY (or GOOGLE_API_KEY) from https://aistudio.google.com/app/apikey — personal OAuth free-tier is no longer supported by gemini CLI.',
-      };
-    }
-    return { ok: true };
+    if (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY) return { ok: true };
+    const hasOauth = !opts?.csoProducer && (fs.existsSync(legacyCfgDir) || fs.existsSync(newOauth));
+    return {
+      ok: false,
+      reason: hasOauth
+        ? 'Only stored Gemini OAuth found; personal OAuth free-tier is no longer supported by gemini CLI and headless runs can fail. Export GEMINI_API_KEY (or GOOGLE_API_KEY) from https://aistudio.google.com/app/apikey.'
+        : 'No Gemini auth found. Export GEMINI_API_KEY (or GOOGLE_API_KEY) from https://aistudio.google.com/app/apikey — personal OAuth free-tier is no longer supported by gemini CLI.',
+    };
   }
 
   async run(opts: RunOpts): Promise<RunResult> {

@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { migrateClaudeCodeSkills } from '../lib/claude-code-migration';
+import { spawnSync } from 'node:child_process';
+import { CLAUDE_CODE_RUNTIME_FILES as runtimeFiles, migrateClaudeCodeSkills } from '../lib/claude-code-migration';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const banner = '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->';
@@ -15,7 +16,7 @@ function fixture() {
   const root = path.join(dir, 'checkout'); const home = path.join(dir, 'home');
   const codex = path.join(home, 'custom-codex', 'skills');
   const kiro = path.join(home, '.kiro', 'skills');
-  for (const rel of ['bin/gstack-claude-code', 'lib/claude-code.ts', 'lib/claude-code-windows-job.ts', 'lib/claude-bin.ts', 'lib/outside-review-result.ts']) put(path.join(root, rel), rel);
+  for (const rel of runtimeFiles) put(path.join(root, rel), rel);
   const oldRender = path.join(root, '.agents', 'skills', 'gstack-claude');
   put(path.join(oldRender, 'SKILL.md'), skill('gstack-claude'));
   fs.mkdirSync(codex, { recursive: true }); fs.mkdirSync(kiro, { recursive: true });
@@ -40,6 +41,44 @@ function fixture() {
 }
 
 describe('Claude wrapper installed-name migration', () => {
+  test('copied policy tools and wrapper load without the source checkout', () => {
+    const f = fixture();
+    try {
+      for (const rel of runtimeFiles) fs.copyFileSync(path.join(ROOT, rel), path.join(f.root, rel));
+      put(path.join(f.codex, 'gstack-claude', 'SKILL.md'), skill('gstack-claude'));
+      expect(f.run({ copy: true })).toEqual({ migrated: 1, pending: [] });
+      fs.renameSync(f.root, `${f.root}-unavailable`);
+      const runtime = path.join(f.codex, 'gstack');
+      const env = {
+        ...process.env, HOME: f.home, USERPROFILE: f.home,
+        GSTACK_STATE_ROOT: path.join(f.home, 'state'), CODEX_HOME: path.dirname(f.codex),
+        CLAUDE_CONFIG_DIR: path.join(f.home, '.claude'),
+        GSTACK_CLAUDE_MODEL: '', GSTACK_CODEX_MODEL: '', ANTHROPIC_BASE_URL: '', OPENAI_BASE_URL: '',
+        CLAUDE_CODE_USE_BEDROCK: '', CLAUDE_CODE_USE_VERTEX: '', CLAUDE_CODE_USE_FOUNDRY: '',
+        BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
+      };
+      const set = spawnSync('bash', [path.join(runtime, 'bin/gstack-config'), 'set', 'plan_review_tier', 'smart'], {
+        cwd: f.dir, env, encoding: 'utf8', timeout: 30_000,
+      });
+      expect(set.status).toBe(0);
+      const inspect = spawnSync(process.execPath, [path.join(runtime, 'bin/gstack-models'), 'resolve', '--role', 'plan-review', '--provider', 'anthropic', '--json'], {
+        cwd: f.dir, env, encoding: 'utf8', timeout: 30_000,
+      });
+      expect(inspect.status).toBe(0);
+      expect(JSON.parse(inspect.stdout).selections[0].requestedModel).toBe('claude-opus-5-5');
+      const wrapper = spawnSync(process.execPath, [path.join(runtime, 'bin/gstack-claude-code'), '--help'], {
+        cwd: f.dir, env, encoding: 'utf8', timeout: 30_000,
+      });
+      expect(wrapper.status).toBe(1);
+      expect(JSON.parse(wrapper.stdout).error.code).toBe('arguments');
+      const gate = spawnSync(process.execPath, ['-e', 'const {classifyOutsideReview} = await import(process.argv[1]); console.log(classifyOutsideReview({text:"",gate:"review",exit:1}).verdict)', path.join(runtime, 'lib/outside-review-result.ts')], {
+        cwd: f.dir, env, encoding: 'utf8', timeout: 30_000,
+      });
+      expect(gate.status).toBe(0);
+      expect(gate.stdout.trim()).toBe('unavailable');
+    } finally { fs.rmSync(f.dir, { recursive: true, force: true }); }
+  });
+
   test('migrates existing Codex and Kiro installs independently of the selected setup host', () => {
     const f = fixture();
     try {

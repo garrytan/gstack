@@ -114,7 +114,7 @@ describe('own-harness review fallback instructions', () => {
       test(`${host.name}: ${name} fallback names only the mode its preflight emits`, () => {
         const ctx: TemplateContext = { host: host.name, skillName: 'review', tmplPath: 'review/SKILL.md.tmpl', paths: HOST_PATHS[host.name] };
         const text = render(ctx);
-        const mode = host.name === 'codex' ? 'under_current_harness' : 'under_codex';
+        const mode = name === 'plan' || host.name === 'codex' ? 'under_current_harness' : 'under_codex';
         const preflight = text.match(/```bash\n([\s\S]*?)\n```/)![1];
         expect(preflight).toContain(mode);
         expect([...new Set(text.match(/under_codex|under_current_harness/g))]).toEqual([mode]);

@@ -814,7 +814,7 @@ export function writeJsonExclusive(path: string, value: unknown): void {
     throw new CsoError('PERSISTENCE_FAILED', 'Private immutable artifact could not be written');
   }
 }
-function readPrivateJson(path: string): unknown {
+function readPrivateJson(path: string, maxBytes: number): unknown {
   let fd: number | undefined;
   try {
     const before = exactLstat(path);
@@ -823,7 +823,7 @@ function readPrivateJson(path: string): unknown {
       before.isSymbolicLink() ||
       before.nlink !== 1 ||
       before.size <= 0 ||
-      before.size > MAX_STATE_FILE ||
+      before.size > maxBytes ||
       (process.getuid && before.uid !== process.getuid()) ||
       (process.platform !== 'win32' && (before.mode & 0o077) !== 0)
     )
@@ -857,15 +857,45 @@ function readPrivateJson(path: string): unknown {
       } catch {}
   }
 }
-export function readJson(path: string): any {
+/** maxBytes is a per-artifact cap; only the snapshot manifest passes a larger one. */
+export function readJson(path: string, maxBytes = MAX_STATE_FILE): any {
   try {
     secureDirectory(dirname(path));
-    recoverAtomicNoReplaceJson(path, { label: 'Private immutable artifact', maxBytes: MAX_STATE_FILE });
-    return readPrivateJson(path);
+    recoverAtomicNoReplaceJson(path, { label: 'Private immutable artifact', maxBytes });
+    return readPrivateJson(path, maxBytes);
   } catch (e) {
     if (e instanceof CsoError) throw e;
     throw new CsoError('MISSING_INPUT', 'Private state file is missing or invalid');
   }
+}
+/**
+ * Keep the leading items of a per-entry list that fit `budget.bytes`, measured
+ * as pretty-printed JSON nested `depth` levels deep, and replace the rest with
+ * one summary item carrying the omitted count. A shared budget object bounds
+ * several lists in one artifact together.
+ */
+export function boundedList<T>(
+  total: number,
+  at: (index: number) => T,
+  budget: { bytes: number },
+  depth: number,
+  summary: (omitted: number) => T,
+): T[] {
+  const indent = ' '.repeat(2 * depth),
+    size = (item: T) =>
+      Buffer.byteLength(indent + JSON.stringify(item, null, 2).replaceAll('\n', '\n' + indent) + ',\n'),
+    reserve = size(summary(total)),
+    kept: T[] = [];
+  for (let index = 0; index < total; index++) {
+    const item = at(index),
+      bytes = size(item);
+    if (index < total - 1 ? bytes + reserve > budget.bytes : bytes > budget.bytes) break;
+    kept.push(item);
+    budget.bytes -= bytes;
+  }
+  if (kept.length === total) return kept;
+  budget.bytes -= reserve;
+  return [...kept, summary(total - kept.length)];
 }
 export const PUBLIC_SOURCE_ROOT = '<REDACTED-internal.user_path>';
 /** A report is public evidence; the real root remains in the private snapshot. */
@@ -2180,6 +2210,35 @@ export function hasPendingWatchdogCleanup(dir: string, admit: () => void = () =>
     if (pending) return true;
   }
   return false;
+}
+
+const ATTEMPT_SCRATCH = [
+  'supervision',
+  'preparation-execution',
+  'archive-staging',
+  'archive-materializations',
+  'verification',
+] as const;
+/**
+ * Reclaim the scratch a killed verification attempt left in its run directory. The caller holds the
+ * run lock, so no live attempt owns these trees; a watchdog that has not recorded cleanup still does,
+ * and then nothing is removed. Returns whether the scratch was reclaimed.
+ */
+export function reclaimDeadAttemptScratch(dir: string): boolean {
+  if (hasPendingWatchdogCleanup(dir)) return false;
+  for (const name of ATTEMPT_SCRATCH) {
+    const root = join(dir, name);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(root);
+    } catch {
+      continue;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new CsoError('UNSAFE_PATH', 'Attempt scratch is not a private directory');
+    for (const entry of fs.readdirSync(root)) fs.rmSync(join(root, entry), { recursive: true, force: true });
+  }
+  return true;
 }
 
 const EPHEMERAL_REPLAY = '.ephemeral-replay.json';

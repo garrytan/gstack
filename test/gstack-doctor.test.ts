@@ -16,12 +16,16 @@ import * as path from 'path';
 
 // setup builds browse/dist/browse.exe on Windows (Git Bash), browse/dist/browse elsewhere.
 const BROWSE_BIN = process.platform === 'win32' ? 'browse/dist/browse.exe' : 'browse/dist/browse';
+const EXE = process.platform === 'win32' ? '.exe' : '';
+const OTHER_BINS = ['browse/dist/find-browse', 'design/dist/design', 'make-pdf/dist/pdf', 'bin/gstack-global-discover'].map(rel => rel + EXE);
 
 const REPO = path.resolve(import.meta.dir, '..');
 const COPIED = [
   'setup', 'VERSION',
   'bin/gstack-doctor', 'bin/gstack-codex-status.sh', 'bin/gstack-state-root.sh', 'bin/gstack-install-registry.sh',
   'bin/gstack-render-claude.sh', 'bin/gstack-bun-version.sh', 'bin/gstack-hook-check', 'bin/gstack-config',
+  'autoplan/SKILL.md', // its frontmatter registers the autoplan hook the hooks-row test breaks
+  'bin/gstack-launch-probe.sh',
 ];
 const bases: string[] = [];
 afterEach(() => { for (const b of bases.splice(0)) fs.rmSync(b, { recursive: true, force: true }); });
@@ -77,9 +81,14 @@ function makeFixture(): Fixture {
     '  *) exit 64 ;;',
     'esac',
   ]);
-  const hooks = spawnSync('bash', [path.join(root, 'bin/gstack-hook-check'), '--list', root], { encoding: 'utf8', timeout: 20_000 }).stdout.trim().split('\n');
+  const listed = spawnSync('bash', [path.join(root, 'bin/gstack-hook-check'), '--list', root], { encoding: 'utf8', timeout: 20_000 });
+  const hooks = listed.stdout.split('\n').map(line => line.trim()).filter(Boolean);
+  if (!hooks.includes('autoplan/bin/phase-publication-hook')) throw new Error(`gstack-hook-check --list missed the autoplan hook: ${listed.stdout}${listed.stderr}`);
   for (const hook of hooks) write(path.join(root, hook), '#!/bin/sh\nexit 0\n', 0o755);
-  for (const rel of [BROWSE_BIN, 'browse/dist/server-node.mjs', 'browse/dist/.build-complete']) write(path.join(root, rel), 'built\n', 0o755);
+  // The doctor launches each compiled binary's --version (#2595), so the
+  // stand-ins answer it like the real binaries do.
+  for (const rel of [BROWSE_BIN, ...OTHER_BINS]) write(path.join(root, rel), '#!/bin/sh\necho built\n', 0o755);
+  for (const rel of ['browse/dist/server-node.mjs', 'browse/dist/.build-complete']) write(path.join(root, rel), 'built\n', 0o755);
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   write(path.join(state, 'installs.tsv'),
     ['claude', 'global', '-', path.join(home, '.claude/skills'), root, root, version, 'false', 'committed', '2026-10-07T00:00:00Z'].join('\t') + '\n');
@@ -186,7 +195,7 @@ describe('gstack-doctor', () => {
     expect(broken.status).toBe(1);
   });
 
-  test('the cached probe is reported with its age; only --live runs probe-model', () => {
+  test('the cached probe is reported with its age and is never re-run without --live', () => {
     const f = makeFixture();
     const now = Math.floor(Date.now() / 1000);
     write(path.join(f.state, '.codex-model-probe'), `MODEL_OK ${now - 7300} 123456789\n`);
@@ -201,7 +210,10 @@ describe('gstack-doctor', () => {
     write(path.join(f.state, '.codex-model-probe'), `$(rm -rf ~) ${now} x\n`);
     expect(doctor(f).row('codex probe').detail).toContain('unrecognized');
     expect(probeCalls(f)).not.toContain('probe-model');
+  });
 
+  test('--live runs probe-model once and maps its exit to the codex probe row', () => {
+    const f = makeFixture();
     const live = doctor(f, ['--live']);
     expect(probeCalls(f).match(/probe-model exec/g)?.length).toBe(1);
     expect(live.row('codex probe').state).toBe('ok');
@@ -236,7 +248,7 @@ describe('gstack-doctor', () => {
     expect(r.out).not.toContain('.brain-sync-status.json');
   });
 
-  test('artifacts sync: held, ok, stale push and stale drain', () => {
+  test('artifacts sync: held, then ok', () => {
     const f = makeFixture();
     syncOn(f, { status: 'held', message: 'held 2 file(s): sk-ant-secret', held_count: 2, held: [{ path: 'projects/p/notes.md', rule: 'anthropic_key', dependents: [], fixes: ['edit', 'skip'] }, { path: 'projects/p/b.md', rule: 'anthropic_key', dependents: [], fixes: ['edit', 'skip'] }], drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
     const held = doctor(f);
@@ -246,7 +258,10 @@ describe('gstack-doctor', () => {
 
     syncOn(f, { status: 'ok', message: 'pushed 3 file(s)', drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
     expect(doctor(f).row('artifacts sync').state).toBe('ok');
+  });
 
+  test('artifacts sync: stale push and stale drain warn, a fresh push clears them', () => {
+    const f = makeFixture();
     syncOn(f, { status: 'ok', message: 'x', drainable: 4, last_drain_at: iso(60), last_push_at: iso(90_000) });
     const stalePush = doctor(f).row('artifacts sync');
     expect(stalePush.state).toBe('warn');
@@ -358,5 +373,64 @@ describe('bug-report template and README (DX-2, DX-12)', () => {
     const readme = fs.readFileSync(path.join(REPO, 'README.md'), 'utf8');
     const section = readme.slice(readme.indexOf('## Troubleshooting'));
     expect(section).toContain('`~/.claude/skills/gstack/bin/gstack-doctor`');
+  });
+});
+
+// #2595/#2124 and #3071: compiled binaries by launch state, and CSO from the
+// build-result record. A blocked binary is simulated by the application-control
+// message reporters captured (#2595), which works on every OS.
+describe('gstack-doctor launch and CSO rows', () => {
+  const BLOCKED = `#!/bin/sh\necho "Program 'x.exe' failed to run: An Application Control policy has blocked this file" >&2\nexit 1\n`;
+  const record = (f: Fixture, text: string) => write(path.join(f.root, 'bin/.gstack-cso-build-result'), text);
+  const cso = (f: Fixture) => { for (const name of ['gstack-cso-launcher', 'gstack-cso-core']) write(path.join(f.root, 'bin', name + EXE), '#!/bin/sh\necho cso\n', 0o755); };
+
+  test('healthy binaries are ok; a blocked browse says blocked, not "not built"', () => {
+    const f = makeFixture();
+    let r = doctor(f);
+    expect(r.row('binaries').state).toBe('ok');
+    expect(r.row('binaries').detail).toContain('(4 of 4)');
+    write(path.join(f.root, BROWSE_BIN), BLOCKED, 0o755);
+    r = doctor(f);
+    expect(r.row('browse bundle').state).toBe('warn');
+    expect(r.row('browse bundle').detail).toContain('built, but blocked at launch (Program');
+    expect(r.row('browse bundle').detail).not.toContain('not built');
+    expect(r.row('browse bundle').fix).toContain(process.platform === 'win32' ? 'Smart App Control' : 'the OS refused to execute it');
+    expect(r.status).toBe(0);
+  });
+
+  test('blocked, broken and missing binaries are told apart', () => {
+    const f = makeFixture();
+    write(path.join(f.root, OTHER_BINS[1]), BLOCKED, 0o755);
+    let r = doctor(f);
+    expect(r.row('binaries').detail).toContain('blocked at launch: design');
+    expect(r.row('binaries').detail).toContain('unavailable: /design-consultation');
+    write(path.join(f.root, OTHER_BINS[1]), '#!/bin/sh\necho ok\n', 0o755);
+    write(path.join(f.root, OTHER_BINS[2]), '#!/bin/sh\necho "usage" >&2\nexit 2\n', 0o755);
+    r = doctor(f);
+    expect(r.row('binaries').detail).toBe('launched but failed: pdf (exit 2: usage)');
+    expect(r.row('binaries').fix).toBe(`cd ${bashPath(f.root)} && bun run build`);
+    fs.rmSync(path.join(f.root, OTHER_BINS[2]));
+    r = doctor(f);
+    expect(r.row('binaries').detail).toBe('not built: pdf');
+  });
+
+  test('the CSO row reads the build-result record', () => {
+    const f = makeFixture();
+    const none = doctor(f).row('cso');
+    expect(none.state).toBe('not configured');
+    expect(none.detail).toBe('native helper not built; /cso reports not assessed');
+    expect(none.fix).toContain('./setup (it names any missing build prerequisite)');
+    record(f, 'result=failed\nstage=build\nreason=exit 42\nrevision=1.2 (abc)\ninstalled=\nlauncher=no\ndiagnostic=/x/cso.log\n');
+    let r = doctor(f);
+    expect(r.row('cso').state).toBe('warn');
+    expect(r.row('cso').detail).toBe('unavailable: the build step failed (exit 42); /cso reports not assessed');
+    expect(r.row('cso').fix).toContain('bun run build:cso && ./setup (log: /x/cso.log;');
+    cso(f);
+    record(f, 'result=failed\nstage=publish\nreason=exit 1\nrevision=1.2 (abc)\ninstalled=1.1 (def)\nlauncher=yes\ndiagnostic=/x/cso.log\n');
+    expect(doctor(f).row('cso').detail).toBe('publish step failed (exit 1) for 1.2 (abc); previous CSO kept: 1.1 (def)');
+    record(f, 'result=ok\nstage=publish\nreason=committed\nrevision=1.2 (abc)\ninstalled=1.2 (abc)\nlauncher=yes\ndiagnostic=x\n');
+    r = doctor(f);
+    expect(r.row('cso')).toEqual({ state: 'ok', detail: 'native helper 1.2 (abc)', fix: '' });
+    expect(r.status).toBe(0);
   });
 });

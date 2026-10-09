@@ -2,7 +2,7 @@
  * Generate UI mockups via OpenAI Responses API with image_generation tool.
  */
 
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { imageRequestBody, modelRejectionHint } from "./models";
 import { parseBrief } from "./brief";
@@ -51,7 +51,7 @@ async function callImageGeneration(
   const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
-    const response = await receiptedFetch("generate-image-request", "https://api.openai.com/v1/responses", {
+    const response = await receiptedFetch("generate-image-request", openaiUrl("responses"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,

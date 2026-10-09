@@ -4,9 +4,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { AssertionWitnessBinding, CsoError, VerificationObservation, canonical, sha256 } from '../lib/cso/contracts';
+import { AssertionWitnessBinding, CsoError, MAX_VERIFICATION_ATTEMPT_MS, VerificationObservation, canonical, sha256 } from '../lib/cso/contracts';
 import { canonicalStartPlan, canonicalTestPlan, patchHash, treeHash, validateRepairBundle, verifyRepair } from '../lib/cso/verification';
-import { AssertionWitnessSession, assertionWitnessChildCommand, assertionWitnessReplayHash, testExecutionPassed, validateStoredAssertionWitnessReceipt } from '../lib/cso/witness';
+import { AssertionWitnessSession, assertionWitnessChildCommand, assertionWitnessReplayHash, testExecutionPassed, validateAssertionWitnessBinding, validateStoredAssertionWitnessReceipt } from '../lib/cso/witness';
 
 const roots:string[]=[];
 const temporary=()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'cso-witness-'));roots.push(root);return root;};
@@ -33,6 +33,14 @@ function stable(phase:'before'|'after'):Omit<AssertionWitnessBinding,'schemaVers
 }
 
 describe('CSO authenticated external assertion witness',()=>{
+  test('a challenge lives as long as its attempt, never past the longest attempt bound',()=>{
+    const now=Date.now(),lifetime=(deadline:number)=>{const binding=new AssertionWitnessSession(temporary(),deadline).handle(stable('before')).binding;return Date.parse(binding.expiresAt)-Date.parse(binding.issuedAt);};
+    expect(lifetime(now+300_000)).toBeLessThanOrEqual(300_000);
+    expect(lifetime(now+MAX_VERIFICATION_ATTEMPT_MS)).toBeGreaterThan(300_000);
+    expect(lifetime(now+2*MAX_VERIFICATION_ATTEMPT_MS)).toBeLessThanOrEqual(MAX_VERIFICATION_ATTEMPT_MS);
+    const binding=new AssertionWitnessSession(temporary(),now+60_000).handle(stable('before')).binding;
+    expect(()=>validateAssertionWitnessBinding({...binding,expiresAt:new Date(Date.parse(binding.issuedAt)+MAX_VERIFICATION_ATTEMPT_MS+1).toISOString()})).toThrow('lifetime exceeds');
+  });
   test('rejects forged, stale, and mismatched receipts after a valid out-of-process attestation',async()=>{
     const work=temporary(),session=new AssertionWitnessSession(work,Date.now()+60_000),handle=session.handle(stable('before')),observation:VerificationObservation={booted:true,legitimate:true,security:'intended_failure',existingTests:false,output:'external verifier passed',inputHash:''},command={executable:'/usr/local/bin/node',args:['--test','--test-reporter=tap','./app.test.js']};
     const receipt=await handle.attest(observation,[{command,code:0,output:tap,minimumPassingTests:1}]);

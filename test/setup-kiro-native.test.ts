@@ -17,7 +17,7 @@ const fn = (name: string) => {
 const blockStart = setup.indexOf('# 6. Install for Kiro CLI');
 const block = setup.slice(blockStart, setup.indexOf('# 6b.', blockStart));
 const helpers = [
-  '_link_or_copy', '_link_runtime_dists', '_sidecar_root_user_owned', '_claude_entry_is_ours',
+  '_link_or_copy', '_link_runtime_dists', '_copy_runtime_skill_refs', '_sidecar_root_user_owned', '_claude_entry_is_ours',
   '_claude_entry_owned_strongly', '_gstack_link_target_abs', '_gstack_target_is_ours',
   '_gstack_generated_header', '_backup_skill_md', '_prune_stale_generated',
   '_skill_source_exists', '_owned_for_windows_refresh', '_cleanup_weak_dir',
