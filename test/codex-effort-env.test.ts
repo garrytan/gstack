@@ -66,6 +66,7 @@ describe('GSTACK_CODEX_EFFORT (#2975)', () => {
       expect(prose, mode).toBeTruthy();
       expect(prose!, mode).toContain('GSTACK_CODEX_EFFORT');
       expect(prose!, mode).toContain(def);
+      expect(prose!, mode).toContain('_CODEX_EFFORT=xhigh');
     }
   });
 
@@ -84,6 +85,7 @@ describe('GSTACK_CODEX_EFFORT (#2975)', () => {
   test('the skill body documents the env next to GSTACK_CODEX_MODEL', () => {
     const body = read('codex/SKILL.md.tmpl');
     expect(body).toContain('GSTACK_CODEX_EFFORT');
+    expect(body).toContain('_CODEX_EFFORT=xhigh');
     const override = body.split('\n').findIndex(l => l.includes('**Reasoning effort override:**'));
     const defaults = body.split('\n').findIndex(l => l.includes('**Reasoning effort (per-mode defaults, overridable via `GSTACK_CODEX_EFFORT`):**'));
     expect(override).toBeGreaterThan(-1);

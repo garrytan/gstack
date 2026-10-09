@@ -593,8 +593,9 @@ above); never read the other two mode sections.
 
 **Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
 note it and remove it from the prompt text before passing to Codex. When `--xhigh`
-is present, use `model_reasoning_effort="xhigh"` for all modes regardless of the
-per-mode default below. Otherwise, use `GSTACK_CODEX_EFFORT` when it is set (see
+is present, assign `_CODEX_EFFORT=xhigh` after `check-effort` and before the dispatch,
+so every mode uses `model_reasoning_effort="xhigh"` regardless of `GSTACK_CODEX_EFFORT`
+and the per-mode default below. Otherwise, use `GSTACK_CODEX_EFFORT` when it is set (see
 Model & Reasoning below), falling back to the per-mode defaults:
 - Review (2A): `high` — bounded diff input, needs thoroughness
 - Challenge (2B): `high` — adversarial but bounded by diff
@@ -793,7 +794,7 @@ nested skill run.
 default effort for all three modes, so an operator can pin a (model, effort)
 pair per environment without editing the skill (auto-update would overwrite
 that anyway). Unset it and the per-mode defaults above apply; a request-level
-`--xhigh` still wins over both. An invalid value stops before any Codex call
+`--xhigh` still wins over both by assigning `_CODEX_EFFORT=xhigh` after the capture. An invalid value stops before any Codex call
 with the repair hint. Manual `/codex` only: gstack's own outside reviews
 (autoplan, spec, plan-review) keep their fixed efforts regardless.
 

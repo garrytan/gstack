@@ -26,7 +26,7 @@ Substitute the printed name for `<prompt-file-name>` (letters, digits, `.`, `_` 
 Use `timeout: 600000` on the Bash call (the tool's maximum) — the gate sits ABOVE the
 540s wrapper so the wrapper fires first, ends Codex, and prints its explicit stall message:
 
-If the user passed `--xhigh`, use `"xhigh"` instead of the value captured above (the request flag outranks `GSTACK_CODEX_EFFORT` and the `high` per-mode default).
+If the user passed `--xhigh`, after `check-effort` sets `_CODEX_EFFORT`, assign `_CODEX_EFFORT=xhigh` before the dispatch (the request flag outranks `GSTACK_CODEX_EFFORT` and the `high` per-mode default).
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }

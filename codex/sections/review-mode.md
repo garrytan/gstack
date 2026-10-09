@@ -76,7 +76,7 @@ fi
 bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review' --exit "$_CODEX_EXIT" --stderr "$TMPERR" structured "$TMPOUT"
 ```
 
-If the user passed `--xhigh`, use `"xhigh"` instead of the value captured above (the request flag outranks `GSTACK_CODEX_EFFORT` and the `high` per-mode default).
+If the user passed `--xhigh`, after `check-effort` sets `_CODEX_EFFORT`, assign `_CODEX_EFFORT=xhigh` before the dispatch (the request flag outranks `GSTACK_CODEX_EFFORT` and the `high` per-mode default).
 
 **Custom-instructions path (user typed `/codex review <focus>`):** custom instructions
 cannot ride along with `--base` — that is exactly the combination the CLI rejects — and

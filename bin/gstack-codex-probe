@@ -806,16 +806,18 @@ _gstack_codex_log_hang() {
 _gstack_codex_effort_check() {
   # Manual /codex runs only. GSTACK_CODEX_EFFORT mirrors GSTACK_CODEX_MODEL:
   # unset -> the per-mode default in $1; set -> it becomes the default for
-  # every mode (a request-level --xhigh still outranks it, handled in prose).
+  # every mode. A request-level --xhigh still outranks it: the skill assigns
+  # _CODEX_EFFORT=xhigh after this capture and before the dispatch.
   # Codex itself only rejects an unknown model_reasoning_effort at request
   # time as an API error (verified: codex-cli 0.155.1 accepts -c
   # model_reasoning_effort=banana locally), so gstack fails fast here, the
   # same way an invalid GSTACK_CODEX_MODEL stops before a paid call.
   # Allowlist: the config reference lists low, medium, high, xhigh, max and
   # ultra; the API reasoning guide adds minimal. Levels are model-dependent,
-  # so this is the union, not a per-model truth.
-  local _default="${1:-medium}" _chosen
-  case "$_default" in minimal|low|medium|high|xhigh|max|ultra) ;; *) _default="medium" ;; esac
+  # so this is the union, not a per-model truth. A default that is not in
+  # the allowlist is a usage error (exit 64); a bad env value exits 1.
+  local _default="$1" _chosen
+  case "$_default" in minimal|low|medium|high|xhigh|max|ultra) ;; *) return 64 ;; esac
   _chosen="${GSTACK_CODEX_EFFORT:-$_default}"
   case "$_chosen" in
     minimal|low|medium|high|xhigh|max|ultra) ;;
@@ -898,7 +900,10 @@ _gstack_codex_main() {
       printf 'CODEX_SEL: %s\nCODEX_SEL_KIND: %s\nCODEX_SANDBOX: %s\n' "$_GSTACK_CODEX_SEL" "$_GSTACK_CODEX_SEL_KIND" "$_GSTACK_CODEX_SANDBOX" ;;
     check-effort)
       [ "$#" -eq 1 ] || { _gstack_codex_usage >&2; return 64; }
-      _gstack_codex_effort_check "$1" ;;
+      _gstack_codex_effort_check "$1"
+      _rc=$?
+      [ "$_rc" -eq 64 ] && { _gstack_codex_usage >&2; return 64; }
+      return "$_rc" ;;
     check-auth) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_auth_probe ;;
     show-sandbox)
       [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }
