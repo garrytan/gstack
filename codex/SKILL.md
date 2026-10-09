@@ -594,7 +594,8 @@ above); never read the other two mode sections.
 **Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
 note it and remove it from the prompt text before passing to Codex. When `--xhigh`
 is present, use `model_reasoning_effort="xhigh"` for all modes regardless of the
-per-mode default below. Otherwise, use the per-mode defaults:
+per-mode default below. Otherwise, use `GSTACK_CODEX_EFFORT` when it is set (see
+Model & Reasoning below), falling back to the per-mode defaults:
 - Review (2A): `high` — bounded diff input, needs thoroughness
 - Challenge (2B): `high` — adversarial but bounded by diff
 - Consult (2C): `medium` — large context, interactive, needs speed
@@ -782,10 +783,19 @@ Native `codex review` selects with `review` and sets both `model` and `review_mo
 flag also keeps installed skills out of Codex's context, so a review cannot become a
 nested skill run.
 
-**Reasoning effort (per-mode defaults):**
+**Reasoning effort (per-mode defaults, overridable via `GSTACK_CODEX_EFFORT`):**
 - **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
 - **Challenge (2B):** `high` — adversarial but bounded by diff size
 - **Consult (2C):** `medium` — large context (plans, codebase), interactive, needs speed
+
+`GSTACK_CODEX_EFFORT` mirrors `GSTACK_CODEX_MODEL`: when set to one of
+`minimal`, `low`, `medium`, `high`, `xhigh`, `max` or `ultra`, it becomes the
+default effort for all three modes, so an operator can pin a (model, effort)
+pair per environment without editing the skill (auto-update would overwrite
+that anyway). Unset it and the per-mode defaults above apply; a request-level
+`--xhigh` still wins over both. An invalid value stops before any Codex call
+with the repair hint. Manual `/codex` only: gstack's own outside reviews
+(autoplan, spec, plan-review) keep their fixed efforts regardless.
 
 `xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
 tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag

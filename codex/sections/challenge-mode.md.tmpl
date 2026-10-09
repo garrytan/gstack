@@ -26,7 +26,7 @@ Substitute the printed name for `<prompt-file-name>` (letters, digits, `.`, `_` 
 Use `timeout: 600000` on the Bash call (the tool's maximum) — the gate sits ABOVE the
 540s wrapper so the wrapper fires first, ends Codex, and prints its explicit stall message:
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+If the user passed `--xhigh`, use `"xhigh"` instead of the value captured above (the request flag outranks `GSTACK_CODEX_EFFORT` and the `high` per-mode default).
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
@@ -42,7 +42,9 @@ fi
 [ -n "${TMPERR:-}" ] || TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 TMPRESP=$(mktemp "$TMP_ROOT/codex-resp-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 {{CODEX_SELECT:exec:540}}
-"$_CODEX_PROBE" run-with-timeout 540 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" {{CODEX_MODEL_CONFIG_FLAG}} -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_CODEX_OUT=$("$_CODEX_PROBE" check-effort high) || exit 1
+_CODEX_EFFORT=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_EFFORT: //p')
+"$_CODEX_PROBE" run-with-timeout 540 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" {{CODEX_MODEL_CONFIG_FLAG}} -c "model_reasoning_effort=\"${_CODEX_EFFORT:?}\"" {{CODEX_WEB_SEARCH_FLAG}} --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
 turn_failed = False
