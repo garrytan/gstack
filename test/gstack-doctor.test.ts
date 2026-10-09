@@ -195,7 +195,7 @@ describe('gstack-doctor', () => {
     expect(broken.status).toBe(1);
   });
 
-  test('the cached probe is reported with its age; only --live runs probe-model', () => {
+  test('the cached probe is reported with its age and is never re-run without --live', () => {
     const f = makeFixture();
     const now = Math.floor(Date.now() / 1000);
     write(path.join(f.state, '.codex-model-probe'), `MODEL_OK ${now - 7300} 123456789\n`);
@@ -210,7 +210,10 @@ describe('gstack-doctor', () => {
     write(path.join(f.state, '.codex-model-probe'), `$(rm -rf ~) ${now} x\n`);
     expect(doctor(f).row('codex probe').detail).toContain('unrecognized');
     expect(probeCalls(f)).not.toContain('probe-model');
+  });
 
+  test('--live runs probe-model once and maps its exit to the codex probe row', () => {
+    const f = makeFixture();
     const live = doctor(f, ['--live']);
     expect(probeCalls(f).match(/probe-model exec/g)?.length).toBe(1);
     expect(live.row('codex probe').state).toBe('ok');
@@ -245,7 +248,7 @@ describe('gstack-doctor', () => {
     expect(r.out).not.toContain('.brain-sync-status.json');
   });
 
-  test('artifacts sync: held, ok, stale push and stale drain', () => {
+  test('artifacts sync: held, then ok', () => {
     const f = makeFixture();
     syncOn(f, { status: 'held', message: 'held 2 file(s): sk-ant-secret', held_count: 2, held: [{ path: 'projects/p/notes.md', rule: 'anthropic_key', dependents: [], fixes: ['edit', 'skip'] }, { path: 'projects/p/b.md', rule: 'anthropic_key', dependents: [], fixes: ['edit', 'skip'] }], drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
     const held = doctor(f);
@@ -255,7 +258,10 @@ describe('gstack-doctor', () => {
 
     syncOn(f, { status: 'ok', message: 'pushed 3 file(s)', drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
     expect(doctor(f).row('artifacts sync').state).toBe('ok');
+  });
 
+  test('artifacts sync: stale push and stale drain warn, a fresh push clears them', () => {
+    const f = makeFixture();
     syncOn(f, { status: 'ok', message: 'x', drainable: 4, last_drain_at: iso(60), last_push_at: iso(90_000) });
     const stalePush = doctor(f).row('artifacts sync');
     expect(stalePush.state).toBe('warn');
