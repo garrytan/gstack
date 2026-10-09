@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { canonical, CsoError, MAX_OUTPUT, sha256 } from './contracts';
 import { spawn } from 'node:child_process';
 import { dirname } from 'node:path';
@@ -24,6 +24,28 @@ export const ISOLATION_POLICY_HASH = sha256(
   }),
 );
 
+// Bun resolves realpath on macOS by opening the target and asking the kernel
+// for its path (F_GETPATH). A Unix socket cannot be opened that way and the
+// call throws EOPNOTSUPP even though the socket exists, which would reject
+// every local Docker endpoint on macOS. Resolve the leaf by hand instead:
+// canonicalize the parent directory, then follow symbolic links on the final
+// component without ever opening it.
+export function realpathSocket(path: string): string {
+  try {
+    return fs.realpathSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EOPNOTSUPP') throw error;
+  }
+  let current = path;
+  for (let hops = 0; hops < 40; hops++) {
+    const parent = fs.realpathSync(dirname(current));
+    const resolved = join(parent, basename(current));
+    if (!fs.lstatSync(resolved).isSymbolicLink()) return resolved;
+    const target = fs.readlinkSync(resolved);
+    current = isAbsolute(target) ? target : join(parent, target);
+  }
+  throw new Error('Too many symbolic links while resolving a Unix socket path');
+}
 export interface DockerEndpoint {
   uri: string;
   socket: string;
@@ -106,7 +128,7 @@ export async function dockerEndpoint(
   const requestedSocket = uri.slice('unix://'.length);
   let socket = '';
   try {
-    socket = fs.realpathSync(requestedSocket);
+    socket = realpathSocket(requestedSocket);
   } catch {
     throw new CsoError('ISOLATION_FAILED', 'Pinned local Docker socket is unavailable');
   }
@@ -799,7 +821,7 @@ export class DockerGroup {
     if (spec.readonlyArchiveDirectory) directoryMount(spec.readonlyArchiveDirectory, '/archives', true);
     if (spec.registrySocket) {
       const stat = fs.lstatSync(spec.registrySocket),
-        real = fs.realpathSync(spec.registrySocket);
+        real = realpathSocket(spec.registrySocket);
       if (
         !stat.isSocket() ||
         stat.isSymbolicLink() ||
