@@ -79,10 +79,10 @@ describe('CSO producer provider policies', () => {
       '--tools', 'Bash,Write',
       '--allowed-tools', `Bash(${helper}),Bash(${helper} *),Write`,
       '--add-dir', claudeProducerPaths(state).workdir,
-      '--add-dir', source,
       '--add-dir', join(state, 'cso-home'),
       '--strict-mcp-config', '--no-chrome',
     ]);
+    expect(claudeExecArgs(producer, 'claude-test')).not.toContain(source);
     expect(claudeExecWorkingDirectory(common)).toBe(work);
     expect(claudeExecWorkingDirectory(producer)).toBe(claudeProducerPaths(state).workdir);
     expect(claudeExecArgs(producer, 'claude-test').join(' ')).not.toMatch(/bypassPermissions|danger/);

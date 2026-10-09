@@ -3,7 +3,6 @@ import {
   csoProducerHelperHome,
   csoProducerHelperLauncher,
   csoProducerProviderCommand,
-  csoProducerSourceDirectory,
   csoProducerStateDirectory,
   type ProviderAdapter,
   type RunOpts,
@@ -192,7 +191,6 @@ export function claudeExecArgs(opts: RunOpts, model: string, argsPrefix: readonl
   if (stateDirectory) {
     if (opts.extraArgs?.length) throw new Error('CSO producer does not accept extra provider arguments');
     const tools = claudeProducerTools(opts);
-    const sourceDirectory = csoProducerSourceDirectory(opts)!;
     const helperHome = csoProducerHelperHome(opts)!;
     args.push(
       '--restricted',
@@ -203,7 +201,6 @@ export function claudeExecArgs(opts: RunOpts, model: string, argsPrefix: readonl
       '--tools', 'Bash,Write',
       '--allowed-tools', tools,
       '--add-dir', claudeProducerPaths(stateDirectory).workdir,
-      '--add-dir', sourceDirectory,
       '--add-dir', helperHome,
       '--strict-mcp-config',
       '--no-chrome',
