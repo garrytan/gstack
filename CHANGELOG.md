@@ -2,24 +2,29 @@
 
 ## [1.91.68.0] - 2026-10-08
 
-**A /cso eval cell whose post-run checks fail now still records what it spent, and Claude producers no longer break their own source check.**
+**Claude /cso eval cells run the real scanners again, never break their own source check, and still record what they spent when a post-run check fails.**
 
 The first paid baseline smoke cells ran the agent to completion, then stopped with a bare `INVALID_PRODUCER_SOURCE` and no receipt. That meant no tokens, no cost and no clue which file was at fault. The cause was the producer's own Claude launch. It passed the sealed source copy to Claude as an `--add-dir`. Claude Code treats each added directory as a sandbox write root and blocks writes to its `.mcp.json`. With no `.mcp.json` present, bubblewrap creates an empty one on the host as a mount point. Claude Code can't remove it from the read-only directory afterwards, so the source check rightly failed.
 
 ### What this means for you
 
-- Claude producers no longer receive the source as an added directory. The constrained launcher reads the sealed copy through the sandbox's read-only root, so the source stays byte-for-byte unchanged.
+- Claude producers no longer receive the source as an added directory, so the source stays byte-for-byte unchanged.
+- The trusted launcher now runs outside Claude Code's sandbox, as it does for users. Inside the sandbox, root-owned paths look like they belong to `nobody` and the Docker socket is unreachable. So the launcher's own checks failed, and every comprehensive cell quietly fell back to a static-only review: `Private state ancestor has an unexpected owner` and `ISOLATION_FAILED: Docker endpoint is not a local Unix socket`. Every other Bash command still runs sandboxed and is denied by the allowed-tools list. Write stays inside the provider work directory.
 - When a post-run integrity check fails, the producer writes a receipt with `status: "failed"` instead of no receipt. The receipt carries the check's code and reason, plus the run's usage, tokens, estimated cost, duration and tool calls. This applies to a changed source, mode or Git state, a changed helper or provider installation, an artifact problem, and oversized output. That receipt has no output and no artifacts, and it never counts as succeeded.
 - `INVALID_PRODUCER_SOURCE` and `PRODUCER_CHANGED_SOURCE_MODE` name the first offending relative path and the rule it broke, for example `".mcp.json" is not in the expected source listing`. They never include file contents.
 
 ### Itemized changes
 
 #### Fixed
-- `claudeExecArgs` drops `--add-dir <source>` for CSO producers. The README's containment note now explains why.
+- `claudeExecArgs` drops `--add-dir <source>` for CSO producers.
+- `claudeExecArgs` passes `--settings` with a sandbox policy for CSO producers: enabled, fail if unavailable, no unsandboxed fallback, no auto-allow for sandboxed commands, and `excludedCommands` holding only the exact launcher path from `--allowed-tools`. It no longer sets `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, which in Claude Code 2.1.263 forces every command into the sandbox, `excludedCommands` notwithstanding. The launcher still replaces its environment with a fixed allowlist before it runs anything.
+- `ClaudeAdapter.run` refuses to start a producer agent (`CLAUDE_PRODUCER_SANDBOX_POLICY_MISMATCH`) unless the generated arguments and environment carry exactly that policy.
+- The README's containment note explains both.
 - `runProducerCell` turns post-run check failures into failed receipts that keep usage. A redaction failure still withholds the receipt, as before.
 - Source validation reports a missing or extra path, the hard-link count, a size or hash mismatch, symlinks and special files, and a Git `include` directive, each with its path.
 
 #### For contributors
+- The sandbox-policy check has tests for a missing, duplicated or `=`-joined `--settings`, a widened or symlinked exclusion, fallback or auto-allow turned on, extra keys, widened allowed tools, and the scrub variable.
 - New tests cover a failed receipt for a provider race, a helper-generation change, oversized output, four source mutations (including a leftover empty `.mcp.json`), and a mode change. Each test checks the usage numbers and confirms collection counts the cell as failed.
 
 ## [1.91.67.0] - 2026-10-08
