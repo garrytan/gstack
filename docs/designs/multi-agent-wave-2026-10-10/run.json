@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "run": "maw-20261010",
+  "generator": "hand-written by the autoplan run; `gstack-artifact validate` (B0) does not exist yet",
+  "status": "gate_pending",
+  "base": "91bbd9e",
+  "host": "capy",
+  "required_phases": [
+    "ceo",
+    "dx",
+    "eng"
+  ],
+  "phases": {
+    "ceo": {
+      "snapshot": "2937ab4e\u2026f6845",
+      "native": {
+        "model": "claude-fable-5-1",
+        "status": "completed"
+      },
+      "outside": {
+        "model": "gpt-6-astra",
+        "provider": "codex",
+        "status": "completed"
+      }
+    },
+    "dx": {
+      "snapshot": "ffe83107\u2026f11753",
+      "native": {
+        "model": "claude-fable-5-1",
+        "status": "completed"
+      },
+      "outside": {
+        "model": "gpt-6-astra",
+        "provider": "codex",
+        "status": "completed"
+      }
+    },
+    "eng": {
+      "snapshot": "d7365d9256d2c956908fce530731115816ab6b477152e78602fc69d51fd14b17",
+      "native": {
+        "model": "claude-fable-5-1",
+        "status": "completed",
+        "read_receipt": "77ee24a4\u20263511f"
+      },
+      "outside": {
+        "model": "gpt-6-astra",
+        "provider": "codex",
+        "status": "completed",
+        "rc": 3,
+        "wall_s": 227
+      }
+    }
+  },
+  "counts": {
+    "decisions": 13,
+    "decisions_pending": 13,
+    "findings": 65,
+    "findings_accepted": 64,
+    "findings_partial": 1,
+    "tasks": 28
+  },
+  "deviations": [
+    "Spec Review Loop not run",
+    "review-log JSONL rows not written (ephemeral state root)",
+    "phase-publication-hook guard not enforced (no hooks on this host)",
+    "artifacts hand-written, not validated by tooling"
+  ],
+  "artifacts": {
+    "decisions.jsonl": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/decisions.jsonl",
+      "sha256": "e08c834c14a4e8a87d11d7f8e317c40d0196dd9fd9ccc1317daf15a0891ee05f"
+    },
+    "findings.jsonl": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/findings.jsonl",
+      "sha256": "9da0491bd136a5378877a596256179068c934a07b6eedcfd43d8a14ee9b0823b"
+    },
+    "tasks.jsonl": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/tasks.jsonl",
+      "sha256": "beec9cad28875c43a7b322c22e1977ebb74512ba084e6e9a860b34685ee196cb"
+    },
+    "timing.json": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/timing.json",
+      "sha256": "d03d3c5427811658a40f06f572193dffef84a6956e7a8674bc634d0f3652241e"
+    },
+    "ceo-native.md": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/ceo-native.md",
+      "sha256": "66311c4da064b0286314f98129671ad8fc9201f37bfc96bd2a9d9662c9121c8a"
+    },
+    "ceo-outside.md": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/ceo-outside.md",
+      "sha256": "f62fec9e324dc5af02b6d2b3eb5759530ff0c35b711f392b11d33e3afd353b49"
+    },
+    "dx-native.md": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/dx-native.md",
+      "sha256": "369f85927d3f8efbb1ae26dfcfbb8020ece20a5cd236dd1112ec4d83f69f760a"
+    },
+    "dx-outside.md": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/dx-outside.md",
+      "sha256": "52c7965134a421db205a63f287abe65c3f3c98c58c1bfe11d4ecee7dd2508068"
+    },
+    "eng-native.md": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/eng-native.md",
+      "sha256": "c0bd9a0cf33baeda2cc60d1f105c26944e7a9f6cd6e125b9b680a4ffb352ab77"
+    },
+    "eng-outside.md": {
+      "path": "docs/designs/multi-agent-wave-2026-10-10/eng-outside.md",
+      "sha256": "ab84692aedfe5c2c5e7b82958715e8d84bf593805595f621c48726d350cb9631"
+    },
+    "plan.md": {
+      "path": "docs/designs/MULTI_AGENT_WAVE_2026_10_10.md",
+      "sha256": "71ee0b04248bab5c2be0e9c56cf4f28f8d4d7f8810ec83effe2b87e1df954ea1"
+    }
+  },
+  "gate_rev": 1
+}
