@@ -241,14 +241,14 @@ function planAcceptanceEditedCheck(): string {
   return `### Acceptance edits (parent-computed)
 
 Run this after the child's report and before Gate Logic, with the bound plan path
-substituted for \`<plan path>\`. It compares the plan's acceptance-bearing sections
+substituted for \`<plan-path>\`. It compares the plan's acceptance-bearing sections
 (headings matching acceptance, success criteria, verification, test plan, testing,
 done when, definition of done) as they stand in the working tree against a baseline:
 the \`origin/<base>\` version when the plan exists there, else its first commit on this
 branch, else \`baseline unavailable\` (plans outside the repository or not yet tracked).
 
 \`\`\`bash
-PLAN_FILE="<plan path>"
+PLAN_FILE="<plan-path>"
 _REL=$(git ls-files --full-name --error-unmatch -- "$PLAN_FILE" 2>/dev/null | head -1)
 _BASE_REF=""; _BASE_KIND=""
 if [ -z "$_REL" ]; then
@@ -262,7 +262,7 @@ else
 fi
 if [ -n "$_BASE_REF" ]; then
   echo "ACCEPTANCE_BASELINE: $_BASE_KIND"
-  _ACC_TMP=$(mktemp -d) && trap 'rm -rf "$_ACC_TMP"' EXIT
+  _ACC_TMP=$(mktemp -d "\${TMPDIR:-/tmp}/gstack-acceptance.XXXXXX") && trap 'rm -rf "$_ACC_TMP"' EXIT
   _acc_sections() { awk 'BEGIN{keep=0} /^#+ /{keep = (tolower($0) ~ /${ACCEPTANCE_HEADING_PATTERN}/)} keep{print}'; }
   git show "$_BASE_REF:$_REL" | _acc_sections > "$_ACC_TMP/base"
   _acc_sections < "$PLAN_FILE" > "$_ACC_TMP/wtree"

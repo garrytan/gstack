@@ -3,8 +3,8 @@
  *
  * docs/designs/HONEST_WORK_GATE_INTEGRITY.md W7. Rendered into /spec's issue
  * body template (the archived spec is the prompt `/spec --execute` pipes to
- * `claude -p`, so the rules travel inside it) and into /ship Step 7's
- * test-generation child prompt, before its LAST-line JSON protocol. One
+ * `claude -p`, so the rules travel inside it) and into the /ship Test Coverage
+ * Audit (Step 7) test-generation child prompt, before its LAST-line JSON protocol. One
  * constant so the two cannot drift. The child's JSON contracts are untouched:
  * gate-edit disclosure uses the prose the protocols already permit before the
  * JSON line. test/dispatch-rules.test.ts pins the rendering sites.

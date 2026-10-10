@@ -74,17 +74,24 @@ interface EvidenceRecord {
 /** Bytes of streamed output kept for the tests_ran parse (the 2MB log would truncate the summary). */
 const TAIL_MAX_BYTES = 64 * 1024;
 
-/** Ring of the last TAIL_MAX_BYTES of combined child output, decoded per stream. */
+/**
+ * Ring of the last TAIL_MAX_BYTES of each child stream, kept per stream: the
+ * pumps interleave by arrival, so a stderr summary read while stdout still has
+ * pipe-buffered bytes behind it would otherwise be pushed out of a shared ring.
+ */
 class OutputTail {
   private readonly decoders = { stdout: new TextDecoder("utf-8"), stderr: new TextDecoder("utf-8") };
-  private text = "";
+  private readonly text = { stdout: "", stderr: "" };
   push(chunk: Uint8Array, origin: "stdout" | "stderr"): void {
-    this.text += this.decoders[origin].decode(chunk, { stream: true });
-    if (this.text.length > TAIL_MAX_BYTES * 2) this.text = this.text.slice(-TAIL_MAX_BYTES);
+    this.text[origin] += this.decoders[origin].decode(chunk, { stream: true });
+    if (this.text[origin].length > TAIL_MAX_BYTES * 2) this.text[origin] = this.text[origin].slice(-TAIL_MAX_BYTES);
   }
   end(): string {
-    this.text += this.decoders.stdout.decode() + this.decoders.stderr.decode();
-    return this.text.length > TAIL_MAX_BYTES ? this.text.slice(-TAIL_MAX_BYTES) : this.text;
+    const tails = (["stdout", "stderr"] as const).map((origin) => {
+      const text = this.text[origin] + this.decoders[origin].decode();
+      return text.length > TAIL_MAX_BYTES ? text.slice(-TAIL_MAX_BYTES) : text;
+    });
+    return tails.join("\n");
   }
 }
 
