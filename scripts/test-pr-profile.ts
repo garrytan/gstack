@@ -11,7 +11,7 @@ import { derivedDependencies, type DerivedDependencies } from './pr-dependencies
 export const PR_PROFILE_CASE_IDS = [
   'hermetic-canary', 'hermetic-sentinel',
   'browse-basic', 'browse-snapshot', 'skillmd-setup-discovery',
-  'qa-bootstrap', 'review-sql-injection', 'review-coverage-audit',
+  'qa-bootstrap', 'review-sql-injection', 'review-gate-integrity', 'review-coverage-audit',
   'qa-functional-cli-report', 'qa-functional-webhook-report',
   'qa-functional-cli-fix', 'qa-functional-webhook-fix',
   'review-exploratory-small-cli', 'ship-exploratory-small-cli', 'ship-exploratory-unavailable',
@@ -46,6 +46,7 @@ export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
   'test/skill-e2e-qa-functional-fix.test.ts': ['qa-functional-cli-fix', 'qa-functional-webhook-fix'],
   'test/skill-e2e-qa-callers.test.ts': ['review-exploratory-small-cli', 'ship-exploratory-small-cli', 'ship-exploratory-unavailable', 'ship-exploratory-plan-checks', 'ship-exploratory-late-input'],
   'test/skill-e2e-review.test.ts': ['review-sql-injection'],
+  'test/skill-e2e-gate-integrity.test.ts': ['review-gate-integrity'],
   'test/skill-e2e-coverage-audit.test.ts': ['review-coverage-audit', 'plan-eng-coverage-audit'],
   'test/skill-e2e-test-value.test.ts': ['ship-coverage-value', 'review-test-value', 'test-audit-report-only'],
   'test/skill-e2e-plan.test.ts': ['plan-review-report'],

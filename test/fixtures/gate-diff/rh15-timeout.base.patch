@@ -1,0 +1,18 @@
+diff --git a/test/slow.test.ts b/test/slow.test.ts
+new file mode 100644
+index 0000000..0ed2166
+--- /dev/null
++++ b/test/slow.test.ts
+@@ -0,0 +1,5 @@
++import { test, expect } from 'bun:test';
++
++test('finishes', async () => {
++  expect(await work()).toBe(true);
++}, { timeout: 5000 });
+diff --git a/vitest.config.ts b/vitest.config.ts
+new file mode 100644
+index 0000000..a78f67d
+--- /dev/null
++++ b/vitest.config.ts
+@@ -0,0 +1 @@
++export default { test: { coverage: { thresholds: { lines: 90 } } } };

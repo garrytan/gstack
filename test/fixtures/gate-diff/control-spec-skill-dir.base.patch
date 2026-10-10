@@ -1,0 +1,16 @@
+diff --git a/spec/SKILL.md b/spec/SKILL.md
+new file mode 100644
+index 0000000..61712aa
+--- /dev/null
++++ b/spec/SKILL.md
+@@ -0,0 +1,3 @@
++# spec
++
++Turn intent into a spec.
+diff --git a/spec/sections/intro.md b/spec/sections/intro.md
+new file mode 100644
+index 0000000..a6ad51b
+--- /dev/null
++++ b/spec/sections/intro.md
+@@ -0,0 +1 @@
++Intro.

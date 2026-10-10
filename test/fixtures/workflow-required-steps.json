@@ -68,7 +68,7 @@
         "## Step 2.5: Check for Greptile review comments",
         "## Step 3: Get the diff",
         "## Step 3.4: Workspace-aware queue status (advisory)",
-        "## Step 3.5: Slop scan (advisory)",
+        "## Step 3.5: Diff scans",
         "## Step 3.6: Gather review context",
         "## Step 4: Critical pass (core review)",
         "### Step 4.7: Exploratory QA (before Fix-First)",

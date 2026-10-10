@@ -38,9 +38,14 @@ Counts map one-to-one to the classifications above and sum to total_items. No pl
    extra or invalid fields fail. Valid no-plan/no-actionable reports retain zero counts
    and their summary.
 2. Store counts for Step 20 and `summary` for Step 19's `## Plan Completion`.
-3. Apply Gate Logic below before continuing. Carry approved deferrals, with item text
+3. Run the parent-computed Acceptance edits check below on the bound plan; it adds
+   `ACCEPTANCE_EDITED` beside the child's classes and never changes the child's
+   seven fields.
+4. Apply Gate Logic below before continuing. Carry approved deferrals, with item text
    and plan path, to Step 14; keep them separate from dropped scope. The gate supplies
    the required PR notes and per-item manual verification evidence.
+
+{{PLAN_COMPLETION_GATE_SHIP:acceptance}}
 
 **Audit-failure fallback:** On failure, invalid JSON or no final output after ~10
 minutes, stop any live child and confirm it stopped before an inline audit with the same

@@ -175,11 +175,33 @@ export function captureReviewStart(skill: string, env = process.env): string {
   return token;
 }
 
+const GATE_ACTIONS = new Set(['kept', 'restored', 'open']);
+
+/**
+ * Gate findings (any finding carrying a `gate` tag) are stamped by the logger,
+ * never by the caller: `actor` comes from gstack-session-kind through
+ * GSTACK_STAMP_SESSION_KIND, and a session no human is watching cannot record
+ * a disposition, so its gate findings are forced to `action: "open"`. Only
+ * `interactive` keeps the caller's `kept`/`restored`/`open`; an action outside
+ * that set is a malformed disposition and also becomes `open`.
+ */
+export function stampGateFindings(findings: unknown, sessionKind: string | undefined): void {
+  if (!Array.isArray(findings)) return;
+  const actor = sessionKind === 'spawned' || sessionKind === 'headless' ? sessionKind : 'interactive';
+  for (const finding of findings) {
+    if (!record(finding) || typeof finding.gate !== 'string' || finding.gate.length === 0) continue;
+    finding.actor = actor;
+    if (actor !== 'interactive' || !GATE_ACTIONS.has(finding.action)) finding.action = 'open';
+    if (finding.action === 'open') delete finding.reason;
+  }
+}
+
 export function bindReview(rec: Record<string, any>, token: string, env = process.env): Record<string, any> {
   for (const key of ['commit_full', 'tree', 'wtree', 'dirty', 'review_binding', 'review_freshness', 'shared_libs_coverage_version']) delete rec[key];
   if (env.GSTACK_STAMP_COMMIT_FULL) rec.commit_full = env.GSTACK_STAMP_COMMIT_FULL;
   if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
   if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
+  stampGateFindings(rec.findings, env.GSTACK_STAMP_SESSION_KIND);
   if (!DIFF_REVIEWS.has(rec.skill)) {
     if (env.GSTACK_STAMP_WTREE) rec.wtree = env.GSTACK_STAMP_WTREE;
     return rec;

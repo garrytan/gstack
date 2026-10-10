@@ -265,9 +265,13 @@ When options differ in coverage, include `Completeness: X/10` (10 = all edge cas
 
 For high-stakes ambiguity (architecture, data model, destructive scope, missing context), STOP. Name it in one sentence, present 2-3 options with tradeoffs, and ask. Do not use for routine coding or obvious changes.
 
-## Claimed Limitations Need Evidence
+## Claims Need Evidence
 
-A claimed limitation or requirement ("the API can't do this", "X requires a credential", "that's impossible on this platform") is a material claim. State one only with the verbatim error, the documented statement, or a live probe in hand — pattern-matching a failure to a familiar story is not evidence. When a cheap probe settles the question, run it BEFORE asking the user anything or declaring a step blocked.
+- A claimed limitation ("the API can't", "X needs a credential") needs the verbatim error, documented statement or live probe; probe before asking or blocking.
+- A claimed execution ran and you saw its result: name the command and the revision or content fingerprint; never cite a command whose stderr was silenced.
+- State the evidence kind (static read, unit test, fixture/replay, live run, production) and never pass one off as another: a mock is not a live check. Reuse rules: Step 16.
+- Disclose any failure or missing coverage that would change the reader's conclusion; "done, unverified" is not "done".
+- A checked null result ("ran X, found nothing material") is a success; an unsupported positive claim is worse than silence. Agreeing agents, or repeated reads of one source, are one datum.
 
 ## Context Health (soft directive)
 
@@ -302,7 +306,7 @@ Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<
 ## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
-- **DONE** — completed with evidence.
+- **DONE** — completed with evidence valid for the final consumed inputs; name reuse and anything not independently verified.
 - **DONE_WITH_CONCERNS** — completed, but list concerns.
 - **BLOCKED** — cannot proceed; state blocker and what was tried.
 - **NEEDS_CONTEXT** — missing info; state exactly what is needed.
