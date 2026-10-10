@@ -123,6 +123,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
      'test/fixtures/fake-impeccable.ts', 'test/helpers/fake-impeccable.ts'],
   'review-base-branch':       [ 'review/**', 'test/skill-e2e-review-attribution.test.ts'],
   'review-gate-integrity':    [ 'review/**', 'lib/gate-diff/**', 'bin/gstack-gate-diff', 'scripts/resolvers/gate-scan.ts',
+      'scripts/gate-diff-calibrate.ts', 'test/fixtures/gate-diff/**', 'test/helpers/gate-diff-repo.ts',
       'scripts/question-registry.ts', 'test/skill-e2e-gate-integrity.test.ts', 'test/helpers/skill-fixture.ts'],
   'review-design-lite':       ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'review/**', 'test/fixtures/review-eval-design-slop.*', 'test/helpers/fake-impeccable.ts', 'test/fixtures/fake-impeccable.ts', 'test/fixtures/impeccable-detect-sample.json', 'lib/design-catalog.ts', 'lib/design-detect-contract.ts', 'bin/gstack-design-detect.ts', 'scripts/resolvers/design-checklist.ts', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review.test.ts'
     
