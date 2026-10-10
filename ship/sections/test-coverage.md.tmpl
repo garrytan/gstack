@@ -37,6 +37,10 @@ Generation: <allowed|audit-only>; passes used: <N> of 2. Audit-only overrides ev
 
 {{TEST_COVERAGE_AUDIT_SHIP}}
 
+Rules for the implementing agent:
+{{IMPLEMENTER_DISPATCH_RULES}}
+Report any such change in the prose before the JSON line; the JSON fields below are unchanged.
+
 After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
 {"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...],"coverage_pct_value":N,"weak_gaps":[{"path":"...","existing_test":"...","reason":"star_one|gate_failed|unrated"}],"tests_extended":["path",...],"tests_rejected":[{"path_or_gap":"...","reason_code":"...","reason":"..."}],"regression_proof":{"red_at_head":N,"base_green":N,"base_unavailable":N}}
 `coverage_pct` is Y (paths with any test), `coverage_pct_value` is X (paths with a ★★/★★★ test), `gaps` counts only paths with no test. Use null for an undetermined or skipped coverage percentage, not zero. Include every remaining gap in the diagram so the parent can target a second pass.
@@ -51,7 +55,8 @@ After your analysis, output a single JSON object on the LAST LINE of your respon
    A key with the wrong type (for example `weak_gaps` not an array) is ignored the same
    way and printed as: {{TEST_VALUE_MESSAGE:malformedKey}}
 3. **Machine checks** on every test written in this run (`tests_added` and
-   `tests_extended`): a value-card header with four non-empty fields (else
+   `tests_extended`): a value-card header with the four required fields non-empty plus
+   an optional `no_claim` (an older four-field card stays valid; else
    `incomplete_card`); `protects` unique across the run after casefolding and stripping
    punctuation and repeated whitespace (a later duplicate is `duplicate_protects`); seam
    `none`, or a named seam with at least one non-test caller (N = 0 or an unavailable

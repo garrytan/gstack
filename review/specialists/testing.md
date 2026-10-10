@@ -104,7 +104,8 @@ validation`). End each finding's `fix` with `Repo-wide sweep: run /test-audit.`
 
 A new or changed test passes the authoring gate only when all four answers exist (read
 its `Value: protects=...; fails_when=...; why_new=...; seam=...` header comment when the
-diff has one):
+diff has one; an optional `no_claim=...` names what green does not prove and which
+fixtures or mocks stand in for what, and never waives a required live check):
 1. What observable behavior, invariant or independent contract does it protect?
 2. What credible regression makes it fail?
 3. Why does existing coverage not already catch that? Prefer adding a row to an existing table-driven test or shared fixture over a near-duplicate.

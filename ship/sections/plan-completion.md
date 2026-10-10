@@ -178,9 +178,63 @@ Counts map one-to-one to the classifications above and sum to total_items. No pl
    extra or invalid fields fail. Valid no-plan/no-actionable reports retain zero counts
    and their summary.
 2. Store counts for Step 20 and `summary` for Step 19's `## Plan Completion`.
-3. Apply Gate Logic below before continuing. Carry approved deferrals, with item text
+3. Run the parent-computed Acceptance edits check below on the bound plan; it adds
+   `ACCEPTANCE_EDITED` beside the child's classes and never changes the child's
+   seven fields.
+4. Apply Gate Logic below before continuing. Carry approved deferrals, with item text
    and plan path, to Step 14; keep them separate from dropped scope. The gate supplies
    the required PR notes and per-item manual verification evidence.
+
+### Acceptance edits (parent-computed)
+
+Run this after the child's report and before Gate Logic, with the bound plan path
+substituted for `<plan path>`. It compares the plan's acceptance-bearing sections
+(headings matching acceptance, success criteria, verification, test plan, testing,
+done when, definition of done) as they stand in the working tree against a baseline:
+the `origin/<base>` version when the plan exists there, else its first commit on this
+branch, else `baseline unavailable` (plans outside the repository or not yet tracked).
+
+```bash
+PLAN_FILE="<plan path>"
+_REL=$(git ls-files --full-name --error-unmatch -- "$PLAN_FILE" 2>/dev/null | head -1)
+_BASE_REF=""; _BASE_KIND=""
+if [ -z "$_REL" ]; then
+  echo "ACCEPTANCE_BASELINE: unavailable (plan is not tracked in this repository)"
+elif git cat-file -e "origin/<base>:$_REL" 2>/dev/null; then
+  _BASE_REF="origin/<base>"; _BASE_KIND="origin/<base>"
+else
+  _FIRST=$(git log --diff-filter=A --format=%H "origin/<base>..HEAD" -- "$_REL" 2>/dev/null | tail -1)
+  if [ -n "$_FIRST" ]; then _BASE_REF="$_FIRST"; _BASE_KIND="first commit on branch ($_FIRST)"
+  else echo "ACCEPTANCE_BASELINE: unavailable (no origin/<base> version and no introducing commit)"; fi
+fi
+if [ -n "$_BASE_REF" ]; then
+  echo "ACCEPTANCE_BASELINE: $_BASE_KIND"
+  _ACC_TMP=$(mktemp -d) && trap 'rm -rf "$_ACC_TMP"' EXIT
+  _acc_sections() { awk 'BEGIN{keep=0} /^#+ /{keep = (tolower($0) ~ /^#+ *[0-9.]* *(testable )?(acceptance|success criteria|verification|test plan|testing|done when|definition of done)/)} keep{print}'; }
+  git show "$_BASE_REF:$_REL" | _acc_sections > "$_ACC_TMP/base"
+  _acc_sections < "$PLAN_FILE" > "$_ACC_TMP/wtree"
+  if diff -u --label baseline --label working-tree "$_ACC_TMP/base" "$_ACC_TMP/wtree" > "$_ACC_TMP/diff"; then
+    echo "ACCEPTANCE_EDITED: none"
+  else
+    echo "ACCEPTANCE_EDITED: yes"; cat "$_ACC_TMP/diff"
+  fi
+fi
+```
+
+Read the result:
+
+- `ACCEPTANCE_EDITED: none` — record `Acceptance edits: none (baseline <kind>)` for the PR body.
+- `ACCEPTANCE_EDITED: yes` — for each plan item whose acceptance text the diff changed, add
+  `[ACCEPTANCE_EDITED]` beside the child's classification in the checklist summary. It is a
+  separate class: never fold it into CHANGED (CHANGED means the same goal was achieved by other
+  means and passes the gate). The original obligation is still audited: classify the item
+  against the baseline text, so an item that satisfies only its edited text is PARTIAL or
+  NOT DONE against the original and gated as such. The PR body names each one as a scope
+  change under `## Plan Completion` with the baseline and working-tree wording.
+- `ACCEPTANCE_BASELINE: unavailable` — record `Acceptance edits: baseline unavailable (<reason>)`
+  in the PR body; never report `none`.
+
+Limit: an item rewritten in the same commit that introduced the plan is invisible to this check.
 
 **Audit-failure fallback:** On failure, invalid JSON or no final output after ~10
 minutes, stop any live child and confirm it stopped before an inline audit with the same
@@ -230,9 +284,13 @@ The parent evaluates the completion checklist in priority order, including after
 
 4. **All DONE or CHANGED:** Pass. "Plan completion: PASS — all items addressed." Continue.
 
+**ACCEPTANCE_EDITED items** (parent-computed, see Acceptance edits above) are gated by their
+classification against the original acceptance text, never by the edited text, and are
+never counted as CHANGED. They do not add a gate of their own; they are reported.
+
 **No plan file found:** Skip only the plan completion audit. Continue with Step 8.1, Scope Drift and Prior Learnings; Step 9 QA still runs.
 
-**Include in PR body (Step 19):** Add a `## Plan Completion` section with the checklist summary.
+**Include in PR body (Step 19):** Add a `## Plan Completion` section with the checklist summary, the `Acceptance edits:` line and each `[ACCEPTANCE_EDITED]` item named as a scope change.
 
 ## Step 8.1: Plan Verification
 

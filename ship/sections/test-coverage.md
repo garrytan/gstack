@@ -146,9 +146,9 @@ Quality scoring rubric:
 
 A test that breaks under a behavior-preserving refactor asserts implementation: rewrite it at the owning boundary, unless exact output is the declared contract (goldens, prompt bytes, wire formats).
 
-Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none` (seam: `none` or its name); each field at most 160 UTF-8 bytes here (clamp to 157 plus `...`; written JSON keeps full values). Write it as a header comment in each generated test, next to the attribution (wrap, do not truncate); with no known comment syntax, put it in the PR body's Test value details. A missing upstream card never blocks: derive it; ignore unknown fields.
+Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none; no_claim=<...>` (seam: `none` or its name; `no_claim`: one sentence on what green does not prove and which fixtures or mocks stand in for what, e.g. `no_claim=provider acceptance (mocked provider; unit only)` or `no_claim=none beyond protects`; it never waives a required live check); each field at most 160 UTF-8 bytes here (clamp to 157 plus `...`; written JSON keeps full values). Write it as a header comment in each generated test, next to the attribution (wrap, do not truncate); with no known comment syntax, put it in the PR body's Test value details. A missing upstream card never blocks: derive it; ignore unknown fields.
 
-Example: Value: protects=refundPayment rejects an empty reason; fails_when=the reason guard is removed or inverted; why_new=billing.test.ts covers processPayment only; seam=none
+Example: Value: protects=refundPayment rejects an empty reason; fails_when=the reason guard is removed or inverted; why_new=billing.test.ts covers processPayment only; seam=none; no_claim=provider acceptance (mocked provider; unit only)
 Rejected (covered_elsewhere): "checkout renders"; checkout.e2e.ts:15 covers it, so extend that test.
 
 Weak tests (★ smoke/existence/trivial, gate-failing or unrated) never count as coverage. X = paths with a ★★/★★★ test / total paths (value-weighted; the gate uses X); Y = paths with any test / total paths. Total paths = the diff's codepath trace, max 30; zero skips the gate. A path with only weak tests is uncovered in X, covered in Y, and goes to `weak_gaps` (reason `star_one|gate_failed|unrated`), not `gaps`. Rate stars only for tests reachable from changed paths.
@@ -315,6 +315,14 @@ Repo: {owner/repo}
 - {end-to-end flow that must work}
 ```
 
+Rules for the implementing agent:
+1. Acceptance criteria are the `protects / fails_when / no_claim` profile of each test: the observable it protects, the wrong result it rejects, and what green does not prove. Never "make the tests pass".
+2. Real code and real tests land in the same change; a placeholder, a stub assertion or a test deferred to a follow-up is not done.
+3. Any change to a test, validator, CI step, timeout, tolerance, threshold, snapshot or suppression pragma is reported on its own line in your summary with its justification, before any other result.
+4. A reported command names the command and its observed result (exit status, counts, the failing line); a command you did not run is not reported, and stderr is never silenced in a command you cite.
+5. Your report is a claim until the parent re-executes it: say what you verified, what you reused, and what you could not check.
+Report any such change in the prose before the JSON line; the JSON fields below are unchanged.
+
 After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
 {"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...],"coverage_pct_value":N,"weak_gaps":[{"path":"...","existing_test":"...","reason":"star_one|gate_failed|unrated"}],"tests_extended":["path",...],"tests_rejected":[{"path_or_gap":"...","reason_code":"...","reason":"..."}],"regression_proof":{"red_at_head":N,"base_green":N,"base_unavailable":N}}
 `coverage_pct` is Y (paths with any test), `coverage_pct_value` is X (paths with a ★★/★★★ test), `gaps` counts only paths with no test. Use null for an undetermined or skipped coverage percentage, not zero. Include every remaining gap in the diagram so the parent can target a second pass.
@@ -329,7 +337,8 @@ After your analysis, output a single JSON object on the LAST LINE of your respon
    A key with the wrong type (for example `weak_gaps` not an array) is ignored the same
    way and printed as: malformed <key> ignored: the audit returned the wrong type, so it counts as empty. The likely cause is an outdated installed skill; run /gstack-upgrade. (see ~/.claude/skills/gstack/docs/test-value-bar.md#malformed-key-ignored)
 3. **Machine checks** on every test written in this run (`tests_added` and
-   `tests_extended`): a value-card header with four non-empty fields (else
+   `tests_extended`): a value-card header with the four required fields non-empty plus
+   an optional `no_claim` (an older four-field card stays valid; else
    `incomplete_card`); `protects` unique across the run after casefolding and stripping
    punctuation and repeated whitespace (a later duplicate is `duplicate_protects`); seam
    `none`, or a named seam with at least one non-test caller (N = 0 or an unavailable

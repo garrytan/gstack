@@ -640,9 +640,9 @@ Quality scoring rubric:
 
 A test that breaks under a behavior-preserving refactor asserts implementation: rewrite it at the owning boundary, unless exact output is the declared contract (goldens, prompt bytes, wire formats).
 
-Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none` (seam: `none` or its name); each field at most 160 UTF-8 bytes here (clamp to 157 plus `...`; written JSON keeps full values). One card per Critical Path and Edge Case in the Test Plan Artifact. A missing upstream card never blocks: derive it; ignore unknown fields.
+Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none; no_claim=<...>` (seam: `none` or its name; `no_claim`: one sentence on what green does not prove and which fixtures or mocks stand in for what, e.g. `no_claim=provider acceptance (mocked provider; unit only)` or `no_claim=none beyond protects`; it never waives a required live check); each field at most 160 UTF-8 bytes here (clamp to 157 plus `...`; written JSON keeps full values). One card per Critical Path and Edge Case in the Test Plan Artifact. A missing upstream card never blocks: derive it; ignore unknown fields.
 
-Example: Value: protects=refundPayment rejects an empty reason; fails_when=the reason guard is removed or inverted; why_new=billing.test.ts covers processPayment only; seam=none
+Example: Value: protects=refundPayment rejects an empty reason; fails_when=the reason guard is removed or inverted; why_new=billing.test.ts covers processPayment only; seam=none; no_claim=provider acceptance (mocked provider; unit only)
 Rejected (covered_elsewhere): "checkout renders"; checkout.e2e.ts:15 covers it, so extend that test.
 
 Weak tests (★ smoke/existence/trivial, gate-failing or unrated) never count as coverage. X = paths with a ★★/★★★ test / total paths (value-weighted; the gate uses X); Y = paths with any test / total paths. /ship computes them; here every proposed test needs a card.
@@ -760,7 +760,7 @@ Repo: {owner/repo}
 
 ## Critical Paths
 - {end-to-end flow that must work}
-  Value: protects={...}; fails_when={...}; why_new={...}; seam=none
+  Value: protects={...}; fails_when={...}; why_new={...}; seam=none; no_claim={...}
 
 ## Tests to Retire
 - {existing test made obsolete by this plan and why, or none}
