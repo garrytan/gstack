@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { generatePlanCompletionAuditReview, generatePlanCompletionAuditShip, generatePlanCompletionGateShip, generatePlanVerificationExec } from '../scripts/resolvers/plan-gates';
+import { ACCEPTANCE_EDITED, generatePlanCompletionAuditReview, generatePlanCompletionAuditShip, generatePlanCompletionGateShip, generatePlanVerificationExec } from '../scripts/resolvers/plan-gates';
 import { HOST_PATHS } from '../scripts/resolvers/types';
-import { expectMentions } from './helpers/prompt-structure';
+import { between, expectAbsent, expectMentions, expectOrdered, expectTokens } from './helpers/prompt-structure';
 
 const SHIP_DIR = path.join(__dirname, '..', 'ship');
 
@@ -335,5 +335,106 @@ describe('F1: plan binding, docs/designs candidates, exact not-run line', () => 
     expect(child).not.toContain('### Plan File Discovery');
     expectMentions(child, [['do not', 'another', 'search']], 'child');
     expect(md).toMatch(/not-run line, skip dispatch/);
+  });
+});
+
+// RH-10 (docs/designs/HONEST_WORK_GATE_INTEGRITY.md W5): editing the plan's acceptance
+// text is not progress. The parent diffs the acceptance-bearing sections of the
+// working-tree plan against a baseline and reports ACCEPTANCE_EDITED beside the
+// child's classes; the child's seven-field contract is untouched.
+describe('ACCEPTANCE_EDITED: parent-computed acceptance-text drift', () => {
+  const ctx = { skillName: 'ship', tmplPath: 'ship/SKILL.md.tmpl', host: 'claude' as const, paths: HOST_PATHS.claude };
+  const rendered = fs.readFileSync(path.join(SHIP_DIR, 'sections', 'plan-completion.md'), 'utf8');
+
+  test('the check renders through the :acceptance arg with the baseline order and the never-CHANGED rule', () => {
+    const text = generatePlanCompletionGateShip(ctx, ['acceptance']);
+    expect(text).toStartWith('### Acceptance edits (parent-computed)');
+    expectOrdered(text, ['origin/<base>', 'first commit on this', 'baseline unavailable'], 'baseline order');
+    expectTokens(text, ['ACCEPTANCE_BASELINE: unavailable', `${ACCEPTANCE_EDITED}: none`, `${ACCEPTANCE_EDITED}: yes`, `[${ACCEPTANCE_EDITED}]`, 'Acceptance edits: baseline unavailable', '## Plan Completion'], 'acceptance check');
+    expectMentions(text, [['never', 'fold', 'changed'], ['original obligation', 'audited'], ['same commit', 'introduced', 'invisible']], 'acceptance check');
+    const gate = generatePlanCompletionGateShip(ctx);
+    expect(gate).toContain(`**${ACCEPTANCE_EDITED} items**`);
+    expectMentions(gate, [['never counted as changed']], 'gate');
+    expect(gate).toContain('`Acceptance edits:` line');
+  });
+
+  test('the template runs it in the parent after the child reports, before Gate Logic, outside the child prompt', () => {
+    const parent = between(rendered, '**Parent processing:**', '**Audit-failure fallback:**');
+    expectOrdered(parent, ['1. Check the task', `\`${ACCEPTANCE_EDITED}\` beside the child's classes`, 'Apply Gate Logic below', '### Acceptance edits (parent-computed)'], 'parent processing');
+    expect(rendered.indexOf('### Acceptance edits (parent-computed)')).toBeLessThan(rendered.indexOf('### Gate Logic'));
+    expectAbsent(between(rendered, '````text', '````\n\n**Parent processing:**'), [ACCEPTANCE_EDITED], 'child prompt');
+    const contract = rendered.split('\n').find(line => line.startsWith('{"total_items":N,'))!;
+    expect(Object.keys(JSON.parse(contract.replace(/:N([,}])/g, ':0$1')))).toHaveLength(7);
+  });
+
+  function block(planPath: string): string {
+    return between(rendered, '### Acceptance edits (parent-computed)', '### Gate Logic').match(/```bash\n([\s\S]*?)```/)![1]
+      .replaceAll('<plan path>', planPath).replaceAll('<base>', 'main');
+  }
+
+  function repo() {
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'acceptance-edited-')));
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t.invalid' };
+    const git = (...args: string[]) => {
+      const r = spawnSync('git', args, { cwd: tmp, env, encoding: 'utf8', timeout: 30_000 });
+      if (r.status !== 0) throw new Error(r.stderr);
+      return r.stdout.trim();
+    };
+    const run = (planPath: string) => spawnSync('bash', ['-c', block(planPath)], { cwd: tmp, env, encoding: 'utf8', timeout: 30_000 });
+    const plan = (criteria: string, context = 'the old context') => `# Plan\n\n## Context\n\n${context}\n\n## Acceptance Criteria\n\n${criteria}\n\n## Rollback\n\nrevert\n`;
+    git('init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(tmp, 'README.md'), 'base\n');
+    git('add', '-A'); git('commit', '-qm', 'base');
+    return { tmp, git, run, plan };
+  }
+
+  test('a plan on origin/<base>: an acceptance edit in the working tree is yes with the diff; a context-only edit is none', () => {
+    const f = repo();
+    try {
+      fs.mkdirSync(path.join(f.tmp, 'docs/designs'), { recursive: true });
+      const file = path.join(f.tmp, 'docs/designs/PLAN.md');
+      fs.writeFileSync(file, f.plan('1. Orders older than 30 days return HTTP 410 for all 4 user roles'));
+      f.git('add', '-A'); f.git('commit', '-qm', 'plan');
+      f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      f.git('checkout', '-qb', 'feature');
+      fs.writeFileSync(file, f.plan('1. Orders older than 30 days return HTTP 410 for all 4 user roles', 'rewritten context'));
+      const none = f.run(file);
+      expect(none.status).toBe(0);
+      expect(none.stdout).toContain('ACCEPTANCE_BASELINE: origin/main');
+      expect(none.stdout).toContain(`${ACCEPTANCE_EDITED}: none`);
+      fs.writeFileSync(file, f.plan('1. Orders older than 30 days return HTTP 410 for the admin role'));
+      const yes = f.run(file);
+      expect(yes.status).toBe(0);
+      expect(yes.stdout).toContain(`${ACCEPTANCE_EDITED}: yes`);
+      expect(yes.stdout).toContain('-1. Orders older than 30 days return HTTP 410 for all 4 user roles');
+      expect(yes.stdout).toContain('+1. Orders older than 30 days return HTTP 410 for the admin role');
+      expect(yes.stdout).not.toContain(`${ACCEPTANCE_EDITED}: none`);
+    } finally { fs.rmSync(f.tmp, { recursive: true, force: true }); }
+  });
+
+  test('a plan introduced on the branch uses its first commit as the baseline; an untracked plan is baseline unavailable', () => {
+    const f = repo();
+    try {
+      f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      f.git('checkout', '-qb', 'feature');
+      fs.mkdirSync(path.join(f.tmp, 'docs/designs'), { recursive: true });
+      const file = path.join(f.tmp, 'docs/designs/PLAN.md');
+      fs.writeFileSync(file, f.plan('1. Query time under 100ms'));
+      f.git('add', '-A'); f.git('commit', '-qm', 'add plan');
+      const first = f.git('rev-parse', 'HEAD');
+      fs.writeFileSync(file, f.plan('1. Query time under 100ms\n2. Added later'));
+      f.git('add', '-A'); f.git('commit', '-qm', 'edit plan');
+      const out = f.run(file);
+      expect(out.status).toBe(0);
+      expect(out.stdout).toContain(`ACCEPTANCE_BASELINE: first commit on branch (${first})`);
+      expect(out.stdout).toContain(`${ACCEPTANCE_EDITED}: yes`);
+      expect(out.stdout).toContain('+2. Added later');
+      const outside = path.join(f.tmp, 'outside-plan.md');
+      fs.writeFileSync(outside, f.plan('1. anything'));
+      const unavailable = f.run(outside);
+      expect(unavailable.status).toBe(0);
+      expect(unavailable.stdout).toContain('ACCEPTANCE_BASELINE: unavailable');
+      expect(unavailable.stdout).not.toContain(`${ACCEPTANCE_EDITED}:`);
+    } finally { fs.rmSync(f.tmp, { recursive: true, force: true }); }
   });
 });

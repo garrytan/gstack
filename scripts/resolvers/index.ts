@@ -47,6 +47,7 @@ import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup, g
 import { generateDesignDocDiscovery } from './design-doc-discovery';
 import { generateSharedLibsRubric, generateSafeGitPath } from './shared-libs';
 import { generateTestValueBar, generateTestValueMessage } from './test-value';
+import { generateImplementerDispatchRules } from './dispatch-rules';
 import { generateQAScope, generateQAExploratory, generateQAFunctional, generateQAResource, generateQAReview, generateQAReviewPreflight, generateQAMethodReads } from './qa';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
@@ -115,6 +116,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   TEST_COVERAGE_GATE_SHIP: generateTestCoverageGateShip,
   TEST_VALUE_BAR: generateTestValueBar,
   TEST_VALUE_MESSAGE: generateTestValueMessage,
+  IMPLEMENTER_DISPATCH_RULES: generateImplementerDispatchRules,
   TEST_FAILURE_TRIAGE: generateTestFailureTriage,
   SPEC_REVIEW_LOOP: generateSpecReviewLoop,
   DESIGN_SKETCH: generateDesignSketch,
