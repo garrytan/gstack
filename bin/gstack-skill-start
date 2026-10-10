@@ -90,10 +90,34 @@ echo "SKILL_START_PROTO: 1"
 # and running it would consume the one-shot just-upgraded marker meant for the
 # next human session (#2733 review).
 _SESSION_KIND=$("$_BIN/gstack-session-kind" 2>/dev/null || echo "interactive")
-case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+# Unknown kinds coerce to interactive (the degrade-safe default) but say so
+# (plan B1): a mixed-version fleet whose newer parent sets a kind this install
+# does not know must be loud, never silently interactive.
+_SESSION_KIND_NOTE=""
+case "$_SESSION_KIND" in
+  unattended|spawned|headless|interactive) ;;
+  *) _SESSION_KIND_NOTE=" (unknown kind '$(printf '%s' "$_SESSION_KIND" | tr -cd 'a-zA-Z0-9._-')')"; _SESSION_KIND="interactive" ;;
+esac
+# gstack-session-kind ignores an unrecognized GSTACK_SESSION_KIND value (it
+# falls through to ambient detection); name it here so the override is visible.
+case "${GSTACK_SESSION_KIND:-}" in
+  ''|unattended|spawned|headless|interactive) ;;
+  *) [ -z "$_SESSION_KIND_NOTE" ] && _SESSION_KIND_NOTE=" (unknown kind '$(printf '%s' "$GSTACK_SESSION_KIND" | tr -cd 'a-zA-Z0-9._-')')" ;;
+esac
+# Unattended (plan B1): a parent agent drives this run and reads its artifacts.
+# No prompts, no publishing, no sync: the same suppression spawned gets, plus
+# the writers and sync entrypoints below skip with an explicit line. Keyed on
+# the resolved kind, so only the explicit GSTACK_SESSION_KIND override lights it.
+_NO_HUMAN="no"
+case "$_SESSION_KIND" in spawned|unattended) _NO_HUMAN="yes" ;; esac
+# Durability of the state root (plan A3): GSTACK_EPHEMERAL=1 is the host's
+# marker for a disk that vanishes with the machine (a Capy cloud box). Printed
+# once per session so writers that skip on an ephemeral root are explained.
+_DURABLE="yes"
+[ "${GSTACK_EPHEMERAL:-}" = "1" ] && _DURABLE="no"
 
 _UPD=""
-if [ "$_SESSION_KIND" != "spawned" ]; then
+if [ "$_NO_HUMAN" != "yes" ]; then
   _UPD=$("$_BIN/gstack-update-check" 2>/dev/null || true)
   [ -n "$_UPD" ] && printf '%s\n' "$_UPD" | _sanitize || true
 fi
@@ -118,7 +142,8 @@ REPO_MODE=""
 eval "$("$_BIN/gstack-repo-mode" 2>/dev/null)" 2>/dev/null || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-echo "SESSION_KIND: $_SESSION_KIND"
+echo "SESSION_KIND: $_SESSION_KIND$_SESSION_KIND_NOTE"
+echo "STATE_ROOT: $_GH durable=$_DURABLE"
 echo "SESSIONS: ${_SESSIONS:-0}"
 # Tamper visibility (#2733 review): a repo-provided settings env block or a CI
 # wrapper could set GSTACK_SESSION_KIND or OPENCLAW_SESSION for a real human's
@@ -139,7 +164,7 @@ fi
 # nobody, and on !spawned so an orchestrator- or parent-skill-spawned session
 # inside a Conductor workspace auto-chooses per its spawned-session block
 # instead of rendering prose to nobody (#2733).
-if [ "$_SESSION_KIND" != "headless" ] && [ "$_SESSION_KIND" != "spawned" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+if [ "$_SESSION_KIND" != "headless" ] && [ "$_SESSION_KIND" != "spawned" ] && [ "$_SESSION_KIND" != "unattended" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
   echo "CONDUCTOR_SESSION: true"
 fi
 _ACTIVATED=$([ -f "$_GH/.activated" ] && echo "yes" || echo "no")
@@ -151,7 +176,7 @@ echo "FIRST_LOOP_SHOWN: $_FIRST_LOOP_SHOWN"
 # never write .activated, so without the exclusion the ~17-subprocess probe
 # would re-run on EVERY spawned start while its only consumers stay suppressed.
 _FIRST_TASK=""
-if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ] && [ "$_SESSION_KIND" != "spawned" ]; then
+if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ] && [ "$_NO_HUMAN" != "yes" ]; then
   _FIRST_TASK=$("$_BIN/gstack-first-task-detect" 2>/dev/null || true)
 fi
 printf 'FIRST_TASK: %s\n' "$_FIRST_TASK" | _sanitize
@@ -177,6 +202,12 @@ echo "QUESTION_TUNING: $_QUESTION_TUNING"
 _UPDATE_CHECK=$("$_BIN/gstack-config" get update_check 2>/dev/null || echo "true")
 echo "UPDATE_CHECK: $_UPDATE_CHECK"
 mkdir -p "$_GH/analytics" 2>/dev/null || true
+# Privacy at the writer (plan B1): an unattended session never records usage or
+# sends telemetry, even with an inherited enabled setting or pending queue work;
+# the pending files stay for the next human session to drain.
+if [ "$_SESSION_KIND" = "unattended" ]; then
+  echo "TELEMETRY_WRITE: skipped (unattended session)"
+else
 if [ "$_TEL" != "off" ]; then
   echo '{"skill":"'"$SKILL_NAME"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}' >> "$_GH/analytics/skill-usage.jsonl" 2>/dev/null || true
 fi
@@ -191,6 +222,7 @@ for _PF in $(find "$_GH/analytics" -maxdepth 1 -name '.pending-*' 2>/dev/null); 
   # start so a backlog can't stall the preamble.
   break
 done
+fi
 eval "$("$_BIN/gstack-slug" 2>/dev/null)" 2>/dev/null || true
 for _former in $("$_BIN/gstack-slug" --get FORMER_SLUGS 2>/dev/null || true); do
   echo "gstack: earlier data for this project is in projects/$_former (a worktree's old bucket). Merge it: gstack-slug --adopt-legacy --from $_former   (or stop this reminder: gstack-slug --adopt-legacy --dismiss $_former)"
@@ -208,6 +240,23 @@ if [ -f "$_LEARN_FILE" ]; then
   fi
 else
   echo "LEARNINGS: 0"
+fi
+# Plan A3: on an ephemeral root an unattended run's learnings would be written
+# to a disk that vanishes; say so instead of writing silently.
+if [ "$_SESSION_KIND" = "unattended" ] && [ "$_DURABLE" = "no" ]; then
+  echo "learnings: skipped (state root is ephemeral; set GSTACK_STATE_ROOT)"
+fi
+# Plan B1: the autoplan publication hook executes only inside Claude Code
+# (CLAUDECODE is set there; GSTACK_ACTIVE_HOST names an env-var host). On
+# every other host, and in every unattended session, the hook is rendered but
+# never runs, so publication order rests on the per-phase snapshot hashes.
+# Claude Code's deny-on-absent behavior is untouched: this line is printed,
+# never used to allow anything. B0's validator requires it in an unattended
+# run's review-record.md.
+if [ "$SKILL_NAME" = "autoplan" ]; then
+  if [ "$_SESSION_KIND" = "unattended" ] || [ -z "${CLAUDECODE:-}" ] || { [ -n "${GSTACK_ACTIVE_HOST:-}" ] && [ "${GSTACK_ACTIVE_HOST:-}" != "claude" ]; }; then
+    echo "autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)"
+  fi
 fi
 "$_BIN/gstack-timeline-log" '{"skill":"'"$SKILL_NAME"'","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
@@ -241,6 +290,7 @@ echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 # Keyed on the resolved kind, not raw OPENCLAW_SESSION (#2733): the explicit
 # GSTACK_SESSION_KIND=spawned override must light this up too.
 [ "$_SESSION_KIND" = "spawned" ] && echo "SPAWNED_SESSION: true" || true
+[ "$_SESSION_KIND" = "unattended" ] && echo "UNATTENDED_SESSION: true" || true
 
 # ---------------------------------------------------------------------------
 # Artifacts sync (the former "Artifacts Sync (skill start)" fence, verbatim
@@ -307,7 +357,11 @@ if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE"
   fi
 fi
 
-if [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+# Privacy at the sync entrypoint (plan B1): an unattended session neither pulls
+# nor pushes the artifacts repo, whatever the inherited mode or queue depth.
+if [ "$_SESSION_KIND" = "unattended" ]; then
+  :
+elif [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   _BRAIN_LAST_PULL_FILE="$_GH/.brain-last-pull"
   _BRAIN_NOW=$(date +%s)
   _BRAIN_DO_PULL=1
@@ -342,7 +396,12 @@ if [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
 fi
 
-if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
+if [ "$_SESSION_KIND" = "unattended" ]; then
+  _BRAIN_QUEUE_DEPTH=0
+  [ -d "$_GH/.brain-queue.d" ] && _BRAIN_QUEUE_DEPTH=$(find "$_GH/.brain-queue.d" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+  [ -f "$_GH/.brain-queue.jsonl" ] && _BRAIN_QUEUE_DEPTH=$(( _BRAIN_QUEUE_DEPTH + $(wc -l < "$_GH/.brain-queue.jsonl" | tr -d ' ') ))
+  echo "ARTIFACTS_SYNC: skipped (unattended session; mode=$_BRAIN_SYNC_MODE queue=$_BRAIN_QUEUE_DEPTH retained)"
+elif [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
   # Remote-MCP mode: local artifacts sync is a no-op by design (the brain
   # admin's server pulls from GitHub/GitLab).
   _GBRAIN_HOST=$(printf '%s' "${_GBRAIN_MCP_ENTRY:-}" | jq -r '.url // empty' 2>/dev/null | sed -E 's|^https?://([^/:]+).*|\1|' | head -1 | tr -cd 'A-Za-z0-9._-')
@@ -391,7 +450,7 @@ _emit_block() { echo "GSTACK_INSTRUCTION_BEGIN: $1 $_SESSION_ID"; cat; echo "GST
 # telemetry stay untouched, so onboarding fires intact on the next human run.
 # The spawned-session block and the privacy-stop-gate below sit OUTSIDE this
 # guard: the former is the gate's inverse, the latter is interactive-only.
-if [ "$_SESSION_KIND" != "spawned" ]; then
+if [ "$_NO_HUMAN" != "yes" ]; then
 
 # Upgrade flow (gated: update-check emitted something above).
 if [ -n "$_UPD" ]; then
@@ -541,7 +600,20 @@ Always run (regardless of choice): \`touch "$_GH/.vendoring-warned-${SLUG:-unkno
 EOI
 fi
 
-fi # end interactive-onboarding guard (kind != spawned)
+fi # end interactive-onboarding guard (kind != spawned/unattended)
+
+# Unattended-session rules (plan B1, decision D6; every unattended session gets
+# them, like the spawned block). This is the runtime text that says how a
+# parent-driven run decides: recommended options are taken and logged, the
+# final gate is written and never approved, nothing is published or synced.
+# It also carries the host adaptation a harness without a Skill tool, slash
+# commands or AskUserQuestion needs, printed here so every host's render has it
+# without growing any skill's prose.
+if [ "$_SESSION_KIND" = "unattended" ]; then
+  _emit_block unattended-session <<EOI
+You are running unattended: a parent agent started this run and will read its artifacts (plan.md, review-record.md, tasks.jsonl, decisions.jsonl, findings.jsonl, timing.json, run.json; see docs/unattended.md), not your prose. Rules: do NOT call AskUserQuestion and do NOT render prose decision briefs. At every question take the option marked (recommended) and append it to decisions.jsonl with kind "auto". A question with no recommendation, any consent, any destructive or irreversible option, and the final approval gate are appended with kind "approval" and status "pending": never choose them. The final approval gate is written as a gate list (gstack-gate render) and this run ENDS there with \`GSTACK_RESULT: skill=<name> status=gate_pending run=<dir>\`; you never approve it, never mark a plan APPROVED, never publish, push, sync or send data off this machine, and never record a consent. Skip every onboarding, upgrade, telemetry, routing and lake instruction. Host adaptation: there may be no Skill tool, no slash commands and no hooks here; read the skill file with your file-reading tool, run its bash blocks as written, treat each bash block's printed STATUS lines as the only source of session facts, and write results to files the parent names rather than relying on chat text being read.
+EOI
+fi
 
 # Spawned-session rules (NOT one-time — every spawned session gets the full
 # behavioral instruction, per plan OV6 move-with-care). Keyed on the resolved

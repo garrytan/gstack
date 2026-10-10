@@ -1263,3 +1263,187 @@ history in 5 seconds, so known authors may be listed too.
 `git config --add gstack.redact.allowEmail <address>`. If it is your own
 address, check `git config user.email`. The allowlist only covers `pii.email`;
 it never lets a HIGH finding through.
+
+## Unattended runs and artifacts
+
+Workflow commands (`gstack-artifact`, `gstack-gate`, `gstack-autoplan-timing`,
+`gstack-review-log --findings`) end each error line with a code in
+parentheses, for example `(ARTIFACT_STALE)`. The codes and anchors come from
+`lib/result-codes.ts`; grep the code, not the prose. Every such command shares
+one exit table: `0` ok, `1` fail, `2` usage, `3` refused or needs a flag. The
+artifact contract itself is in [docs/unattended.md](unattended.md).
+
+<a id="artifact-invalid-json"></a>
+### `ARTIFACT_INVALID_JSON`
+
+**Meaning.** `run.json`, `timing.json` or another JSON artifact did not parse.
+
+**Fix.** Regenerate the run with the tool that writes it. A manifest is never
+hand-edited; a partial write means the writer was interrupted.
+
+<a id="artifact-unsupported-version"></a>
+### `ARTIFACT_UNSUPPORTED_VERSION`
+
+**Meaning.** The artifact's `schema_version` is one this gstack does not read
+(`gstack-artifact schema <name>` prints the versions it validates).
+
+**Fix.** Upgrade the consumer (`/gstack-upgrade`) or regenerate the run with
+this gstack.
+
+<a id="artifact-schema"></a>
+### `ARTIFACT_SCHEMA`
+
+**Meaning.** A required field is missing, has the wrong type, or holds a value
+outside its enum. The message names the file, row and field.
+
+**Fix.** Compare the row with `gstack-artifact schema <name>` and regenerate it.
+
+<a id="artifact-missing"></a>
+### `ARTIFACT_MISSING`
+
+**Meaning.** `run.json` names an artifact that is not in the run directory.
+
+**Fix.** Copy the whole run directory, not single files. If the file was never
+written, rerun the phase that writes it.
+
+<a id="artifact-stale"></a>
+### `ARTIFACT_STALE`
+
+**Meaning.** The file's bytes no longer hash to the value `run.json` recorded,
+so the manifest does not describe this file.
+
+**Fix.** Treat the run as partially rewritten. Regenerate it, or re-bind the
+file through the tool that wrote it so the manifest is updated with it.
+
+<a id="artifact-path-escape"></a>
+### `ARTIFACT_PATH_ESCAPE`
+
+**Meaning.** An artifact path resolves outside the run directory: a `..`
+segment, an absolute path, or a symlink that points elsewhere.
+
+**Fix.** Keep every artifact inside the run directory under a plain relative
+name. A run directory is copied as one unit; nothing outside it is part of
+the contract.
+
+<a id="artifact-malformed-jsonl"></a>
+### `ARTIFACT_MALFORMED_JSONL`
+
+**Meaning.** A JSONL artifact has a line, usually the last, that is not one
+JSON object. The writer was interrupted mid-append.
+
+**Fix.** Rerun the phase that writes the file. Do not trim the line by hand;
+the row it held is lost either way, and the manifest hash would change.
+
+<a id="artifact-duplicate-id"></a>
+### `ARTIFACT_DUPLICATE_ID`
+
+**Meaning.** Two rows in one file share an id.
+
+**Fix.** Ids are run-bound (`<run>-...`) and unique per file. Regenerate the
+rows with the tool that assigns them.
+
+<a id="artifact-unbound-id"></a>
+### `ARTIFACT_UNBOUND_ID`
+
+**Meaning.** A row id does not start with the run id in `run.json`, so it
+could belong to another run.
+
+**Fix.** Regenerate the row with this run's id.
+
+<a id="artifact-dangling-ref"></a>
+### `ARTIFACT_DANGLING_REF`
+
+**Meaning.** A task's `findings`, `blocked_by` or `depends_on`, or a decision's
+reference, names an id no artifact in this run defines.
+
+**Fix.** Write the referenced finding, decision or task first, or drop the
+reference. A `depends_on` entry may also name a `pr` label that another task
+in the file carries.
+
+<a id="artifact-dependency-cycle"></a>
+### `ARTIFACT_DEPENDENCY_CYCLE`
+
+**Meaning.** Tasks depend on each other in a cycle, so no lane could start.
+
+**Fix.** Break the cycle in `depends_on`. The message lists the ids on it.
+
+<a id="artifact-count-mismatch"></a>
+### `ARTIFACT_COUNT_MISMATCH`
+
+**Meaning.** A `counts` value in `run.json` disagrees with the rows in the file
+it summarizes (for example `counts.findings: 65` beside 64 rows).
+
+**Fix.** Regenerate `run.json` after the last row was written. A count never
+replaces the file; the hash and the rows are the record.
+
+<a id="artifact-run-interrupted"></a>
+### `ARTIFACT_RUN_INTERRUPTED`
+
+**Meaning.** `run.json.status` is not terminal, or a voice is still
+`running`/`pending`. The artifacts describe an unfinished run.
+
+**Fix.** Resume it (`gstack-autoplan resume --out <dir>`, PR B-runner) or
+consume the artifacts as partial and say so.
+
+<a id="artifact-reviewer-missing"></a>
+### `ARTIFACT_REVIEWER_MISSING`
+
+**Meaning.** A phase in `required_phases` is absent from `phases`, a voice has
+no terminal status, or a completed voice has no bound output file (path and
+hash) in `artifacts`.
+
+**Fix.** Finish the phase. A missing voice is missing coverage; the validator
+never fills it in as N/A.
+
+<a id="artifact-guard-line-missing"></a>
+### `ARTIFACT_GUARD_LINE_MISSING`
+
+**Meaning.** The run says `session_kind: unattended`, but its
+`review-record.md` does not carry the `GUARD_NOT_INSTALLED` line, so the
+record does not state that publication order was unverified.
+
+**Fix.** Start the run through `gstack-skill-start` (it prints the line) and
+keep the line in the review record.
+
+<a id="guard-not-installed"></a>
+### `autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)`
+
+**Meaning.** The autoplan publication hook only executes inside Claude Code.
+On every other host, and in every `unattended` session, the hook is present
+but never runs, so phase publication order rests on the snapshot hashes
+recorded per phase rather than on the guard.
+
+**Fix.** Nothing on this host. The line is printed once per run and belongs
+in the review record; `gstack-artifact validate` requires it for an
+unattended run. On Claude Code a *missing* hook file still denies every
+guarded call (a broken install must not pass as an absent one).
+
+<a id="review-status-mismatch"></a>
+### `review-log: status mismatch ... (REVIEW_STATUS_MISMATCH)`
+
+**Meaning.** The row handed to `gstack-review-log` claims a `status`,
+`unresolved`, `issues_found` or `critical_gaps` that the `--findings` file
+contradicts (for example `status: clean` beside open findings). The row was
+not written.
+
+**Fix.** Fix the findings file, not the claim, and log again. Omit the claimed
+fields and let the row be derived from the file.
+
+<a id="gate-rev-stale"></a>
+### `GATE_REV_STALE`
+
+**Meaning.** The reply names a `gate_rev` older than the gate list's current
+revision, so it may answer items that changed.
+
+**Fix.** Render the current list (`gstack-gate render <file>`), read it, and
+reply with the printed `gate_rev`.
+
+<a id="gate-reply-unparsed"></a>
+### `GATE_REPLY_UNPARSED`
+
+**Meaning.** Part of the reply matched no gate item or option. Nothing was
+applied; the unparsed tokens are listed.
+
+**Fix.** Reply with `all`, with `<id><option>` tokens (`d3b uc1a`), or with
+`all except <tokens>`. A bare `yes` or `no` is ambiguous across multi-option
+items and is never guessed.

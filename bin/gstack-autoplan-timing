@@ -1,0 +1,98 @@
+#!/usr/bin/env bun
+/**
+ * gstack-autoplan-timing — wall time per autoplan phase and the pre-run estimate (plan B10).
+ *
+ *   gstack-autoplan-timing start    --run <id> --phase <p> --out <dir>
+ *   gstack-autoplan-timing close    --run <id> --phase <p> --out <dir> [--outside-s N] [--native-s N] [--session-kind K] [--json]
+ *   gstack-autoplan-timing estimate [--phases ceo,design,dx,eng] [--json]
+ *   gstack-autoplan-timing summary  --run <id> --out <dir> [--phases ...] [--json]
+ *
+ * Writes <out>/timing.json (lib/headless-artifacts.ts `timing` v1) and appends to
+ * <state root>/analytics/autoplan-timing.jsonl unless GSTACK_EPHEMERAL=1, in which
+ * case it prints the skip line. Query commands (estimate, summary) print no GSTACK_RESULT.
+ */
+import * as path from 'node:path';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { TIMING_SKIPPED_LINE, analyticsPath, estimate, phaseClose, phaseStart, readTiming, renderEstimate, renderSummary, runStart } from '../lib/autoplan-timing';
+
+const HELP = `gstack-autoplan-timing — phase wall time and the Phase 0 estimate
+
+  start    --run <id> --phase <p> --out <dir>                 record the phase start in <out>/timing.json
+  close    --run <id> --phase <p> --out <dir> [--outside-s N] [--native-s N] [--session-kind K] [--json]
+                                                               record the end, wall time and voices; append to analytics
+  estimate [--run <id> --out <dir>] [--phases ...] [--json]  ESTIMATE: median of the last 10 recorded runs per phase, or no history;
+                                                               with --run/--out also records the run start in <out>/timing.json
+  summary  --run <id> --out <dir> [--phases ...] [--json]     CYCLE: actual whole-cycle time next to the estimate
+
+Analytics: <state root>/analytics/autoplan-timing.jsonl; skipped with "${TIMING_SKIPPED_LINE}" when GSTACK_EPHEMERAL=1.
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+function usage(message: string): number {
+  process.stderr.write(`gstack-autoplan-timing: ${message}\n${HELP}\n`);
+  return EXIT.usage;
+}
+function seconds(args: string[], name: string): number | undefined {
+  const v = flag(args, name);
+  if (v === undefined) return undefined;
+  if (!/^[0-9]+$/.test(v)) throw new Error(`${name} needs a whole number of seconds`);
+  return Number(v);
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  const json = rest.includes('--json');
+  const phases = (flag(rest, '--phases') ?? 'ceo,design,dx,eng').split(',').map(s => s.trim()).filter(Boolean);
+
+  if (cmd === 'estimate') {
+    const run0 = flag(rest, '--run');
+    const out0 = flag(rest, '--out');
+    if ((run0 === undefined) !== (out0 === undefined)) return usage('estimate takes --run and --out together');
+    if (run0 && out0) runStart(path.join(out0, 'timing.json'), run0);
+    const rows = estimate(analyticsPath(), phases);
+    process.stdout.write(json ? JSON.stringify({ phases: rows }) + '\n' : renderEstimate(rows) + '\n');
+    return EXIT.ok;
+  }
+
+  const run = flag(rest, '--run');
+  const out = flag(rest, '--out');
+  if (!run || !out) return usage(`${cmd} needs --run <id> and --out <dir>`);
+  const file = path.join(out, 'timing.json');
+
+  if (cmd === 'summary') {
+    const timing = readTiming(file, run);
+    const est = estimate(analyticsPath(), phases);
+    process.stdout.write(json ? JSON.stringify({ timing, estimate: est }) + '\n' : renderSummary(timing, est) + '\n');
+    return EXIT.ok;
+  }
+
+  const phase = flag(rest, '--phase');
+  if (!phase) return usage(`${cmd} needs --phase <p>`);
+  if (cmd === 'start') {
+    const entry = phaseStart(file, run, phase);
+    process.stdout.write(json ? JSON.stringify(entry) + '\n' : `TIMING: phase=${phase} started_at=${entry.started_at}\n`);
+    return EXIT.ok;
+  }
+  if (cmd === 'close') {
+    let outside_s: number | undefined, native_s: number | undefined;
+    try { outside_s = seconds(rest, '--outside-s'); native_s = seconds(rest, '--native-s'); } catch (e: any) { return usage(e.message); }
+    const result = phaseClose(file, run, phase, { outside_s, native_s, session_kind: flag(rest, '--session-kind') });
+    if (result.analytics === 'skipped_ephemeral') process.stderr.write(TIMING_SKIPPED_LINE + '\n');
+    process.stdout.write(json
+      ? JSON.stringify(result) + '\n'
+      : `TIMING: phase=${phase} wall_s=${result.entry.wall_s}${outside_s !== undefined ? ` outside_s=${outside_s}` : ''}${native_s !== undefined ? ` native_s=${native_s}` : ''} total_wall_s=${result.total_wall_s} analytics=${result.analytics}\n`);
+    return EXIT.ok;
+  }
+  return usage(`unknown command ${cmd}`);
+}
+
+try {
+  process.exitCode = main(process.argv.slice(2));
+} catch (e: any) {
+  process.stderr.write(`gstack-autoplan-timing: ${e.message}\n`);
+  process.exitCode = EXIT.fail;
+}

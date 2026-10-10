@@ -306,6 +306,116 @@ describe('gstack-skill-start behavior', () => {
     }
   });
 
+  test('unattended override: no prompts, no publishing, explicit skip lines; unknown kinds are loud (plan B1)', () => {
+    const freshGh = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-unattended-'));
+    fs.writeFileSync(path.join(freshGh, 'config.yaml'), 'update_check: false\n');
+    try {
+      const out = runStart(['--skill', 'autoplan'], {
+        GSTACK_SESSION_KIND: 'unattended',
+        GSTACK_HEADLESS: '1',
+        CONDUCTOR_WORKSPACE_PATH: '/x',
+        GSTACK_HOME: freshGh,
+        GSTACK_EPHEMERAL: '1',
+      });
+      // The explicit override outranks GSTACK_HEADLESS; headless alone keeps BLOCK.
+      expect(out).toMatch(/^SESSION_KIND: unattended$/m);
+      expect(out).toMatch(/^UNATTENDED_SESSION: true$/m);
+      expect(out).not.toContain('CONDUCTOR_SESSION: true');
+      expect(out).toMatch(/^STATE_ROOT: .* durable=no$/m);
+      expect(out).toMatch(/^TELEMETRY_WRITE: skipped \(unattended session\)$/m);
+      expect(out).toMatch(/^ARTIFACTS_SYNC: skipped \(unattended session; mode=\S+ queue=\d+ retained\)$/m);
+      expect(out).toMatch(/^learnings: skipped \(state root is ephemeral; set GSTACK_STATE_ROOT\)$/m);
+      expect(out).toMatch(/^autoplan guard: not enforced by this host; publication order is unverified \(GUARD_NOT_INSTALLED\)$/m);
+      expect(out.match(/GUARD_NOT_INSTALLED/g)).toHaveLength(1);
+      const ids = (out.match(/^GSTACK_INSTRUCTION_BEGIN: (\S+)/gm) ?? []).map((h) => h.replace(/^GSTACK_INSTRUCTION_BEGIN: /, ''));
+      expect(ids).toEqual(['unattended-session']);
+      expect(out).toContain('GSTACK_RESULT: skill=<name> status=gate_pending run=<dir>');
+      expect(out).toMatch(/never approve/i);
+      expect(out).toMatch(/^FIRST_TASK: $/m);
+      expect(out).not.toContain('.telemetry-prompted');
+      expect(fs.existsSync(path.join(freshGh, '.activated'))).toBe(false);
+      expect(fs.existsSync(path.join(freshGh, 'analytics', 'skill-usage.jsonl'))).toBe(false);
+
+      const headless = runStart([], { GSTACK_HEADLESS: '1', GSTACK_HOME: freshGh });
+      expect(headless).toMatch(/^SESSION_KIND: headless$/m);
+      expect(headless).not.toContain('UNATTENDED_SESSION');
+      expect(headless).not.toContain('GUARD_NOT_INSTALLED');
+
+      const durable = runStart(['--skill', 'review'], { GSTACK_SESSION_KIND: 'unattended', GSTACK_HOME: freshGh });
+      expect(durable).toMatch(/^STATE_ROOT: .* durable=yes$/m);
+      expect(durable).not.toContain('learnings: skipped');
+      expect(durable).not.toContain('GUARD_NOT_INSTALLED');
+
+      const unknown = runStart([], { GSTACK_SESSION_KIND: 'robot', GSTACK_HOME: freshGh });
+      expect(unknown).toMatch(/^SESSION_KIND: interactive \(unknown kind 'robot'\)$/m);
+      expect(unknown).not.toContain('UNATTENDED_SESSION');
+
+      const claude = runStart(['--skill', 'autoplan'], { CLAUDECODE: '1', GSTACK_HOME: freshGh });
+      expect(claude).not.toContain('GUARD_NOT_INSTALLED');
+      const codex = runStart(['--skill', 'autoplan'], { CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'codex', GSTACK_HOME: freshGh });
+      expect(codex.match(/GUARD_NOT_INSTALLED/g)).toHaveLength(1);
+    } finally {
+      fs.rmSync(freshGh, { recursive: true, force: true });
+    }
+  });
+
+  test('unattended session makes no egress call even with telemetry and artifacts sync enabled and a queue pending (plan B1)', () => {
+    // Shadow bin: every helper is the real one except the egress sinks, which
+    // record their invocation. Bins resolve siblings through dirname "$0", so a
+    // symlinked copy of the script resolves the shadow dir as _BIN.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-egress-'));
+    const shadow = path.join(tmp, 'bin');
+    const gh = path.join(tmp, 'gh');
+    const log = path.join(tmp, 'egress.log');
+    const sinks = ['gstack-telemetry-log', 'gstack-brain-sync', 'gstack-update-check'];
+    fs.mkdirSync(shadow); fs.mkdirSync(gh);
+    for (const name of fs.readdirSync(path.join(ROOT, 'bin'))) {
+      if (!sinks.includes(name)) fs.symlinkSync(path.join(ROOT, 'bin', name), path.join(shadow, name));
+    }
+    for (const name of sinks) {
+      fs.writeFileSync(path.join(shadow, name), `#!/usr/bin/env bash\necho "${name} $*" >> "${log}"\n`, { mode: 0o755 });
+    }
+    const realGit = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf-8', timeout: 5_000 }).trim();
+    const pathDir = path.join(tmp, 'path'); fs.mkdirSync(pathDir);
+    fs.writeFileSync(path.join(pathDir, 'git'), `#!/usr/bin/env bash\ncase "$1" in fetch|push|pull|ls-remote|merge) echo "git $*" >> "${log}" ;; esac\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(gh, 'config.yaml'), 'telemetry: on\nartifacts_sync_mode: full\nartifacts_sync_mode_prompted: true\nupdate_check: true\n');
+    fs.mkdirSync(path.join(gh, '.git'));
+    fs.mkdirSync(path.join(gh, 'analytics'));
+    fs.writeFileSync(path.join(gh, 'analytics', '.pending-old'), 'x');
+    fs.writeFileSync(path.join(gh, '.brain-queue.jsonl'), '{"a":1}\n{"b":2}\n');
+    fs.writeFileSync(path.join(gh, 'last-update-check'), 'UPGRADE_AVAILABLE 1.0.0 9.9.9\n');
+    const env = (extra: Record<string, string>) => ({ PATH: `${pathDir}:${process.env.PATH!}`, HOME: tmp, GSTACK_HOME: gh, ...extra });
+    const start = (extra: Record<string, string>) => execFileSync(path.join(shadow, 'gstack-skill-start'), ['--skill', 'review'], { timeout: 30_000, encoding: 'utf-8', cwd: tmp, env: env(extra) });
+    const end = (extra: Record<string, string>) => execFileSync(path.join(shadow, 'gstack-skill-end'), ['--skill', 'review', '--outcome', 'success', '--session-id', 'sid-u', '--tel-start', '1'], { timeout: 30_000, encoding: 'utf-8', cwd: tmp, env: env(extra) });
+    try {
+      const out = start({ GSTACK_SESSION_KIND: 'unattended' });
+      expect(out).toMatch(/^TELEMETRY_WRITE: skipped \(unattended session\)$/m);
+      expect(out).toMatch(/^ARTIFACTS_SYNC: skipped \(unattended session; mode=full queue=2 retained\)$/m);
+      expect(out).not.toContain('UPGRADE_AVAILABLE');
+      const endOut = end({ GSTACK_SESSION_KIND: 'unattended' });
+      expect(endOut).toMatch(/^UPGRADE_AVAILABLE: 9\.9\.9; run \/gstack-upgrade$/m);
+      expect(endOut).toMatch(/^ARTIFACTS_SYNC: skipped \(unattended session\)$/m);
+      expect(fs.existsSync(log)).toBe(false);
+      expect(fs.existsSync(path.join(gh, 'analytics', 'skill-usage.jsonl'))).toBe(false);
+      expect(fs.existsSync(path.join(gh, 'analytics', '.pending-old'))).toBe(true);
+      expect(fs.readFileSync(path.join(gh, '.brain-queue.jsonl'), 'utf-8').split('\n').filter(Boolean)).toHaveLength(2);
+      // The spool is the sync's input: skill-end's timeline write would enqueue
+      // in a human session; unattended's enqueue is a no-op at the entrypoint.
+      expect(fs.existsSync(path.join(gh, '.brain-queue.d'))).toBe(false);
+      // Control: the same home in an interactive session reaches the sinks, so
+      // the instrumentation can see what unattended withheld.
+      start({});
+      end({});
+      const calls = fs.readFileSync(log, 'utf-8');
+      expect(calls).toMatch(/^gstack-brain-sync --once/m);
+      expect(calls).toMatch(/^gstack-telemetry-log /m);
+      expect(calls).toMatch(/^gstack-update-check/m);
+      expect(fs.readdirSync(path.join(gh, '.brain-queue.d')).length).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   test('legacy OPENCLAW_SESSION still gets full spawned behavior through the kind-keyed gates', () => {
     // Regression pin for the raw-marker → $_SESSION_KIND migration (#2733):
     // OpenClaw sessions must behave exactly as before the re-keying.

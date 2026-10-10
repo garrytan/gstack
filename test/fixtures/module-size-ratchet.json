@@ -46,7 +46,11 @@
     { "file": "test/helpers/pty/runners/observation.ts", "movedFrom": "test/helpers/claude-pty-runner.ts" },
     { "file": "test/helpers/pty/screen.ts", "movedFrom": "test/helpers/pty-screen.ts" },
     { "file": "test/helpers/pty/session.ts", "movedFrom": "test/helpers/claude-pty-runner.ts" },
-    { "file": "lib/memory-ingest-landing.ts", "movedFrom": "(new: A1 memory ingest landing check, state transitions and reconcile)" }
+    { "file": "lib/memory-ingest-landing.ts", "movedFrom": "(new: A1 memory ingest landing check, state transitions and reconcile)" },
+    { "file": "lib/result-codes.ts", "movedFrom": "(new: result codes and troubleshooting anchors for unattended runs, multi-agent wave B0)" },
+    { "file": "lib/headless-artifacts.ts", "movedFrom": "(new: the unattended artifact contract: schemas, validator, result grammar, B0)" },
+    { "file": "lib/gate-list.ts", "movedFrom": "(new: the final gate list renderer and reply grammar, B9)" },
+    { "file": "lib/autoplan-timing.ts", "movedFrom": "(new: autoplan phase timing, estimate and cycle summary, B10)" }
   ],
   "residualFiles": [
     { "file": "scripts/test-free-shards.ts", "maxLines": 2361, "reason": "free lane policy after the shard engine took spawn, sandbox, logs, seeds and flags" },

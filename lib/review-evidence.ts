@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { deriveReviewStatus, readJsonl } from './headless-artifacts';
+import { resultLine, type ResultCodeName } from './result-codes';
 
 const DIFF_REVIEWS = new Set(['review', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
 const SHARED_LIBS_COVERAGE_VERSION = 1;
@@ -175,8 +177,38 @@ export function captureReviewStart(skill: string, env = process.env): string {
   return token;
 }
 
-export function bindReview(rec: Record<string, any>, token: string, env = process.env): Record<string, any> {
-  for (const key of ['commit_full', 'tree', 'wtree', 'dirty', 'review_binding', 'review_freshness', 'shared_libs_coverage_version']) delete rec[key];
+/** A rejected row: `code` is the result code the wrapper prints; nothing was written. */
+export class ReviewLogError extends Error {
+  constructor(public code: ResultCodeName, message: string) { super(message); }
+}
+
+const DERIVED_KEYS = ['status', 'unresolved', 'issues_found', 'critical_gaps'] as const;
+
+/**
+ * B7: derive status/unresolved/issues_found/critical_gaps from a findings file
+ * (lib/headless-artifacts.ts `findings` rows or review findings with
+ * severity + disposition/action). A claimed value that disagrees rejects the
+ * row with REVIEW_STATUS_MISMATCH; the file is the record, never the claim.
+ */
+export function deriveFromFindings(rec: Record<string, any>, findingsPath: string): Record<string, any> {
+  let read;
+  try { read = readJsonl(findingsPath); }
+  catch (e: any) { throw new ReviewLogError('ARTIFACT_MISSING', resultLine('review-log', 'ARTIFACT_MISSING', `${findingsPath}: ${e.message}`)); }
+  if (read.errors.length) throw new ReviewLogError('ARTIFACT_MALFORMED_JSONL', resultLine('review-log', 'ARTIFACT_MALFORMED_JSONL', `${read.errors[0]!.path}: ${read.errors[0]!.message}`));
+  const derived = deriveReviewStatus(read.rows);
+  const mismatches = DERIVED_KEYS.filter(key => rec[key] !== undefined && rec[key] !== derived[key])
+    .map(key => `claimed ${key} ${JSON.stringify(rec[key])}, findings file has ${JSON.stringify(derived[key])}`);
+  if (mismatches.length) {
+    throw new ReviewLogError('REVIEW_STATUS_MISMATCH', `review-log: status mismatch: ${mismatches.join('; ')} (${derived.findings_open} open of ${derived.findings_total}) (REVIEW_STATUS_MISMATCH)`);
+  }
+  return { ...rec, ...derived, status_source: 'derived', findings_file: findingsPath };
+}
+
+export function bindReview(rec: Record<string, any>, token: string, env = process.env, findingsPath?: string): Record<string, any> {
+  for (const key of ['commit_full', 'tree', 'wtree', 'dirty', 'review_binding', 'review_freshness', 'shared_libs_coverage_version', 'status_source', 'findings_total', 'findings_open', 'findings_resolved', 'findings_file']) delete rec[key];
+  // The findings file is validated BEFORE the start token is consumed below:
+  // a rejected row must leave the token for the retry.
+  rec = findingsPath ? deriveFromFindings(rec, findingsPath) : { ...rec, status_source: 'claimed' };
   if (env.GSTACK_STAMP_COMMIT_FULL) rec.commit_full = env.GSTACK_STAMP_COMMIT_FULL;
   if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
   if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
@@ -235,7 +267,11 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string):
   if (!currentWtree || currentWtree === 'unknown' || rec.wtree !== currentWtree) {
     return { status: 'STALE', reason: 'working-tree content differs from reviewed content' };
   }
-  if (rec.status !== 'clean' || rec.issues_found > 0 || rec.critical > 0 ||
+  // B7: a derived row carries findings_open; a resolved critical finding no
+  // longer counts against it. Claimed rows keep the conservative reading of
+  // issues_found, and the legacy `critical` and Codex counters stay as they were.
+  const open = typeof rec.findings_open === 'number' ? rec.findings_open : rec.issues_found;
+  if (rec.status !== 'clean' || open > 0 || rec.critical > 0 ||
       (rec.skill === 'codex-review' && rec.findings > (rec.findings_fixed ?? 0))) {
     return { status: 'UNVERIFIED', reason: 'review has unresolved findings or did not finish clean' };
   }

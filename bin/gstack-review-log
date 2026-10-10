@@ -4,6 +4,10 @@
 #
 # Before reading a diff: gstack-review-log --start review
 # After that pass: gstack-review-log '{...,"completed":true,"converged":true}' --finish TOKEN
+# With a findings file: gstack-review-log '{...}' --findings findings.jsonl
+#   status/unresolved/issues_found/critical_gaps are DERIVED from the file (B7);
+#   a claimed value that disagrees is rejected with REVIEW_STATUS_MISMATCH.
+# Exit: 0 written · 1 rejected (binding or validation failed; stderr says why) · 2 usage.
 # Diff reviews get wtree only from a consumed, matching start capture on an
 # unchanged tree. Completion/convergence are reviewer-reported, not proof that
 # a model read the code. Caller-supplied binding fields are always discarded.
@@ -78,25 +82,44 @@ if [ "$INPUT" = --check-shared-libs ] && [ "$#" -eq 2 ]; then
   '
   exit $?
 fi
-if [ "$#" -ne 1 ] && { [ "$#" -ne 3 ] || [ "${2:-}" != --finish ]; }; then
-  echo 'Usage: gstack-review-log JSON [--finish TOKEN] | --start SKILL | --check-shared-libs TOKEN < finding.json' >&2
-  exit 1
-fi
+usage() {
+  echo 'Usage: gstack-review-log JSON [--finish TOKEN] [--findings FILE] | --start SKILL | --check-shared-libs TOKEN < finding.json' >&2
+  echo 'Exit codes: 0 written · 1 rejected · 2 usage' >&2
+  exit 2
+}
+[ "$#" -ge 1 ] || usage
+TOKEN=""
+FINDINGS=""
+shift
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --finish)   [ "$#" -ge 2 ] || usage; TOKEN="$2"; shift 2 ;;
+    --findings) [ "$#" -ge 2 ] || usage; FINDINGS="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+case "$INPUT" in --*) usage ;; esac
 
 # Validate (reject malformed or injection attempts) AND stamp in one pass.
-# Caller values for the binding keys are dropped before stamping.
-STAMPED=$(printf '%s' "$INPUT" | GSTACK_REVIEW_TOKEN="${3:-}" bun -e "
+# Caller values for the binding keys are dropped before stamping. A binding or
+# validation failure reaches stderr as its own line (never folded into
+# "invalid JSON"), and exits 1 with nothing written.
+STAMPED=$(printf '%s' "$INPUT" | GSTACK_REVIEW_TOKEN="$TOKEN" GSTACK_REVIEW_FINDINGS="$FINDINGS" bun -e "
 const { bindReview } = await import(process.env.GSTACK_REVIEW_LIB);
-const rec = JSON.parse(await Bun.stdin.text());
-if (!rec || Array.isArray(rec) || typeof rec !== 'object') throw new Error('expected object');
-console.log(JSON.stringify(bindReview(rec, process.env.GSTACK_REVIEW_TOKEN)));
-" 2>/dev/null) || {
-  # Not valid JSON — refuse to append
-  echo "gstack-review-log: invalid JSON, skipping" >&2
-  exit 1
-}
+let rec;
+try { rec = JSON.parse(await Bun.stdin.text()); } catch (e) { console.error('gstack-review-log: invalid JSON, skipping (' + e.message + ')'); process.exit(1); }
+if (!rec || Array.isArray(rec) || typeof rec !== 'object') { console.error('gstack-review-log: invalid JSON, skipping (expected an object)'); process.exit(1); }
+try {
+  console.log(JSON.stringify(bindReview(rec, process.env.GSTACK_REVIEW_TOKEN, process.env, process.env.GSTACK_REVIEW_FINDINGS || undefined)));
+} catch (e) { console.error(e.message); process.exit(1); }
+") || exit 1
 
 echo "$STAMPED" >> "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"
 
-# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
-"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null &
+# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off). Plan B1:
+# an unattended session never enqueues, whatever the inherited sync mode.
+if [ "$("$SCRIPT_DIR/gstack-session-kind" 2>/dev/null || echo interactive)" = "unattended" ]; then
+  echo "review-log: sync skipped (unattended session)" >&2
+else
+  "$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null &
+fi

@@ -10,6 +10,7 @@
 # the preamble at skill START and END boundaries.
 #
 # No-op when:
+#   - GSTACK_SESSION_KIND=unattended (plan B1: a parent-driven run never syncs)
 #   - artifacts_sync_mode is off (the default)
 #   - ~/.gstack/.git doesn't exist (feature not initialized)
 #   - <file-path> matches a line in ~/.gstack/.brain-skip.txt
@@ -30,6 +31,11 @@ set -uo pipefail
 
 FILE="${1:-}"
 [ -z "$FILE" ] && exit 0
+
+# Plan B1: an unattended session never spools for cross-machine sync, whatever
+# the inherited mode; every writer (timeline, decision, learnings, review log)
+# is covered here, at the one entrypoint, instead of per caller.
+[ "${GSTACK_SESSION_KIND:-}" = "unattended" ] && exit 0
 
 . "$(dirname "$0")/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $(dirname "$0")/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select

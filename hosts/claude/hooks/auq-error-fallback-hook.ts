@@ -108,7 +108,9 @@ export function isErrorResponse(response: unknown): boolean {
 
 /** Resolve SESSION_KIND via the shared helper (same classification the preamble
  *  echoes). Falls back to 'interactive' (degrade-safe) on any failure. */
-export function sessionKind(cwd?: string): 'spawned' | 'headless' | 'interactive' {
+export type SessionKind = 'spawned' | 'headless' | 'interactive' | 'unattended';
+
+export function sessionKind(cwd?: string): SessionKind {
   try {
     const res = runBin('gstack-session-kind', [], {
       encoding: 'utf-8',
@@ -116,7 +118,7 @@ export function sessionKind(cwd?: string): 'spawned' | 'headless' | 'interactive
       cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
     });
     const out = String(res.stdout || '').trim();
-    if (out === 'spawned' || out === 'headless' || out === 'interactive') return out;
+    if (out === 'spawned' || out === 'headless' || out === 'interactive' || out === 'unattended') return out;
   } catch (e) {
     logHookError(`sessionKind failed: ${(e as Error).message}`);
   }
@@ -124,7 +126,7 @@ export function sessionKind(cwd?: string): 'spawned' | 'headless' | 'interactive
 }
 
 /** The directive injected per session kind. Exported for unit testing. */
-export function directiveFor(kind: 'spawned' | 'headless' | 'interactive'): string {
+export function directiveFor(kind: SessionKind): string {
   const lead =
     'The AskUserQuestion call did not return a usable answer (error / missing result). ' +
     'Per the AskUserQuestion failure-fallback rule: ';
@@ -139,6 +141,19 @@ export function directiveFor(kind: 'spawned' | 'headless' | 'interactive'): stri
         'Do not emit prose, do not BLOCK. Exception: never auto-choose a destructive or ' +
         'irreversible option — take the conservative non-destructive choice (skip/defer), ' +
         'record it, and continue.' + SPAWNED_CONSENT_RULE
+      );
+    case 'unattended':
+      // Plan B1 (decision D6): a parent agent reads this run's artifacts and
+      // nobody answers mid-run. Recommended options are taken and logged;
+      // anything without a recommendation, a consent, a destructive option or
+      // an approval gate is a pending gate item, never an approval.
+      return (
+        lead +
+        'SESSION_KIND=unattended — auto-choose the `(recommended)` option and append it to decisions.jsonl ' +
+        'with kind "auto"; do not emit prose, do not BLOCK. A question with no recommendation, a consent, ' +
+        'a destructive or irreversible option, or an approval gate is appended with kind "approval" and status ' +
+        '"pending" — never chosen, never approved — and the skill ends at its next gate with ' +
+        'GSTACK_RESULT status=gate_pending (Unattended session block).'
       );
     case 'headless':
       // #2733 review (multi-specialist): a spawned-marked subagent under a
