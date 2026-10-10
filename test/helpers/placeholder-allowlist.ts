@@ -128,6 +128,7 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<stagedDir>': { grammar: QUOTED, what: 'staged directory printed by an earlier block', quoted: true },
   '<outdir>': { grammar: PATH, what: 'output directory' },
   '<path>': { grammar: PATH, what: 'repository path from discovery' },
+  '<plan-path>': { grammar: PATH, what: 'bound plan file path' },
   '<sketch-dir>': { grammar: PATH, what: 'sketch directory printed by an earlier block' },
   '<path-to-finalized.html>': { grammar: PATH, what: 'finalized HTML path' },
   '<finalized.html>': { grammar: PATH, what: 'finalized HTML path' },

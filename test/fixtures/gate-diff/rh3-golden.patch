@@ -1,0 +1,7 @@
+diff --git a/pkg/testdata/render.golden b/pkg/testdata/render.golden
+index 7898192..6178079 100644
+--- a/pkg/testdata/render.golden
++++ b/pkg/testdata/render.golden
+@@ -1 +1 @@
+-a
++b

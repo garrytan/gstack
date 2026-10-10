@@ -71,9 +71,17 @@ theme, excluding VERSION/CHANGELOG bookkeeping. Do not paste the commit list.>
 <Weak paths and leftover gaps as proposed tests with value cards; each regression test's
 "Regression proof — fails at HEAD · passes at base · passes after fix" line; Test value
 details for cards whose file type has no known comment syntax.>
+<One line per Step 5 lane: "Tests ran: <lane> N" from its receipt's `tests_ran`, or
+"Tests ran: <lane> count unavailable" when the runner summary was not recognised. A
+ZERO-RUN lane never reaches this body unresolved.>
 
 ## Pre-Landing Review
 <findings from Step 9 code review, or "No issues found.">
+<Gate edits: Step 9's latest `Gate edits:` line verbatim — `none detected (...)`,
+`N listed, M read, K findings — J kept, R restored, O open`, `partial (...)` or
+`UNAVAILABLE — ...`; never `none detected` for partial or UNAVAILABLE. Under it, each
+kept finding's `gate`, path and `reason`, and each open finding's `gate` and path.
+Identity and reason only; no hunk text.>
 <Outside review: its verdict; `unverified` or `unavailable` is listed as missing coverage with its reason, never as passed.>
 
 ## Exploratory QA
@@ -185,16 +193,28 @@ TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<tit
 ```
 
 It updates the body, then the title, retries a retired-GraphQL edit through REST and
-reads the title back. If Step 6.5 opened this PR as an early draft and the user did not
-ask for a draft, mark it ready now: `gh pr ready <pr-number>`. Print the existing URL
-and continue to Step 20; do not run the create command below.
+reads the title back. Then resolve the draft state from Step 9's gate findings:
 
-**No open PR/MR:**
+1. Step 6.5 opened this PR as an early draft, the user did not ask for a draft, and no
+   gate finding is `open`: mark it ready now with `gh pr ready <pr-number>`.
+2. Step 6.5 opened it as an early draft and any gate finding is `open`: leave it a
+   draft; print `Draft kept: Gate edits: N open` and the open findings' `gate` and path.
+3. The PR was already ready (not a draft) and any gate finding is `open`: publish only
+   under Step 17's recorded human authorisation (option B there); the body already
+   carries the `Gate edits: N open` banner. Without that record, STOP here and report.
+
+Print the existing URL and continue to Step 20; do not run the create command below.
+
+**No open PR/MR:** add `--draft` when any gate finding is `open` (a later agent never
+infers approval from the PR existing; the human marks it ready after dispositioning
+the open items). Otherwise create it ready:
 
 ```bash
 TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
 ~/.claude/skills/gstack/bin/gstack-post pr-create --base <base> --title-file "$TITLE_FILE" --body-file "${PR_BODY_FILE:?restore the composed body path}"
 ```
+
+With open gate findings the same command carries `--draft` before `--title-file`.
 
 Branch on the exit code of either block:
 - **0** posted. Remove `$PR_BODY_FILE` and the title file.
@@ -208,7 +228,9 @@ Branch on the exit code of either block:
   `--confirm <confirm-token>` added to the command that printed it; any edit needs a new token.
 - **3** `gh`/`glab` failed, or **64** no usable remote or CLI: print the error, the
   branch name, the remote URL and the block for posting by hand. Do not stop — the code
-  is pushed — but never report a PR that was not created.
+  is pushed — but never report a PR that was not created. With open gate findings,
+  also say the gate edits were not disclosed and leave the Step 16 open-items report
+  in the invocation record; never report the disclosure as done.
 - Any other exit is an error that blocks publication until its cause is fixed.
 
 **Output the PR/MR URL** — then proceed to Step 20.

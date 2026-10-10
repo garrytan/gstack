@@ -67,7 +67,10 @@ if [ -n "$COMMIT_FULL" ]; then
   fi
 fi
 
-export GSTACK_STAMP_COMMIT_FULL="$COMMIT_FULL" GSTACK_STAMP_TREE="$TREE" GSTACK_STAMP_WTREE="$WTREE" GSTACK_STAMP_DIRTY="$DIRTY"
+# Gate findings get `actor` from the session classifier, never from the caller;
+# a non-interactive session's gate findings are forced to action "open".
+SESSION_KIND=$("$SCRIPT_DIR/gstack-session-kind" 2>/dev/null || echo interactive)
+export GSTACK_STAMP_COMMIT_FULL="$COMMIT_FULL" GSTACK_STAMP_TREE="$TREE" GSTACK_STAMP_WTREE="$WTREE" GSTACK_STAMP_DIRTY="$DIRTY" GSTACK_STAMP_SESSION_KIND="$SESSION_KIND"
 if [ "$INPUT" = --start ]; then
   GSTACK_REVIEW_SKILL="${2:-}" bun -e '
     const { captureReviewStart } = await import(process.env.GSTACK_REVIEW_LIB);

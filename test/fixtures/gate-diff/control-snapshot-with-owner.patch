@@ -1,0 +1,24 @@
+diff --git a/test/Button.test.ts b/test/Button.test.ts
+index 6546d09..e33c488 100644
+--- a/test/Button.test.ts
++++ b/test/Button.test.ts
+@@ -2,5 +2,5 @@ import { test, expect } from 'bun:test';
+ import { Button } from '../src/Button';
+ 
+ test('Button renders', () => {
+-  expect(Button({ label: 'Click' })).toMatchSnapshot();
++  expect(Button({ label: 'Click', primary: true })).toMatchSnapshot();
+ });
+diff --git a/test/__snapshots__/Button.test.ts.snap b/test/__snapshots__/Button.test.ts.snap
+index eef8a11..2b1d741 100644
+--- a/test/__snapshots__/Button.test.ts.snap
++++ b/test/__snapshots__/Button.test.ts.snap
+@@ -1,7 +1,7 @@
+ // Bun Snapshot v1
+ 
+ exports[`Button renders 1`] = `
+-<button>
++<button class="primary">
+   Click
+ </button>
+ `;

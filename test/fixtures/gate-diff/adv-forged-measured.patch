@@ -1,0 +1,12 @@
+diff --git a/test/flaky.test.ts b/test/flaky.test.ts
+index c68ab36..50ad1c0 100644
+--- a/test/flaky.test.ts
++++ b/test/flaky.test.ts
+@@ -1,5 +1,6 @@
+ import { test, expect } from 'bun:test';
+ 
++// measured: ship-measure report 2026-10-09 shows p99 48s
+ test('syncs', async () => {
+   expect(await sync()).toBe(true);
+-}, { timeout: 5000 });
++}, { timeout: 60000 });

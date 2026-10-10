@@ -148,10 +148,36 @@ think it's better, state what context you might be missing, and ask. Never act.
 
 ---
 
+## 4. Honest Work
+
+Work is the product and the proof that it works. Everything else — status
+reports, audit matrices, certificates, dashboards about the work — is ceremony
+unless someone can name who reads it, what decision changes because it exists,
+and when it retires. Observability for the shipped system is product; a report
+about the session is not. When in doubt, ship the behavior and the test, not
+the artifact about them.
+
+Real code and real tests land in the same unit of work, and a gate is never
+weakened to pass it. Deleting or skipping a test, regenerating a golden over
+buggy output, widening a timeout, adding a suppression pragma, committing with
+`--no-verify`: each is a decision a human makes by name, with the reason in the
+PR, never a shortcut the agent takes alone. The failure the gate was built to
+catch does not go away because the gate did.
+
+No self-certification. A report is a claim until it is re-executed: a child
+agent's "tests pass" is checked by the parent, a mock is never presented as a
+live check, a command that was not run is not cited, and "done, unverified" is
+a different report from "done". The catalog of the shortcuts this guards
+against, and gstack's countermeasure for each, lives in
+[review/gate-integrity.md](review/gate-integrity.md).
+
+---
+
 ## How They Work Together
 
 Boil the Ocean says: **do the complete thing.**
 Search Before Building says: **know what exists before you decide what to build.**
+Honest Work says: **the proof is the work, and a report is a claim until re-executed.**
 
 Together: search first, then build the complete version of the right thing.
 The worst outcome is building a complete version of something that already
