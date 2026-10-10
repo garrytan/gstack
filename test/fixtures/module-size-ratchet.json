@@ -51,7 +51,11 @@
     { "file": "lib/gate-diff/tags.ts", "movedFrom": "(new: gate-edit detector RH tags, W1)" },
     { "file": "lib/gate-diff/git.ts", "movedFrom": "(new: gate-edit detector candidate model and hardened git calls, W1)" },
     { "file": "lib/gate-diff/render.ts", "movedFrom": "(new: gate-edit detector stdout contract, W1)" },
-    { "file": "lib/gate-diff/index.ts", "movedFrom": "(new: gate-edit detector pure core, W1)" }
+    { "file": "lib/gate-diff/index.ts", "movedFrom": "(new: gate-edit detector pure core, W1)" },
+    { "file": "lib/result-codes.ts", "movedFrom": "(new: result codes and troubleshooting anchors for unattended runs, multi-agent wave B0)" },
+    { "file": "lib/headless-artifacts.ts", "movedFrom": "(new: the unattended artifact contract: schemas, validator, result grammar, B0)" },
+    { "file": "lib/gate-list.ts", "movedFrom": "(new: the final gate list renderer and reply grammar, B9)" },
+    { "file": "lib/autoplan-timing.ts", "movedFrom": "(new: autoplan phase timing, estimate and cycle summary, B10)" }
   ],
   "residualFiles": [
     { "file": "scripts/test-free-shards.ts", "maxLines": 2361, "reason": "free lane policy after the shard engine took spawn, sandbox, logs, seeds and flags" },

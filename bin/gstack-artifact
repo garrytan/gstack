@@ -1,0 +1,113 @@
+#!/usr/bin/env bun
+/**
+ * gstack-artifact — validate, print and acknowledge the unattended artifact contract.
+ *
+ *   gstack-artifact validate <run.json> [--json]            completion check for a run directory
+ *   gstack-artifact validate <file> --as <name> [--run <id>] [--json]
+ *                                                           one artifact against its schema
+ *   gstack-artifact schema <name> | --list                  JSON Schema this version validates
+ *   gstack-artifact ack <run.json> --consumer <id> [--json] idempotent consumption report (P7)
+ *   gstack-artifact urgent <findings.jsonl>                 the `## URGENT, outside this plan` block
+ *
+ * Query command: no GSTACK_RESULT line. `--json` means JSON only on stdout and
+ * diagnostics on stderr. Logic: lib/headless-artifacts.ts; codes: lib/result-codes.ts.
+ */
+import * as path from 'node:path';
+import {
+  ARTIFACT_NAMES, EXIT, ackRun, exitTableHelp, jsonSchema, readJsonl, renderUrgentBlock,
+  validateFile, validateRun, type ArtifactName, type ValidationError,
+} from '../lib/headless-artifacts';
+import { resultLine } from '../lib/result-codes';
+import { resolveStateRoot } from '../lib/state-root';
+
+const HELP = `gstack-artifact — the unattended artifact contract (docs/unattended.md)
+
+  validate <run.json> [--json]                      run-directory completion check
+  validate <file> --as <name> [--run <id>] [--json] one artifact against its schema
+  schema <name> | --list                            JSON Schema for ${ARTIFACT_NAMES.join(', ')}
+  ack <run.json> --consumer <id> [--json]           set run.json.consumed_by (idempotent) and log the ack
+  urgent <findings.jsonl>                           render the URGENT block (\`None.\` when empty)
+
+Without --json: one error line per problem on stderr, each ending in (<CODE>),
+then ARTIFACT_VALID: run=<id> status=<status> or ARTIFACT_INVALID: <n> error(s) on stdout.
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+function usage(message: string): number {
+  process.stderr.write(`gstack-artifact: ${message}\n${HELP}\n`);
+  return EXIT.usage;
+}
+function printErrors(errors: ValidationError[]): void {
+  for (const e of errors) process.stderr.write(resultLine('gstack-artifact validate', e.code, `${e.message} at ${e.path}`) + '\n');
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  const json = rest.includes('--json');
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+
+  if (cmd === 'schema') {
+    if (rest.includes('--list')) { process.stdout.write(ARTIFACT_NAMES.join('\n') + '\n'); return EXIT.ok; }
+    const name = rest[0];
+    if (!name || !ARTIFACT_NAMES.includes(name as ArtifactName)) return usage(`schema needs one of: ${ARTIFACT_NAMES.join(', ')}`);
+    process.stdout.write(JSON.stringify(jsonSchema(name as ArtifactName), null, 2) + '\n');
+    return EXIT.ok;
+  }
+
+  if (cmd === 'validate') {
+    const file = rest.find(a => !a.startsWith('--') && a !== flag(rest, '--as') && a !== flag(rest, '--run'));
+    if (!file) return usage('validate needs a file');
+    const as = flag(rest, '--as');
+    if (as !== undefined && !ARTIFACT_NAMES.includes(as as ArtifactName)) return usage(`--as needs one of: ${ARTIFACT_NAMES.join(', ')}`);
+    if (as) {
+      const errors = validateFile(file, as as ArtifactName, flag(rest, '--run'));
+      if (json) process.stdout.write(JSON.stringify({ valid: errors.length === 0, file, as, errors }) + '\n');
+      else { printErrors(errors); process.stdout.write(errors.length ? `ARTIFACT_INVALID: ${errors.length} error(s)\n` : `ARTIFACT_VALID: ${as} ${path.basename(file)}\n`); }
+      return errors.length ? EXIT.fail : EXIT.ok;
+    }
+    const result = validateRun(file);
+    if (json) {
+      process.stdout.write(JSON.stringify({ valid: result.valid, run: result.manifest?.run ?? null, status: result.manifest?.status ?? null, run_dir: result.runDir, errors: result.errors }) + '\n');
+    } else {
+      printErrors(result.errors);
+      process.stdout.write(result.valid
+        ? `ARTIFACT_VALID: run=${result.manifest!.run} status=${result.manifest!.status}\n`
+        : `ARTIFACT_INVALID: ${result.errors.length} error(s)\n`);
+    }
+    return result.valid ? EXIT.ok : EXIT.fail;
+  }
+
+  if (cmd === 'ack') {
+    const file = rest.find(a => !a.startsWith('--') && a !== flag(rest, '--consumer'));
+    const consumer = flag(rest, '--consumer');
+    if (!file || !consumer) return usage('ack needs <run.json> --consumer <id>');
+    const validation = validateRun(file);
+    if (!validation.valid) {
+      printErrors(validation.errors);
+      process.stderr.write('gstack-artifact ack: refusing to acknowledge an invalid run; nothing written\n');
+      return EXIT.refused;
+    }
+    const analyticsPath = path.join(resolveStateRoot(), 'analytics', 'autoplan-timing.jsonl');
+    const result = ackRun(file, consumer, { analyticsPath, ephemeral: process.env.GSTACK_EPHEMERAL === '1' });
+    if (result.analytics === 'skipped_ephemeral') process.stderr.write('ack: analytics skipped (state root is ephemeral; set GSTACK_STATE_ROOT)\n');
+    if (json) process.stdout.write(JSON.stringify({ run: validation.manifest!.run, consumer, ...result }) + '\n');
+    else process.stdout.write(`ARTIFACT_ACK: run=${validation.manifest!.run} consumer=${consumer} ${result.added ? 'recorded' : 'already recorded'} analytics=${result.analytics}\n`);
+    return EXIT.ok;
+  }
+
+  if (cmd === 'urgent') {
+    const file = rest[0];
+    if (!file) return usage('urgent needs <findings.jsonl>');
+    const read = readJsonl(file);
+    if (read.errors.length) { printErrors(read.errors); return EXIT.fail; }
+    process.stdout.write(renderUrgentBlock(read.rows));
+    return EXIT.ok;
+  }
+
+  return usage(`unknown command ${cmd}`);
+}
+
+process.exitCode = main(process.argv.slice(2));

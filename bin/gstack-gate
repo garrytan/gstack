@@ -1,0 +1,100 @@
+#!/usr/bin/env bun
+/**
+ * gstack-gate — render and parse the one gate list (plan B9).
+ *
+ *   gstack-gate render <gate.json> [--page N]
+ *   gstack-gate parse <gate.json> --reply "<text>" --gate-rev N [--json]
+ *   gstack-gate decisions <gate.json> [--reply "<text>" --gate-rev N] [--answered-at ISO]
+ *
+ * Logic: lib/gate-list.ts. Codes: lib/result-codes.ts (GATE_REV_STALE, GATE_REPLY_UNPARSED).
+ */
+import * as fs from 'node:fs';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { applyReply, decisionRows, parseReply, renderGate, validateGateList, type GateList } from '../lib/gate-list';
+import { resultLine } from '../lib/result-codes';
+
+const HELP = `gstack-gate — one gate list, one reply grammar
+
+  render <gate.json> [--page N]                         numbered items with stable ids, auto/approval, the reply shape
+  parse <gate.json> --reply "<text>" --gate-rev N [--json]
+                                                        resolved choices as JSON; unparsed tokens are listed, never guessed
+  decisions <gate.json> [--reply "<text>" --gate-rev N] [--answered-at ISO]
+                                                        decisions.jsonl rows (pending, or applied when a reply is given)
+
+Reply grammar: \`all\` · \`<id><option>\` tokens (\`d3b uc1a\`) · \`all except <tokens>\`. Bare yes/no is rejected.
+gate.json: {"schema_version":1,"run":"<id>","gate_rev":1,"items":[{"id":"d1","title":"…","kind":"auto|approval","recommended":"a","options":[{"key":"a","text":"…"},…]}]}
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+function usage(message: string): number {
+  process.stderr.write(`gstack-gate: ${message}\n${HELP}\n`);
+  return EXIT.usage;
+}
+function loadList(file: string | undefined): GateList | number {
+  if (!file) return usage('a gate.json path is required');
+  let list: unknown;
+  try { list = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e: any) { process.stderr.write(`gstack-gate: ${file}: ${e.message}\n`); return EXIT.fail; }
+  const problems = validateGateList(list);
+  if (problems.length) { process.stderr.write(`gstack-gate: ${file} is not a gate list:\n  ${problems.join('\n  ')}\n`); return EXIT.fail; }
+  return list as GateList;
+}
+
+function parseWith(list: GateList, rest: string[], json: boolean) {
+  const reply = flag(rest, '--reply');
+  const revText = flag(rest, '--gate-rev');
+  if (reply === undefined) return { code: usage('--reply "<text>" is required') };
+  if (revText === undefined) {
+    process.stderr.write(resultLine('gstack-gate parse', 'GATE_REV_STALE', `no --gate-rev given; current gate_rev=${list.gate_rev}`) + '\n');
+    return { code: EXIT.refused };
+  }
+  const parsed = parseReply(reply, list, Number(revText));
+  if (json) process.stdout.write(JSON.stringify(parsed) + '\n');
+  if (parsed.error === 'GATE_REV_STALE') {
+    process.stderr.write(resultLine('gstack-gate parse', 'GATE_REV_STALE', `reply names gate_rev=${revText}, current gate_rev=${list.gate_rev}`) + '\n');
+    return { code: EXIT.refused, parsed };
+  }
+  if (!parsed.valid) {
+    const detail = parsed.error === 'GATE_EMPTY' ? 'empty reply' : `unparsed: ${parsed.unparsed.join(', ')}`;
+    process.stderr.write(resultLine('gstack-gate parse', 'GATE_REPLY_UNPARSED', detail) + '\n');
+    return { code: EXIT.fail, parsed };
+  }
+  return { code: EXIT.ok, parsed };
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  const positional = rest.filter((a, i) => !a.startsWith('--') && !(i > 0 && rest[i - 1]!.startsWith('--') && rest[i - 1] !== '--json'));
+  const list = loadList(positional[0]);
+  if (typeof list === 'number') return list;
+
+  if (cmd === 'render') {
+    const page = flag(rest, '--page');
+    if (page !== undefined && !/^[0-9]+$/.test(page)) return usage('--page needs a number');
+    process.stdout.write(renderGate(list, page ? Number(page) : 1));
+    return EXIT.ok;
+  }
+  if (cmd === 'parse') {
+    const { code, parsed } = parseWith(list, rest, rest.includes('--json'));
+    if (code === EXIT.ok && !rest.includes('--json')) {
+      process.stdout.write(JSON.stringify(parsed) + '\n');
+    }
+    return code;
+  }
+  if (cmd === 'decisions') {
+    let rows = decisionRows(list);
+    if (flag(rest, '--reply') !== undefined || flag(rest, '--gate-rev') !== undefined) {
+      const { code, parsed } = parseWith(list, rest, false);
+      if (code !== EXIT.ok) return code;
+      rows = applyReply(rows, parsed!, flag(rest, '--answered-at') ?? new Date().toISOString());
+    }
+    process.stdout.write(rows.map(r => JSON.stringify(r)).join('\n') + '\n');
+    return EXIT.ok;
+  }
+  return usage(`unknown command ${cmd}`);
+}
+
+process.exitCode = main(process.argv.slice(2));
