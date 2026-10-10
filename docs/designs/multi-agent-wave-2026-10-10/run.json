@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run": "maw-20261010",
   "generator": "hand-written by the autoplan run; `gstack-artifact validate` (B0) does not exist yet",
-  "status": "gate_pending",
+  "status": "approved",
   "base": "91bbd9e",
   "host": "capy",
   "required_phases": [
@@ -53,7 +53,7 @@
   },
   "counts": {
     "decisions": 13,
-    "decisions_pending": 13,
+    "decisions_pending": 0,
     "findings": 65,
     "findings_accepted": 64,
     "findings_partial": 1,
@@ -68,7 +68,7 @@
   "artifacts": {
     "decisions.jsonl": {
       "path": "docs/designs/multi-agent-wave-2026-10-10/decisions.jsonl",
-      "sha256": "e08c834c14a4e8a87d11d7f8e317c40d0196dd9fd9ccc1317daf15a0891ee05f"
+      "sha256": "8c7ed4e1554816cc40861c322d5d69a957036cc52db91c1f1d1e9181e39a11e8"
     },
     "findings.jsonl": {
       "path": "docs/designs/multi-agent-wave-2026-10-10/findings.jsonl",
@@ -76,11 +76,11 @@
     },
     "tasks.jsonl": {
       "path": "docs/designs/multi-agent-wave-2026-10-10/tasks.jsonl",
-      "sha256": "beec9cad28875c43a7b322c22e1977ebb74512ba084e6e9a860b34685ee196cb"
+      "sha256": "01d5e708ffe98d638cdb40a4b8dc65bba279ee43cc9ce90677f631b90448de4d"
     },
     "timing.json": {
       "path": "docs/designs/multi-agent-wave-2026-10-10/timing.json",
-      "sha256": "d03d3c5427811658a40f06f572193dffef84a6956e7a8674bc634d0f3652241e"
+      "sha256": "c8427164fd266959dbb3ccab3a7b52213d110a27baa0b9a55a764178c33187bc"
     },
     "ceo-native.md": {
       "path": "docs/designs/multi-agent-wave-2026-10-10/ceo-native.md",
@@ -108,8 +108,13 @@
     },
     "plan.md": {
       "path": "docs/designs/MULTI_AGENT_WAVE_2026_10_10.md",
-      "sha256": "71ee0b04248bab5c2be0e9c56cf4f28f8d4d7f8810ec83effe2b87e1df954ea1"
+      "sha256": "225b0e74b1cf8442dbcd4b93cfc868d0428fe8ac1d53e37b394416f7ad527fd4"
     }
   },
-  "gate_rev": 1
+  "gate_rev": 1,
+  "gate": {
+    "reply": "all",
+    "answered_at": "2026-10-10T21:30Z",
+    "gate_rev": 1
+  }
 }

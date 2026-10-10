@@ -203,11 +203,11 @@ Estimated per component (`[estimated]`; the CEO review found the first table unc
 | D | 0 / 1 / 12 (tier 1) | 600–900 | 1.5 weeks | 1 day | ~8x |
 | E | 3 / 4 / 10 (tier 1) | 1,500–2,500 | 2 weeks | 1.5 days | ~7x |
 
-### Gate decisions (2026-10-10, awaiting owner)
+### Gate decisions (2026-10-10; owner replied `all` at 21:30 UTC: every item approved on its recommended option)
 
 Reply grammar: `all` approves every recommendation; `<id><option>` overrides one item (`d1b uc1a`); `all except d9b` combines them.
 
-**User challenges (both reviewers recommend changing your stated direction; your direction stands unless you change it):**
+**User challenges (both reviewers recommended changing the stated direction; the owner accepted the recommendation):**
 
 - **UC1. Scope of the committed wave.** You asked for every section, P0 first. Both the native (Claude) and outside (gpt-6-astra) CEO voices recommend committing P0 now and gating the breadth on adoption evidence, because the premise that tooling gaps (not low perceived value) kept 13 of 28 threads off gstack is unmeasured, and the first effort table was not credible. (a) **Recommended:** commit the whole stacked wave (seven PRs per D12) with the tiering above; tier 1 of every PR is funded now, tier 3 waits for the P7 number (six of the next ten Capy threads run an unattended workflow a parent consumed). Cost: the full breadth lands weeks later than a single push, and two PRs may ship thinner. (b) P0 only (A, B-core, B-runner, C-stamp, C-pregate), then decide. (c) Everything as first written, no tiers. If wrong about (a): tier-3 items the fleet needed wait one measurement cycle.
 
@@ -382,7 +382,7 @@ Required outputs: Scope Challenge, architecture diagrams, failure-mode registrie
 - E1 consumes B-runner's ledger; E2 `verify` over C3's bundle; E3 maintainers from policy or push permission. P7 measured through `run.json.consumed_by`, the ship receipt and `gstack-ship-receipt census`. Validation 2 accepts either outside runner; Validation 5 adds `typecheck:test`, `build`, `format:cso:check`, credential scan, quality judges.
 <!-- /autoplan-accepted:eng -->
 
-### Phase 4 close (21:18 UTC; gate written, not approved)
+### Phase 4 close (21:18 UTC; gate written, approved by the owner at 21:30 UTC)
 
 Whole cycle: 20:30 → 21:18 UTC, 48 min wall for three dual-voice phases on a 4-core Capy machine, no Claude Code harness. Outside voice total 569 s of Codex `gpt-6-astra` (three runs, spend not metered by the CLI); native reviewers were Claude subagents on this thread's model, spend unmetered. 65 reviewer findings reconciled (64 accepted, 1 partially accepted, 0 rejected); 13 gate items (UC1, D1–D12), all pending the owner.
 
@@ -390,4 +390,4 @@ Files beside this plan in `docs/designs/multi-agent-wave-2026-10-10/`: `decision
 
 Deviations from the skill as written, stated rather than implied: the Spec Review Loop (B8's subject) was not run on this plan; no `review-log` JSONL rows were written because the state root on this machine is ephemeral (A3's subject) and nothing durable was configured; the phase-publication-hook guard was not enforced because this host executes no hooks (B1's subject), so publication order rests on the snapshot hashes recorded per phase; every mid-run question was auto-decided on the recommended option and logged in the phase records. The final gate below is the one decision the run does not take.
 
-Gate: reply `all` to approve every recommendation, `<id><option>` to override one (`d12b uc1b`), `all except d9b` to combine. Items needing an explicit answer: UC1, D1, D6, D12. The rest default to the recommended option if unanswered, and the record will say so.
+Gate: the owner replied `all` ("Take recommendations and approve"), so UC1 and D1–D12 are decided on option (a). Nothing reviewed changed, so no phase reopens. Implementation starts with PR A and PR B-core in parallel on fresh machines (disjoint files; A owns `bin/gstack-doctor`, `setup`, `bin/gstack-capy-install`; B-core owns `lib/headless-artifacts.ts`, `bin/gstack-skill-start`, `bin/gstack-session-kind`, `bin/gstack-review-log`), B-runner and C-stamp stacked on B-core.
