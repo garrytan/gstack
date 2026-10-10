@@ -134,6 +134,44 @@ yourself, for example in the project's `.claude/settings.local.json`
 remote, or for a vendored sub-repo that should be its own project. The pin is
 applied per run and never cached.
 
+## Ephemeral machines
+
+A Capy cloud machine, a CI runner or a throwaway VM loses its disk when the
+run ends, and with it every learning, decision, review-log row and timing
+record gstack wrote under the default root. gstack does not guess this from
+the path (a tmpfs and a home directory look alike); the host says so with one
+environment marker:
+
+```
+GSTACK_EPHEMERAL=1
+```
+
+What the marker changes:
+
+- `gstack-doctor` and `gstack-doctor --check` report the `state root` row as
+  `durable=no` (the dashboard warns, the check still passes: an ephemeral root
+  is a fact, not a broken install).
+- Unattended sessions print `learnings: skipped (state root is ephemeral; set
+  GSTACK_STATE_ROOT)` instead of writing silently to a disk that will vanish.
+
+A durable root is opt-in: the owner sets `GSTACK_STATE_ROOT` (or `GSTACK_HOME`)
+to a directory that outlives the machine. The installer never picks one for
+you. On Capy the drive is governed by Capy's own drive policy, which excludes
+memory and verification evidence, so `bin/gstack-capy-install` only prints the
+option and never writes there.
+
+A child shell's `export` cannot configure the parent's later commands
+(`lib/state-root.ts` reads each process's own environment), so the installer
+ends with one machine-readable line the parent supplies to every gstack
+command it launches:
+
+```
+GSTACK_LAUNCH: GSTACK_SESSION_KIND=unattended GSTACK_STATE_ROOT=<path> GSTACK_EPHEMERAL=1
+```
+
+Prefix each command with those assignments (or export them once in the shell
+that runs them). See [docs/capy-install.md](capy-install.md).
+
 ## Uninstall
 
 `gstack-uninstall` deletes state only at `~/.gstack`.

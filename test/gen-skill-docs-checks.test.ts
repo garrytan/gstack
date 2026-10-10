@@ -37,7 +37,7 @@ afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 describe('generator artifact and dry-run contract', () => {
   test('all host artifacts validate, with canonical links and host exclusions', () => {
     expect([...new Set(generated.artifacts.filter(a => a.host).map(a => a.host))].sort()).toEqual([...ALL_HOST_NAMES].sort());
-    expect([...new Set(generated.artifacts.map(a => a.kind))].sort()).toEqual(['asset', 'digest', 'index', 'metadata', 'openclaw', 'section', 'skill']);
+    expect([...new Set(generated.artifacts.map(a => a.kind))].sort()).toEqual(['asset', 'digest', 'doctor-components', 'index', 'metadata', 'openclaw', 'section', 'skill']);
     expect(generated.artifacts.some(a => a.relativePath === 'claude-code/SKILL.md')).toBe(false);
     expect(generated.artifacts.some(a => a.relativePath === '.agents/skills/gstack-claude-code/SKILL.md')).toBe(true);
     expect(generated.artifacts.some(a => a.relativePath === '.agents/skills/gstack-codex/SKILL.md')).toBe(false);

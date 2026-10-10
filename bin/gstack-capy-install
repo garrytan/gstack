@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# gstack-capy-install — install gstack on a Capy cloud machine (Ubuntu) and
+# certify it with one grep-able line.
+#
+# Usage:
+#   gstack-capy-install [--for <skill> | --only <skill> | --require <id,id>] [--with-browser]
+#                       [--revision <ref>] [--project <path>] [--root <dir>]
+#
+# Steps: clone or reuse the checkout under a lock (never reset, never pulled);
+# preflight git, curl, node, jq and Bun (Bun is installed or upgraded from the
+# exact release archive, SHA-256 verified, only when gstack's supported minimum
+# and the project's pin agree); ./setup --host claude --no-prefix; ./setup
+# --host codex --model gpt-6-astra; gstack-doctor --check. Chromium is lazy by
+# default (bin/gstack-browser-ensure installs it on first use); --with-browser
+# installs it now. The last lines are the doctor's trailer (`gstack: ok ...` or
+# `gstack: fail ...`; grep that, never pipe through tail) and the GSTACK_LAUNCH
+# line the parent supplies to every gstack command it launches.
+# Exit: 0 ok, 1 a component failed, 2 usage, 3 preflight stopped before ./setup.
+set -u
+BASH_COMPAT=50
+
+SELF="$(cd "$(dirname "$0")/.." && pwd -P)"
+ROOT="${GSTACK_CAPY_ROOT:-$SELF}"
+REPO="${GSTACK_CAPY_REPO:-https://github.com/garrytan/gstack.git}"
+DOCS="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md"
+FOR="" REQUIRE="" WITH_BROWSER=0 REVISION="" PROJECT=""
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
+need() { [ -n "${2:-}" ] || { echo "gstack-capy-install: $1 needs a value" >&2; usage >&2; exit 2; }; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --for|--only) need "$1" "${2:-}"; FOR="$2"; shift ;;
+    --require) need "$1" "${2:-}"; REQUIRE="$2"; shift ;;
+    --with-browser) WITH_BROWSER=1 ;;
+    --revision) need "$1" "${2:-}"; REVISION="$2"; shift ;;
+    --project) need "$1" "${2:-}"; PROJECT="$2"; shift ;;
+    --root) need "$1" "${2:-}"; ROOT="$2"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "gstack-capy-install: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+[ -n "$FOR" ] && [ -n "$REQUIRE" ] && { echo "gstack-capy-install: --for and --require are exclusive" >&2; exit 2; }
+[ -z "$FOR" ] && [ -z "$REQUIRE" ] && REQUIRE="claude,codex,patch"
+
+say() { echo "gstack-capy-install: $*"; }
+stop() { # CODE MESSAGE FIX — print and exit 3 before ./setup
+  echo "gstack-capy-install: $2; fix: $3 ($1; $DOCS#$(gstack_result_anchor "$1" 2>/dev/null || echo capy-install-preflight-failed))" >&2
+  exit 3
+}
+gstack_result_anchor() { case "$1" in INSTALL_PREFLIGHT_FAILED) echo capy-install-preflight-failed ;; RUNTIME_PIN_CONFLICT) echo capy-install-runtime-conflict ;; *) return 1 ;; esac; }
+now() { date +%s; }
+T0=$(now); ORIG_PWD=$(pwd)
+
+# 1. Clone or reuse, under the same lock the user-scope skill takes.
+mkdir -p "$(dirname "$ROOT")" || stop INSTALL_PREFLIGHT_FAILED "cannot create $(dirname "$ROOT")" "choose a writable --root"
+command -v git >/dev/null 2>&1 || stop INSTALL_PREFLIGHT_FAILED "preflight: git not found" "apt-get install -y git"
+exec 9>"$(dirname "$ROOT")/.gstack-capy-install.lock"
+if command -v flock >/dev/null 2>&1; then flock -w 900 9 || stop INSTALL_PREFLIGHT_FAILED "another gstack-capy-install holds $(dirname "$ROOT")/.gstack-capy-install.lock" "wait for it to finish"; fi
+if [ ! -f "$ROOT/setup" ] || [ ! -f "$ROOT/VERSION" ]; then
+  [ -e "$ROOT" ] && [ -n "$(ls -A "$ROOT" 2>/dev/null)" ] && stop INSTALL_PREFLIGHT_FAILED "$ROOT exists but is not a gstack checkout" "remove it or pass --root <dir>"
+  say "cloning $REPO into $ROOT${REVISION:+ at $REVISION}"
+  if [ -n "$REVISION" ] && git clone --quiet --single-branch --depth 1 --branch "$REVISION" "$REPO" "$ROOT" 2>/dev/null; then :
+  elif [ -n "$REVISION" ]; then
+    git clone --quiet "$REPO" "$ROOT" && git -C "$ROOT" checkout --quiet "$REVISION" || stop INSTALL_PREFLIGHT_FAILED "could not clone $REPO at $REVISION" "check the revision and network, then re-run"
+  else
+    git clone --quiet --single-branch --depth 1 "$REPO" "$ROOT" || stop INSTALL_PREFLIGHT_FAILED "could not clone $REPO" "check network access to github.com, then re-run"
+  fi
+else
+  say "reusing $ROOT ($(head -1 "$ROOT/VERSION")); never reset or pulled"
+fi
+. "$ROOT/bin/gstack-bun-version.sh" || stop INSTALL_PREFLIGHT_FAILED "$ROOT/bin/gstack-bun-version.sh is missing" "re-clone gstack"
+
+# 2. Preflight: tools, then Bun against gstack's minimum and the project's pin.
+for tool in curl node jq; do
+  command -v "$tool" >/dev/null 2>&1 || stop INSTALL_PREFLIGHT_FAILED "preflight: $tool not found" "install $tool (apt-get install -y jq; Node from https://nodejs.org or nvm), then re-run"
+done
+[ -n "$PROJECT" ] || { PROJECT=$(git rev-parse --show-toplevel 2>/dev/null || true); [ "$(cd "${PROJECT:-/nonexistent}" 2>/dev/null && pwd -P)" = "$ROOT" ] && PROJECT=""; }
+PIN="" PIN_SRC=""
+if [ -n "$PROJECT" ] && [ -f "$PROJECT/package.json" ]; then
+  PIN=$(jq -r '.engines.bun // (.packageManager // "" | select(startswith("bun@")) | ltrimstr("bun@")) // empty' "$PROJECT/package.json" 2>/dev/null | head -1)
+  [ -n "$PIN" ] && PIN_SRC="$PROJECT/package.json"
+fi
+if [ -z "$PIN" ] && [ -n "$PROJECT" ] && [ -s "$PROJECT/.bun-version" ]; then PIN=$(head -1 "$PROJECT/.bun-version" | tr -d ' v'); PIN_SRC="$PROJECT/.bun-version"; fi
+WANT="$GSTACK_BUN_TESTED"
+case "$PIN" in
+  '') ;;
+  '>='*) _gstack_bun_below "$WANT" "${PIN#>=}" && stop RUNTIME_PIN_CONFLICT "Bun conflict: gstack needs >=$WANT, $PIN_SRC pins $PIN" "raise the project's pin to $WANT or newer, or install gstack on a machine the project accepts" ;;
+  [0-9]*.[0-9]*.[0-9]*) [ "$PIN" = "$WANT" ] || stop RUNTIME_PIN_CONFLICT "Bun conflict: gstack needs >=$WANT, $PIN_SRC pins exactly $PIN" "raise the project's pin to $WANT, or install gstack on a machine the project accepts" ;;
+  *) say "note: project pin '$PIN' ($PIN_SRC) is not evaluated here; gstack-doctor's pins row checks it after install" ;;
+esac
+HAVE=$(bun --version 2>/dev/null | head -1 || true)
+case "$(gstack_bun_status "${HAVE:-0.0.0}")" in
+  ok) say "bun $HAVE satisfies gstack's supported minimum $WANT${PIN:+ and the project pin $PIN}" ;;
+  *)
+    say "bun ${HAVE:-absent} is below gstack's supported minimum $WANT${PIN:+ (project pin $PIN agrees)}; installing bun $WANT from its release archive (SHA-256 verified)"
+    case "$(uname -ms)" in
+      'Linux x86_64') TARGET=linux-x64; grep -q avx2 /proc/cpuinfo 2>/dev/null || TARGET=linux-x64-baseline ;;
+      'Linux aarch64'|'Linux arm64') TARGET=linux-aarch64 ;;
+      *) stop INSTALL_PREFLIGHT_FAILED "no verified Bun $WANT archive for $(uname -ms) (this installer is for Capy cloud Ubuntu)" "install Bun $WANT by hand (https://bun.sh), then re-run" ;;
+    esac
+    SHA=$(gstack_bun_archive_sha256 "$TARGET") || stop INSTALL_PREFLIGHT_FAILED "no verified Bun $WANT archive for $TARGET" "install Bun $WANT by hand, then re-run"
+    TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-bun.XXXXXX") || stop INSTALL_PREFLIGHT_FAILED "cannot create a temp dir" "point TMPDIR at a writable directory"
+    curl --retry 3 -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v$WANT/bun-$TARGET.zip" -o "$TMP/bun.zip" || stop INSTALL_PREFLIGHT_FAILED "could not download bun-v$WANT/bun-$TARGET.zip" "check network access to github.com, then re-run"
+    echo "$SHA  $TMP/bun.zip" | sha256sum -c - >/dev/null 2>&1 || { rm -rf "$TMP"; stop INSTALL_PREFLIGHT_FAILED "bun-$TARGET.zip SHA-256 mismatch (expected $SHA); nothing installed" "update gstack_bun_archive_sha256 in bin/gstack-bun-version.sh only after checking the release's SHASUMS256.txt"; }
+    BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+    mkdir -p "$BUN_INSTALL/bin" && (cd "$TMP" && unzip -qo bun.zip) && install -m 0755 "$TMP/bun-$TARGET/bun" "$BUN_INSTALL/bin/bun" || { rm -rf "$TMP"; stop INSTALL_PREFLIGHT_FAILED "could not unpack bun into $BUN_INSTALL/bin" "install unzip, or set BUN_INSTALL to a writable prefix"; }
+    rm -rf "$TMP"
+    export PATH="$BUN_INSTALL/bin:$PATH"
+    HAVE=$(bun --version 2>/dev/null | head -1)
+    [ "$HAVE" = "$WANT" ] || stop INSTALL_PREFLIGHT_FAILED "installed bun reports $HAVE, expected $WANT" "check PATH ($BUN_INSTALL/bin must come first), then re-run"
+    say "bun $WANT installed at $BUN_INSTALL/bin/bun (prepend $BUN_INSTALL/bin to PATH in later shells)" ;;
+esac
+
+# 3. Install both host profiles; Chromium lazy unless --with-browser.
+cd "$ROOT" || exit 1
+export GSTACK_SKIP_COREUTILS="${GSTACK_SKIP_COREUTILS:-1}" GSTACK_SKIP_ASIDE="${GSTACK_SKIP_ASIDE:-1}"
+BROWSER_FLAG="--no-browser"; [ "$WITH_BROWSER" -eq 1 ] && BROWSER_FLAG=""
+T1=$(now)
+./setup --host claude --no-prefix $BROWSER_FLAG </dev/null || { echo "gstack-capy-install: ./setup --host claude failed (exit $?)" >&2; exit 1; }
+./setup --host codex --model gpt-6-astra $BROWSER_FLAG </dev/null || { echo "gstack-capy-install: ./setup --host codex failed (exit $?)" >&2; exit 1; }
+T2=$(now)
+say "planning-only install: $((T2 - T1))s (setup both hosts; Chromium not downloaded)"
+if [ "$WITH_BROWSER" -eq 1 ]; then
+  T3=$(now)
+  "$ROOT/bin/gstack-browser-ensure" </dev/null | tail -1
+  say "browser bootstrap: $(( $(now) - T3 ))s"
+else
+  echo "SKIP browser ($(. "$ROOT/bin/gstack-doctor-components.sh" && printf '%s' "$GSTACK_BROWSER_LAZY_REASON"))"
+fi
+
+# 4. Certify. The trailer is the contract; `(requested <ref>; ...)` when the
+# existing checkout is not at --revision (it is never moved here).
+STATE_ROOT=$("$ROOT/bin/gstack-paths" --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:=$STATE_ROOT}"; : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+INSTALLED=$(head -1 "$ROOT/VERSION")
+REV_NOTE=""
+if [ -n "$REVISION" ] && [ "$REVISION" != "$INSTALLED" ] && [ "$REVISION" != "v$INSTALLED" ] \
+   && [ "$(git -C "$ROOT" rev-parse --verify --quiet "$REVISION^{commit}" 2>/dev/null)" != "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" ]; then
+  REV_NOTE=" (requested $REVISION; run gstack-upgrade to move)"
+fi
+if [ -n "$FOR" ]; then set -- --for "$FOR"; else set -- --require "$REQUIRE"; fi
+[ "$WITH_BROWSER" -eq 1 ] && [ -z "$FOR" ] && set -- --require "$REQUIRE,browse-bundle,browser"
+OUT=$(cd "$ORIG_PWD" && GSTACK_EPHEMERAL="${GSTACK_EPHEMERAL:-1}" "$ROOT/bin/gstack-doctor" --check "$@" ${PROJECT:+--project "$PROJECT"} 2>&1); RC=$?
+printf '%s\n' "$OUT" | grep -v '^gstack: '
+say "total: $(( $(now) - T0 ))s"
+echo "GSTACK_LAUNCH: GSTACK_SESSION_KIND=unattended GSTACK_STATE_ROOT=$GSTACK_STATE_ROOT GSTACK_EPHEMERAL=${GSTACK_EPHEMERAL:-1}"
+printf '%s\n' "$OUT" | grep '^gstack: ' | sed "s/\$/$(printf '%s' "$REV_NOTE" | sed 's/[&/\]/\\&/g')/"
+exit "$RC"

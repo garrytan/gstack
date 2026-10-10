@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GATE_OUTCOMES, gateOutcomeLine, type GateReason } from '../lib/gate-outcomes';
+import { RESULT_CODES, resultCodeSuffix } from '../lib/result-codes';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const doc = fs.readFileSync(path.join(ROOT, 'docs/troubleshooting.md'), 'utf8');
@@ -18,10 +19,22 @@ describe('docs/troubleshooting.md anchors', () => {
     });
   }
 
+  // lib/result-codes.ts is the sibling table for workflow-command error lines.
+  for (const [code, row] of Object.entries(RESULT_CODES)) {
+    test(`result code ${code} → #${row.anchor}`, () => {
+      expect(code).toMatch(/^[A-Z][A-Z_]+$/);
+      expect(anchors.has(row.anchor)).toBe(true);
+      const after = doc.slice(doc.indexOf(`<a id="${row.anchor}"></a>`)).split('\n')[1] ?? '';
+      expect(after).toMatch(/^#{2,4} /);
+      expect(row.fix.trim().length).toBeGreaterThan(0);
+      expect(resultCodeSuffix(code as keyof typeof RESULT_CODES)).toBe(`(${code}; https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#${row.anchor})`);
+    });
+  }
+
   test('anchors are unique and every outcome has a fix action', () => {
     const all = [...doc.matchAll(/<a id="([a-z0-9-]+)"><\/a>/g)].map(m => m[1]);
     expect(new Set(all).size).toBe(all.length);
-    const codes = Object.values(GATE_OUTCOMES).map(o => o.anchor);
+    const codes = [...Object.values(GATE_OUTCOMES).map(o => o.anchor), ...Object.values(RESULT_CODES).map(o => o.anchor)];
     expect(new Set(codes).size).toBe(codes.length);
     for (const outcome of Object.values(GATE_OUTCOMES)) expect(outcome.fix.trim().length).toBeGreaterThan(0);
   });

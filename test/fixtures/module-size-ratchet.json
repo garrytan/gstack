@@ -46,7 +46,12 @@
     { "file": "test/helpers/pty/runners/observation.ts", "movedFrom": "test/helpers/claude-pty-runner.ts" },
     { "file": "test/helpers/pty/screen.ts", "movedFrom": "test/helpers/pty-screen.ts" },
     { "file": "test/helpers/pty/session.ts", "movedFrom": "test/helpers/claude-pty-runner.ts" },
-    { "file": "lib/memory-ingest-landing.ts", "movedFrom": "(new: A1 memory ingest landing check, state transitions and reconcile)" }
+    { "file": "lib/memory-ingest-landing.ts", "movedFrom": "(new: A1 memory ingest landing check, state transitions and reconcile)" },
+    { "file": "lib/doctor-components.ts", "movedFrom": "(new: the gstack-doctor --check component table, rendered into bin/gstack-doctor-components.sh)" },
+    { "file": "lib/result-codes.ts", "movedFrom": "(new: reason codes with troubleshooting anchors for workflow-command error lines, sibling of lib/gate-outcomes.ts)" },
+    { "file": "lib/runtime-pins.ts", "movedFrom": "(new: the doctor's project pins row; reads a target repository's Bun and Node pins)" },
+    { "file": "bin/gstack-runtime-pins.ts", "movedFrom": "(new: thin entrypoint over lib/runtime-pins.ts)" },
+    { "file": "scripts/gen-doctor-components.ts", "movedFrom": "(new: renders lib/doctor-components.ts into bin/gstack-doctor-components.sh)" }
   ],
   "residualFiles": [
     { "file": "scripts/test-free-shards.ts", "maxLines": 2361, "reason": "free lane policy after the shard engine took spawn, sandbox, logs, seeds and flags" },

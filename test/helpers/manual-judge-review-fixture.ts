@@ -37,16 +37,27 @@ const LATER_WAVE_EDITS: Array<[string, string]> = [
   ["Reply in the language of the user's latest message unless asked otherwise. Code, commands, paths, identifiers and quoted output stay verbatim.\n\n", ''],
 ];
 
+// The honest-install wave (lazy Chromium) made the fallback probe call
+// gstack-browser-ensure, explained it in one sentence inside the entrypoint
+// (two lines longer), and pinned the Bun install hint by positional argument.
+const LATER_ENTRYPOINT_BLOCK = /`gstack-browser-ensure` installs Chromium on first use[^\n]*\n\n/;
+const LATER_ENTRYPOINT_EDITS: Array<[string, string]> = [
+  ['if [ -x "$B" ] && "${B%/browse/*}/bin/gstack-browser-ensure"; then', 'if [ -x "$B" ]; then'],
+  ['bash "$tmpfile" "bun-v$BUN_VERSION"', 'BUN_VERSION="$BUN_VERSION" bash "$tmpfile"'],
+];
+
 export function approvedCookieWorkflowSource(source: string): string {
   let removedLines = 0;
+  let removedEntrypointLines = 0;
   let historical = source
     .replace('sha256sum < "$tmpfile" | awk \'{print $(1)}\'', 'sha256sum "$tmpfile" | awk \'{print $1}\'')
     .replace('shasum -a 256 < "$tmpfile" | awk \'{print $(1)}\'', 'shasum -a 256 "$tmpfile" | awk \'{print $1}\'')
-    .replace(LATER_BROWSER_BLOCK, block => { removedLines = block.split('\n').length - 1; return ''; });
-  for (const [later, earlier] of [...LATER_BROWSER_EDITS, ...LATER_PREAMBLE_EDITS, ...LATER_WAVE_EDITS]) historical = historical.replace(later, earlier);
+    .replace(LATER_BROWSER_BLOCK, block => { removedLines = block.split('\n').length - 1; return ''; })
+    .replace(LATER_ENTRYPOINT_BLOCK, block => { removedEntrypointLines = block.split('\n').length - 1; return ''; });
+  for (const [later, earlier] of [...LATER_BROWSER_EDITS, ...LATER_PREAMBLE_EDITS, ...LATER_WAVE_EDITS, ...LATER_ENTRYPOINT_EDITS]) historical = historical.replace(later, earlier);
   return historical
     .replace(/(--- BEGIN FILE "BROWSER\.md" \(lines \d+-)(\d+)(; section\) ---)/, (_, head, end, tail) => `${head}${Number(end) - removedLines}${tail}`)
-    .replace(/(--- BEGIN FILE "setup-browser-cookies\/SKILL\.md" \(lines )(\d+)-(\d+)(; entrypoint\) ---)/, (_, head, start, end, tail) => `${head}${APPROVED_ENTRYPOINT_START}-${APPROVED_ENTRYPOINT_START + Number(end) - Number(start)}${tail}`);
+    .replace(/(--- BEGIN FILE "setup-browser-cookies\/SKILL\.md" \(lines )(\d+)-(\d+)(; entrypoint\) ---)/, (_, head, start, end, tail) => `${head}${APPROVED_ENTRYPOINT_START}-${APPROVED_ENTRYPOINT_START + Number(end) - Number(start) - removedEntrypointLines}${tail}`);
 }
 
 export function manualReviewFixture(root = resolve(import.meta.dir, '../..')): EvalTestEntry {
