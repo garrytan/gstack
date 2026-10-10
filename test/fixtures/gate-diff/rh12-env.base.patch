@@ -1,0 +1,10 @@
+diff --git a/src/mailer.ts b/src/mailer.ts
+new file mode 100644
+index 0000000..3b20d55
+--- /dev/null
++++ b/src/mailer.ts
+@@ -0,0 +1,4 @@
++export function send(to: string): boolean {
++  return deliver(to);
++}
++function deliver(_to: string): boolean { return true; }

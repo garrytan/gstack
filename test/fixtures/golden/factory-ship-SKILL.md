@@ -255,9 +255,13 @@ When options differ in coverage, include `Completeness: X/10` (10 = all edge cas
 
 For high-stakes ambiguity (architecture, data model, destructive scope, missing context), STOP. Name it in one sentence, present 2-3 options with tradeoffs, and ask. Do not use for routine coding or obvious changes.
 
-## Claimed Limitations Need Evidence
+## Claims Need Evidence
 
-A claimed limitation or requirement ("the API can't do this", "X requires a credential", "that's impossible on this platform") is a material claim. State one only with the verbatim error, the documented statement, or a live probe in hand — pattern-matching a failure to a familiar story is not evidence. When a cheap probe settles the question, run it BEFORE asking the user anything or declaring a step blocked.
+- A claimed limitation ("the API can't", "X needs a credential") needs the verbatim error, documented statement or live probe; probe before asking or blocking.
+- A claimed execution ran and you saw its result: name the command and the revision or content fingerprint; never cite a command whose stderr was silenced.
+- State the evidence kind (static read, unit test, fixture/replay, live run, production) and never pass one off as another: a mock is not a live check. Reuse rules: Step 16.
+- Disclose any failure or missing coverage that would change the reader's conclusion; "done, unverified" is not "done".
+- A checked null result ("ran X, found nothing material") is a success; an unsupported positive claim is worse than silence. Agreeing agents, or repeated reads of one source, are one datum.
 
 ## Context Health (soft directive)
 
@@ -328,7 +332,7 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg 
 ## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
-- **DONE** — completed with evidence.
+- **DONE** — completed with evidence valid for the final consumed inputs; name reuse and anything not independently verified.
 - **DONE_WITH_CONCERNS** — completed, but list concerns.
 - **BLOCKED** — cannot proceed; state blocker and what was tried.
 - **NEEDS_CONTEXT** — missing info; state exactly what is needed.
@@ -998,8 +1002,10 @@ $GSTACK_ROOT/bin/gstack-evidence check --label tests --expect-cmd '<tests>' --la
 
 | Receipt result | Next action |
 |---|---|
-| FRESH (exit 0) | Cite the label, exit, timestamp and log. |
+| FRESH (exit 0) | Cite the label, exit, timestamp, log and `tests_ran`. |
 | STALE/MISSING: changed content, command or age, or no proven run | Run `$GSTACK_ROOT/bin/gstack-evidence run --label <lane> -- '<command>'`, read the result and recheck once. Handle failures as described below. |
+| ZERO-RUN: the receipt's `tests_ran` is 0 | STALE-equivalent: the lane proved nothing. Use Step 5's ZERO-RUN triage (a failed lane), never FRESH, even with exit 0. |
+| `tests_ran: unknown` | Non-blocking: keep the exit-0 verdict, cite the lane as `count unavailable`. Never record it as ZERO-RUN or as a counted pass. |
 | Only receipt storage/readback failed | Independently prove unchanged final content, the same command and valid age from the successful run's evidence. Cite its exact command, exit, timestamp and log as **ledger unavailable**, never FRESH. Without that proof, use STALE/MISSING. |
 
 No test lanes: require Step 5's explicit untested-scope approval for final content,
@@ -1020,7 +1026,17 @@ Preserve unrelated user files.
 Paste build/docs/test results. Reuse waivers only for the same verified
 pre-existing failures and approved scope; cite the actual approval and failing
 counts, never FRESH or all-green. A new, changed or unwaived test failure uses
-stage 4's recovery before publication. Otherwise continue to Step 17.
+stage 4's recovery before publication.
+
+Then the honesty inventory, two lines, from Step 9's latest `Gate edits:` line and
+its records:
+- For each gate finding: `gate`, path, disposition (`kept`/`restored`/`open`),
+  `reason` and logger-stamped `actor`. If there are none, the coverage line
+  (`none detected (...)`, `partial (...)` or `UNAVAILABLE — ...`).
+- Each test lane's `tests_ran` (N, ZERO-RUN or `count unavailable`).
+Write this report in the auditor's posture: describe this session's own gate edits
+as evidence for the reader to examine, not as positions to defend; a kept gate
+states its reason and nothing more. Otherwise continue to Step 17.
 
 ---
 
@@ -1090,6 +1106,22 @@ Branch on the echoed values:
    ```
 3. **Declined earlier** — continue
    without comment.
+
+**Open gate findings against an existing ready PR/MR:** when Step 9 left any gate
+finding `open`, look up an open PR/MR for `<branch-name>` before pushing
+(`gh pr list --head <branch-name> --state open --json number,isDraft`; GitLab
+`glab mr list --source-branch <branch-name> --output json`, reading `draft`). A lookup
+failure STOPs here. If one exists and is not a draft:
+
+1. The preamble echoed `SESSION_KIND: spawned` or `headless`: **STOP before pushing.**
+   Report the open gate findings (`gate`, path) and the PR/MR; no push, no
+   publication claim. A later human dispositions them.
+2. Otherwise AskUserQuestion once: A) Resolve the open items now — insert `9 → 10 →
+   11 → 11.5 → 12 → 13 → 14 → 14.5 → 15 → 16` before Step 17; B) Publish ready with
+   the `Gate edits: N open` banner. Record B in the invocation record as a
+   human-authorised publication; Step 19 reads it. Never convert a ready PR to a draft.
+
+A new PR, or an existing draft, needs no question: Step 19 creates or keeps the draft.
 
 **Idempotency check:** Check if the branch is already pushed and up to date.
 

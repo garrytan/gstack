@@ -267,9 +267,13 @@ When options differ in coverage, include `Completeness: X/10` (10 = all edge cas
 
 For high-stakes ambiguity (architecture, data model, destructive scope, missing context), STOP. Name it in one sentence, present 2-3 options with tradeoffs, and ask. Do not use for routine coding or obvious changes.
 
-## Claimed Limitations Need Evidence
+## Claims Need Evidence
 
-A claimed limitation or requirement ("the API can't do this", "X requires a credential", "that's impossible on this platform") is a material claim. State one only with the verbatim error, the documented statement, or a live probe in hand — pattern-matching a failure to a familiar story is not evidence. When a cheap probe settles the question, run it BEFORE asking the user anything or declaring a step blocked.
+- A claimed limitation ("the API can't", "X needs a credential") needs the verbatim error, documented statement or live probe; probe before asking or blocking.
+- A claimed execution ran and you saw its result: name the command and the revision or content fingerprint; never cite a command whose stderr was silenced.
+- State the evidence kind (static read, unit test, fixture/replay, live run, production) and never pass one off as another: a mock is not a live check. Reuse rules: Step 16.
+- Disclose any failure or missing coverage that would change the reader's conclusion; "done, unverified" is not "done".
+- A checked null result ("ran X, found nothing material") is a success; an unsupported positive claim is worse than silence. Agreeing agents, or repeated reads of one source, are one datum.
 
 ## Context Health (soft directive)
 
@@ -334,7 +338,7 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg 
 ## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
-- **DONE** — completed with evidence.
+- **DONE** — completed with evidence valid for the final consumed inputs; name reuse and anything not independently verified.
 - **DONE_WITH_CONCERNS** — completed, but list concerns.
 - **BLOCKED** — cannot proceed; state blocker and what was tried.
 - **NEEDS_CONTEXT** — missing info; state exactly what is needed.
@@ -753,7 +757,7 @@ left for the implementer.]
 
 1. [Specific, pass/fail, no subjective language]
 2. [...]
-3. Tests written and passing
+3. Each test in the Testing Plan states its card: `protects=<observable it protects>; fails_when=<wrong result it rejects>; no_claim=<what green does not prove; which fixtures or mocks stand in for what, or "none beyond protects">`
 4. No degradation of existing functionality
 
 ## Testing Plan
@@ -763,6 +767,14 @@ left for the implementer.]
 | Unit        | [specific methods/logic] | +N    |
 | Integration | [specific flows]         | +N    |
 | E2E         | [specific user journeys] | +N    |
+
+## Rules for the implementing agent
+
+1. Acceptance criteria are the `protects / fails_when / no_claim` profile of each test: the observable it protects, the wrong result it rejects, and what green does not prove. Never "make the tests pass".
+2. Real code and real tests land in the same change; a placeholder, a stub assertion or a test deferred to a follow-up is not done.
+3. Any change to a test, validator, CI step, timeout, tolerance, threshold, snapshot or suppression pragma is reported on its own line in your summary with its justification, before any other result.
+4. A reported command names the command and its observed result (exit status, counts, the failing line); a command you did not run is not reported, and stderr is never silenced in a command you cite.
+5. Your report is a claim until the parent re-executes it: say what you verified, what you reused, and what you could not check.
 
 ## Rollback Plan
 

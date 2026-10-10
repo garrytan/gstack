@@ -162,6 +162,7 @@ describe('one-way door safety', () => {
       'ship-test-failure-triage',         // shipping broken tests
       'review-sql-safety',                 // SQL injection path
       'review-llm-trust-boundary',         // LLM trust boundary
+      'review-gate-disposition',           // gate edit disposition: never-ask/AUTO_DECIDE must not waive it
       'cso-global-scan-approval',          // scans outside branch
       'cso-finding-fix',                   // security finding
       'land-and-deploy-merge-confirm',     // actual merge

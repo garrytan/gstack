@@ -405,3 +405,97 @@ describe('gstack-evidence run — bun dotenv autoload must not reach the child',
     }
   });
 });
+
+describe('gstack-evidence tests_ran — zero-run green is a third state, never merged with pass or unknown', () => {
+  // The receipt carries the runner's own executed-test count parsed from a
+  // bounded tail of the streamed output. `run` never changes its exit on it
+  // (TRANSPARENCY INVARIANT); `check` grades 0 as ZERO-RUN (STALE-equivalent,
+  // its own label) and unknown as non-blocking.
+  const bunOutput = (pass: number, skip: number, fail: number) =>
+    `printf 'bun test v1\\n\\n ${pass} pass\\n ${skip} skip\\n ${fail} fail\\nRan ${pass + skip + fail} tests across 1 file. [10.00ms]\\n' >&2`;
+
+  test('bun: executed = pass + fail; the count lands in the receipt and check stays FRESH', () => {
+    const r = run(['run', '--label', 'tests', '--', bunOutput(7, 2, 1) + ' && exit 0']);
+    expect(r.status).toBe(0);
+    expect(records().pop().tests_ran).toBe(8);
+    expect(r.stderr).toContain('recorded label=tests exit=0 tests_ran=8');
+    const chk = run(['check', '--label', 'tests']);
+    expect(chk.status).toBe(0);
+    expect(chk.stdout).toContain('EVIDENCE: FRESH label=tests exit=0 tests_ran=8');
+  });
+
+  test('bun all-skip is ZERO-RUN: run still exits 0, check fails under its own label', () => {
+    const r = run(['run', '--label', 'tests', '--', bunOutput(0, 5, 0)]);
+    expect(r.status).toBe(0);
+    expect(records().pop().tests_ran).toBe(0);
+    const chk = run(['check', '--label', 'tests']);
+    expect(chk.status).toBe(1);
+    expect(chk.stdout).toContain('EVIDENCE: ZERO-RUN label=tests exit=0 tests_ran=0');
+    expect(chk.stdout).toContain('reason=runner reported 0 executed tests');
+    expect(chk.stdout).not.toContain('STALE');
+  });
+
+  test('an unrecognised runner is unknown: non-blocking, labelled in the detail', () => {
+    expect(run(['run', '--label', 'tests', '--', 'echo green']).status).toBe(0);
+    expect(records().pop().tests_ran).toBe('unknown');
+    const chk = run(['check', '--label', 'tests']);
+    expect(chk.status).toBe(0);
+    expect(chk.stdout).toContain('EVIDENCE: FRESH label=tests exit=0 tests_ran=unknown');
+  });
+
+  test('jest, vitest, pytest, rspec and go zero-only summaries', () => {
+    const cases: [string, number | 'unknown'][] = [
+      ["printf 'Tests:       1 failed, 2 passed, 1 skipped, 4 total\\nTime: 1s\\n'", 3],
+      ["printf 'No tests found, exiting with code 0\\n'", 0],
+      ["printf '      Tests  3 passed | 1 skipped (4)\\n   Start at  10:00\\n'", 3],
+      ["printf 'No test files found, exiting with code 1\\n'", 0],
+      ["printf '===== 3 passed, 1 skipped, 2 xfailed in 0.12s =====\\n'", 5],
+      ["printf '============ no tests ran in 0.01s ============\\n'", 0],
+      ["printf 'Finished in 0.2 seconds\\n12 examples, 0 failures, 2 pending\\n'", 10],
+      ["printf '?   \\texample.com/pkg\\t[no test files]\\n?   \\texample.com/other\\t[no test files]\\n'", 0],
+      ["printf 'ok  \\texample.com/pkg\\t0.1s\\n?   \\texample.com/other\\t[no test files]\\n'", 'unknown'],
+    ];
+    for (const [cmd, want] of cases) {
+      expect(run(['run', '--label', 'lane', '--', cmd]).status).toBe(0);
+      expect([cmd, records().pop().tests_ran]).toEqual([cmd, want]);
+    }
+  });
+
+  test('the last summary wins when a command runs a suite twice', () => {
+    expect(run(['run', '--label', 'tests', '--', `${bunOutput(9, 0, 0)}; ${bunOutput(0, 3, 0)}`]).status).toBe(0);
+    expect(records().pop().tests_ran).toBe(0);
+    expect(run(['run', '--label', 'tests', '--', `${bunOutput(0, 3, 0)}; ${bunOutput(9, 0, 0)}`]).status).toBe(0);
+    expect(records().pop().tests_ran).toBe(9);
+  });
+
+  test('the summary survives a 2MB+ stream that truncates the saved log', () => {
+    const r = run(['run', '--label', 'big', '--', `head -c 2500000 /dev/zero | tr "\\0" a; echo; ${bunOutput(4, 0, 0)}`]);
+    expect(r.status).toBe(0);
+    expect(records().pop().tests_ran).toBe(4);
+  });
+
+  test('TRANSPARENCY: a parser exception never alters the exit code; the receipt says unknown', () => {
+    const green = spawnSync(EVIDENCE, ['run', '--label', 'tests', '--', bunOutput(3, 0, 0)], {
+      cwd: repoDir, env: { ...process.env, GSTACK_HOME: gstackHome, GSTACK_EVIDENCE_FAULT: 'tests_ran' }, encoding: 'utf-8', timeout: 60000,
+    });
+    expect(green.status).toBe(0);
+    expect(green.stderr).toContain('tests_ran parse failed');
+    expect(records().pop().tests_ran).toBe('unknown');
+    const red = spawnSync(EVIDENCE, ['run', '--label', 'tests', '--', `${bunOutput(3, 0, 0)}; exit 3`], {
+      cwd: repoDir, env: { ...process.env, GSTACK_HOME: gstackHome, GSTACK_EVIDENCE_FAULT: 'tests_ran' }, encoding: 'utf-8', timeout: 60000,
+    });
+    expect(red.status).toBe(3);
+    expect(records().pop()).toMatchObject({ exit: 3, tests_ran: 'unknown' });
+  });
+
+  test('a record without tests_ran (older ledger) grades as unknown, not ZERO-RUN', () => {
+    expect(run(['run', '--label', 'tests', '--', 'echo green']).status).toBe(0);
+    const file = ledgerFile();
+    const rec = JSON.parse(fs.readFileSync(file, 'utf-8').trim());
+    delete rec.tests_ran;
+    fs.writeFileSync(file, JSON.stringify(rec) + '\n');
+    const chk = run(['check', '--label', 'tests']);
+    expect(chk.status).toBe(0);
+    expect(chk.stdout).toContain('tests_ran=unknown');
+  });
+});

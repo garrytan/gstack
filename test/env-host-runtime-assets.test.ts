@@ -33,7 +33,9 @@ function walk(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
     e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith('.md') ? [path.join(dir, e.name)] : []);
 }
-const fences = (text: string) => [...text.matchAll(/```bash\n([\s\S]*?)\n```/g)].map(m => m[1]!);
+// Indentation-aware: an indented fence (inside a list item) closes with its own indent,
+// so an unindented regex would span from it to the next fence's opener.
+const fences = (text: string) => [...text.matchAll(/^([ \t]*)```bash\n([\s\S]*?)\n\1```[ \t]*$/gm)].map(m => m[2]!);
 
 function extractFunction(name: string): string {
   const start = SETUP_SRC.indexOf(`\n${name}() {`);

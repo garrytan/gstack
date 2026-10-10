@@ -1,0 +1,20 @@
+diff --git a/test/add.test.ts b/test/add.test.ts
+new file mode 100644
+index 0000000..ac2562b
+--- /dev/null
++++ b/test/add.test.ts
+@@ -0,0 +1,14 @@
++import { test, expect } from 'bun:test';
++import { add } from '../src/add';
++
++test('adds two numbers', () => {
++  expect(add(1, 2)).toBe(3);
++});
++
++test('adds negatives', () => {
++  expect(add(-1, -2)).toBe(-3);
++});
++
++test('is commutative', () => {
++  expect(add(2, 3)).toBe(add(3, 2));
++});

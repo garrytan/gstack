@@ -441,7 +441,7 @@ If A and worktree created: spawn `claude -p` with the spec piped via stdin:
 cd -- "${SPAWN_PATH:?SPAWN_PATH is not set: substitute the printed worktree path}" || exit 1
 [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ] || { echo "ERROR: $SPAWN_PATH is not a git worktree root; nothing was spawned." >&2; exit 1; }
 SPAWN_PATH=$(pwd -P)
-cat "$ARCHIVE_PATH" | (cd "$SPAWN_PATH" && claude -p 2>&1) &
+cat "$ARCHIVE_PATH" | (cd "$SPAWN_PATH" && GSTACK_SESSION_KIND=spawned claude -p 2>&1) &
 SPAWN_PID=$!
 echo "Spawned: PID $SPAWN_PID in $SPAWN_PATH (branch $SPAWN_BRANCH)"
 echo "Follow with: cd $SPAWN_PATH && claude --resume"
