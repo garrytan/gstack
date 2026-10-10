@@ -207,12 +207,18 @@ route**. The docs-only no-deploy route can finish immediately; it needs no stagi
 1. Matching deploy run/platform release: monitor it in Step 6, even for docs-only
    (it may be a docs site). A configured trigger whose run has not appeared remains
    pending; poll for the matching revision within Step 6's deadline, not another run.
-2. Explicit `VERIFY_URL`: run Step 7 even for docs-only. Without deployment-revision
+2. Recorded command trigger: when Deploy Configuration records a command as the deploy
+   trigger (a CLI deploy with no Git integration), nothing deploys until that command
+   runs. Tell the user production has not moved yet, name the exact command, and ask them
+   to run it, or run it yourself only with their explicit approval. Then poll the
+   configured status in Step 6 for a deployment tied to `MERGE_SHA`; a zero exit is not
+   revision proof on its own.
+3. Explicit `VERIFY_URL`: run Step 7 even for docs-only. Without deployment-revision
    evidence, report site health separately from whether this change is live.
-3. `DOCS_ONLY=true`, no explicit URL, and no triggered/expected deployment: record
+4. `DOCS_ONLY=true`, no explicit URL, and no triggered/expected deployment: record
    SKIPPED (docs-only), then Step 9 with MERGED — NO DEPLOY NEEDED. Unknown deployment
    detection is not proof that nothing was triggered; use the question below instead.
-4. Otherwise use configured production URL/status checks in Steps 6-7. If neither
+5. Otherwise use configured production URL/status checks in Steps 6-7. If neither
    a usable URL nor deploy status exists, ask once. Also ask when Step 6 finishes
    without a production URL needed for canary:
    - **Re-ground:** "PR #NNN is merged. {Known deploy state}. I need a URL to check

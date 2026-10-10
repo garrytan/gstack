@@ -284,6 +284,13 @@ record for `DEPLOY_SHA`, then Step 7. No record means deployment UNVERIFIED, not
 Run only the configured read-only status command. Check its exit code and revision
 output; a generic health check cannot certify a new deployment.
 
+When Deploy Configuration records a command as the deploy trigger (a CLI deploy with no Git
+integration), no deploy is running and none starts on its own. Say that plainly: the merge is
+not live until the recorded command runs. Name the exact command and ask the user to run it
+from a checkout of the default branch, or run it yourself only with their explicit approval.
+Then poll the configured Deploy status for a deployment tied to `DEPLOY_SHA`; a zero exit or a
+reachable URL is not revision proof on its own.
+
 ### Common: Timing and failure handling
 
 Record deploy start time. Show progress every 2 minutes: "Deploy is still running... ({X}m so far). This is normal for most platforms."
