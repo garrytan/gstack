@@ -1,0 +1,4 @@
+diff --git a/test/add.test.ts b/test/math/add.test.ts
+similarity index 100%
+rename from test/add.test.ts
+rename to test/math/add.test.ts

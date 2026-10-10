@@ -1,0 +1,20 @@
+diff --git a/src/unrelated.ts b/src/unrelated.ts
+index ad1d380..25dfdc4 100644
+--- a/src/unrelated.ts
++++ b/src/unrelated.ts
+@@ -1 +1 @@
+-export const x = 1;
++export const x = 2;
+diff --git a/test/__snapshots__/Card.test.ts.snap b/test/__snapshots__/Card.test.ts.snap
+index eef8a11..2b1d741 100644
+--- a/test/__snapshots__/Card.test.ts.snap
++++ b/test/__snapshots__/Card.test.ts.snap
+@@ -1,7 +1,7 @@
+ // Bun Snapshot v1
+ 
+ exports[`Button renders 1`] = `
+-<button>
++<button class="primary">
+   Click
+ </button>
+ `;

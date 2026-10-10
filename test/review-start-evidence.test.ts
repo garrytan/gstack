@@ -4,15 +4,15 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, w
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { findFilesBySuffix, gitArgvIn } from './helpers/scratch-repo';
-import { canReuseSharedLibsAdvisory, sharedLibsFingerprint } from '../lib/review-evidence';
+import { canReuseSharedLibsAdvisory, sharedLibsFingerprint, stampGateFindings } from '../lib/review-evidence';
 
 const ROOT = resolve(import.meta.dir, '..');
 let repo: string;
 let home: string;
 
-function cli(name: string, args: string[] = [], cwd = repo) {
+function cli(name: string, args: string[] = [], cwd = repo, extraEnv: Record<string, string | undefined> = {}) {
   return execFileSync(join(ROOT, 'bin', name), args, {
-    cwd, env: { ...process.env, GSTACK_HOME: home }, encoding: 'utf8', timeout: 10_000,
+    cwd, env: { ...process.env, GSTACK_HOME: home, ...extraEnv }, encoding: 'utf8', timeout: 10_000,
   }).trim();
 }
 
@@ -49,6 +49,69 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(repo, { recursive: true, force: true });
   rmSync(home, { recursive: true, force: true });
+});
+
+// Gate findings: the logger, not the caller, says who dispositioned a gate
+// edit. A child that relaxed a test cannot log `actor: interactive, action:
+// kept` about itself; only a human-present session keeps a disposition.
+describe('gate finding actor stamping', () => {
+  const gate = (overrides: Record<string, any> = {}) => ({
+    fingerprint: 'test/a.test.ts:12:gate-integrity', severity: 'CRITICAL',
+    gate: 'RH-15', gate_id: 'g-0001', action: 'kept', reason: 'measured in ship-measure report', ...overrides,
+  });
+  const sessionEnv = (kind: 'interactive' | 'spawned' | 'headless') => ({
+    GSTACK_SESSION_KIND: kind === 'spawned' ? 'spawned' : undefined,
+    GSTACK_HEADLESS: kind === 'headless' ? '1' : undefined,
+    OPENCLAW_SESSION: undefined,
+    CLAUDE_CODE_ENTRYPOINT: kind === 'interactive' ? 'cli' : undefined,
+  });
+  const logWith = (kind: 'interactive' | 'spawned' | 'headless', findings: Record<string, any>[]) => {
+    const token = cli('gstack-review-log', ['--start', 'review'], repo, sessionEnv(kind));
+    const record = {
+      skill: 'review', status: 'issues_found', timestamp: new Date().toISOString(),
+      commit: git('rev-parse', '--short', 'HEAD'), completed: true, converged: true, cycles: 0,
+      issues_found: findings.length, critical: findings.length, informational: 0, findings,
+    };
+    cli('gstack-review-log', [JSON.stringify(record), '--finish', token], repo, sessionEnv(kind));
+    return rows().at(-1)!.findings as Record<string, any>[];
+  };
+
+  test('an interactive session keeps the disposition and the logger replaces a caller-supplied actor', () => {
+    const [kept, restored, open, plain] = logWith('interactive', [
+      gate({ actor: 'human' }), gate({ action: 'restored', reason: undefined }),
+      gate({ action: 'open', reason: 'should be dropped' }),
+      { fingerprint: 'src/a.ts:3:sql', severity: 'CRITICAL', action: 'skipped', actor: 'human' },
+    ]);
+    expect(kept).toMatchObject({ actor: 'interactive', action: 'kept', reason: 'measured in ship-measure report' });
+    expect(restored).toMatchObject({ actor: 'interactive', action: 'restored' });
+    expect(open).toMatchObject({ actor: 'interactive', action: 'open' });
+    expect(open.reason).toBeUndefined();
+    expect(plain.actor).toBe('human');
+    expect(plain.action).toBe('skipped');
+  });
+
+  for (const kind of ['spawned', 'headless'] as const) {
+    test(`a ${kind} session cannot record kept or restored on a gate finding`, () => {
+      const [kept, restored, plain] = logWith(kind, [
+        gate({ actor: 'interactive' }), gate({ action: 'restored', reason: undefined }),
+        { fingerprint: 'src/a.ts:3:sql', severity: 'CRITICAL', action: 'skipped' },
+      ]);
+      expect(kept).toMatchObject({ actor: kind, action: 'open' });
+      expect(kept.reason).toBeUndefined();
+      expect(restored).toMatchObject({ actor: kind, action: 'open' });
+      expect(plain.actor).toBeUndefined();
+      expect(plain.action).toBe('skipped');
+    });
+  }
+
+  test('a malformed gate action is a missing disposition, not a kept gate', () => {
+    const findings = [gate({ action: 'skipped' }), gate({ action: 'fixed' }), gate({ action: 'auto-fixed' })];
+    stampGateFindings(findings, 'interactive');
+    for (const finding of findings) expect(finding).toMatchObject({ actor: 'interactive', action: 'open' });
+    const ignored = [{ gate: '', action: 'kept', actor: 'human' }, 'not a record', null];
+    stampGateFindings(ignored, 'spawned');
+    expect(ignored[0]).toEqual({ gate: '', action: 'kept', actor: 'human' });
+  });
 });
 
 describe('review start/end binding (#2803)', () => {

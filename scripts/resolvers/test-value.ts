@@ -17,6 +17,9 @@ export const QUESTIONS = [
 ] as const;
 
 export const VALUE_CARD_FIELDS = ['protects', 'fails_when', 'why_new', 'seam'] as const;
+/** Optional fifth field: one sentence on what green does not prove and which fixtures or mocks stand in for what. */
+export const VALUE_CARD_OPTIONAL_FIELD = 'no_claim';
+export const NO_CLAIM_EXAMPLES = ['provider acceptance (mocked provider; unit only)', 'none beyond protects'] as const;
 export const CARD_FIELD_MAX_BYTES = 160;
 
 export const CATALOG = [
@@ -93,8 +96,9 @@ export function generateTestValueMessage(ctx: TemplateContext, args?: string[]):
   return degradedMessage(ctx, key as MessageKey);
 }
 
-// Measured renders plus 15%: plan 1897, ship 2742, qa 1036, audit 3712 bytes.
-export const TEST_VALUE_BAR_MAX_BYTES: Record<TestValueBarMode, number> = { plan: 2182, ship: 3154, qa: 1192, audit: 4269 };
+// Measured renders plus 15%: plan 2221, ship 3066, qa 1346, audit 4036 bytes
+// (raised once for the optional `no_claim` card field and its two examples).
+export const TEST_VALUE_BAR_MAX_BYTES: Record<TestValueBarMode, number> = { plan: 2555, ship: 3526, qa: 1548, audit: 4642 };
 
 export function clampCardField(value: string): string {
   const bytes = Buffer.from(value, 'utf8');
@@ -104,8 +108,12 @@ export function clampCardField(value: string): string {
   return `${bytes.subarray(0, end).toString('utf8')}...`;
 }
 
-export function renderValueCard(card: Record<(typeof VALUE_CARD_FIELDS)[number], string>): string {
-  return `Value: ${VALUE_CARD_FIELDS.map(field => `${field}=${clampCardField(card[field])}`).join('; ')}`;
+export type ValueCard = Record<(typeof VALUE_CARD_FIELDS)[number], string> & { [VALUE_CARD_OPTIONAL_FIELD]?: string };
+
+export function renderValueCard(card: ValueCard): string {
+  const fields: string[] = [...VALUE_CARD_FIELDS];
+  if (card.no_claim !== undefined) fields.push(VALUE_CARD_OPTIONAL_FIELD);
+  return `Value: ${fields.map(field => `${field}=${clampCardField(card[field as keyof ValueCard]!)}`).join('; ')}`;
 }
 
 const EXAMPLE_CARD = renderValueCard({
@@ -113,6 +121,7 @@ const EXAMPLE_CARD = renderValueCard({
   fails_when: 'the reason guard is removed or inverted',
   why_new: 'billing.test.ts covers processPayment only',
   seam: 'none',
+  no_claim: NO_CLAIM_EXAMPLES[0],
 });
 
 const EXAMPLE_REJECTED = 'Rejected (covered_elsewhere): "checkout renders"; checkout.e2e.ts:15 covers it, so extend that test.';
@@ -129,7 +138,7 @@ function cardRules(mode: TestValueBarMode, skillName: string): string {
     qa: skillName === 'qa-only' ? 'Put it under each proposed test.' : 'Put it in the 8e.5 record.',
     audit: 'Read cards from test header comments when present.',
   }[mode];
-  return `Value card: \`Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none\` (seam: \`none\` or its name); each field at most ${CARD_FIELD_MAX_BYTES} UTF-8 bytes here (clamp to 157 plus \`...\`; written JSON keeps full values). ${where} A missing upstream card never blocks: derive it; ignore unknown fields.
+  return `Value card: \`Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none; no_claim=<...>\` (seam: \`none\` or its name; \`no_claim\`: one sentence on what green does not prove and which fixtures or mocks stand in for what, e.g. \`no_claim=${NO_CLAIM_EXAMPLES[0]}\` or \`no_claim=${NO_CLAIM_EXAMPLES[1]}\`; it never waives a required live check); each field at most ${CARD_FIELD_MAX_BYTES} UTF-8 bytes here (clamp to 157 plus \`...\`; written JSON keeps full values). ${where} A missing upstream card never blocks: derive it; ignore unknown fields.
 
 Example: ${EXAMPLE_CARD}
 ${EXAMPLE_REJECTED}`;

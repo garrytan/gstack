@@ -523,7 +523,7 @@ Repo: {owner/repo}
 
 ## Critical Paths
 - {end-to-end flow that must work}
-  Value: protects={...}; fails_when={...}; why_new={...}; seam=none
+  Value: protects={...}; fails_when={...}; why_new={...}; seam=none; no_claim={...}
 
 ## Tests to Retire
 - {existing test made obsolete by this plan and why, or none}

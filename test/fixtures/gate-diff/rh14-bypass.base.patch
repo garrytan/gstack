@@ -1,0 +1,14 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..9be80da
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,8 @@
++name: ci
++on: [push]
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - run: bun test

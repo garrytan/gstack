@@ -356,7 +356,7 @@ left for the implementer.]
 
 1. [Specific, pass/fail, no subjective language]
 2. [...]
-3. Tests written and passing
+3. Each test in the Testing Plan states its card: `protects=<observable it protects>; fails_when=<wrong result it rejects>; no_claim=<what green does not prove; which fixtures or mocks stand in for what, or "none beyond protects">`
 4. No degradation of existing functionality
 
 ## Testing Plan
@@ -366,6 +366,10 @@ left for the implementer.]
 | Unit        | [specific methods/logic] | +N    |
 | Integration | [specific flows]         | +N    |
 | E2E         | [specific user journeys] | +N    |
+
+## Rules for the implementing agent
+
+{{IMPLEMENTER_DISPATCH_RULES}}
 
 ## Rollback Plan
 

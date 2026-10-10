@@ -1,0 +1,10 @@
+diff --git a/src/parse.ts b/src/parse.ts
+index d0055c7..3b64076 100644
+--- a/src/parse.ts
++++ b/src/parse.ts
+@@ -1,3 +1,4 @@
+ export function parse(x: unknown): number {
+-  return Number(x);
++  // @ts-ignore legacy input shape
++  return Number(x.value);
+ }

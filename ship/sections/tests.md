@@ -239,6 +239,19 @@ log=...` summary lines — each carries the lane's exit code and a per-run log
 file (no shared /tmp collisions between concurrent ships). Read the log files
 for failure detail.
 
+**A lane passes on its runner summary line, not on exit 0 alone.** Read each
+lane's `tests_ran` from its receipt (or from the runner's own summary in the log)
+and keep the three states apart; never merge them:
+
+1. `tests_ran: N` (N > 0) with exit 0 — the lane passed; record N for the PR body.
+2. `tests_ran: 0` — **ZERO-RUN**: bun `0 pass 0 fail`, jest "No tests found", pytest
+   "no tests ran", rspec "0 examples", `go test` with only `[no test files]`, or an
+   empty selection after a filter. Exit 0 here is not a pass, so triage a ZERO-RUN
+   lane below as a failed lane: a bad selector, a missing file or a skipped `describe`
+   is an in-branch failure until proven otherwise.
+3. `tests_ran: unknown` — the runner's summary was not recognised. Keep today's
+   exit-0 pass and record `count unavailable` for that lane in the PR body.
+
 **If any test fails:** Do NOT immediately stop. When a free-suite shard failed,
 first Read `~/.claude/skills/gstack/ship/sections/measure.md` and rerun that
 shard's file list as it says (diagnostic, not a verdict). Then apply the Test
@@ -356,7 +369,7 @@ esac && rm -f "$TITLE_FILE" "$BODY_FILE"
 
 **After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped), continue to Step 6.
 
-**If all pass:** Report the pass counts in one line and continue to Step 6.
+**If all pass:** Report each lane's pass count (or `count unavailable`) in one line and continue to Step 6.
 
 ---
 
