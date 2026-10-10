@@ -206,6 +206,14 @@ export const QUESTIONS = {
     options: ['fix-now', 'investigate'],
     description: "LLM trust boundary violation — fix before merge?",
   },
+  'review-gate-disposition': {
+    id: 'review-gate-disposition',
+    skill: 'review',
+    category: 'approval',
+    door_type: 'one-way',
+    options: ['restore', 'keep-justified', 'keep-other', 'leave-open'],
+    description: "Gate edit (test, threshold, CI or suppression relaxed) — restore the gate, keep it with a reason, or leave it open for a later human?",
+  },
 
   // -----------------------------------------------------------------------
   // /office-hours — YC diagnostic + builder brainstorm

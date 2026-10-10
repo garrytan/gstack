@@ -67,6 +67,10 @@ describe("/ship Step 10 waits for the early review", () => {
 describe("/ship Steps 18-19 finish the early PR", () => {
   test("the provisional title is replaced and the draft is marked ready unless a draft was asked for", () => {
     expect(flat(prBody)).toContain("For an existing open PR/MR (not Step 6.5's early PR, which takes item 2)");
-    expect(flat(prBody)).toContain("If Step 6.5 opened this PR as an early draft and the user did not ask for a draft, mark it ready now: `gh pr ready <pr-number>`");
+    // Gate integrity (HONEST_WORK_GATE_INTEGRITY W3): the early draft is marked
+    // ready only when the user did not ask for a draft AND no gate finding is open.
+    const ready = flat(prBody).slice(flat(prBody).indexOf('Then resolve the draft state'), flat(prBody).indexOf('**No open PR/MR:**'));
+    expect(ready).toContain('`gh pr ready <pr-number>`');
+    expect(ready).toMatch(/Step 6\.5 opened[^.]*did not ask for a draft[^.]*no gate finding is `open`[^.]*gh pr ready/);
   });
 });

@@ -998,8 +998,10 @@ $GSTACK_ROOT/bin/gstack-evidence check --label tests --expect-cmd '<tests>' --la
 
 | Receipt result | Next action |
 |---|---|
-| FRESH (exit 0) | Cite the label, exit, timestamp and log. |
+| FRESH (exit 0) | Cite the label, exit, timestamp, log and `tests_ran`. |
 | STALE/MISSING: changed content, command or age, or no proven run | Run `$GSTACK_ROOT/bin/gstack-evidence run --label <lane> -- '<command>'`, read the result and recheck once. Handle failures as described below. |
+| ZERO-RUN: the receipt's `tests_ran` is 0 | STALE-equivalent: the lane proved nothing. Use Step 5's ZERO-RUN triage (a failed lane), never FRESH, even with exit 0. |
+| `tests_ran: unknown` | Non-blocking: keep the exit-0 verdict, cite the lane as `count unavailable`. Never record it as ZERO-RUN or as a counted pass. |
 | Only receipt storage/readback failed | Independently prove unchanged final content, the same command and valid age from the successful run's evidence. Cite its exact command, exit, timestamp and log as **ledger unavailable**, never FRESH. Without that proof, use STALE/MISSING. |
 
 No test lanes: require Step 5's explicit untested-scope approval for final content,
@@ -1020,7 +1022,17 @@ Preserve unrelated user files.
 Paste build/docs/test results. Reuse waivers only for the same verified
 pre-existing failures and approved scope; cite the actual approval and failing
 counts, never FRESH or all-green. A new, changed or unwaived test failure uses
-stage 4's recovery before publication. Otherwise continue to Step 17.
+stage 4's recovery before publication.
+
+Then the honesty inventory, two lines, from Step 9's latest `Gate edits:` line and
+its records:
+- For each gate finding: `gate`, path, disposition (`kept`/`restored`/`open`),
+  `reason` and logger-stamped `actor`. If there are none, the coverage line
+  (`none detected (...)`, `partial (...)` or `UNAVAILABLE — ...`).
+- Each test lane's `tests_ran` (N, ZERO-RUN or `count unavailable`).
+Write this report in the auditor's posture: describe this session's own gate edits
+as evidence for the reader to examine, not as positions to defend; a kept gate
+states its reason and nothing more. Otherwise continue to Step 17.
 
 ---
 
@@ -1090,6 +1102,22 @@ Branch on the echoed values:
    ```
 3. **Declined earlier** — continue
    without comment.
+
+**Open gate findings against an existing ready PR/MR:** when Step 9 left any gate
+finding `open`, look up an open PR/MR for `<branch-name>` before pushing
+(`gh pr list --head <branch-name> --state open --json number,isDraft`; GitLab
+`glab mr list --source-branch <branch-name> --output json`, reading `draft`). A lookup
+failure STOPs here. If one exists and is not a draft:
+
+1. The preamble echoed `SESSION_KIND: spawned` or `headless`: **STOP before pushing.**
+   Report the open gate findings (`gate`, path) and the PR/MR; no push, no
+   publication claim. A later human dispositions them.
+2. Otherwise AskUserQuestion once: A) Resolve the open items now — insert `9 → 10 →
+   11 → 11.5 → 12 → 13 → 14 → 14.5 → 15 → 16` before Step 17; B) Publish ready with
+   the `Gate edits: N open` banner. Record B in the invocation record as a
+   human-authorised publication; Step 19 reads it. Never convert a ready PR to a draft.
+
+A new PR, or an existing draft, needs no question: Step 19 creates or keeps the draft.
 
 **Idempotency check:** Check if the branch is already pushed and up to date.
 

@@ -91,6 +91,16 @@ After your analysis, output a single JSON object on the LAST LINE of your respon
 6. Print a one-line summary: `Coverage: {X}% value-weighted ({Y}% including {W} weakly covered paths), {gaps} gaps. {tests_added.length} tests added.`
    Bindings for the PR body's Test value line: K = `tests_added.length`,
    R = `tests_rejected.length`, E = `tests_extended.length`, W = `weak_gaps.length`.
+7. **Rescan gate edits after the child returns.** A child's green is a claim until
+   you have read its gate hunks. Run the scan over the whole candidate; never scan
+   only the paths the child reported:
+
+{{GATE_SCAN_BLOCK}}
+
+   Read every read-level hunk with the checklist's Gate Integrity question. Carry the
+   `GATE_SUMMARY:` line and any hunk that fails it into Step 9's Gate Integrity
+   category; the disposition question is asked there, never here. A relaxation the
+   child made in a test it did not author is a Step 9 finding even when its tests pass.
 
 **Audit failure:** On failure, invalid JSON or no completion after ~10 minutes,
 stop the child and confirm it stopped before running the same audit inline.
