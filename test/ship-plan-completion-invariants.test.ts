@@ -369,7 +369,7 @@ describe('ACCEPTANCE_EDITED: parent-computed acceptance-text drift', () => {
 
   function block(planPath: string): string {
     return between(rendered, '### Acceptance edits (parent-computed)', '### Gate Logic').match(/```bash\n([\s\S]*?)```/)![1]
-      .replaceAll('<plan path>', planPath).replaceAll('<base>', 'main');
+      .replaceAll('<plan-path>', planPath).replaceAll('<base>', 'main');
   }
 
   function repo() {
