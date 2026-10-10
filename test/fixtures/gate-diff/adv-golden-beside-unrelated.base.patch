@@ -1,0 +1,34 @@
+diff --git a/src/Card.ts b/src/Card.ts
+new file mode 100644
+index 0000000..6e2b409
+--- /dev/null
++++ b/src/Card.ts
+@@ -0,0 +1 @@
++export const Card = () => `<div/>`;
+diff --git a/src/unrelated.ts b/src/unrelated.ts
+new file mode 100644
+index 0000000..ad1d380
+--- /dev/null
++++ b/src/unrelated.ts
+@@ -0,0 +1 @@
++export const x = 1;
+diff --git a/test/Card.test.ts b/test/Card.test.ts
+new file mode 100644
+index 0000000..473e003
+--- /dev/null
++++ b/test/Card.test.ts
+@@ -0,0 +1 @@
++test('Card renders', () => {});
+diff --git a/test/__snapshots__/Card.test.ts.snap b/test/__snapshots__/Card.test.ts.snap
+new file mode 100644
+index 0000000..eef8a11
+--- /dev/null
++++ b/test/__snapshots__/Card.test.ts.snap
+@@ -0,0 +1,7 @@
++// Bun Snapshot v1
++
++exports[`Button renders 1`] = `
++<button>
++  Click
++</button>
++`;

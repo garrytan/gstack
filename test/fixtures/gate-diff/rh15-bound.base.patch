@@ -1,0 +1,11 @@
+diff --git a/test/count.test.ts b/test/count.test.ts
+new file mode 100644
+index 0000000..479eb24
+--- /dev/null
++++ b/test/count.test.ts
+@@ -0,0 +1,5 @@
++import { test, expect } from 'bun:test';
++
++test('three items', () => {
++  expect(items().length).toBe(3);
++});

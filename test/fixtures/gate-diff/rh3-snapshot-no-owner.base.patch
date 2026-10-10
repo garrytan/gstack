@@ -1,0 +1,32 @@
+diff --git a/src/Button.ts b/src/Button.ts
+new file mode 100644
+index 0000000..8adac76
+--- /dev/null
++++ b/src/Button.ts
+@@ -0,0 +1 @@
++export const Button = (p: { label: string }) => `<button>${p.label}</button>`;
+diff --git a/test/Button.test.ts b/test/Button.test.ts
+new file mode 100644
+index 0000000..6546d09
+--- /dev/null
++++ b/test/Button.test.ts
+@@ -0,0 +1,6 @@
++import { test, expect } from 'bun:test';
++import { Button } from '../src/Button';
++
++test('Button renders', () => {
++  expect(Button({ label: 'Click' })).toMatchSnapshot();
++});
+diff --git a/test/__snapshots__/Button.test.ts.snap b/test/__snapshots__/Button.test.ts.snap
+new file mode 100644
+index 0000000..eef8a11
+--- /dev/null
++++ b/test/__snapshots__/Button.test.ts.snap
+@@ -0,0 +1,7 @@
++// Bun Snapshot v1
++
++exports[`Button renders 1`] = `
++<button>
++  Click
++</button>
++`;

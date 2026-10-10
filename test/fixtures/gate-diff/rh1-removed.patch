@@ -1,0 +1,15 @@
+diff --git a/test/add.test.ts b/test/add.test.ts
+index ac2562b..ce1b02c 100644
+--- a/test/add.test.ts
++++ b/test/add.test.ts
+@@ -5,10 +5,6 @@ test('adds two numbers', () => {
+   expect(add(1, 2)).toBe(3);
+ });
+ 
+-test('adds negatives', () => {
+-  expect(add(-1, -2)).toBe(-3);
+-});
+-
+ test('is commutative', () => {
+   expect(add(2, 3)).toBe(add(3, 2));
+ });

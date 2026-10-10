@@ -1,0 +1,14 @@
+diff --git a/src/test/kotlin/FooTest.kt b/src/test/kotlin/FooTest.kt
+new file mode 100644
+index 0000000..265a18b
+--- /dev/null
++++ b/src/test/kotlin/FooTest.kt
+@@ -0,0 +1,8 @@
++import org.junit.Test
++
++class FooTest {
++    @Test
++    fun adds() {
++        assert(1 + 1 == 2)
++    }
++}
