@@ -54,13 +54,15 @@ TMPIDX=$(mktemp "${TMPDIR:-/tmp}/gstack-wtree-XXXXXX" 2>/dev/null) || {
 trap 'rm -f "$TMPIDX"' EXIT
 trap 'exit 130' INT TERM
 export GIT_INDEX_FILE="$TMPIDX"
-# Resolve relative --git-path output against the repo root.
+# Resolve relative --git-path output against the repo root. Git for Windows
+# answers in drive-letter form (C:/…) wherever the path is absolute (a linked
+# worktree, a submodule, --separate-git-dir); that is absolute too (#3101).
 case "$REAL_INDEX" in
-  ""|/*) ;;
+  ""|/*|[A-Za-z]:[\\/]*) ;;
   *) REAL_INDEX="$TOP/$REAL_INDEX" ;;
 esac
 case "$REAL_OBJECTS" in
-  ""|/*) ;;
+  ""|/*|[A-Za-z]:[\\/]*) ;;
   *) REAL_OBJECTS="$TOP/$REAL_OBJECTS" ;;
 esac
 if [ -n "$OBJ_DIR" ]; then
