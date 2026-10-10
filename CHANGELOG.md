@@ -28,6 +28,42 @@ The user-scope Capy installer's `--check` certified machines with nothing instal
 - New tests: `test/gstack-doctor.test.ts` `--check` fixtures (healthy, each missing component, wrong host, missing auth, runtime mismatch at both floors, bun removed from PATH, pins, unmet revision, browser only for browser skills, `--json`, usage), `test/gstack-capy-install.test.ts`, `test/gstack-browser-ensure.test.ts`, `test/runtime-pins.test.ts`, `test/doctor-components.test.ts`.
 - Any later change to browse.ts prose needs a reversal entry in `test/helpers/manual-judge-review-fixture.ts`; new gen-skill-docs sibling modules need an entry in `test/gen-skill-docs-prune-stale.test.ts`; new network operations in `bin/` need an `egress-receipt-wiring` entry.
 
+## [1.91.70.0] - 2026-10-10
+
+**gstack runs unattended for a parent agent: one artifact contract a parent can validate, an `unattended` session kind that never prompts or syncs, a review log whose status is derived from its findings, and a gate list that is written, never auto-approved.**
+
+Parent agents running gstack on a subagent machine had no way to tell a finished `/autoplan` from an interrupted one, no session kind that meant "nobody is at the keyboard but this is not CI", and a review log whose `clean` status could disagree with its own findings. This release is the first half of the multi-agent wave (`docs/designs/MULTI_AGENT_WAVE_2026_10_10.md`, PR B-core).
+
+### What this means for you
+
+- **`GSTACK_SESSION_KIND=unattended`** is a fourth session kind, honored only as the explicit override. It suppresses every prompt and publication the way `spawned` does and also skips the telemetry writer, the artifacts sync and the brain spool with an explicit line each (`TELEMETRY_WRITE: skipped`, `ARTIFACTS_SYNC: skipped (unattended session; …)`), whatever settings the machine inherited. `headless` keeps its BLOCK meaning, so no eval case changes.
+- **Every run prints `STATE_ROOT: <path> durable=yes|no`.** With `GSTACK_EPHEMERAL=1` set by the host, an unattended run says `learnings: skipped (state root is ephemeral; set GSTACK_STATE_ROOT)` instead of writing to a disk that will vanish.
+- **`/autoplan` unattended writes a run directory** (`run.json`, `decisions.jsonl`, `findings.jsonl`, `tasks.jsonl`, `timing.json`, `plan.md`, `review-record.md`) and ends with `GSTACK_RESULT: skill=autoplan status=gate_pending run=<dir>`. `gstack-artifact validate run.json` is the one deterministic completion check; it fails on an interrupted run, a missing reviewer, a stale artifact, a findings count that disagrees with the file, duplicate ids, dependency cycles or a path that escapes the run directory. `docs/unattended.md` shows the six-step parent flow with `jq` and `grep`.
+- **The final gate is one list with one reply grammar** (`all`, `<id><option>`, `all except …`), stable ids across pages, `auto` versus `approval` items, and a `gate_rev` that rejects a stale reply with no writes. Unattended runs never approve their own gate.
+- **`## URGENT, outside this plan`** is the fixed first block of every autoplan report and plan, `None.` when nothing was raised.
+- **Review-log rows derive their status from findings.** `gstack-review-log --findings <path>` computes `status`, `unresolved`, `issues_found`, `critical_gaps`, `findings_total/open/resolved` from the file and rejects a row whose claimed values disagree (`REVIEW_STATUS_MISMATCH`, exit 1; usage is exit 2).
+- **Timing.** Phase 0 prints an estimate from your last ten runs (`no history` when empty) and the report prints the actual whole-cycle time next to it.
+- On hosts that do not execute hooks, `/autoplan` prints `autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)` once; Claude Code's deny-on-absent hook is unchanged.
+
+### Itemized changes
+
+#### Added
+- `lib/headless-artifacts.ts` (schemas, `validateRun`, `ackRun`, `GSTACK_RESULT` grammar, shared exit table) and `bin/gstack-artifact validate|schema|ack|urgent [--json]`.
+- `lib/result-codes.ts`: reason codes with `docs/troubleshooting.md` anchors and `fix:` clauses for every new error line (`ARTIFACT_*`, `GUARD_NOT_INSTALLED`, `REVIEW_STATUS_MISMATCH`, `GATE_REV_STALE`, `GATE_REPLY_UNPARSED`).
+- `lib/gate-list.ts` and `bin/gstack-gate render|parse|decisions`.
+- `lib/autoplan-timing.ts` and `bin/gstack-autoplan-timing start|close|estimate|summary`; analytics at `<state root>/analytics/autoplan-timing.jsonl`, skipped with a printed line on an ephemeral root.
+- `docs/unattended.md`; reference run under `test/fixtures/multi-agent-wave/reference-run/`.
+
+#### Changed
+- `bin/gstack-session-kind` and `bin/gstack-skill-start`: `unattended` whitelisted; an unknown kind prints `SESSION_KIND: interactive (unknown kind '<x>')`; `STATE_ROOT`, `UNATTENDED_SESSION`, telemetry, sync and brain-spool skips; `bin/gstack-skill-end` emits a cached one-line upgrade notice instead of draining.
+- `lib/review-evidence.ts`: `bindReview` validates a findings file before consuming the start token; `reviewFreshness` reads `findings_open`; legacy counters keep their conservative reading.
+- `autoplan/SKILL.md.tmpl` and `phase-close`: run id and estimate in Phase 0, gate list and URGENT block in Phase 4, timing on close. Union bytes shrank on every skill (autoplan −163); nothing grew.
+- Preamble and `auq-error-fallback-hook`: unattended resolves the recommended option and logs it.
+
+#### For contributors
+- New tests: `test/headless-artifacts.test.ts`, `test/gate-list.test.ts`, `test/autoplan-timing.test.ts`, `test/review-log-findings.test.ts`; `test/gstack-skill-start.test.ts` gains an instrumented egress test (telemetry, sync and update-check sinks receive zero calls under unattended, all three under interactive).
+- `CARVE_GUARDS` autoplan `gateAfterStop` marker now keys on the gate file write; golden ship renders refreshed.
+
 ## [1.91.69.0] - 2026-10-10
 
 **/cso eval cells now get time to finish their report, keep their spend when they run out of time, and stop mislabeling the helper's own files as secrets.**

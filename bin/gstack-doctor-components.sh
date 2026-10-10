@@ -78,6 +78,25 @@ gstack_doctor_skill_optional() {
 # gstack_result_anchor CODE — the docs/troubleshooting.md anchor for a lib/result-codes.ts code; returns 1 for an unknown code.
 gstack_result_anchor() {
   case "$1" in
+    ARTIFACT_INVALID_JSON) printf '%s' 'artifact-invalid-json' ;;
+    ARTIFACT_UNSUPPORTED_VERSION) printf '%s' 'artifact-unsupported-version' ;;
+    ARTIFACT_SCHEMA) printf '%s' 'artifact-schema' ;;
+    ARTIFACT_MISSING) printf '%s' 'artifact-missing' ;;
+    ARTIFACT_STALE) printf '%s' 'artifact-stale' ;;
+    ARTIFACT_PATH_ESCAPE) printf '%s' 'artifact-path-escape' ;;
+    ARTIFACT_MALFORMED_JSONL) printf '%s' 'artifact-malformed-jsonl' ;;
+    ARTIFACT_DUPLICATE_ID) printf '%s' 'artifact-duplicate-id' ;;
+    ARTIFACT_UNBOUND_ID) printf '%s' 'artifact-unbound-id' ;;
+    ARTIFACT_DANGLING_REF) printf '%s' 'artifact-dangling-ref' ;;
+    ARTIFACT_DEPENDENCY_CYCLE) printf '%s' 'artifact-dependency-cycle' ;;
+    ARTIFACT_COUNT_MISMATCH) printf '%s' 'artifact-count-mismatch' ;;
+    ARTIFACT_RUN_INTERRUPTED) printf '%s' 'artifact-run-interrupted' ;;
+    ARTIFACT_REVIEWER_MISSING) printf '%s' 'artifact-reviewer-missing' ;;
+    ARTIFACT_GUARD_LINE_MISSING) printf '%s' 'artifact-guard-line-missing' ;;
+    GUARD_NOT_INSTALLED) printf '%s' 'guard-not-installed' ;;
+    REVIEW_STATUS_MISMATCH) printf '%s' 'review-status-mismatch' ;;
+    GATE_REV_STALE) printf '%s' 'gate-rev-stale' ;;
+    GATE_REPLY_UNPARSED) printf '%s' 'gate-reply-unparsed' ;;
     COMPONENT_MISSING) printf '%s' 'doctor-component-missing' ;;
     RUNTIME_BELOW_MINIMUM) printf '%s' 'doctor-runtime-below-minimum' ;;
     PROJECT_PIN_MISMATCH) printf '%s' 'doctor-project-pin-mismatch' ;;

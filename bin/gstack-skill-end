@@ -34,6 +34,19 @@ _BIN="$_SCRIPT_DIR"
 gstack_state_root_select
 _GH="$_gstack_sr_root"
 _TEL=$("$_BIN/gstack-config" get telemetry 2>/dev/null || echo off)
+# Plan B1: an unattended session writes no usage, sends no telemetry and never
+# drains or pushes the artifacts queue, whatever the inherited settings say. The
+# upgrade offer it skipped at start becomes one line here, read from the
+# update-check cache (no network) so the parent can act on it.
+_SESSION_KIND=$("$_BIN/gstack-session-kind" 2>/dev/null || echo "interactive")
+if [ "$_SESSION_KIND" = "unattended" ]; then
+  _TEL="off"
+  _CACHED_UPD=$(head -1 "$_GH/last-update-check" 2>/dev/null | tr -cd 'A-Za-z0-9._ ' || true)
+  case "$_CACHED_UPD" in
+    UPGRADE_AVAILABLE*) echo "UPGRADE_AVAILABLE: ${_CACHED_UPD##* }; run /gstack-upgrade" ;;
+  esac
+  echo "ARTIFACTS_SYNC: skipped (unattended session)"
+fi
 
 _TEL_END=$(date +%s)
 case "$TEL_START" in ''|*[!0-9]*) TEL_START="$_TEL_END" ;; esac
@@ -41,8 +54,10 @@ _TEL_DUR=$(( _TEL_END - TEL_START ))
 [ -n "$SESSION_ID" ] && rm -f "$_GH/analytics/.pending-$SESSION_ID" 2>/dev/null || true
 
 # Skill-end artifacts sync (drain + push; formerly its own inline fence).
-"$_BIN/gstack-brain-sync" --discover-new 2>/dev/null || true
-"$_BIN/gstack-brain-sync" --once 2>/dev/null || true
+if [ "$_SESSION_KIND" != "unattended" ]; then
+  "$_BIN/gstack-brain-sync" --discover-new 2>/dev/null || true
+  "$_BIN/gstack-brain-sync" --once 2>/dev/null || true
+fi
 
 # Session timeline: local-only, never sent anywhere.
 "$_BIN/gstack-timeline-log" '{"skill":"'"$SKILL_NAME"'","event":"completed","branch":"'"$(_b=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-'); echo "${_b:-unknown}")"'","outcome":"'"$OUTCOME"'","duration_s":"'"$_TEL_DUR"'","session":"'"$SESSION_ID"'"}' 2>/dev/null || true

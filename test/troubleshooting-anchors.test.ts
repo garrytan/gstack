@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GATE_OUTCOMES, gateOutcomeLine, type GateReason } from '../lib/gate-outcomes';
-import { RESULT_CODES, resultCodeSuffix } from '../lib/result-codes';
+import { RESULT_CODES, resultCodeSuffix, resultLine } from '../lib/result-codes';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const doc = fs.readFileSync(path.join(ROOT, 'docs/troubleshooting.md'), 'utf8');
@@ -19,10 +19,12 @@ describe('docs/troubleshooting.md anchors', () => {
     });
   }
 
-  // lib/result-codes.ts is the sibling table for workflow-command error lines.
+  // B0: lib/result-codes.ts is the sibling table for the unattended workflow
+  // commands; its codes are an enumerated list (ARTIFACT_* spelled out, never
+  // a wildcard) and each has a section here, same rule as the gate outcomes.
   for (const [code, row] of Object.entries(RESULT_CODES)) {
     test(`result code ${code} → #${row.anchor}`, () => {
-      expect(code).toMatch(/^[A-Z][A-Z_]+$/);
+      expect(code).toMatch(/^[A-Z][A-Z0-9_]+$/);
       expect(anchors.has(row.anchor)).toBe(true);
       const after = doc.slice(doc.indexOf(`<a id="${row.anchor}"></a>`)).split('\n')[1] ?? '';
       expect(after).toMatch(/^#{2,4} /);
@@ -34,9 +36,16 @@ describe('docs/troubleshooting.md anchors', () => {
   test('anchors are unique and every outcome has a fix action', () => {
     const all = [...doc.matchAll(/<a id="([a-z0-9-]+)"><\/a>/g)].map(m => m[1]);
     expect(new Set(all).size).toBe(all.length);
-    const codes = [...Object.values(GATE_OUTCOMES).map(o => o.anchor), ...Object.values(RESULT_CODES).map(o => o.anchor)];
+    const codes = [...Object.values(GATE_OUTCOMES), ...Object.values(RESULT_CODES)].map(o => o.anchor);
     expect(new Set(codes).size).toBe(codes.length);
     for (const outcome of Object.values(GATE_OUTCOMES)) expect(outcome.fix.trim().length).toBeGreaterThan(0);
+    for (const row of Object.values(RESULT_CODES)) expect(row.fix.trim().length).toBeGreaterThan(0);
+  });
+
+  test('result lines end with the code in parentheses and carry a fix clause', () => {
+    expect(resultLine('gstack-artifact validate', 'ARTIFACT_STALE', 'findings.jsonl'))
+      .toMatch(/^gstack-artifact validate: .+ \(findings\.jsonl\); fix: .+ \(ARTIFACT_STALE\)$/);
+    expect(resultLine('review-log', 'REVIEW_STATUS_MISMATCH')).toMatch(/; fix: .+ \(REVIEW_STATUS_MISMATCH\)$/);
   });
 
   test('every docs/troubleshooting.md#anchor that setup or a bin script prints exists', () => {

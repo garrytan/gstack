@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "run": "maw-20261010",
+  "started_at": "2026-10-10T20:30:29Z",
+  "phases": [
+    {
+      "phase": "ceo",
+      "start_utc": "20:30:29",
+      "end_utc": "20:44:52",
+      "wall_s": 863,
+      "outside_s": 169,
+      "native_s": 384,
+      "amend_s": 480
+    },
+    {
+      "phase": "dx",
+      "start_utc": "20:44:52",
+      "end_utc": "20:54:02",
+      "wall_s": 550,
+      "outside_s": 173,
+      "native_s": 367,
+      "amend_s": 183
+    },
+    {
+      "phase": "eng",
+      "start_utc": "20:54:02",
+      "end_utc": "21:18:00",
+      "wall_s": 1438,
+      "outside_s": 227,
+      "native_s": 682,
+      "amend_s": 720
+    },
+    {
+      "phase": "close",
+      "start_utc": "21:18:00",
+      "note": "decisions/findings/tasks/timing written by hand; B0 tooling does not exist yet"
+    }
+  ],
+  "total_wall_s": 2828,
+  "outside_model": "gpt-6-astra",
+  "native_model": "claude-fable-5-1",
+  "host": "capy",
+  "session_kind": "unattended (in practice)",
+  "spend_usd": "unknown (Codex CLI three runs; subagent spend not metered)",
+  "source": "artifact mtimes under ~/.capy/work/gstack-plan"
+}

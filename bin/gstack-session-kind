@@ -2,7 +2,7 @@
 # gstack-session-kind — classify the current agent session so skills know whether
 # a human can answer an interactive prompt (AskUserQuestion).
 #
-# Usage: gstack-session-kind            → prints one of: spawned | headless | interactive
+# Usage: gstack-session-kind            → prints one of: unattended | spawned | headless | interactive
 #
 # Used by the preamble (generate-preamble-bash.ts) which echoes
 #   SESSION_KIND: <value>
@@ -12,13 +12,21 @@
 #                 per the skill's SPAWNED_SESSION block. Never prose, never BLOCKED.
 #   headless    → no human present (claude -p evals / CI). BLOCK on AUQ failure.
 #   interactive → a human is present. Prose-fallback on AUQ failure.
+#   unattended  → a parent agent drives this run and reads its artifacts, not
+#                 its prose (plan B1). Recommended options are auto-decided and
+#                 logged; the final approval gate is written, never approved;
+#                 no prompts, no publishing, no sync. Honored ONLY as the
+#                 explicit GSTACK_SESSION_KIND=unattended override, which
+#                 outranks GSTACK_HEADLESS so a parent can drive a run inside
+#                 CI; the eval harness never sets it, so `headless` keeps its
+#                 BLOCK semantics and no eval case changes meaning.
 #
 # Detection is best-effort. On ANY ambiguity it prints `interactive` — BLOCK only on
 # a positive headless signal, since a stray prose message in an unmarked one-shot
 # `-p` run just ends the turn (harmless), whereas wrongly BLOCKING a real human is not.
 #
-# GSTACK_SESSION_KIND=spawned is the explicit per-command override (step 0 below),
-# outranking every ambient marker. Deliberately narrow — only "spawned" is honored:
+# GSTACK_SESSION_KIND=spawned|unattended is the explicit per-command override (step 0
+# below), outranking every ambient marker. Deliberately narrow — only those two are honored:
 # Claude Code subagents inherit the parent env byte-for-byte (#2733), so a
 # dispatching skill marks its subagent by prefixing the gstack-skill-start
 # invocation. "headless" already has GSTACK_HEADLESS; other values are reserved
@@ -29,11 +37,13 @@
 # signals that actually discriminate are the host/orchestrator/CI env markers below.
 set -euo pipefail
 
-# 0. Explicit spawned marker — full rationale and contract in the header above.
-if [ "${GSTACK_SESSION_KIND:-}" = "spawned" ]; then
-  echo "spawned"
-  exit 0
-fi
+# 0. Explicit spawned / unattended marker — full rationale and contract in the header above.
+case "${GSTACK_SESSION_KIND:-}" in
+  spawned|unattended)
+    echo "$GSTACK_SESSION_KIND"
+    exit 0
+    ;;
+esac
 
 # 1. Orchestrator-spawned session (OpenClaw). Authoritative block lives in the skill;
 #    we only surface the classification.

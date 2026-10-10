@@ -11,6 +11,9 @@ SKILL.md at each exit; those hosts do not have a separate phase-close.md file.
    Match a completed native review's INPUT to its voice snapshot. A pending
    reviewer keeps the phase open. Apply the phase's failure policy to failed
    native attempts; unavailable/disabled voices receive no completion credit.
+   Record wall time: `~/.claude/skills/gstack/bin/gstack-autoplan-timing close --run <RUN_ID>
+   --phase <PHASE> --out "$_AP" --outside-s <N> --native-s <N>` (timing.json; the
+   analytics append is skipped with a printed line on an ephemeral state root).
 2. **Reconcile accepted requirements.** Record every accepted behavior, condition,
    test and manual checklist in this phase's accepted block. Taste remains
    provisional; User Challenges preserve the original requirements. A `None`
