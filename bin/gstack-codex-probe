@@ -801,12 +801,44 @@ _gstack_codex_log_hang() {
     >/dev/null 2>&1 || true
 }
 
+# --- Reasoning effort default (#2975) ---------------------------------------
+
+_gstack_codex_effort_check() {
+  # Manual /codex runs only. GSTACK_CODEX_EFFORT mirrors GSTACK_CODEX_MODEL:
+  # unset -> the per-mode default in $1; set -> it becomes the default for
+  # every mode. A request-level --xhigh still outranks it: the skill assigns
+  # _CODEX_EFFORT=xhigh after this capture and before the dispatch.
+  # Codex itself only rejects an unknown model_reasoning_effort at request
+  # time as an API error (verified: codex-cli 0.155.1 accepts -c
+  # model_reasoning_effort=banana locally), so gstack fails fast here, the
+  # same way an invalid GSTACK_CODEX_MODEL stops before a paid call.
+  # Allowlist: the config reference lists low, medium, high, xhigh, max and
+  # ultra; the API reasoning guide adds minimal. Levels are model-dependent,
+  # so this is the union, not a per-model truth. A default that is not in
+  # the allowlist is a usage error (exit 64); a bad env value exits 1.
+  local _default="$1" _chosen
+  case "$_default" in minimal|low|medium|high|xhigh|max|ultra) ;; *) return 64 ;; esac
+  _chosen="${GSTACK_CODEX_EFFORT:-$_default}"
+  case "$_chosen" in
+    minimal|low|medium|high|xhigh|max|ultra) ;;
+    *)
+      echo "CODEX_EFFORT: invalid — '$GSTACK_CODEX_EFFORT' is not a Codex reasoning effort level. No Codex call was made." >&2
+      echo "HINT: set GSTACK_CODEX_EFFORT to one of minimal, low, medium, high, xhigh, max or ultra, or unset it to keep the per-mode defaults." >&2
+      return 1
+      ;;
+  esac
+  echo "CODEX_EFFORT: $_chosen" >&2
+  printf 'CODEX_EFFORT: %s\n' "$_chosen"
+}
+
 # --- Executed subcommands ----------------------------------------------------
 
 _gstack_codex_usage() {
   printf '%s\n' \
     'Usage: gstack-codex-probe <subcommand> [args]' \
     '  select-model <exec|review> [--model <id>]  print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1' \
+    '  check-effort <minimal|low|medium|high|xhigh|max|ultra>' \
+    '                                             GSTACK_CODEX_EFFORT default for manual /codex modes; print CODEX_EFFORT:; exit 0 or 1' \
     '  check-auth                                 exit 0 when Codex credentials exist, 1 otherwise' \
     '  show-sandbox                               print CODEX_SANDBOX: read-only (or danger-full-access)' \
     '  check-sandbox                              free sandbox check; exit 0, or 3 with the reason on stderr' \
@@ -866,6 +898,12 @@ _gstack_codex_main() {
       _gstack_codex_kind_args "$@" || { _gstack_codex_usage >&2; return 64; }
       _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL" || return 1
       printf 'CODEX_SEL: %s\nCODEX_SEL_KIND: %s\nCODEX_SANDBOX: %s\n' "$_GSTACK_CODEX_SEL" "$_GSTACK_CODEX_SEL_KIND" "$_GSTACK_CODEX_SANDBOX" ;;
+    check-effort)
+      [ "$#" -eq 1 ] || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_effort_check "$1"
+      _rc=$?
+      [ "$_rc" -eq 64 ] && { _gstack_codex_usage >&2; return 64; }
+      return "$_rc" ;;
     check-auth) [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }; _gstack_codex_auth_probe ;;
     show-sandbox)
       [ "$#" -eq 0 ] || { _gstack_codex_usage >&2; return 64; }

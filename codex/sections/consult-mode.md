@@ -88,7 +88,7 @@ session id from `.context/codex-session-id`. Substitute the printed name for
 the Bash call (the tool's maximum) — the gate sits ABOVE the 540s wrapper so the wrapper
 fires first, ends Codex, and prints its explicit stall message:
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
+If the user passed `--xhigh`, after `check-effort` sets `_CODEX_EFFORT`, assign `_CODEX_EFFORT=xhigh` before the dispatch (the request flag outranks `GSTACK_CODEX_EFFORT` and the `medium` per-mode default).
 
 ```bash
 _CODEX_MODE=<new|resume>
@@ -107,6 +107,8 @@ if [ -n "$_CODEX_ROLE" ]; then export _CODEX_DEADLINE=$(($(date +%s)+540)); _COD
 else _CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1; fi
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
 _CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
+_CODEX_OUT=$("$_CODEX_PROBE" check-effort medium) || exit 1
+_CODEX_EFFORT=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_EFFORT: //p')
 _SID=""
 if [ "$_CODEX_MODE" = "resume" ]; then
   _SID=$(cat .context/codex-session-id 2>/dev/null)
@@ -115,9 +117,9 @@ fi
 _LABEL=consult${_SID:+-resume}
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
 if [ -n "$_SID" ]; then
-  "$_CODEX_PROBE" run-with-timeout 540 codex exec resume "$_SID" - -c "sandbox_mode=\"${_CODEX_SANDBOX_MODE:?}\"" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR"
+  "$_CODEX_PROBE" run-with-timeout 540 codex exec resume "$_SID" - -c "sandbox_mode=\"${_CODEX_SANDBOX_MODE:?}\"" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c "model_reasoning_effort=\"${_CODEX_EFFORT:?}\"" -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR"
 else
-  "$_CODEX_PROBE" run-with-timeout 540 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR"
+  "$_CODEX_PROBE" run-with-timeout 540 codex exec - -C "$_REPO_ROOT" -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c "model_reasoning_effort=\"${_CODEX_EFFORT:?}\"" -c 'web_search="cached"' --json -o "$TMPRESP" < "$PROMPT_FILE" 2>"$TMPERR"
 fi | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0

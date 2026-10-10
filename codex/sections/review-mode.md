@@ -53,10 +53,12 @@ if [ -n "$_CODEX_ROLE" ]; then export _CODEX_DEADLINE=$(($(date +%s)+330)); _COD
 else _CODEX_OUT=$("$_CODEX_PROBE" select-model review) || exit 1; fi
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
 _CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
+_CODEX_OUT=$("$_CODEX_PROBE" check-effort high) || exit 1
+_CODEX_EFFORT=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_EFFORT: //p')
 # The 330s wrapper sits BELOW the 360s Bash gate so the wrapper fires FIRST
 # and a stall surfaces as a diagnosable exit 124 with an explicit message,
 # never as a silent harness kill that downstream reads as "no findings".
-"$_CODEX_PROBE" run-with-timeout 330 codex review --base <base> -c "sandbox_mode=\"${_CODEX_SANDBOX_MODE:?}\"" -c "review_model=\"${_CODEX_SEL:?}\"" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$TMPOUT" 2>"$TMPERR"
+"$_CODEX_PROBE" run-with-timeout 330 codex review --base <base> -c "sandbox_mode=\"${_CODEX_SANDBOX_MODE:?}\"" -c "review_model=\"${_CODEX_SEL:?}\"" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c "model_reasoning_effort=\"${_CODEX_EFFORT:?}\"" -c 'web_search="cached"' < /dev/null >"$TMPOUT" 2>"$TMPERR"
 _CODEX_EXIT=$?
 cat "$TMPOUT"
 if [ "$_CODEX_EXIT" = "124" ]; then
@@ -74,7 +76,7 @@ fi
 bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review' --exit "$_CODEX_EXIT" --stderr "$TMPERR" structured "$TMPOUT"
 ```
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+If the user passed `--xhigh`, after `check-effort` sets `_CODEX_EFFORT`, assign `_CODEX_EFFORT=xhigh` before the dispatch (the request flag outranks `GSTACK_CODEX_EFFORT` and the `high` per-mode default).
 
 **Custom-instructions path (user typed `/codex review <focus>`):** custom instructions
 cannot ride along with `--base` — that is exactly the combination the CLI rejects — and
@@ -113,6 +115,8 @@ if [ -n "$_CODEX_ROLE" ]; then export _CODEX_DEADLINE=$(($(date +%s)+330)); _COD
 else _CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1; fi
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
 _CODEX_SANDBOX_MODE=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SANDBOX: //p')
+_CODEX_OUT=$("$_CODEX_PROBE" check-effort high) || exit 1
+_CODEX_EFFORT=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_EFFORT: //p')
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 {
   printf '%s\n' "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do not invoke any installed skill (Codex home skills/, .agents/); answer directly. Do NOT modify agents/openai.yaml. Stay focused on repository code only."
@@ -124,7 +128,7 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp 
   git diff "<base>...HEAD" 2>/dev/null
   printf '\nDIFF_END\n'
 } > "$_PROMPT_FILE"
-"$_CODEX_PROBE" run-with-timeout 330 codex exec - -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$TMPOUT" < "$_PROMPT_FILE" >"$TMPOUT.events" 2>"$TMPERR"
+"$_CODEX_PROBE" run-with-timeout 330 codex exec - -s "${_CODEX_SANDBOX_MODE:?}" -c "model=\"${_CODEX_SEL:?}\"" -c skills.include_instructions=false -c "model_reasoning_effort=\"${_CODEX_EFFORT:?}\"" -c 'web_search="cached"' --json -o "$TMPOUT" < "$_PROMPT_FILE" >"$TMPOUT.events" 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE" "$FOCUS_FILE"
 cat "$TMPOUT"
