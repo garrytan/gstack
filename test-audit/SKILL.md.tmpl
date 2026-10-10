@@ -81,7 +81,7 @@ echo "$FILES" | xargs grep -L -E 'expect|assert|should|t\.(Error|Fatal|Fail)|ref
 echo "$FILES" | xargs grep -l -E 'readFileSync\([^)]*\.(ts|js|py|rb|go|tmpl)|toContain\(.(import|export|function) ' 2>/dev/null | sed 's/^/SOURCE_GREP:/'
 echo "$FILES" | xargs grep -l -E 'Object\.keys\(|export list|exports\)\.toEqual' 2>/dev/null | sed 's/^/EXPORT_LIST:/'
 echo "$FILES" | xargs grep -l -F 'gstack:test-value keep' 2>/dev/null | sed 's/^/SUPPRESSED:/'
-for f in $FILES; do printf '%s %s\n' "$(tr -d '[:space:]' < "$f" | cksum | cut -d' ' -f1)" "$f"; done | sort | awk '$(1)==p{print "NEAR_DUPLICATE:" pf " " $(2)} {p=$(1); pf=$(2)}'
+printf '%s\n' "$FILES" | while IFS= read -r f; do printf '%s %s\n' "$(tr -d '[:space:]' < "$f" | cksum | cut -d' ' -f1)" "$f"; done | sort | awk '$(1)==p{print "NEAR_DUPLICATE:" pf " " $(2)} {p=$(1); pf=$(2)}'
 ```
 
 Add seed candidates to the shortlist. A `SUPPRESSED` test is never a candidate: record

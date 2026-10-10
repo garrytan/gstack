@@ -565,6 +565,25 @@ describe('gen-skill-docs', () => {
     }
   });
 
+  test('bash blocks never loop over an unquoted variable (zsh does not word-split it)', () => {
+    // `for f in $LIST` runs once with the whole list under zsh (no SH_WORD_SPLIT),
+    // which is the Bash tool's shell on macOS. Iterate with
+    // `printf '%s\n' "$LIST" | while IFS= read -r f` or `$(echo "$LIST")`;
+    // zsh still splits an unquoted command substitution.
+    const violations: string[] = [];
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
+      const content = readSkillUnion(skill.dir);
+      for (const block of [...content.matchAll(/```bash\n([\s\S]*?)```/g)].map(m => m[1])) {
+        for (const loop of block.matchAll(/\bfor\s+\w+\s+in\s+([^;\n]*)/g)) {
+          if (loop[1].split(/\s+/).some(word => /^\$\{?\w+\}?$/.test(word))) {
+            violations.push(`${skill.dir}: ${loop[0].trim()}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
   test('preamble-using skills have correct skill name in telemetry', () => {
     const PREAMBLE_SKILLS = [
       { dir: '.', name: 'gstack' },

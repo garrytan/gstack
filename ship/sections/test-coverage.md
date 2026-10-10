@@ -202,7 +202,7 @@ trap cleanup EXIT INT TERM
   git -C "$ROOT" remote get-url origin >/dev/null 2>&1 || { echo "BASE_CONTROL: unavailable (no base remote)"; exit 0; }
   timeout 30 git -C "$ROOT" fetch --quiet origin "$BASE" || { echo "BASE_CONTROL: unavailable (base not fetched)"; exit 0; }
   git -C "$ROOT" worktree add --quiet --detach "$CTL_TMP/wt" "origin/$BASE" >/dev/null 2>&1 || { echo "BASE_CONTROL: unavailable (worktree add failed)"; exit 0; }
-  for f in $TEST $FIXTURES; do mkdir -p "$CTL_TMP/wt/$(dirname "$f")" && cp "$ROOT/$f" "$CTL_TMP/wt/$f"; done
+  for f in $(echo "$TEST $FIXTURES"); do mkdir -p "$CTL_TMP/wt/$(dirname "$f")" && cp "$ROOT/$f" "$CTL_TMP/wt/$f"; done
   [ -d "$ROOT/node_modules" ] && ln -s "$ROOT/node_modules" "$CTL_TMP/wt/node_modules"
   cd "$CTL_TMP/wt" && timeout "${BUDGET:-90}" sh -c "$RUN" > "$CTL_TMP/out" 2>&1; rc=$?
   tail -n 40 "$CTL_TMP/out"
