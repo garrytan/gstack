@@ -32,6 +32,7 @@ import { generateScopeDrift, generateCrossReviewDedup, generateSharedCodeReuse }
 import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer, generateChangelogWorkflow, generateCodexWebSearchFlag, generateCodexModelConfigFlag, generateCodexReviewModelConfigFlag, generateClaudeModelFlag, generateSetupCommand } from './utility';
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
 import { generateConfidenceCalibration } from './confidence';
+import { generateGateScanBlock } from './gate-scan';
 import { generateInvokeSkill, generateAutoplanReviewFile, generateAutoplanSnapshotTool, generateAutoplanPublicationHook, generateCeoModeHandoffHook } from './composition';
 import { generateReviewArmy } from './review-army';
 import { generateDxFramework } from './dx';
@@ -141,6 +142,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   LEARNINGS_SEARCH: generateLearningsSearch,
   LEARNINGS_LOG: generateLearningsLog,
   CONFIDENCE_CALIBRATION: generateConfidenceCalibration,
+  GATE_SCAN_BLOCK: generateGateScanBlock,
   INVOKE_SKILL: generateInvokeSkill,
   AUTOPLAN_REVIEW_FILE: generateAutoplanReviewFile,
   AUTOPLAN_SNAPSHOT_TOOL: generateAutoplanSnapshotTool,

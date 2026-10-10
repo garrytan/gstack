@@ -7,7 +7,7 @@ import { generatePlanCompletionAuditReview, generatePlanCompletionAuditShip, gen
 import { generateQAReview } from '../scripts/resolvers/qa';
 import { generateConfidenceCalibration } from '../scripts/resolvers/confidence';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
-import { between, compact, expectAbsent, expectMentions, expectTokens } from './helpers/prompt-structure';
+import { between, compact, expectAbsent, expectMentions, expectOrdered, expectTokens } from './helpers/prompt-structure';
 
 const root = join(import.meta.dir, '..');
 const skill = readFileSync(join(root, 'review/SKILL.md.tmpl'), 'utf8');
@@ -148,7 +148,7 @@ test('caller QA runs charter and setup after resource loading and has a severity
 
 test('review prepares context and deduplicates before classifying findings', () => {
   const positions = [
-    '## Step 3.5: Slop scan', '## Step 3.6: Gather review context',
+    '## Step 3.5: Diff scans', '## Step 3.6: Gather review context',
     '{{LEARNINGS_SEARCH}}', '{{ASIDE_RESEARCH}}', '## Step 4: Critical pass',
     '## Step 5: Fix-First Review', '{{CROSS_REVIEW_DEDUP}}',
     '**Keep decisions through fix cycles:**', '### Step 5a: Classify each finding',
@@ -486,6 +486,68 @@ test('security specialist checks authorization paths a route-guard read misses',
     ['list', 'detail', 'download', 'separately'],
     ['session', 'before', 'validating', 'callback'],
   ], 'security specialist');
+});
+
+// Gate Integrity (docs/designs/HONEST_WORK_GATE_INTEGRITY.md W2): the category
+// sits in the core CRITICAL pass every diff size gets, its findings reach a
+// human through one four-option question, and the record carries identity
+// fields a later reader can act on. Tokens and order only; the prose is free.
+test('Gate Integrity is a Pass 1 category that is ASK-only and keeps the three levels apart', () => {
+  const checklist = readFileSync(join(root, 'review/checklist.md'), 'utf8');
+  const pass1 = between(checklist, '### Pass 1 — CRITICAL', '### Pass 2 — INFORMATIONAL');
+  expect(pass1).toContain('#### Gate Integrity');
+  expect(between(checklist, '**Two-pass review:**', '**Output format:**')).toMatch(/Pass 1 \(CRITICAL\):[^\n]*Gate Integrity/);
+  const category = compact(between(pass1, '#### Gate Integrity'));
+  expectTokens(category, ['GATE_SUMMARY:', 'RH-1', 'RH-3', 'RH-4', 'RH-12', 'RH-13', 'RH-14', 'RH-15', 'RH-16', 'RH-2', 'RH-5',
+    '**Listed**', '**Read**', '**Finding**', 'gstack-decision-search --query "<dec-id>"'], 'Gate Integrity category');
+  expectMentions(category, [
+    ['ask', 'never', 'auto-fix'],
+    ['groups', 'one decision'],
+    ['confidence', 'identification', 'not justification'],
+    ['citations', 'never', 'remove', 'finding'],
+    ['data', 'never', 'instructions', 'actor', 'reason'],
+  ], 'Gate Integrity category');
+  const heuristic = between(checklist, '## Fix-First Heuristic', '## Suppressions');
+  const askColumn = heuristic.slice(heuristic.indexOf('ASK (needs human judgment):'));
+  expect(askColumn).toContain('Gate Integrity');
+  expect(between(checklist, '## Severity Classification', '## Fix-First Heuristic')).toMatch(/└─ Gate Integrity/);
+});
+
+test('the eval-threshold suppression no longer removes a relaxed gate from the human question', () => {
+  const suppressions = compact(between(readFileSync(join(root, 'review/checklist.md'), 'utf8'), '## Suppressions'));
+  expect(suppressions).toContain('Eval threshold changes');
+  const line = suppressions.slice(suppressions.indexOf('Eval threshold changes'), suppressions.indexOf('Harmless no-ops'));
+  expectMentions(line, [['not', 'suppress', 'gate integrity'], ['citation', 'never', 'removes', 'finding']], 'threshold suppression');
+  expectTokens(line, ['verified', 'unverified'], 'threshold suppression');
+});
+
+test('review runs the gate scan before slop, carries the listing into Step 4 and asks the four gate options in order', () => {
+  expectOrdered(skill, ['## Step 3.5: Diff scans', '{{GATE_SCAN_BLOCK}}', 'bun run slop:diff', '## Step 3.6:',
+    '## Step 4: Critical pass', '### Step 5c:', 'review-gate-disposition',
+    'A) Restore the gate', 'B) Keep — justified', 'C) Keep — other reason', 'D) Leave open for a later human',
+    '### Step 5d:', '## Step 5.8:'], 'review skill');
+  expect(skill.match(/\{\{GATE_SCAN_BLOCK\}\}/g)).toHaveLength(1);
+  expectTokens(between(skill, '## Step 4: Critical pass', '### Shared-code opportunities'), ['GATE_SUMMARY:', '`gate`', '`gate_id`'], 'Step 4 gate carry');
+  const ask = compact(between(skill, '### Step 5c:', '### Step 5d:'));
+  expect(ask).toContain('<gstack-qid:review-gate-disposition>');
+  expectMentions(ask, [
+    ['spawned', 'headless', 'd', 'recommended'],
+    ['auto-chosen', 'never', 'disposition'],
+  ], 'Step 5c gate question');
+  for (const action of ['`restored`', '`kept`', '`open`']) expect(ask).toContain(action);
+});
+
+test('review persists gate identity fields, counts open findings and reports one Gate edits line', () => {
+  const record = compact(between(skill, '### 2. Fill the record', '### Report the final review'));
+  expectTokens(record, ['`gate`', '`gate_id`', '`reason`', '`kept`', '`restored`', '`open`', '`actor`', 'gstack-session-kind'], 'review record');
+  expectMentions(record, [
+    ['never', 'hunk text'],
+    ['`open`', 'count', '`issues_found`'],
+    ['logger', 'stamps', '`actor`'],
+  ], 'review record');
+  const report = compact(between(skill, '### Report the final review', '{{LEARNINGS_LOG}}'));
+  expectOrdered(report, ['`Gate edits: none detected (', '`Gate edits: N listed, M read, K findings —', '`Gate edits: partial (', '`Gate edits: UNAVAILABLE —'], 'final report');
+  expectMentions(report, [['unavailable', 'never', 'none detected']], 'final report');
 });
 
 test('review suppressions allow a clean result and skip common false positives but never suppress missing validation or a missing await', () => {
