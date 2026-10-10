@@ -73,7 +73,7 @@ describe('CSO producer provider policies', () => {
     ]);
     const producer = { ...common, csoProducer: policy(state, source, helper) };
     expect(claudeExecArgs(producer, 'claude-test')).toEqual([
-      '-p', '--output-format', 'json', '--model', 'claude-test',
+      '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', 'claude-test',
       '--restricted', '--safe-mode', '--no-session-persistence',
       '--permission-prompts', 'none', '--permission-mode', 'dontAsk',
       '--tools', 'Bash,Write',

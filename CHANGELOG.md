@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.91.69.0] - 2026-10-10
+
+**/cso eval cells now get time to finish their report, keep their spend when they run out of time, and stop mislabeling the helper's own files as secrets.**
+
+The first paid smoke cells that ran real scanners both ended as `REDACTION_FAILED` with no usage and no artifacts after the full 30 minutes. There were three causes.
+
+- **Every artifact path tripped the secret check.** The helper names each run `<epoch ms>-<hex>`, and the secret redactor reads a 13-digit epoch as a phone number. Some 32-hex review IDs also read as wallet addresses. So the first run that actually wrote artifacts failed the post-run inventory, every time.
+- **The provider was killed at the budget.** The producer stopped Claude at exactly `--budget` after the cell started. The helper's own deadline is the budget after `start`, and its `finish` writes the report after that deadline. Both agents started the helper within 30 seconds, worked until the deadline, and were killed before they could call `finish`.
+- **A kill threw the spend away.** `--output-format json` reports usage only when Claude exits, so a timeout recorded zero tokens.
+
+### What this means for you
+
+- Helper artifact names are checked against the helper's layout: `<repoId>/<runId>/...`, `public-cache/` and `legacy-imports/`. A path component that is wholly a helper identifier is accepted by its shape. Every other component, including source paths mirrored under `snapshot/` and `readable/`, still goes through the secret redactor.
+- The producer gives the provider the budget plus 300 seconds of reporting time (`PRODUCER_REPORTING_GRACE_SECONDS`, the evaluator's frozen `graceSeconds`). The helper still refuses evidence after its deadline, so the measured budget is unchanged. The agent just gets to call `finish`, as a user's agent would.
+- Claude producers stream events (`stream-json --verbose --include-partial-messages`) and add up usage message by message. A timed-out receipt carries its tokens, estimated cost, turns and the agent's last text, marked `failed` with `timeout`. A run with no successful, nonblank final result still fails.
+- A failed post-run check now names the check in the receipt's reason, for example `artifact inventory check: ...`. A redaction rejection says which component failed and never includes the component itself.
+
+### Itemized changes
+
+#### Fixed
+- `inventoryProducerArtifacts` validates paths with `assertProducerArtifactPath`. Paths outside the helper layout fail as `INVALID_PRODUCER_ARTIFACTS`. A component that looks like a secret fails as `REDACTION_FAILED` with its position and masked parent.
+- `runProducerCell` passes `producerProviderTimeoutMs(budget)`, which is the budget plus 300 s. Integrity failures read `<check> check: <detail>`, and add the provider's own error code when there was one.
+- The Claude producer runs through `runClaudeProducerStream` in `test/helpers/providers/claude-stream.ts`. It folds the event stream as it arrives, so no output buffer can overflow. It resolves even when a grandchild holds stdout, and keeps the `Command failed: <command> <args>` reason on a nonzero exit. Non-producer Claude evals are unchanged.
+
+#### For contributors
+- `test/claude-producer-stream.test.ts` covers stream accounting, the paid result contract, a timed-out stub, and nonzero and clean exits. `test/cso-eval.test.ts` covers the real helper layout (an epoch run ID and a wallet-shaped review ID), a planted secret-shaped file name, and a timed-out receipt that keeps its usage.
+- The evaluator's cells need a matching change: an outer timeout of the budget plus 600 s, and the new Claude flags in the stub preflight prefix.
+
 ## [1.91.68.0] - 2026-10-08
 
 **Claude /cso eval cells run the real scanners again, never break their own source check, and still record what they spent when a post-run check fails.**

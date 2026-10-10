@@ -16,14 +16,15 @@ import * as path from 'path';
 import * as os from 'os';
 import { resolveClaudeCommand } from '../../../lib/claude-bin';
 import { resolveEvalModel } from '../../../lib/eval-model';
+import { runClaudeProducerStream } from './claude-stream';
 
 /**
  * Claude adapter — wraps the `claude` CLI via claude -p.
  *
  * For brevity and to avoid duplicating the full stream-json parser, this adapter
  * uses claude CLI in non-interactive mode (--print) with the simpler JSON output
- * format. If richer event-level metrics are needed (per-tool timing etc.),
- * swap to session-runner's full stream-json parser.
+ * format. CSO producers stream events instead (claude-stream.ts) so a timed-out
+ * run still reports its usage.
  */
 export class ClaudeAdapter implements ProviderAdapter {
   readonly name = 'claude';
@@ -85,7 +86,10 @@ export class ClaudeAdapter implements ProviderAdapter {
     }
 
     try {
-      if (stateDirectory) prepareClaudeProducerState(stateDirectory);
+      if (stateDirectory) {
+        prepareClaudeProducerState(stateDirectory);
+        return await runClaudeProducerStream(resolved.command, args, { input: opts.prompt, cwd: claudeExecWorkingDirectory(opts), env, timeoutMs: opts.timeoutMs, model });
+      }
       const out = execFileSync(resolved.command, args, {
         input: opts.prompt,
         cwd: claudeExecWorkingDirectory(opts),
@@ -222,8 +226,10 @@ export function assertClaudeProducerSandboxPolicy(args: readonly string[], env: 
 }
 
 export function claudeExecArgs(opts: RunOpts, model: string, argsPrefix: readonly string[] = []): string[] {
-  const args = [...argsPrefix, '-p', '--output-format', 'json', '--model', model];
   const stateDirectory = csoProducerStateDirectory(opts);
+  // Producers stream events so a timed-out or killed run still reports the usage it spent.
+  const output = stateDirectory ? ['stream-json', '--verbose', '--include-partial-messages'] : ['json'];
+  const args = [...argsPrefix, '-p', '--output-format', ...output, '--model', model];
   if (stateDirectory) {
     if (opts.extraArgs?.length) throw new Error('CSO producer does not accept extra provider arguments');
     const tools = claudeProducerTools(opts);

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { collectProducerReceipts, createEvalBaseline, createEvalMatrix, createPortableSkillPayload, loadPortableSkillPayload, prepareEvalJobs, REQUIRED_CONTAINMENT, scoreCollectedEval, scoreEval, validateMatrix, validatePortableSkillPayload, type EvalBaseline, type EvalCell, type EvalMatrix, type EvalResult, type PreparedEvalSchedule } from '../scripts/cso-eval';
-import { PRODUCER_PROVIDER_POLICY, producerFailureMessage, producerInstallationIdentity, resolveProducerHelperBinding, runProducerCell, validateProductionProducerInstallation } from '../scripts/cso-eval-producer';
+import { assertProducerArtifactPath, PRODUCER_PROVIDER_POLICY, producerFailureMessage, producerProviderTimeoutMs, producerInstallationIdentity, resolveProducerHelperBinding, runProducerCell, validateProductionProducerInstallation } from '../scripts/cso-eval-producer';
 import { producerArtifactInventoryHash, producerHostPlatform, producerInstallationIdentityHash, producerProviderIdentityHash, producerReceiptHash, sha256, type ProducerArtifactInventory, type ProducerInstallationIdentity, type ProducerProviderIdentity, type ProducerReceipt } from '../scripts/cso-eval-protocol';
 import type { Family, ProviderAdapter, RunOpts, RunResult } from './helpers/providers/types';
 import { CORPUS_VERSION, FAMILIES, STACKS, defineEvalCorpus, loadCorpusManifest, materializeCase, sourceFiles, sourceHash, validateCorpusManifest, type CorpusManifest, type EvalVariant } from './fixtures/cso-eval/materialize';
@@ -17,6 +17,7 @@ import { CsoError } from '../lib/cso/contracts';
 import { geminiProducerPaths, geminiProducerSystemSettings } from './helpers/providers/gemini';
 
 const temporary: string[] = [];
+const randomHex = (bytes: number) => createHash('sha256').update(`${Math.random()}:${process.hrtime.bigint()}`).digest('hex').slice(0, bytes * 2);
 const root = () => { const path = mkdtempSync(join(tmpdir(), 'cso-eval-')); temporary.push(path); return path; };
 function unlockTemporary(path: string): void {
   if (!existsSync(path)) return;
@@ -526,6 +527,8 @@ describe('CSO matched producer orchestration', () => {
     testProviderCommand: providerCommandFor(launcher),
   });
 
+  // The helper's real layout: `<repoId>/<epoch ms>-<hex>`; the secret redactor reads that epoch as a phone number.
+  const helperRun = `${'e'.repeat(24)}/${Date.now()}-${'0123456789abcdef'}`;
   class FakeAdapter implements ProviderAdapter {
     readonly name = 'fake';
     constructor(
@@ -729,7 +732,7 @@ describe('CSO matched producer orchestration', () => {
       expect(existsSync(input)).toBe(false);
       expect(opts).toMatchObject({
         model: cell.model,
-        timeoutMs: cell.budgetSeconds * 1000,
+        timeoutMs: (cell.budgetSeconds + 300) * 1000,
         workdir: join(isolated.job, 'state'),
         csoProducer: {
           stateDirectory: join(isolated.job, 'state'),
@@ -751,7 +754,7 @@ describe('CSO matched producer orchestration', () => {
       expect(opts.prompt).not.toContain(cell.caseId);
       expect(opts.prompt).not.toContain(cell.variant);
       expect(opts.prompt).not.toContain('ORACLE_SQL_MARKER');
-      const artifactRoot = join(process.env.GSTACK_HOME!, 'security', 'cso', 'run-1');
+      const artifactRoot = join(process.env.GSTACK_HOME!, 'security', 'cso', helperRun);
       mkdirSync(artifactRoot, { recursive: true });
       writeFileSync(join(artifactRoot, 'report.json'), '{"status":"complete"}\n');
       writeFileSync(join(artifactRoot, 'repair.patch'), 'diff --git a/app.mjs b/app.mjs\n');
@@ -780,10 +783,10 @@ describe('CSO matched producer orchestration', () => {
     expect(receipt.providerIdentity).toEqual(providerIdentityFor('gpt', launcher));
     expect(receipt.artifacts).toMatchObject({ schemaVersion: 1, root: 'security/cso' });
     expect(receipt.artifacts.totalBytes).toBe(receipt.artifacts.entries.reduce((sum, entry) => sum + entry.bytes, 0));
-    expect(receipt.artifacts.entries.map(entry => entry.path)).toEqual(['run-1/repair.patch', 'run-1/report.json']);
+    expect(receipt.artifacts.entries.map(entry => entry.path)).toEqual([`${helperRun}/repair.patch`, `${helperRun}/report.json`]);
     expect(receipt.artifacts.identityHash).toBe(producerArtifactInventoryHash({ schemaVersion: 1, root: 'security/cso', entries: receipt.artifacts.entries, totalBytes: receipt.artifacts.totalBytes }));
     const retainedHome = join(isolated.job, 'state', 'cso-home');
-    expect(readFileSync(join(retainedHome, 'security', 'cso', 'run-1', 'report.json'), 'utf8')).toContain('complete');
+    expect(readFileSync(join(retainedHome, 'security', 'cso', helperRun, 'report.json'), 'utf8')).toContain('complete');
     expect(receipt.artifacts.entries.every(entry => !/provider|credential|session/i.test(entry.path))).toBe(true);
     expect(JSON.parse(readFileSync(output, 'utf8'))).toEqual(receipt);
     const { receiptHash, ...receiptWithoutHash } = receipt;
@@ -913,7 +916,7 @@ describe('CSO matched producer orchestration', () => {
     const receiptPath = join(outputRoot, `${cell.id}.json`);
     const adapter = new FakeAdapter(opts => writeFileSync(opts.csoProducer!.providerCommand.executable, '#!/bin/sh\nexit 1\n'));
     const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter, paidExecutionAuthorized: true }, launcher));
-    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_PROVIDER_INSTALLATION_RACE', reason: 'provider executable changed during the run' });
+    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_PROVIDER_INSTALLATION_RACE', reason: 'provider installation check: provider executable changed during the run' });
   });
 
   test('records a failed receipt with usage when the helper generation changes during a cell', async () => {
@@ -928,7 +931,7 @@ describe('CSO matched producer orchestration', () => {
       writeFileSync(opts.csoProducer!.helperGeneration, `${sha256(readFileSync(core))}\n`);
     });
     const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter, paidExecutionAuthorized: true }, launcher));
-    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_HELPER_GENERATION_CHANGED', reason: 'installed helper identity changed during the run' });
+    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_HELPER_GENERATION_CHANGED', reason: 'helper installation check: installed helper identity changed during the run' });
   });
 
   test('records a failed receipt with usage when the provider output exceeds the limit', async () => {
@@ -937,7 +940,50 @@ describe('CSO matched producer orchestration', () => {
     const isolated = isolate(destination, cell), receiptPath = join(root(), `${cell.id}.json`);
     const output = 'x'.repeat(32 * 1024 * 1024 + 1);
     const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter: new FakeAdapter(() => {}, 'gpt-5.4', 'gpt', { output }), paidExecutionAuthorized: true }));
-    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_OUTPUT_TOO_LARGE', reason: `output is ${output.length} bytes; the limit is ${32 * 1024 * 1024}` });
+    expectIntegrityReceipt(receipt, receiptPath, { code: 'PRODUCER_OUTPUT_TOO_LARGE', reason: `output size check: output is ${output.length} bytes; the limit is ${32 * 1024 * 1024}` });
+  });
+
+  test('accepts real helper artifact names the secret redactor misreads, and names the check that rejects the rest', async () => {
+    const { redact } = await import('../lib/cso/process');
+    const runId = `${Date.now()}-${'0123456789abcdef'}`;
+    let walletShaped = '';
+    while (!walletShaped) { const id = randomHex(16); if (redact(id) !== id) walletShaped = id; }
+    expect(redact(runId)).not.toBe(runId);
+    const repo = 'e'.repeat(24);
+    const accepted = [`${repo}/${runId}/report.json`, `${repo}/${runId}/reviews/${walletShaped}.json`, `${repo}/${runId}/scanner-outcomes/gitleaks-${randomHex(8)}-${randomHex(8)}.json`,
+      `${repo}/${runId}/snapshot/test/fixtures/cso-canary-token.txt`, 'public-cache/osv/index.json'];
+    for (const path of accepted) expect(() => assertProducerArtifactPath(path)).not.toThrow();
+    for (const [path, message] of [
+      [`run-1/report.json`, 'INVALID_PRODUCER_ARTIFACTS: an artifact lies outside'],
+      [`${repo}/report.json`, 'INVALID_PRODUCER_ARTIFACTS: an artifact lies outside'],
+      [`${repo}/${runId}/bad name.json`, 'INVALID_PRODUCER_ARTIFACTS: an artifact path has a component outside'],
+    ] as const) expect(() => assertProducerArtifactPath(path)).toThrow(message);
+    const planted = `sk-ant-api03-${randomHex(24)}`;
+    expect(redact(planted)).not.toBe(planted);
+    let failure: unknown;
+    try { assertProducerArtifactPath(`${repo}/${runId}/notes/${planted}.txt`); } catch (error) { failure = error; }
+    expect((failure as CsoError).code).toBe('REDACTION_FAILED');
+    expect((failure as Error).message).toBe('artifact path component 4 under "ID/ID/notes" looks like a secret; the component is withheld');
+    const destination = join(root(), 'planted-artifact-prepared'), cell = selected[0];
+    prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
+    const isolated = isolate(destination, cell), receiptPath = join(root(), `${cell.id}.json`);
+    const adapter = new FakeAdapter(() => {
+      const directory = join(process.env.GSTACK_HOME!, 'security', 'cso', repo, runId, 'notes');
+      mkdirSync(directory, { recursive: true }); writeFileSync(join(directory, `${planted}.txt`), 'x');
+    }, 'gpt-5.4', 'gpt', { error: { code: 'timeout', reason: 'exceeded 1ms' } });
+    const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter, paidExecutionAuthorized: true }));
+    expectIntegrityReceipt(receipt, receiptPath, { code: 'REDACTION_FAILED', reason: 'artifact inventory check: artifact path component 4 under "ID/ID/notes" looks like a secret; the component is withheld; the provider run also failed (timeout)' });
+    expect(readFileSync(receiptPath, 'utf8')).not.toContain(planted);
+  });
+
+  test('gives the provider the budget plus the reporting grace and keeps a timed-out run\'s usage and last result', async () => {
+    expect(producerProviderTimeoutMs(1800)).toBe(2100 * 1000);
+    const destination = join(root(), 'timeout-prepared'), cell = selected[0];
+    prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
+    const isolated = isolate(destination, cell), receiptPath = join(root(), `${cell.id}.json`);
+    const adapter = new FakeAdapter(() => {}, 'gpt-5.4', 'gpt', { output: 'last assistant text before the kill', error: { code: 'timeout', reason: 'exceeded 2100000ms' } });
+    const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter, paidExecutionAuthorized: true }));
+    expect(receipt).toMatchObject({ status: 'failed', error: { code: 'timeout', reason: 'exceeded 2100000ms' }, output: 'last assistant text before the kill', toolCalls: 4, usage: { inputTokens: 120, outputTokens: 30, cachedTokens: 10, estimatedCostUSD: 0.0042 } });
   });
 
   test('names the first offending source path and rule in a failed receipt that keeps usage', async () => {
@@ -957,7 +1003,7 @@ describe('CSO matched producer orchestration', () => {
       const schedule = prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
       const isolated = isolate(destination, cell), receiptPath = join(root(), `${cell.id}.json`);
       const receipt = await runProducerCell(isolated.input, receiptPath, withHelper({ adapter: new FakeAdapter(opts => mutate(opts.csoProducer!.sourceDirectory, outside)), paidExecutionAuthorized: true }));
-      expectIntegrityReceipt(receipt, receiptPath, { code: 'INVALID_PRODUCER_SOURCE', reason });
+      expectIntegrityReceipt(receipt, receiptPath, { code: 'INVALID_PRODUCER_SOURCE', reason: `source content check: ${reason}` });
       const group = collectProducerReceipts(producerMatrix, schedule, [receipt]).summary.groups.find(item => item.version === cell.version && item.mode === cell.mode);
       expect(group).toMatchObject({ submitted: 1, succeeded: 0, failed: 1, estimatedCost: { measured: 1, totalUSD: 0.0042 } });
     }
@@ -1044,8 +1090,8 @@ describe('CSO matched producer orchestration', () => {
     });
     const written = await runProducerCell(isolated.input, receipt, withHelper({ adapter, paidExecutionAuthorized: true }));
     expectIntegrityReceipt(written, receipt, process.platform === 'win32'
-      ? { code: 'INVALID_PRODUCER_SOURCE', reason: `"app.mjs" is ${'changed by producer\n'.length} bytes; expected ${Buffer.byteLength(original)}` }
-      : { code: 'PRODUCER_CHANGED_SOURCE_MODE', reason: '"app.mjs" has mode 644; expected 444' });
+      ? { code: 'INVALID_PRODUCER_SOURCE', reason: `source content check: "app.mjs" is ${'changed by producer\n'.length} bytes; expected ${Buffer.byteLength(original)}` }
+      : { code: 'PRODUCER_CHANGED_SOURCE_MODE', reason: 'source modes check: "app.mjs" has mode 644; expected 444' });
     expect(readFileSync(join(isolated.source, 'app.mjs'), 'utf8')).not.toBe(original);
   });
 });
