@@ -162,9 +162,10 @@ function valueLines(lines: string[]): ValueLine[] {
 /**
  * RH-15 inside one hunk: removed/added pairs with the same gate key and the
  * same numeric shape whose numbers differ (direction shown in notes), an
- * exact-count assertion relaxed to a bound, and RH-15? for unpaired values.
+ * exact-count assertion relaxed to a bound, and RH-15? for unpaired values
+ * when `opts.unpaired` is not false (callers disable it for test files).
  */
-export function detectRelaxation(h: Hunk): { tags: string[]; notes: string[] } {
+export function detectRelaxation(h: Hunk, opts: { unpaired?: boolean } = { unpaired: true }): { tags: string[]; notes: string[] } {
   const dels = valueLines(removed(h));
   const adds = valueLines(added(h));
   const tags = new Set<string>();
@@ -188,6 +189,7 @@ export function detectRelaxation(h: Hunk): { tags: string[]; notes: string[] } {
     tags.add('RH-15');
     notes.push(`RH-15: exact-count assertion relaxed to a bound (${subject.trim()})`);
   }
+  if (opts.unpaired === false) return { tags: [...tags], notes };
   for (const v of [...dels, ...adds]) {
     if (v.paired) continue;
     tags.add('RH-15?');
@@ -245,8 +247,12 @@ export function tagHunk(h: Hunk, ctx: TagContext): TagResult {
   if (nonTest && anyMatch(adds, ENV_SNIFF_IDIOMS)) tags.add('RH-12');
   if (anyMatch(adds, SUPPRESSION_IDIOMS)) tags.add('RH-13');
   if (anyMatch(adds, BYPASS_IDIOMS)) tags.add('RH-14');
+  // Calibration over gstack's last 50 PRs (docs/designs/gate-diff-calibration.md):
+  // unpaired values in test code are mandated `spawnSync` timeouts on 41 of
+  // 50 PRs, so RH-15? applies only to CI and runner/lint config; test files
+  // keep paired RH-15 and stay inventory otherwise.
   if (ctx.floor === 'test' || ctx.floor === 'ci' || ctx.floor === 'config') {
-    const r = detectRelaxation(h);
+    const r = detectRelaxation(h, { unpaired: ctx.floor !== 'test' });
     for (const t of r.tags) tags.add(t);
     notes.push(...r.notes);
   }

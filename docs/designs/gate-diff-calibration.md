@@ -38,9 +38,10 @@ No artifact was written: calibration never touches the state root.
   { timeout: 30_000 })` in new or moved test code; this repository requires a
   timeout on every synchronous spawn (`test/spawnsync-timeout-tripwire.test.ts`),
   so nearly every test PR carries dozens. As specified ("unpaired values are
-  tagged RH-15? and read") the tag is noise here. Candidates for the human
-  decision the design reserves: demote `RH-15?` to inventory, or keep it only
-  for CI/config files and test-framework timeout options. The detector was
+  tagged RH-15? and read") the tag is noise here. **Decision (integrator, per
+  the design's demotion rule):** `RH-15?` now applies only to CI and
+  runner/lint-config files; in test files unpaired values are inventory and
+  only paired RH-15 is tagged. The table below predates that change. The detector was
   tightened to key-value assignments (`key: N`, `key = N`, `key(N)`, `--key N`,
   and a gate key opening a nested structure) and to numeric literals with `_`
   separators; prose strings and `setTimeout` calls no longer fire.

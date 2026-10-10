@@ -111,6 +111,8 @@ describe('gate-diff tags: one planted case per id', () => {
   test('RH-15?: an unpaired gate value (new file or reordered lines) is read, not inferred', () => {
     const d = detectRelaxation({ header: '@@', lines: [{ kind: 'add', text: 'export default { testTimeout: 60000 };' }] });
     expect(d.tags).toEqual(['RH-15?']);
+    const inTest = detectRelaxation({ header: '@@', lines: [{ kind: 'add', text: "  spawnSync('git', ['status'], { timeout: 30_000 });" }] }, { unpaired: false });
+    expect(inTest.tags).toEqual([]);
     expect(gateKey('const minScore = 0.4;')).toEqual({ key: 'minScore', relaxes: 'down', value: 0.4 });
     expect(gateKey("console.log('Test Coverage Audit: 5 new code paths');")).toBeNull();
     expect(gateKey('setTimeout(done, 0);')).toBeNull();
