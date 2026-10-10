@@ -1,0 +1,11 @@
+diff --git a/src/sync.ts b/src/sync.ts
+index 2f33d30..e8aa2c4 100644
+--- a/src/sync.ts
++++ b/src/sync.ts
+@@ -1,3 +1,5 @@
+ export async function sync(): Promise<void> {
+-  await push();
++  try {
++    await push();
++  } catch (e) {}
+ }

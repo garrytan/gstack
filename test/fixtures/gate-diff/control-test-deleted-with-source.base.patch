@@ -1,0 +1,36 @@
+diff --git a/src/add.ts b/src/add.ts
+new file mode 100644
+index 0000000..8d9b8a2
+--- /dev/null
++++ b/src/add.ts
+@@ -0,0 +1,3 @@
++export function add(a: number, b: number): number {
++  return a + b;
++}
+diff --git a/src/keep.ts b/src/keep.ts
+new file mode 100644
+index 0000000..f6bc2b3
+--- /dev/null
++++ b/src/keep.ts
+@@ -0,0 +1 @@
++export const keep = 1;
+diff --git a/test/add.test.ts b/test/add.test.ts
+new file mode 100644
+index 0000000..ac2562b
+--- /dev/null
++++ b/test/add.test.ts
+@@ -0,0 +1,14 @@
++import { test, expect } from 'bun:test';
++import { add } from '../src/add';
++
++test('adds two numbers', () => {
++  expect(add(1, 2)).toBe(3);
++});
++
++test('adds negatives', () => {
++  expect(add(-1, -2)).toBe(-3);
++});
++
++test('is commutative', () => {
++  expect(add(2, 3)).toBe(add(3, 2));
++});

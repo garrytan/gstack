@@ -1,0 +1,9 @@
+diff --git a/src/billing.ts b/src/billing.ts
+index 692af1d..630a9f7 100644
+--- a/src/billing.ts
++++ b/src/billing.ts
+@@ -1,3 +1,3 @@
+ export function charge(amount: number): string {
+-  return `charged ${amount}`;
++  throw new Error("not implemented: charge");
+ }

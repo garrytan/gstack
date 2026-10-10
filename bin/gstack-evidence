@@ -10,7 +10,15 @@
  * `run` is a TRANSPARENT wrapper: it streams the child's output through
  * unchanged, tees it to a 0600 log (2MB cap with a truncation marker), and
  * appends {ts, label, command, cmd_sha256, exit, duration_s, commit, tree,
- * dirty, wtree, log_path} to ~/.gstack/projects/<slug>/<branch>-evidence.jsonl.
+ * dirty, wtree, log_path, tests_ran} to ~/.gstack/projects/<slug>/<branch>-evidence.jsonl.
+ *
+ * `tests_ran` (zero-run green, W3 of docs/designs/HONEST_WORK_GATE_INTEGRITY.md)
+ * is parsed from a bounded tail of the streamed output for the supported
+ * runners only: bun (shard-engine's summary parser where importable; executed =
+ * pass + fail, so an all-skip run is 0), jest, vitest, pytest, rspec, and Go's
+ * zero-only case (every package `[no test files]`). The last summary per
+ * runner wins; anything else is "unknown". Three states, never merged:
+ * a count, 0 (ZERO-RUN, graded like STALE by `check`) and unknown (non-blocking).
  *
  * TRANSPARENCY INVARIANT (load-bearing): the child's exit code is ALWAYS the
  * wrapper's exit code. Every bookkeeping failure — ledger append, log dir,
@@ -59,6 +67,96 @@ interface EvidenceRecord {
   wtree?: string;
   log_path?: string;
   redacted?: boolean;
+  /** Executed tests per the runner's own summary; "unknown" when no supported summary was seen. */
+  tests_ran?: number | "unknown";
+}
+
+/** Bytes of streamed output kept for the tests_ran parse (the 2MB log would truncate the summary). */
+const TAIL_MAX_BYTES = 64 * 1024;
+
+/** Ring of the last TAIL_MAX_BYTES of combined child output, decoded per stream. */
+class OutputTail {
+  private readonly decoders = { stdout: new TextDecoder("utf-8"), stderr: new TextDecoder("utf-8") };
+  private text = "";
+  push(chunk: Uint8Array, origin: "stdout" | "stderr"): void {
+    this.text += this.decoders[origin].decode(chunk, { stream: true });
+    if (this.text.length > TAIL_MAX_BYTES * 2) this.text = this.text.slice(-TAIL_MAX_BYTES);
+  }
+  end(): string {
+    this.text += this.decoders.stdout.decode() + this.decoders.stderr.decode();
+    return this.text.length > TAIL_MAX_BYTES ? this.text.slice(-TAIL_MAX_BYTES) : this.text;
+  }
+}
+
+const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+const strip = (l: string) => l.replace(ANSI, "").replace(/\r$/, "");
+const count = (text: string, word: string): number => Number(new RegExp(`(\\d+) ${word}\\b`).exec(text)?.[1] ?? 0);
+
+/** Bun: the last "Ran N tests across M files" block; executed = its " N pass" + " N fail" lines. */
+async function bunTestsRan(lines: string[]): Promise<{ at: number; ran: number } | null> {
+  let isTerminal = (l: string) => /^Ran \d+ tests? across \d+ files?\. \[/.test(l);
+  try {
+    const engine = await import("../scripts/lib/shard-engine");
+    isTerminal = (l: string) => engine.parseBunTerminalSummary(l) !== null;
+  } catch {
+    warn("shard-engine classifier not importable; using the built-in bun summary parser");
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!isTerminal(lines[i])) continue;
+    let pass = 0;
+    let fail = 0;
+    for (let j = i - 1; j >= 0 && j >= i - 12; j--) {
+      if (isTerminal(lines[j])) break;
+      const p = /^\s*(\d+) pass$/.exec(lines[j]);
+      const f = /^\s*(\d+) fail$/.exec(lines[j]);
+      if (p) pass = Number(p[1]);
+      if (f) fail = Number(f[1]);
+    }
+    return { at: i, ran: pass + fail };
+  }
+  return null;
+}
+
+function otherRunnersTestsRan(lines: string[]): { at: number; ran: number } | null {
+  const hits: { at: number; ran: number }[] = [];
+  const last = (re: RegExp) => {
+    for (let i = lines.length - 1; i >= 0; i--) if (re.test(lines[i])) return i;
+    return -1;
+  };
+  // jest: "Tests:       1 failed, 2 passed, 3 total" / "No tests found"
+  let i = last(/^Tests:\s+.*\d+ total/);
+  if (i >= 0) hits.push({ at: i, ran: count(lines[i], "passed") + count(lines[i], "failed") });
+  i = last(/^No tests found/);
+  if (i >= 0) hits.push({ at: i, ran: 0 });
+  // vitest: "      Tests  3 passed | 1 skipped (4)" / "No test files found"
+  i = last(/^\s*Tests\s+\d+ .*\(\d+\)\s*$/);
+  if (i >= 0) hits.push({ at: i, ran: count(lines[i], "passed") + count(lines[i], "failed") });
+  i = last(/^No test files found/);
+  if (i >= 0) hits.push({ at: i, ran: 0 });
+  // pytest: "===== 3 passed, 1 skipped in 0.12s =====" / "no tests ran in 0.01s"
+  i = last(/^=+ .* in [\d.]+s(?: \([^)]*\))? =+$/);
+  if (i >= 0) {
+    const t = lines[i];
+    hits.push({ at: i, ran: /\bno tests ran\b/.test(t) ? 0 : count(t, "passed") + count(t, "failed") + count(t, "errors?") + count(t, "xfailed") + count(t, "xpassed") });
+  }
+  // rspec: "12 examples, 0 failures, 2 pending"
+  i = last(/^\d+ examples?, \d+ failures?/);
+  if (i >= 0) hits.push({ at: i, ran: count(lines[i], "examples?") - count(lines[i], "pending") });
+  // go test: zero-only — every package "[no test files]" and no ok/FAIL package line
+  const goNoTests = lines.filter((l) => /^\?\s+\S+\s+\[no test files\]$/.test(l));
+  const goRan = lines.some((l) => /^(?:ok|FAIL|---)\s/.test(l));
+  if (goNoTests.length > 0 && !goRan) hits.push({ at: last(/\[no test files\]$/), ran: 0 });
+  if (hits.length === 0) return null;
+  return hits.reduce((a, b) => (b.at > a.at ? b : a));
+}
+
+/** The executed-test count from the output tail, or "unknown". Never throws into the caller's exit path. */
+async function parseTestsRan(tail: string): Promise<number | "unknown"> {
+  if (process.env.GSTACK_EVIDENCE_FAULT === "tests_ran") throw new Error("injected tests_ran parser fault");
+  const lines = tail.split("\n").map(strip);
+  const candidates = [await bunTestsRan(lines), otherRunnersTestsRan(lines)].filter((c): c is { at: number; ran: number } => c !== null);
+  if (candidates.length === 0) return "unknown";
+  return candidates.reduce((a, b) => (b.at > a.at ? b : a)).ran;
 }
 
 function warn(msg: string): void {
@@ -298,6 +396,7 @@ async function cmdRun(argv: string[]): Promise<number> {
   }
 
   // Stream-tee: forward chunks as they arrive (never buffer — E2E logs are MBs).
+  const tail = new OutputTail();
   let logBytes = 0;
   let truncated = false;
   const teeToLog = (chunk: Uint8Array) => {
@@ -319,7 +418,7 @@ async function cmdRun(argv: string[]): Promise<number> {
       } catch {}
     }
   };
-  const pump = async (stream: ReadableStream<Uint8Array> | undefined, out: NodeJS.WriteStream) => {
+  const pump = async (stream: ReadableStream<Uint8Array> | undefined, out: NodeJS.WriteStream, origin: "stdout" | "stderr") => {
     if (!stream) return;
     for await (const chunk of stream) {
       // Honor backpressure: when the console consumer is slower than the child
@@ -339,10 +438,15 @@ async function cmdRun(argv: string[]): Promise<number> {
         });
       }
       teeToLog(chunk);
+      try {
+        tail.push(chunk, origin);
+      } catch (e: any) {
+        warn(`output tail failed (${e?.message ?? e}) — tests_ran will be unknown`);
+      }
     }
   };
   try {
-    await Promise.all([pump(proc.stdout as any, process.stdout), pump(proc.stderr as any, process.stderr)]);
+    await Promise.all([pump(proc.stdout as any, process.stdout, "stdout"), pump(proc.stderr as any, process.stderr, "stderr")]);
     exitCode = await proc.exited;
     if (exitCode === null || exitCode === undefined) exitCode = 1;
   } catch (e: any) {
@@ -360,7 +464,15 @@ async function cmdRun(argv: string[]): Promise<number> {
     }
   }
 
-  record(paths, log?.path, label, commandString, cmdSha, exitCode, started, wtreeBefore);
+  // TRANSPARENCY INVARIANT: the parse runs AFTER the exit code is fixed and
+  // can only change the receipt, never the code this wrapper returns.
+  let testsRan: number | "unknown" = "unknown";
+  try {
+    testsRan = await parseTestsRan(tail.end());
+  } catch (e: any) {
+    warn(`tests_ran parse failed (${e?.message ?? e}) — recorded as unknown; the command result stands`);
+  }
+  record(paths, log?.path, label, commandString, cmdSha, exitCode, started, wtreeBefore, testsRan);
   return exitCode;
 }
 
@@ -373,6 +485,7 @@ function record(
   exitCode: number,
   startedMs: number,
   wtreeBefore: string | undefined,
+  testsRan: number | "unknown" = "unknown",
 ): void {
   if (!paths) return;
   try {
@@ -384,6 +497,7 @@ function record(
       cmd_sha256: cmdSha,
       exit: exitCode,
       duration_s: Math.round((Date.now() - startedMs) / 100) / 10,
+      tests_ran: testsRan,
     };
     if (redacted) rec.redacted = true;
     const commit = git(["rev-parse", "HEAD"]);
@@ -408,7 +522,7 @@ function record(
     } catch {}
     // Summary line on stderr so calling agents get the exit + log path even
     // when the lane ran backgrounded. Never on stdout (stays transparent).
-    console.error(`gstack-evidence: recorded label=${label} exit=${exitCode} log=${logPath ?? "-"}`);
+    console.error(`gstack-evidence: recorded label=${label} exit=${exitCode} tests_ran=${testsRan} log=${logPath ?? "-"}`);
   } catch (e: any) {
     warn(`ledger append failed (${e?.message ?? e}) — the command result stands`);
   }
@@ -472,12 +586,19 @@ function cmdCheck(argv: string[]): number {
       allFresh = false;
       continue;
     }
-    const detail = `label=${label} exit=${latest.exit} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}`;
-    let verdict: "FRESH" | "STALE" = "FRESH";
+    const testsRan = typeof latest.tests_ran === "number" ? latest.tests_ran : "unknown";
+    const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}`;
+    let verdict: "FRESH" | "STALE" | "ZERO-RUN" = "FRESH";
     let reason = "";
     if (latest.exit !== 0) {
       verdict = "STALE";
       reason = "recorded run failed";
+    } else if (testsRan === 0) {
+      // Zero-run green: exit 0 with nothing executed (all skipped, empty
+      // selection, "No tests found"). Graded like STALE under its own label;
+      // "unknown" (no recognised runner summary) stays non-blocking.
+      verdict = "ZERO-RUN";
+      reason = "runner reported 0 executed tests";
     } else if (maxAgeHours !== undefined) {
       const ageMs = Date.now() - Date.parse(latest.ts);
       if (!(ageMs >= 0 && ageMs <= maxAgeHours * 3600 * 1000)) {

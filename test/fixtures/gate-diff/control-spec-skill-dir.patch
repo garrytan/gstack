@@ -1,0 +1,9 @@
+diff --git a/spec/SKILL.md b/spec/SKILL.md
+index 61712aa..0aaf0d4 100644
+--- a/spec/SKILL.md
++++ b/spec/SKILL.md
+@@ -1,3 +1,3 @@
+ # spec
+ 
+-Turn intent into a spec.
++Turn vague intent into a precise spec.

@@ -1,0 +1,11 @@
+diff --git a/test/flaky.test.ts b/test/flaky.test.ts
+new file mode 100644
+index 0000000..c68ab36
+--- /dev/null
++++ b/test/flaky.test.ts
+@@ -0,0 +1,5 @@
++import { test, expect } from 'bun:test';
++
++test('syncs', async () => {
++  expect(await sync()).toBe(true);
++}, { timeout: 5000 });

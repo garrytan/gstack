@@ -1,0 +1,15 @@
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..c0877f7
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,9 @@
++{
++  "name": "x",
++  "scripts": {
++    "test": "bun test test/"
++  },
++  "dependencies": {
++    "left-pad": "1.0.0"
++  }
++}

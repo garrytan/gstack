@@ -1,0 +1,16 @@
+diff --git a/pkg/render.go b/pkg/render.go
+new file mode 100644
+index 0000000..59275f9
+--- /dev/null
++++ b/pkg/render.go
+@@ -0,0 +1,3 @@
++package pkg
++
++func Render() string { return "a" }
+diff --git a/pkg/testdata/render.golden b/pkg/testdata/render.golden
+new file mode 100644
+index 0000000..7898192
+--- /dev/null
++++ b/pkg/testdata/render.golden
+@@ -0,0 +1 @@
++a
