@@ -216,12 +216,18 @@ export function diffWorkingTree(mergeBaseSha: string, cwd: string): FileDiff[] {
   return parseUnifiedDiff(decode(r.stdout));
 }
 
-/** The commit's first parent, EMPTY_TREE for a root commit, or null when the parent is missing (shallow boundary). */
+/**
+ * The commit's first parent, EMPTY_TREE for a root commit, or null when the
+ * parent is missing (shallow boundary). Read from the raw object: `git log
+ * --format=%P` hides a shallow boundary's parents, which would make the
+ * boundary look like a root and list the whole tree as added.
+ */
 export function firstParent(sha: string, cwd: string): string | null {
-  const parents = gitText(['log', '-1', '--format=%P', sha, '--'], cwd);
-  if (parents === null) return null;
-  if (parents === '') return EMPTY_TREE;
-  return resolvesToCommit(parents.split(' ')[0], cwd);
+  const raw = gitText(['cat-file', '-p', `${sha}^{commit}`], cwd);
+  if (raw === null) return null;
+  const parent = /^parent ([0-9a-f]{40,64})$/m.exec(raw.split('\n\n')[0] ?? '')?.[1];
+  if (!parent) return EMPTY_TREE;
+  return resolvesToCommit(parent, cwd);
 }
 
 /** One commit's first-parent delta (root commits diff against the empty tree). Throws when the parent is missing. */

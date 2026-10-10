@@ -211,6 +211,19 @@ describe('gstack-gate-diff candidate model and output', () => {
     expect(run(dir, ['--commit', 'deadbeef']).stdout).toStartWith('GATE_ERROR=no_base ref=deadbeef ');
   });
 
+  test('--commit on a shallow boundary is GATE_ERROR=no_base, never the whole tree as added', () => {
+    const src = repo({ fixture: 'rh15-timeout', commit: true });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-shallow-'));
+    gitIn(dir, ['clone', '-q', '--depth', '1', '--branch', 'feature', `file://${src}`, '.']);
+    const head = gitIn(dir, ['rev-parse', 'HEAD']).trim();
+    const r = run(dir, ['--commit', 'HEAD']);
+    expect(r.status).toBe(2);
+    expect(r.stdout.trim()).toBe(`GATE_ERROR=no_base ref=${head.slice(0, 12)}^ fix=git fetch --deepen=50 origin`);
+    const root = run(src, ['--commit', gitIn(src, ['rev-list', '--max-parents=0', 'HEAD']).trim(), '--format', 'jsonl']);
+    expect(root.status).toBe(0);
+    expect(summary(root.stdout).listed).toBeGreaterThan(0);
+  });
+
   test('base defaults to main when no ref is given and no origin/HEAD exists', () => {
     const r = run(repo({ fixture: 'rh1-skip' }), []);
     expect(r.status).toBe(0);
