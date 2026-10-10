@@ -108,6 +108,21 @@ describe('gstack-hook-check: the hook list is the registration code', () => {
 });
 
 describe('gstack-hook-check: what fails', () => {
+  test('native Windows drive paths match shell lookup keys without hiding syntax errors', () => {
+    const root = path.join(tmpBase(), 'hook root with spaces');
+    fixtureTree(root);
+    const healthy = check(root);
+    expect(healthy.out).not.toContain('fail ');
+    expect(healthy.code).toBe(0);
+    expect(healthy.out.trim().split('\n')).toEqual(HOOKS.map(h => `ok ${h}`));
+
+    fs.writeFileSync(path.join(root, 'hosts/claude/hooks/question-log-hook.ts'), 'export const broken = ;\n');
+    const broken = check(root);
+    expect(broken.code).toBe(1);
+    expect(broken.out).toContain('fail hosts/claude/hooks/question-log-hook ');
+    expect(broken.out).not.toContain('bun could not bundle the TypeScript entry');
+  }, 90_000); // Git Bash process startup makes the two checks slower on Windows.
+
   test('healthy fixture passes', () => {
     const root = tmpBase();
     fixtureTree(root);

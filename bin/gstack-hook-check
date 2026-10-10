@@ -55,6 +55,13 @@ fi
 case "$ROOT" in [A-Za-z]:[\\/]*) command -v cygpath >/dev/null 2>&1 && ROOT=$(cygpath -u "$ROOT") ;; esac
 case "$ROOT" in /*|[A-Za-z]:[\\/]*) ;; *) ROOT="$PWD/$ROOT" ;; esac
 [ "$ROOT" = / ] || ROOT=${ROOT%/}
+# Git Bash also spells the native temp directory as /tmp. Canonicalize such
+# aliases through their Windows path so they match shellPath() below.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    ROOT=$(cygpath -am "$ROOT" | awk '/^[A-Za-z]:\// { $0 = "/" tolower(substr($0, 1, 1)) "/" substr($0, 4) } { print }')
+    ;;
+esac
 SETUP_FILE="${SETUP_FILE:-$ROOT/setup}"
 
 # Frontmatter is the block between a SKILL.md's first two `---` lines.
@@ -158,13 +165,19 @@ BUILT="$TMP_OUT/built.tsv"
 if [ -n "$ENTRIES" ]; then
   # shellcheck disable=SC2086 # newline-split list (IFS is set to a newline below)
   (cd "$ROOT" && IFS=$NL && "$BUN" -e '
+    // Git Bash converts drive-rooted arguments to native Windows paths before
+    // starting Bun. Return paths in the shell spelling used by the TSV lookup
+    // and marker scan; otherwise a successful build is reported as missing.
+    const shellPath = (value) => process.platform === "win32"
+      ? value.replace(/\\/g, "/").replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`)
+      : value;
     for (const entry of process.argv.slice(1)) {
       const r = await Bun.build({ entrypoints: [entry], target: "bun", packages: "external", metafile: true, throw: false }).catch(e => ({ success: false, logs: [e] }));
-      if (r.success) for (const input of Object.keys(r.metafile?.inputs ?? {})) console.log(`${entry}\tok\t${input}`);
+      if (r.success) for (const input of Object.keys(r.metafile?.inputs ?? {})) console.log(`${shellPath(entry)}\tok\t${shellPath(input)}`);
       else {
         const log = (r.logs ?? []).find(l => l?.level === "error") ?? r.logs?.[0] ?? {};
-        const at = log.position ? `${log.position.file}:${log.position.line}` : entry;
-        console.log(`${entry}\tfail\t${at}\t${String(log.message ?? log).split("\n")[0]}`);
+        const at = log.position ? `${shellPath(log.position.file)}:${log.position.line}` : shellPath(entry);
+        console.log(`${shellPath(entry)}\tfail\t${at}\t${String(log.message ?? log).split("\n")[0]}`);
       }
     }' $ENTRIES) > "$BUILT" 2>/dev/null || true
 fi
