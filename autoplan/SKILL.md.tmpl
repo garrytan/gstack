@@ -43,8 +43,8 @@ SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 {{DESIGN_DOC_DISCOVERY}}
 ```
-If a design doc exists, read it and use its problem statement, constraints, and
-chosen approach as input to the review pipeline.
+If a design doc exists, read it; its problem statement, constraints and chosen
+approach feed the review pipeline.
 
 {{BENEFITS_FROM}}
 
@@ -61,12 +61,12 @@ The 6 principles answer intermediate questions; taste goes to one final approval
 
 ## The 6 Decision Principles
 
-1. **Choose completeness** — Ship the whole thing. Pick the approach that covers more edge cases.
-2. **Boil lakes** — Fix everything in the blast radius (files modified by this plan + direct importers). Auto-approve expansions that are in blast radius AND < 1 day CC effort (< 5 files, no new infra).
-3. **Pragmatic** — If two options fix the same thing, pick the cleaner one. 5 seconds choosing, not 5 minutes.
-4. **DRY** — Duplicates existing functionality? Reject. Reuse what exists.
-5. **Explicit over clever** — 10-line obvious fix > 200-line abstraction. Pick what a new contributor reads in 30 seconds.
-6. **Bias toward action** — Merge > review cycles > stale deliberation. Flag concerns but don't block.
+1. **Choose completeness** — Ship the whole thing; pick the approach covering more edge cases.
+2. **Boil lakes** — Fix everything in the blast radius (files this plan modifies + direct importers). Auto-approve expansions in blast radius AND < 1 day CC effort (< 5 files, no new infra).
+3. **Pragmatic** — Two options fix the same thing? Pick the cleaner one, in 5 seconds, not 5 minutes.
+4. **DRY** — Duplicates existing functionality? Reject; reuse what exists.
+5. **Explicit over clever** — 10-line obvious fix > 200-line abstraction; pick what a new contributor reads in 30 seconds.
+6. **Bias toward action** — Merge > review cycles > stale deliberation. Flag concerns, don't block.
 
 **Conflict resolution (context-dependent tiebreakers):**
 - **CEO phase:** P1 (completeness) + P2 (boil lakes) dominate.
@@ -79,33 +79,32 @@ The 6 principles answer intermediate questions; taste goes to one final approval
 
 Every auto-decision is classified:
 
-**Mechanical** — one clearly right answer. Auto-decide silently.
-Examples: run the outside reviewer when enabled (always yes), run evals (always yes), reduce scope on a complete plan (always no).
+**Mechanical** — one clearly right answer. Auto-decide silently. Examples: run the
+outside reviewer when enabled (yes), run evals (yes), reduce scope on a complete plan (no).
 
-**Taste** — reasonable people could disagree. Auto-decide with recommendation, but surface at the final gate. Three natural sources:
+**Taste** — reasonable people could disagree. Auto-decide with recommendation; surface at the final gate. Sources:
 1. **Close approaches** — top two are both viable with different tradeoffs.
 2. **Borderline scope** — in blast radius but 3-5 files, or ambiguous radius.
 3. **{{OUTSIDE_LABEL}} disagreements** — the outside reviewer recommends differently and has a valid point.
 
 **User Challenge** — {{NATIVE_LABEL}} and {{OUTSIDE_LABEL}} both recommend changing the
 user's stated direction: merge, split, add or remove features/skills/workflows.
-NEVER auto-decide these. At the final approval gate, give:
-the original direction, proposed change, reasoning, blind spots and cost of being
-wrong, using the Phase 4 template. Flag agreed security/feasibility risks explicitly.
-The user's original direction stands unless they approve the change.
+NEVER auto-decide these. At the final approval gate give the original direction,
+proposed change, reasoning, blind spots and cost of being wrong (Phase 4 gate item);
+flag agreed security/feasibility risks. The user's direction stands unless they approve the change.
 
 ---
 
 ## Sequential Execution — MANDATORY
 
-Phases MUST execute in strict order: CEO → Design (if UI scope) → DX (if
-developer-facing scope) → Eng. Eng runs LAST, always, reviewing all prior amendments.
+Phases MUST run in strict order: CEO → Design (if UI scope) → DX (if developer-facing
+scope) → Eng. Eng runs LAST, always, reviewing all prior amendments.
 Keep ONE phase active, completing these gates in order:
 1. Load its phase instructions and full skill/sections, recording complete Read ranges.
    On Claude Code, enter through a native `Read` of the installed phase driver,
    then use native `Read` for its methodology ranges. The driver Read is the
    guarded entrypoint. If denied, finish or repair the preceding phase and retry
-   that same Read; changing file-loading tools does not satisfy the boundary.
+   the same Read; changing file-loading tools does not satisfy the boundary.
 2. Complete the phase's required preliminary work (CEO: all Step 0, including its
    Spec Review Loop and its amendment checkpoint), then create the fresh snapshot
    and dispatch its nativeDispatchPrompt unchanged.
@@ -114,15 +113,15 @@ Keep ONE phase active, completing these gates in order:
    sections after these results.
 4. At the phase's exit, load its `phase-close` section afresh. Execute its numbered
    operations: prepare the current packet, Read it completely, reconcile it
-   semantically, then SEND the parent completion message. Publication is a separate
-   operation in that procedure; an earlier Read is not this close.
+   semantically, then SEND the parent completion message. Publication is its own
+   operation there; an earlier Read is not this close.
 5. Only after the message has been sent may the driver load/create/dispatch the
    next phase. Then continue to the next phase's tool calls in the same turn;
    after Eng, proceed to final synthesis/approval. Use the declared skip rule for
    an inapplicable phase; do not load its review or close steps.
-Phase notifications, including skips, are progress updates: do not end the turn
+Phase notifications, skips included, are progress updates: do not end the turn
 or wait for a "continue" reply at these boundaries.
-A missing gate means the current phase remains open, even if a reviewer finished.
+A missing gate keeps the current phase open, even if a reviewer finished.
 Read requests/self-reports and INPUT hashes do not prove uptake or review quality.
 Never draft future-phase reviews or outputs. Headings/promises are not completion.
 After compaction, reload current phase instructions/skill/sections, then
@@ -146,24 +145,23 @@ completion; report accurately. Never read raw agent transcripts.
 ## What "Auto-Decide" Means
 
 Auto-decide replaces the USER'S answer, not ANALYSIS. Run each loaded section at
-full interactive depth; answer AskUserQuestion using the 6 principles.
+full interactive depth; answer each question using the 6 principles.
 
 **Default resolution: the recommended option.** Take `(recommended)` or the mode's
 context default. Use the 6 principles for missing recommendations/ties. On principle
 disagreement, take the recommendation and surface the disagreement as Taste at the final gate.
 
 **Never auto-decide User Challenges:** both models agree to change the user's
-direction/settled decisions, or a premise is clearly wrong. Use Decision
-Classification; ask once at Final Approval Gate, never mid-run. The user has
-context models lack.
+direction/settled decisions, or a premise is clearly wrong. Ask once at the Final
+Approval Gate, never mid-run; the user has context models lack.
 
 Read referenced code/diffs/files; decide every issue. Produce all required
 diagrams, tables, registries and artifacts on disk or in the plan. LOG decisions,
 record ALL accepted obligations below and run `amend-input` before continuing.
-Missing deliverables make the review incomplete.
+Missing deliverables leave the review incomplete.
 
-No summary substitutes or one-line sections; fewer than 3 sentences likely means
-compression. "No issues found" needs 1-2 sentences stating what was examined and why nothing was flagged.
+No summary substitutes or one-line sections; under 3 sentences likely means
+compression. "No issues found" needs 1-2 sentences on what was examined and why nothing was flagged.
 Explain inapplicability with evidence; skip only under Phase 0's list. Never abort
 or redirect to interactive review: the user chose /autoplan.
 
@@ -210,18 +208,19 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
 DATETIME=$(date +%Y%m%d-%H%M%S)
 echo "SLUG=$SLUG"
 echo "RESTORE_PATH=$_AP/${BRANCH}-autoplan-restore-${DATETIME}.md"
+echo "RUN_ID=${BRANCH}-${DATETIME}"; ~/.claude/skills/gstack/bin/gstack-autoplan-timing estimate --run "${BRANCH}-${DATETIME}" --out "$_AP"
 ```
 
 Before scope/review:
 ```bash
 bun "<SNAPSHOT_TOOL>" init "<SOURCE_PLAN>" "<ACTIVE_PLAN>" "<RESTORE_PATH>"
 ```
-Run init as its own Bash call with the literal absolute paths: no variables,
+Run init as its own Bash call with literal absolute paths: no variables,
 substitutions, chaining, pipes or redirects, which the guard cannot bind.
 Use returned paths/`scope`; never hand-wrap. init backs up SOURCE_PLAN exactly,
 then initializes ACTIVE_PLAN atomically without losing requirements.
-Reviewers get only `## Implementation plan`; analysis stays in `## Review record`,
-including structured inputs. On helper errors, stop; no stderr hiding/grep fallback.
+Reviewers get only `## Implementation plan`; analysis, structured inputs included,
+stays in `## Review record`. On helper errors, stop; no stderr hiding/grep fallback.
 Re-run: copy RESTORE_PATH's bytes to SOURCE_PLAN, then /autoplan.
 
 ### Step 2: Read context
@@ -235,12 +234,12 @@ Re-run: copy RESTORE_PATH's bytes to SOURCE_PLAN, then /autoplan.
 ```bash
 bun "<SNAPSHOT_TOOL>" scope "<ACTIVE_PLAN>"
 ```
-  Use returned `dxRequired` (initially `scope.dxRequired`) and record its input hash/matched terms. The existing
-  threshold is 2+ term matches (occurrences, not distinct terms). Also enable DX when the product is a developer tool
-  (developers install, integrate or build on it) or an AI agent is the primary user:
-  add `--developer-tool` or `--agent-primary` to this command. These flags only enable
-  DX; no context label can negate a positive result. Skip DX only when the result is
-  false and neither semantic trigger applies.
+  Use returned `dxRequired` (initially `scope.dxRequired`); record its input hash and matched
+  terms. The threshold is 2+ term matches (occurrences, not distinct terms). Also enable DX when the
+  product is a developer tool (developers install, integrate or build on it) or an AI agent is
+  the primary user: add `--developer-tool` or `--agent-primary`. These flags only enable DX; no
+  context label negates a positive result. Skip DX only when the result is false and neither
+  trigger applies.
 
 
 ### Step 3: Locate review skills; load each at phase entry
@@ -252,8 +251,8 @@ Resolve this phase's source to absolute `<REVIEW_SKILL>`; load via its checkpoin
 - Phase 3: {{AUTOPLAN_REVIEW_FILE:plan-eng-review}}
 
 Use /autoplan's installed registry; resolve siblings from its discovered SKILL.md
-directory, never cwd/runtime assets. Missing skill: report phase and setup repair,
-without substituting a harness or claiming completion.
+directory, never cwd/runtime assets. Missing skill: report the phase and setup
+repair; never substitute a harness or claim completion.
 
 Read skills/sections only at their triggers, never prefetch future phases. Load
 the tasks aggregator at Phase 4. Run all applicable skills and lazy sections fully.
@@ -286,8 +285,8 @@ Review skills will load at each phase entry. Starting full review pipeline with 
 {{OUTSIDE_PREFLIGHT:autoplan}}
 
 Disabled/unavailable retains applicable native passes. Recheck each outside dispatch.
-Record provider and completed/unavailable/disabled/skipped per phase; CEO covers
-only CEO. Missing voices: N/A, never CONFIRMED. Skipped scope stays skipped.
+Record provider and completed/unavailable/disabled/skipped per phase (CEO covers
+only CEO). Missing voices: N/A, never CONFIRMED. Skipped scope stays skipped.
 
 
 ## Phase 1: CEO Review (Strategy & Scope)
@@ -342,15 +341,15 @@ Check the plan and conversation for every applicable deliverable:
 
 | Phase | Required outputs |
 |---|---|
-| CEO | Named premise challenges; findings or explicit examination/no-findings for every applicable section; Error & Rescue and Failure Modes registries (or N/A with reason); NOT in scope; What already exists; dream state delta; Completion Summary; consensus table. |
+| CEO | Named premise challenges; findings or explicit examination/no-findings per applicable section; Error & Rescue and Failure Modes registries (or N/A with reason); NOT in scope; What already exists; dream state delta; Completion Summary; consensus table. |
 | Design, if UI | Scores for all 7 dimensions; identified and decided issues; litmus scorecard. |
 | DX, if developer-facing | Scores for all 8 dimensions; developer journey map; empathy narrative; TTHW assessment and target; DX Implementation Checklist; consensus table. |
 | Eng, always last | Scope challenge grounded in code; architecture ASCII diagram; codepath-to-test diagram; test plan on disk at ~/.gstack/projects/$SLUG/; NOT in scope; What already exists; failure modes registry with critical gaps; Completion Summary; consensus table. |
 
-For each phase, verify native and outside voice results or explicit
-unavailable/skipped status. Verify cross-phase themes and at least one Decision
-Audit Trail row per auto-decision. Produce missing outputs before the gate; after
-at most 2 repair attempts, warn at the gate with each still-incomplete item.
+Per phase, verify native and outside voice results or explicit unavailable/skipped
+status, cross-phase themes and one Decision Audit Trail row per auto-decision.
+Produce missing outputs before the gate; after at most 2 repair attempts, warn at
+the gate with each still-incomplete item.
 
 ---
 
@@ -360,31 +359,31 @@ at most 2 repair attempts, warn at the gate with each still-incomplete item.
 
 **STOP here and present the final state to the user.**
 
-Present this message, then use AskUserQuestion:
+Write `$_AP/gate.json` (shape: `gstack-gate --help`): one item per User Challenge
+(`uc<n>`, approval; `why` = you said / both recommend / why / blind spots / cost if
+wrong), per taste decision (`d<n>`, auto; `why` = principle and the alternative's
+impact) and `plan` (approval: a) approve as-is (recommended) b) with overrides
+c) interrogate d) revise e) reject). Run `~/.claude/skills/gstack/bin/gstack-gate render $_AP/gate.json`
+and append its `decisions` output to `$_AP/decisions.jsonl`. Present this message,
+ending with the rendered list:
 
 ```
 ## /autoplan Review Complete
+
+## URGENT, outside this plan
+[`~/.claude/skills/gstack/bin/gstack-artifact urgent $_AP/findings.jsonl` output (security or data-loss
+findings outside this plan, or `None.`); also written above `## Implementation plan` in ACTIVE_PLAN]
 
 ### Plan Summary
 [1-3 sentence summary]
 
 ### Decisions Made: [N] total ([M] auto-decided, [K] taste choices, [J] user challenges)
-
-### User Challenges (both models disagree with your stated direction)
-For each: **Challenge [N]: [title]** (from [phase]); You said: [original];
-Both models recommend: [change]; Why: [reasoning]; What we might be missing:
-[blind spots]; If wrong: [cost]. If security/feasibility, say both models flag
-that risk. Your original direction stands unless you explicitly change it.
-
-### Your Choices (taste decisions)
-For each: **Choice [N]: [title]** (from [phase]). Recommend [X] — [principle].
-Name the viable alternative and its downstream impact.
-
-### Auto-Decided: [M] decisions [see Decision Audit Trail in plan file]
+Auto-decided: see Decision Audit Trail in the plan file. The rest: the gate list below.
 
 ### Review Scores
 CEO, Design, DX and Eng: phase summary plus {{OUTSIDE_LABEL}}, {{NATIVE_LABEL}}
-and consensus status; say skipped where a phase did not run.
+and consensus status; say skipped where a phase did not run. Then the CYCLE line
+from `~/.claude/skills/gstack/bin/gstack-autoplan-timing summary --run <RUN_ID> --out "$_AP"`.
 
 ### Cross-Phase Themes
 List concerns independently raised in 2+ phases. If none: "No cross-phase themes — each phase's concerns were distinct."
@@ -396,41 +395,35 @@ List concerns independently raised in 2+ phases. If none: "No cross-phase themes
 [Substitute $AGGREGATED_TASKS. If empty: "_No per-phase task lists found in $TASKS_DIR for branch $BRANCH._"]
 ```
 
-**Cognitive load:** skip empty User Challenges / Your Choices. Use a flat list
-for 1-7 taste decisions; group 8+ by phase and warn that ambiguity is high.
-
-AskUserQuestion options:
-- A) Approve as-is
-- B) Approve with overrides
-- B2) Resolve user challenges
-- C) Interrogate
-- D) Revise
-- E) Reject
+Parse the reply: `~/.claude/skills/gstack/bin/gstack-gate parse $_AP/gate.json --reply "<text>" --gate-rev <rev>`;
+unparsed or stale replies are re-presented (`gate_rev`+1), never guessed. `all` or `plana`
+without overrides = A; `d<n>` overrides = B; `uc<n>` overrides = B2; `planc`/`pland`/`plane`
+= C/D/E. Under `SESSION_KIND: unattended` end here with
+`GSTACK_RESULT: skill=autoplan status=gate_pending run=$_AP`; never approve.
 
 **Option handling:**
 - A: mark APPROVED, write review logs, suggest /ship
 - B: ask which overrides, apply, then follow D's affected-phase rerun rule (including Eng last) before re-presenting the gate. Counts toward the same 3-cycle cap as D.
 - B2: accept/reject User Challenges one at a time; rejected ones preserve the user's direction. Re-run Eng, then re-present the gate.
-- C: answer freeform, re-present gate
+- C: answer freeform, re-present the gate
 - D: make changes, re-run affected phases (scope→1, design→2, dx→2.5, test plan→3, arch→3; a re-run of any earlier phase re-runs Eng after it — the gate always reviews the final plan). Max 3 cycles.
 - E: start over
 
 **Starting an affected-phase rerun:** Keep the current Implementation plan and all
-prior accepted obligations intact. Move that phase's already-applied
-`autoplan-baseline-edits` record verbatim into fenced history in Review record,
-retaining its original source SHA.
-Create a fresh amendment checkpoint. For new baseline edits, use `create`'s
-`baselineEdits.record` and `sourceSha256`; review projection hash is not baseline
-identity. Carry forward unchanged accepted requirements. Never replay old
-replacements or rewrite historical source SHA. This starts a new phase invocation;
-compaction resumes the existing invocation and checkpoint. Eng still runs last.
+prior accepted obligations intact. Move that phase's applied `autoplan-baseline-edits`
+record verbatim into fenced history in Review record, keeping its original source SHA.
+Create a fresh amendment checkpoint. New baseline edits use `create`'s
+`baselineEdits.record` and `sourceSha256`; the review projection hash is not baseline
+identity. Carry forward unchanged accepted requirements. Never replay old replacements
+or rewrite a historical source SHA. This starts a new phase invocation; compaction
+resumes the existing one and its checkpoint. Eng still runs last.
 
 ---
 
 ## Completion: Write Review Logs
 
 On approval, log each completed review for /ship's dashboard. Replace TIMESTAMP,
-STATUS and N with actual phase values. STATUS is "clean" or "issues_open".
+STATUS and N with actual values. STATUS is "clean" or "issues_open".
 
 ```bash
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
@@ -449,21 +442,21 @@ If Phase 2.5 ran (DX scope):
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW","tthw_target":"TARGET","unresolved":N,"via":"autoplan","commit":"'"$COMMIT"'"}'
 ```
 
-Dual voice logs: write one record per PHASE (`ceo`, `design`, `dx`, `eng`) with
-that phase's status/counts. Generate one AUTOPLAN_RUN_ID and share it with TIMESTAMP.
+Dual voice logs: one record per PHASE (`ceo`, `design`, `dx`, `eng`) with that
+phase's status/counts. Generate one AUTOPLAN_RUN_ID and share it with TIMESTAMP.
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"{{HOST_ID}}","outside_provider":"{{OUTSIDE_PROVIDER}}","outside_status":"OUTSIDE_STATUS","phase":"PHASE","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
-Always log skipped Design/DX: status/outside_status "skipped", source "none",
-zero consensus counts. SOURCE = "{{OUTSIDE_PROVIDER}}" only for completed external
-output; native results use "in-host". OUTSIDE_STATUS is completed, unavailable,
-disabled or skipped. Never carry success across phases/runs; preserve modelUsage.
+Always log skipped Design/DX: status/outside_status "skipped", source "none", zero
+consensus counts. SOURCE = "{{OUTSIDE_PROVIDER}}" only for completed external output;
+native results use "in-host". OUTSIDE_STATUS: completed, unavailable, disabled or
+skipped. Never carry success across phases/runs; preserve modelUsage.
 
 {{OUTSIDE_PROVENANCE:autoplan}}
 
 Present a phase coverage table (CEO, design, DX, eng): host, outside provider/status,
-native completion, findings, and partial coverage. Replace N with actual counts.
+native completion, findings, partial coverage. Replace N with actual counts.
 
 {{IMPLEMENTATION_MODEL_HANDOFF}}
 

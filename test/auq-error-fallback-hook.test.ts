@@ -76,6 +76,15 @@ describe('directiveFor — per-session-kind instruction', () => {
     expect(directiveFor('spawned')).toMatch(/auto-choose/i);
   });
 
+  test('unattended directive auto-chooses the recommended option and never approves a gate (plan B1)', () => {
+    const d = directiveFor('unattended');
+    expect(d).toMatch(/auto-choose the `\(recommended\)` option/);
+    expect(d).toMatch(/decisions\.jsonl/);
+    expect(d).toMatch(/approval gate[\s\S]*never approved/);
+    expect(d).toMatch(/status=gate_pending/);
+    expect(d).not.toMatch(/BLOCKED/);
+  });
+
   test('spawned directive carries a self-contained destructive carve-out (#2733 review)', () => {
     // The "Spawned session block" it defers to exists only when a gstack
     // preamble ran; an AUQ error outside a skill still needs the exception.
