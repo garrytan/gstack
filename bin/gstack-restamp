@@ -1,0 +1,106 @@
+#!/usr/bin/env bun
+/**
+ * gstack-restamp — the whole stamp in one step (plan C2).
+ *
+ *   gstack-restamp --next | --version <X> | --after <pr> [--predecessor-ref <ref>]
+ *                  [--base <branch>] [--bump micro|patch|minor|major] [--queue-mode stamp-at-merge|claim-at-open]
+ *                  [--pr <n>] [--expect-base <sha>] [--expect-order <pr,pr,...>]
+ *                  [--policy-from base|head] [--allow-repo-commands] [--dry-run] [--json]
+ *
+ * Runs gstack-version-bump write, the policy's release_tool, the CHANGELOG
+ * re-heading and the stamp_paths rewrites in an isolated staging worktree,
+ * shows the diff limited to stamp files, and writes the branch only after
+ * every stage validated (journal: .gstack/tmp/restamp-journal.json).
+ * Idempotent; --dry-run writes nothing. Workflow command: ends with the
+ * GSTACK_RESULT line. Logic: lib/restamp.ts; policy: lib/ship-policy.ts.
+ */
+import { spawnSync } from 'node:child_process';
+import { EXIT, exitTableHelp, formatResult } from '../lib/headless-artifacts';
+import { GATE_AHEAD_REL, JOURNAL_REL, restamp, type RestampResult } from '../lib/restamp';
+import { RESULT_CODES, type ResultCodeName } from '../lib/result-codes';
+import { resolveBaseBranch } from '../lib/ship-policy';
+import type { Bump } from '../lib/version-source';
+
+const HELP = `gstack-restamp — stamp the version, release tool, CHANGELOG and stamp_paths in one step (docs/ship-policy.md)
+
+  --next                     base version at origin/<base> plus the policy bump (stamp-at-merge ignores claims)
+  --version <X>              stamp exactly X
+  --after <pr>               gate-ahead: stamp a merge of HEAD and the predecessor's head in a throwaway worktree
+  --predecessor-ref <ref>    the predecessor's head (default refs/pull/<pr>/head; fetch it first)
+  --base <branch>            base branch (default: origin/HEAD, else main)
+  --bump <level>             micro|patch|minor|major (default: policy bump, else micro)
+  --queue-mode <mode>        stamp-at-merge | claim-at-open (default: policy queue_mode, else claim-at-open)
+  --pr <n>                   this PR, for --expect-order and the gate-ahead record
+  --was <X>                  the version the branch's docs mention today (default: the branch's own stamp, else base + bump)
+  --expect-base <sha>        refuse with QUEUE_STALE when origin/<base> moved
+  --expect-order <pr,...>    refuse with QUEUE_STALE when a predecessor is unmerged or a successor merged
+  --policy-from base|head    base (default, reviewed) or head (unreviewed; needs --allow-repo-commands)
+  --allow-repo-commands      run the policy's release_tool (what /ship passes); without it, commands are listed and exit 3
+  --dry-run                  print the full diff, write nothing
+  --json                     JSON only on stdout
+
+Prints STAMP_VERSION: <X>, the stage table, the stamp diff and
+GSTACK_RESULT: skill=restamp status=complete|refused|incomplete run=${JOURNAL_REL}.
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+function main(argv: string[]): number {
+  if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
+  const json = argv.includes('--json');
+  const modes = ['--next', '--version', '--after'].filter(f => argv.includes(f));
+  if (modes.length !== 1) { process.stderr.write(`gstack-restamp: pass exactly one of --next, --version <X>, --after <pr>\n${HELP}\n`); return EXIT.usage; }
+  const bump = flag(argv, '--bump') as Bump | undefined;
+  if (bump && !['micro', 'patch', 'minor', 'major'].includes(bump)) { process.stderr.write('gstack-restamp: --bump needs micro|patch|minor|major\n'); return EXIT.usage; }
+  const queueMode = flag(argv, '--queue-mode') as 'stamp-at-merge' | 'claim-at-open' | undefined;
+  if (queueMode && !['stamp-at-merge', 'claim-at-open'].includes(queueMode)) { process.stderr.write('gstack-restamp: --queue-mode needs stamp-at-merge|claim-at-open\n'); return EXIT.usage; }
+  const policyFrom = (flag(argv, '--policy-from') ?? 'base') as 'base' | 'head';
+  if (!['base', 'head'].includes(policyFrom)) { process.stderr.write('gstack-restamp: --policy-from needs base|head\n'); return EXIT.usage; }
+  const rootProbe = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
+  if (rootProbe.status !== 0) { process.stderr.write('gstack-restamp: not inside a git repository\n'); return EXIT.usage; }
+  const repoRoot = rootProbe.stdout.trim();
+  const after = flag(argv, '--after');
+  const base = resolveBaseBranch(repoRoot, flag(argv, '--base'));
+
+  const result = restamp({
+    repoRoot, base, version: flag(argv, '--version'), next: argv.includes('--next'), bump, queueMode,
+    after: after ? { pr: after, ref: flag(argv, '--predecessor-ref') } : undefined, pr: flag(argv, '--pr'),
+    expectBase: flag(argv, '--expect-base'), was: flag(argv, '--was'), expectOrder: flag(argv, '--expect-order')?.split(',').map(s => s.trim()).filter(Boolean),
+    policyFrom, allowRepoCommands: argv.includes('--allow-repo-commands'), dryRun: argv.includes('--dry-run'),
+    failAfter: process.env.GSTACK_RESTAMP_FAIL_AFTER,
+  });
+  return report(result, json);
+}
+
+function report(r: RestampResult, json: boolean): number {
+  const status = r.status === 'refused' ? 'refused' : r.status === 'failed' ? 'incomplete' : 'complete';
+  const code = r.status === 'refused' ? EXIT.refused : r.status === 'failed' ? EXIT.fail : EXIT.ok;
+  if (json) {
+    process.stdout.write(JSON.stringify({ ...r, result: status }) + '\n');
+    return code;
+  }
+  if (r.code) {
+    const row = RESULT_CODES[r.code as ResultCodeName];
+    process.stderr.write(`gstack-restamp: ${r.message}; fix: ${r.fix ?? row.fix} (${r.code})\n`);
+    if (r.recompute) process.stderr.write(`recompute: ${r.recompute}\n`);
+    if (r.commands?.length && r.code === 'REPO_COMMANDS_NOT_ALLOWED') for (const c of r.commands) process.stdout.write(`COMMAND: ${c.key}=${JSON.stringify(c.command)} cwd=${c.cwd}\n`);
+  } else {
+    process.stdout.write(`RESTAMP: ${r.oldVersion} -> ${r.newVersion} (${r.status}; queue_mode=${r.queueMode} base=${r.base?.ref}@${r.base?.sha?.slice(0, 12)} policy=${r.policy})\n`);
+    if (r.queueMode === 'stamp-at-merge' && r.status !== 'gate-ahead') process.stdout.write(`ship, next in queue at ${r.newVersion}\n`);
+    process.stdout.write(`STAMP_VERSION: ${r.newVersion}\nclaims: ${r.claims}\n`);
+    for (const s of r.stages) process.stdout.write(`stage ${s.name}: ${s.status}${s.detail ? ` (${s.detail})` : ''}\n`);
+    if (r.gateAhead) process.stdout.write(`GATE_AHEAD: head=${r.gateAhead.gated_head} tree=${r.gateAhead.gated_tree} predecessor=#${r.gateAhead.predecessor_pr}@${r.gateAhead.predecessor_head.slice(0, 12)} worktree=${r.gateAhead.worktree} evidence_branch=${r.gateAhead.evidence_branch_key}\n`);
+    if (r.diff) process.stdout.write(r.diff + (r.diff.endsWith('\n') ? '' : '\n'));
+    process.stdout.write(`FILES: ${(r.files ?? []).join(' ') || '(none)'}\n`);
+    if (r.mergeCondition) process.stdout.write(`MERGE_CONDITION: sha=${r.mergeCondition}\n`);
+    if (r.status === 'gate-ahead' && r.gateAhead) process.stdout.write(`next: run the verification gate in ${r.gateAhead.worktree}, then \`gstack-evidence bundle --out <file>\` there; the branch is untouched. At this PR's turn rerun \`gstack-restamp --next\` here and read \`gstack-tree-receipt --from ${GATE_AHEAD_REL}\` before deciding what to rerun.\n`);
+    else if (r.status === 'stamped' || r.status === 'noop') process.stdout.write(`next: NEW_VERSION=${r.newVersion}; record the release decision, then write the CHANGELOG entry text only (the heading is already ${r.newVersion}); merge with the expected head ${r.mergeCondition ?? 'sha'} and recompute on a stale queue.\n`);
+  }
+  process.stdout.write(formatResult('restamp', status, r.journal ?? JOURNAL_REL) + '\n');
+  return code;
+}
+
+process.exitCode = main(process.argv.slice(2));

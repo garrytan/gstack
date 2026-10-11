@@ -162,6 +162,15 @@ rm -f "$BODY_TOP_FILE" "$BODY_REST_FILE"
 echo "PR_BODY_FILE: $PR_BODY_FILE"
 ```
 
+Handoff record first (identifiers survive truncation):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --receipt .gstack/tmp/tree-receipt.json --gate '<lane counts json>' --ci '<check counts json>' --spend-usd <n> --body "$PR_BODY_FILE"
+```
+
+Omit `--receipt`/`--pr` when absent (new PR/MR: rerun with the number, repost). Its
+`SHIP_RECEIPT:` line opens the completion message; `RECEIPT_INVALID` stops publication.
+
 In each block below, restore the literal `PR_BODY_FILE` path and substitute Step 18's
 title file name; `gstack-post` detects GitHub or GitLab from the remote and the repo's
 visibility (an unavailable lookup, including on GitLab, uses the scanner's

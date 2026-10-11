@@ -708,13 +708,15 @@ Merge the base ref fetched in Step 1 so tests and reviews cover the integrated c
 git merge origin/<base> --no-edit
 ```
 
-**If there are merge conflicts:** Try to auto-resolve if they are simple (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**, show the conflicting choices, use AskUserQuestion for the needed resolution decision, and wait for the answer before editing or continuing.
+**If there are merge conflicts:** Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**, show the conflicting choices, use AskUserQuestion for the resolution decision, and wait for the answer before editing or continuing.
 
 **If already up to date:** Continue silently.
 
+**Ship policy:** `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-ship-policy show-effective --base <base>`
+(docs/ship-policy.md); its `ship:` lines bind Steps 12, 16 and history.
+
 If integration changes the artifact or distribution configuration inspected in Step 2,
-repeat Step 2 on the merged content, including its decisions, then continue to Step 4.
-Otherwise continue to Step 4 directly.
+repeat Step 2 (decisions included) on the merged content, then Step 4.
 
 ---
 
@@ -763,6 +765,8 @@ Otherwise continue to Step 4 directly.
 Item 3 needs `BUMP_LEVEL`: reuse this invocation's saved level. Otherwise FRESH
 chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
 
+`ship: queue_mode stamp-at-merge` replaces items 1–4.
+
 1. **Classify state** — pure reader, never writes:
    ```bash
    bun run ~/.gemini/antigravity-cli/skills/gstack/bin/gstack-version-bump classify --base <base>
@@ -785,9 +789,10 @@ chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
      unreadable or malformed. Fix it or its pin, then reclassify. Never substitute `0.0.0.0`.
 
 2. **Decide the bump level** from the diff (agent judgment):
-   - **MICRO**: <50 lines, trivial tweaks/config. **PATCH**: 50+ lines, no feature signals.
+   - **MICRO**: <50 lines, trivial tweaks/config. **PATCH**: 50+ lines, no feature signal.
    - **MINOR**: ask for any feature signal (new route/page, migration, module) or 500+ lines.
-     **MAJOR**: ask for milestones or breaking changes. Use AskUserQuestion: recommended
+     **MAJOR**: ask for milestones or breaking changes (`ship: bump patch` never asks).
+     Use AskUserQuestion: recommended
      level with rationale, smaller level, or cancel. Wait; cancel stops before release
      writes or push and preserves existing work.
    Save lowercase `BUMP_LEVEL`. A claimed version may move the next available number
@@ -817,23 +822,22 @@ chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
    bun run ~/.gemini/antigravity-cli/skills/gstack/bin/gstack-version-bump write --version "$NEW_VERSION" --regen-digest
    ```
    The CLI validates `MAJOR.MINOR.PATCH.MICRO` (or pinned 3-digit semver) and writes
-   VERSION, the manifest and existing `package-lock.json` / `npm-shrinkwrap.json`;
-   it never creates lockfiles. Manifest path: `--package-json-path` →
-   `.gstack/package-json-path` → `./package.json`. npm files use the 3-digit translation
-   (`1.67.0.0` → `1.67.0`); VERSION is authoritative. Exit 3 means a half-write:
+   VERSION, the manifest (`--package-json-path` → `.gstack/package-json-path` →
+   `./package.json`) and existing npm lockfiles, never creating one, with the 3-digit
+   translation (`1.67.0.0` → `1.67.0`); VERSION is authoritative. Exit 3 is a half-write:
    reclassify and `repair` DRIFT_STALE_PKG.
 
-   `--regen-digest` runs repo code with Step 5's privileges: `scripts/gen-agents-digest.ts`,
-   only when it and committed `agents-digest/gstack-AGENTS.md` exist. If `agentsDigest`
-   is false, run `bun scripts/gen-agents-digest.ts` and stage the digest with the bump.
-   Before push, verify the committed digest matches generation for the selected VERSION.
+   `--regen-digest` runs repo code (`scripts/gen-agents-digest.ts`) with Step 5's privileges
+   only when it and committed `agents-digest/gstack-AGENTS.md` exist; if `agentsDigest` is
+   false, run `bun scripts/gen-agents-digest.ts` and stage the digest with the bump. Before
+   push, verify the committed digest matches generation for the selected VERSION.
 
-5. **Record the release decision after a version was actually written**, including
+5. **Record the release decision after a version was written**, including
    an approved ALREADY_BUMPED rebump. Skip unchanged versions and manifest-only repairs.
    ```bash
    ~/.gemini/antigravity-cli/skills/gstack/bin/gstack-decision-log '{"decision":"Ship NEW_VERSION (BUMP_LEVEL)","rationale":"WHY","scope":"repo","source":"skill","confidence":9}' 2>/dev/null || true
    ```
-   Substitute `NEW_VERSION`, `BUMP_LEVEL`, and one-line `WHY` (scope or breaking-change signal). Best-effort, non-interactive, non-blocking.
+   Substitute `NEW_VERSION`, `BUMP_LEVEL` and a one-line `WHY` (scope or breaking-change signal); best-effort, non-blocking.
 
 > **STOP.** Before writing the CHANGELOG entry (Step 13), Read `sections/changelog.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
@@ -906,15 +910,15 @@ EOF
 
 **IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
-Run stages 1–5 in order. Recovery instructions below name where to resume.
-If content changes during or after verification, restart at stage 1 and complete
-all five stages before Step 17. Content-preserving commits keep valid evidence.
+Run stages 1–5 in order; recovery notes below name where to resume. Content
+changes during or after verification restart at stage 1 and complete all five
+stages before Step 17. Content-preserving commits keep valid evidence.
 
 ### 1. Finish writers and prepare outputs
 
-Inspect writer handles, including the docs child. Confirm terminal completion or termination
-before another writer runs. Timeout or cancellation acknowledgment alone means
-STOP until confirmed.
+Inspect writer handles, including the docs child. Confirm terminal completion or
+termination before another writer runs; timeout or cancellation acknowledgment
+alone means STOP until confirmed.
 
 Find declared generation/build commands in project instructions, manifests, build
 files and CI. Run them and save results. If none exists, record not applicable and
@@ -977,10 +981,9 @@ checks; report unavailable checks.
 
 **Reuse a check when its inputs match.** Compare hashes or complete bytes of its
 saved and current consumed files, fixtures, dependencies and execution parameters.
-Explain why other changes cannot affect it; changed or unknown dependencies require a rerun.
-For model judges, compare the complete expanded request, rubric, parameters and
-builder/runtime dependencies. Reuse identical passing evidence: cite the original
-command, result/counts, timestamp and log, never resample it. Mandatory reviews still run.
+Changed or unknown dependencies require a rerun. For model judges, compare the complete
+expanded request, rubric, parameters and builder/runtime dependencies. Cite the original
+command, result/counts, timestamp and log, never resample. Mandatory reviews still run.
 
 **Check each test lane's receipt as well.** Use its actual Step 5 label/command:
 `--label <lane> --expect-cmd '<exact Step 5 command>'`. Inspect changes since the run;

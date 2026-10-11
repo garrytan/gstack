@@ -1561,3 +1561,231 @@ applied; the unparsed tokens are listed.
 **Fix.** Reply with `all`, with `<id><option>` tokens (`d3b uc1a`), or with
 `all except <tokens>`. A bare `yes` or `no` is ambiguous across multi-option
 items and is never guessed.
+
+## Queue-aware ship: policy, restamp, tree receipt, ship receipt
+
+`gstack-ship-policy`, `gstack-restamp`, `gstack-tree-receipt`,
+`gstack-ship-receipt` and `gstack-evidence bundle|ancestor` share the exit
+table above and end each error line with a code in parentheses. The policy
+file is described in [docs/ship-policy.md](ship-policy.md); the queue flow in
+[docs/ship-policy.md#stamp-at-merge](ship-policy.md#stamp-at-merge).
+
+<a id="policy-source-unavailable"></a>
+### `policy source unavailable — fix: git fetch origin <base> --depth=1 (POLICY_SOURCE_UNAVAILABLE)`
+
+**Meaning.** The policy is read from the committed copy on `origin/<base>`,
+and that ref does not resolve here (a shallow or detached gate checkout, or a
+fetch that never happened). The tool exits 3 and never falls back to the
+working-tree file silently.
+
+**Fix.** `git fetch origin <base> --depth=1`, then rerun. To run against the
+branch's own file deliberately, pass `--policy-from head --allow-repo-commands`;
+the receipt then says `policy: head (unreviewed)`.
+
+<a id="policy-invalid"></a>
+### `POLICY_INVALID`
+
+**Meaning.** `.gstack/ship-policy.json` has an unknown key, a wrong type or a
+value outside its enum. The message names the key. Unknown keys are errors so
+a typo never silently means "default".
+
+**Fix.** `gstack-ship-policy validate` lists every problem;
+`gstack-ship-policy init --explain` prints each key, its meaning and default.
+
+<a id="policy-containment"></a>
+### `POLICY_CONTAINMENT`
+
+**Meaning.** A repo-controlled input escapes its box: an absolute path or a
+`..` segment in `stamp_paths`, `release_outputs`, `changelog` or `mirror`; a
+glob whose expansion passes 512 regex characters; more than 64 entries in a
+list; a `release_tool` over 512 characters or holding a newline. At write time
+the same code names a matched file that resolves through a symlink to outside
+the repository.
+
+**Fix.** Keep paths repo-relative, globs short and lists small. A mirror may
+start with `..` (a sibling checkout) but may not contain an interior `..`.
+
+<a id="policy-exists"></a>
+### `POLICY_EXISTS`
+
+**Meaning.** `gstack-ship-policy init` found an existing policy file and wrote
+nothing.
+
+**Fix.** Edit the file, or pass `--force` to replace it with the example.
+
+<a id="repo-commands-not-allowed"></a>
+### `repo commands not executed (pass --allow-repo-commands) (REPO_COMMANDS_NOT_ALLOWED)`
+
+**Meaning.** The policy declares a command (`release_tool`), and the tool was
+run standalone. File presence never authorizes execution: outside `/ship` and
+`/land-and-deploy` a repo-declared command runs only with
+`--allow-repo-commands`. The commands were listed and nothing was written.
+
+**Fix.** Pass `--allow-repo-commands` when you mean to execute the repo's
+code (you already do when you run its tests), or drop the release tool.
+
+<a id="queue-stale"></a>
+### `QUEUE_STALE`
+
+**Meaning.** `gstack-restamp` was told the base SHA (`--expect-base`) or the
+merge order (`--expect-order`) the allocation assumed, and one of them moved:
+the base advanced, a predecessor is not merged, or a successor merged first.
+The JSON result carries `expected`, `actual` and `recompute`.
+
+**Fix.** Run the printed `recompute` command, which recomputes the version
+from the current base, then merge with the server-side head condition
+(`MERGE_CONDITION: sha=<head>`).
+
+<a id="restamp-version-source"></a>
+### `RESTAMP_VERSION_SOURCE`
+
+**Meaning.** The configured version source (`VERSION`, `.gstack/version-path`)
+is absent, ambiguous or broken at the base revision or on the branch, so there
+is no version to bump from.
+
+**Fix.** Create `VERSION` or pin the manifest path in `.gstack/version-path`
+on the base branch. gstack never substitutes `0.0.0.0`.
+
+<a id="restamp-merge-conflict"></a>
+### `RESTAMP_MERGE_CONFLICT`
+
+**Meaning.** `--after <pr>` builds the merge of the branch and the
+predecessor's head in a throwaway worktree, and that merge conflicts. The
+branch is untouched.
+
+**Fix.** Merge the predecessor (or the base once it merges) into the branch
+under `/ship` Step 3's conflict rules, then run `--after` again.
+
+<a id="restamp-release-tool-failed"></a>
+### `RESTAMP_RELEASE_TOOL_FAILED`
+
+**Meaning.** The policy's `release_tool` exited non-zero inside the staging
+worktree. The branch was not written; the journal records the stage.
+
+**Fix.** Run the tool by hand in the repo, fix it, then rerun `gstack-restamp`.
+
+<a id="restamp-output-outside-allowed"></a>
+### `RESTAMP_OUTPUT_OUTSIDE_ALLOWED`
+
+**Meaning.** The release tool changed a path outside its allowed-output set
+(the version files, lockfiles, the CHANGELOG, `stamp_paths` and
+`release_outputs`). The restamp refused before writing anything to the branch.
+
+**Fix.** Add the path to `release_outputs` on the base branch when it is a
+legitimate generated output, or stop the tool from writing it.
+
+<a id="restamp-conflict"></a>
+### `RESTAMP_CONFLICT`
+
+**Meaning.** While applying or rolling back, a file no longer held the bytes
+the journal recorded (someone edited it after the stage ran). Overwriting it
+would lose that edit, so the restamp stopped.
+
+**Fix.** Read `.gstack/tmp/restamp-journal.json`, reconcile the named file by
+hand, then rerun `gstack-restamp` (idempotent: a complete stamp is a no-op).
+
+<a id="restamp-predecessor-moved"></a>
+### `PREDECESSOR MOVED <old> -> <new> — fix: gstack-restamp --after <pr> again (RESTAMP_PREDECESSOR_MOVED)`
+
+**Meaning.** The gate ran on a synthetic tree built against a predecessor
+head that is no longer that PR's head, so the gated tree is not the tree that
+will merge. The receipt refuses `gate-reuse: eligible`.
+
+**Fix.** `gstack-restamp --after <pr>` again, gate the new synthetic tree, and
+read the receipt again.
+
+<a id="changelog-duplicate-heading"></a>
+### `CHANGELOG_DUPLICATE_HEADING`
+
+**Meaning.** Two sections share one version heading, usually a stamp that
+re-headed `[Unreleased]` beside an entry that already carried the version.
+
+**Fix.** Merge them into one entry under the new version.
+
+<a id="changelog-top-mismatch"></a>
+### `CHANGELOG_TOP_MISMATCH`
+
+**Meaning.** After the stamp, the first entry's heading is not the version in
+`VERSION`.
+
+**Fix.** `gstack-restamp` moves the PR's section to the top; if a hand edit
+undid that, fix the heading or rerun the restamp.
+
+<a id="changelog-section-missing"></a>
+### `CHANGELOG_SECTION_MISSING`
+
+**Meaning.** The CHANGELOG has neither an `[Unreleased]` section nor one
+headed by the version currently stamped on the branch, so there is nothing to
+re-head.
+
+**Fix.** Under stamp-at-merge, write the PR's entry under `## [Unreleased]`;
+the restamp turns it into `## [<version>] - <date>`.
+
+<a id="gate-reuse-not-eligible"></a>
+### `gate-reuse: not-eligible (<what changed>) — fix: <rerun command> (GATE_REUSE_NOT_ELIGIBLE)`
+
+**Meaning.** Tree identity alone is not gate evidence. The receipt compares
+the gated identity (tree modulo stamps, runtime pins, lockfile hash, CI
+workflow hashes, gate command hash, executed selection, runner image) with the
+current one and names what differs, or the stamp-sensitive gates that must
+rerun on the final tree.
+
+**Fix.** Rerun the named lanes with the printed command on the stamped tree,
+or pass `--force-gate <reason>` in `/ship` to run the full gate again.
+
+<a id="evidence-identity-unknown"></a>
+### `EVIDENCE_IDENTITY_UNKNOWN`
+
+**Meaning.** The bundle (or ledger record) lacks a committed tree id, runtime
+versions, lockfile hashes or the command hash, so no reuse decision can rest on
+it. Imported assertions without verification count as unknown too.
+
+**Fix.** Rebuild the bundle on the gate machine after the lanes ran on a
+committed head: `gstack-evidence bundle --out <file> --label <lane>...`.
+
+<a id="evidence-bundle-invalid"></a>
+### `EVIDENCE_BUNDLE_INVALID`
+
+**Meaning.** The bundle is not valid JSON or not `gstack-evidence-bundle` v1.
+
+**Fix.** Rebuild it with `gstack-evidence bundle`; a bundle is never hand-edited.
+
+<a id="preregistration-not-ancestor"></a>
+### `PREREGISTRATION_NOT_ANCESTOR`
+
+**Meaning.** A `preregistration_shas` entry in the policy is not an ancestor
+of HEAD, so the preregistered eval does not describe this branch.
+
+**Fix.** Merge or rebase so the commit is in the branch history, or remove the
+entry on the base branch. `gstack-evidence ancestor <sha>...` prints one line
+per entry; the ship receipt records the result.
+
+<a id="history-policy-violation"></a>
+### `HISTORY_POLICY_VIOLATION`
+
+**Meaning.** The policy says `history: merge-only` and the plan would squash,
+rebase or otherwise rewrite the branch: `gstack-ship-policy check-history
+--plan squash|rebase` refuses (exit 3) before anything moves, and without
+`--plan` it reports the violation (exit 1) when the pushed branch is no longer
+an ancestor of HEAD.
+
+**Fix.** `git merge origin/<base>` and keep every commit; merge the PR with a
+merge commit.
+
+<a id="receipt-missing"></a>
+### `RECEIPT_MISSING`
+
+**Meaning.** `gstack-ship-receipt read --pr <n>` found no
+```` ```gstack-ship-receipt ```` block in the PR body.
+
+**Fix.** `/ship` Step 18 writes it (`gstack-ship-receipt write ... --pr <n>`);
+for an older PR, write it once by hand with the same command.
+
+<a id="receipt-invalid"></a>
+### `RECEIPT_INVALID`
+
+**Meaning.** The block exists but does not validate against the `ship-receipt`
+schema (`gstack-artifact schema ship-receipt`).
+
+**Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
+block.

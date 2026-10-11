@@ -63,6 +63,8 @@ export interface ShipReceipt {
   schema_version: 1; head: string; base: string; pr?: number; version?: string; gated_tree?: string;
   gate?: Record<string, unknown>; ci?: Record<string, unknown>; spend_usd?: number | string; predecessor?: string;
   session_kind?: string; artifacts_consumed?: string; run?: string;
+  // C-stamp (C3/C5/C7): the tree receipt's verdicts and the policy provenance, all optional.
+  thread?: string; tree?: string; gate_reuse?: string; policy?: string; queue_mode?: string; preregistration?: string; history?: string;
 }
 
 export const RESULT_STATUSES: readonly ResultStatus[] = ['complete', 'gate_pending', 'incomplete', 'interrupted', 'refused'];
@@ -171,6 +173,7 @@ export const ARTIFACT_SCHEMAS = {
       schema_version: { const: 1 }, pr: { type: 'integer' }, head: str, version: str, base: str, gated_tree: str,
       gate: { type: 'object' }, ci: { type: 'object' }, spend_usd: { type: ['number', 'string'] }, predecessor: str,
       session_kind: str, artifacts_consumed: { ...str, description: '<n>/<m>' }, run: str,
+      thread: str, tree: { enum: ['same-modulo-stamps', 'changed', 'not-compared'] }, gate_reuse: str, policy: str, queue_mode: str, preregistration: str, history: str,
     },
   },
 } as const satisfies Record<string, Schema>;

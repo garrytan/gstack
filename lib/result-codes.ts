@@ -150,6 +150,117 @@ export const RESULT_CODES = {
     summary: 'a tool the installer needs before ./setup (git, curl, node, jq) is missing, or the Bun install recipe failed its checksum',
     fix: 'install the named tool, then re-run bin/gstack-capy-install',
   },
+  // C-stamp (plan C1, C2, C3, C5, C7): ship policy, restamp, tree receipt, ship receipt.
+  POLICY_SOURCE_UNAVAILABLE: {
+    anchor: 'policy-source-unavailable',
+    summary: 'policy source unavailable: origin/<base> is not a resolvable commit, so the reviewed .gstack/ship-policy.json cannot be read',
+    fix: 'git fetch origin <base> --depth=1 (the working-tree copy is never used silently)',
+  },
+  POLICY_INVALID: {
+    anchor: 'policy-invalid',
+    summary: '.gstack/ship-policy.json has an unknown key, a wrong type or a value outside its enum',
+    fix: 'run `gstack-ship-policy validate`, compare with `gstack-ship-policy init --explain`, and fix the file on the base branch',
+  },
+  POLICY_CONTAINMENT: {
+    anchor: 'policy-containment',
+    summary: 'a repo-controlled path, glob, command or list in the policy escapes the repository or exceeds its size cap',
+    fix: 'use repo-relative paths without `..`, globs under 256 characters, lists under 64 entries and a release_tool under 512 characters',
+  },
+  POLICY_EXISTS: {
+    anchor: 'policy-exists',
+    summary: '.gstack/ship-policy.json already exists; nothing written',
+    fix: 'edit the existing file, or pass --force to overwrite it',
+  },
+  REPO_COMMANDS_NOT_ALLOWED: {
+    anchor: 'repo-commands-not-allowed',
+    summary: 'repo commands not executed: the policy declares commands and this invocation did not opt in',
+    fix: 'pass --allow-repo-commands (what /ship does), or run without the release tool',
+  },
+  QUEUE_STALE: {
+    anchor: 'queue-stale',
+    summary: 'the base SHA or queue order the allocation assumed has moved',
+    fix: 'recompute with the printed command (gstack-restamp --next ... with the current --expect-base) before merging',
+  },
+  RESTAMP_VERSION_SOURCE: {
+    anchor: 'restamp-version-source',
+    summary: 'the configured version source is absent, ambiguous or broken at the base revision or on the branch',
+    fix: 'create VERSION or pin .gstack/version-path; gstack never invents a version',
+  },
+  RESTAMP_MERGE_CONFLICT: {
+    anchor: 'restamp-merge-conflict',
+    summary: 'the gate-ahead merge of the branch and its predecessor conflicts; nothing written',
+    fix: 'merge the predecessor into the branch under /ship Step 3’s conflict rules, then run --after again',
+  },
+  RESTAMP_RELEASE_TOOL_FAILED: {
+    anchor: 'restamp-release-tool-failed',
+    summary: 'the policy’s release_tool exited non-zero in the staging worktree; nothing written to the branch',
+    fix: 'run the release tool by hand in the repo, fix it, and rerun gstack-restamp',
+  },
+  RESTAMP_OUTPUT_OUTSIDE_ALLOWED: {
+    anchor: 'restamp-output-outside-allowed',
+    summary: 'the release tool wrote a path outside the enumerated allowed-output set; nothing written to the branch',
+    fix: 'list the path in `release_outputs` or `stamp_paths` on the base branch, or stop the tool from writing it',
+  },
+  RESTAMP_CONFLICT: {
+    anchor: 'restamp-conflict',
+    summary: 'a file to write or roll back no longer holds the bytes the journal recorded (a later edit); the restamp stopped',
+    fix: 'inspect .gstack/tmp/restamp-journal.json, reconcile the file by hand, then rerun gstack-restamp',
+  },
+  RESTAMP_PREDECESSOR_MOVED: {
+    anchor: 'restamp-predecessor-moved',
+    summary: 'PREDECESSOR MOVED: the predecessor head the gate assumed is no longer that PR’s head',
+    fix: 'gstack-restamp --after <pr> again and regate on the new synthetic tree',
+  },
+  CHANGELOG_DUPLICATE_HEADING: {
+    anchor: 'changelog-duplicate-heading',
+    summary: 'two CHANGELOG sections carry the same version heading',
+    fix: 'merge the duplicate sections into one entry under the new version',
+  },
+  CHANGELOG_TOP_MISMATCH: {
+    anchor: 'changelog-top-mismatch',
+    summary: 'the first CHANGELOG entry is not the version being stamped',
+    fix: 'move the PR’s entry to the top (gstack-restamp does this) or fix the heading to match VERSION',
+  },
+  CHANGELOG_SECTION_MISSING: {
+    anchor: 'changelog-section-missing',
+    summary: 'the CHANGELOG has no `[Unreleased]` or old-version section for this PR to re-head',
+    fix: 'write the PR’s entry under `## [Unreleased]` (stamp-at-merge) and rerun',
+  },
+  GATE_REUSE_NOT_ELIGIBLE: {
+    anchor: 'gate-reuse-not-eligible',
+    summary: 'the earlier gate ran under a different identity (tree, runtime pins, lockfile, CI config, gate command or selection)',
+    fix: 'rerun the named lanes on the final stamped tree with the printed command',
+  },
+  EVIDENCE_IDENTITY_UNKNOWN: {
+    anchor: 'evidence-identity-unknown',
+    summary: 'the evidence bundle lacks the execution identity (committed tree, runtime, lockfile or command hash) a reuse decision needs',
+    fix: 'rebuild the bundle on the gate machine with `gstack-evidence bundle` after the lanes ran on a committed head',
+  },
+  EVIDENCE_BUNDLE_INVALID: {
+    anchor: 'evidence-bundle-invalid',
+    summary: 'the evidence bundle is not valid JSON or not the schema this gstack reads',
+    fix: 'rebuild it with `gstack-evidence bundle`; never hand-edit a bundle',
+  },
+  PREREGISTRATION_NOT_ANCESTOR: {
+    anchor: 'preregistration-not-ancestor',
+    summary: 'a preregistration_shas entry is not an ancestor of HEAD',
+    fix: 'rebase or merge so the preregistered commit is in the branch history, or remove the entry on the base branch',
+  },
+  HISTORY_POLICY_VIOLATION: {
+    anchor: 'history-policy-violation',
+    summary: 'the policy says history: merge-only and the plan squashes, rebases or rewrites the branch',
+    fix: 'merge the base branch instead (git merge origin/<base>) and keep every commit',
+  },
+  RECEIPT_MISSING: {
+    anchor: 'receipt-missing',
+    summary: 'no ```gstack-ship-receipt``` block was found in the PR body',
+    fix: 'write it with `gstack-ship-receipt write ... --pr <n>` (/ship Step 18) before reading it',
+  },
+  RECEIPT_INVALID: {
+    anchor: 'receipt-invalid',
+    summary: 'the ship receipt block does not validate against the ship-receipt schema',
+    fix: 'regenerate it with `gstack-ship-receipt write`; never hand-edit the block',
+  },
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;
