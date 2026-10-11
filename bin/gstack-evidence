@@ -6,6 +6,9 @@
  *   gstack-evidence run --label <L> -- <cmd...>
  *   gstack-evidence check [--label <L> [--expect-cmd <exact string>]]... | --all
  *                         [--max-age <hours>] [--allow-paths <csv>]
+ *   gstack-evidence bundle --out <file> [--label <L>]... [--require <csv>] [--selection L=<text>]...
+ *                          [--run-url L=<url>]... [--import <json>] [--base <branch>]   (plan C3; lib/evidence-bundle.ts)
+ *   gstack-evidence ancestor <sha>... | --from-policy [--base <branch>]                 (plan C7)
  *
  * `run` is a TRANSPARENT wrapper: it streams the child's output through
  * unchanged, tees it to a 0600 log (2MB cap with a truncation marker), and
@@ -49,6 +52,10 @@ import { spawnSync } from "child_process";
 import { appendJsonl, readJsonl } from "../lib/jsonl-store";
 import { resolveStateRoot } from "../lib/state-root";
 import { scan, applyRedactions } from "../lib/redact-engine";
+import { buildBundle, checkAncestors } from "../lib/evidence-bundle";
+import { resultLine } from "../lib/result-codes";
+import { isUnavailable, loadPolicyFromBase, resolveBaseBranch } from "../lib/ship-policy";
+import { versionAtRef } from "../lib/restamp";
 
 const BIN_DIR = dirname(Bun.fileURLToPath(import.meta.url));
 const LOG_MAX_BYTES = 2 * 1024 * 1024;
@@ -653,14 +660,83 @@ function cmdCheck(argv: string[]): number {
   return allFresh ? 0 : 1;
 }
 
+/** C3: export the ledger's latest record per label plus the execution identity as a portable bundle. */
+function cmdBundle(argv: string[]): number {
+  const labels: string[] = [];
+  const selections: Record<string, string> = {};
+  const runUrls: Record<string, string> = {};
+  let out: string | undefined;
+  let required: string[] | undefined;
+  let imported: Record<string, unknown>[] = [];
+  let base: string | undefined;
+  const kv = (into: Record<string, string>, raw: string) => { const i = raw.indexOf("="); if (i > 0) into[raw.slice(0, i)] = raw.slice(i + 1); };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--label") labels.push(argv[++i] ?? "");
+    else if (a === "--out") out = argv[++i];
+    else if (a === "--require") required = (argv[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    else if (a === "--selection") kv(selections, argv[++i] ?? "");
+    else if (a === "--run-url") kv(runUrls, argv[++i] ?? "");
+    else if (a === "--base") base = argv[++i];
+    else if (a === "--import") {
+      try { const parsed = JSON.parse(readFileSync(argv[++i] ?? "", "utf-8")); imported = Array.isArray(parsed) ? parsed : [parsed]; }
+      catch (e: any) { console.error(`gstack-evidence bundle: --import unreadable (${e?.message ?? e})`); return 2; }
+    }
+  }
+  if (!out) { console.error("usage: gstack-evidence bundle --out <file> [--label <L>]... [--require <csv>] [--selection L=<text>]... [--run-url L=<url>]... [--import <json>]"); return 2; }
+  const repoRoot = git(["rev-parse", "--show-toplevel"]) ?? process.cwd();
+  let records: Record<string, unknown>[] = [];
+  try { records = readJsonl<Record<string, unknown>>(ledgerPath().file); } catch { records = []; }
+  const policy = loadPolicyFromBase(repoRoot, resolveBaseBranch(repoRoot, base));
+  const p = isUnavailable(policy) ? null : policy.policy;
+  const head = versionAtRef(repoRoot, "HEAD");
+  const comparison = {
+    version_rel: "rel" in head ? head.rel : "VERSION", version: "version" in head ? head.version : null,
+    changelog: p?.changelog ?? "CHANGELOG.md", stamp_paths: p?.stamp_paths ?? [], release_outputs: p?.release_outputs ?? [],
+  };
+  let gstackVersion: string | null = null;
+  try { gstackVersion = readFileSync(join(BIN_DIR, "..", "VERSION"), "utf-8").trim(); } catch {}
+  const built = buildBundle({ repoRoot, ledgerRecords: records, labels, required, selections, runUrls, imported, comparison, gstackVersion });
+  for (const e of built.errors) console.error(resultLine("gstack-evidence bundle", e.code, e.message));
+  if (!built.bundle) return 1;
+  mkdirpSync(dirname(out));
+  const { writeFileSync } = require("fs") as typeof import("fs");
+  writeFileSync(out, JSON.stringify(built.bundle, null, 2) + "\n");
+  const verified = built.bundle.lanes.filter((l) => l.verified).length;
+  console.log(`EVIDENCE_BUNDLE: ${out} tree=${built.bundle.repo.tree} lanes=${built.bundle.lanes.length} verified=${verified} imported=${built.bundle.imported.length}${built.bundle.repo.dirty ? " dirty=yes (committed heads only; lanes on a dirty tree are not verified)" : ""}`);
+  return built.errors.length ? 1 : 0;
+}
+
+/** C7: every preregistration sha must be an ancestor of HEAD. */
+function cmdAncestor(argv: string[]): number {
+  const repoRoot = git(["rev-parse", "--show-toplevel"]) ?? process.cwd();
+  let shas = argv.filter((a) => !a.startsWith("--") && argv[argv.indexOf(a) - 1] !== "--base");
+  if (argv.includes("--from-policy")) {
+    const loaded = loadPolicyFromBase(repoRoot, resolveBaseBranch(repoRoot, argv[argv.indexOf("--base") + 1]));
+    if (isUnavailable(loaded)) { console.error(resultLine("gstack-evidence ancestor", "POLICY_SOURCE_UNAVAILABLE", loaded.detail)); return 3; }
+    shas = [...shas, ...loaded.policy.preregistration_shas];
+  }
+  if (shas.length === 0) { console.log("ANCESTOR: none (no preregistration_shas)"); return 0; }
+  const results = checkAncestors(repoRoot, shas);
+  for (const r of results) {
+    if (r.ok) console.log(`ANCESTOR: ok ${r.sha} (${r.detail})`);
+    else console.log(`ANCESTOR: missing ${r.sha} (${r.detail}) — fix: merge or rebase so it is in the branch history, or drop it from the policy (PREREGISTRATION_NOT_ANCESTOR)`);
+  }
+  return results.every((r) => r.ok) ? 0 : 1;
+}
+
 const [, , sub, ...rest] = process.argv;
 try {
   if (sub === "run") {
     process.exit(await cmdRun(rest));
   } else if (sub === "check") {
     process.exit(cmdCheck(rest));
+  } else if (sub === "bundle") {
+    process.exit(cmdBundle(rest));
+  } else if (sub === "ancestor") {
+    process.exit(cmdAncestor(rest));
   } else {
-    console.error("usage: gstack-evidence run|check ...");
+    console.error("usage: gstack-evidence run|check|bundle|ancestor ...");
     process.exit(2);
   }
 } catch (e: any) {

@@ -1,0 +1,86 @@
+#!/usr/bin/env bun
+/**
+ * gstack-tree-receipt — the tree-equality receipt (plan C3).
+ *
+ *   gstack-tree-receipt --gated <sha> [--current <sha>] [--predecessor <sha>] [--predecessor-pr <n>] [--predecessor-ref <ref>]
+ *   gstack-tree-receipt --from .gstack/tmp/gate-ahead.json [--current <sha>]
+ *       [--base <branch>] [--policy-from base|head] [--bundle <evidence-bundle.json>] [--rerun-command <cmd>] [--json]
+ *
+ * Prints gated head, current head, both tree ids, the diff limited to stamp
+ * files (classified hunk by hunk), the predecessor head the gate assumed,
+ * each gate's reusability, `TREE: same-modulo-stamps | changed (<paths>)` and
+ * `gate-reuse: eligible | not-eligible (<what>) — fix: ... (GATE_REUSE_NOT_ELIGIBLE)`.
+ * Exit 0 when eligible, 1 otherwise, 2 usage, 3 when the policy is unreadable.
+ * Logic: lib/tree-receipt.ts, lib/evidence-bundle.ts.
+ */
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { GATE_AHEAD_REL } from '../lib/restamp';
+import { resultLine } from '../lib/result-codes';
+import { isUnavailable, loadPolicyFromBase, loadPolicyFromHead, policyUnavailableLine, resolveBaseBranch, type LoadedPolicy } from '../lib/ship-policy';
+import { buildReceipt, fromGateAhead, renderReceipt } from '../lib/tree-receipt';
+
+const HELP = `gstack-tree-receipt — tree equality modulo stamps, per-gate reuse (docs/ship-policy.md#tree-receipt)
+
+  --gated <sha>              the head the gate ran on (committed; fetch it first)
+  --from <gate-ahead.json>   read gated head, predecessor and PR from gstack-restamp --after's record (default ${GATE_AHEAD_REL} when present)
+  --current <sha>            the head to compare (default HEAD)
+  --predecessor <sha>        the predecessor head the gate assumed
+  --predecessor-pr <n>       check the predecessor PR's current head through gh (PREDECESSOR MOVED)
+  --predecessor-ref <ref>    check the predecessor's current head from a git ref (fetched)
+  --bundle <file>            gstack-evidence bundle produced on the gated head (the execution identity)
+  --base <branch>            base branch for the policy (default origin/HEAD, else main)
+  --policy-from base|head    reviewed base copy (default) or the unreviewed working tree
+  --rerun-command <cmd>      what the fix clause names for a rerun
+  --json                     the receipt as one JSON object
+
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+function main(argv: string[]): number {
+  if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
+  const json = argv.includes('--json');
+  const rootProbe = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
+  if (rootProbe.status !== 0) { process.stderr.write('gstack-tree-receipt: not inside a git repository\n'); return EXIT.usage; }
+  const repoRoot = rootProbe.stdout.trim();
+  let gated = flag(argv, '--gated');
+  let predecessor: { pr: string | null; recordedHead: string | null; ref?: string | null } | undefined;
+  const from = flag(argv, '--from') ?? (!gated && fs.existsSync(path.join(repoRoot, GATE_AHEAD_REL)) ? path.join(repoRoot, GATE_AHEAD_REL) : undefined);
+  if (from) {
+    const rec = fromGateAhead(from);
+    gated = gated ?? rec.gated_head;
+    predecessor = { pr: rec.predecessor_pr, recordedHead: rec.predecessor_head };
+  }
+  if (!gated) { process.stderr.write(`gstack-tree-receipt: --gated <sha> or --from <gate-ahead.json> is required\n${HELP}\n`); return EXIT.usage; }
+  const predSha = flag(argv, '--predecessor');
+  const predPr = flag(argv, '--predecessor-pr');
+  const predRef = flag(argv, '--predecessor-ref');
+  if (predSha || predPr || predRef) predecessor = { pr: predPr ?? predecessor?.pr ?? null, recordedHead: predSha ?? predecessor?.recordedHead ?? null, ref: predRef ?? null };
+
+  const policyFrom = flag(argv, '--policy-from') ?? 'base';
+  let loaded: LoadedPolicy;
+  if (policyFrom === 'head') loaded = loadPolicyFromHead(repoRoot);
+  else {
+    const base = resolveBaseBranch(repoRoot, flag(argv, '--base'));
+    const l = loadPolicyFromBase(repoRoot, base);
+    if (isUnavailable(l)) { process.stderr.write(policyUnavailableLine('gstack-tree-receipt', base, l.detail) + '\n'); return EXIT.refused; }
+    loaded = l;
+  }
+  if (loaded.errors.length) { for (const e of loaded.errors) process.stderr.write(resultLine('gstack-tree-receipt', e.code, `${e.message} at ${e.path}`) + '\n'); return EXIT.refused; }
+
+  const receipt = buildReceipt({
+    repoRoot, gated, current: flag(argv, '--current'), policy: loaded.policy, policyLabel: loaded.source.kind === 'head' ? 'head (unreviewed)' : loaded.source.label,
+    predecessor, bundlePath: flag(argv, '--bundle'), rerunCommand: flag(argv, '--rerun-command'),
+  });
+  if ('error' in receipt) { process.stderr.write(resultLine('gstack-tree-receipt', receipt.code, receipt.error) + '\n'); return EXIT.fail; }
+  process.stdout.write(json ? JSON.stringify(receipt) + '\n' : renderReceipt(receipt));
+  return receipt.gate_reuse === 'eligible' ? EXIT.ok : EXIT.fail;
+}
+
+process.exitCode = main(process.argv.slice(2));

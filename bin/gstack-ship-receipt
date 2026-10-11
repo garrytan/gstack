@@ -1,0 +1,174 @@
+#!/usr/bin/env bun
+/**
+ * gstack-ship-receipt — the handoff record, identifiers first (plan C5).
+ *
+ *   gstack-ship-receipt write [--pr <n>] [--head <sha>] [--base <ref>] [--version <X>] [--gated-tree <sha>]
+ *                             [--predecessor <sha>] [--gate <json|@file>] [--ci <json|@file>] [--spend-usd <n>]
+ *                             [--session-kind <k>] [--artifacts-consumed <n>/<m>] [--run <id>] [--thread <id>]
+ *                             [--receipt <tree-receipt.json>] [--policy <label>] [--preregistration <text>] [--history <text>]
+ *                             [--out <file>] [--body <pr-body.md>] [--json]
+ *   gstack-ship-receipt read --pr <n> [--repo <owner/repo>] [--json]
+ *   gstack-ship-receipt read --body <file> [--json]
+ *   gstack-ship-receipt census --repo <owner/repo> --since <tag|YYYY-MM-DD> [--cohort <file>] [--limit <n>] [--json]
+ *
+ * `write` validates against `gstack-artifact schema ship-receipt`, prints the
+ * fenced block (and SHIP_RECEIPT: <identifiers> on stderr), writes it to --out,
+ * and with --body makes it the first section of that PR body file.
+ * Query commands: no GSTACK_RESULT line. Logic: lib/ship-receipt.ts.
+ */
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { EXIT, exitTableHelp, type ShipReceipt } from '../lib/headless-artifacts';
+import { resultLine } from '../lib/result-codes';
+import { versionAtRef } from '../lib/restamp';
+import { resolveBaseBranch } from '../lib/ship-policy';
+import {
+  computeCensus, extractReceipt, orderReceipt, placeReceiptFirst, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt,
+  type CensusPr,
+} from '../lib/ship-receipt';
+
+const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block (docs/ship-policy.md#ship-receipt)
+
+  write [flags]                       compose, validate and print the block; --body <file> puts it first in that PR body
+  read --pr <n> [--repo <r>]          parse the block from the PR body through gh (RECEIPT_MISSING / RECEIPT_INVALID)
+  read --body <file>                  parse the block from a file
+  census --repo <r> --since <tag|date> [--cohort <file>]
+                                      the P7 adoption number over merged PRs (deduplicated by run and thread)
+
+write flags: --pr --head --base --version --gated-tree --predecessor --gate <json|@file> --ci <json|@file> --spend-usd
+  --session-kind --artifacts-consumed <n>/<m> --run --thread --receipt <tree-receipt.json> --policy --preregistration
+  --history --queue-mode --out <file> --body <pr-body.md>. Defaults: head=HEAD, base=origin/HEAD's branch, version=the
+  version source at HEAD, session_kind=$GSTACK_SESSION_KIND (gstack-session-kind), tree/gate_reuse/gated_tree/predecessor
+  from --receipt when given.
+--json: JSON only on stdout.
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+function jsonArg(raw: string | undefined): Record<string, unknown> | undefined {
+  if (raw === undefined) return undefined;
+  const text = raw.startsWith('@') ? fs.readFileSync(raw.slice(1), 'utf8') : raw;
+  const parsed = JSON.parse(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('expected a JSON object');
+  return parsed;
+}
+function git(args: string[], cwd?: string): string | undefined {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
+  return r.status === 0 ? r.stdout.trim() : undefined;
+}
+function gh(args: string[]): { ok: boolean; out: string; err: string } {
+  const r = spawnSync('gh', args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
+}
+
+function cmdWrite(rest: string[], json: boolean): number {
+  const repoRoot = git(['rev-parse', '--show-toplevel']) ?? process.cwd();
+  const head = flag(rest, '--head') ?? git(['rev-parse', 'HEAD'], repoRoot);
+  if (!head) { process.stderr.write('gstack-ship-receipt write: --head is required outside a git repository\n'); return EXIT.usage; }
+  const atHead = versionAtRef(repoRoot, head);
+  const receiptFile = flag(rest, '--receipt');
+  const tree = receiptFile ? JSON.parse(fs.readFileSync(receiptFile, 'utf8')) : null;
+  let sessionKind = flag(rest, '--session-kind') ?? process.env.GSTACK_SESSION_KIND;
+  if (!sessionKind) {
+    const r = spawnSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-session-kind'), [], { encoding: 'utf8', timeout: 15_000 });
+    sessionKind = r.status === 0 ? r.stdout.trim() || undefined : undefined;
+  }
+  let input: Partial<ShipReceipt>;
+  try {
+    input = {
+      schema_version: 1, pr: flag(rest, '--pr') !== undefined ? Number(flag(rest, '--pr')) : undefined, head,
+      version: flag(rest, '--version') ?? ('version' in atHead ? atHead.version : undefined), base: flag(rest, '--base') ?? resolveBaseBranch(repoRoot),
+      gated_tree: flag(rest, '--gated-tree') ?? tree?.gated_tree, predecessor: flag(rest, '--predecessor') ?? tree?.predecessor?.recorded_head ?? undefined,
+      tree: tree?.tree, gate_reuse: tree ? `${tree.gate_reuse} (${tree.gate_reuse_reason})` : undefined,
+      gate: jsonArg(flag(rest, '--gate')), ci: jsonArg(flag(rest, '--ci')),
+      spend_usd: flag(rest, '--spend-usd') !== undefined ? (Number.isFinite(Number(flag(rest, '--spend-usd'))) ? Number(flag(rest, '--spend-usd')) : flag(rest, '--spend-usd')) : undefined,
+      session_kind: sessionKind, artifacts_consumed: flag(rest, '--artifacts-consumed'), run: flag(rest, '--run'), thread: flag(rest, '--thread'),
+      policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
+    };
+  } catch (e: any) { process.stderr.write(`gstack-ship-receipt write: ${e.message}\n`); return EXIT.usage; }
+  if (input.pr !== undefined && !Number.isInteger(input.pr)) { process.stderr.write('gstack-ship-receipt write: --pr must be an integer\n'); return EXIT.usage; }
+  const receipt = orderReceipt(input);
+  const errors = validateReceipt(receipt);
+  if (errors.length) {
+    for (const e of errors) process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${e.message} at ${e.path}`) + '\n');
+    process.stderr.write('gstack-ship-receipt write: nothing written\n');
+    return EXIT.fail;
+  }
+  const block = renderReceiptBlock(receipt);
+  const out = flag(rest, '--out');
+  if (out) fs.writeFileSync(out, block);
+  const body = flag(rest, '--body');
+  if (body) fs.writeFileSync(body, placeReceiptFirst(fs.existsSync(body) ? fs.readFileSync(body, 'utf8') : '', receipt));
+  process.stderr.write(receiptSummaryLine(receipt) + '\n');
+  process.stdout.write(json ? JSON.stringify(receipt) + '\n' : block);
+  return EXIT.ok;
+}
+
+function cmdRead(rest: string[], json: boolean): number {
+  const bodyFile = flag(rest, '--body');
+  const pr = flag(rest, '--pr');
+  let body: string;
+  if (bodyFile) body = fs.readFileSync(bodyFile, 'utf8');
+  else if (pr) {
+    const repo = flag(rest, '--repo');
+    const r = gh(['pr', 'view', pr, ...(repo ? ['--repo', repo] : []), '--json', 'body']);
+    if (!r.ok) { process.stderr.write(`gstack-ship-receipt read: gh pr view failed: ${r.err}\n`); return EXIT.fail; }
+    try { body = JSON.parse(r.out).body ?? ''; } catch { process.stderr.write('gstack-ship-receipt read: gh returned no JSON body\n'); return EXIT.fail; }
+  } else { process.stderr.write(`gstack-ship-receipt read: --pr <n> or --body <file> is required\n${HELP}\n`); return EXIT.usage; }
+  const ex = extractReceipt(body);
+  if (!ex.found) {
+    process.stderr.write(resultLine('gstack-ship-receipt read', 'RECEIPT_MISSING', pr ? `PR #${pr}` : bodyFile!) + '\n');
+    if (json) process.stdout.write(JSON.stringify({ found: false, errors: [] }) + '\n');
+    return EXIT.fail;
+  }
+  if (ex.errors.length) {
+    for (const e of ex.errors) process.stderr.write(resultLine('gstack-ship-receipt read', 'RECEIPT_INVALID', `${e.message} at ${e.path}`) + '\n');
+    if (json) process.stdout.write(JSON.stringify({ found: true, valid: false, errors: ex.errors, raw: ex.raw }) + '\n');
+    return EXIT.fail;
+  }
+  process.stderr.write(receiptSummaryLine(ex.receipt!) + '\n');
+  process.stdout.write(json ? JSON.stringify(ex.receipt) + '\n' : renderReceiptBlock(ex.receipt!));
+  return EXIT.ok;
+}
+
+function sinceDate(repo: string, since: string): string | undefined {
+  if (/^\d{4}-\d{2}-\d{2}/.test(since)) return since.slice(0, 10);
+  const local = git(['log', '-1', '--format=%cI', since]);
+  if (local) return local.slice(0, 10);
+  const r = gh(['api', `repos/${repo}/commits/${since}`, '--jq', '.commit.committer.date']);
+  return r.ok && r.out.trim() ? r.out.trim().slice(0, 10) : undefined;
+}
+
+function cmdCensus(rest: string[], json: boolean): number {
+  const repo = flag(rest, '--repo');
+  const since = flag(rest, '--since');
+  if (!repo || !since) { process.stderr.write(`gstack-ship-receipt census: --repo <owner/repo> and --since <tag|date> are required\n${HELP}\n`); return EXIT.usage; }
+  const date = sinceDate(repo, since);
+  if (!date) { process.stderr.write(`gstack-ship-receipt census: cannot resolve --since ${since} to a date (not a local tag, and gh could not read it)\n`); return EXIT.fail; }
+  const limit = flag(rest, '--limit') ?? '500';
+  const r = gh(['pr', 'list', '--repo', repo, '--state', 'merged', '--search', `merged:>=${date}`, '--limit', limit, '--json', 'number,body,mergedAt,title']);
+  if (!r.ok) { process.stderr.write(`gstack-ship-receipt census: gh pr list failed: ${r.err}\n`); return EXIT.fail; }
+  let prs: CensusPr[];
+  try { prs = JSON.parse(r.out); } catch { process.stderr.write('gstack-ship-receipt census: gh returned no JSON\n'); return EXIT.fail; }
+  const cohortFile = flag(rest, '--cohort');
+  const cohort = cohortFile ? fs.readFileSync(cohortFile, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')) : null;
+  const census = computeCensus(repo, date, prs, cohort);
+  process.stdout.write(json ? JSON.stringify(census) + '\n' : renderCensus(census));
+  return EXIT.ok;
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  const json = rest.includes('--json');
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  if (cmd === 'write') return cmdWrite(rest, json);
+  if (cmd === 'read') return cmdRead(rest, json);
+  if (cmd === 'census') return cmdCensus(rest, json);
+  process.stderr.write(`gstack-ship-receipt: unknown command ${cmd}\n${HELP}\n`);
+  return EXIT.usage;
+}
+
+process.exitCode = main(process.argv.slice(2));
