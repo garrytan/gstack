@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.91.75.0] - 2026-10-11
+
+**CSO paid producers no longer fail a successful audit because the final summary quoted the helper's own run ID. Credential-class text still withholds the output and fails the receipt, and the reason now names the matching redactor rules and counts.**
+
+In the first paid baseline both smoke cells finished their audits, then the producer marked each receipt `failed` with `Sensitive producer output or error withheld`. The producer treated any redactor match as a leak. A CSO run ID such as `<13-digit epoch>-<hex16>` matches `pii.phone.e164`, and some also match `pii.cc`. The fixtures' metadata address and a `PRIVILEGED` label also match. Replaying a mock provider through the installed producer, a summary of just "complete — assessed source in run <runId>." failed on 1.91.73.0 and succeeds now.
+
+### What this means for you
+
+- **Rule-named failures.** A credential-class match (the redactor's `secret` category) in the output, the error, or either concatenation still replaces the output with `[sensitive producer output redacted]` and fails the receipt. The reason is now `Sensitive producer output or error withheld: credential-class rule <id>×<count>, …` and never includes the matched text.
+- **Source canaries quoted bare.** Values assigned to credential-shaped names in the cell's verified source (the `env.kv` rule), such as a planted canary, are matched exactly, including across output and error. They fail as `source.env.kv`, because no pattern recognises such a value once it is quoted without its name.
+- **Helper identifiers survive.** Run and replay IDs, `cso-eval-<run>-<sha12>` catalog revisions, `<tool>-<hex16>-<hex16>` artifact IDs and hex finding, review and content IDs are set aside before the PII, internal and legal rules run. Those rules now replace their spans in place (`<REDACTED-<rule>>`) and no longer change the receipt status. Scoring reads the helper's report, and the evaluator still scans outputs for its canaries.
+
+### Itemized changes
+
+#### Changed
+- `scripts/cso-eval-output-redaction.ts` (new): `redactProducerText` and `sourceCredentialValues`. `sanitizeProducerRun` in `scripts/cso-eval-producer.ts` uses them; the source values are collected once after the source is sealed and validated.
+
+#### For contributors
+- `test/cso-eval.test.ts`: helper IDs kept with PII spans redacted in place; env-line and Anthropic-key outputs fail with their rule names; a source canary is withheld whole or split across output and error. The existing canary test now expects the rule-named reason.
+
 ## [1.91.73.0] - 2026-10-11
 
 **"Ship, next in queue at <version>" with zero manual stamp edits: a committed repo ship policy, `gstack-restamp` that stamps a PR only when it is next to merge (and re-stamps after a reorder in one step), a tree receipt that proves the only change since the gate was the stamp, a portable evidence bundle, and a ship receipt in the PR body.**
