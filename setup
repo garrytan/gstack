@@ -33,7 +33,14 @@ Options:
   --team            Switch to team mode (per-repo gstack with auto-update).
   --no-team         Force solo install even if a team-mode repo is detected.
   --status          Print one row per gstack install, a Codex row and the
-                    path to gstack-doctor (read-only), then exit.
+                    path to gstack-doctor (read-only), then exit. Exit 1 when
+                    an install's SKILL.md section links are broken.
+  --no-browser      Skip the Chromium bootstrap and the emoji font (sets
+                    GSTACK_SKIP_PLAYWRIGHT=1 and GSTACK_SKIP_FONTS=1 internally;
+                    the env vars alone do the same). bin/gstack-browser-ensure
+                    installs Chromium later, on the first browser skill run;
+                    bin/gstack-capy-install passes --no-browser unless it is
+                    given --with-browser.
   --refresh-registered
                     Refresh every install registered for this checkout (what
                     /gstack-upgrade runs), then print one row per install.
@@ -79,7 +86,7 @@ done
 # `sections/...` pointer counts in a carved skill (sections/ installed, or a
 # **STOP.** line); prefixed ones ($GSTACK_ROOT, ~, absolute, ../) everywhere.
 _status_install_checks() {
-  local reg="$GSTACK_STATE_ROOT/installs.tsv" host scope project dest root src rest router md dir stop tok names n path checked broken first fix
+  local reg="$GSTACK_STATE_ROOT/installs.tsv" host scope project dest root src rest router md dir stop tok names n path checked broken first fix any_broken=0
   [ -f "$reg" ] || return 0
   echo "Install checks:"
   while IFS='	' read -r host scope project dest root src rest; do
@@ -127,9 +134,11 @@ EOF
     if [ "$broken" -eq 0 ]; then
       printf '  %s %s: %s; section links: %s checked, all resolve\n' "$host" "$scope" "$router" "$checked"
     else
+      any_broken=1
       printf '  %s %s: %s; section links: %s of %s broken (first: %s). %s\n' "$host" "$scope" "$router" "$broken" "$checked" "$first" "$fix"
     fi
   done < "$reg"
+  [ "$any_broken" -eq 0 ]
 }
 for _arg in "$@"; do
   case "$_arg" in
@@ -139,11 +148,13 @@ for _arg in "$@"; do
         && . "$_STATUS_DIR/bin/gstack-render-claude.sh" && . "$_STATUS_DIR/bin/gstack-codex-status.sh" || exit 1
       gstack_state_root_select; GSTACK_STATE_ROOT="$_gstack_sr_root"
       gstack_install_status
-      _status_install_checks
+      _status_rc=0
+      _status_install_checks || _status_rc=1
       gstack_claude_overlay_status
       gstack_codex_status_line "$_STATUS_DIR" "$GSTACK_STATE_ROOT"
       echo "Readiness check: $(cd "$(dirname "$0")" && pwd)/bin/gstack-doctor"
-      exit 0 ;;
+      [ "$_status_rc" -eq 0 ] || echo "gstack: an install has broken section links (see Install checks above); exit 1" >&2
+      exit "$_status_rc" ;;
   esac
 done
 
@@ -171,7 +182,7 @@ _setup_unknown_option() {
   local bad="$1" next="${2:-}" best="" best_d=99 flag d value=""
   for flag in --host --model --claude-model --global --local --prefix --no-prefix --team --no-team \
     --plan-tune-hooks --no-plan-tune-hooks --timeline-stop-hook --no-timeline-stop-hook \
-    --refresh-registered --status --quiet --help; do
+    --refresh-registered --status --no-browser --quiet --help; do
     d="$(awk -v a="${bad%%=*}" -v b="$flag" 'BEGIN {
       n = length(a); m = length(b)
       for (i = 0; i <= n; i++) d[i, 0] = i
@@ -212,6 +223,7 @@ while [ $# -gt 0 ]; do
     --no-timeline-stop-hook) TIMELINE_STOP_HOOK_MODE="no"; shift ;;
     --timeline-stop-hook=*)  TIMELINE_STOP_HOOK_MODE="${1#--timeline-stop-hook=}"; shift ;;
     --refresh-registered) REFRESH_REGISTERED=1; shift ;;
+    --no-browser) export GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_SKIP_FONTS=1; shift ;;
     -q|--quiet) QUIET=1; shift ;;
     *) _setup_unknown_option "$@"; exit 2 ;;
   esac
@@ -300,7 +312,7 @@ if ! command -v bun >/dev/null 2>&1; then
   echo '  tmpfile=$(mktemp)' >&2
   echo '  curl -fsSL "https://bun.sh/install" -o "$tmpfile"' >&2
   echo '  echo "Verify checksum before running: sha256sum $tmpfile   # or: shasum -a 256 $tmpfile"' >&2
-  echo '  BUN_VERSION="$BUN_VERSION" bash "$tmpfile" && rm "$tmpfile"' >&2
+  echo '  bash "$tmpfile" "bun-v$BUN_VERSION" && rm "$tmpfile"   # the script pins by argument, not by env' >&2
   exit 1
 fi
 _BUN_FOUND="$(bun --version 2>/dev/null | head -1)"

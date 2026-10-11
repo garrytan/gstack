@@ -16,6 +16,21 @@
 GSTACK_BUN_FLOOR="1.3.3"
 GSTACK_BUN_TESTED="1.4.2"
 
+# gstack_bun_archive_sha256 TARGET — the SHA-256 of
+# https://github.com/oven-sh/bun/releases/download/bun-v$GSTACK_BUN_TESTED/bun-TARGET.zip
+# from that release's SHASUMS256.txt, for the targets bin/gstack-capy-install
+# installs on Capy cloud machines (the same exact-archive recipe as
+# .github/docker/Dockerfile.ci; test/bun-version-drift.test.ts keeps them
+# equal). Prints nothing and returns 1 for a target without a verified archive.
+gstack_bun_archive_sha256() {
+  case "$1" in
+    linux-x64) echo 36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913 ;;
+    linux-x64-baseline) echo c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f ;;
+    linux-aarch64) echo 54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7 ;;
+    *) return 1 ;;
+  esac
+}
+
 # _gstack_bun_parse <version> — sets _gb_core ("MAJOR MINOR PATCH" as decimal
 # integers) and _gb_pre (prerelease, may be empty); returns 1 when malformed.
 # A leading "v" and "+build" metadata are ignored.
