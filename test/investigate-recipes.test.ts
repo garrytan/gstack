@@ -53,7 +53,7 @@ describe('recipe tokens', () => {
     expect(flake).toContain('## Flake recipe');
     expect(flake).toContain('git worktree add <dir> origin/<base>');
     expect(flake).toContain('ship-measure.ts free --files <file> --reruns N');
-    expect(flake).toContain('gh run list --branch <branch> --workflow <workflow> --status success --limit N');
+    expect(flake).toContain('gh run list --branch <base> --workflow free-tests.yml --status success --limit 20');
     expect(flake).toContain('**Forced probe.**');
     expect(flake).toContain('**Never loosen.**');
     expect(flake).toContain('P(fail | regression)');
@@ -66,7 +66,7 @@ describe('recipe tokens', () => {
   test('polluter: CI file order, ship-measure free --files bisect, the leak list, the POLLUTER report line', () => {
     const polluter = read('investigate/sections/polluter.md');
     expect(polluter).toContain('bun run scripts/ship-measure.ts free --shard <I>');
-    expect(polluter).toContain('--files <earlier-1>,<earlier-2>,…,<victim> --reruns 3');
+    expect(polluter).toContain('--files <affected-files> --reruns 3');
     expect(polluter).toContain('**Bisect the earlier files.**');
     expect(polluter).toContain('POLLUTER: <file> leaked <what> into <victim>; fixed by <change>');
     expect(polluter).toContain('**Fix the polluter, not the victim.**');

@@ -14,11 +14,12 @@ skip until the cause is named and probed.
 2. **Cause inside or outside the PR.** Diff the two runs' logs at the first
    divergence and name the dependency: timing, file order, shared state, network,
    clock, a resource limit. "Flaky" is a symptom, never a cause.
-3. **Compare the metric with the last N green runs.** For the branch and for
-   `<base>`:
+3. **Compare the metric with the last N green runs.** Once for `<base>` and once
+   for the branch (`--branch <branch-name>`), against the workflow that ran the
+   failing shard; read the duration or retry token next to the test:
    ```bash
-   gh run list --branch <branch> --workflow <workflow> --status success --limit N --json databaseId,headSha,createdAt,updatedAt
-   gh run view <run-id> --log | grep -E '<test name>|<duration or retry token>'
+   gh run list --branch <base> --workflow free-tests.yml --status success --limit 20 --json databaseId,headSha,createdAt,updatedAt
+   gh run view <run-id> --log | grep -F -- "<failing-test-file>"
    ```
    The run where the duration, retry count or failing test first moved dates the
    regression; cite its `headSha`.

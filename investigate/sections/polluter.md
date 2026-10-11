@@ -11,10 +11,11 @@ passes alone and fails in the suite or in one shard.
    `bun run scripts/ship-measure.ts free --shard <I>` which reproduces the exact
    packing `bun run test` used).
 2. **Confirm the dependency.** The victim alone passes; the victim after the
-   earlier files fails:
+   earlier files fails (`<affected-files>` is the earlier files then the victim,
+   comma-joined, in shard order):
    ```bash
-   bun run scripts/ship-measure.ts free --files <victim> --reruns 3
-   bun run scripts/ship-measure.ts free --files <earlier-1>,<earlier-2>,…,<victim> --reruns 3
+   bun run scripts/ship-measure.ts free --files <failing-test-file> --reruns 3
+   bun run scripts/ship-measure.ts free --files <affected-files> --reruns 3
    ```
 3. **Bisect the earlier files.** Halve the earlier list, keep the half that
    still fails the victim, repeat until one file remains. Each step is one
