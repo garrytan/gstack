@@ -49,7 +49,6 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<comment-id>': { grammar: NUM, what: 'GitHub comment id from the fetched JSON' },
   '<opened-at>': { grammar: NUM, what: 'EARLY_PR_OPENED_AT epoch seconds printed by gstack-greptile-early open' },
   '<pr-number>': { grammar: NUM, what: 'PR/MR number from the open-PR lookup or the early-PR create output' },
-  '<spend-usd>': { grammar: NUMBER, what: 'session spend in USD from the cost ledger (ship receipt)' },
   '<new-version>': { grammar: /^[0-9]+(?:\.[0-9]+)*$/, what: 'NEW_VERSION from the version bump (dot-separated digits)' },
   '<issue-number>': { grammar: /^[0-9]*$/, what: 'filed issue number, or empty when none was filed' },
   '<check-number>': { grammar: NUM, what: 'canary check number' },
