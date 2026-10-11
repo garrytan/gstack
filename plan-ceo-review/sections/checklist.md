@@ -19,7 +19,7 @@ CEO phase steps and required outputs for `bin/gstack-autoplan` (unattended or
 | Output | Produced by | Scope |
 |---|---|---|
 | Review facts | Review facts | always |
-| Reality rows (`REALITY:` lines, `PLAN_REALITY` check) | 0A/0B → Reality rows | always |
+| Reality rows (`REALITY:` lines, `PLAN_REALITY` check) | Reality rows | always |
 | NOT in scope | "NOT in scope" section | always |
 | What already exists | "What already exists" section | always |
 | Dream state delta | "Dream state delta" section | always |
