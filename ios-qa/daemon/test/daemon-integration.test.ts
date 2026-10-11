@@ -535,6 +535,7 @@ describe('daemon — route-drop recovery (simulated device)', () => {
     const source = deviceTunnelSource({
       bundleId: BUNDLE,
       port: fake.port,
+      sessionPath: join(recoveryDir, `${name}.session.json`),
       spawnImpl: fake.spawn,
       keepalive: () => ({ stop() {} }),
       log: (line) => logs.push(line),

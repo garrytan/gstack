@@ -386,6 +386,12 @@ export interface RecoveryOptions {
   /** Same explicit UDID the bootstrap used, if any. */
   udid?: string;
   bundleId: string;
+  /**
+   * Send the bearer only to the address devicectl reports for the UDID. A
+   * session persisted by an earlier daemon has no address proven in this
+   * process, so it never falls back to mDNS or a remembered address.
+   */
+  pinnedAddressOnly?: boolean;
   probeTimeoutMs?: number;
   spawnImpl?: SpawnImpl;
   resolveImpl?: ResolveImpl;
@@ -418,6 +424,9 @@ export async function recoverTunnel(failed: DeviceTunnel, opts: RecoveryOptions)
   }
 
   let address = getDeviceTunnelIPv6FromDevicectl(device.identifier, spawn);
+  if (!address && opts.pinnedAddressOnly) {
+    return { action: 'bootstrap', reason: `devicectl reported no tunnel address for ${device.identifier}` };
+  }
   if (!address) {
     const byName = await getDeviceTunnelIPv6(device.name, opts.resolveImpl);
     if (byName && byName !== failed.ipv6Addr) {

@@ -81,23 +81,27 @@ tokens (default 1h) for remote agents.
 
 ## Phase 0: Session warm-start (optional)
 
-If `~/.gstack/ios-qa-session.json` exists and the device is still connected,
-skip Phase 1-2 and jump to Phase 3. The session cache holds the rotated token,
-UDID, tunnel address, and accessor hash. Invalidate the cache when:
+After each successful bootstrap the daemon writes the rotated StateServer
+bearer to `$GSTACK_STATE_ROOT/ios-qa-session.json` (mode 0600), bound to the
+device UDID, bundle ID and StateServer port. A restarted daemon resumes that
+bearer on its first device request, so the app keeps its QA state instead of
+being relaunched. It bootstraps normally instead when the app was relaunched
+(the app rejects the bearer), another device or app answers, devicectl reports
+no tunnel address for the bound UDID, or other users can read the file.
 
-- The user passes `--cold` to force a full bootstrap.
-- The accessor hash mismatch is detected on first state query.
-- The daemon reports the cached UDID is no longer connected.
+If the file exists and the daemon answers, the bridge is already installed:
+skip Phase 1-2 and jump to Phase 3. `--cold` deletes the file so the next
+daemon start runs a full bootstrap (the app relaunches once); a daemon that is
+already running keeps its in-memory session.
 
 ```bash
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 SESSION="$GSTACK_STATE_ROOT/ios-qa-session.json"
-if [ -f "$SESSION" ] && [ "$COLD" != "1" ]; then
-  CACHED_UDID=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('$SESSION'))); print(d['udid'])")
-  CACHED_PORT=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('$SESSION'))); print(d['daemon_port'])")
-  if curl -sf "http://127.0.0.1:$CACHED_PORT/healthz" > /dev/null; then
-    echo "Warm start: daemon alive, device $CACHED_UDID connected"
-  fi
+PORT="${GSTACK_IOS_DAEMON_PORT:-9099}"
+if [ "$COLD" = "1" ]; then
+  rm -f "$SESSION"
+elif [ -f "$SESSION" ] && curl -sf "http://127.0.0.1:$PORT/healthz" > /dev/null; then
+  echo "Warm start: daemon alive on port $PORT with a persisted device session"
 fi
 ```
 

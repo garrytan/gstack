@@ -14,6 +14,7 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { parse as parseUrl } from 'url';
+import { dirname } from 'path';
 import { tryClaim } from './single-instance';
 import { probeTailscale, whoIs } from './tailscale-localapi';
 import { SessionTokenStore } from './session-tokens';
@@ -22,6 +23,7 @@ import { classifyRoute, proxyToDevice, type DeviceTunnel } from './proxy';
 import { writeAudit, writeAttempt, sanitizeReplacer, saltedHash } from './audit';
 import { bootstrapTunnel, recoverTunnel, type TunnelRecovery } from './tunnel-bootstrap';
 import { startTunnelKeepalive, type SpawnImpl, type ResolveImpl } from './devicectl';
+import { clearSession, defaultSessionPath, resumeSession, writeSession } from './session-cache';
 import type { Capability } from './types';
 
 interface DaemonOptions {
@@ -605,13 +607,16 @@ async function handleTailnet(ctx: TailnetCtx): Promise<void> {
 
 /**
  * Real-device tunnel wiring the CLI uses: bootstrap with the CoreDevice
- * keepalive, plus route-drop recovery bound to the same target. Exported so
- * tests drive exactly this wiring against a simulated device.
+ * keepalive, plus route-drop recovery bound to the same target. The first
+ * tunnel request of a daemon process resumes the bearer an earlier daemon
+ * persisted at `sessionPath` (see session-cache.ts) instead of relaunching the
+ * app. Exported so tests drive exactly this wiring against a simulated device.
  */
 export function deviceTunnelSource(opts: {
   udid?: string;
   bundleId: string;
   port?: number;
+  sessionPath: string;
   spawnImpl?: SpawnImpl;
   resolveImpl?: ResolveImpl;
   fetchImpl?: typeof fetch;
@@ -624,13 +629,43 @@ export function deviceTunnelSource(opts: {
 } {
   const log = opts.log ?? ((line: string) => process.stderr.write(`${line}\n`));
   const keepaliveFor = opts.keepalive ?? ((udid: string) => startTunnelKeepalive(udid));
+  const port = opts.port ?? 9999;
   let keepalive: { stop: () => void } | null = null;
+  // Later provider calls follow a failure of this process's own tunnel, so the
+  // persisted bearer is either the one that just failed or already replaced.
+  let resumable = true;
+  const keep = (tunnel: DeviceTunnel): DeviceTunnel => {
+    keepalive?.stop();
+    keepalive = keepaliveFor(tunnel.udid);
+    return tunnel;
+  };
   return {
     tunnelProvider: async () => {
+      if (resumable) {
+        const resumed = await resumeSession(opts.sessionPath, {
+          udid: opts.udid,
+          bundleId: opts.bundleId,
+          port,
+          spawnImpl: opts.spawnImpl,
+          resolveImpl: opts.resolveImpl,
+          fetchImpl: opts.fetchImpl,
+        });
+        if (resumed.action === 'unavailable') {
+          log(`session resume: ${resumed.reason}; kept ${opts.sessionPath} for the next request`);
+          return null;
+        }
+        resumable = false;
+        if (resumed.action === 'reuse') {
+          log(`session resumed: reused the persisted bearer for ${resumed.tunnel.udid} without relaunching ${opts.bundleId}`);
+          return keep(resumed.tunnel);
+        }
+        log(`session resume: ${resumed.reason}; bootstrapping`);
+      }
+      clearSession(opts.sessionPath);
       const result = await bootstrapTunnel({
         udid: opts.udid,
         bundleId: opts.bundleId,
-        port: opts.port,
+        port,
         spawnImpl: opts.spawnImpl,
         resolveImpl: opts.resolveImpl,
         fetchImpl: opts.fetchImpl,
@@ -639,9 +674,12 @@ export function deviceTunnelSource(opts: {
         log(`bootstrap error: ${result.error}${result.detail ? ' — ' + result.detail : ''}`);
         return null;
       }
-      keepalive?.stop();
-      keepalive = keepaliveFor(result.tunnel.udid);
-      return result.tunnel;
+      try {
+        writeSession(result.tunnel, opts.bundleId, opts.sessionPath);
+      } catch (err) {
+        log(`session not persisted: ${(err as Error).message}; a restarted daemon will relaunch ${opts.bundleId} once. Check that ${dirname(opts.sessionPath)} is writable by you.`);
+      }
+      return keep(result.tunnel);
     },
     tunnelRecovery: async (failed) => {
       const recovery = await recoverTunnel(failed, {
@@ -675,7 +713,7 @@ if (import.meta.main) {
   // returns null and the proxy answers 503 device_not_connected. Xcode 26's
   // CoreDevice only holds the tunnel up while a devicectl command is in
   // flight, so a successful bootstrap also starts a periodic keepalive.
-  const source = deviceTunnelSource({ udid: targetUDID, bundleId });
+  const source = deviceTunnelSource({ udid: targetUDID, bundleId, sessionPath: defaultSessionPath() });
   process.on('SIGINT', source.stop);
   process.on('SIGTERM', source.stop);
   process.on('exit', source.stop);
