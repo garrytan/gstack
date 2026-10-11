@@ -885,6 +885,120 @@ hooks stay.
 
 ---
 
+## Install check (`gstack-doctor --check`) and the Capy installer
+
+`gstack-doctor --check` prints one `PASS | FAIL | SKIP <id>` row per component
+and ends with `gstack: ok <revision> for=<workflow>` (exit 0) or
+`gstack: fail <id,id>` (exit 1). Every FAIL row carries a `fix:` clause and one
+of the codes below. Read the trailer directly; never pipe `--check` through
+`tail` or another command whose exit status would replace the doctor's
+(docs/capy-install.md).
+
+<a id="doctor-component-missing"></a>
+### `FAIL <id> — <detail>; fix: <command> (COMPONENT_MISSING; ...)`
+
+**Meaning.** A component the selected workflow needs (`--for <skill>`,
+`--require <csv>`, or by default every host profile installed from this
+checkout) is not installed, not built, not current, or not authenticated. The
+row names it: `claude` or `codex` (a host profile missing or stale), `patch`
+(the Codex render lacks the model behavioral patch), `codex-cli` (the Codex CLI
+is required and absent or not logged in), `browse-bundle`, `browser` (Chromium
+does not launch or render), `cso` (the native helper is required and not
+built).
+
+**Fix.** Run the command in the row's `fix:` clause. For `browser`, that is
+`<checkout>/bin/gstack-browser-ensure`, which installs Chromium on first use
+when the installer skipped it (`SKIP browser (lazy; ...)`).
+
+**Expected result.** The row turns `PASS` and the trailer reads `gstack: ok`.
+
+<a id="doctor-runtime-below-minimum"></a>
+### `FAIL runtime — bun <version> ... (RUNTIME_BELOW_MINIMUM; ...)`
+
+**Meaning.** The Bun on `PATH` is absent, below gstack's security floor
+(1.3.3: older Bun ignores the no-autoload compile flags, see
+[bun-too-old](#bun-too-old)) or below the supported minimum (1.4.2, the CI pin
+and `engines.bun`). The dashboard (`gstack-doctor` without `--check`) warns on
+an untested version; `--check` fails it, because a gate run on an untested
+runtime is the incident this check exists for. The default Capy cloud image
+ships 1.3.14, so a fresh Capy machine fails here until the installer upgrades
+Bun.
+
+**Fix.** `bin/gstack-capy-install` upgrades Bun through setup's
+checksum-verified recipe before running `./setup`. By hand: download
+`https://bun.sh/install`, verify its SHA-256 against `GSTACK_BUN_INSTALL_SHA`
+in `bin/gstack-bun-version.sh`, then `BUN_VERSION=1.4.2 bash <file>` and
+re-run `./setup`.
+
+<a id="doctor-project-pin-mismatch"></a>
+### `FAIL pins — bun <version> outside engines.bun >=1.4.2 (package.json:<line>; ...) (PROJECT_PIN_MISMATCH; ...)`
+
+**Meaning.** The target project (`--project <path>`, default the git toplevel
+of the current directory, never the gstack checkout) pins a Bun or Node
+version the running one does not satisfy. Pins come from `package.json`
+(`packageManager`, `engines`), `.tool-versions`, `.nvmrc`, `.bun-version` and
+`bun-version:` / `node-version:` lines in `.github/workflows/*.yml`. A range
+(`>=1.4.2`) and an exact pin are told apart, and a CI pin keeps its platform
+lane: a Windows job's pin never fails a Linux run. The dashboard warns; `--check`
+fails. The row is `SKIP pins (no bun to evaluate the project pins)` when Bun
+is absent, never silent.
+
+**Fix.** Install the pinned version for this platform (the row names each
+constraint with its source), or change the project's pin.
+
+<a id="doctor-revision-unmet"></a>
+### `FAIL revision — installed <version> (requested <ref>) (REVISION_UNMET; ...)`
+
+**Meaning.** `--revision <ref>` asked the doctor to certify a specific gstack
+revision (a VERSION string, tag, branch or commit) and the checkout is at
+another. An unmet revision is never `ok`.
+
+**Fix.** Move the checkout: `/gstack-upgrade`, or
+`git -C <checkout> fetch origin && git -C <checkout> checkout <ref> && ./setup`.
+`bin/gstack-capy-install --revision <ref>` never moves an existing checkout; it
+reports `gstack: ok <installed> (requested <ref>; run gstack-upgrade to move)`.
+
+<a id="capy-install-runtime-conflict"></a>
+### `gstack-capy-install: Bun conflict: gstack needs >=<minimum>, <project> pins <constraint> (RUNTIME_PIN_CONFLICT; ...)`
+
+**Meaning.** The installer upgrades Bun only when gstack's supported minimum
+and the target project's pin agree on a version. Here they do not (for
+example the project pins `bun@1.3.14` exactly), so the installer changed
+nothing and stopped before `./setup`.
+
+**Fix.** Raise the project's pin to gstack's supported minimum, or install
+gstack on a machine whose Bun the project accepts. `--project <path>` names
+the project whose pins apply.
+
+<a id="browser-ensure-failed"></a>
+### `gstack-browser-ensure: NEEDS_SETUP ... (BROWSER_UNAVAILABLE; ...)`
+
+**Meaning.** The first browser skill run on a machine installed without
+Chromium (`SKIP browser (lazy; gstack-browser-ensure installs on first use)`)
+tried to install it through `bunx playwright install chromium` under setup's
+lock, or Chromium is installed but does not launch.
+
+**Fix.** Read the installer output above: offline or proxied machines need
+network access to the Playwright CDN; on Ubuntu 24.04+ an AppArmor
+user-namespace error needs `GSTACK_CHROMIUM_NO_SANDBOX=1`; then re-run
+`<checkout>/bin/gstack-browser-ensure`. `--with-browser` on the installer
+front-loads the install on machines that want it now.
+
+<a id="capy-install-preflight-failed"></a>
+### `gstack-capy-install: preflight: <tool> not found (INSTALL_PREFLIGHT_FAILED; ...)`
+
+**Meaning.** The installer checks `git`, `curl`, `node` and `jq` before
+`./setup`, and installs Bun when it is absent or below the supported minimum.
+One of them is missing, or the Bun install script's checksum did not match
+`GSTACK_BUN_INSTALL_SHA` (the download is discarded, nothing runs).
+
+**Fix.** Install the named tool (`apt-get install -y jq`, Node from nodejs.org
+or nvm), then re-run `bin/gstack-capy-install`. A checksum mismatch means the
+upstream installer changed: update `GSTACK_BUN_INSTALL_SHA` only after
+reviewing the new script.
+
+---
+
 ## Browser
 
 <a id="browse-runtime-version-skew"></a>

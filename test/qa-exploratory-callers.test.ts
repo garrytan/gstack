@@ -730,6 +730,21 @@ describe('generated actual parent paths', () => {
     expect(() => callerExcerpt('START START END', 'START', 'END')).toThrow('boundary');
   });
 
+  test('the ship fixture admits the plan-completion acceptance block with the discovered plan path substituted', () => {
+    const fixture = createQaCallerFixture('ship-exploratory-plan-checks', { installRuntime: false });
+    try {
+      const block = fixture.workflowCommands.find(command => command.startsWith('PLAN_FILE="PLAN.md"\n_REL=$(git ls-files --full-name --error-unmatch'));
+      expect(block).toBeDefined();
+      expect(block).not.toContain('<plan-path>');
+      expect(block).not.toContain('<base>');
+      expect(qaCallerCommandAllowed(block!, fixture.workflowCommands)).toBe(true);
+      expect(qaCallerCommandAllowed(block!.replace('PLAN.md', 'OTHER.md'), fixture.workflowCommands)).toBe(false);
+      expect(qaCallerSessionOptions(fixture, 'free-control').prompt).toContain('PLAN.md for <plan-path>');
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   test('the review fixture admits only the actual native read-only diff fragments', () => {
     const fixture = createQaCallerFixture('review-exploratory-small-cli', { installRuntime: false });
     try {

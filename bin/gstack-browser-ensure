@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# gstack-browser-ensure — install gstack's own Chromium on first use.
+#
+# Usage:
+#   gstack-browser-ensure [--check] [--quiet] [--with-deps]
+#
+# The Capy installer (bin/gstack-capy-install) and `./setup --no-browser` skip
+# the Chromium download so planning-only machines never pay for it; the browse
+# preflight in every browser skill (scripts/resolvers/browse.ts) runs this
+# helper instead, so the first browser skill run installs it. Probes a
+# Chromium launch through Playwright (node when present; Bun cannot launch
+# Chromium on Windows) and, when the probe fails, runs `bunx playwright
+# install chromium` under the same lock ./setup uses, then re-probes.
+#
+#   --check      probe only; never install (exit 1 when Chromium is unavailable)
+#   --quiet      print only the final line
+#   --with-deps  pass --with-deps to the Playwright installer (needs sudo)
+#
+# Last line on stdout: `BROWSER_OK <engine> <chromium version>` (exit 0) or
+# `BROWSER_UNAVAILABLE <reason>` with a fix line (exit 1; code
+# BROWSER_UNAVAILABLE, docs/troubleshooting.md#browser-ensure-failed).
+# Honors GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT (seconds, default 600) and
+# GSTACK_CHROMIUM_NO_SANDBOX=1 for the probe. Bash 3.2 plus POSIX tools.
+BASH_COMPAT=50
+set -u
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)" || { echo "gstack-browser-ensure: cannot resolve the install root" >&2; exit 1; }
+DOCS="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#browser-ensure-failed"
+CHECK=0 QUIET=0 WITH_DEPS=""
+for _arg in "$@"; do
+  case "$_arg" in
+    --check) CHECK=1 ;;
+    --quiet) QUIET=1 ;;
+    --with-deps) WITH_DEPS="--with-deps" ;;
+    -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "gstack-browser-ensure: unknown argument '$_arg'" >&2; exit 2 ;;
+  esac
+done
+log() { [ "$QUIET" -eq 1 ] || echo "$@" >&2; }
+fail() {
+  echo "BROWSER_UNAVAILABLE $1"
+  echo "fix: $2 (BROWSER_UNAVAILABLE; $DOCS)" >&2
+  exit 1
+}
+
+TIMEOUT="${GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT:-600}"
+case "$TIMEOUT" in ''|*[!0-9]*) TIMEOUT=600 ;; esac
+[ "$TIMEOUT" -gt 0 ] 2>/dev/null || TIMEOUT=600
+
+PROBE='(async () => { const { chromium } = require(process.cwd() + "/node_modules/playwright"); const args = process.env.GSTACK_CHROMIUM_NO_SANDBOX === "1" ? ["--no-sandbox"] : []; const b = await chromium.launch({ timeout: 30000, args }); try { const p = await b.newPage(); await p.setContent("<title>gstack smoke test</title><h1>Ready</h1>", { timeout: 10000 }); if (await p.title() !== "gstack smoke test") throw new Error("smoke render returned the wrong title"); console.log("RENDER_OK " + b.version()); } finally { await b.close(); } })().then(() => process.exit(0), e => { console.error(String(e && e.message || e).split("\n")[0]); process.exit(1); });'
+
+# probe — sets PROBE_OUT and PROBE_RC; ENGINE names the runtime used.
+probe() {
+  if command -v node >/dev/null 2>&1; then
+    ENGINE=node
+    if command -v timeout >/dev/null 2>&1; then PROBE_OUT=$(cd "$ROOT" && timeout 90 node -e "$PROBE" </dev/null 2>&1); PROBE_RC=$?
+    else PROBE_OUT=$(cd "$ROOT" && node -e "$PROBE" </dev/null 2>&1); PROBE_RC=$?; fi
+  elif command -v bun >/dev/null 2>&1; then
+    ENGINE=bun
+    PROBE_OUT=$(cd "$ROOT" && bun -e "$PROBE" </dev/null 2>&1); PROBE_RC=$?
+  else
+    fail "neither node nor bun is on PATH to launch Chromium" "install Node.js (https://nodejs.org) or Bun, then re-run $0"
+  fi
+}
+first_line() { printf '%s\n' "$1" | grep -v '^[[:space:]]*$' | head -1 | tr -cd ' -~' | cut -c1-200; }
+ok() {
+  echo "BROWSER_OK $ENGINE $(printf '%s\n' "$PROBE_OUT" | sed -n 's/^RENDER_OK //p' | head -1 | tr -cd '0-9.' | cut -c1-20)"
+  exit 0
+}
+
+if [ ! -d "$ROOT/node_modules/playwright" ]; then
+  [ "$CHECK" -eq 1 ] && fail "playwright is not installed under $ROOT/node_modules" "cd $ROOT && ./setup"
+  command -v bun >/dev/null 2>&1 || fail "playwright is not installed under $ROOT/node_modules and bun is not on PATH" "install Bun, then cd $ROOT && ./setup"
+  log "gstack-browser-ensure: installing node modules (bun install)..."
+  (cd "$ROOT" && { bun install --frozen-lockfile >/dev/null 2>&1 || bun install >/dev/null; }) || fail "bun install failed under $ROOT" "cd $ROOT && bun install, then re-run $0"
+fi
+
+probe
+[ "$PROBE_RC" -eq 0 ] && ok
+[ "$CHECK" -eq 1 ] && fail "Chromium did not launch via $ENGINE ($(first_line "$PROBE_OUT"))" "$ROOT/bin/gstack-browser-ensure (installs Chromium; ~115 MiB)"
+command -v bun >/dev/null 2>&1 || fail "Chromium is not installed and bun is not on PATH to install it" "install Bun, then re-run $0"
+
+# Same lock ./setup takes (#2136), so two installs never race on the cache.
+LOCK="${TMPDIR:-/tmp}/gstack-playwright-install.lock"
+tries=0
+while ! mkdir "$LOCK" 2>/dev/null; do
+  holder=$(cat "$LOCK/pid" 2>/dev/null || true)
+  case "$holder" in ''|*[!0-9]*) holder=0 ;; esac
+  if [ "$holder" -eq 0 ] || ! kill -0 "$holder" 2>/dev/null; then rm -rf "$LOCK" 2>/dev/null; continue; fi
+  tries=$((tries + 1))
+  [ "$tries" -ge "$TIMEOUT" ] && fail "another gstack install holds the Chromium lock ($LOCK, pid $holder)" "wait for it, or remove a stale lock: rm -rf \"$LOCK\""
+  sleep 1
+done
+echo "$$" > "$LOCK/pid" 2>/dev/null || true
+trap 'rm -rf "$LOCK" 2>/dev/null' EXIT INT TERM
+
+OVERRIDE=""
+if [ -f /etc/os-release ] && grep -q '^ID=ubuntu' /etc/os-release && grep -q '^VERSION_ID="26.04"' /etc/os-release; then
+  case "$(uname -m)" in x86_64) OVERRIDE="ubuntu24.04-x64" ;; aarch64|arm64) OVERRIDE="ubuntu24.04-arm64" ;; esac
+fi
+log "gstack-browser-ensure: installing Playwright Chromium (one-time, ~115 MiB; bound ${TIMEOUT}s)..."
+started=$(date +%s)
+(
+  cd "$ROOT"
+  if [ -n "$OVERRIDE" ]; then PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="$OVERRIDE" bunx playwright install $WITH_DEPS chromium
+  else bunx playwright install $WITH_DEPS chromium; fi
+) </dev/null >&2 &
+pid=$!
+waited=0
+while kill -0 "$pid" 2>/dev/null; do
+  if [ "$waited" -ge "$TIMEOUT" ]; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; fail "bunx playwright install chromium exceeded ${TIMEOUT}s" "raise GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT=<seconds> and re-run $0"; fi
+  sleep 1; waited=$((waited + 1))
+done
+wait "$pid"; rc=$?
+[ "$rc" -eq 0 ] || fail "bunx playwright install chromium exited $rc (offline, proxy, or blocked download?)" "fix network access to the Playwright CDN, then re-run $0"
+log "gstack-browser-ensure: Chromium installed in $(( $(date +%s) - started ))s"
+probe
+[ "$PROBE_RC" -eq 0 ] && ok
+fail "Chromium installed but did not launch via $ENGINE ($(first_line "$PROBE_OUT"))" "on Ubuntu 24.04+ try GSTACK_CHROMIUM_NO_SANDBOX=1 $0 (#2157)"

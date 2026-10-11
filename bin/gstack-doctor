@@ -4,6 +4,14 @@
 # Usage:
 #   gstack-doctor          print one row per check; spends nothing
 #   gstack-doctor --live   also run the paid Codex model probe (one short call)
+#   gstack-doctor --check [--for <skill> | --require <id,id>] [--project <path>]
+#                 [--revision <ref>] [--json] [--live]
+#                          one PASS | FAIL | SKIP row per component, then one
+#                          trailer: `gstack: ok <revision> for=<what>` (exit 0)
+#                          or `gstack: fail <id,id>` (exit 1). --for names the
+#                          workflow to certify; --require names components; the
+#                          default is every host installed from this checkout.
+#                          Rows and ids: bin/gstack-doctor-components.sh.
 #
 # Rows: install root, state root, bun, hooks, codex, codex probe, artifacts
 # sync, browse bundle, binaries, cso, claude code, session journal, guard log. Each row is
@@ -28,16 +36,28 @@ BASH_COMPAT=50
 set -u
 
 usage() {
-  sed -n '3,6p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'
 }
 
-LIVE=0
-for _arg in "$@"; do
-  case "$_arg" in
+LIVE=0 CHECK=0 CHECK_JSON=0 CHECK_FOR="" CHECK_REQUIRE="" CHECK_PROJECT="" CHECK_REVISION=""
+_need_value() { [ -n "${2:-}" ] || { echo "gstack-doctor: $1 needs a value" >&2; usage >&2; exit 2; }; }
+while [ $# -gt 0 ]; do
+  case "$1" in
     --live) LIVE=1 ;;
+    --check) CHECK=1 ;;
+    --json) CHECK=1; CHECK_JSON=1 ;;
+    --for) _need_value "$1" "${2:-}"; CHECK=1; CHECK_FOR="$2"; shift ;;
+    --for=*) CHECK=1; CHECK_FOR="${1#--for=}" ;;
+    --require) _need_value "$1" "${2:-}"; CHECK=1; CHECK_REQUIRE="$2"; shift ;;
+    --require=*) CHECK=1; CHECK_REQUIRE="${1#--require=}" ;;
+    --project) _need_value "$1" "${2:-}"; CHECK=1; CHECK_PROJECT="$2"; shift ;;
+    --project=*) CHECK=1; CHECK_PROJECT="${1#--project=}" ;;
+    --revision) _need_value "$1" "${2:-}"; CHECK=1; CHECK_REVISION="$2"; shift ;;
+    --revision=*) CHECK=1; CHECK_REVISION="${1#--revision=}" ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "gstack-doctor: unknown argument '$_arg'" >&2; usage >&2; exit 2 ;;
+    *) echo "gstack-doctor: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
+  shift
 done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)" || { echo "gstack-doctor: cannot resolve the install root" >&2; exit 1; }
@@ -45,6 +65,7 @@ ROOT_REAL="$(cd "$ROOT" && pwd -P)"
 BIN="$ROOT/bin"
 SRC="$ROOT_REAL"
 DOCS="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md"
+DOCS_STATE_ROOT="https://github.com/garrytan/gstack/blob/main/docs/state-root.md"
 CODEX_FEATURES="outside reviews in /review, /ship, /autoplan and /codex"
 N_OK=0 N_WARN=0 N_NC=0 N_FAIL=0
 
@@ -82,11 +103,17 @@ json_field() {
   printf '%s' "$v"
 }
 
+# check_state_root — durability comes from the GSTACK_EPHEMERAL=1 marker the
+# host sets (docs/state-root.md), never from a path heuristic.
 check_state_root() {
-  if [ -d "$STATE_ROOT" ]; then
-    row ok "state root" "$STATE_ROOT (selected by $_gstack_sr_var)"
+  local durable=yes
+  [ "${GSTACK_EPHEMERAL:-}" = 1 ] && durable=no
+  if [ ! -d "$STATE_ROOT" ]; then
+    row warn "state root" "$STATE_ROOT durable=$durable (selected by $_gstack_sr_var) does not exist yet" "cd $SRC && ./setup, or run any gstack skill"
+  elif [ "$durable" = no ]; then
+    row warn "state root" "$STATE_ROOT durable=no (selected by $_gstack_sr_var; GSTACK_EPHEMERAL=1: learnings and logs vanish with this machine)" "set GSTACK_STATE_ROOT to a directory that outlives this machine ($DOCS_STATE_ROOT#ephemeral-machines)"
   else
-    row warn "state root" "$STATE_ROOT (selected by $_gstack_sr_var) does not exist yet" "cd $SRC && ./setup, or run any gstack skill"
+    row ok "state root" "$STATE_ROOT durable=yes (selected by $_gstack_sr_var)"
   fi
 }
 
@@ -437,6 +464,12 @@ GSTACK_STATE_ROOT="$STATE_ROOT"
 . "$BIN/gstack-launch-probe.sh" 2>/dev/null || { echo "gstack-doctor: $BIN/gstack-launch-probe.sh is missing; reinstall with cd $SRC && ./setup" >&2; exit 1; }
 EXE=""
 case "${OSTYPE:-}" in msys*|cygwin*|win32*) EXE=".exe" ;; esac
+
+if [ "$CHECK" -eq 1 ]; then
+  . "$BIN/gstack-doctor-check.sh" || { echo "gstack-doctor: $BIN/gstack-doctor-check.sh is missing; reinstall with cd $SRC && ./setup" >&2; exit 1; }
+  gstack_doctor_check
+  exit $?
+fi
 
 echo "gstack doctor $(head -1 "$ROOT/VERSION" 2>/dev/null | clamp '0-9A-Za-z.+-' 40)"
 check_install

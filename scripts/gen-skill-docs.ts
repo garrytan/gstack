@@ -14,6 +14,8 @@ import { externalSkillName, extractNameAndDescription } from './external-skill-n
 export { extractNameAndDescription } from './external-skill-names';
 import { generateLlmsTxt } from './gen-llms-txt';
 import { generateAgentsDigest, DIGEST_RELPATH, DIGEST_BYTE_BUDGET } from './gen-agents-digest';
+import { DOCTOR_COMPONENTS_RELPATH } from './gen-doctor-components';
+import { renderDoctorComponentsSh } from '../lib/doctor-components';
 import { generateDesignChecklistMd } from './resolvers/design-checklist';
 import { DOM_DUMP_SCRIPT, DOM_DUMP_FILE } from '../lib/dom-dump-script';
 import * as fs from 'fs';
@@ -64,7 +66,7 @@ interface RenderOptions {
 
 export interface GeneratedArtifact {
   relativePath: string;
-  kind: 'skill' | 'section' | 'metadata' | 'openclaw' | 'index' | 'digest' | 'asset';
+  kind: 'skill' | 'section' | 'metadata' | 'openclaw' | 'index' | 'digest' | 'doctor-components' | 'asset';
   host?: Host;
 }
 
@@ -1130,6 +1132,11 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
     const digest = generateAgentsDigest();
     emit(path.join(options.outputRoot, DIGEST_RELPATH), digest.content, 'digest');
     if (!settings.dryRun) log(`[gen-agents-digest] ${DIGEST_RELPATH}: ${digest.bytes} bytes (budget ${DIGEST_BYTE_BUDGET})`);
+  } catch (error) {
+    failed(error);
+  }
+  try {
+    emit(path.join(options.outputRoot, DOCTOR_COMPONENTS_RELPATH), renderDoctorComponentsSh(), 'doctor-components');
   } catch (error) {
     failed(error);
   }

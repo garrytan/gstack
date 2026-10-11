@@ -142,6 +142,18 @@ describe('Bun requirement surfaces agree (E1)', () => {
     }
   });
 
+  test('the Capy installer\'s linux-x64 archive checksum is the one Dockerfile.ci verifies', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-bun-version.sh'), 'utf-8');
+    const dockerfile = fs.readFileSync(path.join(ROOT, '.github', 'docker', 'Dockerfile.ci'), 'utf-8');
+    const shSha = src.match(/^\s*linux-x64\) echo ([0-9a-f]{64}) ;;$/m)?.[1];
+    const dockerSha = dockerfile.match(/bun_target=linux-x64; bun_sha256=([0-9a-f]{64})/)?.[1];
+    expect(shSha, 'gstack_bun_archive_sha256 linux-x64').toBeDefined();
+    expect(shSha).toBe(dockerSha);
+    const r = spawnSync('bash', ['-c', `. "${path.join(ROOT, 'bin', 'gstack-bun-version.sh')}" && gstack_bun_archive_sha256 linux-x64 && gstack_bun_archive_sha256 linux-x64-baseline && gstack_bun_archive_sha256 linux-aarch64 && ! gstack_bun_archive_sha256 darwin-arm64`], { encoding: 'utf-8', timeout: 10_000 });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout.trim().split('\n')).toHaveLength(3);
+  });
+
   test('BROWSE SETUP install hint pins the tested version', () => {
     const resolver = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'browse.ts'), 'utf-8');
     expect([...resolver.matchAll(/BUN_VERSION="([0-9][^"]*)"/g)].map((m) => m[1])).toEqual([tested]);

@@ -131,6 +131,10 @@ const SCANNER_EXEMPT: Record<string, string> = {
     'every git clone is inside an echoed instruction string (install docs); the script executes no network ops',
   'bin/gstack-gbrain-install':
     'user-invoked installer: bodyless HEAD reachability probe to github.com + clone of the public gbrain repo (user-directed install; no gstack state leaves the machine)',
+  'bin/gstack-capy-install':
+    'user-invoked installer that runs before any gstack checkout exists (so the egress lib is not yet available): clone of the public gstack repo and a download of the pinned Bun release archive from GitHub, SHA-256 verified before anything is installed; no gstack state leaves the machine',
+  'bin/gstack-doctor-check.sh':
+    'git fetch appears only in the revision row\'s fix string (the command the user runs to move the checkout)',
   'bin/gstack-next-version':
     'fetches the user\'s own repo\'s base branch for version-claim freshness — a user-repo dev-workflow op, not gstack-state egress',
   'bin/gstack-version-bump':
