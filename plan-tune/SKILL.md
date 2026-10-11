@@ -23,21 +23,6 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Review which AskUserQuestion prompts fire across gstack skills, set per-question preferences
-(never-ask / always-ask / ask-only-for-one-way), inspect the dual-track
-profile (what you declared vs what your behavior suggests), and enable/disable
-question tuning. Conversational interface — no CLI syntax required.
-
-Use when asked to "tune questions", "stop asking me that", "too many questions",
-"show my profile", "what questions have I been asked", "show my vibe",
-"developer profile", or "turn off question tuning". 
-
-Proactively suggest when the user says the same gstack question has come up before,
-or when they explicitly override a recommendation for the Nth time.
-
 ## Preamble (run first)
 
 ```bash

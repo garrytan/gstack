@@ -16,19 +16,6 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-One command generates a setup key and
-prints instructions the other agent can follow to connect. Works with OpenClaw,
-Hermes, Codex, Cursor, or any agent that can make HTTP requests. The remote agent
-gets its own tab with full page access by default (the pairing ceremony is the
-trust boundary; --restrict narrows it).
-Use when asked to "pair agent", "connect agent", "share browser", "remote browser",
-"let another agent use my browser", or "give browser access".
-
-Voice triggers (speech-to-text aliases): "pair agent", "connect agent", "share my browser", "remote browser access".
-
 ## Preamble (run first)
 
 ```bash

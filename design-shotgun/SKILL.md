@@ -37,15 +37,6 @@ gbrain:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Standalone design exploration you can
-run anytime. Use when: "explore designs", "show me options", "design variants",
-"visual brainstorm", or "I don't like how this looks".
-Proactively suggest when the user describes a UI feature but hasn't seen
-what it could look like.
-
 ## Preamble (run first)
 
 ```bash

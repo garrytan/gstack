@@ -17,16 +17,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Future /scrape calls with the same intent run
-the codified script in ~200ms instead of re-driving the page. Walks
-back through the conversation, synthesizes script.ts + script.test.ts
-+ fixture, runs the test in a temp dir, and asks before committing.
-Use when asked to "skillify", "codify", "save this scrape", or
-"make this permanent".
-
 ## Preamble (run first)
 
 ```bash

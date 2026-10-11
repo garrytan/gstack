@@ -20,15 +20,6 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Wraps the gstack-gbrain-sync orchestrator with
-state probing, native code-surface registration, capability checks,
-and a verdict block. Re-runnable, idempotent. Use when: "sync gbrain",
-"refresh gbrain", "re-index this repo", "gbrain search isn't finding
-things".
-
 ## Preamble (run first)
 
 ```bash

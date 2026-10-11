@@ -22,21 +22,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Connects to a real iPhone or iPad via
-USB CoreDevice IPv6 tunnel, reads Swift source to understand every screen, then
-runs a vision-driven agent loop: screenshot → analyze → decide → act →
-verify → repeat. All interaction happens via HTTP to an embedded
-StateServer in the app under test. Optionally exposes the device over
-Tailscale so remote agents (OpenClaw, Codex, any HTTP-capable agent) can
-run iOS QA from anywhere without touching the hardware.
-Use when asked to "ios qa", "test my iPhone app", "test my iPad app",
-"find bugs on the device", or "qa the iOS app".
-
-Voice triggers (speech-to-text aliases): "iOS quality check", "test the iPhone app", "test the iPad app", "run iOS QA".
-
 ## Preamble (run first)
 
 ```bash

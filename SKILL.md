@@ -16,14 +16,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Sends any gstack request to the right skill
-(planning, review, QA, shipping, debugging, docs, security, design). Routes QA by
-intent and browser interaction to /browse. Use when you invoke gstack without a specific
-skill, or ask "which gstack skill fits this?".
-
 ## Preamble (run first)
 
 ```bash

@@ -41,14 +41,6 @@ hooks:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Combines /careful (warns before rm -rf, DROP TABLE, force-push, etc.) with
-/freeze (blocks edits outside a specified directory). Use for maximum safety
-when touching prod or debugging live systems. Use when asked to "guard mode",
-"full safety", "lock it down", or "maximum safety".
-
 # /guard — Full Safety Mode
 
 Activates both destructive command warnings and directory-scoped edit restrictions.

@@ -20,16 +20,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Iteratively fixes issues
-in source code, committing each fix atomically and re-verifying with before/after
-screenshots. For plan-mode design review (before implementation), use /plan-design-review.
-Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
-Proactively suggest when the user mentions visual inconsistencies or
-wants to polish the look of a live site.
-
 ## Preamble (run first)
 
 ```bash

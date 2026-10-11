@@ -17,18 +17,6 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Establishes
-baselines for page load times, Core Web Vitals, and resource sizes.
-Compares before/after on every PR. Tracks performance trends over time.
-Use when: "web performance benchmark", "page speed", "lighthouse", "web vitals",
-"bundle size", "load time". Not for AI model, agent eval or business
-benchmarks; use /benchmark-models for cross-model skill comparisons.
-
-Voice triggers (speech-to-text aliases): "speed test", "check performance".
-
 ## Preamble (run first)
 
 ```bash

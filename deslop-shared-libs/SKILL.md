@@ -14,13 +14,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Use for
-/deslop-shared-libs, $deslop-shared-libs, or requests to find code worth sharing.
-Recommendations only.
-
 # Find code worth sharing
 
 Find up to five new opportunities to share code, then recommend the best three.

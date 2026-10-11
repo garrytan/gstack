@@ -19,15 +19,6 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Wraps existing project tools (type checker, linter,
-test runner, dead code detector, shell linter), computes a weighted composite
-0-10 score, and tracks trends over time. Use when: "health check",
-"code quality", "how healthy is the codebase", "run all checks",
-"quality score".
-
 ## Preamble (run first)
 
 ```bash

@@ -17,12 +17,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Read-only; returns one JSON document. Use when asked to
-"scrape", "get data from", "pull", "extract from", or "what's on" a page.
-
 ## Preamble (run first)
 
 ```bash

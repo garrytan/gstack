@@ -19,14 +19,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Captures git state, decisions made, and remaining work
-so any future session can pick up without losing a beat.
-Use when asked to "save progress", "save state", "context save", or
-"save my work". Pair with /context-restore to resume later.
-
 ## Preamble (run first)
 
 ```bash

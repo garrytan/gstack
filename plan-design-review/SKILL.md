@@ -18,16 +18,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Rates each design dimension 0-10, explains what would make it a 10,
-then fixes the plan to get there. Works in plan mode. For live site
-visual audits, use /design-review. Use when asked to "review the design plan"
-or "design critique".
-Proactively suggest when the user has a plan with UI/UX components that
-should be reviewed before implementation.
-
 # /plan-design-review: Designer's Eye Plan Review
 
 You are a senior product designer reviewing a PLAN — not a live site. Your job is
