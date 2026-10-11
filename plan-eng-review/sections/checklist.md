@@ -8,6 +8,8 @@ Eng phase steps and required outputs for `bin/gstack-autoplan` (unattended or
 ### Steps
 1. Scope Challenge (A assess, B selectors, C findings) with the decision
    procedure; every prior-phase consensus is in the prompt before review.
+   A ends with the reality rows: one `REALITY:` line per applicable row
+   (`gstack-plan-reality rows --phase eng`), each with a file:line receipt.
 2. Sections 1–4 in order: architecture, code quality, test, performance
    (`perf` scope). Continue after the outside voice.
 3. Final planning decisions, then the finish sequence below in order.
@@ -17,6 +19,7 @@ Eng phase steps and required outputs for `bin/gstack-autoplan` (unattended or
 | Output | Produced by | Scope |
 |---|---|---|
 | Review body | Output reference — review body | always |
+| Reality rows (`REALITY:` lines, `PLAN_REALITY` check) | Scope Challenge → Reality rows | always |
 | NOT in scope | "NOT in scope" section | always |
 | What already exists | "What already exists" section | always |
 | Diagrams | Diagrams | always |

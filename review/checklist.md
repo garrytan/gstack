@@ -133,6 +133,20 @@ A gate is anything that would have made this change fail: a test, an assertion, 
 
 ---
 
+## Sideways sweep (every finding)
+
+A finding is a defect class, not a line. Before rating any finding from either pass or a specialist:
+
+- **Siblings.** Grep the same pattern at every other ingress, command and call site (routes, CLI subcommands, workers, webhooks, cron, hooks); Read each match. Rate severity on the worst sibling and list the siblings under the finding as one decision.
+- **Forced-CRITICAL.** Data loss, a trust-boundary bypass (auth, tenancy, sandbox, signature, redaction or consent skipped) and uncapped spend (a paid call, retry or loop with no cap) are CRITICAL on sight. No lane, specialist, dedup step or saved decision downgrades them; a prior Skip does not apply.
+- **A new cache in front of a guarded or metered call.** Name every policy check a hit skips (auth, quota, consent, rate limit, freshness); a hit that skips one is a trust-boundary bypass.
+- **Imports moved from static to dynamic.** List the top-level side effects no longer loaded (registrations, schema setup, env validation, route tables) and who reads each registry; a reader that now sees an empty registry is the finding.
+- **A changed function with parity claims.** Find modules that claim parity with it (docstrings, parity tests, mirrored helpers, a bash twin of a TS module) and flag each one left unchanged.
+- **Pool queries inside a caller's transaction.** A query awaited on a pool connection inside a caller's transaction on a hot read path holds two connections and reads state the transaction cannot see; flag it.
+- **Test-only flake fix.** A fix that touches only the test (timeout, retry, looser assertion, skip) states `P(fail | regression)` before and after, from a forced probe; without both numbers it is a Gate Integrity finding (RH-15).
+
+---
+
 ## Severity Classification
 
 ```
@@ -151,6 +165,9 @@ All findings are actioned via Fix-First Review. Severity determines
 presentation order and classification of AUTO-FIX vs ASK — critical
 findings lean toward ASK (they're riskier), informational findings
 lean toward AUTO-FIX (they're more mechanical).
+
+Forced-CRITICAL (Sideways sweep): data loss, trust-boundary bypass, uncapped
+spend. Any category, any lane; never downgraded.
 ```
 
 ---

@@ -423,6 +423,13 @@ changes or write findings into the plan yet.
 - **Distribution check:** For new artifacts, verify build/publish CI/CD, target
    OS/architectures and download/install channels. Put deferrals in "NOT in scope".
 
+**Reality rows (required):** run `~/.claude/skills/gstack/bin/gstack-plan-reality rows --phase eng` and work each
+row it prints (tier 1 always: premise-table, already-done, surface-check, binding-decisions, numbers, deferred-asks, pr-count; tier 2 by detected scope, `--scope <csv>`).
+Every row cites a file:line receipt; the premise table counts `unverified=<n>`. End with
+one line per row, `REALITY: <row> pass|finding|n/a <summary> <file:line>`, then run
+`~/.claude/skills/gstack/bin/gstack-plan-reality check --phase eng <review>`: a missing applicable row is `incomplete`
+unattended; interactive runs repair twice, then warn at the gate.
+
 ### B. Resolve complexity selectors
 
 With fewer than 8 files AND fewer than 2 new classes/services, skip B's questions
@@ -474,6 +481,34 @@ including when B was skipped. A smaller arrangement that preserves scope is not
 a scope reduction. This result supplies MODE; it approves no pending remedy.
 Keep it current if later approved choices change scope.
 Continue to Section 1 only when no answer is pending.
+
+### Reality rows (why each exists)
+
+Each row is tied to the incident that earned it; its check is what
+`~/.claude/skills/gstack/bin/gstack-plan-reality rows --phase <p> --deep` prints. Tier 1 rows are required in every review; a
+tier 2 row is required when the detected scope names its scope (`--scope`)
+and may be omitted or marked `n/a` otherwise.
+
+| Row | Tier | Scope | Incident that earned it |
+|---|---|---|---|
+| `premise-table` | 1 | always | A wave rested on "13 of 28 threads ran nothing" with no per-thread evidence; the first table found 1 FALSE and 3 UNVERIFIED claims in 27. |
+| `already-done` | 1 | always | A fix was re-planned and rebuilt the day after main merged it; nobody read the base log. |
+| `surface-check` | 1 | always | The installer relied on `bun upgrade --version`; `bun upgrade --help` on the target listed only `--canary`. |
+| `binding-decisions` | 1 | always | An owner decision taken mid-review was undone two phases later by the project default it had replaced. |
+| `numbers` | 1 | always | An effort table with no basis was credited until a reviewer re-counted it; quoted parity ratios were off by two decimals. |
+| `deferred-asks` | 1 | always | An issue asked for six things; the plan shipped four and the owner found the other two after merge. |
+| `pr-count` | 1 | always | A five-PR wave became seven in the Eng phase; the cost of each extra gate had never been stated. |
+| `prior-art` | 2 | dependency | A patched vendored hunk was dropped on upgrade because nobody had recorded why the fork diverged. |
+| `transaction-semantics` | 2 | db | A pool change ended transactions on idle connections; the crash robot was not rerun. |
+| `contract-assumptions` | 2 | dependency | A sibling repo's default changed between planning and build; the plan still assumed the old flag. |
+| `falsification-box` | 2 | incident | An outage plan chased its first hypothesis for a day with nothing stated that would have killed it. |
+| `stop-reasons` | 2 | incident | A hold code shipped with no test that could produce it; it first fired in production. |
+| `reporter-environment` | 2 | incident | A bug was "ruled out" on a different runtime than the reporter's; the reporter still had it. |
+| `units` | 2 | perf | A timing input moved from ms to s; three downstream thresholds kept their numbers. |
+| `perf-table` | 2 | perf | A speedup came from one warm-cache run with no base comparison; main was as fast. |
+| `recall` | 2 | search | A query-plan change sped up the hot path and dropped recall on the smallest bucket. |
+| `dependency-fallback` | 2 | dependency | A stacked PR waited on a predecessor that never merged; nothing said what it could ship alone. |
+| `obligation-tiers` | 2 | dependency | A PR outgrew review because every accepted finding was treated as must-ship. |
 
 ## Review Sections (after scope is agreed)
 
@@ -1207,6 +1242,7 @@ prior reviews; the terminal report adds those separately.
 ### Completion summary
 From final decisions/outputs; publish after report Read-back and Review Log:
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
+- Reality rows: ___/___ applicable rows emitted (`PLAN_REALITY` line), ___ unverified premises
 - Architecture Review: ___ issues found
 - Code Quality Review: ___ issues found
 - Test Review: diagram produced, ___ gaps identified

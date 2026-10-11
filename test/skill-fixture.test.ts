@@ -299,7 +299,8 @@ describe('real-skill pins: section lists used by E2E fixtures', () => {
     expect(out).not.toContain('## Telemetry (run last)');
     expect(out).not.toContain('## Step 5: Fix-First Review');
     expect(out).not.toContain('review/sections/review-army.md');
-    expect(out).toContain('Enum & Value Completeness requires reading code OUTSIDE the diff.');
+    // Step 4's sideways-sweep paragraph (plan D2 replaced the enum-only one) survives the extraction.
+    expect(out).toContain('Sideways sweep (every finding; reads code OUTSIDE the diff).');
     // Meaningfully smaller than the source.
     const full = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(out.length).toBeLessThan(full.length * 0.5);

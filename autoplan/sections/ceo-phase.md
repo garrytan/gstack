@@ -175,6 +175,9 @@ Sections 1-11 — for EACH section, run the evaluation criteria from the loaded 
 - Section 11 (Design): run only if UI scope was detected in Phase 0
 
 **Mandatory outputs from Phase 1:**
+- Reality rows: the loaded skill's `REALITY:` lines, one per applicable row;
+   `~/.claude/skills/gstack/bin/gstack-plan-reality check --phase ceo <review>` prints `verdict=complete` before the phase closes
+   (unattended: `incomplete` keeps it open).
 - "NOT in scope" section with deferred items and rationale
 - "What already exists" section mapping sub-problems to existing code
 - Error & Rescue Registry table (from Section 2)

@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.91.74.0] - 2026-10-11
+
+**Plan reviews check reality before they check taste, `/review` and `/cso` look sideways from every finding, and `/investigate` ships recipes for flakes, polluters, races, eval bisects and backlog triage.**
+
+Multi-agent wave PR D (`docs/designs/MULTI_AGENT_WAVE_2026_10_10.md`, items D1–D3). The reviews of this wave's own plan found that the most expensive mistakes were premise errors (a file:line that did not say what the plan claimed, a thing already built, a number nobody re-derived), so those checks are now rows every plan review must fill.
+
+### What this means for you
+
+- **Reality rows in plan reviews.** `plan-ceo-review`, `plan-eng-review` and `/autoplan` render one `REALITY: <row> pass|finding|n/a <summary> <file:line>` line per row: premise table (every factual claim with a receipt; `unverified=<n>` is scored), already-done, surface check, binding decisions, numbers re-derived from raw data, deferred asks, PR count. Eleven tier-2 rows (db, perf, search, incident, dependency) load only under `--scope`. `bin/gstack-plan-reality rows|check` prints the applicable rows and the verdict line `PLAN_REALITY: phase=… rows=n/m missing=… verdict=complete|incomplete|repair`; an unattended run with a missing row is `incomplete`, never a warning (`REALITY_ROW_MISSING`, `REALITY_RECEIPT_MISSING`). Each tier-1 row ships with a positive fixture taken from this wave's own review record and a decoy.
+- **Sideways review.** `/review` Step 4 greps every finding's pattern at every other ingress, command and call site, takes the worst sibling's severity, and forces CRITICAL for data loss, trust-boundary bypass and uncapped spend (vocabulary unchanged: CRITICAL/INFORMATIONAL, no lane downgrades). The checklist names the shapes to sweep: siblings, caches in front of guarded or metered calls, static→dynamic imports, parity claims, pool queries inside a caller's transaction, test-only flake fixes. The Scope Check gains `Diff read: full|partial` and `Undeclared behavior changes:`; CLEAN counts as approved only after a full read. The flake-fix rule (`P(fail | regression)` before and after, else RH-15) is shared with `/investigate`. `/cso` Phase 12 does the sibling sweep only.
+- **Investigate recipes.** `/investigate` gains an `## Arguments` table and five carved sections: flake (reproduce on main in a worktree, failed/N, forced probe, never loosen, paid evals never retried, required `## Flake evidence`), polluter (CI-order bisect, `POLLUTER:` line), race (probes, forced interleaving, `Promise.allSettled` writer template), eval-bisect (distinct revisions, cached cheap scorer, detached runs with the sentinel) and backlog (`--backlog`: `still_open` needs a run repro, `already_fixed <commit>`, `partially_fixed`, `owned_elsewhere`, contributor PRs as evidence only). Phase 1 adds call-sites-before-duplicates and `git update-index --refresh` before timing git in a worktree (also in `/benchmark`).
+
+### Itemized changes
+
+#### Added
+- `lib/plan-reality.ts`, `bin/gstack-plan-reality`, `scripts/resolvers/plan-reality.ts` (`{{PLAN_REALITY_ROWS}}`); `scripts/resolvers/sideways.ts` (`{{SIDEWAYS_SWEEP}}`, `{{FLAKE_FIX_NUMBER}}`); `investigate/sections/{manifest.json,flake,polluter,race,eval-bisect,backlog}.md`; fixtures `test/fixtures/multi-agent-wave/reality-rows.json` (+15 `INCIDENTS.md` rows); two result codes with troubleshooting anchors.
+
+#### Changed
+- `scripts/resolvers/plan-gates.ts` (review mode): `Diff read`, `Undeclared behavior changes`, full-read approval rule; ship's byte-pinned plan-completion untouched.
+- Templates: plan-eng-review Scope Challenge + deep incident table, plan-ceo-review 0A/0B + Completion Summary, autoplan ceo/eng phases + Pre-Gate table, review Step 4 + checklist, cso Phase 12, investigate skeleton, benchmark Phase 1. `CARVE_GUARDS` gains `investigate`; caps refreshed with measured ratios (plan-ceo-review +960 B, plan-eng-review +3,794 B, autoplan +851 B, review +923 B replacing the enum paragraph, cso +51 B; qa and ship untouched).
+
+#### For contributors
+- New tests: `test/plan-reality.test.ts` (18), `test/sideways-review.test.ts` (8), `test/investigate-recipes.test.ts` (9); `test/skill-fixture.test.ts` pins the sideways paragraph as its extraction anchor.
+- Not in this release: `gstack-autoplan submit` does not yet call `gstack-plan-reality check` itself (the runner landed in parallel); a parent loop runs the check before `submit`. Automatic tier-2 scope detection waits for the runner's scope set to grow beyond `ui`/`dx`.
+
 ## [1.91.72.0] - 2026-10-11
 
 **`/autoplan` runs unattended end to end: `gstack-autoplan next|submit` drives the review phases as a durable state machine for a parent agent, the outside voice is a pluggable runner (Codex CLI, API, or a cross-family host subagent), review phases load a short checklist instead of the whole methodology, and the spec-review loop stops honestly at its cap.**

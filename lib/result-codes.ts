@@ -206,6 +206,17 @@ export const RESULT_CODES = {
     summary: 'the selected outside-voice runner cannot run here (CLI missing, no API key, or no result file for host-subagent)',
     fix: 'install or log in the CLI (`gstack-codex-login` from OPENAI_API_KEY), set an API key for `--runner api`, or pass `--result <file> --model <id>` for `--runner host-subagent`',
   },
+  // PR D (gstack-plan-reality check).
+  REALITY_ROW_MISSING: {
+    anchor: 'reality-row-missing',
+    summary: 'a plan review carries no `REALITY:` line for an applicable reality row, or marks a tier 1 row n/a',
+    fix: 'work the row (`gstack-plan-reality rows --phase <p>` prints its check) and emit `REALITY: <row> pass|finding <summary> <file:line>`; unattended, the phase is incomplete until it does',
+  },
+  REALITY_RECEIPT_MISSING: {
+    anchor: 'reality-receipt-missing',
+    summary: 'a `REALITY:` line names its row but carries no file:line or commit receipt',
+    fix: 'cite where the check was made (`path:line`, `path:line-line` or a commit sha); a row without a receipt is a claim, not a row',
+  },
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

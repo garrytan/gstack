@@ -219,9 +219,13 @@ Intent: <from plan file — 1-line summary>
 Plan: <plan file path>
 Delivered: <1-line summary of what the diff actually does>
 Plan items: N DONE, M PARTIAL, K NOT DONE
+Diff read: full (<n> files, <m> hunks) | partial (<unread paths>)
+Undeclared behavior changes: <behavior the diff changes that the PR body, commit messages and plan do not state> | none
 [If NOT DONE: list each missing item with investigation]
 [If scope creep: list each out-of-scope change not in the plan]
 ```
+
+`Diff read` records the full-diff read Step 3 required; `Scope Check: CLEAN`, and options B and C above, count as approved only with `Diff read: full` recorded. A partial read is `DRIFT DETECTED` naming the unread paths. `Undeclared behavior changes` lists every behavior the diff changes (a default, an exit code, a stored value, a route, a side effect) that the author's own summary omits; each is a Scope Check item for the reviewer, never silently CLEAN.
 
 **No plan file found:** Use commit messages and TODOS.md as fallback sources (see above).
 Emit Step 1.5's Scope Check once without plan fields. If no intent sources exist, state

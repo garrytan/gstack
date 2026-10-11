@@ -115,6 +115,8 @@ gstack_result_anchor() {
     SPEND_CAP_EXCEEDED) printf '%s' 'spend-cap-exceeded' ;;
     CONSENSUS_MISSING) printf '%s' 'consensus-missing' ;;
     OUTSIDE_RUNNER_UNAVAILABLE) printf '%s' 'outside-runner-unavailable' ;;
+    REALITY_ROW_MISSING) printf '%s' 'reality-row-missing' ;;
+    REALITY_RECEIPT_MISSING) printf '%s' 'reality-receipt-missing' ;;
     *) return 1 ;;
   esac
 }

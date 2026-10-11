@@ -5,6 +5,7 @@
  * Moved from scripts/resolvers/review.ts.
  */
 import { type TemplateContext } from './types';
+import { undeclaredBehaviorLines } from './sideways';
 
 /** Approval readiness precedes output; the exit gate only verifies the saved result. */
 export function generatePlanReviewApprovalCheck(ctx: TemplateContext): string {
@@ -553,9 +554,12 @@ Intent: <from plan file — 1-line summary>
 Plan: <plan file path>
 Delivered: <1-line summary of what the diff actually does>
 Plan items: N DONE, M PARTIAL, K NOT DONE
+${undeclaredBehaviorLines().fields}
 [If NOT DONE: list each missing item with investigation]
 [If scope creep: list each out-of-scope change not in the plan]
 \`\`\`
+
+${undeclaredBehaviorLines().rule}
 
 **No plan file found:** Use commit messages and TODOS.md as fallback sources (see above).
 Emit Step 1.5's Scope Check once without plan fields. If no intent sources exist, state

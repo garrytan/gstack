@@ -208,22 +208,8 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
   // cso is now carved — its invariant is generated from CARVE_GUARDS below.
   // review, codex, land-and-deploy (w1), autoplan (w2), qa (w3) carved in token-reduction Phase 4
   // wave 1 (v1.69.x branch) — their invariants generate from CARVE_GUARDS too.
-  {
-    skill: 'investigate',
-    mustContain: ['root cause', 'hypothes'],
-    mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB + the
-    // cross-session decision-memory nudge) lands this skill just over the strict 1.05;
-    // headroom for the shared preamble additions (matches the carved-skill overrides).
-    // v1.2.0 activation lift adds the first-run-guidance section on top.
-    // 1.09 → 1.10: the plan-mode preamble reword (scope-gate auto-select-B
-    // change) adds ~250 B to every skill's shared preamble; investigate was
-    // the closest to its ceiling (landed 1.092).
-        // Fork port wave 2 (D1): the evidence-before-claimed-limitations preamble
-    // directive adds ~0.45KB to every tier-2+ skill. Measured values noted.
-    maxSizeRatio: 1.12, // D1 measured
-    minBytes: 30_000,
-  },
+  // investigate carved in the multi-agent wave (PR D3, 2026-10-10): its 1.12
+  // cap moved to CARVE_GUARDS.investigate.maxSizeRatio with the union measured.
 ];
 
 /**

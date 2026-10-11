@@ -72,7 +72,11 @@
     { "file": "lib/autoplan-export.ts", "movedFrom": "(new: the unattended export file set, B2/B12)" },
     { "file": "lib/spec-review-cap.ts", "movedFrom": "(new: the spec-review loop at the cap: numbered gaps and deterministic fix verification, B8)" },
     { "file": "bin/gstack-autoplan", "movedFrom": "(new: thin entrypoint over lib/autoplan-run.ts, B2)" },
-    { "file": "bin/gstack-outside-voice", "movedFrom": "(new: thin entrypoint over lib/outside-voice-runner.ts, B3)" }
+    { "file": "bin/gstack-outside-voice", "movedFrom": "(new: thin entrypoint over lib/outside-voice-runner.ts, B3)" },
+    { "file": "lib/plan-reality.ts", "movedFrom": "(new: the reality-row table, the REALITY: line grammar and the row checker, D1)" },
+    { "file": "bin/gstack-plan-reality", "movedFrom": "(new: thin entrypoint over lib/plan-reality.ts, D1)" },
+    { "file": "scripts/resolvers/plan-reality.ts", "movedFrom": "(new: renders {{PLAN_REALITY_ROWS}} from lib/plan-reality.ts, D1)" },
+    { "file": "scripts/resolvers/sideways.ts", "movedFrom": "(new: sideways sweep, forced-CRITICAL list, flake-fix number and undeclared-behavior lines for review, cso and investigate, D2/D3)" }
   ],
   "residualFiles": [
     { "file": "scripts/test-free-shards.ts", "maxLines": 2361, "reason": "free lane policy after the shard engine took spawn, sandbox, logs, seeds and flags" },

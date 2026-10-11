@@ -862,6 +862,7 @@ Step 0 and the review sections. Compute "Lake Score" (complete options selected)
   | Diagrams produced    | ___ (list types)                            |
   | Stale diagrams found | ___                                         |
   | Unresolved decisions | ___ (listed below)                          |
+  | Reality rows         | ___/___ rows (PLAN_REALITY), ___ unverified |
   +====================================================================+
 ```
 

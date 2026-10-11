@@ -1,0 +1,38 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "investigate",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. The skeleton's Phase 2 pattern table and the Arguments table decide WHEN to read a recipe; no machine predicate here (plan D3).",
+  "sections": [
+    {
+      "id": "flake",
+      "file": "flake.md",
+      "title": "Flake recipe: reproduce on main, failure rate over N runs, cause inside or outside the PR, gh run list comparison, forced probe, never loosen, the `## Flake evidence` PR-body section",
+      "trigger": "investigating a test that fails intermittently or only in CI (a flake), before any rerun, timeout or skip"
+    },
+    {
+      "id": "polluter",
+      "file": "polluter.md",
+      "title": "Polluter recipe: file order from the CI log, bisect the earlier files with ship-measure free --files, report the polluter and what it leaked",
+      "trigger": "investigating a test that passes alone and fails in the suite or in one shard (order-dependent)"
+    },
+    {
+      "id": "race",
+      "file": "race.md",
+      "title": "Race recipe: timing probes, forced interleaving, the concurrent-writer template",
+      "trigger": "investigating a timing-dependent failure or corrupted shared state (a race), before proposing a fix"
+    },
+    {
+      "id": "eval-bisect",
+      "file": "eval-bisect.md",
+      "title": "Eval bisect recipe: distinct revisions, a cached cheap scorer, detached runs, paid cases never retried",
+      "trigger": "investigating a judged or scored metric that regressed between two revisions (an eval bisect)"
+    },
+    {
+      "id": "backlog",
+      "file": "backlog.md",
+      "title": "Backlog mode: classify each open issue still_open / already_fixed <commit> / partially_fixed / owned_elsewhere, read-only table, no closing",
+      "trigger": "running `/investigate --backlog` (read-only issue triage instead of Phases 1–5)"
+    }
+  ]
+}

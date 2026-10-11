@@ -94,7 +94,7 @@ gstack-cso inspect-v2 <import-id>
 
 **Audited-source access invariant.** After `start`, inspect source only with that run's `inspect`, `read`, and `history`. Pass the exact `path` from `inspect`; `displayPath` is only a redacted label. Never use host `Read`/`Glob`/`Grep`; direct reads bypass redaction and identity.
 
-Start first; inspect snapshot, readiness, deadline, transformations, and coverage. When a finding survives challenge, submit it to the helper **and surface it to the user immediately**; do not wait for the final report. This preserves evidence if the run is interrupted. Malformed model JSON gets **one bounded correction attempt**; then preserve a partial result.
+Start first; inspect snapshot, readiness, deadline, transformations, and coverage. When a finding survives challenge, submit it to the helper **and surface it to the user immediately**; do not wait for the final report; this preserves evidence if the run is interrupted. Malformed model JSON gets **one bounded correction attempt**; then preserve a partial result.
 
 When updating coverage, copy every record's `domain` and `scope` exactly from `inspect`; a new scope leaves the planned scope unassessed. Only helper commands may update helper-owned records.
 
@@ -136,11 +136,11 @@ This **CSO evidence rubric** governs CSO instead of shared review confidence ins
 
 Daily reports contain **supported findings**: a concrete attacker-controlled entrypoint, a path across an intended security boundary, demonstrated impact, and a challenge of relevant protective controls. Comprehensive reports retain unresolved candidates separately as **labeled hypotheses**, never mixed into supported totals. Disproved candidates are retained as disposition/coverage evidence, not vulnerabilities.
 
-Do not apply blanket exclusions for development dependencies, availability/resource attacks, historical secrets, user-role prompt injection, or gstack-owned skills. Analyze attacker control and impact. Likewise, UUIDs do not provide authorization; user-controlled URL paths can still cross a sensitive boundary; environment variables may originate from untrusted workflows; and safe defaults can be bypassed by framework escape hatches. Missing hardening alone needs a concrete failure scenario before becoming a finding.
+Do not apply blanket exclusions for development dependencies, availability/resource attacks, historical secrets, user-role prompt injection, or gstack-owned skills. Analyze attacker control and impact. UUIDs do not provide authorization; user-controlled URL paths can still cross a sensitive boundary; environment variables may originate from untrusted workflows; and safe defaults can be bypassed by framework escape hatches. Missing hardening alone needs a concrete failure scenario before becoming a finding.
 
 For each candidate, use an already-authorized independent reviewer when available. Give it the relevant locations, invariant, and rubric without the producer's conclusion; have it inspect callers, middleware, configuration, validation, legitimate behavior, and mitigations. Use at most three; await them. Do not request broader tool access solely to obtain an independent reviewer. Otherwise perform a separate skeptical pass labeled **sequential challenge; independent agent unavailable**. Record dissent and assumptions. Agreement and scanner warnings do not prove runtime behavior.
 
-Search for root-cause variants after supporting a finding, honoring scope. Prioritize by impact, dependency reachability/exposure, known exploitation, and likely user benefit. Unknown reachability remains **unknown**, not “unreachable.”
+After supporting a finding, grep its pattern at every other in-scope ingress, command and call site; severity follows the worst sibling. Prioritize by impact, dependency reachability/exposure, known exploitation and likely user benefit. Unknown reachability remains **unknown**, not “unreachable.”
 
 **Comprehensive verification.** Read the schema and call `runtime-plan` before preparing the harness or patch. Continue only when the helper returns a matching qualified runtime catalog profile; otherwise record the exact execution prerequisite and continue static assessment. Copy its startup, full-test commands, and immutable inputs exactly. Execute only through `verify`, which records:
 

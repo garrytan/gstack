@@ -1,0 +1,67 @@
+#!/usr/bin/env bun
+/**
+ * gstack-plan-reality — the reality rows of a plan review (plan D1).
+ *
+ *   gstack-plan-reality rows --phase <ceo|eng|dx|design> [--scope <csv>] [--deep] [--json]
+ *   gstack-plan-reality check --phase <p> <review-file|-> [--scope <csv>] [--session-kind <kind>] [--json]
+ *
+ * Logic: lib/plan-reality.ts. Codes: lib/result-codes.ts (REALITY_ROW_MISSING, REALITY_RECEIPT_MISSING).
+ */
+import * as fs from 'node:fs';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { checkRealityRows, parseScopes, REALITY_LINE_SHAPE, REALITY_SCOPES, renderRows, requiredRows } from '../lib/plan-reality';
+import { resultLine } from '../lib/result-codes';
+
+const HELP = `gstack-plan-reality — reality rows for plan reviews
+
+  rows --phase <p> [--scope <csv>] [--deep] [--json]      the rows this review must carry (tier 1 always, tier 2 by scope)
+  check --phase <p> <file|-> [--scope <csv>] [--session-kind <kind>] [--json]
+                                                          parse the review's REALITY: lines; exit 1 with the missing rows
+
+Row line: \`${REALITY_LINE_SHAPE}\` (receipt: path:line, path:line-line or a commit sha).
+Scopes: ${REALITY_SCOPES.filter(s => s !== 'always').join(', ')}. Session kind unattended → verdict=incomplete; else verdict=repair.
+Prints \`PLAN_REALITY: phase=<p> rows=<n>/<m> missing=<ids|none> [unverified=<n>] verdict=complete|incomplete|repair\`.
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+function usage(message: string): number {
+  process.stderr.write(`gstack-plan-reality: ${message}\n${HELP}\n`);
+  return EXIT.usage;
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  const phase = flag(rest, '--phase');
+  if (!phase || !/^[a-z-]+$/.test(phase)) return usage('--phase <ceo|eng|dx|design> is required');
+  const { scopes, unknown } = parseScopes(flag(rest, '--scope'));
+  if (unknown.length) return usage(`unknown scope ${unknown.join(', ')} (known: ${REALITY_SCOPES.join(', ')})`);
+  const json = rest.includes('--json');
+
+  if (cmd === 'rows') {
+    const rows = requiredRows(scopes);
+    process.stdout.write(json ? JSON.stringify({ phase, scopes, rows }) + '\n' : renderRows(rows, { deep: rest.includes('--deep') }) + '\n');
+    return EXIT.ok;
+  }
+  if (cmd === 'check') {
+    const valueFlags = new Set(['--phase', '--scope', '--session-kind']);
+    const file = rest.find((a, i) => !a.startsWith('--') && !(i > 0 && valueFlags.has(rest[i - 1]!)));
+    if (!file) return usage('a review file (or - for stdin) is required');
+    let text: string;
+    try { text = file === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(file, 'utf8'); } catch (e: any) { process.stderr.write(`gstack-plan-reality: ${file}: ${e.message}\n`); return EXIT.fail; }
+    const sessionKind = flag(rest, '--session-kind') ?? process.env.GSTACK_SESSION_KIND;
+    const result = checkRealityRows(text, { phase, scopes, sessionKind });
+    if (json) process.stdout.write(JSON.stringify(result) + '\n');
+    else process.stdout.write(result.line + '\n');
+    for (const id of result.unknownRows) process.stderr.write(`gstack-plan-reality: ${file}: REALITY row ${JSON.stringify(id)} is not a known row; it was ignored\n`);
+    if (result.missing.length) process.stderr.write(resultLine('gstack-plan-reality check', 'REALITY_ROW_MISSING', `phase ${phase}: ${result.missing.join(', ')}`) + '\n');
+    if (result.unreceipted.length) process.stderr.write(resultLine('gstack-plan-reality check', 'REALITY_RECEIPT_MISSING', `phase ${phase}: ${result.unreceipted.join(', ')}`) + '\n');
+    return result.verdict === 'complete' ? EXIT.ok : EXIT.fail;
+  }
+  return usage(`unknown command ${cmd}`);
+}
+
+process.exitCode = main(process.argv.slice(2));

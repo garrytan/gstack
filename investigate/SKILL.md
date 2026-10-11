@@ -408,6 +408,26 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 Fixing symptoms creates whack-a-mole debugging. Every fix that doesn't address root cause makes the next bug harder to find. Find the root cause, then fix it.
 
+## Arguments
+
+| Invocation | Contract |
+|---|---|
+| `/investigate <symptom>` | Phases 1–5 below; the recipes in the Section index when the pattern matches. |
+| `/investigate --backlog [<issue numbers or gh query>]` | Read-only triage of open issues against HEAD: read the backlog section and produce its table. No Phases 1–5, no fixes, no issue closing. |
+
+---
+## Section index — Read each section when its situation applies
+
+This skill is a decision-tree skeleton. The steps below point to on-demand
+sections. Read a section in full before doing its step; do not work from memory.
+
+| When | Read this section |
+|------|-------------------|
+| investigating a test that fails intermittently or only in CI (a flake), before any rerun, timeout or skip | `sections/flake.md` |
+| investigating a test that passes alone and fails in the suite or in one shard (order-dependent) | `sections/polluter.md` |
+| investigating a timing-dependent failure or corrupted shared state (a race), before proposing a fix | `sections/race.md` |
+| investigating a judged or scored metric that regressed between two revisions (an eval bisect) | `sections/eval-bisect.md` |
+| running `/investigate --backlog` (read-only issue triage instead of Phases 1–5) | `sections/backlog.md` |
 ---
 
 
@@ -418,7 +438,7 @@ Gather context before forming any hypothesis.
 
 1. **Collect symptoms:** Read the error messages, stack traces, and reproduction steps. If the user hasn't provided enough context, ask ONE question at a time via AskUserQuestion.
 
-2. **Read the code:** Trace the code path from the symptom back to potential causes. Use Grep to find all references, Read to understand the logic.
+2. **Read the code:** Trace the code path from the symptom back to potential causes. Use Grep to find all references, Read to understand the logic. Before calling two queries, helpers or code paths duplicates, read their call sites: what looks identical usually differs in a caller's guard, transaction or scope, and the "duplicate" is the one that is right.
 
 3. **Check recent changes:**
    ```bash
@@ -426,7 +446,7 @@ Gather context before forming any hypothesis.
    ```
    Was this working before? What changed? A regression means the root cause is in the diff.
 
-4. **Reproduce:** Can you trigger the bug deterministically? If not, gather more evidence before proceeding.
+4. **Reproduce:** Can you trigger the bug deterministically? If not, gather more evidence before proceeding. Before timing anything that spawns git in a benchmark or bisect worktree, run `git update-index --refresh` there: a stale index makes the first `git status`/`git diff` pay a full refresh and the measurement lies.
 
 5. **Check investigation history:** Search prior learnings for investigations on the same files. Recurring bugs in the same area are an architectural smell. If prior investigations exist, note patterns and check if the root cause was structural.
 
@@ -586,6 +606,29 @@ Check if this bug matches a known pattern:
 Also check:
 - `TODOS.md` for related known issues
 - `git log` for prior fixes in the same area — **recurring bugs in the same files are an architectural smell**, not a coincidence
+
+### Recipes
+
+Intermittent or CI-only failures, order-dependent failures, races and regressed
+judged metrics each have a recipe. Read the matching one before Phase 3; a rerun,
+a wider timeout or a skip is never a hypothesis.
+
+> **STOP.** Before investigating a test that fails intermittently or only in CI (a flake), before any rerun, timeout or skip, Read `~/.claude/skills/gstack/investigate/sections/flake.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
+
+> **STOP.** Before investigating a test that passes alone and fails in the suite or in one shard (order-dependent), Read `~/.claude/skills/gstack/investigate/sections/polluter.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
+
+> **STOP.** Before investigating a timing-dependent failure or corrupted shared state (a race), before proposing a fix, Read `~/.claude/skills/gstack/investigate/sections/race.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
+
+> **STOP.** Before investigating a judged or scored metric that regressed between two revisions (an eval bisect), Read `~/.claude/skills/gstack/investigate/sections/eval-bisect.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
+
+`--backlog` runs none of the phases:
+
+> **STOP.** Before running `/investigate --backlog` (read-only issue triage instead of Phases 1–5), Read `~/.claude/skills/gstack/investigate/sections/backlog.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
 
 **External pattern search:** If the bug doesn't match a known pattern above, research through Aside (Web research runs in Aside, above). **Sanitize first:** strip hostnames, IPs, file paths, SQL, customer data. Search the error category, not the raw message:
 - "{framework} {generic error type}"

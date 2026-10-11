@@ -1,0 +1,49 @@
+{
+  "_comment": "Plan D1: one fixture per tier 1 reality row. `positive` is the REALITY: line this wave's own review record earns (its receipt points into docs/designs/multi-agent-wave-2026-10-10/ or the plan; `source` is checked against the file). `decoy` is the negative control: a line or passage that looks like the row and must not count. test/plan-reality.test.ts consumes this file.",
+  "record": "docs/designs/multi-agent-wave-2026-10-10",
+  "rows": {
+    "premise-table": {
+      "positive": "REALITY: premise-table finding 27 premises checked: 23 VALID, 1 FALSE as worded, 3 UNVERIFIED unverified=3 docs/designs/multi-agent-wave-2026-10-10/ceo-native.md:11-37",
+      "source": { "file": "docs/designs/multi-agent-wave-2026-10-10/ceo-native.md", "lines": [11, 37], "contains": "| Premise (from the plan) | Receipt | Verdict |" },
+      "decoy": "REALITY: premise-table pass the premises were discussed and look reasonable",
+      "decoy_kind": "no receipt",
+      "metric": { "unverified": "3" }
+    },
+    "already-done": {
+      "positive": "REALITY: already-done pass what already exists verified against origin/main 91bbd9e before any task docs/designs/multi-agent-wave-2026-10-10/eng-native.md:9",
+      "source": { "file": "docs/designs/multi-agent-wave-2026-10-10/eng-native.md", "lines": [9, 9], "contains": "**What already exists (verified).**" },
+      "decoy": "REALITY: already-done n/a no ask date was given, so the base log was not read",
+      "decoy_kind": "tier 1 row marked n/a"
+    },
+    "surface-check": {
+      "positive": "REALITY: surface-check finding `bun upgrade --version <pin>` absent on Bun 1.3.14 (`bun upgrade --help` lists only --canary) docs/designs/multi-agent-wave-2026-10-10/eng-native.md:191",
+      "source": { "file": "docs/designs/multi-agent-wave-2026-10-10/eng-native.md", "lines": [191, 191], "contains": "A2 relies on `bun upgrade --version <pin>`" },
+      "decoy": "Surface check: every named command was verified against --help and the registry; no misses.",
+      "decoy_kind": "prose that names the check without a REALITY: line"
+    },
+    "binding-decisions": {
+      "positive": "REALITY: binding-decisions pass 12 prior-phase decisions treated as binding, owner input folded into A3/B1/B3/C2/D1 docs/designs/multi-agent-wave-2026-10-10/eng-native.md:5",
+      "source": { "file": "docs/designs/multi-agent-wave-2026-10-10/eng-native.md", "lines": [5, 5], "contains": "Prior-phase decisions treated as binding" },
+      "decoy": "REALITY: binding-decision pass owner decisions read and honored docs/designs/MULTI_AGENT_WAVE_2026_10_10.md:18",
+      "decoy_kind": "lookalike row id (singular) that the table does not define"
+    },
+    "numbers": {
+      "positive": "REALITY: numbers finding effort table tagged [estimated] and [re-measure before gate]; the first table was uncredible docs/designs/MULTI_AGENT_WAVE_2026_10_10.md:194",
+      "source": { "file": "docs/designs/MULTI_AGENT_WAVE_2026_10_10.md", "lines": [194, 194], "contains": "`[estimated]`" },
+      "decoy": "REALITY: numbers pass 7 PRs, 48 min wall, parity ratio 1.539, all re-derived",
+      "decoy_kind": "numbers without a file:line or sha receipt"
+    },
+    "deferred-asks": {
+      "positive": "REALITY: deferred-asks pass 6 asks consciously left out, each with its reason, under Not in this wave docs/designs/MULTI_AGENT_WAVE_2026_10_10.md:175-182",
+      "source": { "file": "docs/designs/MULTI_AGENT_WAVE_2026_10_10.md", "lines": [175, 182], "contains": "### Not in this wave" },
+      "decoy": "REALITY: deferred-asks pass none (see Not in this wave)",
+      "decoy_kind": "no receipt"
+    },
+    "pr-count": {
+      "positive": "REALITY: pr-count finding no .gstack/ship-policy.json (default 1); seven PRs recommended with the queue cost of two extra gates stated docs/designs/multi-agent-wave-2026-10-10/eng-native.md:23",
+      "source": { "file": "docs/designs/multi-agent-wave-2026-10-10/eng-native.md", "lines": [23, 23], "contains": "**PR count vs the repo's own constraints.**" },
+      "decoy": "REALITY: pr-count pass seven PRs per decision D12",
+      "decoy_kind": "no receipt"
+    }
+  }
+}

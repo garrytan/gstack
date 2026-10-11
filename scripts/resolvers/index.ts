@@ -49,6 +49,8 @@ import { generateDesignDocDiscovery } from './design-doc-discovery';
 import { generateSharedLibsRubric, generateSafeGitPath } from './shared-libs';
 import { generateTestValueBar, generateTestValueMessage } from './test-value';
 import { generateImplementerDispatchRules } from './dispatch-rules';
+import { generatePlanRealityRows } from './plan-reality';
+import { generateSidewaysSweep, generateFlakeFixNumber } from './sideways';
 import { generateQAScope, generateQAExploratory, generateQAFunctional, generateQAResource, generateQAReview, generateQAReviewPreflight, generateQAMethodReads } from './qa';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
@@ -137,6 +139,9 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   PLAN_COMPLETION_GATE_SHIP: generatePlanCompletionGateShip,
   PLAN_COMPLETION_AUDIT_REVIEW: generatePlanCompletionAuditReview,
   PLAN_VERIFICATION_EXEC: generatePlanVerificationExec,
+  PLAN_REALITY_ROWS: generatePlanRealityRows,
+  SIDEWAYS_SWEEP: generateSidewaysSweep,
+  FLAKE_FIX_NUMBER: generateFlakeFixNumber,
   CO_AUTHOR_TRAILER: generateCoAuthorTrailer,
   SETUP_COMMAND: generateSetupCommand,
   LEARNINGS_SEARCH: generateLearningsSearch,
