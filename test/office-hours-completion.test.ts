@@ -1,4 +1,5 @@
 import { renderOfficeHoursReviewerPrompt, renderOfficeHoursReview, extractOfficeHoursReviewBlock, officeHoursVerdictReceipt, officeHoursDesignChanges, type OfficeHoursReview } from '../lib/office-hours-review';
+import { verifySpecFixesAtCap } from '../lib/spec-review-cap';
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -723,7 +724,9 @@ describe('office-hours mechanical review evidence', () => {
         evidence: `The Recommended Approach still omits the original obligation: ${problems[i][1]}`, current_id: `R2-${i + 1}` })),
     });
     const rounds = [round(1), round(2)];
-    const rendered = renderOfficeHoursReview(rounds);
+    // Stopped at the cap (CONVERGENCE): the finalizer records the unresolved gaps against the round-2 snapshot (plan B8).
+    const cap = verifySpecFixesAtCap(rounds[1]!, reviewed(2), design.replace(/## Reviewer Concerns[\s\S]*/, ''), null);
+    const rendered = renderOfficeHoursReview(rounds, undefined, 3, cap);
     const evidence = completed();
     evidence.designContent = design.replace(/## Reviewer Concerns[\s\S]*/, rendered.concerns);
     evidence.output = report.replace(/## Spec Review[\s\S]*?(?=## Handoff)/, `${rendered.report}\n\n`);
@@ -733,7 +736,7 @@ describe('office-hours mechanical review evidence', () => {
       evidence.toolCalls.push({ tool: 'Agent', input: { prompt: `Review ${designPath}; write ${artifact.path}.` }, output: officeHoursVerdictReceipt(i + 1, artifact.path, artifact.content) });
       evidence.toolCalls.push({ tool: 'Write', input: { file_path: artifact.path, content: artifact.content } });
     }
-    return { evidence, artifacts, rounds };
+    return { evidence, artifacts, rounds, cap };
   }
 
   function handoffs(useRead = false) {
@@ -876,7 +879,8 @@ describe('office-hours mechanical review evidence', () => {
       rounds[1].findings.push({ id: 'R2-7', dimension: 'feasibility', severity: 'blocking', changed_text: citation,
         problem: 'The revision note claims a fix the design does not contain.', remedy: 'Remove the note or make the fix.' });
       rounds[1].dimensions.feasibility = 'ISSUES';
-      const rendered = renderOfficeHoursReview(rounds);
+      const cap = verifySpecFixesAtCap(rounds[1]!, reviewed(2), design.replace(/## Reviewer Concerns[\s\S]*/, ''), null);
+      const rendered = renderOfficeHoursReview(rounds, undefined, 3, cap);
       evidence.designContent = evidence.designContent!.replace(/<!-- gstack:office-hours:concerns:start -->[\s\S]*<!-- gstack:office-hours:concerns:end -->/, rendered.concerns);
       evidence.output = evidence.output.replace(/<!-- gstack:office-hours:report:start -->[\s\S]*<!-- gstack:office-hours:report:end -->/, rendered.report);
       artifacts[1].content = JSON.stringify(rounds[1]);
@@ -897,7 +901,7 @@ describe('office-hours mechanical review evidence', () => {
     try {
       // Existing synthetic review history exercises the real writer and validators;
       // this is not a replay of a successful native/model completion.
-      const { evidence, artifacts, rounds } = JSON.parse(JSON.stringify(handoffs())
+      const { evidence, artifacts, rounds, cap } = JSON.parse(JSON.stringify(handoffs())
         .replaceAll('/tmp/office-hours-fixture', dir.replaceAll('\\', '/')));
       // Relocated artifacts have new bytes, so their receipts are reissued.
       evidence.toolCalls.filter((call: { output?: string }) => call.output?.startsWith('OFFICE_HOURS_VERDICT '))
@@ -930,7 +934,7 @@ Next: /plan-eng-review after observing the workflow. The user declined launching
         'finalize', '--design', evidence.designPath, '--report', reportPath, ...artifacts.map((artifact: { path: string }) => artifact.path)],
       { cwd: dir, timeout: 5000 });
       expect(result.exitCode, result.stderr.toString()).toBe(0);
-      const rendered = renderOfficeHoursReview(rounds);
+      const rendered = renderOfficeHoursReview(rounds, undefined, 3, cap);
       const output = fs.readFileSync(reportPath, 'utf8');
       expect(fs.readFileSync(evidence.designPath).equals(beforeDesign)).toBe(true);
       expect(output).toContain(closing.trim());

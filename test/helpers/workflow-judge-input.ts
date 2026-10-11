@@ -95,8 +95,14 @@ export function readWorkflowJudgeInput(opts: {
   }];
   const sectionDir = path.join(path.dirname(opts.skillPath), 'sections');
   const sectionRoot = path.join(opts.root, sectionDir);
+  // Runner-profile sections (manifest `runner_only`, plan B4) are read by
+  // bin/gstack-autoplan alone; the judge evaluates the interactive workflow.
+  const manifestPath = path.join(sectionRoot, 'manifest.json');
+  const manifestSections: Array<{ file: string; runner_only?: boolean }> = fs.existsSync(manifestPath)
+    ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')).sections ?? [] : [];
+  const runnerOnly = new Set(manifestSections.filter(section => section.runner_only).map(section => section.file));
   const sections = fs.existsSync(sectionRoot)
-    ? fs.readdirSync(sectionRoot).sort().filter(name => name.endsWith('.md'))
+    ? fs.readdirSync(sectionRoot).sort().filter(name => name.endsWith('.md') && !runnerOnly.has(name))
       .map(name => ({
         path: path.join(sectionDir, name),
         kind: 'section' as const,

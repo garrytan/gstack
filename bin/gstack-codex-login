@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# gstack-codex-login: log the Codex CLI in from OPENAI_API_KEY on an unattended
+# machine (plan B3), then confirm with `codex login status`. Prints one
+# CODEX_LOGIN: line and exits non-zero with the probe's hint on failure.
+# The key never appears in argv or output: it travels on stdin only.
+set -u
+if ! command -v codex >/dev/null 2>&1; then
+  echo "CODEX_LOGIN: unavailable (codex CLI not on PATH); fix: install Codex, or use gstack-outside-voice run --runner api|host-subagent" >&2
+  exit 3
+fi
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo "CODEX_LOGIN: unavailable (OPENAI_API_KEY is not set); fix: export OPENAI_API_KEY, or run codex login interactively" >&2
+  exit 3
+fi
+if ! printenv OPENAI_API_KEY | codex login --with-api-key >/dev/null 2>&1; then
+  echo "CODEX_LOGIN: failed (codex login --with-api-key rejected the key); fix: check OPENAI_API_KEY, then codex login status" >&2
+  exit 1
+fi
+if ! codex login status >/dev/null 2>&1; then
+  echo "CODEX_LOGIN: failed (codex login status is not logged in after --with-api-key); fix: run codex login status for the reason" >&2
+  exit 1
+fi
+echo "CODEX_LOGIN: ok (api-key)"

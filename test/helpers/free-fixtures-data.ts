@@ -124,7 +124,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/judge-panel-replay-2026-10-05.json': ['test/judge-panel-median.test.ts'],
   'test/fixtures/module-size-ratchet.json': ['test/helpers/module-size.ts', 'test/module-size-ratchet.test.ts'],
   'test/fixtures/module-size/**': ['test/helpers/module-size.ts', 'test/module-size-ratchet.test.ts'],
-  'test/fixtures/multi-agent-wave/**': ['test/headless-artifacts.test.ts'],
+  'test/fixtures/multi-agent-wave/**': ['test/headless-artifacts.test.ts', 'test/helpers/autoplan-run-fixture.ts'],
   'test/fixtures/model-policy-freshness.ts': ['test/model-policy-freshness.test.ts', 'test/model-policy-workflow.test.ts'],
   'test/fixtures/model-policy-freshness/**': ['test/fixtures/model-policy-freshness.ts'],
   'test/fixtures/native-auq-boxed-full-body-sep21.json': ['test/auq-native-capture.test.ts'],
