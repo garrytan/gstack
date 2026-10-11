@@ -1,0 +1,23 @@
+{
+  "$schema": "https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1",
+  "runner": "bun test {files}",
+  "dependencies": {
+    ".github/workflows/**": ["test/pregate-selection.test.ts", "test/free-tests-workflow-wiring.test.ts"],
+    "scripts/gen-ship-goldens.ts": ["test/host-config.test.ts"],
+    "bun.lock": [],
+    ".gitignore": [],
+    ".gitattributes": [],
+    "docs/**": [],
+    "*.md": [],
+    "LICENSE": [],
+    "licenses/**": [],
+    "contrib/**": [],
+    "supabase/**": []
+  },
+  "selection": {
+    "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list",
+    "windows-free-tests.yml/windows-free-shard": "bun run scripts/test-free-shards.ts --windows-only --list"
+  },
+  "warn": [],
+  "strays": { "allow": [] }
+}

@@ -108,6 +108,11 @@ unavailable results as passing.>
 "Close #N manually after follow-up lands." Include archive filename and filed date.
 Without a valid match, omit this entire section.>
 
+## Issues
+<The lines `gstack-issue-links --base <base> [--issue <n>] [--ci-run <id>] --out .gstack/tmp/issues.json`
+prints: Fixes only from a Fixes/Closes trailer or --issue, Refs otherwise,
+Flake: #N for failing run ids. Omit when it prints none.>
+
 ## Verification Results
 <Step 8.1 obligations executed at Step 9: N PASS, M FAIL, K BLOCKED, J NOT RUN,
 not-applicable reasons, unresolved obligations and accepted deferrals.
@@ -167,13 +172,15 @@ per-lane counts (`{"<lane>":{"pass":N,"fail":N,"skip":N}}`) to
 `.gstack/tmp/ship-gate.json` with your file-write tool, then:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --gate @.gstack/tmp/ship-gate.json --body "$PR_BODY_FILE"
+~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --gate @.gstack/tmp/ship-gate.json --pregate .gstack/tmp/pregate.json --issues @.gstack/tmp/issues.json --body "$PR_BODY_FILE"
 ```
 
 Add `--receipt .gstack/tmp/tree-receipt.json` only when Step 16 wrote it (gate-ahead).
 New PR/MR: omit `--pr`, then rerun with the number after creation and repost the body.
 Its `SHIP_RECEIPT:` line opens the completion message. `RECEIPT_INVALID` names the bad
-field: fix that input file and rerun; nothing was written.
+field: fix that input file and rerun; nothing was written. `PREGATE_STALE` means rerun
+`gstack-pregate` on the stamped tree; `PREGATE_REMOTE_UNCLEARED` needs
+`gstack-pregate clear` with the run URL. Both stop publication.
 
 In each block below, restore the literal `PR_BODY_FILE` path and substitute Step 18's
 title file name; `gstack-post` detects GitHub or GitLab from the remote and the repo's

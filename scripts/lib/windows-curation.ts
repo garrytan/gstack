@@ -51,6 +51,14 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 // when possible; this list is for environment-/runtime-specific tests where
 // the failure mode is structural rather than detectable via source-file scan.
 export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
+  // C-pregate: these drive bin/gstack-regen, bin/gstack-pregate, bin/gstack-issue-links and
+  // bin/gstack-ship-receipt through test/helpers/pregate-fixture.ts runBin (spawnSync on the
+  // shebang file, which CreateProcess cannot exec) and run `node gen.js` / `node --test` fixture
+  // commands through the pre-gate's POSIX `bash -o pipefail` runner. The pure parsers and the
+  // import graph are covered by test/pregate-selection.test.ts, which the bin/ pattern excludes too.
+  { file: 'test/gstack-regen.test.ts', reason: 'spawns bin/gstack-regen through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess) and POSIX fixture regen commands' },
+  { file: 'test/pregate-invalidation.test.ts', reason: 'spawns bin/gstack-pregate and bin/gstack-ship-receipt through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess) and the pipefail lane runner' },
+  { file: 'test/ship-issue-intent.test.ts', reason: 'spawns bin/gstack-issue-links and bin/gstack-ship-receipt through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess) with a `gh` shell shim on PATH' },
   {
     file: 'test/ship-measure-seeded-fixture.test.ts',
     reason: 'drives a POSIX shell stub project (`./evals.sh` with a shebang) that CreateProcess cannot exec; the measure runner itself is covered by ship-measure.test.ts with in-process fake runners',

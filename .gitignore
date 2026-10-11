@@ -26,6 +26,8 @@ lib/cso/images/gstack-cso-preparation
 .gstack/*
 !.gstack/ship-policy.json
 !.gstack/ship-policy.example.json
+!.gstack/generated.json
+!.gstack/pregate.json
 .claude/skills/
 .claude/gstack-rendered/
 .claude/scheduled_tasks.lock

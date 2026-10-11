@@ -1962,3 +1962,140 @@ makes the row a check rather than a claim.
 **Fix.** Add where the check was made to the line, for example
 `REALITY: already-done pass 0 hits since 2026-10-09 for bin/gstack-doctor 91bbd9e`
 or `REALITY: surface-check finding bun upgrade --version absent on 1.3.14 bin/gstack-capy-install:52`.
+
+## Pre-gate: generated-file registry, gstack-pregate, issue links
+
+Both tools read their pin file (`.gstack/generated.json`, `.gstack/pregate.json`)
+from `origin/<base>`, never the working tree, and run repo-declared commands only
+under `--allow-repo-commands` or inside `/ship`. Details: docs/pregate.md.
+
+<a id="regen-registry-invalid"></a>
+### `REGEN_REGISTRY_INVALID`
+
+**Meaning.** `.gstack/generated.json` is not valid JSON, has an unknown key, a
+missing `id`/`inputs`/`outputs`, or a duplicate id.
+
+**Fix.** `gstack-regen validate` prints every error with its JSON path; compare
+with `gstack-regen init --explain` and fix the file on the base branch.
+
+<a id="regen-containment"></a>
+### `REGEN_CONTAINMENT`
+
+**Meaning.** A registry glob escapes the repository (`..`, absolute, more than 64
+per list) or a command is not one line under 512 bytes.
+
+**Fix.** Repo-relative globs only; one line per command.
+
+<a id="regen-stale"></a>
+### `REGEN_STALE`
+
+**Meaning.** A registered output differs from what its command produces in a
+scratch `git worktree` of the current tree: the output is stale or hand-edited.
+
+**Fix.** Run the printed command (`gstack-regen write --only <id>` does it in
+place) and commit the outputs. Never hand-merge a generated file: on a conflict
+take either side, then regenerate.
+
+<a id="regen-command-failed"></a>
+### `REGEN_COMMAND_FAILED`
+
+**Meaning.** A registered command exited non-zero in the scratch worktree.
+
+**Fix.** Run it by hand in the repository and read its output; the scratch
+worktree has no `node_modules` of its own, so a command that needs them must
+reference the repository's (gstack's entries do through `bun run`).
+
+<a id="pregate-config-invalid"></a>
+### `PREGATE_CONFIG_INVALID`
+
+**Meaning.** `.gstack/pregate.json` has an unknown key, a wrong type, a glob
+that escapes the repository, a runner without `{files}`, or `secrets` in `warn`.
+
+**Fix.** `gstack-pregate validate`. `secrets` and required-lane obligations
+cannot be downgraded; every other check id in `warn` is honoured only from the
+base branch's copy.
+
+<a id="pregate-secrets"></a>
+### `PREGATE_SECRETS`
+
+**Meaning.** `gstack-redact` found a HIGH finding, or a MEDIUM finding in the
+`secret` category, in the lines this branch adds.
+
+**Fix.** Rotate the credential, remove it from the added lines (history
+included), rerun. Not downgradable.
+
+<a id="pregate-strays"></a>
+### `PREGATE_STRAYS`
+
+**Meaning.** A file was added at the repository root, in a new top-level
+directory, or under a scratch name (`zz-*`, `tmp*`, `scratch*`).
+
+**Fix.** Delete or move it. An intentional root file goes in `strays.allow`.
+
+<a id="pregate-literals"></a>
+### `PREGATE_LITERALS`
+
+**Meaning.** A changed exported constant (or a named timeout/retry literal) still
+appears with its old value in a test file the branch did not update — nightly-
+and Heavy-only files included.
+
+**Fix.** Update every listed `file:line`, or keep the old value.
+
+<a id="pregate-no-lane"></a>
+### `PREGATE_NO_LANE`
+
+**Meaning.** A touched file maps to no test through static imports, repo-path
+string literals, the `bin/<name>` → `test/<name>*.test.ts` convention or a
+`dependencies` declaration. That is a failure, not a pass.
+
+**Fix.** Add a test that names the file, or declare its lane (an explicit `[]`
+for files with no behaviour, such as docs) in `.gstack/pregate.json`. `--explain`
+prints every mapping and why.
+
+<a id="pregate-lane-failed"></a>
+### `PREGATE_LANE_FAILED`
+
+**Meaning.** A local lane the touched files select exited non-zero under
+`set -o pipefail`, or reported zero tests (ZERO-RUN).
+
+**Fix.** Read the printed lane log, fix the failure, rerun
+`gstack-pregate --stage tests`. A `| tail`-hidden exit is still an exit.
+
+<a id="pregate-incomplete"></a>
+### `PREGATE_INCOMPLETE`
+
+**Meaning.** A check timed out, its tool is unavailable, repo commands were not
+allowed, or the working tree changed while the check ran. Incomplete is never
+pass and blocks publication.
+
+**Fix.** Pass `--allow-repo-commands`, install the tool, raise `--timeout`, or
+keep the tree still, then rerun.
+
+<a id="pregate-stale"></a>
+### `PREGATE_STALE`
+
+**Meaning.** `pregate.json` was recorded against a different working-tree
+fingerprint than the one being published (the final stamp, a regen, any edit).
+
+**Fix.** Rerun `gstack-pregate` after the final generation and stamp; Step 18
+refuses to write the ship receipt otherwise.
+
+<a id="pregate-remote-uncleared"></a>
+### `PREGATE_REMOTE_UNCLEARED`
+
+**Meaning.** A `requires-remote` obligation (a platform lane this machine cannot
+run, named by `workflow.yml/job`) has no receipt.
+
+**Fix.** Dispatch that job, then
+`gstack-pregate clear --remote <workflow.yml/job> --run-url <url>` (or
+`--bundle-lane <label>` from an evidence bundle). The ship receipt carries each
+obligation with its receipt.
+
+<a id="issue-unreadable"></a>
+### `ISSUE_UNREADABLE`
+
+**Meaning.** An issue named by a `Fixes #N`/`Closes #N` trailer or `--issue N`
+could not be read through `gstack-issue-guard`.
+
+**Fix.** Check `gh auth status` and the number. Until it reads, the link is
+rendered as `Refs #N`, never `Fixes`.

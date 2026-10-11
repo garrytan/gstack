@@ -212,6 +212,8 @@ export const FREE_ONLY_PR_FILES = [
   'scripts/ubicloud/**',
   'tsconfig.test.json', // Read only by `tsc -p tsconfig.test.json` (typecheck:test); Bun's runtime reads tsconfig.json.
   '.gitignore', // Changes which untracked files git reports, never tracked content a case reads.
+  '.gstack/generated.json', // gstack's own regen registry: gstack-regen/gstack-pregate read it from origin/<base> of the repo they run in; paid cases run in fixture repos.
+  '.gstack/pregate.json', // gstack's own pre-gate policy: same trust boundary, same reason.
   'scripts/retired-command.ts', // One-release stubs for retired package scripts; no paid case imports it.
   'careful/bin/check-careful.sh', // /careful PreToolUse hook: covered by test/hook-scripts.test.ts; no paid fixture copies or runs it.
   // Reporting and launch tools: they read CI history or start a lane, never run inside a paid case.

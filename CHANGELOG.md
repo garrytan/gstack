@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.76.0] - 2026-10-11
+## [1.91.78.0] - 2026-10-11
 
 **Plan reviews check reality before they check taste, `/review` and `/cso` look sideways from every finding, and `/investigate` ships recipes for flakes, polluters, races, eval bisects and backlog triage.**
 
@@ -24,6 +24,16 @@ Multi-agent wave PR D (`docs/designs/MULTI_AGENT_WAVE_2026_10_10.md`, items D1â€
 #### For contributors
 - New tests: `test/plan-reality.test.ts` (18), `test/sideways-review.test.ts` (8), `test/investigate-recipes.test.ts` (9); `test/skill-fixture.test.ts` pins the sideways paragraph as its extraction anchor.
 - Not in this release: `gstack-autoplan submit` does not yet call `gstack-plan-reality check` itself (the runner landed in parallel); a parent loop runs the check before `submit`. Automatic tier-2 scope detection waits for the runner's scope set to grow beyond `ui`/`dx`.
+
+## [1.91.77.0] - 2026-10-11
+
+**`/ship` now runs a two-stage pre-gate before anything paid, regenerates generated files from a committed registry, and links issues only on explicit intent (multi-agent wave C-pregate, plan items C4, C6, C8 tier 1).**
+
+- **`gstack-pregate` (`lib/pregate/*`).** Stage 1 is the mechanical preflight (`regen`, `secrets`, `strays`, `literals`), stage 2 runs the test lanes the touched files select, with a separate clock each; results record the tree identity they ran against and go stale when the tree moves, so `gstack-ship-receipt write --pregate` refuses on `PREGATE_STALE`, `LANE_FAILED`, `INCOMPLETE` or `REMOTE_UNCLEARED` and writes nothing. Lanes come from the repo's own workflow files; a lane this machine cannot run becomes a persisted `requires-remote` obligation cleared with `gstack-pregate clear --run-url`. `secrets` and required lanes cannot be downgraded in `.gstack/pregate.json`; repo-declared commands run only from `/ship` or with `--allow-repo-commands`, otherwise the check is `incomplete`, never `pass`.
+- **`gstack-regen` + `.gstack/generated.json`.** `check` runs each registered generator in a scratch worktree and diffs the outputs; `write` records sha256 pre/post; gstack registers `skill-docs` and `ship-goldens` (`scripts/gen-ship-goldens.ts`).
+- **`gstack-issue-links`.** `Fixes #N` only from a `Fixes`/`Closes`/`Resolves` trailer or `--issue`; bare mentions, partial work and cross-repo references render as `Refs`; an unreadable closure issue downgrades to `Refs` with `ISSUE_UNREADABLE`; `--ci-run <id>` adds `Flake: #N (run <id>)`. Step 18 renders the `## Issues` section from it.
+- **Step 5 lane example** collects every background lane's PID under `set -o pipefail` and fails on any non-zero exit, so a `| tail`-hidden failure can no longer pass.
+- Tier 2 checks (`guards`, `ratchets`, `lint`, `links`, `hermetic`, `patches`, `integrator`) are named in `docs/pregate.md` as a follow-up; 14 new result codes with troubleshooting anchors.
 
 ## [1.91.75.0] - 2026-10-11
 
