@@ -6,7 +6,7 @@ const ptyIds = [
   'plan-devex-review-plan-mode', 'plan-mode-no-op', 'office-hours-auto-mode',
   'auto-decide-preserved', 'plan-ceo-mode-routing', 'plan-design-with-ui-scope', 'plan-eng-finding-floor',
   // The two formerly keyless AUQ probes (W1b) import the same SDK capture helper as auq-format-gate, which reaches the PTY runner.
-  'auq-format-gate', 'auq-consistency', 'auq-verbose-vs-carved-ab', ...['browse', 'codex', 'design-consultation', 'design-html', 'design-shotgun', 'document-release', 'land-and-deploy',
+  'auq-format-gate', 'auq-consistency', 'auq-verbose-vs-carved-ab', ...['browse', 'codex', 'design-consultation', 'design-html', 'design-shotgun', 'document-release', 'investigate', 'land-and-deploy',
     'plan-design-review', 'plan-devex-review', 'plan-eng-review', 'qa', 'retro', 'review', 'setup-gbrain', 'spec'].map(skill => `carve-section-loading-${skill}`),
   'office-hours-section-loading', 'office-hours-design-draft', 'plan-ceo-section-loading', 'ship-section-loading',
   'plan-ceo-finding-floor', 'plan-design-finding-floor', 'plan-devex-finding-floor',

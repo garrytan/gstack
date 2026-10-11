@@ -710,7 +710,7 @@ QA's `sections/...` and `templates/...` paths resolve from installed QA SKILL.md
 
 Apply both checklist passes in order: CRITICAL, then INFORMATIONAL. Respect its suppressions.
 
-**Enum & Value Completeness requires reading code OUTSIDE the diff.** When the diff introduces a new enum value, status, tier, or type constant, use Grep to find all files that reference sibling values, then Read those files to check if the new value is handled. Shared-code analysis also requires reading related callers outside the diff; keep findings anchored to changed code.
+**Sideways sweep (every finding; reads code OUTSIDE the diff).** Grep the finding's pattern at every other ingress, command and call site, Read each match and rate severity on the worst sibling; a new enum value, status, tier or type constant is traced through every consumer the same way (checklist: Sideways sweep). Data loss, a trust-boundary bypass or uncapped spend is forced CRITICAL: no lane, specialist, dedup or saved decision downgrades it. Keep findings anchored to changed code.
 
 **Gate Integrity reads Step 3.5's listing.** Carry the `GATE_SUMMARY:` line and every
 read-level hunk (`[<id>] <tag> <path> @<hunk>`) into the checklist's Gate Integrity
@@ -718,7 +718,7 @@ category: read each hunk in the diff with its one question, keep groups as one
 finding, and record `gate` (the RH tag) and `gate_id` (the tool's id) on each gate
 finding. A partial or UNAVAILABLE scan is missing coverage for this category, never
 a clean result. Gate findings are ASK in Step 5 regardless of how mechanical the
-revert looks.
+revert looks. A test-only flake fix (timeout, retry, looser assertion, skip) states `P(fail | regression)` before and after, from a forced probe; without both numbers it is RH-15.
 
 **Search-before-recommending:** Research proposed fixes through Aside, especially
 concurrency, caching, auth and framework behavior:

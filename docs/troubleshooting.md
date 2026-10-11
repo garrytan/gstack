@@ -1935,6 +1935,34 @@ runner, this is missing coverage.
 review on a cross-family subagent and submit its file with `--runner
 host-subagent --result <file> --model <id>`.
 
+<a id="reality-row-missing"></a>
+### `REALITY_ROW_MISSING`
+
+**Meaning.** `gstack-plan-reality check --phase <p> <review>` found no
+`REALITY: <row> …` line for a row the review must carry (every tier 1 row:
+`premise-table`, `already-done`, `surface-check`, `binding-decisions`,
+`numbers`, `deferred-asks`, `pr-count`; plus the tier 2 rows whose scope was
+passed with `--scope`), or a tier 1 row was marked `n/a`. The check prints
+`PLAN_REALITY: phase=<p> rows=<n>/<m> missing=<ids> verdict=<v>` and exits
+`1`. In an unattended run the verdict is `incomplete` and the phase does not
+close; interactively it is `repair`: produce the missing rows and re-check, at
+most twice, then warn at the gate with each row still missing.
+
+**Fix.** `gstack-plan-reality rows --phase <p> [--scope <csv>]` prints each
+row's check. Work it and end the review with one line per row,
+`REALITY: <row> pass|finding <summary> <file:line>`.
+
+<a id="reality-receipt-missing"></a>
+### `REALITY_RECEIPT_MISSING`
+
+**Meaning.** A `REALITY:` line names its row and status but carries no
+receipt. A receipt is `path:line`, `path:line-line` or a commit sha; it is what
+makes the row a check rather than a claim.
+
+**Fix.** Add where the check was made to the line, for example
+`REALITY: already-done pass 0 hits since 2026-10-09 for bin/gstack-doctor 91bbd9e`
+or `REALITY: surface-check finding bun upgrade --version absent on 1.3.14 bin/gstack-capy-install:52`.
+
 ## Pre-gate: generated-file registry, gstack-pregate, issue links
 
 Both tools read their pin file (`.gstack/generated.json`, `.gstack/pregate.json`)

@@ -4,7 +4,9 @@ CEO phase steps and required outputs for `bin/gstack-autoplan` (unattended or
 `light` runs); interactive runs read `sections/review-sections.md` in full.
 
 ### Steps
-1. Scope and mode agreed (Step 0); carry the decision ledger in.
+1. Scope and mode agreed (Step 0); carry the decision ledger in. 0A/0B end
+   with the reality rows: one `REALITY:` line per applicable row
+   (`gstack-plan-reality rows --phase ceo`), each with a file:line receipt.
 2. Sections 1–10 in order; Section 11 only with `ui` scope, else record the
    no-UI skip. Sections 3 and 7 carry `security` and `perf` scope.
 3. Outside voice per its integration rule; reconcile each finding.
@@ -15,6 +17,7 @@ CEO phase steps and required outputs for `bin/gstack-autoplan` (unattended or
 | Output | Produced by | Scope |
 |---|---|---|
 | Review facts | Review facts | always |
+| Reality rows (`REALITY:` lines, `PLAN_REALITY` check) | Reality rows | always |
 | NOT in scope | "NOT in scope" section | always |
 | What already exists | "What already exists" section | always |
 | Dream state delta | "Dream state delta" section | always |

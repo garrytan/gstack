@@ -843,6 +843,13 @@ solves the pain directly or only a proxy.
 Map each sub-problem to reusable code. For any rebuild, explain why refactoring
 the existing path is worse.
 
+**Reality rows (required):** run `~/.claude/skills/gstack/bin/gstack-plan-reality rows --phase ceo` and work each
+row it prints (tier 1 always: premise-table, already-done, surface-check, binding-decisions, numbers, deferred-asks, pr-count; tier 2 by detected scope, `--scope <csv>`).
+Every row cites a file:line receipt; the premise table counts `unverified=<n>`. End with
+one line per row, `REALITY: <row> pass|finding|n/a <summary> <file:line>`, then run
+`~/.claude/skills/gstack/bin/gstack-plan-reality check --phase ceo <review>`: a missing applicable row is `incomplete`
+unattended; interactive runs repair twice, then warn at the gate.
+
 ### 0C. Dream State Mapping
 Describe the 12-month ideal and whether this plan moves toward it.
 ```

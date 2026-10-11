@@ -695,6 +695,11 @@ Use these facts in the Summary, report row and Review Log. Artifact cells stay
 pending until confirmed writes, or not persisted when forbidden. A substantive
 late decision repeats readiness and recomputes facts before refreshing outputs.
 
+### Reality rows
+
+The `REALITY:` lines from 0A/0B (one per applicable row) and the `PLAN_REALITY`
+check line, kept above the Completion Summary that tallies them.
+
 ### "NOT in scope" section
 List explicitly deferred and rejected work separately, with each actual answer
 and one-line rationale. Deferred work also goes to TODOS.md; rejected work does not.
@@ -862,6 +867,7 @@ Step 0 and the review sections. Compute "Lake Score" (complete options selected)
   | Diagrams produced    | ___ (list types)                            |
   | Stale diagrams found | ___                                         |
   | Unresolved decisions | ___ (listed below)                          |
+  | Reality rows         | ___/___ rows (PLAN_REALITY), ___ unverified |
   +====================================================================+
 ```
 

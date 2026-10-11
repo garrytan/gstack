@@ -76,6 +76,15 @@ gbrain:
 
 Fixing symptoms creates whack-a-mole debugging. Every fix that doesn't address root cause makes the next bug harder to find. Find the root cause, then fix it.
 
+## Arguments
+
+| Invocation | Contract |
+|---|---|
+| `/investigate <symptom>` | Phases 1–5 below; the recipes in the Section index when the pattern matches. |
+| `/investigate --backlog [<issue numbers or gh query>]` | Read-only triage of open issues against HEAD: read the backlog section and produce its table. No Phases 1–5, no fixes, no issue closing. |
+
+---
+{{SECTION_INDEX:investigate}}
 ---
 
 {{GBRAIN_CONTEXT_LOAD}}
@@ -86,7 +95,7 @@ Gather context before forming any hypothesis.
 
 1. **Collect symptoms:** Read the error messages, stack traces, and reproduction steps. If the user hasn't provided enough context, ask ONE question at a time via AskUserQuestion.
 
-2. **Read the code:** Trace the code path from the symptom back to potential causes. Use Grep to find all references, Read to understand the logic.
+2. **Read the code:** Trace the code path from the symptom back to potential causes. Use Grep to find all references, Read to understand the logic. Before calling two queries, helpers or code paths duplicates, read their call sites: what looks identical usually differs in a caller's guard, transaction or scope, and the "duplicate" is the one that is right.
 
 3. **Check recent changes:**
    ```bash
@@ -94,7 +103,7 @@ Gather context before forming any hypothesis.
    ```
    Was this working before? What changed? A regression means the root cause is in the diff.
 
-4. **Reproduce:** Can you trigger the bug deterministically? If not, gather more evidence before proceeding.
+4. **Reproduce:** Can you trigger the bug deterministically? If not, gather more evidence before proceeding. Before timing anything that spawns git in a benchmark or bisect worktree, run `git update-index --refresh` there: a stale index makes the first `git status`/`git diff` pay a full refresh and the measurement lies.
 
 5. **Check investigation history:** Search prior learnings for investigations on the same files. Recurring bugs in the same area are an architectural smell. If prior investigations exist, note patterns and check if the root cause was structural.
 
@@ -172,6 +181,24 @@ Check if this bug matches a known pattern:
 Also check:
 - `TODOS.md` for related known issues
 - `git log` for prior fixes in the same area — **recurring bugs in the same files are an architectural smell**, not a coincidence
+
+### Recipes
+
+Intermittent or CI-only failures, order-dependent failures, races and regressed
+judged metrics each have a recipe. Read the matching one before Phase 3; a rerun,
+a wider timeout or a skip is never a hypothesis.
+
+{{SECTION:flake}}
+
+{{SECTION:polluter}}
+
+{{SECTION:race}}
+
+{{SECTION:eval-bisect}}
+
+`--backlog` runs none of the phases:
+
+{{SECTION:backlog}}
 
 **External pattern search:** If the bug doesn't match a known pattern above, research through Aside (Web research runs in Aside, above). **Sanitize first:** strip hostnames, IPs, file paths, SQL, customer data. Search the error category, not the raw message:
 - "{framework} {generic error type}"

@@ -55,7 +55,13 @@ When the user types `/benchmark`, run this skill.
 SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || SLUG=unknown
 mkdir -p .gstack/benchmark-reports
 mkdir -p .gstack/benchmark-reports/baselines
+git update-index --refresh >/dev/null 2>&1 || true
 ```
+
+Run `git update-index --refresh` before timing anything that spawns git (a dev
+server's version stamp, a build step, `--diff` discovery) in a benchmark or bisect
+worktree: a stale index makes the first `git status`/`git diff` pay a full refresh,
+and that cost lands in the measurement.
 
 ### Phase 2: Page Discovery
 
