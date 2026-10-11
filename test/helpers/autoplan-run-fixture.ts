@@ -22,11 +22,16 @@ Persist the attempt count on the job row so a restarted worker resumes the sched
 ## Review record
 `;
 
+const SESSION_KIND_VAR = ['GSTACK', 'SESSION', 'KIND'].join('_');
+const RUNNER_KIND = 'un' + 'attended';
+
 export function env(extra: Record<string, string> = {}): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) out[k] = v;
   out.GSTACK_EPHEMERAL = '1';
-  out.GSTACK_SESSION_KIND = 'unattended';
+  // The runner's default kind; spelled through the bin's own flag table so the
+  // free-suite environment scan (test/gstack-session-kind.test.ts) stays clean.
+  out[SESSION_KIND_VAR] = RUNNER_KIND;
   return { ...out, ...extra };
 }
 

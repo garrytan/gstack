@@ -65,13 +65,18 @@ export function withFileLock<T>(file: string, fn: () => T, opts: { timeoutMs?: n
   const staleMs = opts.staleMs ?? 60_000;
   const deadline = Date.now() + timeoutMs;
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  // The lock appears with its owner record already written (link of a complete
+  // temp file), so a contender never reads a half-written lock and mistakes a
+  // live owner for a stale one.
+  const tmp = `${lock}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
   for (;;) {
     try {
-      const fd = fs.openSync(lock, 'wx');
-      fs.writeSync(fd, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString() }));
-      fs.closeSync(fd);
+      fs.writeFileSync(tmp, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString() }));
+      fs.linkSync(tmp, lock);
+      fs.unlinkSync(tmp);
       break;
     } catch (e: any) {
+      try { fs.unlinkSync(tmp); } catch {}
       if (e.code !== 'EEXIST') throw e;
       let stale = false;
       try {
@@ -83,7 +88,10 @@ export function withFileLock<T>(file: string, fn: () => T, opts: { timeoutMs?: n
           try { process.kill(owner.pid, 0); } catch (k: any) { alive = k.code === 'EPERM'; }
         }
         stale = (sameHost && !alive) || (Number.isFinite(age) && age > staleMs);
-      } catch { stale = true; }
+      } catch (read: any) {
+        // Unreadable lock: only its age can justify breaking it; a vanished lock means retry.
+        if (read.code !== 'ENOENT') { try { stale = Date.now() - fs.statSync(lock).mtimeMs > staleMs; } catch {} }
+      }
       if (stale) { try { fs.unlinkSync(lock); } catch {} continue; }
       if (Date.now() > deadline) throw new Error(`timed out waiting for ${lock}`);
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5 + Math.floor(Math.random() * 20));
