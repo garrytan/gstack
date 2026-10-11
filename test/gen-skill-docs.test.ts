@@ -437,14 +437,13 @@ describe('gen-skill-docs', () => {
   });
 
   test('benchmark routing is scoped to web page performance', () => {
-    const generated = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md'), 'utf-8');
+    // The template description is the routing source; the Claude catalog trim
+    // drops its tail from benchmark/SKILL.md.
     const template = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md.tmpl'), 'utf-8');
-    for (const content of [generated, template]) {
-      const useWhen = content.match(/Use when:[\s\S]*?(?=\n\n|\(gstack\))/)?.[0] ?? '';
-      expect(useWhen).toContain('"web performance benchmark"');
-      expect(useWhen).not.toMatch(/"benchmark"|"performance"/);
-      expect(content).toContain('/benchmark-models');
-    }
+    const useWhen = template.match(/Use when:[\s\S]*?(?=\n\n|\(gstack\))/)?.[0] ?? '';
+    expect(useWhen).toContain('"web performance benchmark"');
+    expect(useWhen).not.toMatch(/"benchmark"|"performance"/);
+    expect(template).toContain('/benchmark-models');
     const router = fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
     expect(router).toContain('web performance regression → invoke `/benchmark`');
     expect(router).toContain('model or skill benchmarks → invoke `/benchmark-models`');
@@ -4422,8 +4421,10 @@ describe('voice-triggers processing', () => {
     expect(processVoiceTriggers(content)).toBe(content);
   });
 
-  test('generated CSO SKILL.md contains voice triggers in description', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+  test('CSO voice triggers fold into the full description', () => {
+    // The Claude catalog trim drops this line from cso/SKILL.md; full-mode and
+    // other-host renders still carry it.
+    const content = processVoiceTriggers(fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md.tmpl'), 'utf-8'));
     expect(content).toContain('"see-so"');
     expect(content).toContain('Voice triggers (speech-to-text aliases):');
   });

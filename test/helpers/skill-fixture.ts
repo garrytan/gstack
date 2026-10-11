@@ -39,7 +39,6 @@ import * as path from 'path';
 /** /review E2E (sql-injection, enum-completeness, design-lite): the core
  *  review workflow without the shared preamble, Review Army, or Fix-First. */
 export const REVIEW_E2E_SECTIONS = [
-  'When to invoke this skill',
   'Step 0: Detect platform and base branch',
   'Step 1: Check branch',
   'Step 2: Read the checklist',
@@ -54,7 +53,6 @@ export const REVIEW_E2E_SECTIONS = [
  *  (delivery-audit test) + Step 4.5 specialist dispatch (quality score,
  *  JSON findings schema, MULTI-SPECIALIST consensus, Red Team). */
 export const REVIEW_ARMY_E2E_SECTIONS = [
-  'When to invoke this skill',
   'Step 0: Detect platform and base branch',
   'Step 1: Check branch',
   'Step 1.5: Scope Drift Detection',
@@ -72,7 +70,6 @@ export const REVIEW_ARMY_E2E_SECTIONS = [
  *  + the narrative report template. Global mode and Compare mode are not
  *  exercised by the E2E tests and are dropped. */
 export const RETRO_E2E_SECTIONS = [
-  'When to invoke this skill',
   'Step 0: Detect platform and base branch',
   'User-invocable',
   'Arguments',
@@ -86,8 +83,7 @@ export const RETRO_E2E_SECTIONS = [
 
 /** codex-review-findings E2E against the Codex host variant
  *  (.agents/skills/gstack-review/SKILL.md). Same core workflow as
- *  REVIEW_E2E_SECTIONS, minus "When to invoke this skill" (the Codex host
- *  adapter does not emit that section). */
+ *  REVIEW_E2E_SECTIONS. */
 export const CODEX_REVIEW_E2E_SECTIONS = [
   'Step 0: Detect platform and base branch',
   'Step 1: Check branch',

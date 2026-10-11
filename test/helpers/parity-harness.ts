@@ -229,7 +229,7 @@ const CARVED_INVARIANTS: ParityInvariant[] = Object.values(CARVE_GUARDS).map((g)
   mustContain: g.mustContain,
   // CSO's helper trust boundary requires its private startup; demanding the
   // shared Preamble here would silently reintroduce conflicting policy.
-  mustHaveHeadings: g.skill === 'cso' ? ['## When to invoke'] : ['## Preamble', '## When to invoke'],
+  mustHaveHeadings: g.skill === 'cso' ? [] : ['## Preamble'],
   maxSizeRatio: g.maxSizeRatio ?? 1.05,
 }));
 
