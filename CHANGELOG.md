@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.91.71.0] - 2026-10-10
+
+**A parent agent can now confirm a gstack install with one grep: `gstack-doctor --check` prints one PASS/FAIL/SKIP row per component and exactly one `gstack: ok … for=<skill>` or `gstack: fail <ids>` trailer with a real exit code, and `gstack-capy-install` sets up a Capy machine without downloading Chromium.**
+
+The user-scope Capy installer's `--check` certified machines with nothing installed, planning machines paid 86 s for a browser they never opened, and `./setup` exited before its own repair step on an image whose Bun was below gstack's floor. This release is PR A of the multi-agent wave (`docs/designs/MULTI_AGENT_WAVE_2026_10_10.md`).
+
+### What this means for you
+
+- **`gstack-doctor --check [--for <skill> | --require <csv>] [--project <path>] [--revision <ref>] [--json] [--live]`.** Rows are `PASS|FAIL|SKIP <id> <detail>` (`claude codex patch codex-cli browse-bundle browser cso runtime pins state-root privacy cores revision`); every FAIL carries `fix: <exact command>` and a reason code with a `docs/troubleshooting.md` anchor. `--for autoplan` requires only what autoplan needs: a healthy Capy machine with Claude subagents as the outside voice and no Codex CLI passes. The paid Codex probe runs only with `--live`. Exit 0 only when every required component passes; 1 on a FAIL; 2 on usage. The doctor still reports with Bun absent or below floor (the component table is generated into sourced bash).
+- **The `runtime` row distinguishes gstack's security floor (1.3.3) from its supported minimum (1.4.2)**; the default Capy image's Bun 1.3.14 is a FAIL under `--check`. The new `pins` row reads the *target project's* `packageManager`, `engines`, `.tool-versions`, `.nvmrc`, `.bun-version` and CI matrix pins (per lane, so a Windows pin never blocks a Linux run) and names each constraint's source.
+- **`bin/gstack-capy-install`** (Capy cloud Ubuntu): Bun/Node/jq preflight before `./setup` (Bun upgraded from the exact release archive with SHA-256 verification when gstack's minimum and the project pin agree; `RUNTIME_PIN_CONFLICT` stops with both printed and installs nothing), reuses an existing checkout without reset or pull, runs both host setups without the browser, prints planning-only install time separately, and ends with the doctor trailer plus `GSTACK_LAUNCH: GSTACK_SESSION_KIND=unattended GSTACK_STATE_ROOT=<path> GSTACK_EPHEMERAL=1` for the parent to pass to every gstack command. `--revision <ref>` on a checkout at another revision reports `(requested <ref>; run gstack-upgrade to move)`, never pulls. See `docs/capy-install.md`.
+- **Chromium is lazy.** `./setup --no-browser` is a documented flag; `bin/gstack-browser-ensure` installs the browser on the first browser-skill run under setup's lock, and every browser skill's fallback detection calls it. `--check` reports `SKIP browser (lazy; gstack-browser-ensure installs on first use)` for planning skills.
+- **`./setup --status` exits 1** when an install has broken section links instead of always 0.
+- The doctor's `state root` row prints `durable=yes|no` from the `GSTACK_EPHEMERAL=1` marker (`docs/state-root.md#ephemeral-machines`).
+
+### Itemized changes
+
+#### Added
+- `bin/gstack-doctor-check.sh` (sourced by `bin/gstack-doctor`), `lib/doctor-components.ts` → generated `bin/gstack-doctor-components.sh` (`scripts/gen-doctor-components.ts`, freshness-tested), `lib/runtime-pins.ts` + `bin/gstack-runtime-pins.ts`, `lib/result-codes.ts` (`COMPONENT_MISSING`, `RUNTIME_BELOW_MINIMUM`, `PROJECT_PIN_MISMATCH`, `REVISION_UNMET`, `RUNTIME_PIN_CONFLICT`, `BROWSER_UNAVAILABLE`, `INSTALL_PREFLIGHT_FAILED`), `bin/gstack-capy-install`, `bin/gstack-browser-ensure`, `docs/capy-install.md`.
+
+#### Changed
+- `setup`: `--no-browser`, `--status` exit code, Bun install hint uses the release-archive recipe (`bash "$tmpfile" "bun-v$BUN_VERSION"`; the install script pins by positional argument). Bun release checksums live in `bin/gstack-bun-version.sh`.
+- `scripts/resolvers/browse.ts`: `$B` detection runs `gstack-browser-ensure` before `READY`, byte-neutral on the zero-headroom skills.
+
+#### For contributors
+- New tests: `test/gstack-doctor.test.ts` `--check` fixtures (healthy, each missing component, wrong host, missing auth, runtime mismatch at both floors, bun removed from PATH, pins, unmet revision, browser only for browser skills, `--json`, usage), `test/gstack-capy-install.test.ts`, `test/gstack-browser-ensure.test.ts`, `test/runtime-pins.test.ts`, `test/doctor-components.test.ts`.
+- Any later change to browse.ts prose needs a reversal entry in `test/helpers/manual-judge-review-fixture.ts`; new gen-skill-docs sibling modules need an entry in `test/gen-skill-docs-prune-stale.test.ts`; new network operations in `bin/` need an `egress-receipt-wiring` entry.
+
 ## [1.91.70.0] - 2026-10-10
 
 **gstack runs unattended for a parent agent: one artifact contract a parent can validate, an `unattended` session kind that never prompts or syncs, a review log whose status is derived from its findings, and a gate list that is written, never auto-approved.**

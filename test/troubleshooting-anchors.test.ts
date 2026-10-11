@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GATE_OUTCOMES, gateOutcomeLine, type GateReason } from '../lib/gate-outcomes';
-import { RESULT_CODES, resultLine } from '../lib/result-codes';
+import { RESULT_CODES, resultCodeSuffix, resultLine } from '../lib/result-codes';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const doc = fs.readFileSync(path.join(ROOT, 'docs/troubleshooting.md'), 'utf8');
@@ -28,6 +28,8 @@ describe('docs/troubleshooting.md anchors', () => {
       expect(anchors.has(row.anchor)).toBe(true);
       const after = doc.slice(doc.indexOf(`<a id="${row.anchor}"></a>`)).split('\n')[1] ?? '';
       expect(after).toMatch(/^#{2,4} /);
+      expect(row.fix.trim().length).toBeGreaterThan(0);
+      expect(resultCodeSuffix(code as keyof typeof RESULT_CODES)).toBe(`(${code}; https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#${row.anchor})`);
     });
   }
 

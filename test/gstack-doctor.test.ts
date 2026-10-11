@@ -26,6 +26,7 @@ const COPIED = [
   'bin/gstack-render-claude.sh', 'bin/gstack-bun-version.sh', 'bin/gstack-hook-check', 'bin/gstack-config',
   'autoplan/SKILL.md', // its frontmatter registers the autoplan hook the hooks-row test breaks
   'bin/gstack-launch-probe.sh',
+  'bin/gstack-doctor-check.sh', 'bin/gstack-doctor-components.sh', 'bin/gstack-runtime-pins.ts', 'lib/runtime-pins.ts',
 ];
 const bases: string[] = [];
 afterEach(() => { for (const b of bases.splice(0)) fs.rmSync(b, { recursive: true, force: true }); });
@@ -92,7 +93,8 @@ function makeFixture(): Fixture {
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   write(path.join(state, 'installs.tsv'),
     ['claude', 'global', '-', path.join(home, '.claude/skills'), root, root, version, 'false', 'committed', '2026-10-07T00:00:00Z'].join('\t') + '\n');
-  script(path.join(stub, 'bun'), ['[ "$1" = --version ] && { echo "${STUB_BUN_VERSION:-1.4.2}"; exit 0; }', 'exit 0']);
+  // The stub answers --version; anything else (the pins row runs bin/gstack-runtime-pins.ts) goes to the real bun.
+  script(path.join(stub, 'bun'), ['[ "$1" = --version ] && { echo "${STUB_BUN_VERSION:-1.4.2}"; exit 0; }', `exec "${process.execPath}" "$@"`]);
   script(path.join(stub, 'codex'), ['[ "$1" = --version ] && { echo "codex-cli 0.130.0"; exit 0; }', 'echo "unexpected codex call: $*" >> "$DOCTOR_PROBE_LOG"', 'exit 9']);
   script(path.join(stub, 'claude'), ['[ "$1" = --version ] && { echo "2.1.292 (Claude Code)"; exit 0; }', 'exit 9']);
   const env: Record<string, string> = {
@@ -432,5 +434,270 @@ describe('gstack-doctor launch and CSO rows', () => {
     r = doctor(f);
     expect(r.row('cso')).toEqual({ state: 'ok', detail: 'native helper 1.2 (abc)', fix: '' });
     expect(r.status).toBe(0);
+  });
+});
+
+// A1: `--check` is the one-line verdict a parent agent greps. Rows are
+// `PASS | FAIL | SKIP <id>` from lib/doctor-components.ts; the trailer is
+// `gstack: ok <revision> for=<what>` (exit 0) or `gstack: fail <ids>` (exit 1).
+// Pinned on tokens, ids, exit codes and the JSON shape, not prose.
+describe('gstack-doctor --check', () => {
+  const VERSION = fs.readFileSync(path.join(REPO, 'VERSION'), 'utf8').trim();
+  const row = (f: Fixture, args: string[], extra: Record<string, string> = {}) => {
+    const r = doctor(f, ['--check', ...args], extra);
+    const lines = r.out.split('\n');
+    const rows = Object.fromEntries(lines.filter(l => /^(PASS|FAIL|SKIP) /.test(l)).map(l => {
+      const m = l.match(/^(PASS|FAIL|SKIP) ([a-z-]+)(?:\s(.*))?$/)!;
+      return [m[2], { status: m[1], rest: m[3] ?? '' }];
+    }));
+    const trailer = lines.filter(l => l.startsWith('gstack: ')).at(-1) ?? '';
+    const required = lines.find(l => l.startsWith('required: '))?.slice(10).split(' ') ?? [];
+    return { status: r.status, out: r.out, rows, trailer, required, trailers: lines.filter(l => l.startsWith('gstack: ')).length };
+  };
+  /** Register a Codex install from this checkout and render a review skill, with or without the Astra patch. */
+  const installCodex = (f: Fixture, patch = true) => {
+    const dest = path.join(f.home, '.codex/skills');
+    fs.appendFileSync(path.join(f.state, 'installs.tsv'),
+      ['codex', 'global', '-', dest, path.join(dest, 'gstack'), f.root, VERSION, 'true', 'committed', '2026-10-07T00:00:00Z'].join('\t') + '\n');
+    fs.mkdirSync(path.join(dest, 'gstack'), { recursive: true });
+    write(path.join(dest, 'gstack-review/SKILL.md'), `---\nname: gstack-review\n---\n# Review\n${patch ? '\n## Model-Specific Behavioral Patch (gpt-6-astra)\n' : ''}`);
+    return dest;
+  };
+  const installPlaywrightStub = (f: Fixture, launches: boolean) => write(path.join(f.root, 'node_modules/playwright/index.js'),
+    launches
+      ? 'module.exports.chromium = { launch: async () => ({ version: () => "141.0.1", close: async () => {}, newPage: async () => ({ setContent: async () => {}, title: async () => "gstack smoke test" }) }) };'
+      : 'module.exports.chromium = { launch: async () => { throw new Error("browserType.launch: Executable doesn\'t exist"); } };');
+
+  test('healthy Claude + Codex installs: every required row PASS, exactly one trailer, exit 0, no paid probe', () => {
+    const f = makeFixture();
+    installCodex(f);
+    const r = row(f, []);
+    expect(r.status, r.out).toBe(0);
+    expect(r.required).toEqual(['claude', 'codex', 'runtime', 'pins', 'state-root', 'privacy', 'cores', 'revision']);
+    for (const id of r.required.filter(x => x !== 'pins')) expect(r.rows[id]?.status, `${id}\n${r.out}`).toBe('PASS');
+    // The work dir is not a git repository, so there is no project to read pins from: SKIP with the reason, never silent.
+    expect(r.rows.pins).toEqual({ status: 'SKIP', rest: expect.stringContaining('no project') });
+    expect(r.rows.patch.status).toBe('PASS');
+    expect(r.rows['codex-cli'].status).toBe('PASS');
+    expect(r.rows.browser).toEqual({ status: 'SKIP', rest: '(lazy; gstack-browser-ensure installs on first use)' });
+    expect(r.rows.cso.status).toBe('SKIP');
+    expect(r.trailer).toBe(`gstack: ok ${VERSION} for=installed-hosts:claude,codex`);
+    expect(r.trailers).toBe(1);
+    expect(r.rows.runtime.rest).toContain('floor 1.3.3, supported minimum 1.4.2');
+    expect(r.rows.privacy.rest).toBe('telemetry=off artifacts_sync=off codex_reviews=enabled update_check=true');
+    expect(r.rows['state-root'].rest).toContain('durable=yes');
+    expect(probeCalls(f)).not.toContain('probe-model');
+  });
+
+  test('--for autoplan: healthy Capy machine with Claude subagents as the outside voice and no Codex CLI passes', () => {
+    const f = makeFixture();
+    installCodex(f);
+    fs.rmSync(path.join(f.stub, 'codex'));
+    const r = row(f, ['--for', 'autoplan']);
+    expect(r.status, r.out).toBe(0);
+    expect(r.required).toEqual(['claude', 'codex', 'patch', 'runtime', 'pins', 'state-root', 'privacy', 'cores', 'revision']);
+    expect(r.rows.patch).toEqual({ status: 'PASS', rest: 'gpt-6-astra (gstack-review/SKILL.md)' });
+    expect(r.rows['codex-cli'].status).toBe('SKIP');
+    expect(r.rows['codex-cli'].rest).toContain('optional');
+    expect(r.trailer).toBe(`gstack: ok ${VERSION} for=autoplan`);
+    // The same machine with a stale Codex render fails the patch row.
+    installCodex(f, false);
+    const noPatch = row(f, ['--for', 'autoplan']);
+    expect(noPatch.status).toBe(1);
+    expect(noPatch.rows.patch.status).toBe('FAIL');
+    expect(noPatch.rows.patch.rest).toContain('fix: ');
+    expect(noPatch.rows.patch.rest).toContain('(COMPONENT_MISSING; ');
+    expect(noPatch.rows.patch.rest).toContain('--host codex --model');
+    expect(noPatch.trailer).toBe('gstack: fail patch');
+  });
+
+  test('an empty installed-host set is never ok: claude is required and FAILs', () => {
+    const f = makeFixture();
+    write(path.join(f.state, 'installs.tsv'), '');
+    const r = row(f, []);
+    expect(r.status).toBe(1);
+    expect(r.required).toContain('claude');
+    expect(r.rows.claude.status).toBe('FAIL');
+    expect(r.rows.claude.rest).toContain(`fix: cd ${bashPath(f.root)} && ./setup --host claude --no-prefix`);
+    expect(r.trailer).toBe('gstack: fail claude');
+    expect(JSON.parse(doctor(f, ['--json']).out).for).toBe('installed-hosts:none(claude required)');
+  });
+
+  test('wrong host: an install registered from another checkout does not count; --require names what is missing', () => {
+    const f = makeFixture();
+    const other = path.join(f.base, 'other');
+    write(path.join(f.state, 'installs.tsv'), ['codex', 'global', '-', path.join(f.home, '.codex/skills'), other, other, VERSION, 'false', 'committed', 'x'].join('\t') + '\n');
+    const r = row(f, ['--require', 'codex,patch']);
+    expect(r.status).toBe(1);
+    expect(r.rows.codex.status).toBe('FAIL');
+    expect(r.rows.patch.status).toBe('FAIL');
+    expect(r.rows.claude.status).toBe('SKIP');
+    expect(r.trailer).toBe('gstack: fail codex,patch');
+    expect(JSON.parse(doctor(f, ['--json', '--require', 'codex,patch']).out).for).toBe('codex,patch');
+  });
+
+  test('missing authentication: --for codex needs the CLI; absent, unauthenticated and present are told apart, --live probes once', () => {
+    const f = makeFixture();
+    installCodex(f);
+    const unauthed = row(f, ['--for', 'codex'], { STUB_AUTH_FAIL: '1' });
+    expect(unauthed.status).toBe(1);
+    expect(unauthed.rows['codex-cli'].status).toBe('FAIL');
+    expect(unauthed.rows['codex-cli'].rest).toContain('not authenticated');
+    expect(unauthed.rows['codex-cli'].rest).toContain('codex login --with-api-key');
+    expect(unauthed.trailer).toBe('gstack: fail codex-cli');
+
+    const authed = row(f, ['--for', 'codex']);
+    expect(authed.status, authed.out).toBe(0);
+    expect(authed.rows['codex-cli'].rest).toContain('paid probe not run; add --live');
+    expect(probeCalls(f)).not.toContain('probe-model');
+
+    const live = row(f, ['--for', 'codex', '--live']);
+    expect(live.status, live.out).toBe(0);
+    expect(live.rows['codex-cli'].rest).toContain('live probe ok');
+    expect(probeCalls(f).match(/probe-model exec/g)?.length).toBe(1);
+
+    fs.rmSync(path.join(f.stub, 'codex'));
+    const absent = row(f, ['--for', 'codex']);
+    expect(absent.rows['codex-cli'].status).toBe('FAIL');
+    expect(absent.rows['codex-cli'].rest).toContain('npm install -g @openai/codex');
+  });
+
+  test('runtime mismatch: the supported minimum (1.4.2) and the floor (1.3.3) both FAIL in --check', () => {
+    const f = makeFixture();
+    const untested = row(f, [], { STUB_BUN_VERSION: '1.3.14' });
+    expect(untested.status).toBe(1);
+    expect(untested.rows.runtime.status).toBe('FAIL');
+    expect(untested.rows.runtime.rest).toContain('below the supported minimum 1.4.2');
+    expect(untested.rows.runtime.rest).toContain('(RUNTIME_BELOW_MINIMUM; ');
+    expect(untested.trailer).toBe('gstack: fail runtime');
+    const old = row(f, [], { STUB_BUN_VERSION: '1.3.2' });
+    expect(old.rows.runtime.rest).toContain('below the security floor 1.3.3');
+    expect(old.trailer).toBe('gstack: fail runtime');
+  });
+
+  test('bun removed from PATH: the doctor still reports, runtime FAILs, pins SKIPs with a reason, one trailer', () => {
+    const f = makeFixture();
+    fs.rmSync(path.join(f.stub, 'bun'));
+    const r = row(f, []);
+    expect(r.status).toBe(1);
+    expect(r.rows.runtime.status).toBe('FAIL');
+    expect(r.rows.runtime.rest).toContain('bun not found on PATH');
+    expect(r.rows.pins).toEqual({ status: 'SKIP', rest: expect.stringContaining('no bun to evaluate the project pins') });
+    expect(r.rows.claude.status).toBe('PASS');
+    expect(r.trailer).toBe('gstack: fail runtime');
+    expect(r.trailers).toBe(1);
+  });
+
+  test('project pins: --project reads the target repository, a range mismatch FAILs with its source, a match PASSes', () => {
+    const f = makeFixture();
+    const project = path.join(f.base, 'project');
+    write(path.join(project, 'package.json'), '{\n  "engines": {\n    "bun": ">=1.4.2"\n  }\n}\n');
+    const bad = row(f, ['--project', project], { STUB_BUN_VERSION: '1.3.14' });
+    expect(bad.rows.pins.status).toBe('FAIL');
+    expect(bad.rows.pins.rest).toContain('bun 1.3.14 outside engines.bun >=1.4.2 (package.json:3)');
+    expect(bad.rows.pins.rest).toContain('(PROJECT_PIN_MISMATCH; ');
+    expect(bad.trailer).toBe('gstack: fail runtime,pins');
+    const good = row(f, ['--project', project]);
+    expect(good.rows.pins).toEqual({ status: 'PASS', rest: `${project}: bun >=1.4.2 (engines.bun, package.json:3)` });
+    const none = row(f, ['--project', f.work]);
+    expect(none.rows.pins.status).toBe('PASS');
+    expect(none.rows.pins.rest).toContain('pins no runtime');
+    const missing = row(f, ['--project', path.join(f.base, 'nope')]);
+    expect(missing.rows.pins.status).toBe('SKIP');
+  });
+
+  test('--revision: a matching VERSION passes, an unmet revision is never ok', () => {
+    const f = makeFixture();
+    const ok = row(f, ['--revision', VERSION]);
+    expect(ok.status, ok.out).toBe(0);
+    expect(ok.rows.revision.status).toBe('PASS');
+    const unmet = row(f, ['--revision', 'v9.9.9.9']);
+    expect(unmet.status).toBe(1);
+    expect(unmet.rows.revision.status).toBe('FAIL');
+    expect(unmet.rows.revision.rest).toContain(`installed ${VERSION}`);
+    expect(unmet.rows.revision.rest).toContain('(requested v9.9.9.9)');
+    expect(unmet.rows.revision.rest).toContain('(REVISION_UNMET; ');
+    expect(unmet.trailer).toBe('gstack: fail revision');
+  });
+
+  test('browser skills: the bundle and a Chromium launch plus render are required; planning skills never launch it', () => {
+    const f = makeFixture();
+    installCodex(f);
+    installPlaywrightStub(f, false);
+    const broken = row(f, ['--for', 'qa']);
+    expect(broken.status).toBe(1);
+    expect(broken.rows['browse-bundle'].status).toBe('PASS');
+    expect(broken.rows.browser.status).toBe('FAIL');
+    expect(broken.rows.browser.rest).toContain("Executable doesn't exist");
+    expect(broken.rows.browser.rest).toContain(`fix: ${bashPath(f.root)}/bin/gstack-browser-ensure (BROWSER_UNAVAILABLE; `);
+    expect(broken.trailer).toBe('gstack: fail browser');
+    installPlaywrightStub(f, true);
+    const ok = row(f, ['--for', 'qa']);
+    expect(ok.status, ok.out).toBe(0);
+    expect(ok.rows.browser).toEqual({ status: 'PASS', rest: 'Chromium 141.0.1 launched and rendered (node)' });
+    fs.rmSync(path.join(f.root, BROWSE_BIN));
+    const noBundle = row(f, ['--for', 'browse']);
+    expect(noBundle.rows['browse-bundle'].status).toBe('FAIL');
+    expect(noBundle.rows['browse-bundle'].rest).toContain('fix: cd ');
+    installPlaywrightStub(f, false);
+    expect(row(f, ['--for', 'autoplan']).rows.browser.status).toBe('SKIP');
+  });
+
+  test('cso: optional by default (SKIP, never silent), required by --for cso', () => {
+    const f = makeFixture();
+    expect(row(f, []).rows.cso).toEqual({ status: 'SKIP', rest: '(optional; toolchain absent or helper not built)' });
+    const r = row(f, ['--for', 'cso']);
+    expect(r.rows.cso.status).toBe('FAIL');
+    expect(r.trailer).toBe('gstack: fail cso');
+    for (const name of ['gstack-cso-launcher', 'gstack-cso-core']) write(path.join(f.root, 'bin', name + EXE), '#!/bin/sh\necho cso\n', 0o755);
+    expect(row(f, ['--for', 'cso']).rows.cso.status).toBe('PASS');
+  });
+
+  test('state root: GSTACK_EPHEMERAL=1 reports durable=no in --check (PASS) and warns in the dashboard', () => {
+    const f = makeFixture();
+    const r = row(f, [], { GSTACK_EPHEMERAL: '1' });
+    expect(r.rows['state-root'].status).toBe('PASS');
+    expect(r.rows['state-root'].rest).toContain(`${f.state} durable=no`);
+    expect(r.rows['state-root'].rest).toContain('GSTACK_EPHEMERAL=1');
+    expect(r.status, r.out).toBe(0);
+    const dash = doctor(f, [], { GSTACK_EPHEMERAL: '1' });
+    expect(dash.row('state root').state).toBe('warn');
+    expect(dash.row('state root').detail).toContain('durable=no');
+    expect(dash.row('state root').fix).toContain('GSTACK_STATE_ROOT');
+    expect(doctor(f).row('state root').detail).toContain('durable=yes');
+  });
+
+  test('--json: the same rows as objects keyed by the component ids, ok/failed/required and the trailer', () => {
+    const f = makeFixture();
+    installCodex(f);
+    const r = doctor(f, ['--json', '--for', 'autoplan'], { STUB_BUN_VERSION: '1.3.14' });
+    expect(r.status).toBe(1);
+    const json = JSON.parse(r.out.trim().split('\n').at(-1)!);
+    expect(json.schema_version).toBe(1);
+    expect(json.revision).toBe(VERSION);
+    expect(json.for).toBe('autoplan');
+    expect(json.ok).toBe(false);
+    expect(json.failed).toEqual(['runtime']);
+    expect(json.required).toEqual(['claude', 'codex', 'patch', 'runtime', 'pins', 'state-root', 'privacy', 'cores', 'revision']);
+    expect(json.rows.map((x: { id: string }) => x.id)).toEqual(['claude', 'codex', 'patch', 'codex-cli', 'browse-bundle', 'browser', 'cso', 'runtime', 'pins', 'state-root', 'privacy', 'cores', 'revision']);
+    const runtime = json.rows.find((x: { id: string }) => x.id === 'runtime');
+    expect(runtime.status).toBe('FAIL');
+    expect(runtime.code).toBe('RUNTIME_BELOW_MINIMUM');
+    expect(runtime.anchor).toBe('doctor-runtime-below-minimum');
+    expect(runtime.fix).toContain('gstack-capy-install');
+    expect(json.trailer).toBe('gstack: fail runtime');
+    expect(r.out.trim().split('\n')).toHaveLength(1);
+    const ok = JSON.parse(doctor(f, ['--json']).out.trim());
+    expect(ok.ok).toBe(true);
+    expect(ok.trailer).toBe(`gstack: ok ${VERSION} for=installed-hosts:claude,codex`);
+  });
+
+  test('usage: --for with --require, an unknown skill or component, and a flag without a value exit 2', () => {
+    const f = makeFixture();
+    expect(doctor(f, ['--check', '--for', 'autoplan', '--require', 'claude']).status).toBe(2);
+    expect(doctor(f, ['--for', 'no-such-skill']).status).toBe(2);
+    expect(doctor(f, ['--require', 'claude,bogus']).status).toBe(2);
+    expect(doctor(f, ['--check', '--project']).status).toBe(2);
+    expect(doctor(f, ['--help']).out).toContain('--check');
   });
 });
