@@ -112,7 +112,7 @@ export function classify(constraint: string): Pin['kind'] {
   return writtenParts(trimmed) === 3 ? 'exact' : 'range';
 }
 
-function laneOf(runsOn: string): Lane {
+export function laneOf(runsOn: string): Lane {
   const value = runsOn.toLowerCase();
   if (value.includes('windows')) return 'windows';
   if (value.includes('macos')) return 'macos';

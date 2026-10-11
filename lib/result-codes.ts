@@ -317,6 +317,77 @@ export const RESULT_CODES = {
     summary: 'the selected outside-voice runner cannot run here (CLI missing, no API key, or no result file for host-subagent)',
     fix: 'install or log in the CLI (`gstack-codex-login` from OPENAI_API_KEY), set an API key for `--runner api`, or pass `--result <file> --model <id>` for `--runner host-subagent`',
   },
+  // C-pregate (plan C4, C6, C8): generated-file registry, issue links, the cheap pre-gate.
+  REGEN_REGISTRY_INVALID: {
+    anchor: 'regen-registry-invalid',
+    summary: '.gstack/generated.json is not valid JSON, has an unknown key, a missing field or a duplicate id',
+    fix: 'run `gstack-regen validate`, compare with `gstack-regen init --explain`, and fix the file on the base branch',
+  },
+  REGEN_CONTAINMENT: {
+    anchor: 'regen-containment',
+    summary: 'a registry glob escapes the repository or a command is not one line under 512 bytes',
+    fix: 'use repo-relative globs without `..`, at most 64 per list, and a single-line command',
+  },
+  REGEN_STALE: {
+    anchor: 'regen-stale',
+    summary: 'a generated output differs from what its registered command produces (stale, or hand-edited)',
+    fix: 'run the printed regen command and commit the outputs; never hand-merge a generated file',
+  },
+  REGEN_COMMAND_FAILED: {
+    anchor: 'regen-command-failed',
+    summary: 'a registered regen command exited non-zero in the scratch worktree',
+    fix: 'run the command by hand in the repository, read its output, fix the generator or its inputs',
+  },
+  PREGATE_CONFIG_INVALID: {
+    anchor: 'pregate-config-invalid',
+    summary: '.gstack/pregate.json has an unknown key, a wrong type, a non-downgradable check in `warn`, or an uncontained glob',
+    fix: 'run `gstack-pregate validate` and fix the file on the base branch (secrets and required lanes cannot be downgraded)',
+  },
+  PREGATE_SECRETS: {
+    anchor: 'pregate-secrets',
+    summary: 'gstack-redact found a HIGH or MEDIUM finding in the branch’s added lines',
+    fix: 'rotate the credential, remove it from the added lines (git history included), then rerun; `secrets` cannot be downgraded',
+  },
+  PREGATE_STRAYS: {
+    anchor: 'pregate-strays',
+    summary: 'a file was added at the repository root or outside the usual directories (scratch, tmp, zz-*)',
+    fix: 'delete the stray or move it under a tracked directory; declare an intentional root file in .gstack/pregate.json `strays.allow`',
+  },
+  PREGATE_LITERALS: {
+    anchor: 'pregate-literals',
+    summary: 'a changed exported constant’s old value still appears in the test tree (nightly- and Heavy-only files included)',
+    fix: 'update every listed test to the new value, or keep the old constant; a nightly-only file is still a consumer',
+  },
+  PREGATE_NO_LANE: {
+    anchor: 'pregate-no-lane',
+    summary: 'a touched file maps to no test lane through imports, repo-path literals, the bin/<name> convention or a declaration',
+    fix: 'add a test that names the file, or declare its lane (or an explicit empty lane) under `dependencies` in .gstack/pregate.json',
+  },
+  PREGATE_LANE_FAILED: {
+    anchor: 'pregate-lane-failed',
+    summary: 'a local test lane the touched files select failed or ran zero tests under pipefail',
+    fix: 'read the lane log, fix the in-branch failure, rerun `gstack-pregate --stage tests`; a `| tail`-hidden exit is still a failure',
+  },
+  PREGATE_INCOMPLETE: {
+    anchor: 'pregate-incomplete',
+    summary: 'a check timed out, its tool is unavailable, or the tree changed while it ran; the result is incomplete, never pass',
+    fix: 'install the named tool or raise --timeout, keep the tree still during the run, then rerun the check',
+  },
+  PREGATE_STALE: {
+    anchor: 'pregate-stale',
+    summary: 'pregate.json was recorded against a different tree than the one being published',
+    fix: 'rerun `gstack-pregate` after the final generation and stamp; publication needs results that are current',
+  },
+  PREGATE_REMOTE_UNCLEARED: {
+    anchor: 'pregate-remote-uncleared',
+    summary: 'a requires-remote lane obligation (a platform lane this machine cannot run) has no matching receipt',
+    fix: 'dispatch the named workflow job, then pass its run id with `gstack-pregate clear --remote <workflow/job> --run-url <url>` (or an evidence bundle lane) before publishing',
+  },
+  ISSUE_UNREADABLE: {
+    anchor: 'issue-unreadable',
+    summary: 'an issue a closure trailer or --issue names could not be read through gstack-issue-guard, so its link is Refs, never Fixes',
+    fix: 'check `gh auth status` and the issue number; rerun gstack-issue-links once the issue reads',
+  },
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

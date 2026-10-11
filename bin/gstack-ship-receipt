@@ -6,7 +6,7 @@
  *                             [--predecessor <sha>] [--gate <json|@file>] [--ci <json|@file>] [--spend-usd <n>]
  *                             [--session-kind <k>] [--artifacts-consumed <n>/<m>] [--run <id>] [--thread <id>]
  *                             [--receipt <tree-receipt.json>] [--policy <label>] [--preregistration <text>] [--history <text>]
- *                             [--out <file>] [--body <pr-body.md>] [--json]
+ *                             [--pregate <pregate.json>] [--issues <json|@file>] [--out <file>] [--body <pr-body.md>] [--json]
  *   gstack-ship-receipt read --pr <n> [--repo <owner/repo>] [--json]
  *   gstack-ship-receipt read --body <file> [--json]
  *   gstack-ship-receipt census --repo <owner/repo> --since <tag|YYYY-MM-DD> [--cohort <file>] [--limit <n>] [--json]
@@ -22,6 +22,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp, type ShipReceipt } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { versionAtRef } from '../lib/restamp';
+import { readPregateFile, verifyPregate } from '../lib/pregate/index';
 import { resolveBaseBranch } from '../lib/ship-policy';
 import {
   computeCensus, extractReceipt, orderReceipt, placeReceiptFirst, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt,
@@ -38,7 +39,9 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
 
 write flags: --pr --head --base --version --gated-tree --predecessor --gate <json|@file> --ci <json|@file> --spend-usd
   --session-kind --artifacts-consumed <n>/<m> --run --thread --receipt <tree-receipt.json> --policy --preregistration
-  --history --queue-mode --out <file> --body <pr-body.md>. Defaults: head=HEAD, base=origin/HEAD's branch, version=the
+  --history --queue-mode --pregate <pregate.json> (C8: refused unless current, green and every requires-remote obligation
+  carries a receipt: PREGATE_STALE / PREGATE_LANE_FAILED / PREGATE_INCOMPLETE / PREGATE_REMOTE_UNCLEARED) --issues <json|@file>
+  (C6: gstack-issue-links --json) --out <file> --body <pr-body.md>. Defaults: head=HEAD, base=origin/HEAD's branch, version=the
   version source at HEAD, session_kind=$GSTACK_SESSION_KIND (gstack-session-kind), tree/gate_reuse/gated_tree/predecessor
   from --receipt when given.
 --json: JSON only on stdout.
@@ -76,6 +79,19 @@ function cmdWrite(rest: string[], json: boolean): number {
     const r = spawnSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-session-kind'), [], { encoding: 'utf8', timeout: 15_000 });
     sessionKind = r.status === 0 ? r.stdout.trim() || undefined : undefined;
   }
+  let pregate: { pregate: string; requires_remote?: string[] } | undefined;
+  const pregateFile = flag(rest, '--pregate');
+  if (pregateFile) {
+    const read = readPregateFile(pregateFile);
+    if (!read.file) {
+      for (const e of read.errors) process.stderr.write(resultLine('gstack-ship-receipt write', e.code, `${e.message} at ${e.path}`) + '\n');
+      return EXIT.fail;
+    }
+    const v = verifyPregate(repoRoot, read.file);
+    if (!v.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', v.code!, `${v.message}; nothing written`) + '\n'); return EXIT.fail; }
+    const remote = read.file.requires_remote ?? [];
+    pregate = { pregate: `${read.file.verdict ?? 'pass'} @${read.file.tree.slice(0, 12)} (${read.file.checks.length} checks, current for ${head.slice(0, 12)})`, requires_remote: remote.length ? remote.map(r => `${r.lane}: ${r.receipt}`) : undefined };
+  }
   let input: Partial<ShipReceipt>;
   try {
     input = {
@@ -87,6 +103,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       spend_usd: flag(rest, '--spend-usd') !== undefined ? (Number.isFinite(Number(flag(rest, '--spend-usd'))) ? Number(flag(rest, '--spend-usd')) : flag(rest, '--spend-usd')) : undefined,
       session_kind: sessionKind, artifacts_consumed: flag(rest, '--artifacts-consumed'), run: flag(rest, '--run'), thread: flag(rest, '--thread'),
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
+      ...pregate, issues: jsonArg(flag(rest, '--issues')) as ShipReceipt['issues'],
     };
   } catch (e: any) { process.stderr.write(`gstack-ship-receipt write: ${e.message}\n`); return EXIT.usage; }
   if (input.pr !== undefined && !Number.isInteger(input.pr)) { process.stderr.write('gstack-ship-receipt write: --pr must be an integer\n'); return EXIT.usage; }

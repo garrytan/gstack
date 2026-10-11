@@ -137,6 +137,20 @@ gstack_result_anchor() {
     SPEND_CAP_EXCEEDED) printf '%s' 'spend-cap-exceeded' ;;
     CONSENSUS_MISSING) printf '%s' 'consensus-missing' ;;
     OUTSIDE_RUNNER_UNAVAILABLE) printf '%s' 'outside-runner-unavailable' ;;
+    REGEN_REGISTRY_INVALID) printf '%s' 'regen-registry-invalid' ;;
+    REGEN_CONTAINMENT) printf '%s' 'regen-containment' ;;
+    REGEN_STALE) printf '%s' 'regen-stale' ;;
+    REGEN_COMMAND_FAILED) printf '%s' 'regen-command-failed' ;;
+    PREGATE_CONFIG_INVALID) printf '%s' 'pregate-config-invalid' ;;
+    PREGATE_SECRETS) printf '%s' 'pregate-secrets' ;;
+    PREGATE_STRAYS) printf '%s' 'pregate-strays' ;;
+    PREGATE_LITERALS) printf '%s' 'pregate-literals' ;;
+    PREGATE_NO_LANE) printf '%s' 'pregate-no-lane' ;;
+    PREGATE_LANE_FAILED) printf '%s' 'pregate-lane-failed' ;;
+    PREGATE_INCOMPLETE) printf '%s' 'pregate-incomplete' ;;
+    PREGATE_STALE) printf '%s' 'pregate-stale' ;;
+    PREGATE_REMOTE_UNCLEARED) printf '%s' 'pregate-remote-uncleared' ;;
+    ISSUE_UNREADABLE) printf '%s' 'issue-unreadable' ;;
     *) return 1 ;;
   esac
 }

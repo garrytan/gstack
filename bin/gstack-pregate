@@ -1,0 +1,167 @@
+#!/usr/bin/env bun
+/**
+ * gstack-pregate — cheap checks before anything paid or remote (plan C8).
+ *
+ *   gstack-pregate [run] [--stage preflight|tests|all] [--only <check,..>] [--base <ref>]
+ *                  [--allow-repo-commands] [--policy-from base|head] [--out <pregate.json>]
+ *                  [--timeout <s>] [--run <id>] [--explain] [--json]
+ *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, no fail/incomplete, obligations cleared
+ *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --bundle-lane <label> [--out <pregate.json>]
+ *   gstack-pregate lanes [--explain]                             the lane list and platform tiers read from .github/workflows
+ *   gstack-pregate validate | init [--explain] [--force]         the working-tree .gstack/pregate.json
+ *
+ * Runs at the entry of /ship Step 5 (before Step 6's paid evals and any
+ * remote gate) under `set -o pipefail`, aggregates exit codes itself, prints
+ * a table plus pregate.json (schema: gstack-artifact schema pregate). Two
+ * stages with separate clocks: mechanical preflight, then test execution.
+ * Pin files (.gstack/pregate.json, .gstack/generated.json) are read from
+ * origin/<base>; their commands and the test runner run only with
+ * --allow-repo-commands (what /ship passes). Logic: lib/pregate/*.
+ */
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { EXIT, exitTableHelp, formatResult, type PregateFile } from '../lib/headless-artifacts';
+import { PREGATE_CONFIG_PATH, exampleConfigJson, explainConfig, loadConfigFromHead } from '../lib/pregate/config';
+import { buildContext } from '../lib/pregate/context';
+import { CHECKS, CHECK_IDS, PREGATE_OUT_REL, PREGATE_TIER2, clearObligation, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
+import { describeLane, discoverLanes } from '../lib/pregate/workflows';
+import { ensureTmpExcluded } from '../lib/restamp';
+import { resultLine, type ResultCodeName } from '../lib/result-codes';
+import { policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
+
+const HELP = `gstack-pregate — cheap checks before anything paid or remote (docs/pregate.md)
+
+  run (default)   stage 1 mechanical preflight (${CHECKS.filter(c => c.stage === 'preflight').map(c => c.id).join(', ')}), then stage 2 test execution (${CHECKS.filter(c => c.stage === 'tests').map(c => c.id).join(', ')})
+  verify          publication check against ${PREGATE_OUT_REL}: current tree, no fail or incomplete, every requires-remote obligation cleared
+  clear           record the receipt that clears one requires-remote obligation
+  lanes           print every CI lane with its platform tier (from .github/workflows/*.yml)
+  validate | init the working-tree ${PREGATE_CONFIG_PATH}
+
+  --stage preflight|tests|all   default all
+  --only <check,...>            restrict to these checks (${CHECK_IDS.join(', ')}; tier 2 later: ${PREGATE_TIER2.join(', ')})
+  --base <ref>                  base branch (default: origin/HEAD, else main)
+  --allow-repo-commands         run pin-file commands and the test runner (what /ship passes); without it those checks are incomplete
+  --policy-from base|head       base (default, reviewed) or head (unreviewed; needs --allow-repo-commands)
+  --out <file>                  pregate.json path (default ${PREGATE_OUT_REL})
+  --timeout <s>                 per-check timeout (default 600)
+  --explain                     print each selected test's provenance and each uncertain mapping
+  --json                        JSON only on stdout
+
+A failing check blocks (exit 1); incomplete never passes; requires-remote lanes are persisted
+obligations publication needs receipts for. Ends with GSTACK_RESULT: skill=pregate status=… run=<pregate.json>.
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
+function repoRoot(): string | null {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+}
+function outPath(root: string, rest: string[]): string { const o = flag(rest, '--out'); return o ? path.resolve(o) : path.join(root, PREGATE_OUT_REL); }
+
+function cmdRun(root: string, rest: string[], json: boolean): number {
+  const stage = (flag(rest, '--stage') ?? 'all') as 'preflight' | 'tests' | 'all';
+  if (!['preflight', 'tests', 'all'].includes(stage)) { process.stderr.write('gstack-pregate: --stage needs preflight, tests or all\n'); return EXIT.usage; }
+  const only = flag(rest, '--only')?.split(',').map(s => s.trim()).filter(Boolean);
+  const unknown = (only ?? []).filter(id => !CHECK_IDS.includes(id));
+  if (unknown.length) { process.stderr.write(`gstack-pregate: unknown check(s) ${unknown.join(', ')}${unknown.some(u => (PREGATE_TIER2 as readonly string[]).includes(u)) ? ' (tier 2, not in this gstack)' : ''}; known: ${CHECK_IDS.join(', ')}\n`); return EXIT.usage; }
+  const policyFrom = (flag(rest, '--policy-from') ?? 'base') as 'base' | 'head';
+  if (!['base', 'head'].includes(policyFrom)) { process.stderr.write('gstack-pregate: --policy-from needs base|head\n'); return EXIT.usage; }
+  const allow = rest.includes('--allow-repo-commands');
+  if (policyFrom === 'head' && !allow) { process.stderr.write('gstack-pregate: --policy-from head needs --allow-repo-commands (the working-tree pin files are unreviewed)\n'); return EXIT.refused; }
+  const timeoutMs = Number(flag(rest, '--timeout') ?? 600) * 1000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) { process.stderr.write('gstack-pregate: --timeout needs a positive number of seconds\n'); return EXIT.usage; }
+  const base = resolveBaseBranch(root, flag(rest, '--base'));
+  const loaded = buildContext({ repoRoot: root, base, policyFrom, allowRepoCommands: allow, timeoutMs, knownChecks: [...CHECK_IDS, ...PREGATE_TIER2] });
+  if ('refused' in loaded) {
+    const { code, message } = loaded.refused;
+    process.stderr.write((code === 'POLICY_SOURCE_UNAVAILABLE' ? policyUnavailableLine('gstack-pregate', base, message).replace('.gstack/ship-policy.json', 'pin files') : resultLine('gstack-pregate', code as ResultCodeName, message)) + '\n');
+    process.stdout.write(formatResult('pregate', 'refused', `origin/${base}`) + '\n');
+    return EXIT.refused;
+  }
+  const ctx = loaded.ctx;
+  ensureTmpExcluded(root);
+  const file = runPregate(ctx, { stage, only, run: flag(rest, '--run') });
+  const out = outPath(root, rest);
+  let written: string;
+  try { written = writePregateFile(root, out, file); }
+  catch (e: any) { process.stderr.write(resultLine('gstack-pregate', 'ARTIFACT_SCHEMA', e.message) + '\n'); return EXIT.fail; }
+  const blocking = file.checks.some(c => c.status === 'fail' || c.status === 'incomplete' || c.status === 'not_installed');
+  const status = file.checks.some(c => c.status === 'incomplete' || c.status === 'not_installed') && !file.checks.some(c => c.status === 'fail') ? 'incomplete' : 'complete';
+  if (json) { process.stdout.write(JSON.stringify({ ...file, out: written, explain: rest.includes('--explain') ? ctx.explain : undefined, ok: !blocking }) + '\n'); return blocking ? EXIT.fail : EXIT.ok; }
+  process.stdout.write(`pregate: policy ${ctx.configLabel}; registry ${ctx.registryLabel}; base ${ctx.baseRef}@${ctx.baseSha.slice(0, 12)}; ${ctx.touched.length} touched file(s); platform ${ctx.platform}\n`);
+  process.stdout.write(renderTable(file));
+  if (rest.includes('--explain')) { process.stdout.write('--- explain ---\n'); for (const line of ctx.explain) process.stdout.write(`${line}\n`); }
+  for (const c of file.checks) if (c.status === 'fail' || c.status === 'incomplete') process.stderr.write(`gstack-pregate: ${c.id}: ${c.detail}; fix: ${c.fix ?? 'see the table'} (${c.code ?? 'PREGATE_INCOMPLETE'})\n`);
+  process.stdout.write(`pregate.json: ${written}\n`);
+  process.stdout.write(formatResult('pregate', status, written) + '\n');
+  return blocking ? EXIT.fail : EXIT.ok;
+}
+
+function cmdVerify(root: string, rest: string[], json: boolean): number {
+  const out = outPath(root, rest);
+  if (!fs.existsSync(out)) { process.stderr.write(resultLine('gstack-pregate verify', 'PREGATE_STALE', `${out} does not exist; run gstack-pregate first`) + '\n'); return EXIT.fail; }
+  const read = readPregateFile(out);
+  if (!read.file) { for (const e of read.errors) process.stderr.write(resultLine('gstack-pregate verify', e.code, `${e.message} at ${e.path}`) + '\n'); return EXIT.fail; }
+  const v = verifyPregate(root, read.file);
+  if (json) { process.stdout.write(JSON.stringify({ ...v, verdict: read.file.verdict, tree: read.file.tree, head: read.file.head, out }) + '\n'); return v.ok ? EXIT.ok : EXIT.fail; }
+  if (v.ok) { process.stdout.write(`PREGATE_VERIFY: ok ${v.message}\n`); return EXIT.ok; }
+  process.stderr.write(resultLine('gstack-pregate verify', v.code!, v.message) + '\n');
+  for (const r of v.uncleared) process.stdout.write(`requires-remote: ${r.lane} (${r.platform}) ${r.tests.length} test(s) uncleared\n`);
+  process.stdout.write(`PREGATE_VERIFY: refused ${v.code}\n`);
+  return EXIT.fail;
+}
+
+function cmdClear(root: string, rest: string[]): number {
+  const lane = flag(rest, '--remote');
+  const receipt = flag(rest, '--run-url') ?? (flag(rest, '--bundle-lane') ? `bundle-lane:${flag(rest, '--bundle-lane')}` : undefined);
+  if (!lane || !receipt) { process.stderr.write(`gstack-pregate clear: --remote <workflow.yml/job> and --run-url <url> (or --bundle-lane <label>) are required\n`); return EXIT.usage; }
+  const out = outPath(root, rest);
+  const read = fs.existsSync(out) ? readPregateFile(out) : { file: null, errors: [] };
+  if (!read.file) { process.stderr.write(resultLine('gstack-pregate clear', 'PREGATE_STALE', `${out} is missing or invalid; run gstack-pregate first`) + '\n'); return EXIT.fail; }
+  let file: PregateFile;
+  try { file = clearObligation(read.file, lane, receipt, `gstack-pregate clear ${new Date().toISOString()}`); }
+  catch (e: any) { process.stderr.write(`gstack-pregate clear: ${e.message}\n`); return EXIT.usage; }
+  writePregateFile(root, out, file);
+  process.stdout.write(`PREGATE_CLEARED: ${lane} receipt=${receipt} verdict=${file.verdict}\n`);
+  return EXIT.ok;
+}
+
+function main(argv: string[]): number {
+  const cmd = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'run';
+  const rest = argv[0] && !argv[0].startsWith('--') ? argv.slice(1) : argv;
+  const json = rest.includes('--json');
+  if (argv.includes('--help') || argv.includes('-h') || cmd === 'help') { process.stdout.write(HELP + '\n'); return EXIT.ok; }
+  const root = repoRoot();
+  if (!root) { process.stderr.write('gstack-pregate: not inside a git repository\n'); return EXIT.usage; }
+  if (cmd === 'run') return cmdRun(root, rest, json);
+  if (cmd === 'verify') return cmdVerify(root, rest, json);
+  if (cmd === 'clear') return cmdClear(root, rest);
+  if (cmd === 'lanes') {
+    const lanes = discoverLanes(root);
+    if (json) { process.stdout.write(JSON.stringify(lanes) + '\n'); return EXIT.ok; }
+    for (const l of lanes) process.stdout.write(describeLane(l) + '\n');
+    process.stdout.write(`LANES: ${lanes.length} jobs; tests ${lanes.filter(l => l.runsTests).length}; platform ${lanes.filter(l => l.tier === 'platform').length}\n`);
+    return EXIT.ok;
+  }
+  if (cmd === 'validate') {
+    const loaded = loadConfigFromHead(root, [...CHECK_IDS, ...PREGATE_TIER2]);
+    if ('unavailable' in loaded) return EXIT.refused;
+    for (const e of loaded.errors) process.stderr.write(resultLine('gstack-pregate validate', e.code, `${e.message} at ${e.path || PREGATE_CONFIG_PATH}`) + '\n');
+    process.stdout.write(loaded.errors.length ? `PREGATE_CONFIG_INVALID: ${loaded.errors.length} error(s)\n` : `PREGATE_CONFIG_VALID: ${loaded.present ? PREGATE_CONFIG_PATH : `no ${PREGATE_CONFIG_PATH} (defaults apply)`}\n`);
+    return loaded.errors.length ? EXIT.fail : EXIT.ok;
+  }
+  if (cmd === 'init') {
+    if (rest.includes('--explain')) { process.stdout.write(explainConfig()); if (rest.length === 1) return EXIT.ok; }
+    const file = path.join(root, PREGATE_CONFIG_PATH);
+    if (fs.existsSync(file) && !rest.includes('--force')) { process.stderr.write(resultLine('gstack-pregate init', 'POLICY_EXISTS', file) + '\n'); return EXIT.refused; }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, exampleConfigJson());
+    process.stdout.write(`PREGATE_CONFIG_WRITTEN: ${PREGATE_CONFIG_PATH} (edit it, then gstack-pregate validate; commit it on the base branch before /ship reads it)\n`);
+    return EXIT.ok;
+  }
+  process.stderr.write(`gstack-pregate: unknown command ${cmd}\n${HELP}\n`);
+  return EXIT.usage;
+}
+
+process.exitCode = main(process.argv.slice(2));

@@ -78,7 +78,21 @@
     { "file": "lib/autoplan-export.ts", "movedFrom": "(new: the unattended export file set, B2/B12)" },
     { "file": "lib/spec-review-cap.ts", "movedFrom": "(new: the spec-review loop at the cap: numbered gaps and deterministic fix verification, B8)" },
     { "file": "bin/gstack-autoplan", "movedFrom": "(new: thin entrypoint over lib/autoplan-run.ts, B2)" },
-    { "file": "bin/gstack-outside-voice", "movedFrom": "(new: thin entrypoint over lib/outside-voice-runner.ts, B3)" }
+    { "file": "bin/gstack-outside-voice", "movedFrom": "(new: thin entrypoint over lib/outside-voice-runner.ts, B3)" },
+    { "file": "lib/regen.ts", "movedFrom": "(new: the generated-file registry, scratch-worktree freshness check and in-place write, C4)" },
+    { "file": "lib/issue-links.ts", "movedFrom": "(new: issue closure intent, Refs/Fixes classification and flake-issue mapping for Step 18, C6)" },
+    { "file": "lib/pregate/types.ts", "movedFrom": "(new: the pre-gate check and context contracts, C8)" },
+    { "file": "lib/pregate/config.ts", "movedFrom": "(new: .gstack/pregate.json schema, containment and base-branch loader, C8)" },
+    { "file": "lib/pregate/workflows.ts", "movedFrom": "(new: lane discovery from .github/workflows, C8)" },
+    { "file": "lib/pregate/import-graph.ts", "movedFrom": "(new: imports ∪ repo-path literals ∪ bin convention ∪ declarations, C8)" },
+    { "file": "lib/pregate/context.ts", "movedFrom": "(new: touched files, base inputs and before/after fingerprinting, C8)" },
+    { "file": "lib/pregate/lane-selection.ts", "movedFrom": "(new: touched files to lanes, local vs requires-remote, C8)" },
+    { "file": "lib/pregate/index.ts", "movedFrom": "(new: the check registry, two-stage runner, pregate.json writer and publication verifier, C8)" },
+    { "file": "lib/pregate/checks/regen.ts", "movedFrom": "(new: pre-gate check, C8)" },
+    { "file": "lib/pregate/checks/secrets.ts", "movedFrom": "(new: pre-gate check, C8)" },
+    { "file": "lib/pregate/checks/strays.ts", "movedFrom": "(new: pre-gate check, C8)" },
+    { "file": "lib/pregate/checks/literals.ts", "movedFrom": "(new: pre-gate check, C8)" },
+    { "file": "lib/pregate/checks/lanes.ts", "movedFrom": "(new: pre-gate check with the pipefail runner and requires-remote obligations, C8)" }
   ],
   "residualFiles": [
     { "file": "scripts/test-free-shards.ts", "maxLines": 2361, "reason": "free lane policy after the shard engine took spawn, sandbox, logs, seeds and flags" },
