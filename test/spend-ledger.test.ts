@@ -67,7 +67,8 @@ describe('spend ledger admission', () => {
       reserve(process.argv[1], 'crashed', 0.6, { cap: 1 });
       process.kill(process.pid, 'SIGKILL');
     `, file], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 });
-    expect(crash.signal).toBe('SIGKILL');
+    // POSIX reports the signal; Windows reports a non-zero status for a killed process.
+    expect(crash.signal === 'SIGKILL' || (crash.signal === null && crash.status !== 0), JSON.stringify({ signal: crash.signal, status: crash.status })).toBe(true);
     expect(fs.existsSync(`${file}.lock`)).toBe(false);
     const ledger = readLedger(file);
     expect(ledger.reserved.map(r => r.attempt)).toEqual(['crashed']);
