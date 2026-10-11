@@ -179,10 +179,12 @@ rm -f "$BODY_TOP_FILE" "$BODY_REST_FILE"
 echo "PR_BODY_FILE: $PR_BODY_FILE"
 ```
 
-Handoff record first (identifiers survive truncation):
+Handoff record first (identifiers survive truncation). Write the lane counts and
+CI check counts as JSON objects to `.gstack/tmp/ship-gate.json` and
+`.gstack/tmp/ship-ci.json` with your file-write tool, then:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --receipt .gstack/tmp/tree-receipt.json --gate '<lane counts json>' --ci '<check counts json>' --spend-usd <n> --body "$PR_BODY_FILE"
+~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --receipt .gstack/tmp/tree-receipt.json --gate @.gstack/tmp/ship-gate.json --ci @.gstack/tmp/ship-ci.json --spend-usd <spend-usd> --body "$PR_BODY_FILE"
 ```
 
 Omit `--receipt`/`--pr` when absent (new PR/MR: rerun with the number, repost). Its
