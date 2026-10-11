@@ -606,7 +606,7 @@ do not launch the downstream skill or open a browser.`,
     behavioral: 'prompt',
     maxSkeletonBytes: 58_400, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 57_356
     minUnionBytes: 64_500, // measured union 67,430
-    maxSizeRatio: 1.07, // Oct 10 multi-agent wave PR E2: the lazy gate-and-file section renders {{COORDINATOR_CONTRACT}} (the block every spawned lane inherits word for word; `gstack-autoplan contract` prints the same bytes) before the --execute spawn pipe; measured 86,499 / 81,577 = 1.0603 (2026-10-10). The skeleton is unchanged (57,107).
+    maxSizeRatio: 1.07, // Oct 10 multi-agent wave PR E2: the lazy gate-and-file section renders {{COORDINATOR_CONTRACT}} (the block every spawned lane inherits word for word; `gstack-autoplan contract` prints the same bytes) before the --execute spawn pipe; measured 86,614 / 81,577 = 1.0617 after the contract became a fail-closed `CONTRACT=$(…)` capture (2026-10-10). The skeleton is unchanged (57,107).
     mustContain: ['HARD GATE', 'dedupe', 'quality gate', 'acceptance criteria', 'archive'],
   },
   'setup-gbrain': {

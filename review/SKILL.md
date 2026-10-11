@@ -1127,7 +1127,7 @@ An outside review reporting `unverified` or `unavailable` is missing coverage, n
 pass: report it with its reason.
 
 - Use Step 4.6's `specialists` object unchanged, including its empty small-diff map.
-  A host without Review Army uses `specialists: {}` and claims no specialist coverage.
+  If this host omits Review Army, use `specialists: {}` without claiming specialist coverage.
 - Build `findings` from Step 5's combined final-pass findings (core, specialist,
   adversarial, actionable Greptile, verified exploratory QA findings) and invocation actions. Retain `fingerprint`, `severity`
   (`CRITICAL|INFORMATIONAL`), `action`, and any `advisory`, `evidence_paths`,

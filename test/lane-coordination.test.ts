@@ -126,7 +126,7 @@ describe('coordinator contract', () => {
     expect(bin.stdout).toBe(COORDINATOR_CONTRACT + '\n');
     const rendered = fs.readFileSync(path.join(ROOT, 'spec', 'sections', 'gate-and-file.md'), 'utf8');
     expect(rendered).toContain(COORDINATOR_CONTRACT);
-    expect(rendered).toContain('gstack-autoplan contract; }');
+    expect(rendered).toContain('gstack-autoplan contract) || {');
   });
 
   test('both reviewer prompts carry the contract after the plan, labelled as data', async () => {
