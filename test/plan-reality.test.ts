@@ -206,7 +206,7 @@ describe('rendered templates carry the contract', () => {
     expect(sections).toContain('### Reality rows (why each exists)');
     expect(sections).toContain('| `pr-count` | 1 | always |');
     expect(sections).toContain('- Reality rows: ___/___ applicable rows emitted (`PLAN_REALITY` line), ___ unverified premises');
-    expect(read('plan-eng-review/sections/checklist.md')).toContain('| Reality rows (`REALITY:` lines, `PLAN_REALITY` check) | Scope Challenge → Reality rows | always |');
+    expect(read('plan-eng-review/sections/checklist.md')).toContain('| Reality rows (`REALITY:` lines, `PLAN_REALITY` check) | Reality rows (why each exists) | always |');
   });
   test('plan-ceo-review: 0A/0B block in the skeleton, Completion Summary row and checklist row', () => {
     const skeleton = read('plan-ceo-review/SKILL.md');
@@ -214,7 +214,8 @@ describe('rendered templates carry the contract', () => {
     expect(at).toBeGreaterThan(skeleton.indexOf('### 0B. Existing Code Leverage'));
     expect(at).toBeLessThan(skeleton.indexOf('### 0C. Dream State Mapping'));
     expect(read('plan-ceo-review/sections/review-sections.md')).toContain('| Reality rows         | ___/___ rows (PLAN_REALITY), ___ unverified |');
-    expect(read('plan-ceo-review/sections/checklist.md')).toContain('| Reality rows (`REALITY:` lines, `PLAN_REALITY` check) | 0A/0B → Reality rows | always |');
+    expect(read('plan-ceo-review/sections/review-sections.md')).toContain('### Reality rows\n');
+    expect(read('plan-ceo-review/sections/checklist.md')).toContain('| Reality rows (`REALITY:` lines, `PLAN_REALITY` check) | Reality rows | always |');
   });
   test('autoplan: CEO and Eng phase files run the check; the Pre-Gate names incomplete for unattended misses', () => {
     expect(read('autoplan/sections/ceo-phase.md')).toContain('gstack-plan-reality check --phase ceo');
