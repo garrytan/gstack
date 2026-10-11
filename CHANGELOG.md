@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.91.72.0] - 2026-10-11
+
+**`/autoplan` runs unattended end to end: `gstack-autoplan next|submit` drives the review phases as a durable state machine for a parent agent, the outside voice is a pluggable runner (Codex CLI, API, or a cross-family host subagent), review phases load a short checklist instead of the whole methodology, and the spec-review loop stops honestly at its cap.**
+
+B-core (1.91.70.0) gave gstack the artifact contract and the `unattended` session kind; this release (multi-agent wave PR B-runner) is the loop that produces those artifacts on a machine with no Claude Code harness.
+
+### What this means for you
+
+- **`bin/gstack-autoplan next --out <dir>`** prepares the current phase (snapshot, methodology, prompt), persists the dispatch intent with an attempt id, prints the voice, prompt path, expected result path and required model family, and exits `GSTACK_RESULT: status=awaiting_result`. The parent dispatches the reviewer (a subagent, Codex, or an API call) and returns the result with **`submit --phase --voice native|outside --result <file> --model <id> --attempt <id>`**, which validates the full-read receipt, canonical findings and model family, binds the hash into `run.json` atomically, reconciles both voices and closes the phase. `status`, `export`, `answer --gate-rev --reply`, `resume` and `run` complete the verb set. A stale, unparsed or conflicting reply writes nothing; a non-recommended answer that changes reviewed content reopens only the affected phases with Eng last; `resume` takes exclusive ownership and marks an attempt with dispatch intent but no terminal record `EXECUTION_UNKNOWN` instead of redispatching it. `docs/unattended.md` has the parent loop.
+- **`bin/gstack-outside-voice run --runner codex-cli|api|host-subagent`** over one adapter interface (capabilities, input digest, actual model metadata, cancellation, terminal result, usage). A result file from a subagent on another model family is a full outside voice and records its model; a missing Codex CLI is not "degraded" when another runner reviewed. `bin/gstack-codex-login` logs Codex in from `OPENAI_API_KEY`.
+- **`--spend-cap`** is enforced by a shared ledger (`lib/spend-ledger.ts`: `spent + reserved + next_estimate <= cap` under a file lock; reservations survive a crash; host-subagent spend is reported `unknown`, not zero).
+- **Checklists.** Each plan review skill ships `sections/checklist.md` (under 35 lines) with an output-to-section map; unattended and `light` runs load it and print `Skipped sections: <ids> (scope: …)`, loading the deep section whenever scope detection is uncertain. Manifests gain an optional `scope` (default `always`) and `runner_only`; interactive renders are unchanged.
+- **Spec-review loop at the cap** (`gstack-office-hours-review finalize`): numbered unresolved gaps, then either a deterministic `issues verified: k of N` record or `N fixes unconfirmed` with `Decision: spec not re-verified`; never a fourth model launch, never promoted to a verdict.
+- **Reconciliation.** When an outside pass runs beside the native one, the consensus table and per-finding reconciliation are computed from canonical finding ids (confirmed, disagree, new), and the Eng prompt refuses to start without the prior phase's consensus (`CONSENSUS_MISSING`).
+
+### Itemized changes
+
+#### Added
+- `lib/autoplan-state.ts`, `lib/autoplan-run.ts`, `lib/autoplan-gate.ts`, `lib/autoplan-export.ts`, `lib/autoplan-prompts.ts`, `lib/autoplan-reconcile.ts`, `lib/spend-ledger.ts`, `lib/spec-review-cap.ts`, `lib/outside-voice-runner.ts`, `lib/outside-voice-api.ts`; `bin/gstack-autoplan`, `bin/gstack-outside-voice`, `bin/gstack-codex-login`; `autoplan/sections/unattended.md`; `sections/checklist.md` in the four plan review skills; eleven new result codes with troubleshooting anchors.
+
+#### Changed
+- `lib/headless-artifacts.ts`: `ackRun` runs under a file lock (exactly-once ack); `native_counterpart` accepts `null`.
+- `scripts/resolvers/sections.ts` types `scope` and `runner_only`; `scripts/resolvers/spec-review.ts` prose names the cap record in all three loop branches.
+- Union bytes: plan-ceo/eng/design/devex-review grow under their caps; autoplan +612 (65 bytes of headroom left); ship, review and qa unchanged.
+
+#### For contributors
+- New tests: `test/autoplan-run-recovery.test.ts` (kill before and after persistence, no duplicate charge), `test/autoplan-run-concurrency.test.ts` (one of six concurrent submits binds; exactly-once ack), `test/autoplan-answer-invalidation.test.ts`, `test/review-checklists.test.ts` (obligation map with negative controls), `test/outside-runner-contract.test.ts`, `test/spend-ledger.test.ts`; `test/office-hours-review.test.ts` and `test/office-hours-completion.test.ts` cover the cap record.
+- Not in this release: the rendered Codex prose still shells to `codex` directly (`scripts/resolvers/outside-voice-steps.ts`); routing it through `bin/gstack-outside-voice` touches 21 Codex-pinned tests and the ship/review byte budgets, so it follows separately. `gstack-autoplan run` (the in-process loop) is typechecked but exercised only through `next`/`submit`.
+
 ## [1.91.71.0] - 2026-10-10
 
 **A parent agent can now confirm a gstack install with one grep: `gstack-doctor --check` prints one PASS/FAIL/SKIP row per component and exactly one `gstack: ok … for=<skill>` or `gstack: fail <ids>` trailer with a real exit code, and `gstack-capy-install` sets up a Capy machine without downloading Chromium.**

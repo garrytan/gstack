@@ -7,6 +7,7 @@ import {
   renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, extractOfficeHoursReviewBlock, replaceOfficeHoursReviewBlock,
   officeHoursVerdictReceipt, officeHoursDesignChanges, verifyOfficeHoursCitations, type OfficeHoursReview,
 } from '../lib/office-hours-review';
+import { parseSpecFixes, verifySpecFixesAtCap, renderSpecCap } from '../lib/spec-review-cap';
 import { expectMentions } from './helpers/prompt-structure';
 
 const cli = path.resolve(import.meta.dir, '../bin/gstack-office-hours-review');
@@ -548,7 +549,12 @@ describe('office-hours review CLI', () => {
     expect(fs.readFileSync(data.design, 'utf8')).toBe(before);
     const finalized = invoke('finalize', '--design', data.design, '--report', data.report, ...data.artifacts);
     expect(finalized.exitCode, finalized.stderr.toString()).toBe(0);
-    const expected = renderOfficeHoursReview(data.rounds);
+    // Stopped at the cap with a blocking finding and an unchanged design: the record names the gap and blocks approval.
+    const cap = verifySpecFixesAtCap(data.rounds[1], before, before, null)!;
+    expect(cap.line).toBe('1 fixes unconfirmed (design unchanged since round 2)');
+    expect(JSON.parse(String(finalized.stdout)).cap).toEqual({ line: cap.line, decision: 'spec not re-verified', verified: [], unconfirmed: ['R2-1'] });
+    const expected = renderOfficeHoursReview(data.rounds, undefined, 3, cap);
+    expect(expected.concerns).toContain('### Unresolved at the cap\n\n1. R2-1 — completeness (blocking): Problem 1 remains undefined.\n\n1 fixes unconfirmed');
     expect(extractOfficeHoursReviewBlock(fs.readFileSync(data.design, 'utf8'), 'concerns')).toBe(expected.concerns);
     expect(extractOfficeHoursReviewBlock(fs.readFileSync(data.report, 'utf8'), 'report')).toBe(expected.report);
     expect(fs.readFileSync(data.report, 'utf8')).toContain('## Handoff\nNot now.');
@@ -556,6 +562,35 @@ describe('office-hours review CLI', () => {
     const beforeRepeat = [fs.statSync(data.design).mtimeMs, fs.statSync(data.report).mtimeMs];
     expect(invoke('finalize', '--design', data.design, '--report', data.report, ...data.artifacts).exitCode).toBe(0);
     expect([fs.statSync(data.design).mtimeMs, fs.statSync(data.report).mtimeMs]).toEqual(beforeRepeat);
+  }));
+  test('at the cap, --fixes verifies listed fixes deterministically (issues verified: k of N) and never launches a reviewer; PASS refuses it', () => fixture((dir, invoke) => {
+    const data = files(dir);
+    const fixes = path.join(dir, 'fixes.json');
+    fs.writeFileSync(fixes, JSON.stringify([{ id: 'R2-1', applied_text: 'Cancellation closes the roster within one hour.' }]));
+    // the fix text is not in the design yet: unconfirmed even though a fixes file names it
+    fs.appendFileSync(data.design, '\n## Notes\nUnrelated edit.\n');
+    let finalized = invoke('finalize', '--design', data.design, '--fixes', fixes, ...data.artifacts);
+    expect(finalized.exitCode, String(finalized.stderr)).toBe(0);
+    expect(JSON.parse(String(finalized.stdout)).cap).toMatchObject({ line: '1 fixes unconfirmed', decision: 'spec not re-verified', unconfirmed: ['R2-1'] });
+    // apply the fix: the excerpt is present now and absent from the round-2 snapshot
+    fs.writeFileSync(data.design, fs.readFileSync(data.design, 'utf8').replace('<!-- gstack:office-hours:concerns:start -->', '## Cancellation\nCancellation closes the roster within one hour.\n\n<!-- gstack:office-hours:concerns:start -->'));
+    finalized = invoke('finalize', '--design', data.design, '--fixes', fixes, ...data.artifacts);
+    expect(finalized.exitCode, String(finalized.stderr)).toBe(0);
+    expect(JSON.parse(String(finalized.stdout)).cap).toEqual({ line: 'issues verified: 1 of 1', decision: null, verified: ['R2-1'], unconfirmed: [] });
+    const concerns = extractOfficeHoursReviewBlock(fs.readFileSync(data.design, 'utf8'), 'concerns')!;
+    expect(concerns).toContain('issues verified: 1 of 1');
+    expect(concerns).toContain('never a review verdict; no reviewer was launched past the cap');
+    expect(concerns).not.toContain('Decision: spec not re-verified');
+    expect(concerns).toContain('Disposition: CONCERNS_RECORDED\n\nStop: CONVERGENCE');
+    // a PASS review has no cap record and refuses --fixes
+    const clean = review(1, 0); clean.document = data.design;
+    const passFile = path.join(dir, 'pass-1.json');
+    fs.writeFileSync(passFile, JSON.stringify(clean));
+    expect(String(invoke('finalize', '--design', data.design, '--fixes', fixes, passFile).stderr)).toContain('--fixes applies only');
+    expect(JSON.parse(String(invoke('finalize', '--design', data.design, passFile).stdout)).cap).toBeNull();
+    expect(() => parseSpecFixes([{ id: 'R2-1', applied_text: 'short' }])).toThrow('at least 8 characters');
+    expect(() => renderOfficeHoursReview([clean], undefined, 3, verifySpecFixesAtCap(data.rounds[1], 'a', 'b', null))).toThrow('cap verification applies only');
+    expect(renderSpecCap(verifySpecFixesAtCap(data.rounds[1], 'a', 'b', null)!)).toContain('1 fixes unconfirmed\n');
   }));
   test('invalid artifact cannot be ignored by --unreviewed and no destination changes', () => fixture((dir, invoke) => {
     const data = files(dir), before = fs.readFileSync(data.design, 'utf8');

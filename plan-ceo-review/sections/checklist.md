@@ -1,0 +1,34 @@
+<!-- AUTO-GENERATED from checklist.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+## Checklist (runner profile)
+
+CEO phase steps and required outputs for `bin/gstack-autoplan` (unattended or
+`light` runs); interactive runs read `sections/review-sections.md` in full.
+
+### Steps
+1. Scope and mode agreed (Step 0); carry the decision ledger in.
+2. Sections 1–10 in order; Section 11 only with `ui` scope, else record the
+   no-UI skip. Sections 3 and 7 carry `security` and `perf` scope.
+3. Outside voice per its integration rule; reconcile each finding.
+4. Every required output below, then the report, log and chaining.
+
+### Required outputs → producing section
+
+| Output | Produced by | Scope |
+|---|---|---|
+| Review facts | Review facts | always |
+| NOT in scope | "NOT in scope" section | always |
+| What already exists | "What already exists" section | always |
+| Dream state delta | "Dream state delta" section | always |
+| Error & Rescue Registry | Error & Rescue Registry (from Section 2) | always |
+| Failure Modes Registry | Failure Modes Registry | always |
+| Scope Expansion Decisions | Scope Expansion Decisions | always |
+| Diagrams | Diagrams (mandatory, produce all that apply) | always |
+| Stale Diagram Audit | Stale Diagram Audit | always |
+| Completion Summary | Completion Summary | always |
+| Unresolved Decisions | Unresolved Decisions | always |
+| Saved terminal report | Stage 2 — Save and verify the terminal report | always |
+| Published summary | Stage 3 — Publish the Completion Summary | always |
+| Review log row | Review Log | always |
+| Next-skill handoff | Next Steps — Review Chaining | always |
+| Design & UX findings | Section 11: Design & UX Review | ui |

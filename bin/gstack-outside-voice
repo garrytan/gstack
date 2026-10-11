@@ -1,0 +1,111 @@
+#!/usr/bin/env bun
+/**
+ * gstack-outside-voice — run the outside voice through one pluggable runner (plan B3).
+ *
+ *   gstack-outside-voice run --runner codex-cli|api|host-subagent --prompt <file> --out <file>
+ *                            [--model <id>] [--result <file>] [--native-model <id>] [--fallback <runner>]
+ *                            [--gate review|structured|spec|proposal] [--timeout-ms N] [--cwd <dir>] [--json]
+ *   gstack-outside-voice runners [--model <id>] [--json]   the runner table: capabilities and availability here
+ *   gstack-outside-voice family <model-id>                  the model's family (same-family rule)
+ *
+ * Logic: lib/outside-voice-runner.ts (adapters), lib/outside-voice-api.ts (api
+ * transport), lib/outside-review-result.ts (verdict). Codes: lib/result-codes.ts.
+ * Writes <out> (the review text) and <out>.meta.json (the terminal result).
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import type { OutsideGate } from '../lib/outside-review-result';
+import { RUNNER_IDS, createRunner, familyConflict, modelFamily, outsideStatusLine, runnerTable, selectRunner, type RunnerId } from '../lib/outside-voice-runner';
+import { resultLine } from '../lib/result-codes';
+
+const HELP = `gstack-outside-voice — one outside voice, three runners (docs/unattended.md)
+
+  run --runner <r> --prompt <file> --out <file> [--model <id>] [--result <file>] [--native-model <id>]
+      [--fallback <r>] [--gate review|structured|spec|proposal] [--timeout-ms N] [--cwd <dir>] [--json]
+  runners [--model <id>] [--json]        the runner table: id, capabilities, available here
+  family <model-id>                      print the model family (anthropic, openai, google, ...)
+
+Runners: codex-cli (repository review via codex exec), api (supplied-input review via
+OPENAI_API_KEY/ANTHROPIC_API_KEY; needs --model), host-subagent (binds --result from a
+cross-family subagent the host ran; needs --model). --native-model enforces the same-family
+rule. GSTACK_OUTSIDE_RUNNER names the fallback when --fallback is absent.
+Prints OUTSIDE_STATUS: <status> provider=<runner> model=<id> family=<f> and writes <out>.meta.json.
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+function usage(message: string): number {
+  process.stderr.write(`gstack-outside-voice: ${message}\n${HELP}\n`);
+  return EXIT.usage;
+}
+const isRunner = (v: string | undefined): v is RunnerId => !!v && (RUNNER_IDS as readonly string[]).includes(v);
+
+async function main(argv: string[]): Promise<number> {
+  const [cmd, ...rest] = argv;
+  const json = rest.includes('--json');
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+
+  if (cmd === 'family') {
+    const model = rest[0];
+    if (!model) return usage('family needs <model-id>');
+    process.stdout.write(`${modelFamily(model)}\n`);
+    return EXIT.ok;
+  }
+  if (cmd === 'runners') {
+    const table = runnerTable({ model: flag(rest, '--model'), resultFile: flag(rest, '--result') });
+    if (json) process.stdout.write(JSON.stringify(table) + '\n');
+    else for (const r of table) process.stdout.write(`${r.available ? 'READY' : 'UNAVAILABLE'} ${r.id} access=${r.capabilities.repository_access} label="${r.capabilities.label}"${r.reason ? ` (${r.reason})` : ''}\n`);
+    return EXIT.ok;
+  }
+  if (cmd !== 'run') return usage(`unknown command ${cmd}`);
+
+  const requested = flag(rest, '--runner');
+  const promptFile = flag(rest, '--prompt');
+  const outFile = flag(rest, '--out');
+  if (!isRunner(requested)) return usage(`--runner must be one of ${RUNNER_IDS.join(', ')}`);
+  if (!promptFile || !outFile) return usage('run needs --prompt <file> --out <file>');
+  if (!fs.existsSync(promptFile)) return usage(`prompt file not found: ${promptFile}`);
+  const gate = (flag(rest, '--gate') ?? 'review') as OutsideGate;
+  if (!['review', 'structured', 'spec', 'proposal'].includes(gate)) return usage('--gate must be review, structured, spec or proposal');
+  const timeoutText = flag(rest, '--timeout-ms');
+  const timeoutMs = timeoutText === undefined ? 300_000 : Number(timeoutText);
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) return usage('--timeout-ms needs a positive integer');
+  const fallbackText = flag(rest, '--fallback') ?? process.env.GSTACK_OUTSIDE_RUNNER;
+  if (fallbackText !== undefined && !isRunner(fallbackText)) return usage(`--fallback must be one of ${RUNNER_IDS.join(', ')}`);
+  const model = flag(rest, '--model');
+  const nativeModel = flag(rest, '--native-model');
+  const cwd = path.resolve(flag(rest, '--cwd') ?? process.cwd());
+  const resultFile = flag(rest, '--result');
+
+  if (model && nativeModel) {
+    const conflict = familyConflict(model, nativeModel);
+    if (conflict) { process.stderr.write(resultLine('gstack-outside-voice run', 'MODEL_FAMILY_CONFLICT', conflict) + '\n'); return EXIT.refused; }
+  }
+  const choice = selectRunner(requested, { model, resultFile }, fallbackText);
+  if (!choice.runner) {
+    process.stderr.write(resultLine('gstack-outside-voice run', 'OUTSIDE_RUNNER_UNAVAILABLE', choice.reason) + '\n');
+    if (requested === 'codex-cli') process.stderr.write('Codex outside review unavailable: codex-cli not ready and no other runner configured. Missing coverage.\n');
+    return EXIT.refused;
+  }
+  if (choice.note) process.stderr.write(`${choice.note}\n`);
+  const runner = createRunner(choice.runner);
+  const stop = () => runner.cancel();
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+  const result = await runner.run({ promptFile: path.resolve(promptFile), outFile: path.resolve(outFile), model, timeoutMs, cwd, gate, resultFile: resultFile ? path.resolve(resultFile) : undefined });
+  fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
+  fs.writeFileSync(`${path.resolve(outFile)}.meta.json`, JSON.stringify(result, null, 2) + '\n');
+  if (json) process.stdout.write(JSON.stringify(result) + '\n');
+  else {
+    if (result.verdict) process.stdout.write(`VERDICT: ${result.verdict.verdict}\nFINDINGS: ${result.verdict.findings.highest ?? 'none'}\n`);
+    process.stdout.write(outsideStatusLine(result) + '\n');
+  }
+  if (result.status === 'completed' || result.status === 'unverified') return EXIT.ok;
+  if (result.reason || result.detail) process.stderr.write(`gstack-outside-voice run: ${result.runner} ${result.status}${result.reason ? ` (${result.reason})` : ''}${result.detail ? `: ${result.detail}` : ''}\n`);
+  return EXIT.fail;
+}
+
+process.exitCode = await main(process.argv.slice(2));

@@ -1561,3 +1561,149 @@ applied; the unparsed tokens are listed.
 **Fix.** Reply with `all`, with `<id><option>` tokens (`d3b uc1a`), or with
 `all except <tokens>`. A bare `yes` or `no` is ambiguous across multi-option
 items and is never guessed.
+
+<a id="execution-unknown"></a>
+### `EXECUTION_UNKNOWN`
+
+**Meaning.** `gstack-autoplan` recorded a dispatch intent for an attempt (the
+prompt was handed to a reviewer) but no terminal record followed: no `submit`,
+no cancellation. The runner was killed, or the parent never came back. The
+provider may have finished and charged; snapshot hashes prove which input was
+sent, not whether the review completed. The spend ledger keeps the attempt's
+reservation.
+
+**Fix.** If the reviewer finished, submit its result with the same attempt id
+(`gstack-autoplan submit --out <dir> --phase <p> --voice <v> --result <file>
+--model <id> --attempt <id>`); a late result is still bound. If it did not,
+redispatch explicitly with `gstack-autoplan next --out <dir> --redispatch
+<attempt>`. `resume` and `next` never redispatch an ambiguous attempt on their own.
+
+<a id="run-locked"></a>
+### `RUN_LOCKED`
+
+**Meaning.** Another `gstack-autoplan` process holds `<dir>/run.lock` (pid,
+host and start time are in the file). Every mutating command takes the lock
+for its duration, so two writers never interleave.
+
+**Fix.** Wait for the owner to exit. If its pid is gone (a killed runner),
+`gstack-autoplan resume --out <dir>` takes ownership and reconciles open
+attempts; a lock whose pid is alive is never stolen.
+
+<a id="run-not-initialized"></a>
+### `RUN_NOT_INITIALIZED`
+
+**Meaning.** The `--out` directory has no `run.json` written by
+`gstack-autoplan`, so `submit`, `status`, `answer` and `resume` have nothing to
+act on.
+
+**Fix.** Start the run with `gstack-autoplan next --plan <file> --out <dir>`;
+the first `next` initializes the run (restore point, active plan, manifest).
+
+<a id="phase-not-awaiting"></a>
+### `PHASE_NOT_AWAITING`
+
+**Meaning.** `submit` named a phase or voice that is not waiting for a result:
+the phase is already closed, not yet opened, or the voice already has a bound
+result.
+
+**Fix.** Run `gstack-autoplan status --out <dir>` and submit for the attempt
+the last `next` printed (`ATTEMPT: ... phase=<p> voice=<v>`).
+
+<a id="attempt-mismatch"></a>
+### `ATTEMPT_MISMATCH`
+
+**Meaning.** The `--attempt` id is not the open attempt for that phase and
+voice, or that attempt was already submitted. A result is bound exactly once;
+a second submit of the same attempt is refused rather than overwriting the
+first.
+
+**Fix.** Pass the attempt id printed by `next` for this voice. To replace a
+bound result, reopen the phase through `answer` (a scope-changing choice) or
+start a new run.
+
+<a id="result-receipt-missing"></a>
+### `RESULT_RECEIPT_MISSING`
+
+**Meaning.** The result file does not begin with the full-read receipt the
+prompt asked for: `INPUT: <phase> <snapshot sha256>`. Either the reviewer did
+not read the prompt file through EOF, or the result belongs to a different
+snapshot (the plan changed between dispatch and submit).
+
+**Fix.** The reviewer's first line must be the INPUT line from its prompt
+file. If the plan changed, run `next` again for a fresh snapshot and
+redispatch; a result for an older snapshot is never bound to the current phase.
+
+<a id="result-findings-missing"></a>
+### `RESULT_FINDINGS_MISSING`
+
+**Meaning.** The result has no valid canonical findings block. Every reviewer
+returns, beside its prose, one fenced block:
+
+````
+```gstack-findings
+{"severity":"High","title":"...","file":"lib/x.ts","line":12,"fix":"..."}
+```
+````
+
+one JSON object per line with at least `severity` (`Critical`, `High`,
+`Medium`, `Low`, `Informational`) and `title`. An empty fence means the
+reviewer found nothing; a missing fence or a malformed row means the result
+cannot be reconciled and is refused.
+
+**Fix.** Ask the reviewer for the fence (the prompt names it), or add the rows
+from its prose yourself and submit again. Reconciliation runs on these rows,
+not on the prose; a prose-only review has no completeness check.
+
+<a id="model-family-conflict"></a>
+### `MODEL_FAMILY_CONFLICT`
+
+**Meaning.** The outside voice's model is in the same family as the native
+reviewer (both Anthropic, both OpenAI, ...), or its family cannot be
+determined from the id. Two voices from one family are one voice; the record
+says which was which.
+
+**Fix.** Run the outside voice on a model from another family and pass its id
+with `--model`. Families recognized: anthropic, openai, google, xai, deepseek,
+qwen, zai, moonshot, meta, mistral, minimax. An id the table cannot classify
+is refused; name the model fully (`openai/gpt-6-astra`, not `astra`).
+
+<a id="spend-cap-exceeded"></a>
+### `SPEND_CAP_EXCEEDED`
+
+**Meaning.** `spent + reserved + next_estimate` would exceed `--spend-cap`.
+The ledger (`<dir>/spend.json`) counts unsettled reservations and unknown
+charges at their reservation, so a crashed attempt keeps its cost held until
+it is settled or released.
+
+**Fix.** Raise `--spend-cap`, settle attempts whose actual cost is known
+(`submit --usage-usd <n>`), release attempts that never ran (`gstack-autoplan
+release --attempt <id>`), or stop here. Host-dispatched subagent spend is
+`unknown`, never zero.
+
+<a id="consensus-missing"></a>
+### `CONSENSUS_MISSING`
+
+**Meaning.** `next` for the Eng phase found a closed prior phase without its
+consensus record (`<phase>-consensus.md` plus its reconciliation rows), so the
+Eng prompt would be sent without that phase's summary.
+
+**Fix.** `gstack-autoplan resume --out <dir>` re-closes the phase through
+reconciliation. The Eng dispatch is refused until every closed phase has its
+summary; it is never sent partially.
+
+<a id="outside-runner-unavailable"></a>
+### `OUTSIDE_RUNNER_UNAVAILABLE`
+
+**Meaning.** `gstack-outside-voice run --runner <r>` cannot run here:
+`codex-cli` found no `codex` binary or no login, `api` found neither
+`OPENAI_API_KEY` nor `ANTHROPIC_API_KEY` for the model's family, or
+`host-subagent` was called without `--result <file> --model <id>`. When
+another runner is configured (`--fallback` or `GSTACK_OUTSIDE_RUNNER`), the
+line reads `codex-cli unavailable; using <runner>` and the review proceeds on
+that runner; it is a full outside voice, not a degraded one. With no other
+runner, this is missing coverage.
+
+**Fix.** `gstack-codex-login` logs Codex in from `OPENAI_API_KEY`
+(unattended machines); or set the API key and pass `--runner api`; or run the
+review on a cross-family subagent and submit its file with `--runner
+host-subagent --result <file> --model <id>`.

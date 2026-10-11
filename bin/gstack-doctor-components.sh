@@ -104,6 +104,17 @@ gstack_result_anchor() {
     RUNTIME_PIN_CONFLICT) printf '%s' 'capy-install-runtime-conflict' ;;
     BROWSER_UNAVAILABLE) printf '%s' 'browser-ensure-failed' ;;
     INSTALL_PREFLIGHT_FAILED) printf '%s' 'capy-install-preflight-failed' ;;
+    EXECUTION_UNKNOWN) printf '%s' 'execution-unknown' ;;
+    RUN_LOCKED) printf '%s' 'run-locked' ;;
+    RUN_NOT_INITIALIZED) printf '%s' 'run-not-initialized' ;;
+    PHASE_NOT_AWAITING) printf '%s' 'phase-not-awaiting' ;;
+    ATTEMPT_MISMATCH) printf '%s' 'attempt-mismatch' ;;
+    RESULT_RECEIPT_MISSING) printf '%s' 'result-receipt-missing' ;;
+    RESULT_FINDINGS_MISSING) printf '%s' 'result-findings-missing' ;;
+    MODEL_FAMILY_CONFLICT) printf '%s' 'model-family-conflict' ;;
+    SPEND_CAP_EXCEEDED) printf '%s' 'spend-cap-exceeded' ;;
+    CONSENSUS_MISSING) printf '%s' 'consensus-missing' ;;
+    OUTSIDE_RUNNER_UNAVAILABLE) printf '%s' 'outside-runner-unavailable' ;;
     *) return 1 ;;
   esac
 }

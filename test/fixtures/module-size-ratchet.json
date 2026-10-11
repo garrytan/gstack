@@ -60,7 +60,19 @@
     { "file": "lib/result-codes.ts", "movedFrom": "(new: result codes and troubleshooting anchors for unattended runs, multi-agent wave B0)" },
     { "file": "lib/headless-artifacts.ts", "movedFrom": "(new: the unattended artifact contract: schemas, validator, result grammar, B0)" },
     { "file": "lib/gate-list.ts", "movedFrom": "(new: the final gate list renderer and reply grammar, B9)" },
-    { "file": "lib/autoplan-timing.ts", "movedFrom": "(new: autoplan phase timing, estimate and cycle summary, B10)" }
+    { "file": "lib/autoplan-timing.ts", "movedFrom": "(new: autoplan phase timing, estimate and cycle summary, B10)" },
+    { "file": "lib/spend-ledger.ts", "movedFrom": "(new: the spend cap admission ledger reserve/settle/release and the file lock, B2)" },
+    { "file": "lib/outside-voice-runner.ts", "movedFrom": "(new: the outside-voice adapter interface, model families and runner selection, B3)" },
+    { "file": "lib/outside-voice-api.ts", "movedFrom": "(new: the direct OpenAI/Anthropic api runner labeled supplied-input review, B3)" },
+    { "file": "lib/autoplan-reconcile.ts", "movedFrom": "(new: canonical findings parse and native/outside reconciliation, B11)" },
+    { "file": "lib/autoplan-prompts.ts", "movedFrom": "(new: phase order, scope, per-voice prompt files and the checklist loader, B2/B4)" },
+    { "file": "lib/autoplan-state.ts", "movedFrom": "(new: the unattended runner's on-disk state, journal and locked writes, B2)" },
+    { "file": "lib/autoplan-run.ts", "movedFrom": "(new: next/submit/resume over lib/autoplan-state.ts, B2)" },
+    { "file": "lib/autoplan-gate.ts", "movedFrom": "(new: phase close, gate build, answer and reopen, B2/B9)" },
+    { "file": "lib/autoplan-export.ts", "movedFrom": "(new: the unattended export file set, B2/B12)" },
+    { "file": "lib/spec-review-cap.ts", "movedFrom": "(new: the spec-review loop at the cap: numbered gaps and deterministic fix verification, B8)" },
+    { "file": "bin/gstack-autoplan", "movedFrom": "(new: thin entrypoint over lib/autoplan-run.ts, B2)" },
+    { "file": "bin/gstack-outside-voice", "movedFrom": "(new: thin entrypoint over lib/outside-voice-runner.ts, B3)" }
   ],
   "residualFiles": [
     { "file": "scripts/test-free-shards.ts", "maxLines": 2361, "reason": "free lane policy after the shard engine took spawn, sandbox, logs, seeds and flags" },

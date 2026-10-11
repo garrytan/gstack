@@ -150,6 +150,62 @@ export const RESULT_CODES = {
     summary: 'a tool the installer needs before ./setup (git, curl, node, jq) is missing, or the Bun install recipe failed its checksum',
     fix: 'install the named tool, then re-run bin/gstack-capy-install',
   },
+  // B-runner (gstack-autoplan, gstack-outside-voice, lib/spend-ledger.ts).
+  EXECUTION_UNKNOWN: {
+    anchor: 'execution-unknown',
+    summary: 'an attempt was dispatched but never reached a terminal record, so the provider may have finished and charged',
+    fix: 'submit the result file if the reviewer finished (`gstack-autoplan submit ... --attempt <id>`), or redispatch explicitly with `gstack-autoplan next --redispatch <id>`; nothing is redispatched automatically',
+  },
+  RUN_LOCKED: {
+    anchor: 'run-locked',
+    summary: 'another gstack-autoplan process owns this run directory',
+    fix: 'wait for it to exit, or if its pid is gone run `gstack-autoplan resume --out <dir>` to take ownership',
+  },
+  RUN_NOT_INITIALIZED: {
+    anchor: 'run-not-initialized',
+    summary: 'the run directory has no run.json written by gstack-autoplan',
+    fix: 'start with `gstack-autoplan next --plan <file> --out <dir>` (the first call initializes the run)',
+  },
+  PHASE_NOT_AWAITING: {
+    anchor: 'phase-not-awaiting',
+    summary: 'the submitted phase or voice is not waiting for a result',
+    fix: 'run `gstack-autoplan status --out <dir>` and submit for the attempt `next` printed',
+  },
+  ATTEMPT_MISMATCH: {
+    anchor: 'attempt-mismatch',
+    summary: 'the attempt id does not name the open attempt for this phase and voice, or it was already submitted',
+    fix: 'pass the attempt id `next` printed for this voice; a result is bound exactly once',
+  },
+  RESULT_RECEIPT_MISSING: {
+    anchor: 'result-receipt-missing',
+    summary: 'the result file does not start with the full-read receipt `INPUT: <phase> <snapshot sha256>` for this attempt',
+    fix: 'the reviewer must read the prompt file through EOF and begin its result with the INPUT line the prompt names; a result for another snapshot is refused',
+  },
+  RESULT_FINDINGS_MISSING: {
+    anchor: 'result-findings-missing',
+    summary: 'the result file has no valid canonical findings block (a ```gstack-findings fence of JSONL rows)',
+    fix: 'end the review with one ```gstack-findings fence, one JSON object per line with at least severity and title; `[]` rows are not findings, an empty fence means no findings',
+  },
+  MODEL_FAMILY_CONFLICT: {
+    anchor: 'model-family-conflict',
+    summary: 'the outside model is in the same family as the native reviewer, or its family is unknown',
+    fix: 'pass `--model <id>` of a different family (anthropic, openai, google, xai, deepseek, qwen, zai, moonshot, meta, mistral); a same-family result is not an outside voice',
+  },
+  SPEND_CAP_EXCEEDED: {
+    anchor: 'spend-cap-exceeded',
+    summary: 'spent + reserved + the next estimate would exceed the spend cap',
+    fix: 'raise `--spend-cap`, settle or release unsettled attempts, or stop; unknown charges count as their reservation',
+  },
+  CONSENSUS_MISSING: {
+    anchor: 'consensus-missing',
+    summary: 'a closed prior phase has no consensus record to include in the Eng dispatch',
+    fix: 'resume the run so the phase closes through reconciliation; the Eng prompt is never sent without every prior phase summary',
+  },
+  OUTSIDE_RUNNER_UNAVAILABLE: {
+    anchor: 'outside-runner-unavailable',
+    summary: 'the selected outside-voice runner cannot run here (CLI missing, no API key, or no result file for host-subagent)',
+    fix: 'install or log in the CLI (`gstack-codex-login` from OPENAI_API_KEY), set an API key for `--runner api`, or pass `--result <file> --model <id>` for `--runner host-subagent`',
+  },
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

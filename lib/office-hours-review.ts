@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { renderSpecCap, type SpecCapVerification } from './spec-review-cap';
 
 export const OFFICE_HOURS_DIMENSIONS = ['completeness', 'consistency', 'clarity', 'scope', 'feasibility'] as const;
 export type OfficeHoursDimension = typeof OFFICE_HOURS_DIMENSIONS[number];
@@ -317,7 +318,7 @@ function renderFindings(findings: readonly OfficeHoursFinding[]): string {
   if (!findings.length) return 'No unresolved findings.';
   return findings.map(finding => `### ${finding.id} — ${finding.dimension} (${finding.severity})\n\n**Problem**\n\n${quote(finding.problem)}\n\n**Remedy**\n\n${quote(finding.remedy)}`).join('\n\n');
 }
-export function renderOfficeHoursReview(values: readonly unknown[], unavailable?: string, maxRounds = 3): {
+export function renderOfficeHoursReview(values: readonly unknown[], unavailable?: string, maxRounds = 3, cap: SpecCapVerification | null = null): {
   concerns: string; report: string; metrics: OfficeHoursReviewMetrics; stop: OfficeHoursReviewStop | 'UNREVIEWED';
 } {
   if (unavailable !== undefined) nonempty(unavailable, 'unavailable reason');
@@ -340,8 +341,10 @@ export function renderOfficeHoursReview(values: readonly unknown[], unavailable?
     + `Unresolved findings in the last completed inventory: ${metrics.remaining} (${metrics.remaining_blocking} blocking, ${metrics.remaining_minor} minor).\n\n`
     + `Completed fix-and-review transitions: ${metrics.attempted_fix_rounds} (rounds, not edits).`;
   const persistence = rounds.at(-1)?.prior.filter(item => item.status !== 'resolved') ?? [];
-  const links = persistence.length ? '\n\n### Prior finding evidence\n\n' + persistence.map(item =>
-    `**${item.id} → ${item.current_id} (${item.status})**\n\n${quote(item.evidence)}`).join('\n\n') : '';
+  if (cap && (stop === 'PASS' || stop === 'UNREVIEWED')) fail('cap verification applies only to a review stopped with blocking findings');
+  const links = (persistence.length ? '\n\n### Prior finding evidence\n\n' + persistence.map(item =>
+    `**${item.id} → ${item.current_id} (${item.status})**\n\n${quote(item.evidence)}`).join('\n\n') : '')
+    + (cap ? `\n\n${renderSpecCap(cap)}` : '');
   return {
     concerns: `${marker('concerns', 'start')}\n## Reviewer Concerns\n\n${status}\n\n${findings}${links}\n${marker('concerns', 'end')}`,
     report: `${marker('report', 'start')}\n## Spec Review\n\n${status}\n\n${table}\n\n${totals}\n\n${findings}${links}\n${marker('report', 'end')}`,

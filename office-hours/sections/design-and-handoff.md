@@ -181,8 +181,7 @@ Create a fresh review directory next to the design:
 ```bash
 mktemp -d "<design-path>.review.XXXXXX"
 ```
-Remember its actual path for this invocation. Keep these evidence files with the design.
-Maximum 3 iterations total. Before EACH dispatch, generate the complete prompt using
+Keep these evidence files with the design. Maximum 3 iterations total. Before EACH dispatch, generate the complete prompt using
 all preceding valid round files in order (omit them for round 1):
 
 ```bash
@@ -223,7 +222,6 @@ malformed) and list every completed round in order:
 
 A missing, malformed, or mismatched receipt fails the check: that attempt is a failed review.
 
-Omit absent arguments rather than passing placeholders.
 **Convergence guard and stopping rules:** Each finding is blocking or minor. Only
 blocking findings require another round. Read its stop reason:
 - PASS: no blocking findings remain. Any minor findings are recorded, not fixed,
@@ -247,6 +245,14 @@ On a stop, do not fix again or re-dispatch. Run the finalizer before approval:
 
 It installs the complete `## Reviewer Concerns` section directly from the JSON.
 Recording concerns does not mark them fixed. Do not edit that generated section.
+At the cap (MAX_ITERATIONS or CONVERGENCE) it lists the unresolved blocking findings
+as numbered gaps. Never launch a fourth reviewer or re-review unchanged input. Either
+apply the listed fixes first and add `--fixes <fixes.json>`
+(`[{"id":"<finding id>","applied_text":"<verbatim new excerpt>"}]`): it records
+`issues verified: k of N` deterministically (new text present, snapshot lacks it),
+never a review verdict; or finalize without it and carry its
+`N fixes unconfirmed — decision: spec not re-verified` into the approval step, which
+stays blocked until the owner accepts it explicitly.
 Then proceed to Step 3 and the existing user approval.
 
 If the subagent fails, times out, or is unavailable — stop the loop and present the
@@ -260,10 +266,9 @@ UNREVIEWED. The independent review remains a quality bonus, not an approval gate
 **Step 3: Report and persist metrics**
 
 The finalizer prints the exact Spec Review block, quality score, and metrics. Tell the user the
-result using that block; link the design and saved verdicts for details. Report
-finding observations across rounds separately from unresolved final findings.
-Confirmed resolutions require explicit later reviewer evidence; attempted fix
-rounds are counted separately and never described as successful fixes.
+result using that block; link the design and saved verdicts for details. Confirmed
+resolutions require explicit later reviewer evidence; attempted fix rounds are never
+described as successful fixes.
 
 When writing a completion report, write its other sections normally, then run the
 same finalizer with `--report "<report-path>"` after the report exists. This installs
