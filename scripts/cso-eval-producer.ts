@@ -8,6 +8,7 @@ import { readBoundedStable } from '../lib/cso/bounded-file';
 import { CsoError } from '../lib/cso/contracts';
 import { executable, redact } from '../lib/cso/process';
 import { atomicWriteSync } from '../lib/fs-atomic';
+import { redactProducerText, sourceCredentialValues, type OutputRedaction } from './cso-eval-output-redaction';
 import { resolveClaudeCommand } from '../lib/claude-bin';
 import runtimeCatalog from '../lib/cso/runtime-catalog.json';
 import scannerCatalog from '../lib/cso/scanner-images/catalog.json';
@@ -500,25 +501,34 @@ function writeExclusiveAtomic(path: string, value: unknown): void {
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('RECEIPT_EXISTS'); throw error; }
 }
 
-/** Redact both channels and both concatenation orders before a receipt can bind them. */
-export function sanitizeProducerRun(run: RunResult): RunResult {
+/**
+ * Redact both channels, and both concatenation orders, before a receipt can bind them. A credential-class match
+ * anywhere withholds the output and fails the run, naming the rules. PII, internal, legal and hygiene matches are
+ * replaced in place and leave the run's status alone: scoring reads the helper's report, the evaluator scans the
+ * receipt for its canaries separately, and the helper's own identifiers are not personal data. `sourceCredentials` are
+ * the source's credential-name values (see sourceCredentialValues), matched exactly because no rule sees them bare.
+ */
+export function sanitizeProducerRun(run: RunResult, sourceCredentials: string[] = []): RunResult {
   if (typeof run.output !== 'string' || (run.error && typeof run.error.reason !== 'string')) {
     throw new CsoError('REDACTION_FAILED', 'Producer output withheld because it was not valid text');
   }
   const reason = run.error?.reason ?? '';
+  let views: OutputRedaction[];
   try {
-    const views = [run.output, reason, run.output + reason, reason + run.output];
-    if (views.some(value => redact(value) !== value)) {
-      return {
-        ...run,
-        output: '[sensitive producer output redacted]',
-        error: { code: run.error?.code ?? 'unknown', reason: 'Sensitive producer output or error withheld' },
-      };
-    }
-    return run;
+    views = [run.output, reason, run.output + reason, reason + run.output].map(view => redactProducerText(view, sourceCredentials));
   } catch {
     throw new CsoError('REDACTION_FAILED', 'Producer output withheld because redaction could not safely inspect it');
   }
+  const secret = views.find(view => view.secret);
+  if (secret) {
+    return {
+      ...run,
+      output: '[sensitive producer output redacted]',
+      error: { code: run.error?.code ?? 'unknown', reason: `Sensitive producer output or error withheld: credential-class rule ${secret.rules.join(', ')}` },
+    };
+  }
+  const [output, error] = views;
+  return { ...run, output: output.text, ...(run.error ? { error: { ...run.error, reason: error.text } } : {}) };
 }
 
 export function producerFailureMessage(error: unknown): string {
@@ -565,6 +575,7 @@ export async function runProducerCell(inputPath: string, receiptPath: string, op
   validateSource(sourceRoot, input.source, cell.sourceHash);
   sealProducerSource(sourceRoot);
   validateSource(sourceRoot, input.source, cell.sourceHash);
+  const sourceCredentials = sourceCredentialValues(sourceRoot, input.source.map(entry => entry.path));
   const originalRepositoryIdentity = repositoryIdentity(sourceRoot);
   const stateRoot = join(jobRoot, 'state');
   const helperHome = join(stateRoot, 'cso-home');
@@ -653,7 +664,7 @@ export async function runProducerCell(inputPath: string, receiptPath: string, op
     artifacts = emptyArtifactInventory();
   }
   if (!integrityFailure) {
-    run = sanitizeProducerRun(run);
+    run = sanitizeProducerRun(run, sourceCredentials);
     if(!run.error&&!run.output.trim())run={...run,error:{code:'unknown',reason:'empty output from provider CLI (exit 0)'}};
   }
   const tokensReported = run.tokens.input > 0 || run.tokens.output > 0 || (run.tokens.cached ?? 0) > 0;
