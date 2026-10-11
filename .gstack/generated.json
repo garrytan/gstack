@@ -1,0 +1,50 @@
+{
+  "$schema": "https://github.com/garrytan/gstack/docs/pregate.md#generated-v1",
+  "entries": [
+    {
+      "id": "skill-docs",
+      "command": "bun run gen:skill-docs --host all",
+      "outputs": [
+        "SKILL.md",
+        "*/SKILL.md",
+        "*/sections/*.md",
+        "review/design-checklist.md",
+        "qa/templates/functional-report-template.md",
+        "openclaw/gstack-*-CLAUDE.md",
+        "lib/dom-dump.js",
+        "gstack/llms.txt",
+        "agents-digest/gstack-AGENTS.md",
+        "bin/gstack-doctor-components.sh"
+      ],
+      "inputs": [
+        "SKILL.md.tmpl",
+        "*/SKILL.md.tmpl",
+        "*/sections/*.tmpl",
+        "*/sections/manifest.json",
+        "*/templates/*.tmpl",
+        "openclaw/*.tmpl",
+        "hosts/**",
+        "model-overlays/**",
+        "scripts/gen-skill-docs.ts",
+        "scripts/gen-llms-txt.ts",
+        "scripts/gen-agents-digest.ts",
+        "scripts/gen-doctor-components.ts",
+        "scripts/discover-skills.ts",
+        "scripts/external-skill-names.ts",
+        "scripts/models.ts",
+        "scripts/resolvers/**",
+        "lib/doctor-components.ts",
+        "lib/dom-dump-script.ts",
+        "VERSION"
+      ],
+      "note": "every host render plus the agents digest, llms.txt and the doctor component table"
+    },
+    {
+      "id": "ship-goldens",
+      "command": "bun scripts/gen-ship-goldens.ts",
+      "outputs": ["test/fixtures/golden/*-ship-SKILL.md"],
+      "inputs": ["ship/SKILL.md.tmpl", "ship/sections/manifest.json", "hosts/**", "scripts/resolvers/**", "scripts/gen-skill-docs.ts", "VERSION"],
+      "note": "byte-pinned renders of /ship for the claude, codex, factory and agy hosts (test/host-config.test.ts)"
+    }
+  ]
+}

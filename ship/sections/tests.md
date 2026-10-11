@@ -207,6 +207,18 @@ Only commit if there are changes. Stage the bootstrap's own files by name (confi
 
 ## Step 5: Run tests (on merged code)
 
+**Pre-gate first** — free, before any lane, eval or remote gate:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-pregate --allow-repo-commands
+```
+
+Stage 1 (regen, secrets, strays, literals) is the two-minute preflight; stage 2
+runs the local lanes the touched files select under pipefail and prints
+`requires-remote` for platform lanes this machine cannot run. `fail` or
+`incomplete` blocks: fix, rerun (`--explain` shows each mapping). Step 18 refuses
+a stale `pregate.json`, so rerun it after the final stamp.
+
 Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. The commands below are examples only for repositories that actually provide them. Use the same lane labels and exact commands again in Step 16.
 
 **If no applicable test suite exists:** Name the untested scope. AskUserQuestion:
@@ -229,9 +241,10 @@ records `{command, exit, working-tree fingerprint, log path}` to
 record instead of re-running when the content hasn't changed:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-evidence run --label tests -- 'bin/test-lane 2>&1' &
-~/.claude/skills/gstack/bin/gstack-evidence run --label vitest -- 'npm run test 2>&1' &
-wait
+set -o pipefail; pids=()
+~/.claude/skills/gstack/bin/gstack-evidence run --label tests -- 'bin/test-lane 2>&1' & pids+=($!)
+~/.claude/skills/gstack/bin/gstack-evidence run --label vitest -- 'npm run test 2>&1' & pids+=($!)
+fail=0; for p in "${pids[@]}"; do wait "$p" || fail=1; done; echo "lanes failed=$fail"
 ```
 
 After all suites complete, check the `gstack-evidence: recorded label=... exit=...
