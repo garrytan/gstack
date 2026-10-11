@@ -42,6 +42,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/test-audit`](#test-audit) | **Test Auditor** | Sweep existing tests for low-value, implementation-coupled or duplicate tests. Report-only unless you approve a batch. |
 | [`/landing-report`](#landing-report) | **Ship Queue Dashboard** | Read-only snapshot of the workspace-aware ship queue. Which version slots are claimed, which sibling workspaces have WIP. |
 | [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini). Latency, tokens, cost, optional LLM-judged quality. |
+| [`/eval-plan`](#eval-plan) | **Eval Planner** | Preregister a paid eval (bars, arms, decoys, stop rules), dry-run it for $0 with the stub model, pilot three priced items, then approve the spend from the extrapolation table. |
 | | | |
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | OpenAI Codex review, challenge, and consultation. Available outside the Codex harness. |
@@ -821,6 +822,27 @@ are retained. The report and a JSON sidecar land in `~/.gstack/projects/<slug>/`
 Nothing is edited unless you approve a batch; spawned sessions stay report-only.
 Tests marked `gstack:test-value keep reason="..."` are skipped and listed in the
 report's appendix.
+
+## `/eval-plan`
+
+Preregister a paid eval before the first priced call.
+
+```text
+You: /eval-plan
+You: /eval-plan how much will the retrieval eval cost before I run it?
+```
+
+`bin/gstack-eval-plan prereg --init` writes the preregistration (question, bars,
+arms, decoys, stop rules, cap) and `--check` refuses to continue while a field is
+blank (`PREREG_INCOMPLETE`). `arms` resolves the `eval-arms` model role against
+`lib/pricing.ts` and stops on an unpriced model (`EVAL_PRICE_MISSING`); `dry-run`
+runs every row through the stub model for $0 and flags malformed rows
+(`EVAL_DRY_RUN_FAILED`); `pilot start|settle|release|report` runs three priced
+items, records actual spend, extrapolates to the full set against the cap
+(`EVAL_BUDGET_EXHAUSTED`) and prints the spend table the approval question shows.
+The skill's closing section lists the tier-3 items (instrument audit, steady
+state, sealed paths, off-machine persistence, memory preflight, power tables, QA
+soak) as `tier 3, after P7`; none of them run yet.
 
 ## `/benchmark`
 

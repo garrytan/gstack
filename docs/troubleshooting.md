@@ -2099,3 +2099,145 @@ could not be read through `gstack-issue-guard`.
 
 **Fix.** Check `gh auth status` and the number. Until it reads, the link is
 rendered as `Refs #N`, never `Fixes`.
+
+## Eval plans, lane ownership, evidence verification, the owner brief
+
+Codes printed by `bin/gstack-eval-plan`, `bin/gstack-lane-check`,
+`gstack-evidence verify`, `bin/gstack-owner-brief`, `bin/gstack-contributor-mode`
+and `bin/gstack-banned-terms` (plan E1–E3). Each ends an error line in
+parentheses; grep the code.
+
+<a id="prereg-incomplete"></a>
+### `PREREG_INCOMPLETE`
+
+**Meaning.** `gstack-eval-plan prereg --check <file>` found a required
+preregistration section missing or empty: `## Bars`, `## Arms`, `## Decoys`,
+`## Stop rules` or `## Held-out exposure` (every held-out set the plan
+touches, its prior exposure and the reservation on it).
+
+**Fix.** Fill the named sections before any priced call. A plan that cannot
+name its stop rule or its held-out exposure is not preregistered; the pilot
+refuses to start without a passing check.
+
+<a id="eval-price-missing"></a>
+### `EVAL_PRICE_MISSING`
+
+**Meaning.** An arm's model has no row in `lib/pricing.ts`, so the admission
+estimate would be `$0`, which the ledger would admit without limit.
+
+**Fix.** Add the row from the provider's pricing page (USD per million tokens
+with `as_of`), or drop the arm. The table prices standard text tokens only;
+see the excluded billing categories in `lib/pricing.ts`.
+
+<a id="eval-dry-run-failed"></a>
+### `EVAL_DRY_RUN_FAILED`
+
+**Meaning.** The `$0` stub-model dry run over the real input file found a
+problem the priced run would have paid for: a row without the fields the
+prompt needs, an output budget too small for a reasoning model, or no retry
+prompt text.
+
+**Fix.** Repair the named rows or flags (`--output-budget`, `--retry-prompt`)
+and rerun `gstack-eval-plan dry-run`. The checklist it prints is the record
+the pilot requires.
+
+<a id="eval-arms-unresolved"></a>
+### `EVAL_ARMS_UNRESOLVED`
+
+**Meaning.** `gstack-models resolve --role eval-arms` produced no arm and the
+repo policy document fallback (`--policy-doc`, default the first of
+`docs/model-policy.md`, `MODEL_POLICY.md`, `docs/MODELS.md`) named no priced
+model.
+
+**Fix.** Pass `--arms <model,model>`, point `--policy-doc` at the document
+that lists the project's allowed models, or fix the model policy config.
+
+<a id="eval-budget-exhausted"></a>
+### `EVAL_BUDGET_EXHAUSTED`
+
+**Meaning.** The ledger refused the next reservation: spent + reserved +
+unknown charges + the estimate exceeds the cap (`SPEND_CAP_EXCEEDED`
+underneath). The run stops with status `budget_exhausted`; nothing is retried.
+
+**Fix.** Read the spend table (`gstack-eval-plan pilot report`), settle or
+release the open attempts, then raise `--cap` on purpose or stop.
+
+<a id="lane-conflict"></a>
+### `LANE_CONFLICT`
+
+**Meaning.** `gstack-lane-check` found a planned file that an in-flight
+branch or pull request already changes; the line names the PR number, the
+branch and the hunk count.
+
+**Fix.** Give the file one owner: wait for that PR to merge, stack this lane
+on its branch, or drop the file from the plan. Two lanes editing one file is
+the merge-conflict incident the check exists to prevent.
+
+<a id="lane-ref-unavailable"></a>
+### `LANE_REF_UNAVAILABLE`
+
+**Meaning.** A `--branch` or `--pr` could not be resolved: the ref is not
+fetched, or `gh` is missing or not logged in.
+
+**Fix.** `git fetch origin <branch>`, or `gh auth status`. An unresolved lane
+is reported as such and never counted as clear.
+
+<a id="evidence-unverified"></a>
+### `EVIDENCE_UNVERIFIED`
+
+**Meaning.** `gstack-evidence verify <bundle>` could not verify a lane claim
+on this machine: the committed tree differs from the bundle's, the recorded
+log is absent or its hash differs, or the probe was not rerun.
+
+**Fix.** Check out the bundle's commit and run `--rerun` to execute the lane
+command here, or treat the claim as an imported assertion that never counts
+toward gate reuse.
+
+<a id="banned-term-found"></a>
+### `BANNED_TERM_FOUND`
+
+**Meaning.** The diff adds a term listed in `.gstack/banned-terms.json`
+outside that term's `allowed_paths`. The finding names the term, the file and
+line, and the allowed locations.
+
+**Fix.** Remove the term from the added line or move the text to an allowed
+path. `/review` and `/document-release` run this check on every diff.
+
+<a id="banned-terms-invalid"></a>
+### `BANNED_TERMS_INVALID`
+
+**Meaning.** `.gstack/banned-terms.json` is not valid: `terms` must be a
+non-empty list of strings, and each `allowed_paths` entry must be a plain
+repo-relative glob (no `..`, no absolute path, no symlink escape).
+
+**Fix.** `gstack-banned-terms init` writes a commented example with every key
+at its default; `gstack-banned-terms validate` checks the file.
+
+<a id="contributor-source-unavailable"></a>
+### `CONTRIBUTOR_SOURCE_UNAVAILABLE`
+
+**Meaning.** `gstack-contributor-mode detect` found no `maintainers` list in
+`.gstack/ship-policy.json` and could not ask the collaborators API (`gh`
+missing, not logged in, or no PR author resolvable), so the mode is off and
+`source=off` is recorded.
+
+**Fix.** Add `maintainers` to the ship policy (the explicit list always wins),
+run `gh auth login`, or pass `--contributor` to force the mode for this review.
+
+<a id="brief-input-missing"></a>
+### `BRIEF_INPUT_MISSING`
+
+**Meaning.** `gstack-owner-brief render --out <dir>` needs `gate.json`,
+`decisions.jsonl` and `findings.jsonl` in the run directory; one is missing.
+
+**Fix.** Reach the gate first (`gstack-autoplan next --out <dir>` until
+`gate_pending`); the brief renders what the gate wrote.
+
+<a id="draft-direction-unresolved"></a>
+### `DRAFT_DIRECTION_UNRESOLVED`
+
+**Meaning.** The phase-close rewrite found a `draft direction stands until the
+owner decides` line whose decision id is still pending, so it was left as is.
+
+**Fix.** Answer the gate for that id, then rerun `gstack-owner-brief close`;
+only decided lines are rewritten, each to its chosen option and the date.

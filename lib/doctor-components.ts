@@ -112,6 +112,7 @@ export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   'deslop-shared-libs': CLAUDE_ONLY,
   'document-generate': CLAUDE_ONLY,
   'document-release': CLAUDE_ONLY,
+  'eval-plan': CLAUDE_ONLY,
   freeze: CLAUDE_ONLY,
   'gstack-upgrade': CLAUDE_ONLY,
   guard: CLAUDE_ONLY,

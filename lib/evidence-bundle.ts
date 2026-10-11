@@ -184,3 +184,67 @@ export function checkAncestors(repoRoot: string, shas: string[], of = 'HEAD'): A
     return { sha, ok: r.status === 0, detail: r.status === 0 ? `ancestor of ${of}` : `not an ancestor of ${of}` };
   });
 }
+
+// ---------------------------------------------------------------------------
+// verify (plan E2): rerun the probes, or mark each claim verified/unverified
+// ---------------------------------------------------------------------------
+export type ClaimVerdict = 'verified' | 'unverified';
+export interface ClaimVerification { label: string; verdict: ClaimVerdict; reason: string; rerun_exit?: number; imported: boolean; required: boolean }
+export interface BundleVerification {
+  schema_version: 1; bundle: string; at: string; host: string; mode: 'rerun' | 'ledger';
+  tree: { bundle: string; current: string | null; same: boolean };
+  claims: ClaimVerification[]; verified: number; unverified: number; required_unverified: string[];
+}
+export interface VerifyOptions {
+  repoRoot: string; bundle: EvidenceBundle; bundlePath: string; rerun?: boolean; ledgerRecords?: Array<Record<string, unknown>>;
+  now?: Date; timeoutMs?: number; env?: NodeJS.ProcessEnv;
+  /** Test seam: runs one lane command and returns its exit code. */
+  runCommand?: (command: string, cwd: string) => number;
+}
+
+function defaultRun(command: string, cwd: string, timeoutMs: number, env: NodeJS.ProcessEnv): number {
+  const r = spawnSync('bash', ['-lc', command], { cwd, stdio: ['ignore', 'inherit', 'inherit'], timeout: timeoutMs, env });
+  return r.status ?? (r.signal ? 128 : 1);
+}
+
+/** Each lane claim is `verified` only by a rerun on the bundle's tree, or by this machine's own ledger record and log. */
+export function verifyBundle(o: VerifyOptions): BundleVerification {
+  const current = git(o.repoRoot, ['rev-parse', 'HEAD^{tree}']);
+  const same = current === o.bundle.repo.tree;
+  const run = o.runCommand ?? ((c: string, cwd: string) => defaultRun(c, cwd, o.timeoutMs ?? 3_600_000, o.env ?? process.env));
+  const required = new Set(o.bundle.required_lanes);
+  const claims: ClaimVerification[] = [];
+  const all = [...o.bundle.lanes.map(l => ({ l, imported: false })), ...o.bundle.imported.map(l => ({ l, imported: true }))];
+  for (const { l, imported } of all) {
+    const base = { label: l.label, imported, required: required.has(l.label) };
+    if (!l.command) { claims.push({ ...base, verdict: 'unverified', reason: 'no command recorded' }); continue; }
+    if (o.rerun) {
+      if (!same) { claims.push({ ...base, verdict: 'unverified', reason: `HEAD tree ${current?.slice(0, 12) ?? 'unknown'} differs from bundle tree ${o.bundle.repo.tree.slice(0, 12)}; check out ${o.bundle.repo.commit.slice(0, 12)} first` }); continue; }
+      const exit = run(l.command, o.repoRoot);
+      const ok = exit === l.exit;
+      claims.push({ ...base, verdict: ok ? 'verified' : 'unverified', rerun_exit: exit, reason: ok ? `rerun exited ${exit} as recorded` : `rerun exited ${exit}, bundle recorded ${l.exit}` });
+      continue;
+    }
+    if (imported) { claims.push({ ...base, verdict: 'unverified', reason: l.reason ?? 'imported assertion; rerun to verify' }); continue; }
+    const record = (o.ledgerRecords ?? []).find(r => r.label === l.label && r.cmd_sha256 === l.cmd_sha256 && r.commit === l.commit);
+    if (!record) { claims.push({ ...base, verdict: 'unverified', reason: 'no matching record in this machine’s evidence ledger (produced elsewhere); rerun to verify' }); continue; }
+    const logPath = typeof record.log_path === 'string' ? record.log_path : null;
+    if (!logPath || !fs.existsSync(logPath)) { claims.push({ ...base, verdict: 'unverified', reason: 'ledger record found but its log is gone' }); continue; }
+    const logSha = sha256Text(fs.readFileSync(logPath));
+    if (l.log_sha256 && logSha !== l.log_sha256) { claims.push({ ...base, verdict: 'unverified', reason: 'log bytes differ from the bundle’s log hash' }); continue; }
+    if (!l.verified) { claims.push({ ...base, verdict: 'unverified', reason: l.reason ?? 'bundle marked the lane unverified' }); continue; }
+    claims.push({ ...base, verdict: 'verified', reason: 'this machine’s ledger record and log match the bundle' });
+  }
+  const unverified = claims.filter(c => c.verdict === 'unverified');
+  return {
+    schema_version: 1, bundle: o.bundlePath, at: (o.now ?? new Date()).toISOString(), host: os.hostname(), mode: o.rerun ? 'rerun' : 'ledger',
+    tree: { bundle: o.bundle.repo.tree, current, same }, claims, verified: claims.length - unverified.length, unverified: unverified.length,
+    required_unverified: unverified.filter(c => c.required).map(c => c.label),
+  };
+}
+
+export function renderVerification(v: BundleVerification): string {
+  const lines = v.claims.map(c => `VERIFY: ${c.label} ${c.verdict}${c.imported ? ' (imported)' : ''}${c.required ? '' : ' (optional)'} — ${c.reason}`);
+  lines.push(`EVIDENCE_VERIFY: ${v.bundle} mode=${v.mode} tree=${v.tree.same ? 'same' : 'differs'} verified=${v.verified} unverified=${v.unverified}${v.required_unverified.length ? ` required_unverified=${v.required_unverified.join(',')}` : ''}`);
+  return lines.join('\n') + '\n';
+}

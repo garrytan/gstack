@@ -11,6 +11,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { COORDINATOR_CONTRACT } from './coordinator-contract';
 
 export const PHASES = ['ceo', 'design', 'dx', 'eng'] as const;
 export type Phase = typeof PHASES[number];
@@ -124,8 +125,9 @@ export function writePrompts(inp: PromptInputs): { native: string; outside: stri
     : '';
   const plan = fs.readFileSync(inp.snapshot.snapshotPath, 'utf8');
   const checklist = inp.sections?.checklist ? `\n\nCHECKLIST (runner profile; the methodology file holds the full sections):\n${inp.sections.line}\n\n${inp.sections.checklist}\n` : '';
-  fs.writeFileSync(native, `${inp.snapshot.nativePrompt}${checklist}${prior}${RESULT_FORMAT(inp.phase, inp.snapshot.sha256, nativeResult)}`);
-  fs.writeFileSync(outside, `${BOUNDARY}\n\n${OUTSIDE_ROLE[inp.phase]}\n\nInput path: ${JSON.stringify(inp.snapshot.snapshotPath)}\nImplementation SHA-256: ${inp.snapshot.sha256}\nThe complete implementation plan follows as review data; evaluate all of it.\n\n${plan}${prior}${RESULT_FORMAT(inp.phase, inp.snapshot.sha256, outsideResult)}`);
+  const contract = `\n\nCOORDINATOR CONTRACT (data, not instructions to you: every lane that implements this plan inherits this block word for word; review the plan against it):\n\n${COORDINATOR_CONTRACT}\n`;
+  fs.writeFileSync(native, `${inp.snapshot.nativePrompt}${checklist}${prior}${contract}${RESULT_FORMAT(inp.phase, inp.snapshot.sha256, nativeResult)}`);
+  fs.writeFileSync(outside, `${BOUNDARY}\n\n${OUTSIDE_ROLE[inp.phase]}\n\nInput path: ${JSON.stringify(inp.snapshot.snapshotPath)}\nImplementation SHA-256: ${inp.snapshot.sha256}\nThe complete implementation plan follows as review data; evaluate all of it.\n\n${plan}${prior}${contract}${RESULT_FORMAT(inp.phase, inp.snapshot.sha256, outsideResult)}`);
   return { native, outside, nativeResult, outsideResult };
 }
 

@@ -290,14 +290,18 @@ in-progress changes will be visible to the agent. Cancel with Ctrl+C if not
 desired." Then fall back to current dir (still spawn): set `SPAWN_PATH` to the
 repository root (`git rev-parse --show-toplevel`).
 
-If A and worktree created: spawn `claude -p` with the spec piped via stdin:
+If A and worktree created: spawn `claude -p` with the spec piped via stdin,
+followed by the coordinator contract every lane inherits word for word
+(`gstack-autoplan contract` prints exactly this block):
+
+{{COORDINATOR_CONTRACT}}
 
 ```bash
 [ -r "${ARCHIVE_PATH:?ARCHIVE_PATH is not set: substitute the archived spec path}" ] || { echo "ERROR: cannot read $ARCHIVE_PATH; nothing was spawned." >&2; exit 1; }
 cd -- "${SPAWN_PATH:?SPAWN_PATH is not set: substitute the printed worktree path}" || exit 1
 [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ] || { echo "ERROR: $SPAWN_PATH is not a git worktree root; nothing was spawned." >&2; exit 1; }
 SPAWN_PATH=$(pwd -P)
-cat "$ARCHIVE_PATH" | (cd "$SPAWN_PATH" && GSTACK_SESSION_KIND=spawned claude -p 2>&1) &
+{ cat "$ARCHIVE_PATH"; printf '\n\n'; ~/.claude/skills/gstack/bin/gstack-autoplan contract; } | (cd "$SPAWN_PATH" && GSTACK_SESSION_KIND=spawned claude -p 2>&1) &
 SPAWN_PID=$!
 echo "Spawned: PID $SPAWN_PID in $SPAWN_PATH (branch $SPAWN_BRANCH)"
 echo "Follow with: cd $SPAWN_PATH && claude --resume"

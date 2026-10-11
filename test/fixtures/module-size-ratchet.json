@@ -1,5 +1,12 @@
 {
   "newModules": [
+    { "file": "lib/pricing.ts", "movedFrom": "test/helpers/pricing.ts (PRICING, estimateCostUsd; plan E1 moved the table under lib/ so bin/gstack-eval-plan can price arms)" },
+    { "file": "lib/eval-plan.ts", "movedFrom": "(new: preregistration check, priced arms, $0 dry run, priced pilot ledger behind bin/gstack-eval-plan, plan E1)" },
+    { "file": "lib/lane-ownership.ts", "movedFrom": "(new: lane ownership check behind bin/gstack-lane-check, plan E2)" },
+    { "file": "lib/coordinator-contract.ts", "movedFrom": "(new: the inherited coordinator contract text, plan E2)" },
+    { "file": "lib/owner-brief.ts", "movedFrom": "(new: the one-page owner brief and draft-direction close behind bin/gstack-owner-brief, plan E3)" },
+    { "file": "lib/contributor-mode.ts", "movedFrom": "(new: maintainer-set detection behind bin/gstack-contributor-mode, plan E3)" },
+    { "file": "lib/banned-terms.ts", "movedFrom": "(new: .gstack/banned-terms.json scan behind bin/gstack-banned-terms, plan E3)" },
     { "file": "scripts/lib/shard-engine.ts", "movedFrom": "scripts/test-strict-output.ts" },
     { "file": "autoplan/bin/phase-publication-hook.ts", "movedFrom": "(owner: the /autoplan publication guard; ENG-17 keeps it under the module limit)" },
     { "file": "autoplan/bin/guard-reasons.ts", "movedFrom": "(new: guard reason codes, denial text and anchors, ENG-17)" },

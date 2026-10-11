@@ -1,0 +1,90 @@
+#!/usr/bin/env bun
+/**
+ * gstack-banned-terms — terms a repository forbids outside named locations (plan E3).
+ *
+ *   gstack-banned-terms [check] [--base <ref>] [--diff-base <sha>] [--files <csv>] [--policy-from base|head] [--json]
+ *   gstack-banned-terms init [--force]
+ *   gstack-banned-terms validate
+ *
+ * `check` scans the lines the branch adds against the base (or whole files with
+ * --files) for every term in .gstack/banned-terms.json outside its allowed
+ * paths. Each finding names the term, file:line and the allowed locations; the
+ * last line is `BANNED_TERMS: ok | found=<n> | none`. Exit 0 ok or none, 1 found,
+ * 3 when the file is invalid. Logic: lib/banned-terms.ts. Called from /review and /document-release.
+ */
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { BANNED_TERMS_PATH, addedLines, exampleBannedTermsJson, loadBannedTerms, renderBannedTerms, scanBannedTerms, validateBannedTerms, wholeFiles } from '../lib/banned-terms';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { resultLine } from '../lib/result-codes';
+import { resolveBaseBranch } from '../lib/ship-policy';
+
+const HELP = `gstack-banned-terms — scan a diff for banned terms outside their allowed locations (docs/ship-policy.md#banned-terms)
+
+  check [--base <ref>] [--diff-base <sha>] [--files <csv>] [--policy-from base|head] [--json]
+        added lines since the merge base with <ref> (default origin/HEAD), or whole --files; the term list
+        is read from the committed copy on the base (default) or the working tree (--policy-from head)
+  init [--force]        write a commented ${BANNED_TERMS_PATH} example
+  validate              schema and containment check of the working-tree file
+
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+function main(argv: string[]): number {
+  if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
+  const cmd = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'check';
+  const rest = cmd === argv[0] ? argv.slice(1) : argv;
+  const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
+  if (root.status !== 0) { process.stderr.write('gstack-banned-terms: not inside a git repository\n'); return EXIT.usage; }
+  const repoRoot = root.stdout.trim();
+  const file = path.join(repoRoot, BANNED_TERMS_PATH);
+
+  if (cmd === 'init') {
+    if (fs.existsSync(file) && !rest.includes('--force')) { process.stderr.write(`gstack-banned-terms: ${BANNED_TERMS_PATH} exists (pass --force to overwrite)\n`); return EXIT.refused; }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, exampleBannedTermsJson());
+    process.stdout.write(`BANNED_TERMS_INIT: ${BANNED_TERMS_PATH}\n`);
+    return EXIT.ok;
+  }
+  if (cmd === 'validate') {
+    if (!fs.existsSync(file)) { process.stdout.write(`BANNED_TERMS: none (no ${BANNED_TERMS_PATH})\n`); return EXIT.ok; }
+    let parsed: unknown;
+    try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e: any) { process.stderr.write(resultLine('gstack-banned-terms validate', 'BANNED_TERMS_INVALID', e.message) + '\n'); return EXIT.refused; }
+    const errors = validateBannedTerms(parsed);
+    for (const e of errors) process.stderr.write(resultLine('gstack-banned-terms validate', e.code, `${e.message} at ${e.path || '<root>'}`) + '\n');
+    if (errors.length) return EXIT.refused;
+    process.stdout.write(`BANNED_TERMS_VALID: ${BANNED_TERMS_PATH}\n`);
+    return EXIT.ok;
+  }
+  if (cmd !== 'check') { process.stderr.write(`gstack-banned-terms: unknown command ${cmd}\n${HELP}\n`); return EXIT.usage; }
+
+  const json = rest.includes('--json');
+  const base = resolveBaseBranch(repoRoot, flag(rest, '--base'));
+  const policyFrom = flag(rest, '--policy-from') ?? 'base';
+  let load = loadBannedTerms(repoRoot, policyFrom === 'head' ? undefined : base);
+  if (policyFrom !== 'head' && 'absent' in load) load = loadBannedTerms(repoRoot);
+  if ('absent' in load) { process.stdout.write(json ? JSON.stringify({ source: load.source, absent: true, findings: [] }) + '\n' : `BANNED_TERMS: none (no ${BANNED_TERMS_PATH} on ${policyFrom === 'head' ? 'the working tree' : base})\n`); return EXIT.ok; }
+  if ('errors' in load) { for (const e of load.errors) process.stderr.write(resultLine('gstack-banned-terms', e.code, `${e.message} at ${e.path || '<root>'} (${load.source})`) + '\n'); return EXIT.refused; }
+
+  const filesFlag = flag(rest, '--files');
+  let files;
+  if (filesFlag) files = wholeFiles(repoRoot, filesFlag.split(',').map(s => s.trim()).filter(Boolean));
+  else {
+    const diffBase = flag(rest, '--diff-base') ?? (() => { const mb = spawnSync('git', ['merge-base', base, 'HEAD'], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 }); return mb.status === 0 ? mb.stdout.trim() : undefined; })();
+    if (!diffBase) { process.stderr.write(`gstack-banned-terms: no merge base with ${base}; pass --diff-base <sha> or --files <csv>\n`); return EXIT.usage; }
+    const diff = spawnSync('git', ['diff', '--unified=0', '--no-color', diffBase], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+    if (diff.status !== 0) { process.stderr.write(`gstack-banned-terms: git diff ${diffBase} failed\n`); return EXIT.fail; }
+    files = addedLines(diff.stdout);
+  }
+  const result = scanBannedTerms(load.config, load.source, files);
+  if (json) process.stdout.write(JSON.stringify(result) + '\n'); else process.stdout.write(renderBannedTerms(result));
+  if (result.findings.length) { process.stderr.write(resultLine('gstack-banned-terms', 'BANNED_TERM_FOUND', `${result.findings.length} finding(s)`) + '\n'); return EXIT.fail; }
+  return EXIT.ok;
+}
+
+process.exitCode = main(process.argv.slice(2));

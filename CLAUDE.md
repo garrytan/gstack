@@ -146,7 +146,7 @@ a skill's own bash.
 
 **Size budgets:** generated SKILL.md files warn above 160KB (~40K tokens);
 `test/catalog-budget.test.ts` caps the always-loaded skill catalog at
-`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,194 today; each new skill ratchets it); and
+`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,197 today; each new skill ratchets it); and
 `test/context-budget-ratchet.test.ts` pins per-skill token ceilings against
 `test/fixtures/context-budget.json` (for legitimate growth or a landed
 reduction, re-run `bun test/helpers/capture-context-budget.ts` and commit the

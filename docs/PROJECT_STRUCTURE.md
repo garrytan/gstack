@@ -54,6 +54,7 @@ gstack/
 ├── review/          # PR review skill (checklist.md is hand-written; design-checklist.md is GENERATED from lib/design-catalog.ts)
 ├── deslop-shared-libs/ # Recommendations-only audit for worthwhile shared-code extractions
 ├── test-audit/      # Report-first sweep for low-value tests (test value bar, audit mode)
+├── eval-plan/       # Preregistered paid evals: prereg, arms, $0 dry run, priced pilot (bin/gstack-eval-plan)
 ├── plan-ceo-review/ # /plan-ceo-review skill
 ├── plan-eng-review/ # /plan-eng-review skill
 ├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → DX → eng, eng always last)

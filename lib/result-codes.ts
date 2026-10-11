@@ -399,6 +399,73 @@ export const RESULT_CODES = {
     summary: 'an issue a closure trailer or --issue names could not be read through gstack-issue-guard, so its link is Refs, never Fixes',
     fix: 'check `gh auth status` and the issue number; rerun gstack-issue-links once the issue reads',
   },
+  // PR E (multi-agent wave): gstack-eval-plan, gstack-lane-check, gstack-evidence verify,
+  // gstack-owner-brief, gstack-contributor-mode, gstack-banned-terms.
+  PREREG_INCOMPLETE: {
+    anchor: 'prereg-incomplete',
+    summary: 'the preregistration file lacks a required section or a section is empty',
+    fix: 'fill every section `gstack-eval-plan prereg --check` names (bars, arms, decoys, stop rules, held-out exposure) before any priced call',
+  },
+  EVAL_PRICE_MISSING: {
+    anchor: 'eval-price-missing',
+    summary: 'an arm names a model with no row in the price table, so its admission cannot be estimated',
+    fix: 'add the model to lib/pricing.ts (provider page, USD per million tokens, as_of) or drop the arm; a $0 estimate is never an admission',
+  },
+  EVAL_DRY_RUN_FAILED: {
+    anchor: 'eval-dry-run-failed',
+    summary: 'the $0 stub-model dry run found an input or checklist problem (input shape, output budget, retry prompt)',
+    fix: 'repair the named input rows or settings and rerun `gstack-eval-plan dry-run`; the pilot refuses to start on a failed dry run',
+  },
+  EVAL_ARMS_UNRESOLVED: {
+    anchor: 'eval-arms-unresolved',
+    summary: 'no eval arm could be resolved from the model policy or the repo policy document',
+    fix: 'run `gstack-models resolve --role eval-arms`, or pass `--arms <model,model>` / `--policy-doc <file>` naming models in the price table',
+  },
+  EVAL_BUDGET_EXHAUSTED: {
+    anchor: 'eval-budget-exhausted',
+    summary: 'the pilot or run stopped because spent + reserved + unknown charges reached the cap',
+    fix: 'read the spend table, settle or release open attempts, then raise `--cap` deliberately or stop; never rerun to make room',
+  },
+  LANE_CONFLICT: {
+    anchor: 'lane-conflict',
+    summary: 'a planned file is already changed by an in-flight branch or pull request',
+    fix: 'assign the file one owner: wait for that PR, stack on its branch, or drop the file from this lane',
+  },
+  LANE_REF_UNAVAILABLE: {
+    anchor: 'lane-ref-unavailable',
+    summary: 'a branch or pull request named for the lane check could not be resolved',
+    fix: 'fetch the branch (`git fetch origin <branch>`) or check `gh auth status`; an unresolved lane is reported, never assumed clear',
+  },
+  EVIDENCE_UNVERIFIED: {
+    anchor: 'evidence-unverified',
+    summary: 'a bundle claim could not be verified on this machine (tree moved, log missing, or the probe was not rerun)',
+    fix: 'rerun the lane here with `gstack-evidence verify <bundle> --rerun`, or treat the claim as an imported assertion',
+  },
+  BANNED_TERM_FOUND: {
+    anchor: 'banned-term-found',
+    summary: 'the diff adds a banned term outside its allowed locations',
+    fix: 'remove the term or move the text to a path `.gstack/banned-terms.json` allows for it',
+  },
+  BANNED_TERMS_INVALID: {
+    anchor: 'banned-terms-invalid',
+    summary: '`.gstack/banned-terms.json` is malformed or an allowed path escapes the repository',
+    fix: 'keep `terms` a non-empty string list and every `allowed_paths` entry a plain repo-relative glob (no `..`, no absolute path)',
+  },
+  CONTRIBUTOR_SOURCE_UNAVAILABLE: {
+    anchor: 'contributor-source-unavailable',
+    summary: 'neither a `maintainers` list in .gstack/ship-policy.json nor the collaborators API could classify the PR author',
+    fix: 'add `maintainers` to the ship policy, or run `gh auth login`; the review proceeds with contributor mode off and records the source',
+  },
+  BRIEF_INPUT_MISSING: {
+    anchor: 'brief-input-missing',
+    summary: 'the run directory lacks a file the owner brief renders from (gate.json, decisions.jsonl or findings.jsonl)',
+    fix: 'finish the run to the gate (`gstack-autoplan next`) so the gate list and decisions exist, then render the brief',
+  },
+  DRAFT_DIRECTION_UNRESOLVED: {
+    anchor: 'draft-direction-unresolved',
+    summary: 'a `draft direction stands until the owner decides` line names a decision that is still pending',
+    fix: 'answer the gate (`gstack-autoplan answer`) before closing; the close rewrites only decided lines',
+  },
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

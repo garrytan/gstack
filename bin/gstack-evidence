@@ -9,6 +9,7 @@
  *   gstack-evidence bundle --out <file> [--label <L>]... [--require <csv>] [--selection L=<text>]...
  *                          [--run-url L=<url>]... [--import <json>] [--base <branch>]   (plan C3; lib/evidence-bundle.ts)
  *   gstack-evidence ancestor <sha>... | --from-policy [--base <branch>]                 (plan C7)
+ *   gstack-evidence verify <bundle> [--rerun] [--out <file>] [--json]                   (plan E2)
  *
  * `run` is a TRANSPARENT wrapper: it streams the child's output through
  * unchanged, tees it to a 0600 log (2MB cap with a truncation marker), and
@@ -52,7 +53,7 @@ import { spawnSync } from "child_process";
 import { appendJsonl, readJsonl } from "../lib/jsonl-store";
 import { resolveStateRoot } from "../lib/state-root";
 import { scan, applyRedactions } from "../lib/redact-engine";
-import { buildBundle, checkAncestors } from "../lib/evidence-bundle";
+import { buildBundle, checkAncestors, readBundle, renderVerification, verifyBundle } from "../lib/evidence-bundle";
 import { resultLine } from "../lib/result-codes";
 import { isUnavailable, loadPolicyFromBase, resolveBaseBranch } from "../lib/ship-policy";
 import { versionAtRef } from "../lib/restamp";
@@ -725,6 +726,27 @@ function cmdAncestor(argv: string[]): number {
   return results.every((r) => r.ok) ? 0 : 1;
 }
 
+/** E2: rerun each lane's probe on the bundle's tree, or mark each claim from this machine's ledger. */
+function cmdVerify(argv: string[]): number {
+  const file = argv.find((a, i) => !a.startsWith("--") && argv[i - 1] !== "--out");
+  if (!file) { console.error("usage: gstack-evidence verify <bundle.json> [--rerun] [--out <file>] [--json]"); return 2; }
+  const read = readBundle(file);
+  if (!read.bundle) { console.error(resultLine("gstack-evidence verify", read.error!.code, read.error!.message)); return 1; }
+  const repoRoot = git(["rev-parse", "--show-toplevel"]) ?? process.cwd();
+  let records: Record<string, unknown>[] = [];
+  try { records = readJsonl<Record<string, unknown>>(ledgerPath().file); } catch { records = []; }
+  const v = verifyBundle({ repoRoot, bundle: read.bundle, bundlePath: file, rerun: argv.includes("--rerun"), ledgerRecords: records });
+  const outIdx = argv.indexOf("--out");
+  if (outIdx >= 0 && argv[outIdx + 1]) {
+    const { writeFileSync } = require("fs") as typeof import("fs");
+    mkdirpSync(dirname(argv[outIdx + 1]!));
+    writeFileSync(argv[outIdx + 1]!, JSON.stringify({ ...read.bundle, verification: v }, null, 2) + "\n");
+  }
+  if (argv.includes("--json")) console.log(JSON.stringify(v)); else process.stdout.write(renderVerification(v));
+  for (const c of v.claims) if (c.verdict === "unverified" && c.required) console.error(resultLine("gstack-evidence verify", "EVIDENCE_UNVERIFIED", `${c.label}: ${c.reason}`));
+  return v.required_unverified.length ? 1 : 0;
+}
+
 const [, , sub, ...rest] = process.argv;
 try {
   if (sub === "run") {
@@ -735,8 +757,10 @@ try {
     process.exit(cmdBundle(rest));
   } else if (sub === "ancestor") {
     process.exit(cmdAncestor(rest));
+  } else if (sub === "verify") {
+    process.exit(cmdVerify(rest));
   } else {
-    console.error("usage: gstack-evidence run|check|bundle|ancestor ...");
+    console.error("usage: gstack-evidence run|check|bundle|ancestor|verify ...");
     process.exit(2);
   }
 } catch (e: any) {

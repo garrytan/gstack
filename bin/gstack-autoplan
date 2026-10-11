@@ -13,6 +13,7 @@
  *   gstack-autoplan status  --out <dir> [--json]        query: the manifest, no GSTACK_RESULT line
  *   gstack-autoplan export  --out <dir> [--json]        rewrite plan.md, review-record.md, findings/tasks.jsonl and run.json hashes
  *   gstack-autoplan release --out <dir> --attempt <id>  drop a reservation for an attempt that never ran
+ *   gstack-autoplan contract                            print the coordinator contract every lane prompt inherits (plan E2)
  *
  * Logic: lib/autoplan-run.ts (next/submit/resume), lib/autoplan-gate.ts (close, gate, answer),
  * lib/autoplan-export.ts, lib/autoplan-prompts.ts, lib/spend-ledger.ts. Codes: lib/result-codes.ts.
@@ -28,6 +29,7 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { createRunner, familyConflict, type RunnerId } from '../lib/outside-voice-runner';
 import { resultLine } from '../lib/result-codes';
 import { release } from '../lib/spend-ledger';
+import { COORDINATOR_CONTRACT } from '../lib/coordinator-contract';
 
 const HELP = `gstack-autoplan — unattended /autoplan: next/submit loop, answer, resume (docs/unattended.md)
 
@@ -42,6 +44,7 @@ const HELP = `gstack-autoplan — unattended /autoplan: next/submit loop, answer
           next in a loop, only when a runner executes both voices here; --deadline cancels the children it started
   answer  --out <dir> --gate-rev <rev> --reply "<all | d3b uc1a | all except d3b>" [--json]
   resume  --out <dir> [--json]      status  --out <dir> [--json]      export  --out <dir>      release --out <dir> --attempt <id>
+  contract                          print lib/coordinator-contract.ts (the block every lane and reviewer prompt inherits word for word)
 
 The first next needs --plan. The native voice is dispatched by the parent from the printed prompt file (a subagent on the
 parent's model); the outside voice runs through gstack-outside-voice or a cross-family subagent. Spend by host subagents is unknown.
@@ -149,6 +152,7 @@ async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   const json = rest.includes('--json');
   if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  if (cmd === 'contract') { process.stdout.write(COORDINATOR_CONTRACT + '\n'); return EXIT.ok; }
   const outFlag = flag(rest, '--out');
   if (!outFlag) return usage(`${cmd} needs --out <dir>`);
   const out = path.resolve(outFlag);

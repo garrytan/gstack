@@ -266,3 +266,40 @@ ancestor of HEAD. `gstack-evidence ancestor
 --from-policy --base main` prints one `ANCESTOR: ok|missing <sha>` line per
 `preregistration_shas` entry (`PREREGISTRATION_NOT_ANCESTOR`, exit 1), and the
 ship receipt records the result in `preregistration`.
+
+## Contributor mode
+
+`/review` runs `gstack-contributor-mode detect` at Step 1 (decision D10). The PR
+author is outside the maintainer set when `maintainers` in `.gstack/ship-policy.json`
+on the base branch is non-empty and does not list the login (`source=policy`);
+with an empty list, when `gh api repos/<owner>/<repo>/collaborators/<login>/permission`
+reports less than push permission (`source=collaborators`, an egress receipt
+`contributor-mode` precedes the call); when neither is available the mode is off
+and `CONTRIBUTOR_SOURCE_UNAVAILABLE` names what was missing. `--contributor`
+forces it on (`source=flag`). `CODEOWNERS` is file ownership, not maintenance
+authority, and is never read. The printed line is
+`CONTRIBUTOR_MODE: on|off author=<login> source=flag|policy|collaborators|off`,
+followed when on by the evidence-first instructions: a table per change
+(evidence value, risk surfaces, `accept` / `supersede` / `decline`), where
+`accept` keeps a direct path for a correct outside implementation judged by the
+same bar as a maintainer change, `supersede` rewrites from our own plan only after
+a plain-language approval, and the credit lines (`Contributed by @handle`,
+`Co-Authored-By:`, `Supersedes #N`) appear only when a diagnosis or a test carried
+over. `gstack-contributor-mode instructions` prints the same text without detecting.
+
+## Banned terms
+
+`.gstack/banned-terms.json` lists terms the repository forbids outside named
+locations: `terms` (a string, or `{ "term", "allowed_paths", "reason" }`) and a
+top-level `allowed_paths` that every term inherits. Globs follow the same
+containment rules as the ship policy (repo-relative, no `..`, under 256
+characters). `gstack-banned-terms check --base <ref>` scans the lines the branch
+adds since its merge base (or whole files with `--files <csv>`), reading the term
+list from the committed copy on the base by default (`--policy-from head` reads
+the working tree). Each finding is one line,
+`BANNED_TERM: "<term>" <file>:<line> allowed: <locations> — <text>`, and the
+last line is `BANNED_TERMS: ok | found=<n> | none` (`none`: the repository keeps
+no list). Exit 0 for ok or none, 1 when found, 3 when the file is invalid
+(`BANNED_TERMS_INVALID`, also from `validate`). `/review` turns each finding into
+a Step 4 finding and `/document-release` into a documentation finding;
+`gstack-banned-terms init` writes a commented example.

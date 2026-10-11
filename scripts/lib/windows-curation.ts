@@ -59,6 +59,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   { file: 'test/gstack-regen.test.ts', reason: 'spawns bin/gstack-regen through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess) and POSIX fixture regen commands' },
   { file: 'test/pregate-invalidation.test.ts', reason: 'spawns bin/gstack-pregate and bin/gstack-ship-receipt through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess) and the pipefail lane runner' },
   { file: 'test/ship-issue-intent.test.ts', reason: 'spawns bin/gstack-issue-links and bin/gstack-ship-receipt through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess) with a `gh` shell shim on PATH' },
+  // PR E2: lane ownership and evidence verification run bin/gstack-lane-check and bin/gstack-evidence
+  // through test/helpers/restamp-fixture.ts runBin (shebang via CreateProcess); the lib paths are
+  // exercised in the same file, so there is no Windows-safe split to keep.
+  { file: 'test/lane-coordination.test.ts', reason: 'spawns bin/gstack-lane-check and bin/gstack-evidence through test/helpers/restamp-fixture.ts runBin (shebang via CreateProcess) and reruns POSIX lane commands' },
   {
     file: 'test/ship-measure-seeded-fixture.test.ts',
     reason: 'drives a POSIX shell stub project (`./evals.sh` with a shebang) that CreateProcess cannot exec; the measure runner itself is covered by ship-measure.test.ts with in-process fake runners',

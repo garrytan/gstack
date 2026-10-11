@@ -21,6 +21,7 @@ import { RunError, journal as journalRow, now, readDecisions, voiceRows, writeDe
 import { phaseClose } from './autoplan-timing';
 import { applyReply, decisionRows, parseReply, validateGateList, type GateItem, type GateList } from './gate-list';
 import { readJsonl } from './headless-artifacts';
+import { closeDraftDirectionsFile, loadBriefInputs } from './owner-brief';
 
 export function loadOverrides(file: string | undefined): ReconciliationOverride[] {
   if (!file) return [];
@@ -165,6 +166,7 @@ export function answerGate(state: RunState, gateRev: number, reply: string): Ans
   }
   if (reopenSet.size === 0) {
     state.status = 'complete';
+    lines.push(...closeDraftDirections(state, answeredAt.slice(0, 10)));
     exportRun(state);
     lines.push(`APPROVED: gate_rev=${gateRev} ${overrides.length ? `overrides=${overrides.map(o => `${o.id}${o.chosen}`).join(',')} (none change reviewed content)` : 'as-is'}`);
     return { state, applied: true, pending: [], reopened: [], outcome: 'complete', lines };
@@ -173,6 +175,16 @@ export function answerGate(state: RunState, gateRev: number, reply: string): Ans
   reopenPhases(state, reopened, gateRev, `gate_rev ${gateRev}: ${plan.chosen === 'd' ? 'revise' : overrides.map(o => `${o.id}${o.chosen}`).join(',')}`);
   lines.push(`REOPENED: ${reopened.join(',')} (Eng last) reason=${plan.chosen === 'd' ? 'revise' : overrides.map(o => `${o.id}${o.chosen}`).join(',')}`);
   return { state, applied: true, pending: [], reopened, outcome: 'reopened', lines };
+}
+
+/** E3 phase-close operation: every `draft direction stands until the owner decides` line in the active plan becomes the decided option and date. */
+function closeDraftDirections(state: RunState, date: string): string[] {
+  const loaded = loadBriefInputs(state.out);
+  if ('error' in loaded) return [];
+  const r = closeDraftDirectionsFile(state.active_plan, loaded.inputs, date);
+  if (!r.rewrites.length) return [];
+  journalRow(state.out, { event: 'draft_directions_closed', rewritten: r.rewrites.length - r.unresolved.length, unresolved: r.unresolved.map(u => u.line) });
+  return [`DRAFT_DIRECTIONS: rewritten=${r.rewrites.length - r.unresolved.length} unresolved=${r.unresolved.length}`];
 }
 
 /** Archive the reopened phases' bound files under their gate revision and reset them; the gate itself is archived too. */

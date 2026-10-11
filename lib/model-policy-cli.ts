@@ -32,6 +32,7 @@ export const MODELS_HELP = `Usage:
   gstack-models [list] [--json]
   gstack-models resolve --role plan-review --provider anthropic|openai [--json]
   gstack-models resolve --role implementation [--provider anthropic|openai] [--json]
+  gstack-models resolve --role eval-arms [--provider anthropic|openai] [--json]
   gstack-models --help
 
 Shows which model each gstack role uses and why. It reads config.yaml, the
@@ -53,6 +54,9 @@ Roles:
                   Environment overrides do not apply. Without --provider both
                   provider recommendations are shown. gstack never switches your
                   session's model.
+  eval-arms       The arms /eval-plan compares: the implementation-tier model of
+                  each provider under the same precedence (plan E1). Pricing per
+                  arm comes from lib/pricing.ts via gstack-eval-plan arms.
 
 Settings (gstack-config set|unset <key>):
   plan_review_tier       frontier | smart | host   (default frontier)
@@ -193,6 +197,14 @@ function renderList(config: ModelPolicyConfig, selections: ModelSelection[]): st
   return lines.join('\n') + '\n';
 }
 
+function renderEvalArms(config: ModelPolicyConfig, selections: ModelSelection[]): string {
+  const choice = config.implementationTier;
+  const lines = [`eval-arms: tier ${choice.value} (${choice.origin === 'config' ? `${choice.key} in ${choice.path}` : `default; set ${choice.key}`}) - one arm per provider; price them with gstack-eval-plan arms`];
+  for (const s of selections) lines.push(`  ${s.provider}: ${s.requestedModel ?? 'host-controlled'}`);
+  lines.push(`(${OFFLINE_NOTE})`);
+  return lines.join('\n') + '\n';
+}
+
 function renderResolve(role: ModelRole, config: ModelPolicyConfig, selections: ModelSelection[]): string {
   const lines = renderSelections(role, config, selections);
   if (selections.some(s => s.status === 'delegated-host')) {
@@ -223,7 +235,7 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
   const providerArg = options['--provider'];
   const provider = parseProvider(providerArg);
   if (command === 'resolve') {
-    if (role !== 'plan-review' && role !== 'implementation') return usage(role === undefined ? 'resolve needs --role plan-review|implementation' : `unknown role '${role}': use plan-review or implementation`, json);
+    if (role !== 'plan-review' && role !== 'implementation' && role !== 'eval-arms') return usage(role === undefined ? 'resolve needs --role plan-review|implementation|eval-arms' : `unknown role '${role}': use plan-review, implementation or eval-arms`, json);
     if (providerArg !== undefined && !provider) return usage(`unknown provider '${providerArg}': use anthropic or openai`, json);
     if (role === 'plan-review' && !provider) return usage('resolve --role plan-review needs --provider anthropic|openai (the opposing provider for your host)', json);
   }
@@ -241,7 +253,7 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
 
   const selections: ModelSelection[] = [];
   const errors: CliError[] = [];
-  const roles: ModelRole[] = command === 'list' ? ['plan-review', 'implementation'] : [role as ModelRole];
+  const roles: ModelRole[] = command === 'list' ? ['plan-review', 'implementation'] : [role === 'eval-arms' ? 'implementation' : role as ModelRole];
   for (const r of roles) {
     for (const p of provider ? [provider] : MODEL_PROVIDERS) {
       attempt(r, p, () => r === 'plan-review'
@@ -249,8 +261,10 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
         : resolveImplementationModels({ provider: p, env, platform, cwd, config }), selections, errors);
     }
   }
+  // eval-arms (plan E1): the implementation-tier resolution of each provider, one arm each.
+  if (role === 'eval-arms') for (const s of selections) (s as { role: string }).role = 'eval-arms';
   const code = errors.length ? 1 : 0;
   if (json) return { code, stdout: `${JSON.stringify(document(command, config, selections, errors), null, 2)}\n`, stderr: '' };
-  const stdout = command === 'list' ? renderList(config, selections) : renderResolve(role as ModelRole, config, selections);
+  const stdout = command === 'list' ? renderList(config, selections) : role === 'eval-arms' ? renderEvalArms(config, selections) : renderResolve(role as ModelRole, config, selections);
   return { code, stdout, stderr: errors.map(renderError).join('') };
 }

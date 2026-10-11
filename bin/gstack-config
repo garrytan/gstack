@@ -221,6 +221,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # ship_rerun_backend: local # local | ubicloud — where free-suite flake reruns
 #                           #   run; ubicloud also needs UBICLOUD_API_KEY.
 #                           #   Invalid values are REJECTED (value kept).
+# test_backend: local       # local | ubicloud — where the full unit and E2E
+#                           #   tiers run (plan E2). The gstack-doctor cores row
+#                           #   recommends ubicloud under 8 cores; ubicloud
+#                           #   needs UBICLOUD_API_KEY and scripts/ubicloud/.
+#                           #   Invalid values are REJECTED (value kept).
 # ship_greptile_early: true # true | false — when the repo uses Greptile, /ship
 #                           #   pushes and opens a draft PR after its free tests
 #                           #   so Greptile reviews in parallel (a public repo
@@ -301,6 +306,7 @@ lookup_default() {
     ship_measure_sweep_cases) echo "5" ;;
     ship_measure_sweep_budget_usd) echo "150" ;;
     ship_rerun_backend) echo "local" ;; # local | ubicloud (Ubicloud spend is opt-in)
+    test_backend) echo "local" ;; # local | ubicloud — full unit/E2E tiers (plan E2)
     plan_review_tier) echo "frontier" ;; # frontier | smart | host — lib/model-policy.ts reads it strictly
     implementation_tier) echo "smart" ;; # frontier | smart
     model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai) echo "" ;; # empty = shipped catalog ID (gstack-models list)
@@ -748,9 +754,9 @@ case "${1:-}" in
           echo "Error: ship_greptile_early '$VALUE' not recognized. Valid values: true, false. Existing value left unchanged." >&2
           exit 1
         fi ;;
-      ship_rerun_backend)
+      ship_rerun_backend|test_backend)
         if [ "$VALUE" != "local" ] && [ "$VALUE" != "ubicloud" ]; then
-          echo "Error: ship_rerun_backend '$VALUE' not recognized. Valid values: local, ubicloud. Existing value left unchanged." >&2
+          echo "Error: $KEY '$VALUE' not recognized. Valid values: local, ubicloud. Existing value left unchanged." >&2
           exit 1
         fi ;;
     esac
@@ -939,7 +945,7 @@ case "${1:-}" in
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
-               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend \
+               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai; do
       gstack_config_select "$KEY"
@@ -964,7 +970,7 @@ case "${1:-}" in
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
-               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend \
+               ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"

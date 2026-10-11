@@ -241,6 +241,30 @@ by its runner. Result codes: `EXECUTION_UNKNOWN`, `RUN_LOCKED`,
 `SPEND_CAP_EXCEEDED`, `CONSENSUS_MISSING`, `OUTSIDE_RUNNER_UNAVAILABLE`
 (anchors in [troubleshooting.md](troubleshooting.md)).
 
+## Owner brief
+
+`gstack-owner-brief render --out <dir>` is what the owner sees at the final
+gate, interactive or unattended: one page built from `gate.json`,
+`decisions.jsonl` and `findings.jsonl` (`BRIEF_INPUT_MISSING` when one is
+absent). It opens with the `URGENT, outside this plan` block, then a
+plain-language summary (phases closed, findings accepted, how many decisions
+take their default, the cycle time; `--summary <file>` or `<dir>/summary.md`
+replaces the generated sentence with the run's own), then the numbered
+decisions through the gate list: seven per page (`--page N`), stable ids,
+each `auto` item annotated with the default taken if unanswered, each
+`approval` item `pending until you answer` or `decided <id><letter> on <date>`.
+The last line names `review-record.md`, where the full review lives, and the
+`gstack-autoplan answer` call that answers the page. `--write` also saves
+`brief.md` in the run directory. `/autoplan` Phase 4 presents this output
+verbatim and writes the former long report to `review-record.md`.
+
+After the final gate, `gstack-owner-brief close --out <dir> --plan <file>`
+rewrites every `draft direction stands until the owner decides` line in the plan
+to the decided option and date (`DRAFT_DIRECTION: line <n> <id> rewritten`);
+lines whose decision is still pending stay and are reported as
+`DRAFT_DIRECTION_UNRESOLVED` (exit 1). `gstack-autoplan answer` runs the same
+rewrite when a reply completes the gate (journal event `draft_directions_closed`).
+
 ## Timing
 
 `/autoplan` prints `ESTIMATE: ...` at Phase 0 (`gstack-autoplan-timing

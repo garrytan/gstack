@@ -54,6 +54,12 @@ anchor](troubleshooting.md#install-check-gstack-doctor---check-and-the-capy-inst
 A parent agent confirms each subagent machine with this grep; one machine's
 install never covers another.
 
+When a lane reports to another thread (a handoff, a `gstack-lane-check`
+result, a coordinator contract), store and use the full thread id (`jam_…`)
+in the message, never the short display code: the code is a label the app
+renders, the id is what another agent can address and what the evidence bundle
+records. `UBI_OWNER` and lane ownership records take the same full id.
+
 ## Browser
 
 The default install prints `SKIP browser (lazy; gstack-browser-ensure

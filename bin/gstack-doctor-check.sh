@@ -300,15 +300,20 @@ _dc_check_privacy() {
   _dc_row PASS privacy "telemetry=$(_dc_cfg telemetry off) artifacts_sync=$(_dc_cfg artifacts_sync_mode off) codex_reviews=$(_dc_cfg codex_reviews enabled) update_check=$(_dc_cfg update_check true)"
 }
 
+# cores: the CPU count plus the configured test_backend (gstack-config, local |
+# ubicloud); under 8 cores with test_backend=local the row recommends ubicloud
+# for the full unit and E2E tiers (plan E2). Always PASS: a small machine is a
+# fact, not a broken install.
 _dc_check_cores() {
-  local n
+  local n backend
   n=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 0)
   n=$(printf '%s' "$n" | clamp '0-9' 6)
-  case "$n" in ''|0) _dc_row PASS cores "unknown CPU count"; return ;; esac
-  if [ "$n" -lt 8 ]; then
-    _dc_row PASS cores "$n (under 8: run full unit and E2E tiers on a remote gate, e.g. test_backend=ubicloud)"
+  backend=$("$BIN/gstack-config" get test_backend 2>/dev/null </dev/null | clamp 'a-z' 8); backend=${backend:-local}
+  case "$n" in ''|0) _dc_row PASS cores "unknown CPU count test_backend=$backend"; return ;; esac
+  if [ "$n" -lt 8 ] && [ "$backend" = local ]; then
+    _dc_row PASS cores "$n test_backend=local (under 8: run full unit and E2E tiers on a remote gate; set gstack-config set test_backend ubicloud, scripts/ubicloud/ubi-runner.sh)"
   else
-    _dc_row PASS cores "$n"
+    _dc_row PASS cores "$n test_backend=$backend"
   fi
 }
 

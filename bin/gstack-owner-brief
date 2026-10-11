@@ -1,0 +1,73 @@
+#!/usr/bin/env bun
+/**
+ * gstack-owner-brief — the one-page owner brief at the autoplan gate (plan E3).
+ *
+ *   gstack-owner-brief render --out <dir> [--page N] [--summary <file>] [--write] [--json]
+ *   gstack-owner-brief close  --out <dir> --plan <file> [--date YYYY-MM-DD] [--json]
+ *
+ * `render` prints the plain-language summary (--summary <file>, else <dir>/summary.md
+ * when present, else counted from the artifacts), the URGENT block and the numbered
+ * decisions (gate list, seven per page, stable ids; auto items show the default
+ * taken if unanswered, approval items stay pending) and points at review-record.md
+ * for the full review; --write also saves brief.md in the run directory.
+ * `close` rewrites every `draft direction stands until the owner decides` line in
+ * the plan to the decided option and date; pending lines stay and are reported
+ * (DRAFT_DIRECTION_UNRESOLVED, exit 1). Logic: lib/owner-brief.ts.
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { BRIEF_FILE, closeDraftDirectionsFile, loadBriefInputs, renderBrief } from '../lib/owner-brief';
+import { resultLine } from '../lib/result-codes';
+
+const HELP = `gstack-owner-brief — one page for the owner: summary, URGENT block, numbered decisions (docs/unattended.md#owner-brief)
+
+  render --out <dir> [--page N] [--summary <file>] [--write] [--json]
+  close  --out <dir> --plan <file> [--date YYYY-MM-DD] [--json]
+
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  const out = flag(rest, '--out');
+  if (!out) { process.stderr.write(`gstack-owner-brief: ${cmd} needs --out <dir>\n${HELP}\n`); return EXIT.usage; }
+  const loaded = loadBriefInputs(path.resolve(out));
+  if ('error' in loaded) { process.stderr.write(resultLine(`gstack-owner-brief ${cmd}`, loaded.error.code, loaded.error.message) + '\n'); return loaded.error.code === 'BRIEF_INPUT_MISSING' ? EXIT.refused : EXIT.fail; }
+  const json = rest.includes('--json');
+
+  if (cmd === 'render') {
+    const pageText = flag(rest, '--page');
+    if (pageText !== undefined && !/^[0-9]+$/.test(pageText)) { process.stderr.write('gstack-owner-brief: --page needs a number\n'); return EXIT.usage; }
+    const summaryFile = flag(rest, '--summary') ?? (fs.existsSync(path.join(path.resolve(out), 'summary.md')) ? path.join(path.resolve(out), 'summary.md') : undefined);
+    const summary = summaryFile ? fs.readFileSync(summaryFile, 'utf8') : undefined;
+    const brief = renderBrief(loaded.inputs, { page: pageText ? Number(pageText) : 1, summary, outDir: path.resolve(out) });
+    if (rest.includes('--write')) fs.writeFileSync(path.join(path.resolve(out), BRIEF_FILE), brief);
+    if (json) process.stdout.write(JSON.stringify({ run: loaded.inputs.gate.run, gate_rev: loaded.inputs.gate.gate_rev, items: loaded.inputs.gate.items.length, brief }) + '\n');
+    else process.stdout.write(brief);
+    return EXIT.ok;
+  }
+  if (cmd === 'close') {
+    const plan = flag(rest, '--plan');
+    if (!plan || !fs.existsSync(plan)) { process.stderr.write(`gstack-owner-brief: close needs --plan <existing file>\n`); return EXIT.usage; }
+    const date = flag(rest, '--date');
+    if (date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(date)) { process.stderr.write('gstack-owner-brief: --date needs YYYY-MM-DD\n'); return EXIT.usage; }
+    const result = closeDraftDirectionsFile(plan, loaded.inputs, date);
+    if (json) process.stdout.write(JSON.stringify({ plan, rewrites: result.rewrites, unresolved: result.unresolved.length }) + '\n');
+    else {
+      for (const r of result.rewrites) process.stdout.write(`DRAFT_DIRECTION: line ${r.line} ${r.id ?? '(no id)'} ${r.status}\n`);
+      process.stdout.write(`DRAFT_DIRECTIONS: rewritten=${result.rewrites.length - result.unresolved.length} unresolved=${result.unresolved.length} plan=${plan}\n`);
+    }
+    for (const r of result.unresolved) process.stderr.write(resultLine('gstack-owner-brief close', 'DRAFT_DIRECTION_UNRESOLVED', `line ${r.line}: ${r.status === 'unknown_id' ? 'no decision id on the line and no plan approval item' : `${r.id} pending`}`) + '\n');
+    return result.unresolved.length ? EXIT.fail : EXIT.ok;
+  }
+  process.stderr.write(`gstack-owner-brief: unknown command ${cmd}\n${HELP}\n`);
+  return EXIT.usage;
+}
+
+process.exitCode = main(process.argv.slice(2));

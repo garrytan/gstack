@@ -908,12 +908,39 @@ the CSO private-state checks), AppArmor blocks the unprivileged user
 namespaces Chromium's sandbox needs, and `clang` and `python3-venv` are absent
 (required by the Dia readiness and Python runner tests).
 
-VMs are named `ubirun-<epoch>-<hex>`. Every exit path destroys the client's
-own VM, and `down` fails unless the VM is confirmed gone. Nothing sweeps stale
-VMs by default, because the project quota is shared with other agents' runners;
-set `UBI_GC_HOURS` to a positive number (or run `gc HOURS`) to opt in. For other commands, use the runner directly:
-`scripts/ubicloud/ubi-runner.sh run --setup <script> -- '<command>'`, or its
-`up` / `ssh` / `sync` / `pull` / `down` steps (`--help` lists them).
+VMs are named `ubirun-<owner>-<epoch>-<hex>`; `<owner>` is `UBI_OWNER` (set it
+to the thread id on a Capy machine), else a stable per-machine id. Every exit
+path destroys the client's own VM (`trap` on EXIT, INT, TERM, HUP and QUIT), and
+`down` fails loudly (`FAILED to destroy <location>/<name> (HTTP <code>)`) unless
+the VM is confirmed gone. `list --mine` shows this owner's VMs, `usage` the
+project's, and `records` the VM-id scratch file (`UBI_VM_RECORD`, default
+`~/.capy/work/ubi-runner/vms.tsv`, else `<state root>/vms.tsv`): every VM is
+recorded there before the create call and forgotten only after a confirmed
+destroy, so a killed runner leaves a name to clean up. Nothing sweeps stale VMs
+by default, because the project quota is shared with other agents' runners; set
+`UBI_GC_HOURS` to a positive number (or run `gc HOURS`; `gc 0` is a no-op) to
+sweep only this owner's VMs older than that. For other commands, use the runner
+directly: `scripts/ubicloud/ubi-runner.sh run --setup <script> -- '<command>'`,
+or its `up` / `ssh` / `sync` / `pull` / `down` steps (`--help` lists them).
+
+Under 8 cores (`gstack-doctor`'s `cores` row says so), run the full unit and
+E2E tiers on a remote gate: `gstack-config set test_backend ubicloud` records
+the choice and the row names the runner. Resume checklist after a wake or a
+machine swap, in this order:
+
+1. `scripts/ubicloud/ubi-runner.sh records` and `list --mine`: a VM listed in
+   the record but absent from the project is already gone (forget it); a VM
+   in the project but not in the record belongs to another owner, leave it.
+2. Watched background operations: a runner started under `gstack-detach` keeps
+   its `### gstack-detach EXIT=<code> ###` sentinel in its log; a log without
+   the sentinel after the VM is gone is an interrupted run, not a pass.
+3. One before/after pair per machine: the measurement a change claims is taken
+   on the base and on the candidate from the same VM size and location, never
+   one side local and the other remote.
+4. Profiling very large imports (a whole-repo ingest, the full free suite under
+   a profiler) is warned about before it starts: it holds the VM past
+   `UBI_GC_HOURS` and the sentinel arrives hours later; name the expected
+   duration in the thread before launching.
 
 ## Cloud sandboxes (Vercel / Conductor cloud workspaces)
 
