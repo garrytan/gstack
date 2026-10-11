@@ -1,0 +1,15 @@
+{
+  "$schema": "https://github.com/garrytan/gstack/docs/ship-policy.md#schema-v1",
+  "bump": "ask",
+  "queue_mode": "claim-at-open",
+  "release_tool": "bun scripts/gen-agents-digest.ts",
+  "release_outputs": ["agents-digest/gstack-AGENTS.md"],
+  "stamp_paths": [],
+  "changelog": "CHANGELOG.md",
+  "mirror": null,
+  "history": "squash-ok",
+  "preregistration_shas": [],
+  "stamp_sensitive_gates": ["tests"],
+  "pr_count": { "default_pr_count": 1, "split_requires_owner": true },
+  "maintainers": []
+}

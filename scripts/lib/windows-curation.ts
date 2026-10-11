@@ -226,6 +226,29 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/cso-scanner-cli.test.ts',
     reason: 'drives the prebuilt POSIX CSO launcher with /usr/bin/git and a POSIX-only PATH; native Windows launcher behavior is covered by the dedicated cso-windows-launcher gate',
   },
+  // C-stamp (ship policy, restamp, tree receipt, evidence bundle, ship receipt):
+  // every case spawns bin/ shebang scripts and a #!/bin/sh `gh` shim through
+  // test/helpers/restamp-fixture.ts, so the source scan misses them.
+  {
+    file: 'test/gstack-ship-policy.test.ts',
+    reason: 'spawns bin/gstack-ship-policy (shebang) through test/helpers/restamp-fixture.ts; the policy schema and loader are pure lib code covered on the POSIX gates',
+  },
+  {
+    file: 'test/restamp-command-boundary.test.ts',
+    reason: 'spawns bin/gstack-restamp (shebang) and a POSIX release tool through test/helpers/restamp-fixture.ts',
+  },
+  {
+    file: 'test/tree-receipt-stamp-sensitive.test.ts',
+    reason: 'spawns bin/gstack-tree-receipt, bin/gstack-restamp and bin/gstack-evidence (shebangs) plus a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts',
+  },
+  {
+    file: 'test/evidence-bundle-portability.test.ts',
+    reason: 'spawns bin/gstack-evidence and bin/gstack-tree-receipt (shebangs) through test/helpers/restamp-fixture.ts',
+  },
+  {
+    file: 'test/gstack-ship-receipt.test.ts',
+    reason: 'spawns bin/gstack-ship-receipt and bin/gstack-artifact (shebangs) plus a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts',
+  },
 ];
 
 // Force-include overrides: files a WINDOWS_FRAGILE_PATTERNS regex excludes for

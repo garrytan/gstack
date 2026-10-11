@@ -179,6 +179,19 @@ rm -f "$BODY_TOP_FILE" "$BODY_REST_FILE"
 echo "PR_BODY_FILE: $PR_BODY_FILE"
 ```
 
+Handoff record first (identifiers survive truncation). Write Step 16 stage 4's
+per-lane counts (`{"<lane>":{"pass":N,"fail":N,"skip":N}}`) to
+`.gstack/tmp/ship-gate.json` with your file-write tool, then:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --gate @.gstack/tmp/ship-gate.json --body "$PR_BODY_FILE"
+```
+
+Add `--receipt .gstack/tmp/tree-receipt.json` only when Step 16 wrote it (gate-ahead).
+New PR/MR: omit `--pr`, then rerun with the number after creation and repost the body.
+Its `SHIP_RECEIPT:` line opens the completion message. `RECEIPT_INVALID` names the bad
+field: fix that input file and rerun; nothing was written.
+
 In each block below, restore the literal `PR_BODY_FILE` path and substitute Step 18's
 title file name; `gstack-post` detects GitHub or GitLab from the remote and the repo's
 visibility (an unavailable lookup, including on GitLab, uses the scanner's
