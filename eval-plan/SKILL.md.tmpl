@@ -1,0 +1,157 @@
+---
+name: eval-plan
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Preregister a paid eval (bars, arms, decoys, stop rules), dry-run it at zero cost,
+  then run a three-item priced pilot whose spend table gates approval. (gstack)
+triggers:
+  - plan an eval
+  - preregister an eval
+  - how much will this eval cost
+  - pilot the eval
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /eval-plan: Preregistered, paid evals
+
+Three steps stand between an eval idea and the first priced call, in this order:
+the preregistration (what counts, what stops the run), the zero-cost dry run (the
+pipeline works on the real input shapes, with prices in the table), and the
+priced pilot (three items per arm, settled against the invoice, extrapolated
+with an error band). Only then is the owner asked to approve the full run. Every
+step prints one grep-able line; a parent agent reads the lines, not this prose.
+
+Usage: `/eval-plan [<prereg.md>] [--input <rows.jsonl>] [--arms <model,model>] [--cap <usd>] [--total <items>]`
+
+## Boundaries
+
+- Spend nothing before Step 3, and in Step 3 only what the ledger admits. A reservation the
+  ledger refuses (`EVAL_BUDGET_EXHAUSTED`) ends the step; never retry to make room, never
+  split a call to slip under the cap.
+- Preregistered text is frozen once the pilot starts: a bar, arm, decoy or stop rule
+  changed after a priced call is a new eval with a new preregistration.
+- Held-out sets named in the preregistration are never read by this skill, pasted into a
+  prompt, or summarized; the dry run reads the development rows only.
+- Admission is an estimate. `lib/pricing.ts` prices standard text tokens and excludes
+  cache writes, tool fees, service-tier and long-context multipliers, media tokens and
+  seat-metered runs; actual cost reconciles at settle time and `unknown` charges stay
+  visible in every spend table.
+- Under `SESSION_KIND: unattended`, the approval in Step 4 is written as a gate item and
+  the run ends `gate_pending`; this skill never approves a priced run by itself.
+
+## Step 1: Preregistration
+
+Write (or open) the preregistration file. Each section is required and must be filled;
+`<!-- -->` guidance does not count as content:
+
+| Section | What it holds |
+|---|---|
+| Bars | one line per metric: name, pass bar, direction, what a miss means for the decision |
+| Arms | one line per arm: model id (in the price table), settings, per-item cost from Step 1b |
+| Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
+| Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted` |
+| Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it |
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan prereg --init <path>
+~/.claude/skills/gstack/bin/gstack-eval-plan prereg --check <path>
+```
+
+`PREREG: ok` continues. `PREREG: incomplete` names the missing or empty sections
+(`PREREG_INCOMPLETE`, exit 1); fill them and rerun. Do not continue on an incomplete
+preregistration.
+
+### Step 1b: Arms and their price
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan arms
+```
+
+Arms come from the project's model rules (`gstack-models resolve --role eval-arms`),
+falling back to the repo's own policy document (`--policy-doc <path>`), or from
+`--arms <picked-models>` when the user named them. Each `ARM:` line carries its source
+and the per-item cost at the stated token estimate; `price=MISSING` (`EVAL_PRICE_MISSING`)
+means the model has no row in `lib/pricing.ts`: add the row from the provider's pricing
+page or drop the arm. Copy the priced arms into the Arms section.
+
+## Step 2: zero-cost stub-model dry run
+
+Run the pipeline over the real development rows with a stub model that costs nothing:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan dry-run --input <path> --arms <picked-models> --retry-prompt <path> --out <outdir>
+```
+
+Add `--fields <id>` when the rows' prompt field is not `prompt`, and `--output-budget` with
+the budget the run will use. The checklist printed must be all `ok`:
+
+- `CHECK: price-table` — every arm has a price row.
+- `CHECK: output-budget` — at or above the reasoning floor (8,192 tokens); a reasoning model
+  spends output tokens thinking, and a smaller budget truncates the answer the scorer reads.
+- `CHECK: retry-prompt` — the exact text the run sends on a retry, printed verbatim; a retry
+  with no text is a repeat of the same failure at the same price.
+- `DRY_RUN_ROW:` lines name rows missing a field; fix the rows, not the prompt.
+
+`DRY_RUN_RESULT: pass` writes `dry-run.json` to `--out`; the pilot refuses to start on
+anything else (`EVAL_DRY_RUN_FAILED`).
+
+## Step 3: Priced pilot (n≈3)
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan pilot start --out <outdir> --cap <cap-usd> --arms <picked-models> --dry-run <path>
+```
+
+`pilot start` reserves three attempts per arm through the spend ledger (`spend.json` in
+`--out`): admission is `spent + reserved + unknown + estimate <= cap`, under a file lock
+shared with any concurrent worker. Run each `PILOT_ATTEMPT:` through the project's own
+eval command, then settle it with the actual cost from the provider's usage field, or
+`unknown` when the call was seat-metered or CLI-metered:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan pilot settle --out <outdir> --attempt <attempt-id> --usd <usd|unknown>
+~/.claude/skills/gstack/bin/gstack-eval-plan pilot report --out <outdir> --total <total-items> --workers <workers>
+```
+
+`pilot report` prints the spend table (`spent`, `reserved`, `unknown charges`, the worst case
+with one in-flight call per worker, the worst-case overrun against the cap) and
+`PILOT_PROJECTION:` — mean cost per item, its sample deviation, the projection to
+`--total` items across the arms, and a 95% band. Regenerate the table at every later gate
+of the run. Stop and report, without asking for approval, when the pilot missed a bar from
+the preregistration, when `status=budget_exhausted`, or when `verdict=exceeds`.
+
+## Step 4: The approval ask
+
+Present, in this order and nothing before it: the `PILOT_PROJECTION:` line, the spend
+table, the pilot's per-bar results, and the preregistration's stop rules. Then ask one
+question with the projection as the recommended option only when `verdict=within`:
+
+- A) Run `<total-items>` items at the projected cost (recommended when within the cap)
+- B) Cut arms or items; recompute the projection first
+- C) Stop here; keep the pilot results as the record
+
+Under `SESSION_KIND: unattended` write the question as an `approval` gate item through
+`gstack-gate` and end with `GSTACK_RESULT: skill=eval-plan status=gate_pending run=<outdir>`.
+The full run, when approved, keeps settling every attempt into the same ledger and reprints
+the spend table at each gate; `budget_exhausted` stops it.
+
+## Tier 3, after P7 (not in this skill yet)
+
+Each of these waits for the adoption number in the multi-agent wave plan (P7); one line each so the shape is known:
+
+- Instrument audit: read every failing transcript of one dev round before freezing the scorer; check generated worlds for duplicate identifiers, word-like codes and generic phrases; mutation tests in both directions. (tier 3, after P7)
+- Steady state: background queues empty at snapshot time, queue depth recorded as a gate. (tier 3, after P7)
+- Sealed paths: declared in the plan; the skill refuses to quote from them, self-checks output for their n-grams and adds a provenance line. (tier 3, after P7)
+- Off-machine persistence: long runs sync through `gstack-detach --sync-cmd <cmd> --sync-every <min>`. (tier 3, after P7)
+- Memory preflight: concurrency times measured per-process memory, refuse above 70% of RAM. (tier 3, after P7)
+- Power tables: power and risk sentences cite the committed power output with a sensitivity table over the obvious rule alternatives. (tier 3, after P7)
+- QA soak: hours of mixed ingest against a long-lived server with a `CPU pinned, no progress` watchdog. (tier 3, after P7)

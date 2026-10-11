@@ -94,6 +94,10 @@ const MODULE_SINKS = [
   'lib/gbrain-supabase-provision.ts',
   // consent-gated engine download (install verb): receipt before the fetch, fail-closed
   'bin/gstack-design-detect.ts',
+  // Multi-agent wave E3: contributor-mode asks GitHub for the PR author's
+  // repository permission (`gh api .../collaborators/<user>/permission`); the
+  // author login and repo slug leave the machine, sink 'contributor-mode'.
+  'lib/contributor-mode.ts',
   // The Memorable bridge hook: gstack-owned code that hands each prompt to a
   // vendor CLI. hosts/ has no curl/fetch for the scanner to see, so the
   // receipt wiring is pinned here explicitly.

@@ -488,6 +488,9 @@ git diff <diff-base> HEAD --name-only
 ```
 
 3. Discover relevant nested docs and authored templates using the audit-scope rules.
+   Run `~/.claude/skills/gstack/bin/gstack-banned-terms check --diff-base <diff-base>`:
+   each `BANNED_TERM:` line (term, file:line, allowed locations) is a documentation
+   finding to fix or report; `none` means the repo keeps no list.
 
 4. Classify the changes into categories relevant to documentation:
    - **New features** — new files, new commands, new skills, new capabilities

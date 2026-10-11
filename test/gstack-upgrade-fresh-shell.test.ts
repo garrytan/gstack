@@ -13,9 +13,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFile, spawnSync } from 'child_process';
 import { promisify } from 'util';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { createHash } from 'crypto';
 import { runGeneration } from '../scripts/gen-skill-docs';
 import { ALL_HOST_CONFIGS } from '../hosts/index';
@@ -45,9 +45,11 @@ function mustSh(cwd: string, cmd: string) {
 /** A directory that looks like a gstack checkout (VERSION, setup, bin/gstack-config). */
 function makeGstackLike(dir: string, git: boolean) {
   mkdirSync(join(dir, 'bin'), { recursive: true });
+  mkdirSync(join(dir, 'lib'), { recursive: true });
   writeFileSync(join(dir, 'VERSION'), '1.0.0.0\n');
   writeFileSync(join(dir, 'setup'), '#!/bin/sh\necho SETUP_RAN "$@"\n', { mode: 0o755 });
   writeFileSync(join(dir, 'bin', 'gstack-config'), '#!/bin/sh\necho false\n', { mode: 0o755 });
+  writeFileSync(join(dir, 'bin', 'gstack-autoplan'), '#!/bin/sh\necho "## Coordinator contract (fixture)"\n', { mode: 0o755 });
   if (git) mustSh(dir, 'git init -q -b main && git add -A && git commit -q -m init');
 }
 
@@ -90,7 +92,7 @@ async function snapshot(dir: string): Promise<string> {
   return h.digest('hex');
 }
 
-interface HostRender { host: string; upgrade: string[]; spec: string[]; localDir: string }
+interface HostRender { host: string; upgrade: string[]; spec: string[]; localDir: string; globalRoot: string }
 const hostRenders: HostRender[] = [];
 
 beforeAll(async () => {
@@ -109,7 +111,7 @@ beforeAll(async () => {
     const spec = bashFences(readFileSync(specPath, 'utf8'));
     const team = fence(upgrade, 'git rm -r --cached');
     const localDir = team.match(/git rm -r --cached (\S+)\/ /)![1];
-    hostRenders.push({ host: config.name, upgrade, spec, localDir });
+    hostRenders.push({ host: config.name, upgrade, spec, localDir, globalRoot: config.globalRoot });
   }
 });
 
@@ -224,6 +226,10 @@ describe.skipIf(IS_WINDOWS)('C9: destructive upgrade/spec fences refuse bad path
     const team = await run(wd, fence(h.upgrade, 'git rm -r --cached'), { LOCAL_GSTACK: local });
     if (team.status !== 0 || existsSync(local)) problems.push(`${h.host}: team-mode removal did not run: ${team.stderr}`);
     mustSh(wd.project, `git worktree add -q "${join(wd.w, 'wt')}" -b spec/x-1 HEAD`);
+    // The spawn reads the contract from this host's ~/<globalRoot>/bin: install the fixture there.
+    const installed = join(root, 'home', h.globalRoot);
+    mkdirSync(dirname(installed), { recursive: true });
+    if (!existsSync(installed)) symlinkSync(wd.gstack, installed);
     const spawn = await run(wd, fence(h.spec, 'claude -p'), { SPAWN_PATH: join(wd.w, 'wt'), SPAWN_BRANCH: 'spec/x-1', ARCHIVE_PATH: join(wd.gstack, 'VERSION') });
     const deadline = Date.now() + 5_000;
     while (!existsSync(join(wd.w, 'claude.log')) && Date.now() < deadline) await Bun.sleep(50);

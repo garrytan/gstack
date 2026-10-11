@@ -121,8 +121,8 @@ test('automatic workflow templates delegate reviewer commands to shared resolver
   for (const skill of skills) {
     for (const file of templateFiles(join(ROOT, skill))) {
       for (const line of shellLines(readFileSync(file, 'utf8'))) {
-        // /spec's --execute worker implements the filed spec; it is not a reviewer.
-        if (file === join(ROOT, 'spec', 'sections', 'gate-and-file.md.tmpl') && line.trim() === 'cat "$ARCHIVE_PATH" | (cd "$SPAWN_PATH" && GSTACK_SESSION_KIND=spawned claude -p 2>&1) &') continue;
+        // /spec's --execute worker implements the filed spec (archive + coordinator contract on stdin); it is not a reviewer.
+        if (file === join(ROOT, 'spec', 'sections', 'gate-and-file.md.tmpl') && line.trim() === '{ cat "$ARCHIVE_PATH"; printf \'\\n\\n%s\\n\' "$CONTRACT"; } | (cd "$SPAWN_PATH" && GSTACK_SESSION_KIND=spawned claude -p 2>&1) &') continue;
         if (/\bcodex\s+(?:exec|review)\b|\bclaude\s+(?:-p|--print)\b|\bgstack-claude-code\s+--/.test(line)) {
           violations.push(`${file.slice(ROOT.length + 1)}: ${line.trim()}`);
         }

@@ -81,6 +81,12 @@
       "file": "pr-body.md",
       "title": "PR/MR creation and documentation outcome",
       "trigger": "preparing the title and creating or updating the PR/MR with the verified documentation outcome (Steps 18-19)"
+    },
+    {
+      "id": "handoff",
+      "file": "handoff.md",
+      "title": "Handoff without a PR (automation lanes)",
+      "trigger": "handing the branch to a coordinator instead of opening a PR (--no-pr or an automation lane; Step 18)"
     }
   ]
 }

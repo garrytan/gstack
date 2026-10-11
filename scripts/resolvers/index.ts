@@ -51,6 +51,7 @@ import { generateTestValueBar, generateTestValueMessage } from './test-value';
 import { generateImplementerDispatchRules } from './dispatch-rules';
 import { generatePlanRealityRows } from './plan-reality';
 import { generateSidewaysSweep, generateFlakeFixNumber } from './sideways';
+import { generateCoordinatorContract } from './coordinator-contract';
 import { generateQAScope, generateQAExploratory, generateQAFunctional, generateQAResource, generateQAReview, generateQAReviewPreflight, generateQAMethodReads } from './qa';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
@@ -174,6 +175,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   BRAIN_WRITE_BACK: generateBrainWriteBack,
   TASKS_SECTION_EMIT: generateTasksSectionEmit,
   TASKS_SECTION_AGGREGATE: generateTasksSectionAggregate,
+  COORDINATOR_CONTRACT: generateCoordinatorContract,
   SECTION,
   SECTION_INDEX,
 };

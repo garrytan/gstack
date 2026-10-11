@@ -52,6 +52,12 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<new-version>': { grammar: /^[0-9]+(?:\.[0-9]+)*$/, what: 'NEW_VERSION from the version bump (dot-separated digits)' },
   '<issue-number>': { grammar: /^[0-9]*$/, what: 'filed issue number, or empty when none was filed' },
   '<check-number>': { grammar: NUM, what: 'canary check number' },
+  // /eval-plan (plan E1): the pilot's ledger inputs.
+  '<cap-usd>': { grammar: NUMBER, what: 'spend cap in USD' },
+  '<total-items>': { grammar: NUM, what: 'items in the full eval run' },
+  '<workers>': { grammar: NUM, what: 'concurrent eval workers' },
+  '<attempt-id>': { grammar: ID, what: 'PILOT_ATTEMPT id printed by pilot start' },
+  '<usd|unknown>': { grammar: /^(?:[0-9]+(?:\.[0-9]+)?|unknown)$/, what: 'actual cost in USD from the provider usage field, or unknown' },
   '<run-id>': { grammar: NUM, what: 'GitHub Actions run id' },
   '<PID>': { grammar: NUM, what: 'process id printed by an earlier block' },
   '<retained-owner-token>': { grammar: ID, what: 'freeze owner token printed by acquire' },

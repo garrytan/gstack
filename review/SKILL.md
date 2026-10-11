@@ -450,9 +450,10 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 ## Step 1: Check branch
 
-1. Run `git branch --show-current` to get the current branch.
+1. Run `git branch --show-current`.
 2. If on the base branch, output: **"Nothing to review — you're on the base branch or have no changes against it."** and stop.
 3. Run `git fetch origin <base> --quiet && echo "BASE_REFRESH: fresh" || echo "BASE_REFRESH: stale $(git rev-parse --short origin/<base>)"`, then `DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" --stat`. If no diff, output the same message and stop. `stale` is not an empty diff: continue; report `Base coverage: stale at <revision>`.
+4. Run `~/.claude/skills/gstack/bin/gstack-contributor-mode detect` (add `--contributor` when the user asked). `CONTRIBUTOR_MODE: on` prints the evidence-first instructions: follow them through Steps 4-5 and record mode, source and author in Step 5.8.
 
 ---
 
@@ -480,7 +481,7 @@ Compare the stated intent with the actual changes before reviewing code quality.
 
 Read `~/.claude/skills/gstack/review/checklist.md`.
 
-**If the file cannot be read, STOP and report the error.** Do not proceed without the checklist.
+**If the file cannot be read, STOP and report the error.** Never proceed without it.
 
 ---
 
@@ -488,9 +489,9 @@ Read `~/.claude/skills/gstack/review/checklist.md`.
 
 Read `~/.claude/skills/gstack/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
 
-**If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
+**No PR, a `gh` or API failure, or zero Greptile comments:** skip silently; the review works without Greptile.
 
-**If Greptile comments are found:** Store the classifications (VALID & ACTIONABLE, VALID BUT ALREADY FIXED, FALSE POSITIVE, SUPPRESSED) — you will need them in Step 5.
+**Comments found:** store the classifications (VALID & ACTIONABLE, VALID BUT ALREADY FIXED, FALSE POSITIVE, SUPPRESSED) for Step 5.
 
 ---
 
@@ -544,7 +545,7 @@ CLAIMED_COUNT=$(echo "$QUEUE_JSON" | jq -r '.claimed | length // 0')
 OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
 ```
 
-- If `OFFLINE=true`: skip this section (no signal to report).
+- `OFFLINE=true`: skip this section.
 - Otherwise, include ONE line in the review output: `Version claimed: v<BRANCH_VERSION>. Queue: <CLAIMED_COUNT> PR(s) ahead. <VERDICT>` where VERDICT is either `Slot free` (if `BRANCH_VERSION >= NEXT_SLOT`) or `⚠ queue moved — rerun /ship to reconcile v<BRANCH_VERSION> → v<NEXT_SLOT>`.
 
 Compare dotted version components as integers from left to right; missing trailing components count as zero.
@@ -589,6 +590,10 @@ fi
 
 Save the `GATE_SUMMARY:` line and the read-level listing for Step 4's Gate Integrity
 category, Step 5.8's record and the final report.
+
+### Banned terms
+
+`~/.claude/skills/gstack/bin/gstack-banned-terms check --base <base>`: each `BANNED_TERM:` line (term, file:line, allowed locations) is a Step 4 finding; `none` means the repo keeps no list.
 
 ### Slop scan (advisory)
 
@@ -995,19 +1000,17 @@ already exists, append the new test.
 
 ### Step 5b: Auto-fix all AUTO-FIX items
 
-Apply each fix directly. For each one, output a one-line summary:
+Apply each fix directly, with a one-line summary each:
 `[AUTO-FIXED] [file:line] Problem → what you did`
 Retain the completed action in the invocation action list before starting any re-review.
 
 ### Step 5c: Batch-ask about ASK items
 
-Present remaining ASK items in ONE AskUserQuestion:
+Present remaining ASK items in ONE AskUserQuestion (3 or fewer: individual calls are fine):
 
 - Number each item with its severity label (or `[ADVISORY]` for optional advice), problem and recommended fix
 - Options per item: A) Fix as recommended, B) Skip (describe only as: no code/index change; Skip recorded)
 - Include an overall RECOMMENDATION
-
-With 3 or fewer ASK items, individual AskUserQuestion calls are fine.
 Retain each explicit Skip choice and its finding metadata in the invocation action list. Do not record an unanswered question as skipped or ask again about a decision already revalidated in this invocation.
 
 **Gate findings use their own question**, `review-gate-disposition` (include
@@ -1044,7 +1047,7 @@ After applying the approved fix, retain its `fixed` action and the original find
 After verifying an approved regression and repair, output:
 `[FIXED + TEST] [file:line] Problem -> fix + test at [test_path]`
 
-If no ASK items exist (everything was AUTO-FIX), skip the question entirely.
+No ASK items (everything was AUTO-FIX): skip the question.
 
 ### Verification of claims
 
@@ -1058,7 +1061,7 @@ After outputting your own findings, if Greptile comments were classified in Step
 
 **Include a Greptile summary in your output header:** `+ N Greptile comments (X valid, Y fixed, Z FP)`
 
-Before replying to any comment, run the **Escalation Detection** algorithm from greptile-triage.md to determine whether to use Tier 1 (friendly) or Tier 2 (firm) reply templates.
+Before replying to any comment, run greptile-triage.md's **Escalation Detection** to choose Tier 1 (friendly) or Tier 2 (firm) reply templates.
 
 1. **VALID & ACTIONABLE comments:** Use their Step 5a–5d disposition; do not ask a second fix question. Step 5c alone supplies A) Fix / B) Skip for ASK items. After a completed fix, use the **Fix reply template** with diff and explanation; cite the current diff if uncommitted, never invent a commit SHA. A Skip leaves the defect unresolved and grants no new fix permission. If evidence disproves the finding, reclassify it below.
 
@@ -1069,11 +1072,9 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
    For A, use the **False Positive reply template** with evidence + suggested re-rank; save to both histories. For B, return to Steps 5c–5d with an ASK proposal. Show the exact change and any `test_stub`; wait for approval before editing. Retain the comment decision so re-entry does not repeat its question.
 
-3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
-   - Include what was done and the fixing commit SHA
-   - Save to both per-project and global greptile-history
+3. **VALID BUT ALREADY FIXED comments:** Reply with greptile-triage.md's **Already Fixed reply template**, no AskUserQuestion: what was done and the fixing commit SHA; save to both per-project and global greptile-history.
 
-4. **SUPPRESSED comments:** Skip silently — these are known false positives from previous triage.
+4. **SUPPRESSED comments:** Skip silently (known false positives from previous triage).
 
 ---
 
@@ -1091,7 +1092,7 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
    unchanged-input QA evidence; rerun affected probes after source, test, contract,
    command or fixture changes. Reusing a probe never skips a review step.
    A probe is affected when its entrypoint, dependencies, contract or replay inputs
-   change. If impact is uncertain, rerun it.
+   change; if uncertain, rerun it.
 3. **Verify completed actions.** On the final zero-edit pass, reconcile this
    invocation's actions with current findings. Deduplicate by structural identity
    and advisory/defect kind. For a completed extraction, retain `fixed` and the
@@ -1149,7 +1150,7 @@ pass: report it with its reason.
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"COMMIT","completed":COMPLETED,"converged":CONVERGED,"cycles":CYCLES}' --finish REVIEW_START
 ```
 
-Use ISO 8601 `TIMESTAMP` and `git rev-parse --short HEAD` for `COMMIT`.
+`TIMESTAMP` is ISO 8601; `COMMIT` is `git rev-parse --short HEAD`.
 `quality_score` is Step 4.6's specialist score (`10.0` when small-diff specialists
 were skipped or this host omits Review Army). This default is not completion evidence;
 unresolved non-advisory core defects still count in `issues_found`,
@@ -1159,7 +1160,7 @@ or replace REVIEW_START at log time; finish only the final core token.
 
 ### Report the final review
 
-Emit one final report, merging all reviewers rather than concatenating their reports:
+Emit one final report, merging all reviewers rather than concatenating them:
 1. `Pre-Landing Review: N issues (X critical, Y informational)` counts final unresolved
    non-advisory defects. State INCOMPLETE if `COMPLETED` is false, even when N=0.
 2. Use the checklist's action groups with confidence-tagged finding lines. Keep fixed,
@@ -1199,12 +1200,12 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
-If the review exits early before a real review completes (for example, no diff against the base branch), do **not** write this entry.
+If the review exits early (for example, no diff against the base branch), do **not** write this entry.
 
 ## Important Rules
 
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Fix-first, not read-only.** AUTO-FIX items are applied directly. ASK items are only applied after user approval. Never commit, push, or create PRs — that's /ship's job.
+- **Fix-first, not read-only.** AUTO-FIX items are applied directly, ASK items only after user approval. Never commit, push, or create PRs — that's /ship's job.
 - **Be terse.** One line problem, one line fix. No preamble.
 - **Only flag real problems.** Skip anything that's fine.
 - **Optional extractions stay advisory.** Shared-code opportunities need verified callers and useful reliability or total savings; similarity alone is not a defect. Keep actual defects independently actionable.

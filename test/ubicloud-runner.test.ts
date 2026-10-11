@@ -53,7 +53,9 @@ describe('ubicloud free-suite runner', () => {
   test('remote commands force umask 022 and teardown is trapped on exit', () => {
     const runner = read('scripts/ubicloud/ubi-runner.sh');
     expect(runner).toContain('"umask 022; $*"');
-    expect(runner).toMatch(/trap 'cmd_down "\$RUN_VM"[^']*' EXIT/);
+    // Armed before the create request and shielded from a second signal (record-before-create teardown, plan E2).
+    expect(runner).toMatch(/trap 'trap "" INT TERM HUP QUIT; cmd_down "\$RUN_VM"[^']*' EXIT/);
+    expect(runner.indexOf("trap 'trap \"\" INT TERM HUP QUIT; cmd_down \"$RUN_VM\"")).toBeLessThan(runner.indexOf('cmd_up "${up_args[@]}" >/dev/null'));
   });
 
   test('pull retrieves the retained free-test logs and skips a glob that matches nothing', () => {
@@ -93,24 +95,33 @@ describe('ubicloud free-suite runner', () => {
 });
 
 describe('ubi-runner teardown is confirmed and never sweeps other runners by default', () => {
-  function fakeApi(mode: { destroy: number; listed: string }) {
+  /**
+   * Fake Ubicloud API: `vm list` returns `listed`; `vm <loc>/<name> show` is 200
+   * while the name is listed and 404 after a successful destroy; `destroy`
+   * returns `destroy`. Every call body is appended to calls.log.
+   */
+  function fakeApi(mode: { destroy: number; listed: string; owner?: string }) {
     const root = mkdtempSync(join(tmpdir(), 'ubi-down-'));
-    const bin = join(root, 'bin'), state = join(root, 'state'), log = join(root, 'calls.log');
+    const bin = join(root, 'bin'), state = join(root, 'state'), log = join(root, 'calls.log'), record = join(root, 'vms.tsv');
     mkdirSync(bin); mkdirSync(join(state, 'vm-a'), { recursive: true });
-    writeFileSync(join(state, 'vm-a/env'), 'NAME=vm-a\nLOCATION=eu-central-h1\nIP=192.0.2.1\n');
+    writeFileSync(join(state, 'vm-a/env'), 'NAME=vm-a\nLOCATION=eu-central-h1\nSIZE=standard-16\nIP=192.0.2.1\nCREATED=yes\nCREATE_AT=0\nCREATE_PID=1\n');
+    writeFileSync(join(root, 'listed'), mode.listed);
     writeFileSync(join(bin, 'curl'), `#!/usr/bin/env bash
 out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done
 body=$(cat); echo "$body" >> ${JSON.stringify(log)}
+listed=${JSON.stringify(join(root, 'listed'))}
+name=$(printf '%s' "$body" | sed -n 's/.*"vm", *"[^/"]*\\/\\([^"]*\\)".*/\\1/p')
 case "$body" in
-  *destroy*) : > "$out"; printf '%s' ${mode.destroy} ;;
-  *list*) printf '%s' ${JSON.stringify(mode.listed)} > "$out"; printf 200 ;;
+  *destroy*) : > "$out"; if [ ${mode.destroy} = 200 ]; then grep -v " $name$" "$listed" > "$listed.tmp"; mv "$listed.tmp" "$listed"; fi; printf '%s' ${mode.destroy} ;;
+  *'"list"'*) cat "$listed" > "$out"; printf 200 ;;
+  *'"show"'*) if grep -q " $name$" "$listed"; then printf 'state: running\nsize: standard-16\nip4: 192.0.2.1\n' > "$out"; printf 200; else : > "$out"; printf 404; fi ;;
   *) : > "$out"; printf 200 ;;
 esac
 `);
     chmodSync(join(bin, 'curl'), 0o755);
-    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: state };
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: state, UBI_POLL_SECONDS: '1', UBI_VM_RECORD: record, UBI_OWNER: mode.owner ?? 'thrd1' };
     const run = (...args: string[]) => Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), ...args], { env, timeout: 90_000 });
-    return { root, run, calls: () => (existsSync(log) ? readFileSync(log, 'utf8') : '') };
+    return { root, run, record, calls: () => (existsSync(log) ? readFileSync(log, 'utf8') : '') };
   }
 
   test('down fails when the destroy request fails', () => {
@@ -122,12 +133,14 @@ esac
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
-  test('down succeeds only once the VM is no longer listed', () => {
-    const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 other-vm\n' });
+  test('down succeeds only once the VM is no longer listed, and forgets its scratch record', () => {
+    const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 vm-a\neu-central-h1 other-vm\n' });
     try {
+      writeFileSync(f.record, 'vm-a\teu-central-h1\tthrd1\t2026-10-10T00:00:00Z\t1\nubirun-other-1000000000-aa\teu-central-h1\tother\t2026-10-10T00:00:00Z\t2\n');
       const r = f.run('down', 'vm-a');
       expect(r.exitCode).toBe(0);
       expect(r.stderr.toString()).toContain('destroyed eu-central-h1/vm-a');
+      expect(readFileSync(f.record, 'utf8')).toBe('ubirun-other-1000000000-aa\teu-central-h1\tother\t2026-10-10T00:00:00Z\t2\n');
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
@@ -137,5 +150,38 @@ esac
       expect(f.run('gc').exitCode).toBe(0);
       expect(f.calls()).toBe('');
     } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test('gc destroys only this owner’s stale VMs: another owner’s and untagged legacy names are never touched', () => {
+    const listed = 'eu-central-h1 ubirun-thrd1-1000000000-aaaa\neu-central-h1 ubirun-other-1000000000-bbbb\neu-central-h1 ubirun-1000000000-cccc\neu-central-h1 ubirun-thrd1-9999999999-dddd\n';
+    const f = fakeApi({ destroy: 200, listed });
+    try {
+      const r = f.run('gc', '1');
+      expect(r.exitCode).toBe(0);
+      const destroyed = f.calls().split('\n').filter(l => l.includes('destroy'));
+      expect(destroyed).toHaveLength(1);
+      expect(destroyed[0]).toContain('ubirun-thrd1-1000000000-aaaa');
+      expect(f.calls()).not.toMatch(/destroy.*ubirun-other/);
+      expect(f.calls()).not.toMatch(/destroy.*ubirun-1000000000-cccc/);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test('list --mine shows this owner’s VMs only; owner tags are lowercase letters and digits, 12 max, starting with a letter', () => {
+    const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 ubirun-thrd1-1000000000-aaaa\neu-north-h1 ubirun-other-1000000000-bbbb\neu-central-h1 ubirun-1000000000-cccc\n' });
+    try {
+      const mine = f.run('list', '--mine');
+      expect(mine.exitCode).toBe(0);
+      expect(mine.stdout.toString()).toBe('eu-central-h1  ubirun-thrd1-1000000000-aaaa\n');
+      const owner = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'owner'], { env: { ...process.env, UBI_OWNER: '12-Capy_Thread-ABCDEFGH', UBI_RUNNER_STATE: f.root }, timeout: 10_000 });
+      expect(owner.stdout.toString().trim()).toBe('u12capythrea');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test('up records the VM in the scratch file before the create request is sent', () => {
+    const runner = read('scripts/ubicloud/ubi-runner.sh');
+    const create = runner.indexOf('cli "${args[@]}" >/dev/null 2>"$dir/create.err"');
+    expect(create).toBeGreaterThan(0);
+    expect(runner.indexOf('record_vm "$name" "$location"')).toBeLessThan(create);
+    expect(runner).toContain('$HOME/.capy/work/ubi-runner/vms.tsv');
   });
 });

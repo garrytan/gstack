@@ -1,0 +1,65 @@
+#!/usr/bin/env bun
+/**
+ * gstack-contributor-mode — contributor-PR mode detection for /review (plan E3, decision D10).
+ *
+ *   gstack-contributor-mode detect [--author <login>] [--pr <n>] [--contributor] [--base <ref>] [--policy-from base|head] [--json]
+ *   gstack-contributor-mode instructions
+ *
+ * Prints `CONTRIBUTOR_MODE: on|off author=<login> source=flag|policy|collaborators|off`
+ * then, when on, the evidence-first instructions /review follows (the table and the
+ * credit-line rule). Maintainers come from .gstack/ship-policy.json on the base
+ * branch; without a list, repository push permission through the collaborators API;
+ * without either, off with the source recorded (CONTRIBUTOR_SOURCE_UNAVAILABLE on
+ * stderr). CODEOWNERS is never read. Exit 0 always for a completed detection.
+ * Logic: lib/contributor-mode.ts.
+ */
+import { spawnSync } from 'node:child_process';
+import { CONTRIBUTOR_INSTRUCTIONS, detectContributorMode, renderDetection } from '../lib/contributor-mode';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { resultLine } from '../lib/result-codes';
+import { isUnavailable, loadPolicyFromBase, loadPolicyFromHead, resolveBaseBranch } from '../lib/ship-policy';
+
+const HELP = `gstack-contributor-mode — is the PR author outside the maintainer set? (docs/ship-policy.md#contributor-mode)
+
+  detect [--author <login>] [--pr <n>] [--contributor] [--base <ref>] [--policy-from base|head] [--json]
+         --contributor forces the mode on (source=flag); --author skips the gh lookup
+  instructions   print the evidence-first review instructions without detecting
+
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+function main(argv: string[]): number {
+  if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
+  const [cmd, ...rest] = argv;
+  if (cmd === 'instructions') { process.stdout.write(CONTRIBUTOR_INSTRUCTIONS + '\n'); return EXIT.ok; }
+  if (cmd !== 'detect') { process.stderr.write(`gstack-contributor-mode: unknown command ${cmd ?? ''}\n${HELP}\n`); return EXIT.usage; }
+  const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
+  if (root.status !== 0) { process.stderr.write('gstack-contributor-mode: not inside a git repository\n'); return EXIT.usage; }
+  const cwd = root.stdout.trim();
+  const prText = flag(rest, '--pr');
+  const pr = prText !== undefined ? Number(prText) : undefined;
+  if (pr !== undefined && (!Number.isInteger(pr) || pr <= 0)) { process.stderr.write('gstack-contributor-mode: --pr needs a positive number\n'); return EXIT.usage; }
+
+  let maintainers: string[] = []; let policySource = 'no ship policy';
+  if ((flag(rest, '--policy-from') ?? 'base') === 'head') { const l = loadPolicyFromHead(cwd); maintainers = l.policy.maintainers; policySource = l.source.label; }
+  else {
+    const base = resolveBaseBranch(cwd, flag(rest, '--base'));
+    const l = loadPolicyFromBase(cwd, base);
+    if (!isUnavailable(l)) { maintainers = l.policy.maintainers; policySource = l.source.label; }
+    else policySource = `policy source unavailable (${l.detail})`;
+  }
+  const d = detectContributorMode({ cwd, author: flag(rest, '--author'), pr, force: rest.includes('--contributor'), maintainers, policySource });
+  if (rest.includes('--json')) process.stdout.write(JSON.stringify(d) + '\n');
+  else {
+    process.stdout.write(renderDetection(d) + '\n');
+    if (d.mode === 'on') process.stdout.write('\n' + CONTRIBUTOR_INSTRUCTIONS + '\n');
+  }
+  if (d.error) process.stderr.write(resultLine('gstack-contributor-mode', d.error.code, d.error.message) + '\n');
+  return EXIT.ok;
+}
+
+process.exitCode = main(process.argv.slice(2));

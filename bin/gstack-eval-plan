@@ -1,0 +1,155 @@
+#!/usr/bin/env bun
+/**
+ * gstack-eval-plan — the tier-1 machinery behind /eval-plan (plan E1).
+ *
+ *   gstack-eval-plan prereg --check <file> | --init <file> [--title <t>]
+ *   gstack-eval-plan arms [--arms <model,model>] [--policy-doc <file>] [--input-tokens N] [--output-tokens N] [--json]
+ *   gstack-eval-plan dry-run --input <rows.jsonl> --arms <model,model> [--fields a,b] [--output-budget N]
+ *                            [--retry-prompt <file>] [--max-rows N] [--out <dir>] [--json]
+ *   gstack-eval-plan pilot start  --out <dir> --cap <usd> --arms <model,model> --dry-run <dry-run.json> [--n 3]
+ *   gstack-eval-plan pilot settle --out <dir> --attempt <id> --usd <n|unknown>
+ *   gstack-eval-plan pilot release --out <dir> --attempt <id>
+ *   gstack-eval-plan pilot report --out <dir> --total <items> [--workers W] [--json]
+ *
+ * The dry run spends nothing (stub model) and prints the checklist: price-table
+ * entry per arm, output budget sized for reasoning models, the retry prompt's
+ * exact text. The pilot reserves through lib/spend-ledger.ts (estimated admission,
+ * lock-shared refusal), settles actual cost, and `report` prints the spend table
+ * (spent, reserved, unknown charges, worst-case overrun) and the extrapolation
+ * with its error band before the approval ask. Exit 0 ok, 1 fail (incomplete
+ * prereg, failed check, exceeded cap), 2 usage, 3 refused. Logic: lib/eval-plan.ts.
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { checkPrereg, DEFAULT_TOKENS, dryRun, pilotReport, preregTemplate, releasePilot, renderArms, renderDryRun, renderPilotReport, resolveArms, settlePilot, startPilot } from '../lib/eval-plan';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { resultLine } from '../lib/result-codes';
+import { SpendCapExceeded } from '../lib/spend-ledger';
+
+const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, priced pilot (eval-plan/SKILL.md)
+
+  prereg --check <file>              the five sections exist and are filled: Bars, Arms, Decoys, Stop rules, Held-out exposure
+  prereg --init <file> [--title <t>] write the template
+  arms [--arms m,m] [--policy-doc f] [--input-tokens N] [--output-tokens N] [--json]
+                                     arms from \`gstack-models resolve --role eval-arms\`, else the repo policy doc, each priced per item
+  dry-run --input rows.jsonl --arms m,m [--fields a,b] [--output-budget N] [--retry-prompt f] [--max-rows N] [--out dir] [--json]
+                                     stub model over the real rows; checklist: price table, output budget, retry prompt text
+  pilot start --out dir --cap usd --arms m,m --dry-run dry-run.json [--n 3]
+  pilot settle --out dir --attempt id --usd <n|unknown>      pilot release --out dir --attempt id
+  pilot report --out dir --total items [--workers W] [--json]  spend table + extrapolation with a 95% band, then the approval ask
+
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+function num(args: string[], name: string, fallback?: number): number | undefined {
+  const v = flag(args, name);
+  if (v === undefined) return fallback;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) throw new Error(`${name} needs a non-negative number`);
+  return n;
+}
+function usage(message: string): number { process.stderr.write(`gstack-eval-plan: ${message}\n${HELP}\n`); return EXIT.usage; }
+const csv = (v: string | undefined) => (v ?? '').split(',').map(s => s.trim()).filter(Boolean);
+
+function doPrereg(rest: string[]): number {
+  const init = flag(rest, '--init');
+  if (init) {
+    if (fs.existsSync(init) && !rest.includes('--force')) { process.stderr.write(`gstack-eval-plan: ${init} exists (pass --force)\n`); return EXIT.refused; }
+    fs.mkdirSync(path.dirname(path.resolve(init)), { recursive: true });
+    fs.writeFileSync(init, preregTemplate(flag(rest, '--title')));
+    process.stdout.write(`PREREG_INIT: ${init}\n`);
+    return EXIT.ok;
+  }
+  const file = flag(rest, '--check');
+  if (!file || !fs.existsSync(file)) return usage('prereg needs --check <existing file> or --init <file>');
+  const r = checkPrereg(fs.readFileSync(file, 'utf8'));
+  if (rest.includes('--json')) process.stdout.write(JSON.stringify({ file, ...r }) + '\n');
+  else process.stdout.write(`PREREG: ${r.ok ? 'ok' : 'incomplete'} present=${r.present.length}/5${r.missing.length ? ` missing=${r.missing.join(',')}` : ''}${r.empty.length ? ` empty=${r.empty.join(',')}` : ''} file=${file}\n`);
+  if (!r.ok) { process.stderr.write(resultLine('gstack-eval-plan prereg', 'PREREG_INCOMPLETE', [...r.missing.map(m => `missing ${m}`), ...r.empty.map(e => `empty ${e}`)].join('; ')) + '\n'); return EXIT.fail; }
+  return EXIT.ok;
+}
+
+function doArms(rest: string[]): number {
+  const tokens = { input: num(rest, '--input-tokens', DEFAULT_TOKENS.input)!, output: num(rest, '--output-tokens', DEFAULT_TOKENS.output)! };
+  const r = resolveArms({ cwd: process.cwd(), explicit: csv(flag(rest, '--arms')), policyDoc: flag(rest, '--policy-doc'), tokens });
+  if (rest.includes('--json')) process.stdout.write(JSON.stringify({ ...r, tokens }) + '\n'); else process.stdout.write(renderArms(r, tokens));
+  for (const e of r.errors) process.stderr.write(resultLine('gstack-eval-plan arms', e.code, e.message) + '\n');
+  return r.errors.length ? EXIT.fail : EXIT.ok;
+}
+
+function doDryRun(rest: string[]): number {
+  const input = flag(rest, '--input');
+  const arms = csv(flag(rest, '--arms'));
+  if (!input || !fs.existsSync(input)) return usage('dry-run needs --input <existing rows.jsonl>');
+  if (!arms.length) return usage('dry-run needs --arms <model,model>');
+  const r = dryRun({ input, arms, fields: csv(flag(rest, '--fields')), outputBudget: num(rest, '--output-budget'), retryPrompt: flag(rest, '--retry-prompt'), maxRows: num(rest, '--max-rows') });
+  const out = flag(rest, '--out');
+  if (out) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, 'dry-run.json'), JSON.stringify(r, null, 2) + '\n'); }
+  if (rest.includes('--json')) process.stdout.write(JSON.stringify(r) + '\n'); else process.stdout.write(renderDryRun(r));
+  if (out) process.stdout.write(`DRY_RUN_RECORD: ${path.join(out, 'dry-run.json')}\n`);
+  if (!r.pass) {
+    const why = [r.rows === 0 ? 'no rows' : '', r.bad_rows.length ? `${r.bad_rows.length} bad rows` : '', !r.checks.price_table.ok ? `price missing: ${r.checks.price_table.missing.join(',') || 'no arms'}` : '', !r.checks.output_budget.ok ? 'output budget below the reasoning floor' : '', !r.checks.retry_prompt.ok ? 'retry prompt missing' : ''].filter(Boolean).join('; ');
+    process.stderr.write(resultLine('gstack-eval-plan dry-run', r.checks.price_table.ok ? 'EVAL_DRY_RUN_FAILED' : 'EVAL_PRICE_MISSING', why) + '\n');
+    return EXIT.fail;
+  }
+  return EXIT.ok;
+}
+
+function doPilot(rest: string[]): number {
+  const [sub, ...args] = rest;
+  const out = flag(args, '--out');
+  if (!out) return usage(`pilot ${sub ?? ''} needs --out <dir>`);
+  if (sub === 'start') {
+    const cap = num(args, '--cap'); const arms = csv(flag(args, '--arms')); const dry = flag(args, '--dry-run');
+    if (cap === undefined || !arms.length || !dry || !fs.existsSync(dry)) return usage('pilot start needs --cap <usd> --arms <m,m> --dry-run <existing dry-run.json>');
+    const r = startPilot({ out, cap, n: num(args, '--n', 3)!, arms, dryRun: dry });
+    if (r.error && !r.record) { process.stderr.write(resultLine('gstack-eval-plan pilot start', r.error.code, r.error.message) + '\n'); return EXIT.refused; }
+    for (const a of r.record.attempts) process.stdout.write(`PILOT_ATTEMPT: ${a.attempt} model=${a.model} estimate=$${a.estimate_usd.toFixed(4)}\n`);
+    process.stdout.write(`PILOT: status=${r.record.status} reserved=${r.record.attempts.length} cap=$${cap.toFixed(2)} ledger=${path.join(out, 'spend.json')}\n`);
+    if (r.error) { process.stderr.write(resultLine('gstack-eval-plan pilot start', r.error.code, r.error.message) + '\n'); return EXIT.fail; }
+    return EXIT.ok;
+  }
+  if (sub === 'settle' || sub === 'release') {
+    const attempt = flag(args, '--attempt');
+    if (!attempt) return usage(`pilot ${sub} needs --attempt <id>`);
+    if (sub === 'release') { const l = releasePilot(out, attempt); process.stdout.write(`RELEASED: ${attempt} reserved=${l.reserved.length}\n`); return EXIT.ok; }
+    const usd = flag(args, '--usd');
+    if (usd === undefined) return usage('pilot settle needs --usd <n|unknown>');
+    const value = usd === 'unknown' ? 'unknown' as const : Number(usd);
+    if (value !== 'unknown' && (!Number.isFinite(value) || value < 0)) return usage('--usd needs a non-negative number or unknown');
+    const l = settlePilot(out, attempt, value);
+    process.stdout.write(`SETTLED: ${attempt} usd=${usd} spent=$${l.spent_usd.toFixed(4)} open=${l.reserved.length}\n`);
+    return EXIT.ok;
+  }
+  if (sub === 'report') {
+    const total = num(args, '--total');
+    if (total === undefined) return usage('pilot report needs --total <items>');
+    if (!fs.existsSync(path.join(out, 'pilot.json'))) return usage(`${out} has no pilot.json; run pilot start first`);
+    const r = pilotReport(out, { total, workers: num(args, '--workers') });
+    if (args.includes('--json')) process.stdout.write(JSON.stringify(r) + '\n'); else process.stdout.write(renderPilotReport(r));
+    if (r.record.status === 'budget_exhausted' || r.spend.worst_case_overrun_usd > 0) { process.stderr.write(resultLine('gstack-eval-plan pilot report', 'EVAL_BUDGET_EXHAUSTED', `worst case $${r.spend.worst_case_usd.toFixed(4)} vs cap $${r.record.cap_usd.toFixed(2)}`) + '\n'); return EXIT.fail; }
+    return r.projection.verdict === 'exceeds' ? EXIT.fail : EXIT.ok;
+  }
+  return usage(`unknown pilot command ${sub ?? ''}`);
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  try {
+    if (cmd === 'prereg') return doPrereg(rest);
+    if (cmd === 'arms') return doArms(rest);
+    if (cmd === 'dry-run') return doDryRun(rest);
+    if (cmd === 'pilot') return doPilot(rest);
+    return usage(`unknown command ${cmd}`);
+  } catch (e: any) {
+    if (e instanceof SpendCapExceeded) { process.stderr.write(resultLine(`gstack-eval-plan ${cmd}`, 'EVAL_BUDGET_EXHAUSTED', e.message) + '\n'); return EXIT.fail; }
+    process.stderr.write(`gstack-eval-plan ${cmd}: ${e?.message ?? e}\n`);
+    return e?.message?.includes('needs') ? EXIT.usage : EXIT.fail;
+  }
+}
+
+process.exitCode = main(process.argv.slice(2));
