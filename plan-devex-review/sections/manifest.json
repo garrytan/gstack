@@ -2,8 +2,22 @@
   "$schema": "https://gstack.dev/schemas/section-manifest.json",
   "skill": "plan-devex-review",
   "version": 1,
-  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. The skeleton's decision-tree prose decides WHEN to read. See docs/designs/v2_PLAN.md.",
+  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. The skeleton's decision-tree prose decides WHEN to read. No machine predicate here for interactive renders \u2014 see docs/designs/v2_PLAN.md. Optional `scope` (always | ui | dx | db | perf | security | incident; default always) and `runner_only` (true: omitted from the Section index) are read by bin/gstack-autoplan alone (plan B4): an unattended or light run loads the checklist plus the sections whose scope the detected scope needs and prints `Skipped sections: <ids> (scope: <detected>)`.",
   "sections": [
-    { "id": "review-sections", "file": "review-sections.md", "title": "8 DX passes, required outputs + review report", "trigger": "running the 8 DX passes, required outputs, and review report (only after Step 0 investigation is complete)" }
+    {
+      "id": "review-sections",
+      "file": "review-sections.md",
+      "title": "8 DX passes, required outputs + review report",
+      "trigger": "running the 8 DX passes, required outputs, and review report (only after Step 0 investigation is complete)",
+      "scope": "always"
+    },
+    {
+      "id": "checklist",
+      "file": "checklist.md",
+      "title": "Operative checklist: steps and required outputs mapped to their producing section",
+      "trigger": "runner profile only (unattended or light autoplan runs); interactive runs read review-sections.md in full",
+      "scope": "always",
+      "runner_only": true
+    }
   ]
 }

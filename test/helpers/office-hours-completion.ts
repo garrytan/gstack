@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import * as path from 'node:path';
 import { renderOfficeHoursReviewerPrompt, validateOfficeHoursReview, renderOfficeHoursReview, extractOfficeHoursReviewBlock, parseOfficeHoursVerdictReceipt, verifyOfficeHoursVerdictReceipt, officeHoursDesignChanges, verifyOfficeHoursCitations, type OfficeHoursReview } from '../../lib/office-hours-review';
+import { verifySpecFixesAtCap, type SpecFix } from '../../lib/spec-review-cap';
 
 export type OfficeHoursFile = { path: string; content: string | null };
 /** The helper's captured diff before a later round; a missing snapshot fails closed. */
@@ -27,6 +28,8 @@ export interface OfficeHoursCompletionEvidence {
   designContent: string | null;
   transcript?: any[];
   toolCalls: Array<{ tool: string; input?: Record<string, unknown>; output?: string }>;
+  /** The `--fixes` list the finalizer verified at the cap (plan B8); null or absent when none was supplied. */
+  fixes?: SpecFix[] | null;
 }
 
 export interface OfficeHoursReviewEvidence {
@@ -298,7 +301,18 @@ export function validateOfficeHoursReviewArtifacts(
       fail('valid saved verdict has no matching reviewer receipt');
     }
   }
-  const expected = renderOfficeHoursReview(rounds, unavailable, maxRounds);
+  // At the cap the finalizer records the unresolved gaps and verifies listed fixes against the
+  // last round's captured design (minus the owned block); the judge recomputes that record.
+  let cap = null;
+  const last = rounds.at(-1);
+  if (last && unavailable === undefined && last.findings.some(finding => finding.severity === 'blocking')) {
+    const snapshotPath = path.join(path.dirname(artifactPath(artifacts[0]?.path ?? '')), `round-${last.round}.design.md`);
+    const snapshot = snapshots.find(file => path.resolve(file.path) === snapshotPath)?.content;
+    if (typeof snapshot !== 'string') fail(`round ${last.round} lacks its captured design snapshot round-${last.round}.design.md`);
+    const strip = (text: string) => { const block = extractOfficeHoursReviewBlock(text, 'concerns'); return block ? text.replace(block, '') : text; };
+    cap = verifySpecFixesAtCap(last, strip(snapshot!), strip(evidence.designContent!), evidence.fixes ?? null);
+  }
+  const expected = renderOfficeHoursReview(rounds, unavailable, maxRounds, cap);
   const expectedReport = sectionBody(expected.report, ['spec review'], true);
   const expectedConcerns = sectionBody(expected.concerns, ['reviewer concerns'], true);
   if (extractOfficeHoursReviewBlock(evidence.output, 'report') !== expected.report

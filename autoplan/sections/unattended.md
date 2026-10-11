@@ -1,0 +1,11 @@
+<!-- AUTO-GENERATED from unattended.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+## Unattended profile
+
+`SESSION_KIND: unattended`: a parent drives the run through
+`~/.claude/skills/gstack/bin/gstack-autoplan` (`next`/`submit`/`answer --gate-rev`/
+`export`; docs/unattended.md) and reads artifacts, never prose. Phases close
+themselves, Eng runs last, the outside voice runs through `gstack-outside-voice`,
+and the run stops at `status=gate_pending`: never approve. `gstack-artifact
+validate <dir>/run.json` is the completion check. End with
+`GSTACK_RESULT: skill=autoplan status=<status> run=<dir>`.

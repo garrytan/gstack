@@ -82,6 +82,9 @@ const MODULE_SINKS = [
   // their writeReceipt calls fails CI, not just the tree-sweep scanner.
   'lib/code-intelligence/gbrain-adapter.ts',
   'lib/code-intelligence/sourcebot-adapter.ts',
+  // Multi-agent wave B3: the api outside-voice runner POSTs a review prompt
+  // (plan text, sensitive-class) to OpenAI or Anthropic; sink 'outside-voice-api'.
+  'lib/outside-voice-api.ts',
   // Unconditional: context-bill ships in the same tree as this tripwire. A
   // missing file must fail loudly (a rename/move that drops its receipt wiring
   // is exactly what this pins), not silently soften the assertion.

@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ResultCodeName } from './result-codes';
+import { withFileLock } from './spend-ledger';
 
 export type Severity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
 export type Disposition = 'open' | 'accepted' | 'partially_accepted' | 'rejected' | 'deferred' | 'fixed';
@@ -28,7 +29,7 @@ export type RunStatus = ResultStatus | 'awaiting_result' | 'running';
 export interface FindingRow {
   schema_version: 1; run: string; id: string; phase: string; voice: Voice; severity: Severity; title: string;
   model?: string; file?: string; line?: number; disposition?: Disposition; resolution?: string;
-  plan_items?: string[]; native_counterpart?: string; source?: string;
+  plan_items?: string[]; native_counterpart?: string | null; source?: string;
 }
 export interface DecisionRow {
   schema_version: 1; run: string; id: string; title: string; options: string[]; recommended: string | null;
@@ -499,6 +500,10 @@ export function urgentBlockPrecedes(text: string, summaryMarker = '### Plan Summ
 export interface AckResult { consumed_by: Array<{ consumer: string; at: string }>; added: boolean; analytics: 'appended' | 'skipped_ephemeral' | 'already_acked' }
 export function ackRun(runJson: string, consumer: string, opts: { analyticsPath: string; ephemeral: boolean; now?: Date }): AckResult {
   if (!/^[A-Za-z0-9_.:@/-]{1,200}$/.test(consumer)) throw new Error(`consumer id must match [A-Za-z0-9_.:@/-]{1,200}, got ${JSON.stringify(consumer)}`);
+  // Exactly once across concurrent consumers: the read-modify-write runs under a file lock.
+  return withFileLock(runJson, () => ackLocked(runJson, consumer, opts));
+}
+function ackLocked(runJson: string, consumer: string, opts: { analyticsPath: string; ephemeral: boolean; now?: Date }): AckResult {
   const manifest: RunManifest = JSON.parse(fs.readFileSync(runJson, 'utf8'));
   const list = Array.isArray(manifest.consumed_by) ? manifest.consumed_by : [];
   if (list.some(c => c.consumer === consumer)) return { consumed_by: list, added: false, analytics: 'already_acked' };

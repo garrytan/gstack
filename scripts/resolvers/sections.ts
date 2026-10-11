@@ -59,6 +59,10 @@ interface SectionEntry {
   file: string;
   title: string;
   trigger: string;
+  /** Plan B4: read by bin/gstack-autoplan alone; interactive renders ignore it. Default `always`. */
+  scope?: 'always' | 'ui' | 'dx' | 'db' | 'perf' | 'security' | 'incident';
+  /** Plan B4: a runner-profile section (the checklist) stays out of the Section index. */
+  runner_only?: boolean;
 }
 interface SectionManifest {
   skill: string;
@@ -144,6 +148,7 @@ export const SECTION_INDEX: ResolverFn = (ctx: TemplateContext, args?: string[])
     '|------|-------------------|',
   ];
   for (const s of manifest.sections) {
+    if (s.runner_only) continue;
     const reference = skill === 'qa' || skill === 'qa-only' ? sectionPath(ctx, skill, s.id) : `\`sections/${s.file}\``;
     if (skill === 'review' && s.id === 'review-army') {
       lines.push(`| Select surfaces and read QA methods | Inline in [Step 4](#step-4-critical-pass-core-review); setup and probes run in Step 4.7 |`);

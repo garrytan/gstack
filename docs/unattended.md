@@ -132,6 +132,115 @@ JSON Schema for any of `findings`, `decisions`, `tasks`, `timing`, `run`,
    was already read: `gstack-artifact ack <dir>/run.json --consumer <id>` is
    idempotent and records `consumed_by` in the manifest.
 
+## Driving `/autoplan` from a parent: `gstack-autoplan`
+
+On a host where the parent dispatches the reviewers itself (Capy, any
+orchestrator without a Claude Code harness), `bin/gstack-autoplan` is the
+explicit, durable state machine for the whole run. The parent never reads the
+review record; it runs a loop over two commands and reads the printed lines.
+
+```bash
+AP=bin/gstack-autoplan
+$AP next --out <dir> --plan <plan.md> [--ui|--no-ui] [--developer-tool] [--light] [--spend-cap <usd>]
+#   PHASE: ceo snapshot=<sha> order=ceo,design,dx,eng
+#   Skipped sections: none (scope: ui=yes,dx=yes,source=detected; checklist=loaded)
+#   ATTEMPT: <run>-a1 phase=ceo voice=native  prompt=<dir>/ceo-native-prompt.md  result=<dir>/ceo-native.md  model_family=...
+#   ATTEMPT: <run>-a2 phase=ceo voice=outside prompt=<dir>/ceo-outside-prompt.md result=<dir>/ceo-outside.md model_family=differs from the native reviewer
+#   SPEND: spent=0.00 reserved=0.00 unknown=0(0.00) worst_case=0.00 cap=none
+#   GSTACK_RESULT: skill=autoplan status=awaiting_result run=<dir>
+```
+
+1. **Dispatch each `ATTEMPT:`.** The native voice is a subagent on the parent's
+   own model given the prompt file; the outside voice is a subagent on another
+   model family, or `bin/gstack-outside-voice run --runner codex-cli|api
+   --prompt <file> --out <file> [--model <id>]`, which prints
+   `OUTSIDE_STATUS: <status> provider=<runner> model=<id> family=<f>`. Every
+   reviewer writes its result to the printed `result=` path under the RESULT
+   FORMAT below. `next` is idempotent: it reprints open attempts and never
+   redispatches on its own (`EXECUTION_UNKNOWN` lists attempts whose process
+   died without a result; `--redispatch <attempt>` mints a fresh one and
+   `release --attempt <id>` returns its reservation).
+2. **Submit each result exactly once.**
+   ```bash
+   $AP submit --out <dir> --phase ceo --voice native  --result <dir>/ceo-native.md  --model <id> --attempt <run>-a1
+   $AP submit --out <dir> --phase ceo --voice outside --result <dir>/ceo-outside.md --model <id> --attempt <run>-a2 [--runner host-subagent] [--usage-usd <n>]
+   #   BOUND: <run>-a1 phase=ceo voice=native model=<id> findings=7 sha256=<result hash prefix>
+   #   PHASE_CLOSED: ceo confirmed=4 disagree=1 new=2 native_only=1 coverage=both
+   ```
+   Binding checks the receipt line against the phase snapshot
+   (`RESULT_RECEIPT_MISSING`), parses the canonical findings fence
+   (`RESULT_FINDINGS_MISSING`), refuses an outside model from the native
+   family (`MODEL_FAMILY_CONFLICT`), and refuses a second bind of the same
+   attempt or a bind while the phase is not awaiting it (`ATTEMPT_MISMATCH`,
+   `PHASE_NOT_AWAITING`, exit 3). Both voices in closes the phase: the
+   reconciliation (`confirmed` / `disagree` / `new` per outside finding, with
+   disagreement and resolution kept separate) is written to
+   `<phase>-consensus.{json,md}`, and the Eng prompt refuses to open without
+   every closed prior phase's consensus (`CONSENSUS_MISSING`).
+3. **Loop `next` until `status=gate_pending`.** Eng always runs last. The gate
+   (`gate.json`, `gate_rev`) lists user challenges as approval items,
+   disagreements as auto items and `p1` plan approval; nothing is approved.
+4. **Answer the gate** with the reply grammar and the revision you read:
+   ```bash
+   $AP answer --out <dir> --gate-rev 1 --reply "all"              # APPROVED: status=complete, no new paid phase
+   $AP answer --out <dir> --gate-rev 1 --reply "all except d1b"   # REOPENED: ceo,eng (Eng last); next continues the loop
+   ```
+   A stale revision (`GATE_REV_STALE`, exit 3), bare `yes`/`no`, or a
+   conflicting reply (`GATE_REPLY_UNPARSED`) writes nothing. A reply that
+   leaves approval items pending records only the answered auto items and
+   keeps the gate. A non-recommended choice on a reviewed item reopens that
+   phase plus Eng, archives their bound files as `*.r<rev>.*`, and the next
+   gate is `gate_rev + 1`; `p1d` reopens every phase; `p1e` ends `incomplete`.
+5. **Export and validate.** `$AP export --out <dir>` writes `plan.md` (with
+   the `## URGENT, outside this plan` block first), `review-record.md`,
+   `tasks.jsonl`, `decisions.jsonl`, `findings.jsonl`, `timing.json` and
+   `run.json`; then `gstack-artifact validate <dir>/run.json` and the
+   consumption steps above apply unchanged. `$AP status --out <dir>` and
+   `resume` work after the run directory moves (paths are re-rooted).
+
+Concurrency and recovery: every state write is a locked read-modify-write
+(`run.lock`; a second writer sees `RUN_LOCKED`), attempts are journaled to
+`attempts.jsonl` before dispatch, and a parent killed before or after a
+`submit` resumes with `next` without a duplicate charge
+(`test/autoplan-run-recovery.test.ts`, `test/autoplan-run-concurrency.test.ts`,
+`test/autoplan-answer-invalidation.test.ts`). `--spend-cap` admits each attempt
+through `spend.json` (`SPEND_CAP_EXCEEDED` refuses, exit 3); host-subagent
+spend is `unknown` and counted in `worst_case`. `--deadline <min>` makes the
+`run` subcommand cancel the children it started and marks the run
+`interrupted`.
+
+### RESULT FORMAT (what every reviewer file must contain)
+
+Each prompt file ends with this contract; `submit` enforces it.
+
+1. The first line is exactly `INPUT: <phase> <snapshot sha256>` (the receipt
+   that binds the result to the snapshot both voices reviewed).
+2. The review is prose, then one fenced block of canonical findings, one JSON
+   object per line: `{"id":"F1","severity":"High","title":"...","file":"...","line":12,"fix":"..."}`
+   inside a ```` ```gstack-findings ```` fence. `severity` is Critical | High |
+   Medium | Low | Informational; `"user_challenge": true` marks a recommended
+   change to the plan's stated direction; `"urgent": true` with
+   `"suggested_owner"` marks a security or data-loss finding the plan does not
+   own. An empty fence means no findings; a missing fence is refused.
+3. The whole result is written to the printed `result=` path.
+
+### Outside-voice runners
+
+| Runner | Access | Record label | Needs |
+|---|---|---|---|
+| `codex-cli` | repository, read-only, executes here | `repository review` | `codex` on PATH and logged in (`bin/gstack-codex-login` reads `OPENAI_API_KEY` from stdin) |
+| `api` | supplied input only | `supplied-input review` | `--model <id>` and `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; never silently equal to a repository review |
+| `host-subagent` | the host's | `host-dispatched review` | `--result <file>` the subagent wrote, `--model <id>`; spend `unknown` |
+
+`bin/gstack-outside-voice runners` prints each runner's availability on this
+machine; `family <model>` prints the model family `submit` compares. A completed
+`api` or `host-subagent` review is a full outside voice in the record, labeled
+by its runner. Result codes: `EXECUTION_UNKNOWN`, `RUN_LOCKED`,
+`RUN_NOT_INITIALIZED`, `PHASE_NOT_AWAITING`, `ATTEMPT_MISMATCH`,
+`RESULT_RECEIPT_MISSING`, `RESULT_FINDINGS_MISSING`, `MODEL_FAMILY_CONFLICT`,
+`SPEND_CAP_EXCEEDED`, `CONSENSUS_MISSING`, `OUTSIDE_RUNNER_UNAVAILABLE`
+(anchors in [troubleshooting.md](troubleshooting.md)).
+
 ## Timing
 
 `/autoplan` prints `ESTIMATE: ...` at Phase 0 (`gstack-autoplan-timing

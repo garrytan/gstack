@@ -1169,7 +1169,7 @@ The subagent should return:
 - **PASS:** Stop the loop.
 - **Issues:** Stop after the third review, or when consecutive reviews repeat the same unresolved issues (the same requirements and problems). Otherwise use 0D for new or reopened choices, amend the working plan and CEO summary under the storage policy, Keep both consistent, and re-dispatch with both updated inputs and the same instructions.
 
-Make at most three reviewer launches. A missing score alone does not require another review.
+Make at most three reviewer launches. A missing score alone does not require another review. At the cap, list the unresolved issues as numbered gaps and never re-review unchanged input: verify each listed fix against the amended plan text and report `issues verified: k of N` (applied edits, not a verdict), or report `N fixes unconfirmed` and add a `spec not re-verified` decision to 0H. DONE_WITH_CONCERNS names the missing points next to the score.
 
 **Step 3: Report and persist metrics**
 

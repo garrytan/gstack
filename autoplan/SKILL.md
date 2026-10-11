@@ -532,6 +532,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | starting Phase 2.5 (DX review — ONLY if developer-facing scope was detected in Phase 0; skip the read entirely otherwise) | `sections/dx-phase.md` |
 | closing a review phase, after its reviews finish and before announcing completion or loading the next phase (read afresh at each exit) | `sections/phase-close.md` |
 | presenting the Final Approval Gate (Phase 4) — the aggregator computes $AGGREGATED_TASKS that the gate message substitutes | `sections/tasks-aggregator.md` |
+| the preamble echoed `SESSION_KIND: unattended` (read before Phase 1 and at the Phase 4 gate) | `sections/unattended.md` |
 
 ---
 
@@ -755,7 +756,7 @@ the tasks aggregator at Phase 4. Run all applicable skills and lazy sections ful
 Follow ONLY the review-specific methodology, sections, and required outputs.
 
 Output: "Here's what I'm working with: [plan summary]. UI scope: [yes/no]. DX scope: [yes/no].
-Review skills will load at each phase entry. Starting full review pipeline with auto-decisions."
+Review skills load at each phase entry; starting the full pipeline with auto-decisions."
 
 ---
 
@@ -922,8 +923,8 @@ List concerns independently raised in 2+ phases. If none: "No cross-phase themes
 Parse the reply: `~/.claude/skills/gstack/bin/gstack-gate parse $_AP/gate.json --reply "<text>" --gate-rev <rev>`;
 unparsed or stale replies are re-presented (`gate_rev`+1), never guessed. `all` or `plana`
 without overrides = A; `d<n>` overrides = B; `uc<n>` overrides = B2; `planc`/`pland`/`plane`
-= C/D/E. Under `SESSION_KIND: unattended` end here with
-`GSTACK_RESULT: skill=autoplan status=gate_pending run=$_AP`; never approve.
+= C/D/E. Under `SESSION_KIND: unattended` Read `sections/unattended.md`, end here
+with its `GSTACK_RESULT` line and never approve.
 
 **Option handling:**
 - A: mark APPROVED, write review logs, suggest /ship
