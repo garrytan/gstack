@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { collectProducerReceipts, createEvalBaseline, createEvalMatrix, createPortableSkillPayload, loadPortableSkillPayload, prepareEvalJobs, REQUIRED_CONTAINMENT, scoreCollectedEval, scoreEval, validateMatrix, validatePortableSkillPayload, type EvalBaseline, type EvalCell, type EvalMatrix, type EvalResult, type PreparedEvalSchedule } from '../scripts/cso-eval';
-import { assertProducerArtifactPath, PRODUCER_PROVIDER_POLICY, producerFailureMessage, producerProviderTimeoutMs, producerInstallationIdentity, resolveProducerHelperBinding, runProducerCell, validateProductionProducerInstallation } from '../scripts/cso-eval-producer';
+import { assertProducerArtifactPath, PRODUCER_PROVIDER_POLICY, producerFailureMessage, producerProviderTimeoutMs, producerInstallationIdentity, resolveProducerHelperBinding, runProducerCell, sanitizeProducerRun, validateProductionProducerInstallation } from '../scripts/cso-eval-producer';
 import { producerArtifactInventoryHash, producerHostPlatform, producerInstallationIdentityHash, producerProviderIdentityHash, producerReceiptHash, sha256, type ProducerArtifactInventory, type ProducerInstallationIdentity, type ProducerProviderIdentity, type ProducerReceipt } from '../scripts/cso-eval-protocol';
 import type { Family, ProviderAdapter, RunOpts, RunResult } from './helpers/providers/types';
 import { CORPUS_VERSION, FAMILIES, STACKS, defineEvalCorpus, loadCorpusManifest, materializeCase, sourceFiles, sourceHash, validateCorpusManifest, type CorpusManifest, type EvalVariant } from './fixtures/cso-eval/materialize';
@@ -14,6 +14,8 @@ import { inspectPreparation } from '../lib/cso/preparation';
 import { assertRuntimeCompatible, RUNTIME_CATALOG } from '../lib/cso/runtime-catalog';
 import { canonicalStartPlan, canonicalTestPlan } from '../lib/cso/verification';
 import { CsoError } from '../lib/cso/contracts';
+import { scan } from '../lib/redact-engine';
+import { redactProducerText, sourceCredentialValues } from '../scripts/cso-eval-output-redaction';
 import { geminiProducerPaths, geminiProducerSystemSettings } from './helpers/providers/gemini';
 
 const temporary: string[] = [];
@@ -895,10 +897,55 @@ describe('CSO matched producer orchestration', () => {
       expect(receipt.status).toBe('failed');
       expect(receipt.output).toBe('[sensitive producer output redacted]');
       expect(receipt.outputHash).toBe(sha256(receipt.output));
-      expect(receipt.error).toEqual({ code: 'unknown', reason: 'Sensitive producer output or error withheld' });
+      expect(receipt.error).toEqual({ code: 'unknown', reason: 'Sensitive producer output or error withheld: credential-class rule openai.key×1' });
       const stored = readFileSync(receiptPath, 'utf8');
       expect(stored).not.toContain('sk-proj-');
       expect(stored).not.toContain('b'.repeat(40));
+    }
+  });
+
+  test('withholds a source canary quoted without its credential name, whole or split across output and error', () => {
+    const source = join(root(), 'canary-source'), canary = `cso_${randomHex(10)}_${randomHex(10)}`;
+    mkdirSync(join(source, 'test'), { recursive: true });
+    writeFileSync(join(source, '.env'), `API_TOKEN=${canary}\nNODE_ENV=production\n`);
+    writeFileSync(join(source, 'test', 'canary.txt'), `${canary}\n`);
+    const credentials = sourceCredentialValues(source, ['.env', 'test/canary.txt']);
+    expect(credentials).toEqual([canary]);
+    const base = { output: '', modelUsed: 'm', durationMs: 1, toolCalls: 1, tokens: { input: 1, output: 1 } } as RunResult;
+    expect(sanitizeProducerRun({ ...base, output: `The token is ${canary}` }, [])).toMatchObject({ output: `The token is ${canary}` });
+    for (const run of [{ ...base, output: `The token is ${canary}.` }, { ...base, output: canary.slice(0, 12), error: { code: 'unknown', reason: canary.slice(12) } }] as RunResult[]) {
+      const sanitized = sanitizeProducerRun(run, credentials);
+      expect(sanitized).toMatchObject({ output: '[sensitive producer output redacted]', error: { reason: 'Sensitive producer output or error withheld: credential-class rule source.env.kv×1' } });
+      expect(JSON.stringify(sanitized)).not.toContain(canary);
+    }
+  });
+
+  test('keeps a succeeded run that quotes helper identifiers, span-redacts PII shapes, and fails credential-class output by rule', async () => {
+    const runId = `${Date.now()}-${randomHex(8)}`;
+    let walletShaped = '';
+    while (!walletShaped) { const id = randomHex(16); if (redactProducerText(`review ${id}`).text === `review ${id}` && scan(id).findings.some(finding => finding.id === 'pii.wallet')) walletShaped = id; }
+    expect(scan(runId).findings.map(finding => finding.id)).toContain('pii.phone.e164');
+    const report = [
+      `complete — run ${runId}, catalog cso-eval-38078005392-${randomHex(6)}, scanner artifact gitleaks-${randomHex(8)}-${randomHex(8)}.`,
+      `Finding ${randomHex(16)} reviewed by ${walletShaped}; snapshot ${randomHex(32)}.`,
+      'The /health-hooks route connects to 169.254.169.254:80.',
+    ].join('\n');
+    const run = async (name: string, output: string) => {
+      const destination = join(root(), `${name}-prepared`), cell = selected[0];
+      prepareEvalJobs(producerMatrix, skills, destination, [cell.id]);
+      const isolated = isolate(destination, cell), receiptPath = join(root(), `${cell.id}.json`);
+      return runProducerCell(isolated.input, receiptPath, withHelper({ adapter: new FakeAdapter(() => {}, 'gpt-5.4', 'gpt', { output }), paidExecutionAuthorized: true }));
+    };
+    const kept = await run('helper-ids', report);
+    expect(kept.status).toBe('succeeded');
+    expect(kept.error).toBeUndefined();
+    expect(kept.output).toBe(report.replace('169.254.169.254', '<REDACTED-pii.phone.e164>'));
+    const envLine = `API_TOKEN=cso_${randomHex(12)}_${randomHex(12)}`;
+    const key = `sk-ant-api03-${randomHex(40)}`;
+    for (const [name, leak, rule] of [['env-line', envLine, 'env.kv×1'], ['credential', key, 'anthropic.key×1']] as const) {
+      const failed = await run(name, `${report}\n${leak}`);
+      expect(failed).toMatchObject({ status: 'failed', output: '[sensitive producer output redacted]', error: { code: 'unknown', reason: `Sensitive producer output or error withheld: credential-class rule ${rule}` }, usage: { inputTokens: 120 } });
+      expect(JSON.stringify(failed)).not.toContain(leak);
     }
   });
 
