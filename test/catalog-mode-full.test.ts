@@ -40,7 +40,7 @@ describe('catalog mode CLI behavior', () => {
   test('omitting the flag defaults to trim', () => {
     expect(frontmatter(defaultContent)).toMatch(/^description: "?Ship workflow:[^\n]*\(gstack\)"?$/m);
     expect(frontmatter(defaultContent)).not.toMatch(/Use when asked to/i);
-    expect(defaultContent).toContain('## When to invoke this skill');
+    expect(defaultContent).not.toContain('## When to invoke this skill');
   });
 
   for (const form of ['equals', 'separate'] as const) {
@@ -53,14 +53,12 @@ describe('catalog mode CLI behavior', () => {
       expect(fm).toMatch(/^description: \|\s*$/m);
       expect(fm).toMatch(/Use when asked to/i);
       expect(fm).not.toBe(frontmatter(defaultContent));
-      expect(result.content.slice(fm.length)).not.toContain('## When to invoke this skill');
     });
 
     test(`${form} flag form accepts explicit trim and matches the default catalog`, () => {
       const result = render(args('trim'));
       expect(result.status, result.stderr).toBe(0);
       expect(frontmatter(result.content)).toBe(frontmatter(defaultContent));
-      expect(result.content).toContain('## When to invoke this skill');
     });
 
     test(`${form} flag form rejects invalid modes before writing output`, () => {

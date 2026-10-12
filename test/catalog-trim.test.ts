@@ -1,8 +1,7 @@
 /**
  * Unit tests for catalog-trim helpers (gen-skill-docs.ts T4 functions).
  *
- * splitCatalogDescription, buildTrimmedDescription, buildWhenToInvokeSection,
- * applyCatalogTrim — these handle every skill's frontmatter rewrite at gen
+ * splitCatalogDescription, buildTrimmedDescription, applyCatalogTrim — these handle every skill's frontmatter rewrite at gen
  * time. Two bugs already shipped here:
  *
  *   v1.45.0.0 design-consultation: when the first sentence exceeded 200 chars,
@@ -21,7 +20,6 @@ import { describe, test, expect } from 'bun:test';
 import {
   splitCatalogDescription,
   buildTrimmedDescription,
-  buildWhenToInvokeSection,
   applyCatalogTrim,
   toYamlInlineScalar,
 } from '../scripts/gen-skill-docs';
@@ -229,41 +227,6 @@ describe('buildTrimmedDescription', () => {
   });
 });
 
-describe('buildWhenToInvokeSection', () => {
-  test('produces markdown H2 with routing prose and voice line', () => {
-    const out = buildWhenToInvokeSection({
-      lead: 'Lead.',
-      routingProse: 'Use when asked to ship.',
-      voiceLine: 'Voice triggers (speech-to-text aliases): "ship it".',
-      hasGstackTag: true,
-    });
-    expect(out).toContain('## When to invoke this skill');
-    expect(out).toContain('Use when asked to ship.');
-    expect(out).toContain('Voice triggers');
-  });
-
-  test('omits routing block when routingProse is empty', () => {
-    const out = buildWhenToInvokeSection({
-      lead: 'Lead.',
-      routingProse: '',
-      voiceLine: null,
-      hasGstackTag: true,
-    });
-    expect(out).toContain('## When to invoke this skill');
-    expect(out).not.toContain('Use when');
-  });
-
-  test('emits even when only voice line is present', () => {
-    const out = buildWhenToInvokeSection({
-      lead: 'Lead.',
-      routingProse: '',
-      voiceLine: 'Voice triggers: x.',
-      hasGstackTag: true,
-    });
-    expect(out).toContain('Voice triggers: x.');
-  });
-});
-
 describe('applyCatalogTrim', () => {
   const minimalSkill = `---
 name: example
@@ -280,7 +243,7 @@ preamble-tier: 2
 Original body content here.
 `;
 
-  test('rewrites multi-line description into one-line + body section', () => {
+  test('rewrites multi-line description into one line and adds no body section', () => {
     const result = applyCatalogTrim(minimalSkill, 'example');
     expect(result).not.toBeNull();
     const { content, parts } = result!;
@@ -288,10 +251,10 @@ Original body content here.
     // description with an interior colon ("Example skill:") is YAML-quoted, so
     // the value is wrapped in double quotes — tolerate the optional quotes.
     expect(content).toMatch(/^description: "?Example skill:[^\n]*\(gstack\)"?\n/m);
-    // Body has the When to invoke section
-    expect(content).toContain('## When to invoke this skill');
-    expect(content).toContain('Use when asked to do an example task.');
-    expect(content).toContain('Proactively suggest when');
+    // The body gains no routing section: Claude Code reads a skill body only
+    // after invocation, so routing prose there routes nothing.
+    expect(content).not.toContain('## When to invoke this skill');
+    expect(content).not.toContain('Use when asked to do an example task.');
     // Original body still present
     expect(content).toContain('# Example body');
     expect(content).toContain('Original body content here.');

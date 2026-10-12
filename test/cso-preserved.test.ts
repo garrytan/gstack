@@ -103,6 +103,5 @@ describe('CSO v3 always-loaded policy', () => {
     const description = frontmatter.match(/^description:\s+(.+)$/m)![1].trim();
     expect(description.length).toBeLessThanOrEqual(200);
     expect(description).toContain('(gstack)');
-    expect(controller()).toContain('## When to invoke this skill');
   });
 });

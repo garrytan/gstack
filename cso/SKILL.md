@@ -13,13 +13,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Use when: "security audit", "threat model", "OWASP", "CSO review", "recheck a vulnerability".
-
-Voice triggers (speech-to-text aliases): "see-so", "see so", "security review", "security check", "vulnerability scan", "run security".
-
 # /cso — evidence before assurance
 
 Find exploitable defects. State attacker, boundary, impact, and challenge. Static assessment remains available without runtime or scanner profiles. Qualified comprehensive profiles add reproduction and repair candidates without changing the branch. Trusted `gstack-cso` owns execution, persistence, and proof labels.

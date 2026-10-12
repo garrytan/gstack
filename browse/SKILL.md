@@ -16,14 +16,6 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Use when asked to open a site, test a page, take a
-screenshot, or dogfood a flow.
-
-Voice triggers (speech-to-text aliases): "open the browser", "look at this page".
-
 ## Preamble (run first)
 
 ```bash

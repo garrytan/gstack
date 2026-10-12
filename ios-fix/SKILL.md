@@ -19,20 +19,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Takes a bug found by /ios-qa, reads the source,
-writes the fix, rebuilds, redeploys, and verifies the fix on the real
-device. Closes the loop: find bug → fix bug → confirm fix — zero human
-intervention. Captures the pre-bug state snapshot as a regression test
-fixture, so the bug can never recur silently.
-Use when /ios-qa reports a bug and you want it fixed automatically, or
-when asked to "fix this iOS bug", "patch the iPhone app", or "auto-fix
-the iOS issue".
-
-Voice triggers (speech-to-text aliases): "fix the iOS bug", "patch the iPhone app", "auto-fix the iOS issue".
-
 ## Preamble (run first)
 
 ```bash

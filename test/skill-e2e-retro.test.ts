@@ -23,7 +23,6 @@ const evalCollector = createEvalCollector('e2e-retro');
 // still an extraction, not a full-file copy (sections ARE the minimal
 // on-demand units; same pattern as skill-e2e-review-army.test.ts).
 const RETRO_SKELETON_SECTIONS = [
-  'When to invoke this skill',
   'Step 0: Detect platform and base branch',
   'User-invocable',
   'Arguments',

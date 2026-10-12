@@ -19,14 +19,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-The SVG/PNG use clean mermaid style; the
-.excalidraw carries the hand-drawn aesthetic. Fully offline.
-Use when asked to "make a diagram", "draw the architecture", "create a
-flowchart", "diagram this", or "visualize this flow".
-
 ## Preamble (run first)
 
 ```bash

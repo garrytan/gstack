@@ -32,19 +32,6 @@ hooks:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Surfaces
-taste decisions (close approaches, borderline scope, outside-review disagreements) at a final
-approval gate. One command, fully reviewed plan out.
-Use when asked to "auto review", "autoplan", "run all reviews", "review this plan
-automatically", or "make the decisions for me".
-Proactively suggest when the user has a plan file and wants to run the full review
-gauntlet without answering 15-30 intermediate questions.
-
-Voice triggers (speech-to-text aliases): "auto plan", "automatic review".
-
 ## Preamble (run first)
 
 ```bash

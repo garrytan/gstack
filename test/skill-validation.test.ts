@@ -1779,14 +1779,13 @@ describe('Skill trigger phrases', () => {
   ];
 
   for (const skill of SKILLS_REQUIRING_TRIGGERS) {
-    test(`${skill}/SKILL.md has "Use when" trigger phrases`, () => {
-      const skillPath = path.join(ROOT, skill, 'SKILL.md');
+    test(`${skill}/SKILL.md.tmpl has "Use when" trigger phrases`, () => {
+      const skillPath = path.join(ROOT, skill, 'SKILL.md.tmpl');
       if (!fs.existsSync(skillPath)) return;
       const content = fs.readFileSync(skillPath, 'utf-8');
-      // v1.45.0.0 catalog trim moved trigger prose out of frontmatter into a
-      // body "## When to invoke" section. Search the full file content, not
-      // just frontmatter. The trigger phrase must still appear somewhere in
-      // the skill so agents can match user requests to the skill.
+      // The catalog trim drops trigger prose from the Claude SKILL.md, so check
+      // the template description: --catalog-mode=full and the other hosts
+      // still route on it.
       expect(content).toMatch(/Use when/i);
     });
   }
@@ -1799,11 +1798,11 @@ describe('Skill trigger phrases', () => {
   ];
 
   for (const skill of SKILLS_REQUIRING_PROACTIVE) {
-    test(`${skill}/SKILL.md has proactive routing phrase`, () => {
-      const skillPath = path.join(ROOT, skill, 'SKILL.md');
+    test(`${skill}/SKILL.md.tmpl has proactive routing phrase`, () => {
+      const skillPath = path.join(ROOT, skill, 'SKILL.md.tmpl');
       if (!fs.existsSync(skillPath)) return;
       const content = fs.readFileSync(skillPath, 'utf-8');
-      // Same catalog-trim consideration — search the full file content.
+      // Same catalog-trim consideration — check the template description.
       expect(content).toMatch(/Proactively (suggest|invoke)/i);
     });
   }

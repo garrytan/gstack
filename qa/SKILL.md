@@ -20,18 +20,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Commit verified fixes atomically. Use when asked to "qa", "QA", "test this site", "find bugs",
-"test and fix", or "fix what's broken".
-Proactively suggest when the user says a feature is ready for testing
-or asks "does this work?". Three tiers: Quick (critical/high only),
-Standard (+ medium), Exhaustive (+ cosmetic). Produces contract outcomes or browser health scores,
-fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only.
-
-Voice triggers (speech-to-text aliases): "quality check", "test the app", "run QA".
-
 ## Preamble (run first)
 
 ```bash

@@ -31,15 +31,6 @@ hooks:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Blocks Edit,
-Write and NotebookEdit outside the allowed path. Use when debugging to prevent accidentally
-"fixing" unrelated code, or when you want to scope changes to one module.
-Use when asked to "freeze", "restrict edits", "only edit this folder",
-or "lock down edits".
-
 # /freeze — Restrict Edits to a Directory
 
 Lock file edits to a specific directory. Any Edit, Write or NotebookEdit

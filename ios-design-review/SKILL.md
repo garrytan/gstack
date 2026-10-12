@@ -17,21 +17,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Connects to a real
-iPhone via the same StateServer as /ios-qa, screenshots every screen,
-evaluates against Apple HIG, DESIGN.md, and design best practices. Scores
-each dimension 0-10 with "what would make it a 10" framing — mirrors
-/plan-design-review for browser. For plan-stage design review (before
-implementation), use /plan-design-review. For live web visual audits, use
-/design-review.
-Use when asked to "review the iOS design", "audit the iPhone app's
-visuals", or "design QA the iOS app".
-
-Voice triggers (speech-to-text aliases): "review the iOS design", "audit the iPhone app's visuals", "design QA the iPhone app".
-
 ## Preamble (run first)
 
 ```bash

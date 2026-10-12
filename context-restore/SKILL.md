@@ -19,15 +19,6 @@ triggers:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
-## When to invoke this skill
-
-Loads the most recent
-saved state (preferring the current branch, falling back across branches) so
-you can pick up where you left off — even across Conductor workspace handoffs.
-Use when asked to "resume", "restore context", "where was I", or
-"pick up where I left off". Pair with /context-save.
-
 ## Preamble (run first)
 
 ```bash
