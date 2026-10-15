@@ -44,6 +44,9 @@ const SAMPLES: Array<[string, boolean]> = [
   ['components.md', false],
   ['public/Index.HTML', false], // bash globs are case-sensitive; the mirror must agree
   ['src/App.TSX', false],
+  ['lib/widgets/bbtm_drawer/view/bbtm_drawer.dart', true],
+  ['packages/cache/lib/cache.dart', true],
+  ['test/ui/drawer_widget_test.dart', true],
 ];
 
 describe('isFrontendPath', () => {
@@ -86,5 +89,5 @@ describe.skipIf(!POSIX)('parity with bin/gstack-diff-scope', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000); // one git commit + one bash run per sample: past bun's 5 s default
 });

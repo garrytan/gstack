@@ -11,6 +11,9 @@ const EXTENSIONS = new Set([
   '.tsx', '.jsx', '.vue', '.svelte', '.astro',
   '.erb', '.haml', '.slim', '.hbs', '.ejs',
   '.html',
+  // Dart: a Flutter widget and a repository share the extension, so the bash
+  // script counts .dart as frontend AND backend; only the frontend half lives here.
+  '.dart',
 ]);
 
 // Root-level only: the bash arm's glob (`tailwind.config.*`) is matched against the

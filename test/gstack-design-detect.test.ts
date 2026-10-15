@@ -29,7 +29,7 @@ let IMPECCABLE_HOME: string;
 
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf-8', timeout: 30_000 });
-  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: status=${r.status} signal=${r.signal} error=${r.error?.message ?? ''} stderr=${r.stderr ?? ''}`);
   return r.stdout.trim();
 }
 
@@ -907,6 +907,10 @@ describe('scan', () => {
     fs.mkdirSync(path.join(REPO, 'styles'), { recursive: true });
     fs.writeFileSync(path.join(REPO, 'styles', 'new.css'), 'body { color: red }\n'); // untracked frontend
     fs.writeFileSync(path.join(REPO, 'notes.md'), 'x\n'); // untracked non-frontend
+    // Value: protects=a .dart file (frontend scope since lib/frontend-scope.ts counts it) never reaches the web-source engine;
+    //   fails_when=the .dart exclusion in resolveTargets is dropped; why_new=no --changed case had a Dart file; seam=none;
+    //   no_claim=the real impeccable engine (fake engine logs argv)
+    fs.writeFileSync(path.join(REPO, 'drawer.dart'), 'class Drawer {}\n'); // untracked Dart: frontend scope, not a scan target
     const log = path.join(SANDBOX, 'argv4.log');
     fs.rmSync(log, { force: true });
     try {
@@ -918,6 +922,7 @@ describe('scan', () => {
     } finally {
       fs.rmSync(path.join(REPO, 'styles'), { recursive: true, force: true });
       fs.rmSync(path.join(REPO, 'notes.md'), { force: true });
+      fs.rmSync(path.join(REPO, 'drawer.dart'), { force: true });
       git(REPO, 'checkout', '-q', 'main');
       git(REPO, 'branch', '-q', '-D', 'feature');
     }

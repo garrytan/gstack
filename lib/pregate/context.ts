@@ -10,7 +10,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { wtreeFingerprint, isRegistryUnavailable, loadRegistryFromBase, loadRegistryFromHead, type Registry } from '../regen';
-import { isConfigUnavailable, loadConfigFromBase, loadConfigFromHead, type ConfigError, type PregateConfig } from './config';
+import { isConfigUnavailable, loadConfigFromBase, loadConfigFromHead, loadConfigFromUser, type ConfigError, type ConfigLoad, type PregateConfig } from './config';
 import type { CheckResult, PregateContext, TouchedFile } from './types';
 import { discoverLanes } from './workflows';
 import type { RegistryError } from '../regen';
@@ -18,6 +18,8 @@ import type { RegistryError } from '../regen';
 export interface BuildContextOptions {
   repoRoot: string; base: string; policyFrom: 'base' | 'head'; allowRepoCommands: boolean;
   timeoutMs?: number; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; knownChecks?: readonly string[];
+  /** `<GSTACK_HOME>/projects/<slug>/pregate.json`: read only when the base carries no pregate.json. */
+  userConfigPath?: string;
 }
 export type ContextLoad = { ctx: PregateContext } | { refused: { code: 'POLICY_SOURCE_UNAVAILABLE' | 'PREGATE_CONFIG_INVALID' | 'REGEN_REGISTRY_INVALID'; message: string; errors?: Array<ConfigError | RegistryError> } };
 
@@ -57,9 +59,10 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   if (!baseSha.ok || !baseSha.out) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: `${baseRef} is not a resolvable commit` } };
   const head = git(o.repoRoot, ['rev-parse', 'HEAD']).out;
   const mergeBase = git(o.repoRoot, ['merge-base', baseSha.out, 'HEAD']).out || baseSha.out;
-  const configLoad = o.policyFrom === 'head' ? loadConfigFromHead(o.repoRoot, o.knownChecks) : loadConfigFromBase(o.repoRoot, base, o.knownChecks);
+  let configLoad: ConfigLoad = o.policyFrom === 'head' ? loadConfigFromHead(o.repoRoot, o.knownChecks) : loadConfigFromBase(o.repoRoot, base, o.knownChecks);
+  if (o.policyFrom === 'base' && o.userConfigPath && !isConfigUnavailable(configLoad) && configLoad.kind === 'none') configLoad = loadConfigFromUser(o.userConfigPath, o.knownChecks) ?? configLoad;
   if (isConfigUnavailable(configLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: configLoad.detail } };
-  if (configLoad.errors.length) return { refused: { code: 'PREGATE_CONFIG_INVALID', message: `${configLoad.label}: ${configLoad.errors.map(e => `${e.message} at ${e.path}`).join('; ')}`, errors: configLoad.errors } };
+  if (configLoad.errors.length) return { refused: { code: 'PREGATE_CONFIG_INVALID', message: `${configLoad.label}: ${configLoad.errors.map(e => `${e.message} at ${e.path}`).join('; ')}${configLoad.kind === 'user' ? '; edit that file directly (it lives outside the repo, so the base-branch fix below does not apply)' : ''}`, errors: configLoad.errors } };
   const registryLoad = o.policyFrom === 'head' ? loadRegistryFromHead(o.repoRoot) : loadRegistryFromBase(o.repoRoot, base);
   if (isRegistryUnavailable(registryLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: registryLoad.detail } };
   if (registryLoad.errors.length) return { refused: { code: 'REGEN_REGISTRY_INVALID', message: `${registryLoad.source.label}: ${registryLoad.errors.map(e => `${e.message} at ${e.path}`).join('; ')}`, errors: registryLoad.errors } };

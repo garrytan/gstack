@@ -33,6 +33,8 @@ import { CHECKS, CHECK_IDS, PREGATE_OUT_REL, PREGATE_TIER2, clearObligation, rea
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { ensureTmpExcluded } from '../lib/restamp';
 import { resultLine, type ResultCodeName } from '../lib/result-codes';
+import { slugFromEnvironment } from '../lib/bin-context';
+import { resolveStateRoot } from '../lib/state-root';
 import { defaultGh, evaluateRegate, renderRegate } from '../lib/pregate/regate';
 import { GATE_AHEAD_REL } from '../lib/restamp';
 import { evaluateSealed, publishedCommits, rangeCommits, renderSealed } from '../lib/sealed-guard';
@@ -114,7 +116,8 @@ function cmdRun(root: string, rest: string[], json: boolean): number {
   const timeoutMs = Number(flag(rest, '--timeout') ?? 600) * 1000;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) { process.stderr.write('gstack-pregate: --timeout needs a positive number of seconds\n'); return EXIT.usage; }
   const base = resolveBaseBranch(root, flag(rest, '--base'));
-  const loaded = buildContext({ repoRoot: root, base, policyFrom, allowRepoCommands: allow, timeoutMs, knownChecks: [...CHECK_IDS, ...PREGATE_TIER2] });
+  const userConfigPath = path.join(resolveStateRoot(), 'projects', slugFromEnvironment(undefined, root), 'pregate.json');
+  const loaded = buildContext({ repoRoot: root, base, policyFrom, allowRepoCommands: allow, timeoutMs, knownChecks: [...CHECK_IDS, ...PREGATE_TIER2], userConfigPath });
   if ('refused' in loaded) {
     const { code, message } = loaded.refused;
     process.stderr.write((code === 'POLICY_SOURCE_UNAVAILABLE' ? policyUnavailableLine('gstack-pregate', base, message).replace('.gstack/ship-policy.json', 'pin files') : resultLine('gstack-pregate', code as ResultCodeName, message)) + '\n');

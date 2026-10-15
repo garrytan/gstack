@@ -829,7 +829,8 @@ function resolveTargets(args: ScanArgs, p: Probe): { targets: string[]; refusedB
     runZ(['diff', '-z', '--name-only', '--diff-filter=ACMR', 'HEAD']);
     runZ(['ls-files', '-z', '--others', '--exclude-standard']);
     for (const rel of [...files].sort()) {
-      if (!isFrontendPath(rel)) continue;
+      // impeccable reads web sources; a Dart file is frontend scope but not a scan target.
+      if (!isFrontendPath(rel) || rel.endsWith('.dart')) continue;
       const abs = path.join(top, rel);
       try { if (fs.lstatSync(abs).isSymbolicLink()) { refuse(rel, 'symlink named by git is never scanned'); continue; } } catch { continue; }
       const real = realpathOrNull(abs);

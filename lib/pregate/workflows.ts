@@ -37,8 +37,8 @@ export interface Lane {
   source: string;
 }
 
-const TEST_COMMAND = /\b(?:bun test|bun run test\b|bun run test:|npm test|npm run test\b|pnpm test|yarn test|pytest|go test|cargo test|rspec|bin\/test-lane|node --test|vitest|jest|test-(?:free|paid)-shards\.ts(?![^\n]*--(?:ci-verify|ci-plan|list)\b))\b/;
-const TEST_FILE = /(?<![\w/])((?:[\w.-]+\/)*(?:test|tests|spec|__tests__)\/[\w./-]*\.(?:test|spec)\.[a-z]+|(?:[\w.-]+\/)*[\w.-]+\.(?:test|spec)\.[cm]?[jt]sx?)(?![\w/])/g;
+const TEST_COMMAND = /\b(?:bun test|bun run test\b|bun run test:|npm test|npm run test\b|pnpm test|yarn test|pytest|go test|cargo test|flutter test|dart test|dart run test|melos (?:run )?test|very_good test|rspec|bin\/test-lane|node --test|vitest|jest|test-(?:free|paid)-shards\.ts(?![^\n]*--(?:ci-verify|ci-plan|list)\b))\b/;
+const TEST_FILE = /(?<![\w/])((?:[\w.-]+\/)*(?:test|tests|spec|__tests__)\/[\w./-]*\.(?:test|spec)\.[a-z]+|(?:[\w.-]+\/)*[\w.-]+\.(?:test|spec)\.[cm]?[jt]sx?|(?:[\w.-]+\/)*test\/(?:[\w.-]+\/)*[\w.-]+_test\.dart)(?![\w/])/g;
 
 function indentOf(line: string): number { return line.length - line.trimStart().length; }
 
@@ -54,12 +54,14 @@ function outline(text: string): Block[] {
     if (!raw.trim() || raw.trim().startsWith('#')) continue;
     const indent = indentOf(raw);
     const body = raw.trim().replace(/^-\s+/, '');
+    // A list item's key sits past its `- `: a block scalar ends at a line not indented past that key (a sibling step key).
+    const keyColumn = indent + raw.trim().length - body.length;
     const m = /^([^:#]+?):(?:\s+(.*))?$/.exec(body);
     const key = m ? m[1]!.trim() : body;
     let value = m ? (m[2] ?? '').trim() : '';
     if (/^[|>][-+]?$/.test(value)) {
       const parts: string[] = [];
-      while (i + 1 < lines.length && (!lines[i + 1]!.trim() || indentOf(lines[i + 1]!) > indent)) { i++; parts.push(lines[i]!.trim()); }
+      while (i + 1 < lines.length && (!lines[i + 1]!.trim() || indentOf(lines[i + 1]!) > keyColumn)) { i++; parts.push(lines[i]!.trim()); }
       value = parts.filter(Boolean).join('\n');
     }
     while (stack.length > 1 && stack[stack.length - 1]!.indent >= indent) stack.pop();
@@ -71,6 +73,17 @@ function outline(text: string): Block[] {
 }
 
 function find(blocks: Block[], key: string): Block | undefined { return blocks.find(b => b.key === key); }
+/** `defaults: run: working-directory:` under `parent`, or null. */
+function defaultDir(parent: Block[]): string | null {
+  return find(find(find(parent, 'defaults')?.children ?? [], 'run')?.children ?? [], 'working-directory')?.value ?? null;
+}
+/** A test path named in a run step, made repo-relative by the step's working directory (an expression, absolute or `..` directory is left unresolved). */
+function underDir(dir: string | null, file: string): string {
+  const d = (dir ?? '').replace(/\s+#.*$/, '').trim().replace(/^['"]|['"]$/g, '');
+  if (!d || /\$\{\{/.test(d) || path.posix.isAbsolute(d)) return file;
+  const joined = path.posix.normalize(path.posix.join(d, file)).replace(/^\.\//, '');
+  return joined.startsWith('..') ? file : joined;
+}
 function deepValues(blocks: Block[], key: string, out: string[] = []): string[] {
   for (const b of blocks) { if (b.key === key && b.value) out.push(b.value); deepValues(b.children, key, out); }
   return out;
@@ -100,7 +113,12 @@ export function parseWorkflow(file: string, text: string, platform: NodeJS.Platf
     const maxParallel = find(find(job.children, 'strategy')?.children ?? [], 'max-parallel')?.value;
     const jobPlatform = laneOf(runsOn);
     const jobName = find(job.children, 'name')?.value ?? job.key;
-    const testFiles = [...new Set(commands.flatMap(c => [...c.matchAll(TEST_FILE)].map(m => m[1]!)))];
+    // A step's paths resolve against its working-directory, else the job's defaults, else the workflow's.
+    const jobDir = defaultDir(job.children) ?? defaultDir(top);
+    const testFiles = [...new Set((find(job.children, 'steps')?.children ?? []).flatMap(step => {
+      const dir = find([step, ...step.children], 'working-directory')?.value ?? jobDir;
+      return expandScripts(deepValues([step], 'run'), scripts).flatMap(c => [...c.matchAll(TEST_FILE)].map(m => underDir(dir, m[1]!)));
+    }))];
     let tier: LaneTier = 'unit';
     if (jobPlatform !== 'any' && jobPlatform !== here) tier = 'platform';
     else if (/\b(e2e|evals?)\b/i.test(`${name} ${job.key} ${jobName}`)) tier = 'e2e';

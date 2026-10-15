@@ -104,6 +104,10 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
     *.tsx|*.jsx|*.vue|*.svelte|*.astro) m_frontend=true ;;
     *.erb|*.haml|*.slim|*.hbs|*.ejs) m_frontend=true ;;
     *.html) m_frontend=true ;;
+    # Dart: the extension cannot tell a Flutter widget from a repository or a
+    # pure-Dart server, so it is BOTH frontend and backend (BACKEND set below).
+    # A skipped reviewer is invisible; an extra one is a cheap pass.
+    *.dart) m_frontend=true ;;
     tailwind.config.*|postcss.config.*) m_frontend=true ;;
     app/views/*|*/components/*|styles/*|css/*|app/assets/stylesheets/*) m_frontend=true ;;
   esac
@@ -135,6 +139,7 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
     *.yml|*.yaml) m_config=true ;;
     .github/*) m_config=true ;;
     requirements.txt|pyproject.toml|go.mod|Cargo.toml|composer.json) m_config=true ;;
+    pubspec.lock|*/pubspec.lock) m_config=true ;;
   esac
 
   # Migrations: database migration files. Bare migrations/* covers a
@@ -169,6 +174,9 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
       *.ts|*.js|*.mjs|*.cjs|*.mts|*.cts) m_backend=true ;;
     esac
   fi
+  case "$f" in
+    *.dart) m_backend=true ;;
+  esac
 
   [ "$m_frontend" = true ] && FRONTEND=true
   [ "$m_prompts" = true ] && PROMPTS=true

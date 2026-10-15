@@ -90,7 +90,7 @@ export function makeFixtureRepo(opts: { registry?: Record<string, unknown> | nul
   fs.writeFileSync(env.GIT_CONFIG_GLOBAL, '[user]\n\tname = t\n\temail = t@test\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n');
   const git = (...args: string[]): string => {
     const r = gitArgvIn(work, args, 30_000, { ...process.env, ...env });
-    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr?.toString()}`);
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: status=${r.status} signal=${r.signal} error=${r.error?.message ?? ''} stderr=${r.stderr?.toString() ?? ''}`);
     return r.stdout?.toString().trim() ?? '';
   };
   spawnSync('git', ['init', '-q', '--bare', origin], { timeout: 30_000, env: { ...process.env, ...env } });

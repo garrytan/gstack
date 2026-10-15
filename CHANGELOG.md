@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.91.102.0] - 2026-10-15
+
+**`gstack-pregate` now runs Dart and Flutter tests. A Flutter repo gets real local lanes, CI lanes it recognizes, and a policy file that lives outside the repo.**
+
+Before this release a Dart or Flutter repo got nothing from the pre-gate: `_test.dart` files were not tests, `package:` imports did not map to anything, a `flutter test` CI job was not a lane, and every touched file ended `FAIL lanes, no test lane`. Now `package:` and relative imports resolve through every tracked `pubspec.yaml`, each package's tests run from its own root with `flutter test` or `dart test` (through `fvm` when the repo pins one), and the runner's `+N -M` verdict is judged. `/review` and `/ship` also recognize a Dart or Flutter project when they pick a stack and a test framework.
+
+### What this means for you
+
+- **Per-package Dart lanes.** A change under `packages/core/` runs `cd packages/core && dart test …`, so its imports resolve against its own pubspec. Serial files and the shared `--timeout` deadline work the same as for JS. A package whose tests all skip is `ZERO-RUN`, even when another package ran tests.
+- **CI lanes are recognized.** Jobs that run `flutter test`, `dart test`, `dart run test`, `melos test` or `very_good test` are test lanes. Test paths a step names resolve against its `working-directory`, so a sub-package's macOS or Windows lane keeps its obligation.
+- **A missing SDK is `incomplete`, not a failure.** With no `dart`/`flutter` on PATH the lane says `not on PATH: dart` and how to install it, instead of reporting exit 127 as a broken test.
+- **Device tests are named, not run.** Files under `integration_test/` and `test_driver/` need a device, so pregate never runs them. A touched one fails with the fix: declare `"**/integration_test/**": []` (and `test_driver`) and let CI run them. Only files under `test/` count as `_test.dart` tests.
+- **A policy for repos that keep `.gstack/` out of git.** When the base branch has no `.gstack/pregate.json`, pregate reads `<GSTACK_HOME>/projects/<slug>/pregate.json`. `local: ["<workflow>/<job>"]` runs a lane here instead of leaving it requires-remote. The user file covers `gstack-pregate run` only: it refuses `sealed` and `price_file`, and a file that exists but can't be read refuses instead of falling back to defaults.
+- **`.dart` counts as frontend and backend** in `gstack-diff-scope`, so a Flutter change gets the design and backend review passes.
+
+### For contributors
+
+- `test/pregate-dart.test.ts` covers the Dart graph, run groups, serial files, the shared deadline, fvm pins, working directories, device tests and the user policy, with PATH shims standing in for the SDK.
+- The `/review` and `/ship` diff-size count is now one `git diff --numstat | awk` line (same total), which keeps `ship`, `review` and `plan-eng-review` inside the parity-suite byte caps.
+
+Contributed by @arlophoenix
+
 ## [1.91.101.0] - 2026-10-13
 
 **The field wave's residual gaps are closed.** v1.91.96.0 through v1.91.100.0 shipped the install-honesty and unattended-`/autoplan` wave (`docs/designs/GSTACK_FIELD_WAVE_2026_10_12.md`); running that release on a Capy machine left six gaps, each reproduced here with a test that failed first.

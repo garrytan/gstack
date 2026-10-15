@@ -39,7 +39,7 @@ export function laneFileSet(ctx: PregateContext, lane: Lane): string[] | '?' | '
     if (!ctx.allowRepoCommands) { ctx.explain.push(`lane ${lane.id}: selection manifest \`${manifest}\` not run (pass --allow-repo-commands); treated as unknown`); return files.size ? [...files] : '?'; }
     const r = spawnSync('bash', ['-c', `set -o pipefail; ${manifest}`], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: Math.min(ctx.timeoutMs, 300_000), maxBuffer: 64 * 1024 * 1024, env: ctx.env });
     if (r.status !== 0) { ctx.explain.push(`lane ${lane.id}: selection manifest exited ${r.status}; treated as unknown`); return '?'; }
-    for (const line of (r.stdout ?? '').split('\n')) { const m = /((?:[\w.-]+\/)*[\w.-]+\.(?:test|spec)\.[cm]?[jt]sx?|(?:[\w.-]+\/)*test_[\w.-]+\.py)/.exec(line.trim()); if (m) files.add(m[1]!); }
+    for (const line of (r.stdout ?? '').split('\n')) { const m = /((?:[\w.-]+\/)*[\w.-]+\.(?:test|spec)\.[cm]?[jt]sx?|(?:[\w.-]+\/)*test_[\w.-]+\.py|(?<![\w./-])(?:[\w.-]+\/)*test\/(?:[\w.-]+\/)*[\w.-]+_test\.dart)/.exec(line.trim()); if (m) files.add(m[1]!); }
     ctx.explain.push(`lane ${lane.id}: ${files.size} files from manifest \`${manifest}\``);
     return [...files];
   }
@@ -89,12 +89,13 @@ export function selectLanes(ctx: PregateContext): Selection {
     const set = laneFileSet(ctx, lane);
     if (set !== 'all') laneSets[lane.id] = set;
     const inLane = set === 'all' ? selected : set === '?' ? selected : selected.filter(t => set.includes(t));
-    if (lane.tier === 'platform') {
+    if (lane.tier === 'platform' && ctx.config.local.includes(lane.id)) ctx.explain.push(`lane ${lane.id}: ${lane.platform} lane satisfied locally (pregate.json local)`);
+    else if (lane.tier === 'platform') {
       if (inLane.length) remote.push({ lane: lane.id, platform: lane.platform, workflow: lane.workflow, job: lane.job, tests: inLane, receipt: null });
       continue;
     }
     if (set === 'all') anyLocalAll = true;
-    if (inLane.length) { tiers.add(lane.tier); for (const t of inLane) local.add(t); }
+    if (inLane.length) { tiers.add(lane.tier === 'platform' ? 'unit' : lane.tier); for (const t of inLane) local.add(t); }
   }
   if (anyLocalAll || ctx.lanes.filter(l => l.runsTests && !l.manual && l.tier !== 'platform').length === 0) for (const t of selected) local.add(t);
   for (const t of selected) if (!local.has(t) && !remote.some(r => r.tests.includes(t))) local.add(t);

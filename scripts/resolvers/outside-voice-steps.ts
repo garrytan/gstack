@@ -243,9 +243,7 @@ Every diff gets the ${outsideVoiceFor(ctx).nativeLabel} adversarial pass. Add ${
 
 \`\`\`bash
 DIFF_BASE=$(git merge-base origin/<base> HEAD)
-DIFF_INS=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
-DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
+DIFF_TOTAL=$(git diff "$DIFF_BASE" --numstat | awk '{n+=$1+$2} END {print n+0}')
 echo "DIFF_SIZE: $DIFF_TOTAL"
 \`\`\`
 

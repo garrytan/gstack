@@ -93,6 +93,21 @@ describe('/ship Step 4 detection is multi-ecosystem', () => {
     expect(rust).toContain('TESTS:rust in-source');
   });
 
+  test('Dart and Flutter report their runtime, the Flutter SDK, and *_test.dart outside test/', () => {
+    const flutter = detect({
+      'pubspec.yaml': 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n',
+      'lib/src/theme_test.dart': 'void main() {}\n',
+    });
+    expect(flutter).toContain('RUNTIME:dart');
+    expect(flutter).toContain('FRAMEWORK:flutter');
+    expect(testFileCount(flutter)).toBe(1);
+
+    const dart = detect({ 'pubspec.yaml': 'name: x\n', 'lib/x.dart': 'int x = 1;\n' });
+    expect(dart).toContain('RUNTIME:dart');
+    expect(dart).not.toContain('FRAMEWORK:flutter');
+    expect(testFileCount(dart)).toBe(0);
+  });
+
   test('a genuinely untested project reports no test evidence', () => {
     const out = detect({ 'go.mod': 'module x\n', 'x.go': 'package x\n' });
     expect(out).toContain('RUNTIME:go');
@@ -103,7 +118,7 @@ describe('/ship Step 4 detection is multi-ecosystem', () => {
   test('every ecosystem marker maps to a command to OFFER, not to run blind', () => {
     expect(section).toContain('never a command to run blind');
     for (const marker of ['manage.py', 'go.mod', 'Cargo.toml', 'pom.xml',
-      'build.gradle', 'mix.exs', 'composer.json', 'Gemfile', 'pytest.ini']) {
+      'build.gradle', 'mix.exs', 'composer.json', 'Gemfile', 'pytest.ini', 'pubspec.yaml']) {
       expect(section).toContain(marker);
     }
     // The ask-and-persist contract, not a hardcoded project command.

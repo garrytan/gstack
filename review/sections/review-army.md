@@ -6,26 +6,26 @@
 
 ```bash
 source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || true
-# Detect stack for specialist context
+# Stack for specialist context
 STACK=""
 [ -f Gemfile ] && STACK="${STACK}ruby "
 [ -f package.json ] && STACK="${STACK}node "
 [ -f requirements.txt ] || [ -f pyproject.toml ] && STACK="${STACK}python "
 [ -f go.mod ] && STACK="${STACK}go "
 [ -f Cargo.toml ] && STACK="${STACK}rust "
+[ -f pubspec.yaml ] && STACK="${STACK}dart "
 echo "STACK: ${STACK:-unknown}"
 DIFF_BASE=$(git merge-base origin/<base> HEAD)
-DIFF_INS=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
-DIFF_LINES=$((DIFF_INS + DIFF_DEL))
+DIFF_LINES=$(git diff "$DIFF_BASE" --numstat | awk '{n+=$1+$2} END {print n+0}')
 echo "DIFF_LINES: $DIFF_LINES"
-# Detect test framework for specialist test stub generation
+# Test framework, for specialist test stubs
 TEST_FW=""
 { [ -f jest.config.ts ] || [ -f jest.config.js ]; } && TEST_FW="jest"
 [ -f vitest.config.ts ] && TEST_FW="vitest"
 { [ -f spec/spec_helper.rb ] || [ -f .rspec ]; } && TEST_FW="rspec"
 { [ -f pytest.ini ] || [ -f conftest.py ]; } && TEST_FW="pytest"
 [ -f go.mod ] && TEST_FW="go-test"
+[ -f pubspec.yaml ] && TEST_FW="dart-test" && grep -qs 'sdk: *flutter' pubspec.yaml && TEST_FW="flutter-test"
 echo "TEST_FW: ${TEST_FW:-unknown}"
 ```
 

@@ -11,7 +11,7 @@ import { baseInputs } from '../context';
 import type { CheckDef, CheckResult, PregateContext } from '../types';
 
 /** Conventional root files a repo adds without a declaration. */
-const ROOT_OK = /^(?:README|LICENSE|LICENCE|NOTICE|CHANGELOG|CONTRIBUTING|CODE_OF_CONDUCT|SECURITY|AUTHORS|VERSION|Makefile|Dockerfile|Procfile|Gemfile|Rakefile|Cargo\.(?:toml|lock)|go\.(?:mod|sum)|package(?:-lock)?\.json|bun\.lockb?|pnpm-lock\.yaml|yarn\.lock|tsconfig[\w.-]*\.json|bunfig\.toml|pyproject\.toml|requirements[\w.-]*\.txt|setup\.(?:py|cfg)|\.[\w.-]+|[\w.-]+\.config\.[cm]?[jt]s|[\w.-]+\.md)$/i;
+export const ROOT_OK = /^(?:README|LICENSE|LICENCE|NOTICE|CHANGELOG|CONTRIBUTING|CODE_OF_CONDUCT|SECURITY|AUTHORS|VERSION|Makefile|Dockerfile|Procfile|Gemfile|Rakefile|Cargo\.(?:toml|lock)|go\.(?:mod|sum)|package(?:-lock)?\.json|bun\.lockb?|pnpm-lock\.yaml|yarn\.lock|tsconfig[\w.-]*\.json|bunfig\.toml|pyproject\.toml|pubspec\.(?:yaml|lock)|analysis_options\.yaml|dart_test\.yaml|requirements[\w.-]*\.txt|setup\.(?:py|cfg)|\.[\w.-]+|[\w.-]+\.config\.[cm]?[jt]s|[\w.-]+\.md)$/i;
 export const STRAY_NAME = /^(?:zz-|tmp|temp|scratch|debug-|probe)|\.(?:orig|rej|swp|swo|bak|tmp)$|~$|^\.DS_Store$|^Thumbs\.db$/i;
 
 function run(ctx: PregateContext): CheckResult {

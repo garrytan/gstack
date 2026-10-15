@@ -19,6 +19,7 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 [ -f package.json ] && echo "RUNTIME:node"
 [ -f go.mod ] && echo "RUNTIME:go"
 [ -f Cargo.toml ] && echo "RUNTIME:rust"
+[ -f pubspec.yaml ] && echo "RUNTIME:dart"
 [ -f composer.json ] && echo "RUNTIME:php"
 [ -f mix.exs ] && echo "RUNTIME:elixir"
 [ -f pom.xml ] && echo "RUNTIME:jvm BUILD:maven"
@@ -26,14 +27,14 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 # Detect sub-frameworks
 [ -f Gemfile ] && grep -q "rails" Gemfile 2>/dev/null && echo "FRAMEWORK:rails"
 [ -f package.json ] && grep -q '"next"' package.json 2>/dev/null && echo "FRAMEWORK:nextjs"
-# Existing test path — config files, declared scripts, AND test FILES.
-# A project with real tests and no config file is the common miss.
+grep -qs 'sdk: *flutter' pubspec.yaml && echo "FRAMEWORK:flutter"
+# Test evidence: config files, declared scripts, AND test FILES (tested projects often lack a config)
 ls jest.config.* vitest.config.* playwright.config.* .rspec pytest.ini tox.ini phpunit.xml* 2>/dev/null
 [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json && echo "SCRIPT:package.json test"
 [ -f Makefile ] && grep -qE '^(test|check):' Makefile && echo "TARGET:make test"
 [ -f pyproject.toml ] && grep -q "pytest" pyproject.toml && echo "CONFIG:pyproject pytest"
-git ls-files | grep -cE '(^|/)(tests?|spec|__tests__)/|(^|/)tests?\\.py$|(^|/)test_[^/]+\\.py$|_test\\.(go|py|rb|ts|js|exs)$|\\.(test|spec)\\.[jt]sx?$|_spec\\.rb$|Test\\.(java|kt)$' | sed 's/^/TESTFILES:/'
-# Rust keeps unit tests inside src/, so file names alone miss them
+git ls-files | grep -cE '(^|/)(tests?|spec|__tests__)/|(^|/)tests?\\.py$|(^|/)test_[^/]+\\.py$|_test\\.(go|py|rb|ts|js|exs|dart)$|\\.(test|spec)\\.[jt]sx?$|_spec\\.rb$|Test\\.(java|kt)$' | sed 's/^/TESTFILES:/'
+# Rust unit tests live in src/; file names alone miss them
 [ -f Cargo.toml ] && git grep -lF '#[test]' -- 'src' >/dev/null 2>&1 && echo "TESTS:rust in-source"
 # Check opt-out marker
 [ -f .gstack/no-test-bootstrap ] && echo "BOOTSTRAP_DECLINED"
@@ -47,6 +48,7 @@ Map the markers to the command you will OFFER — never to one you run on a gues
 | \`pytest.ini\` / \`tox.ini\` / pytest in \`pyproject.toml\` / \`test_*.py\` | Python | \`pytest\` |
 | \`go.mod\` (+ any \`*_test.go\`) | Go | \`go test ./...\` |
 | \`Cargo.toml\` | Rust | \`cargo test\` |
+| \`pubspec.yaml\` | Dart / Flutter | \`flutter test\` (FRAMEWORK:flutter) or \`dart test\`; \`fvm\` prefix if \`.fvmrc\` |
 | \`pom.xml\` | JVM (Maven) | \`mvn test\` |
 | \`build.gradle\` / \`build.gradle.kts\` | JVM (Gradle) | \`./gradlew test\` |
 | \`Gemfile\` / \`Rakefile\` / \`.rspec\` | Ruby | \`bundle exec rspec\`, \`bin/rails test\`, or \`rake test\` |
@@ -55,7 +57,7 @@ Map the markers to the command you will OFFER — never to one you run on a gues
 | \`package.json\` with a \`test\` script | Node | that script, run with the package manager the lockfile names |
 | \`Makefile\` with a \`test:\` target | any | \`make test\` |
 
-**If ANY existing-test evidence appears** (a config file, a declared test script or make target, a nonzero \`TESTFILES:\` count, or \`TESTS:rust in-source\`): the project has tests. **Do NOT bootstrap.** Print "Existing tests detected: {the evidence}." Then get the command the same way Step 5 does — CLAUDE.md/TESTING.md if documented, otherwise AskUserQuestion offering the candidates from the table above plus "Other", and persist the answer to CLAUDE.md's \`## Testing\` section so it is never asked again. When the ecosystem ships a runner (Django, Go, Rust, Elixir, Maven/Gradle), that runner is the candidate — never install a second framework beside a working one.
+**If ANY existing-test evidence appears** (a config file, a declared test script or make target, a nonzero \`TESTFILES:\` count, or \`TESTS:rust in-source\`): the project has tests. **Do NOT bootstrap.** Print "Existing tests detected: {the evidence}." Then get the command the same way Step 5 does — CLAUDE.md/TESTING.md if documented, otherwise AskUserQuestion offering the candidates from the table above plus "Other", and persist the answer to CLAUDE.md's \`## Testing\` section so it is never asked again. When the ecosystem ships a runner (Django, Go, Rust, Dart, Elixir, Maven/Gradle), that runner is the candidate — never install a second framework beside a working one.
 Read 2-3 existing test files to learn conventions (naming, imports, assertion style, setup patterns).
 Store conventions as prose context for use in ${ctx.skillName === 'ship' ? 'Step 7' : 'Phase 8e.5 or Step 7'}. **Skip the rest of bootstrap.**
 
@@ -99,6 +101,7 @@ If Aside is not installed or not running (\`command -v aside\` prints nothing, o
 | Go | stdlib testing + testify | stdlib only |
 | JVM (Maven/Gradle) | JUnit 5 + AssertJ | JUnit 5 only |
 | Rust | cargo test (built-in) + mockall | — |
+| Dart | test / flutter_test + mocktail | mockito |
 | PHP | phpunit + mockery | pest |
 | Elixir | ExUnit (built-in) + ex_machina | — |
 
@@ -269,7 +272,7 @@ Before analyzing coverage, detect the project's test framework:
 
 \`\`\`bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-# Detect project runtime (markers are evidence, not commands to run blind)
+# Project runtime (markers are evidence, not commands to run blind)
 [ -f manage.py ] && echo "RUNTIME:python FRAMEWORK:django"
 { [ -f pyproject.toml ] || [ -f pytest.ini ] || [ -f tox.ini ] || [ -f setup.cfg ] || [ -f requirements.txt ]; } && echo "RUNTIME:python"
 { [ -f Gemfile ] || [ -f Rakefile ] || [ -f .rspec ]; } && echo "RUNTIME:ruby"
@@ -278,8 +281,8 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 [ -f Cargo.toml ] && echo "RUNTIME:rust"
 [ -f pom.xml ] && echo "RUNTIME:jvm BUILD:maven"
 { [ -f build.gradle ] || [ -f build.gradle.kts ]; } && echo "RUNTIME:jvm BUILD:gradle"
-# Check for existing test infrastructure — config files, scripts, AND test files
-ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini tox.ini phpunit.xml 2>/dev/null
+# Existing test infra: config files, scripts, AND test files
+ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini tox.ini phpunit.xml dart_test.yaml 2>/dev/null
 [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json && echo "SCRIPT:package.json test"
 [ -f Makefile ] && grep -qE '^(test|check):' Makefile && echo "TARGET:make test"
 git ls-files | grep -cE '(^|/)(tests?|spec|__tests__)/|(^|/)tests?\\.py$|(^|/)test_[^/]+\\.py$|_test\\.(go|py|rb|ts|js|exs)$|\\.(test|spec)\\.[jt]sx?$|_spec\\.rb$|Test\\.(java|kt)$' | sed 's/^/TESTFILES:/'
