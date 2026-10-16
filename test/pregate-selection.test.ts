@@ -63,6 +63,38 @@ describe('import graph (static imports ∪ repo-path literals ∪ bin convention
     expect(testsFor(g, 'docs/README.md', BASE_PREGATE.dependencies)).toMatchObject({ tests: [], declaredNone: true });
     expect(testsFor(g, 'test/util.test.js').tests).toEqual(['test/util.test.js']);
   });
+
+  test('python: absolute, from-import submodule, relative and parenthesised imports and mock.patch targets map; stdlib, comments and docstrings do not', () => {
+    const repo = fixture();
+    commit(repo, {
+      'pkg/__init__.py': '',
+      'pkg/core.py': 'import os\nfrom pkg.util import helper\n',
+      'pkg/util.py': 'def helper():\n    return 1\n',
+      'pkg/multi.py': 'X = 1\n',
+      'pkg/patched.py': 'class Thing:\n    def run(self):\n        return 1\n',
+      'pkg/ghost.py': 'G = 1\n',
+      'pkg/sub/__init__.py': '',
+      'pkg/sub/sibling.py': 'S = 1\n',
+      'pkg/sub/leaf.py': 'from .. import core\nfrom . import sibling\n',
+      'tests/test_core.py': 'import pkg.core as core\n',
+      'tests/test_leaf.py': 'from pkg.sub import leaf\n',
+      'tests/test_multi.py': 'from pkg import (\n    multi,  # the module\n    util,\n)\nimport json, os.path\n',
+      'tests/test_patch.py': "from unittest import mock\n\n@mock.patch('pkg.patched.Thing.run')\ndef test_run(run):\n    pass\n",
+      'tests/test_ghost.py': '"""\nimport pkg.ghost\n"""\n# from pkg import ghost\nX = "from pkg import ghost"\n',
+    });
+    const g = buildGraph(repo.work);
+    expect(testsFor(g, 'pkg/core.py').tests).toEqual(['tests/test_core.py', 'tests/test_leaf.py']);
+    expect(testsFor(g, 'pkg/util.py').tests).toEqual(['tests/test_core.py', 'tests/test_leaf.py', 'tests/test_multi.py']);
+    expect(testsFor(g, 'pkg/sub/sibling.py').tests).toEqual(['tests/test_leaf.py']);
+    expect(testsFor(g, 'pkg/multi.py').tests).toEqual(['tests/test_multi.py']);
+    expect(testsFor(g, 'pkg/patched.py').provenance).toEqual(['tests/test_patch.py ← pkg/patched.py (literal)']);
+    expect(testsFor(g, 'pkg/sub/__init__.py').tests).toEqual(['tests/test_leaf.py']);
+    expect(testsFor(g, 'pkg/__init__.py').tests).toEqual(['tests/test_core.py', 'tests/test_leaf.py', 'tests/test_multi.py', 'tests/test_patch.py']);
+    expect(testsFor(g, 'pkg/ghost.py').tests).toEqual([]);
+    expect([...g.reverse.keys()].filter(k => k.endsWith('.py')).sort()).toEqual([
+      'pkg/__init__.py', 'pkg/core.py', 'pkg/multi.py', 'pkg/patched.py', 'pkg/sub/__init__.py', 'pkg/sub/leaf.py', 'pkg/sub/sibling.py', 'pkg/util.py',
+    ]);
+  });
 });
 
 describe('literals (pure)', () => {

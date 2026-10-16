@@ -2,10 +2,13 @@
  * pregate/import-graph — which test files depend on which repo files (plan
  * C8 `lanes`). The reverse graph unions four sources, each kept as provenance
  * for `--explain`:
- *   1. static imports and requires (Bun.Transpiler.scanImports);
+ *   1. static imports and requires (Bun.Transpiler.scanImports), and Python
+ *      `import` / `from … import` statements resolved from the repository root
+ *      or, when relative, from the importing file's package;
  *   2. repo-path string literals, including `join('a', 'b')` segment runs
  *      (a test that spawns `bin/gstack-doctor` names it in a string, never an
- *      import) and literal directories (`test/fixtures/x` → `x/**`);
+ *      import) and literal directories (`test/fixtures/x` → `x/**`), and in
+ *      Python, dotted `mock.patch` targets (`'pkg.mod.Class.method'`);
  *   3. the `bin/<name>` → `test/<name>*.test.*` convention (with and without
  *      the `gstack-` prefix);
  *   4. explicit `.gstack/pregate.json` `dependencies` declarations.
@@ -34,6 +37,10 @@ const scanner = new Bun.Transpiler({ loader: 'tsx' });
 const QUOTED = /['"`]([A-Za-z0-9_@][A-Za-z0-9_./@-]*)['"`]/g;
 const JOIN = /\bjoin\(([^()]*)\)/g;
 const RESOLVE_EXT = ['', '.ts', '.tsx', '.js', '.mjs', '.cjs', '/index.ts', '/index.js'];
+// One left-to-right pass, so a `#` inside a string and a quote inside a comment both stay inert.
+const PY_STRING_OR_COMMENT = /("""|''')[\s\S]*?\1|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|#[^\n]*/g;
+const PY_IMPORT = /^[ \t]*(?:from[ \t]+(\.*[\w.]*)[ \t]+import[ \t]+(\([^)]*\)|[^\n;]+)|import[ \t]+([^\n;]+))/gm;
+const PY_DOTTED = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/;
 
 export function isTestFile(rel: string): boolean { return TEST_FILE_RE.test(rel); }
 
@@ -61,6 +68,60 @@ function resolveRef(files: Set<string>, dirs: Set<string>, fromFile: string, ref
   return null;
 }
 
+/** The leading dotted name of each comma-separated `name [as alias]` clause. */
+function pyNames(list: string): string[] {
+  return list.replace(/[()]/g, '').split(',').map(p => p.trim().split(/\s+/)[0]!).filter(n => n && n !== '*');
+}
+
+/** `from <dots><rest>` → the absolute dotted package it names, or null when it climbs above the repository root. */
+function pyFromBase(rel: string, spec: string): string | null {
+  const dots = /^\.*/.exec(spec)![0].length;
+  const rest = spec.slice(dots);
+  if (!dots) return rest;
+  const pkg = path.posix.dirname(rel).split('/').filter(s => s !== '.');
+  if (dots - 1 > pkg.length) return null;
+  return [...pkg.slice(0, pkg.length - (dots - 1)), ...(rest ? [rest] : [])].join('.');
+}
+
+/** Dotted modules a Python source imports; `from a import b` also yields `a.b`, which may be a submodule. */
+function pythonImports(rel: string, source: string): string[] {
+  const code = source.replace(PY_STRING_OR_COMMENT, m => (m.startsWith('#') ? '' : "''")).replace(/\\\r?\n/g, ' ');
+  const out: string[] = [];
+  for (const m of code.matchAll(PY_IMPORT)) {
+    if (m[3]) { out.push(...pyNames(m[3])); continue; }
+    const base = pyFromBase(rel, m[1]!);
+    if (base === null) continue;
+    if (base) out.push(base);
+    for (const name of pyNames(m[2]!)) out.push(base ? `${base}.${name}` : name);
+  }
+  return out;
+}
+
+/**
+ * A dotted module → its repo file (`a/b.py` or `a/b/__init__.py`) plus the
+ * package `__init__.py` files Python executes on the way; [] for a module
+ * outside the repo (stdlib, site-packages).
+ */
+function pythonModuleFiles(files: Set<string>, dotted: string): string[] {
+  const parts = dotted.split('.');
+  if (parts.some(p => !p)) return [];
+  const p = parts.join('/');
+  const file = [`${p}.py`, `${p}/__init__.py`].find(f => files.has(f));
+  if (!file) return [];
+  const inits = parts.slice(0, -1).map((_, i) => `${parts.slice(0, i + 1).join('/')}/__init__.py`).filter(f => files.has(f));
+  return [file, ...inits];
+}
+
+/** `'pkg.mod.Class.attr'` (a `mock.patch` target) → the longest dotted prefix that is a repo module. */
+function pythonPatchTarget(files: Set<string>, ref: string): string[] {
+  const parts = ref.split('.');
+  for (let n = parts.length; n >= 1; n--) {
+    const hit = pythonModuleFiles(files, parts.slice(0, n).join('.'));
+    if (hit.length) return hit;
+  }
+  return [];
+}
+
 function addEdge(graph: Graph, dependency: string, dependent: string, via: Edge['via']): void {
   if (dependency === dependent) return;
   const list = graph.reverse.get(dependency) ?? [];
@@ -77,11 +138,17 @@ export function referencesIn(files: Set<string>, dirs: Set<string>, rel: string,
     // The transpiler erases type-only imports; a types module still binds its importers' contracts.
     for (const m of source.matchAll(/^\s*(?:import|export)\s+type\b[^;'"]*?\bfrom\s+['"]([^'"]+)['"]/gm)) { const t = resolveRef(files, dirs, rel, m[1]!); if (t) out.push({ target: t, via: 'import' }); }
   }
+  const python = rel.endsWith('.py');
+  if (python) for (const mod of pythonImports(rel, source)) for (const t of pythonModuleFiles(files, mod)) out.push({ target: t, via: 'import' });
   // Literals carry dependencies only from the test tree and from bin/ and shell
   // sources (a test spawns a bin; a bash bin calls a sibling). Prose and
   // manifests name everything and would make every file a hub.
   if (!scansLiterals(rel)) return out;
-  for (const m of source.matchAll(QUOTED)) { const t = resolveRef(files, dirs, rel, m[1]!, true); if (t) out.push({ target: t, via: 'literal' }); }
+  for (const m of source.matchAll(QUOTED)) {
+    const t = resolveRef(files, dirs, rel, m[1]!, true);
+    if (t) out.push({ target: t, via: 'literal' });
+    else if (python && PY_DOTTED.test(m[1]!)) for (const f of pythonPatchTarget(files, m[1]!)) out.push({ target: f, via: 'literal' });
+  }
   for (const m of source.matchAll(JOIN)) {
     const segments = [...m[1]!.matchAll(/['"`]([^'"`]+)['"`]/g)].map(s => s[1]!);
     if (segments.length < 2) continue;
