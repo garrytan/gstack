@@ -116,7 +116,15 @@ export interface TemplateContext {
    * root a per-install render serves (`gen-skill-docs --install-root`).
    * null/undefined = the host's default root (committed render, unchanged bytes).
    */
-  installRoot?: string | null;
+   installRoot?: string | null;
+  /**
+   * Plan-mode preamble block. Defaults to true (block ships).
+   * false (opt-in via `--plan-mode=off`): the "## Plan Mode Safe Operations" +
+   * "## Skill Invocation During Plan Mode" section is dropped from the
+   * preamble. "PLAN MODE EXCEPTION — ALWAYS RUN" markers inside skill bodies
+   * still apply.
+   */
+  planMode?: boolean;
 }
 
 /** Resolver function signature. args is populated for parameterized placeholders like {{INVOKE_SKILL:name}}. */

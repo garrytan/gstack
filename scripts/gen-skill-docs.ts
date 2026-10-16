@@ -51,6 +51,7 @@ export interface GenerationOptions {
   explainLevel?: 'default' | 'terse';
   respectDetection?: boolean;
   log?: (message: string) => void;
+  planMode?: boolean;
 }
 
 interface RenderOptions {
@@ -62,6 +63,7 @@ interface RenderOptions {
   catalogMode: 'trim' | 'full';
   explainLevel: 'default' | 'terse';
   gbrainDetected: boolean;
+  planMode: boolean;
 }
 
 export interface GeneratedArtifact {
@@ -129,6 +131,11 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   if (explainLevel !== 'default' && explainLevel !== 'terse') {
     throw new Error(`Unknown explain level: ${explainLevel}. Use 'default' or 'terse'.`);
   }
+  const planModeValue = value('--plan-mode');
+  if (planModeValue !== undefined && planModeValue !== 'on' && planModeValue !== 'off') {
+    throw new Error(`Unknown plan mode: ${planModeValue}. Use 'on' or 'off'.`);
+  }
+  const planMode = planModeValue === 'off' ? false : true;
   const outDir = value('--out-dir');
   const linkRoot = value('--link-root');
   const disabledValue = value('--disabled-skills');
@@ -142,7 +149,7 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   // Swap-in callers use --link-root for the FINAL serving path (#2692).
   // Direct --out-dir callers retain their existing links into the render.
   return {
-    host, model, catalogMode, explainLevel,
+    host, model, catalogMode, explainLevel, planMode,
     dryRun: args.includes('--dry-run'),
     respectDetection: args.includes('--respect-detection'),
     outputRoot: outDir === undefined ? ROOT : path.resolve(outDir),
@@ -734,7 +741,7 @@ function buildContext(
   const interactive = interactiveMatch ? interactiveMatch[1] === 'true' : undefined;
   return {
     skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host],
-    preambleTier, model: options.model ?? getHostConfig(host).defaultModel, interactive, explainLevel: options.explainLevel, installRoot: options.installRoot,
+    preambleTier, model: options.model ?? getHostConfig(host).defaultModel, interactive, explainLevel: options.explainLevel, installRoot: options.installRoot, planMode: options.planMode,
   };
 }
 
@@ -967,6 +974,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
     catalogMode: settings.catalogMode ?? 'trim',
     explainLevel: settings.explainLevel ?? 'default',
     gbrainDetected: loadGbrainOverride(settings.respectDetection ?? false),
+    planMode: settings.planMode ?? true,
   };
   const hosts = settings.host === 'all' ? ALL_HOST_NAMES as Host[] : [settings.host ?? 'claude'];
   const log = settings.log ?? (() => {});

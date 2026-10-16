@@ -20,6 +20,7 @@ import type { TemplateContext } from '../types';
  * the full rationale.
  */
 export function generatePlanModeInfo(ctx: TemplateContext): string {
+  if (ctx.planMode === false) return '';
   const entryOrder = ctx.skillName === 'plan-eng-review'
     ? 'starting from the Scope gate, then follow its Startup sequence'
     : 'starting from the Scope gate (current target announcement or answered question), then preamble and Step 0';
