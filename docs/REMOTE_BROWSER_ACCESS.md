@@ -81,7 +81,9 @@ Response: (plain text result of the command)
 ```
 
 #### GET /health
-Server status. No auth required. Returns status, tabs, mode, uptime.
+Server status. No auth required. Returns status, activeTab, tabs, mode, uptime.
+`status` is daemon liveness; `activeTab` (`{ id, responsive }`, or null with no
+page) says whether the active tab's main thread answered within 1s.
 Never carries a token — extension token bootstrap is `POST /extension-token`
 (local listener only, validates the pinned `chrome-extension://` Origin and a
 loopback Host; 403 otherwise). Not reachable over the tunnel (404).

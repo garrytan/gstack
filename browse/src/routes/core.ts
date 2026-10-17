@@ -77,13 +77,19 @@ export const coreRoutes: RouteEntry[] = [
   // Health check — no auth required, does NOT reset idle timer. NEVER carries
   // a token in any mode: token bootstrap is POST /extension-token and shell
   // auth is POST /pty-session. Liveness/status only.
+  //
+  // `status` is daemon liveness (Chromium connected); the CLI gates every
+  // command on it. `activeTab.responsive` is the active tab's main thread,
+  // probed for at most TAB_PROBE_TIMEOUT_MS and reported beside it: one busy
+  // page must not read as a dead daemon (#3247).
   {
     method: '*', path: '/health', auth: 'none', surfaces: ['local'],
     handler: async (_req, _r, ctx) => {
       const { browserManager } = ctx;
-      const healthy = await browserManager.isHealthy();
+      const healthy = browserManager.isHealthy();
       return json({
         status: healthy ? 'healthy' : 'unhealthy',
+        activeTab: healthy ? await browserManager.probeActiveTab() : null,
         mode: browserManager.getConnectionMode(),
         uptime: Math.floor((Date.now() - ctx.startTime) / 1000),
         tabs: browserManager.getTabCount(),

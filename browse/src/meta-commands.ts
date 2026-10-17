@@ -265,7 +265,7 @@ export async function handleMetaCommand(
     case 'tabs': {
       const tabs = await bm.getTabListWithTitles();
       return tabs.map(t =>
-        `${t.active ? '→ ' : '  '}[${t.id}] ${t.title || '(untitled)'} — ${t.url}`
+        `${t.active ? '→ ' : '  '}[${t.id}] ${t.busy ? '(not responding)' : t.title || '(untitled)'} — ${t.url}`
       ).join('\n');
     }
 
@@ -404,12 +404,17 @@ export async function handleMetaCommand(
     case 'status': {
       const tabs = bm.getTabCount();
       const mode = bm.getConnectionMode();
+      const activeTab = await bm.probeActiveTab();
       return [
         `Status: healthy`,
         `Mode: ${mode}`,
         `URL: ${bm.getCurrentUrl()}`,
         `Tabs: ${tabs}`,
         `PID: ${process.pid}`,
+        // #3247: name the busy tab and the ways out that keep the session.
+        ...(activeTab && !activeTab.responsive
+          ? [`Active tab ${activeTab.id}: not responding. Switch with: browse tab <id>, or close it: browse closetab ${activeTab.id}`]
+          : []),
       ].join('\n');
     }
 

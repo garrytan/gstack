@@ -94,13 +94,16 @@ describe('/health does NOT surface ptyToken', () => {
   test('/health response body does not include ptyToken', async () => {
     // It's allowed to include `terminalPort` (a port number, not auth).
     const ctx = stubRouteContext({
-      browserManager: { isHealthy: async () => true, getConnectionMode: () => 'launched', getTabCount: () => 1 } as any,
+      browserManager: {
+        isHealthy: () => true, probeActiveTab: async () => ({ id: 1, responsive: true }),
+        getConnectionMode: () => 'launched', getTabCount: () => 1,
+      } as any,
       terminal: { readPort: () => 4242, grantToken: async () => true, restartSession: async () => true },
     });
     const text = await (await callRoute('GET', '/health', ctx)).text();
     const body = JSON.parse(text);
     expect(body.terminalPort).toBe(4242);
-    expect(Object.keys(body).sort()).toEqual(['mode', 'status', 'tabs', 'terminalPort', 'uptime']);
+    expect(Object.keys(body).sort()).toEqual(['activeTab', 'mode', 'status', 'tabs', 'terminalPort', 'uptime']);
     expect(text).not.toContain('ptyToken');
     expect(text).not.toContain('gstack_pty');
   });

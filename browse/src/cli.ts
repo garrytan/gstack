@@ -215,37 +215,48 @@ function readState(): ServerState | null {
 
 // isProcessAlive is imported from ./error-handling
 
-/**
- * HTTP health check — definitive proof the server is alive and responsive.
- * Used in all polling loops instead of isProcessAlive() (which is slow on Windows).
- */
-export async function isServerHealthy(port: number, timeoutMs = 2000): Promise<boolean> {
-  try {
-    const resp = await fetch(`http://127.0.0.1:${port}/health`, {
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!resp.ok) return false;
-    const health = await resp.json() as any;
-    return health.status === 'healthy';
-  } catch {
-    return false;
-  }
-}
+/** Client timeout for one GET /health. Must stay above the daemon's active-tab
+ * probe (TAB_PROBE_TIMEOUT_MS in browser-manager.ts): when the two were equal,
+ * the CLI aborted just before a busy tab's reply arrived and could not tell a
+ * busy tab from a hung daemon (#3247). */
+export const HEALTH_REQUEST_TIMEOUT_MS = 2000;
 
-/** Best-effort tab count via GET /health (no auth, bounded). Returns null
- * when the daemon doesn't answer in time or predates the `tabs` field —
- * callers degrade to a countless phrasing, never block on this. */
-async function fetchDaemonTabCount(port: number, timeoutMs = 2000): Promise<number | null> {
+/** GET /health (no auth, bounded). Null when the daemon doesn't answer in
+ * time or the reply is not a 200. */
+async function fetchDaemonHealth(port: number, timeoutMs = HEALTH_REQUEST_TIMEOUT_MS): Promise<Record<string, unknown> | null> {
   try {
     const resp = await fetch(`http://127.0.0.1:${port}/health`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!resp.ok) return null;
-    const health = await resp.json() as any;
-    return typeof health.tabs === 'number' ? health.tabs : null;
+    return await resp.json() as Record<string, unknown>;
   } catch {
     return null;
   }
+}
+
+/**
+ * HTTP health check — definitive proof the server is alive and responsive.
+ * Used in all polling loops instead of isProcessAlive() (which is slow on Windows).
+ * `status` is daemon liveness only; a busy active tab does not fail it (#3247).
+ */
+export async function isServerHealthy(port: number, timeoutMs = HEALTH_REQUEST_TIMEOUT_MS): Promise<boolean> {
+  return (await fetchDaemonHealth(port, timeoutMs))?.status === 'healthy';
+}
+
+/** Best-effort tab count via GET /health. Returns null when the daemon
+ * doesn't answer in time or predates the `tabs` field — callers degrade to a
+ * countless phrasing, never block on this. */
+async function fetchDaemonTabCount(port: number): Promise<number | null> {
+  const tabs = (await fetchDaemonHealth(port))?.tabs;
+  return typeof tabs === 'number' ? tabs : null;
+}
+
+/** The active tab's id when /health reports its main thread as not
+ * responding (#3247), else null — including daemons that predate the field. */
+async function fetchBusyActiveTab(port: number): Promise<number | null> {
+  const activeTab = (await fetchDaemonHealth(port))?.activeTab as { id?: unknown; responsive?: unknown } | null | undefined;
+  return activeTab?.responsive === false && typeof activeTab.id === 'number' ? activeTab.id : null;
 }
 
 // ─── Process Management ─────────────────────────────────────────
@@ -420,7 +431,7 @@ async function probeHealthWithBackoff(
     await Bun.sleep(intervalMs);
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) return false;
-    if (await isServerHealthy(port, Math.min(2000, remainingMs))) return true;
+    if (await isServerHealthy(port, Math.min(HEALTH_REQUEST_TIMEOUT_MS, remainingMs))) return true;
   }
 }
 
@@ -1034,6 +1045,32 @@ export function extractTabId(args: string[]): { tabId: number | undefined; args:
   return { tabId, args: stripped };
 }
 
+/** Did this fetch fail because its AbortSignal fired? Bun rejects an
+ * AbortSignal.timeout() fetch with TimeoutError, not AbortError — matching
+ * only AbortError left the timeout reports below unreachable. */
+export function isFetchTimeout(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null)?.name;
+  return name === 'AbortError' || name === 'TimeoutError';
+}
+
+/**
+ * What to print when a command's reply did not arrive within `timeoutMs`.
+ * #1781: a timeout on a heavy page usually means busy, not dead, so a live
+ * daemon is never restarted here. #3247: when /health names the active tab
+ * as not responding, say which tab and the commands that leave it without
+ * losing the session.
+ */
+export async function commandTimeoutReport(state: { pid: number; port: number } | null, timeoutMs: number): Promise<string[]> {
+  const after = `[browse] Command timed out after ${timeoutMs / 1000}s`;
+  if (!state?.pid || !isProcessAlive(state.pid)) return [after];
+  const busyTab = await fetchBusyActiveTab(state.port);
+  if (busyTab === null) return [`${after} (server still alive — busy, not restarting). Retry, or raise load.`];
+  return [
+    `${after}: tab ${busyTab} is not responding (its main thread is busy).`,
+    `[browse] The daemon, its other tabs and cookies still work: switch with 'browse tab <id>', close this one with 'browse closetab ${busyTab}', or retry once the page settles.`,
+  ];
+}
+
 // ─── Command Dispatch ──────────────────────────────────────────
 export async function sendCommand(state: ServerState, command: string, args: string[], retries = 0): Promise<void> {
   // Precedence: CLI --tab-id flag > BROWSE_TAB env var.
@@ -1085,19 +1122,14 @@ export async function sendCommand(state: ServerState, command: string, args: str
       process.exit(1);
     }
   } catch (err: any) {
-    if (command === 'cookie-import-browser' && (['AbortError', 'TimeoutError'].includes(err.name)
+    if (command === 'cookie-import-browser' && (isFetchTimeout(err)
       || ['ECONNREFUSED', 'ECONNRESET'].includes(err.code) || err.message?.includes('fetch failed'))) {
       throw new Error('Cookie import response was lost or timed out. It may have partially completed; inspect the destination before retrying manually. The command was not replayed.');
     }
-    if (err.name === 'AbortError') {
-      // #1781: a 30s timeout on a heavy page usually means busy, not dead.
-      // Don't kill a live server (that's what triggered the crash-loop) — report
-      // and exit so the user can retry rather than losing their (headed) window.
-      const ts = readState();
-      const alive = ts?.pid ? isProcessAlive(ts.pid) : false;
-      console.error(alive
-        ? '[browse] Command timed out after 30s (server still alive — busy, not restarting). Retry, or raise load.'
-        : '[browse] Command timed out after 30s');
+    if (isFetchTimeout(err)) {
+      // Report and exit so the user can retry rather than losing their
+      // (headed) window — killing a live server triggered the crash-loop.
+      for (const line of await commandTimeoutReport(readState(), timeoutMs)) console.error(line);
       process.exit(1);
     }
     // Connection error — server may have crashed, OR may just be busy.
