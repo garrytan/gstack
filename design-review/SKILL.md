@@ -124,6 +124,12 @@ B) <option label>
 Net: <one-line synthesis of what you're actually trading off>
 ```
 
+**AskUserQuestion tool fields — label vs description.** Each option in the tool call has two required fields:
+- `label`: a short phrase (≤5 words) that fits on a chip, e.g. `"Keep current schema"`. This is what appears in the UI as the selectable choice. `(recommended)` goes here, not in description.
+- `description`: the ✅/❌ reasoning prose from the brief above.
+
+Never put the long description text in `label` or omit the short label. The tool call fails with `InputValidationError` when `label` is missing or too long.
+
 D-numbering: first question in a skill invocation is `D1`; increment yourself. This is a model-level instruction, not a runtime counter.
 
 ELI10 is always present, in plain English, not function names; Recommendation is ALWAYS present. Keep the `(recommended)` label; AUTO_DECIDE depends on it.

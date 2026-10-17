@@ -171,6 +171,12 @@ B) <option label>
 Net: <one-line synthesis of what you're actually trading off>
 ```
 
+**AskUserQuestion tool fields — label vs description.** Each option in the tool call has two required fields:
+- `label`: a short phrase (≤5 words) that fits on a chip, e.g. `"Keep current schema"`. This is what appears in the UI as the selectable choice. `(recommended)` goes here, not in description.
+- `description`: the ✅/❌ reasoning prose from the brief above.
+
+Never put the long description text in `label` or omit the short label. The tool call fails with `InputValidationError` when `label` is missing or too long.
+
 D-numbering: exclude the initial target menu. Start `D1` at the first later brief; increment through preamble, prerequisite, inline /office-hours, preparation, complexity and review. Never reset between stages or on return. This is a model-maintained counter.
 
 ELI10 is always present, in plain English, not function names; Recommendation is ALWAYS present. Keep the `(recommended)` label; AUTO_DECIDE depends on it.
@@ -217,6 +223,7 @@ Before emitting a tool or prose decision brief, verify:
 - [ ] Resolve unresolved adoption/disposition prerequisites before implementation-policy choices. Hold other approved values fixed and other choices pending across ALL options.
 - [ ] Keep routine mechanics and code/tests/docs establishing the same chosen behavior together; do not demand extra approvals for them. Score completeness within that one decision.
 - [ ] Format above: D<N>, ELI10 + stakes, concrete Recommendation with one (recommended), coverage Completeness or kind-note, ≥2 ✅/≥1 ❌ per option at ≥40 chars (or hard-stop escape), human/CC effort when needed, and Net.
+- [ ] Each option in the tool call has both a short `label` (≤5 words, the chip text, `(recommended)` here) and a separate `description` (the ✅/❌ prose); never collapse both into `label` alone.
 - [ ] Follow Tool resolution: tool call unless Conductor or documented prose fallback; prose includes the mandatory triad + explicit reply selectors, then STOP. Spawned sessions follow their auto-choice rule.
 - [ ] Write non-ASCII directly, not \u-escaped. For 5+ options, split/batch into ≤4 without dropping; check dependencies and stop the chain immediately on Hold.
 
