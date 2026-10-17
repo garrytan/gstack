@@ -191,7 +191,8 @@ describe('collectHealth over recorded fixture data', () => {
       [/runs\/61\/artifacts/, () => ({ artifacts: [] })],
       [/workflows\/windows-free-tests\.yml\/runs/, () => ({ workflow_runs: windowsRuns })],
     ], {
-      11: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'full-fallback', e2e: ['gate-a', 'gate-b'], judges: ['judge-a'] } }) },
+      11: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'full-fallback', e2e: ['gate-a', 'gate-b'], judges: ['judge-a'],
+        shadow: { e2e: ['gate-a', 'gate-b'], wouldDrop: [], wouldAdd: [], provenance: [], predictedSavingUsd: 0, unpricedCases: 0 } } }) },
       12: { 'trial-outcomes.jsonl': prTrials },
       51: { 'trial-outcomes.jsonl': census },
       61: { 'flake-ledger.jsonl': ledger('test/a.test.ts') },
@@ -207,6 +208,7 @@ describe('collectHealth over recorded fixture data', () => {
     expect(value('pr-spend')).toMatchObject({ value: '$2.50 recorded', detail: ['per merged PR: $2.50 (1 merged)', 'per validated revision: $2.50 (1 revisions)'] });
     expect(value('pr-cases-per-run')).toMatchObject({ value: '2.0 gate cases, 1.0 judges per run (1 runs)', detail: ['full-fallback: 2.0 gate cases, 1.0 judges (1 runs)'] });
     expect(value('pr-known-cost-per-run')).toMatchObject({ value: '$2.50 per run (1 runs; 0 executed trial(s) with unknown cost)', detail: ['full-fallback: $2.50 (1 runs)'] });
+    expect(value('pr-shadow-map')).toMatchObject({ value: '$0.00 predicted saving/week (a lower bound: known cost excludes PTY trials with unknown cost); 0.0 activation miss(es)/week, 0 flaky drop(s) not counted (1 runs)', detail: [] });
     expect(report.headline).toBe('Cost per merged PR: $2.50 (1 merged PRs, $2.50 recorded)');
     expect(formatHealth(report).split('\n')[1]).toBe('Cost per merged PR: $2.50 (1 merged PRs, $2.50 recorded)');
     expect(value('cancelled-slice-minutes').value).toBe('30 min/week (1 cancelled run(s))');
@@ -245,6 +247,38 @@ describe('collectHealth over recorded fixture data', () => {
     expect(value('pr-known-cost-per-run')).toMatchObject({ value: '$2.00 per run (2 runs; 1 executed trial(s) with unknown cost)', detail: ['dependents: $4.00 (1 runs)', 'pr: $0.00 (1 runs)'] });
     expect(value('pr-cases-per-run')).toMatchObject({ value: '1.5 gate cases, 0.5 judges per run (2 runs)', detail: ['dependents: 3.0 gate cases, 1.0 judges (1 runs)', 'pr: 0.0 gate cases, 0.0 judges (1 runs)'] });
     expect(report.headline).toBe('Cost per merged PR: unavailable (0 merged PRs)');
+  });
+
+  test('the shadow map metric counts red drops as activation misses unless the case passed later at the same head SHA, and labels dollars a lower bound', () => {
+    const gate = (caseId: string, outcome: 'passed' | 'failed', extra: Partial<TrialOutcomeRecord> = {}) => trialRecord(caseId, outcome, { tier: 'gate', lane: 'gate/pr', ...extra });
+    const first = formatTrialOutcomes([gate('gate-a', 'failed', { cost_usd: 3 }), gate('gate-b', 'failed'), gate('gate-c', 'failed'),
+      gate('gate-d', 'failed', { execution: 'reused', cost_usd: 0 }), gate('gate-e', 'passed')]);
+    const rerun = formatTrialOutcomes([gate('gate-b', 'passed'), gate('gate-a', 'failed')]);
+    const shadow = (wouldDrop: string[], predictedSavingUsd: number, unknownCostShare = 0.391) =>
+      ({ e2e: [], wouldDrop, wouldAdd: [], provenance: [], predictedSavingUsd, unpricedCases: 0, unknownCostShare });
+    const client = fakeClient([
+      [/workflows\/evals\.yml\/runs/, () => ({ workflow_runs: [
+        run(1, { event: 'pull_request', head_branch: 'a', head_sha: 'same', created_at: day(3) }),
+        run(2, { event: 'pull_request', head_branch: 'a', head_sha: 'same', created_at: day(2) }),
+        run(3, { event: 'pull_request', head_branch: 'c' }),
+        run(4, { event: 'pull_request', head_branch: 'd' })] })],
+      [/runs\/1\/artifacts/, () => ({ artifacts: [{ id: 11, name: 'paid-plan', size_in_bytes: 10 }, { id: 12, name: 'trial-outcomes-pr-a1', size_in_bytes: 10 }] })],
+      [/runs\/2\/artifacts/, () => ({ artifacts: [{ id: 21, name: 'paid-plan', size_in_bytes: 10 }, { id: 22, name: 'trial-outcomes-pr-a1', size_in_bytes: 10 }] })],
+      [/runs\/3\/artifacts/, () => ({ artifacts: [{ id: 31, name: 'paid-plan', size_in_bytes: 10 }] })],
+      [/runs\/4\/artifacts/, () => ({ artifacts: [{ id: 41, name: 'paid-plan', size_in_bytes: 10 }] })],
+      [/pulls\?state=closed/, () => []],
+    ], {
+      11: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'dependents', e2e: [], judges: [], shadow: shadow(['gate-a', 'gate-b', 'gate-d', 'gate-e'], 4.5) } }) },
+      12: { 'trial-outcomes.jsonl': first },
+      21: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'pr', e2e: [], judges: [], shadow: shadow([], -1.5) } }) },
+      22: { 'trial-outcomes.jsonl': rerun },
+      31: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'pr', e2e: [], judges: [], shadow: { ...shadow([], 99), error: 'bad map' } } }) },
+      41: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'pr', e2e: [], judges: [] } }) },
+    });
+    const report = collectHealth({ client, repo: 'o/r', now: NOW, sinceDays: 7, cacheDir: tmp('health-cache-'), root: freeRoot(3, 0) });
+    expect(report.metrics.find(entry => entry.id === 'pr-shadow-map')).toMatchObject({
+      value: '$3.00 predicted saving/week (a lower bound: known cost excludes the 39% of observed case runs with unknown cost (PTY)); 1.0 activation miss(es)/week, 1 flaky drop(s) not counted (2 runs)',
+      detail: ['shadow miss: 1:gate-a', 'flaky drop: 1:gate-b (passed in run 2)'] });
   });
 
   test('the Windows wall counts only successful pull_request runs and says so when there are none', () => {

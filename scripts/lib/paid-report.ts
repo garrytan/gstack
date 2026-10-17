@@ -22,6 +22,9 @@ import { type ManifestEntry, PAID_TEST_DURATIONS_FILE, type PaidRunManifest, typ
 import { DEFAULT_JOBS, type PaidCaseSelection, type PaidTier, ROOT, type ShardTrialRecord } from './paid-types';
 import { collectPaidTestFiles, isAllSkippedPass, shardSlug, paidSelectionEnv } from './paid-select';
 import type { RunShardsOptions } from '../test-paid-shards';
+import { attributeCommands, formatMapGap, mapGaps, readShardCommands } from '../exercised-map';
+import { checkoutExercisedConsumers } from '../pr-dependencies';
+import { PR_FULL_GATE_FILES, PR_PROFILE_MAPS } from '../test-pr-profile';
 
 // ─── Local diagnosis: one case through the CI panel runner (A9) ────────────
 
@@ -483,6 +486,30 @@ export function infraOnly(problems: readonly string[]): boolean {
 }
 
 /**
+ * Shadow gap detection (docs/TESTING_INTERNALS.md#exercised-path-map): a
+ * command an executed case ran outside its static-plus-observed exercised
+ * closure prints a MAP_GAP line (formatMapGap: non-blocking for this PR, the
+ * next census refresh widens the map) and lands in map-gaps.txt. It is its own
+ * result: never a case verdict, a lane problem or a re-dispatch input.
+ */
+export function reportMapGaps(reportDir: string, executedCases: ReadonlySet<string>, rootDir = ROOT): string[] {
+  const out = path.join(reportDir, 'map-gaps.txt');
+  try {
+    const commands = new Map([...attributeCommands(readShardCommands(reportDir))].filter(([id, list]) => executedCases.has(id) && list.length > 0));
+    const lines = commands.size === 0 ? [] : mapGaps(commands, checkoutExercisedConsumers(PR_PROFILE_MAPS, rootDir, PR_FULL_GATE_FILES)).map(formatMapGap);
+    fs.writeFileSync(out, lines.length ? `${lines.join('\n')}\n` : '');
+    console.log(`[test:paid] exercised-path map (shadow, non-blocking): ${lines.length} MAP_GAP line(s) over ${commands.size} executed case(s) with recorded commands`);
+    for (const line of lines) console.log(`  ${line}`);
+    return lines;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    fs.writeFileSync(out, `MAP_GAP unavailable: ${reason}\n`);
+    console.log(`[test:paid] exercised-path map (shadow, non-blocking): MAP_GAP unavailable: ${reason}`);
+    return [];
+  }
+}
+
+/**
  * Report mode: reconcile slice artifacts against the manifest (fail-closed),
  * compute every panel verdict with panelVerdict(), write collector-outcomes
  * v2, trial-outcomes.jsonl and report-summary.md, and exit non-zero when the
@@ -743,6 +770,7 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
       ...(t.exit_reason ? { exit_reason: t.exit_reason } : {}), ...(t.error ? { error: t.error } : {}) })) })),
   // evals.yml wraps these in a fixed fence for the PR comment.
   failures: failureLines.map(line => sanitizeFixedFenceLine(line)) }, null, 2) + '\n');
+  reportMapGaps(reportDir, new Set(executed.map(record => record.case)), rootDir);
   if (verdict.problems.length) {
     console.error(`[test:paid] report: ${verdict.problems.length} problem(s):`);
     for (const problem of verdict.problems) console.error(`  ✗ ${problem}`);

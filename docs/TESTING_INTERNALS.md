@@ -1054,6 +1054,78 @@ free-only list. Editing a paid test file runs its own gate cases on the PR when
 their Bun test is named by the case id; the file's other cases stay deferred with
 a reason that says to name the test by its case id.
 
+### Exercised-path map
+
+The derived closure (above) reaches almost every gate case from most bin/ and
+lib/ files, because it follows prose, string and doc-comment mentions. The
+exercised-path map is a tighter consumer set that runs in **shadow mode**: it
+is computed and reported on every PR plan, and it never changes which cases a
+PR runs. Activating it is a later decision that needs PTY command capture for
+the cases that record no commands, two weeks of shadow data with zero shadow
+misses, and Garry's call on the measured saving.
+
+A case's exercised consumers (`exercisedConsumers` in
+`scripts/pr-dependencies.ts`) are the union of its touchfile matches, the
+closure of its test file and helpers, the executable shell of its loaded skill
+(template and generated SKILL.md) and of every bin, lib and script that shell
+runs, and the bins its recorded trials invoked. Shell edges are command-position
+`gstack-*` names and repo paths, `.`/`source`, `./setup`, quoted path
+literals, `path.join` pairs, data files, `bun run` scripts and compiled outfiles
+(`browse/dist/browse`, `$B`, `design/dist/design`, `$D`, `make-pdf/dist/pdf`).
+Comments, echo/printf/die messages, case patterns, bare `VAR=gstack-x` strings
+and slash-command skill names are not edges; command substitutions are kept, an
+expanding heredoc keeps its substitutions and a heredoc an interpreter reads
+stays whole. The closure stops at `PR_FULL_GATE_FILES` and the global set, which
+stay full. `test/exercised-map.test.ts` pins that this function equals or is a
+reviewed superset of the measured prototype (`test/helpers/exercised-prototype.ts`).
+
+The observed half is `test/helpers/exercised-commands.json` (generated; per case
+the bins and compiled outfiles its recorded trials ran, observation counts, the
+source run ids and a mean known cost per run). Refreshes are union-only: an
+observation never removes a command and a missing or empty artifact never erases
+one; removing a command is a reviewed edit. While the map is in shadow mode it
+changes no selection, so a PR that changes only the map selects no paid case.
+
+Dollar figures are lower bounds. Known cost excludes PTY trials, whose cost is
+unknown: about 39% of observed case runs in the committed map. The shadow block
+and `test:health` both say so.
+
+- **Shadow block:** `prCoverage.shadow` in the paid-plan manifest lists the gate
+  cases the map would select, would drop and would add, a provenance line per
+  changed file ("selects N case(s): touchfile (k), import (k), skill bash via
+  bin/gstack-x (k), observed bin/gstack-y (k)"), the predicted saving and the
+  unknown-cost share. The coverage summary prints one line of it.
+- **Shadow misses (`bun run test:health`, metric `pr-shadow-map`):** a red case
+  (more executed failed than passed trials in the run) that the shadow would
+  drop is an activation miss unless the case passed in a later run of the same
+  branch at the same head SHA. That later pass marks it a flaky drop, which is
+  listed but not counted. The D3 activation bar counts activation misses only.
+- **MAP_GAP:** the paid report runs the same bin matcher over each executed
+  case's recorded commands and prints, and writes to `map-gaps.txt`,
+  `MAP_GAP <case> <command>: non-blocking for this PR; the next census refresh
+  widens the map (docs/TESTING_INTERNALS.md#exercised-path-map)` for a command
+  outside the case's static-plus-observed closure. It is its own result: never a
+  case verdict, a lane problem or an INFRA re-dispatch input.
+- **Census refresh:** the weekly census unions its own recorded commands into the
+  map (no REST artifact downloads), uploads it as `exercised-map-a<attempt>`,
+  reports MAP_GAP lines and the cases that recorded no commands, and prints the
+  refresh command. Run `bun run test:exercised-map --from-run <id>`, or
+  `--from-dir <dir>` on a locally downloaded `exercised-map-a<attempt>` artifact
+  when the download hits HTTP 403, and open the change as an ordinary PR.
+  `bun run test:exercised-map --check` validates the committed file.
+- **Refresh contract:** a refresh whose input is unavailable or partial writes
+  nothing, keeps the committed union and exits with a stable code that names
+  what was missing: `2` usage; `3` input unavailable (a missing directory, or a
+  failed or HTTP 403 download); `4` input incomplete (no `shards/`, no
+  `trial-outcomes.jsonl`, an executed case without a shard artifact, or a missing
+  or malformed `exercised-commands.json`). The census step reports a failed
+  refresh in its job summary and uploads no map.
+- **Replay receipt:** `bun run test:exercised-map --replay` replays the recorded
+  red PR runs in `test/fixtures/exercised-map-replay.json` (every executed failed
+  gate trial in 225 `evals.yml` pull_request runs, 2026-10-07 to 2026-10-17)
+  through today's selector and its shadow, and exits 1 on any MISS: a failed
+  gate case the shadow would not run. `test/exercised-map.test.ts` pins zero.
+
 ### PR receipts, recovery and debounce
 
 Passes and failures of single-trial shards are written as receipts at the

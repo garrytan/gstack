@@ -723,6 +723,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
+      # Exercised-path map (shadow, non-blocking; docs/TESTING_INTERNALS.md#exercised-path-map):
+      # union this census's own recorded commands into the map, report MAP_GAP lines and
+      # cases that recorded no commands, and print the refresh command. Never fails the run.
+      - name: Refresh the exercised-path map from this census
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/exercised-map
+          dirs=()
+          for dir in /tmp/gate-census-report /tmp/paid-report; do [ -d "$dir" ] && dirs+=(--from-dir "$dir"); done
+          status=0
+          bun --no-install run scripts/exercised-map.ts "${dirs[@]}" \
+            --run-id "$GITHUB_RUN_ID" --out /tmp/exercised-map/exercised-commands.json --report /tmp/exercised-map/report.md || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "exercised-path map refresh failed with exit $status (non-blocking; no map uploaded)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f /tmp/exercised-map/report.md ]; then cat /tmp/exercised-map/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the refreshed exercised-path map
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: exercised-map-a${{ github.run_attempt }}
+          path: /tmp/exercised-map
+          if-no-files-found: ignore
+          retention-days: 90
+
       # Weekly pass-rate gate over the last 10 weekly runs (drift, rule cases
       # behaving like behavior, quarantine exit/expiry/cap). Fails closed when
       # history cannot be fetched.

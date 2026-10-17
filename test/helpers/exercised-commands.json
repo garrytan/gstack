@@ -1,0 +1,1905 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-17T19:29:23.672Z",
+  "observedThrough": "2026-10-08T06:50:33Z",
+  "sourceRuns": [
+    "36205327552",
+    "36220963292",
+    "36278514291",
+    "36302678692",
+    "36315459968",
+    "36318630639",
+    "36391800575",
+    "36465804057",
+    "36468274063",
+    "36481155145",
+    "36481295477",
+    "36485436963",
+    "36491692039",
+    "36493452542",
+    "36493616568",
+    "36497566037",
+    "36505065023",
+    "36516246523",
+    "36521598255",
+    "36526785991",
+    "36537184166",
+    "36539603295",
+    "36551562564",
+    "36579289566",
+    "36589496678",
+    "36615456309",
+    "36620926989",
+    "36636909400",
+    "36637107473",
+    "36637661593",
+    "36638638110",
+    "36640582052",
+    "36640919692",
+    "36641031019",
+    "36641547412",
+    "36641801658",
+    "36641824710",
+    "36670216491",
+    "36682017584",
+    "36683045674",
+    "36685469932",
+    "36709485593",
+    "36711269409",
+    "36711836168",
+    "36713227509",
+    "36713549527",
+    "36714493404",
+    "36717552105",
+    "36717834406",
+    "36718311034",
+    "36718368006",
+    "36718436969",
+    "36718514685",
+    "36719119326",
+    "36720872161",
+    "36722276798",
+    "36725680777",
+    "36730053861",
+    "36730220242",
+    "36740979126",
+    "36741522675",
+    "36743390793",
+    "36745049965",
+    "36753939836",
+    "36755432181",
+    "36758397400",
+    "36760073893",
+    "36761671799",
+    "36762284181",
+    "36764370405",
+    "36768263333",
+    "36768400454",
+    "36770061511",
+    "36774149885",
+    "36775002132",
+    "36775932413",
+    "36776096754",
+    "36777335875",
+    "36781170544",
+    "36783214499",
+    "36783749239",
+    "36786871824",
+    "36787264898",
+    "36790850100",
+    "36793107556",
+    "36794197606",
+    "36794871032",
+    "36797095286",
+    "36797191931",
+    "36797673165",
+    "36798542003",
+    "36823310593",
+    "36834605576",
+    "36897642796",
+    "36898539571",
+    "36899642230",
+    "36903605989",
+    "36905008393",
+    "36907899270",
+    "36914699033",
+    "36914734297",
+    "36917041210",
+    "36920579887",
+    "36922422698",
+    "36965719520",
+    "37024904147",
+    "37025330680",
+    "37026118550",
+    "37033755821",
+    "37060128357",
+    "37060776291",
+    "37061202449",
+    "37062583804",
+    "37063836999",
+    "37064151421",
+    "37066055701",
+    "37070126890",
+    "37073429415",
+    "37077373640",
+    "37080729942",
+    "37082906717",
+    "37087797888",
+    "37090604134",
+    "37090925543",
+    "37091093956",
+    "37091743395",
+    "37092497208",
+    "37092677055",
+    "37093937027",
+    "37094035231",
+    "37097119454",
+    "37097590162",
+    "37098585955",
+    "37099423845",
+    "37100121821",
+    "37111582659",
+    "37116024111",
+    "37143137677",
+    "37146354490",
+    "37152219461",
+    "37153488058",
+    "37157517739",
+    "37158193827",
+    "37158662432",
+    "37160557715",
+    "37161546382",
+    "37162342436",
+    "37162847235",
+    "37163124276",
+    "37163226077",
+    "37163388183",
+    "37163438154",
+    "37163862654",
+    "37163935292",
+    "37164023690",
+    "37164663577",
+    "37164967731",
+    "37165022930",
+    "37166243626",
+    "37166586458",
+    "37168384066",
+    "37168819307",
+    "37170258467",
+    "37170610789",
+    "37172266374",
+    "37172907071",
+    "37173609560",
+    "37176237665",
+    "37176835584",
+    "37177847549",
+    "37178146922",
+    "37178720668",
+    "37179168735",
+    "37181717177",
+    "37182208158",
+    "37184467123",
+    "37186091144",
+    "37186918046",
+    "37188014112",
+    "37188668421",
+    "37189974078",
+    "37192833320",
+    "37194511147",
+    "37196784022",
+    "37196811165",
+    "37196900729",
+    "37197708438",
+    "37199579960",
+    "37199589136",
+    "37228201907",
+    "37228564701",
+    "37230295724",
+    "37230639146",
+    "37230870756",
+    "37232374839",
+    "37233114987",
+    "37234681021",
+    "37234978002",
+    "37235771700",
+    "37237194905",
+    "37238469830",
+    "37239016858",
+    "37241493377",
+    "37242691913",
+    "37246213438",
+    "37246668414",
+    "37248168494",
+    "37248388404",
+    "37248650879",
+    "37250221023",
+    "37250545914",
+    "37250645386",
+    "37251015146",
+    "37251229631",
+    "37251358164",
+    "37251850439",
+    "37252022510",
+    "37252831019",
+    "37253679118",
+    "37254021038",
+    "37256076805",
+    "37256265663",
+    "37265273012",
+    "37266174921",
+    "37266371726",
+    "37278830943",
+    "37296674175",
+    "37324177668",
+    "37324423488",
+    "37327038121",
+    "37346036236",
+    "37346541110",
+    "37347305215",
+    "37349332448",
+    "37374409928",
+    "37375445479",
+    "37375586954",
+    "37376593071",
+    "37389946212",
+    "37394378126",
+    "37395241262",
+    "37397309034",
+    "37398521095",
+    "37413464119",
+    "37415996926",
+    "37416279318",
+    "37494809494",
+    "37504870257",
+    "37506300031",
+    "37507007764",
+    "37510319705",
+    "37512150975",
+    "37523820462",
+    "37540020229",
+    "37540144327",
+    "37541010145",
+    "37542732748",
+    "37543978473",
+    "37545094812",
+    "37545716546",
+    "37546366036",
+    "37559982334",
+    "37560420246",
+    "37564096977",
+    "37565786884",
+    "37640916778",
+    "37691104551",
+    "37691665506",
+    "37693401496",
+    "37694473528",
+    "37701124596",
+    "37707903246",
+    "37718098351",
+    "37728544941",
+    "37731666423",
+    "37734578981",
+    "37734678850",
+    "37734795948",
+    "37738679055",
+    "37739140797",
+    "37739365674",
+    "37739711591",
+    "37739845694",
+    "37739864688",
+    "37739923087",
+    "37740005194",
+    "37741231927",
+    "37741305367",
+    "37741434771",
+    "37742517444",
+    "37742917771",
+    "37743060710",
+    "37743622252",
+    "37744583272",
+    "37745729841",
+    "37747272797",
+    "37747282656",
+    "37749419367",
+    "37761125544",
+    "37762901988",
+    "37762951968",
+    "37766639989",
+    "37799081635",
+    "37801128025",
+    "37803230995",
+    "37803446927",
+    "37805183773",
+    "37810177756",
+    "37811045289",
+    "37812094929",
+    "37813893652",
+    "37816281826",
+    "37834873799",
+    "37887208552",
+    "37887677058",
+    "37888258971",
+    "37892285758",
+    "37892504905",
+    "37897476192",
+    "38009577313",
+    "38009751458",
+    "38077369614",
+    "38087167729",
+    "38087206509",
+    "38087752336",
+    "38089176598",
+    "38093707846",
+    "38093940617",
+    "38094956965",
+    "38095294863",
+    "38096225501",
+    "38097202777",
+    "38097643686",
+    "38097811247",
+    "38097941308",
+    "38098277242",
+    "38098894928",
+    "38099588461",
+    "38100216011",
+    "38100768977",
+    "38101113898",
+    "38101502677",
+    "38101616162",
+    "38102454452",
+    "38102657574",
+    "38103692513",
+    "38105628107",
+    "38106695235",
+    "38114482325",
+    "38114743865",
+    "38114753174",
+    "38115320223",
+    "38115388121",
+    "38115472535",
+    "38116231959",
+    "38130211171",
+    "38146252958",
+    "38149926651",
+    "38150794867",
+    "38151498909",
+    "38151698313",
+    "38152603302",
+    "38152625837",
+    "38152692645",
+    "38152760329",
+    "38153103642",
+    "38153201884",
+    "38153296624",
+    "38153330406",
+    "38153440113",
+    "38153468775",
+    "38153478324",
+    "38153524782",
+    "38153545779",
+    "38154139862",
+    "38154283169",
+    "38154299190",
+    "38154371839",
+    "38154587215",
+    "38155175678",
+    "38155221280",
+    "38156016740",
+    "38159532295",
+    "38159643806",
+    "38160879452",
+    "38161561304",
+    "38162103937",
+    "38165705267",
+    "38168912246",
+    "38186078591",
+    "38189716570",
+    "38190450074",
+    "38191930614",
+    "38210650474",
+    "38254994238",
+    "38292011452",
+    "38295240201",
+    "38304815896",
+    "38320765570",
+    "38335637302",
+    "38335683298",
+    "38336135754",
+    "38336400566",
+    "38336529808",
+    "38337974933",
+    "38339027571",
+    "38344574992",
+    "38345572852",
+    "38416346427",
+    "38416389781",
+    "38418037093",
+    "38421455413",
+    "38428252213",
+    "38439240685",
+    "38478095918",
+    "38478947158",
+    "38508804072",
+    "38512515424",
+    "38514180564",
+    "38518769031",
+    "38531754196",
+    "38604265113",
+    "38605448921",
+    "38624056266",
+    "38635247772",
+    "38637567300",
+    "38669096043",
+    "38669488941",
+    "38671593723",
+    "38673080757",
+    "38674274388",
+    "38725836286",
+    "38785477428",
+    "38800593092",
+    "38815098576",
+    "38817374062",
+    "38824819744",
+    "38827690901",
+    "38829062754",
+    "38829515637",
+    "38829994639",
+    "38832498886",
+    "38833122675",
+    "38835263541",
+    "38842124064",
+    "38864846669",
+    "38964584946",
+    "38964801793",
+    "38964995514",
+    "38965078377",
+    "38965221701",
+    "38965260163",
+    "38969798938",
+    "38969924945",
+    "38972920715",
+    "38973329985",
+    "38973338025",
+    "38973420671",
+    "38974669950",
+    "38975010169",
+    "38975560167",
+    "38975789267",
+    "38976253774",
+    "38976351570",
+    "38978531340",
+    "38978533724",
+    "38978745945",
+    "38979194128",
+    "38979925666",
+    "38980005793",
+    "38980008914",
+    "38980089002",
+    "38980452190",
+    "38980914399",
+    "38981388043",
+    "38981492840",
+    "38981523623",
+    "38981831429",
+    "38982033023",
+    "38982079721",
+    "38982609798",
+    "38982836813",
+    "38983306684",
+    "38983355048",
+    "38983422226",
+    "38983471330",
+    "38983723250",
+    "38983767702",
+    "38984904318",
+    "38984910364",
+    "38984977679",
+    "38985082997",
+    "38985111066",
+    "38985644097",
+    "38985800954",
+    "38986120559",
+    "38986222182",
+    "38986505512",
+    "38987526600",
+    "38987672759",
+    "38987773038",
+    "38987895421",
+    "38988823602",
+    "38988898707",
+    "38988927989",
+    "38989956807",
+    "38990111230",
+    "38990141270",
+    "38991706282",
+    "38991832658",
+    "38992787872",
+    "38992860354",
+    "38993076767",
+    "38994816769",
+    "38996100960",
+    "38996605130",
+    "38996899290",
+    "38997410828",
+    "38998005661",
+    "38999746202",
+    "39000951833",
+    "39001049596",
+    "39001107574",
+    "39001765726",
+    "39001816434",
+    "39002175316",
+    "39002269281",
+    "39003503204",
+    "39003571667",
+    "39004466422",
+    "39004497896",
+    "39005025976",
+    "39005664700",
+    "39006896632",
+    "39009803881",
+    "39010388987",
+    "39010883961",
+    "39011101113",
+    "39017702380",
+    "39044530662",
+    "39051148306"
+  ],
+  "cases": {
+    "auq-format-gate": {
+      "observations": 162,
+      "withCommands": 0,
+      "commands": [],
+      "costUsd": 0,
+      "costRuns": 110
+    },
+    "autoplan-guard-pty": {
+      "observations": 7,
+      "withCommands": 0,
+      "commands": [],
+      "costUsd": 0,
+      "costRuns": 89
+    },
+    "benchmark-workflow": {
+      "observations": 179,
+      "withCommands": 179,
+      "commands": [
+        "bin/gstack-ci-gate",
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-log",
+        "bin/gstack-decision-search",
+        "bin/gstack-diff-scope",
+        "bin/gstack-evidence",
+        "bin/gstack-issue-guard",
+        "bin/gstack-learnings-log",
+        "bin/gstack-next-version",
+        "bin/gstack-paths",
+        "bin/gstack-question-log",
+        "bin/gstack-question-preference",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-wtree",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "browse-basic": {
+      "observations": 158,
+      "withCommands": 158,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 106
+    },
+    "browse-snapshot": {
+      "observations": 158,
+      "withCommands": 158,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 106
+    },
+    "canary-workflow": {
+      "observations": 182,
+      "withCommands": 182,
+      "commands": [
+        "bin/gstack-ci-gate",
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-log",
+        "bin/gstack-decision-search",
+        "bin/gstack-diff-scope",
+        "bin/gstack-evidence",
+        "bin/gstack-issue-guard",
+        "bin/gstack-learnings-log",
+        "bin/gstack-next-version",
+        "bin/gstack-paths",
+        "bin/gstack-question-log",
+        "bin/gstack-question-preference",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-wtree",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "context-recovery-artifacts": {
+      "observations": 166,
+      "withCommands": 161,
+      "commands": [
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-search",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-remote-identity.sh",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-state-root.sh",
+        "bin/gstack-timeline-log",
+        "bin/gstack-timeline-read",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "context-restore-loads-latest": {
+      "observations": 167,
+      "withCommands": 162,
+      "commands": [
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-search",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-remote-identity.sh",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-state-root.sh",
+        "bin/gstack-timeline-log",
+        "bin/gstack-timeline-read",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 105
+    },
+    "context-save-writes-file": {
+      "observations": 166,
+      "withCommands": 161,
+      "commands": [
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-search",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-remote-identity.sh",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-state-root.sh",
+        "bin/gstack-timeline-log",
+        "bin/gstack-timeline-read",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "cso-diff-mode": {
+      "observations": 157,
+      "withCommands": 157,
+      "commands": [
+        "design/dist/design"
+      ],
+      "costUsd": 1.5371,
+      "costRuns": 91
+    },
+    "design-review-detector-shim": {
+      "observations": 174,
+      "withCommands": 174,
+      "commands": [
+        "bin/gstack-design-detect.ts",
+        "bin/gstack-redact",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 92
+    },
+    "design-review-detector-shim-dom": {
+      "observations": 170,
+      "withCommands": 170,
+      "commands": [
+        "bin/gstack-design-detect.ts",
+        "bin/gstack-redact",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "design-review-plugin-handoff": {
+      "observations": 162,
+      "withCommands": 162,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-design-detect.ts",
+        "bin/gstack-learnings-search",
+        "bin/gstack-redact",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "diagram-triplet": {
+      "observations": 141,
+      "withCommands": 0,
+      "commands": [],
+      "costUsd": 0,
+      "costRuns": 106
+    },
+    "docsync-spawned": {
+      "observations": 181,
+      "withCommands": 180,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 1.2246,
+      "costRuns": 107
+    },
+    "document-release": {
+      "observations": 155,
+      "withCommands": 155,
+      "commands": [
+        "bin/gstack-bun-version.sh",
+        "bin/gstack-codex-probe",
+        "bin/gstack-config",
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-log",
+        "bin/gstack-decision-search",
+        "bin/gstack-learnings-log",
+        "bin/gstack-next-version",
+        "bin/gstack-paths",
+        "bin/gstack-review-log",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-update-check",
+        "bin/gstack-upgrade",
+        "bin/gstack-version-bump",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "gstack-upgrade-happy-path": {
+      "observations": 157,
+      "withCommands": 156,
+      "commands": [
+        "bin/gstack-bun-version.sh",
+        "bin/gstack-config",
+        "bin/gstack-paths",
+        "bin/gstack-update-check",
+        "bin/gstack-upgrade"
+      ],
+      "costUsd": 0,
+      "costRuns": 117
+    },
+    "hermetic-canary": {
+      "observations": 167,
+      "withCommands": 167,
+      "commands": [],
+      "costUsd": 0.0127,
+      "costRuns": 101
+    },
+    "hermetic-sentinel": {
+      "observations": 167,
+      "withCommands": 167,
+      "commands": [],
+      "costUsd": 0.013,
+      "costRuns": 101
+    },
+    "investigate-owned-abort": {
+      "observations": 178,
+      "withCommands": 178,
+      "commands": [],
+      "costUsd": 0.2212,
+      "costRuns": 105
+    },
+    "investigate-owned-completion": {
+      "observations": 164,
+      "withCommands": 164,
+      "commands": [],
+      "costUsd": 0.2184,
+      "costRuns": 105
+    },
+    "investigate-owned-ending-error": {
+      "observations": 178,
+      "withCommands": 178,
+      "commands": [],
+      "costUsd": 0.2694,
+      "costRuns": 105
+    },
+    "land-and-deploy-first-run": {
+      "observations": 179,
+      "withCommands": 179,
+      "commands": [
+        "bin/gstack-ci-gate",
+        "bin/gstack-config",
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-log",
+        "bin/gstack-decision-search",
+        "bin/gstack-diff-scope",
+        "bin/gstack-evidence",
+        "bin/gstack-issue-guard",
+        "bin/gstack-learnings-log",
+        "bin/gstack-next-version",
+        "bin/gstack-paths",
+        "bin/gstack-question-log",
+        "bin/gstack-question-preference",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-wtree",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "land-and-deploy-review-gate": {
+      "observations": 175,
+      "withCommands": 175,
+      "commands": [
+        "bin/gstack-ci-gate",
+        "bin/gstack-config",
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-log",
+        "bin/gstack-decision-search",
+        "bin/gstack-diff-scope",
+        "bin/gstack-evidence",
+        "bin/gstack-issue-guard",
+        "bin/gstack-learnings-log",
+        "bin/gstack-next-version",
+        "bin/gstack-paths",
+        "bin/gstack-question-log",
+        "bin/gstack-question-preference",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-wtree",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 92
+    },
+    "land-and-deploy-workflow": {
+      "observations": 180,
+      "withCommands": 180,
+      "commands": [
+        "bin/gstack-ci-gate",
+        "bin/gstack-config",
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-log",
+        "bin/gstack-decision-search",
+        "bin/gstack-diff-scope",
+        "bin/gstack-evidence",
+        "bin/gstack-issue-guard",
+        "bin/gstack-learnings-log",
+        "bin/gstack-next-version",
+        "bin/gstack-paths",
+        "bin/gstack-question-log",
+        "bin/gstack-question-preference",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-wtree",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 92
+    },
+    "learnings-show": {
+      "observations": 168,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-context-recovery",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug"
+      ],
+      "costUsd": 0,
+      "costRuns": 105
+    },
+    "office-hours-auto-mode": {
+      "observations": 181,
+      "withCommands": 0,
+      "commands": [],
+      "costUsd": 0,
+      "costRuns": 108
+    },
+    "operational-learning": {
+      "observations": 155,
+      "withCommands": 155,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "plan-ceo-finding-floor": {
+      "observations": 199,
+      "withCommands": 197,
+      "commands": [
+        "bin/gstack-ceo-mode-handoff",
+        "bin/gstack-config",
+        "bin/gstack-context-recovery",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "browse/bin/remote-slug"
+      ],
+      "costUsd": 0,
+      "costRuns": 92
+    },
+    "plan-ceo-review": {
+      "observations": 59,
+      "withCommands": 59,
+      "commands": []
+    },
+    "plan-ceo-review-plan-mode": {
+      "observations": 166,
+      "withCommands": 166,
+      "commands": [
+        "bin/gstack-context-recovery",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "browse/bin/remote-slug"
+      ],
+      "costUsd": 0,
+      "costRuns": 109
+    },
+    "plan-design-review-no-ui-scope": {
+      "observations": 166,
+      "withCommands": 166,
+      "commands": [
+        "bin/gstack-design-detect.ts",
+        "bin/gstack-learnings-log",
+        "bin/gstack-redact",
+        "bin/gstack-skill-end",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 106
+    },
+    "plan-design-with-ui-scope": {
+      "observations": 183,
+      "withCommands": 183,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "plan-devex-finding-floor": {
+      "observations": 180,
+      "withCommands": 178,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-context-recovery",
+        "bin/gstack-question-log",
+        "bin/gstack-review-log",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "browse/bin/remote-slug",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "plan-devex-review-plan-mode": {
+      "observations": 161,
+      "withCommands": 0,
+      "commands": [],
+      "costUsd": 0,
+      "costRuns": 90
+    },
+    "plan-eng-coverage-audit": {
+      "observations": 179,
+      "withCommands": 178,
+      "commands": [],
+      "costUsd": 0.4321,
+      "costRuns": 111
+    },
+    "plan-mode-no-op": {
+      "observations": 180,
+      "withCommands": 0,
+      "commands": [],
+      "costUsd": 0,
+      "costRuns": 93
+    },
+    "plan-review-report": {
+      "observations": 183,
+      "withCommands": 100,
+      "commands": [
+        "bin/gstack-codex-probe",
+        "bin/gstack-config",
+        "bin/gstack-office-hours-review",
+        "bin/gstack-review-log"
+      ],
+      "costUsd": 0,
+      "costRuns": 111
+    },
+    "plan-tune-inspect": {
+      "observations": 168,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-developer-profile",
+        "bin/gstack-paths",
+        "bin/gstack-question-log",
+        "bin/gstack-question-preference",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-state-root.sh"
+      ],
+      "costUsd": 0,
+      "costRuns": 105
+    },
+    "qa-bootstrap": {
+      "observations": 174,
+      "withCommands": 173,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-qa-deadline",
+        "bin/gstack-qa-evidence",
+        "bin/gstack-slug",
+        "browse/bin/find-browse",
+        "browse/bin/remote-slug",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 108
+    },
+    "qa-functional-cli-fix": {
+      "observations": 159,
+      "withCommands": 158,
+      "commands": [
+        "bin/gstack-qa-evidence"
+      ],
+      "costUsd": 1.3402,
+      "costRuns": 106
+    },
+    "qa-functional-cli-report": {
+      "observations": 168,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-qa-evidence"
+      ],
+      "costUsd": 1.1367,
+      "costRuns": 106
+    },
+    "qa-functional-webhook-fix": {
+      "observations": 159,
+      "withCommands": 158,
+      "commands": [
+        "bin/gstack-qa-evidence"
+      ],
+      "costUsd": 1.4296,
+      "costRuns": 106
+    },
+    "qa-functional-webhook-report": {
+      "observations": 168,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-qa-evidence"
+      ],
+      "costUsd": 1.3103,
+      "costRuns": 106
+    },
+    "qa-only-no-fix": {
+      "observations": 174,
+      "withCommands": 174,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-qa-deadline",
+        "bin/gstack-qa-evidence",
+        "bin/gstack-slug",
+        "browse/bin/find-browse",
+        "browse/bin/remote-slug",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 92
+    },
+    "qa-quick": {
+      "observations": 174,
+      "withCommands": 174,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-qa-deadline",
+        "bin/gstack-qa-evidence",
+        "bin/gstack-slug",
+        "browse/bin/find-browse",
+        "browse/bin/remote-slug",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 92
+    },
+    "retro": {
+      "observations": 134,
+      "withCommands": 134,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-decision-search",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-retro-metrics",
+        "bin/gstack-slug",
+        "bin/gstack-state-root.sh"
+      ]
+    },
+    "retro-base-branch": {
+      "observations": 159,
+      "withCommands": 25,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-retro-metrics",
+        "bin/gstack-slug"
+      ],
+      "costUsd": 0,
+      "costRuns": 94
+    },
+    "review-army-delivery-audit": {
+      "observations": 177,
+      "withCommands": 177,
+      "commands": [
+        "bin/gstack-diff-scope",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-review-log",
+        "bin/gstack-specialist-stats"
+      ],
+      "costUsd": 0,
+      "costRuns": 95
+    },
+    "review-army-json-findings": {
+      "observations": 160,
+      "withCommands": 160,
+      "commands": [
+        "bin/gstack-diff-scope",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-review-log",
+        "bin/gstack-specialist-stats"
+      ],
+      "costUsd": 0,
+      "costRuns": 95
+    },
+    "review-army-migration-safety": {
+      "observations": 164,
+      "withCommands": 164,
+      "commands": [
+        "bin/gstack-diff-scope",
+        "bin/gstack-egress-lib.sh",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-review-log",
+        "bin/gstack-specialist-stats",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 95
+    },
+    "review-army-perf-n-plus-one": {
+      "observations": 165,
+      "withCommands": 165,
+      "commands": [
+        "bin/gstack-decision-search",
+        "bin/gstack-diff-scope",
+        "bin/gstack-egress-lib.sh",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-review-log",
+        "bin/gstack-specialist-stats",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 95
+    },
+    "review-army-quality-score": {
+      "observations": 160,
+      "withCommands": 160,
+      "commands": [
+        "bin/gstack-diff-scope",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-review-log",
+        "bin/gstack-specialist-stats"
+      ],
+      "costUsd": 0.3515,
+      "costRuns": 95
+    },
+    "review-base-branch": {
+      "observations": 168,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-diff-scope",
+        "bin/gstack-review-read"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "review-coverage-audit": {
+      "observations": 178,
+      "withCommands": 167,
+      "commands": [],
+      "costUsd": 0.4079,
+      "costRuns": 105
+    },
+    "review-dashboard-via": {
+      "observations": 168,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-diff-scope",
+        "bin/gstack-review-read"
+      ],
+      "costUsd": 0,
+      "costRuns": 93
+    },
+    "review-enum-completeness": {
+      "observations": 166,
+      "withCommands": 166,
+      "commands": [
+        "bin/gstack-decision-search",
+        "bin/gstack-review-log"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "review-exploratory-small-cli": {
+      "observations": 170,
+      "withCommands": 169,
+      "commands": [
+        "bin/gstack-codex-probe",
+        "bin/gstack-config",
+        "bin/gstack-diff-scope",
+        "bin/gstack-learnings-search",
+        "bin/gstack-qa-deadline",
+        "bin/gstack-qa-evidence",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-specialist-stats"
+      ],
+      "costUsd": 1.9457,
+      "costRuns": 115
+    },
+    "review-gate-integrity": {
+      "observations": 0,
+      "withCommands": 0,
+      "commands": [],
+      "costUsd": 0,
+      "costRuns": 81
+    },
+    "review-sql-injection": {
+      "observations": 168,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-decision-search",
+        "bin/gstack-review-log"
+      ],
+      "costUsd": 0,
+      "costRuns": 105
+    },
+    "review-test-value": {
+      "observations": 169,
+      "withCommands": 169,
+      "commands": [],
+      "costUsd": 0.6768,
+      "costRuns": 105
+    },
+    "safety-codex-consult-embed": {
+      "observations": 68,
+      "withCommands": 68,
+      "commands": [
+        "bin/gstack-codex-probe",
+        "bin/gstack-paths"
+      ],
+      "costUsd": 0.9964,
+      "costRuns": 91
+    },
+    "safety-pair-agent-block": {
+      "observations": 68,
+      "withCommands": 68,
+      "commands": [
+        "bin/gstack-config",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0.3055,
+      "costRuns": 91
+    },
+    "safety-ship-stale-evidence": {
+      "observations": 67,
+      "withCommands": 67,
+      "commands": [
+        "bin/gstack-ci-gate",
+        "bin/gstack-evidence",
+        "bin/gstack-slug",
+        "bin/gstack-wtree"
+      ],
+      "costUsd": 0.5915,
+      "costRuns": 91
+    },
+    "setup-deploy-workflow": {
+      "observations": 181,
+      "withCommands": 181,
+      "commands": [
+        "bin/gstack-ci-gate",
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-log",
+        "bin/gstack-decision-search",
+        "bin/gstack-diff-scope",
+        "bin/gstack-evidence",
+        "bin/gstack-issue-guard",
+        "bin/gstack-learnings-log",
+        "bin/gstack-next-version",
+        "bin/gstack-paths",
+        "bin/gstack-question-log",
+        "bin/gstack-question-preference",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-wtree",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 106
+    },
+    "shared-libs-read-only": {
+      "observations": 166,
+      "withCommands": 166,
+      "commands": [
+        "bin/gstack-safe-git",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0.786,
+      "costRuns": 92
+    },
+    "shared-libs-review-index-flags": {
+      "observations": 177,
+      "withCommands": 176,
+      "commands": [
+        "bin/gstack-review-log",
+        "bin/gstack-review-read"
+      ],
+      "costUsd": 2.4926,
+      "costRuns": 91
+    },
+    "shared-libs-review-lifecycle": {
+      "observations": 174,
+      "withCommands": 173,
+      "commands": [
+        "bin/gstack-egress-lib.sh",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read"
+      ],
+      "costUsd": 2.4643,
+      "costRuns": 92
+    },
+    "shared-libs-review-path-eligibility": {
+      "observations": 171,
+      "withCommands": 170,
+      "commands": [
+        "bin/gstack-review-log",
+        "bin/gstack-review-read"
+      ],
+      "costUsd": 3.9227,
+      "costRuns": 91
+    },
+    "shared-libs-review-prior-coverage": {
+      "observations": 164,
+      "withCommands": 164,
+      "commands": [
+        "bin/gstack-review-log",
+        "bin/gstack-review-read"
+      ],
+      "costUsd": 2.517,
+      "costRuns": 91
+    },
+    "shared-libs-review-revalidation": {
+      "observations": 174,
+      "withCommands": 171,
+      "commands": [
+        "bin/gstack-review-log",
+        "bin/gstack-review-read"
+      ],
+      "costUsd": 4.8033,
+      "costRuns": 92
+    },
+    "shared-libs-unsupported-git": {
+      "observations": 159,
+      "withCommands": 159,
+      "commands": [
+        "bin/gstack-safe-git",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0.5855,
+      "costRuns": 92
+    },
+    "ship-base-branch": {
+      "observations": 168,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-diff-scope",
+        "bin/gstack-review-read"
+      ],
+      "costUsd": 0,
+      "costRuns": 92
+    },
+    "ship-coverage-audit": {
+      "observations": 157,
+      "withCommands": 156,
+      "commands": [
+        "bin/gstack-bun-version.sh",
+        "bin/gstack-config",
+        "bin/gstack-paths",
+        "bin/gstack-slug",
+        "bin/gstack-update-check",
+        "bin/gstack-upgrade"
+      ],
+      "costUsd": 0.7746,
+      "costRuns": 107
+    },
+    "ship-coverage-value": {
+      "observations": 169,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-paths",
+        "bin/gstack-slug"
+      ],
+      "costUsd": 0.9375,
+      "costRuns": 107
+    },
+    "ship-docsync-completion": {
+      "observations": 152,
+      "withCommands": 151,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-session-kind",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 3.5392,
+      "costRuns": 110
+    },
+    "ship-docsync-current": {
+      "observations": 153,
+      "withCommands": 152,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-session-kind",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 3.2887,
+      "costRuns": 110
+    },
+    "ship-docsync-failure": {
+      "observations": 156,
+      "withCommands": 155,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 2.028,
+      "costRuns": 110
+    },
+    "ship-docsync-late-result": {
+      "observations": 170,
+      "withCommands": 168,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 0.9185,
+      "costRuns": 109
+    },
+    "ship-docsync-launch-failure": {
+      "observations": 154,
+      "withCommands": 153,
+      "commands": [
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 0.4608,
+      "costRuns": 110
+    },
+    "ship-docsync-missing-asset": {
+      "observations": 148,
+      "withCommands": 147,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 1.3017,
+      "costRuns": 109
+    },
+    "ship-docsync-missing-marker": {
+      "observations": 175,
+      "withCommands": 174,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 0.5063,
+      "costRuns": 110
+    },
+    "ship-docsync-recovery": {
+      "observations": 160,
+      "withCommands": 159,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 1.0055,
+      "costRuns": 110
+    },
+    "ship-docsync-stale-after": {
+      "observations": 172,
+      "withCommands": 171,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 1.1196,
+      "costRuns": 110
+    },
+    "ship-docsync-stale-before": {
+      "observations": 165,
+      "withCommands": 164,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 1.1591,
+      "costRuns": 110
+    },
+    "ship-docsync-store": {
+      "observations": 154,
+      "withCommands": 153,
+      "commands": [
+        "bin/gstack-docs-candidate",
+        "bin/gstack-session-kind",
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 3.5563,
+      "costRuns": 110
+    },
+    "ship-docsync-timeout-unsettled": {
+      "observations": 167,
+      "withCommands": 166,
+      "commands": [
+        "bin/gstack-skill-end",
+        "bin/gstack-skill-start"
+      ],
+      "costUsd": 0.5324,
+      "costRuns": 110
+    },
+    "ship-exploratory-late-input": {
+      "observations": 168,
+      "withCommands": 167,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-diff-scope",
+        "bin/gstack-learnings-search",
+        "bin/gstack-qa-deadline",
+        "bin/gstack-qa-evidence",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-specialist-stats"
+      ],
+      "costUsd": 2.1399,
+      "costRuns": 115
+    },
+    "ship-exploratory-plan-checks": {
+      "observations": 167,
+      "withCommands": 166,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-diff-scope",
+        "bin/gstack-learnings-search",
+        "bin/gstack-qa-deadline",
+        "bin/gstack-qa-evidence",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-specialist-stats"
+      ],
+      "costUsd": 1.8717,
+      "costRuns": 115
+    },
+    "ship-exploratory-small-cli": {
+      "observations": 171,
+      "withCommands": 170,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-diff-scope",
+        "bin/gstack-learnings-search",
+        "bin/gstack-qa-deadline",
+        "bin/gstack-qa-evidence",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-specialist-stats"
+      ],
+      "costUsd": 1.8332,
+      "costRuns": 115
+    },
+    "ship-exploratory-unavailable": {
+      "observations": 172,
+      "withCommands": 171,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-diff-scope",
+        "bin/gstack-learnings-search",
+        "bin/gstack-qa-deadline",
+        "bin/gstack-qa-evidence",
+        "bin/gstack-review-log",
+        "bin/gstack-review-read",
+        "bin/gstack-specialist-stats"
+      ],
+      "costUsd": 1.837,
+      "costRuns": 115
+    },
+    "ship-local-hook-preservation": {
+      "observations": 161,
+      "withCommands": 161,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-paths",
+        "bin/gstack-redact"
+      ],
+      "costUsd": 0.307,
+      "costRuns": 107
+    },
+    "ship-local-workflow": {
+      "observations": 157,
+      "withCommands": 156,
+      "commands": [
+        "bin/gstack-bun-version.sh",
+        "bin/gstack-config",
+        "bin/gstack-paths",
+        "bin/gstack-update-check",
+        "bin/gstack-upgrade"
+      ],
+      "costUsd": 0,
+      "costRuns": 107
+    },
+    "ship-managed-hook-refresh": {
+      "observations": 160,
+      "withCommands": 160,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-paths",
+        "bin/gstack-redact"
+      ],
+      "costUsd": 0.2737,
+      "costRuns": 107
+    },
+    "ship-skipped-queued-finding": {
+      "observations": 154,
+      "withCommands": 153,
+      "commands": [],
+      "costUsd": 0.6029,
+      "costRuns": 92
+    },
+    "ship-triage": {
+      "observations": 180,
+      "withCommands": 180,
+      "commands": [],
+      "costUsd": 0,
+      "costRuns": 92
+    },
+    "ship-unmanaged-hook-consent": {
+      "observations": 161,
+      "withCommands": 161,
+      "commands": [
+        "bin/gstack-config",
+        "bin/gstack-paths",
+        "bin/gstack-redact"
+      ],
+      "costUsd": 0.3538,
+      "costRuns": 107
+    },
+    "skillify-approval-reject": {
+      "observations": 186,
+      "withCommands": 175,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "bin/gstack-state-root.sh",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "skillify-happy-path": {
+      "observations": 186,
+      "withCommands": 175,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "bin/gstack-state-root.sh",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "skillify-provenance-refusal": {
+      "observations": 190,
+      "withCommands": 175,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "bin/gstack-state-root.sh",
+        "browse/dist/browse",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 108
+    },
+    "skillmd-no-local-binary": {
+      "observations": 155,
+      "withCommands": 155,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "skillmd-outside-git": {
+      "observations": 155,
+      "withCommands": 155,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 91
+    },
+    "skillmd-setup-discovery": {
+      "observations": 156,
+      "withCommands": 156,
+      "commands": [
+        "bin/gstack-learnings-log",
+        "browse/dist/browse"
+      ],
+      "costUsd": 0,
+      "costRuns": 117
+    },
+    "test-audit-report-only": {
+      "observations": 169,
+      "withCommands": 154,
+      "commands": [],
+      "costUsd": 0.9871,
+      "costRuns": 106
+    },
+    "timeline-event-flow": {
+      "observations": 166,
+      "withCommands": 161,
+      "commands": [
+        "bin/gstack-context-recovery",
+        "bin/gstack-decision-search",
+        "bin/gstack-learnings-log",
+        "bin/gstack-learnings-search",
+        "bin/gstack-paths",
+        "bin/gstack-remote-identity.sh",
+        "bin/gstack-skill-start",
+        "bin/gstack-slug",
+        "bin/gstack-state-root.sh",
+        "bin/gstack-timeline-log",
+        "bin/gstack-timeline-read",
+        "design/dist/design"
+      ],
+      "costUsd": 0,
+      "costRuns": 90
+    },
+    "tpa-absent-darwin": {
+      "observations": 184,
+      "withCommands": 180,
+      "commands": [],
+      "costUsd": 0.2257,
+      "costRuns": 91
+    },
+    "tpa-absent-linux": {
+      "observations": 185,
+      "withCommands": 185,
+      "commands": [],
+      "costUsd": 0.2243,
+      "costRuns": 106
+    },
+    "tpa-apple-ban": {
+      "observations": 184,
+      "withCommands": 149,
+      "commands": [],
+      "costUsd": 0.3062,
+      "costRuns": 91
+    },
+    "tpa-broken": {
+      "observations": 184,
+      "withCommands": 181,
+      "commands": [],
+      "costUsd": 0.2265,
+      "costRuns": 91
+    },
+    "tpa-present": {
+      "observations": 185,
+      "withCommands": 185,
+      "commands": [],
+      "costUsd": 0.2325,
+      "costRuns": 106
+    }
+  }
+}

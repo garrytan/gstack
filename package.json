@@ -50,6 +50,7 @@
     "eval:bg:gate": "bun run scripts/eval-bg.ts gate",
     "eval:bg:periodic": "bun run scripts/eval-bg.ts periodic",
     "test:health": "bun run scripts/test-health-report.ts",
+    "test:exercised-map": "bun run scripts/exercised-map.ts",
     "eval:list": "bun run scripts/eval-list.ts",
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",

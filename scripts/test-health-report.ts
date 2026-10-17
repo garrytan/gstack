@@ -228,6 +228,30 @@ export function collectHealth(inputs: HealthInputs): HealthReport {
       detail: modes.map(mode => { const list = entries.filter(entry => (modeOf.get(entry.run.id) ?? 'no manifest') === mode); return `${mode}: ${mean(list)} (${list.length} runs)`; }) };
   }));
 
+  metrics.push(metric('pr-shadow-map', 'Exercised-path map shadow (not active)', 'over evals.yml pull_request runs whose paid-plan manifest carries prCoverage.shadow: the predicted saving (map per-case known cost of dropped minus added cases; a lower bound, since known cost excludes PTY trials with unknown cost) and shadow drops of red cases (more executed failed than passed trials in the run, on a case the shadow would drop). A drop counts toward the D3 activation bar as a miss unless the case passed in a later run of the same branch at the same head SHA, which marks it a flaky drop. Scaled to 7 days; docs/TESTING_INTERNALS.md#exercised-path-map', () => {
+    const shadowed = need(prManifests).filter(({ manifest }) => manifest.prCoverage?.shadow && !manifest.prCoverage.shadow.error);
+    if (shadowed.length === 0) throw new Error('no paid-plan manifest with a prCoverage.shadow block in the window');
+    const records = prRecords instanceof Error ? [] : prRecords;
+    const executed = (trials: TrialRecord[], id: string, outcome: string) => trials.filter(record => record.case === id && record.execution === 'executed' && record.outcome === outcome).length;
+    const saving = shadowed.reduce((sum, { manifest }) => sum + (Number(manifest.prCoverage.shadow.predictedSavingUsd) || 0), 0);
+    const shares = shadowed.map(({ manifest }) => Number(manifest.prCoverage.shadow.unknownCostShare)).filter(share => Number.isFinite(share) && share > 0);
+    const misses: string[] = [];
+    const flaky: string[] = [];
+    for (const { run, manifest } of shadowed) {
+      const trials = records.find(entry => entry.run.id === run.id)?.trials ?? [];
+      for (const id of (manifest.prCoverage.shadow.wouldDrop ?? []) as string[]) {
+        if (executed(trials, id, 'failed') <= executed(trials, id, 'passed')) continue;
+        const laterPass = records.find(entry => entry.run.branch === run.branch && entry.run.sha === run.sha
+          && (entry.run.createdAt > run.createdAt || (entry.run.id === run.id && entry.run.attempt > run.attempt)) && executed(entry.trials, id, 'passed') > 0);
+        if (laterPass) flaky.push(`${run.id}:${id} (passed in run ${laterPass.run.id})`); else misses.push(`${run.id}:${id}`);
+      }
+    }
+    const week = 7 / sinceDays;
+    const bound = shares.length ? `a lower bound: known cost excludes the ${Math.round(100 * Math.max(...shares))}% of observed case runs with unknown cost (PTY)` : 'a lower bound: known cost excludes PTY trials with unknown cost';
+    return { value: `$${(saving * week).toFixed(2)} predicted saving/week (${bound}); ${(misses.length * week).toFixed(1)} activation miss(es)/week, ${flaky.length} flaky drop(s) not counted (${shadowed.length} runs)`,
+      detail: [...misses.slice(0, 20).map(miss => `shadow miss: ${miss}`), ...flaky.slice(0, 20).map(drop => `flaky drop: ${drop}`)] };
+  }));
+
   metrics.push(metric('pr-reused-trials', 'Reused PR trial records', 'trial-outcomes records with execution = reused across non-cancelled PR runs', () => {
     const all = need(prRecords).flatMap(entry => entry.trials);
     const reused = all.filter(record => record.execution === 'reused').length;
