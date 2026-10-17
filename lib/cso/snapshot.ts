@@ -68,6 +68,9 @@ export function sourceCapMessage(bytes: number, files: number): string {
 }
 /** Transformation recorded for a source path outside the start --paths prefixes; its payload is never copied or assessed. */
 export const OUTSIDE_AUDIT_PATHS = 'withheld: outside the --paths audit scope';
+/** Transformation recorded for a repository boundary Git listed as one entry: an untracked nested repository or a registered submodule gitlink. */
+export const NESTED_REPOSITORY =
+  'excluded: nested Git repository; Git listed it as a single boundary entry and never descends into it, so its own source and history are not audited with this repository';
 export function inAuditPaths(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
@@ -517,7 +520,12 @@ async function paths(
     for (const value of data.split('\0')) {
       admission.time();
       if (!value) continue;
-      seen.add(relativePath(value));
+      // `ls-files --others` reports a repository boundary as one entry with a
+      // trailing slash: an untracked nested repository that Git refuses to
+      // descend into. The path itself is the boundary, exactly like a
+      // registered submodule's gitlink, so record it under its own name
+      // instead of rejecting the whole run.
+      seen.add(relativePath(value.replace(/\/$/, '')));
       admission.count(seen.size);
     }
   const result = [...seen].sort();
@@ -643,6 +651,7 @@ export async function capture(
       gitHashes = new Map<string, string>(),
       gitModes = new Map<string, string>(),
       sensitiveEvidence: any[] = [],
+      boundaries = new Map<string, fs.Stats>(),
       absentPaths = new Set<string>();
     let total = 0;
     guard();
@@ -690,15 +699,35 @@ export async function capture(
     };
     for (const path of list) {
       guard();
-      let size: number;
+      let source: fs.Stats;
       try {
-        size = fs.lstatSync(join(repo, path)).size;
+        source = fs.lstatSync(join(repo, path));
       } catch (error: any) {
         if (error?.code === 'ENOENT') {
           absentPaths.add(path);
           continue;
         }
         throw error;
+      }
+      const size = source.size;
+      // A directory in Git's inventory is a repository boundary, not source:
+      // an untracked nested repository (listed with a trailing slash) or a
+      // registered submodule's gitlink. Git reports it as one entry and never
+      // descends, so its contents are not this repository's source. Record an
+      // explicit exclusion bound to the boundary's identity, exactly like a
+      // host dependency tree, instead of reading it or failing the run.
+      if (source.isDirectory()) {
+        boundaries.set(path, source);
+        entries.push({
+          path,
+          pathId: snapshotPathId(repo, path),
+          originalHash: 'not-read',
+          bytes: source.size,
+          mode: source.mode & 0o777,
+          transformation: NESTED_REPOSITORY,
+        });
+        guard();
+        continue;
       } // tracked deletions are represented by absence and the diff manifest
       // Host dependency trees and paths outside --paths aren't copied, assessed,
       // or counted toward the source cap. Their omission is still explicit.
@@ -807,6 +836,22 @@ export async function capture(
       for (const e of entries) {
         guard();
         if (e.originalHash === 'not-read') {
+          const boundary = boundaries.get(e.path);
+          if (boundary) {
+            // A nested repository is recorded by identity, never read: a
+            // swap, symlink or replacement directory fails the capture.
+            const current = fs.lstatSync(containedFile(repo, e.path));
+            if (
+              current.isSymbolicLink() ||
+              !current.isDirectory() ||
+              current.dev !== boundary.dev ||
+              current.ino !== boundary.ino ||
+              current.mode !== boundary.mode
+            )
+              throw new CsoError('SNAPSHOT_RACE', `${message}: ${e.path}`);
+            guard();
+            continue;
+          }
           const current = fs.lstatSync(containedFile(repo, e.path)),
             compared = gitHashes.get(e.path);
           if (
