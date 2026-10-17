@@ -183,7 +183,11 @@ function planVersions(o: RestampOptions, loaded: LoadedPolicy, policyLabel: stri
     try { q = JSON.parse(r.stdout ?? ''); } catch {}
     const usable = r.status === 0 && q && typeof q.version === 'string' && parseVersion(q.version) && (q.offline === false || q.fallback === 'git');
     newVersion = usable ? q.version : bumped(atBase.version, level);
-    claims = usable ? `read (claim-at-open; queue ${JSON.stringify(q.claimed ?? q.queue ?? [])})` : 'unverified (claim-at-open; gstack-next-version unusable, local arithmetic)';
+    const queue = JSON.stringify(q?.claimed ?? q?.queue ?? []);
+    const unknown = (Array.isArray(q?.unknown_claims) ? q.unknown_claims : []).map((n: unknown) => `#${n}`).join(', ') || 'some open PRs';
+    claims = !usable ? 'unverified (claim-at-open; gstack-next-version unusable, local arithmetic)'
+      : q.complete === false ? `incomplete (claim-at-open; the VERSION claims of PR ${unknown} are unknown, so ${q.version} is provisional and may collide; rerun, then ask the coordinator before stamping; queue ${queue})`
+      : `read (claim-at-open; queue ${queue})`;
   }
   // The branch's own tentative stamp: its VERSION when it moved past base; else nothing (mentions come from the lines it added).
   const branchStamp = oldVersion !== atBase.version ? oldVersion : null;

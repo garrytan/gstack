@@ -162,6 +162,30 @@ describe('three PRs, reordered twice, zero manual edits', () => {
     const forced = restamp(repo, ['--next', '--dry-run', '--queue-mode', 'stamp-at-merge']);
     expect(forced.out).toContain('claims: ignored (stamp-at-merge)');
   });
+
+  test('claim-at-open with an unknown claim says incomplete, names the PR and never says read', () => {
+    const repo = fixture({ policy: { ...BASE_POLICY, queue_mode: 'claim-at-open' }, prefix: 'gstack-restamp-github.com-' });
+    makePr(repo, 'pr-a');
+    const shim = path.join(repo.root, 'gh-unknown-claim');
+    fs.mkdirSync(shim);
+    const list = JSON.stringify([41, 42].map(n => ({ number: n, headRefName: `pr-${n}`, headRepositoryOwner: { login: 'o' }, url: `https://github.com/o/r/pull/${n}`, isDraft: false })));
+    fs.writeFileSync(path.join(shim, 'gh'), [
+      '#!/bin/sh',
+      'case "$*" in',
+      `  "pr list --state open --base main --limit 200 --json number,headRefName,headRepositoryOwner,url,isDraft") printf '%s\\n' '${list}'; exit 0 ;;`,
+      "  \"repo view --json owner -q .owner.login\") echo o; exit 0 ;;",
+      `  "api repos/{owner}/{repo}/contents/VERSION?ref=pr-41 -q .content") echo '${Buffer.from('1.2.5.0\n').toString('base64')}'; exit 0 ;;`,
+      "  \"api repos/{owner}/{repo}/contents/VERSION?ref=pr-42 -q .content\") echo 'gh: Server Error (HTTP 502)' >&2; exit 1 ;;",
+      'esac',
+      'exit 2',
+      '',
+    ].join('\n'), { mode: 0o755 });
+    const r = restamp(repo, ['--next', '--dry-run'], { PATH: `${shim}:${process.env.PATH ?? ''}` });
+    expect(r.status, r.err).toBe(EXIT.ok);
+    expect(r.out).toContain('STAMP_VERSION: 1.2.6.0');
+    expect(r.out).toContain('claims: incomplete (claim-at-open; the VERSION claims of PR #42 are unknown, so 1.2.6.0 is provisional and may collide; rerun, then ask the coordinator before stamping; queue [');
+    expect(r.out).not.toMatch(/^claims: read/m);
+  });
 });
 
 describe('journal and injected failures', () => {

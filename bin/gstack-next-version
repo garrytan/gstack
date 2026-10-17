@@ -6,7 +6,10 @@
 // slot at the requested bump level, and emits the whole picture as JSON.
 //
 // Contract: util NEVER writes files or mutates state. Pure reader + reporter.
-// /ship consumes the JSON and decides what to do.
+// /ship consumes the JSON and decides what to do. `unknown_claims` lists the
+// open PRs whose VERSION could not be read (a 15 s timeout or a non-404
+// failure): their claims are unknown, so the picked slot may collide, and
+// `complete` is false (a provisional pick, also said on stderr and in warnings).
 //
 // Usage:
 //   gstack-next-version --base <branch> --bump <major|minor|patch|micro> \
@@ -34,7 +37,7 @@
 //       empty, unreadable or malformed
 //   3 — util bug (unexpected exception)
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -84,10 +87,13 @@ type Output = {
   active_siblings: Sibling[];
   reason: string;
   warnings: string[];
+  unknown_claims: number[];
+  complete: boolean;
 };
 
 const ACTIVE_SIBLING_MAX_AGE_S = 24 * 60 * 60;
 const GH_API_CONCURRENCY = 10;
+const VERSION_FETCH_TIMEOUT_MS = 15000;
 
 // Collision resolution: bump past the highest claimed within the same level.
 // Semantics: if my bump is MINOR and the queue claims 1.7.0.0, I advance to
@@ -115,6 +121,33 @@ function runCommand(cmd: string, args: string[], timeoutMs = 15000): { ok: boole
     stdout: r.stdout ?? "",
     stderr: r.stderr ?? (r.error ? String(r.error) : ""),
   };
+}
+
+// Async twin of runCommand for the per-PR VERSION fetches, so GH_API_CONCURRENCY
+// workers really overlap. A fetch past timeoutMs is killed and settles at once
+// as timedOut, without waiting on output pipes a descendant may still hold.
+function runCommandAsync(cmd: string, args: string[], timeoutMs: number): Promise<{ ok: boolean; stdout: string; stderr: string; timedOut: boolean }> {
+  return new Promise((done) => {
+    let stdout = "";
+    let stderr = "";
+    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      child.stdout.destroy();
+      child.stderr.destroy();
+      done({ ok: false, stdout, stderr, timedOut: true });
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      done({ ok: false, stdout, stderr: stderr || String(error), timedOut: false });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      done({ ok: code === 0, stdout, stderr, timedOut: false });
+    });
+  });
 }
 
 // VERSION-path resolution for monorepos. Priority: CLI flag > .gstack/version-path
@@ -181,7 +214,13 @@ function readBaseVersion(base: string, versionPath: string, repoRoot: string, wa
   return v;
 }
 
-async function fetchGithubClaimed(base: string, versionPath: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
+async function fetchGithubClaimed(
+  base: string,
+  versionPath: string,
+  excludePR: number | null,
+  warnings: string[],
+  fetchTimeoutMs = VERSION_FETCH_TIMEOUT_MS,
+): Promise<{ claimed: ClaimedPR[]; offline: boolean; unknownClaims: number[] }> {
   const list = runCommand("gh", [
     "pr",
     "list",
@@ -196,7 +235,7 @@ async function fetchGithubClaimed(base: string, versionPath: string, excludePR: 
   ]);
   if (!list.ok) {
     warnings.push(`gh pr list failed: ${list.stderr.trim().slice(0, 200)}`);
-    return { claimed: [], offline: true };
+    return { claimed: [], offline: true, unknownClaims: [] };
   }
   let prs: {
     number: number;
@@ -209,7 +248,7 @@ async function fetchGithubClaimed(base: string, versionPath: string, excludePR: 
     prs = JSON.parse(list.stdout);
   } catch (e) {
     warnings.push(`gh pr list returned invalid JSON`);
-    return { claimed: [], offline: true };
+    return { claimed: [], offline: true, unknownClaims: [] };
   }
   // Determine our repo owner to filter out fork PRs. `gh api contents?ref=<branch>`
   // resolves to OUR repo regardless of where the PR originated, so fork PRs would
@@ -221,43 +260,56 @@ async function fetchGithubClaimed(base: string, versionPath: string, excludePR: 
     : prs
   ).filter((p) => excludePR === null || p.number !== excludePR);
   // Fetch each PR's VERSION at its head in parallel (bounded concurrency).
+  // Workers finish in any order, so claims and warnings are sorted by PR number.
   const results: ClaimedPR[] = [];
+  const prWarnings: { pr: number; text: string }[] = [];
+  const unknownClaims: number[] = [];
   const queue = [...sameRepoPRs];
   const workers = Array.from({ length: Math.min(GH_API_CONCURRENCY, sameRepoPRs.length) }, async () => {
     while (queue.length) {
       const pr = queue.shift();
       if (!pr) return;
+      const warn = (text: string) => prWarnings.push({ pr: pr.number, text: `PR #${pr.number}: ${text}` });
       // gh passes branch name via argv, not shell — safe.
       // encodeURI handles spaces in subproject paths (e.g. "Tinas Second Brain/...")
       // while leaving "/" untouched so the GitHub Contents API gets the path intact.
-      const content = runCommand("gh", [
+      const content = await runCommandAsync("gh", [
         "api",
         `repos/{owner}/{repo}/contents/${encodeURI(versionPath)}?ref=${encodeURIComponent(pr.headRefName)}`,
         "-q",
         ".content",
-      ]);
+      ], fetchTimeoutMs);
+      if (content.timedOut) {
+        unknownClaims.push(pr.number);
+        warn(`VERSION fetch timed out after ${fetchTimeoutMs / 1000} s; claim unknown, the slot may collide; rerun, then ask the coordinator`);
+        continue;
+      }
       if (!content.ok) {
-        warnings.push(
-          `PR #${pr.number}: could not fetch ${versionPath} (fork, private, or wrong path — try --version-path or .gstack/version-path)`,
-        );
+        if (/HTTP 404|Not Found/i.test(content.stderr)) {
+          warn(`could not fetch ${versionPath} (fork, private, or wrong path — try --version-path or .gstack/version-path)`);
+        } else {
+          unknownClaims.push(pr.number);
+          warn(`VERSION fetch failed (${content.stderr.trim().split("\n")[0]?.slice(0, 200) || "no error output"}); claim unknown, the slot may collide; rerun, then ask the coordinator`);
+        }
         continue;
       }
       let versionStr: string;
       try {
         versionStr = extractVersion(Buffer.from(content.stdout.trim(), "base64").toString("utf8"), versionPath);
       } catch {
-        warnings.push(`PR #${pr.number}: VERSION is not valid base64`);
+        warn("VERSION is not valid base64");
         continue;
       }
       if (!parseVersion(versionStr)) {
-        warnings.push(`PR #${pr.number}: VERSION is malformed (${versionStr})`);
+        warn(`VERSION is malformed (${versionStr})`);
         continue;
       }
       results.push({ pr: pr.number, branch: pr.headRefName, version: versionStr, url: pr.url });
     }
   });
   await Promise.all(workers);
-  return { claimed: results, offline: false };
+  warnings.push(...prWarnings.sort((a, b) => a.pr - b.pr).map((w) => w.text));
+  return { claimed: results.sort((a, b) => a.pr - b.pr), offline: false, unknownClaims: unknownClaims.sort((a, b) => a - b) };
 }
 
 async function fetchGitlabClaimed(base: string, versionPath: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
@@ -730,8 +782,9 @@ async function main() {
 
   let claimed: ClaimedPR[] = [];
   let offline = false;
+  let unknownClaims: number[] = [];
   if (host === "github") {
-    ({ claimed, offline } = await fetchGithubClaimed(args.base, versionPath, excludePR, warnings));
+    ({ claimed, offline, unknownClaims } = await fetchGithubClaimed(args.base, versionPath, excludePR, warnings));
   } else if (host === "gitlab") {
     ({ claimed, offline } = await fetchGitlabClaimed(args.base, versionPath, excludePR, warnings));
   } else {
@@ -789,6 +842,12 @@ async function main() {
     finalReason = `bumped past active sibling ${fmtVersion(highest, width)}`;
   }
 
+  const complete = unknownClaims.length === 0;
+  if (!complete) {
+    const provisional = `provisional pick: the VERSION claims of PR ${unknownClaims.map((n) => `#${n}`).join(", ")} are unknown, so ${fmtVersion(finalVersion, width)} is not a verified slot and may collide; rerun, then ask the coordinator before stamping`;
+    warnings.push(provisional);
+    console.error(`gstack-next-version: ${provisional}`);
+  }
   const out: Output = {
     version: fmtVersion(finalVersion, width),
     current_version: args.current || baseVersion,
@@ -803,6 +862,8 @@ async function main() {
     active_siblings: activeSiblings,
     reason: finalReason,
     warnings,
+    unknown_claims: unknownClaims,
+    complete,
   };
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
 }
@@ -811,7 +872,7 @@ async function main() {
 // from lib/version-source so existing importers of this module keep working
 // unchanged.
 export { parseVersion, fmtVersion, bumpVersion, cmpVersion, versionWidth, extractVersion };
-export { pickNextSlot, markActiveSiblings, resolveVersionPath, fetchGitClaimed };
+export { pickNextSlot, markActiveSiblings, resolveVersionPath, fetchGitClaimed, fetchGithubClaimed, VERSION_FETCH_TIMEOUT_MS };
 
 // Only run main() when invoked as a script, not when imported by tests.
 if (import.meta.main) {

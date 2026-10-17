@@ -187,6 +187,7 @@ the new defaults.
 | Run one free test file while repairing | `bun test <file>` | Free, seconds | Never bare `bun test` for the suite |
 | Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.2 |
 | Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY` |
+| Clear pregate's test tier on a machine under 8 cores ([remote gate](docs/pregate.md#remote-gate)) | `gstack-pregate --stage tests --remote --spend-cap 2 --timeout 2700 --allow-repo-commands` (same command keyed or keyless) | Keyed: one billed 16-vCPU VM, about 7 minutes and $0.06 for the whole free tier, worst case $0.38; keyless: free, local parallel shards, practical for small selections only (98 files took 103 s on 4 cores) | Keyed: `UBICLOUD_API_KEY`; keyless: nothing |
 | Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs) | Free | Windows, Git Bash |
 | Refresh the Windows duration seed | `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`, then commit the `free-test-durations-windows` artifact | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Run a native Windows or Dia qualification campaign | `gh workflow run native-qualification.yml --ref <branch> -f mode=<mode>` ([modes](docs/TESTING_INTERNALS.md#windows-free-lane)) | Free CI runners | Pushed branch, `gh` with workflow rights |

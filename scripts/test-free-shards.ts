@@ -73,6 +73,7 @@
  *   bun run scripts/test-free-shards.ts --wall-timeout 600         # override the kill deadline
  *   bun run scripts/test-free-shards.ts --verbose                  # forward the full child stream
  *   bun run scripts/test-free-shards.ts --quick                    # explicit fast subset, not acceptance
+ *   bun run scripts/test-free-shards.ts --files-from list.txt      # exactly these planned files (one per line)
  *   bun run scripts/test-free-shards.ts --attribute-home           # name real-home writers: each file alone, private HOME
  *   bun run scripts/test-free-shards.ts --ci-plan plan.json --shards 20
  *   bun run scripts/test-free-shards.ts --ci-run plan.json --shard 1 --result result.json
@@ -540,6 +541,7 @@ type CliOptions = {
   ciVerify: string | null;
   result: string | null;
   results: string | null;
+  filesFrom: string | null;
 };
 
 export function parseCliOptions(argv: string[]): CliOptions {
@@ -554,8 +556,8 @@ export function parseCliOptions(argv: string[]): CliOptions {
   let wallTimeoutExplicit = false;
   let quick = false;
   let attributeHome = false;
-  const paths: Record<'ciPlan' | 'ciRun' | 'ciVerify' | 'result' | 'results', string | null> = {
-    ciPlan: null, ciRun: null, ciVerify: null, result: null, results: null,
+  const paths: Record<'ciPlan' | 'ciRun' | 'ciVerify' | 'result' | 'results' | 'filesFrom', string | null> = {
+    ciPlan: null, ciRun: null, ciVerify: null, result: null, results: null, filesFrom: null,
   };
   const pathFlag = (flag: string, key: keyof typeof paths) => (next: () => string | undefined) => {
     const value = next();
@@ -576,6 +578,7 @@ export function parseCliOptions(argv: string[]): CliOptions {
     '--ci-verify': pathFlag('--ci-verify', 'ciVerify'),
     '--result': pathFlag('--result', 'result'),
     '--results': pathFlag('--results', 'results'),
+    '--files-from': pathFlag('--files-from', 'filesFrom'),
     '--shards': (next) => {
       const value = next();
       if (!value) throw new Error('Missing value for --shards');
@@ -595,11 +598,53 @@ export function parseCliOptions(argv: string[]): CliOptions {
   });
 
   const ciModes = [paths.ciPlan, paths.ciRun, paths.ciVerify].filter(Boolean).length;
+  if (paths.filesFrom && (quick || windowsOnly || listOnly || ciModes || recordDurations || attributeHome)) throw new Error('--files-from cannot be combined with --quick, --windows-only, --list, --record-durations, --attribute-home or the --ci-* modes');
   if (ciModes > 1 || (ciModes && (quick || listOnly || dryRun || recordDurations || attributeHome))) throw new Error('CI modes cannot be combined with other selection modes');
   if (paths.ciRun && (shardIndex === null || !paths.result)) throw new Error('--ci-run requires --shard and --result');
   if (paths.ciVerify && !paths.results) throw new Error('--ci-verify requires --results');
   if (quick && (recordDurations || windowsOnly || shardIndex !== null)) throw new Error('--quick cannot change recording, Windows or shard selection');
   return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths };
+}
+
+const describeLines = (lines: string[]) => `${lines.slice(0, 5).join(', ')}${lines.length > 5 ? ` (+${lines.length - 5} more)` : ''}`;
+
+/**
+ * `--files-from <path>`: one repo-relative path per line (LF or CRLF), blank
+ * lines ignored. Rejected before any planning: an unreadable file, a malformed
+ * or repeated line, an empty list, or a path outside the free planned set.
+ */
+export function readFilesFrom(file: string, planned: readonly string[]): string[] {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    throw new Error(`--files-from ${file}: cannot read it (${(error as NodeJS.ErrnoException).code ?? String(error)})`);
+  }
+  const files: string[] = [];
+  const malformed: string[] = [];
+  text.split(/\r?\n/).forEach((line, index) => {
+    if (line === '') return;
+    const segments = line.split('/');
+    if (line !== line.trim() || line.includes('\\') || line.startsWith('/') || /^[A-Za-z]:/.test(line)
+      || segments.some(segment => segment === '' || segment === '.' || segment === '..')) {
+      malformed.push(`line ${index + 1} ${JSON.stringify(line)}`);
+    } else if (files.includes(line)) {
+      malformed.push(`line ${index + 1} repeats ${line}`);
+    } else {
+      files.push(line);
+    }
+  });
+  if (malformed.length) throw new Error(`--files-from ${file}: ${malformed.length} malformed line(s): ${describeLines(malformed)}; fix: one repo-relative path per line (forward slashes, no surrounding spaces, no ./ or ../, no repeats)`);
+  if (!files.length) throw new Error(`--files-from ${file}: the list is empty (blank lines are ignored); nothing to run`);
+  const plannedSet = new Set(planned);
+  const unknown = files.filter(f => !plannedSet.has(f));
+  if (unknown.length) throw new Error(`--files-from ${file}: ${unknown.length} path(s) not in the free planned set: ${describeLines(unknown)}; fix: use paths from \`bun run scripts/test-free-shards.ts --list\``);
+  return files;
+}
+
+/** sha256 of the sorted list, one path per line: the digest a remote gate compares against its upload. */
+export function filesDigest(files: readonly string[]): string {
+  return createHash('sha256').update([...files].sort().map(f => `${f}\n`).join('')).digest('hex');
 }
 
 function formatShardSummary(shards: string[][]): string[] {
@@ -1887,6 +1932,10 @@ async function main(): Promise<number> {
   }
 
   let files = allFiles;
+  if (options.filesFrom) {
+    files = readFilesFrom(options.filesFrom, allFiles);
+    console.log(`[test:free] files-from ${options.filesFrom}: ${files.length} files, sha256=${filesDigest(files)}`);
+  }
   if (options.quick) {
     const missing = QUICK_CORE.filter(file => !allFiles.includes(file));
     if (missing.length) throw new Error(`Quick core files missing: ${missing.join(', ')}`);
@@ -2015,7 +2064,15 @@ async function main(): Promise<number> {
     outcomes.push(exclusiveOutcome);
   }
 
-  return Math.max(homeChange ? 1 : 0, (await retryFailedFreeFiles(outcomes, totalShards, options)).exitCode);
+  const exitCode = Math.max(homeChange ? 1 : 0, (await retryFailedFreeFiles(outcomes, totalShards, options)).exitCode);
+  if (options.filesFrom) {
+    // The machine-read result for a remote gate: tests from each shard's own summary; failed counts failing files, plus one per failed shard with none attributed.
+    const tests = outcomes.reduce((sum, outcome) => sum + (outcome.summary?.testsRan ?? 0), 0);
+    const failing = outcomes.filter(outcome => outcome.status !== 'passed');
+    const failed = exitCode === 0 ? 0 : Math.max(1, new Set(failing.flatMap(outcome => outcome.failingFiles)).size + failing.filter(outcome => !outcome.failingFiles.length).length);
+    console.log(`[test:free] FILES-FROM RESULT: files=${files.length} tests=${tests} failed=${failed} exit=${exitCode}`);
+  }
+  return exitCode;
 }
 
 /** Dirty generated artifacts (SKILL.md / host outputs) after a failed exclusive shard. */

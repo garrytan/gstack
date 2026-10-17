@@ -238,6 +238,62 @@ the supervision above. Close the obligation one of two ways:
   `spent, reserved, unknown`: a gate that prints no `spent=` is `unknown`,
   counted at the cap.
 
+gstack's own example: `.gstack/pregate.json` declares
+`"remote_gate": "bash scripts/ubicloud/pregate-remote.sh"`. With
+`UBICLOUD_API_KEY` set the script runs the selected files on one Ubicloud VM
+with `bun run test:ubicloud`'s environment, refuses before creating the VM when
+the cap cannot buy a 20-minute run at the size's list price (`UBI_SIZE`,
+default `standard-16`), checks the tree and the planned file set on the VM
+before any test runs, and reports `spent=` from billed minutes. Without a key
+it runs the same files locally in parallel shards
+(`test-free-shards.ts --files-from`) and reports `spent=0`, after a
+`backend=local (N cores; not the CI environment)` line. Paid test files in the
+selection (skill-e2e and the other paid globs in `test/helpers/paid-test-set.ts`)
+are named and left to the paid PR gate; a selection of only paid files reports
+`tests=0`, which never clears the obligation. The command is the same either way
+(`--remote` always needs a cap; the keyless path spends nothing).
+
+pregate kills the gate at its `--timeout` (default 600 s) with a 5 s grace, so
+the script finishes before that deadline: it reads the deadline from
+`PREGATE_TIMEOUT_S`, else from the `gstack-pregate` command it runs under (its
+`--timeout`, else 600), reserves 120 s for teardown plus 15 s margin, and tells
+the VM to stop at whichever comes first, that point or the cap's wall (at most
+45 minutes, minus 3 for teardown). A deadline that leaves the VM under 300 s
+refuses before any VM (`PREGATE_REMOTE_TIMEOUT_TOO_SHORT`). At create time it
+prints the VM's name and the exact
+`bash scripts/ubicloud/ubi-runner.sh down <name>` line to destroy it if the
+run is killed before its teardown line. The whole script is parsed before it
+runs, so editing it during a run changes nothing. `--timeout 2700` gives a
+whole-tier run room inside the 45-minute wall:
+
+```bash
+gstack-pregate --stage tests --remote --spend-cap 2 --timeout 2700 --allow-repo-commands
+```
+
+Measured (October 2026): keyed, all 1,280 free files on standard-16 took 404 s
+from start to teardown (create 24 s, setup 72 s, tests 250 s) for $0.06.
+Keyless on 4 cores, 98 files took 103 s, and GSTA-35's 798-file selection took
+3,550 s, so keyless is practical for small selections only. A large selection
+on a small machine needs a key, or a `--timeout` longer than the run. Keyless also runs in
+your environment, not CI's: a file that needs what setup-free-suite.sh installs
+(Playwright's Chromium, Xvfb) fails locally until you install it.
+
+Every refusal line starts with a reason code:
+
+| code | exit | meaning |
+|---|---|---|
+| `PREGATE_REMOTE_USAGE` | 2 | an input is missing or malformed; run it through `gstack-pregate --stage tests --remote` |
+| `PREGATE_REMOTE_TREE_MISMATCH` | 3 | the working tree is not `PREGATE_TREE`; nothing uploaded, nothing spent |
+| `PREGATE_REMOTE_TREE_MOVED` | 3 | the tree changed during the run (the moved paths are listed); no result reported |
+| `PREGATE_REMOTE_VM_TREE` | 3 | the VM's unpacked tree or planned file set differs from what was checked locally |
+| `PREGATE_REMOTE_NO_RESULT` | 1 | test-free-shards printed no result (a rejected file list) |
+| `PREGATE_REMOTE_PAID_ONLY` | 0 | every selected file is a paid test file; `tests=0` cannot clear |
+| `PREGATE_REMOTE_CAP_TOO_LOW` | 5 | the cap cannot buy a 20-minute run at the size's price; nothing created |
+| `PREGATE_REMOTE_NO_PRICE` | 5 | `UBI_SIZE` has no list price in the script |
+| `PREGATE_REMOTE_TIMEOUT_TOO_SHORT` | 5 | pregate's deadline leaves the VM under 300 s after the 135 s teardown reserve; nothing created |
+| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed; the VM, its teardown line and `spent=` follow |
+| `PREGATE_REMOTE_INTERRUPTED` | 130 | TERM or INT; ubi-runner tears the VM down on its own |
+
 <a id="guards"></a>
 ## Guards and the lane-done rule
 

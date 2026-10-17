@@ -19,6 +19,8 @@ import {
   markActiveSiblings,
   resolveVersionPath,
   fetchGitClaimed,
+  fetchGithubClaimed,
+  VERSION_FETCH_TIMEOUT_MS,
 } from "../bin/gstack-next-version";
 
 describe("parseVersion", () => {
@@ -1012,6 +1014,8 @@ describe("integration (smoke)", () => {
       expect(parsed.fallback).toBeNull();
       expect(parsed.warnings).toEqual([]);
       expect(parsed.claimed).toEqual([CLAIM]); // the canned PR's owner matches the canned repo owner
+      expect(parsed.complete).toBe(true);
+      expect(parsed.unknown_claims).toEqual([]);
       expect(parsed.version).toBe("1.6.5.0"); // the canned claim on 1.6.4.0 is skipped
     } finally {
       rmSync(stubDir, { recursive: true, force: true });
@@ -1215,5 +1219,162 @@ describe("no version source: one signal, never an invented slot (G1)", () => {
     expect(r.stdout).toBe("");
     expect(r.stderr).toContain("apps/web/package.json does not exist");
     expect(r.stderr).not.toContain("assuming");
+  }, 30_000);
+});
+
+// W2-A3 (fix wave 3): VERSION fetches run through async workers bounded at
+// GH_API_CONCURRENCY, each with a 15 s timeout; claims and warnings are sorted
+// by PR number, and a timed-out or failed fetch is an unknown claim. A named
+// fake `gh` first on PATH answers every call with a per-PR delay; the live
+// GitHub API is never called.
+describe("concurrent VERSION fetches (W2-A3)", () => {
+  const OWNER = "fixture-owner";
+  type FakePR = { pr: number; version?: string; delay: number; reply?: "404" | "502" | "malformed" };
+  const prBranch = (pr: number) => `fixture/pr-${pr}`;
+  const prUrl = (pr: number) => `https://github.com/${OWNER}/repo/pull/${pr}`;
+  const claim = (pr: number, version: string) => ({ pr, branch: prBranch(pr), version, url: prUrl(pr) });
+
+  function delayedGh(dir: string, prs: FakePR[]): string {
+    const flight = join(dir, "flight.log");
+    const list = JSON.stringify(prs.map((p) => ({ number: p.pr, headRefName: prBranch(p.pr), headRepositoryOwner: { login: OWNER }, url: prUrl(p.pr), isDraft: false })));
+    const reply = (p: FakePR) => {
+      if (p.reply === "404") return `echo 'gh: Not Found (HTTP 404)' >&2; exit 1`;
+      if (p.reply === "502") return `echo 'gh: Server Error (HTTP 502)' >&2; exit 1`;
+      const body = p.reply === "malformed" ? "not-a-version\n" : `${p.version}\n`;
+      return `echo '${Buffer.from(body).toString("base64")}'; exit 0`;
+    };
+    writeFileSync(join(dir, "gh"), [
+      "#!/bin/sh",
+      'case "$*" in',
+      `  "pr list --state open --base main --limit 200 --json number,headRefName,headRepositoryOwner,url,isDraft") printf '%s\\n' '${list}'; exit 0 ;;`,
+      `  "repo view --json owner -q .owner.login") echo '${OWNER}'; exit 0 ;;`,
+      ...prs.map((p) => `  "api repos/{owner}/{repo}/contents/VERSION?ref=${encodeURIComponent(prBranch(p.pr))} -q .content") echo + >> '${flight}'; sleep ${p.delay}; echo - >> '${flight}'; ${reply(p)} ;;`),
+      "esac",
+      'echo "FAKE_GH_UNHANDLED $*" >&2',
+      "exit 2",
+      "",
+    ].join("\n"), { mode: 0o755 });
+    return flight;
+  }
+
+  async function fetchWith(prs: FakePR[], fetchTimeoutMs?: number) {
+    const dir = mkdtempSync(join(tmpdir(), "nextver-concurrency-"));
+    const flight = delayedGh(dir, prs);
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${dir}:${savedPath ?? ""}`;
+    const warnings: string[] = [];
+    const started = performance.now();
+    try {
+      const result: { claimed: { pr: number }[]; offline: boolean; unknownClaims: number[] } = await fetchGithubClaimed("main", "VERSION", null, warnings, fetchTimeoutMs);
+      let running = 0;
+      let maxInFlight = 0;
+      for (const event of readFileSync(flight, "utf8").trim().split("\n")) {
+        running += event === "+" ? 1 : -1;
+        maxInFlight = Math.max(maxInFlight, running);
+      }
+      return { ...result, warnings, ms: performance.now() - started, maxInFlight };
+    } finally {
+      process.env.PATH = savedPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("8 PRs at 0.5 s each finish in under 2 s with every claim, sorted by PR number", async () => {
+    const r = await fetchWith([48, 41, 47, 42, 46, 43, 45, 44].map((pr) => ({ pr, version: `1.6.${pr}.0`, delay: 0.5 })));
+    expect(r.ms).toBeLessThan(2000); // gstack-timing-ok: the plan's contract (8 x 0.5 s serial took 4,160 ms)
+    expect(r.offline).toBe(false);
+    expect(r.claimed).toEqual([41, 42, 43, 44, 45, 46, 47, 48].map((pr) => claim(pr, `1.6.${pr}.0`)));
+    expect(r.warnings).toEqual([]);
+    expect(r.unknownClaims).toEqual([]);
+    expect(r.maxInFlight).toBeGreaterThan(1);
+  }, 30_000);
+
+  test("randomized delays give the same claims, warnings and unknown claims every run, within the concurrency bound", async () => {
+    let seed = 7;
+    const random = () => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed / 2 ** 31; };
+    const base: Omit<FakePR, "delay">[] = Array.from({ length: 14 }, (_, i) => ({ pr: 60 + i, version: `2.0.${i}.0` }));
+    base[2]!.reply = "404";
+    base[5]!.reply = "malformed";
+    base[9]!.reply = "502";
+    const runs = [];
+    for (let run = 0; run < 3; run++) runs.push(await fetchWith(base.map((p) => ({ ...p, delay: Number((random() * 0.3).toFixed(2)) }))));
+    for (const r of runs) {
+      expect(r.claimed).toEqual(runs[0]!.claimed);
+      expect(r.warnings).toEqual(runs[0]!.warnings);
+      expect(r.unknownClaims).toEqual([69]);
+      expect(r.maxInFlight).toBeLessThanOrEqual(10);
+    }
+    expect(runs[0]!.claimed.map((c) => c.pr)).toEqual([60, 61, 63, 64, 66, 67, 68, 70, 71, 72, 73]);
+    expect(runs[0]!.warnings).toEqual([
+      "PR #62: could not fetch VERSION (fork, private, or wrong path — try --version-path or .gstack/version-path)",
+      "PR #65: VERSION is malformed (not-a-version)",
+      "PR #69: VERSION fetch failed (gh: Server Error (HTTP 502)); claim unknown, the slot may collide; rerun, then ask the coordinator",
+    ]);
+  }, 60_000);
+
+  test("a timed-out fetch is killed, keeps its cause and counts as an unknown claim", async () => {
+    expect(VERSION_FETCH_TIMEOUT_MS).toBe(15000);
+    const r = await fetchWith([{ pr: 51, version: "1.7.1.0", delay: 0.1 }, { pr: 52, version: "1.7.2.0", delay: 10 }], 500);
+    expect(r.ms).toBeLessThan(5000); // gstack-timing-ok: the killed fetch must not wait out its 10 s sleeper
+    expect(r.claimed).toEqual([claim(51, "1.7.1.0")]);
+    expect(r.unknownClaims).toEqual([52]);
+    expect(r.warnings).toEqual(["PR #52: VERSION fetch timed out after 0.5 s; claim unknown, the slot may collide; rerun, then ask the coordinator"]);
+  }, 30_000);
+
+  function cliRepo(dir: string): string {
+    // A local origin whose path contains github.com pins host:"github" by the URL sniff, so no auth probe or network call runs.
+    const bare = join(dir, "github.com", "origin.git");
+    const work = join(dir, "work");
+    const git = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, timeout: 30_000 });
+    mkdirSync(bare, { recursive: true });
+    mkdirSync(work);
+    git(bare, "init", "-q", "--bare", "-b", "main");
+    git(work, "init", "-q", "-b", "main");
+    writeFileSync(join(work, "VERSION"), "1.6.3.0\n");
+    git(work, "add", "-A");
+    git(work, "commit", "-qm", "v1.6.3.0 chore: base");
+    git(work, "remote", "add", "origin", bare);
+    git(work, "push", "-q", "origin", "main");
+    return work;
+  }
+
+  test("a timed-out worker beside successful ones makes the pick provisional: complete false, on stderr and in warnings", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nextver-provisional-cli-"));
+    try {
+      delayedGh(dir, [{ pr: 91, version: "1.6.4.0", delay: 0 }, { pr: 92, version: "1.6.9.0", delay: 25 }, { pr: 93, version: "1.6.5.0", delay: 0.2 }]);
+      const proc = Bun.spawnSync(["bun", "run", join(import.meta.dir, "..", "bin", "gstack-next-version"), "--base", "main", "--bump", "patch",
+        "--current-version", "1.6.3.0", "--workspace-root", "null", "--exclude-pr", "999"],
+      { cwd: cliRepo(dir), timeout: 40_000, env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` } });
+      const out = JSON.parse(proc.stdout.toString());
+      expect(out.claimed.map((c: { pr: number }) => c.pr)).toEqual([91, 93]);
+      expect(out.unknown_claims).toEqual([92]);
+      expect(out.complete).toBe(false);
+      expect(out.version).toBe("1.6.6.0");
+      const provisional = "provisional pick: the VERSION claims of PR #92 are unknown, so 1.6.6.0 is not a verified slot and may collide; rerun, then ask the coordinator before stamping";
+      expect(out.warnings).toEqual(["PR #92: VERSION fetch timed out after 15 s; claim unknown, the slot may collide; rerun, then ask the coordinator", provisional]);
+      expect(proc.stderr.toString()).toContain(`gstack-next-version: ${provisional}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  test("the CLI JSON carries unknown_claims", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nextver-unknown-cli-"));
+    try {
+      delayedGh(dir, [{ pr: 81, version: "1.6.4.0", delay: 0 }, { pr: 82, delay: 0, reply: "502" }]);
+      const work = cliRepo(dir);
+      const proc = Bun.spawnSync(["bun", "run", join(import.meta.dir, "..", "bin", "gstack-next-version"), "--base", "main", "--bump", "patch",
+        "--current-version", "1.6.3.0", "--workspace-root", "null", "--exclude-pr", "999"],
+      { cwd: work, timeout: 30_000, env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` } });
+      const out = JSON.parse(proc.stdout.toString());
+      expect(out.host, proc.stderr.toString()).toBe("github");
+      expect(out.unknown_claims).toEqual([82]);
+      expect(out.complete).toBe(false);
+      expect(out.claimed.map((c: { pr: number }) => c.pr)).toEqual([81]);
+      expect(out.version).toBe("1.6.5.0");
+      expect(out.warnings).toContain("PR #82: VERSION fetch failed (gh: Server Error (HTTP 502)); claim unknown, the slot may collide; rerun, then ask the coordinator");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }, 30_000);
 });

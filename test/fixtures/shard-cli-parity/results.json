@@ -1,11 +1,12 @@
 {
-  "recordedFrom": "96764e80 (pre-engine base runners); paid lane re-recorded at v1.91.12.0 for the marathon tier and the --slice-budget, --max-parallel, --case and --trials flags (PR 2999); free lane re-recorded for the --attribute-home flag (PR 3014)",
+  "recordedFrom": "96764e80 (pre-engine base runners); paid lane re-recorded at v1.91.12.0 for the marathon tier and the --slice-budget, --max-parallel, --case and --trials flags (PR 2999); free lane re-recorded for the --attribute-home flag (PR 3014) and the --files-from flag (fix wave 3, W2-A3)",
   "free": [
     {
       "argv": [],
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": false,
           "windowsOnly": false,
@@ -33,6 +34,7 @@
       "result": {
         "ok": {
           "dryRun": true,
+          "filesFrom": null,
           "listOnly": true,
           "recordDurations": false,
           "windowsOnly": false,
@@ -59,6 +61,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": true,
           "recordDurations": false,
           "windowsOnly": true,
@@ -84,6 +87,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": true,
           "windowsOnly": false,
@@ -109,6 +113,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": false,
           "windowsOnly": false,
@@ -137,6 +142,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": false,
           "windowsOnly": false,
@@ -163,6 +169,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": false,
           "windowsOnly": false,
@@ -191,6 +198,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": false,
           "windowsOnly": false,
@@ -221,6 +229,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": false,
           "windowsOnly": false,
@@ -249,6 +258,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": false,
           "windowsOnly": false,
@@ -399,6 +409,7 @@
       "result": {
         "ok": {
           "dryRun": false,
+          "filesFrom": null,
           "listOnly": false,
           "recordDurations": false,
           "windowsOnly": false,
