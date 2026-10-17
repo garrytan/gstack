@@ -29,6 +29,12 @@ on:
         description: Record per-file Windows durations (artifact) instead of running the lane
         type: boolean
         default: false
+  # free-durations-record.yml calls the recording path weekly.
+  workflow_call:
+    inputs:
+      record_durations:
+        type: boolean
+        default: false
 
 concurrency:
   group: windows-free-${{ github.event.pull_request.number || github.run_id }}
@@ -231,15 +237,22 @@ jobs:
       # would leak into every timed test, and seed-reading tests would then read
       # the half-written recording instead of their fixtures.
       - name: Time every Windows-safe file alone
+        id: record
         shell: bash
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
-        run: bun run test:windows --record-durations --wall-timeout 1200
+        run: |
+          set -o pipefail
+          bun run test:windows --record-durations --wall-timeout 1200 2>&1 | tee "$RUNNER_TEMP/record.log"
       - name: Name the recording as the Windows seed
-        if: always()
+        id: seed
+        if: always() && steps.record.outcome != 'skipped'
         shell: bash
-        run: cp scripts/free-test-durations.json "$RUNNER_TEMP/free-test-durations-windows.json"
+        run: |
+          grep -q 'wrote [0-9]* durations to' "$RUNNER_TEMP/record.log" || { echo "::error::The recording was interrupted; no Windows seed to upload."; exit 1; }
+          cp scripts/free-test-durations.json "$RUNNER_TEMP/free-test-durations-windows.json"
+          sed -n '/failed while recording:/,$p' "$RUNNER_TEMP/record.log" | sed 's/\r$//' | { grep -E '^  ✗ [^ ]+$' || true; } | sed 's/^  ✗ //' > "$RUNNER_TEMP/record-failures.txt"
       - name: Upload full recording logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -251,8 +264,10 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: always()
+        if: always() && steps.seed.outcome == 'success'
         with:
           name: free-test-durations-windows
-          path: ${{ runner.temp }}/free-test-durations-windows.json
+          path: |
+            ${{ runner.temp }}/free-test-durations-windows.json
+            ${{ runner.temp }}/record-failures.txt
           if-no-files-found: error

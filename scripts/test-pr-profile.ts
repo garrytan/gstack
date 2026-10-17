@@ -230,6 +230,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/cso-runtime-qualification.yml',
   '.github/workflows/cso-scanner-images.yml',
   '.github/workflows/dependency-review.yml',
+  '.github/workflows/free-durations-record.yml',
   '.github/workflows/free-tests.yml',
   '.github/workflows/make-pdf-gate.yml',
   '.github/workflows/model-policy-freshness.yml',

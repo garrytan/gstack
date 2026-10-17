@@ -1164,10 +1164,11 @@ changed. Cut or unstarted reruns are incomplete, not passes.
 ### Free suite duration seed
 
 `scripts/free-test-durations.json` drives shard packing; files missing from it
-pack at the seed's 99th percentile. Acceptable seeds come only from
-`bun run test:ubicloud --record-durations` (each file timed in its own child on a
-VM with the CI lane's environment; it needs `UBICLOUD_API_KEY` and copies the
-refreshed seed back into the checkout). A 4-core laptop or small-sandbox
+pack at the seed's 99th percentile. Acceptable seeds come only from a recording
+in the CI lane's environment, each file timed in its own child: the weekly
+`free-durations-record.yml` run, or `bun run test:ubicloud --record-durations`
+(it needs `UBICLOUD_API_KEY` and copies the refreshed seed back into the
+checkout). A 4-core laptop or small-sandbox
 recording is not acceptable: browser and display tests skip or slow down there,
 so the seed misstates them. Contributors without `UBICLOUD_API_KEY` leave the
 refresh to a maintainer.
@@ -1188,6 +1189,20 @@ refresh to a maintainer.
   `{file, reason, todo}` and the test prints it. A merge-base without the
   allowlist file counts as the first allowlist. Fix a failure by splitting the
   file, then rerun `bun run test:ubicloud --record-durations`.
+- `free-durations-record.yml` (Mondays 04:00 UTC, before test-health, and on
+  dispatch) records the Linux seed on `ubicloud-standard-8` with
+  `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
+  `windows-free-tests.yml`'s `record_durations` path. When either recording adds
+  or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
+  opens or refreshes one seed PR whose body states the ratchet result, and
+  dispatches the free lanes on it. A file that fails while recording turns its
+  job red but keeps its duration, and the PR body names it; the seed PR's own
+  free checks decide whether the tree is healthy. An interrupted recording
+  uploads no seed, and more than 5 red files on either OS proposes nothing. The
+  bot never edits the allowlist: a ratchet failure is fixed on the branch by a
+  maintainer before the PR merges, and while the open seed PR holds any commit
+  besides the bot's one refresh commit, later runs leave it alone. Only runs on
+  `main` push the branch; a dispatch from another ref reports only.
 
 ### Windows free lane
 
@@ -1195,7 +1210,8 @@ refresh to a maintainer.
 runs one strict serial shard per `windows-latest` job
 (`bun run test:windows --ci-run`), and verifies every shard receipt on Linux
 (`--windows-only --ci-verify`). Packing uses Windows-measured durations from
-`scripts/free-test-durations-windows.json`; refresh them with
+`scripts/free-test-durations-windows.json`; the weekly
+`free-durations-record.yml` run refreshes them, or by hand run
 `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`,
 then download the `free-test-durations-windows` artifact and commit it.
 

@@ -23,8 +23,9 @@ const native = load('native-qualification.yml');
 const WINDOWS_CURATED_FLOOR = 638;
 
 test('the Windows lane plans, runs one strict shard per job and verifies every result', () => {
-  expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'workflow_dispatch']);
+  expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'workflow_call', 'workflow_dispatch']);
   expect(Object.keys(windows.on.workflow_dispatch.inputs)).toEqual(['record_durations']);
+  expect(Object.keys(windows.on.workflow_call.inputs)).toEqual(['record_durations']);
   const plan = windows.jobs['windows-plan'];
   expect(plan['runs-on']).toBe('ubuntu-24.04');
   const planStep = plan.steps.find((step: any) => step.id === 'plan');
@@ -62,15 +63,17 @@ test('a record_durations dispatch times each Windows-safe file alone and uploads
   expect(job.if).toBe('${{ inputs.record_durations }}');
   expect(job['runs-on']).toBe('windows-latest');
   const record = job.steps.find((step: any) => step.name === 'Time every Windows-safe file alone');
-  expect(record.run).toBe('bun run test:windows --record-durations --wall-timeout 1200');
+  expect(record.run).toBe('set -o pipefail\nbun run test:windows --record-durations --wall-timeout 1200 2>&1 | tee "$RUNNER_TEMP/record.log"\n');
   expect(record.env.GSTACK_FREE_TEST_DURATIONS).toBeUndefined();
   const rename = job.steps.find((step: any) => step.name === 'Name the recording as the Windows seed');
-  expect(rename.if).toBe('always()');
-  expect(rename.run).toBe('cp scripts/free-test-durations.json "$RUNNER_TEMP/free-test-durations-windows.json"');
+  expect(rename.if).toBe("always() && steps.record.outcome != 'skipped'");
+  expect(rename.run).toContain('grep -q \'wrote [0-9]* durations to\' "$RUNNER_TEMP/record.log" || {');
+  expect(rename.run).toContain('cp scripts/free-test-durations.json "$RUNNER_TEMP/free-test-durations-windows.json"');
   const logs = job.steps.find((step: any) => step.name === 'Upload full recording logs');
   expect(logs.if).toBe('always()');
   expect(logs.with['include-hidden-files']).toBe(true);
   expect(job.steps.at(-1).with.name).toBe('free-test-durations-windows');
+  expect(job.steps.at(-1).if).toBe("always() && steps.seed.outcome == 'success'");
 });
 
 test('Windows shards use the pinned Node runtime and retain complete logs on every run', () => {

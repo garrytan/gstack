@@ -1,0 +1,172 @@
+name: Free-suite duration seeds
+
+# Weekly standing recorder for the two free-suite duration seeds that the
+# shard packers read: scripts/free-test-durations.json (Linux, recorded on the
+# same ubicloud-standard-8 runner as the free-suite shards) and
+# scripts/free-test-durations-windows.json (windows-latest, through the
+# record_durations path of windows-free-tests.yml). When either recording adds
+# or drops a test file, it force-updates one bot branch and opens or refreshes
+# a seed PR. A file that fails while recording turns its job red but keeps its
+# duration (a red file is still a real cost) and is named in the PR body; an
+# interrupted recording, or more than 5 red files on either OS, proposes
+# nothing (docs/TESTING_INTERNALS.md#free-suite-duration-seed).
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # Monday 04:00 UTC, before the 10:00 test-health run
+  workflow_dispatch:
+    inputs:
+      open_pr:
+        description: Push the bot branch and open or refresh the seed PR (false records and reports only)
+        type: boolean
+        default: true
+
+concurrency:
+  group: free-durations-record
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubicloud-standard-8
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Prepare the same inputs as a free-suite shard
+        run: |
+          bash scripts/ubicloud/setup-free-suite.sh
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      - name: Time every free file alone
+        id: record
+        env:
+          GSTACK_EXPECT_BINARIES: '1'
+        run: |
+          set -o pipefail
+          xvfb-run -a bun run test:free --record-durations 2>&1 | tee "$RUNNER_TEMP/record.log"
+      - name: Keep the recording only when every file was timed
+        id: seed
+        if: always() && steps.record.outcome != 'skipped'
+        run: |
+          grep -q 'wrote [0-9]* durations to' "$RUNNER_TEMP/record.log" || { echo "::error::The recording was interrupted; no Linux seed to upload."; exit 1; }
+          mkdir -p "$RUNNER_TEMP/seed"
+          cp scripts/free-test-durations.json "$RUNNER_TEMP/seed/free-test-durations.json"
+          sed -n '/failed while recording:/,$p' "$RUNNER_TEMP/record.log" | sed 's/\r$//' | { grep -E '^  ✗ [^ ]+$' || true; } | sed 's/^  ✗ //' > "$RUNNER_TEMP/seed/record-failures.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: linux-record-durations-logs
+          path: .context/free-test-logs/gstack-free-test-*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always() && steps.seed.outcome == 'success'
+        with:
+          name: free-test-durations
+          path: ${{ runner.temp }}/seed/
+          if-no-files-found: error
+
+  windows:
+    uses: ./.github/workflows/windows-free-tests.yml
+    with:
+      record_durations: true
+
+  propose:
+    needs: [linux, windows]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: free-test-durations
+          path: ${{ runner.temp }}/linux
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: free-test-durations-windows
+          path: ${{ runner.temp }}/windows
+      - name: Open or refresh the seed PR when either seed's file set changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPEN_PR: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.open_pr) }}
+        run: |
+          set -euo pipefail
+          linux_failed=$(wc -l < "$RUNNER_TEMP/linux/record-failures.txt")
+          windows_failed=$(wc -l < "$RUNNER_TEMP/windows/record-failures.txt")
+          if [ "$linux_failed" -gt 5 ] || [ "$windows_failed" -gt 5 ]; then
+            echo "::error::$linux_failed Linux and $windows_failed Windows files failed while recording; more than 5 on either OS means a broken tree, so no seed is proposed."
+            exit 1
+          fi
+          failures() { if [ -s "$1" ]; then paste -sd, "$1" | sed 's/,/, /g'; else echo none; fi; }
+          drift() { # committed recorded -> "<added> <removed>"
+            jq -n --slurpfile old "$1" --slurpfile new "$2" \
+              '[($new[0].durations|keys) - ($old[0].durations|keys), ($old[0].durations|keys) - ($new[0].durations|keys)] | map(length) | join(" ")'
+          }
+          read -r linux_added linux_removed <<<"$(drift scripts/free-test-durations.json "$RUNNER_TEMP/linux/free-test-durations.json" | tr -d '"')"
+          read -r windows_added windows_removed <<<"$(drift scripts/free-test-durations-windows.json "$RUNNER_TEMP/windows/free-test-durations-windows.json" | tr -d '"')"
+          echo "Linux seed: +$linux_added -$linux_removed files; Windows seed: +$windows_added -$windows_removed files" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$((linux_added + linux_removed + windows_added + windows_removed))" -eq 0 ]; then
+            echo "Both seeds cover the current test files; no PR." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          cp "$RUNNER_TEMP/linux/free-test-durations.json" scripts/free-test-durations.json
+          cp "$RUNNER_TEMP/windows/free-test-durations-windows.json" scripts/free-test-durations-windows.json
+          if ratchet=$(GSTACK_FREE_SEED_BASE="$(git rev-parse HEAD)" bun test test/free-seed-ratchet.test.ts 2>&1); then
+            ratchet_line="passes"
+          else
+            ratchet_line="FAILS; a maintainer must split the named file or add an annotated allowlist entry on this branch before merge:"$'\n\n'"\`\`\`"$'\n'"$(printf '%s\n' "$ratchet" | sed -n -E '/Free seed ratchet|^- /p' | sed -n '1,20p')"$'\n'"\`\`\`"
+          fi
+          failed_line="Linux: $(failures "$RUNNER_TEMP/linux/record-failures.txt"); Windows: $(failures "$RUNNER_TEMP/windows/record-failures.txt")"
+          echo "Seed growth ratchet: $ratchet_line" >> "$GITHUB_STEP_SUMMARY"
+          echo "Failed while recording: $failed_line" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$OPEN_PR" != true ]; then
+            echo "Report only (open_pr=false, or a ref other than main): no branch pushed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch=bot/free-duration-seeds
+          subject="test(seed): refresh the free-suite duration seeds from the weekly recording"
+          number=$(gh pr list --head "$branch" --state open --json number -q '.[0].number // empty')
+          remote_head=
+          if git fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" 2>/dev/null; then
+            remote_head=$(git rev-parse "origin/$branch")
+          fi
+          if [ -n "$number" ] && [ -n "$remote_head" ] && [ "$(git log --format=%s "HEAD..$remote_head")" != "$subject" ]; then
+            echo "::warning::Seed PR #$number has commits besides the bot's one refresh commit; this run leaves them in place. Merge or close that PR and the next run refreshes the seeds." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git switch -C "$branch"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/free-test-durations.json scripts/free-test-durations-windows.json
+          git commit -m "$subject"
+          git push --force-with-lease="refs/heads/$branch:$remote_head" origin "HEAD:refs/heads/$branch"
+          cat > pr-body.md <<EOF
+          Weekly recording from run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID on $GITHUB_SHA.
+
+          - Linux seed (ubicloud-standard-8): +$linux_added / -$linux_removed files
+          - Windows seed (windows-latest): +$windows_added / -$windows_removed files
+          - Files that failed while recording (durations kept; this PR's own free checks decide): $failed_line
+          - Seed growth ratchet (60 s ceiling, shrink-only allowlist): $ratchet_line
+
+          Data only. Stamp and merge per docs/ship-policy.md; the stamp push runs the full PR checks.
+          EOF
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --body-file pr-body.md
+          else
+            gh pr create --base main --head "$branch" --title "test(seed): refresh the free-suite duration seeds" --body-file pr-body.md
+          fi
+          gh workflow run free-tests.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          gh workflow run windows-free-tests.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
