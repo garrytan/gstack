@@ -114,7 +114,7 @@ describe('paid/free dependency boundary', () => {
       expect(result.selection).toEqual({ e2e: [], judges: [] });
     }
     // Tracked files outside every mapping and outside the derivable directories restore the full gate.
-    for (const file of ['ETHOS.md', 'SECURITY.md', 'conductor.json', '.osv-scanner.toml']) {
+    for (const file of ['ETHOS.md', 'SECURITY.md', 'conductor.json', 'NOTICE.md']) {
       const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [FREE_ONLY_PR_FILES[0], file] });
       expect(result.coverage?.mode, file).toBe('full-fallback');
       expect(result.coverage?.unknownFiles).toContain(file);

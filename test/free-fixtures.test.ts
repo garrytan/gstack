@@ -85,7 +85,7 @@ describe('workflow inventory (CEO-20)', () => {
 
   test('the inventory rule also reads .yaml files', () => {
     expect(unknownFileLabel('.github/workflows/new-check.yaml').label).toBe('add to FREE_ONLY_PR_FILES');
-    expect(unknownFileLabel('.github/workflows/evals.yml').label).toBe('real unknown dependency');
+    expect(unknownFileLabel('.github/workflows/evals.yml').label).toBe('full-gate input');
   });
 });
 
@@ -111,7 +111,7 @@ describe('PR selection over the W1a single-file fallbacks', () => {
     const result = select(['.github/workflows/evals.yml']);
     expect(result.mode).toBe('full-fallback');
     expect(result.unknownFileLabels).toEqual([{ file: '.github/workflows/evals.yml', ...unknownFileLabel('.github/workflows/evals.yml') }]);
-    expect(result.reasons[0]).toContain('.github/workflows/evals.yml (real unknown dependency)');
+    expect(result.reasons[0]).toContain('.github/workflows/evals.yml (full-gate input)');
   });
 
   test('a mapped free fixture is exempt; a paid-registered fixture selects its cases; an unmapped one falls back', () => {

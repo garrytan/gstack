@@ -96,6 +96,93 @@ describe('reference derivation on a fixture tree', () => {
   });
 });
 
+describe('shebang files and import scan failures (A1-1)', () => {
+  const tree = (extra: Record<string, string> = {}) => fixtureRepo({
+    'test/skill-e2e-alpha.test.ts': "import '../lib/entry';\n", 'test/skill-e2e-beta.test.ts': '',
+    'lib/entry.ts': '#!/usr/bin/env bun\nimport { y } from \'./typed\';\nexport const x = y;\n',
+    'lib/typed.ts': 'export const y = <T,>(v: T) => v as unknown as T;\nimport \'./typed-dep\';\n', 'lib/typed-dep.ts': '',
+    'alpha/SKILL.md.tmpl': 'Run `gstack-sb`.\n', 'bin/gstack-sb': '#!/usr/bin/env -S bun run\nimport { z } from \'../lib/sb-dep\';\n', 'lib/sb-dep.ts': '',
+    'bin/gstack-sh': '#!/bin/sh\nimport ../lib/sh-only.ts\n', 'lib/sh-only.ts': '',
+    'scripts/build.sh': '', 'scripts/resolvers/index.ts': '', 'package.json': '{}', ...extra,
+  });
+  const maps = { e2eTouchfiles: { alpha: ['test/skill-e2e-alpha.test.ts', 'alpha/**'], beta: ['test/skill-e2e-beta.test.ts'] }, judgeTouchfiles: {}, globalTouchfiles: [] as string[] };
+  const profileMaps = { ...maps, tiers: { alpha: 'gate', beta: 'gate' } as const };
+  const pick = (derived: ReturnType<typeof deriveDependencies>, changedFiles: string[]) =>
+    selectPrProfile({ maps: profileMaps, profile: [], selectedE2E: [], selectedJudges: [], changedFiles, derived });
+
+  test('a shebang .ts file, a bun-shebang extensionless bin and a .ts generic arrow are all import-scanned', () => {
+    const derived = deriveDependencies(maps, tree());
+    expect([...derived.e2e.get('lib/typed.ts') ?? []]).toEqual(['alpha']);
+    expect([...derived.e2e.get('lib/typed-dep.ts') ?? []]).toEqual(['alpha']);
+    expect([...derived.e2e.get('lib/sb-dep.ts') ?? []]).toEqual(['alpha']);
+    expect(derived.e2e.get('lib/sh-only.ts')).toBeUndefined();
+    expect(derived.scanErrors.size).toBe(0);
+    expect(pick(derived, ['lib/sb-dep.ts'])).toMatchObject({ mode: 'dependents', e2e: ['alpha'] });
+  });
+
+  test('lib/fs-utils.ts selects the cases of bin/gstack-redact-prepush, which imports it', () => {
+    const bin = gate.filter(id => real.e2e.get('bin/gstack-redact-prepush')?.has(id));
+    expect(bin.length).toBeGreaterThan(0);
+    const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['lib/fs-utils.ts'], packageVersionOnly: true });
+    expect(result.coverage?.mode).toBe('dependents');
+    for (const id of bin) expect(result.selection.e2e, id).toContain(id);
+    expect(real.scanErrors.size).toBe(0);
+    expect(real.global.has('test/helpers/bootstrap-retention.ts')).toBe(true);
+  });
+
+  test('any other scan error fails closed at every site: case closures, the global walk and deleted-file referencers', () => {
+    const broken = "import { from './nowhere';\n";
+    const inClosure = deriveDependencies(maps, tree({ 'lib/typed-dep.ts': broken }));
+    expect([...inClosure.scanErrors.keys()]).toEqual(['lib/typed-dep.ts']);
+    const closed = pick(inClosure, ['lib/sb-dep.ts']);
+    expect(closed).toMatchObject({ mode: 'full-fallback', e2e: ['alpha', 'beta'], unknownFiles: ['lib/sb-dep.ts'] });
+    expect(closed.unknownFileLabels[0]).toMatchObject({ label: 'import scan failed' });
+    expect(closed.unknownFileLabels[0]!.fix).toContain('lib/typed-dep.ts');
+
+    const inGlobal = deriveDependencies({ ...maps, globalTouchfiles: ['lib/runner.ts'] }, tree({ 'lib/runner.ts': broken }));
+    expect([...inGlobal.scanErrors.keys()]).toEqual(['lib/runner.ts']);
+    expect(pick(inGlobal, ['lib/sb-dep.ts']).mode).toBe('full-fallback');
+
+    const unreached = deriveDependencies(maps, tree({ 'lib/orphan.ts': broken }));
+    expect(unreached.scanErrors.size).toBe(0);
+    expect(pick(unreached, ['lib/gone.ts'])).toMatchObject({ mode: 'full-fallback', unknownFiles: ['lib/gone.ts'] });
+    expect([...unreached.scanErrors.keys()]).toEqual(['lib/orphan.ts']);
+  });
+});
+
+describe('safe classification (A1-2)', () => {
+  test('capy/support.env derives to the bins that read it instead of restoring the full gate', () => {
+    for (const bin of ['bin/gstack-install-verdict.sh', 'bin/gstack-doctor-check.sh']) {
+      for (const id of real.e2e.get(bin) ?? []) expect(real.e2e.get('capy/support.env')?.has(id), `${bin} ${id}`).toBe(true);
+    }
+    const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['capy/support.env'], packageVersionOnly: true });
+    expect(result.coverage?.unknownFiles).toEqual([]);
+    expect(result.coverage?.mode).toBe('dependents');
+    expect(DERIVABLE_PREFIXES).toContain('capy/');
+  });
+
+  test('repository config read only by free lanes or GitHub stays in the PR profile', () => {
+    const files = ['.github/dependabot.yml', '.osv-scanner.toml', 'setup.ps1', '.gitlab-ci.yml', '.github/ISSUE_TEMPLATE/bug_report.md', '.gstack/ship-policy.example.json'];
+    for (const file of files) expect(real.tracked.has(file), file).toBe(true);
+    const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: files, packageVersionOnly: true });
+    expect(result.coverage?.mode).toBe('pr');
+    expect(result.selection).toEqual({ e2e: [], judges: [] });
+  });
+
+  test('a full-gate file is never labelled a real unknown dependency', () => {
+    for (const file of ['.github/workflows/evals.yml', 'test-setup.ts', '.gitattributes']) {
+      const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [file], packageVersionOnly: true });
+      expect(result.coverage?.mode, file).toBe('full-fallback');
+      for (const label of result.coverage!.unknownFileLabels) {
+        expect(label.label, file).toBe('full-gate input');
+        expect(label.fix).toContain('PR_FULL_GATE_FILES');
+      }
+      expect(unknownFileLabel(file).label).toBe('full-gate input');
+    }
+    expect(unknownFileLabel('ETHOS.md').label).toBe('real unknown dependency');
+  });
+});
+
 describe('derived dependencies of this checkout', () => {
   test('a bin script a skill template invokes selects that skill\'s cases', () => {
     const consumers = real.e2e.get('bin/gstack-next-version') ?? new Set();

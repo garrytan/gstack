@@ -50,6 +50,12 @@ export interface DerivedDependencies {
   /** The reference chain from an E2E case's declared inputs to `file` (for fix text and audits), else null. */
   trace(caseId: string, file: string): string[] | null;
   /**
+   * Files whose import scan failed for a reason other than a leading `#!`
+   * line (their imports are unknown). PR selection restores the full gate
+   * while this is non-empty; it fills as the derivation reads files.
+   */
+  scanErrors: Map<string, string>;
+  /**
    * Tracked files whose reference text still names `missing`, a path absent
    * from the tree (deleted in the diff): its path or extensionless import
    * target, a relative import resolving to it, its bin name, an ancestor
@@ -60,8 +66,10 @@ export interface DerivedDependencies {
 }
 
 const CODE = /\.(?:[cm]?[jt]s|tsx|jsx)$/;
+/** An extensionless script Bun or Node runs: its imports are code, not shell. */
+const CODE_SHEBANG = /^#![^\n]*\b(?:bun|node)\b/;
 const TEXT = /\.(?:[cm]?[jt]s|tsx|jsx|sh|md|tmpl|json|ya?ml|toml|txt|py)$/;
-const REPO_PATH = /(?:^|[^\w.@-])((?:bin|lib|scripts|browse|design|make-pdf|hosts|extension|model-overlays|agents|test\/helpers|test\/fixtures)\/[\w.@-]+(?:\/[\w.@-]+)*)/g;
+const REPO_PATH = /(?:^|[^\w.@-])((?:bin|lib|scripts|browse|design|make-pdf|hosts|extension|model-overlays|agents|capy|test\/helpers|test\/fixtures)\/[\w.@-]+(?:\/[\w.@-]+)*)/g;
 /** `path.join(ROOT, 'lib', 'x.ts')`: a top-level directory and its entry as separate string literals. */
 const JOINED_PATH = /['"`](bin|lib|scripts|browse|design|make-pdf|hosts|extension|model-overlays|agents)['"`]\s*,\s*['"`]([\w.@-]+)['"`]/g;
 const BIN_NAME = /\bgstack-[a-z0-9][a-z0-9-]*[a-z0-9]\b/g;
@@ -85,7 +93,26 @@ export const SELECTION_DATA_MODULES: readonly string[] = [
 ];
 const DEFAULT_JUDGE_OWNER = 'test/skill-llm-eval.test.ts';
 
-const transpiler = new Bun.Transpiler({ loader: 'tsx' });
+const transpilers = {
+  ts: new Bun.Transpiler({ loader: 'ts' }), tsx: new Bun.Transpiler({ loader: 'tsx' }),
+  js: new Bun.Transpiler({ loader: 'js' }), jsx: new Bun.Transpiler({ loader: 'jsx' }),
+};
+
+/** Code by extension, or an extensionless file whose shebang runs Bun or Node. */
+export function isCodeFile(file: string, text: string): boolean {
+  return CODE.test(file) || (!/\.[^/]+$/.test(path.posix.basename(file)) && CODE_SHEBANG.test(text));
+}
+
+/**
+ * Relative import specifiers of a code file. A leading `#!` line is blanked
+ * first (`scanImports` rejects it), and each extension gets its own loader
+ * (the TSX loader misreads `.ts` generics and casts). Any other parse error
+ * throws, so callers fail closed.
+ */
+export function scanCodeImports(file: string, text: string): string[] {
+  const loader = /\.tsx$/.test(file) ? 'tsx' : /\.jsx$/.test(file) ? 'jsx' : /\.[cm]?js$/.test(file) ? 'js' : 'ts';
+  return transpilers[loader].scanImports(text.replace(/^#![^\n]*/, '')).map(item => item.path);
+}
 
 /**
  * Text a reference scan reads: whole-line comments are prose about other
@@ -168,15 +195,17 @@ export function deriveDependencies(maps: DependencyMaps, root: string): DerivedD
   };
   const dirs = new Set(tracked.flatMap(file => file.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'))));
 
+  const scanErrors = new Map<string, string>();
+  const importsOf = (file: string): string[] => {
+    try { return scanCodeImports(file, read(file)); } catch (error) { scanErrors.set(file, String(error)); return []; }
+  };
   const edges = new Map<string, string[]>();
   const refs = (file: string): string[] => {
     if (edges.has(file)) return edges.get(file)!;
     const raw = read(file);
     const text = (SELECTION_DATA_MODULES as readonly string[]).includes(file) ? '' : referenceText(file, raw);
     const out = new Set<string>();
-    if (CODE.test(file)) {
-      try { for (const item of transpiler.scanImports(raw)) { const hit = resolveSpecifier(root, item.path, file); if (hit) out.add(hit); } } catch { /* literal scan below still applies */ }
-    }
+    if (isCodeFile(file, raw)) for (const specifier of importsOf(file)) { const hit = resolveSpecifier(root, specifier, file); if (hit) out.add(hit); }
     for (const match of text.matchAll(REPO_PATH)) {
       const ref = match[1]!.replace(/[.]+$/, '');
       if (trackedSet.has(ref)) out.add(ref);
@@ -238,19 +267,17 @@ export function deriveDependencies(maps: DependencyMaps, root: string): DerivedD
     const file = pending.pop()!;
     if (global.has(file)) continue;
     global.add(file);
-    if (!CODE.test(file)) continue;
-    try { for (const item of transpiler.scanImports(read(file))) { const hit = resolveSpecifier(root, item.path, file); if (hit && !global.has(hit)) pending.push(hit); } } catch { /* unparseable: its own entry stays global */ }
+    if (!isCodeFile(file, read(file))) continue;
+    for (const specifier of importsOf(file)) { const hit = resolveSpecifier(root, specifier, file); if (hit && !global.has(hit)) pending.push(hit); }
   }
   const importTargets = new Map<string, string[]>();
   const targetsOf = (file: string): string[] => {
     if (!importTargets.has(file)) {
       const targets: string[] = [];
-      if (CODE.test(file) && !(SELECTION_DATA_MODULES as readonly string[]).includes(file)) {
-        try {
-          for (const item of transpiler.scanImports(read(file))) {
-            if (item.path.startsWith('.')) targets.push(path.posix.normalize(path.posix.join(path.posix.dirname(file), item.path)));
-          }
-        } catch { /* literal mentions below still apply */ }
+      if (isCodeFile(file, read(file)) && !(SELECTION_DATA_MODULES as readonly string[]).includes(file)) {
+        for (const specifier of importsOf(file)) {
+          if (specifier.startsWith('.')) targets.push(path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier)));
+        }
       }
       importTargets.set(file, targets);
     }
@@ -287,7 +314,7 @@ export function deriveDependencies(maps: DependencyMaps, root: string): DerivedD
     while (parents.has(chain[0]!)) chain.unshift(parents.get(chain[0]!)!);
     return chain;
   };
-  return { e2e, judges: consumers(maps.judgeTouchfiles, DEFAULT_JUDGE_OWNER), everyCase, global, tracked: trackedSet, trace, referencers };
+  return { e2e, judges: consumers(maps.judgeTouchfiles, DEFAULT_JUDGE_OWNER), everyCase, global, tracked: trackedSet, trace, referencers, scanErrors };
 }
 
 const cache = new Map<string, DerivedDependencies>();

@@ -216,6 +216,12 @@ export const FREE_ONLY_PR_FILES = [
   '.gstack/generated.json', // gstack's own regen registry: gstack-regen/gstack-pregate read it from origin/<base> of the repo they run in; paid cases run in fixture repos.
   '.gstack/pregate.json', // gstack's own pre-gate policy: same trust boundary, same reason.
   '.gstack/ship-policy.json', // gstack's own ship policy: gstack-ship-policy/gstack-restamp read it from origin/<base> of the repo they run in; same reason.
+  '.gstack/ship-policy.example.json', // The example beside it: only .gitignore and docs/ship-policy.md name it.
+  '.github/dependabot.yml', // Dependabot's own config: read by GitHub, and by free test/compare-pr-version.test.ts; dependabot runs skip the paid lane.
+  '.osv-scanner.toml', // Read by .github/workflows/osv-scanner.yml and the free OSV tests (test/osv-*.test.ts).
+  'setup.ps1', // The Windows installer: run only by .github/workflows/windows-setup-e2e.yml; the paid lane is Linux.
+  '.gitlab-ci.yml', // gstack's own GitLab config: skills probe the fixture repo's .gitlab-ci.yml, never this one.
+  '.github/ISSUE_TEMPLATE/**', // Issue templates: read by GitHub and free test/gstack-doctor.test.ts.
   'scripts/retired-command.ts', // One-release stubs for retired package scripts; no paid case imports it.
   'careful/bin/check-careful.sh', // /careful PreToolUse hook: covered by test/hook-scripts.test.ts; no paid fixture copies or runs it.
   // Reporting and launch tools: they read CI history or start a lane, never run inside a paid case.
@@ -273,9 +279,9 @@ export const PR_FULL_GATE_FILES = [
 export const PERIODIC_ONLY_PR_FILES = ['.github/workflows/evals-periodic.yml', '.github/workflows/evals-marathon.yml'] as const;
 
 /** Directories the reference derivation covers: an unmapped file there with no consumer is consumed by no paid case. */
-export const DERIVABLE_PREFIXES = ['bin/', 'lib/', 'scripts/', 'browse/', 'design/', 'make-pdf/', 'hosts/', 'extension/', 'model-overlays/', 'agents/', 'test/helpers/'] as const;
+export const DERIVABLE_PREFIXES = ['bin/', 'lib/', 'scripts/', 'browse/', 'design/', 'make-pdf/', 'hosts/', 'extension/', 'model-overlays/', 'agents/', 'test/helpers/', 'capy/'] as const;
 
-function knownNonBehaviorFile(file: string): boolean {
+export function knownNonBehaviorFile(file: string): boolean {
   // A mapped dependency still wins over these exemptions. New helper,
   // runtime, dependency, or paid-workflow files are deliberately not exempted.
   return /^(?:docs\/|(?:README|CONTRIBUTING|ARCHITECTURE|CHANGELOG|TODOS)\.md$|VERSION$)/.test(file)
@@ -293,6 +299,9 @@ export const FALLBACK_FIX_ANCHOR = 'docs/TESTING_INTERNALS.md#pr-paid-lane-fallb
 
 /** Why one changed file restored the full gate, and the edit that narrows it next time (DX-6). */
 export function unknownFileLabel(file: string): { label: string; fix: string } {
+  if (matches(file, PR_FULL_GATE_FILES)) {
+    return { label: 'full-gate input', fix: `${file} is in PR_FULL_GATE_FILES (scripts/test-pr-profile.ts): every paid case consumes it, so the full gate is intended and no mapping narrows it` };
+  }
   if (isPaidTestFile(file) || file.startsWith('test/helpers/')) {
     return { label: 'needs touchfile entry', fix: `register ${file} under the cases that consume it in test/helpers/touchfiles-data.ts` };
   }
@@ -379,6 +388,12 @@ export function selectPrProfile(options: {
       judges: new Set(referencers.flatMap(referencer => [...derived!.judges.get(referencer) ?? []])) };
     if (found.e2e.size + found.judges.size > 0) consumers.set(file, found);
     else noConsumerFiles.push(file);
+  }
+  // A failed import scan leaves some closure unknown: every unmapped file restores the full gate (fail closed).
+  const scanFailed = derived && unmapped.length ? [...derived.scanErrors.keys()].sort() : [];
+  if (scanFailed.length) {
+    consumers.clear(); derivedGlobal.length = 0; noConsumerFiles.length = 0;
+    for (const file of unmapped) deletedLabels.set(file, { label: 'import scan failed', fix: `scripts/pr-dependencies.ts could not scan the imports of ${scanFailed.slice(0, 3).join(', ')}${scanFailed.length > 3 ? ` and ${scanFailed.length - 3} more` : ''}; fix the parse error so ${file}'s consumers can be derived` });
   }
   const derivedFiles = [...consumers.keys()];
   const unknownFiles = unmapped.filter(file => !derivedGlobal.includes(file) && !consumers.has(file) && !noConsumerFiles.includes(file));

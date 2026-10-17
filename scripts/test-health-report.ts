@@ -33,7 +33,7 @@ export const COMPLEXITY_PATHS = ['scripts', 'test/helpers', '.github/workflows']
 export interface Metric { id: string; title: string; rule: string; value?: string; detail?: string[]; unavailable?: string }
 export interface Check { id: string; title: string; status: 'pass' | 'fail' | 'unavailable'; detail: string; fix: string }
 export type IssueAction = 'upsert' | 'keep-open' | 'close';
-export interface HealthReport { repo: string; sinceDays: number; generatedAt: string; metrics: Metric[]; checks: Check[]; issueAction: IssueAction }
+export interface HealthReport { repo: string; sinceDays: number; generatedAt: string; headline?: string; metrics: Metric[]; checks: Check[]; issueAction: IssueAction }
 
 export interface HealthInputs {
   client: GhClient;
@@ -188,20 +188,44 @@ export function collectHealth(inputs: HealthInputs): HealthReport {
   const need = <T>(value: T | Error): T => { if (value instanceof Error) throw value; return value; };
   const prRecords = attempt(() => need(prRuns).filter(run => run.conclusion !== 'cancelled')
     .map(run => ({ run, trials: records(artifactDirs(run, name => name.startsWith('trial-outcomes'))) })));
+  const prManifests = attempt(() => need(prRuns).flatMap(run => {
+    const file = artifactDirs(run, name => name === 'paid-plan').map(dir => path.join(dir, 'manifest.json')).find(candidate => fs.existsSync(candidate));
+    return file ? [{ run, manifest: readJson(file) }] : [];
+  }));
   const metrics: Metric[] = [];
+  let costPerMergedPr: string | undefined;
 
-  metrics.push(metric('pr-fallback-rate', 'PR full-fallback rate', 'share of evals.yml pull_request runs whose paid-plan manifest has prCoverage.mode = full-fallback', () => {
+  metrics.push(metric('pr-fallback-rate', 'PR full-fallback rate', 'share of evals.yml pull_request runs whose paid-plan manifest has prCoverage.mode = full-fallback (a label, not spend: dependents runs select about as much)', () => {
     const modes = new Map<string, number>();
-    for (const run of need(prRuns)) {
-      const manifest = artifactDirs(run, name => name === 'paid-plan').flatMap(dir => [path.join(dir, 'manifest.json')]).find(file => fs.existsSync(file));
-      if (!manifest) continue;
-      const mode = String(readJson(manifest).prCoverage?.mode ?? 'none');
+    for (const { manifest } of need(prManifests)) {
+      const mode = String(manifest.prCoverage?.mode ?? 'none');
       modes.set(mode, (modes.get(mode) ?? 0) + 1);
     }
     const total = [...modes.values()].reduce((a, b) => a + b, 0);
     if (total === 0) throw new Error('no paid-plan manifests in the window');
     return { value: `${pct((modes.get('full-fallback') ?? 0) / total)} (${modes.get('full-fallback') ?? 0}/${total} runs)`,
       detail: [...modes].map(([mode, count]) => `${mode}: ${count}`) };
+  }));
+
+  metrics.push(metric('pr-cases-per-run', 'Selected gate cases and judges per PR run', 'mean length of prCoverage.e2e (gate cases) and prCoverage.judges in the paid-plan manifests of evals.yml pull_request runs, overall and per mode', () => {
+    const planned = need(prManifests).filter(({ manifest }) => Array.isArray(manifest.prCoverage?.e2e) && Array.isArray(manifest.prCoverage?.judges));
+    if (planned.length === 0) throw new Error('no paid-plan manifest with prCoverage.e2e and prCoverage.judges in the window');
+    const mean = (entries: typeof planned) => `${(entries.reduce((sum, { manifest }) => sum + manifest.prCoverage.e2e.length, 0) / entries.length).toFixed(1)} gate cases, ${(entries.reduce((sum, { manifest }) => sum + manifest.prCoverage.judges.length, 0) / entries.length).toFixed(1)} judges`;
+    const modes = [...new Set(planned.map(({ manifest }) => String(manifest.prCoverage.mode)))].sort();
+    return { value: `${mean(planned)} per run (${planned.length} runs)`,
+      detail: modes.map(mode => { const entries = planned.filter(({ manifest }) => String(manifest.prCoverage.mode) === mode); return `${mode}: ${mean(entries)} (${entries.length} runs)`; }) };
+  }));
+
+  metrics.push(metric('pr-known-cost-per-run', 'Known cost per PR run', 'mean over non-cancelled evals.yml pull_request runs of executed trial cost_usd with a known cost (a run with no trial records counts $0), overall and per manifest mode; unknown-cost trials (PTY) are counted, not priced', () => {
+    const entries = need(prRecords);
+    if (entries.length === 0) throw new Error('no non-cancelled PR runs in the window');
+    const known = (trials: TrialRecord[]) => trials.filter(record => record.execution === 'executed' && record.cost_known !== false).reduce((sum, record) => sum + record.cost_usd, 0);
+    const unknown = entries.flatMap(entry => entry.trials).filter(record => record.execution === 'executed' && record.cost_known === false).length;
+    const modeOf = new Map((prManifests instanceof Error ? [] : prManifests).map(({ run, manifest }) => [run.id, String(manifest.prCoverage?.mode ?? 'none')]));
+    const mean = (list: typeof entries) => `$${(list.reduce((sum, entry) => sum + known(entry.trials), 0) / list.length).toFixed(2)}`;
+    const modes = [...new Set(entries.map(entry => modeOf.get(entry.run.id) ?? 'no manifest'))].sort();
+    return { value: `${mean(entries)} per run (${entries.length} runs; ${unknown} executed trial(s) with unknown cost)`,
+      detail: modes.map(mode => { const list = entries.filter(entry => (modeOf.get(entry.run.id) ?? 'no manifest') === mode); return `${mode}: ${mean(list)} (${list.length} runs)`; }) };
   }));
 
   metrics.push(metric('pr-reused-trials', 'Reused PR trial records', 'trial-outcomes records with execution = reused across non-cancelled PR runs', () => {
@@ -216,6 +240,7 @@ export function collectHealth(inputs: HealthInputs): HealthReport {
       .reduce((sum, record) => sum + record.cost_usd, 0);
     const revisions = new Set(entries.filter(entry => entry.run.conclusion === 'success' || entry.run.conclusion === 'failure').map(entry => entry.run.sha)).size;
     const merged = listMergedPulls(client, repo, since);
+    if (merged) costPerMergedPr = `$${(spend / merged).toFixed(2)} (${merged} merged PRs, $${spend.toFixed(2)} recorded)`;
     return { value: `$${spend.toFixed(2)} recorded`, detail: [
       `per merged PR: ${merged ? `$${(spend / merged).toFixed(2)} (${merged} merged)` : 'n/a (0 merged)'}`,
       `per validated revision: ${revisions ? `$${(spend / revisions).toFixed(2)} (${revisions} revisions)` : 'n/a'}`] };
@@ -267,7 +292,8 @@ export function collectHealth(inputs: HealthInputs): HealthReport {
   }));
 
   const checks = [flakeCheck(flakes), unseededCheck(root)];
-  return { repo, sinceDays, generatedAt: new Date(now).toISOString(), metrics, checks, issueAction: issueActionFor(checks) };
+  const headline = `Cost per merged PR: ${costPerMergedPr ?? `unavailable (${metrics.find(entry => entry.id === 'pr-spend')?.unavailable ?? '0 merged PRs'})`}`;
+  return { repo, sinceDays, generatedAt: new Date(now).toISOString(), headline, metrics, checks, issueAction: issueActionFor(checks) };
 }
 
 function listMergedPulls(client: GhClient, repo: string, since: string): number {
@@ -340,7 +366,7 @@ function censusMetrics(inputs: HealthInputs, artifactDirs: (run: CiRun, match: (
 // --- Rendering ---
 
 export function formatHealth(report: HealthReport): string {
-  const lines = [`test:health ${report.repo}, last ${report.sinceDays} day(s), ${report.generatedAt}`];
+  const lines = [`test:health ${report.repo}, last ${report.sinceDays} day(s), ${report.generatedAt}`, ...(report.headline ? [report.headline] : [])];
   for (const entry of report.metrics) {
     lines.push(`- ${entry.title}: ${entry.unavailable ? `unavailable: ${entry.unavailable}` : entry.value}`);
     lines.push(`    rule: ${entry.rule}`);

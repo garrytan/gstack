@@ -191,7 +191,7 @@ describe('collectHealth over recorded fixture data', () => {
       [/runs\/61\/artifacts/, () => ({ artifacts: [] })],
       [/workflows\/windows-free-tests\.yml\/runs/, () => ({ workflow_runs: windowsRuns })],
     ], {
-      11: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'full-fallback' } }) },
+      11: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'full-fallback', e2e: ['gate-a', 'gate-b'], judges: ['judge-a'] } }) },
       12: { 'trial-outcomes.jsonl': prTrials },
       51: { 'trial-outcomes.jsonl': census },
       61: { 'flake-ledger.jsonl': ledger('test/a.test.ts') },
@@ -205,6 +205,10 @@ describe('collectHealth over recorded fixture data', () => {
     expect(value('net-complexity').unavailable).toContain('git grep HEAD failed');
     expect(value('pr-reused-trials').value).toBe('1 of 2 trial records');
     expect(value('pr-spend')).toMatchObject({ value: '$2.50 recorded', detail: ['per merged PR: $2.50 (1 merged)', 'per validated revision: $2.50 (1 revisions)'] });
+    expect(value('pr-cases-per-run')).toMatchObject({ value: '2.0 gate cases, 1.0 judges per run (1 runs)', detail: ['full-fallback: 2.0 gate cases, 1.0 judges (1 runs)'] });
+    expect(value('pr-known-cost-per-run')).toMatchObject({ value: '$2.50 per run (1 runs; 0 executed trial(s) with unknown cost)', detail: ['full-fallback: $2.50 (1 runs)'] });
+    expect(report.headline).toBe('Cost per merged PR: $2.50 (1 merged PRs, $2.50 recorded)');
+    expect(formatHealth(report).split('\n')[1]).toBe('Cost per merged PR: $2.50 (1 merged PRs, $2.50 recorded)');
     expect(value('cancelled-slice-minutes').value).toBe('30 min/week (1 cancelled run(s))');
     expect(value('push-to-verdict').value).toBe('p50 10.0 min, p95 10.0 min (1 runs)');
     expect(value('census-periodic').value).toBe('1.00 expected failed trials/run (1/3 over 1 run(s)); P(red) 33.3% in force, 33.3% single-trial');
@@ -221,6 +225,26 @@ describe('collectHealth over recorded fixture data', () => {
     expect(report.checks.map(check => [check.id, check.status])).toEqual([['flaky-files', 'pass'], ['unseeded-free-files', 'pass']]);
     expect(report.issueAction).toBe('close');
     expect(formatHealth(report)).toContain('rule: share of evals.yml pull_request runs');
+  });
+
+  test('known cost per PR run prices only known-cost executed trials and counts the unknown ones', () => {
+    const trials = formatTrialOutcomes([trialRecord('gate-a', 'passed', { tier: 'gate', lane: 'gate/pr', cost_usd: 4 }),
+      trialRecord('gate-pty', 'passed', { tier: 'gate', lane: 'gate/pr', cost_usd: 0, cost_known: false })]);
+    const client = fakeClient([
+      [/workflows\/evals\.yml\/runs/, () => ({ workflow_runs: [run(1, { event: 'pull_request', head_branch: 'a' }), run(2, { event: 'pull_request', head_branch: 'b' })] })],
+      [/runs\/1\/artifacts/, () => ({ artifacts: [{ id: 11, name: 'paid-plan', size_in_bytes: 10 }, { id: 12, name: 'trial-outcomes-pr-a1', size_in_bytes: 10 }] })],
+      [/runs\/2\/artifacts/, () => ({ artifacts: [{ id: 21, name: 'paid-plan', size_in_bytes: 10 }] })],
+      [/pulls\?state=closed/, () => []],
+    ], {
+      11: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'dependents', e2e: ['gate-a', 'gate-pty', 'gate-c'], judges: ['j'] } }) },
+      12: { 'trial-outcomes.jsonl': trials },
+      21: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'pr', e2e: [], judges: [] } }) },
+    });
+    const report = collectHealth({ client, repo: 'o/r', now: NOW, sinceDays: 7, cacheDir: tmp('health-cache-'), root: freeRoot(3, 0) });
+    const value = (id: string) => report.metrics.find(entry => entry.id === id)!;
+    expect(value('pr-known-cost-per-run')).toMatchObject({ value: '$2.00 per run (2 runs; 1 executed trial(s) with unknown cost)', detail: ['dependents: $4.00 (1 runs)', 'pr: $0.00 (1 runs)'] });
+    expect(value('pr-cases-per-run')).toMatchObject({ value: '1.5 gate cases, 0.5 judges per run (2 runs)', detail: ['dependents: 3.0 gate cases, 1.0 judges (1 runs)', 'pr: 0.0 gate cases, 0.0 judges (1 runs)'] });
+    expect(report.headline).toBe('Cost per merged PR: unavailable (0 merged PRs)');
   });
 
   test('the Windows wall counts only successful pull_request runs and says so when there are none', () => {

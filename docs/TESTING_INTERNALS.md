@@ -1009,17 +1009,44 @@ select nothing: docs, any non-paid `*.test.ts(x)`, `FREE_ONLY_PR_FILES` (the
 free and paid duration seeds, `scripts/ubicloud/**`, every workflow that runs no
 paid evals, and free-only tools), and the fixtures in `FREE_FIXTURES`
 (`test/helpers/free-fixtures-data.ts`, each fixture with its free consumers).
-`PAID_WORKFLOW_FILES` (`evals.yml`, `evals-periodic.yml`, `evals-marathon.yml`)
-and any other unknown file restore the full gate (`prCoverage.mode =
-full-fallback`). The job summary and PR comment list each file that caused a
-fallback with one of three labels:
+Unmapped files under `DERIVABLE_PREFIXES` (bin/, lib/, scripts/, browse/,
+design/, make-pdf/, hosts/, extension/, model-overlays/, agents/, test/helpers/,
+capy/) are not unknown: `scripts/pr-dependencies.ts` derives the cases whose
+reference closure reaches them (`prCoverage.mode = dependents`), or reports that
+no paid case reaches them. The derivation scans the imports of every code file,
+including `#!`-shebang `.ts` files and extensionless Bun or Node scripts; if any
+import scan fails, every unmapped file restores the full gate (label **import
+scan failed**). `PR_FULL_GATE_FILES`, `PAID_WORKFLOW_FILES` (`evals.yml`,
+`evals-periodic.yml`, `evals-marathon.yml`) and any other unknown file restore
+the full gate (`prCoverage.mode = full-fallback`). The job summary and PR comment
+list each unmapped file that caused a fallback with one of these labels:
 
 - **needs touchfile entry**: a paid test, helper or fixture no case maps; add it
   to the owning case in `E2E_TOUCHFILES` (`test/helpers/touchfiles-data.ts`).
 - **add to FREE_ONLY_PR_FILES**: a file only free lanes read; add it to the list
   in `scripts/test-pr-profile.ts` (or a fixture to `FREE_FIXTURES`).
-- **real unknown dependency**: shared code (bin/, lib/, resolvers, hosts, setup)
-  whose dependents are not mapped; the full gate is the correct result.
+- **full-gate input**: a `PR_FULL_GATE_FILES` entry every case consumes; the
+  full gate is intended and no mapping narrows it.
+- **deleted but still referenced** and **import scan failed**: fix the named
+  reference or parse error.
+- **real unknown dependency**: a file outside the derivable directories that no
+  list classifies (for example `ETHOS.md`); map it, exempt it, or derive its
+  directory.
+
+The fallback rate is a label, not the bill: a dependents run whose derived
+closure reaches every gate case costs about what a full-fallback run does.
+`bun run test:health` leads with the cost per merged PR and reports
+`pr-cases-per-run` (mean selected gate cases and judges per PR run, per mode)
+and `pr-known-cost-per-run` (mean known trial cost per PR run, per mode) beside
+`pr-fallback-rate`.
+
+`package.json` (beyond a version-only change) and `bun.lock` stay full-gate
+inputs. Over the 225 PR runs from 2026-10-07 to 2026-10-17, no run fell back on
+them alone, dependabot PRs never reach the paid lane (`evals.yml` skips
+`github.actor == 'dependabot[bot]'`), and every runtime package's importer
+(`test/helpers/agent-sdk-runner.ts`, `test/helpers/llm-judge.ts`, `browse/src/*`,
+`make-pdf/src/*`) reaches every gate case or is in the global set, so narrowing
+them would select the same cases.
 
 `test/free-fixtures.test.ts` holds the inventory: each `test/fixtures/**` path
 belongs to a paid touchfile or `FREE_FIXTURES`, and each workflow to the paid or

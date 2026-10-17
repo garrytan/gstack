@@ -26,7 +26,7 @@ import { packageChangeOnlyVersion } from './test-pr-profile';
 import { E2E_TIERS, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { matchGlob } from '../test/helpers/test-selection';
 import { derivedDependencies } from './pr-dependencies';
-import { PR_PROFILE_MAPS } from './test-pr-profile';
+import { knownNonBehaviorFile, PR_PROFILE_MAPS } from './test-pr-profile';
 
 export interface ReplayInput {
   runId: number;
@@ -59,7 +59,9 @@ export interface ReplayRow {
 /**
  * Whether a case depends on any changed file under today's dependency graph:
  * its touchfiles, the globals, and the derived reference closure
- * (scripts/pr-dependencies.ts, its global runner closure included).
+ * (scripts/pr-dependencies.ts, its global runner closure included). Like
+ * the selector, a touchfile match wins over the audited free-only exemptions,
+ * and an exempt file reaches no case through the derived closure.
  */
 export function caseTouchesDiff(id: string, changedFiles: readonly string[]): boolean {
   const patterns = [...(E2E_TOUCHFILES[id] ?? []), ...GLOBAL_TOUCHFILES];
@@ -67,7 +69,7 @@ export function caseTouchesDiff(id: string, changedFiles: readonly string[]): bo
   // A path absent from today's tree reaches a case through the live files that still reference it.
   const via = (file: string) => derived.tracked.has(file) ? [file] : derived.referencers(file);
   return changedFiles.some(file => patterns.some(pattern => matchGlob(file, pattern))
-    || via(file).some(source => derived.global.has(source) || !!derived.e2e.get(source)?.has(id)));
+    || (!knownNonBehaviorFile(file) && via(file).some(source => derived.global.has(source) || !!derived.e2e.get(source)?.has(id))));
 }
 
 export function replayRun(input: ReplayInput, oldSelection: readonly string[]): ReplayRow {
