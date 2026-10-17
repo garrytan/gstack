@@ -68,16 +68,16 @@
     "eval:bg:release": "bun run scripts/eval-bg.ts release"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.3.0",
+    "@huggingface/transformers": "^4.3.1",
     "@ngrok/ngrok": "^1.7.0",
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
     "html-to-vdom": "0.7.0",
-    "marked": "^18.0.11",
+    "marked": "^18.1.1",
     "playwright": "^1.62.1",
     "sharp": "^0.35.4",
-    "socks": "^2.8.9"
+    "socks": "^2.8.10"
   },
   "engines": {
     "bun": ">=1.4.2"
