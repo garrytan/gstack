@@ -224,6 +224,21 @@ esac
 WARN=""
 PATTERN=""
 
+# Mask quoted -m argument content in git commit commands so that descriptive
+# commit messages (e.g. "fix: prevent drop table in migration") do not trigger
+# false positives. Real destructive commands outside the quoted string still
+# match because the rest of the command is preserved. Fall back to $CMD when
+# sed is unavailable.
+CMD_MEDIUM="$CMD"
+CMD_MEDIUM_LOWER="$CMD_LOWER"
+if printf '%s' "$CMD" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+commit[[:space:]]' 2>/dev/null; then
+  _cmd_masked=$(printf '%s' "$CMD" \
+    | sed 's/-m[[:space:]]*"[^"]*"/-m ""/g
+           s/-m[[:space:]]*'"'"'[^'"'"']*'"'"'/-m '"'"''"'"'/g' 2>/dev/null) \
+    && CMD_MEDIUM="$_cmd_masked" || true
+  CMD_MEDIUM_LOWER=$(printf '%s' "$CMD_MEDIUM" | tr '[:upper:]' '[:lower:]')
+fi
+
 # --- PowerShell and cmd table (#3067) ---
 # Runs on the PowerShell tool's command, and on the part of any command from a
 # nested `powershell`/`pwsh`/`cmd` launcher onward (`pwsh -c "..."`,
@@ -303,50 +318,50 @@ if [ -n "$_WIN_SCAN" ]; then
 fi
 
 # rm -rf / rm -r / rm -R / rm --recursive (capital -R is BSD/macOS recursive)
-if [ -z "$WARN" ] && grep -qE 'rm\s+(-[a-zA-Z]*[rR]|--recursive)' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'rm\s+(-[a-zA-Z]*[rR]|--recursive)' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: recursive delete (rm -r). This permanently removes files."
   PATTERN="rm_recursive"
 fi
 
 # DROP TABLE / DROP DATABASE
-if [ -z "$WARN" ] && grep -qE 'drop\s+(table|database)' <<< "$CMD_LOWER" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'drop\s+(table|database)' <<< "$CMD_MEDIUM_LOWER" 2>/dev/null; then
   WARN="Destructive: SQL DROP detected. This permanently deletes database objects."
   PATTERN="drop_table"
 fi
 
 # TRUNCATE
-if [ -z "$WARN" ] && grep -qE '\btruncate\b' <<< "$CMD_LOWER" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE '\btruncate\b' <<< "$CMD_MEDIUM_LOWER" 2>/dev/null; then
   WARN="Destructive: SQL TRUNCATE detected. This deletes all rows from a table."
   PATTERN="truncate"
 fi
 
 # git push --force / git push -f / plus-refspec force (git push origin +ref)
-if [ -z "$WARN" ] && grep -qE 'git\s+push\s' <<< "$CMD" 2>/dev/null \
-  && grep -qE '(-f\b|--force|(^|[[:space:]])\+[^[:space:]])' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'git\s+push\s' <<< "$CMD_MEDIUM" 2>/dev/null \
+  && grep -qE '(-f\b|--force|(^|[[:space:]])\+[^[:space:]])' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: git force-push rewrites remote history. Other contributors may lose work."
   PATTERN="git_force_push"
 fi
 
 # git reset --hard
-if [ -z "$WARN" ] && grep -qE 'git\s+reset\s+--hard' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'git\s+reset\s+--hard' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: git reset --hard discards all uncommitted changes."
   PATTERN="git_reset_hard"
 fi
 
 # git checkout . / git restore .
-if [ -z "$WARN" ] && grep -qE 'git\s+(checkout|restore)\s+\.' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'git\s+(checkout|restore)\s+\.' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: discards all uncommitted changes in the working tree."
   PATTERN="git_discard"
 fi
 
 # kubectl delete
-if [ -z "$WARN" ] && grep -qE 'kubectl\s+delete' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'kubectl\s+delete' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: kubectl delete removes Kubernetes resources. May impact production."
   PATTERN="kubectl_delete"
 fi
 
 # docker rm -f / docker system prune
-if [ -z "$WARN" ] && grep -qE 'docker\s+(rm\s+-f|system\s+prune)' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'docker\s+(rm\s+-f|system\s+prune)' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: Docker force-remove or prune. May delete running containers or cached images."
   PATTERN="docker_destructive"
 fi
@@ -386,7 +401,7 @@ $_GSTACK_HOME_DIR/projects/$SLUG/careful-patterns.txt"
       _PAT_RC=0
       printf '' | grep -qE -- "$_PAT" 2>/dev/null || _PAT_RC=$?
       [ "$_PAT_RC" -eq 2 ] && continue # invalid ERE — skip the line
-      if grep -qE -- "$_PAT" <<< "$CMD" 2>/dev/null; then
+      if grep -qE -- "$_PAT" <<< "$CMD_MEDIUM" 2>/dev/null; then
         WARN="Project rule matched: $_PAT"
         PATTERN="project_rule"
         break

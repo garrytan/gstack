@@ -342,6 +342,43 @@ describe('check-careful.sh', () => {
     expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(reason);
   });
 
+  // --- Commit message false positives (#1060) ---
+
+  describe('commit message false positives (#1060)', () => {
+    // Quoted -m content describes destructive patterns but does not run them.
+    test.each([
+      'git commit -m "fix: prevent accidental drop table in migration"',
+      'git commit -m "docs: explain truncate vs delete semantics"',
+      'git commit -m "feat: add guard for recursive delete patterns"',
+      'git add . && git commit -m "fix: handle drop database edge case"',
+    ])('does not warn on descriptive text in commit message: %s', (command) => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    });
+
+    // Real destructive commands chained with a commit still warn.
+    test('warns when a real DROP TABLE follows git commit in a chain', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -m "release" && psql -c "DROP TABLE staging"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('SQL DROP');
+    });
+
+    test('warns when a real TRUNCATE follows git commit in a chain', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -m "cleanup" && psql -c "TRUNCATE audit_log"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('SQL TRUNCATE');
+    });
+  });
+
   // --- Shell obfuscation ---
 
   describe('shell obfuscation', () => {
