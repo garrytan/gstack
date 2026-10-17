@@ -435,6 +435,21 @@ depends on the target's state, not on the code that writes. Examples:
 `Open. Run the suite with CONFIG=staging. (path run) exit 0` and
 `Open. Switch B reads config Y. (path assumed)`.
 
+**Markers stay English literals.** `/context-restore` sorts on the exact strings
+`(path run)`, `(path read)`, `(path assumed)`, `(target state checked)`, and
+`(code read)`. Never translate them, even when the rest of the checkpoint is in
+another language. After drafting Remaining Work, scan each item that should have
+a marker: if it ends in a parenthesised token that is not one of those five, or
+has no marker when the table requires one, rewrite that item before writing the
+file (preferred), or add a Remaining Work item that names the bad line so restore
+puts it under Verify first.
+
+**Decisions Made and file claims.** Provenance above covers Remaining Work only.
+Any statement in Decisions Made about the *contents* of a concrete file (item
+counts, line counts, section names) must be backed by a `grep`/`wc`/`Read` in this
+turn, or rewritten with an honest `(path assumed)` note in Remaining Work that
+restore will verify first. Do not record an unchecked file claim as fact.
+
 If the user provided a title, use it. Otherwise, infer a concise title (3-6 words)
 from the work being done.
 

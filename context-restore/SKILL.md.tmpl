@@ -176,6 +176,12 @@ has written to). Prefixed lines are never candidates for "latest":
 - Otherwise: load the **first plain path line returned by Step 1 above**, which
   is the newest `YYYYMMDD-HHMMSS` checkpoint of this project for the current
   branch, or, if the current branch has none, the newest across all branches.
+- **No useful branch discriminator.** When `CURRENT_BRANCH` is empty, `HEAD`, or
+  otherwise cannot discriminate (cwd is not a git repo, or branch is unknown), do
+  not silently load newest if the recent candidates (e.g. last 24 hours, or the
+  three newest) carry **different titles**. Show those titles with timestamps via
+  AskUserQuestion, mark newest as the recommended option, and wait. Only auto-load
+  newest when every recent candidate shares one title (same topic).
 - **Do not silently take an older checkpoint.** If Step 1 printed `NEWER_TASK`,
   or a `BELOW_CWD`/`POINTER` file is newer than the first plain path line (or
   there is none), show both (title, branch, saved time, and `project_root` for a
@@ -201,6 +207,10 @@ checkpoint(s) from another project; only this project's are listed." If it print
 order, and drop nothing. Put an item under **Verify first** when it:
 - ends in `(path assumed)` or `(code read)`;
 - ends in `(path run)` but its text reports a failure;
+- ends in a parenthesised trailing marker that is **not** one of the five English
+  literals `(path run)`, `(path read)`, `(path assumed)`, `(target state checked)`,
+  `(code read)` — treat a translated or unknown marker as `(path assumed)` (→ Verify
+  first), never as unmarked Next steps;
 - has no marker and is a writing step (migration, sync, insert, import, a dialog that
   writes) or names a concrete path (a runnable command, CLI flag or switch, config key
   or value, or file or directory path).

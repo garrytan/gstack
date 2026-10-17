@@ -37,6 +37,8 @@ describe('Remaining Work provenance contract', () => {
     expect(table).toContain('`Open.`');
     expect(table).toContain('`[done]`');
     expect(table.indexOf('a writing step')).toBeLessThan(table.indexOf('names a concrete path'));
+    expect(table).toContain('**Markers stay English literals.**');
+    expect(table).toContain('**Decisions Made and file claims.**');
     const format = between(save, '### Remaining Work', '### Notes');
     expect(format).toContain('`Open.`');
   });
@@ -49,6 +51,8 @@ describe('Remaining Work provenance contract', () => {
     for (const marker of ['(path assumed)', '(code read)']) expect(verifyFirst).toContain(`\`${marker}\``);
     expect(verifyFirst).toContain('reports a failure');
     expect(verifyFirst).toContain('has no marker');
+    expect(verifyFirst).toContain('translated or unknown marker');
+    expect(restore).toContain('**No useful branch discriminator.**');
     const nextSteps = between(rules, 'Every other item goes under **Next steps**', 'Verifying means');
     for (const marker of ['(path run)', '(path read)', '(target state checked)']) expect(nextSteps).toContain(`\`${marker}\``);
     expect(rules).toContain(
