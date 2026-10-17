@@ -441,18 +441,19 @@ Initial scope selectors need no grid or **pre-answer** ledger write. Ask and
 wait before changes.
 
 1. Explain the complexity. Ask each proposed feature cut/deferral separately;
-   wait before changing scope. With no proposed cuts, keep the feature list and
-   go directly to the structure question.
-2. Always ask the structure question when this gate trips, even with no cuts.
-   Compare only the file/class arrangement. Use labels `Original arrangement`
-   and `Smaller arrangement`; put files/classes in each description. Both retain
+   wait before changing scope.
+2. Always resolve the structure question when this gate trips, even with no cuts,
+   as question_id `plan-eng-review-structure` (no per-plan slug); `AUTO_DECIDE`
+   picks the recommendation. Compare only the file/class arrangement, labeled
+   `Original arrangement` and `Smaller arrangement`, with files/classes per
+   option. Both retain
    the same approved feature list, contracts and approved
    security/error/test/performance fixes. Include `Pending remedies not decided here: <ids>` in the
    question; unapproved fixes stay pending. If no smaller arrangement preserves
    these commitments, explain that and offer confirmation of the original
    arrangement or a pause to investigate a smaller one. Wait for the answer.
    A pause leaves the arrangement undecided: investigate only the agreed question,
-   then return to this structure selector. Do not continue to C until it is settled.
+   then return to the selector. Do not continue to C until it is settled.
 3. Save the actual feature and structure answers as one scope record: `feature
    answers: <refs>; structure: <A/B + ref>; accepted scope: <exact scope>;
    pending remedies: <ids or none>`.

@@ -76,8 +76,14 @@ describe('engineering review routing contracts', () => {
   test('high complexity stops before Section 1 and asks cuts and structure separately', () => {
     expectMentions(compact(complexity), [['stop', 'classes/services', 'section']], 'compact(complexity)');
     ordered(compact(complexity), ['1. Explain the complexity', 'Ask each proposed feature cut/deferral separately',
-      '2. Always ask the structure question', '3. Save the actual feature and structure answers']);
+      '2. Always resolve the structure question', '3. Save the actual feature and structure answers']);
     expect(compact(complexity)).toContain('Pending remedies not decided here: <ids>');
+  });
+
+  test('the structure question uses its registered id and honors a stored preference', () => {
+    ordered(compact(complexity), ['2. Always resolve the structure question',
+      'as question_id `plan-eng-review-structure` (no per-plan slug)', '`AUTO_DECIDE` picks the recommendation',
+      'Compare only the file/class arrangement']);
   });
 
   test('no safe smaller arrangement does not authorize scope cuts or bypass the pause', () => {

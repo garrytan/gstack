@@ -336,6 +336,14 @@ export const QUESTIONS = {
     signal_key: 'scope-appetite',
     description: "Plan touches 8+ files — reduce scope or hold?",
   },
+  'plan-eng-review-structure': {
+    id: 'plan-eng-review-structure',
+    skill: 'plan-eng-review',
+    category: 'routing',
+    door_type: 'two-way',
+    options: ['original-arrangement', 'smaller-arrangement'],
+    description: "Complexity gate — Original arrangement or Smaller arrangement (file/class layout only)?",
+  },
   'plan-eng-review-test-gap': {
     id: 'plan-eng-review-test-gap',
     skill: 'plan-eng-review',

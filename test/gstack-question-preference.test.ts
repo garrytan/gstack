@@ -132,6 +132,57 @@ describe('--check with preferences set', () => {
   });
 });
 
+// The global file ($GSTACK_HOME/global-question-preferences.json, the same file
+// the question-preference hook reads) is a hand-edited fallback for --check
+// only: one setting covers every project, a project entry for the same id
+// wins, and the one-way / split-chain guards still run.
+describe('--check global preference fallback', () => {
+  function plantGlobal(contents: string) {
+    fs.writeFileSync(path.join(tmpHome, 'global-question-preferences.json'), contents);
+  }
+
+  test('global never-ask with no project entry → AUTO_DECIDE', () => {
+    plantGlobal(JSON.stringify({ 'plan-eng-review-structure': 'never-ask' }));
+    const r = run('--check', 'plan-eng-review-structure');
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe('AUTO_DECIDE');
+  });
+
+  test('project entry wins over the global entry', () => {
+    plantGlobal(JSON.stringify({ 'plan-eng-review-structure': 'never-ask' }));
+    run('--write', JSON.stringify({ question_id: 'plan-eng-review-structure', preference: 'always-ask', source: 'plan-tune' }));
+    const r = run('--check', 'plan-eng-review-structure');
+    expect(r.stdout.trim()).toBe('ASK_NORMALLY');
+  });
+
+  test('global never-ask on a one-way id → ASK_NORMALLY with safety note', () => {
+    plantGlobal(JSON.stringify({ 'ship-test-failure-triage': 'never-ask' }));
+    const r = run('--check', 'ship-test-failure-triage');
+    expect(r.stdout).toContain('ASK_NORMALLY');
+    expect(r.stdout).toContain('one-way door overrides');
+  });
+
+  test('global never-ask on a split-chain id → ASK_NORMALLY', () => {
+    plantGlobal(JSON.stringify({ 'plan-eng-review-split-option-a': 'never-ask' }));
+    const r = run('--check', 'plan-eng-review-split-option-a');
+    expect(r.stdout.split('\n')[0]).toBe('ASK_NORMALLY');
+  });
+
+  test.each(['{not json', 'null', '["never-ask"]'])('unusable global file %p is ignored with a note', (contents) => {
+    plantGlobal(contents);
+    const r = run('--check', 'plan-eng-review-structure');
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe('ASK_NORMALLY');
+    expect(r.stderr).toContain('global-question-preferences.json is unreadable');
+  });
+
+  test('--write stays per-project and never touches the global file', () => {
+    plantGlobal('{}');
+    run('--write', JSON.stringify({ question_id: 'plan-eng-review-structure', preference: 'never-ask', source: 'plan-tune' }));
+    expect(fs.readFileSync(path.join(tmpHome, 'global-question-preferences.json'), 'utf-8')).toBe('{}');
+  });
+});
+
 // #2024: the keyword net only fires when the question TEXT reaches the
 // classifier. --summary-stdin pipes it (stdin, not argv — summaries carry
 // quotes/newlines/shell metacharacters). Without the summary, an unregistered
