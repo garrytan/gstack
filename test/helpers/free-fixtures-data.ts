@@ -148,6 +148,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/plan-floor-edit-wrap-37176835584.json': ['test/plan-floor-edit-wrap.test.ts'],
   'test/fixtures/plan-format-kind-notes.json': ['test/plan-format-kind-note.test.ts'],
   'test/fixtures/qa-caller-read-probe-mtb1007a.json': ['test/qa-exploratory-callers.test.ts'],
+  'test/fixtures/qa-caller-section-skip-ship-small-cli.json': ['test/qa-exploratory-callers.test.ts'],
   'test/fixtures/plans/autoplan-dashboard.md': ['test/autoplan-init.test.ts', 'test/autoplan-preconfigured-onboarding-ar.test.ts', 'test/autoplan-snapshot.test.ts'],
   'test/fixtures/plans/autoplan-focus-appearance-design.md': [],
   'test/fixtures/plans/autoplan-focus-appearance.md': [],

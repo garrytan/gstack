@@ -53,6 +53,24 @@ describe('QA command-observation boundary', () => {
     }
   });
 
+  test('captured 39006896632 webhook-report cat attempts stay denied (Q3 negative controls)', () => {
+    // qa-functional-webhook-report, paid run 39006896632: the hook denied two shell reads the prompt routes to Read/Glob/Grep.
+    const fixture = createQAFunctionalFixture('webhook');
+    try {
+      const registration = JSON.parse(fs.readFileSync(path.join(fixture.config, 'settings.json'), 'utf8')).hooks.PreToolUse;
+      for (const command of ['cat package.json probe.ts .gitignore', 'cat src/*.ts test/*.ts']) {
+        expect(qaCommandAllowed(command, fixture.root), command).toBe(false);
+        const result = spawnSync('bash', ['-c', registration[0].hooks[0].command], {
+          cwd: fixture.root, input: JSON.stringify({ hook_event_name: 'PreToolUse', cwd: fixture.root, tool_name: 'Bash', tool_input: { command } }),
+          encoding: 'utf8', timeout: 5000,
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout).hookSpecificOutput).toEqual({ hookEventName: 'PreToolUse', permissionDecision: 'deny',
+          permissionDecisionReason: 'Only foreground commands from the owned functional fixture interface are authorized.' });
+      }
+    } finally { fixture.cleanup(); }
+  });
+
   test('admits native fixture commands and rejects unobserved shell effects', () => {
     for (const command of ['date -u +%Y-%m-%dT%H:%M:%SZ', 'bun run probe -- apply credit 7junk', 'bun run probe -- apply UPPER 7', 'bun run probe -- apply 9bad 7', 'bun run probe -- apply', 'bun run probe -- apply credit', 'bun run probe -- apply credit 7 extra', 'bun run probe -- partial', 'bun test test/regression.test.ts', 'git status --short']) expect(qaCommandAllowed(command)).toBe(true);
     for (const command of ['bun bin/gstack-qa-evidence', 'bun /abs/runtime/bin/gstack-qa-deadline', 'bun bin/gstack-qa-evidence --help']) expect(qaCommandAllowed(command), command).toBe(true);

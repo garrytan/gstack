@@ -252,3 +252,64 @@ test.each(['directory', 'write-error'] as const)('source detector preserves its 
   if (retention === 'directory') expect(result.retained).toHaveLength(1);
   else expect(result.notices.some(note => note.includes('Detector artifact write failed:'))).toBe(true);
 });
+
+// PR gate run 38980005793 (design-review-detector-shim-dom): the agent scanned "$_REPORT/dom/$_RUN" with _RUN="run1"
+// assigned in the same command, and the check looked for the literal dom/run1. These rows run the real
+// `domScanOfRun` (and the `executedShellText` it uses) from test/skill-e2e-design.test.ts.
+const declaration = (name: string) => {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf('\n}\n', start);
+  if (start < 0 || end < 0) throw new Error(`${name} not found in test/skill-e2e-design.test.ts`);
+  return source.slice(start, end + 2);
+};
+const domScanModule = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+  `globalThis.__domScanOfRun = (() => { ${declaration('executedShellText')}\n${declaration('domScanOfRun')}\nreturn domScanOfRun; })();`);
+new Function(domScanModule)();
+const domScanOfRun = (globalThis as any).__domScanOfRun as (command: string, runDir: string) => boolean;
+
+const REPORT = '/fixture/gstack-home/projects/shim/designs/design-audit-20260908';
+const RUN_DIR = `${REPORT}/dom/run1`;
+// Captured from 38980005793 (design-review-detector-shim-dom, head 3f4a98ecac3fc434f8aeef61bc9def17080718d9);
+// /fixture/gstack-home stands for the fixture's GSTACK_HOME and /checkout for the checkout.
+const CAPTURED = `_D="/tmp/gstack-dom.fDVsi2/home.dom.html"; _REPORT="${REPORT}"; _RUN="run1"
+if [ ! -s "$_D" ]; then echo "DOM_DUMP_MISSING: home (the dump script wrote nothing)"
+elif [ "$(wc -c < "$_D")" -gt 10485760 ]; then echo "DOM_DUMP_TOO_LARGE: home $(wc -c < "$_D")"; rm -f "$_D"
+elif /checkout/bin/gstack-redact --from-file "$_D" --max-bytes 10485760 >/dev/null 2>&1; _RC=$?; [ "$_RC" -ne 0 ] && [ "$_RC" -ne 2 ]; then echo "DOM_DUMP_REDACTION_BLOCKED: home redact-exit=$_RC"; rm -f "$_D"
+else mkdir -p "$_REPORT/dom/$_RUN" && cp "$_D" "$_REPORT/dom/$_RUN/" && chmod 600 "$_REPORT/dom/$_RUN/home.dom.html" && rm -f "$_D" && echo "DOM_DUMP_OK: home"; fi
+echo "REDACT_RC=$_RC"; ls -la "$_REPORT/dom/$_RUN/" 2>/dev/null
+if [ -s "$_REPORT/dom/$_RUN/home.dom.html" ]; then
+  _DJ=$(mktemp "/tmp/gstack-detect.XXXXXX"); bun --no-env-file run /checkout/bin/gstack-design-detect.ts scan --format gstack --host claude "$_REPORT/dom/$_RUN" > "$_DJ" 2>/tmp/gstack-detect.stderr; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
+  echo "----STDERR----"; cat /tmp/gstack-detect.stderr
+  echo "----JSON----"; cat "$_DJ"
+fi`;
+const SCAN = 'bun --no-env-file run /checkout/bin/gstack-design-detect.ts scan --format gstack --host claude';
+
+test('shim-dom: the captured generated DOM block counts as a scan of the run directory', () => {
+  expect(domScanOfRun(CAPTURED, RUN_DIR)).toBe(true);
+});
+
+test('shim-dom: literal, braced, bare and trailing-slash forms of the same scan count', () => {
+  for (const command of [
+    `${SCAN} "${RUN_DIR}" > out.json`,
+    `${SCAN} ${RUN_DIR}/`,
+    `_REPORT=${REPORT} _RUN=run1; ${SCAN} $_REPORT/dom/$_RUN`,
+    `_REPORT='${REPORT}'; _RUN='run1'; ${SCAN} "${'$'}{_REPORT}/dom/${'$'}{_RUN}"`,
+  ]) expect(domScanOfRun(command, RUN_DIR), command).toBe(true);
+});
+
+test('shim-dom: a source-mode scan, another directory, report text and unresolvable assignments never count', () => {
+  for (const command of [
+    CAPTURED.replace('scan --format gstack --host claude', 'scan --changed main --format gstack --host claude'),
+    CAPTURED.replace('"$_REPORT/dom/$_RUN" >', '--changed "$_REPORT/dom/$_RUN" >'),
+    CAPTURED.replace('_RUN="run1"', '_RUN="run2"'),
+    CAPTURED.replace('"$_REPORT/dom/$_RUN" >', '"$_REPORT/dom/other" >'),
+    CAPTURED.replace('_RUN="run1"', '_RUN="run1"; _RUN="run2"'),
+    CAPTURED.replace('_RUN="run1"', '_RUN="$(date +%s)"'),
+    CAPTURED.replace('_RUN="run1"', '_RUN=$RUN_ID'),
+    CAPTURED.replace(`_REPORT="${REPORT}"`, '_REPORT="$HOME/report"'),
+    `mkdir -p "${RUN_DIR}" && ${SCAN} /elsewhere`,
+    `cat > detector-output.md <<'EOF'\nScan: \`${SCAN} ${RUN_DIR}\`\nEOF`,
+    `echo "${SCAN} ${RUN_DIR}"`.replace('scan --format', 'scan-later --format'),
+    `${SCAN} ${RUN_DIR}1`,
+  ]) expect(domScanOfRun(command, RUN_DIR), command).toBe(false);
+});

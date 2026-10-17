@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -7,6 +8,7 @@ import { qaFunctionalVerdict, qaNativeProbes, qaProbeClassification, verifyQANat
 import { parseNDJSON, type SkillTestResult } from './helpers/session-runner';
 import type { QAWriteObservation } from './helpers/qa-functional-observer';
 import { observeQAWrites } from './helpers/qa-functional-observer';
+import { qaFunctionalRequiredProbes, QA_WEBHOOK_POST_REPAIR_SCENARIOS } from './helpers/qa-functional-eval';
 
 const observation: QAWriteObservation = { complete: true, failures: [], events: [], changed: [], before: {}, after: {}, limits: ['representative event control; no live agent'] };
 
@@ -304,6 +306,115 @@ describe('functional evidence and native regression controls', () => {
       } finally { fixture.cleanup(); healthy.cleanup(); }
     });
   }
+
+  // Paid run 38986120559 (qa-functional-webhook-fix): the actor's status-only post-gate recheck and its concurrency regression.
+  const capturedStatusRepair = ["  const state = readState();\n  state.effects.push(", "  const state = readState();\n  if (state.jobs[id]?.status === 'complete') return;\n  state.effects.push("] as const;
+  const capturedConcurrencyRegression = `import { test, expect } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { processJob } from '../src/worker';
+import { readState, writeState } from '../src/storage';
+
+test('concurrent workers that both read the pending job apply exactly one effect', async () => {
+  process.env.QA_STATE_ROOT = fs.mkdtempSync(path.join(path.resolve('.qa-state'), 'regression-1-'));
+  writeState({ jobs: { delivery: { cents: 7, status: 'pending', attempts: 0 } }, effects: [] });
+  const releases: Record<string, () => void> = {};
+  const arrivals: Record<string, Promise<void>> = {};
+  const barrier = (label: string) => {
+    let arrived!: () => void;
+    arrivals[label] = new Promise<void>(resolve => { arrived = resolve; });
+    return () => { arrived(); return new Promise<void>(resolve => { releases[label] = resolve; }); };
+  };
+  const a = processJob('delivery', { gate: barrier('a') });
+  const b = processJob('delivery', { gate: barrier('b') });
+  await Promise.all([arrivals.a, arrivals.b]);
+  releases.a(); await a;
+  releases.b(); await b;
+  const state = readState();
+  expect(state.effects).toEqual([{ id: 'delivery', cents: 7 }]);
+  expect(state.jobs.delivery.status).toBe('complete');
+});
+`;
+
+  test('captured 38986120559 status-only repair fails the independent recheck on partial; an effect-based repair passes', () => {
+    for (const repair of ['status', 'effect'] as const) {
+      const fixture = createQAFunctionalFixture('webhook');
+      try {
+        fs.writeFileSync(path.join(fixture.root, 'test/worker.regression-1.test.ts'), capturedConcurrencyRegression);
+        const worker = path.join(fixture.root, 'src/worker.ts');
+        const source = fs.readFileSync(worker, 'utf8');
+        expect(source).toContain(capturedStatusRepair[0]);
+        fs.writeFileSync(worker, source.replace(capturedStatusRepair[0], repair === 'status' ? capturedStatusRepair[1]
+          : "  const state = readState();\n  if (!state.effects.some(effect => effect.id === id)) state.effects.push("));
+        if (repair === 'status') {
+          expect(qaProbeClassification(JSON.parse(fixtureCommand(fixture.root, ['probe.ts', 'partial']).stdout))).toBe('product-defect');
+          expect(() => verifyQANativeRegression(fixture)).toThrow('Candidate repair fails original or adjacent contract');
+        } else {
+          const result = verifyQANativeRegression(fixture);
+          expect(result.red.exit).not.toBe(0);
+          expect(result.rechecks.map(probe => qaProbeClassification(probe))).toEqual(['pass', 'pass', 'pass', 'pass', 'pass', 'pass', 'pass', 'setup-blocked']);
+        }
+      } finally { fixture.cleanup(); }
+    }
+  }, 60_000);
+
+  test('the capture nudge lists post-repair scenarios a pre-repair-only set never ran, and clears on the complete set', () => {
+    const fixture = createQAFunctionalFixture('webhook');
+    try {
+      const required = qaFunctionalRequiredProbes({ family: 'webhook', mode: 'qa' })!;
+      let previous: string | undefined;
+      const capture = (scenario: string) => {
+        const id = String(Number(previous ?? '0') + 1).padStart(3, '0');
+        const after = previous ? ['--after', previous, '--hypothesis', 'The previous scenario settled, so the next one checks another branch of the one-effect invariant.'] : [];
+        const run = spawnSync(process.execPath, ['bin/gstack-qa-evidence', 'capture', 'qa-reports', id, '--public', '--timeout-ms', '10000', ...after, '--', 'bun', 'run', 'probe', '--', scenario], {
+          cwd: fixture.root, encoding: 'utf8', timeout: 30_000,
+          env: { ...process.env, QA_STATE_ROOT: path.join(fixture.root, '.qa-state'), GIT_OPTIONAL_LOCKS: '0', GSTACK_QA_REQUIRED_PROBES: JSON.stringify(required) },
+        });
+        const line = run.stdout.split('\n').find(text => text.startsWith('QA_EVIDENCE '));
+        expect(line, run.stderr).toBeDefined();
+        const receipt = JSON.parse(line!.slice('QA_EVIDENCE '.length));
+        expect(receipt.status, run.stderr).toBe('complete');
+        previous = id;
+        return receipt.requiredRemaining as string[];
+      };
+      let remaining: string[] = [];
+      for (const scenario of ['happy', 'concurrent-ab', 'concurrent-ab', 'concurrent-ba']) remaining = capture(scenario);
+      expect(remaining).toEqual(['duplicate', 'partial', 'cancel', 'dependency'].map(scenario => `bun run probe -- ${scenario}`));
+      for (const scenario of QA_WEBHOOK_POST_REPAIR_SCENARIOS) remaining = capture(scenario);
+      expect(remaining).toEqual([]);
+    } finally { fixture.cleanup(); }
+  }, 120_000);
+
+  test('captured 39053431488 pre-repair duplicate labelled superseded without a rerun stays a failure (negative control)', () => {
+    // Capture order from #3252's webhook-fix run: happy, reject, duplicate, concurrent-ab x2, partial, the src/worker.ts
+    // repair, then concurrent-ab, partial, happy, cancel, dependency, concurrent-ba. Duplicate was never rerun.
+    const fixture = createQAFunctionalFixture('webhook');
+    const healthy = createQAFunctionalFixture('webhook', { healthy: true });
+    try {
+      const section = { path: 'qa/sections/system-functional.md', content: 'Functional QA native instruction read '.repeat(8) };
+      const calls: NativeCall[] = [{ tool: 'Read', input: { file_path: section.path }, output: section.content }];
+      const probe = (scenario: string) => recordedProbe(fixture, calls, ['probe.ts', scenario]);
+      for (const scenario of ['happy', 'reject', 'duplicate', 'concurrent-ab', 'concurrent-ab', 'partial']) probe(scenario);
+      const worker = path.join(fixture.root, 'src/worker.ts');
+      const repaired = fs.readFileSync(path.join(healthy.root, 'src/worker.ts'), 'utf8');
+      fs.writeFileSync(worker, repaired);
+      calls.push({ tool: 'Write', input: { file_path: worker, content: repaired }, output: 'File written.' });
+      for (const scenario of ['concurrent-ab', 'partial', 'happy', 'cancel', 'dependency', 'concurrent-ba']) probe(scenario);
+      const evidenceFailures = (captured: NativeCall[], label: (scenario: string, index: number) => string | undefined) => {
+        const result = nativeCapture(captured);
+        const probes = qaNativeProbes(result);
+        const report = { revision: fixture.revision, cwd: fixture.root, runtime: `bun ${Bun.version}`, limits: ['Optional exporter is unavailable.'],
+          evidence: probes.map((row, index) => ({ command: row.command, contract: 'README.md', expected: 'One durable effect per delivery.',
+            classification: label(row.observed.scenario, index) ?? qaProbeClassification(row.observed), observed: row.observed })) };
+        return qaFunctionalVerdict(fixture, 'qa', result, observation, report, section).filter(failure => failure.startsWith('missing exact sanitized evidence'));
+      };
+      const duplicate = 'bun run probe -- duplicate';
+      expect(evidenceFailures(calls, scenario => scenario === 'duplicate' ? 'superseded' : undefined)).toEqual([`missing exact sanitized evidence for ${duplicate}`]);
+      expect(evidenceFailures(calls, () => undefined)).toEqual([]);
+      probe('duplicate');
+      expect(evidenceFailures(calls, (scenario, index) => scenario === 'duplicate' && index === 2 ? 'superseded' : undefined)).toEqual([]);
+    } finally { fixture.cleanup(); healthy.cleanup(); }
+  }, 60_000);
 
   test('private evidence survives fixture cleanup and preserves sanitized native records', () => {
     const fixture = createQAFunctionalFixture('cli');

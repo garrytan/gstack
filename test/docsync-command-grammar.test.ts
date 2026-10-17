@@ -258,3 +258,51 @@ test('every Bash command of the captured ship-docsync-store run is inside the in
   expect(commands).toHaveLength(54);
   expect(commands.filter(command => !docsCommandAllowed(command, fixture, [publish]))).toEqual([]);
 });
+
+// PR gate run 38990111230 (ship-docsync-stale-after, head 6c07d85c82d17bda81860cd0d78616de3dc14cc2) went red only on
+// `gstack-docs-candidate snapshot --help` (bash#8), which the helper rejected as an unknown argument. Every Bash
+// command of the parent, in order; <HOME> is the fixture home and <ACTOR> the fault actor.
+const STALE_AFTER_38990111230 = [
+  '<HOME>/.claude/skills/gstack/bin/gstack-docs-candidate compare <HOME>/candidate-ship-docs-a1.json',
+  'bun <ACTOR> inspect <HOME>/actor-state.json',
+  'sha256sum <HOME>/.claude/skills/gstack/document-release/SKILL.md <HOME>/.claude/skills/gstack/document-release/sections/audit-scope.md <HOME>/.claude/skills/gstack/document-release/sections/release-body.md',
+  'bun <ACTOR> prepare <HOME>/actor-state.json audit_id=ship-docs-a2',
+  'bun <ACTOR> dispatch <HOME>/actor-state.json audit_id=ship-docs-a2 candidate=<HOME>/candidate-ship-docs-a2.json prompt=<HOME>/prompt-ship-docs-a2.md run_in_background=false',
+  'bun <ACTOR> inspect <HOME>/actor-state.json',
+  '<HOME>/.claude/skills/gstack/bin/gstack-docs-candidate compare <HOME>/candidate-ship-docs-a2.json',
+  '<HOME>/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --help',
+  '<HOME>/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out <HOME>/ship-docs-a2-post.json --audit-id ship-docs-a2 --mode edit --base 21cebf26714abdfc6b80267507b88a4df6e933a8 --docs handbook --select AGENTS.md --select CHANGELOG.md --select README.md --select TODOS.md --select VERSION --select app.ts --select handbook/reference/commands/widget.md.tmpl --select package.json',
+  'bun <ACTOR> inspect <HOME>/actor-state.json',
+  'bun <ACTOR> publish <HOME>/actor-state.json audit_id=ship-docs-a2 report=<HOME>/ship-report.md',
+];
+
+test('every Bash command of the captured ship-docsync-stale-after run is inside the fault interface', () => {
+  const actor = path.join(import.meta.dir, 'helpers/docsync-fault-actor.ts');
+  const commands = STALE_AFTER_38990111230.map(command => command.replaceAll('<HOME>', fixture.home).replaceAll('<ACTOR>', actor));
+  expect(commands).toHaveLength(11);
+  expect(commands.filter(command => !docsCommandAllowed(command, fixture, [actor]))).toEqual([]);
+});
+
+test('subcommand --help is admitted alone and runs without effect; with any other argument it stays outside the interface', () => {
+  const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+  const record = path.join(fixture.home, 'help-probe.json');
+  const before = repoSnapshot(fixture.repo);
+  for (const sub of ['snapshot', 'compare']) {
+    expect(docsCommandAllowed(`${helper} ${sub} --help`, fixture)).toBe(true);
+    const run = spawnSync(helper, [sub, '--help'], { cwd: fixture.repo, encoding: 'utf8', timeout: 20_000 });
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stdout).toContain('usage: gstack-docs-candidate snapshot --out <candidate.json>');
+  }
+  for (const command of [
+    `${helper} snapshot --help --out ${record}`,
+    `${helper} compare --help ${record}`,
+    `${helper} snapshot --out ${record} --help`,
+    `${helper} snapshot -h`,
+    `${helper} compare -h`,
+    `${helper} snapshot --help --out ${path.join(fixture.repo, 'inside.json')}`,
+    `${helper} snapshot --out ${path.join(fixture.repo, 'inside.json')} --audit-id a --mode edit --base main`,
+    `${helper} snapshot --help; ${helper} compare ${record}`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
+  expect(fs.existsSync(record)).toBe(false);
+  expect(repoSnapshot(fixture.repo)).toEqual(before);
+});

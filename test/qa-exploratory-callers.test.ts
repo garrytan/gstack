@@ -155,6 +155,61 @@ describe('caller native-event observer controls', () => {
     } finally { await fixture.close(); fs.rmSync(fixture.root, { recursive: true, force: true }); }
   });
 
+  test('captured section skips 38973329985 and 38993076767: the reads stay required, and the prompt binds names instead of teaching helper forms', async () => {
+    // Paid gate runs 38973329985 and 38993076767, ship-exploratory-small-cli: both actors read ship/sections/review-army.md, never
+    // read qa/sections/exploratory.md or system-functional.md, ran captures with the syntax the session prompt taught, then a bare
+    // materialize the prompt had not taught. Every passing session in the window read both sections.
+    const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/qa-caller-section-skip-ship-small-cli.json'), 'utf8'));
+    const reportRoot = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qc-skip-'));
+    checkpointRoots.push(reportRoot);
+    const validate = (transcript: unknown[]) => validateCallerEvidence({
+      caller: 'ship', result: { exitReason: 'success', transcript }, probes: [], receipt: { status: 'pass', probes: [], remaining: [] },
+      currentSnapshot: snapshot, requiredCharters: [], mutations: [], observerComplete: true,
+      reportRoot, checkpointFiles: {}, reportMarkdown: '',
+    });
+    const missing = ['missing executed resource read: /qa/sections/exploratory.md', 'missing executed resource read: /qa/sections/system-functional.md'];
+    for (const run of ['38973329985', '38993076767']) {
+      const events = captured.runs[run] as unknown[];
+      expect(callerTools(events).filter(tool => / materialize \/qc\/product\/reports$/.test(String(tool.input.command)))).toHaveLength(1);
+      const errors = validate(events);
+      for (const error of missing) expect(errors).toContain(error);
+      const control = [...events.slice(0, 4), ...nativeCall(`${run}-exploratory`, 'Read', { file_path: '/qc/host/runtime/qa/sections/exploratory.md' }, '# Shared exploratory QA'),
+        ...nativeCall(`${run}-functional`, 'Read', { file_path: '/qc/host/runtime/qa/sections/system-functional.md' }, '# Functional QA'), ...events.slice(4)];
+      for (const error of missing) expect(validate(control)).not.toContain(error);
+    }
+    for (const caseId of QA_CALLER_CASES) {
+      const fixture = createQaCallerFixture(caseId, { installRuntime: false });
+      try {
+        const prompt = qaCallerSessionOptions(fixture, 'free-bindings').prompt;
+        expect(prompt).not.toMatch(/gstack-qa-(?:evidence|deadline) (?:capture|checkpoint|materialize|start|status|run)\b|--after PREV|--hypothesis/);
+        expect(prompt).toContain('forms are in the installed qa/sections/exploratory.md this phase requires you to Read');
+        for (const binding of [`DEADLINE_TOOL = ${fixture.runtime}/bin/gstack-qa-deadline`, `EVIDENCE_TOOL = ${fixture.runtime}/bin/gstack-qa-evidence`,
+          `PROBE_DIR = ${fixture.cwd}/reports`, `DEADLINE_FILE = ${fixture.cwd}/reports/deadline.json`, 'so --public is approved', '--timeout-ms 10000']) {
+          expect(prompt).toContain(binding);
+        }
+      } finally { await fixture.close(); fs.rmSync(fixture.root, { recursive: true, force: true }); }
+    }
+    const section = fs.readFileSync(path.join(import.meta.dir, '../qa/sections/exploratory.md'), 'utf8');
+    for (const form of ['bun DEADLINE_TOOL start DEADLINE_FILE SECONDS [EARLIER_UTC]', 'bun EVIDENCE_TOOL capture PROBE_DIR NNN [--public] --deadline DEADLINE_FILE -- COMMAND ARGS',
+      "--after PREV --hypothesis 'why'", 'bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json']) {
+      expect(section).toContain(form);
+    }
+  });
+
+  test('captured 39002269281 standalone state-machine detect stays outside the caller interface; the generated scope block runs it', async () => {
+    // PR gate run 39002269281 ship-exploratory-plan-checks, native Bash call 17: the selection prose named the detector, so the
+    // actor ran it alone. The detector now runs inside the generated scope block, which is the declared form.
+    const fixture = createQaCallerFixture('ship-exploratory-plan-checks', { installRuntime: false });
+    try {
+      const standalone = `${fixture.runtime}/bin/gstack-state-matrix detect --base main`;
+      expect(qaCallerCommandAllowed(standalone, fixture.workflowCommands)).toBe(false);
+      const block = fixture.workflowCommands.find(command => command.includes('/bin/gstack-state-matrix detect --base main'));
+      expect(block).toBeDefined();
+      expect(block).toContain('/gstack-diff-scope main 2>/dev/null) || true');
+      expect(qaCallerCommandAllowed(block!, fixture.workflowCommands)).toBe(true);
+    } finally { await fixture.close(); fs.rmSync(fixture.root, { recursive: true, force: true }); }
+  });
+
   test.each(['pending-result', 'same-event', 'same-message-id'])('method Read %s cannot authorize a dependent probe', ordering => {
     const observed = evidence();
     const events = observed.result.transcript as any[];

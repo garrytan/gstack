@@ -6,6 +6,7 @@
  *   gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only
  *                                  --base <rev> [--select <path>]... [--docs <path>]...
  *   gstack-docs-candidate compare <candidate.json>
+ *   gstack-docs-candidate [snapshot|compare] --help
  *
  * snapshot saves, NUL-safely and without writing to the repository: base SHA,
  * HEAD, branch, index entries, committed (base..HEAD), staged, unstaged and
@@ -86,9 +87,21 @@ function one(args: string[], name: string): string {
 const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]...
        gstack-docs-candidate compare <candidate.json>`;
 
+/** Each field compare needs that the record lacks or types wrongly; empty for a valid record. */
+function recordProblems(record: any): string[] {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return ['not a JSON object'];
+  const problems: string[] = [];
+  if (record.schema_version !== 1) problems.push('missing or wrong schema_version (want 1)');
+  if (typeof record.base !== 'string') problems.push('missing or wrong base (want the base commit SHA string)');
+  if (!record.hashes || typeof record.hashes !== 'object' || Array.isArray(record.hashes)) problems.push('missing or wrong hashes (want an object of path -> blob id)');
+  return problems;
+}
+
 function main(argv: string[]): void {
   const [command, ...args] = argv;
-  if ((command === '--help' || command === '-h') && !args.length) {
+  const topHelp = (command === '--help' || command === '-h') && !args.length;
+  const commandHelp = (command === 'snapshot' || command === 'compare') && args.length === 1 && args[0] === '--help';
+  if (topHelp || commandHelp) {
     console.log(USAGE);
     return;
   }
@@ -119,8 +132,18 @@ function main(argv: string[]): void {
   }
   if (command === 'compare') {
     if (args.length !== 1) throw new Error('compare takes exactly one candidate path');
-    const record = JSON.parse(fs.readFileSync(args[0]!, 'utf8'));
-    if (record?.schema_version !== 1 || typeof record.base !== 'string' || typeof record.hashes !== 'object') throw new Error('not a gstack-docs-candidate record');
+    const file = args[0]!;
+    let record: any;
+    try { record = JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw error; record = undefined; }
+    const problems = record === undefined ? ['not valid JSON'] : recordProblems(record);
+    if (problems.length) {
+      throw new Error(`${file} is not a gstack-docs-candidate record: ${problems.join('; ')}. `
+        + 'Fix: the candidate must be the record the Prepare snapshot wrote. To rebuild it, rerun the Prepare snapshot '
+        + '(gstack-docs-candidate snapshot --out <path> --audit-id <id> --mode edit --base <rev> ...) only before dispatching '
+        + 'the child audit. After the audit, never snapshot over it: the post-child snapshot uses a different --out '
+        + '(<audit-id>-post.json).');
+    }
     process.chdir(fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim()));
     const now = state(record.base);
     const current = hashes(Object.keys(record.hashes));

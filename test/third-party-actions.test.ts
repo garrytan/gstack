@@ -341,6 +341,19 @@ describe("THIRD_PARTY_ACTIONS contract pins", () => {
     expect(section.match(/\(recommended\)/g)).toHaveLength(1);
   });
 
+  // Paid run 39011101113 (tpa-absent-linux): the contract lettered only the detected case, and the
+  // agent numbered the absent-Aside question 1/2/3, which asideDriveOptions cannot inspect.
+  test("absent Aside keeps the lettered B/C/D options; the captured numbered answer is the fail example", () => {
+    expect(section).toContain("When Aside is not detected, offer only options B), C) and D).");
+    const absent = section.slice(section.indexOf("When Aside is not detected"));
+    expect(absent.slice(0, absent.indexOf("D)."))).not.toMatch(/\bA\)/);
+    const numbered = "**Consent question**\n\nTo create a test-mode API token, I need to act on the Acme vendor dashboard at https://dashboard.acme.test. How would you like to proceed?\n\n1. I drive it in gstack's own visible browser. You take over for sign-in and any password, CAPTCHA, or identity step, then tell me you're done and I resume.\n2. I give you manual step-by-step instructions and you do it yourself.\n3. Defer this step for now. I mark it blocked on you.";
+    expect(numbered).not.toMatch(/\b[A-D]\)/);
+    const lettered = numbered.replace('1. ', 'B) ').replace('2. ', 'C) ').replace('3. ', 'D) ');
+    expect(lettered).toMatch(/\b[A-D]\)/);
+    expect(asideDriveOptions(lettered)).toEqual([]);
+  });
+
   // Drive discipline: the cookbook governs HOW, this contract overrides it.
   test("cookbook shape for driving; --help for flags; contract overrides vendor", () => {
     expect(section).toContain("aside --help");

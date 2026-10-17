@@ -54,8 +54,11 @@ new Function('describe', 'test', 'expect', 'beforeAll', 'afterAll',
 );
 afterAll(() => console.log('CONSENSUS_LIFECYCLE=' + JSON.stringify({ attempts, records, registrations, captureOptions, runIds })));
 `);
-    const child = Bun.spawnSync([process.execPath, 'test', '--retry', '1', script], {
-      cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 8_000,
+    // windows-free-tests 39053431430: the real describe's git-heavy beforeAll outlived Bun's 5 s default hook
+    // timeout on windows-latest. --timeout raises only the nested default; the registrations under test keep
+    // their explicit timeouts.
+    const child = Bun.spawnSync([process.execPath, 'test', '--retry', '1', '--timeout', '30000', script], {
+      cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 40_000,
     });
     const output = child.stdout.toString() + child.stderr.toString();
     expect(child.exitCode, output).toBe(0);
@@ -73,7 +76,7 @@ afterAll(() => console.log('CONSENSUS_LIFECYCLE=' + JSON.stringify({ attempts, r
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 45_000);
 
 for (const validReport of [true, false]) {
   test(`red-team retries only after cancellation and recording, and preserves report validation (${validReport})`, () => {
@@ -134,8 +137,8 @@ afterAll(async () => {
     fixturesRemoved: fixturePaths.every(p => !fs.existsSync(p)) }));
 });
 `);
-      const child = Bun.spawnSync([process.execPath, 'test', '--retry', '1', script], {
-        cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 8_000,
+      const child = Bun.spawnSync([process.execPath, 'test', '--retry', '1', '--timeout', '30000', script], {
+        cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 40_000,
         env: { ...process.env, EVALS: '', EVALS_MODEL: 'fixture-model' },
       });
       const output = child.stdout.toString() + child.stderr.toString();
@@ -157,7 +160,7 @@ afterAll(async () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
-  }, 10_000);
+  }, 45_000);
 }
 
 // review-army-simplification headroom (#3153): the session's premise matches its staged

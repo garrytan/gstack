@@ -423,11 +423,11 @@ changes or write findings into the plan yet.
 - **Distribution check:** For new artifacts, verify build/publish CI/CD, target
    OS/architectures and download/install channels. Put deferrals in "NOT in scope".
 
-**Reality rows (required):** run `~/.claude/skills/gstack/bin/gstack-plan-reality rows --phase eng` and work each
-row it prints (tier 1 always: premise-table, already-done, surface-check, binding-decisions, numbers, deferred-asks, pr-count; tier 2 by detected scope, `--scope <csv>`).
-Every row cites a file:line receipt; the premise table counts `unverified=<n>`. End with
+**Reality rows (required):** run `~/.claude/skills/gstack/bin/gstack-plan-reality rows --phase eng` and work its
+rows (tier 1 always, never `n/a`: premise-table, already-done, surface-check, binding-decisions, numbers, deferred-asks, pr-count; tier 2 by detected scope, `--scope <csv>`).
+Every row cites a file:line receipt (with no linked issue, deferred-asks is `pass`); the premise table counts `unverified=<n>`. End with
 one line per row, `REALITY: <row> pass|finding|n/a <summary> <file:line>`, then run
-`~/.claude/skills/gstack/bin/gstack-plan-reality check --phase eng <review-file|->` (it prints the `PLAN_REALITY:` line): a missing row is `incomplete`
+`~/.claude/skills/gstack/bin/gstack-plan-reality check --phase eng <review-file|->`: a missing row is `incomplete`
 unattended; interactive runs repair twice, then warn at the gate.
 
 ### B. Resolve complexity selectors
@@ -485,9 +485,8 @@ Continue to Section 1 only when no answer is pending.
 ### Reality rows (why each exists)
 
 Each row is tied to the incident that earned it; its check is what
-`~/.claude/skills/gstack/bin/gstack-plan-reality rows --phase <p> --deep` prints. Tier 1 rows are required in every review; a
-tier 2 row is required when the detected scope names its scope (`--scope`)
-and may be omitted or marked `n/a` otherwise.
+`~/.claude/skills/gstack/bin/gstack-plan-reality rows --phase <p> --deep` prints. Tier 1 rows are required in every review and never
+`n/a`; a tier 2 row is required only when the detected scope names its scope (`--scope`).
 
 | Row | Tier | Scope | Incident that earned it |
 |---|---|---|---|

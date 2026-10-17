@@ -36,16 +36,29 @@ export function changedFiles(before: ReturnType<typeof repoSnapshot>, after: Ret
     .filter(p => before.contents[p] !== after.contents[p]).sort();
 }
 
-export function docsCandidate(repo: string, auditId: string, mode: 'edit' | 'read-only', base: string) {
-  const snapshot = repoSnapshot(repo);
-  return {
-    audit_id: auditId, mode, base_sha: base, head: snapshot.head, branch: gitAt(repo, 'branch', '--show-current'),
-    selected_paths: Object.keys(snapshot.contents).filter(p => p !== 'personal-note.txt'),
-    docs_roots: ['handbook'], generated_outputs: [], index: snapshot.index,
-    content_hashes: Object.fromEntries(Object.entries(snapshot.contents).map(([p, bytes]) =>
-      [p, createHash('sha256').update(Buffer.from(bytes, 'base64')).digest('hex')])),
-    pre_existing_dirty: gitAt(repo, 'status', '--porcelain', '-z'),
-  };
+/** The record `gstack-docs-candidate snapshot` writes and `compare` reads (bin/gstack-docs-candidate). */
+export interface DocsCandidateRecord {
+  schema_version: 1; audit_id: string; mode: 'edit' | 'read-only'; base: string; head: string; branch: string;
+  index: string[]; committed: string[]; staged: string[]; unstaged: string[]; untracked: string[];
+  selected: string[]; docs: string[]; hashes: Record<string, string | null>;
+}
+
+/**
+ * The installed snapshot command for the fixture's audit selection: every tracked or new path except the
+ * user's personal note, with the handbook docs root, against main's commit. Returned as argv; the first
+ * element is the installed helper, so the command is the literal form the observation interface admits.
+ */
+export function docsSnapshotArgv(fixture: { repo: string; skills: string }, auditId: string, out: string): string[] {
+  const inventory = [...new Set(gitAt(fixture.repo, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
+    .split('\0').filter(Boolean))].sort();
+  return [path.join(fixture.skills, 'bin/gstack-docs-candidate'), 'snapshot', '--out', out, '--audit-id', auditId,
+    '--mode', 'edit', '--base', gitAt(fixture.repo, 'rev-parse', 'main'),
+    ...inventory.filter(p => p !== 'personal-note.txt').flatMap(p => ['--select', p]), '--docs', 'handbook'];
+}
+
+/** Git blob id of content, the hash representation of `DocsCandidateRecord.hashes`. */
+export function gitBlobId(content: Buffer): string {
+  return createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
 }
 
 export function fixtureDocs(scenario: DocsScenario, generatedRoot = process.env.DOCSYNC_GENERATED_ROOT || DOCSYNC_ROOT) {

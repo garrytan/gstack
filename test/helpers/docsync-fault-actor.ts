@@ -1,9 +1,12 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { DOC_PATH, docsCandidate, gitAt, fixtureDocs, repoSnapshot } from './docsync-fixture';
+import { spawnSync } from 'node:child_process';
+import { DOC_PATH, docsSnapshotArgv, gitAt, gitBlobId, fixtureDocs, repoSnapshot, type DocsCandidateRecord } from './docsync-fixture';
 import { extractDocsDispatch } from './docsync-contract';
 import { docsNativeInterface } from './docsync-observer';
+import { redactFindingSpans } from '../../lib/redact-engine';
 
 export const DOCS_CHECKPOINT_MARKER = '<!-- DOCSYNC_CHECKPOINT -->';
 
@@ -16,7 +19,7 @@ export interface DocsActorState {
   events: ActorEvent[];
   tasks: Array<{ id: string | null; audit_id: string; settled: boolean; stopRequested: boolean; elapsed_ms: number;
     prompt: string; candidate: string; prompt_sha256: string; candidate_sha256: string;
-    observed_candidate: ReturnType<typeof docsCandidate> }>;
+    observed_candidate: DocsCandidateRecord }>;
   repaired: boolean;
   armed: boolean;
   lateChanged: boolean;
@@ -52,6 +55,53 @@ function locked<T>(file: string, body: () => T): T {
   finally { fs.closeSync(fd); fs.unlinkSync(lock); }
 }
 
+const SNAPSHOT_TIMEOUT_MS = 30_000;
+const shellWord = (arg: string) => /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
+
+export const SNAPSHOT_STDERR_LIMIT = 800;
+export type SnapshotFailureReason = 'snapshot_timeout' | 'snapshot_spawn_error' | 'snapshot_exit' | 'snapshot_invalid_record';
+
+class SnapshotFailure extends Error {
+  constructor(readonly reason: SnapshotFailureReason, readonly status: string, readonly stderr: string) { super(reason); }
+}
+
+/** The tail of the helper's stderr with secrets redacted and the fixture root replaced by <HOME>, at most SNAPSHOT_STDERR_LIMIT characters. */
+function stderrExcerpt(root: string, stderr: string): string {
+  const redacted = redactFindingSpans(stderr.replaceAll(root, '<HOME>').trim());
+  if (redacted === null) return '[stderr omitted: unredactable secret]';
+  return redacted.length > SNAPSHOT_STDERR_LIMIT ? '…' + redacted.slice(-(SNAPSHOT_STDERR_LIMIT - 1)) : redacted;
+}
+
+/**
+ * Runs the installed `gstack-docs-candidate snapshot` (the section's Prepare helper) for the fixture selection
+ * and returns the record it wrote, or throws a SnapshotFailure with a stable reason. `out` must not exist yet.
+ */
+function installedSnapshot(s: DocsActorState, auditId: string, out: string): { record: DocsCandidateRecord; command: string } {
+  const repo = path.join(s.root, 'repo');
+  const argv = docsSnapshotArgv({ repo, skills: path.join(s.root, '.claude/skills/gstack') }, auditId, out);
+  const run = spawnSync(argv[0]!, argv.slice(1), { cwd: repo, encoding: 'utf8', timeout: SNAPSHOT_TIMEOUT_MS,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } });
+  const stderr = run.stderr || '';
+  if (run.error) {
+    const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+    throw new SnapshotFailure(timedOut ? 'snapshot_timeout' : 'snapshot_spawn_error', run.error.message, stderr);
+  }
+  if (run.status !== 0) throw new SnapshotFailure('snapshot_exit', `exit ${run.status ?? run.signal}`, stderr);
+  let record: DocsCandidateRecord;
+  try { record = JSON.parse(fs.readFileSync(out, 'utf8')) as DocsCandidateRecord; }
+  catch (error) { throw new SnapshotFailure('snapshot_invalid_record', `exit 0, unreadable record: ${(error as Error).message}`, stderr); }
+  if (record.schema_version !== 1 || record.audit_id !== auditId || record.mode !== 'edit' || record.base !== gitAt(repo, 'rev-parse', 'main')
+      || !Array.isArray(record.index) || !record.hashes || typeof record.hashes !== 'object') throw new SnapshotFailure('snapshot_invalid_record', 'exit 0, invalid record', stderr);
+  return { record, command: argv.map(shellWord).join(' ') };
+}
+
+/** The candidate prepare would save now, observed without touching any saved artifact. */
+function observeCandidate(s: DocsActorState, auditId: string): DocsCandidateRecord {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-actor-observe-'));
+  try { return installedSnapshot(s, auditId, path.join(dir, 'observed.json')).record; }
+  finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 function changeCandidate(s: DocsActorState) {
   fs.writeFileSync(path.join(s.root, 'repo/app.ts'), 'export const format = "json";\n');
   s.lateChanged = true;
@@ -81,32 +131,50 @@ export function docsActorCommand(file: string, action: string, args: Record<stri
       if (action === 'prepare') {
         if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(args.audit_id ?? '')) throw Error('prepare requires a fresh literal audit id');
         if (s.tasks.some(t => !t.settled)) throw Error('attempted snapshot with unsettled writer');
+        const failedPrepares = s.events.filter(e => e.action === 'prepare-failed');
+        if (failedPrepares.some(e => e.audit_id === args.audit_id)) throw Error(`reason=snapshot_retry_needs_fresh_id: prepare ${args.audit_id} failed; retry once with a fresh audit_id`);
+        if (failedPrepares.length >= 2) throw Error('reason=snapshot_retry_exhausted: prepare already failed and was retried once; report the documentation phase blocked');
         const repo = path.join(s.root, 'repo');
         const skills = path.join(s.root, '.claude/skills/gstack');
         const candidateFile = owned(s.root, path.join(s.root, `candidate-${args.audit_id}.json`));
         const promptFile = owned(s.root, path.join(s.root, `prompt-${args.audit_id}.md`));
-        if (fs.existsSync(candidateFile) || fs.existsSync(promptFile)) throw Error('prepare cannot overwrite a saved snapshot or prompt');
-        const candidate = docsCandidate(repo, args.audit_id, 'edit', gitAt(repo, 'rev-parse', 'main'));
+        const saved = (file: string) => fs.lstatSync(file, { throwIfNoEntry: false }) !== undefined;
+        if (saved(candidateFile) || saved(promptFile)) throw Error('prepare cannot overwrite a saved snapshot or prompt');
         const source = extractDocsDispatch(fs.readFileSync(path.join(skills, 'ship/sections/documentation.md'), 'utf8'));
+        let snapshot: ReturnType<typeof installedSnapshot>;
+        try { snapshot = installedSnapshot(s, args.audit_id, candidateFile); }
+        catch (error) {
+          if (!(error instanceof SnapshotFailure)) throw error;
+          const failureFile = owned(s.root, path.join(s.root, `prepare-${args.audit_id}-failure.json`));
+          const kept = [...(saved(candidateFile) ? [candidateFile] : []), failureFile];
+          const failure = { reason: error.reason, audit_id: args.audit_id, status: error.status,
+            stderr_excerpt: stderrExcerpt(s.root, error.stderr), kept,
+            retry: failedPrepares.length ? 'none left' : 'at most once, with a fresh audit_id' };
+          fs.writeFileSync(failureFile, JSON.stringify(failure, null, 2), { flag: 'wx', mode: 0o600 });
+          s.events.push({ action: 'prepare-failed', audit_id: args.audit_id, detail: JSON.stringify(failure) });
+          save(file, s);
+          return { text: `prepare failed: reason=${failure.reason} (${failure.status}); retry ${failure.retry}; kept for inspection: ${kept.join(', ')}\nstderr (redacted, last ${SNAPSHOT_STDERR_LIMIT} chars):\n${failure.stderr_excerpt}`, exit: 25 };
+        }
+        const candidate = snapshot.record;
         const prompt = source.replaceAll('${HOME}', s.root).replaceAll('<branch>', candidate.branch)
           .replaceAll('<base>', 'main').replaceAll('<candidate-path>', candidateFile)
           .replaceAll('<audit-id>', args.audit_id).replaceAll('<mode>', candidate.mode)
           + '\n\n' + docsNativeInterface({ home: s.root, repo, skills });
-        fs.writeFileSync(candidateFile, JSON.stringify(candidate), { flag: 'wx', mode: 0o600 });
         fs.writeFileSync(promptFile, prompt, { flag: 'wx', mode: 0o600 });
-        s.events.push({ action, audit_id: args.audit_id, detail: JSON.stringify({ candidate, prompt }) });
-        text = JSON.stringify({ audit_id: args.audit_id, candidate: candidateFile, prompt: promptFile });
+        s.events.push({ action, audit_id: args.audit_id, detail: JSON.stringify({ candidate, prompt, snapshot_command: snapshot.command }) });
+        text = JSON.stringify({ audit_id: args.audit_id, candidate: candidateFile, prompt: promptFile, snapshot_command: snapshot.command });
       } else if (action === 'dispatch') {
         if (!args.audit_id || args.run_in_background !== 'false') throw Error('dispatch requires identity and explicit foreground flag');
         if (s.tasks.some(t => !t.settled)) throw Error('attempted writer overlap');
         if (s.events.some(e => e.action === 'dispatch' && e.audit_id === args.audit_id)) throw Error('reused audit identity');
+        if (s.events.some(e => e.action === 'prepare-failed' && e.audit_id === args.audit_id)) throw Error('dispatch of a failed prepare');
         const prompt = fs.readFileSync(owned(s.root, args.prompt), 'utf8');
         const candidate = fs.readFileSync(owned(s.root, args.candidate));
         if (!prompt.includes('document-release') || !prompt.includes('files_updated') || !prompt.includes(args.audit_id)) throw Error('dispatch did not carry the actual workflow prompt');
         const task = { id: s.scenario === 'launch-failure' ? null : `fixture-child-${s.tasks.length + 1}`, audit_id: args.audit_id, settled: true, stopRequested: false, elapsed_ms: 0,
           prompt, candidate: candidate.toString('utf8'), prompt_sha256: createHash('sha256').update(prompt).digest('hex'),
           candidate_sha256: createHash('sha256').update(candidate).digest('hex'),
-          observed_candidate: docsCandidate(path.join(s.root, 'repo'), args.audit_id, 'edit', gitAt(path.join(s.root, 'repo'), 'rev-parse', 'main')) };
+          observed_candidate: observeCandidate(s, args.audit_id) };
         s.events.push({ action, audit_id: args.audit_id, ...(task.id === null ? {} : { task_id: task.id }) });
         if (s.scenario === 'missing-asset') throw Error('missing installed asset must block before dispatch');
         s.tasks.push(task);
@@ -160,11 +228,11 @@ export function docsActorCommand(file: string, action: string, args: Record<stri
           const bytes = snapshot.contents[rel];
           if (bytes === undefined) return [rel, { exists: false }];
           const buffer = Buffer.from(bytes, 'base64');
-          return [rel, { exists: true, sha256: createHash('sha256').update(buffer).digest('hex'), content: buffer.toString('utf8') }];
+          return [rel, { exists: true, hash: gitBlobId(buffer), content: buffer.toString('utf8') }];
         }));
         text = JSON.stringify({
-          operation: 'inspect', base_sha: base, head: snapshot.head,
-          branch: gitAt(repo, 'branch', '--show-current'), index: snapshot.index,
+          operation: 'inspect', base, head: snapshot.head,
+          branch: gitAt(repo, 'branch', '--show-current'), index: gitAt(repo, 'ls-files', '-s', '-z').split('\0').filter(Boolean),
           pre_existing_dirty: gitAt(repo, 'status', '--porcelain', '-z'),
           diff_committed: gitAt(repo, 'diff', base, 'HEAD'),
           diff_cached: gitAt(repo, 'diff', '--cached'), diff_worktree: gitAt(repo, 'diff'),
@@ -269,7 +337,7 @@ export function seedDocsFirstAttempt(fixture: ReturnType<typeof fixtureDocs>, fi
   });
   const prepared = docsActorCommand(file, 'prepare', { audit_id: DOCS_SEEDED_AUDIT_ID });
   if (prepared.exit) throw Error(`seeded prepare failed: ${prepared.text}`);
-  const { candidate, prompt } = JSON.parse(prepared.text) as { candidate: string; prompt: string };
+  const { candidate, prompt, snapshot_command } = JSON.parse(prepared.text) as { candidate: string; prompt: string; snapshot_command: string };
   const dispatched = docsActorCommand(file, 'dispatch', { audit_id: DOCS_SEEDED_AUDIT_ID, candidate, prompt, run_in_background: 'false' });
   if (dispatched.exit === 24) throw Error(`seeded dispatch rejected: ${dispatched.text}`);
   const completion = path.join(fixture.home, `completion-${DOCS_SEEDED_AUDIT_ID}.md`);
@@ -279,10 +347,10 @@ export function seedDocsFirstAttempt(fixture: ReturnType<typeof fixtureDocs>, fi
   const record = fs.readFileSync(fixture.invocation, 'utf8');
   if (record.split(DOCS_CHECKPOINT_MARKER).length !== 2) throw Error('invocation journal marker must occur exactly once');
   fs.writeFileSync(fixture.invocation, record.replace(DOCS_CHECKPOINT_MARKER, () => `### Checkpoint 1 — attempt 1 (fixture-owned prior state)
-Attempts used: 1. Prepare step 1: installed child assets present with sha256 ${assets.map(a => `${a.asset} ${a.sha256}`).join('; ')}. Prepare steps 2–3: audit ${DOCS_SEEDED_AUDIT_ID}; candidate ${candidate}; prompt ${prompt}. Launched with dispatch run_in_background=false; dispatch exit code ${dispatched.exit}; its verbatim output is saved once at ${completion}.${handle ? ` Returned child handle: ${handle}.` : ''}
+Attempts used: 1. Prepare step 1: installed child assets present with sha256 ${assets.map(a => `${a.asset} ${a.sha256}`).join('; ')}. Prepare steps 2–3: audit ${DOCS_SEEDED_AUDIT_ID}; candidate ${candidate}, written by ${snapshot_command}; prompt ${prompt}. Launched with dispatch run_in_background=false; dispatch exit code ${dispatched.exit}; its verbatim output is saved once at ${completion}.${handle ? ` Returned child handle: ${handle}.` : ''}
 Next: Parent processing for attempt 1, starting at Collect. A repeated Prepare may confirm step 1 with one literal sha256sum of these three asset paths instead of re-reading them; a missing asset or changed hash blocks before launch.
 ${DOCS_CHECKPOINT_MARKER}`));
-  return { auditId: DOCS_SEEDED_AUDIT_ID, candidate, prompt, completion, exit: dispatched.exit, text: dispatched.text,
+  return { auditId: DOCS_SEEDED_AUDIT_ID, candidate, prompt, snapshotCommand: snapshot_command, completion, exit: dispatched.exit, text: dispatched.text,
     events: load(file).events.length };
 }
 

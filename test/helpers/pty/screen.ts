@@ -159,6 +159,7 @@ export async function createPtyScreen(cols: number, rows: number,
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
   return s
+    .replace(/\x1b\[\?25[hl]/g, '')
     .replace(/\x1b\[[\d;]*[a-zA-Z]/g, '')
     .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
     .replace(/\x1b[()][AB012]/g, '')

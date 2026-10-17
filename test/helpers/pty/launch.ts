@@ -82,6 +82,13 @@ export interface ClaudePtySession {
   visibleText(): string;
   /** Flush the opted-in terminal parser and return only its current viewport. */
   currentScreen(deadlineAt?: number): Promise<string>;
+  /**
+   * The last non-blank viewport a screen read returned, kept for failure dumps: the tail of visibleText()
+   * can be nothing but spinner redraws after a stall (autoplan-guard-pty, PR gate run 38976253774).
+   * '' before any non-blank read, or when screen observation is off. Never used for matching; optional
+   * because scripted sessions have no viewport history.
+   */
+  lastScreen?(): string;
   /** Same decoded viewport with styles and input epoch for acknowledged paste. */
   currentScreenFrame(deadlineAt?: number): Promise<{ text: string; rawEnd: number;
     styledText: Array<{ row: number; start: number; text: string; dim: boolean; inverse: boolean }> }>;
@@ -187,7 +194,7 @@ export async function launchClaudePty(
     deadlineAt: Math.min(opts.screenDeadlineAt ?? wallDeadline, wallDeadline), signal: screenAbort.signal,
   }) : undefined;
   const pty: PtyProcess = { buffer: '', exited: false, closing: false, exitCode: null, outputWaiters: new Set(),
-    screen, screenAbort, screenClosing: undefined, screenFailure: undefined, proc: undefined,
+    screen, screenAbort, screenClosing: undefined, screenFailure: undefined, lastScreen: '', proc: undefined,
     exitedPromise: Promise.resolve(), wallDeadline, recorders: { pendingFiles: [] } };
 
   try {
@@ -369,6 +376,7 @@ interface PtyProcess {
   screenAbort: AbortController;
   screenClosing: Promise<void> | undefined;
   screenFailure: unknown;
+  lastScreen: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   proc: any;
   exitedPromise: Promise<void>;
@@ -377,6 +385,13 @@ interface PtyProcess {
 }
 
 function notifyOutput(pty: PtyProcess): void { for (const done of pty.outputWaiters) done(); }
+
+function keepScreen(pty: PtyProcess, text: string): string {
+  if (text.trim()) pty.lastScreen = text;
+  return text;
+}
+
+const lastScreenDump = (pty: PtyProcess) => pty.lastScreen ? `\nLast non-blank screen:\n${pty.lastScreen}` : '';
 
 function disposeScreen(pty: PtyProcess): Promise<void> {
   return pty.screenClosing ??= (pty.screen?.dispose() ?? Promise.resolve()).catch(error => { pty.screenFailure = error; });
@@ -437,7 +452,7 @@ async function waitForAnyOutput(
     if (pty.exited) {
       throw new Error(
         `claude exited (code=${pty.exitCode}) before any pattern matched. ` +
-          `Last visible:\n${stripAnsi(pty.buffer).slice(-2000)}`,
+          `Last visible:\n${stripAnsi(pty.buffer).slice(-2000)}${lastScreenDump(pty)}`,
       );
     }
     const visible = since !== undefined ? stripAnsi(pty.buffer.slice(since)) : stripAnsi(pty.buffer);
@@ -455,7 +470,7 @@ async function waitForAnyOutput(
       .map((p) => (typeof p === 'string' ? JSON.stringify(p) : p.source))
       .join(', ')}\nLast visible (since=${since ?? 'all'}):\n${
       since !== undefined ? stripAnsi(pty.buffer.slice(since)).slice(-2000) : stripAnsi(pty.buffer).slice(-2000)
-    }`,
+    }${lastScreenDump(pty)}`,
   );
 }
 
@@ -527,11 +542,12 @@ function sessionHandle(pty: PtyProcess, launch: LaunchSetup, wallTimer: ReturnTy
     },
     rawOutput: () => pty.buffer,
     visibleText: () => stripAnsi(pty.buffer),
-    currentScreen: async (deadlineAt?: number) => readable().read(deadlineAt),
+    currentScreen: async (deadlineAt?: number) => keepScreen(pty, await readable().read(deadlineAt)),
     currentScreenFrame: async (deadlineAt?: number) => {
       const frame = await readable().readFrame(deadlineAt);
-      return {text: frame.text, rawEnd: frame.inputOffset, styledText: frame.styledText};
+      return {text: keepScreen(pty, frame.text), rawEnd: frame.inputOffset, styledText: frame.styledText};
     },
+    lastScreen: () => pty.lastScreen,
     mark: () => (lastMark = pty.buffer.length),
     waitForOutput: async (since: number, timeoutMs: number) => {
       if (pty.buffer.length > since || pty.exited || pty.closing) return;

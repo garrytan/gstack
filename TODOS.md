@@ -5391,6 +5391,19 @@ skills were told is fenced.
 
 **Priority:** P3. **Depends on:** none.
 
+### P3: fix wave 3 follow-ups (filed 2026-10-17)
+
+- **`qa-quick` has little headroom under its 300 s capture** — paid gate run
+  38980005793 timed out at 300 s (12 turns) while passing runs in the same
+  window took 164–272 s (median about 210 s). Before its first guarded probe the
+  agent loaded qa/SKILL.md (50.4 KB, read with `cat` and paged with `sed`) and
+  read scope, browser-setup, exploratory, qa-patterns and test-bootstrap. One
+  occurrence, kept visible rather than repaired: the cause-level option is to
+  trim what the Quick tier must load (test-bootstrap is not needed for a Quick
+  read-only run), which is a product call. Raising the capture budget is out of
+  scope (EVAL_POLICY). Owner Garry; revisit with the next qa-quick red.
+  **Effort:** S. **Priority:** P3.
+
 ### P1–P2: fix wave 2 follow-ups (filed 2026-10-15)
 
 From the free-suite health wave (flaky-pass fixes, #3154 seed refresh). Owner
@@ -5425,11 +5438,23 @@ Garry for each; revisit 2026-10-29 unless a date says otherwise.
   main's `flake-ledger-*` artifacts (`bun run test:health --since-days 7`) and
   check the free-suite flaky-pass rate is under 5% of main runs; a file still in
   the ledger gets a named cause or a new entry here. **Effort:** S. **Priority:** P1.
-- **`createQAFunctionalFixture` sets git auto-maintenance off itself** — its
-  repos inherit the free runner's backstop keys in CI, but a direct `bun test`
-  run still races `.git/objects/maintenance.lock` during observer setup.
-  The helper selects 22 paid cases, so this is a priced follow-up.
-  **Effort:** S. **Priority:** P2.
+- ~~**`createQAFunctionalFixture` sets git auto-maintenance off itself**~~ —
+  done in v1.91.107.0 (0bf9d50, #3190): test/helpers/qa-functional-fixture.ts
+  sets `gc.auto 0` and `maintenance.auto false` on its repos, as
+  test/helpers/qa-callers-fixture.ts does; no recurrence of the
+  `.git/objects` watch loss after it (fix wave 3 triage, W3-13). Original
+  note: — its repos inherit the free runner's backstop keys in CI, but a direct
+  `bun test` run still races `.git/objects/maintenance.lock` during observer
+  setup. **Effort:** S. **Priority:** P2.
+- **Nested `bun test` output pollutes free-runner failure attribution** (fix
+  wave 3, D6) — windows-free-tests run 39053431430 (shard 5): a free test that
+  spawns a nested `bun test` echoes the child's `(fail) Review Army: Red Team >
+  (unnamed)` line on failure, and scripts/lib/shard-engine.ts attributed it to
+  the child's temporary file (`redteam.test.ts`), so the shard reported
+  "flaky-retry skipped: failures not fully attributed" instead of retrying the
+  real file. Ignore or prefix nested child result lines when attributing
+  failures, with a free test that feeds the captured shard log through the
+  attribution. **Effort:** S. **Priority:** P2.
 - **`test:ubicloud --diagnostic` cannot give clean counts for two ledger
   shards** — `ship-measure free` reruns set a private `HOME` under `/tmp` and
   `GSTACK_STATE_ROOT`, so `browse/test/path-validation.test.ts` (its upload

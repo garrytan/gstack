@@ -267,9 +267,9 @@ distinct defects stay separate and neither pass substitutes for the other.
 ### Detect stack and scope
 
 ```bash
+_SM=$(~/.claude/skills/gstack/bin/gstack-state-matrix detect --base <base>) || _SM=SCOPE_STATE_MACHINE=unknown; source <(echo "$_SM")
 source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || true
 set | grep '^SCOPE_'
-# Detect stack for specialist context
 STACK=""
 [ -f Gemfile ] && STACK="${STACK}ruby "
 [ -f package.json ] && STACK="${STACK}node "
@@ -278,11 +278,9 @@ STACK=""
 [ -f Cargo.toml ] && STACK="${STACK}rust "
 echo "STACK: ${STACK:-unknown}"
 DIFF_BASE=$(git merge-base origin/<base> HEAD)
-DIFF_INS=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
-DIFF_LINES=$((DIFF_INS + DIFF_DEL))
+DIFF_LINES=$(git diff "$DIFF_BASE" --numstat | awk '{n+=$1+$2} END {print n+0}')
 echo "DIFF_LINES: $DIFF_LINES"
-# Detect test framework for specialist test stub generation
+# Detect test framework
 TEST_FW=""
 { [ -f jest.config.ts ] || [ -f jest.config.js ]; } && TEST_FW="jest"
 [ -f vitest.config.ts ] && TEST_FW="vitest"
@@ -315,7 +313,10 @@ Based on the scope signals above, select which specialists to dispatch.
 6. **API Contract** — if SCOPE_API=true. Read `~/.claude/skills/gstack/review/specialists/api-contract.md`
 7. **Design** — if SCOPE_FRONTEND=true. Use the existing design review checklist at `~/.claude/skills/gstack/review/design-checklist.md` and run the mechanical pass at the top of that checklist (the user-installed design detector, when present) before the LLM items
 8. **Simplification** — if DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/simplification.md`. Advisory-only lens: hunts unrequested structure (hand-rolled stdlib, one-implementation abstractions, dependencies duplicating platform features), never coverage.
-9. **State Machines** — if `~/.claude/skills/gstack/bin/gstack-state-matrix detect --base <base>` says SCOPE_STATE_MACHINE=true: read `~/.claude/skills/gstack/review/specialists/state-machines.md`, then pipe output to `check -`.
+9. **State Machines** — if SCOPE_STATE_MACHINE is true or unknown: read `~/.claude/skills/gstack/review/specialists/state-machines.md`, then write its full output to `.gstack/tmp/state-machines.md` and check it:
+```bash
+~/.claude/skills/gstack/bin/gstack-state-matrix check .gstack/tmp/state-machines.md
+```
 
 ### Adaptive gating
 

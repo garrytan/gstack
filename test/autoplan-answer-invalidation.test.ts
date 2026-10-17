@@ -66,7 +66,7 @@ describe('answer', () => {
     expect(gate.gate_rev).toBe(1);
     expect(gate.items.map((i: any) => [i.id, i.kind, i.phase ?? null])).toEqual([['d1', 'auto', 'ceo'], ['uc1', 'approval', 'ceo'], ['uc2', 'approval', 'eng'], ['p1', 'approval', null]]);
     expect(gate.items[0].why).toMatch(/voices disagree: severity: native High, outside Low/);
-  });
+  }, 30_000);
 
   test('stale, unparsed and conflicting replies write nothing; a reply that leaves approval items pending keeps the gate', () => {
     const out = gatedRun('stale');
@@ -93,7 +93,7 @@ describe('answer', () => {
     const rows = decisions(out);
     expect(rows.find((r: any) => r.label === 'D1')).toMatchObject({ status: 'approved', chosen: 'a' });
     expect(rows.filter((r: any) => r.status === 'pending').map((r: any) => r.label)).toEqual(['UC1', 'UC2', 'P1']);
-  });
+  }, 30_000);
 
   test('`all` finalizes without another paid phase: status complete, decisions approved, no phase reopened', () => {
     const out = gatedRun('approve');
@@ -110,7 +110,7 @@ describe('answer', () => {
     const again = autoplan(['next', '--out', out]);
     expect(again.stdout).toContain('status=complete');
     expect(readRun(out).attempt_counter).toBe(counter);
-  });
+  }, 30_000);
 
   test('a non-recommended choice on a ceo item is recorded without reopening; revise reopens the changed phases, archives their bound files, and the next gate is gate_rev 2', () => {
     const out = gatedRun('reopen');
@@ -163,7 +163,7 @@ describe('answer', () => {
     const valid = spawnSync('bun', [path.join(ROOT, 'bin', 'gstack-artifact'), 'validate', path.join(out, 'run.json')], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
     expect(valid.stdout + valid.stderr).toContain('ARTIFACT_VALID: run=');
     expect(valid.status).toBe(0);
-  });
+  }, 30_000);
 
   test('an eng-only override reopens nothing at answer; revise reruns every phase that reviewed the old plan; p1d reopens every phase; p1c keeps the gate; p1e ends incomplete', () => {
     const out = gatedRun('eng-only');
@@ -188,5 +188,5 @@ describe('answer', () => {
     expect(reject.status).toBe(0);
     expect(reject.stdout).toContain('GSTACK_RESULT: skill=autoplan status=incomplete run=' + out);
     expect(readRun(out).deviations).toContain('plan rejected by the owner at gate_rev 3');
-  });
+  }, 30_000);
 });

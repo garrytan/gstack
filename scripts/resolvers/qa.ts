@@ -77,7 +77,7 @@ For /qa and /qa-only:
 - Functional Full, Quick and Regression have no default total timer.
 Set SECONDS to the shorter mode/caller limit; an unlimited mode uses the caller's bound.
 Without a total time limit, do not create DEADLINE_FILE; announce finite command timeouts.
-Stop when scoped contracts are tested or blocked.
+Stop when scoped contracts are tested or blocked: each documented input rule needs its own probe breaking only that rule; rules left uncovered at a probe or time cap go in limits.
 Clocks/checkpoints use REPORT_DIR; mixed standalone runs use REPORT_DIR/browser and REPORT_DIR/functional, with one final report at REPORT_DIR. Caller paths win.
 Names used below (quote every path):
 - PROBE_DIR: this surface's owned probe directory per the line above. DEADLINE_FILE: \`PROBE_DIR/deadline.json\`, which exists only for a bounded run.
@@ -147,7 +147,7 @@ Never freeze buggy output, weaken tests or delete valid red tests.`}
 ## 4. Final report
 
 Use the surface report template; link each checkpoint. Separate browser scores, functional outcomes and proposed/executed tests.
-Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits: ["checkpoint 001"]} (limits: non-empty string array, not an object; browser-only: evidence []); before Markdown \`bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json\` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change \`superseded\`; it closes when the same command reran on current inputs. Disclose withheld/incomplete evidence.
+Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits: ["checkpoint 001"]} (limits: non-empty string array, not an object; browser-only: evidence []); before Markdown \`bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json\` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change \`superseded\`; it closes when the same command reran on current inputs.${reportOnly ? '' : ' After a fix, every earlier capture is superseded, even from a client that prints no snapshot: rerun each one your verdict relies on, or report it as an open remainder.'} Disclose withheld/incomplete evidence.
 Evidence is invocation-local${reportOnly ? '.' : '; /ship reruns once per invocation.'}
 Missing prerequisites/expectations/observations, timeouts and refusal never pass.
 Pass requires all required current-input contracts to pass with no required remainder.

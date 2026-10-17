@@ -138,12 +138,37 @@ function completeReceipts(root: string): Record<string, any>[] {
 const completeCaptures = (root: string): string[] => completeReceipts(root).map(receipt => receipt.id);
 const latestCompleteCapture = (root: string): string | undefined => completeCaptures(root).at(-1);
 
-/** Required native probes the caller declared (GSTACK_QA_REQUIRED_PROBES, a JSON array of child commands) that no complete capture has run yet. Informational only. */
+function latestMtimeMs(target: string): number {
+  let stat: fs.Stats;
+  try { stat = fs.lstatSync(target); } catch { return 0; }
+  if (!stat.isDirectory()) return stat.mtimeMs;
+  return Math.max(stat.mtimeMs, ...fs.readdirSync(target).map(name => latestMtimeMs(path.join(target, name))));
+}
+
+/**
+ * Earliest start time a capture needs to count toward required probes. The caller
+ * may declare GSTACK_QA_REQUIRED_AFTER_EDIT={"paths":[absolute paths],"since":ISO}:
+ * only captures started after the last edit under those paths count, and none
+ * count before the first edit after since. Without it every capture counts.
+ */
+function requiredBoundaryMs(): number {
+  let declared: unknown;
+  try { declared = JSON.parse(process.env.GSTACK_QA_REQUIRED_AFTER_EDIT ?? 'null'); } catch { return Infinity; }
+  if (declared === null) return -Infinity;
+  if (!object(declared) || !Array.isArray(declared.paths) || !declared.paths.every(item => typeof item === 'string' && path.isAbsolute(item))
+    || !Number.isFinite(Date.parse(declared.since))) return Infinity;
+  const edited = Math.max(0, ...declared.paths.map(latestMtimeMs));
+  return edited > Date.parse(declared.since) ? Math.floor(edited) : Infinity;
+}
+
+/** Required native probes the caller declared (GSTACK_QA_REQUIRED_PROBES, a JSON array of child commands) that no counted complete capture has run yet. Informational only. */
 function requiredRemaining(root: string): { requiredRemaining?: string[] } {
   let required: unknown;
   try { required = JSON.parse(process.env.GSTACK_QA_REQUIRED_PROBES ?? 'null'); } catch { return {}; }
   if (!Array.isArray(required) || !required.every(item => typeof item === 'string')) return {};
-  const run = new Set(completeReceipts(root).map(receipt => Array.isArray(receipt.argv) ? receipt.argv.join(' ') : ''));
+  const boundary = requiredBoundaryMs();
+  const run = new Set(completeReceipts(root).filter(receipt => Date.parse(receipt.startedAt) >= boundary)
+    .map(receipt => Array.isArray(receipt.argv) ? receipt.argv.join(' ') : ''));
   return { requiredRemaining: required.filter(command => !run.has(command)) };
 }
 

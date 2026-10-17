@@ -183,6 +183,28 @@ describe('gstack-plan-reality bin', () => {
   });
 });
 
+describe('captured tier 1 n/a (plan-mode-no-op, paid run 39004466422)', () => {
+  // The named-target plan-eng-review session marked deferred-asks n/a, check returned repair, and the repair loop ran
+  // past the 300 s capture before the first question.
+  const captured = 'REALITY: deferred-asks n/a no linked issue; the plan cites no request to compare against package.json:2';
+  test('check rejects the captured line as a missing row, and the skill text forbids it', () => {
+    const others = Object.entries(FIXTURE.rows).filter(([id]) => id !== 'deferred-asks').map(([, row]) => row.positive).join('\n');
+    const rejected = run(['check', '--phase', 'eng', '-'], `${others}\n${captured}\n`);
+    expect(rejected.code).toBe(EXIT.fail);
+    expect(rejected.out).toMatch(/^PLAN_REALITY: phase=eng rows=6\/7 missing=deferred-asks .*verdict=repair$/m);
+    expect(rejected.err).toContain('(REALITY_ROW_MISSING)');
+    const repaired = run(['check', '--phase', 'eng', '-'], `${others}\n${captured.replace(' n/a ', ' pass ')}\n`);
+    expect(repaired.out).toMatch(/^PLAN_REALITY: phase=eng rows=7\/7 missing=none .*verdict=complete$/m);
+    const rule = 'tier 1 always, never `n/a`: premise-table, already-done, surface-check, binding-decisions, numbers, deferred-asks, pr-count; tier 2 by detected scope, `--scope <csv>`). Every row cites a file:line receipt (with no linked issue, deferred-asks is `pass`)';
+    for (const phase of ['plan-eng-review', 'plan-ceo-review', 'plan-devex-review']) {
+      expect(generatePlanRealityRows({ skillName: phase, host: 'claude', paths: {} } as unknown as TemplateContext).replace(/\s+/g, ' ')).toContain(rule);
+    }
+    for (const rel of ['plan-eng-review/sections/review-sections.md', 'plan-ceo-review/SKILL.md']) {
+      expect(fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\s+/g, ' ')).toContain(rule);
+    }
+  });
+});
+
 describe('rendered templates carry the contract', () => {
   const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
   const ctx = (skillName: string) => ({ skillName, host: 'claude', paths: {} } as unknown as TemplateContext);

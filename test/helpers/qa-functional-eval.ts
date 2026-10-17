@@ -21,6 +21,18 @@ export const QA_FUNCTIONAL_CASES = [
   { id: 'qa-functional-webhook-fix', family: 'webhook', mode: 'qa' },
 ] as const;
 
+/** Webhook fix runs: after the final source edit, every scenario of the repaired one-effect invariant, then happy, cancel and dependency. Feeds the capture nudge; the verdict keeps QA_WEBHOOK_REQUIRED_SCENARIOS. */
+export const QA_WEBHOOK_POST_REPAIR_SCENARIOS = ['duplicate', 'partial', 'concurrent-ab', 'concurrent-ba', 'happy', 'cancel', 'dependency'] as const;
+
+/** Webhook fix capture ceiling, unchanged at 12: post-repair reruns are reserved first and pre-repair exploration gets the rest. */
+export const QA_WEBHOOK_FIX_CAPTURE_LIMIT = 12;
+
+/** Native probe commands the capture helper reports as not yet run (GSTACK_QA_REQUIRED_PROBES); informational, never a verdict. */
+export function qaFunctionalRequiredProbes(entry: { family: QAFamily; mode: QAMode }): string[] | undefined {
+  if (entry.family !== 'webhook') return;
+  return (entry.mode === 'qa' ? QA_WEBHOOK_POST_REPAIR_SCENARIOS : QA_WEBHOOK_REQUIRED_SCENARIOS[entry.mode]).map(scenario => `bun run probe -- ${scenario}`);
+}
+
 export function qaFunctionalPrompt(entry: { family: QAFamily; mode: QAMode }): string {
   return `Read ${entry.mode}/SKILL.md, qa/sections/scope.md, ${entry.mode}/sections/exploratory.md and qa/sections/system-functional.md in full to load gstack's /${entry.mode} functional workflow for this repository with ${entry.mode === 'qa' ? 'Full exploration and the Standard fix tier' : 'Full report-only exploration'}. All four reads are required before probing in this fixture, even when its surfaces and isolation are already established. This is a CLI/webhook product, not a browser or DX request. The generated local skill copies are the current evaluation inputs; all their installed-root references resolve inside this fixture. The common preamble alone was removed using the repository extractor.
 
@@ -28,9 +40,9 @@ The fixture README and AGENTS define intended contracts, native tests and owned 
 
 ${qaFixtureActor(entry.mode)}${entry.mode === 'qa' ? `
 
-This is a fix run, not an optional report-only handoff: a reproduced in-tier defect requires the authorized native regression, repair and verification. Complete these stages in order:
+This is a fix run, not an optional report-only handoff: a reproduced in-tier defect requires the authorized native regression, repair and verification.${entry.family === 'webhook' ? ` Capture budget: ${QA_WEBHOOK_FIX_CAPTURE_LIMIT} captures in total. Reserve the post-repair reruns first: the ${QA_WEBHOOK_POST_REPAIR_SCENARIOS.length} scenarios of stage 2 plus each distinct pre-repair command your verdict relies on that they do not repeat (for example a reject probe); pre-repair exploration gets only what remains. If those reruns cannot all fit, report the rest as open. If the remaining pre-repair captures cannot establish and replay the defect, report incomplete.` : ''} Complete these stages in order:
 1. Prove the regression red with a new native test under test/; existing tests remain read-only. Freeze all test files after red, repair only src/${entry.family === 'cli' ? 'cli' : 'worker'}.ts, and prove the unchanged regression green.
-2. On the repaired source, run the original failing probe, an adjacent happy-path probe, cancellation and the unavailable-dependency probe. Preserve their actual JSON and checkpoints. A green test suite does not substitute for these native probes. Expected dependency blockage stays blocked, never pass.
+2. On the repaired source, run ${entry.family === 'webhook' ? `the original failing probe and every other scenario of the repaired invariant (${QA_WEBHOOK_POST_REPAIR_SCENARIOS.slice(0, 4).join(', ')}), then the adjacent happy-path probe, cancellation and the unavailable-dependency probe` : 'the original failing probe, an adjacent happy-path probe, cancellation and the unavailable-dependency probe'}. After your final repair, rerun every pre-repair capture your verdict relies on; a superseded row stays open until its command reran on the repaired source. Preserve their actual JSON and checkpoints. A green test suite does not substitute for these native probes. Expected dependency blockage stays blocked, never pass.
 3. Save the evidence and Markdown artifacts, then return their paths and the actual completion status.
 
 The completion reserve is for both required verification and artifacts, not a signal to stop stage 2: the completion reserve does not end required coverage. Stop only exploration beyond the required contracts to protect that work. If required verification remains unfinished at the hard deadline, report incomplete; do not call it complete with a caveat.` : ''}
@@ -92,6 +104,7 @@ export async function runQAFunctionalCase(entry: { id: string; family: QAFamily;
     fixtureGit(fixture.root, ['commit', '-m', 'Bind current QA instructions to fixture']);
     fixture.revision = fixtureGit(fixture.root, ['rev-parse', 'HEAD']);
     if (fixtureGit(fixture.root, ['status', '--porcelain'])) throw new Error('QA fixture must start clean');
+    const fixtureCleanAt = new Date().toISOString();
     observer = await observeQAWrites(fixture.root, { evidenceProducer: true, atomicWriteMode: entry.mode });
     await runRecordedOfficeHoursAttempt({
       collector, name: entry.id, suite: 'Functional QA native E2E',
@@ -105,7 +118,8 @@ export async function runQAFunctionalCase(entry: { id: string; family: QAFamily;
           timeout, completionReserveMs: timeout / 4,
           testName: entry.id, runId, signal, env: { CLAUDE_CONFIG_DIR: fixture.config,
             GIT_OPTIONAL_LOCKS: '0', QA_STATE_ROOT: path.join(fixture.root, '.qa-state'),
-            ...(entry.family === 'webhook' ? { GSTACK_QA_REQUIRED_PROBES: JSON.stringify(QA_WEBHOOK_REQUIRED_SCENARIOS[entry.mode].map(scenario => `bun run probe -- ${scenario}`)) } : {}) },
+            ...(qaFunctionalRequiredProbes(entry) ? { GSTACK_QA_REQUIRED_PROBES: JSON.stringify(qaFunctionalRequiredProbes(entry)) } : {}),
+            ...(entry.mode === 'qa' && qaFunctionalRequiredProbes(entry) ? { GSTACK_QA_REQUIRED_AFTER_EDIT: JSON.stringify({ paths: [path.join(fixture.root, 'src')], since: fixtureCleanAt }) } : {}) },
         });
         return result;
       },

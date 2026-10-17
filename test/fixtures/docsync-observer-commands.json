@@ -1,5 +1,5 @@
 {
-  "_comment": "Bash commands from docsync E2E runs and their mutations. {repo} is the fixture repo, {other} a directory outside it. known_good: read-only forms the observer must accept. known_bad: forms it must keep rejecting.",
+  "_comment": "Bash commands from docsync E2E runs and their mutations. {repo} is the fixture repo, {other} a directory outside it, {home} the fixture home. known_good: read-only forms the observer must accept. known_bad: forms it must keep rejecting. known_bad also keeps genuine model misses from PR gate runs as negative controls: the Bash grep of ship-docsync-missing-asset 38983306684 (bash#13) and the composed cat; cat of ship-docsync-failure 38984977679 (bash#12).",
   "known_good": [
     "git status",
     "git -C {repo} status",
@@ -30,6 +30,8 @@
     "cat actor-state.json 2>/dev/null",
     "bun arbitrary.ts 2>/dev/null",
     "git status $EXTRA",
-    "git status\ntrue"
+    "git status\ntrue",
+    "grep -n -i \"14.5\\|documentation\\|Step 15\\|Step 16\" {home}/.claude/skills/gstack/ship/SKILL.md",
+    "cat {other}/bash-placeholder 2>/dev/null; cat {home}/state/config.yaml"
   ]
 }

@@ -148,4 +148,41 @@ catch(error){if(!String(error).includes('PTY screen unavailable') || !String(err
       expect(fs.existsSync(f.dispatched)).toBe(false);
     } finally { fs.rmSync(f.dir, { recursive: true, force: true }); }
   }, 15_000);
+
+  // PR gate run 38976253774 (autoplan-guard-pty): after a stall the tail of visibleText() was only spinner redraws,
+  // and leftover cursor-visibility escapes, so the failure dump showed no screen. stripAnsi now removes
+  // \x1b[?25h/l; the kept viewport is diagnostic only.
+  test('a blank redraw keeps the last non-blank viewport for the failure dump without changing visibleText', () => {
+    const f = fixture();
+    try {
+      fs.writeFileSync(f.fake, `#!${process.execPath}
+process.stdin.setRawMode?.(true);
+process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[HWaiting for next invocation to continue with step 8.\\r\\n');
+process.stdin.on('data', data => {
+  if (data.toString().includes('blank')) process.stdout.write('\\x1b[2J\\x1b[H' + '\\x1b[?25l\\r \\x1b[?25h'.repeat(40));
+  if (data.toString().includes('exit')) process.exit(0);
+});
+setInterval(() => {}, 1000);
+`, { mode: 0o755 });
+      const result = run(f.dir, f.fake, `
+import { launchClaudePty } from ${JSON.stringify(runner)};
+const session = await launchClaudePty({ cwd: ${JSON.stringify(f.dir)}, observeScreen: true, cols: 60, rows: 6, timeoutMs: 8000 });
+const until = async predicate => { for (let i = 0; i < 200; i++) { const screen = await session.currentScreen(); if (predicate(screen)) return screen; await Bun.sleep(20); } throw new Error('fixture screen timeout'); };
+try {
+  if (session.lastScreen() !== '') throw new Error('lastScreen before any read');
+  const first = await until(s => s.includes('step 8'));
+  session.send('blank');
+  await until(s => !s.trim());
+  const report = { kept: session.lastScreen() === first, visible: session.visibleText().includes('step 8'), cursorEscapes: /\\[\\?25/.test(session.visibleText()) };
+  let dump = '';
+  try { await session.waitFor('never printed', { timeoutMs: 200, pollMs: 20 }); } catch (error) { dump = String(error); }
+  report.dump = dump.includes('Last non-blank screen:') && dump.includes('Waiting for next invocation to continue with step 8.');
+  session.send('exit');
+  process.stdout.write(JSON.stringify(report));
+} finally { await session.close(); }
+`);
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({ kept: true, visible: true, cursorEscapes: false, dump: true });
+    } finally { fs.rmSync(f.dir, { recursive: true, force: true }); }
+  }, 15_000);
 });
