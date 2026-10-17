@@ -2717,6 +2717,18 @@ take either side, then regenerate.
 worktree has no `node_modules` of its own, so a command that needs them must
 reference the repository's (gstack's entries do through `bun run`).
 
+<a id="regen-deps-missing"></a>
+### `REGEN_DEPS_MISSING`
+
+**Meaning.** A registered command exited 0 and its outputs differ from the
+committed ones, but `package.json` declares dependencies and the repository has
+no `node_modules`, so the scratch worktree ran the generator without them. The
+difference may come from the missing dependencies rather than stale files, so
+the entry is reported as unverified, not `REGEN_STALE`.
+
+**Fix.** Run the printed install command (`bun install`, or the one matching the
+repository's lockfile), then rerun `gstack-regen check` or the pre-gate.
+
 <a id="pregate-config-invalid"></a>
 ### `PREGATE_CONFIG_INVALID`
 

@@ -156,7 +156,7 @@ export function scratchWorktree(repoRoot: string, prefix = 'gstack-regen-'): Scr
 
 export interface EntryResult {
   id: string; command: string | null;
-  status: 'fresh' | 'stale' | 'failed' | 'listed' | 'written' | 'skipped';
+  status: 'fresh' | 'stale' | 'failed' | 'listed' | 'written' | 'skipped' | 'deps-missing';
   /** Output files whose bytes changed (stale) or were written. */
   changed: string[];
   /** Files the command wrote outside its declared outputs (a refusal in `check`). */
@@ -189,6 +189,20 @@ function diffSnapshots(a: Map<string, string>, b: Map<string, string>): string[]
   return [...changed].filter(p => p !== 'node_modules').sort();
 }
 
+/**
+ * The install command for a repository whose package.json declares
+ * dependencies but has no node_modules (the scratch worktree links none
+ * then), picked from its lockfile; null when nothing is missing.
+ */
+export function missingDependencies(repoRoot: string): string | null {
+  if (fs.existsSync(path.join(repoRoot, 'node_modules'))) return null;
+  let pkg: { dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
+  try { pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) ?? {}; } catch { return null; }
+  if (!Object.keys(pkg.dependencies ?? {}).length && !Object.keys(pkg.devDependencies ?? {}).length) return null;
+  const lockfiles: Array<[string, string]> = [['bun.lock', 'bun install'], ['bun.lockb', 'bun install'], ['pnpm-lock.yaml', 'pnpm install'], ['yarn.lock', 'yarn install'], ['package-lock.json', 'npm install']];
+  return lockfiles.find(([file]) => fs.existsSync(path.join(repoRoot, file)))?.[1] ?? 'bun install';
+}
+
 function runCommand(cwd: string, command: string, env: NodeJS.ProcessEnv, timeoutMs: number): { exit: number | null; stderr: string } {
   const r = runBashSync(`set -o pipefail; ${command}`, { cwd, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, env: { ...env, GSTACK_REGEN_SCRATCH: cwd } });
   return { exit: r.status, stderr: ((r.stderr ?? '') + (r.error ? `\n${r.error.message}` : '')).trim().slice(-4000) };
@@ -207,7 +221,9 @@ export interface RunRegenOptions {
  * `check`: run every selected command in one scratch worktree and compare its
  * outputs with the working tree; `write`: run them in the repository. An
  * entry with `command: null` is `listed` (its fix line names the outputs an
- * author refreshes by hand). Never runs a command the caller did not opt into:
+ * author refreshes by hand). A `check` whose outputs differ while the
+ * repository's dependencies are not installed is `deps-missing`, not `stale`:
+ * the generator may have run without them. Never runs a command the caller did not opt into:
  * the bin enforces --allow-repo-commands before calling this.
  */
 export function runRegen(o: RunRegenOptions): { results: EntryResult[]; wtree: string | null } {
@@ -215,6 +231,7 @@ export function runRegen(o: RunRegenOptions): { results: EntryResult[]; wtree: s
   const timeout = o.timeoutMs ?? 600_000;
   const results: EntryResult[] = [];
   let scratch: Scratch | null = null;
+  const install = o.mode === 'check' ? missingDependencies(o.repoRoot) : null;
   const fixFor = (e: RegenEntry) => e.command ? `${e.command}  # then commit ${e.outputs.join(' ')}` : `regenerate by hand: ${e.outputs.join(' ')}${e.note ? ` (${e.note})` : ''}`;
   try {
     if (o.mode === 'check' && entries.some(e => e.command)) scratch = scratchWorktree(o.repoRoot);
@@ -230,7 +247,9 @@ export function runRegen(o: RunRegenOptions): { results: EntryResult[]; wtree: s
       const ms = Date.now() - started;
       if (run.exit !== 0) { results.push({ id: e.id, command: e.command, status: 'failed', changed, outside, exit: run.exit, stderr: run.stderr, ms, fix: fixFor(e) }); continue; }
       if (o.mode === 'check') {
-        results.push({ id: e.id, command: e.command, status: changed.length || outside.length ? 'stale' : 'fresh', changed, outside, exit: 0, ms, fix: fixFor(e) });
+        const differs = changed.length > 0 || outside.length > 0;
+        if (differs && install) results.push({ id: e.id, command: e.command, status: 'deps-missing', changed, outside, exit: 0, ms, fix: `run ${install}, then rerun the check` });
+        else results.push({ id: e.id, command: e.command, status: differs ? 'stale' : 'fresh', changed, outside, exit: 0, ms, fix: fixFor(e) });
         // Reset the scratch so the next entry's diff is its own.
         git(cwd, ['checkout', '-q', '--', '.']); git(cwd, ['clean', '-fdq']);
       } else results.push({ id: e.id, command: e.command, status: changed.length ? 'written' : 'fresh', changed, outside, exit: 0, ms, fix: fixFor(e) });
@@ -247,6 +266,7 @@ export function renderEntry(r: EntryResult): string {
   if (r.status === 'fresh' || r.status === 'skipped') return head;
   if (r.status === 'listed') return `${head} — ${r.fix}`;
   if (r.status === 'failed') return `${head} — exit ${r.exit}: ${(r.stderr ?? '').split('\n').pop() ?? ''}; fix: run \`${r.command}\` and read its output (REGEN_COMMAND_FAILED)`;
+  if (r.status === 'deps-missing') return `${head} — dependencies missing (no node_modules); ${r.fix} — differs without them: ${[...r.changed, ...r.outside].join(' ')} (REGEN_DEPS_MISSING)`;
   const parts = [head];
   if (r.changed.length) parts.push(`stale: ${r.changed.join(' ')}`);
   if (r.outside.length) parts.push(`outside declared outputs: ${r.outside.join(' ')}`);

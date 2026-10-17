@@ -9,12 +9,23 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { parseRegistry, selectEntries, validateRegistry } from '../lib/regen';
+import { missingDependencies, parseRegistry, selectEntries, validateRegistry } from '../lib/regen';
 import { BASE_REGISTRY, cleanup, commit, makeFixtureRepo, readFile, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
 const fixture = (opts?: Parameters<typeof makeFixtureRepo>[0]) => { const r = makeFixtureRepo(opts); repos.push(r); return r; };
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
+
+/** gbrain's shape (GSTA-31): the generator degrades without its dependency and still exits 0. */
+const DEPS_FIXTURE = {
+  registry: { entries: [{ id: 'digest', command: 'node gen.js', outputs: ['generated/**'], inputs: ['src/version.js', 'gen.js'] }] },
+  baseFiles: {
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0', dependencies: { 'fixture-dep': '1.0.0' } }, null, 2) + '\n',
+    'bun.lock': '{}\n',
+    'gen.js': "const fs=require('fs');const {VERSION}=require('./src/version.js');let style='plain';try{style=require('fixture-dep').style;}catch{}fs.writeFileSync('generated/digest.md',`# digest v${VERSION} (${style})\\n`);\n",
+    'generated/digest.md': '# digest v1.0.0 (fancy)\n',
+  },
+};
 
 describe('validateRegistry (schema + containment, pure)', () => {
   test('the fixture registry validates; command null is a listed entry; inputs default to always', () => {
@@ -145,6 +156,43 @@ describe('gstack-regen (bin)', () => {
     const all = runBin(repo, 'gstack-regen', ['check', '--base', 'main', '--allow-repo-commands']);
     expect(all.status).toBe(EXIT.fail);
     expect(all.out).toContain('regen digest: stale');
+  });
+
+  test('missing dependencies: a generator that exits 0 without node_modules is REGEN_DEPS_MISSING (install, then rerun), not REGEN_STALE; installed deps make it fresh', () => {
+    const repo = fixture(DEPS_FIXTURE);
+    commit(repo, { 'src/version.js': "module.exports = { VERSION: '1.0.0' };\n// touched\n" });
+    const r = runBin(repo, 'gstack-regen', ['check', '--base', 'main', '--allow-repo-commands']);
+    expect(r.status).toBe(EXIT.fail);
+    expect(r.out).toMatch(/^regen digest: deps-missing \(\d+ ms\) — dependencies missing \(no node_modules\); run bun install, then rerun the check — differs without them: generated\/digest\.md \(REGEN_DEPS_MISSING\)$/m);
+    expect(r.out).not.toContain('REGEN_STALE');
+    expect(r.out).toContain('GSTACK_RESULT: skill=regen status=incomplete');
+    const json = JSON.parse(runBin(repo, 'gstack-regen', ['check', '--base', 'main', '--allow-repo-commands', '--json']).out);
+    expect(json.results.map((x: any) => [x.id, x.status])).toEqual([['digest', 'deps-missing']]);
+    expect(repo.git('status', '--porcelain')).toBe('');
+
+    write(repo.work, 'node_modules/fixture-dep/index.js', "exports.style = 'fancy';\n");
+    const installed = runBin(repo, 'gstack-regen', ['check', '--base', 'main', '--allow-repo-commands']);
+    expect(installed.status).toBe(EXIT.ok);
+    expect(installed.out).toContain('regen digest: fresh');
+
+    // With dependencies installed, a real input change is still stale.
+    commit(repo, { 'src/version.js': "module.exports = { VERSION: '1.1.0' };\n" });
+    const stale = runBin(repo, 'gstack-regen', ['check', '--base', 'main', '--allow-repo-commands']);
+    expect(stale.status).toBe(EXIT.fail);
+    expect(stale.out).toContain('regen digest: stale');
+    expect(stale.out).toContain('(REGEN_STALE)');
+    expect(stale.out).not.toContain('REGEN_DEPS_MISSING');
+  });
+
+  test('missing dependencies: the install command follows the lockfile', () => {
+    const repo = fixture(DEPS_FIXTURE);
+    expect(missingDependencies(repo.work)).toBe('bun install');
+    fs.rmSync(path.join(repo.work, 'bun.lock'));
+    write(repo.work, 'package-lock.json', '{}\n');
+    expect(missingDependencies(repo.work)).toBe('npm install');
+    fs.mkdirSync(path.join(repo.work, 'node_modules'));
+    expect(missingDependencies(repo.work)).toBeNull();
+    expect(missingDependencies(fixture().work)).toBeNull();
   });
 
   test('validate, list and init: an invalid working-tree registry is REGEN_REGISTRY_INVALID; init refuses to overwrite', () => {

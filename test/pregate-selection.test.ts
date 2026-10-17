@@ -81,6 +81,66 @@ describe('import graph (static imports ∪ repo-path literals ∪ bin convention
     expect(testsFor(g, 'test/fixtures/sample.md').provenance[0]).toContain('(literal)');
     expect(testsFor(g, 'notes/scratch.md')).toMatchObject({ tests: [], declaredNone: false });
   });
+
+  test('python: absolute, from-import submodule, relative and parenthesised imports and mock.patch targets map; stdlib, comments and docstrings do not', () => {
+    const repo = fixture();
+    commit(repo, {
+      'pkg/__init__.py': '',
+      'pkg/core.py': 'import os\nfrom pkg.util import helper\n',
+      'pkg/util.py': 'def helper():\n    return 1\n',
+      'pkg/multi.py': 'X = 1\n',
+      'pkg/patched.py': 'class Thing:\n    def run(self):\n        return 1\n',
+      'pkg/ghost.py': 'G = 1\n',
+      'pkg/sub/__init__.py': '',
+      'pkg/sub/sibling.py': 'S = 1\n',
+      'pkg/sub/leaf.py': 'from .. import core\nfrom . import sibling\n',
+      'tests/test_core.py': 'import pkg.core as core\n',
+      'tests/test_leaf.py': 'from pkg.sub import leaf\n',
+      'tests/test_multi.py': 'from pkg import (\n    multi,  # the module\n    util,\n)\nimport json, os.path\n',
+      'tests/test_patch.py': "from unittest import mock\n\n@mock.patch('pkg.patched.Thing.run')\ndef test_run(run):\n    pass\n",
+      'tests/test_ghost.py': '"""\nimport pkg.ghost\n"""\n# from pkg import ghost\nX = "from pkg import ghost"\n',
+    });
+    const g = buildGraph(repo.work);
+    expect(testsFor(g, 'pkg/core.py').tests).toEqual(['tests/test_core.py', 'tests/test_leaf.py']);
+    expect(testsFor(g, 'pkg/util.py').tests).toEqual(['tests/test_core.py', 'tests/test_leaf.py', 'tests/test_multi.py']);
+    expect(testsFor(g, 'pkg/sub/sibling.py').tests).toEqual(['tests/test_leaf.py']);
+    expect(testsFor(g, 'pkg/multi.py').tests).toEqual(['tests/test_multi.py']);
+    expect(testsFor(g, 'pkg/patched.py').provenance).toEqual(['tests/test_patch.py ← pkg/patched.py (literal)']);
+    expect(testsFor(g, 'pkg/sub/__init__.py').tests).toEqual(['tests/test_leaf.py']);
+    expect(testsFor(g, 'pkg/__init__.py').tests).toEqual(['tests/test_core.py', 'tests/test_leaf.py', 'tests/test_multi.py', 'tests/test_patch.py']);
+    expect(testsFor(g, 'pkg/ghost.py').tests).toEqual([]);
+    expect([...g.reverse.keys()].filter(k => k.endsWith('.py')).sort()).toEqual([
+      'pkg/__init__.py', 'pkg/core.py', 'pkg/multi.py', 'pkg/patched.py', 'pkg/sub/__init__.py', 'pkg/sub/leaf.py', 'pkg/sub/sibling.py', 'pkg/util.py',
+    ]);
+  });
+
+  test('python: a package and a same-named module both map, statements after ; and : map, escaped triple quotes and deep modules map, a path literal does not hide its patch target, and adversarial input stays linear', () => {
+    const repo = fixture();
+    commit(repo, {
+      'app.py': 'A = 1\n',
+      'app/__init__.py': '',
+      'pkg/__init__.py': '',
+      'pkg/core.py': 'C = 1\n',
+      'pkg/patched.py': 'class Thing:\n    pass\n',
+      'pkg.patched.Thing.run': 'a file whose name is also a patch target\n',
+      'tests/test_app.py': 'import app\n',
+      'tests/test_semicolon.py': 'import os; import pkg.core\n',
+      'tests/test_inline.py': 'def test_core():\n    if True: from pkg.core import C\n',
+      'tests/test_patch.py': "from unittest import mock\n\n@mock.patch('pkg.patched.Thing.run')\ndef test_run(run):\n    pass\n",
+      'tests/test_adversarial.py': `from ${'.'.repeat(100_000)}x\nfrom ${' '.repeat(100_000)}x\nX = '${Array.from({ length: 20_000 }, () => 'pkg').join('.')}'\n${'\\"""'.repeat(20_000)}\n`,
+      'tests/test_escaped.py': 'DOC = """text \\"""\nstill doc"""\nimport pkg.core\nTAIL = """x"""\n',
+      [`${Array.from({ length: 33 }, (_, i) => `d${i}`).join('/')}/leaf.py`]: 'L = 1\n',
+      'tests/test_deep.py': `import ${Array.from({ length: 33 }, (_, i) => `d${i}`).join('.')}.leaf\n`,
+    });
+    const g = buildGraph(repo.work);
+    expect(testsFor(g, 'app/__init__.py').tests).toEqual(['tests/test_app.py']);
+    expect(testsFor(g, 'app.py').tests).toEqual(['tests/test_app.py']);
+    expect(testsFor(g, 'pkg/core.py').tests).toEqual(['tests/test_escaped.py', 'tests/test_inline.py', 'tests/test_semicolon.py']);
+    expect(testsFor(g, `${Array.from({ length: 33 }, (_, i) => `d${i}`).join('/')}/leaf.py`).tests).toEqual(['tests/test_deep.py']);
+    expect(testsFor(g, 'pkg/patched.py').tests).toEqual(['tests/test_patch.py']);
+    expect(testsFor(g, 'pkg.patched.Thing.run').tests).toEqual(['tests/test_patch.py']);
+    expect(testsFor(g, 'pkg/__init__.py').tests).toEqual(['tests/test_adversarial.py', 'tests/test_escaped.py', 'tests/test_inline.py', 'tests/test_patch.py', 'tests/test_semicolon.py']);
+  });
 });
 
 describe('literals (pure)', () => {
@@ -187,6 +247,23 @@ describe('gstack-pregate (bin)', () => {
     expect(r.err).toContain('(REGEN_STALE)');
     expect(fs.readFileSync(path.join(repo.work, 'generated/digest.md'), 'utf8')).toBe('# digest v1.0.0\n');
     expect(readOut(repo).stage2_ms).toBeUndefined();
+  });
+
+  test('missing dependencies: regen is incomplete with REGEN_DEPS_MISSING and the install command, not REGEN_STALE', () => {
+    const repo = fixture({
+      registry: { entries: [{ id: 'digest', command: 'node gen.js', outputs: ['generated/**'], inputs: ['src/version.js', 'gen.js'] }] },
+      baseFiles: {
+        'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0', scripts: { test: 'node --test test/*.test.js' }, devDependencies: { 'fixture-dep': '1.0.0' } }, null, 2) + '\n',
+        'gen.js': "const fs=require('fs');const {VERSION}=require('./src/version.js');let style='plain';try{style=require('fixture-dep').style;}catch{}fs.writeFileSync('generated/digest.md',`# digest v${VERSION} (${style})\\n`);\n",
+        'generated/digest.md': '# digest v1.0.0 (fancy)\n',
+      },
+    });
+    commit(repo, { 'src/version.js': "module.exports = { VERSION: '1.0.0' };\n// touched\n" });
+    const r = pregate(repo, ['--stage', 'preflight', '--only', 'regen']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.out).toMatch(/^preflight {2}regen {5}incomplete .*dependencies missing; run bun install, then rerun the check \(1 entry unverified: digest\) \(REGEN_DEPS_MISSING\)/m);
+    expect(r.err).toContain('(REGEN_DEPS_MISSING)');
+    expect(r.out + r.err).not.toContain('REGEN_STALE');
   });
 
   test('p0-4-scratch-script: zz-probe.sh at the root fails strays (downgraded to warn only when the base config says so); a conventional root file passes', () => {

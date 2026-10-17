@@ -119,8 +119,8 @@ function main(argv: string[]): number {
   let outcome;
   try { outcome = runRegen({ repoRoot: root, registry: loaded.registry, mode: cmd, only: list(flag(rest, '--only')), touched: list(flag(rest, '--touched')) }); }
   catch (e: any) { process.stderr.write(resultLine(`gstack-regen ${cmd}`, 'PREGATE_INCOMPLETE', e.message) + '\n'); process.stdout.write(formatResult('regen', 'incomplete', loaded.source.label) + '\n'); return EXIT.fail; }
-  const bad = outcome.results.filter(r => r.status === 'stale' || r.status === 'failed');
-  const status = outcome.results.some(r => r.status === 'failed') ? 'incomplete' : 'complete';
+  const bad = outcome.results.filter(r => r.status === 'stale' || r.status === 'failed' || r.status === 'deps-missing');
+  const status = outcome.results.some(r => r.status === 'failed' || r.status === 'deps-missing') ? 'incomplete' : 'complete';
   if (json) { process.stdout.write(JSON.stringify({ mode: cmd, registry: loaded.source.label, wtree: outcome.wtree, results: outcome.results, ok: bad.length === 0 }) + '\n'); return bad.length ? EXIT.fail : EXIT.ok; }
   process.stdout.write(`registry: ${loaded.source.label}\n`);
   for (const r of outcome.results) process.stdout.write(renderEntry(r) + '\n');

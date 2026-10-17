@@ -1,6 +1,7 @@
 /**
  * Result codes for the release path: gstack-ship-queue and the ship-policy
- * floor, pregate timing and its working-tree fingerprint, approval classes and
+ * floor, pregate timing and its working-tree fingerprint, regen with missing
+ * dependencies, approval classes and
  * the state-machine matrix. Kept beside lib/result-codes.ts (which spreads
  * this table into RESULT_CODES) so
  * the owner module stays within the module-size ratchet; the same rules apply:
@@ -82,5 +83,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'wtree-unavailable',
     summary: 'cannot fingerprint the working tree: bin/gstack-wtree could not start (on Windows, no Git Bash was found) or it ran and failed',
     fix: 'on Windows point GSTACK_GIT_BASH at Git Bash\'s bash.exe (Git Bash: export GSTACK_GIT_BASH=\'C:/Program Files/Git/bin/bash.exe\'; PowerShell: $env:GSTACK_GIT_BASH = \'C:\\Program Files\\Git\\bin\\bash.exe\'), or install Git for Windows (winget install --id Git.Git -e); elsewhere rerun ./setup so bin/gstack-wtree is present; then rerun gstack-pregate',
+  },
+  // Fix wave W5 (GSTA-31): pregate regen without installed dependencies.
+  REGEN_DEPS_MISSING: {
+    anchor: 'regen-deps-missing',
+    summary: 'a regen command exited 0 with different outputs while package.json declares dependencies and node_modules is missing, so the outputs were not verified',
+    fix: 'install the dependencies (the printed command, such as bun install), then rerun the check',
   },
 } as const satisfies Record<string, ResultCode>;

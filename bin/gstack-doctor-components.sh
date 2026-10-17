@@ -267,6 +267,7 @@ gstack_result_anchor() {
     APPROVAL_SOURCE_UNAVAILABLE) printf '%s' 'approval-source-unavailable' ;;
     STATE_MATRIX_INCOMPLETE) printf '%s' 'state-matrix-incomplete' ;;
     WTREE_UNAVAILABLE) printf '%s' 'wtree-unavailable' ;;
+    REGEN_DEPS_MISSING) printf '%s' 'regen-deps-missing' ;;
     *) return 1 ;;
   esac
 }
