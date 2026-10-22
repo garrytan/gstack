@@ -19,6 +19,7 @@ import { PREGATE_CONFIG_PATH } from '../config';
 import { isDeviceDart, readRepoFile } from '../import-graph';
 import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
+import { cargoWorkspaceRoot, crateOf, type ManifestCache } from '../rust';
 import { adapterFor, readRange, supervise, type Counter, type Supervised } from '../supervise';
 import { matchesAny } from '../../ship-policy';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
@@ -42,20 +43,23 @@ export function detectRunner(ctx: Pick<PregateContext, 'config' | 'repoRoot'>, f
 /** One runner invocation: `files` relative to `cwd` (repo-relative, `''` for the root). */
 export interface RunGroup { runner: string; cwd: string; files: string[] }
 
-/** The nearest directory at or above `file` holding a pubspec.yaml, repo-relative; null outside any Dart package. `seen` memoises per directory. */
-function dartRoot(repoRoot: string, file: string, seen: Map<string, string | null>): string | null {
+/** The nearest directory at or above `file` holding `marker`, repo-relative; null when none does. `seen` memoises per directory (one map per marker). */
+function nearestRoot(repoRoot: string, file: string, marker: string, seen: Map<string, string | null>): string | null {
   const walked: string[] = [];
   let found: string | null = null;
   for (let d = path.posix.dirname(file); ; d = path.posix.dirname(d)) {
     const rel = d === '.' ? '' : d;
     if (seen.has(rel)) { found = seen.get(rel)!; break; }
     walked.push(rel);
-    if (fs.existsSync(path.join(repoRoot, rel, 'pubspec.yaml'))) { found = rel; break; }
+    if (fs.existsSync(path.join(repoRoot, rel, marker))) { found = rel; break; }
     if (d === '.' || d === '/' || d === '') break;
   }
   for (const w of walked) seen.set(w, found);
   return found;
 }
+
+/** The nearest directory at or above `file` holding a pubspec.yaml, repo-relative; null outside any Dart package. */
+function dartRoot(repoRoot: string, file: string, seen: Map<string, string | null>): string | null { return nearestRoot(repoRoot, file, 'pubspec.yaml', seen); }
 
 /** An fvm pin (`.fvmrc` or `.fvm/fvm_config.json`) at the package root `root` or any ancestor up to the repo root. */
 function fvmPinned(repoRoot: string, root: string): boolean {
@@ -72,6 +76,9 @@ function fvmPinnedFor(repoRoot: string, files: readonly string[]): boolean {
   return files.some(f => { const root = f.endsWith('.dart') ? dartRoot(repoRoot, f, seen) : null; return root !== null && fvmPinned(repoRoot, root); });
 }
 
+/** Whether `bin` is on the PATH of `env` (the PATH the runner will get). */
+const onPath = (bin: string, env: NodeJS.ProcessEnv) => !!Bun.which(bin, { PATH: env.PATH ?? '' });
+
 /**
  * `flutter test` for a package on the Flutter SDK, else `dart test`; through fvm
  * when the package or an ancestor up to the repo root pins one and fvm is on PATH. `missing` names the tool when
@@ -82,48 +89,122 @@ export function dartRunner(repoRoot: string, root: string, env: NodeJS.ProcessEn
   const pubspec = readRepoFile(repoRoot, path.posix.join(root, 'pubspec.yaml')) ?? '';
   // `sdk: flutter` (the key optionally quoted) under any dependency name (flutter, flutter_test, ...), block style or inside a flow mapping a key opens, comments stripped.
   const tool = /^[ \t]*(['"]?)sdk\1:[ \t]*['"]?flutter\b|^[ \t]*[\w-]+:[ \t]*\{(?:[^\n]*[{,])?[ \t]*(['"]?)sdk\2:[ \t]*['"]?flutter\b/m.test(pubspec.replace(/(^|\s)#.*$/gm, '$1')) ? 'flutter' : 'dart';
-  const onPath = (bin: string) => !!Bun.which(bin, { PATH: env.PATH ?? '' });
-  const fvm = fvmPinned(repoRoot, root) && onPath('fvm');
-  if (!fvm && !onPath(tool)) return { missing: tool };
+  const fvm = fvmPinned(repoRoot, root) && onPath('fvm', env);
+  if (!fvm && !onPath(tool, env)) return { missing: tool };
   return { runner: `${fvm ? 'fvm ' : ''}${tool} test {files}` };
 }
 
-/** The run plan: the groups that can run, the files no runner claims, Dart SDKs missing from PATH, and `.dart` files with no pubspec.yaml above. */
+/** `cargo test -p <name>` for a crate (cargo runs a crate's tests, never a file list), or the missing tool when cargo is not on PATH. */
+function cargoRunner(name: string, env: NodeJS.ProcessEnv): { runner: string } | { missing: string } {
+  return onPath('cargo', env) ? { runner: `cargo test -p ${name}` } : { missing: 'cargo' };
+}
+
+type PackageJson = { packageManager?: string; devDependencies?: Record<string, string>; dependencies?: Record<string, string>; scripts?: Record<string, string> };
+function readPackageJson(repoRoot: string, dir: string): PackageJson | null {
+  try { return JSON.parse(readRepoFile(repoRoot, path.posix.join(dir, 'package.json')) ?? 'null'); } catch { return null; }
+}
+
+const LOCKFILES: Array<[string, string]> = [['pnpm-lock.yaml', 'pnpm'], ['yarn.lock', 'yarn'], ['bun.lock', 'bun'], ['bun.lockb', 'bun'], ['package-lock.json', 'npm'], ['npm-shrinkwrap.json', 'npm']];
+const PM_EXEC: Record<string, string> = { pnpm: 'pnpm exec', yarn: 'yarn', bun: 'bun x', npm: 'npx' };
+
+/** The package manager for a package: the first `packageManager` field or lockfile from its directory up to the repo root; npm when none. */
+function packageManager(repoRoot: string, dir: string): string {
+  for (let d = dir; ; d = path.posix.dirname(d)) {
+    const rel = d === '.' ? '' : d;
+    const declared = /^(pnpm|yarn|bun|npm)@/.exec(readPackageJson(repoRoot, rel)?.packageManager ?? '')?.[1];
+    if (declared) return declared;
+    const lock = LOCKFILES.find(([f]) => fs.existsSync(path.join(repoRoot, rel, f)));
+    if (lock) return lock[1];
+    if (rel === '') return 'npm';
+  }
+}
+
+/**
+ * The runner a nested package (not the repo root) declares for itself: vitest
+ * or jest in its dependencies or its `test` script, through the package manager
+ * its `packageManager` field or nearest lockfile names; null when it declares
+ * neither, so its files stay with the root runner. `missing` names a package
+ * manager that is not on PATH.
+ */
+function packageRunner(repoRoot: string, dir: string, env: NodeJS.ProcessEnv): { runner: string } | { missing: string } | null {
+  const pkg = readPackageJson(repoRoot, dir);
+  if (!pkg) return null;
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+  const script = pkg.scripts?.test ?? '';
+  const tool = deps.vitest || /\bvitest\b/.test(script) ? 'vitest run' : deps.jest || /\bjest\b/.test(script) ? 'jest' : null;
+  if (!tool) return null;
+  const pm = packageManager(repoRoot, dir);
+  const bin = pm === 'npm' ? 'npx' : pm;
+  if (!onPath(bin, env)) return { missing: bin };
+  return { runner: `${PM_EXEC[pm]} ${tool} {files}` };
+}
+
+/** The run plan: the groups that can run, the files no runner claims, tools missing from PATH, and `.dart` files with no pubspec.yaml above. */
 export interface RunPlan { groups: RunGroup[]; unclaimed: string[]; missing: string[]; noPubspec: string[] }
 
 /**
  * The invocations that run `files`. A declared runner takes every file. Otherwise
  * Dart tests run from their own package root (a sub-package's imports resolve
- * against its own pubspec), and the rest go to the detected runner. Files no
- * runner claims (a Dart SDK missing from PATH, a `.dart` file outside any
- * package, no detected runner) are `unclaimed`: the lane is `incomplete`, never a pass.
+ * against its own pubspec); Rust tests run per crate as `cargo test -p <name>`
+ * from the crate's workspace root; JS/TS tests owned by a nested package that
+ * declares vitest or jest run from that package; the rest go to the detected
+ * runner from the repo root. Files no runner claims (a tool missing from PATH,
+ * a `.dart` file outside any package, a `.rs` file outside any crate, no
+ * detected runner) are `unclaimed`: the lane is `incomplete`, never a pass.
  */
 export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan {
   if (ctx.config.runner) return { groups: [{ runner: ctx.config.runner, cwd: '', files: [...files] }], unclaimed: [], missing: [], noPubspec: [] };
   const groups: RunGroup[] = [];
   const dart = new Map<string, string[]>();
+  const cargo = new Map<string, { name: string; cwd: string; files: string[] }>();
+  const packages = new Map<string, string[]>();
   const seen = new Map<string, string | null>();
+  const seenPackage = new Map<string, string | null>();
+  const manifests: ManifestCache = new Map();
+  const read = (rel: string) => readRepoFile(ctx.repoRoot, rel);
+  const pkgRunners = new Map<string, ReturnType<typeof packageRunner>>();
   const rest: string[] = [];
   const noPubspec: string[] = [];
+  const unclaimed: string[] = [];
+  const missing = new Set<string>();
+  const add = <T>(map: Map<string, T[]>, key: string, value: T) => { let list = map.get(key); if (!list) map.set(key, (list = [])); list.push(value); };
+  const under = (root: string, f: string) => (root ? f.slice(root.length + 1) : f);
   for (const f of files) {
+    if (f.endsWith('.rs')) {
+      const crate = crateOf(read, f, manifests);
+      if (!crate) { unclaimed.push(f); continue; }
+      const cwd = cargoWorkspaceRoot(read, crate.root, manifests);
+      const key = `${cwd}\0${crate.name}`;
+      if (!cargo.has(key)) cargo.set(key, { name: crate.name, cwd, files: [] });
+      cargo.get(key)!.files.push(under(cwd, f));
+      continue;
+    }
+    const pkg = /\.[cm]?[jt]sx?$/.test(f) ? nearestRoot(ctx.repoRoot, f, 'package.json', seenPackage) : null;
+    if (pkg) {
+      if (!pkgRunners.has(pkg)) pkgRunners.set(pkg, packageRunner(ctx.repoRoot, pkg, ctx.env));
+      const r = pkgRunners.get(pkg);
+      if (r && 'missing' in r) { missing.add(r.missing); unclaimed.push(f); continue; }
+      if (r) { add(packages, pkg, under(pkg, f)); continue; }
+    }
     if (!f.endsWith('.dart')) { rest.push(f); continue; }
     const root = dartRoot(ctx.repoRoot, f, seen);
     if (root === null) { noPubspec.push(f); continue; }
-    let list = dart.get(root);
-    if (!list) dart.set(root, (list = []));
-    list.push(root ? f.slice(root.length + 1) : f);
+    add(dart, root, under(root, f));
   }
-  const unclaimed: string[] = [];
-  const missing = new Set<string>();
   for (const [root, list] of [...dart].sort(([a], [b]) => a.localeCompare(b))) {
     const r = dartRunner(ctx.repoRoot, root, ctx.env);
     if ('missing' in r) { missing.add(r.missing); unclaimed.push(...list.map(f => (root ? `${root}/${f}` : f))); } else groups.push({ runner: r.runner, cwd: root, files: list });
+  }
+  for (const [, c] of [...cargo].sort(([a], [b]) => a.localeCompare(b))) {
+    const r = cargoRunner(c.name, ctx.env);
+    if ('missing' in r) { missing.add(r.missing); unclaimed.push(...c.files.map(f => (c.cwd ? `${c.cwd}/${f}` : f))); } else groups.push({ runner: r.runner, cwd: c.cwd, files: c.files });
   }
   if (rest.length) {
     const runner = detectRunner(ctx, rest);
     if (runner) groups.push({ runner, cwd: '', files: rest });
     else unclaimed.push(...rest);
   }
+  for (const [root, list] of [...packages].sort(([a], [b]) => a.localeCompare(b))) groups.push({ runner: (pkgRunners.get(root) as { runner: string }).runner, cwd: root, files: list });
   return { groups, unclaimed: [...unclaimed, ...noPubspec], missing: [...missing].sort(), noPubspec };
 }
 
@@ -153,9 +234,18 @@ function parseDart(output: string): RunnerSummary | null {
   return d ? { ran: Number(d[1]) + Number(d[2] ?? 0), failed: Number(d[2] ?? 0) } : null;
 }
 
-/** The runner's own summary line: bun, node --test, vitest, jest, pytest, bats, dart/flutter test. A bats or dart/flutter runner's summary is tried first; for any other runner those formats are a last resort. `ran: null` when not recognised. Colour codes are dropped and a carriage return ends a line, so a coloured or redrawn verdict still reads. */
+/** cargo test: one `test result: ok|FAILED. N passed; M failed; …` line per test binary (unit tests, each integration test, doc-tests), summed; ignored and filtered-out tests did not run. */
+function parseCargo(output: string): RunnerSummary | null {
+  const lines = [...output.matchAll(/^test result: \w+\. (\d+) passed; (\d+) failed;/gm)];
+  if (!lines.length) return null;
+  const failed = lines.reduce((n, m) => n + Number(m[2]), 0);
+  return { ran: lines.reduce((n, m) => n + Number(m[1]), 0) + failed, failed };
+}
+
+/** The runner's own summary line: bun, node --test, vitest, jest, pytest, bats, dart/flutter test, cargo test. A bats, dart/flutter or cargo runner's summary is tried first (cargo's only there: its `N passed` lines would misread as another runner's); for any other runner the bats and dart formats are a last resort. `ran: null` when not recognised. Colour codes are dropped and a carriage return ends a line, so a coloured or redrawn verdict still reads. */
 export function parseSummary(raw: string, runner = ''): RunnerSummary {
   const output = raw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '\n');
+  if (/(?<![\w-])cargo\s+test(?![\w-])/.test(runner)) return parseCargo(output) ?? { ran: null, failed: null };
   if (/(?<![\w-])bats(?![\w-])/.test(runner)) { const b = parseBats(output); if (b) return b; }
   const dartRun = /(?<![\w-])(?:dart|flutter)(?![\w-])/.test(runner);
   if (dartRun) { const d = parseDart(output); if (d) return d; }
