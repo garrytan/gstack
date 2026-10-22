@@ -16,10 +16,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { baseInputs, sha256 } from '../context';
 import { PREGATE_CONFIG_PATH } from '../config';
-import { isDeviceDart, readRepoFile } from '../import-graph';
+import { isDeviceDart, listRepoFiles, readRepoFile } from '../import-graph';
 import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
-import { cargoWorkspaceRoot, crateOf, type ManifestCache } from '../rust';
+import { cargoModel, type CargoModel } from '../rust';
 import { adapterFor, readRange, supervise, type Counter, type Supervised } from '../supervise';
 import { matchesAny } from '../../ship-policy';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
@@ -160,8 +160,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
   const packages = new Map<string, string[]>();
   const seen = new Map<string, string | null>();
   const seenPackage = new Map<string, string | null>();
-  const manifests: ManifestCache = new Map();
-  const read = (rel: string) => readRepoFile(ctx.repoRoot, rel);
+  let model: CargoModel | null = null;
   const pkgRunners = new Map<string, ReturnType<typeof packageRunner>>();
   const rest: string[] = [];
   const noPubspec: string[] = [];
@@ -171,9 +170,10 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
   const under = (root: string, f: string) => (root ? f.slice(root.length + 1) : f);
   for (const f of files) {
     if (f.endsWith('.rs')) {
-      const crate = crateOf(read, f, manifests);
+      model ??= cargoModel(listRepoFiles(ctx.repoRoot), rel => readRepoFile(ctx.repoRoot, rel));
+      const crate = model.crateOf(f);
       if (!crate) { unclaimed.push(f); continue; }
-      const cwd = cargoWorkspaceRoot(read, crate.root, manifests);
+      const cwd = crate.workspace;
       const key = `${cwd}\0${crate.name}`;
       if (!cargo.has(key)) cargo.set(key, { name: crate.name, cwd, files: [] });
       cargo.get(key)!.files.push(under(cwd, f));

@@ -149,6 +149,61 @@ describe('Rust runner and summary (pure)', () => {
   });
 });
 
+/**
+ * Manifest shapes a line scan misreads (review of the first cut): a renamed
+ * dependency inherited from `[workspace.dependencies]`, TOML dotted keys, the
+ * `[dependencies.<name>]` table form, target-specific tables, and a crate the
+ * workspace excludes. Dependencies resolve by path first, then by package name.
+ */
+const MANIFEST_FILES: Record<string, string> = {
+  'Cargo.toml': '[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/helper"]\n\n[workspace.dependencies]\nbase = { package = "alpha", path = "crates/a" }\n',
+  'crates/a/Cargo.toml': '[package]\nname = "alpha"\nversion = "0.1.0"\n',
+  'crates/a/src/lib.rs': 'pub fn a() {}\n',
+  'crates/a/tests/a.rs': '#[test]\nfn a() {}\n',
+  'crates/beta/Cargo.toml': '[package]\nname = "beta"\nversion = "0.1.0"\n\n[dependencies]\nbase = { workspace = true }\n',
+  'crates/beta/tests/b.rs': '#[test]\nfn b() {}\n',
+  'crates/dotted/Cargo.toml': '[package]\nname = "dotted"\nversion = "0.1.0"\n\n[dependencies]\nfoo.path = "../a"\n',
+  'crates/dotted/tests/d.rs': '#[test]\nfn d() {}\n',
+  'crates/table/Cargo.toml': '[package]\nname = "table"\nversion = "0.1.0"\n\n[dev-dependencies.whatever]\npath = "../a"\n',
+  'crates/table/tests/t.rs': '#[test]\nfn t() {}\n',
+  'crates/targeted/Cargo.toml': '[package]\nname = "targeted"\nversion = "0.1.0"\n\n[target.\'cfg(unix)\'.build-dependencies]\nrenamed = { path = "../a" }\n',
+  'crates/targeted/tests/x.rs': '#[test]\nfn x() {}\n',
+  'crates/plain/Cargo.toml': '[package]\nname = "plain"\nversion = "0.1.0"\n',
+  'crates/plain/tests/p.rs': '#[test]\nfn p() {}\n',
+  'crates/helper/Cargo.toml': '[package]\nname = "helper"\nversion = "0.1.0"\n',
+  'crates/helper/src/lib.rs': '#[cfg(test)]\nmod tests {\n    #[test]\n    fn h() {}\n}\n',
+};
+
+function manifestRepo(): FixtureRepo {
+  const repo = makeFixtureRepo({ pregate: null });
+  repos.push(repo);
+  commit(repo, MANIFEST_FILES, 'cargo manifests');
+  return repo;
+}
+
+describe('Cargo manifests are parsed as TOML', () => {
+  // Value: protects=every dependency spelling Cargo accepts links a crate to its dependents: an inherited renamed workspace dependency,
+  //   a dotted `foo.path` key, a `[dev-dependencies.<name>]` table and a target-specific build dependency, all resolved by path;
+  //   fails_when=the manifest is read by a line scan again and alpha's change misses these dependents (a false green);
+  //   why_new=the first cut matched dependency keys against package names only; seam=none; no_claim=cargo's own resolver
+  test('renamed, inherited, dotted, table-form and target-specific dependencies all select the dependent crates', () => {
+    const g = buildGraph(manifestRepo().work);
+    expect(testsFor(g, 'crates/a/src/lib.rs').tests).toEqual(['crates/a/tests/a.rs', 'crates/beta/tests/b.rs', 'crates/dotted/tests/d.rs', 'crates/table/tests/t.rs', 'crates/targeted/tests/x.rs']);
+  });
+
+  // Value: protects=a crate the workspace excludes runs from its own directory, a member from the workspace root; fails_when=the
+  //   nearest [workspace] is taken without checking members/exclude and `cargo test -p helper` runs where helper is no member
+  //   (cargo fails, or tests a same-named member); why_new=membership was not read; seam=none; no_claim=a real cargo (plan only)
+  test('an excluded crate runs from its own directory; a member runs from the workspace root', () => {
+    const repo = manifestRepo();
+    const ctx = { repoRoot: repo.work, config: DEFAULT_CONFIG, env: cargoShim(repo) } as unknown as PregateContext;
+    expect(planRuns(ctx, ['crates/beta/tests/b.rs', 'crates/helper/src/lib.rs']).groups).toEqual([
+      { runner: 'cargo test -p beta', cwd: '', files: ['crates/beta/tests/b.rs'] },
+      { runner: 'cargo test -p helper', cwd: 'crates/helper', files: ['src/lib.rs'] },
+    ]);
+  });
+});
+
 describe('gstack-pregate on a Rust workspace', () => {
   const run = (repo: FixtureRepo, env: Record<string, string>) => runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--stage', 'tests', '--only', 'lanes'], env);
   const log = (out: string) => fs.readFileSync(/log: (\S+)/.exec(out)![1]!, 'utf8');
