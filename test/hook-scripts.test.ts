@@ -342,6 +342,89 @@ describe('check-careful.sh', () => {
     expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(reason);
   });
 
+  // --- Commit message false positives (#1060) ---
+
+  describe('commit message false positives (#1060)', () => {
+    // Quoted -m content describes destructive patterns but does not run them.
+    test.each([
+      'git commit -m "fix: prevent accidental drop table in migration"',
+      'git commit -m "docs: explain truncate vs delete semantics"',
+      'git commit -m "feat: add guard for recursive delete patterns"',
+      'git add . && git commit -m "fix: handle drop database edge case"',
+    ])('does not warn on descriptive text in commit message: %s', (command) => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    });
+
+    // Real destructive commands chained with a commit still warn.
+    test('warns when a real DROP TABLE follows git commit in a chain', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -m "release" && psql -c "DROP TABLE staging"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('SQL DROP');
+    });
+
+    test('warns when a real TRUNCATE follows git commit in a chain', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -m "cleanup" && psql -c "TRUNCATE audit_log"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('SQL TRUNCATE');
+    });
+
+    // Quote-aware awk scanner: a single-quoted message whose content looks like
+    // a flag boundary must not swallow real commands that follow via &&.
+    test('warns when rm follows a single-quoted message that embeds a double-quote', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput(`git commit -m 'note -m "' && rm -rf build && echo '"'`),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
+    });
+
+    // A double-quoted message containing $(...) is not masked — the substitution
+    // content remains visible to the MEDIUM checks.
+    test('warns when a commit message contains a command substitution with rm', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -m "$(rm -rf build)"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
+    });
+
+    // A force-push chained after a commit must still warn even after the message is masked.
+    test('warns on force-push chained after git commit', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -m "x" && git push --force'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('force-push');
+    });
+
+    // -am shorthand: the message is masked, so "drop table" in the message text
+    // does not trigger the SQL DROP warning.
+    test('does not warn on drop-table text in -am commit message', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -am "drop table notes"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    });
+  });
+
   // --- Shell obfuscation ---
 
   describe('shell obfuscation', () => {

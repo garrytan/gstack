@@ -224,6 +224,80 @@ esac
 WARN=""
 PATTERN=""
 
+# Mask quoted -m/-am/--message argument content in git commit commands so that
+# descriptive commit messages do not trigger false positives. Uses a
+# quote-aware awk scanner that tracks shell quoting state so it cannot swallow
+# real commands that follow a commit via &&/; (e.g. `git commit -m 'note -m "'
+# && rm -rf build` keeps the rm visible). Double-quoted messages containing $,
+# backtick or backslash are left unmasked so command substitutions remain
+# visible to the MEDIUM checks. Falls back to $CMD when awk is unavailable.
+CMD_MEDIUM="$CMD"
+CMD_MEDIUM_LOWER="$CMD_LOWER"
+if printf '%s' "$CMD" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+commit[[:space:]]' 2>/dev/null; then
+  _AWK_MASK_PROG=$(cat <<'_AWKEOF'
+function handle_msg(s, n, i,    j, safe) {
+  if (i > n) return i
+  if (substr(s, i, 1) == "'") {
+    result = result "'"
+    i++
+    while (i <= n && substr(s, i, 1) != "'") i++
+    result = result "'"
+    if (i <= n) i++
+  } else if (substr(s, i, 1) == "\"") {
+    j = i+1; safe = 1
+    while (j <= n && substr(s, j, 1) != "\"") {
+      if (substr(s,j,1) == "$" || substr(s,j,1) == "`" || substr(s,j,1) == "\\") safe = 0
+      j++
+    }
+    if (safe) { result = result "\"\""; i = j+1 }
+    else {
+      result = result substr(s, i, j-i)
+      if (j <= n) result = result "\""
+      i = j+1
+    }
+  }
+  return i
+}
+{
+  n = length($0); sq = 0; dq = 0; bs = 0; i = 1
+  while (i <= n) {
+    c = substr($0, i, 1)
+    if (bs) { result = result c; bs = 0; i++; continue }
+    if (!sq && dq && c == "\\") { result = result c; bs = 1; i++; continue }
+    if (!dq && c == "'") { sq = !sq; result = result c; i++; continue }
+    if (!sq && c == "\"") { dq = !dq; result = result c; i++; continue }
+    if (sq || dq) { result = result c; i++; continue }
+    rest = substr($0, i)
+    if (rest ~ /^--message=/) {
+      result = result "--message="; i += 10
+      i = handle_msg($0, n, i); continue
+    }
+    if (rest ~ /^--message([ \t]|$)/) {
+      result = result "--message"; i += 9
+      while (i <= n && substr($0,i,1) ~ /[ \t]/) { result = result substr($0,i,1); i++ }
+      i = handle_msg($0, n, i); continue
+    }
+    if (rest ~ /^-am([ \t]|$)/) {
+      result = result "-am"; i += 3
+      while (i <= n && substr($0,i,1) ~ /[ \t]/) { result = result substr($0,i,1); i++ }
+      i = handle_msg($0, n, i); continue
+    }
+    if (rest ~ /^-m([ \t]|$)/) {
+      result = result "-m"; i += 2
+      while (i <= n && substr($0,i,1) ~ /[ \t]/) { result = result substr($0,i,1); i++ }
+      i = handle_msg($0, n, i); continue
+    }
+    result = result c; i++
+  }
+  printf "%s", result
+}
+_AWKEOF
+)
+  _cmd_masked=$(printf '%s' "$CMD" | awk "$_AWK_MASK_PROG" 2>/dev/null) \
+    && CMD_MEDIUM="$_cmd_masked" || true
+  CMD_MEDIUM_LOWER=$(printf '%s' "$CMD_MEDIUM" | tr '[:upper:]' '[:lower:]')
+fi
+
 # --- PowerShell and cmd table (#3067) ---
 # Runs on the PowerShell tool's command, and on the part of any command from a
 # nested `powershell`/`pwsh`/`cmd` launcher onward (`pwsh -c "..."`,
@@ -303,50 +377,50 @@ if [ -n "$_WIN_SCAN" ]; then
 fi
 
 # rm -rf / rm -r / rm -R / rm --recursive (capital -R is BSD/macOS recursive)
-if [ -z "$WARN" ] && grep -qE 'rm\s+(-[a-zA-Z]*[rR]|--recursive)' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'rm\s+(-[a-zA-Z]*[rR]|--recursive)' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: recursive delete (rm -r). This permanently removes files."
   PATTERN="rm_recursive"
 fi
 
 # DROP TABLE / DROP DATABASE
-if [ -z "$WARN" ] && grep -qE 'drop\s+(table|database)' <<< "$CMD_LOWER" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'drop\s+(table|database)' <<< "$CMD_MEDIUM_LOWER" 2>/dev/null; then
   WARN="Destructive: SQL DROP detected. This permanently deletes database objects."
   PATTERN="drop_table"
 fi
 
 # TRUNCATE
-if [ -z "$WARN" ] && grep -qE '\btruncate\b' <<< "$CMD_LOWER" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE '\btruncate\b' <<< "$CMD_MEDIUM_LOWER" 2>/dev/null; then
   WARN="Destructive: SQL TRUNCATE detected. This deletes all rows from a table."
   PATTERN="truncate"
 fi
 
 # git push --force / git push -f / plus-refspec force (git push origin +ref)
-if [ -z "$WARN" ] && grep -qE 'git\s+push\s' <<< "$CMD" 2>/dev/null \
-  && grep -qE '(-f\b|--force|(^|[[:space:]])\+[^[:space:]])' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'git\s+push\s' <<< "$CMD_MEDIUM" 2>/dev/null \
+  && grep -qE '(-f\b|--force|(^|[[:space:]])\+[^[:space:]])' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: git force-push rewrites remote history. Other contributors may lose work."
   PATTERN="git_force_push"
 fi
 
 # git reset --hard
-if [ -z "$WARN" ] && grep -qE 'git\s+reset\s+--hard' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'git\s+reset\s+--hard' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: git reset --hard discards all uncommitted changes."
   PATTERN="git_reset_hard"
 fi
 
 # git checkout . / git restore .
-if [ -z "$WARN" ] && grep -qE 'git\s+(checkout|restore)\s+\.' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'git\s+(checkout|restore)\s+\.' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: discards all uncommitted changes in the working tree."
   PATTERN="git_discard"
 fi
 
 # kubectl delete
-if [ -z "$WARN" ] && grep -qE 'kubectl\s+delete' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'kubectl\s+delete' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: kubectl delete removes Kubernetes resources. May impact production."
   PATTERN="kubectl_delete"
 fi
 
 # docker rm -f / docker system prune
-if [ -z "$WARN" ] && grep -qE 'docker\s+(rm\s+-f|system\s+prune)' <<< "$CMD" 2>/dev/null; then
+if [ -z "$WARN" ] && grep -qE 'docker\s+(rm\s+-f|system\s+prune)' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: Docker force-remove or prune. May delete running containers or cached images."
   PATTERN="docker_destructive"
 fi
@@ -386,7 +460,7 @@ $_GSTACK_HOME_DIR/projects/$SLUG/careful-patterns.txt"
       _PAT_RC=0
       printf '' | grep -qE -- "$_PAT" 2>/dev/null || _PAT_RC=$?
       [ "$_PAT_RC" -eq 2 ] && continue # invalid ERE — skip the line
-      if grep -qE -- "$_PAT" <<< "$CMD" 2>/dev/null; then
+      if grep -qE -- "$_PAT" <<< "$CMD_MEDIUM" 2>/dev/null; then
         WARN="Project rule matched: $_PAT"
         PATTERN="project_rule"
         break
