@@ -1139,3 +1139,52 @@ esac
     expect(r.stderr.length).toBeLessThan(64 * 1024);
   });
 });
+
+// #1734: a refused code stage must leave the brain's source list untouched.
+describe("code stage autopilot refusal registers nothing (#1734)", () => {
+  it.skipIf(process.platform === "win32")("refuses before `gbrain sources add` when an autopilot process is visible", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const repo = mkdtempSync(join(tmpdir(), "gstack-ap-refuse-repo-"));
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-ap-refuse-bin-"));
+    const commandLog = join(home, "gbrain-commands.log");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(join(home, ".gbrain"), { recursive: true });
+    writeFileSync(join(home, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite", database_url: "pglite:///test" }));
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo, timeout: 30_000 });
+    writeFileSync(join(bindir, "gbrain"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+case "$1 $2" in
+  "--version ") echo 'gbrain 0.59.0.0' ;;
+  "sources list") echo '{"sources":[]}' ;;
+  "sources add"|"sources attach"|"sync --strategy") ;;
+  *) echo "unexpected gbrain command: $*" >&2; exit 1 ;;
+esac
+`);
+    chmodSync(join(bindir, "gbrain"), 0o755);
+    writeFileSync(join(bindir, "pgrep"), "#!/bin/sh\necho 4242\nexit 0\n");
+    chmodSync(join(bindir, "pgrep"), 0o755);
+    const r = spawnSync("bun", [SCRIPT, "--code-only", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: repo,
+      env: {
+        ...process.env,
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GBRAIN_HOME: "",
+        GSTACK_TEST_GBRAIN_LOG: commandLog,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      },
+    });
+    const commands = existsSync(commandLog) ? readFileSync(commandLog, "utf-8") : "";
+    const state = JSON.parse(readFileSync(join(gstackHome, ".gbrain-sync-state.json"), "utf-8"));
+    const code = state.last_stages.find((s: { name: string }) => s.name === "code");
+    for (const d of [repo, bindir, home]) rmSync(d, { recursive: true, force: true });
+    expect(r.status).toBe(1);
+    expect(code.ok).toBe(false);
+    expect(code.summary).toContain("refused: gbrain autopilot active (process:gbrain autopilot)");
+    expect(commands).not.toMatch(/^sources (add|rename|remove) /m);
+    expect(commands).not.toMatch(/^sync /m);
+  });
+});

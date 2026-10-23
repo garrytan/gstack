@@ -1225,6 +1225,18 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     return skipStageForLocalStatus("code", localStatus, t0);
   }
 
+  // #1734: refuse on an active autopilot BEFORE any source-metadata change
+  // (Step 0b rename, Step 1 `sources add`), so a refused stage leaves the
+  // brain's source list untouched. The check right before the destructive walk
+  // below stays: autopilot can start while the steps in between run.
+  const refusedAutopilot = (signal: string | null): StageResult => ({
+    name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
+    summary: `refused: gbrain autopilot active (${signal}). Stop autopilot, then re-run /sync-gbrain.`,
+    detail: { source_id: sourceId, source_path: root, status: "refused-autopilot" },
+  });
+  const apEarly = detectAutopilot(gbrainEnv);
+  if (apEarly.active) return refusedAutopilot(apEarly.signal);
+
   // Step 0a: Best-effort cleanup of pre-pathhash legacy source (v1.x form).
   // Earlier /sync-gbrain versions registered `gstack-code-<slug>` (no path
   // suffix). On a multi-worktree repo, those collapsed onto a single id
@@ -1308,13 +1320,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   //     --allow-reclone. Both surface a visible reason and fail the stage so the
   //     verdict shows ERR rather than silently skipping protection.
   const apBeforeWalk = detectAutopilot(gbrainEnv);
-  if (apBeforeWalk.active) {
-    return {
-      name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
-      summary: `refused: gbrain autopilot active (${apBeforeWalk.signal}). Stop autopilot, then re-run /sync-gbrain.`,
-      detail: { source_id: sourceId, source_path: root, status: "refused-autopilot" },
-    };
-  }
+  if (apBeforeWalk.active) return refusedAutopilot(apBeforeWalk.signal);
   const reclone = decideCodeSync(sourceId, gbrainEnv, args.allowReclone);
   if (!reclone.allow) {
     return {
