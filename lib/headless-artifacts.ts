@@ -73,6 +73,10 @@ export interface PregateFile {
   schema_version: 1; tree: string; checks: PregateCheck[]; run?: string; stage1_ms?: number; stage2_ms?: number;
   // C-pregate (C8): head/base identity, the policy sources, persisted requires-remote obligations and the one-line verdict.
   head?: string; base?: string; generated_at?: string; policy?: string; registry?: string; requires_remote?: PregateRemote[]; verdict?: string;
+  /** sha256 of the user-owned policy when `policy` is `user <path>`; verify re-checks it. */
+  policy_digest?: string;
+  /** Under the defaults, the user-owned policy path that was looked for and absent; verify checks it is still absent. */
+  policy_user_path?: string;
 }
 export interface ShipReceipt {
   schema_version: 1; head: string; base: string; pr?: number; version?: string; gated_tree?: string;
@@ -189,7 +193,7 @@ export const ARTIFACT_SCHEMAS = {
     properties: {
       schema_version: { const: 1 }, run: str, tree: str, stage1_ms: num, stage2_ms: num,
       checks: { type: 'array', items: { type: 'object', required: ['id', 'status'], properties: { id: str, status: { enum: ['pass', 'fail', 'warn', 'incomplete', 'requires-remote', 'not_installed'] }, ms: num, detail: str, stage: { enum: ['preflight', 'tests'] }, inputs: { type: 'object' }, fix: str, code: str, lines: strList } } },
-      head: str, base: str, generated_at: str, policy: str, registry: str, verdict: str,
+      head: str, base: str, generated_at: str, policy: str, policy_digest: str, policy_user_path: str, registry: str, verdict: str,
       requires_remote: { type: 'array', items: { type: 'object', required: ['lane', 'platform', 'tests', 'receipt'], properties: { lane: str, platform: str, workflow: str, job: str, tests: strList, receipt: nullableStr, cleared_by: str, command: str } } },
     },
   },

@@ -132,8 +132,8 @@ function planGap(ctx: PregateContext, plan: RunPlan, total: number): Pick<CheckR
   const { unclaimed, missing, noPubspec } = plan;
   const detail = `no test runner detected for ${unclaimed.length} of ${total} selected file(s): ${unclaimed.slice(0, 8).join(' ')}${unclaimed.length > 8 ? ' …' : ''}${missing.length ? `; not on PATH: ${missing.join(', ')}` : ''}${noPubspec.length ? `; no pubspec.yaml above ${noPubspec.length} .dart file(s)` : ''}`;
   const fix = missing.length ? `install ${missing.join(' and ')}${fvmPinnedFor(ctx.repoRoot, unclaimed) ? ' (or fvm, which this repo pins)' : ''} and rerun`
-    : noPubspec.length ? 'commit the Dart package\'s pubspec.yaml, or declare `runner` (with {files}) in .gstack/pregate.json'
-    : 'declare `runner` (with {files}) in .gstack/pregate.json';
+    : noPubspec.length ? `commit the Dart package's pubspec.yaml, or declare \`runner\` (with {files}) in ${ctx.configFile}`
+    : `declare \`runner\` (with {files}) in ${ctx.configFile}`;
   return { code: 'PREGATE_INCOMPLETE', detail, fix };
 }
 
@@ -221,7 +221,7 @@ function unfinished(ctx: PregateContext, r: Awaited<ReturnType<typeof runLocal>>
   const timedOut = r.runs.filter(x => x.outcome === 'timeout');
   const rest = r.failed ? `; ${r.failed} failed` : '';
   if (stalled.length) {
-    return { code: 'PREGATE_STALLED', detail: `no test output for ${ctx.stallTimeoutMs / 1000} s; process group killed; last file started: ${stalled.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest}`, fix: `read ${r.log} for the stalled file; fix the hang, or raise --stall-timeout (stall_timeout_s in .gstack/pregate.json; 0 disables) for a test that is quiet for longer` };
+    return { code: 'PREGATE_STALLED', detail: `no test output for ${ctx.stallTimeoutMs / 1000} s; process group killed; last file started: ${stalled.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest}`, fix: `read ${r.log} for the stalled file; fix the hang, or raise --stall-timeout (stall_timeout_s in ${ctx.configFile}; 0 disables) for a test that is quiet for longer` };
   }
   if (!timedOut.length) return { code: 'PREGATE_INCOMPLETE', detail: `the runner could not be launched (${total} files${rest})`, fix: 'read the lane log, fix the runner command, then rerun gstack-pregate --stage tests' };
   return { code: 'PREGATE_INCOMPLETE', detail: `a runner process timed out after ${ctx.timeoutMs} ms (--timeout applies to each runner process; ${total} files; last file started: ${timedOut.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest})`, fix: 'raise --timeout or split the selection; a timed-out lane never passes' };
@@ -282,7 +282,7 @@ export function remoteReportProblem(report: RemoteReport, tree: string): string 
  */
 async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult): Promise<CheckResult> {
   const lines = base.lines ?? [];
-  if (!ctx.config.remote_gate) return { ...base, status: 'incomplete', code: 'PREGATE_INCOMPLETE', detail: `--remote runs only a declared remote gate; ${ctx.configLabel} has no remote_gate`, fix: 'declare remote_gate (a command that prints PREGATE_REMOTE: tree=… tests=… failed=…) in .gstack/pregate.json on the base branch, or run the tests locally without --remote' };
+  if (!ctx.config.remote_gate) return { ...base, status: 'incomplete', code: 'PREGATE_INCOMPLETE', detail: `--remote runs only a declared remote gate; ${ctx.configLabel} has no remote_gate`, fix: `declare remote_gate (a command that prints PREGATE_REMOTE: tree=… tests=… failed=…) in ${ctx.configFile === PREGATE_CONFIG_PATH ? `${PREGATE_CONFIG_PATH} on the base branch` : ctx.configFile}, or run the tests locally without --remote` };
   const obligation = remoteObligation(ctx, sel);
   const cap = ctx.remote!.spendCapUsd;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-pregate-remote-'));
@@ -314,7 +314,7 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   const lines = describe(sel);
   const base: CheckResult = { id: 'lanes', stage: 'tests', status: 'pass', inputs, lines, remote: sel.remote };
   if (sel.noLane.length) {
-    return { ...base, status: 'fail', code: 'PREGATE_NO_LANE', detail: `${sel.noLane.length} touched file(s) with no test lane: ${sel.noLane.join(' ')}`, fix: noLaneFix(sel.noLane) };
+    return { ...base, status: 'fail', code: 'PREGATE_NO_LANE', detail: `${sel.noLane.length} touched file(s) with no test lane: ${sel.noLane.join(' ')}`, fix: noLaneFix(ctx, sel.noLane) };
   }
   if (sel.tests.length === 0) {
     const inert = sel.inert.length ? `${sel.inert.length} asset or tool-config file(s)` : '';
@@ -352,9 +352,9 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   return { ...withRun, status: sel.remote.length ? 'requires-remote' : 'pass', detail };
 }
 
-function noLaneFix(noLane: readonly string[]): string {
+function noLaneFix(ctx: PregateContext, noLane: readonly string[]): string {
   const device = noLane.some(isDeviceDart) ? `; pregate does not run device tests, so declare "**/integration_test/**": [] (and "**/test_driver/**": []) and let CI run them` : '';
-  return `add a test that names the file, or declare its lane (or []) under dependencies — or empty_lanes for other documentation — in ${PREGATE_CONFIG_PATH}${device}`;
+  return `add a test that names the file, or declare its lane (or []) under dependencies — or empty_lanes for other documentation — in ${ctx.configFile}${device}`;
 }
 
 export const lanesCheck: CheckDef = { id: 'lanes', stage: 'tests', tier: 1, downgradable: true, needsRepoCommands: true, run };

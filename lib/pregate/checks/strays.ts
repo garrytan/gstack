@@ -31,8 +31,8 @@ function run(ctx: PregateContext): CheckResult {
     if (!baseDirs.has(top)) warnings.push(`${file}: new top-level directory ${top}/ (not on ${ctx.baseRef})`);
   }
   ctx.explain.push(`strays: base directories ${[...baseDirs].join(',')}; allow ${allow.join(',') || '(none)'}`);
-  if (lines.length) return { id: 'strays', stage: 'preflight', status: 'fail', inputs, lines: [...lines, ...warnings], code: 'PREGATE_STRAYS', detail: `${lines.length} stray file(s): ${lines.map(l => l.split(':')[0]).join(' ')}`, fix: 'delete or move the file; an intentional root file goes in .gstack/pregate.json strays.allow' };
-  if (warnings.length) return { id: 'strays', stage: 'preflight', status: 'warn', inputs, lines: warnings, code: 'PREGATE_STRAYS', detail: `${warnings.length} file(s) in a new top-level directory`, fix: 'confirm the directory is intended, or allow it in .gstack/pregate.json strays.allow' };
+  if (lines.length) return { id: 'strays', stage: 'preflight', status: 'fail', inputs, lines: [...lines, ...warnings], code: 'PREGATE_STRAYS', detail: `${lines.length} stray file(s): ${lines.map(l => l.split(':')[0]).join(' ')}`, fix: `delete or move the file; an intentional root file goes in ${ctx.configFile} strays.allow` };
+  if (warnings.length) return { id: 'strays', stage: 'preflight', status: 'warn', inputs, lines: warnings, code: 'PREGATE_STRAYS', detail: `${warnings.length} file(s) in a new top-level directory`, fix: `confirm the directory is intended, or allow it in ${ctx.configFile} strays.allow` };
   return { id: 'strays', stage: 'preflight', status: 'pass', inputs, detail: `${ctx.touched.filter(t => t.status === 'A').length} added file(s), none stray` };
 }
 

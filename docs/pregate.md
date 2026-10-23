@@ -19,7 +19,8 @@ Three bins, all over `lib/`:
 
 A pin file names commands. Its presence never authorizes execution: both tools
 read the committed copy on `origin/<base>` (a PR cannot smuggle a command into
-its own gate) and run commands only with `--allow-repo-commands`, which `/ship`
+its own gate; `gstack-pregate run` alone also reads a user-owned file outside
+the repository when the base has none, see [pregate v1](#pregate-v1)) and run commands only with `--allow-repo-commands`, which `/ship`
 passes. Standalone, `gstack-regen check` lists the commands and exits 3
 (`REPO_COMMANDS_NOT_ALLOWED`); `gstack-pregate` marks `regen` and `lanes`
 `incomplete`, never `pass`. `--policy-from head` (a PR that introduces or
@@ -65,6 +66,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
 | `warn` | check ids downgraded to warn; `secrets` and required lanes never |
 | `strays.allow` | intentional root files or new top-level directories |
+| `local` | `workflow.yml/job` lanes a local run satisfies: a platform-agnostic toolchain (an `ubuntu-latest` suite that runs the same on a Mac), or a repo whose CI is off. Their tests run here instead of becoming `requires-remote`, except that on a machine under 8 cores with a `remote_gate` or a remote `test_backend` the small-machine rule still records the test tier as a `requires-remote` obligation. `--explain` notes an id that matches no workflow lane |
 | `guards` | `[{ id, when: [globs], command, fix?, timeout_s? }]`: repo commands a lane must pass when a touched file matches `when` (manifest checks, subprocess goldens the import graph cannot see); see [guards](#guards) |
 | `serial_patterns` | test-file globs the `lanes` check runs one process per file, apart from the unit files (default `**/*.serial.test.*`) |
 | `sealed` | sealed or eval output that must never reach a public destination; read by the pre-push hook and `gstack-pregate sealed` (see [sealed output](#sealed)) |
@@ -72,8 +74,33 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides (see [supervision](#supervision)) |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 
-Only the `origin/<base>` copy is honoured, so a downgrade is reviewed before it
-takes effect. `gstack-pregate validate` / `init` cover the working-tree file.
+Only the `origin/<base>` copy or the user-owned file below is honoured, so a
+downgrade is reviewed (or is the user's own) before it takes effect. A repo that
+keeps `.gstack/` out of git (a shared repo where gstack is one contributor's
+tool) can hold the same file at `<state root>/projects/<slug>/pregate.json`. The
+state root is `GSTACK_STATE_ROOT`, else `GSTACK_HOME`, else `GSTACK_STATE_DIR`,
+else a gstack plugin's data directory, else `~/.gstack` ([docs/state-root.md](state-root.md)); `<slug>` is what
+`~/.claude/skills/gstack/bin/gstack-slug` prints as `SLUG=` in the repository
+(`GSTACK_PROJECT_SLUG` overrides it). It is read only when the base carries none
+(never under `--policy-from head`), it lives outside the repository so a PR still
+cannot reach it, and the record names it (`policy user <path>`) and fingerprints
+its bytes (`policy_digest`, and each check's `inputs.policy`); `verify` and the
+ship receipt treat an edited or deleted user file, or one that appears after a
+run under the defaults, as `PREGATE_STALE`. A path that is relative or resolves
+inside the repository is ignored, since a PR could commit it; `--explain` says
+so, or says `(absent)` when no file is there. The slug and state root come from
+the caller's environment, never the checkout's `.env`: the bin's shebang passes
+`--no-env-file`, and a bare `bun gstack-pregate` launched beside any `.env` file
+refuses (`POLICY_SOURCE_UNAVAILABLE`). `verify` reads both paths from the
+record, not from its own environment.
+It covers `gstack-pregate run` only: `sealed` and `price_file` are read from the
+base branch's copy, so the user file refuses them (`PREGATE_CONFIG_INVALID`)
+rather than holding a policy nothing reads. A user file that exists but cannot
+be read, or a symlink on its path that points nowhere, refuses the same way
+instead of falling back to defaults. A base copy git cannot read (and
+`git ls-tree` cannot confirm is absent) refuses with `POLICY_SOURCE_UNAVAILABLE`
+instead of handing the run to the user file.
+`gstack-pregate validate` / `init` cover the working-tree file.
 
 `gstack-pregate init` writes a draft built from the repo, not a fixed example.
 It prints the languages it found and the runner each language's tests would
@@ -115,13 +142,15 @@ Two stages with separate clocks, both printed:
   `TIMING_ASSERTIONS: found=<n> escaped=<n> files=<n>` summary. It warns
   (`PREGATE_TIMING_ASSERTION`); it does not block. See [timing](#timing).
 
-- `guards`: each guard in `.gstack/pregate.json` whose `when` globs match a
+- `guards`: each guard in the active policy (`.gstack/pregate.json`, or the
+  user-owned file) whose `when` globs match a
   touched file (renames included) runs its `command` in its own process, under
   the verified launch Bun, with its own `timeout_s` (default `--timeout`). A
   non-zero exit fails pregate naming the guard and its `fix`
   (`PREGATE_GUARD_FAILED`); a timeout is `incomplete`; without
   `--allow-repo-commands` the selected guards are listed and the check is
-  `incomplete`. Guards are read from the base branch's copy and cannot be
+  `incomplete`. Guards are read from the base branch's copy (or the
+  user-owned file when the base carries none) and cannot be
   downgraded to warn. See [guards](#guards).
 
 **Stage 2, test execution:**
@@ -170,7 +199,7 @@ Two stages with separate clocks, both printed:
   `set -o pipefail`, judged on the runner's summary line (zero tests ran is a
   failure, a `| tail`-hidden exit is still an exit); a platform lane this
   machine cannot run becomes a `requires-remote` obligation naming
-  `workflow.yml/job`. `--explain` prints each test's provenance and every
+  `workflow.yml/job`, unless `local` names that lane. `--explain` prints each test's provenance and every
   uncertain mapping (a planner-computed matrix without a `selection` manifest
   selects conservatively). Test files matching `serial_patterns` (default
   `**/*.serial.test.*`) run one process per file after the unit files. The
@@ -183,7 +212,7 @@ Two stages with separate clocks, both printed:
   runner process (the unit-file group, each serial file, each guard without
   its own `timeout_s`), not their total; the stall timeout catches a hung or
   silent one sooner.
-- Under 8 cores, a base-branch `remote_gate` or a remote `test_backend`
+- Under 8 cores, a `remote_gate` in the active policy or a remote `test_backend`
   (`gstack-config set test_backend ubicloud`) records the local test tier as a
   `requires-remote` obligation instead of running it: see [remote gate](#remote-gate).
 
@@ -249,8 +278,8 @@ misses a descendant that was reparented or started detached.
 <a id="remote-gate"></a>
 ## Small machines and the remote gate
 
-Under 8 cores (`os.availableParallelism()`), when the base branch's
-`.gstack/pregate.json` declares `remote_gate` or `gstack-config get
+Under 8 cores (`os.availableParallelism()`), when the active policy (the
+base branch's `.gstack/pregate.json`, or the user-owned file) declares `remote_gate` or `gstack-config get
 test_backend` is not `local`, the lanes check runs nothing locally: it records
 the selected local files as a `requires-remote` obligation with the command to
 run, `pregate.json/remote_gate` (the declared command) or

@@ -104,6 +104,9 @@ lives in `projects/<slug>/`. `bin/gstack-slug` picks the slug from the git
   and the ssh, https and ssh-with-port spellings of one repository share one.
 - Without a remote, the project root's directory name is used.
 
+A bucket can also hold a user-owned `pregate.json` policy, for a repo that keeps
+`.gstack/` out of git (see [pregate v1](pregate.md#pregate-v1)).
+
 The first slug gstack resolves in a directory sticks (it is cached under
 `slug-cache/`), so a project keeps its bucket when it adds a remote later.
 

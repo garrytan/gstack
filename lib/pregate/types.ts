@@ -33,6 +33,12 @@ export interface PregateContext {
   touched: TouchedFile[];
   config: PregateConfig;
   configLabel: string;
+  /** The policy file to edit: the user-owned path when it is the active policy, else `.gstack/pregate.json`. */
+  configFile: string;
+  /** sha256 of the user-owned policy's bytes when it is active; recorded as `inputs.policy` (a base copy is pinned by `inputs.base`). */
+  configDigest?: string;
+  /** The user-owned policy path looked for and absent under the defaults; recorded so verify can tell when one appears. */
+  absentUserPolicy?: string;
   registry: Registry;
   registryLabel: string;
   lanes: Lane[];

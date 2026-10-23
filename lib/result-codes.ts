@@ -166,7 +166,7 @@ export const RESULT_CODES = {
   // C-stamp (plan C1, C2, C3, C5, C7): ship policy, restamp, tree receipt, ship receipt.
   POLICY_SOURCE_UNAVAILABLE: {
     anchor: 'policy-source-unavailable',
-    summary: 'policy source unavailable: origin/<base> is not a resolvable commit, so the reviewed .gstack/ship-policy.json cannot be read',
+    summary: 'policy source unavailable: origin/<base> is not a resolvable commit, or a pin file committed on it cannot be read, so the reviewed .gstack/ship-policy.json cannot be read',
     fix: 'git fetch origin <base> --depth=1 (the working-tree copy is never used silently)',
   },
   POLICY_INVALID: {
@@ -364,7 +364,7 @@ export const RESULT_CODES = {
   },
   PREGATE_CONFIG_INVALID: {
     anchor: 'pregate-config-invalid',
-    summary: '.gstack/pregate.json has an unknown key, a wrong type, a non-downgradable check in `warn`, or an uncontained glob',
+    summary: 'the pregate policy (.gstack/pregate.json, or the user-owned copy) has an unknown key, a wrong type, a non-downgradable check in `warn`, or an uncontained glob',
     fix: 'run `gstack-pregate validate` and fix the file on the base branch (secrets and required lanes cannot be downgraded)',
   },
   PREGATE_SECRETS: {

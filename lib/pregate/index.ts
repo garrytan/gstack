@@ -23,7 +23,7 @@ import { secretsCheck } from './checks/secrets';
 import { straysCheck } from './checks/strays';
 import { timingCheck } from './checks/timing';
 import { NON_DOWNGRADABLE } from './config';
-import { withFingerprint } from './context';
+import { sha256, withFingerprint } from './context';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
 
 export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, timingCheck, guardsCheck, lanesCheck];
@@ -57,7 +57,7 @@ export async function runPregate(ctx: PregateContext, o: RunOptions): Promise<Pr
   const remote: PregateRemote[] = checks.flatMap(c => c.remote ?? []).map(r => ({ ...r }));
   const file: PregateFile = {
     schema_version: 1, tree: ctx.wtree, head: ctx.head, base: `${ctx.baseRef}@${ctx.baseSha.slice(0, 12)}`, generated_at: new Date().toISOString(),
-    policy: ctx.configLabel, registry: ctx.registryLabel, run: o.run,
+    policy: ctx.configLabel, ...(ctx.configDigest ? { policy_digest: ctx.configDigest } : {}), ...(ctx.absentUserPolicy ? { policy_user_path: ctx.absentUserPolicy } : {}), registry: ctx.registryLabel, run: o.run,
     stage1_ms: o.stage === 'tests' ? undefined : clocks.preflight, stage2_ms: o.stage === 'preflight' ? undefined : clocks.tests,
     checks: checks.map(c => { const { remote: _r, ...rest } = c; return rest; }),
     requires_remote: remote,
@@ -122,18 +122,41 @@ export interface Verification { ok: boolean; code?: 'PREGATE_STALE' | 'PREGATE_R
 /**
  * Publication check: the recorded tree must equal the tree now (results
  * current after final generation and stamping), no check may be fail or
- * incomplete, and every requires-remote obligation needs its receipt.
+ * incomplete, and every requires-remote obligation needs its receipt. The
+ * user-owned policy behind the run (or its absence, under the defaults) must
+ * still hold, since it lives outside the tree.
  */
 export function verifyPregate(repoRoot: string, file: PregateFile, treeNow: WtreeResult = wtreeFingerprint({ cwd: repoRoot })): Verification {
   const uncleared = (file.requires_remote ?? []).filter(r => !r.receipt);
-  const current = 'tree' in treeNow && treeNow.tree === file.tree;
-  if (!current) return { ok: false, code: 'PREGATE_STALE', message: `pregate.json was recorded against tree ${file.tree.slice(0, 12)}; ${'tree' in treeNow ? `the tree is now ${treeNow.tree.slice(0, 12)}` : `the tree cannot be fingerprinted now (${treeNow.error})`}`, current, uncleared };
+  const treeCurrent = 'tree' in treeNow && treeNow.tree === file.tree;
+  if (!treeCurrent) return { ok: false, code: 'PREGATE_STALE', message: `pregate.json was recorded against tree ${file.tree.slice(0, 12)}; ${'tree' in treeNow ? `the tree is now ${treeNow.tree.slice(0, 12)}` : `the tree cannot be fingerprinted now (${treeNow.error})`}`, current: false, uncleared };
+  const policyChange = userPolicyChange(file);
+  if (policyChange) return { ok: false, code: 'PREGATE_STALE', message: policyChange, current: false, uncleared };
+  const current = true;
   const failed = file.checks.filter(c => c.status === 'fail');
   if (failed.length) return { ok: false, code: 'PREGATE_LANE_FAILED', message: `${failed.length} check(s) failed: ${failed.map(c => c.id).join(', ')}`, current, uncleared };
   const incomplete = file.checks.filter(c => c.status === 'incomplete' || c.status === 'not_installed');
   if (incomplete.length) return { ok: false, code: 'PREGATE_INCOMPLETE', message: `${incomplete.length} check(s) incomplete: ${incomplete.map(c => c.id).join(', ')}`, current, uncleared };
   if (uncleared.length) return { ok: false, code: 'PREGATE_REMOTE_UNCLEARED', message: `${uncleared.length} requires-remote obligation(s) without a receipt: ${uncleared.map(r => r.lane).join(', ')}`, current, uncleared };
   return { ok: true, message: `pregate ${file.verdict} is current for tree ${file.tree.slice(0, 12)}`, current, uncleared };
+}
+
+/**
+ * Why the user-owned policy a run recorded no longer holds, or null. Both paths come from the record, never the verifier's
+ * environment: the policy file and its digest, or under the defaults the path that was looked for and absent.
+ */
+function userPolicyChange(file: PregateFile): string | null {
+  const recorded = file.policy?.startsWith('user ') ? file.policy.slice('user '.length) : null;
+  if (recorded) {
+    if (!file.policy_digest) return `pregate.json names the user-owned policy ${recorded} without its digest; rerun gstack-pregate`;
+    let text: string;
+    try { text = fs.readFileSync(recorded, 'utf8'); } catch { return `the user-owned policy ${recorded} that pregate.json was recorded under is gone or unreadable; rerun gstack-pregate`; }
+    return sha256(text) === file.policy_digest ? null : `the user-owned policy ${recorded} changed after pregate.json was recorded; rerun gstack-pregate`;
+  }
+  const absent = file.policy_user_path;
+  if (!absent) return null;
+  try { if (!fs.lstatSync(absent, { throwIfNoEntry: false })) return null; } catch (e) { return `cannot confirm ${absent} is still absent (${(e as Error).message}); rerun gstack-pregate`; }
+  return `${absent} now holds a user-owned policy, and pregate.json was recorded under the defaults; rerun gstack-pregate`;
 }
 
 export interface ClearInput { runUrl?: string; bundleLane?: string; receiptPath?: string }

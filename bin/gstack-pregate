@@ -29,7 +29,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp, formatResult, type PregateFile } from '../lib/headless-artifacts';
 import { PREGATE_CONFIG_PATH, explainConfig, loadConfigFromHead } from '../lib/pregate/config';
 import { describeDraft, draftConfig } from '../lib/pregate/init-draft';
-import { buildContext, describeRefusal } from '../lib/pregate/context';
+import { buildContext, defaultUserConfigPath, describeRefusal, loadedDotenvFiles } from '../lib/pregate/context';
 import { CHECKS, CHECK_IDS, PREGATE_OUT_REL, PREGATE_TIER2, clearDecision, clearObligation, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { REMOTE_GATE_LANE } from '../lib/pregate/checks/lanes';
@@ -140,13 +140,14 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
   if (stallTimeoutMs !== undefined && (!Number.isFinite(stallTimeoutMs) || stallTimeoutMs < 0)) { process.stderr.write('gstack-pregate: --stall-timeout needs a number of seconds (0 disables)\n'); return EXIT.usage; }
   let remote: { spendCapUsd: number } | null = null;
   if (rest.includes('--remote')) {
-    if (!allow || policyFrom === 'head') { process.stderr.write('gstack-pregate: --remote runs the base branch\'s remote_gate and needs --allow-repo-commands with --policy-from base\n'); return EXIT.refused; }
+    if (!allow || policyFrom === 'head') { process.stderr.write('gstack-pregate: --remote runs the active policy\'s remote_gate (the base branch\'s copy, or the user-owned file when the base carries none) and needs --allow-repo-commands with --policy-from base\n'); return EXIT.refused; }
     const cap = Number(flag(rest, '--spend-cap') ?? process.env.GSTACK_SPEND_CAP_USD ?? NaN);
     if (!Number.isFinite(cap) || cap <= 0) { process.stderr.write('gstack-pregate: --remote spends money; pass --spend-cap <usd> (or set GSTACK_SPEND_CAP_USD)\n'); return EXIT.usage; }
     remote = { spendCapUsd: cap };
   } else if (flag(rest, '--spend-cap') !== undefined) { process.stderr.write('gstack-pregate: --spend-cap applies only with --remote\n'); return EXIT.usage; }
   const base = resolveBaseBranch(root, flag(rest, '--base'));
-  const loaded = buildContext({ repoRoot: root, base, policyFrom, allowRepoCommands: allow, timeoutMs, stallTimeoutMs, remote, knownChecks: [...CHECK_IDS, ...PREGATE_TIER2] });
+  const userConfigPath = defaultUserConfigPath(root);
+  const loaded = buildContext({ repoRoot: root, base, policyFrom, allowRepoCommands: allow, timeoutMs, stallTimeoutMs, remote, knownChecks: [...CHECK_IDS, ...PREGATE_TIER2], userConfigPath });
   if ('refused' in loaded) {
     const refusal = describeRefusal(loaded.refused, base);
     process.stderr.write(refusal.line + '\n');
@@ -281,6 +282,8 @@ async function main(argv: string[]): Promise<number> {
   if (bad) { process.stderr.write(`gstack-pregate: ${bad}; see gstack-pregate --help\n`); return EXIT.usage; }
   const root = repoRoot();
   if (!root) { process.stderr.write('gstack-pregate: not inside a git repository\n'); return EXIT.usage; }
+  const dotenv = loadedDotenvFiles(process.cwd(), process.execArgv);
+  if (dotenv.length) { process.stderr.write(resultLine('gstack-pregate', 'POLICY_SOURCE_UNAVAILABLE', `bun loaded ${dotenv.join(', ')} from the working directory, and a checkout's .env must not choose the state root or slug behind the policy; run gstack-pregate directly (its shebang passes --no-env-file) or as bun --no-env-file`) + '\n'); return EXIT.refused; }
   if (cmd === 'run') return await cmdRun(root, rest, json);
   if (cmd === 'verify') return cmdVerify(root, rest, json);
   if (cmd === 'clear') return cmdClear(root, rest);

@@ -9,13 +9,16 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { slugFromEnvironment } from '../bin-context';
 import { isRegistryUnavailable, loadRegistryFromBase, loadRegistryFromHead, type Registry } from '../regen';
+import { resolveStateRoot } from '../state-root';
 import { RESULT_CODES, TROUBLESHOOTING_DOC, resultLine } from '../result-codes';
 import { runScriptSync, wtreeFingerprint, type InvocationOptions, type WtreeResult } from '../script-invocation';
 import { policyUnavailableLine, resolveBaseBranch } from '../ship-policy';
-import { isConfigUnavailable, loadConfigFromBase, loadConfigFromHead, type ConfigError, type PregateConfig } from './config';
+import { PREGATE_CONFIG_PATH, isConfigUnavailable, loadConfigFromBase, loadConfigFromHead, loadConfigFromUser, type ConfigError, type ConfigLoad, type PregateConfig } from './config';
 import type { CheckResult, PregateContext, TouchedFile } from './types';
 import { discoverLanes } from './workflows';
 import type { RegistryError } from '../regen';
@@ -27,6 +30,8 @@ export interface BuildContextOptions {
   stallTimeoutMs?: number; progress?: (line: string) => void; cores?: number; testBackend?: string; remote?: { spendCapUsd: number } | null;
   /** How gstack's own bash bins launch (gstack-wtree, gstack-config); tests inject a Windows probe. */
   invocation?: InvocationOptions;
+  /** `<state root>/projects/<slug>/pregate.json`: read only when the base carries no pregate.json, and never from a relative path or one inside the repository. */
+  userConfigPath?: string;
 }
 
 export const DEFAULT_STALL_TIMEOUT_S = 300;
@@ -123,6 +128,38 @@ export function touchedFiles(repoRoot: string, mergeBase: string): TouchedFile[]
   return [...out.values()].filter(t => t.path !== 'node_modules' && !t.path.startsWith('node_modules/')).sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/** The deepest existing ancestor realpathed (on-disk casing), the rest re-joined: a symlinked state root inside the checkout still counts as inside. */
+function realish(p: string): string {
+  let head = path.resolve(p); const tail: string[] = [];
+  while (!fs.existsSync(head) && path.dirname(head) !== head) { tail.unshift(path.basename(head)); head = path.dirname(head); }
+  try { return path.join(fs.realpathSync.native(head), ...tail); } catch { return path.resolve(p); }
+}
+const within = (root: string, p: string) => { const rel = path.relative(root, p); return rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel); };
+
+/** Dotenv files Bun loads from the launch directory unless started with --no-env-file. */
+const DOTENV_FILES = ['.env', '.env.local', '.env.development', '.env.development.local', '.env.production', '.env.production.local', '.env.test', '.env.test.local'];
+
+/**
+ * The dotenv files in `cwd` that Bun loaded (no --no-env-file in `execArgv`). Any of them could set the slug or state
+ * root that picks the user policy, and Bun's dotenv syntax is looser than a key scan can follow, so any one refuses.
+ */
+export function loadedDotenvFiles(cwd: string, execArgv: readonly string[]): string[] {
+  if (execArgv.includes('--no-env-file')) return [];
+  return DOTENV_FILES.filter(f => fs.existsSync(path.join(cwd, f)));
+}
+
+/** `<state root>/projects/<slug>/pregate.json` for the repository at `root`, from the caller's environment. */
+export function defaultUserConfigPath(root: string): string {
+  return path.join(resolveStateRoot(), 'projects', slugFromEnvironment(undefined, root), 'pregate.json');
+}
+
+/** Why a user policy path must not be read, or null: a relative path (no HOME) or one a PR could commit is never trusted. */
+export function userConfigRejection(repoRoot: string, file: string): string | null {
+  if (!path.isAbsolute(file)) return 'not an absolute path';
+  if (within(path.resolve(repoRoot), path.resolve(file)) || within(realish(repoRoot), realish(file))) return 'inside the repository; a PR could supply it';
+  return null;
+}
+
 export function buildContext(o: BuildContextOptions): ContextLoad {
   const base = o.base.replace(/^origin\//, '');
   const baseRef = `origin/${base}`;
@@ -130,9 +167,18 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   if (!baseSha.ok || !baseSha.out) return { refused: notAnOriginBranch(o.repoRoot, base) ?? { code: 'POLICY_SOURCE_UNAVAILABLE', message: `${baseRef} is not a resolvable commit` } };
   const head = git(o.repoRoot, ['rev-parse', 'HEAD']).out;
   const mergeBase = git(o.repoRoot, ['merge-base', baseSha.out, 'HEAD']).out || baseSha.out;
-  const configLoad = o.policyFrom === 'head' ? loadConfigFromHead(o.repoRoot, o.knownChecks) : loadConfigFromBase(o.repoRoot, base, o.knownChecks);
+  let configLoad: ConfigLoad = o.policyFrom === 'head' ? loadConfigFromHead(o.repoRoot, o.knownChecks) : loadConfigFromBase(o.repoRoot, base, o.knownChecks);
+  const explain: string[] = [];
+  let absentUserPolicy: string | undefined;
+  if (o.policyFrom === 'base' && o.userConfigPath && !isConfigUnavailable(configLoad) && configLoad.kind === 'none') {
+    const rejected = userConfigRejection(o.repoRoot, o.userConfigPath);
+    const user = rejected ? null : loadConfigFromUser(o.userConfigPath, o.knownChecks);
+    if (user) configLoad = user;
+    else explain.push(`user policy: ${o.userConfigPath} ${rejected ? `ignored (${rejected})` : '(absent)'}`);
+    if (!user && !rejected) absentUserPolicy = o.userConfigPath;
+  }
   if (isConfigUnavailable(configLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: configLoad.detail } };
-  if (configLoad.errors.length) return { refused: { code: 'PREGATE_CONFIG_INVALID', message: `${configLoad.label}: ${configLoad.errors.map(e => `${e.message} at ${e.path}`).join('; ')}`, errors: configLoad.errors } };
+  if (configLoad.errors.length) return { refused: { code: 'PREGATE_CONFIG_INVALID', message: `${configLoad.label}: ${configLoad.errors.map(e => `${e.message} at ${e.path}`).join('; ')}`, errors: configLoad.errors, ...(configLoad.kind === 'user' ? { fix: `edit ${o.userConfigPath} directly at each path the message names, then rerun gstack-pregate; it lives outside the repository, so a base-branch change does not reach it` } : {}) } };
   const registryLoad = o.policyFrom === 'head' ? loadRegistryFromHead(o.repoRoot) : loadRegistryFromBase(o.repoRoot, base);
   if (isRegistryUnavailable(registryLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: registryLoad.detail } };
   if (registryLoad.errors.length) return { refused: { code: 'REGEN_REGISTRY_INVALID', message: `${registryLoad.source.label}: ${registryLoad.errors.map(e => `${e.message} at ${e.path}`).join('; ')}`, errors: registryLoad.errors } };
@@ -142,15 +188,18 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   const wtree = fp.tree;
   const platform = o.platform ?? process.platform;
   const config = configLoad.config as PregateConfig;
+  const lanes = discoverLanes(o.repoRoot, platform);
+  // A lane that exists but is not platform-tier on this host already runs here, so only an unknown id is worth a line.
+  for (const id of config.local) if (!lanes.some(l => l.id === id)) explain.push(`local: ${id} matches no workflow lane; ignored`);
   return {
     ctx: {
       repoRoot: o.repoRoot, base, baseRef, baseSha: baseSha.out, mergeBase, head, wtree, touched: touchedFiles(o.repoRoot, mergeBase),
-      config, configLabel: configLoad.label, registry: registryLoad.registry as Registry, registryLabel: registryLoad.source.label,
-      lanes: discoverLanes(o.repoRoot, platform), platform, allowRepoCommands: o.allowRepoCommands, timeoutMs: o.timeoutMs ?? 600_000,
+      config, configLabel: configLoad.label, configFile: configLoad.kind === 'user' && o.userConfigPath ? o.userConfigPath : PREGATE_CONFIG_PATH, ...(configLoad.kind === 'user' && configLoad.digest ? { configDigest: configLoad.digest } : {}), ...(absentUserPolicy ? { absentUserPolicy } : {}), registry: registryLoad.registry as Registry, registryLabel: registryLoad.source.label,
+      lanes, platform, allowRepoCommands: o.allowRepoCommands, timeoutMs: o.timeoutMs ?? 600_000,
       stallTimeoutMs: o.stallTimeoutMs ?? (config.stall_timeout_s ?? DEFAULT_STALL_TIMEOUT_S) * 1000,
       progress: o.progress ?? (line => process.stderr.write(`${line}\n`)),
       cores: o.cores ?? os.availableParallelism(), testBackend: o.testBackend ?? readTestBackend(env, o.invocation), policyFrom: o.policyFrom, remote: o.remote ?? null,
-      env, explain: [],
+      env, explain,
     },
   };
 }
@@ -159,7 +208,7 @@ export function sha256(text: string): string { return createHash('sha256').updat
 
 /** The common input identity every check records; checks add their own keys. */
 export function baseInputs(ctx: PregateContext, extra: Record<string, string> = {}): Record<string, string> {
-  return { tree: ctx.wtree, head: ctx.head, base: `${ctx.baseRef}@${ctx.baseSha.slice(0, 12)}`, touched: sha256(ctx.touched.map(t => `${t.status} ${t.path}`).join('\n')), ...extra };
+  return { tree: ctx.wtree, head: ctx.head, base: `${ctx.baseRef}@${ctx.baseSha.slice(0, 12)}`, touched: sha256(ctx.touched.map(t => `${t.status} ${t.path}`).join('\n')), ...(ctx.configDigest ? { policy: ctx.configDigest } : {}), ...extra };
 }
 
 /**
