@@ -186,9 +186,24 @@ function gitProject(cwd: string): GitProject | null {
       const up = prefix.split("/").filter(Boolean).map(() => "..");
       project = { root: resolve(cwd, ...up), main: basename(common) === ".git" ? dirname(common) : common };
     }
+  } else {
+    // A merged branch's worktree is removed but its session history stays:
+    // count those sessions with the repository the worktree was created from.
+    const parent = parentRepoOfClaudeWorktree(cwd);
+    if (parent) project = gitProject(parent);
   }
   PROJECT_MEMO.set(cwd, project);
   return project;
+}
+
+/**
+ * Claude Code creates worktrees at `<repo>/.claude/worktrees/<name>`. Given a
+ * cwd inside one (the worktree root or any subdirectory), the repository root
+ * it was created from; null for any other path.
+ */
+export function parentRepoOfClaudeWorktree(cwd: string): string | null {
+  const m = cwd.match(/^(.+?)[\\/]\.claude[\\/]worktrees[\\/][^\\/]+(?:[\\/].*)?$/);
+  return m ? m[1] : null;
 }
 
 function getGitRemote(root: string): string | null {

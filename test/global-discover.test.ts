@@ -644,5 +644,104 @@ describe("gstack-global-discover", () => {
       expect(json.repos).toHaveLength(1);
       expect(json.repos[0].sessions.claude_code).toBe(1);
     });
+
+    // Claude Code worktrees live at <repo>/.claude/worktrees/<name> and are removed once
+    // their branch merges; the session history under ~/.claude/projects stays behind.
+    function removedWorktree(main: string, name = "feat-x"): string {
+      const wt = join(main, ".claude", "worktrees", name);
+      git(main, "worktree", "add", "-q", wt);
+      return wt;
+    }
+
+    test("sessions of a removed Claude worktree count with the repository it was created from", () => {
+      const main = repo("work/ai-blogger-lab", "https://github.com/acme/ai-blogger-lab.git");
+      const wt = removedWorktree(main);
+      session(main, "main-1");
+      session(main, "main-2");
+      session(wt, "wt-1");
+      session(wt, "wt-2");
+      session(wt, "wt-3");
+      git(main, "worktree", "remove", "--force", wt);
+      expect(existsSync(wt)).toBe(false);
+      const json = discover();
+      expect(json.tools.claude_code.total_sessions).toBe(5);
+      expect(json.repos).toHaveLength(1);
+      expect(json.repos[0].sessions.claude_code).toBe(5);
+      expect(json.repos[0].paths).toEqual([main]);
+    });
+
+    test("a session started in a subdirectory of a removed Claude worktree counts too", () => {
+      const main = repo("work/app", "git@github.com:acme/app.git");
+      const wt = removedWorktree(main);
+      mkdirSync(join(wt, "packages", "web"), { recursive: true });
+      session(join(wt, "packages", "web"), "sub-1");
+      git(main, "worktree", "remove", "--force", wt);
+      const r = discover().repos.find((x) => x.remote === "https://github.com/acme/app")!;
+      expect(r.sessions.claude_code).toBe(1);
+      expect(r.paths).toEqual([main]);
+    });
+
+    test("a removed Claude worktree of a repository with no remote counts with its repository", () => {
+      const main = repo("work/local-only");
+      const wt = removedWorktree(main);
+      session(main, "l-1");
+      session(wt, "l-2");
+      git(main, "worktree", "remove", "--force", wt);
+      const local = discover().repos.filter((x) => x.remote.startsWith("local:"));
+      expect(local).toHaveLength(1);
+      expect(local[0].sessions.claude_code).toBe(2);
+    });
+
+    test("a live Claude worktree keeps its own path next to its repository's", () => {
+      const main = repo("work/live", "https://github.com/acme/live.git");
+      const wt = removedWorktree(main);
+      session(main, "m-1");
+      session(wt, "w-1");
+      const r = discover().repos.find((x) => x.remote === "https://github.com/acme/live")!;
+      expect(r.sessions.claude_code).toBe(2);
+      expect(r.paths.sort()).toEqual([main, wt].sort());
+    });
+
+    test("a removed Claude worktree whose repository is also gone is not counted as a repository", () => {
+      const gone = join(home, "work", "gone-repo");
+      session(join(gone, ".claude", "worktrees", "feat-x"), "g-1");
+      const json = discover();
+      expect(json.tools.claude_code.total_sessions).toBe(1);
+      expect(json.repos).toHaveLength(0);
+    });
+
+    test("a removed directory that is not a Claude worktree is not counted as a repository", () => {
+      const main = repo("work/real", "https://github.com/acme/real.git");
+      session(join(main, "some", "deleted-dir"), "d-1");
+      session(join(main, ".claude", "worktrees"), "d-2");
+      session(main, "r-1");
+      const json = discover();
+      expect(json.tools.claude_code.total_sessions).toBe(3);
+      expect(json.repos).toHaveLength(1);
+      expect(json.repos[0].sessions.claude_code).toBe(1);
+    });
+
+    describe("parentRepoOfClaudeWorktree", () => {
+      let parentRepoOfClaudeWorktree: (cwd: string) => string | null;
+      beforeEach(async () => {
+        parentRepoOfClaudeWorktree = (await import("../bin/gstack-global-discover.ts")).parentRepoOfClaudeWorktree;
+      });
+
+      test("returns the repository root for a worktree path, with or without a subdirectory", () => {
+        expect(parentRepoOfClaudeWorktree("/Users/me/code/app/.claude/worktrees/feat-x")).toBe("/Users/me/code/app");
+        expect(parentRepoOfClaudeWorktree("/Users/me/code/app/.claude/worktrees/feat-x/src/lib")).toBe("/Users/me/code/app");
+        expect(parentRepoOfClaudeWorktree("C:\\code\\app\\.claude\\worktrees\\feat-x")).toBe("C:\\code\\app");
+      });
+
+      test("returns null for any other path", () => {
+        for (const p of [
+          "/Users/me/code/app",
+          "/Users/me/code/app/.claude/worktrees",
+          "/Users/me/code/app/.claude/worktrees/",
+          "/Users/me/code/not.claude/worktrees/x",
+          "/.claude/worktrees/x",
+        ]) expect(parentRepoOfClaudeWorktree(p)).toBeNull();
+      });
+    });
   });
 });
