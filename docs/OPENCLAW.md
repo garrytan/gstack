@@ -152,10 +152,13 @@ gstack itself uses this: `/ship` Step 14.5 dispatches the `/document-release`
 subagent with this prefix before final commit, verification and publication.
 Its ship-owned scope overrides generic spawned auto-choice: risky or uncertain
 documentation changes return as blockers for the parent, without interactive
-questions or automatic approval. Deliberately narrow: only `spawned` is honored — `headless`
-already has `GSTACK_HEADLESS`, and letting an env var force `interactive`
-over CI markers would be a misclassification footgun. Empty or other values
-are reserved and ignored (fall through to ambient detection). Note that hook
+questions or automatic approval. Deliberately narrow: only `spawned` and
+`unattended` are honored (`unattended` is a separate, explicitly selected
+contract for a parent that reads a run's artifacts; see
+[unattended.md](unattended.md)) — `headless` already has `GSTACK_HEADLESS`,
+and letting an env var force `interactive` over CI markers would be a
+misclassification footgun. Empty or other values are reserved and ignored
+(fall through to ambient detection). Note that hook
 processes inherit the harness env, so a per-command prefix never reaches
 PreToolUse/PostToolUse hooks — the hook texts carry a spawned escape sentence
 for that topology (`hosts/claude/hooks/spawned-directive.ts`).
