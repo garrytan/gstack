@@ -149,6 +149,47 @@ export function bunChildFlags(): string[] {
   return ['--no-env-file', `--config=${emptyBunConfig()}`];
 }
 
+/**
+ * The bun executable to spawn the agent with. On Windows a bare 'bun' under
+ * the Node polyfill resolves (via cross-spawn) to npm's bun.cmd shim, run as
+ * `cmd.exe /c bun ...`. That breaks two ways: windowsHide only hides cmd.exe,
+ * and the detached cmd.exe has no console, so bun.exe allocates a fresh
+ * visible one (a window that steals focus on every spawn); and proc.pid is
+ * cmd.exe's, so the agent's startup check (record.pid === process.pid) never
+ * matches and it exits after 2s, which the 60s watchdog then respawns.
+ * Spawning bun.exe directly fixes both. Falls back to 'bun' when no .exe is
+ * found, which is the old behavior.
+ */
+export function resolveBunExecutable(opts: {
+  platform?: string;
+  env?: NodeJS.ProcessEnv;
+  execPath?: string;
+  isBun?: boolean;
+  isFile?: (p: string) => boolean;
+} = {}): string {
+  const platform = opts.platform ?? process.platform;
+  if (platform !== 'win32') return 'bun';
+  const win = path.win32;
+  const env = opts.env ?? process.env;
+  const execPath = opts.execPath ?? process.execPath;
+  const isBun = opts.isBun ?? !!process.versions.bun;
+  const isFile = opts.isFile ?? ((p: string) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
+  // A compiled browse.exe also reports versions.bun, so check the name too.
+  if (isBun && /^bun\.exe$/i.test(win.basename(execPath))) return execPath;
+  const dirs = (env.PATH || env.Path || '').split(';').filter(d => d && win.isAbsolute(d));
+  const candidates = [
+    ...(env.BUN_INSTALL ? [win.join(env.BUN_INSTALL, 'bin', 'bun.exe')] : []),
+    ...dirs.flatMap(d => [
+      win.join(d, 'bun.exe'),
+      // npm global install: PATH holds only the bun.cmd shim; the real
+      // binary it forwards to lives under node_modules.
+      ...(isFile(win.join(d, 'bun.cmd')) ? [win.join(d, 'node_modules', 'bun', 'bin', 'bun.exe')] : []),
+    ]),
+    ...(env.USERPROFILE ? [win.join(env.USERPROFILE, '.bun', 'bin', 'bun.exe')] : []),
+  ];
+  return candidates.find(isFile) ?? 'bun';
+}
+
 export function resolveTerminalAgentScript(searchHints: { metaDir?: string; execPath?: string } = {}): string | null {
   const meta = searchHints.metaDir || __dirname;
   const exec = searchHints.execPath || process.execPath;
@@ -208,7 +249,7 @@ export function spawnTerminalAgent(opts: {
     writeAgentRecord(stateDir, reservation);
     let proc: any;
     try {
-      proc = (Bun as any).spawn(['bun', 'run', ...bunChildFlags(), script, `--agent-gen=${gen}`], {
+      proc = (Bun as any).spawn([resolveBunExecutable(), 'run', ...bunChildFlags(), script, `--agent-gen=${gen}`], {
         cwd: opts.cwd || process.cwd(),
         env: {
           ...process.env,
