@@ -2440,9 +2440,9 @@ reply with the printed `gate_rev`.
 **Meaning.** Part of the reply matched no gate item or option. Nothing was
 applied; the unparsed tokens are listed.
 
-**Fix.** Reply with `all`, with `<id><option>` tokens (`d3b uc1a`), or with
-`all except <tokens>`. A bare `yes` or `no` is ambiguous across multi-option
-items and is never guessed.
+**Fix.** Reply with `rec` (alias `all`), `as-is`, `<id><option>` tokens
+(`d3b uc1a`), or `rec except <tokens>`. A bare `yes` or `no` is ambiguous
+across multi-option items and is never guessed.
 
 <a id="answer-by-required"></a>
 ### `ANSWER_BY_REQUIRED`

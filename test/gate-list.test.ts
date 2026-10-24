@@ -240,4 +240,12 @@ describe('bin/gstack-gate', () => {
     const pending = run(['decisions', file]).out.trim().split('\n').map(l => JSON.parse(l));
     expect(pending.every(r => r.status === 'pending')).toBe(true);
   });
+
+  test('--help names every reply form the rendered list offers, so a parent that learns the grammar there can answer (#3282)', () => {
+    const offered = run(['render', write('gate.json', list)]).out.split('\n').find(l => l.startsWith('Reply with exactly one of:'))!;
+    const forms = offered.slice('Reply with exactly one of:'.length).split(' · ').map(part => part.match(/`([^`]+)`/)![1]!);
+    expect(forms).toContain('rec');
+    const grammar = run(['--help']).out.split('\n').find(l => l.startsWith('Reply grammar:'))!;
+    for (const form of forms) expect(grammar).toContain(`\`${form}\``);
+  });
 });

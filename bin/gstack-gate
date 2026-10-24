@@ -22,7 +22,7 @@ const HELP = `gstack-gate — one gate list, one reply grammar
   decisions <gate.json> [--reply "<text>" --gate-rev N] [--answered-at ISO]
                                                         decisions.jsonl rows (pending, or applied when a reply is given)
 
-Reply grammar: \`all\` · \`<id><option>\` tokens (\`d3b uc1a\`) · \`all except <tokens>\`. Bare yes/no is rejected.
+Reply grammar: \`rec\` (alias \`all\`) · \`rec except <tokens>\` · \`<id><option>\` tokens (\`d3b uc1a\`) · \`as-is\`. Bare yes/no is rejected.
 gate.json: {"schema_version":1,"run":"<id>","gate_rev":1,"items":[{"id":"d1","title":"…","kind":"auto|approval","recommended":"a","options":[{"key":"a","text":"…"},…]}]}
 ${exitTableHelp()}`;
 
