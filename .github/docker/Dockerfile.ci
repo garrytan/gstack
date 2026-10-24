@@ -90,7 +90,7 @@ RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://cli.github.
 # and "gnupg" was renamed to "gpg" on Ubuntu 24.04 anyway, so NodeSource's script
 # fails before it can add its own repo. Direct tarball download is network-simpler
 # (one host: nodejs.org) and doesn't touch apt at all.
-ENV NODE_VERSION=22.20.0
+ENV NODE_VERSION=22.23.4
 RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
     && tar -xJ -C /usr/local --strip-components=1 --no-same-owner -f /tmp/node.tar.xz \
     && rm -f /tmp/node.tar.xz \
