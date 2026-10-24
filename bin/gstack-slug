@@ -8,7 +8,7 @@
 #                                  Code sessions refuse eval/source)
 # Modes (not on the hot path; see `gstack-slug --help`):
 #   --identity                 also print PROJECT_REMOTE, PROJECT_ROOT, LEGACY_SLUG
-#   --stamp-checkpoint <file>  write remote:/project_root: into a checkpoint's frontmatter
+#   --stamp-checkpoint <file>  write remote:/project_root:/head: into a checkpoint's frontmatter
 #   --classify-checkpoints     read checkpoint paths on stdin, print "<status>\t<path>"
 #   --checkpoints-below        list other buckets' checkpoints saved below the cwd, plus pointers
 #   --point-from <dir> <file>  leave a pointer to <file> in <dir>'s bucket (nested-repo saves)
@@ -138,7 +138,7 @@ gstack-slug — print SLUG=<project slug> and BRANCH=<branch> for the current di
                                         field); no eval needed
   gstack-slug --identity                also print PROJECT_REMOTE (canonical, credential-free),
                                         PROJECT_ROOT and LEGACY_SLUG (pre-#3003 bucket, if different)
-  gstack-slug --stamp-checkpoint FILE   write remote:/project_root: into FILE's frontmatter
+  gstack-slug --stamp-checkpoint FILE   write remote:/project_root:/head: into FILE's frontmatter
   gstack-slug --classify-checkpoints    read checkpoint paths on stdin; print "<status><TAB><path>",
                                         status = match | match-root | foreign | unstamped
   gstack-slug --checkpoints-below       outside git: other buckets' checkpoints whose project_root
@@ -682,15 +682,18 @@ case "$MODE" in
     STAMP_TMP=$(mktemp "${MODE_ARG}.stamp-XXXXXX") || exit 1
     STAMP_WORKTREE=$(_git_toplevel "$PROJECT_DIR")
     [[ "$STAMP_WORKTREE" != "$ID_ROOT" ]] || STAMP_WORKTREE=""
-    if GRI_REMOTE="$ID_REMOTE" GRI_ROOT="$ID_ROOT" GRI_WORKTREE="$STAMP_WORKTREE" awk '
+    # The commit the save describes, so /context-restore can tell when work landed after it.
+    STAMP_HEAD=$(git -C "$PROJECT_DIR" rev-parse --verify -q HEAD 2>/dev/null) || STAMP_HEAD=""
+    if GRI_REMOTE="$ID_REMOTE" GRI_ROOT="$ID_ROOT" GRI_WORKTREE="$STAMP_WORKTREE" GRI_HEAD="$STAMP_HEAD" awk '
       function ids() {
         if (ENVIRON["GRI_REMOTE"] != "") print "remote: " ENVIRON["GRI_REMOTE"]
         print "project_root: " ENVIRON["GRI_ROOT"]
         if (ENVIRON["GRI_WORKTREE"] != "") print "worktree: " ENVIRON["GRI_WORKTREE"]
+        if (ENVIRON["GRI_HEAD"] != "") print "head: " ENVIRON["GRI_HEAD"]
       }
       NR == 1 { if ($0 == "---") { infm = 1; print; next } print "---"; ids(); print "---" }
       infm && $0 == "---" { ids(); print; infm = 0; next }
-      infm && (/^remote:/ || /^project_root:/ || /^worktree:/) { next }
+      infm && (/^remote:/ || /^project_root:/ || /^worktree:/ || /^head:/) { next }
       { print }
       END { if (NR == 0) { print "---"; ids(); print "---" } }' "$MODE_ARG" > "$STAMP_TMP"; then
       mv "$STAMP_TMP" "$MODE_ARG"

@@ -203,6 +203,44 @@ checkpoint(s) from another project; only this project's are listed." If it print
 `LEGACY_BUCKET`, relay that line. If the chosen file is `ROOT_DIFFERS`, add
 "Saved from another checkout of this repository at `{project_root}`." as info.
 
+**Check whether the branch moved since the save.** The stamp records the commit
+the save was made at in `head:`. Before presenting, compare it with this
+checkout:
+
+```bash
+FILE="<the chosen file>"
+SAVED_HEAD=$(grep -m1 '^head:' "$FILE" 2>/dev/null | sed 's/^head:[[:space:]]*//' | tr -d '\r')
+REPO_DIR=.
+git rev-parse --git-dir >/dev/null 2>&1 || REPO_DIR=$(grep -m1 '^project_root:' "$FILE" 2>/dev/null | sed 's/^project_root:[[:space:]]*//' | tr -d '\r')
+CURRENT_HEAD=$(git -C "${REPO_DIR:-.}" rev-parse --verify -q HEAD 2>/dev/null)
+if [ -z "$SAVED_HEAD" ]; then
+  echo "HEAD_UNTRACKED"
+elif [ -z "$CURRENT_HEAD" ]; then
+  echo "HEAD_NOT_CHECKED"
+elif [ "$SAVED_HEAD" = "$CURRENT_HEAD" ]; then
+  echo "HEAD_UNCHANGED"
+elif ! printf '%s\n' "$SAVED_HEAD" | grep -Eqx '[0-9a-f]{40}([0-9a-f]{24})?' \
+  || ! git -C "$REPO_DIR" cat-file -e "$SAVED_HEAD^{commit}" 2>/dev/null; then
+  echo "HEAD_UNKNOWN $SAVED_HEAD"
+elif git -C "$REPO_DIR" merge-base --is-ancestor "$SAVED_HEAD" "$CURRENT_HEAD"; then
+  echo "HEAD_MOVED $(git -C "$REPO_DIR" rev-list --count "$SAVED_HEAD..$CURRENT_HEAD")"
+  git -C "$REPO_DIR" log --oneline -10 "$SAVED_HEAD..$CURRENT_HEAD"
+else
+  echo "HEAD_DIVERGED $SAVED_HEAD"
+fi
+```
+
+- `HEAD_UNCHANGED` or `HEAD_NOT_CHECKED`: nothing to add.
+- `HEAD_MOVED <n>`: print `<n> commit(s) landed since this save:` and the commit
+  lines above the Remaining Work groups, and list **every** Remaining Work item
+  under **Verify first**: the saving session could not know about those commits,
+  so any step may already be done.
+- `HEAD_DIVERGED` or `HEAD_UNKNOWN`: print `This checkpoint was saved at {first 7
+  characters of head}, which is not in this checkout's history (rebased, reset, or
+  not fetched).` and list every item under Verify first.
+- `HEAD_UNTRACKED`: print `This checkpoint predates commit tracking; restore cannot tell whether work landed after it.`
+  and sort as usual.
+
 **Sort Remaining Work by provenance.** Keep every item's original text and saved
 order, and drop nothing. Put an item under **Verify first** when it:
 - ends in `(path assumed)` or `(code read)`;
@@ -239,6 +277,7 @@ Status:      {status}
 {summary from saved file}
 
 ### Remaining Work
+{commit-tracking lines, if any}
 {legacy banner line, if it applies}
 
 Next steps
@@ -292,6 +331,8 @@ in the old bucket until the user copies them with `gstack-slug --adopt-legacy`.
 - **Never present another project's checkpoint as "latest".** Identity is the
   canonical remote (the root only when there is no remote); a mismatch is
   reported before any summary.
+- **A checkpoint describes the commit it was saved at.** When commits landed
+  after the save, every Remaining Work item is verified before it is run.
 - **"Most recent" means the filename `YYYYMMDD-HHMMSS` prefix**, not
   `ls -1t` (filesystem mtime). Filenames are stable across file-system
   operations; mtime is not.

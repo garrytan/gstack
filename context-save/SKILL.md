@@ -542,12 +542,13 @@ files_modified:
 
 The `files_modified` list comes from `git status --short` (both staged and unstaged
 modified files). Use relative paths from the repo root. Do not write `remote:`,
-`project_root:` or `worktree:` yourself; the stamp step below adds them.
+`project_root:`, `worktree:` or `head:` yourself; the stamp step below adds them.
 
 Then stamp the project identity. Several projects can share one checkpoints
 directory, so `/context-restore` needs to know which project wrote each file. The helper adds `remote:` (canonical origin:
-lowercased host, no credentials, port or `.git`), `project_root:` and, in a
-linked worktree, `worktree:` to the frontmatter. When the session started in
+lowercased host, no credentials, port or `.git`), `project_root:`, in a linked
+worktree `worktree:`, and `head:` (the commit this save describes, so
+`/context-restore` can tell when work landed after it) to the frontmatter. When the session started in
 another directory that files elsewhere (a non-git parent of this repo), it also
 leaves a pointer there so `/context-restore` in that directory finds this save:
 
