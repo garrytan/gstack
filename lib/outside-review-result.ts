@@ -263,7 +263,8 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   }
   if (!reviewed) return result(blocking ? 'findings' : 'clean');
   const unparsed = firstUnparsed(code);
-  const notReady = !findings.highest && verdictNotReady(plainCode);
+  // A last explicit not-ready blocks even when the only parsed severities are advisory.
+  const notReady = verdictNotReady(plainCode);
   if (blocking || notReady) return { ...result('findings'), ...(unparsed ? { unparsed } : {}) };
   if (unparsed) return { ...result('unverified', 'unparsed_severity', unparsed), unparsed };
   if ((input.gate === 'structured' || input.gate === 'review') && !findings.highest && !concludesNoFindings(code)) {

@@ -170,8 +170,10 @@ the readiness dashboard and the PR body, and never count it as a pass.
   findings.
 - **Every review gate.** These rules apply to every gate that summarises a
   review, including the `execution` gate behind `/codex` consult and challenge.
-  A reply whose last `Verdict:` line says `not ready` but carries no readable
-  severity prints `FINDINGS: unspecified` and exits 3 like a blocking finding.
+  A reply whose last `Verdict:` line says `not ready` is `findings` and exits
+  3 even when readable advisory severities (P2 or P3) were parsed; `FINDINGS:`
+  names the highest one. A not-ready reply with no readable severity still
+  prints `FINDINGS: unspecified` and exits 3.
 - **No findings.** A review with no tag and no label is `clean` only when its
   conclusion says so: the last sentence (or its last ", and" clause), or the
   `because` clause of its `Recommendation:` line, opens with `NO_FINDINGS`,
