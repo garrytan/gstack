@@ -27,6 +27,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/document-release`](#document-release) | **Technical Writer** | Audit relevant docs on every ship before final verification; standalone runs can also update docs after a PR exists. Catches stale READMEs and reports unresolved gaps. |
 | [`/document-generate`](#document-generate) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
+| [`/factory-insights`](#factory-insights) | **Telemetry Reader** | Read-only meta loop: correlates recorded friction Signals with skill activations and prints the Insight Report — your top-3 friction skills with verbatim examples. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Drives your Aside browser first — real sessions, real clicks, real screenshots — through deterministic `aside repl` scripts, and falls back to gstack's own Chromium (~100ms per command) when Aside isn't there. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Copy selected cookies from Chrome, Chromium, Brave, Edge, Windows-only Opera and Opera GX, or macOS-only Comet, Arc, and Dia into the fallback browser. Choose your profile and domains; check sign-in separately. Unnecessary on Aside, which already has your sessions. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → DX → eng review automatically (eng always last, so the shipping gate reviews the final amended plan) with encoded decision principles. Surfaces only taste decisions for your approval. |
@@ -947,6 +948,24 @@ Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs,
 ```
 
 It saves a JSON snapshot to `.context/retros/` so the next run can show trends.
+
+---
+
+## `/factory-insights`
+
+This is my **telemetry reading mode** — the factory inspecting its own output structure.
+
+`/factory-insights` reads the project's recorded friction Signals — clarifications, routing misses, and feedback loops from `/learn`'s question log — correlates each one against nearby skill activations in the usage log, and prints a short Insight Report: which skills caused the most friction in the last 14 days, with one verbatim example of what you had to say.
+
+It is strictly read-only: it never writes or edits anything. The report ends with what it did not inspect, so you know exactly where its evidence stops.
+
+### Example
+
+```
+You:   /factory-insights
+```
+
+It prints the window used, a top-3 friction table with per-category breakdowns, one trimmed user question per top skill, and honestly says "nothing to attribute yet" when the Signals are thin.
 
 ---
 

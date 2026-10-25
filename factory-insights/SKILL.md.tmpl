@@ -1,0 +1,99 @@
+---
+name: factory-insights
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Read-only meta-loop report: which skills produced the most friction for the
+  user recently. Correlates recorded friction Signals (clarification, routing,
+  feedback-loop events) with nearby skill activations and prints a short
+  Insight Report in chat. Use when asked to "show factory insights", "which
+  skills cause friction", or "insight report". Never writes anything.
+triggers:
+  - factory insights
+  - friction report
+  - which skills cause friction
+  - insight report
+allowed-tools:
+  - Bash
+  - Read
+---
+
+{{PREAMBLE}}
+
+# Factory Insights — read-only Skill friction report
+
+You are a **Staff Engineer reading the factory's own telemetry**. Re-read the
+friction Signals this project already recorded and tell the user which skills
+keep costing them attention.
+
+**HARD GATE:** This report is read-only. Do NOT write, modify, or create any
+file. Never append to any project JSONL log, never update any skill template,
+never install anything. All output is printed in chat only. If a later step
+seems to need a write, stop and report instead. (The preamble's own end-of-skill
+telemetry and self-improvement logging are platform behavior shared by every
+skill; the report flow itself performs no writes.)
+
+---
+
+## Step 1 — Resolve project paths
+
+```bash
+SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
+GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+QUESTION_LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
+USAGE_LOG="$GSTACK_STATE_ROOT/analytics/skill-usage.jsonl"
+echo "SLUG: $SLUG"
+[ -f "$QUESTION_LOG" ] && echo "QUESTION_LOG: present ($QUESTION_LOG)" || echo "QUESTION_LOG: absent"
+[ -f "$USAGE_LOG" ] && echo "USAGE_LOG: present ($USAGE_LOG)" || echo "USAGE_LOG: absent"
+```
+
+If `QUESTION_LOG` is absent, tell the user honestly: "No friction Signals
+recorded yet — the report needs at least one." and stop. If `USAGE_LOG` is
+absent, still produce the report but say that attribution ran without usage
+context.
+
+## Step 2 — Read the Signals
+
+Read both files (they are append-only JSONL; tolerate unparseable lines).
+Each question-log record carries `skill`, `question_id`, `question_summary`,
+`category`, `user_choice`, `ts`. Each usage record carries `skill`, `ts`, and
+optionally `event`.
+
+**Friction Signals** are exactly the categories `clarification`, `routing`,
+and `feedback-loop`. `approval` and `cherry-pick` are throughput — excluded as
+friction (the flow worked).
+
+## Step 3 — Apply the window
+
+Default window: **the last 14 days** ending today — the default window, never
+widened in v0. Filter Signals (and usage activations) by `ts`, in memory only;
+no files are involved.
+
+## Step 4 — Attribute each Signal to skills
+
+A Signal is attributed to every skill activation whose `ts` falls within the
+30-minute window ending at the Signal's `ts`. Each attributed skill's count
+for that Signal is counted once per skill. Records with `event: "hook_fire"`
+are not activations; hook fires are never attributed.
+
+## Step 5 — Print the Insight Report (chat only)
+
+Format the report as follows:
+
+1. **Header.** state the window used — exact start and end dates, and that it
+   is the default window (not widened) — then two defined numbers: the total
+   friction Signals **after** applying the category exclusions (these drive
+   the ranking), and the raw records read **before** filtering (the log
+   volume), so the numbers cannot disagree about what was counted.
+2. **Top friction table.** Rank attributed skills by friction count and keep
+   at most 3 skills. Columns: skill, Signal count, and a clarification /
+   routing / feedback-loop category breakdown.
+3. **Worked example.** For each top skill, one example: the verbatim
+   `question_summary` (trimmed) plus the user's `user_choice` from a
+   representative Signal, so the user can judge the pattern themselves.
+4. **Closure.** A final line stating what this report did not inspect — it is
+   a read-only correlation of the question log and the usage log only.
+
+If there are no friction Signals in the window, print the header honestly
+("no friction Signals in the window — nothing to attribute yet") and stop.
+No manufactured insights: report only what the Signals support.
