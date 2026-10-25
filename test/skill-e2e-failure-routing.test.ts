@@ -75,6 +75,17 @@ const FIXTURES: Fixture[] = [
     request: "bun test fails on test/initials.test.js with: TypeError: undefined is not an object (evaluating 'last[0]') at initials (src/initials.js:3). Can you fix it?",
   },
   {
+    name: 'router-failure-competing-causes',
+    route: 'investigate',
+    files: {
+      'src/dispatch.js': "import { accepts } from './filter.js';\nimport { deliver } from './transport.js';\n\nexport function dispatch(event, sink) {\n  if (accepts(event)) deliver(event, sink);\n}\n",
+      'src/filter.js': "export function accepts(event) {\n  return event.priority === 'high';\n}\n",
+      'src/transport.js': "export function deliver(event, sink) {\n  if (event.channel === 'alerts') sink.push(event);\n}\n",
+      'test/dispatch.test.js': "import { expect, test } from 'bun:test';\nimport { dispatch } from '../src/dispatch.js';\n\ntest('scheduled event reaches the sink', () => {\n  const sink = [];\n  dispatch({ type: 'scheduled', priority: 'normal', channel: 'updates' }, sink);\n  expect(sink).toHaveLength(1);\n});\n",
+    },
+    request: "test/dispatch.test.js fails: a scheduled event never reaches the sink. Can you fix it?",
+  },
+  {
     name: 'router-failure-triage-unclear',
     route: 'investigate',
     files: {
