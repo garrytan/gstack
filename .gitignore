@@ -73,3 +73,7 @@ docs/throughput-*.json
 ios-qa/scripts/gen-accessors-tool/.build/
 ios-qa/scripts/gen-accessors-tool/Package.resolved
 .gstack/
+
+# Scratch working notes (local-only issues, PR bodies, planning scraps) —
+# process artifacts, never product; never commit.
+.scratch/
