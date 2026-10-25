@@ -673,6 +673,7 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 | [Browser](BROWSER.md) | How gstack drives Aside first (the contract, the cookbook, rendering, research), when the fallback engine kicks in, and the fallback's full `$B` command reference |
 | [Contributing](CONTRIBUTING.md) | Dev setup, testing, contributor mode, and dev mode |
 | [Memorable recall bridge](docs/memorable-workflow-memory.md) | Opt-in third-party workflow memory through gstack: two consents, what gstack hands over and can attest, removal, troubleshooting |
+| [MuscleMemory with gstack](docs/musclememory.md) | Optional verified procedural memory through MuscleMemory’s native Claude Code hooks |
 | [Troubleshooting](docs/troubleshooting.md) | Every `not run` / `unavailable` message, what it means, and the fix |
 | [Changelog](CHANGELOG.md) | What's new in every version |
 
@@ -758,6 +759,15 @@ hands your prompt to a locally installed vendor binary only after you run
 `gstack-memorable enable`; every hand-off writes a receipt first, the consent
 shows up in `gstack-egress grants`, and what the vendor then sends is
 documented as the vendor's claim.
+
+**Optional MuscleMemory hooks are separate and off by default.** Connect them by
+running `musclememory connect claude` inside a project. The native hooks cover
+all Claude Code prompts and mapped tool calls in that project, not only gstack
+skills. By default they send data to MuscleMemory's local service; if you
+configure a remote service, it receives the captured data. These requests are
+made by MuscleMemory, so gstack's egress ledger does not record them. See the
+[MuscleMemory integration guide](docs/musclememory.md) for setup, data flow,
+and removal.
 
 ## Troubleshooting
 
