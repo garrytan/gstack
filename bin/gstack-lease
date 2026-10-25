@@ -69,6 +69,17 @@ identity() { # PID — the process's start identity, empty when unknown
     _id="linux $(cat /proc/sys/kernel/random/boot_id 2>/dev/null) $(printf '%s\n' "$_st" | awk '{print $20}')"
   else
     _id="ps $(LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//')"
+    if ! valid_identity "$_id"; then
+      _start=$(LC_ALL=C TZ=UTC0 ps -f -p "$1" 2>/dev/null | awk '
+        NR == 1 { for (i = 1; i <= NF; i++) column[$i] = i; next }
+        NR == 2 && column["STIME"] {
+          if (column["WINPID"]) print $(column["WINPID"]), $(column["STIME"])
+          else print $(column["STIME"])
+          exit
+        }
+      ')
+      [ -n "$_start" ] && _id="ps $_start"
+    fi
   fi
   valid_identity "$_id" && printf '%s\n' "$_id"
   return 0
@@ -106,12 +117,19 @@ state() {
 # caller's own lock. A live holder makes lock() give up after
 # GSTACK_LEASE_LOCK_TRIES tries 0.1 s apart (default 300).
 LOCK="$DIR/.lock" TOKEN=""
+_gstack_lease_symlink() {
+  case "${OSTYPE:-}" in
+    msys*|cygwin*) MSYS=winsymlinks:sys CYGWIN=winsymlinks:sys ln -s "$1" "$2" 2>/dev/null ;;
+    *) ln -s "$1" "$2" 2>/dev/null ;;
+  esac
+}
 lock() {
   [ -n "$TOKEN" ] || TOKEN="$$ $(identity $$)"
   _tries=0
-  until ln -s "$TOKEN" "$LOCK" 2>/dev/null; do
+  until _gstack_lease_symlink "$TOKEN" "$LOCK"; do
     _tries=$((_tries + 1))
     LOCK_OWNER=$(readlink "$LOCK" 2>/dev/null)
+    [ -L "$LOCK" ] || [ -e "$LOCK" ] || return 2
     [ -n "$LOCK_OWNER" ] && holder_gone "$LOCK_OWNER" && break_lock "$LOCK_OWNER" && continue
     [ "$_tries" -ge "${GSTACK_LEASE_LOCK_TRIES:-300}" ] && return 1
     sleep 0.1
@@ -126,7 +144,7 @@ holder_gone() { case "$(state "${1%% *}" "${1#* }" 0)" in dead|stale) return 0 ;
 # holding .lock, the next inside this function) can let a reclaim delete a
 # renewal; one crash is always safe.
 break_lock() {
-  if ! ln -s "$TOKEN" "$LOCK.break" 2>/dev/null; then
+  if ! _gstack_lease_symlink "$TOKEN" "$LOCK.break"; then
     _b=$(readlink "$LOCK.break" 2>/dev/null)
     [ -n "$_b" ] && holder_gone "$_b" && [ "$(readlink "$LOCK.break" 2>/dev/null)" = "$_b" ] && rm -f "$LOCK.break"
     return 1
@@ -153,7 +171,15 @@ case "$VERB" in
   touch)
     [ -n "$PID" ] || PID=$(gstack_harness_pid "${FROM:-$PPID}")
     mkdir -p "$DIR" || exit 2
-    lock || { echo "gstack-lease: the lease directory is locked by live process ${LOCK_OWNER%% *}; lease $PID not renewed" >&2; exit 3; }
+    lock || {
+      _lock_status=$?
+      if [ "$_lock_status" -eq 2 ]; then
+        echo "gstack-lease: could not create lease lock $LOCK" >&2
+        exit 2
+      fi
+      echo "gstack-lease: the lease directory is locked by live process ${LOCK_OWNER%% *}; lease $PID not renewed" >&2
+      exit 3
+    }
     _tmp="$DIR/.$PID.$$"
     identity "$PID" > "$_tmp" && mv -f "$_tmp" "$DIR/$PID" || { rm -f "$_tmp"; unlock; exit 2; }
     find "$DIR" -mmin +120 -type f -exec rm -f {} + 2>/dev/null
