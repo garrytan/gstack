@@ -622,7 +622,24 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
  * #2912's environment reads. Quoted literals are unaffected, because the
  * `before` check below rejects any span a quote opens.
  */
-const CODE_SOURCE = /\.(?:[cm]?tsx?|jsx|dart)$/i;
+/*
+ * Python joins on that same test applied to Python, not on Dart's say-so: it
+ * has no unquoted string literal either, so a bare name chain after `:` — a
+ * dict entry `"password": request.password` in a handler, or an annotation
+ * `password: pydantic.SecretStr` on a model — is a name, never a value. A
+ * `.pyi` stub carries annotations and `...` and nothing else, so it cannot
+ * hold a value at all.
+ *
+ * What this does NOT reach, measured rather than assumed: Python writes a
+ * keyword argument and a plain assignment with `=`
+ * (`password=request.password`, `password = request.password`), and the
+ * separator check below takes `:` alone, so both still fire. That is most of
+ * how Python forwards a value by name, so Python gains less here than Dart
+ * did. Lifting the `:` restriction would change TS/JSX/Dart too, so it wants
+ * its own argument rather than a ride on this one; the contract test pins the
+ * firing half as well, so the gap stays visible instead of being assumed shut.
+ */
+const CODE_SOURCE = /\.(?:[cm]?tsx?|jsx|dart|pyi?)$/i;
 const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s<>[\]|]*>)?(?:\[\])*$/;
 
 /**
@@ -959,7 +976,8 @@ export const PATTERNS: RedactPattern[] = [
     // literal (`os.getenv("X", "<secret>")`). A literal appended to the read
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
     // #2899: a function call assigned to the name is code, not a value (see
-    // isCallExpression). #3048: so is a TS/JSX/Dart type or expression (isSourceExpression).
+    // isCallExpression). #3048: so is a TS/JSX/Dart/Python type or expression
+    // (isSourceExpression).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     validate: (span, match, opts) =>
       isCredentialShapedEnvName(match[0]) &&

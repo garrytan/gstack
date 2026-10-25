@@ -275,6 +275,14 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       // A CLOSED block earlier in the file leaves the exemption intact; the
       // guard tracks which delimiter opened rather than counting them.
       ["const doc = '''usage''';\n  password: request.password,", "backend/lib/src/config.dart"],
+      // Python, same grammar test: a dict entry and an annotation after `:` are
+      // names. `pydantic.SecretStr` is used rather than a bare `SecretStr`
+      // deliberately — the bare name scores 2.28 entropy and is already clean
+      // on the entropy gate, so it would pin nothing about this exemption.
+      ['      "password": request.password,', "app/api/handlers.py"],
+      ['      "api_key": settings.api_key,', "app/api/handlers.py"],
+      ["      password: pydantic.SecretStr", "app/models.py"],
+      ["      password: pydantic.SecretStr", "app/models.pyi"],
     ] as const) expect({ code, kv: kv(code, file) }).toEqual({ code, kv: false });
     for (const [literal, file] of [
       ["API_KEY=VelvetRiverOrbitSunset;", ".env"],
@@ -295,6 +303,18 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       // happens to sit in a source file, so it must still report. Uses vIdent,
       // so the chain matches and only the guard stands between it and exempt.
       [`const fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      // Python's own firing half. The first two are ordinary quoted literals;
+      // the last two are the LIMITATION — a keyword argument and an assignment
+      // forward a name exactly as the exempt dict entry above does, and both
+      // still fire, because isSourceExpression takes a `:` separator only.
+      [`      "password": "${v}",`, "app/api/handlers.py"],
+      [`  password = "${v}"`, "app/config.py"],
+      ["      password=request.password,", "app/api/handlers.py"],
+      ["      password = request.password", "app/api/handlers.py"],
+      // The same guard covers a Python """ block: an embedded config line is a
+      // literal and must still report. vIdent again, so the chain matches and the
+      // guard is the only thing standing between this line and the exemption.
+      [`CONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
     ] as const) expect({ literal, file, kv: kv(literal, file) }).toEqual({ literal, file, kv: true });
     const jwt = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"].join(".");
     expect(scan(`token: ${jwt},`, { repoVisibility: "private", sourcePath: "src/auth.ts" }).findings.map((f) => f.id)).toContain("jwt");
