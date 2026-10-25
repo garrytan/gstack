@@ -957,7 +957,7 @@ This is my **telemetry reading mode** — the factory inspecting its own output 
 
 `/factory-insights` reads the project's recorded friction Signals — clarifications, routing misses, and feedback loops from `/learn`'s question log — correlates each one against nearby skill activations in the usage log, and prints a short Insight Report: which skills caused the most friction in the last 14 days, with one verbatim example of what you had to say.
 
-It is strictly read-only: it never writes or edits anything. The report ends with what it did not inspect, so you know exactly where its evidence stops.
+It is strictly read-only: it never writes or edits anything. When the 14-day window holds fewer than 3 friction Signals, it widens to 30 days and says so; if three still cannot be found, it says so plainly and stops rather than manufacturing insights. It closes with at most one suggested `/learn` entry per top skill — the exact invocation text shown to you, never run. And it ends with what it did not inspect, so you know exactly where its evidence stops.
 
 ### Example
 

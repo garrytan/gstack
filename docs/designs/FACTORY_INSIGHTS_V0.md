@@ -4,10 +4,8 @@ Drafted via /grill-with-docs on 2026-10-25 (deep research pass: AIE Talks "Softw
 Factories" pack, Anthropic harness papers, Codex skills docs, OpenCode agent docs,
 pi design retrospective)
 Repo: gstack
-Status: IMPLEMENTED as ticket 01 (core report) — ticket 02 owns the slicing
-decision: sparse-data widening and /learn suggestions were moved out of v0
-during to-tickets, so the window rules "widen" bullet and report item 4 below
-are deferred (marked accordingly). Implementation gated on approval of v1 of
+Status: IMPLEMENTED as ticket 01 + ticket 02 (core report; sparse-data
+widening and /learn suggestions). Implementation gated on approval of v1 of
 this doc.
 
 ## Problem Statement
@@ -81,11 +79,12 @@ usage log and are excluded from attribution).
 ## Window rules
 
 - Default window: the last 14 days, filtered by each record's `ts`.
-- (Ticket 02 — deferred from v0.) If fewer than 3 friction Signals fall in
-  that window, widen to 30 days, and the report **must state that it widened**
-  ("signals were sparse; widened the window to 30 days").
-- (Ticket 02 — deferred from v0.) If still fewer than 3 Signals, say exactly
-  that and stop — no forced insights.
+- If fewer than 3 friction Signals fall in that window, widen to 30 days, and
+  the report **must state that it widened** ("signals were sparse; widened the
+  window to 30 days").
+- If still fewer than 3 Signals, say exactly that and stop — no forced
+  insights. Zero Signals counts as fewer than 3: the wider window is checked
+  before any honest stop; the stop never precedes the widening.
 
 ## Report shape (v0)
 
@@ -95,9 +94,8 @@ usage log and are excluded from attribution).
 3. **One worked example per top skill** — the user's question text from one
    representative Signal (verbatim, trimmed), so the user can judge the pattern
    rather than trust the aggregate.
-4. (Ticket 02 — deferred from v0.) **Suggested /learn entries** — at most one
-   per top skill, phrased as *suggestions with the exact /learn invocation
-   shown*, never executed.
+4. **Suggested /learn entries** — at most one per top skill, phrased as
+   *suggestions with the exact /learn invocation shown*, never executed.
 5. **Closure line** — what this report did not look at (it is a read-only
    correlation of two files, not a full retro).
 

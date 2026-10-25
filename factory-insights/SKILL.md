@@ -388,9 +388,17 @@ friction (the flow worked).
 
 ## Step 3 — Apply the window
 
-Default window: **the last 14 days** ending today — the default window, never
-widened in v0. Filter Signals (and usage activations) by `ts`, in memory only;
-no files are involved.
+Default window: **the last 14 days** ending today. Filter Signals (and usage
+activations) by `ts`, in memory only; no files are involved.
+
+**Sparse-data rule.** If fewer than 3 friction Signals fall in the 14-day
+window, widen to **30 days** and say so in the header ("signals were sparse;
+widened the window to 30 days"); report over the wider window. This applies
+even when the 14-day window found zero Signals — check the wider window
+before declaring there is nothing to attribute. If there are
+not enough friction Signals — still fewer than 3 even after widening — say
+exactly that and stop. No manufactured insights: report only what the
+Signals support.
 
 ## Step 4 — Attribute each Signal to skills
 
@@ -403,20 +411,27 @@ are not activations; hook fires are never attributed.
 
 Format the report as follows:
 
-1. **Header.** state the window used — exact start and end dates, and that it
-   is the default window (not widened) — then two defined numbers: the total
-   friction Signals **after** applying the category exclusions (these drive
-   the ranking), and the raw records read **before** filtering (the log
-   volume), so the numbers cannot disagree about what was counted.
+1. **Header.** state the window used, widened or not, with exact start and
+   end dates. Then two defined numbers: the total friction Signals **after**
+   applying the category exclusions (these drive the ranking), and the raw
+   records read **before** filtering (the log volume), so the numbers cannot
+   disagree about what was counted.
 2. **Top friction table.** Rank attributed skills by friction count and keep
    at most 3 skills. Columns: skill, Signal count, and a clarification /
    routing / feedback-loop category breakdown.
 3. **Worked example.** For each top skill, one example: the verbatim
    `question_summary` (trimmed) plus the user's `user_choice` from a
    representative Signal, so the user can judge the pattern themselves.
-4. **Closure.** A final line stating what this report did not inspect — it is
+4. **Learning suggestions (displayed, never executed).** For each top skill,
+   at most one suggested /learn entry: state the observation the pattern
+   suggests, then show the user the exact `/learn` invocation text
+   they would run to save it. These are suggestions only — display them and
+   stop; never execute a suggested /learn yourself. The skill performs no
+   writes, so printing the command text is the whole job.
+5. **Closure.** A final line stating what this report did not inspect — it is
    a read-only correlation of the question log and the usage log only.
 
-If there are no friction Signals in the window, print the header honestly
-("no friction Signals in the window — nothing to attribute yet") and stop.
-No manufactured insights: report only what the Signals support.
+When the honest stop applies, print the header honestly — "not enough
+friction Signals to rank skills", with what was counted and that the stop
+comes only after the sparse-data rule had its turn to widen — and stop. No
+manufactured insights: report only what the Signals support.

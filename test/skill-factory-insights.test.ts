@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { validateSkill } from './helpers/skill-parser';
+import { validateSkill, parseFrontmatter } from './helpers/skill-parser';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SKILL_DIR = path.join(ROOT, 'factory-insights');
@@ -23,12 +23,6 @@ function readGenerated(): string {
   return fs.readFileSync(GENERATED, 'utf-8');
 }
 
-function frontmatter(): Record<string, unknown> {
-  const md = readGenerated();
-  const fmEnd = md.indexOf('\n---', 4);
-  return Bun.YAML.parse(md.slice(4, fmEnd)) as Record<string, unknown>;
-}
-
 describe('factory-insights skill (v0 read-only meta loop)', () => {
   test('generated SKILL.md exists — template rendered by gen:skill-docs', () => {
     expect(fs.existsSync(path.join(SKILL_DIR, 'SKILL.md.tmpl'))).toBe(true);
@@ -36,7 +30,7 @@ describe('factory-insights skill (v0 read-only meta loop)', () => {
   });
 
   test('frontmatter declares the skill and a read-only tool allowlist', () => {
-    const fm = frontmatter();
+    const fm = parseFrontmatter(readGenerated());
     expect(fm.name).toBe('factory-insights');
     // Read-only: Reads are needed; Writes and Edits must NOT be granted.
     const allowed = fm['allowed-tools'] as string[];
@@ -120,5 +114,54 @@ describe('factory-insights skill (v0 read-only meta loop)', () => {
 
   test('generated doc passes the repo skill validator (routing/commands)', () => {
     expect(validateSkill(GENERATED).invalid).toHaveLength(0);
+  });
+});
+
+describe('factory-insights ticket 02 (sparse-data honesty + /learn suggestions)', () => {
+  test('sparse-window rule: fewer than 3 Signals widens to 30 days and states it', () => {
+    const md = readGenerated();
+    // Auto-widen threshold.
+    expect(md).toMatch(/fewer than 3[/\s][^.\n]*[Ss]ignal/);
+    expect(md).toContain('30 days');
+    expect(md).toContain('widened');
+    // The report must SAY it widened (no silent widening).
+    expect(md).toMatch(/state[s]? that it widened|say[s]? that it widened|widened the window/);
+  });
+
+  test('honest stop: fewer than 3 Signals even after widening stops, no forced insights', () => {
+    const md = readGenerated();
+    expect(md).toMatch(/not enough ([Ff]riction )?[Ss]ignals|still fewer than 3/);
+    // The 0-Signal case widens before any honest stop — the amendment's
+    // central clause, previously unpinned.
+    expect(md).toMatch(/zero [Ss]ignals[^\n]*wider window|widen[^\n]*zero/);
+    // The stop only happens after widening had its turn.
+    expect(md).toMatch(/after the sparse-data rule had its turn to widen|only after the sparse-data rule/);
+    // No manufactured insights — stops rather than inventing conclusions.
+    expect(md).toMatch(/[Nn]o manufactured|nothing to attribute/);
+  });
+
+  test('closing section: at most one /learn suggestion per top skill with exact invocation', () => {
+    const md = readGenerated();
+    expect(md).toContain('/learn');
+    // At most one per top skill.
+    expect(md).toMatch(/at most one/);
+    // The exact suggested invocation text is shown (the strong guard alone;
+    // the removed weak disjunct added noise, not coverage).
+    expect(md).toMatch(/exact .*\/learn/);
+  });
+
+  test('suggestions are displayed, never executed — and the write boundary still holds', () => {
+    const md = readGenerated();
+    const body = md.slice(md.indexOf('# Factory Insights'));
+    expect(md).toMatch(/never execute|displayed as a suggestion|suggestion, never/);
+    // Suggestion section must not gain write paths.
+    expect(body).not.toContain('gstack-learnings-log');
+    expect(body).not.toContain('gstack-question-log');
+  });
+
+  test('header states widened or not; default remains 14 days', () => {
+    const md = readGenerated();
+    expect(md).toContain('last 14 days');
+    expect(md).toMatch(/widened or not|whether it widened/);
   });
 });
