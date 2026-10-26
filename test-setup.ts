@@ -18,6 +18,7 @@
 import { afterEach, beforeAll } from 'bun:test';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { LIVE_BRAIN_ENV_KEYS } from './lib/live-brain-env';
 import { CAPY_LAUNCH_MARKERS } from './scripts/lib/shard-engine';
 
 // State-root hermeticity (docs/state-root.md). Tests isolate state with
@@ -39,6 +40,15 @@ for (const name of ['GSTACK_STATE_ROOT', 'GSTACK_STATE_DIR']) {
 // an unattended Capy session it never set up. The shard engine strips the same
 // list for the lanes; this reaches direct runs too.
 for (const name of CAPY_LAUNCH_MARKERS) delete process.env[name];
+// A developer's exported brain URL: tests spread process.env into the bins
+// they spawn, and a real gbrain on PATH would write test pages and sources
+// into that live brain. Children spawned without `env:` still get the
+// startup env in Bun; the shard sandbox (createShardSandbox) covers those.
+for (const name of LIVE_BRAIN_ENV_KEYS) {
+  if (process.env[name] === undefined) continue;
+  delete process.env[name];
+  process.stderr.write(`test-setup: stripped inherited ${name}; tests must not reach a live gbrain\n`);
+}
 process.env.GSTACK_TEST_LEGACY_ROOT = path.join(os.tmpdir(), `gstack-test-legacy-root-${process.pid}-${Date.now()}-unused`);
 // Workflow leases (bin/gstack-lease) default to the installation's git dir;
 // for the dev checkout under test that is this repo's .git, and a live test

@@ -163,4 +163,30 @@ describe('test preload hermeticity', () => {
     expect(r.stderr).toContain('test-setup: stripped inherited GSTACK_STATE_DIR; tests isolate state via GSTACK_HOME');
     expect(r.stderr.match(/test-setup: stripped/g)?.length).toBe(2);
   });
+
+  test('bun test strips an inherited brain URL, so a spread process.env never reaches a gbrain child', () => {
+    const probe = path.join(tmp, 'probe.test.ts');
+    fs.writeFileSync(probe, [
+      "import { test, expect } from 'bun:test';",
+      "import { spawnSync } from 'child_process';",
+      "test('probe', () => {",
+      "  const r = spawnSync('sh', ['-c', 'echo \"${GBRAIN_DATABASE_URL:-unset} ${GBRAIN_DIRECT_DATABASE_URL:-unset} ${DATABASE_URL:-unset} ${GBRAIN_HOME:-unset}\"'], { env: { ...process.env }, encoding: 'utf-8' });",
+      "  expect(r.stdout.trim()).toBe('unset unset unset unset');",
+      "});",
+    ].join('\n'));
+    const r = spawnSync('bun', ['test', '--preload', path.join(ROOT, 'test-setup.ts'), probe], {
+      cwd: tmp,
+      env: {
+        ...env,
+        GBRAIN_DATABASE_URL: 'postgresql://live-brain.invalid/brain',
+        GBRAIN_DIRECT_DATABASE_URL: 'postgresql://live-brain.invalid:5432/brain',
+        DATABASE_URL: 'postgresql://live-app.invalid/app',
+        GBRAIN_HOME: home,
+      },
+      encoding: 'utf-8',
+      timeout: 60_000,
+    });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('test-setup: stripped inherited GBRAIN_DATABASE_URL');
+  });
 });
