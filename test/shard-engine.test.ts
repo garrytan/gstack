@@ -237,6 +237,26 @@ describe('shard engine: capture and isolation', () => {
     } finally { errors.mockRestore(); }
   });
 
+  test('a shard never inherits the variables that point gbrain at a live brain', () => {
+    const base = {
+      KEEP: '1',
+      GBRAIN_DATABASE_URL: 'postgresql://live-brain.invalid/brain',
+      GBRAIN_DIRECT_DATABASE_URL: 'postgresql://live-brain.invalid:5432/brain',
+      DATABASE_URL: 'postgresql://live-app.invalid/app',
+      GBRAIN_HOME: '/home/dev',
+    };
+    const box = createShardSandbox('gstack-unit-shard-', base);
+    try {
+      expect(box.env.KEEP).toBe('1');
+      for (const key of ['GBRAIN_DATABASE_URL', 'GBRAIN_DIRECT_DATABASE_URL', 'DATABASE_URL', 'GBRAIN_HOME']) {
+        expect(box.env[key]).toBeUndefined();
+      }
+      expect(base.GBRAIN_DATABASE_URL).toBe('postgresql://live-brain.invalid/brain');
+    } finally {
+      fs.rmSync(box.stateDir, { recursive: true, force: true });
+    }
+  });
+
   test('each shard gets its own tmp and Chromium profile, removed by the backstop', async () => {
     const base = {
       KEEP: '1', TMPDIR: '/inherited', CHROMIUM_PROFILE: '/shared-profile',
