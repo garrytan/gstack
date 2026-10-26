@@ -164,7 +164,8 @@ describe('test preload hermeticity', () => {
     expect(r.stderr.match(/test-setup: stripped/g)?.length).toBe(2);
   });
 
-  test('bun test strips an inherited brain URL, so a spread process.env never reaches a gbrain child', () => {
+  // Both entry points a developer uses: the repo root and `cd test`, each through its own bunfig.toml.
+  test.each(['.', 'test'])('bun test from %s strips an inherited brain URL, so a spread process.env never reaches a gbrain child', dir => {
     const probe = path.join(tmp, 'probe.test.ts');
     fs.writeFileSync(probe, [
       "import { test, expect } from 'bun:test';",
@@ -174,8 +175,8 @@ describe('test preload hermeticity', () => {
       "  expect(r.stdout.trim()).toBe('unset unset unset unset');",
       "});",
     ].join('\n'));
-    const r = spawnSync('bun', ['test', '--preload', path.join(ROOT, 'test-setup.ts'), probe], {
-      cwd: tmp,
+    const r = spawnSync('bun', ['test', probe], {
+      cwd: path.join(ROOT, dir),
       env: {
         ...env,
         GBRAIN_DATABASE_URL: 'postgresql://live-brain.invalid/brain',
