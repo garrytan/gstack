@@ -42,7 +42,7 @@ export type ReadinessDecision =
 
 /** The newest Free Tests pull_request run on this exact head decides; a rerun updates that run in place. */
 export function freeTestsState(runs: FreeTestsRun[], headSha: string): FreeTestsState {
-  const newest = runs.filter(run => run.head_sha === headSha && run.event === 'pull_request').sort((a, b) => b.id - a.id)[0];
+  const newest = runs.filter(run => run.head_sha === headSha && (run.event === 'pull_request' || run.event === 'workflow_dispatch')).sort((a, b) => b.id - a.id)[0];
   if (!newest) return { state: 'missing' };
   if (newest.status !== 'completed') return { state: 'running', runId: newest.id };
   if (newest.conclusion === 'success') return { state: 'success', runId: newest.id };
@@ -112,7 +112,7 @@ export function waitForReadiness(o: WaitOptions): { decision: ReadinessDecision;
   let lastError = '';
   for (;;) {
     const listed = ghJson<{ workflow_runs?: FreeTestsRun[] }>(gh, ['api', '-X', 'GET', `repos/${o.repo}/actions/workflows/free-tests.yml/runs`,
-      '-f', `head_sha=${o.headSha}`, '-f', 'event=pull_request', '-f', 'per_page=20']);
+      '-f', `head_sha=${o.headSha}`, '-f', 'per_page=100']);
     const pr = ghJson<{ head?: { sha?: string } }>(gh, ['api', `repos/${o.repo}/pulls/${o.pr}`]);
     lastError = !listed.ok ? listed.error : !pr.ok ? pr.error : '';
     if (!lastError && listed.ok && pr.ok) {

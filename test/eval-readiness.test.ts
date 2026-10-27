@@ -48,6 +48,9 @@ describe('readiness decision', () => {
     expect(freeTestsState([], HEAD)).toEqual({ state: 'missing' });
     expect(freeTestsState([free(1, 'completed', 'success', { head_sha: NEWER })], HEAD)).toEqual({ state: 'missing' });
     expect(freeTestsState([free(1, 'completed', 'success', { event: 'push' })], HEAD)).toEqual({ state: 'missing' });
+    expect(freeTestsState([free(4, 'completed', 'success', { event: 'workflow_dispatch' })], HEAD)).toEqual({ state: 'success', runId: 4 });
+    expect(freeTestsState([free(4, 'completed', 'success'), free(5, 'completed', 'failure', { event: 'workflow_dispatch' })], HEAD))
+      .toEqual({ state: 'failed', runId: 5, conclusion: 'failure' });
     expect(freeTestsState([free(1, 'completed', 'failure'), free(2, 'in_progress', null)], HEAD)).toEqual({ state: 'running', runId: 2 });
     expect(freeTestsState([free(2, 'completed', 'success'), free(1, 'completed', 'failure')], HEAD)).toEqual({ state: 'success', runId: 2 });
     expect(freeTestsState([free(3, 'completed', 'cancelled')], HEAD)).toEqual({ state: 'failed', runId: 3, conclusion: 'cancelled' });
@@ -99,6 +102,12 @@ describe('waitForReadiness', () => {
     const c = clock(CREATED);
     const { decision } = waitForReadiness({ ...base, gh, now: c.now, sleep: c.sleep });
     expect(decision.kind).toBe('blocked');
+  });
+
+  test('a dispatched-only Free Tests run on this head makes readiness ready', () => {
+    const { gh } = fakeGh([{ free: [free(5, 'completed', 'success', { event: 'workflow_dispatch' })] }]);
+    const c = clock(CREATED);
+    expect(waitForReadiness({ ...base, gh, now: c.now, sleep: c.sleep }).decision.kind).toBe('ready');
   });
 
   test('a newer head is reported superseded instead of starting', () => {
