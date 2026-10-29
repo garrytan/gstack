@@ -195,6 +195,143 @@ describe('gstack-pregate sealed (the standalone preflight before any push or PR 
   });
 });
 
+const MANIFEST = { paths: ['**/sealed/**'], allow_paths: ['**/sealed/*/MANIFEST.json'], answer_markers: ['SEALED ANSWER:'] };
+function preflight(s: Scratch, args: string[] = []) {
+  const r = spawnSync(PREGATE, ['sealed', '--base', 'main', ...args], { cwd: s.work, encoding: 'utf8', timeout: 60_000, env: { ...process.env, ...s.env } });
+  return { code: r.status, out: r.stdout ?? '', err: r.stderr ?? '' };
+}
+function landOnMain(s: Scratch, files: Record<string, string>): void {
+  sh(s.work, s.env, ['checkout', '-q', 'main']);
+  write(s.work, files);
+  sh(s.work, s.env, ['add', '-A']); sh(s.work, s.env, ['commit', '-q', '-m', 'base change']); sh(s.work, s.env, ['push', '-q', 'origin', 'main']);
+  sh(s.work, s.env, ['checkout', '-q', 'results']);
+}
+
+describe('sealed.allow_paths: base-branch exceptions applied after the deny globs', () => {
+  test('a deny with an allowed exception refuses the sealed file, lists the manifest as exempt, and a manifest-only push passes', () => {
+    const s = scratch({ '.gstack/pregate.json': policy(MANIFEST) });
+    commit(s, { 'sealed/s1/tasks.json': '{}\n', 'sealed/s1/MANIFEST.json': '{"n":1}\n', 'tasks/x/sealed/s2/MANIFEST.json': '{"n":2}\n' });
+    const r = hook(s);
+    expect(r.code).toBe(1);
+    expect(r.err).toMatch(/^  sealed\.path\s+sealed\/s1\/tasks\.json/m);
+    expect(r.err).not.toMatch(/^  sealed\.path\s+\S*MANIFEST\.json/m);
+    expect(r.err).toMatch(/exempt sealed\.path  sealed\/s1\/MANIFEST\.json  commit [0-9a-f]{12} \(sealed\.allow_paths \*\*\/sealed\/\*\/MANIFEST\.json\)/);
+    expect(r.err).toContain('exempt sealed.path  tasks/x/sealed/s2/MANIFEST.json');
+    const only = scratch({ '.gstack/pregate.json': policy(MANIFEST) });
+    commit(only, { 'sealed/s1/MANIFEST.json': '{"n":1}\n' });
+    expect(hook(only).code).toBe(0);
+    const pre = preflight(only);
+    expect(pre.code).toBe(0);
+    expect(pre.out).toMatch(/^SEALED: clear findings=0 commits=1 visibility=unknown \(counted public\) waived=0 exempt=1 policy=/m);
+    const json = JSON.parse(preflight(only, ['--json']).out);
+    expect(json.exempt).toHaveLength(1);
+    expect(json.exempt[0]).toMatchObject({ rule: 'sealed.path', file: 'sealed/s1/MANIFEST.json', glob: '**/sealed/*/MANIFEST.json' });
+  });
+
+  test('an exception that does not match still refuses: another case and another depth', () => {
+    for (const file of ['sealed/s1/manifest.json', 'sealed/s1/x/MANIFEST.json']) {
+      const s = scratch({ '.gstack/pregate.json': policy(MANIFEST) });
+      commit(s, { [file]: '{}\n' });
+      const r = hook(s);
+      expect(r.code).toBe(1);
+      expect(r.err).toContain(`sealed.path  ${file}`);
+      expect(r.err).not.toContain('exempt sealed.');
+    }
+  });
+
+  test('an exception added on the pushed head is ignored, on top of a base list too; a malformed pushed allow_paths refuses', () => {
+    const fresh = scratch({ '.gstack/pregate.json': policy({ paths: ['**/sealed/**'] }) });
+    commit(fresh, { '.gstack/pregate.json': policy(MANIFEST), 'sealed/s1/MANIFEST.json': '{}\n' });
+    const f = hook(fresh);
+    expect(f.code).toBe(1);
+    expect(f.err).toContain('sealed.path  sealed/s1/MANIFEST.json');
+    const extra = scratch({ '.gstack/pregate.json': policy(MANIFEST) });
+    commit(extra, { '.gstack/pregate.json': policy({ ...MANIFEST, allow_paths: [...MANIFEST.allow_paths, '**/sealed/*/notes.md'] }), 'sealed/s1/notes.md': 'n\n' });
+    expect(hook(extra).err).toContain('sealed.path  sealed/s1/notes.md');
+    const bad = scratch({ '.gstack/pregate.json': policy(MANIFEST) });
+    commit(bad, { '.gstack/pregate.json': policy({ ...MANIFEST, allow_paths: '**/sealed/*/MANIFEST.json' }), 'docs/x.md': 'x\n' });
+    const b = hook(bad);
+    expect(b.code).toBe(1);
+    expect(b.err).toContain('sealed.allow_paths');
+  });
+
+  test('an allowed manifest that quotes a sealed answer still refuses on the text rule', () => {
+    const s = scratch({ '.gstack/pregate.json': policy(MANIFEST) });
+    commit(s, { 'sealed/s1/MANIFEST.json': '{"note":"SEALED ANSWER: b"}\n' });
+    const r = hook(s);
+    expect(r.code).toBe(1);
+    expect(r.err).toMatch(/sealed\.answer\s+sealed\/s1\/MANIFEST\.json:1/);
+    expect(r.err).toContain('exempt sealed.path  sealed/s1/MANIFEST.json');
+  });
+
+  test('an exception covers sealed.transcript too and is counted before a base sha waiver, never both', () => {
+    const s = scratch({ '.gstack/pregate.json': policy({ paths: ['**/sealed/**'], transcripts: ['**/transcript*.jsonl'], allow_paths: ['**/sealed/*/transcript-public.jsonl'] }) });
+    const sha = commit(s, { 'sealed/s1/transcript-public.jsonl': '{}\n' });
+    landOnMain(s, { '.gstack/sealed-allow.tsv': `sealed.transcript\tsealed/s1/transcript-public.jsonl\t${sha.slice(0, 12)}\tsynthetic fixture\n` });
+    const pre = preflight(s);
+    expect(pre.code).toBe(0);
+    expect(pre.err).toContain('exempt sealed.transcript  sealed/s1/transcript-public.jsonl');
+    expect(pre.out).toMatch(/findings=0 .* waived=0 exempt=1 /);
+  });
+
+  test('a preflight error carries the same report shape: exit 1, SEALED: error with exempt=0, no stack trace', () => {
+    const s = scratch({ '.gstack/pregate.json': policy(MANIFEST) });
+    commit(s, { 'docs/x.md': 'x\n' });
+    const r = preflight(s, ['--range', 'nosuch..HEAD']);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/^SEALED: error findings=0 commits=0 .* waived=0 exempt=0 /m);
+    expect(r.err).not.toMatch(/\n\s+at /);
+    expect(JSON.parse(preflight(s, ['--range', 'nosuch..HEAD', '--json']).out).exempt).toEqual([]);
+  });
+});
+
+describe('sealed.case_insensitive: deny globs fold case, exceptions never do', () => {
+  test('off (the default), HELDOUT/ passes a lowercase deny glob; on, HELDOUT/, HeldOut/ and a Transcript refuse, and hold-out/ still passes', () => {
+    const off = scratch({ '.gstack/pregate.json': policy({ paths: ['**/heldout/**'] }) });
+    commit(off, { 'HELDOUT/q.json': '{}\n' });
+    expect(hook(off).code).toBe(0);
+    const on = scratch({ '.gstack/pregate.json': policy({ paths: ['**/heldout/**'], transcripts: ['runs/**/transcript*.jsonl'], case_insensitive: true }) });
+    commit(on, { 'HELDOUT/q.json': '{}\n', 'HeldOut/q.json': '{}\n', 'Runs/c1/Transcript.jsonl': '{}\n', 'hold-out/q.json': '{}\n' });
+    const r = hook(on);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('sealed.path  HELDOUT/q.json');
+    expect(r.err).toContain('sealed.path  HeldOut/q.json');
+    expect(r.err).toContain('sealed.transcript  Runs/c1/Transcript.jsonl');
+    expect(r.err).not.toContain('hold-out/q.json');
+  });
+
+  test('on, allow_paths stay case-sensitive: MANIFEST.json is exempt and manifest.json refuses', () => {
+    const s = scratch({ '.gstack/pregate.json': policy({ ...MANIFEST, case_insensitive: true }) });
+    commit(s, { 'sealed/s1/MANIFEST.json': '{}\n', 'sealed/s1/manifest.json': '{}\n' });
+    const r = hook(s);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('exempt sealed.path  sealed/s1/MANIFEST.json');
+    expect(r.err).toMatch(/^  sealed\.path\s+sealed\/s1\/manifest\.json/m);
+  });
+
+  test('set only on the pushed head, it still tightens (base OR pushed)', () => {
+    const s = scratch({ '.gstack/pregate.json': policy({ paths: ['**/heldout/**'] }) });
+    commit(s, { '.gstack/pregate.json': policy({ paths: ['**/heldout/**'], case_insensitive: true }), 'HELDOUT/q.json': '{}\n' });
+    expect(hook(s).err).toContain('sealed.path  HELDOUT/q.json');
+  });
+});
+
+describe('root-anchoring (the docs/pregate.md example)', () => {
+  test('globs match from the repo root: sealed/** misses a nested sealed/ directory and **/sealed/** catches it at any depth', () => {
+    const docs = fs.readFileSync(path.join(ROOT, 'docs', 'pregate.md'), 'utf8');
+    expect(docs).toContain('`sealed/**` misses `tasks/x/sealed/a.json`');
+    expect(docs).toContain('write `**/sealed/**`');
+    const anchored = scratch({ '.gstack/pregate.json': policy({ paths: ['sealed/**'] }) });
+    commit(anchored, { 'tasks/x/sealed/a.json': '{}\n' });
+    expect(hook(anchored).code).toBe(0);
+    const any = scratch({ '.gstack/pregate.json': policy({ paths: ['**/sealed/**'] }) });
+    commit(any, { 'tasks/x/sealed/a.json': '{}\n', 'sealed/b.json': '{}\n' });
+    const a = hook(any);
+    expect(a.err).toContain('sealed.path  tasks/x/sealed/a.json');
+    expect(a.err).toContain('sealed.path  sealed/b.json');
+  });
+});
+
 describe('visibility (cache under the state root; unknown counts as public)', () => {
   test('a public answer is cached; a cached private answer older than an hour is re-queried before it can downgrade; a failed lookup is unknown', () => {
     const state = fs.mkdtempSync(path.join(os.tmpdir(), 'sealed-vis-'));
@@ -219,5 +356,19 @@ describe('visibility (cache under the state root; unknown counts as public)', ()
       expect(calls).toBe(3);
       expect(fs.existsSync(path.join(state, 'sealed-visibility.json'))).toBe(true);
     } finally { fs.rmSync(state, { recursive: true, force: true }); }
+  });
+});
+
+describe('gstack-pregate sealed is a check, not a push (#3565)', () => {
+  test('the SEALED line names the checked commit, never says pushed, and the remote ref does not move', () => {
+    const s = scratch({ '.gstack/pregate.json': policy(SEALED) });
+    const head = commit(s, { 'notes.md': 'ok\n' });
+    const before = sh(s.work, s.env, ['ls-remote', 'origin']);
+    const r = spawnSync('bun', [PREGATE, 'sealed'], { cwd: s.work, encoding: 'utf8', timeout: 60_000, env: { ...process.env, ...s.env } });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`policy=origin/main + commit ${head.slice(0, 12)}`);
+    expect(`${r.stdout}${r.stderr}`).not.toMatch(/\bpushed\b/);
+    expect(sh(s.work, s.env, ['ls-remote', 'origin'])).toBe(before);
+    expect(before).not.toContain('refs/heads/results');
   });
 });

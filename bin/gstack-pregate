@@ -40,7 +40,7 @@ import { DEFAULT_STALL_TIMEOUT_S } from '../lib/pregate/context';
 import { cancelActive } from '../lib/pregate/supervise';
 import { defaultGh, evaluateRegate, renderRegate } from '../lib/pregate/regate';
 import { GATE_AHEAD_REL } from '../lib/restamp';
-import { evaluateSealed, publishedCommits, rangeCommits, renderSealed } from '../lib/sealed-guard';
+import { evaluateSealed, publishedCommits, rangeCommits, renderSealed, sealedErrorReport } from '../lib/sealed-guard';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import { fromGateAhead } from '../lib/tree-receipt';
 
@@ -57,7 +57,8 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
   validate | init the working-tree ${PREGATE_CONFIG_PATH}
   sealed [--range <a..b>] [--remote <name>] [--base <branch>]
                   the sealed-output guard (docs/pregate.md#sealed) over the commits <remote> lacks, or the range:
-                  run it before any push or PR creation in a repo with a \`sealed\` config; exit 1 refuses (SEALED_OUTPUT_REFUSED)
+                  run it before any push or PR creation in a repo with a \`sealed\` config; exit 1 refuses (SEALED_OUTPUT_REFUSED);
+                  it never pushes: policy=<base> + commit <sha> names where the policy was read
   regate --against <gated-head> --bundle <file> [--require <lanes>] [--pr <n>] [--predecessor-pr <n> | --predecessor-ref <ref>]
                   a fresh tree receipt, each lane's reuse verdict, migration collisions (base branch and open PRs), then
                   REGATE: needed|not-needed (docs/pregate.md#regate); \`gstack-pregate --against <head>\` is the same verb; exit 1 = needed
@@ -244,13 +245,13 @@ function cmdSealed(root: string, rest: string[], json: boolean): number {
   const baseRef = gitOut(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${base}^{commit}`]) ? `refs/remotes/${remote}/${base}` : null;
   const remoteUrl = gitOut(root, ['remote', 'get-url', remote]);
   const report = 'error' in listed
-    ? { status: 'error' as const, error: listed.error, policyLabels: [], commits: 0, findings: [], waived: [], visibility: 'unknown' as const, visibilitySource: '', target: remoteUrl ?? remote }
+    ? sealedErrorReport(listed.error, remoteUrl ?? remote)
     : evaluateSealed({ repoRoot: root, targets: [{ commits: listed.commits, pushedSha }], baseRef, baseLabel: `${remote}/${base}`, remoteUrl, target: remoteUrl ?? remote });
   const blocks = report.status === 'refused' || report.status === 'error';
   if (json) { process.stdout.write(JSON.stringify({ ...report, ok: !blocks }) + '\n'); return blocks ? EXIT.fail : EXIT.ok; }
   process.stderr.write(renderSealed(report, 'gstack-pregate sealed'));
   const policy = report.policyLabels.length ? report.policyLabels.join(' + ') : `no sealed key on ${baseRef ?? `${remote}/${base}`} or ${end}`;
-  process.stdout.write(`SEALED: ${report.status} findings=${report.findings.length} commits=${report.commits} visibility=${report.visibility}${report.visibility === 'unknown' ? ' (counted public)' : ''} waived=${report.waived.length} policy=${policy}\n`);
+  process.stdout.write(`SEALED: ${report.status} findings=${report.findings.length} commits=${report.commits} visibility=${report.visibility}${report.visibility === 'unknown' ? ' (counted public)' : ''} waived=${report.waived.length} exempt=${report.exempt.length} policy=${policy}\n`);
   return blocks ? EXIT.fail : EXIT.ok;
 }
 

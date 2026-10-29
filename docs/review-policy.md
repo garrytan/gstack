@@ -93,7 +93,8 @@ incomplete coverage, which blocks until the reviewer is rerun.
    for every reviewer (the gate scan and QA probes keep the whole candidate) and
    classifies with `--range-base`. Only a blocking finding in that range or in
    the diff is `fix`; every below-floor finding is a `note`.
-3. **Two full passes is the cap**, plus at most one fix-check. A blocking
+3. **Two full passes is the cap**, plus at most one fix-check; a scoped pass
+   ([below](#scoped-pass)) is a full pass. A blocking
    finding still open after the last allowed step stops the run and names the
    finding (path, severity, problem) for the owner; a third full pass is the
    owner's call, never the loop's. The cap approves nothing.
@@ -108,7 +109,8 @@ incomplete coverage, which blocks until the reviewer is rerun.
 |---|---|
 | none | full pass 1 on the whole diff |
 | a full pass with no edits | done |
-| a full pass that fixed a blocking finding, below the cap | full pass on the range |
+| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |
+| a full pass that fixed a blocking finding, below the cap (full depth, a larger range, or a range or depth it could not read) | full pass on the range |
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
 | a full pass that fixed only below-floor findings | one fix-check |
 | a full pass at the cap that fixed a blocking finding | one fix-check |
@@ -121,6 +123,25 @@ test results and the callers of every changed symbol, at full effort. It is
 logged as a `review-fix-check` row, so it never counts as a pass. No army, no
 Red Team and no outside voice run on it.
 
+<a id="scoped-pass"></a>
+A **scoped pass** is pass 2 after a blocking fix when pass 1 and the diff both
+ran below full depth (no gate class, no depth error, no `--depth-floor full`).
+A full pass 1 always gets a full pass 2: `--pass1-depth` carries pass 1's
+`REVIEW_DEPTH`, and an absent flag counts as full. The fix range
+`RANGE_BASE..HEAD` must have at most `SCOPED_RANGE_LINES` (150) runtime lines, counted
+as the depth counts them (`gstack-review-plan --range-base $PASS_HEAD` prints
+`FIX_RANGE:`). It dispatches one fix-check on the range, the Red Team on the
+range, the native adversarial pass when the range changes runtime lines, every
+force-included specialist and the outside voice when published numbers changed.
+Step 11's voices that have not run yet stay listed, as on a full pass 2. It
+writes a full-pass `review` row with `"scope":"scoped"`, so it counts toward
+the cap, and a blocker it leaves open stops for the owner as before. A fix that
+touched a gate-class path (read from the range with its own scope and gate
+scan), a larger range, an empty range, or a
+range, classifier or depth it cannot read keeps the full pass 2. The 150-line figure is a starting value from
+a 24-PR backtest (GSTA-152 D6), to revisit once classified findings carry
+`raised_by`.
+
 The same floor and the same `NO FINDINGS` rule apply to `/review` on its own;
 its re-review loop keeps its three-cycle fix cap (`CYCLES`), and a pass that
 applies no edits is its exit too.
@@ -128,26 +149,76 @@ applies no edits is its exit too.
 <a id="review-depth"></a>
 ## Review depth by diff class
 
-`gstack-review-plan --base <base>` classifies the diff and prints the reviewers
-the next step dispatches (`REVIEW_CLASS:`, `REVIEW_PLAN:`, one `DISPATCH:` per
-reviewer with its effort, one `SKIP:` per reviewer left out, `--json`). A mixed
-diff takes its most restrictive class; a `gstack-diff-scope` error fails closed
-to code, and code with the gate scan unavailable fails closed to gate.
+`gstack-review-plan --base <base>` classifies the diff, picks a **depth** and prints
+the reviewers the next step dispatches: `REVIEW_CLASS:`, `REVIEW_DEPTH: <d>
+runtime_lines=<n> rules=<hash> reasons=<…> codes=<…>`, `GATE_SCAN: tagged=<n>|unavailable
+head=<sha>`, one `DEPTH_ERROR:` per input that failed closed, one `DISPATCH:` per reviewer
+with its effort and a shell-quoted `DIFF_CMD:` (plus `DIFF_EXCLUDE: <name> none` when it
+reads everything), one `SKIP:` per reviewer left out, and `--json` with the same fields.
+A plan that fails closed to full exits 0; a diff git cannot list exits 1.
 
-| Class | What it is | Pass 1 dispatches |
+**Classes** are unchanged. A mixed diff takes its most restrictive class: **docs**
+(markdown no agent or gate reads), **tests** (test files and fixtures), **code**
+(everything else, including every `SKILL.md` and template, markdown in a skill
+directory, `*/sections/**`, `scripts/resolvers/**`, rule docs, checklists and bins) and
+**gate** (code plus auth or migration scope, a hunk the gate scan tags, a deleted code
+or test path, CI workflows, credential, state-root and the paths below).
+
+**Runtime lines** are the changed lines of code-class paths, minus outputs the base
+commit's `.gstack/generated.json` registers. Docs, tests and release metadata are never
+runtime; a `.tmpl` edit plus its regenerated `SKILL.md` counts the template once.
+
+| Depth | When | Pass 1 dispatches |
 |---|---|---|
-| **docs** | markdown no agent or gate reads: README, CHANGELOG, TODOS, how-to and explanation docs | the parent's core checklist only |
-| **tests** | test files and fixtures only | core plus the testing specialist |
-| **code** | everything else, including every `SKILL.md` and template, any markdown in a skill directory, `*/sections/**`, `scripts/resolvers/**`, `docs/*-policy.md`, `docs/captain.md`, `docs/unattended.md`, `docs/pregate.md`, checklists, specialists and bins | specialists by scope (as before), the native adversarial pass, the outside voice; the Red Team past 200 lines or after a CRITICAL |
-| **gate** | code plus auth or migration scope, a hunk the gate scan tags (an RH rule: a relaxed threshold, a skipped test), a deleted code file, CI workflows, credential or state-root paths | code's set, plus the Red Team always, at full effort, and no hit-rate gating |
+| **light**, runtime 0 | docs and tests only, or only registered outputs | the core checklist only; the outside voice when the diff publishes numbers |
+| **light**, runtime 1–50 | `SMALL_DIFF_LINES` or fewer runtime lines | core, one **batched** specialist (testing, maintainability and security checklists, the specialists scope selects and the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
+| **standard** | more than 50 runtime lines | the code set with every threshold (specialists at 50, simplification at 100, Red Team at 200) read on runtime lines; specialists leave docs and registered outputs out of their diff, and every specialist but Testing leaves tests out too; adversarial and outside voice read everything |
+| **full** | gate class, or any classifier error | the gate set, unchanged: every reviewer on the whole diff, the Red Team always, no hit-rate gating |
 
-**Numbers keep the outside voice.** On a docs or tests diff the outside voice is
-skipped unless the diff publishes numeric claims: `gstack-review-plan` scans the
-added lines of every path for percentages, money, multipliers, durations, token
-or credit counts and score, rate or speed claims (`NUMBERS: yes`), and a
-claim always dispatches it. The claims' fingerprint (`fingerprint=`) is passed
-back as `--reviewed-numbers`; when a later fix changes a claim, only the
-outside voice reruns, on the numbers.
+A fixed blocking finding, a CRITICAL or an open blocker raises a light diff to
+standard for the next step (`step=standard`): its specialists read at least 50 lines
+and the Red Team runs, so a raise never dispatches less than light did. When the
+next step is a scoped pass, the raise applies to the scoped set only. A fix-check
+is the same at every depth.
+
+**Fail closed.** Each of these makes the depth full and is listed in `errors[]` with
+the input it could not read, a sanitized cause and the repair: a `gstack-diff-scope`
+error, a gate scan that is unavailable, a base registry that cannot be read or is
+invalid (`REGEN_REGISTRY_INVALID` or `REGEN_CONTAINMENT` in `codes=`), a numstat git
+could not produce, and a binary code-class path (it is never counted as 0 lines).
+
+**The registry rule.** Only the base commit's registry counts (the merge base's
+`origin/<base>` commit for live /ship and the current base ref's commit for the queue: `origin/<base>` in `ready`, `<remote>/<base>` in `train build`), and only
+entries with a `command`, which pregate's regen check proves for that tree. An entry
+added on the branch never excludes anything; `command: null` entries, vendored code
+and lockfiles stay runtime. To adopt it, commit an entry like this on the base branch:
+
+```json
+{
+  "$schema": "https://github.com/garrytan/gstack/docs/pregate.md#generated-v1",
+  "entries": [
+    { "id": "skill-docs", "command": "bun run gen:skill-docs --host all", "outputs": ["*/SKILL.md", "*/sections/*.md"], "inputs": ["*/SKILL.md.tmpl", "*/sections/*.tmpl"] }
+  ]
+}
+```
+
+**Gate paths for the machinery itself.** An edit to `lib/review-depth.ts`,
+`lib/review-collect.ts`, `bin/gstack-review-plan`, `lib/review-scope.ts`,
+`lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
+`ship/sections/review-army.md.tmpl`, `ship/sections/adversarial.md.tmpl` or
+`scripts/resolvers/review-army.ts` is gate class: changing how much review runs gets
+the most review. `rules=` (`DEPTH_RULES`) hashes the deciding constants and patterns,
+not file bytes, so a comment edit keeps it.
+
+**`--depth-floor standard|full`** (a /ship prompt flag, passed to every plan run)
+raises the depth and never lowers it.
+
+**Numbers keep the outside voice.** At light depth the outside voice runs only when
+the diff publishes numeric claims: `gstack-review-plan` scans the added lines of
+prose and data files for percentages, money, multipliers, durations, token or credit
+counts and score, rate or speed claims (`NUMBERS: yes`). The claims' fingerprint
+(`fingerprint=`) is passed back as `--reviewed-numbers`; when a later fix changes a
+claim, only the outside voice reruns, on the numbers. It always reads the whole diff.
 
 **The adversarial and outside voices run once per invocation** (Step 11, on the
 final tree), as the last full-pass plan lists them; after they ran, decision 2
@@ -165,6 +236,18 @@ cheaper model family. The outside voice keeps its own provider and effort
 default. `gstack-config set review_effort_tiers off` (or `--no-tiers`) runs
 the audits and watchers at the host default too
 ([model-policy.md](model-policy.md#reasoning-effort)).
+
+### Behavior changes
+
+- Pass 2 after a blocking fix on a diff below full depth, with a fix range of at
+  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check, the Red
+  Team and the native adversarial pass on the range instead of the specialist army.
+- A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
+  core checklist and the gate scan review it.
+- Light no longer runs a separate Red Team: the batched specialist carries its
+  prompt. At runtime 0 light runs no adversarial pass either.
+- Standard reads thresholds on runtime lines, not the whole diff, so a test-heavy
+  diff with few runtime lines dispatches fewer specialists.
 
 ## What the receipt records
 
@@ -185,10 +268,18 @@ puts in the receipt:
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
-diff_bytes, status}]`; `summary` adds them up (older rows fall back to the
+diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,
+stamped by `gstack-review-scope classify`; `unknown` when untagged, absent on older rows); `summary` adds them up (older rows fall back to the
 specialist stats they record). The summary line appends `fix_checks=`,
 `dispatches=` and `est_input_tokens=` only when they were recorded, so an old
 loop prints the old line.
+
+Beside the counters, `write` records `review_depth` (the depth, runtime lines,
+rules hash, base and registry commits, and the gate scan bound to the head) and
+the queue refuses a receipt below the depth its head needs
+([ship-policy.md#ship-receipt](ship-policy.md#ship-receipt)). A stop the owner
+accepted after a fix-check edit goes in `review_loop_exception`, never in prose
+under `REVIEW_LOOP:`.
 
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
@@ -268,9 +359,10 @@ trailers, appended }`.
 
 ## Where this is enforced
 
-- `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on), because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
-- `ship/sections/review-army.md` Step 9: passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
-- `lib/review-depth.ts`, `bin/gstack-review-plan`: the diff class, the transition table, the numeric-claim scan and each role's effort tier (`test/review-depth.test.ts`, `test/review-plan-cli.test.ts`).
+- `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
+- `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
+- `lib/review-depth.ts`, `bin/gstack-review-plan`: the diff class, the depth (`depthFor`, `DEPTH_RULES`, `depthOfCommitInput`), each dispatch's `exclude` pathspecs and `DIFF_CMD`, the transition table, the numeric-claim scan and each role's effort tier (`test/review-depth.test.ts`, `test/review-plan-cli.test.ts`).
+- `lib/review-collect.ts`: `collectCommit` (git objects only, from any checkout) and `collectLive` (the working tree), per-path lines and the base commit's registry (`test/review-collect.test.ts`).
 - `lib/review-scope.ts`, `bin/gstack-review-scope`: `classify`, `defer`, `render`, `summary` (with `fix_checks`, `dispatches`, `est_input_tokens`); refusals are `REVIEW_SCOPE_INPUT` and `REVIEW_SCOPE_RANGE` ([troubleshooting.md](troubleshooting.md#review-scope-input)).
 - `lib/ship-policy.ts`: the `review_scope` key and its `ship: review_scope …` consequence line.
 - `review/checklist.md`: `prereg-with-results` under Gate Integrity and `test-keyboard-count-loop` under Pass 2; `bin/gstack-coauthor-trailers` for the contributor-credit trailers of a port.

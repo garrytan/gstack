@@ -13,6 +13,40 @@
 ### Tests
 - `test/ship-queue-train-logic.test.ts`: one screened plus five unscreened at size 5 seats five; a full unscreened pool at size 3 seats three; a skill-template diff recommends `--no-screen`; a `bun.lock` diff recommends `--screen` with its full-fallback reason. These tests failed before the change. Two more pin the diffs that still screen. A diff that mixes a skill template with `bun.lock` recommends `--screen`, and a diff the selector cannot select recommends `--screen` with the full gate selection. `test/ship-queue-train.test.ts` and `test/gate-cost.test.ts` change their ordering expectations on purpose.
 
+## [1.91.324.0] - 2026-10-29
+
+**A /ship token cap now projects each step and reviewer from what the run has actually spent, so real caps stop refusing work that costs a fraction of the old guess.** On GSTA-152 a 29.28M cap refused its third reviewer because every dispatch was projected at 7.43M while real ones cost 0.23 to 1.02M; on GSTA-2 an 8M cap stopped before Step 6 after Steps 1 to 5 cost about 0.27M each, because every step was projected at 2.25M.
+
+### Fixed
+- **`gstack-ship-budget check`** projects steps and dispatches with the run's own factor once it has measured one: the largest actual/prior ratio of its last three measurements, times 1.5. Before the first measurement the calibrated prior applies, as before. The default tail reserve scales with the step factor; the stop overhead and an explicit `--reserve` do not.
+- **Reviewers admitted one at a time no longer stay reserved.** `check --returned <id>` settles the reviewers that came back, `gstack-review-log --finish` settles every dispatch reservation of its step, and a check that moves to the next step settles the dispatches of the step before. `settle` takes `--reading`.
+- Charges the meter cannot see (`settle --unknown`, a Claude-metered outside voice) are booked at their reservation and never measured, so they cannot shrink the dispatch factor.
+- `gstack-ship-budget handoff` holds back the same calibrated reserve as `check`, so a `verdict=delegate` is always one the handoff admits.
+
+### Changed
+- The `BUDGET:` line adds `calibration=step:<f|prior>,dispatch:<f|prior>`. Each measured reservation prints `DRIFT: … projected=<n> actual=<n> ratio=<r>`, and `close` prints `BUDGET_DRIFT:` totals. docs/ship-budget.md has a Calibration section.
+
+### Tests
+- `test/ship-budget-projection.test.ts` replays GSTA-2 (an 8M cap now reaches Step 6.5 and still stops with room to stop) and GSTA-152 PR B (the 29.28M refusal is admitted and the run stops before the cap), and covers the settle points, unseen charges and the delegate/handoff boundary. The first 8 tests failed at ad8e12d; the 3 review-fix tests failed at f30c33f.
+
+## [1.91.323.0] - 2026-10-29
+
+### Tests
+- `test/review-depth.test.ts`: the #19 shape plans fix-check, Red Team and native adversarial; full depth, a fail-closed classification, `--depth-floor full`, a 151-line, missing or unread range and a gate-touching fix keep the full pass; a forced specialist and changed numbers keep their reviewers; 150, 151 and a docs-only range; the scoped pass counts toward the cap and a blocker it leaves stops; `DEPTH_RULES` moves with the constant.
+- `test/review-plan-cli.test.ts`: `--range-base` plans `NEXT: scoped`; a 151-line range, no range, an unknown base and uncommitted fixes plan full.
+- `test/review-scope.test.ts`: `raised_by` from the explicit field, the specialist tag or `unknown`.
+- `test/ship-receipt-depth.test.ts`: the queue binds a receipt whose pass 2 was scoped.
+
+### Gate integrity
+- Addition to the 1.91.316.0 entry below: **Pass 2 after a blocking fix now reviews the fix in proportion to its size.** When pass 1 fixed a blocking finding on a diff below full depth and the fix range has at most 150 runtime lines, /ship runs a scoped pass: one fix-check, the Red Team and the native adversarial pass on the range, instead of the specialist army. On gstack-evals#19 a 3-file fix range (+18/-6) was planned for nine reviewers. Full depth, `--depth-floor full`, a fix that touched a gate path, a larger range, or a range it cannot read keeps the full pass 2. The two-pass cap and the stop for the owner are unchanged.
+- Addition to the 1.91.316.0 entry below: **`gstack-review-plan --range-base <sha>`** (`lib/review-depth.ts`): counts the committed fix range `<sha>..HEAD` the way the depth counts runtime lines, prints `FIX_RANGE: runtime_lines=<n>|unread (<why>) base=<sha>` (`fix_range` in `--json`), and `NEXT: scoped` when the scoped pass applies. `nextStep` takes the depth and `History.rangeRuntimeLines`; `SCOPED_RANGE_LINES` (150) joins `DEPTH_RULES`, so `rules=` changes. `REVIEW_PLAN:` ends with the step's `reason="…"`. Uncommitted or untracked edits, a range base that is not an ancestor of HEAD, an empty range, and a range the classifier cannot count all plan the full pass. A full pass 1 always gets a full pass 2: `--pass1-depth` carries pass 1's `REVIEW_DEPTH` (absent counts as full), so a fix that reverts a gate, auth, migration or gate-tagged edit cannot lower pass 2. The fix range is classified with its own `gstack-diff-scope` and `gstack-gate-diff` input, and a gate-class range plans the full pass and sets `fix_range.touched_gate`.
+- Addition to the 1.91.316.0 entry below: **Scoped dispatches**: the fix-check, every force-included specialist, the Red Team, the native adversarial pass when the range changes runtime lines, and the outside voice when published numbers changed. Step 11's voices that have not run yet stay listed. A light diff's raise to standard applies to the scoped set only.
+- Addition to the 1.91.316.0 entry below: **Step 9** (`ship/sections/review-army.md`): the repeat decision passes `--range-base $PASS_HEAD` and maps `NEXT: scoped` to decision 3; a scoped pass logs a full-pass `review` row with `"scope":"scoped"`, so it counts toward the cap and its roles land in `review_loop.dispatches` with no receipt schema change.
+- Addition to the 1.91.316.0 entry below: **`raised_by` on classified findings** (`gstack-review-scope classify`, `lib/review-scope.ts`): the reviewer that raised each finding (`core`, `qa`, a specialist, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`), from the finding's `raised_by` or `specialist` tag, else `unknown`. Step 9 copies it into the review-log row. Older rows without it still summarize.
+- Addition to the 1.91.316.0 entry below: **Docs**: docs/review-policy.md (rule 3, the transitions table, a scoped-pass section and Behavior changes) and docs/ship-policy.md rule 3.
+
+## [1.91.322.0] - 2026-10-29
+
 **A PR screen no longer runs the whole paid gate just because a changed file sits on every case's import path.** Editing a file like `lib/restamp.ts` reached all 113 gate cases through the derived-reference closure, so 19 of the 41 full screens between Oct 20 and 29 ran the full $33 gate for that reason alone. A narrow screen (`gstack-ship-queue ready --screen`, and `bun run eval:bg:pr`) now leaves such a file's cases to the train gate's full census, which runs every case before anything merges. Replayed on those 41 screens with today's maps, this saves about $457 a week, and the screens that caught real PR-caused reds (#3434, #3453) still run the full gate.
 
 ### Changed
@@ -22,6 +56,253 @@
 
 ### Tests
 - `test/pr-dependencies.test.ts`: a hub-only diff selects nothing on a narrow screen and every gate case on a broad one or with no policy set; a hub beside a shared runtime input, an unknown file or a full-gate file still runs the full gate; a hub beside a direct edit keeps that edit's cases; a deleted file is never a hub; the PR workflow plans narrow only for dispatches; size-ledger baselines select no gate case.
+
+## [1.91.321.0] - 2026-10-29
+
+**Free Tests passes again on Ubicloud runner image 20261026.1.0.** Every Linux job that landed on that image failed the cookie-import Playwright pipe smoke, in-shard and again on the serial retry, and a rerun passed only when it happened to land on the older 20261021.1.0 image. Both images keep `kernel.apparmor_restrict_unprivileged_userns=1`, but 20261026 loads three AppArmor profiles instead of 123, so nothing grants the bundled Chromium a user namespace and its sandbox aborts with `credentials.cc:131 ... Permission denied`. The two Linux jobs that launch Chromium now grant user namespaces to that one binary, the way Ubuntu's own `chrome` profile does.
+
+### Fixed
+- **`.github/workflows/free-tests.yml`**: `free-suite` and `quick-bun-default` gain a step after the SUID sandbox helper step. It resolves Playwright's Chromium, refuses any path outside `~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome`, and loads an AppArmor profile that grants `userns` to that path alone. The kernel restriction stays on for every other binary. The SUID helper step is unchanged, and no step passes `--no-sandbox` or runs `sysctl`. Diagnostic dispatch 40921806393 ran 17 jobs: all 9 on 20261026 failed the smoke without the profile and passed with it, and all 8 on 20261021 passed throughout.
+
+### Tests
+- `test/chromium-sandbox-ci.test.ts`: four cases, two per job, run the real step with stubbed `bun` and `sudo`. They check that the step sits after the helper and before the suite, the exact profile bytes and the `apparmor_parser -r` call, that no protection-lowering flag appears, and that an unexpected Chromium path is refused before any privileged call. They fail against main's workflow.
+
+## [1.91.320.0] - 2026-10-29
+
+**A branch that adds its own pregate lane now learns why it still fails, and `gstack-post pr-body` no longer keeps a stale copy of a section.** Pregate reads its policy from the base branch so a branch cannot loosen its own gate. A branch that had already declared a lane in its own `.gstack/pregate.json` was still told to declare it, and went round in a circle. Separately, a PR body that held `## What changed` twice (an old description pasted under the /ship body) kept the old copy every time /ship reposted.
+
+### Fixed
+- **`PREGATE_NO_LANE`**: when the branch edits `.gstack/pregate.json` and the policy comes from the base copy or the user-owned file, the fix line names that policy, says a lane the branch adds counts only once it is on the base, and offers both routes: land the policy change in its own PR first, or rerun with `--policy-from head --allow-repo-commands`, which records the run as unreviewed. Pregate still never reads the branch's policy on its own. (#3574)
+- **`gstack-post pr-body`**: when the PR's current body holds a title from the file more than once, it posts nothing, exits 64 and says to rerun with `--replace` and the whole body. /ship's PR-body step stops on that refusal and reports the duplicated titles instead of reposting with `--replace` itself, since a person chooses which copy stays. (#3575)
+
+### Docs
+- `docs/troubleshooting.md#pregate-no-lane-own-policy` explains the own-policy case and its two routes; `docs/pregate.md`'s trust boundary links it. The `gstack-post-pr-body-merge` entry covers the duplicate-title refusal.
+
+### Tests
+- `test/pregate-selection.test.ts`: the own-policy fix line under the base policy; a head-policy run and a branch that deletes `pregate.json` get the plain fix.
+- `test/pregate-user-policy.test.ts`: the own-policy line names the user file as the policy source.
+- `test/gstack-post.test.ts`: a doubled title refuses and posts nothing, `--replace` posts the file, and a body with two receipt blocks refuses too.
+
+### Gate integrity
+- `test/gstack-post.test.ts`: the duplicate-titles assertion that expected the first copy replaced and the second kept now expects the refusal, plus a case where duplicates the file does not touch are still kept.
+
+## [1.91.319.0] - 2026-10-29
+
+**`gstack-pregate sealed` no longer prints a line that reads like a push confirmation.** On gstack-evals#29 the lane read `pushed aeb2413` in the `SEALED:` line as the push landing, while the remote stayed at 9036ab1 (#3565). `sealed` never pushes: it checks the commits a push would publish. `pushed <sha>` was its label for the commit whose `sealed` policy it read beside the base branch's.
+
+### Fixed
+- **`lib/sealed-guard.ts`**: that label now reads `commit <sha12>` (`policy=origin/main + commit aeb2413f0ca1`), in the `SEALED:` line, in the managed pre-push hook's messages and in the unreadable-policy error.
+- **`gstack-pregate --help`** and **docs/pregate.md#sealed** say the command never pushes and that `git ls-remote <remote> <ref>` confirms a push.
+
+### Tests
+- `test/sealed-guard.test.ts`: `gstack-pregate sealed` names the checked commit, prints no `pushed`, and leaves the remote's refs exactly as they were. It failed before the fix on `policy=origin/main + pushed <sha>`.
+
+## [1.91.318.0] - 2026-10-29
+
+**/office-hours now has eval tasks for the shared skill eval, and /write-skill's diet locks its tasks before a paid run.** gstack-evals' Lane A will re-check the office-hours diet from #3525. To do that it needs office-hours' tasks in gstack's contract format, a sidecar for what Lane A adds, and a diet step that commits the lock a paid run requires. #3525 never committed the task set GSTA-134 ran, so these tasks rebuild it from the pilot's written summary.
+
+### Added
+- **`test/fixtures/skill-evals/office-hours/`**: 11 tasks on a CSV-merge idea, with a `seed.sh` that makes the git repo and the `.gstack-home` state root. Nine follow the pilot's set, which covered the mode question, the first startup question, pushback on vague evidence, builder mode, the premise challenge, the second-opinion offer, alternatives, the UI visual step and the backend skip. Two are new safety tasks. One allows no code during a session (the hard gate), and the other allows no design doc before the user picks an approach (the Phase 4 stop). `no-code-mvp` failed in every arm of the pilot and is left out.
+- **`tasks.ext.json`** beside it, in Lane A's sidecar format: every task is interactive, with a persona and scripted replies, a judge rubric per behavior task, and a violating `mutant` per safety task. Reply category names are provisional until gstack-evals publishes its list.
+
+### Changed
+- **/write-skill diet step 6** starts with `gstack-evals skill-eval --lock` and a commit of `tasks.lock.json`. Without that commit the shared eval refuses a paid run (LOCK_MISSING).
+- **`docs/designs/SKILL_EVAL_CONTRACT.md`** adds notes for implementers. The harness should set both `GSTACK_STATE_ROOT` and `GSTACK_HOME` to `<work dir>/.gstack-home`. A verdict may carry an optional `resumable` field. The notes also cover the lock, the sidecar, and an open question about what `must` patterns grade when a host answers an interactive task's questions.
+
+### Tests
+- `test/skill-eval-tasks.test.ts` checks office-hours' `tasks.json` against the contract. It also checks that each `tasks.ext.json` entry names a task in `tasks.json` and uses only known keys. No existing test, threshold or allowlist changed.
+
+## [1.91.317.0] - 2026-10-29
+
+**Registered gstack skills now say when to use them where the harness model reads them, and OpenClaw lists the task skills directly.** HARN-5's paid cells showed OpenClaw and Hermes listing gstack's skills while the model rarely opened them. Router lines kept only each skill's first sentence and dropped its "Use when asked to ..." trigger, and Hermes's skills index shows only the first 57 characters of a description, which for gstack was capability prose. This release changes only what gstack writes into its own skills folders. Use rates are not claimed yet: HARN-5's fixed panel measures them next.
+
+### Changed
+- **Router lines lead with the trigger** (`gstack-harness`, every router-mode target: OpenClaw, dots, `generic` and `--print`). Each line opens with the skill's own trigger sentence, or, when the description has none, `Use for:` and the skill's `triggers:` list, within 160 characters. The router's description now leads with task verbs (review, debug, QA test, plan, ship) in its first 200 characters, within the 300-character budget. The wording rule lives in `lib/skill-triggers.ts`.
+- **Hermes descriptions open with a trigger list of at most 57 characters** (`frontmatter.descriptionLead` in `hosts/hermes.ts`), for example `Use for: review this pr, code review, check my diff.`, followed by the description without its own trigger sentence, which the lead repeats, so no Hermes render grows. Claude Code and every other host render their descriptions as before.
+- **OpenClaw registers in `hybrid` mode by default**: `gstack-review`, `gstack-investigate`, `gstack-qa`, `gstack-ship` and `gstack-plan-eng-review` are top-level skills and the `gstack` router carries the rest. Dumped through OpenClaw 2026.10.6's own `buildSkillSnapshot`/`prepareSkillsForPrompt` with its 19 eligible bundled skills, hybrid's skills section is 10,290 characters in full format (budget 18,000). `--skills all` falls to compact format at 17,971 characters, and `--skills router` is 6,701. `--skills router` and `--skills all` remain, and a mode switch now removes the empty folders the previous mode left behind.
+- **`--context <file>` is opt-in for OpenClaw and Hermes too**: the block is written only into the file named, after a `gstack-harness: context block: <file> (<profile|project> scope)` line. Setup, upgrades and refresh never add one and do not re-add a block you deleted. A second `--context` file keeps the first, because the ledger keys blocks by file. The block text follows the mode (with `--skills all` it names no router path). Uninstall now restores each file byte for byte (the blank separator line, a missing final newline and a file gstack created are undone).
+- `HARNESS_MODE_UNSUPPORTED`'s fix text and docs/hosts.md describe Hermes's listing, not its loader, and docs/hosts.md states registered, listed and used as separate facts.
+
+### Fixed
+- Re-registering an OpenClaw, Hermes or dots registration without `--context` (what setup and `gstack-harness auto` do) no longer cuts a block the user opted into.
+
+### Added
+- `HARNESS_CONTEXT_REFUSED`: `--context` refuses `SOUL.md` (in any letter case), and for Hermes a new rules file that would outrank rules Hermes loads now: a file of an earlier group (`.hermes.md`/`HERMES.md` before `AGENTS.md` before `CLAUDE.md`), an earlier name in the same folder (`.hermes.md` before `HERMES.md`, `AGENTS.override.md` before `AGENTS.md`), or a `.hermes.md`/`HERMES.md` below one in a parent folder, which Hermes takes as the nearest.
+
+### Gate integrity
+- `test/harness-register.test.ts`: three expectations change with the byte-for-byte restore and blocks keyed by file. The generic cut now expects the original bytes, without the extra newline. The second `--context` case now expects both blocks kept and both restored where it used to expect the first block cut. The OpenClaw router case passes `mode: 'router'` because the default is now hybrid. New cases cover router lines, Hermes leads (at most 57 characters), hybrid with mode switches through refresh and uninstall, context opt-in, refusal and scope, the CLI scope line, and Hermes's threat scanner on every block variant. The scanner case runs when `GSTACK_HERMES_SRC` names a Hermes checkout and is skipped otherwise. More new cases cover the same-folder and nearest-parent refusals, pre-blockpad ledgers, refresh keeping a block the user edited, `--json --context` output, and the Hermes check outside a git repository; new `test/skill-triggers.test.ts` covers the wording rule's fallbacks and cuts.
+- `test/fixtures/skill-md-size-allowlist.json`: the Hermes pins for `gstack-autoplan` (108,982 to 108,891) and `gstack-plan-eng-review` (128,708 to 128,655) go down to the new render sizes, as the size guard directs.
+- New `test/session-kind-marker.test.ts`: a marker-only environment (`GSTACK_SESSION_KIND=spawned`, no `GSTACK_CAPY`) gets the same soft admission from `bin/gstack-install-verdict.sh` and `lib/install-verdict.ts`. A ratchet fails when a file in `bin/`, `lib/`, `hosts/` or `scripts/` reads or sets `GSTACK_SESSION_KIND` outside its 13-file inventory; a planted-reader control and a comments-only control check it.
+
+## [1.91.316.0] - 2026-10-29
+
+**/ship takes a token cap and stops cleanly at it, and long runs hand their heavy segments to fresh-context children.** On gstack-evals#31 a /ship spent 54M tokens against a 25M cap because the cap was only a number in a brief; #26, whose agent read the counter after every step, stopped at 39.40M of 40M. `/ship --token-cap 25M` (or `GSTACK_SHIP_TOKEN_CAP`) now admits each step and dispatch batch only when it fits, and a run started from a long-lived context, or one whose per-call charge passes 150k at Step 7 or Step 12, runs that segment in a fresh child.
+
+### Added
+- **`gstack-ship-budget`** (`lib/ship-budget.ts`, `lib/ship-budget-cli.ts`, `lib/ship-handoff.ts`): an admission cap on a per-run token ledger under `<state root>/ship-runs/<run>/` (its own schema; only `withFileLock` is shared with `lib/spend-ledger.ts`). `start`, `check` (the `BUDGET:` line, `verdict=continue|delegate|stop`, a `RESERVATION:` id per admitted step or batch), `settle`/`release`, `handoff`/`launch`/`verify-handoff`/`return`/`reconcile`, `resume` (cap raises need `--approved-by` and the owner's words; `--rebuild-from-record`; restore from a private Drive checkpoint) and `close`. Exit 0 continue/delegate, 3 stop, 2 usage. Each meter is a versioned contract, and there are three: the Capy root counter (`--reading`), Claude Code journal usage (`lib/claude-usage.ts`, bound by `--session` or an echoed nonce) and `--meter estimate`.
+- **`gstack-review-log --start ... --reservation <id>`**: under a cap, a dispatch without an unspent, one-shot reservation refuses before launch (`BUDGET_CHECK_SKIPPED`), and `--finish` settles it. Without a cap nothing changes.
+- **/ship**: the skeleton's Budget paragraph (`--token-cap`, `--resume <record>`, `--continue <handoff>`) and a new `budget-handoff` section with the meter recipes, reservations, stop and resume, and the delegate flow per host.
+- **Result codes** `BUDGET_CAP_REACHED`, `BUDGET_READING_MISSING`, `BUDGET_READING_REJECTED`, `BUDGET_METER_UNAVAILABLE`, `BUDGET_LEDGER_INVALID`, `BUDGET_CHECK_SKIPPED`, `HANDOFF_PIN_MOVED` with docs/troubleshooting.md anchors; `lib/ship-budget-calibration.json` seeded from #19, #26 and #31.
+- **Docs**: docs/ship-budget.md (linked from docs/unattended.md), and a paragraph each in the Capy skill's SKILL.md and captain.md.
+
+### Tests
+- `test/ship-budget.test.ts`: the cap boundary, batch overshoot, the #31 replay, spend above a reservation, the no-cap path, meters and epochs, exit codes, start and segment delegation, the full handoff chain with an idempotent reconcile, moved pins and a tampered brief, refused and interrupted children, stop and RECOVER, checkpoint restore into an empty state root, ledger rebuild, concurrent ledgers, and an unchanged `gstack-wtree`.
+- `test/ship-budget-review-log.test.ts`, `test/claude-usage.test.ts`, `test/ship-budget-calibration.test.ts` (leave-one-out), `test/ship-budget-section.test.ts`.
+
+## [1.91.315.0] - 2026-10-29
+
+### Changed
+- **Stacked PRs** (Fixes #3570): after a stack parent lands and the child is retargeted to the base with the base merged in, `carry --base <base>` compares HEAD's product diff against the base with the range the receipt reviewed against the parent branch. That is the recorded `product_patch_id`, or the range against `origin/<parent>` for an older receipt. HEAD's side is its whole product diff against the base, so a parent's `package.json` change that never reached the base refuses too. Equal carries with the reason `stack parent <branch> landed` and rebinds the receipt's `base` to the base; anything else refuses. Until now every stacked child paid a full /ship once its parent merged (gstack-evals#19).
+
+### Tests
+- `test/ship-receipt-carry-squash.test.ts`: a child carries after its parent squash-merges and main is merged in, names main as its base, and carries again across a later main merge. A test-only child carries. A child edited after the merge, a parent that never landed, a parent `package.json` change that never reached main, and a merge that keeps the child's tree over the landed parent refuse. An older receipt falls back to `origin/<parent>` and refuses once that branch is deleted.
+
+## [1.91.314.0] - 2026-10-29
+
+**A later autoplan gate that asks nothing new is now answered with the owner's earlier words instead of another round trip.** Captains were carrying approvals across gate revisions by hand (GSTA-140 reused a rev-1 "Do it" on rev 2; ALPH-50 lost about 27 minutes to one), and a replay over 23 recorded runs found 14 later gates, 8 of them holding only post-cap delta items.
+
+### Added
+- **Carry-forward** (`lib/autoplan-carry.ts`): when gate_rev N+1 asks nothing new and gate_rev N was fully answered by the owner with `rec` or "do it", gstack answers N+1 with those recorded words and prints `CARRIED: gate_rev=<n> <- gate_rev=<m> …`; anything else prints `CARRY: no (<why>)` and goes to the owner. `--no-carry-forward` on the first `next` turns it off.
+- **"do it" covers new low-risk items.** When the owner's own words were "do it", a new item that changes no scope, cost, direction or plan text takes its recommendation, is marked `carried_under: do it`, and is listed in the approval record and the Captain brief as not shown to the owner. A Captain's "do it" never counts.
+- **Delta check.** A "plan changed after cap" item gets one reviewer from another model family on the delta first (`CARRY_CHECK:`, `gstack-autoplan check`), within a per-gate spend cap (`--carry-check-cap`, default $5). High or above, no reviewer, an owner answer, or a plan edit after dispatch leaves the gate for the owner and releases the reservation. The verdict is recorded on `gate.json`, the decision rows and `decisions.tsv`.
+- **`eli5` in gate.json**: the plan's `## ELI5` and the four approvals-shape sections; `gstack-gate render` opens page 1 with them, and the Captain brief requires `## ELI5` (older runs render as before).
+- **`gstack-approvals import --autoplan <dir> --stack b1,b2`** writes the same rows to every branch of a stack, or to none when one branch is unknown.
+- **`REVIEW_ESTIMATE:`** on the first `next`: phases, voices, rounds, attempts and the reservation total.
+
+### Changed
+- `lib/decision-trail.ts` holds the trail append rules shared by `gstack-decision-trail` and the carry.
+
+## [1.91.313.0] - 2026-10-29
+
+**The PII scanner stops flagging two kinds of ordinary text: a bare power-of-two or hash constant in code, and a package@version-style filename.** Eval artifacts and PR bodies that print a PRNG range or name a versioned results file no longer raise a MEDIUM phone or email finding, and real phone numbers and addresses next to them still report.
+
+### Fixed
+- **`lib/redact-patterns.ts`**: `pii.phone.e164` skips a bare number that is exactly a power of two from 2^30 through 2^49, one less than one, or one of eleven well-known 32-bit hash and PRNG constants. The same digits written with a `+`, spaces, dashes, dots or parentheses still report (#3577).
+- **`lib/redact-patterns.ts`**: `pii.email` skips a filename whose part after the `@` is a version or tag followed by file extensions no top-level domain uses, or a dotted version followed by an extension that doubles as one. A file named after a real address, an address at a numeric domain such as 163.com, and an address under a top-level domain that doubles as an extension (`.sh`, `.md`) still report (#3576).
+
+### Tests
+- `test/redact-constant-and-at-filename.test.ts`: pins both exemptions in both directions, including files named after a real address.
+
+## [1.91.312.0] - 2026-10-29
+
+**An install check run from inside /ship no longer upgrades gstack under it.** /ship's docs step runs `scripts/install.sh --for document-release`. That run fast-forwarded the checkout from 1.91.298 to 1.91.299 in the middle of a lane's /ship, so the receipt writer's rules changed partway through the run (#3571).
+
+### Fixed
+- **`bin/gstack-capy-session`**: in install mode, a live workflow lease under 120 minutes old held by the caller's own process chain now skips the self-upgrade: `SELF_UPGRADE: skipped (a gstack run in this session holds a workflow lease on this installation: pid <p> (<age>m <command>), so the upgrade waits until the lease is 120 minutes old; …(UPGRADE_BUSY))`. The install still certifies the installed revision and the trailer stays ok with `behind=`. `bin/gstack-upgrade` deliberately ignores the caller's own lease, and an install started from inside the run passed that check. Each `gstack-skill-start` renews the lease. The age bound matters on Capy, where the leased pid is the machine's long-lived `capy-server`, so a lease is never released by its process exiting. An older lease, or none, upgrades as before, and `GSTACK_UPGRADE_FORCE=1` or a hand-run `bin/gstack-upgrade` still moves the checkout.
+
+### Tests
+- `test/capy-skill-wrapper.test.ts`: an install run under a shell that holds a fresh lease leaves HEAD where it was and stays ok. Once that lease is 121 minutes old, with its holder still alive, the same install upgrades. Before this change the first run printed `SELF_UPGRADE: done 1.0.1 -> 1.0.2`.
+
+## [1.91.311.0] - 2026-10-29
+
+**A sealed policy can now refuse `sealed/<set>/tasks.json` while allowing the `MANIFEST.json` beside it, and can catch `HELDOUT/` with a `heldout` glob.** The sealed guard only had deny globs and one-commit waivers, so the gstack-evals layout, which keeps a public manifest of hashes and counts next to its sealed tasks, needed a fresh `.gstack/sealed-allow.tsv` line for every manifest commit (gstack-evals wiki/board/2026-10-28-gsta-9-sealed-manifest-glob-gap.md). Their first draft also wrote `sealed/**`, which never matched their nested `tasks/<id>/sealed/` directories, and garrytan/gstack-evals#3 (dc54796) hand-listed `Sealed/`, `HELDOUT/` and other case variants.
+
+### Added
+- **`sealed.allow_paths`** (`lib/sealed-guard.ts`): globs that exempt publishable files from `sealed.path` and `sealed.transcript`, applied after the deny globs and before sha waivers. They are read from the destination base branch only, so a push cannot widen its own exceptions; a pushed copy is still validated and refuses when malformed. Text rules still read an exempt file, so a manifest that quotes a sealed answer still refuses. An entry whose file name contains `**` or is only wildcards before its extension (`**`, `sealed/*`, `**/*.json`) is refused. Each exempt path prints `exempt <rule>  <file>  commit <sha> (sealed.allow_paths <glob>)` on every push.
+- **`sealed.case_insensitive: true`**: `paths` and `transcripts` match regardless of case, so `**/heldout/**` also refuses `HELDOUT/` and `HeldOut/`. The value is the base branch's OR the pushed one, because it only tightens. `allow_paths` never fold case. Separator and spelling variants such as `hold-out/` still need their own globs.
+
+### Changed
+- `gstack-pregate sealed` prints `exempt=<n>` after `waived=<n>` on its `SEALED:` line (`policy=` stays last), and `--json` carries an `exempt` array. Both bins build their error report through one `sealedErrorReport`.
+- An unknown `sealed` key now says to upgrade gstack if the key comes from a newer one. A gstack older than this release refuses `allow_paths` and `case_insensitive` this way on every push and `gstack-pregate run`, so a repository raises `min_gstack_version` before landing either key.
+- `docs/pregate.md` § Sealed output explains glob anchoring: patterns match from the repository root, so `sealed/**` misses `tasks/x/sealed/a.json` and the docs say to write `**/sealed/**`. It also documents case handling, exceptions and the version skew.
+
+### Gate integrity
+- This is a gate edit: `allow_paths` lets the sealed guard pass files it refused before, but only from the reviewed base branch. No existing test, threshold or allowlist changed. New cases in `test/sealed-guard.test.ts` (10) and `test/pregate-guards.test.ts` cover an allowed exception, a non-matching one, an exception added on the pushed head, a text rule inside an exempt file, transcripts, the waiver order, the error report, case folding in both directions and the root-anchoring example.
+
+## [1.91.310.0] - 2026-10-29
+
+**The cookie workflow judge now asks for structured output, so a quote the model forgets to escape can no longer fail the gate.** Train 42 went red because both of its `setup-browser-cookies/SKILL.md workflow` samples came back as free text with a bare quote inside `reasoning` ("one --domain per run"), and neither parsed. The GSTA-91 comparison had measured that failure: 2 of 144 free-text samples failed to parse, against 0 of 72 with the schema.
+
+### Changed
+- **Cookie workflow judge transport:** `setup-browser-cookies/SKILL.md workflow` now sends `WORKFLOW_JUDGE_RESPONSE_SCHEMA`, released on GStack Minder's ruling: "GStack Minder, 2026-10-29: release the GSTA-91 hold; a07 is matched by old-b; free-text parse errors cost train 42". Its model, thresholds (4/3/4), sample count and case kind are unchanged. The ruling is recorded in `test/fixtures/judge-calibration/cookie-workflow/release.json`, and the held comparison stays recorded as held.
+
+### Tests
+- `test/cookie-workflow-judge-input.test.ts` runs the registered cookie callback through the real `callJudge` and pins its request to the schema. It replays train 42's two replies (msg_011CgVnRtVj5vyLvb56m6KJH, msg_011CgVne5GStZ6f9pRoCvgWE): their free-text bytes do not parse, and the same judgment returned as schema output scores and passes. `test/judge-calibration.test.ts` reads the release record. Both fail without the transport change.
+
+### Gate integrity
+- Gate edit: the cookie judge's response transport moves from free text to the JSON schema, on the ruling above. No threshold, sample, trial, deadline or case-kind change. The Haiku free-text failure pin in `test/llm-judge-frontier.test.ts` is untouched.
+
+## [1.91.309.0] - 2026-10-29
+
+**The judged review and Eng prose each give one rule where the paid judges kept finding two, and a judge that runs out of time now says what it was waiting on.** Every sample of two red panels on #3527's screens (review 40617200857, plan-eng-review 40634787316), attempt and rerun, named the same contradictions; a third red (ship, train 35 gate 40660626349) hit the 120 s judge deadline with nothing logged but "No completed model response".
+
+### Fixed
+- **`/review` Step 5.8**: an unresolved non-gate defect (an unanswered question) is recorded as `open`, so every finding has a record action. A repeat pass's reruns of superseded probes are revalidation, so they run after smoke expiry, in the same probe directory; earlier provisional QA sections link checkpoints and only the final pass runs the once-only `materialize`.
+- **`/plan-eng-review`**: the shared Voice now loads once. Eng no longer carries a near-copy whose only difference was its em-dash clause; the Scope gate's format precedence says required formats keep their em dashes.
+- **`/benchmark` Phase 6 example**: the hero image recommendation no longer suggests lazy-loading (that delays the largest paint) and names one remedy, as the rule under it asks.
+
+### Changed
+- **Judge cancellations leave evidence.** When a judge request is cancelled (the workflow judge deadline), `callJudge` prints one `llm-judge-aborted` line: elapsed time, wrapper attempts and 429 waits, HTTP requests and statuses (so the SDK's own retries show), connection, first and last stream event times, the open block type, thinking and text character counts, message and request ids, and the reason (at most 200 characters). Counts only, never content; an observer that throws cannot change a judge result. Deadlines, effort, samples and thresholds are unchanged.
+
+### Tests
+- `test/review-workflow-clarity.test.ts` and `test/eng-scope-entry-ap.test.ts` pin the repaired rules; both fail with the prose change stashed.
+- `test/llm-judge-stream.test.ts` and `test/llm-judge-abort.test.ts` replay a stream cancelled mid-thinking, a stream with no events, one cancelled after headers, an SDK-retried 429, a cancelled 429 wait, an event the observer cannot read and an overlong reason, with no-abort controls; each fails with the helper change stashed. `test/workflow-judge-cache.test.ts`'s SDK stream stand-ins gain the real stream's `on()`.
+- Focused paid judge runs: review 4/4/4 at 1bdc4ce and again at 3463250, plan-eng-review 3/5/4 at 1bdc4ce ($0.18).
+
+### Gate integrity
+- No threshold, sample, trial, deadline or case-kind change. `scripts/harness-version.json` records the `llm-judge.ts` change as non-behavioral (no series reset). Generated SKILL.md size pins for review and plan-eng-review were lowered to their new sizes on every host.
+
+## [1.91.308.0] - 2026-10-29
+
+**`gstack-restamp` no longer cuts a four-part package.json version to three parts in a repo whose convention is four.** On garrytan/gbrain#7878, `/ship` restamped gbrain's `package.json` to `"0.60.483"` beside `VERSION` `0.60.483.0`; gbrain requires the two to match and its CI version gate fails when they drift, so the stamp had to be reverted by hand. The version stage called `gstack-version-bump write`, which always stores the npm-valid three-part form in the manifest (decision 11, which is why gstack's own `package.json` reads `1.91.298`).
+
+### Fixed
+- **`lib/restamp.ts`**: the version stage keeps the full version in the manifest when the policy lists it in `stamp_paths` or `stamp_files` and the base's copy holds four parts, and the stage detail says so (`wrote 0.60.483.0 (package.json keeps four parts: …)`). The form is read at the base, like the policy, so a branch an earlier restamp already cut to three parts goes back to four. Every other repo, gstack included, still gets the npm-valid form, and a four-part manifest the policy does not list still migrates to three parts as decision 11 says.
+- **`bin/gstack-version-bump write`**: new `--manifest-form npm|full` (default `npm`); `full` writes the version as given to the manifest and its npm lockfiles. It has no effect when the version path is itself a JSON manifest.
+
+### Tests
+- `test/restamp-four-part-manifest.test.ts`: a gbrain-shaped fixture (four-part `VERSION` and `package.json`, the manifest in `stamp_files`, bun, no npm lockfile) restamped from an unstamped branch and from a branch already carrying its stamp (both failed before the fix with `"0.60.483"`), from a branch an older restamp cut to three parts, and with the manifest listed through `stamp_paths`. gstack's shape (three-part manifest and lockfile) and an unlisted four-part manifest keep their current results.
+- `test/gstack-version-bump.test.ts`: `--manifest-form full` keeps four parts in the manifest and lockfile; an unknown form exits 2 before anything is written.
+
+## [1.91.307.0] - 2026-10-29
+
+**/ship now reviews in proportion to what the diff can break: light, standard or full depth.** A diff with 50 or fewer runtime lines gets one batched specialist plus the native adversarial pass, a larger runtime diff gets the class's specialists scoped to their hunks, and gate code or any classifier error gets the full review as before. The receipt records the depth and the queue refuses a receipt below what the head needs. Before this, a 12-line fix paid for the same reviewer fan-out as a change to the merge gate. The backtest that would have let light depth drop the adversarial pass was inconclusive (9 light-eligible PRs, 5 with attributable findings, below the 15 the plan required), so light keeps it.
+
+### Added
+- **Review depth** (`lib/review-depth.ts`, `lib/review-collect.ts`, `gstack-review-plan`): `REVIEW_DEPTH:` (depth, runtime lines, the rules hash, reasons), `GATE_SCAN:` bound to HEAD, one `DEPTH_ERROR:` per input that fails closed to full (with the input, the cause and the repair), and per-reviewer `DIFF_CMD:` pathspecs. Runtime lines leave out docs, tests and outputs registered with a command in the base branch's `.gstack/generated.json`, read at the base commit. `--depth-floor standard|full` only raises the depth. A fixed or open blocker, or a CRITICAL, raises light to standard for the rest of the invocation.
+- **Receipt fields**: `gstack_version` and `review_depth` (`{ depth, class, runtime_lines, rules, base, registry, gate_scan: { tagged, head }, reasons }`), computed at the checked-out head. `write --head` must be HEAD. `review_loop_exception` (`write --review-loop-exception`) records an owner-accepted stop after a fix-check edit with the fix-check's head and findings, and the PR body repeats its line word for word (Fixes #3559).
+- **Queue checks** (`gstack-ship-queue ready`, `train build`): the depth the head needs is recomputed from git and a lower receipt is `QUEUE_RECEIPT_DEPTH_RAISED`, with the receipt's depth, the required depth, reasons and inputs on a `REVIEW_DEPTH:` line. A malformed owner exception, a body that dropped its line, or a fix-check head that is not the bound head or its ancestor is `QUEUE_RECEIPT_EXCEPTION_INVALID`. The queue reads the same committed range as the writer and trusts a recorded gate scan only when it names the full bound commit. A receipt with neither new field predates depth receipts and is accepted as legacy.
+
+### Changed
+- **Carry and depth**: a carry recomputes the depth at the new head, rebinds the gate scan, and refuses when the new head needs more (a test change that skips a test is gate class). It also refuses a `--head` other than the checked-out HEAD, a receipt with `gstack_version` but no `review_depth`, and an owner exception that no longer stands, since the queue would refuse each of them. Tracked edits in the checkout make the write-time gate scan unavailable, which records `full`.
+- **`gstack-diff-scope <base> --head <sha>`**: the scope signals for the committed range only, with no working-tree or untracked files; an unknown sha is `SCOPE_ERROR=no_head` and a missing merge base `SCOPE_ERROR=no_merge_base`.
+- **`.gstack/ship-policy.json`**: `min_gstack_version` rises from 1.91.146.0 to 1.91.299.0.
+
+### Tests
+- `test/ship-receipt-depth.test.ts`: write records the depth bound to HEAD and refuses another `--head`. The queue refuses light on a standard head, a current receipt with no depth and an unbound gate scan, and accepts a legacy receipt. A plain test change carries and rebinds the scan, while a skipped test refuses the carry. The review-loop exception is refused without a fix-check, with a foreign head or without its body line, and the queue refuses a body that dropped the line.
+- `test/review-depth.test.ts`, `test/review-collect.test.ts`, `test/review-plan-cli.test.ts`: the depth matrix, the fixed light set, fail-closed errors and the registry read at the base commit. A `package.json` version line that also carries other keys is not stamp-only.
+- `test/diff-scope.test.ts`: `--head` reads the committed range and ignores working-tree edits, and refuses an unknown sha.
+
+## [1.91.306.0] - 2026-10-29
+
+**A /ship receipt now survives a base merge that only regenerates outputs, and a rebase onto the tree it reviewed.** On gstack-evals, two full /ship reruns came from a merge of main that changed a generated file's diff (U1 paid about 28M tokens for its rerun), and one came from a rebase whose tree was byte-identical to the reviewed one (about 60M). Each re-reviewed code the receipt already covered. For crews the rule is now a single line. Merge main into a reviewed branch, and never rebase it.
+
+### Changed
+- **`gstack-ship-receipt carry`**: an output of an entry with a `command` in origin/<base>'s `.gstack/generated.json` counts as `generated`, not product, when the `--pregate` result for HEAD lists it under the `regen` check's new `proven` paths and that check ran the same base registry. Without that evidence, for a file that matches an output glob but that the command never writes, and for an entry with no command or one only the branch registers, the output stays product.
+- **`gstack-pregate` `regen` check**: a fresh entry with touched outputs runs its command a second time in the scratch worktree with those outputs deleted, and records the ones it recreates byte-identically as `proven`. The verdict still comes from the first run, so a generator that reads its own output passes as before and proves nothing.
+- **Carry across rewritten history**: `write` records `head_tree` and `product_patch_id`, and each carry rebinds both and keeps earlier trees in `carry.trees`. A head that is no longer an ancestor carries only when its tree is one the receipt covers and its product patch-id against the current base matches; it records `carry.ancestry: rewritten` and needs no old commit, so a fresh clone carries too. A different tree is the new `RECEIPT_CARRY_TREE_MISMATCH`. The reviewed tree on a base that moved under it is `RECEIPT_CARRY_PRODUCT_CHANGED`.
+- **Docs**: docs/ship-policy.md#receipt-carry opens with a four-row table: merge with the product unchanged, merge that changes product, rebase onto a covered tree, and any other rebase. docs/captain.md and captain/templates/CREW.md say to merge main in and never rebase a reviewed branch, and the troubleshooting entries for the carry refusals match the new rules.
+
+### Tests
+- `test/ship-receipt-carry-rewrite.test.ts`: a rebase onto the covered tree carries from a fresh clone that never fetched the old head, a different tree refuses with `RECEIPT_CARRY_TREE_MISMATCH`, the reviewed tree on a moved base refuses, and a merge that changes only a registered output's diff carries with a pregate whose regen check proved it and refuses without one or with a pregate from another registry, and a hand-written file under an output glob that the generator never writes stays product.
+- `test/gstack-ship-receipt.test.ts`: the written receipt's key order includes `head_tree` and `product_patch_id`.
+
+## [1.91.305.0] - 2026-10-29
+
+**You can now render gstack with whole skills, skill sections, model overlays or preamble pieces left out, as a byte-exact tree with a lock file, so an eval can measure which instructions a model actually needs.** Garry asked for "95% of the outcome but with 50% of the token use", and the free ceiling measurement on train gate run 40705984271 found skill text is about 21% of billed eval cost (35 of 103 tests), so trimming it per model is worth measuring. Nothing changes for anyone today. Every model rung and unknown models load `full`, and the committed SKILL.md files are byte-identical to the previous release. A smaller loadout ships only after GSTA-2 measures it.
+
+### Added
+- **`bin/gstack-modules`**: `list` prints every module id (`skill:`, `section:`, `overlay:`, `preamble:`) with its source and pin; `validate` checks `modules/loadouts.json`; `render --host <h> (--loadout <name> | --modules full,-<id>,+<id>) --out-dir <d>` renders one loadout with the same `--model`, `--install-root` and `--plan-mode` setup uses, and writes `loadout.lock.json` (spec sha256, excluded ids, per-file sha256 and bytes).
+- **`modules/loadouts.json`** (with a JSON schema): rungs `frontier`, `strong`, `mid`, `light`, the model-id table, pinned modules and named loadouts. Every rung and `unknown` map to `full`.
+- **Safety pins**: the start command, plan-mode rules, the question format, completion status, the unattended profile, /ship's review army and adversarial pass, the router and `/gstack-upgrade` can never be excluded, directly or by excluding the skill that holds them (`MODULE_PINNED`).
+- **Renders refuse instead of guessing**: an unknown loadout or module, a malformed spec, a rendered file that still points at an excluded skill or section (`MODULE_EXCLUSION_UNSAFE`), or an `--out-dir` that an earlier render did not write (`RENDER_DEST_NOT_OWNED`) each exit 2 with a fix line and a `docs/troubleshooting.md` anchor, and never fall back to `full`. A failed render leaves the earlier one in place.
+- **`docs/loadouts.md`**: terms, commands, how to build an eval arm, and how a loadout changes (only with a cited GSTA-2 run).
+
+### Changed
+- `gen:skill-docs` accepts `--loadout` and `--modules` with an `--out-dir` outside the checkout; a selection with exclusions aimed at the committed tree is refused. Excluded sections render a one-line `Not loaded in the <loadout> loadout` stub, and `{{IF_SECTION:<id>}}` guards remove skeleton text that belongs to a section (office-hours' second-opinion offer and visual-design phase, plan-design-review's review-sections self-check). `gstack/llms.txt` lists only the skills a render includes.
+
+### For contributors
+- New `test/module-loadouts.test.ts` covers the manifest, selection, pins, the render filter, the CLI and the byte-identical `full` render. `.gstack/pregate.json` allows the two new `modules/` files as strays. `test/gen-skill-docs-prune-stale.test.ts`'s copied fixture now links `scripts/modules.ts`; no assertion, threshold or budget changed.
 
 ## [1.91.304.0] - 2026-10-29
 

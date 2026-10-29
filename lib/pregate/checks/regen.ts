@@ -23,7 +23,7 @@ function run(ctx: PregateContext): CheckResult {
       fix: 'rerun with --allow-repo-commands (what /ship passes)', lines: commands.map(c => `COMMAND: ${c.id}=${JSON.stringify(c.command)} outputs=${c.outputs.join(',')}`),
     };
   }
-  const { results } = runRegen({ repoRoot: ctx.repoRoot, registry: ctx.registry, mode: 'check', only: selected.map(e => e.id), env: ctx.env, timeoutMs: ctx.timeoutMs });
+  const { results } = runRegen({ repoRoot: ctx.repoRoot, registry: ctx.registry, mode: 'check', only: selected.map(e => e.id), prove: ctx.touched.map(t => t.path), env: ctx.env, timeoutMs: ctx.timeoutMs });
   const lines = results.map(renderEntry);
   const stale = results.filter(r => r.status === 'stale');
   const failed = results.filter(r => r.status === 'failed');
@@ -32,7 +32,8 @@ function run(ctx: PregateContext): CheckResult {
   if (depsMissing.length) return { id: 'regen', stage: 'preflight', status: 'incomplete', inputs, lines, code: 'REGEN_DEPS_MISSING', detail: `dependencies missing; ${depsMissing[0]!.fix} (${depsMissing.length} entr${depsMissing.length === 1 ? 'y' : 'ies'} unverified: ${depsMissing.map(d => d.id).join(', ')})`, fix: depsMissing[0]!.fix };
   if (failed.length) return { id: 'regen', stage: 'preflight', status: 'incomplete', inputs, lines, code: 'REGEN_COMMAND_FAILED', detail: `${failed.length} regen command(s) failed: ${failed.map(f => f.id).join(', ')}`, fix: failed.map(f => f.fix).join('; ') };
   if (stale.length) return { id: 'regen', stage: 'preflight', status: 'fail', inputs, lines, code: 'REGEN_STALE', detail: `${stale.length} stale: ${stale.flatMap(s => s.changed.concat(s.outside)).join(' ')}`, fix: stale.map(s => s.fix).join('; ') };
-  return { id: 'regen', stage: 'preflight', status: 'pass', inputs, lines, detail: `${results.length} entr${results.length === 1 ? 'y' : 'ies'} fresh${results.some(r => r.status === 'listed') ? ' (hand-regenerated outputs listed)' : ''}` };
+  const proven = results.flatMap(r => r.proven ?? []).sort();
+  return { id: 'regen', stage: 'preflight', status: 'pass', inputs, lines, ...(proven.length ? { proven } : {}), detail: `${results.length} entr${results.length === 1 ? 'y' : 'ies'} fresh${results.some(r => r.status === 'listed') ? ' (hand-regenerated outputs listed)' : ''}` };
 }
 
 export const regenCheck: CheckDef = { id: 'regen', stage: 'preflight', tier: 1, downgradable: true, needsRepoCommands: true, run };

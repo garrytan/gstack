@@ -783,6 +783,14 @@ once, plus cleanup. Each still has 120 seconds of model work. Its 17 workflow
 judges own their deadline and abort signal, with five seconds for terminal
 recording inside a ten-second Bun grace; the other 11 retain their existing
 120-second Bun timeout. Late responses cannot create records or cache passes.
+When a judge's abort signal cancels its request, `callJudge`
+(`test/helpers/llm-judge.ts`) prints one `llm-judge-aborted` JSON line to
+stderr: elapsed time, wrapper `attempts` and `retryWaitsMs` (429 waits),
+`httpRequests` and `httpStatuses` (so SDK retries show), `connectedMs`,
+`firstEventMs` and `lastEventMs`, the open `block` type, `thinkingChars` and
+`textChars`, `messageId`, `requestId` and the `reason` (at most 200
+characters). It holds counts and ids only, never content, and changes no
+request, score or verdict.
 
 The ship documentation file reserves 4,920 seconds for four 600-second cases and
 eight 300-second fault cases, run once, plus cleanup; in CI each case runs as its

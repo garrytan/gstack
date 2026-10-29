@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "note": "GSTA-152 plan item 8. Per-meter constants for /ship budget projections, fitted conservatively from metered runs: each constant is the largest observation times `headroom`, rounded up to `round_to` (lib/ship-budget.ts fitConstant). test/ship-budget-calibration.test.ts checks the constants equal the fit and that a leave-one-out fit on two runs is at or above the meter on the third. Savings claims count completed ships only.",
+  "headroom": 1.5,
+  "round_to": 10000,
+  "observations": {
+    "per_call": [
+      {
+        "run": "gstack-evals#19",
+        "value": 240000,
+        "source": "GSTA-152 plan v3 evidence: late parent calls charged 0.22M then 0.24M (solved from the 29.3M and 16.3M counter windows; derived)"
+      },
+      {
+        "run": "gstack-evals#26",
+        "value": 400000,
+        "source": "GSTA-152 plan v3 evidence: late turns cost about 0.4M each (root counter read after every step)"
+      },
+      {
+        "run": "gstack-evals#31",
+        "value": 500000,
+        "source": "GSTA-152 plan v3 evidence: the /ship child's context was about 0.5M per call at the handoff"
+      }
+    ],
+    "per_dispatch": [
+      {
+        "run": "gstack-evals#19",
+        "value": 2400000,
+        "source": "GSTA-152 plan v3 evidence: about 2.4M per child, solved from the two counter windows (derived)"
+      },
+      {
+        "run": "gstack-evals#31",
+        "value": 4950000,
+        "source": "GSTA-152 plan v3 evidence: the /ship child and its 10 review dispatches account for about 49.5M (4-5M per dispatch)"
+      }
+    ],
+    "stop_overhead": [
+      {
+        "run": "gstack-evals#26",
+        "value": 1650000,
+        "source": "GSTA-152 plan v3 evidence: the stop message and the parent's checks took the counter from 39.40M to 41.05M"
+      }
+    ]
+  },
+  "constants": {
+    "per_call": 750000,
+    "per_dispatch": 7430000,
+    "stop_overhead": 2480000
+  },
+  "step_calls": {
+    "7": 12,
+    "8": 12,
+    "9": 12,
+    "default": 3
+  },
+  "step_dispatches": {
+    "7": 1,
+    "8": 1,
+    "14.5": 1
+  },
+  "segment_dispatches": {
+    "9": 4,
+    "11": 2
+  },
+  "units": {
+    "capy-tokens": {
+      "fit": "observations above (Capy root counter, children included)"
+    },
+    "claude-usage-tokens": {
+      "seeded_from": "capy-tokens",
+      "why": "no Claude Code-metered /ship yet; refit once one completes"
+    },
+    "estimate-tokens": {
+      "seeded_from": "capy-tokens",
+      "why": "the estimate meter projects with the Capy fit, which is at or above the meter on the metered runs"
+    }
+  }
+}

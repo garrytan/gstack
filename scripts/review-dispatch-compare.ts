@@ -17,7 +17,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { runScriptSync } from '../lib/script-invocation';
-import { planReview, specialistsFor, type DiffClass, type Dispatch, type History, type NumbersResult } from '../lib/review-depth';
+import { planReview, specialistsFor, type DiffClass, type History, type NumbersResult, type PathLines } from '../lib/review-depth';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BYTES_PER_TOKEN = 4;
@@ -30,7 +30,8 @@ const DEFAULT_OUT: Record<string, { full: number; light: number }> = {
   'outside-voice': { full: 6000, light: 6000 }, 'fix-check': { full: 4000, light: 2000 }, audit: { full: 5000, light: 2500 }, 'autoplan-voice': { full: 9000, light: 4500 },
 };
 
-export interface Fixture { name: string; commit: string; paths: string[]; deleted: string[]; stamp_only?: string[]; scope: Record<string, string>; gate_tagged: number | null; diff_lines: number; diff_bytes: number; numbers: NumbersResult }
+/** per_path and registry_outputs (captured since GSTA-147) feed the runtime-line count; an older fixture counts every code-class line as runtime. */
+export interface Fixture { name: string; commit: string; paths: string[]; deleted: string[]; stamp_only?: string[]; scope: Record<string, string>; gate_tagged: number | null; diff_lines: number; diff_bytes: number; numbers: NumbersResult; per_path?: PathLines[]; registry_outputs?: string[] }
 /** clean: pass 1 finds nothing; nits: pass 1 fixes below-floor findings; blocker: pass 1 fixes a blocker; adversarial-fix: Step 11 finds a should that is fixed; fix-regression: a pass-1 fix introduces a blocker the next step finds. */
 type Scenario = 'clean' | 'nits' | 'blocker' | 'adversarial-fix' | 'fix-regression';
 const SCENARIOS: Scenario[] = ['clean', 'nits', 'blocker', 'adversarial-fix', 'fix-regression'];
@@ -62,7 +63,7 @@ function legacyShip(f: Fixture, sc: Scenario): Call[] {
 }
 
 function base(f: Fixture) {
-  return { paths: f.paths, deleted: f.deleted, stampOnly: f.stamp_only ?? [], scope: f.scope, gateTagged: f.gate_tagged, diffLines: f.diff_lines, numbers: f.numbers };
+  return { paths: f.paths, deleted: f.deleted, stampOnly: f.stamp_only ?? [], scope: f.scope, gateTagged: f.gate_tagged, diffLines: f.diff_lines, numbers: f.numbers, perPath: f.per_path, registry: f.registry_outputs ? { sha: null, outputs: f.registry_outputs } : undefined };
 }
 
 /** The new policy, step by step through lib/review-depth's own transition table. */
@@ -85,7 +86,8 @@ function newShip(f: Fixture, sc: Scenario): { calls: Call[]; ending: string } {
     for (const d of plan.dispatches) calls.push({ role: d.role, name: d.name, effort: d.effort, diffBytes: d.role === 'outside-voice' ? f.diff_bytes : diffBytes });
     adversarialRan ||= plan.dispatches.some(d => d.role === 'adversarial-native');
     const o = outcomes[sc][Math.min(i, outcomes[sc].length - 1)] ?? {};
-    h = { fullPasses: h.fullPasses + (plan.next.step === 'full' ? 1 : 0), last: plan.next.step, ...o };
+    const last = plan.next.step === 'scoped' ? 'full' : plan.next.step;
+    h = { fullPasses: h.fullPasses + (last === 'full' ? 1 : 0), last, ...o };
   }
   for (const a of FIXED_AUDITS) calls.push({ role: 'audit', effort: 'light', diffBytes: f.diff_bytes / 2 });
   return { calls, ending };
@@ -121,10 +123,10 @@ function capture(sha: string, name: string, out: string): number {
     if (r.status !== 0) throw new Error(`gstack-review-plan failed: ${r.stderr}`);
     const plan = JSON.parse(r.stdout);
     const diffBytes = Buffer.byteLength(git(['diff', `${sha}^`, sha], dir).stdout ?? '');
-    const fixture: Fixture = { name, commit: sha, paths: plan.paths, deleted: plan.deleted, stamp_only: plan.stamp_only, scope: plan.scope, gate_tagged: plan.gate_tagged, diff_lines: plan.diff_lines, diff_bytes: diffBytes, numbers: plan.numbers };
+    const fixture: Fixture = { name, commit: sha, paths: plan.paths, deleted: plan.deleted, stamp_only: plan.stamp_only, scope: plan.scope, gate_tagged: plan.gate_tagged, diff_lines: plan.diff_lines, diff_bytes: diffBytes, numbers: plan.numbers, per_path: plan.per_path, registry_outputs: plan.registry.outputs };
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, JSON.stringify(fixture, null, 2) + '\n');
-    process.stdout.write(`CAPTURED: ${name} ${sha} class=${plan.class} paths=${plan.paths.length} lines=${plan.diff_lines} -> ${out}\n`);
+    process.stdout.write(`CAPTURED: ${name} ${sha} class=${plan.class} depth=${plan.depth} runtime=${plan.runtime_lines} paths=${plan.paths.length} lines=${plan.diff_lines} -> ${out}\n`);
     return 0;
   } finally {
     git(['worktree', 'remove', '--force', dir]);
@@ -135,12 +137,13 @@ function capture(sha: string, name: string, out: string): number {
 export function compare(fixtures: Fixture[], out: typeof DEFAULT_OUT) {
   const rows: Array<Record<string, string | number>> = [];
   for (const f of fixtures) {
-    const cls: DiffClass = planReview({ ...base(f), history: { fullPasses: 0, last: 'none' } }).class;
+    const first = planReview({ ...base(f), history: { fullPasses: 0, last: 'none' } });
+    const cls: DiffClass = first.class;
     for (const sc of SCENARIOS) {
       const legacy = legacyShip(f, sc);
       const next = newShip(f, sc);
       const lt = tokens(legacy, out); const nt = tokens(next.calls, out);
-      rows.push({ fixture: f.name, class: cls, scenario: sc, legacy_dispatches: legacy.length, new_dispatches: next.calls.length, legacy_tokens: lt, new_tokens: nt, ratio: Math.round((nt / lt) * 100) / 100, ending: next.ending });
+      rows.push({ fixture: f.name, class: cls, depth: first.depth, runtime_lines: first.runtimeLines, scenario: sc, legacy_dispatches: legacy.length, new_dispatches: next.calls.length, legacy_tokens: lt, new_tokens: nt, ratio: Math.round((nt / lt) * 100) / 100, ending: next.ending });
     }
   }
   return rows;
@@ -158,8 +161,8 @@ function main(argv: string[]): number {
   const rows = compare(fixtures, out);
   const ap = fixtures.map(f => ({ fixture: f.name, runs: autoplanRuns(planReview({ ...base(f), history: { fullPasses: 0, last: 'none' } }).class === 'docs') }));
   if (argv.includes('--json')) { process.stdout.write(JSON.stringify({ tokens_source: tokFile ?? 'DEFAULT', ship: rows, autoplan: ap }) + '\n'); return 0; }
-  const lines = [`TOKENS: ${tokFile ? `measured (${tokFile})` : 'DEFAULT estimates (pass --tokens for measured output)'}`, '', '| fixture | class | scenario | /ship dispatches legacy → new | est. tokens legacy → new | ratio | ending |', '|---|---|---|---|---|---|---|'];
-  for (const r of rows) lines.push(`| ${r.fixture} | ${r.class} | ${r.scenario} | ${r.legacy_dispatches} → ${r.new_dispatches} | ${r.legacy_tokens} → ${r.new_tokens} | ${r.ratio} | ${r.ending} |`);
+  const lines = [`TOKENS: ${tokFile ? `measured (${tokFile})` : 'DEFAULT estimates (pass --tokens for measured output)'}`, '', '| fixture | class | depth (runtime lines) | scenario | /ship dispatches legacy → new | est. tokens legacy → new | ratio | ending |', '|---|---|---|---|---|---|---|---|'];
+  for (const r of rows) lines.push(`| ${r.fixture} | ${r.class} | ${r.depth} (${r.runtime_lines}) | ${r.scenario} | ${r.legacy_dispatches} → ${r.new_dispatches} | ${r.legacy_tokens} → ${r.new_tokens} | ${r.ratio} | ${r.ending} |`);
   lines.push('', '| fixture | /autoplan scenario | voice dispatches legacy → new |', '|---|---|---|');
   for (const a of ap) for (const r of a.runs) lines.push(`| ${a.fixture} | ${r.scenario} | ${r.legacy} → ${r.next} |`);
   const median = (v: number[]) => { const m = Math.floor(v.length / 2); return v.length % 2 ? v[m]! : Math.round(((v[m - 1]! + v[m]!) / 2) * 100) / 100; };
@@ -168,6 +171,9 @@ function main(argv: string[]): number {
   const byClass = new Map<string, number[]>();
   for (const r of rows) byClass.set(String(r.class), [...(byClass.get(String(r.class)) ?? []), Number(r.ratio)].sort((x, y) => x - y));
   lines.push(`SHIP_TOKEN_RATIO_BY_CLASS: ${[...byClass].map(([c, v]) => `${c} median=${median(v)} (n=${v.length})`).join('; ')}`);
+  const byDepth = new Map<string, number[]>();
+  for (const r of rows) byDepth.set(String(r.depth), [...(byDepth.get(String(r.depth)) ?? []), Number(r.ratio)].sort((x, y) => x - y));
+  lines.push(`SHIP_TOKEN_RATIO_BY_DEPTH: ${[...byDepth].map(([d, v]) => `${d} median=${median(v)} (n=${v.length})`).join('; ')}`);
   process.stdout.write(lines.join('\n') + '\n');
   return 0;
 }

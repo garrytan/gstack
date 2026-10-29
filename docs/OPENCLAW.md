@@ -181,9 +181,10 @@ The agent should:
 4. Verify with a test spawn
 
 **Native skills or ACP.** `./setup --host openclaw` (or `./setup` run inside an
-OpenClaw session) gives OpenClaw's own agent gstack's skills: one `gstack`
-router skill in `$OPENCLAW_STATE_DIR/skills`, rendered with OpenClaw's tool
-names and pointing at the installed gstack, so the agent runs gstack's
+OpenClaw session) gives OpenClaw's own agent gstack's skills: the five task
+skills (review, investigate, qa, ship, plan-eng-review) listed directly and one
+`gstack` router skill for the rest in `$OPENCLAW_STATE_DIR/skills`, rendered
+with OpenClaw's tool names and pointing at the installed gstack, so the agent runs gstack's
 workflows and helpers itself. Use ACP when the work should happen in a Claude
 Code session with the full install (hooks, Claude tool names); use native
 skills when the OpenClaw agent should do it. Both can be installed together.

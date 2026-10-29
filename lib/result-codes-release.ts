@@ -148,6 +148,16 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the PR body’s /ship receipt is for another head than the one being READY’d or merged (a push after /ship, or a receipt copied from another PR)',
     fix: 'rerun /ship on the current head so the receipt names it, then gstack-ship-queue ready again; a slot’s stamp commit keeps the receipt written for its pinned head',
   },
+  QUEUE_RECEIPT_DEPTH_RAISED: {
+    anchor: 'queue-receipt-depth-raised',
+    summary: 'the PR body’s /ship receipt records a review depth below the one its head needs (the queue recomputed it from git), or a current receipt records no review_depth at all',
+    fix: 'run /ship on the head the READY names; the REVIEW_DEPTH line shows the receipt’s depth, the required depth, its reasons and inputs, and the receipt is left unchanged',
+  },
+  QUEUE_RECEIPT_EXCEPTION_INVALID: {
+    anchor: 'queue-receipt-exception-invalid',
+    summary: 'the PR body’s /ship receipt records an owner exception (docs or review loop) that is malformed, lacks the fix-check it follows, or whose line the body no longer carries verbatim',
+    fix: 'restore the exception line in the PR body word for word, or run /ship again and record the owner’s acceptance with --docs or --review-loop-exception',
+  },
   QUEUE_SCREEN_STALE_REF: {
     anchor: 'queue-screen-stale-ref',
     summary: 'GitHub’s refs/pull/<n>/merge is missing or still merges an older head than the PR’s: the PR conflicts with the base (a CHANGELOG-only conflict counts), so a screen dispatched on it would plan no cases and report success',
@@ -246,18 +256,28 @@ export const RELEASE_RESULT_CODES = {
   },
   RECEIPT_CARRY_REFUSED: {
     anchor: 'receipt-carry-refused',
-    summary: 'gstack-ship-receipt carry could not carry the /ship receipt to HEAD: the PR body has no receipt, the receipt head is not an ancestor of HEAD (rebase or force-push), or the product diff could not be compared',
-    fix: 'merge the base in instead of rebasing, keep the reviewed head in HEAD\'s history, then rerun carry; otherwise run /ship on the new head',
+    summary: 'gstack-ship-receipt carry could not carry the /ship receipt to HEAD: the PR body has no receipt, the working tree has uncommitted changes, the receipt head is not an ancestor of HEAD and the receipt records no tree to compare, or the product diff could not be compared',
+    fix: 'commit or stash working-tree changes and rerun carry; when history was rewritten and the receipt predates head_tree, run /ship on the new head (merge the base in instead of rebasing next time)',
   },
   PROSE_LINT_FOUND: {
     anchor: 'prose-lint-found',
     summary: 'the prose /ship is about to publish (a CHANGELOG entry or a PR body) carries an AI tell a regular expression can decide',
     fix: 'rewrite each PROSE: line in the draft the way its hint says, then rerun gstack-prose-lint on the same file',
   },
+  REVIEW_LOOP_EXCEPTION_INVALID: {
+    anchor: 'review-loop-exception-invalid',
+    summary: 'write --review-loop-exception got an exception that is malformed, follows no fix-check (review_loop.fix_checks is 0 or missing), names a fix-check head that is not the receipt head or its ancestor, or is missing from the PR body',
+    fix: 'pass { accepted_by, date, via, reason, fix_check: { head, findings } } with the owner’s words, the --review-loop summary that counts the fix-check, and the printed "Review-loop exception: …" line in the body',
+  },
+  RECEIPT_CARRY_TREE_MISMATCH: {
+    anchor: 'receipt-carry-tree-mismatch',
+    summary: 'the branch was rebased or force-pushed since its /ship receipt, and HEAD\'s tree is not a tree the receipt covers, so no review saw this code',
+    fix: 'run /ship on the new head; next time merge the base in instead of rebasing a reviewed branch (a rebase carries only onto a reviewed tree with the reviewed product diff)',
+  },
   RECEIPT_CARRY_PRODUCT_CHANGED: {
     anchor: 'receipt-carry-product-changed',
-    summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix or release metadata), so the reviewed verdict does not cover HEAD',
-    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata or the base merge and the product patch-id is unchanged',
+    summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
+    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged',
   },
   DOCS_AUDIT_BLOCKED: {
     anchor: 'docs-audit-blocked',

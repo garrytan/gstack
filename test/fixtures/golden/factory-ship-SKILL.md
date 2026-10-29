@@ -194,6 +194,11 @@ its absolute path, with these headings so a paused run can resume:
 - **Documentation:** candidate/id, attempts used, accepted hashes or named blocked exception.
 - **Next steps:** one ordered work list, with the current step marked.
 
+**Budget** (docs/ship-budget.md): `--token-cap <n|none>` (or GSTACK_SHIP_TOKEN_CAP); `--resume <record>`
+or `--continue <handoff>` re-attach. Step 1 runs `gstack-ship-budget start --record <record>`. With a cap,
+read `sections/budget-handoff.md` relative to the installed `gstack-ship` SKILL.md directory, `check` at each step boundary and dispatch
+batch, obey `verdict=`, `close` before Step 22.
+
 A **receipt** is saved evidence of a check's command, result and consumed content.
 A review's **start token** is the opaque value returned by `gstack-review-log --start`
 before it reads the diff. Keep `REVIEW_START` for Step 9, a separate `PASS_START` for
@@ -202,11 +207,11 @@ token; `--finish` stamps the binding fields automatically. Never borrow or repla
 `gstack-wtree` prints a Git tree hash covering tracked and non-ignored untracked files,
 not a commit ID. Use `git diff <old-tree> <new-tree>` to compare these snapshots.
 
-**Review policy** (docs/review-policy.md): a finding blocks another review pass
-only when it would fail a test, break production, or lose data or secrets;
-everything below that floor ships as a named note in the PR body. Pass 1 reviews
-the diff; a later pass reads only the range; two full passes plus one fix-check
-is the cap. `NO FINDINGS` is a complete reviewer result. `ship: review_scope` (Step 3)
+**Review policy** (docs/review-policy.md): only a finding that would fail a test,
+break production, or lose data or secrets blocks a pass; the rest is a PR-body
+note. Step 9's plan sets both reviews' depth (`--depth-floor standard|full` only
+raises it). Pass 1 reads the diff, later passes the range; the cap is two full
+passes and a fix-check. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
 is the knob; the receipt's `review_loop` records the outcome.
 
 ### Ship control flow
@@ -257,6 +262,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | preparing the title and creating or updating the PR/MR with the verified documentation outcome (Steps 18-19) | `sections/pr-body.md` |
 | Step 19 printed CAPY_PR: on (a Capy session, GSTACK_CAPY=1) — read before composing the PR body | `sections/capy-pr.md` |
 | handing the branch to a coordinator instead of opening a PR (--no-pr or an automation lane; Step 18) | `sections/handoff.md` |
+| a token cap is set or verdict=delegate printed (Step 1 on) | `sections/budget-handoff.md` |
 
 ---
 

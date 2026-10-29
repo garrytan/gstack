@@ -85,6 +85,25 @@ describe('callJudge cancellation', () => {
     expect(create).toHaveBeenCalledTimes(1);
   }, 3000);
 
+  test('an abort during a 429 wait retains the wait it interrupted', async () => {
+    const diagnostics = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const controller = new AbortController();
+      create.mockRejectedValue({ status: 429, headers: { 'retry-after': '30' } });
+      const pending = callJudge('Rate-limited request.', 'test-judge-model', { signal: controller.signal });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      controller.abort(new Error('Expired during rate-limit backoff.'));
+      await expect(pending).rejects.toThrow('Expired during rate-limit backoff.');
+      expect(diagnostics).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(diagnostics.mock.calls[0]![0])).toMatchObject({ type: 'llm-judge-aborted', model: 'test-judge-model',
+        stream: false, attempts: 1, httpRequests: 0, retryWaitsMs: [30000], firstEventMs: null, reason: 'Expired during rate-limit backoff.' });
+      create.mockResolvedValue(response as any);
+      diagnostics.mockClear();
+      expect(await callJudge('Judge this.', undefined, { signal: new AbortController().signal })).toEqual({ passed: true });
+      expect(diagnostics).not.toHaveBeenCalled();
+    } finally { diagnostics.mockRestore(); }
+  }, 3000);
+
   test('keeps three 429 retries for callers without a signal', async () => {
     const rateLimit = { status: 429, headers: { 'retry-after': '0.001' } };
     create.mockRejectedValue(rateLimit);

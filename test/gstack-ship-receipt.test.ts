@@ -44,12 +44,14 @@ describe('gstack-ship-receipt write', () => {
       '--session-kind', 'unattended', '--artifacts-consumed', '2/3', '--run', 'run-1', '--thread', 'jam_1', '--queue-mode', 'stamp-at-merge',
       '--preregistration', 'none (no preregistration_shas)', '--history', 'squash-ok', '--body', body, '--out', path.join(repo.root, 'receipt.md')]);
     expect(ok.status).toBe(EXIT.ok);
-    expect(ok.err.trim()).toBe(`SHIP_RECEIPT: pr=42 head=${head.slice(0, 12)} version=1.2.4.0 base=main gated_tree=${repo.git('rev-parse', 'HEAD^{tree}').slice(0, 12)} tree=same-modulo-stamps gate-reuse=eligible (reusable: tests; rerun: -) predecessor=${'b'.repeat(12)} session_kind=unattended artifacts_consumed=2/3`);
+    expect(ok.err.trim()).toBe(`SHIP_RECEIPT: pr=42 head=${head.slice(0, 12)} version=1.2.4.0 base=main gated_tree=${repo.git('rev-parse', 'HEAD^{tree}').slice(0, 12)} tree=same-modulo-stamps gate-reuse=eligible (reusable: tests; rerun: -) predecessor=${'b'.repeat(12)} session_kind=unattended artifacts_consumed=2/3 depth=light`);
     const parsed = extractReceipt(ok.out);
     expect(parsed.found).toBe(true);
     expect(parsed.errors).toEqual([]);
-    expect(Object.keys(parsed.receipt!)).toEqual(['schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd', 'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history']);
+    expect(Object.keys(parsed.receipt!)).toEqual(['schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd', 'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history', 'head_tree', 'product_patch_id', 'gstack_version', 'review_depth']);
     expect(parsed.receipt).toMatchObject({ schema_version: 1, pr: 42, head, version: '1.2.4.0', base: 'main', tree: 'same-modulo-stamps', spend_usd: 0.42, ci: { checks: { pass: 3 } } });
+    expect(parsed.receipt!.head_tree).toBe(repo.git('rev-parse', 'HEAD^{tree}'));
+    expect(parsed.receipt!.product_patch_id).toMatch(/^([0-9a-f]{40}|none)$/);
     expect(parsed.receipt!.policy).toMatch(/^origin\/main@[0-9a-f]{12}:\.gstack\/ship-policy\.json$/);
     const written = fs.readFileSync(body, 'utf8');
     expect(written.startsWith('```gstack-ship-receipt\n{\n  "schema_version": 1,\n  "pr": 42,\n  "head": "' + head + '"')).toBe(true);

@@ -20,5 +20,5 @@
     "windows-free-tests.yml/windows-free-shard": "bun run scripts/test-free-shards.ts --windows-only --list"
   },
   "warn": [],
-  "strays": { "allow": [] }
+  "strays": { "allow": ["modules/loadouts.json", "modules/loadouts.schema.json"] }
 }

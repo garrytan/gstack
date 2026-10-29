@@ -221,8 +221,11 @@ It refuses (`QUEUE_NOT_READY`) when the working tree has tracked edits, HEAD
 is not the PR's pushed head, CI at that exact head is not green, or the pregate
 result is not a current pass, and (`QUEUE_RECEIPT_MISSING`,
 `QUEUE_RECEIPT_STALE`) when the PR body carries no /ship receipt for that
-head: /ship runs before every READY ([details](#ship-before-ready)). Send the
-block as printed.
+head: /ship runs before every READY ([details](#ship-before-ready)). It also
+refuses `QUEUE_RECEIPT_DEPTH_RAISED` when the receipt's review depth is below
+what the head needs and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner
+exception the receipt records does not stand ([the ship receipt](#ship-receipt)).
+Send the block as printed.
 
 **2. Lane behind another PR: gate ahead.** Gate the tree the queue will have
 once the predecessor lands, while it is still open:
@@ -370,12 +373,17 @@ slot. The queue enforces this at every step from the PR body alone:
 - `ready` refuses with `QUEUE_RECEIPT_MISSING` when the body has no valid
   receipt and with `QUEUE_RECEIPT_STALE` when the receipt's `head` is not the
   head being READY'd (or its `pr` is another PR); the informational
-  `SHIP_RECEIPT:` line still prints. There is no flag around it.
+  `SHIP_RECEIPT:` line still prints. It refuses `QUEUE_RECEIPT_DEPTH_RAISED`
+  (with a `REVIEW_DEPTH:` line) when the receipt records a review depth below
+  what the head needs, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner
+  exception it records does not stand ([the ship receipt](#ship-receipt)).
+  There is no flag around it.
 - `train build` refuses a pin whose PR has no current receipt with the same
   codes, naming the PR, before anything is written, pushed or dispatched,
   `--dry-run` included.
-- `verify --train` refuses the slot with the same codes before printing
-  `MERGE_CONDITION`.
+- `verify --train` refuses the slot with `QUEUE_RECEIPT_MISSING` or
+  `QUEUE_RECEIPT_STALE` before printing `MERGE_CONDITION`; it does not
+  recompute the review depth.
 
 **The stamp keeps the pin's receipt.** The slot's stamp commit changes only
 stamp files (and, from slot 2 on, merges main into the pin), so no /ship runs
@@ -487,6 +495,9 @@ its record. Refusals, all before any spend: `QUEUE_TRAIN_UNTRUSTED` (a fork
 head), `QUEUE_TRAIN_MOVED` (a head moved from its pin),
 `QUEUE_RECEIPT_MISSING` and `QUEUE_RECEIPT_STALE` (the PR body has no /ship
 receipt for the pin; see [/ship before READY](#ship-before-ready)),
+`QUEUE_RECEIPT_DEPTH_RAISED` and `QUEUE_RECEIPT_EXCEPTION_INVALID` (the
+receipt's review depth is below what the pin needs, or an owner exception it
+records does not stand; see [the ship receipt](#ship-receipt)),
 `QUEUE_NOT_READY` (no READY receipt at that head), `QUEUE_TRAIN_CONFLICT` (the printed
 `QUEUE_TRAIN_CONFLICT: train <id> stopped at #<pr> (conflicts: <files>) after
 merging #<a>,#<b>; nothing dispatched, no branch pushed; fix: …` line names
@@ -786,7 +797,9 @@ written by the pr-body section of `/ship` after the body is composed.
 
 The ```` ```gstack-ship-receipt ```` block is the handoff record: identifiers
 first (`pr`, `head`, `version`, `base`), then the evidence (`gate`, `ci`,
-`pregate`, `issues`, `approval`, `docs`, `review_loop`, `carry`), validated
+`head_tree`, `product_patch_id`, `gstack_version`, `review_depth`, `pregate`,
+`issues`, `approval`, `docs`, `review_loop`, `review_loop_exception`, `carry`),
+validated
 against the `ship-receipt` schema (`gstack-artifact schema ship-receipt`) and
 read back by `gstack-ship-receipt read`, `result`, `carry` and the queue.
 
@@ -820,6 +833,46 @@ unreadable base policy is `POLICY_SOURCE_UNAVAILABLE`); one
 `DOCS_CAP: <path> <bytes>/<max> ok|over` line per cap
 (`absent/<max> over` for a path the tree lacks), exit 1 on any `over`, whose
 repair is trimming the file, never raising the cap in the same PR.
+
+**`review_depth` and `gstack_version`.** `write` records the gstack that
+wrote the receipt and the review depth at the checked-out head
+([review-policy.md#review-depth](review-policy.md#review-depth)):
+`{ depth, class, runtime_lines, rules, base, registry, gate_scan: { tagged, head }, reasons }`,
+computed from git objects for the range against `origin/<base>`
+(`gstack-diff-scope <base> --head <sha>` for the scope signals), with the gate
+scan run on that head. `--head` must be the checked-out HEAD
+(`RECEIPT_INVALID` otherwise), so the record and `head_tree` describe the
+tree the review read; tracked edits in the checkout make the scan unavailable,
+which records `full`. `gstack-ship-queue ready` and `train build` recompute
+the depth the head needs from the same range and scope and print `REVIEW_DEPTH: receipt=<d> required=<d>
+runtime_lines=<n> class=<c> reasons=<…> inputs=base@<sha>,registry@<sha>,gate_scan@<sha|missing>`;
+a recorded gate scan counts only when its `head` is the full bound commit,
+otherwise the scan is unavailable and the head needs `full`. A receipt below the required
+depth, or one whose writer records `gstack_version` but no `review_depth`, is
+[`QUEUE_RECEIPT_DEPTH_RAISED`](troubleshooting.md#queue-receipt-depth-raised):
+the receipt is left unchanged and the fix is /ship on that head. A receipt with
+neither field predates depth receipts and is accepted as legacy. A carry
+recomputes the depth at the new head, rebinds the gate scan, and refuses when
+the new head needs a deeper review than the receipt records (a test change that
+skips a test raises the diff to gate class), when `--head` is not the
+checked-out HEAD, when the receipt records `gstack_version` without
+`review_depth`, or when an owner exception no longer stands, each as
+[`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
+
+**`review_loop_exception`.** The owner's acceptance of a stop after a
+fix-check edit under frozen scope (#3559), from `write --review-loop-exception
+<json|@file>`: `{ accepted_by, date, via, reason, fix_check: { head, findings[, files] } }`.
+It needs `--review-loop` with `fix_checks` of 1 or more, a `fix_check.head`
+that is the receipt head or its ancestor, and, with `--body`, the line
+`Review-loop exception: accepted by <owner> <date> via <ref>: <reason> (fix-check at <sha12>, <n> findings)`
+word for word; otherwise
+[`REVIEW_LOOP_EXCEPTION_INVALID`](troubleshooting.md#review-loop-exception-invalid)
+and nothing is written. The queue checks both owner exceptions the same way
+before READY and train build: the record must parse, the body must still
+carry its line, and the fix-check head must be the bound head or its ancestor
+(after a carry across rewritten history the old fix-check commit is off the
+branch, so that check is skipped), or the receipt is
+[`QUEUE_RECEIPT_EXCEPTION_INVALID`](troubleshooting.md#queue-receipt-exception-invalid).
 
 **Prose against the receipt.** `gstack-ship-receipt read --pr <n> --check-prose`
 (or `--body <file>`) compares every counter the body quotes with the receipt's
@@ -870,7 +923,8 @@ construction:
    pass. `NO FINDINGS` is the expected reviewer result for a clean range, never a
    failed review.
 3. **Two full passes plus one fix-check is the cap**, stepped by the
-   [transition table](review-policy.md#transitions). A pass that applied no edits
+   [transition table](review-policy.md#transitions); a
+   [scoped pass](review-policy.md#scoped-pass) counts as a full pass. A pass that applied no edits
    continues to Step 10: the loop ships with its deferred and noted items named in
    the PR body. A blocking finding still open after the last allowed step stops
    the run and names the finding (path, severity, problem) for the owner instead
@@ -899,6 +953,32 @@ line, and the codes a refusal ends with are
 
 <a id="receipt-carry"></a>
 ## Carrying a receipt across a base merge or a test-only fix
+
+**Merge main into a reviewed branch; never rebase it.** What happens to the
+receipt when the base moves:
+
+| What changed since /ship | The receipt |
+|---|---|
+| a merge of the base, product diff unchanged (tests, release metadata, registered outputs the pregate's regen check proved) | carries; no review reruns |
+| a merge of the base whose resolution changed product code | a fresh /ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
+| a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
+| any other rebase or force-push | a fresh /ship (`RECEIPT_CARRY_TREE_MISMATCH`) |
+| a stacked PR whose parent landed (squash or merge), retargeted to the base with the base merged in, HEAD's product diff exactly the one reviewed against the parent branch | carries (reason `stack parent <branch> landed`) |
+
+**Stacked PRs (#3570).** A child PR's receipt is written against its parent
+branch, so its `base` names that branch and its `product_patch_id` is the
+child's own range. After the parent lands, the PR is retargeted to the base, and
+/ship's carry check runs with `--base <base>`. When that base differs from the
+receipt's, the carry compares the reviewed range (the recorded
+`product_patch_id`, or for an older receipt the range against
+`origin/<parent>` while that branch still resolves) with HEAD's whole product
+diff against the base, computed the way `write` records it, so a parent's
+release-metadata change that never reached the base counts too. Equal means
+the parent fully landed and the child is unchanged, so the receipt carries
+and from then on names the base it was carried to. A parent that has not landed, a child edited
+since, or a parent that landed with changes the child never merged all leave a
+different diff and refuse with `RECEIPT_CARRY_PRODUCT_CHANGED`. An older
+receipt whose parent branch is gone refuses with `RECEIPT_CARRY_REFUSED`.
 
 Since the release that added `review_scope`. A `/ship` receipt names the head it
 reviewed, so a conflict-only merge of the base or a test-only fix used to
@@ -930,11 +1010,22 @@ newer tentative one the stamp moved (a `*_KEY_VERSION` written as the next
 minor, #3512; a version older than the old one or of another width is a hand
 edit). A logic change in a
 stamped source file is product. Lockfiles are product unless the policy names
-them. A base merge contributes no product
-change of its own. A receipt carried twice keeps the reviewed head as
+them. An output of an entry with a `command` in origin/<base>'s
+`.gstack/generated.json` is `generated`, not product, only when the
+`--pregate` result passed for HEAD lists it under the `regen` check's
+`proven` paths (the check deleted the touched output in its scratch worktree
+and the command recreated it byte-identically) and that check ran the same
+registry, origin/<base> at the commit the carry reads. A file that matches an
+output glob but that the command never writes is not proven. Without that
+evidence, or for an entry with no command or one only the branch registers,
+the output is product (U1 on gstack-evals paid a
+full rerun because a merge changed its generated index's diff). A base merge
+contributes no product change of its own. A receipt carried twice keeps the reviewed head as
 `carry.from` and adds up the merges and paths. The carried receipt records
 `carry: { from, reason, product_patch_id, changed_paths, merge_commits,
-range_diff, covers, reruns }` with the `git range-diff` evidence, prints
+range_diff, covers, reruns, ancestry, trees }` (`ancestry` is `linear`
+along the receipt's own history, `rewritten` once any hop was a rebase;
+`trees` lists the earlier covered trees) with the `git range-diff` evidence, prints
 `CARRY: carried from <old> to <new> (<reason>)` and the `GSTACK_RESULT:
 skill=ship status=complete` line, and its summary line ends with
 `carried_from=<old12>`. `CARRY: current` means the receipt already names HEAD;
@@ -942,10 +1033,25 @@ skill=ship status=complete` line, and its summary line ends with
 
 A changed product path, or a product patch-id that differs, is
 [`RECEIPT_CARRY_PRODUCT_CHANGED`](troubleshooting.md#receipt-carry-product-changed)
-(exit 3; the refusal names the paths), and a receipt whose head is not in HEAD's
-history (a rebase or force-push) or a working tree with uncommitted changes is
-[`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused): run `/ship`
-on the new head. The queue's `ready`, `train build` and `verify --train` read the
+(exit 3; the refusal names the paths), and a working tree with uncommitted
+changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
+
+**Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
+and `product_patch_id` (its product patch against the base), and every carry
+rebinds both to the new head and keeps the earlier trees in `carry.trees`.
+When the receipt's head is no longer in HEAD's history, the carry follows only
+when HEAD's tree is one of those trees and HEAD's product patch-id against the
+current base equals the recorded one; it records `carry.ancestry: rewritten`
+and `range_diff: tree-equal`, and needs neither the old commit nor its
+history, so a fresh clone carries too. The tree alone is not enough: a stacked
+branch rebased onto main after its base closed unmerged keeps its tree while
+its diff grows by the base's code, and that is `RECEIPT_CARRY_PRODUCT_CHANGED`.
+Any other tree is
+[`RECEIPT_CARRY_TREE_MISMATCH`](troubleshooting.md#receipt-carry-tree-mismatch),
+which names HEAD's tree and the covered trees. A receipt from before
+`head_tree` existed, whose head is not in this clone, is
+`RECEIPT_CARRY_REFUSED`: run `/ship` on the new head. A refusal never
+rewrites the body. The queue's `ready`, `train build` and `verify --train` read the
 carried receipt like any other.
 
 **Delta /ship: eligibility, then checks, then publication.** `/ship` Step 1 runs
@@ -1004,7 +1110,7 @@ or the order moved, the result is `QUEUE_STALE` (exit 3) with the exact
 Stages, each journaled in `.gstack/tmp/restamp-journal.json`:
 
 0. **restamp_command** (only when the policy sets it): the repo's own restamp, see [restamp_command](#restamp-command).
-1. **version**: `gstack-version-bump write --version <X>` in the staging worktree (VERSION, the manifest, npm lockfiles); skipped when `restamp_command` owns the version.
+1. **version**: `gstack-version-bump write --version <X>` in the staging worktree (VERSION, the manifest, npm lockfiles); skipped when `restamp_command` owns the version. The manifest gets the npm-valid three-part form, except when the policy lists it in `stamp_paths` or `stamp_files` and its copy at the base holds four parts (gbrain's convention): then it keeps the full version (`--manifest-form full`) and the stage detail says so.
 2. **release_tool**: the policy command, under the contract below.
 3. **changelog**: the PR's `[Unreleased]` or old-version section moves to the top under `<X>`, above its predecessor's entry. A duplicate heading the PR introduces (`CHANGELOG_DUPLICATE_HEADING`: the headings are counted against the base's CHANGELOG at `origin/<base>` and at the fork point, so a version the base already heads twice passes as long as the PR adds no further copy) and a top entry that is not `<X>` (`CHANGELOG_TOP_MISMATCH`) are errors; the section being re-headed itself may exist only once.
 4. **stamp_paths**: exact `(was X)`, `since: X` and `vX` rewrites, plus every `stamp_patterns` template, within `stamp_paths` and `stamp_files`. A quote around X in the first two forms is part of the form and is kept as written: `since: 'X'`, `since: "X"`, `(was 'X')` and `(was "X")` move like the bare ones (the shape of a quoted source row such as gbrain's `{ since: '0.60.468.0', … }`), an opened quote must close right after X (`since: '1.2.3-beta'` and `since: '1.2.3"` are not the form, in the writer and in the tree receipt alike), and `vX` already accepts a quote before the `v`. Which X moves is decided by provenance. The branch's own tentative stamp (its VERSION when it moved past base) and `--was <X>`, when given, are each rewritten on every line of every stamp file. Beyond that, only lines the branch itself added are read, by their position in the file (`git diff --unified=0` from the fork point), so a base line with the same text, or a CRLF checkout whose diff is LF-normalized, is told apart: a stamp-form mention there of a version newer than the version at the branch's fork point is a tentative stamp and moves (this is what finds a quoted row after a lost slot and a merge of the base, since the base's release is newer than the fork point), and when the branch has no stamp of its own because its VERSION equals the base's and its fork point is the base itself (a branch rebased onto the base after it reached X, or one never stamped) a mention of the base version on a line it added is its stale stamp and moves too, while the same version on a line the base already carries is the base's release and stays. The stage detail names both counts per file (`VERSION equals base X, so X moved only on lines this branch added and stayed on the base's own lines (<file>: N moved, M kept)`), so the stamp commit shows which lines moved and why. A line the base added since the fork point is the base's even when that diff shows it (a merge of the base on the branch, committed or still staged, brings every line the base added since the fork into the diff from the fork point, main's own release keys included): it is left out, the detail says `N line(s) the base added since the fork point are the base's, not this branch's, and stay (<file>: N)`, and a base diff git cannot run refuses the stage (`POLICY_SOURCE_UNAVAILABLE`, `cannot diff <since>..<base> for the stamp_paths stage`) rather than reading as an empty set that would move the base's lines again. The rule reads line ownership, not meaning: a branch-added line inside `stamp_paths` that means the base's own release in a stamp form (`Requires vX or later` written on a branch forked at X) moves with it, which the `--dry-run` diff and the per-file counts show before anything is written; write such a reference outside a stamp form, or keep that file out of `stamp_paths`. `--was X` is the opposite tool: it rewrites X everywhere, the base's own lines included, and re-heads the CHANGELOG section `## [X]`. Only the repo's own version width counts, so a 3-digit dependency pin in a 4-digit repo is never a candidate.

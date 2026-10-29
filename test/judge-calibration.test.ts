@@ -321,17 +321,21 @@ describe('landed schemas match the recorded calibration', () => {
     expect(recorded.complete).toBe(true);
     const cookie = result('cookie-workflow');
     expect(cookie.complete).toBe(true);
+    expect(cookie.landing.lands).toBe(false);
+    const release = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures', 'judge-calibration', 'cookie-workflow', 'release.json'), 'utf8'));
+    expect(release).toMatchObject({ config: 'cookie-workflow', released: true, by: 'GStack Minder', scope: 'cookie workflow judge transport only',
+      ruling: 'GStack Minder, 2026-10-29: release the GSTA-91 hold; a07 is matched by old-b; free-text parse errors cost train 42' });
     const registrations = [...evalSource.matchAll(/await runWorkflowJudge\(\{([\s\S]*?)\n    \}\);/g)].map(match => match[1]!);
     expect(registrations.length).toBeGreaterThan(14);
     for (const body of registrations) {
       const testName = /testName: '([^']+)'/.exec(body)![1];
       const defaultConfig = !/^\s+(?:agentCapability|model|readInput|thresholds|maxTokens|stream|effort):|\.\.\.COOKIE_WORKFLOW_JUDGE/m.test(body);
       const expected = testName === 'ship/SKILL.md workflow' || (defaultConfig && recorded.landing.lands)
-        || (testName === 'setup-browser-cookies/SKILL.md workflow' && cookie.landing.lands);
+        || testName === 'setup-browser-cookies/SKILL.md workflow';
       expect(body.includes('schemaTransport: true'), testName).toBe(expected);
       expect(body.includes('compactReasoning: true'), testName).toBe(testName === 'ship/SKILL.md workflow');
     }
-    expect(registrations.filter(body => body.includes('schemaTransport: true'))).toHaveLength(cookie.landing.lands ? 16 : 15);
+    expect(registrations.filter(body => body.includes('schemaTransport: true'))).toHaveLength(16);
     const cookieBody = registrations.find(body => body.includes("testName: 'setup-browser-cookies/SKILL.md workflow'"))!;
     expect(cookieBody).toContain('...COOKIE_WORKFLOW_JUDGE');
     expect(cookieBody).not.toMatch(/^\s+(?:agentCapability|model|thresholds|maxTokens|stream|effort):/m);

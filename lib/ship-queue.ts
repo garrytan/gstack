@@ -31,7 +31,8 @@ import type { PregateFile } from './headless-artifacts';
 import { CHECKS, pregateMirrorPath, readPregateFile, verifyPregate, PREGATE_OUT_REL } from './pregate/index';
 import { ensureTmpExcluded, restamp, versionAtRef } from './restamp';
 import type { ResultCodeName } from './result-codes';
-import { bindReceipt, extractReceipt } from './ship-receipt';
+import { extractReceipt } from './ship-receipt';
+import { bindShippedReceipt } from './ship-receipt-depth';
 import { isUnavailable, loadPolicyFromBase, type LoadedPolicy } from './ship-policy';
 import {
   QUEUE_DIR_REL, applyStampPatch, commitForTree, currentAttempt, git, listAttempts, recomputeMergeTree, sha256, writeJsonAtomic,
@@ -254,7 +255,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
       pregateLine = `PREGATE: ${read.file.verdict} tree=${read.file.tree.slice(0, 12)} head=${(read.file.head ?? '').slice(0, 12)} checks=${read.file.checks.length} (from the state root's pregate/by-tree/${treeNow.tree.slice(0, 12)}.json, recorded by another checkout)`;
     } else if (gap) pregateLine += `; the state root's mirror for this tree cannot stand in: ${gap}`;
   }
-  const receipt = bindReceipt(info.body ?? '', o.pr, acceptedReceiptHeads(ctx, policy, head, info.body ?? ''));
+  const receipt = bindShippedReceipt(ctx.repoRoot, `origin/${ctx.base}`, info.body ?? '', o.pr, acceptedReceiptHeads(ctx, policy, head, info.body ?? ''));
   const attempt = currentAttempt(ctx.repoRoot, o.pr);
   const hint = conflictHint(info.mergeable, ci, info.headRefName, info.isCrossRepository === true, head);
   const lines = [
@@ -268,6 +269,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     pregateLine,
     gateLine(policy, attempt),
     receipt.line,
+    ...(receipt.depthLine ? [receipt.depthLine] : []),
   ];
   const gate = policy.policy.full_e2e ? gateEvidence(ctx, o.pr, head, attempt, o.gateExit, o.gateLog) : null;
   if (gate) lines.push(gate.line);

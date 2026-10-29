@@ -3,6 +3,11 @@
 # Usage: gstack-review-log '{"skill":"...","timestamp":"...","status":"..."}'
 #
 # Before reading a diff: gstack-review-log --start review
+# Under a /ship token cap (docs/ship-budget.md): --start SKILL --reservation ID
+#   with the RESERVATION id gstack-ship-budget check printed for this dispatch
+#   batch; refuses (exit 1, BUDGET_CHECK_SKIPPED) without an unspent one, and
+#   --finish settles it with the pass's other dispatch reservations of that
+#   step. Without a cap no marker exists and nothing changes.
 # Fix-range repeat (#3339): gstack-review-log --start review --fix-range
 #   prints the token, then FIX_BASE=<sha>; refuses (exit 1) unless the latest
 #   pass completed with fixes on unchanged content and its commit is an
@@ -32,15 +37,18 @@ export GSTACK_REVIEW_DIR="$GSTACK_HOME/projects/$SLUG"
 export GSTACK_REVIEW_REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 export GSTACK_REVIEW_BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse HEAD 2>/dev/null || true)"
 export GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts"
+export GSTACK_SHIP_BUDGET_LIB="$SCRIPT_DIR/../lib/ship-budget.ts"
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
     if command -v cygpath >/dev/null 2>&1; then
       GSTACK_REVIEW_LIB="$(cygpath -m "$GSTACK_REVIEW_LIB")"
+      GSTACK_SHIP_BUDGET_LIB="$(cygpath -m "$GSTACK_SHIP_BUDGET_LIB")"
       GSTACK_REVIEW_DIR="$(cygpath -m "$GSTACK_REVIEW_DIR")"
     fi
     ;;
 esac
 export GSTACK_REVIEW_LOG="$GSTACK_REVIEW_DIR/$BRANCH-reviews.jsonl"
+export GSTACK_SHIP_BUDGET_MARKER="$GSTACK_REVIEW_DIR/$BRANCH-ship-budget.json"
 
 # Compute binding fields (best-effort; empty outside a git repo).
 COMMIT_FULL=$(git rev-parse HEAD 2>/dev/null || true)
@@ -77,10 +85,28 @@ fi
 SESSION_KIND=$("$SCRIPT_DIR/gstack-session-kind" 2>/dev/null || echo interactive)
 export GSTACK_STAMP_COMMIT_FULL="$COMMIT_FULL" GSTACK_STAMP_TREE="$TREE" GSTACK_STAMP_WTREE="$WTREE" GSTACK_STAMP_DIRTY="$DIRTY" GSTACK_STAMP_SESSION_KIND="$SESSION_KIND"
 if [ "$INPUT" = --start ]; then
-  case "${3:-}" in ''|--fix-range) ;; *) echo 'Usage: gstack-review-log --start SKILL [--fix-range]' >&2; exit 2 ;; esac
-  GSTACK_REVIEW_SKILL="${2:-}" GSTACK_REVIEW_FIX_RANGE="${3:-}" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
+  START_SKILL="${2:-}" START_FIX="" START_RESERVATION=""
+  if [ "$#" -ge 2 ]; then shift 2; else shift "$#"; fi
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --fix-range) START_FIX=--fix-range; shift ;;
+      --reservation) [ "$#" -ge 2 ] || { echo 'Usage: gstack-review-log --start SKILL [--fix-range] [--reservation ID]' >&2; exit 2; }; START_RESERVATION="$2"; shift 2 ;;
+      *) echo 'Usage: gstack-review-log --start SKILL [--fix-range] [--reservation ID]' >&2; exit 2 ;;
+    esac
+  done
+  if [ ! -f "$GSTACK_SHIP_BUDGET_MARKER" ]; then
+    GSTACK_REVIEW_SKILL="$START_SKILL" GSTACK_REVIEW_FIX_RANGE="$START_FIX" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
+      const { captureReviewStart } = await import(process.env.GSTACK_REVIEW_LIB);
+      try { console.log(captureReviewStart(process.env.GSTACK_REVIEW_SKILL, process.env, process.env.GSTACK_REVIEW_FIX_RANGE === "--fix-range")); }
+      catch (e) { console.error(e.message); process.exit(1); }
+    '
+    exit $?
+  fi
+  GSTACK_REVIEW_SKILL="$START_SKILL" GSTACK_REVIEW_FIX_RANGE="$START_FIX" GSTACK_REVIEW_RESERVATION="$START_RESERVATION" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
     const { captureReviewStart } = await import(process.env.GSTACK_REVIEW_LIB);
-    try { console.log(captureReviewStart(process.env.GSTACK_REVIEW_SKILL, process.env, process.env.GSTACK_REVIEW_FIX_RANGE === "--fix-range")); }
+    const { admitReviewStart } = await import(process.env.GSTACK_SHIP_BUDGET_LIB);
+    const capture = () => captureReviewStart(process.env.GSTACK_REVIEW_SKILL, process.env, process.env.GSTACK_REVIEW_FIX_RANGE === "--fix-range");
+    try { console.log(admitReviewStart(process.env.GSTACK_SHIP_BUDGET_MARKER, process.env.GSTACK_REVIEW_RESERVATION || undefined, capture)); }
     catch (e) { console.error(e.message); process.exit(1); }
   '
   exit $?
@@ -93,7 +119,7 @@ if [ "$INPUT" = --check-shared-libs ] && [ "$#" -eq 2 ]; then
   exit $?
 fi
 usage() {
-  echo 'Usage: gstack-review-log JSON [--finish TOKEN] [--findings FILE] | --start SKILL [--fix-range] | --check-shared-libs TOKEN < finding.json' >&2
+  echo 'Usage: gstack-review-log JSON [--finish TOKEN] [--findings FILE] | --start SKILL [--fix-range] [--reservation ID] | --check-shared-libs TOKEN < finding.json' >&2
   echo 'Exit codes: 0 written · 1 rejected · 2 usage' >&2
   exit 2
 }
@@ -125,6 +151,17 @@ try {
 ") || exit 1
 
 echo "$STAMPED" >> "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"
+
+# A finished pass settles the budget reservation its start consumed (its
+# completion receipt) and every other dispatch reservation started in the same
+# step; stdout stays unchanged and a failure never undoes the row.
+if [ -n "$TOKEN" ] && [ -f "$GSTACK_SHIP_BUDGET_MARKER" ]; then
+  GSTACK_REVIEW_TOKEN="$TOKEN" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
+    const { settleReviewFinish } = await import(process.env.GSTACK_SHIP_BUDGET_LIB);
+    try { const id = settleReviewFinish(process.env.GSTACK_SHIP_BUDGET_MARKER, process.env.GSTACK_REVIEW_TOKEN); if (id) console.error("review-log: settled budget reservations " + id); }
+    catch (e) { console.error("review-log: budget reservation not settled: " + e.message); }
+  ' || true
+fi
 
 # gbrain-sync: enqueue for cross-machine sync (no-op if sync is off). Plan B1:
 # an unattended session never enqueues, whatever the inherited sync mode.

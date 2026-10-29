@@ -25,8 +25,14 @@
 //       the caller must handle), exit 2 on bad args / unresolvable base /
 //       broken version source.
 //
-//   write --version <X.Y.Z.W> [--version-path <p>] [--regen-digest] [--changelog <p>]
+//   write --version <X.Y.Z.W> [--version-path <p>] [--regen-digest] [--changelog <p>] [--manifest-form npm|full]
 //       Validates the 4-digit pattern, writes VERSION + package.json.version.
+//       --manifest-form full: the manifest and its npm lockfiles carry the
+//       version as written instead of the npm-valid translation (default
+//       npm). For repos whose declared convention is a four-part manifest
+//       (gbrain); gstack-restamp passes it only when the policy lists the
+//       manifest as a stamp file and the base's copy holds four parts. No
+//       effect when the version path is itself a JSON manifest.
 //       --changelog <p> (opt-in): re-head the branch's `## [Unreleased]`
 //       entry in <p> as `## [<version>] - <UTC date>` at the top, with
 //       lib/changelog-check's reheadChangelog — the same function
@@ -455,6 +461,8 @@ function cmdWrite(args: string[], cwd: string): void {
   if (!VERSION_RE.test(version!)) {
     fail(`NEW_VERSION (${version}) does not match MAJOR.MINOR.PATCH[.MICRO]. Aborting.`, 2);
   }
+  const manifestForm = argVal(args, "--manifest-form") ?? "npm";
+  if (manifestForm !== "npm" && manifestForm !== "full") fail("write: --manifest-form needs npm|full", 2);
   const src = versionSource(cwd, argVal(args, "--version-path"));
   if (src.outcome === "broken") failBroken(src, "write");
   if (src.outcome !== "valid") {
@@ -528,7 +536,8 @@ function cmdWrite(args: string[], cwd: string): void {
   // 3-digit translation — npm rejects a fourth component, so mirroring the
   // raw 4-digit form breaks `npm ci` in any repo npm actually manages.
   // VERSION keeps the full 4-digit form; it stays the source of truth.
-  const manifestV = npmVersion(version!);
+  // --manifest-form full keeps a repo's declared four-part manifest as is.
+  const manifestV = manifestForm === "full" ? version! : npmVersion(version!);
   if (hasPkg) {
     let pkgWritten = false;
     try {

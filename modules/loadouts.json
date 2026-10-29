@@ -1,0 +1,62 @@
+{
+  "$schema": "./loadouts.schema.json",
+  "version": 1,
+  "note": "Per-model loadouts (GSTA-140). Every rung loads full until a GSTA-2 measurement shows a smaller loadout matches full within its preregistered margin; each change cites that run in the loadout's note. Module ids: bin/gstack-modules list. Guide: docs/loadouts.md.",
+  "aliases": {
+    "opus": "strong",
+    "sonnet": "strong",
+    "haiku": "mid"
+  },
+  "rungs": {
+    "frontier": [
+      "claude-fable-5*",
+      "gpt-6-astra*"
+    ],
+    "strong": [
+      "claude-opus-5*",
+      "claude-sonnet-5*",
+      "gpt-6.1-sol*",
+      "gpt-6-sol*",
+      "gpt-5.6-sol*",
+      "gemini-4-argon*"
+    ],
+    "mid": [
+      "claude-haiku-5*",
+      "glm-5.3",
+      "gpt-6.1-terra*",
+      "gemini-3.8-flash*",
+      "grok-4*",
+      "kimi-k3*",
+      "deepseek-v4-pro*",
+      "qwen3.8-max*"
+    ],
+    "light": [
+      "deepseek-v4.1-flash*",
+      "glm-5.3-flash*",
+      "gpt-6-luna*",
+      "qwen3.8-flash*",
+      "minimax-m3*"
+    ]
+  },
+  "pinned": [
+    "preamble:plan-mode-info",
+    "preamble:ask-user-format",
+    "preamble:completion-status",
+    "section:autoplan/unattended",
+    "section:ship/review-army",
+    "section:ship/adversarial"
+  ],
+  "loadouts": {
+    "full": {
+      "include": "*",
+      "note": "Every module: today's render."
+    }
+  },
+  "default": {
+    "frontier": "full",
+    "strong": "full",
+    "mid": "full",
+    "light": "full",
+    "unknown": "full"
+  }
+}

@@ -19,6 +19,10 @@ afterAll(() => r.cleanup());
 
 const PLAN = `# Retry backoff for the webhook worker
 
+## ELI5
+
+A failed webhook now waits longer before each retry, so the partner stops dropping them.
+
 ## Before → after
 
 Before: a failed webhook retries every second until it is dropped. After: retries back off from 500 ms to 30 s.

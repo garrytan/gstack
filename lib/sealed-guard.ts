@@ -9,6 +9,8 @@
  *   answer_markers  regexes for a quoted sealed answer in added text
  *   seed_patterns   regexes for a sampling seed in added text
  *   local_paths     true: a local home path (/home/<u>/, /Users/<u>/) in added text
+ *   allow_paths     globs exempt from the path rules (read from the base branch only; never folds case)
+ *   case_insensitive true: `paths` and `transcripts` match regardless of case
  *   visibility      "public" | "private": the destination override (reviewed on the base branch)
  *
  * The publication boundary is every commit the push publishes: the local sha
@@ -18,8 +20,9 @@
  * copies, independent of content (binary, empty, add-then-delete); text rules
  * see each commit's added lines. The effective policy is the union of the
  * destination base branch's `sealed` and the pushed one (a push can tighten,
- * never relax); waivers come only from the base branch's
- * `.gstack/sealed-allow.tsv`. A malformed or unreadable policy refuses (fail
+ * never relax); `allow_paths` exceptions come only from the base branch's
+ * policy and remove path findings before waivers, which come only from the
+ * base branch's `.gstack/sealed-allow.tsv`. A malformed or unreadable policy refuses (fail
  * closed). Visibility: the base override, else a cache under the state root
  * (a `public` answer for 24 h, a `private` one for 1 h before it may
  * downgrade a refusal), else `gh repo view` (5 s); unknown counts as public.
@@ -28,19 +31,20 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { containedRelative, globToRegExp, matchesAny } from './ship-policy';
+import { containedRelative, globToRegExp } from './ship-policy';
 import { resolveStateRoot } from './state-root';
 
 export const SEALED_CONFIG_PATH = '.gstack/pregate.json';
 export const SEALED_ALLOW_PATH = '.gstack/sealed-allow.tsv';
 export const VISIBILITY_OVERRIDE_KEY = 'sealed.visibility';
 export type SealedRule = 'sealed.path' | 'sealed.transcript' | 'sealed.answer' | 'sealed.seed' | 'sealed.local_path';
-export interface SealedPolicy { paths: string[]; transcripts: string[]; answer_markers: string[]; seed_patterns: string[]; local_paths: boolean; visibility?: 'public' | 'private' }
+export interface SealedPolicy { paths: string[]; transcripts: string[]; answer_markers: string[]; seed_patterns: string[]; local_paths: boolean; allow_paths: string[]; case_insensitive: boolean; visibility?: 'public' | 'private' }
 export interface SealedFinding { rule: SealedRule; file: string; line?: number; commit: string }
+export type ExemptFinding = SealedFinding & { glob: string };
 export interface AllowEntry { rule: string; path: string; sha: string; reason: string }
 export type Visibility = 'public' | 'private' | 'unknown';
 
-const KEYS = ['paths', 'transcripts', 'answer_markers', 'seed_patterns', 'local_paths', 'visibility'];
+const KEYS = ['paths', 'transcripts', 'answer_markers', 'seed_patterns', 'local_paths', 'allow_paths', 'case_insensitive', 'visibility'];
 const MAX_ENTRIES = 64;
 const MAX_REGEX = 256;
 const LOCAL_PATH_RE = /(?:^|[^A-Za-z0-9_.~-])(?:\/home\/[^/\s'"`]+\/|\/Users\/[^/\s'"`]+\/|[A-Za-z]:\\+Users\\+[^\\\s'"`]+\\)/;
@@ -50,9 +54,9 @@ const PRIVATE_TTL_MS = 3600_000;
 /** `<key>: <message>` errors for a `sealed` value; empty when valid. Shared with lib/pregate/config.ts. */
 export function sealedErrors(raw: unknown): Array<{ path: string; message: string }> {
   const errors: Array<{ path: string; message: string }> = [];
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [{ path: 'sealed', message: 'must be an object { paths, transcripts, answer_markers, seed_patterns, local_paths, visibility }' }];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [{ path: 'sealed', message: `must be an object { ${KEYS.join(', ')} }` }];
   const o = raw as Record<string, unknown>;
-  for (const k of Object.keys(o)) if (!KEYS.includes(k)) errors.push({ path: `sealed.${k}`, message: `unknown key; valid keys: ${KEYS.join(', ')}` });
+  for (const k of Object.keys(o)) if (!KEYS.includes(k)) errors.push({ path: `sealed.${k}`, message: `unknown key; valid keys: ${KEYS.join(', ')} (if the key comes from a newer gstack, upgrade gstack on this machine)` });
   const list = (key: string, check: (s: string) => string | null) => {
     if (!(key in o)) return;
     const v = o[key];
@@ -62,8 +66,9 @@ export function sealedErrors(raw: unknown): Array<{ path: string; message: strin
   };
   const glob = (g: string) => { const why = containedRelative(g); if (why) return why; try { globToRegExp(g); return null; } catch (e: any) { return e.message; } };
   const regex = (r: string) => { if (!r || r.length > MAX_REGEX) return `must be 1-${MAX_REGEX} characters`; try { new RegExp(r); return null; } catch (e: any) { return `is not a valid regex (${e.message})`; } };
-  list('paths', glob); list('transcripts', glob); list('answer_markers', regex); list('seed_patterns', regex);
-  if ('local_paths' in o && typeof o.local_paths !== 'boolean') errors.push({ path: 'sealed.local_paths', message: 'must be true or false' });
+  const exception = (g: string) => { const name = g.split('/').pop()!; return glob(g) ?? (name.includes('**') || /^[*?]+(\.|$)/.test(name) ? 'has a wildcard file name, which would exempt whole directories or file types; name the file (e.g. **/sealed/*/MANIFEST.json)' : null); };
+  list('paths', glob); list('transcripts', glob); list('answer_markers', regex); list('seed_patterns', regex); list('allow_paths', exception);
+  for (const k of ['local_paths', 'case_insensitive']) if (k in o && typeof o[k] !== 'boolean') errors.push({ path: `sealed.${k}`, message: 'must be true or false' });
   if ('visibility' in o && o.visibility !== 'public' && o.visibility !== 'private') errors.push({ path: 'sealed.visibility', message: 'must be "public" or "private"' });
   return errors;
 }
@@ -88,15 +93,15 @@ export function sealedPolicyAt(repoRoot: string, treeish: string, label: string)
   const errors = sealedErrors(raw.sealed);
   if (errors.length) return { error: errors.map(e => `${e.path}: ${e.message}`).join('; '), label };
   const s = raw.sealed;
-  return { policy: { paths: s.paths ?? [], transcripts: s.transcripts ?? [], answer_markers: s.answer_markers ?? [], seed_patterns: s.seed_patterns ?? [], local_paths: s.local_paths === true, visibility: s.visibility }, label };
+  return { policy: { paths: s.paths ?? [], transcripts: s.transcripts ?? [], answer_markers: s.answer_markers ?? [], seed_patterns: s.seed_patterns ?? [], local_paths: s.local_paths === true, allow_paths: s.allow_paths ?? [], case_insensitive: s.case_insensitive === true, visibility: s.visibility }, label };
 }
 
-/** Base ∪ pushed: lists concatenate, `local_paths` ORs; visibility stays private only when the base says so and the push does not say public. */
+/** Base ∪ pushed: deny lists concatenate, `local_paths` and `case_insensitive` OR (both only tighten); `allow_paths` relax, so they come from the base alone; visibility stays private only when the base says so and the push does not say public. */
 export function unionPolicies(base: SealedPolicy | null, pushed: SealedPolicy | null): SealedPolicy | null {
   if (!base && !pushed) return null;
   const u = (k: 'paths' | 'transcripts' | 'answer_markers' | 'seed_patterns') => [...new Set([...(base?.[k] ?? []), ...(pushed?.[k] ?? [])])];
   const visibility = pushed?.visibility === 'public' || base?.visibility === 'public' ? 'public' : base?.visibility === 'private' ? 'private' : undefined;
-  return { paths: u('paths'), transcripts: u('transcripts'), answer_markers: u('answer_markers'), seed_patterns: u('seed_patterns'), local_paths: !!(base?.local_paths || pushed?.local_paths), visibility };
+  return { paths: u('paths'), transcripts: u('transcripts'), answer_markers: u('answer_markers'), seed_patterns: u('seed_patterns'), local_paths: !!(base?.local_paths || pushed?.local_paths), allow_paths: base?.allow_paths ?? [], case_insensitive: !!(base?.case_insensitive || pushed?.case_insensitive), visibility };
 }
 
 /** Reviewed waivers: `rule<TAB>path<TAB>sha<TAB>reason` lines in the base branch's allow file. */
@@ -126,12 +131,20 @@ export function rangeCommits(repoRoot: string, range: string): { commits: string
 
 const HEX = /^[0-9a-f]{40,64}$/;
 
+/** The first glob matching a repo-relative path, compiled once per list (`matchesAny` normalization); null when none does. */
+function globMatcher(globs: string[], ignoreCase: boolean): (file: string) => string | null {
+  const compiled = globs.map(g => { const re = globToRegExp(g); return { g, re: ignoreCase ? new RegExp(re.source, 'i') : re }; });
+  return file => { const norm = file.replace(/\\/g, '/').replace(/^\.\//, ''); return compiled.find(c => c.re.test(norm))?.g ?? null; };
+}
+
 /** Path rules over every added, renamed or copied path, per commit (merges: paths new against every parent). */
 function pathFindings(repoRoot: string, commits: string[], p: SealedPolicy): SealedFinding[] {
   if (!p.paths.length && !p.transcripts.length) return [];
   const r = git(repoRoot, ['-c', 'core.quotePath=false', 'diff-tree', '--stdin', '-r', '--root', '-M', '-C', '--cc', '--name-status', '-z'], commits.join('\n') + '\n');
   if (!r.ok) throw new Error(`git diff-tree failed: ${r.err.slice(0, 200)}`);
   const out: SealedFinding[] = [];
+  const transcript = globMatcher(p.transcripts, p.case_insensitive);
+  const sealedPath = globMatcher(p.paths, p.case_insensitive);
   const tokens = r.out.split('\0');
   let commit = '';
   for (let i = 0; i < tokens.length; i++) {
@@ -141,8 +154,8 @@ function pathFindings(repoRoot: string, commits: string[], p: SealedPolicy): Sea
     const renamed = /^[RC]\d*$/.test(t);
     const file = renamed ? tokens[i += 2]! : tokens[++i]!;
     if (!renamed && !t.includes('A')) continue;
-    if (matchesAny(p.transcripts, file)) out.push({ rule: 'sealed.transcript', file, commit });
-    else if (matchesAny(p.paths, file)) out.push({ rule: 'sealed.path', file, commit });
+    if (transcript(file)) out.push({ rule: 'sealed.transcript', file, commit });
+    else if (sealedPath(file)) out.push({ rule: 'sealed.path', file, commit });
   }
   return out;
 }
@@ -216,7 +229,7 @@ export function resolveVisibility(url: string | null, o: VisibilityOptions = {})
 
 export interface SealedReport {
   status: 'no-policy' | 'clear' | 'refused' | 'warned' | 'error';
-  policyLabels: string[]; commits: number; findings: SealedFinding[]; waived: Array<SealedFinding & { reason: string }>;
+  policyLabels: string[]; commits: number; findings: SealedFinding[]; exempt: ExemptFinding[]; waived: Array<SealedFinding & { reason: string }>;
   visibility: Visibility; visibilitySource: string; target: string; error?: string;
 }
 
@@ -225,15 +238,20 @@ export interface EvaluateOptions {
   env?: NodeJS.ProcessEnv; gh?: VisibilityOptions['gh'];
 }
 
+/** A report for a failure before any policy is read (an unlisted range, an unreadable push); renders as a fail-closed refusal. */
+export function sealedErrorReport(error: string, target: string): SealedReport {
+  return { status: 'error', error, policyLabels: [], commits: 0, findings: [], exempt: [], waived: [], visibility: 'unknown', visibilitySource: '', target };
+}
+
 /** The whole guard for one push (or range): policies, commits, findings, waivers, visibility, verdict. */
 export function evaluateSealed(o: EvaluateOptions): SealedReport {
-  const blank = { policyLabels: [] as string[], commits: 0, findings: [] as SealedFinding[], waived: [] as Array<SealedFinding & { reason: string }>, visibility: 'unknown' as Visibility, visibilitySource: '', target: o.target };
+  const blank = { ...sealedErrorReport('', o.target), error: undefined };
   const base = o.baseRef ? sealedPolicyAt(o.repoRoot, o.baseRef, o.baseLabel ?? o.baseRef) : { policy: null, label: '(no destination base branch)' };
   if ('error' in base) return { ...blank, status: 'error', error: `the sealed policy on ${base.label} is unreadable: ${base.error}` };
   let policy: SealedPolicy | null = base.policy;
   const labels = base.policy ? [base.label] : [];
   for (const t of o.targets) {
-    const pushed = sealedPolicyAt(o.repoRoot, t.pushedSha, `pushed ${t.pushedSha.slice(0, 12)}`);
+    const pushed = sealedPolicyAt(o.repoRoot, t.pushedSha, `commit ${t.pushedSha.slice(0, 12)}`);
     if ('error' in pushed) return { ...blank, status: 'error', error: `the sealed policy in ${pushed.label} is unreadable: ${pushed.error}` };
     if (pushed.policy) labels.push(pushed.label);
     policy = unionPolicies(policy, pushed.policy);
@@ -243,6 +261,13 @@ export function evaluateSealed(o: EvaluateOptions): SealedReport {
   let found: SealedFinding[];
   try { found = scanCommits(o.repoRoot, commits, policy); }
   catch (e: any) { return { ...blank, policyLabels: labels, commits: commits.length, status: 'error', error: `could not read the published commits: ${e.message}` }; }
+  const exception = globMatcher(policy.allow_paths, false);
+  const exempt: ExemptFinding[] = [];
+  found = found.filter(f => {
+    const glob = f.rule === 'sealed.path' || f.rule === 'sealed.transcript' ? exception(f.file) : null;
+    if (glob) exempt.push({ ...f, glob });
+    return !glob;
+  });
   const allow = allowEntriesAt(o.repoRoot, o.baseRef);
   const waived: SealedReport['waived'] = [];
   const findings = found.filter(f => {
@@ -252,7 +277,7 @@ export function evaluateSealed(o: EvaluateOptions): SealedReport {
   });
   const vis = policy.visibility ? { visibility: policy.visibility as Visibility, source: `${VISIBILITY_OVERRIDE_KEY} override` } : resolveVisibility(o.remoteUrl, { env: o.env, gh: o.gh });
   const status = findings.length === 0 ? 'clear' : vis.visibility === 'private' ? 'warned' : 'refused';
-  return { status, policyLabels: labels, commits: commits.length, findings, waived, visibility: vis.visibility, visibilitySource: vis.source, target: o.target };
+  return { status, policyLabels: labels, commits: commits.length, findings, exempt, waived, visibility: vis.visibility, visibilitySource: vis.source, target: o.target };
 }
 
 const where = (f: SealedFinding) => `${f.file || '(unknown file)'}${f.line ? `:${f.line}` : ''}`;
@@ -260,6 +285,7 @@ const where = (f: SealedFinding) => `${f.file || '(unknown file)'}${f.line ? `:$
 /** stderr text for a report: findings one per line (`<rule>  <file[:line]>  commit <sha12>`), never the matched text. */
 export function renderSealed(r: SealedReport, context: string): string {
   const lines: string[] = [];
+  for (const e of r.exempt) lines.push(`${context}: exempt ${e.rule}  ${where(e)}  commit ${e.commit.slice(0, 12)} (sealed.allow_paths ${e.glob})`);
   for (const w of r.waived) lines.push(`${context}: waived ${w.rule}  ${where(w)}  commit ${w.commit.slice(0, 12)} (${SEALED_ALLOW_PATH}: ${w.reason})`);
   const vis = `visibility: ${r.visibility}${r.visibility === 'unknown' ? ', counted public' : ''}; ${r.visibilitySource}`;
   const body = r.findings.map(f => `  ${f.rule}  ${where(f)}  commit ${f.commit.slice(0, 12)}`);
@@ -268,7 +294,7 @@ export function renderSealed(r: SealedReport, context: string): string {
     lines.push(`Fix the sealed policy (gstack-pregate validate), then retry; an unreadable policy never passes (SEALED_OUTPUT_REFUSED)`);
   } else if (r.status === 'refused') {
     lines.push(`\n⛔ ${context} BLOCKED the publication of ${r.target} (${vis}) — sealed or eval output in ${r.commits} published commit(s):`, ...body);
-    lines.push(`Remove it from every published commit before this branch reaches a public repository, or waive one reviewed finding with a \`rule<TAB>path<TAB>sha<TAB>reason\` line in the base branch's ${SEALED_ALLOW_PATH}. A private destination: set ${VISIBILITY_OVERRIDE_KEY} "private" in the base branch's ${SEALED_CONFIG_PATH} (SEALED_OUTPUT_REFUSED)`);
+    lines.push(`Remove it from every published commit before this branch reaches a public repository, exempt a publishable path with a sealed.allow_paths glob in the base branch's ${SEALED_CONFIG_PATH}, or waive one reviewed finding with a \`rule<TAB>path<TAB>sha<TAB>reason\` line in the base branch's ${SEALED_ALLOW_PATH}. A private destination: set ${VISIBILITY_OVERRIDE_KEY} "private" in the base branch's ${SEALED_CONFIG_PATH} (SEALED_OUTPUT_REFUSED)`);
   } else if (r.status === 'warned') {
     lines.push(`${context}: warning — sealed or eval output in a push to a private destination (${vis}); it would be refused for a public one:`, ...body);
   }

@@ -36,16 +36,18 @@ import { EXIT, exitTableHelp, type ShipReceipt } from '../lib/headless-artifacts
 import { resultLine, resultLineWithDocs } from '../lib/result-codes';
 import { versionAtRef } from '../lib/restamp';
 import { readPregateFile, verifyPregate } from '../lib/pregate/index';
-import { isUnavailable, loadPolicyFromBase, matchesAny, policyUnavailableLine, resolveBaseBranch, stampFilesInTree, validatePolicy, type ShipPolicy } from '../lib/ship-policy';
+import { isUnavailable, loadPolicyFromBase, matchesAny, policyUnavailableLine, resolveBaseBranch, runningGstackVersion, stampFilesInTree, validatePolicy, type ShipPolicy } from '../lib/ship-policy';
 import { approvalForReceipt } from '../lib/approval-citations';
 import {
   CARRY_METADATA_GLOBS, CARRY_NAMED_PATHS, CARRY_TEST_GLOBS,
-  bindReceipt, carryReceipt, classifyCarryPath, computeCensus, extractReceipt, missingIssueLines, orderReceipt, parseReviewLoop, placeReceiptFirst, planCarry,
+  bindReceipt, carryReceipt, classifyCarryPath, computeCensus, extractReceipt, missingIssueLines, orderReceipt, parseReviewLoop, placeReceiptFirst, planCarry, planTreeCarry,
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
+import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, receiptDepthAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
+import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
 
 const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block (docs/ship-policy.md#ship-receipt)
 
@@ -61,10 +63,12 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
   census --repo <r> --since <tag|date> [--cohort <file>]
                                       the P7 adoption number over merged PRs (deduplicated by run and thread)
   carry --pr <n> [--repo <r>] | --body <file> [--base <ref>] [--head <sha>] [--pregate <pregate.json>] [--dry-run] [--out <dir>]
-                                      carry the receipt to HEAD when only a base merge, tests or release metadata changed
-                                      since its head (product patch-id unchanged): rewrites the receipt with a \`carry\` record,
-                                      posts the body (gh pr edit) and prints GSTACK_RESULT: skill=ship status=complete;
-                                      RECEIPT_CARRY_PRODUCT_CHANGED / RECEIPT_CARRY_REFUSED leave the body unchanged (exit 3);
+                                      carry the receipt to HEAD when only a base merge, tests, release metadata or registered
+                                      outputs the --pregate regen check proved (recreated them) changed since its head (product patch-id
+                                      unchanged), or after a rebase onto a tree the receipt covers with the recorded product
+                                      patch-id: rewrites the receipt with a \`carry\` record, posts the body (gh pr edit) and
+                                      prints GSTACK_RESULT: skill=ship status=complete; RECEIPT_CARRY_PRODUCT_CHANGED /
+                                      RECEIPT_CARRY_TREE_MISMATCH / RECEIPT_CARRY_REFUSED leave the body unchanged (exit 3);
                                       a receipt that records a pregate needs --pregate current for HEAD (RECEIPT_CARRY_PREGATE_STALE);
                                       needs git >= 2.39 (RECEIPT_GIT_TOO_OLD)
   docs-caps [--base <ref>]            /ship Step 14.5: one DOCS_CAP: <path> <bytes>/<max> ok|over line per docs.caps entry of the
@@ -80,6 +84,11 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   --review-loop <json|@file> ({passes, blocking_found, deferred[, noted, fixed, scope]}: gstack-review-scope summary --out)
   --docs <json|@file> ({status: updated|current|blocked, scope[, exception: {accepted_by, date, via, reason}]}: Step 14.5's outcome;
   blocked without an exception is DOCS_AUDIT_BLOCKED, and with --body the body must carry the exception line verbatim)
+  --review-loop-exception <json|@file> ({accepted_by, date, via, reason, fix_check: {head, findings[, files]}}: the owner accepted a
+  stop after a fix-check edit; needs --review-loop with fix_checks >= 1, fix_check.head an ancestor of the head, and with --body the
+  "Review-loop exception: …" line verbatim; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
+  review_depth: the depth HEAD needs, recomputed from the committed range (--head must be HEAD; a dirty checkout or an
+  unreadable input records full).
   --approval-run <autoplan run dir> (repeatable; resolves plan-sha citations) (W2: a class declared in origin/<base>'s
   .gstack/approval-classes.json with hits needs a citation that resolves and binds to its effects: APPROVAL_CITATION_MISSING)
   --out <file> --body <pr-body.md>. Defaults: head=HEAD, base=origin/HEAD's branch, version=the
@@ -134,10 +143,30 @@ function receiptVersion(repoRoot: string, head: string, base: string): string | 
   return 'none';
 }
 
+/**
+ * What a later carry across rewritten history compares: the head's tree and its
+ * product patch-id against the base. Both are evidence, never a gate: a head
+ * outside a checkout (or a base that does not resolve) records neither, and
+ * such a receipt then carries only along its own history.
+ */
+function reviewedProduct(repoRoot: string, base: string, head: string, pregateFile: string | undefined): { head_tree?: string; product_patch_id?: string } {
+  const tree = git(['rev-parse', '--verify', '--quiet', `${head}^{tree}`], repoRoot);
+  if (!tree) return {};
+  const baseRef = `origin/${base.replace(/^origin\//, '')}`;
+  const id = productPatchAgainstBase(repoRoot, productRules(repoRoot, base, verifiedOutputs(repoRoot, base, pregateFile)), baseRef, head);
+  return typeof id === 'string' ? { head_tree: tree, product_patch_id: id || 'none' } : { head_tree: tree };
+}
+
 function cmdWrite(rest: string[], json: boolean): number {
   const repoRoot = git(['rev-parse', '--show-toplevel']) ?? process.cwd();
-  const head = flag(rest, '--head') ?? git(['rev-parse', 'HEAD'], repoRoot);
+  const checkedOut = git(['rev-parse', 'HEAD'], repoRoot);
+  const head = flag(rest, '--head') ?? checkedOut;
   if (!head) { process.stderr.write('gstack-ship-receipt write: --head is required outside a git repository\n'); return EXIT.usage; }
+  const headSha = git(['rev-parse', '--verify', '--quiet', `${head}^{commit}`], repoRoot);
+  if (checkedOut && headSha !== checkedOut) {
+    process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `--head ${head.slice(0, 12)} is not the checked-out HEAD ${checkedOut.slice(0, 12)}; the receipt binds the reviewed tree, so check out ${head.slice(0, 12)} and write there; nothing written`) + '\n');
+    return EXIT.fail;
+  }
   const receiptFile = flag(rest, '--receipt');
   const tree = receiptFile ? JSON.parse(fs.readFileSync(receiptFile, 'utf8')) : null;
   let sessionKind = flag(rest, '--session-kind') ?? process.env.GSTACK_SESSION_KIND;
@@ -165,6 +194,19 @@ function cmdWrite(rest: string[], json: boolean): number {
       return EXIT.refused;
     }
   }
+  let loopException: ReturnType<typeof parseReviewLoopException> | undefined;
+  if (flag(rest, '--review-loop-exception') !== undefined) {
+    const refuse = (why: string) => { process.stderr.write(resultLineWithDocs('gstack-ship-receipt write', 'REVIEW_LOOP_EXCEPTION_INVALID', `${why}; nothing written`) + '\n'); return EXIT.fail; };
+    try { loopException = parseReviewLoopException(jsonArg(flag(rest, '--review-loop-exception'))); } catch (e: any) { return refuse(`--review-loop-exception: ${e.message}`); }
+    if (!loopException.ok) return refuse(loopException.message);
+    let loop: unknown; try { loop = jsonArg(flag(rest, '--review-loop')); } catch {}
+    if (!parseReviewLoop(loop)?.fix_checks) return refuse('--review-loop-exception needs --review-loop with fix_checks >= 1: the stop it accepts follows a fix-check');
+    const fc = loopException.exception.fix_check.head;
+    if (spawnSync('git', ['merge-base', '--is-ancestor', fc, head], { cwd: repoRoot }).status !== 0) return refuse(`fix_check.head ${fc.slice(0, 12)} is not ${head.slice(0, 12)} or an ancestor of it`);
+    const line = reviewLoopExceptionLine(loopException.exception);
+    if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
+  }
+  const reviewDepth = receiptDepthAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), headSha ?? head);
   const approval = approvalForReceipt({ repoRoot, base, head, citationText: [bodyText, ...flags(rest, '--approval')].join('\n'), runDirs: flags(rest, '--approval-run') });
   if (approval.kind === 'invalid') {
     for (const line of approval.lines) process.stderr.write(resultLine('gstack-ship-receipt write', 'APPROVAL_CLASSES_INVALID', line) + '\n');
@@ -194,7 +236,8 @@ function cmdWrite(rest: string[], json: boolean): number {
       session_kind: sessionKind, artifacts_consumed: flag(rest, '--artifacts-consumed'), run: flag(rest, '--run'), thread: flag(rest, '--thread'),
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
-      review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}),
+      review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...reviewedProduct(repoRoot, base, head, pregateFile),
+      gstack_version: runningGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined,
     };
   } catch (e: any) { process.stderr.write(`gstack-ship-receipt write: ${e.message}\n`); return EXIT.usage; }
   if (input.pr !== undefined && !Number.isInteger(input.pr)) { process.stderr.write('gstack-ship-receipt write: --pr must be an integer\n'); return EXIT.usage; }
@@ -368,12 +411,72 @@ function pregateFieldFor(repoRoot: string, file: string, head: string): { ok: tr
 }
 
 /**
+ * Generated outputs the carry may set aside as metadata: the paths the pregate
+ * passed for HEAD proved (its regen check deleted each touched output and the
+ * entry's command recreated it byte-identically), when that check ran
+ * origin/<base>'s `.gstack/generated.json` at the commit this carry reads and the
+ * path is an output of an entry with a `command` there. A proven name with glob
+ * syntax is product too: the carry uses these paths as pathspec globs.
+ */
+function verifiedOutputs(repoRoot: string, base: string, pregateFile: string | undefined): string[] {
+  if (!pregateFile) return [];
+  const regen = readPregateFile(pregateFile).file?.checks.find(c => c.id === 'regen');
+  if (!regen || regen.status !== 'pass' || !regen.proven?.length) return [];
+  const load = loadRegistryFromBase(repoRoot, base);
+  if (isRegistryUnavailable(load) || load.errors.length || regen.inputs?.registry !== load.source.label) return [];
+  const owned = load.registry.entries.filter(e => e.command).flatMap(e => e.outputs);
+  return regen.proven.filter(p => !/[*?[\]\\]/.test(p) && matchesAny(owned, p));
+}
+
+interface ProductRules { extra: { metadata: string[]; outputs: readonly string[] }; metadata: string[]; templates: readonly string[] }
+function productRules(repoRoot: string, base: string, outputs: readonly string[]): ProductRules {
+  const load = loadPolicyFromBase(repoRoot, base);
+  const policy: ShipPolicy | null = isUnavailable(load) ? null : load.policy;
+  const extra = { metadata: [...(policy?.stamp_files ?? []), ...(policy?.stamp_paths ?? []), ...(policy?.release_outputs ?? []), ...(policy?.changelog ? [policy.changelog] : [])], outputs };
+  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...outputs], templates: policy?.stamp_patterns ?? [] };
+}
+
+/**
+ * The product pathspec between two commits: every path but tests and release
+ * metadata, where a metadata-listed path whose change from `from` to `to` is
+ * not a stamp stays product (every glob that matches it leaves the exclusion).
+ */
+function productSpec(repoRoot: string, rules: ProductRules, from: string, to: string): { changed: Array<{ path: string; class: ReturnType<typeof classifyCarryPath> }>; product: string[]; tests: string[] } | undefined {
+  const changedRaw = git(['diff', '--name-only', from, to], repoRoot);
+  if (changedRaw === undefined) return undefined;
+  const blobAt = (ref: string, p: string): string | null => { const r = spawnSync('git', ['show', `${ref}:${p}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
+  const versionAt = (ref: string): string | null => {
+    const file = blobAt(ref, 'VERSION');
+    if (file !== null) return file.trim() || null;
+    try { const v = JSON.parse(blobAt(ref, 'package.json') ?? 'null')?.version; return typeof v === 'string' ? v : null; } catch { return null; }
+  };
+  const oldVersion = versionAt(from);
+  const newVersion = versionAt(to);
+  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classifyCarryPath(p, rules.extra, matchesAny(rules.metadata, p) && !matchesAny(rules.extra.outputs, p) ? { before: blobAt(from, p), after: blobAt(to, p), oldVersion, newVersion, templates: rules.templates } : undefined) }));
+  const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
+  const demoted = changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path);
+  const metadataGlobs = rules.metadata.filter(g => !demoted.some(p => matchesAny([g], p)));
+  return { changed, product: ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs)], tests: [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs)] };
+}
+
+/** A commit's product patch-id against its merge base with the base ('' for no product diff), as write records it and a rewritten-history carry recomputes it. */
+function productPatchAgainstBase(repoRoot: string, rules: ProductRules, baseRef: string, commit: string): string | { error: string } {
+  const mergeBase = git(['merge-base', baseRef, commit], repoRoot);
+  if (!mergeBase) return { error: `cannot resolve the merge base of ${baseRef} and ${commit.slice(0, 12)}` };
+  const spec = productSpec(repoRoot, rules, mergeBase, commit);
+  if (!spec) return { error: `git diff ${mergeBase.slice(0, 12)} ${commit.slice(0, 12)} failed` };
+  return patchId(repoRoot, mergeBase, commit, spec.product);
+}
+
+/**
  * The receipt follows HEAD when the reviewed product is unchanged
  * (docs/unattended.md#the-terminal-line; harness lane E row 3). Four Captains
  * reran a full /ship on identical product code after a base merge or a
  * test-only fix; the carry compares the product diff against the base at the
  * receipt's head and at HEAD by patch-id, classifies every changed path, and
- * records the range-diff as evidence in the receipt it rewrites.
+ * records the range-diff as evidence in the receipt it rewrites. After a rebase
+ * or force-push it carries only onto a tree the receipt covers whose product
+ * patch-id against the current base is the recorded one (planTreeCarry).
  */
 function cmdCarry(rest: string[], json: boolean): number {
   const bodyFile = flag(rest, '--body');
@@ -384,7 +487,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (!repoRoot) { process.stderr.write('gstack-ship-receipt carry: run it inside the git checkout whose head carries the receipt\n'); return EXIT.usage; }
   const head = (flag(rest, '--head') ?? git(['rev-parse', 'HEAD'], repoRoot))?.toLowerCase();
   if (!head || !/^[0-9a-f]{40,64}$/.test(head)) { process.stderr.write('gstack-ship-receipt carry: cannot resolve HEAD\n'); return EXIT.usage; }
-  const refused = (code: 'QUEUE_RECEIPT_MISSING' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_GIT_TOO_OLD' | 'RECEIPT_CARRY_PREGATE_STALE', message: string) => {
+  const refused = (code: 'QUEUE_RECEIPT_MISSING' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_TREE_MISMATCH' | 'RECEIPT_GIT_TOO_OLD' | 'RECEIPT_CARRY_PREGATE_STALE', message: string) => {
     process.stderr.write(resultLineWithDocs('gstack-ship-receipt carry', code, message) + '\n');
     process.stdout.write(json ? JSON.stringify({ skill: 'ship', status: 'refused', run: '-', code, message }) + '\n' : `CARRY: refused (${code})\nGSTACK_RESULT: skill=ship status=refused run=-\n`);
     return EXIT.refused;
@@ -425,66 +528,79 @@ function cmdCarry(rest: string[], json: boolean): number {
   }
   const oldGit = gitVersionBelow(repoRoot, CARRY_MIN_GIT);
   if (oldGit) return refused('RECEIPT_GIT_TOO_OLD', `git ${oldGit} cannot run patch-id --verbatim; the carry needs git ${CARRY_MIN_GIT} or later`);
-  const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', from, head], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 });
-  if (ancestor.status !== 0) return refused('RECEIPT_CARRY_REFUSED', `the receipt's head ${from.slice(0, 12)} is not an ancestor of HEAD ${head.slice(0, 12)} (rebased or force-pushed); merge the base in next time, and run /ship now`);
   // The carry binds HEAD alone: pending edits are not in the commits it compares, and a parent that stops at CARRY: carried would report them shipped.
   const status = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
   if (status.status !== 0) return refused('RECEIPT_CARRY_REFUSED', 'git status failed; the carry needs a readable working tree');
   const dirty = status.stdout.split('\n').filter(Boolean).map(l => l.slice(3).replace(/^.* -> /, ''));
   if (dirty.length) return refused('RECEIPT_CARRY_REFUSED', `the working tree has uncommitted changes (${dirty.slice(0, 5).join(', ')}${dirty.length > 5 ? ` +${dirty.length - 5} more` : ''}); commit them and carry at the new head, or run /ship`);
+  const fromKnown = git(['cat-file', '-e', `${from}^{commit}`], repoRoot) !== undefined;
+  const ancestor = fromKnown && spawnSync('git', ['merge-base', '--is-ancestor', from, head], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 }).status === 0;
+  const fromTree = fromKnown ? git(['rev-parse', `${from}^{tree}`], repoRoot) : undefined;
+  const covered = [...(receipt.head_tree ? [receipt.head_tree] : fromTree ? [fromTree] : []), ...(receipt.carry?.trees ?? [])];
+  if (!ancestor && !covered.length) return refused('RECEIPT_CARRY_REFUSED', `the receipt's head ${from.slice(0, 12)} is not an ancestor of HEAD ${head.slice(0, 12)} (rebased or force-pushed), and the receipt records no tree to compare; merge the base in next time, and run /ship now`);
   const base = flag(rest, '--base') ?? receipt.base ?? resolveBaseBranch(repoRoot);
   const baseRef = `origin/${base.replace(/^origin\//, '')}`;
-  const fromBase = git(['merge-base', baseRef, from], repoRoot);
   const headBase = git(['merge-base', baseRef, head], repoRoot);
-  if (!fromBase || !headBase) return refused('RECEIPT_CARRY_REFUSED', `cannot resolve the merge base of ${baseRef} (fetch it first)`);
-  const load = loadPolicyFromBase(repoRoot, base);
-  const policy = isUnavailable(load) ? null : load.policy;
-  const extra = { metadata: [...(policy?.stamp_files ?? []), ...(policy?.stamp_paths ?? []), ...(policy?.release_outputs ?? []), ...(policy?.changelog ? [policy.changelog] : [])] };
-  const changedRaw = git(['diff', '--name-only', from, head], repoRoot);
-  if (changedRaw === undefined) return refused('RECEIPT_CARRY_REFUSED', `git diff ${from.slice(0, 12)} ${head.slice(0, 12)} failed`);
-  // Every metadata-listed path is read at both heads: only a stamp keeps it out of the product patch.
-  const blobAt = (ref: string, p: string): string | null => { const r = spawnSync('git', ['show', `${ref}:${p}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
-  const versionAt = (ref: string): string | null => {
-    const file = blobAt(ref, 'VERSION');
-    if (file !== null) return file.trim() || null;
-    try { const v = JSON.parse(blobAt(ref, 'package.json') ?? 'null')?.version; return typeof v === 'string' ? v : null; } catch { return null; }
-  };
-  const oldVersion = versionAt(from);
-  const newVersion = versionAt(head);
-  const allMetadataGlobs = [...CARRY_METADATA_GLOBS, ...extra.metadata];
-  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classifyCarryPath(p, extra, matchesAny(allMetadataGlobs, p) ? { before: blobAt(from, p), after: blobAt(head, p), oldVersion, newVersion, templates: policy?.stamp_patterns ?? [] } : undefined) }));
-  // Pathspecs by class: tests and metadata are excluded from the product patch; the test patch is the tests alone.
-  // A metadata-listed path whose change was not a stamp stays in the product patch: every glob that matches it is dropped from the exclusion.
-  const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
-  const demoted = changed.filter(c => c.class === 'product' && matchesAny(allMetadataGlobs, c.path)).map(c => c.path);
-  const metadataGlobs = allMetadataGlobs.filter(g => !demoted.some(p => matchesAny([g], p)));
-  const productSpec = ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs)];
-  const testSpec = [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs)];
-  const productFrom = patchId(repoRoot, fromBase, from, productSpec);
-  const productHead = patchId(repoRoot, headBase, head, productSpec);
-  const asId = (r: string | { error: string }) => (typeof r === 'string' ? r : '');
-  const testFrom = asId(patchId(repoRoot, fromBase, from, testSpec));
-  const testHead = asId(patchId(repoRoot, headBase, head, testSpec));
-  for (const r of [productFrom, productHead]) if (typeof r !== 'string') return refused('RECEIPT_CARRY_REFUSED', `git could not compute the product patch-id at one of the heads: ${r.error}`);
-  // planCarry names at most CARRY_NAMED_PATHS differing paths, so the per-path comparison (two patch-ids each) stops there,
-  // and it walks only the paths the branch itself touched against the base at either head: a base merge brings in every
-  // path the base changed, none of which can differ between the two base diffs.
-  const changedProduct: string[] = [];
-  if (productFrom !== productHead) {
-    const touched = new Set([...(git(['diff', '--name-only', fromBase, from], repoRoot) ?? '').split('\n'), ...(git(['diff', '--name-only', headBase, head], repoRoot) ?? '').split('\n')].filter(Boolean));
-    for (const p of [...touched].sort()) {
-      if (changedProduct.length >= CARRY_NAMED_PATHS) break;
-      const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, extra);
-      if (cls !== 'product') continue;
-      if (asId(patchId(repoRoot, fromBase, from, [p])) !== asId(patchId(repoRoot, headBase, head, [p]))) changedProduct.push(p);
+  if (!headBase) return refused('RECEIPT_CARRY_REFUSED', `cannot resolve the merge base of ${baseRef} (fetch it first)`);
+  const rules = productRules(repoRoot, base, verifiedOutputs(repoRoot, base, flag(rest, '--pregate')));
+  const headTree = git(['rev-parse', `${head}^{tree}`], repoRoot);
+  if (!headTree) return refused('RECEIPT_CARRY_REFUSED', `git could not read the tree of HEAD ${head.slice(0, 12)}`);
+  const headPatch = productPatchAgainstBase(repoRoot, rules, baseRef, head);
+  if (typeof headPatch !== 'string') return refused('RECEIPT_CARRY_REFUSED', `git could not compute HEAD's product patch-id: ${headPatch.error}`);
+  const reviewedBase = receipt.base.replace(/^origin\//, '');
+  const retarget = reviewedBase !== base.replace(/^origin\//, '');
+  let plan: ReturnType<typeof planCarry>;
+  if (!ancestor) {
+    // Rewritten history: the receipt follows only onto a tree it already covers, with the product diff it recorded.
+    const recorded = receipt.product_patch_id !== undefined ? (receipt.product_patch_id === 'none' ? '' : receipt.product_patch_id) : fromKnown ? productPatchAgainstBase(repoRoot, rules, baseRef, from) : { error: 'the receipt records no product patch-id and its head is not in this clone' };
+    if (typeof recorded !== 'string') return refused('RECEIPT_CARRY_REFUSED', `the reviewed product patch-id is unavailable: ${recorded.error}; run /ship on ${head.slice(0, 12)}`);
+    plan = planTreeCarry({ from, head, headTree, coveredTrees: covered, productPatchId: { recorded, head: headPatch } });
+  } else {
+    const fromBase = git(['merge-base', baseRef, from], repoRoot);
+    if (!fromBase) return refused('RECEIPT_CARRY_REFUSED', `cannot resolve the merge base of ${baseRef} (fetch it first)`);
+    const spec = productSpec(repoRoot, rules, from, head);
+    if (!spec) return refused('RECEIPT_CARRY_REFUSED', `git diff ${from.slice(0, 12)} ${head.slice(0, 12)} failed`);
+    const { changed } = spec;
+    const productFrom = patchId(repoRoot, fromBase, from, spec.product);
+    const productHead = patchId(repoRoot, headBase, head, spec.product);
+    const asId = (r: string | { error: string }) => (typeof r === 'string' ? r : '');
+    const testFrom = asId(patchId(repoRoot, fromBase, from, spec.tests));
+    const testHead = asId(patchId(repoRoot, headBase, head, spec.tests));
+    for (const r of [productFrom, productHead]) if (typeof r !== 'string') return refused('RECEIPT_CARRY_REFUSED', `git could not compute the product patch-id at one of the heads: ${r.error}`);
+    // A stacked child whose parent landed on the base (#3570): the receipt reviewed the child's own range against the
+    // parent branch, and the PR now targets the base. That reviewed range (the recorded product patch-id, else the one
+    // against origin/<receipt base> when it still resolves) must be HEAD's whole product diff against the base, computed
+    // the way write records it (headPatch): the parent fully landed and the child is unchanged. Anything else fails closed.
+    let reviewed = productFrom;
+    if (retarget) {
+      const parentRef = `origin/${reviewedBase}`;
+      const recorded = receipt.product_patch_id !== undefined ? (receipt.product_patch_id === 'none' ? '' : receipt.product_patch_id)
+        : git(['rev-parse', '--verify', '--quiet', `${parentRef}^{commit}`], repoRoot) ? productPatchAgainstBase(repoRoot, rules, parentRef, from) : { error: `the receipt records no product patch-id and ${parentRef} no longer resolves` };
+      if (typeof recorded !== 'string') return refused('RECEIPT_CARRY_REFUSED', `the receipt was reviewed against ${reviewedBase}, not ${base}, and its reviewed product diff is unavailable: ${recorded.error}; run /ship on ${head.slice(0, 12)}`);
+      reviewed = recorded;
     }
-    if (!changedProduct.length) changedProduct.push('(a product path outside the branch\'s touched files; compare the two base diffs)');
+    const current = retarget ? headPatch : productHead;
+    const changedProduct: string[] = [];
+    if (retarget && reviewed !== current) changedProduct.push(`HEAD's product diff against ${base} is not the one reviewed against ${reviewedBase} (the parent has not fully landed on ${base}, or the branch changed since)`);
+    else if (productFrom !== productHead && !retarget) {
+      // planCarry names at most CARRY_NAMED_PATHS differing paths, so the per-path comparison (two patch-ids each) stops there,
+      // and it walks only the paths the branch itself touched against the base at either head: a base merge brings in every
+      // path the base changed, none of which can differ between the two base diffs.
+      const touched = new Set([...(git(['diff', '--name-only', fromBase, from], repoRoot) ?? '').split('\n'), ...(git(['diff', '--name-only', headBase, head], repoRoot) ?? '').split('\n')].filter(Boolean));
+      for (const p of [...touched].sort()) {
+        if (changedProduct.length >= CARRY_NAMED_PATHS) break;
+        const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra);
+        if (cls !== 'product') continue;
+        if (asId(patchId(repoRoot, fromBase, from, [p])) !== asId(patchId(repoRoot, headBase, head, [p]))) changedProduct.push(p);
+      }
+      if (!changedProduct.length) changedProduct.push('(a product path outside the branch\'s touched files; compare the two base diffs)');
+    }
+    const mergeCommits = (git(['rev-list', '--merges', '--count', `${from}..${head}`], repoRoot) ?? '0').trim();
+    // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
+    const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${fromBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
+    const rangeDiff = rangeRaw.status === 0 ? (rangeRaw.stdout.trim().split('\n').slice(0, 20).join('\n') || '(empty: identical ranges)') : `unavailable: ${(rangeRaw.stderr ?? '').trim().split('\n')[0] || (rangeRaw.signal ? `range-diff killed by ${rangeRaw.signal} after 15 s` : 'range-diff failed')}`;
+    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}) });
   }
-  const mergeCommits = (git(['rev-list', '--merges', '--count', `${from}..${head}`], repoRoot) ?? '0').trim();
-  // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
-  const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${fromBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
-  const rangeDiff = rangeRaw.status === 0 ? (rangeRaw.stdout.trim().split('\n').slice(0, 20).join('\n') || '(empty: identical ranges)') : `unavailable: ${(rangeRaw.stderr ?? '').trim().split('\n')[0] || (rangeRaw.signal ? `range-diff killed by ${rangeRaw.signal} after 15 s` : 'range-diff failed')}`;
-  const plan = planCarry({ from, head, changed, productPatchId: { from: productFrom, head: productHead }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff });
   if (!plan.ok) return refused(plan.code, plan.message);
   // Eligibility is not publication: a receipt that recorded a pregate is rebound only with a pregate current for HEAD,
   // so a carried receipt never claims the old tree's checks (docs/ship-policy.md#receipt-carry).
@@ -499,7 +615,21 @@ function cmdCarry(rest: string[], json: boolean): number {
   } else if (receipt.pregate && !rest.includes('--dry-run')) {
     return refused('RECEIPT_CARRY_PREGATE_STALE', `the receipt records a pregate for ${receipt.head.slice(0, 12)}; run gstack-pregate at HEAD ${head.slice(0, 12)} and pass --pregate <pregate.json>`);
   }
-  const carried = carryReceipt(pregateField ? { ...receipt, ...pregateField } : receipt, head, plan.carry);
+  let depthField: Partial<ShipReceipt> = {};
+  const isAncestor = (commit: string) => !ancestor || spawnSync('git', ['merge-base', '--is-ancestor', commit, head], { cwd: repoRoot, timeout: 30_000 }).status === 0;
+  const problems = exceptionProblems(body, receipt, isAncestor);
+  if (problems.length) return refused('RECEIPT_CARRY_REFUSED', `the receipt's owner exception does not stand: ${problems.join('; ')}; run /ship on ${head.slice(0, 12)}`);
+  if (receipt.review_depth || receipt.gstack_version) {
+    if (!receipt.review_depth) return refused('RECEIPT_CARRY_REFUSED', `the receipt records gstack_version but no review_depth, so the queue would refuse it; run /ship on ${head.slice(0, 12)}`);
+    const checkedOut = git(['rev-parse', 'HEAD'], repoRoot)?.toLowerCase();
+    if (checkedOut !== head) return refused('RECEIPT_CARRY_REFUSED', `--head ${head.slice(0, 12)} is not the checked-out HEAD ${(checkedOut ?? 'none').slice(0, 12)}; the gate scan reads the checkout, so check out ${head.slice(0, 12)} and carry there`);
+    const now = receiptDepthAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), head);
+    if (depthBelow(receipt.review_depth.depth, now.depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} needs ${now.depth} review depth (${now.reasons.join(', ')}), above the receipt's ${receipt.review_depth.depth}; run /ship on ${head.slice(0, 12)}`);
+    depthField = { review_depth: { ...now, depth: deeper(receipt.review_depth.depth, now.depth) } };
+  }
+  // The rebound product_patch_id is HEAD's diff against the carry's base, so a retargeted receipt names that base from now on.
+  const rebound = { ...receipt, ...(retarget ? { base: base.replace(/^origin\//, '') } : {}), ...(pregateField ?? {}), ...depthField };
+  const carried = carryReceipt(rebound, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
   const errors = validateReceipt(carried);
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
   const newBody = placeReceiptFirst(body, carried);

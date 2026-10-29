@@ -7,6 +7,9 @@ shape from an autoplan run; write it by hand for any other plan.
 ```text
 Decision needed on <thread>: <one-line title>. Reply **rec** to take every recommendation.
 
+## ELI5
+<5-10 plain sentences: what changes, for whom, and what it costs>
+
 ## Before → after
 <what the user or maintainer sees today; what they will see after; a command and its
 output, a screen, a cost or time number>

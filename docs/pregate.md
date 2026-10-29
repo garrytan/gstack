@@ -25,7 +25,10 @@ passes. Standalone, `gstack-regen check` lists the commands and exits 3
 (`REPO_COMMANDS_NOT_ALLOWED`); `gstack-pregate` marks `regen` and `lanes`
 `incomplete`, never `pass`. `--policy-from head` (a PR that introduces or
 changes a pin file) is accepted only with `--allow-repo-commands` and the record
-says `policy head (unreviewed)`. An unresolvable base exits 3 with
+says `policy head (unreviewed)`. So a lane or allowlist entry a branch adds to
+its own `pregate.json` counts only once it is on the base; `PREGATE_NO_LANE`'s
+fix line says so when the branch edits the file
+([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)). An unresolvable base exits 3 with
 `POLICY_SOURCE_UNAVAILABLE`. Globs are repo-relative (no `..`, no absolute
 paths, at most 64 per list); commands are one line under 512 bytes.
 
@@ -146,7 +149,12 @@ Two stages with separate clocks, both printed:
 ~2.5 s for `regen` and under 200 ms for each of the others):
 
 - `regen`: every registry entry whose inputs or outputs are touched is fresh
-  (`gstack-regen check` in a scratch worktree).
+  (`gstack-regen check` in a scratch worktree). A fresh entry with touched
+  outputs then runs once more with those outputs deleted; the ones the command
+  recreates byte-identically are the check's `proven` paths, which
+  `gstack-ship-receipt carry` reads. The verdict comes from the first run: an
+  output the second run does not recreate, or a second run that fails, is
+  simply not proven.
 - `secrets`: `gstack-redact` over the branch's added lines (merge-base to the
   working tree, untracked files included). HIGH, or MEDIUM in the `secret`
   category, fails; other MEDIUM findings warn. Cannot be downgraded.
@@ -763,11 +771,13 @@ with a timing flake: never raise the bound.
 
 ```json
 { "sealed": {
-    "paths": ["heldout/**"],
+    "paths": ["heldout/**", "**/sealed/**"],
     "transcripts": ["runs/**/transcript*.jsonl"],
+    "allow_paths": ["**/sealed/*/MANIFEST.json", "**/protected/MANIFEST.json"],
     "answer_markers": ["SEALED ANSWER:"],
     "seed_patterns": ["shuffle_seed=\\d+"],
-    "local_paths": true } }
+    "local_paths": true,
+    "case_insensitive": true } }
 ```
 
 A repo with a `sealed` key gets a configured local check against accidental
@@ -787,8 +797,41 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   in a later commit); `sealed.answer`, `sealed.seed` and `sealed.local_path`
   (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`) check each commit's added
   lines. Findings print rule, `file[:line]` and commit, never the text.
+- **Globs.** `paths`, `transcripts` and `allow_paths` match the whole
+  repo-relative path from the repository root. `*` and `?` stay inside one
+  path segment; `**/` spans zero or more directories; a `**` not followed by
+  `/` matches across directories (`heldout/**` covers every depth under
+  `heldout/`); `[` and `{` are literal. So `sealed/**` misses `tasks/x/sealed/a.json`:
+  to guard a `sealed/` directory wherever it sits, write `**/sealed/**`.
+- **Case.** Matching is case-sensitive. `case_insensitive: true` folds case
+  for `paths` and `transcripts` only, so `**/heldout/**` also catches
+  `HELDOUT/` and `HeldOut/`. Separator and spelling variants (`hold-out/`,
+  `held_out/`, `heldout-v2/`) are not folded: list each as its own glob.
+  The effective value is the base branch's OR the pushed one (it only tightens).
+- **Exceptions.** `allow_paths` exempts publishable files that sit next to
+  sealed data (a `MANIFEST.json` of hashes and counts) from `sealed.path` and
+  `sealed.transcript`, applied after the deny globs and before waivers. They
+  are read from the destination base branch only: an exception a push adds
+  takes effect once it lands on the base branch, so a branch can never widen
+  its own. They never fold case. An entry whose file name contains `**`, or
+  is only wildcards before its extension (`**`, `sealed/*`, `**/*.json`,
+  `sealed/**.json`), is refused; a partial wildcard such as `MANIFEST*.json`
+  is accepted and matches every file it spells, so name the file. An exempt file is checked by the
+  text rules only, so configure `answer_markers` when you exempt files next to
+  sealed data. Each exempt path is listed on every push (`exempt <rule>
+  <file> commit <sha> (sealed.allow_paths <glob>)`) and counted as
+  `exempt=<n>` on the `SEALED:` line.
+- **Version skew.** A gstack older than the release whose CHANGELOG adds
+  `sealed.allow_paths` refuses `allow_paths` and `case_insensitive` as
+  unknown keys, so every push and `gstack-pregate run` in the repository
+  fail on that machine. Raise `min_gstack_version` in
+  `.gstack/ship-policy.json` to that release before landing either key.
 - **Policy.** The union of the destination base branch's `sealed` and the
-  pushed commit's: a push can tighten it, never relax it. A malformed or
+  pushed commit's: a push can tighten it, never relax it (`allow_paths` come
+  from the base branch alone, and a pushed deny glob cannot override one). The
+  `SEALED:` line names both as `policy=<remote>/<base> + commit <sha12>`.
+  `gstack-pregate sealed` only checks and never pushes, so confirm a push with
+  `git ls-remote <remote> <ref>`. A malformed or
   unreadable policy refuses. Waivers come only from the base branch's
   `.gstack/sealed-allow.tsv` (`rule<TAB>path<TAB>sha<TAB>reason`) and are
   listed on every push.

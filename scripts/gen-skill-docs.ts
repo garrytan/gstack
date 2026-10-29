@@ -23,10 +23,13 @@ import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
 import { HOST_PATHS } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
-import { rewriteCarvedSectionRefs, SKILL_BYTE_CEILING, usesLazySections } from './resolvers/sections';
+import { applySectionGuards, rewriteCarvedSectionRefs, SKILL_BYTE_CEILING, usesLazySections } from './resolvers/sections';
+import { ModuleError, excludedSkillDirs, selectModules } from './modules';
+import type { ModuleFilter } from './resolvers/types';
 import { insertRuntimePreludes } from './resolvers/runtime-root';
 import { generateSharedPreambleFile, hoistsPreamble, SHARED_PREAMBLE_FILE } from './resolvers/preamble-hoist';
 import { extractVoiceTriggers } from './resolvers/voice-triggers';
+import { frontmatterList, withTriggerLead } from '../lib/skill-triggers';
 import { ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
 import type { HostConfig } from './host-config';
 
@@ -54,6 +57,8 @@ export interface GenerationOptions {
   respectDetection?: boolean;
   log?: (message: string) => void;
   planMode?: boolean;
+  /** Module loadout (scripts/modules.ts selectModules); null/undefined = `full`. */
+  modules?: ModuleFilter | null;
 }
 
 interface RenderOptions {
@@ -66,6 +71,7 @@ interface RenderOptions {
   explainLevel: 'default' | 'terse';
   gbrainDetected: boolean;
   planMode: boolean;
+  modules: ModuleFilter | null;
 }
 
 export interface GeneratedArtifact {
@@ -144,6 +150,10 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   const disabledSkills = (disabledValue ?? '').split(/[\s,]+/).filter(Boolean);
   const badDisabled = disabledSkills.find(n => !/^\/?[a-z0-9-]+$/.test(n));
   if (badDisabled) throw new Error(`--disabled-skills takes skill names (got ${JSON.stringify(badDisabled)})`);
+  const modules = selectModules({ loadout: value('--loadout'), modules: value('--modules') });
+  if (modules && (outDir === undefined || path.resolve(outDir) === ROOT)) {
+    throw new ModuleError('MODULE_SPEC_INVALID', `--${value('--modules') === undefined ? 'loadout' : 'modules'} with exclusions needs an --out-dir outside the checkout root; the committed tree is always the full render`, 'bin/gstack-modules render --host <host> --modules <spec> --out-dir <dir>');
+  }
   const installRoot = value('--install-root');
   if (installRoot !== undefined && !INSTALL_ROOT_PATTERN.test(installRoot)) {
     throw new Error(`--install-root must be an absolute path of letters, digits and . _ - + @ / (got ${JSON.stringify(installRoot)})`);
@@ -159,7 +169,19 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
       : outDir !== undefined ? path.resolve(outDir) : null,
     installRoot: installRoot ?? null,
     disabledSkills,
+    modules,
   };
+}
+
+/** A section file is left out when its skill or its manifest entry is excluded. */
+function excludesSection(filter: ModuleFilter | null, skillDir: string, tmpl: string): boolean {
+  if (!filter) return false;
+  if (filter.excluded.has(`skill:${skillDir}`)) return true;
+  const file = path.basename(tmpl).replace(/\.tmpl$/, '');
+  const manifest = path.join(ROOT, skillDir, 'sections', 'manifest.json');
+  if (!fs.existsSync(manifest)) return false;
+  const entry = (JSON.parse(fs.readFileSync(manifest, 'utf-8')).sections ?? []).find((s: { file: string }) => s.file === file);
+  return entry ? filter.excluded.has(`section:${skillDir}/${entry.id}`) : false;
 }
 
 /** Install roots are spliced into shell lines unquoted, so only plain absolute paths. */
@@ -489,7 +511,8 @@ function transformFrontmatter(content: string, host: Host): string {
   if (fmEnd === -1) return content;
   const frontmatter = content.slice(fmStart + 4, fmEnd);
   const body = content.slice(fmEnd + 4);
-  const { name, description } = extractNameAndDescription(content);
+  const { name, description: fullDescription } = extractNameAndDescription(content);
+  const description = fm.descriptionLead ? withTriggerLead(fullDescription, frontmatterList(content, 'triggers'), fm.descriptionLead) : fullDescription;
 
   // Description limit enforcement
   if (fm.descriptionLimit) {
@@ -657,7 +680,7 @@ function resolvePlaceholders(
   // section generation so both paths get the same gbrain-aware behavior.
   const suppressed = effectiveSuppressedResolvers(hostConfig, options);
   const onePass = (input: string): string =>
-    input.replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (_match, fullKey) => {
+    applySectionGuards(input, ctx).replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (_match, fullKey) => {
       const parts = fullKey.split(':');
       const resolverName = parts[0];
       const args = parts.slice(1);
@@ -713,6 +736,7 @@ function buildContext(
   return {
     skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host],
     preambleTier, model: options.model ?? getHostConfig(host).defaultModel, interactive, explainLevel: options.explainLevel, installRoot: options.installRoot, planMode: options.planMode,
+    ...(options.modules ? { modules: options.modules } : {}),
   };
 }
 
@@ -842,7 +866,7 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
   }
 
   // Prepend generated header (after frontmatter)
-  const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath));
+  const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath)) + (options.modules ? `<!-- loadout: ${options.modules.name} -->\n` : '');
   const fmEnd = content.indexOf('---', content.indexOf('---') + 3);
   if (fmEnd !== -1) {
     const insertAt = content.indexOf('\n', fmEnd) + 1;
@@ -859,7 +883,7 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
 
   // --out-dir: repoint section-base paths to the out-dir (no-op otherwise).
   if (host === 'claude') content = rewriteSectionBase(content, options.contentLinkRoot);
-  if (skillDir === '' || skillDir === '.') content = omitDisabledSkills(content, options.disabledSkills);
+  if (skillDir === '' || skillDir === '.') content = omitDisabledSkills(content, [...options.disabledSkills, ...excludedSkillDirs(options.modules)]);
   content = rewriteInstallRoot(insertRuntimePreludes(rewriteCarvedSectionRefs(content, ctx), ctx), currentHostConfig, options.installRoot);
 
   const preamble = hoistsPreamble(ctx) && tmplContent.includes('{{PREAMBLE}}') && !effectiveSuppressedResolvers(currentHostConfig, options).has('PREAMBLE')
@@ -958,6 +982,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
     explainLevel: settings.explainLevel ?? 'default',
     gbrainDetected: loadGbrainOverride(settings.respectDetection ?? false),
     planMode: settings.planMode ?? true,
+    modules: settings.modules ?? null,
   };
   const hosts = settings.host === 'all' ? ALL_HOST_NAMES as Host[] : [settings.host ?? 'claude'];
   const log = settings.log ?? (() => {});
@@ -1023,6 +1048,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
       for (const template of templates) {
         const skillDir = path.dirname(template.tmpl);
         if (!includesSkill(hostConfig, skillDir)) continue;
+        if (options.modules?.excluded.has(`skill:${skillDir === '.' ? 'gstack' : skillDir}`)) continue;
         const result = processTemplate(path.join(ROOT, template.tmpl), host, options);
         const relativePath = rel(result.outputPath);
         if (host !== 'claude') renderedNames.add(path.basename(path.dirname(result.outputPath)));
@@ -1050,6 +1076,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
 
       for (const section of sections) {
         if (!includesSkill(hostConfig, section.skillDir) || !usesLazySections(host, section.skillDir)) continue;
+        if (excludesSection(options.modules, section.skillDir, section.tmpl)) continue;
         const result = processSectionTemplate(path.join(ROOT, section.tmpl), section.skillDir, host, options);
         emit(result.outputPath, result.content, 'section', host);
         tokenBudget.push({ skill: rel(result.outputPath), lines: result.content.split('\n').length, tokens: Math.round(result.content.length / 4) });
@@ -1126,7 +1153,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
   // Shared artifacts are awaited in both modes. A failure must reach the CLI
   // exit code, never disappear in a fire-and-forget auxiliary writer.
   try {
-    const index = await generateLlmsTxt();
+    const index = await generateLlmsTxt({ excludedSkills: excludedSkillDirs(options.modules) });
     emit(path.join(options.outputRoot, 'gstack', 'llms.txt'), index.content, 'index');
     for (const warning of index.warnings) diagnostics.push({ kind: 'warning', message: `[gen-llms-txt] ${warning}` });
   } catch (error) {
@@ -1171,6 +1198,10 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     }
     return result.exitCode;
   } catch (error) {
+    if (error instanceof ModuleError) {
+      console.error(`${error.code}: ${error.message}`);
+      return 2;
+    }
     console.error(`ERROR: ${(error as Error).message}`);
     return 1;
   }

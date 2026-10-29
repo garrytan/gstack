@@ -14,13 +14,21 @@ Every repeat starts before the checklist read and captures a fresh REVIEW_START.
 Finish the complete review and QA before applying any fix in Step 9.4.
 
 **Review plan.** Pass 1 runs `~/.claude/skills/gstack/bin/gstack-review-plan
---base <base>`; a repeat uses the plan run that picked it. Save its `REVIEW_PLAN:` line and
-fingerprint. Dispatch exactly its `DISPATCH:` lines (specialists, Red Team, Step
-11's voices), each at its `effort=` on the same model family, in place of 9.1's and
-9.2's own selection rules; a `SKIP:` reviewer
-logs `{"dispatched":false,"reason":"scope"}`. Audits run at `AUDIT_EFFORT:`. The
-core checklist, gate scan and QA always run. Item 6's row adds
-`"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`.
+--base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
+gave `--depth-floor <d>` (it only raises); a repeat uses the plan run that picked it.
+A `scoped` repeat is a full pass on the range: its `fix-check` is decision 3.5's
+reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass.
+Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
+`runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
+(specialists, Red Team, Step 11's voices), each at its `effort=` on the same model
+family and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
+`specialist batched` (light depth) is one subagent reading every checklist its
+`checklists=` names, Red Team included, tagging each finding with its checklist.
+A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
+`AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
+`"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,
+`"runtime_lines"`, `"depth_rules"` (the `rules` hash) and
+`"gate_scan":{"tagged":N|null,"head":"<sha>"}` from those lines.
 
 **Pass 2+ reads the range, not the tree** (`review_scope frozen`): the core read
 in item 2 becomes `git diff $RANGE_BASE`, and every dispatched prompt (specialists,
@@ -93,7 +101,7 @@ This pass is static; defer product probes to Step 9.2.1.
 
 1. Read `~/.claude/skills/gstack/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
-2. Before reading the diff, run `~/.claude/skills/gstack/bin/gstack-review-log --start review` and save its token as REVIEW_START. Then run `git diff origin/<base>` (`git diff $RANGE_BASE` from pass 2 on). Read non-ignored untracked source files too (`git ls-files --others --exclude-standard`); the snapshot includes them.
+2. Before reading the diff, run `~/.claude/skills/gstack/bin/gstack-review-log --start review` and save its token as REVIEW_START (under a token cap, first reserve this pass's dispatch batch with `gstack-ship-budget check` and add `--reservation <id>`). Then run `git diff origin/<base>` (`git diff $RANGE_BASE` from pass 2 on). Read non-ignored untracked source files too (`git ls-files --others --exclude-standard`); the snapshot includes them.
 
    Every pass captures a full token (no `--fix-range`), so the record binds the
    whole tree even when reviewers read only the range.
@@ -391,7 +399,7 @@ Every other specialist, including Testing, reads the full diff with fixtures.
 5. Instructions:
 
 "You are a specialist code reviewer. Read the checklist at {checklist path}, then run
-`DIFF_BASE=<diff-base> && git diff "$DIFF_BASE"` to get the diff (`<diff-base>`: write the sha in before dispatch, the merge base on pass 1 and `RANGE_BASE` from pass 2 on; never a shell variable). Apply the checklist against the diff.
+`DIFF_BASE=<diff-base> && git diff "$DIFF_BASE" <exclude>` to get the diff (`<diff-base>`: write the sha in before dispatch, the merge base on pass 1 and `RANGE_BASE` from pass 2 on; never a shell variable; `<exclude>`: everything after `<diff-base>` on this reviewer's `DIFF_CMD:` line, verbatim; empty on `DIFF_EXCLUDE: none`). Apply the checklist against the diff.
 
 `NO FINDINGS` alone is the expected, complete result for a clean diff; never invent an item. Otherwise output one JSON object per finding per line, 400 words at most:
 {\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"category\",\"summary\":\"description\",\"fix\":\"recommended fix\",\"fingerprint\":\"path:line:category\",\"specialist\":\"name\"}
@@ -669,7 +677,9 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
 
 0. **Scope the findings.** Write the unmatched or reopened findings from Step 9.3
    (all sources, queued Steps 10–11 included) as a JSON array to
-   `.gstack/tmp/review-findings-p$PASS.json` with your file-write tool, then:
+   `.gstack/tmp/review-findings-p$PASS.json` with your file-write tool, each with
+   `raised_by` (`core`, `qa`, a specialist, `red-team`, `adversarial-native`,
+   `outside-voice` or `fix-check`), then:
    `~/.claude/skills/gstack/bin/gstack-review-scope classify --base <base> --pass $PASS --range-base $RANGE_BASE --findings .gstack/tmp/review-findings-p$PASS.json --json > .gstack/tmp/review-classified-p$PASS.json`
    (omit `--range-base` on pass 1). Every Step 9.4 scratch file lives under
    `.gstack/tmp/` (gitignored): `<classified>` below is this pass's classified
@@ -770,6 +780,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
   else `issues_found`. N counts unresolved defects now, not original totals; missing
   coverage, deferred and noted findings are not defects. `SCOPE` is the policy
   (`frozen`, `diff-plus-blocking` or `all`); `RANGE_BASE_OR_NULL` is `"<sha>"` from pass 2, else `null`.
+- A `scoped` pass adds `"scope":"scoped"`; it is a full-pass row and counts toward the cap.
 - `REVIEW_START`: this pass's Step 9 token captured before reading the diff;
   never recapture at persistence to certify unreviewed fixes.
 - `COMPLETED`: checklist and dispatched specialists/Red Team finish, and all required probes pass.
@@ -785,7 +796,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
   `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`.
   ACTION: `"auto-fixed"`, `"fixed"` (approved), `"skipped"` (explicit Skip),
   `"deferred"` (with `issue`, the filed number or `null`) or `"noted"`. Copy
-  `locus`, `kind` and `blocking` from the classified output onto every finding.
+  `locus`, `kind`, `blocking` and `raised_by` from the classified output onto every finding.
   Merge revalidated invocation decisions by identity and advisory/defect kind;
   preserve `advisory`, `evidence_paths` and `helper_target`.
   Gate findings add `gate` (RH tag), `gate_id` (the tool's hunk identity), `reason`
@@ -802,8 +813,10 @@ After persistence, record missing output, CYCLES and fixes in the invocation rec
 Decision 1 always applies first. Then, under `frozen`, run `gstack-review-plan --base <base> --pass $PASS --last full`
 with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open`,
 `--touched-gate` for a fix to an item 2.5 path, `--critical-found` when this pass
-logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--reviewed-numbers <fp>`);
+logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--reviewed-numbers <fp>`,
+`--depth-floor <d>` when given), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
 its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4.
+`scoped` is 3 too. A full pass 1 always gets a full pass 2.
 Other scopes apply decisions 2–4 in order.
 
 1. **Dispatched reviewer output missing:** STOP and name each failed specialist or
@@ -819,7 +832,7 @@ Other scopes apply decisions 2–4 in order.
    past what the request needs (a helper, a guard, a case nothing takes), cut that
    growth before anything else; the repeat reviews the cut as part of the range. Tests must pass or retain approval for the same verified pre-existing
    failures and scope. Keep CYCLES and scoped approvals across this repeat; PASS increments on entry.
-3.5. **One fix-check.** Take a `gstack-review-log --start review-fix-check` token; write the
+3.5. **One fix-check.** Take a `gstack-review-log --start review-fix-check` token (`--reservation <id>` under a cap); write the
    fix list, touched hunks (`git diff $PASS_HEAD`), callers of changed symbols and
    test results to `.gstack/tmp/fix-check-*.txt`; dispatch one full-effort reviewer
    on `gstack-review-plan --fix-check-prompt --fix-list <f> --hunks <f> --tests <f>

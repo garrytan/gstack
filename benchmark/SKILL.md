@@ -412,7 +412,7 @@ TOP 10 SLOWEST RESOURCES
 RECOMMENDATIONS:
 - vendor.chunk.js: code-split — 320KB on initial load
 - analytics.js: load async/defer — blocks rendering for 250ms
-- hero-image.webp: add width/height (CLS), lazy-load
+- hero-image.webp: add width/height (CLS)
 ```
 
 Third-party = any host but the page's origin. Each recommendation names a resource here or in a Phase 5 regression, the metric it moves and one remedy (split, defer, compress, lazy-load, cache).

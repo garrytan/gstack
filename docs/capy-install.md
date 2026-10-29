@@ -155,7 +155,16 @@ and `/proc` start time; elsewhere `ps -o lstart`), because a pid is reused after
 a reboot or a machine wake. `bin/gstack-upgrade`, and so the session-start
 self-upgrade, refuses with [UPGRADE_BUSY](troubleshooting.md#upgrade-busy)
 while a lease held by a live process outside its own chain exists, naming each
-holder as `pid <p> (<age>m <command>)`. The team-mode SessionStart hook
+holder as `pid <p> (<age>m <command>)`. The install-mode self-upgrade also
+defers while its own chain holds a live lease under 120 minutes old. An install
+run from inside a workflow (/ship's docs step running `install.sh --for
+document-release`, #3571) prints `SELF_UPGRADE: skipped (a gstack run in this
+session holds a workflow lease on this installation: ... (UPGRADE_BUSY))`,
+leaves the checkout where the run started and stays ok with `behind=`. Each
+`gstack-skill-start` renews the lease. On Capy the leased pid is the machine's
+long-lived `capy-server`, so the deferral ends when the lease turns 120
+minutes old, not when the process exits; `bin/gstack-upgrade` run by hand
+moves the checkout sooner. The team-mode SessionStart hook
 (`bin/gstack-session-update`) honors the same leases: it logs
 `SKIP leased pid=<p>/<age>m` to `analytics/session-update.log` and tries again at
 the next session start, without writing its hourly throttle stamp. A lease whose

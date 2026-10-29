@@ -92,6 +92,7 @@ gstack/
 │   ├── test/        # Integration tests
 │   └── dist/        # Compiled binary
 ├── agents-digest/   # Committed 2KB instruction-tier rules digest (gstack-AGENTS.md) for rules-reading hosts
+├── modules/         # loadouts.json (+ loadouts.schema.json): model rungs, pinned modules and named loadouts; read by scripts/modules.ts, rendered by bin/gstack-modules (docs/loadouts.md)
 ├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
 ├── lib/             # Shared libraries (aside-render.ts = local-HTML rendering, Aside first, engine fallback; design-catalog.ts = the typed design anti-pattern catalog every design skill renders from; design-lint/ = the static and render tiers behind bin/gstack-design-lint, ported from hallmark's sloplint; design-detect-contract.ts = detector sentinel vocabulary; design-md.ts = open DESIGN.md reader/writer; dom-dump-script.ts + generated dom-dump.js = rendered-DOM dump for the detector; review-evidence.ts = review-start receipt binding, computed freshness and shared-code snapshot eligibility; frontend-scope.ts; claude-bin.ts, error-handling.ts, worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
 │   └── diagram-render/  # Vendored mermaid + excalidraw runtimes, built into one offline bundle the renderer loads

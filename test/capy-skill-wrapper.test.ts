@@ -393,6 +393,32 @@ describe('capy skill: the session hands the installer GSTACK_CAPY_BEHIND', () =>
     }
   });
 
+  // #3571: /ship's docs step ran install.sh --for document-release from inside the run that
+  // holds the lease, the upgrader excluded its own ancestry, and the checkout moved mid-/ship.
+  // On Capy the leased pid is the long-lived capy-server, so the deferral ends by the lease's age.
+  test('install mode inside a run that holds a fresh workflow lease: the self-upgrade is deferred, HEAD stays and the trailer stays ok; once that lease is 120 minutes old the same install upgrades', () => {
+    const f = fixture({ cloneAt: 'B' });
+    write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);
+    f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+    const leaseDir = path.join(f.host.base, 'leases');
+    const script = [
+      'bash "$1" touch --pid $$ --root "$2" || exit 9',
+      'bash "$3" --for document-release; echo "exit=$?"',
+      'git -C "$2" rev-parse HEAD',
+      '"$5" -e "const t = Date.now() / 1000 - 121 * 60; require(\'fs\').utimesSync(process.argv[1], t, t)" "$4/$$"',
+      'bash "$3" --for document-release; echo "exit=$?"',
+    ].join('\n');
+    const r = spawnSync('bash', ['-c', script, 'run', path.join(f.root, 'bin/gstack-lease'), f.root, BOOT, leaseDir, process.execPath], { cwd: f.host.home, encoding: 'utf8', env: { ...f.host.env, GSTACK_CAPY_ROOT: f.root, GSTACK_CAPY_REPO: `file://${f.bare}`, WRAP_LOG: path.join(f.host.base, 'wrap.log'), GSTACK_LEASE_DIR: leaseDir }, timeout: 120_000 });
+    const [inRun, aged] = r.stdout.split(/^exit=0$/m);
+    expect(r.stdout.match(/^exit=0$/gm), r.stdout + r.stderr).toHaveLength(2);
+    expect(inRun).toMatch(/^SELF_UPGRADE: skipped \(a gstack run in this session holds a workflow lease on this installation: pid \d+ \(0m bash\), so the upgrade waits until the lease is 120 minutes old; fix: .+bin\/gstack-upgrade once the run ends \(UPGRADE_BUSY\)\)$/m);
+    expect(inRun).not.toContain('SELF_UPGRADE: done');
+    expect(inRun).toMatch(/blocked=a gstack run in this session holds a workflow lease .+ \(UPGRADE_BUSY\)$/m);
+    expect(aged).toContain(f.b);
+    expect(aged).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
+  });
+
   test('an older bootstrapper handing --for none to the session in install mode: the session certifies nothing and moves nothing (no self-upgrade, HEAD unchanged), and reports behind like --check', () => {
     const f = fixture({ cloneAt: 'B' });
     write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);

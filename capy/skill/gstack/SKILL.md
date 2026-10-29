@@ -42,6 +42,8 @@ Run directories and scratch on Capy live under `~/.capy/work/<name>` (`--out ~/.
 
 Capy checklist for `/autoplan`: drive `gstack-autoplan`, never a hand adaptation presented as a run. Relay `gstack-gate render <dir>/gate.json --all` with `rec` (every recommendation, plan changes included) as the one-word default; answer with `--by agent:<id> --owner-reply "<their words>"`. Set `GSTACK_AUTOPLAN_CHECKPOINT_DIR` to a private project-user Drive folder; after machine replacement, `gstack-autoplan resume --out <new dir> --from <that dir>` restores the newest valid checkpoint.
 
+Token caps on /ship: pass a brief's cap as `--token-cap <n>`. /ship reads `cost.tokens` from `tools.thread.get({ thread_id: "this" })` (one execute program returning only that number) into `gstack-ship-budget --reading <n>` and obeys `verdict=` (`docs/ship-budget.md`).
+
 ## Plan, approve, ship
 
 Every Capy thread that uses gstack follows these for new work, under a Captain or on its own. The rule in full is `docs/captain.md`, "Plan before build"; the lane side is section 3 of captain.md in this folder.

@@ -1,0 +1,50 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-ship-budget — the /ship token budget and fresh-context handoff
+ * (docs/ship-budget.md). An admission cap: no step or dispatch starts unless
+ * used + open reservations + unknown + its projection + the tail and stop
+ * reserve fit under the cap.
+ *
+ *   start   --record <path> [--token-cap <n|none>] [--meter capy|claude|estimate] [--reading <n>] [--prior-reading <n>]
+ *           [--session <id>|--nonce <v>] [--reserve <n>] [--delegate auto|never] [--calibration <file>] [--ledger <path>]
+ *   check   --run <id>|--record <path> --step <id> --next <id|dispatch:<role>[,<role>...]> [--reading <n>] [--prior-reading <n>] [--returned <id>[,<id>...]]
+ *   settle  --run|--record --reservation <id> [--unknown] [--reading <n>]      release --run|--record --reservation <id>
+ *   handoff --run|--record --from <step> --to <step> --base origin/<base> [--reviewed-tree <t>] [--trail <f> --trail-run <id>]
+ *           [--sub-cap <n>] [--reading <n>] [--child-session <id>]
+ *   launch  --in <brief>   (Claude Code: background headless child with explicit permissions)
+ *   verify-handoff --in <brief> [--reading <n>] [--session <id>]
+ *   return  --run <child> --to <step> [--changed <sections>] [--status complete|refused|incomplete] [--reading <n>]
+ *   reconcile --run|--record (--return <file>|--handoff <sha256>) [--reading <n>]
+ *   resume  --record <path>|--run <id> [--reading <n>] [--meter <m>] [--session <id>] [--token-cap <n> --approved-by <who> --words <text>]
+ *           [--rebuild-from-record]
+ *   close   --run|--record [--reading <n>] [--approved-by <who> --words <text>]
+ *
+ * Exit: 0 continue/delegate · 3 stop (the next step does not start) · 2 usage
+ * or validation (stderr). Logic: lib/ship-budget.ts, lib/ship-budget-cli.ts,
+ * lib/ship-handoff.ts.
+ */
+import { BudgetError } from '../lib/ship-budget';
+import { cmdCheck, cmdClose, cmdResume, cmdSettle, cmdStart, type Outcome } from '../lib/ship-budget-cli';
+import { cmdHandoff, cmdLaunch, cmdReconcile, cmdReturn, cmdVerifyHandoff } from '../lib/ship-handoff';
+
+const [command, ...rest] = process.argv.slice(2);
+const ctx = { env: process.env, cwd: process.cwd() };
+const commands: Record<string, () => Outcome> = {
+  start: () => cmdStart(rest, ctx), check: () => cmdCheck(rest, ctx), settle: () => cmdSettle(rest, ctx), release: () => cmdSettle(rest, ctx, true),
+  handoff: () => cmdHandoff(rest, ctx), launch: () => cmdLaunch(rest, ctx), 'verify-handoff': () => cmdVerifyHandoff(rest, ctx), return: () => cmdReturn(rest, ctx),
+  reconcile: () => cmdReconcile(rest, ctx), resume: () => cmdResume(rest, ctx), close: () => cmdClose(rest, ctx),
+};
+if (!command || command === '--help' || command === '-h' || !commands[command]) {
+  const text = (await Bun.file(import.meta.path).text()).split('\n').slice(2, 26).map(l => l.replace(/^ \* ?/, '')).join('\n');
+  (command && command !== '--help' && command !== '-h' ? console.error : console.log)(text);
+  process.exit(command && command !== '--help' && command !== '-h' ? 2 : 0);
+}
+try {
+  const out = commands[command]!();
+  if (out.stdout.length) console.log(out.stdout.join('\n'));
+  process.exit(out.exit);
+} catch (e) {
+  if (!(e instanceof BudgetError)) throw e;
+  if (e.exit === 3) console.log(e.message); else console.error(e.message);
+  process.exit(e.exit);
+}

@@ -163,3 +163,16 @@ test('calibration keeps its future hook but no shipped source enables the absent
   }
   expect(mentions).toEqual(['scripts/resolvers/gbrain.ts']);
 });
+
+test('the judged Eng bundle carries the shared Voice once and states its em-dash precedence in the Scope gate (paid screen 40634787316)', () => {
+  // Five of six samples (red panel and rerun) named Eng's near-copy of the shared Voice, whose only difference was
+  // its em-dash clause, as a rule the agent must reconcile; the Scope gate's Format precedence already owned it.
+  // fails_when=a second Voice section returns to the judged bundle or the precedence stops naming em dashes.
+  const input = readWorkflowJudgeInput({root: path.join(import.meta.dir, '..'), skillPath: 'plan-eng-review/SKILL.md',
+    startMarker: '# Plan Review Mode', endMarker: null});
+  expect(input.text.match(/^## Voice$/gm)).toHaveLength(1);
+  expect(input.text).not.toContain('Do not add em dashes in prose you compose');
+  expect(scope).toContain('**Format precedence:** Copy required command, output and question formats exactly, em dashes included. Apply Voice to newly composed prose.');
+  const startup = input.files[0]!.content;
+  expect(startup.indexOf('**Format precedence:**')).toBeLessThan(startup.indexOf('## Shared preamble (load first)'));
+});

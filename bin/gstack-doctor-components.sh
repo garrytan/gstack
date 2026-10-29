@@ -286,6 +286,8 @@ gstack_result_anchor() {
     QUEUE_TRAIN_FROZEN) printf '%s' 'queue-train-frozen' ;;
     QUEUE_RECEIPT_MISSING) printf '%s' 'queue-receipt-missing' ;;
     QUEUE_RECEIPT_STALE) printf '%s' 'queue-receipt-stale' ;;
+    QUEUE_RECEIPT_DEPTH_RAISED) printf '%s' 'queue-receipt-depth-raised' ;;
+    QUEUE_RECEIPT_EXCEPTION_INVALID) printf '%s' 'queue-receipt-exception-invalid' ;;
     QUEUE_SCREEN_STALE_REF) printf '%s' 'queue-screen-stale-ref' ;;
     QUEUE_SCREEN_NOT_RUN) printf '%s' 'queue-screen-not-run' ;;
     QUEUE_TRAIN_STACK_RED) printf '%s' 'queue-train-stack-red' ;;
@@ -306,6 +308,8 @@ gstack_result_anchor() {
     REVIEW_SCOPE_RANGE) printf '%s' 'review-scope-range' ;;
     RECEIPT_CARRY_REFUSED) printf '%s' 'receipt-carry-refused' ;;
     PROSE_LINT_FOUND) printf '%s' 'prose-lint-found' ;;
+    REVIEW_LOOP_EXCEPTION_INVALID) printf '%s' 'review-loop-exception-invalid' ;;
+    RECEIPT_CARRY_TREE_MISMATCH) printf '%s' 'receipt-carry-tree-mismatch' ;;
     RECEIPT_CARRY_PRODUCT_CHANGED) printf '%s' 'receipt-carry-product-changed' ;;
     DOCS_AUDIT_BLOCKED) printf '%s' 'docs-audit-blocked' ;;
     RECEIPT_PROSE_MISMATCH) printf '%s' 'receipt-prose-mismatch' ;;
@@ -328,6 +332,13 @@ gstack_result_anchor() {
     PROJECT_FLOOR_UNMET) printf '%s' 'project-floor-unmet' ;;
     PROJECT_NODE_PIN_UNMET) printf '%s' 'project-node-pin-unmet' ;;
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
+    BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
+    BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
+    BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;
+    BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
+    BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
+    BUDGET_CHECK_SKIPPED) printf '%s' 'budget-check-skipped' ;;
+    HANDOFF_PIN_MOVED) printf '%s' 'handoff-pin-moved' ;;
     *) return 1 ;;
   esac
 }

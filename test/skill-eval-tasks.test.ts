@@ -12,6 +12,7 @@ import { buildSkillBill, checkEvalTasks, renderSkillBill } from '../lib/skill-bi
 const ROOT = path.resolve(import.meta.dir, '..');
 const DIR = path.join(ROOT, 'test', 'fixtures', 'skill-evals');
 const skills = fs.readdirSync(DIR).filter(d => fs.statSync(path.join(DIR, d)).isDirectory()).sort();
+const EXT_KEYS = new Set(['user', 'interactive', 'judge', 'timeout_s', 'env', 'paths', 'mutant', 'hidden']);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-eval-tasks-'));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -25,6 +26,20 @@ describe('skill-evals task files follow the shared eval contract', () => {
       const r = checkEvalTasks(path.join(DIR, skill, 'tasks.json'));
       expect(r.problems).toEqual([]);
       expect(r.count).toBeGreaterThan(0);
+    });
+
+    const extFile = path.join(DIR, skill, 'tasks.ext.json');
+    if (fs.existsSync(extFile)) test(`${skill}/tasks.ext.json names only its tasks and known keys`, () => {
+      const ids = new Set(JSON.parse(fs.readFileSync(path.join(DIR, skill, 'tasks.json'), 'utf8')).map((t: { id: string }) => t.id));
+      const ext = JSON.parse(fs.readFileSync(extFile, 'utf8'));
+      expect(Object.keys(ext).sort()).toEqual(['schema_version', 'tasks']);
+      expect(ext.schema_version).toBe(1);
+      const problems: string[] = [];
+      for (const [id, entry] of Object.entries(ext.tasks as Record<string, Record<string, unknown>>)) {
+        if (!ids.has(id)) problems.push(`${id}: not in tasks.json`);
+        for (const k of Object.keys(entry)) if (!EXT_KEYS.has(k)) problems.push(`${id}: unknown key ${k}`);
+      }
+      expect(problems).toEqual([]);
     });
   }
 

@@ -23,7 +23,13 @@
 # applies: dirty, diverged, pinned, Bun hold, a live workflow lease) and on
 # success re-execs the NEW checkout's copy of this script with the same
 # arguments (GSTACK_CAPY_SELF_UPGRADED=1 stops a second attempt) before the
-# installer runs. Lines: `SELF_UPGRADE: done <old> -> <new>` | `skipped (<reason>)`
+# installer runs. A live lease under 120 minutes old (the lease prune window)
+# held by this session's own process chain also skips it (#3571):
+# gstack-upgrade never counts the caller's own session, but an install run from
+# inside a workflow (/ship's docs step) must not change gstack under it. The age
+# bound matters on Capy, where the leased harness pid is the machine's
+# long-lived capy-server and a live lease alone would never end the deferral;
+# each gstack-skill-start renews it (UPGRADE_BUSY; GSTACK_UPGRADE_FORCE=1 overrides). Lines: `SELF_UPGRADE: done <old> -> <new>` | `skipped (<reason>)`
 # | `none (current)` | `disabled (<the variable: GSTACK_CAPY_SELF_UPGRADE=off or
 # GSTACK_CAPY_AUTO_UPGRADE=0>)`.
 # --check never moves the checkout; behind origin it prints
@@ -107,6 +113,18 @@ elif [ "${GSTACK_CAPY_SELF_UPGRADED:-}" != 1 ]; then
   elif ! behind; then echo "SELF_UPGRADE: none (current)"
   elif [ ! -x "$ROOT/bin/gstack-upgrade" ]; then echo "SELF_UPGRADE: skipped ($ROOT/bin/gstack-upgrade is missing)"; report_behind "$RERUN"
     export GSTACK_CAPY_BEHIND_BLOCKED="$ROOT/bin/gstack-upgrade is missing; fix: $RERUN (UPGRADE_REFUSED)"
+  elif [ "${GSTACK_UPGRADE_FORCE:-}" != 1 ] && [ -x "$ROOT/bin/gstack-lease" ] \
+    && OWN=$("$ROOT/bin/gstack-lease" live --root "$ROOT" 2>/dev/null | awk '{ a = $2; sub(/m$/, "", a); if (a + 0 < 120) print }') \
+    && [ -n "$OWN" ] \
+    && ! "$ROOT/bin/gstack-lease" live --root "$ROOT" --exclude-ancestry-of $$ >/dev/null 2>&1; then
+    HOLDERS=""
+    while read -r _pid _age; do HOLDERS="$HOLDERS${HOLDERS:+, }pid $_pid ($_age)"; done <<EOF_OWN
+$OWN
+EOF_OWN
+    REASON="a gstack run in this session holds a workflow lease on this installation: $HOLDERS, so the upgrade waits until the lease is 120 minutes old; fix: $ROOT/bin/gstack-upgrade once the run ends (UPGRADE_BUSY)"
+    echo "SELF_UPGRADE: skipped ($REASON)"
+    report_behind "$ROOT/bin/gstack-upgrade"
+    export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"
   else
     OLD=$(head -1 "$ROOT/VERSION" 2>/dev/null)
     UP_OUT=$("$ROOT/bin/gstack-upgrade" --ff-only-no-reinstall 2>&1); UP_RC=$?

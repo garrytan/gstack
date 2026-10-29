@@ -410,7 +410,7 @@ test('Ship sends its authorized 64k cap and compact response contract through th
   expect(WORKFLOW_JUDGE_RESPONSE_SCHEMA.properties.reasoning).not.toHaveProperty('maxLength');
   expect(source.match(/compactReasoning: true/g)).toHaveLength(1);
   const f = fixture();
-  const stream = spyOn(Messages.prototype, 'stream').mockReturnValue({ finalMessage: async () => ({
+  const stream = spyOn(Messages.prototype, 'stream').mockReturnValue({ on() { return this; }, finalMessage: async () => ({
     stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(scores) }],
   }) } as any);
   try {
@@ -516,7 +516,7 @@ test('the structured callback rejects incomplete, schema-invalid and below-thres
   try {
     for (const response of responses) {
       const f = fixture();
-      stream.mockReturnValue({ finalMessage: async () => ({ stop_reason: response.stop_reason,
+      stream.mockReturnValue({ on() { return this; }, finalMessage: async () => ({ stop_reason: response.stop_reason,
         content: [{ type: 'text', text: JSON.stringify(response.value) }] }) } as any);
       const h = actualCallback(f, { judge: (prompt, model, request) => callJudge<typeof scores>(prompt, model, request) });
       await expect(h.run({ ...h.options, schemaTransport: true, compactReasoning: true, maxTokens: 65_536, stream: true })).rejects.toThrow();

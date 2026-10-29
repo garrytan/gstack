@@ -138,8 +138,9 @@ this rule shipped cites this section by name.
 **What the lane sends.** The plan and its gate in plain language a person outside the
 project can follow: what changes, why now, what the change does, what it costs, the lane's
 pick, and the recommended one-word reply. `gstack-owner-brief render --captain --out <run dir>`
-prints that from the plan's `## Before → after`, `## Why it matters`,
-`## What caused this work` and `## Big decisions` sections, with the cost lines
+prints that from the plan's `## ELI5`, `## Before → after`, `## Why it matters`,
+`## What caused this work` and `## Big decisions` sections (also saved as `eli5` in
+`gate.json`, so `gstack-gate render` opens with them), with the cost lines
 (`GATE_SPEND:`, `GATE_REC_COST:`) and a last line for the controller; a plan missing a
 section exits `CAPTAIN_BRIEF_INCOMPLETE`, so the lane adds the section and renders again
 ([capy/skill/gstack/captain.md](../capy/skill/gstack/captain.md) § 3 lists them). The lane
@@ -156,10 +157,12 @@ controller and been answered into the run
 every accepted plan change has been incorporated (`revise`), every reopened phase has
 finished, and the run reports `APPROVED` (`status=complete` after `export`). An answered
 gate that still prints `PLAN_AMEND_PENDING` or `REOPENED:` is not a completed plan, and an
-imported approval row alone is not completion.
+imported approval row alone is not completion. A later gate revision that asks nothing new
+is answered with the owner's recorded words and says `CARRIED:`; that is the owner's word,
+not a new ask ([carry-forward](unattended.md#carry-forward)).
 
-**The record.** `gstack-approvals import --autoplan <run dir> --by "<owner>"` writes the
-approval row (date, the ask, the owner's exact words, the lane that answered as relayer,
+**The record.** `gstack-approvals import --autoplan <run dir> --by "<owner>"` (with
+`--stack <b1,b2,...>` for a stacked PR set) writes the approval row (date, the ask, the owner's exact words, the lane that answered as relayer,
 what it covers); `gstack-approvals render` puts it in the report and the PR body. Before
 training the PR the controller compares that row's words and `gate_rev` with the ask it
 relayed and the reply it carried back; a row that does not match is not READY (shape A).
@@ -230,6 +233,14 @@ a push included. The sequence that works unattended on Capy:
    send the printed block.
 10. After the slot call, the stamp commit keeps the pin's receipt; re-READY with the same
     receipt, no second /ship.
+
+When the base moves under a reviewed branch, merge it in; never rebase. A merge that
+leaves the product diff unchanged carries the receipt with `gstack-ship-receipt carry`
+(pregate at HEAD, no review rerun), and a merge whose resolution changed product code
+needs a fresh /ship. A rebase carries only onto a tree the receipt already covers with
+the same product diff; any other rebase is a full /ship
+([ship-policy.md](ship-policy.md#receipt-carry)). A controller never asks a lane to
+rebase a reviewed branch.
 
 ## Merge trains
 

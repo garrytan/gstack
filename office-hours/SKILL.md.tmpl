@@ -228,13 +228,13 @@ Use AskUserQuestion to confirm. If the user disagrees with a premise, revise und
 
 ---
 
-## Phase 3.5: Cross-Model Second Opinion (optional)
+{{IF_SECTION:second-opinion}}## Phase 3.5: Cross-Model Second Opinion (optional)
 
 Use AskUserQuestion: "Want a second opinion from an independent AI perspective? It reviews your problem statement, key answers, premises and landscape findings from a structured summary, without this conversation. Usually 2-5 minutes." A) Yes, get a second opinion. B) No, proceed to alternatives.
 
 If B: skip Phase 3.5 and remember the second opinion did NOT run (the design doc, founder signals and Phase 4 depend on it).
 If A:
-{{SECTION:second-opinion}}
+{{/IF_SECTION}}{{SECTION:second-opinion}}
 
 ---
 
@@ -274,10 +274,10 @@ Emit ONE AskUserQuestion that lists every alternative (A/B and optionally C) as 
 
 ---
 
-## Phase 4.25: Visual design (UI ideas only)
+{{IF_SECTION:visual-design}}## Phase 4.25: Visual design (UI ideas only)
 
 If the approach approved in Phase 4 has no user-facing UI (screens, pages, forms, dashboards, interactive elements), skip to Phase 4.5.
-{{SECTION:visual-design}}
+{{/IF_SECTION}}{{SECTION:visual-design}}
 
 ---
 

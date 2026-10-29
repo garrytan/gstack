@@ -24,9 +24,10 @@ const OVERLAY_DIR = path.resolve(import.meta.dir, '../../model-overlays');
 
 const INHERIT_RE = /^\s*\{\{INHERIT:([a-z0-9-]+(?:\.[0-9]+)*)\}\}\s*\n/;
 
-export function readOverlay(model: string, seen: Set<string> = new Set()): string {
+export function readOverlay(model: string, seen: Set<string> = new Set(), excluded: ReadonlySet<string> = new Set()): string {
   if (seen.has(model)) return ''; // cycle guard
   seen.add(model);
+  if (excluded.has(`overlay:${model}`)) return '';
 
   const filePath = path.join(OVERLAY_DIR, `${model}.md`);
   if (!fs.existsSync(filePath)) return '';
@@ -36,7 +37,7 @@ export function readOverlay(model: string, seen: Set<string> = new Set()): strin
   if (!match) return raw.trim();
 
   const baseModel = match[1];
-  const base = readOverlay(baseModel, seen);
+  const base = readOverlay(baseModel, seen, excluded);
   const rest = raw.replace(INHERIT_RE, '').trim();
 
   if (!base) return rest;
@@ -46,7 +47,7 @@ export function readOverlay(model: string, seen: Set<string> = new Set()): strin
 export function generateModelOverlay(ctx: TemplateContext): string {
   if (!ctx.model) return '';
 
-  const content = readOverlay(ctx.model);
+  const content = readOverlay(ctx.model, new Set(), ctx.modules?.excluded);
   if (!content) return '';
 
   const precedence = ctx.model === 'gpt-5.6-sol'

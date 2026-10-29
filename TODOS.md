@@ -2,6 +2,11 @@
 
 ## NEXT PRIORITY
 
+### P1: review-depth receipt follow-ups (filed 2026-10-28, from the #3567 /ship plan audit)
+
+- **Derive `carry.covers` from depth.** A carried receipt's `covers` is the fixed `CARRY_COVERS` list (lib/ship-receipt.ts); derive it from the recorded `review_depth` so a light review's carry does not claim the checks a full review ran (plan item 5, deferred at /ship). **Effort:** S. **Priority:** P1.
+- **Bound the queue's recompute time.** `gstack-ship-queue` recomputes each receipt's needed depth at READY and at train build; add a test that a five-PR train recomputes within a fixed budget, so a large diff cannot stall the train. **Effort:** S. **Priority:** P1.
+
 ### P3: `/codex --effort` follow-ups (filed 2026-10-11, from the #3146 autoplan review)
 
 - **Show the effort that ran.** Step 0.5 prints `CODEX_EFFORT: <level> (source: /codex --effort)` once, but the result footers do not repeat the effort, so it scrolls away. Add an `Effort:` line to the review, challenge and consult result footers. Blocked on skeleton bytes in `codex/SKILL.md` (cap 60,200). **Effort:** S. **Priority:** P3.
@@ -783,15 +788,15 @@ Each item was deferred with a reason during the `/claude-api prompt-audit` clean
   format errors, so it stays on today's request), the default workflow judge
   (landed, but one provider refusal on corpus item f03 under the new prompt,
   matched by one under the old prompt) and the cookie workflow judge (GSTA-91:
-  held on one new false pass on a07, zero new-request format errors, so it stays
-  on today's request; today's request itself false-passes a07 in `old-b` and on
+  held on one new false pass on a07, zero new-request format errors; the hold was
+  released on GStack Minder's 2026-10-29 ruling and it now sends the schema; today's request itself false-passes a07 in `old-b` and on
   both valid `old-a` samples, and a08 in `old-a`, so the prose step targets those). Reuse `test/fixtures/judge-calibration`
   and `scripts/judge-calibration.ts`. Priority P3. Effort M.
 - **Uncalibrated workflow-judge configurations** — build a corpus and calibrate
   schema transport for the frontier configuration (review/SKILL.md workflow); it
   stays on today's request. The cookie configuration
   (setup-browser-cookies/SKILL.md workflow) has a corpus and a held comparison-1
-  (GSTA-91), so it also stays on today's request. After any transport change,
+  (GSTA-91); it moved to the schema on GStack Minder's 2026-10-29 release ruling. After any transport change,
   re-run the review and cookie workflow judges. Priority P3. Effort M.
 - **Claude model auto-detection for the skill overlay** — when no
   `claude_overlay_model` is set, detect the Claude Code model (`ANTHROPIC_MODEL`,

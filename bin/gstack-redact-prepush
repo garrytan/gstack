@@ -43,7 +43,7 @@ import * as path from "path";
 import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
 import { resolveStateRoot } from "../lib/state-root";
-import { evaluateSealed, publishedCommits, renderSealed, type SealedReport } from "../lib/sealed-guard";
+import { evaluateSealed, publishedCommits, renderSealed, sealedErrorReport, type SealedReport } from "../lib/sealed-guard";
 
 const ZERO = /^0+$/;
 let emptyTree: string | undefined;
@@ -608,7 +608,7 @@ function sealedForPush(refs: Array<{ localSha: string; remoteSha: string }>): Se
   const targets: Array<{ commits: string[]; pushedSha: string }> = [];
   for (const ref of refs) {
     const published = publishedCommits(".", { localSha: ref.localSha, remoteSha: ref.remoteSha, remoteName });
-    if ("error" in published) return { status: "error", error: published.error, policyLabels: [], commits: 0, findings: [], waived: [], visibility: "unknown", visibilitySource: "", target: remoteUrl ?? "the push target" };
+    if ("error" in published) return sealedErrorReport(published.error, remoteUrl ?? "the push target");
     targets.push({ commits: published.commits, pushedSha: ref.localSha });
   }
   return evaluateSealed({ repoRoot: ".", targets, baseRef: defaultRemoteBranch(), remoteUrl, target: remoteUrl ?? remoteName ?? "the push target" });

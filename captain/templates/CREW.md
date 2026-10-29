@@ -90,8 +90,9 @@ Homes are paths in the gstack checkout the lane checked at session start.
 
 14. **Don't merge `BASE` into a READY PR.** Only on the controller's word after a real-code
     train conflict (merge, never rebase, free suite, READY again) or as part of the stamp
-    commit. Home: `docs/captain.md` (Merge trains), `docs/ship-policy.md` (Run a merge
-    train).
+    commit. A merge whose product diff is unchanged carries the /ship receipt; a rebase
+    onto a new tree costs a full /ship. Home: `docs/captain.md` (Merge trains),
+    `docs/ship-policy.md` (Run a merge train, Carrying a receipt).
 
 15. **CHANGELOG entry under `## [Unreleased]` before READY;** version files stay at
     `BASE`'s version; the stamp touches only `STAMP_FILES`. Home: `docs/ship-policy.md`
