@@ -58,6 +58,8 @@ export interface Reservation {
   state: 'open' | 'consumed' | 'settled' | 'released'; token?: string; started_at?: string; settled_at?: string;
   prior?: number; reading_at?: number | null; epoch?: number; actual?: number; unseen?: boolean; remaining?: string[];
   settled_reading?: number; unmeasured?: boolean; dispatched_at?: number; readers?: number; bytes?: Array<number | null>; late?: boolean;
+  /** Every review-log start this reservation admitted: one per role (token and started_at keep the first). */
+  starts?: Array<{ token: string; at: string }>;
 }
 export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; prior: number; projected: number; actual: number }
 export interface Handoff {
@@ -452,9 +454,10 @@ function activeLedger(marker: string): Ledger | undefined {
 }
 
 /**
- * gstack-review-log --start under a cap: the dispatch needs an unspent, one-shot
- * dispatch reservation of the active run, consumed atomically with the start
- * capture. No marker (no cap), a marker whose ledger is gone, or a stopped run
+ * gstack-review-log --start under a cap: the dispatch needs a dispatch
+ * reservation of the active run with a role left to start (one start per role,
+ * so Step 11's native and outside voices share one reservation), consumed
+ * atomically with the start capture. No marker (no cap), a marker whose ledger is gone, or a stopped run
  * started without --reservation (a later uncapped review on the branch) runs
  * capture() exactly as before.
  */
@@ -467,11 +470,15 @@ export function admitReviewStart(marker: string, reservation: string | undefined
     if (!reservation) throw new BudgetError('BUDGET_CHECK_SKIPPED', resultLine('gstack-review-log', 'BUDGET_CHECK_SKIPPED', `no --reservation under the ${l.cap} cap of run ${l.run}; ${fix}`), 1);
     const r = l.reservations.find(x => x.id === reservation);
     if (!r || r.kind !== 'dispatch') throw new BudgetError('BUDGET_CHECK_SKIPPED', resultLine('gstack-review-log', 'BUDGET_CHECK_SKIPPED', `reservation ${reservation} is ${r ? `a ${r.kind} reservation` : 'not in'} run ${l.run}${r ? '' : ' (mismatched)'}; ${fix}`), 1);
-    if (r.state !== 'open') throw new BudgetError('BUDGET_CHECK_SKIPPED', resultLine('gstack-review-log', 'BUDGET_CHECK_SKIPPED', `reservation ${reservation} is already ${r.state}${r.token ? ` by start ${r.token}` : ''} (one-shot); ${fix}`), 1);
+    const starts = r.starts ?? (r.token ? [{ token: r.token, at: r.started_at ?? '' }] : []);
+    const slots = r.roles?.length ?? 1;
+    if (r.state !== 'open' && !(r.state === 'consumed' && starts.length < slots)) throw new BudgetError('BUDGET_CHECK_SKIPPED', resultLine('gstack-review-log', 'BUDGET_CHECK_SKIPPED', `reservation ${reservation} is already ${r.state}${r.token ? ` by start ${r.token}` : ''} (one start per role: ${starts.length} of ${slots} used); ${fix}`), 1);
     const out = capture();
+    const start = { token: out.split('\n')[0]!.trim(), at: new Date().toISOString() };
     r.state = 'consumed';
-    r.token = out.split('\n')[0]!.trim();
-    r.started_at = new Date().toISOString();
+    r.starts = [...starts, start];
+    r.token ??= start.token;
+    r.started_at ??= start.at;
     return out;
   });
 }
@@ -483,9 +490,10 @@ export function admitReviewStart(marker: string, reservation: string | undefined
  */
 export function settleReviewFinish(marker: string, token: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   const active = activeLedger(marker);
-  if (!active || !active.reservations.some(r => r.token === token && r.state === 'consumed')) return undefined;
+  const started = (r: Reservation) => r.state === 'consumed' && (r.token === token || !!r.starts?.some(s => s.token === token));
+  if (!active || !active.reservations.some(started)) return undefined;
   return mutateLedger(active.file, env, l => {
-    const r = l.reservations.find(x => x.token === token && x.state === 'consumed');
+    const r = l.reservations.find(started);
     if (!r) return undefined;
     const pass = l.reservations.filter(x => x.kind === 'dispatch' && x.state === 'consumed' && x.step === r.step);
     for (const x of pass) settleIn(l, x);
@@ -498,7 +506,7 @@ export function unreservedDispatches(l: Ledger): Array<{ skill: string; step: st
   if (!l.review_log) return [];
   let lines: string[];
   try { lines = fs.readFileSync(l.review_log, 'utf8').split('\n').filter(Boolean); } catch { return []; }
-  const reservedStarts = new Set(l.reservations.filter(r => r.started_at).map(r => r.token));
+  const starts = l.reservations.flatMap(r => r.starts ?? (r.started_at && r.token ? [{ token: r.token, at: r.started_at }] : []));
   const out: Array<{ skill: string; step: string; started: string }> = [];
   for (const line of lines) {
     let row: any;
@@ -506,8 +514,7 @@ export function unreservedDispatches(l: Ledger): Array<{ skill: string; step: st
     const step = DIFF_REVIEW_STEP[row?.skill];
     const started = row?.review_binding?.started_at ?? row?.timestamp;
     if (!step || typeof started !== 'string' || Date.parse(started) < Date.parse(l.created_at)) continue;
-    const startFile = l.reservations.find(r => r.started_at && r.token && Math.abs(Date.parse(r.started_at) - Date.parse(started)) < 5_000);
-    if (!startFile || !reservedStarts.has(startFile.token)) out.push({ skill: row.skill, step, started });
+    if (!starts.some(s => Math.abs(Date.parse(s.at) - Date.parse(started)) < 5_000)) out.push({ skill: row.skill, step, started });
   }
   return out;
 }
