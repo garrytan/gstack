@@ -543,8 +543,8 @@ completion. Advice never permits edits while readers are active or replaces a re
 **Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
 
 If the plan lists `DISPATCH: red-team`, build its packet once Step 9.1's collect has run:
-`~/.claude/skills/gstack/bin/gstack-review-packet build --only red-team --findings "$_PK/merged.jsonl"` plus
-the Step 9.1 build's flags. It inlines the red-team checklist, the merged findings one
+`~/.claude/skills/gstack/bin/gstack-review-packet build --like "$_PK" --only red-team --findings "$_PK/merged.jsonl"`
+(`--like` reuses the Step 9.1 build's flags, plan flags and `--range`, from its manifest). It inlines the red-team checklist, the merged findings one
 line each, the defensive framing and the diff with fixtures in summary mode. Dispatch
 it with the same packet brief, then run collect again: Step 9.4 needs a collect with `pending=0`.
 

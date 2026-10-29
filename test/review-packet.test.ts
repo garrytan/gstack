@@ -381,6 +381,38 @@ describe('gstack-review-packet build', () => {
     expect(stale.stdout).toContain('STALE_MANIFEST: content changed');
   });
 
+  // Value: protects=a later build in the same pass reuses the first build's plan flags and fix range from its manifest, so the Red Team and Step 11's packets are built from the plan the specialists saw; fails_when=--like is missing or reuses no flags (GSTA-167 call anatomy: #34 and #36 rebuilt the outside voice from hand-copied flags and got another plan);
+  //   why_new=every other build passes its flags by hand; seam=none; no_claim=which flags the first build should take
+  test('build --like <dir> reuses that build\'s plan flags and --range; --out-dir defaults to it; a dir without a build manifest refuses', () => {
+    const r = repo({}, { 'src/a.ts': lines(80, 'xi') });
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });
+    const firstFeat = git('rev-parse', 'HEAD').stdout.trim();
+    fs.writeFileSync(path.join(r.dir, 'src/b.ts'), lines(20, 'omicron'));
+    git('add', '.');
+    expect(git('commit', '-qm', 'fix').status).toBe(0);
+    const first = build(r, ['--only', 'testing', '--depth-floor', 'full', '--range', firstFeat]);
+    expect(first.status, first.stderr).toBe(0);
+    const plain = run(r, ['build', '--base', 'main', '--gate-tagged', '0', '--out-dir', tmp('review-packet-plain-'), '--only', 'testing']);
+    const planOf = (s: string) => s.split('\n').find(l => l.startsWith('REVIEW_PLAN:'));
+    expect(planOf(plain.stdout)).not.toBe(planOf(first.stdout));
+    fs.writeFileSync(path.join(r.out, 'merged.jsonl'), '');
+    const red = run(r, ['build', '--like', r.out, '--only', 'red-team', '--findings', path.join(r.out, 'merged.jsonl')]);
+    expect(red.stdout).not.toContain('STALE_MANIFEST');
+    expect(red.status, red.stdout + red.stderr).toBe(0);
+    expect(planOf(red.stdout)).toBe(planOf(first.stdout));
+    expect(packets(red.stdout).map(p => p.name)).toEqual(['red-team']);
+    expect(readManifest(r.out)!.diff_base).toBe(firstFeat);
+    const other = tmp('review-packet-like-');
+    const adv = run(r, ['build', '--like', r.out, '--out-dir', other, '--only', 'adversarial']);
+    expect(adv.status, adv.stderr).toBe(0);
+    expect(planOf(adv.stdout)).toBe(planOf(first.stdout));
+    expect(readManifest(other)!.diff_base).toBe(firstFeat);
+    const none = run(r, ['build', '--like', tmp('review-packet-empty-'), '--only', 'adversarial']);
+    expect(none.status).toBe(2);
+    expect(none.stderr).toContain('--like');
+    expect(none.stdout).not.toContain('PACKET:');
+  });
+
   // Value: protects=a Step 7/8 audit past the packet cap stays one packet holding the whole diff, so the parent gets one coverage or plan verdict and one generation allowance; fails_when=audits shard like reviewers (a plan item built in another shard reads NOT DONE, each shard generates tests);
   //   why_new=the sharding test covers reviewers only; seam=none; no_claim=how a child reads a packet past its context (it reads the file in ranges)
   test('an audit past the cap is never sharded: one packet, every path of the diff', () => {

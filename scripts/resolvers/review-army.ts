@@ -340,8 +340,8 @@ function generateRedTeam(ctx: TemplateContext): string {
   const stepMerge = isShip ? '9.2' : '4.6';
   const fixFirstRef = isShip ? 'Step 9.3 dedup, then Step 9.4 Fix-First' : 'Step 5 Fix-First';
   const dispatch = isShip ? `If the plan lists \`DISPATCH: red-team\`, build its packet once Step 9.1's collect has run:
-\`${ctx.paths.binDir}/gstack-review-packet build --only red-team --findings "$_PK/merged.jsonl"\` plus
-the Step 9.1 build's flags. It inlines the red-team checklist, the merged findings one
+\`${ctx.paths.binDir}/gstack-review-packet build --like "$_PK" --only red-team --findings "$_PK/merged.jsonl"\`
+(\`--like\` reuses the Step 9.1 build's flags, plan flags and \`--range\`, from its manifest). It inlines the red-team checklist, the merged findings one
 line each, the defensive framing and the diff with fixtures in summary mode. Dispatch
 it with the same packet brief, then run collect again: Step 9.4 needs a collect with \`pending=0\`.` : `If activated, dispatch one more subagent via the Agent tool (pass ${FOREGROUND_IF_AVAILABLE} — foreground; subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; ${BACKGROUND_RECOVERY})
 

@@ -62,7 +62,37 @@ export interface PacketEntry {
   /** The Red Team before collect: listed so collect reports it pending until its packet is built. */
   deferred?: boolean;
 }
-export interface Manifest { version: 1; head: string; diff_base: string; fingerprint: string; content?: string; packets: PacketEntry[] }
+export interface Manifest { version: 1; head: string; diff_base: string; fingerprint: string; content?: string; build_flags?: string[]; packets: PacketEntry[] }
+
+const REUSED_VALUE_FLAGS = ['--base', '--pass', '--last', '--gate-tagged', '--gated', '--force', '--reviewed-numbers', '--depth-floor', '--range-base', '--pass1-depth', '--range', '--plan-file', '--fanout'];
+const REUSED_SWITCHES = ['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate', '--critical-found', '--adversarial-ran', '--no-tiers'];
+
+/** The flags a later `build --like` reuses: the plan flags, the fix range, the plan file (absolute) and the packing. */
+export function reusedBuildFlags(args: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (REUSED_SWITCHES.includes(a)) out.push(a);
+    else if (REUSED_VALUE_FLAGS.includes(a) && args[i + 1] !== undefined) { out.push(a, a === '--plan-file' ? path.resolve(args[i + 1]!) : args[i + 1]!); i++; }
+  }
+  return out;
+}
+
+/** argv with `--like <dir>` expanded: that build's reused flags fill every flag argv does not give, and --out-dir defaults to the dir. */
+export function expandLike(argv: readonly string[]): { args: string[] } | { error: string } {
+  const i = argv.indexOf('--like');
+  if (i < 0) return { args: [...argv] };
+  const dir = argv[i + 1];
+  const prior = dir && !dir.startsWith('-') ? readManifest(path.resolve(dir))?.build_flags : undefined;
+  if (!prior) return { error: `--like ${dir ?? ''} needs a directory holding an earlier build's manifest.json with its build flags; build that pass with its flags first` };
+  const extra: string[] = [];
+  for (let j = 0; j < prior.length; j++) {
+    const width = REUSED_VALUE_FLAGS.includes(prior[j]!) ? 2 : 1;
+    if (!argv.includes(prior[j]!)) extra.push(...prior.slice(j, j + width));
+    j += width - 1;
+  }
+  return { args: [...argv.filter((_, k) => k !== i && k !== i + 1), ...(argv.includes('--out-dir') ? [] : ['--out-dir', dir!]), ...extra] };
+}
 
 export interface BuildContext {
   root: string; skillRoot: string; binDir: string; outDir: string; head: string; diffBase: string; fingerprint: string;

@@ -378,7 +378,10 @@ dropped, and a hunk alone over the cap gets its own shard with a `SHARD_OVERSIZE
 A Step 7/8 audit packet is never split: the parent gates on one coverage or plan
 verdict with one generation allowance, and a plan item built in another shard's paths
 would read NOT DONE.
-The Red Team's packet waits for the specialists (`--only red-team --findings
+Each build records its plan flags, `--range`, `--plan-file` and `--fanout` in the manifest;
+`build --like <dir>` reuses them (flags given beside it win, `--out-dir` defaults to `<dir>`),
+so the Red Team and Step 11's packets are built from the plan the specialists saw.
+The Red Team's packet waits for the specialists (`--like <dir> --only red-team --findings
 <dir>/merged.jsonl`; until then collect lists it `pending`), the fix-check packet takes
 `--fix-list`, `--tests` and `--callers` with `--range $PASS_HEAD`, and `--audit
 test-coverage|plan-completion` writes a Step 7/8 audit packet from the generated

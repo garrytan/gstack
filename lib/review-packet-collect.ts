@@ -143,7 +143,7 @@ export function collect(dir: string): CollectResult | { error: string } {
     return ` covered=${r.packet.checklists.filter(c => (r.covered ?? []).includes(c)).join(',') || 'none'}${missed.length ? ` uncovered=${missed.join(',')}` : ''}`;
   };
   for (const r of shown) lines.push(`REVIEWER: ${r.packet.name} status=${r.status} crit=${count(r, 'CRITICAL')} info=${count(r, 'INFORMATIONAL')}${coverage(r)}${r.packet.fixtures === 'summary' ? ' fixtures=summary' : ''}${r.invalid ? ` invalid_lines=${r.invalid}` : ''}`);
-  for (const p of pending) lines.push(`REVIEWER: ${p.name} status=pending (build its packet with --findings ${path.join(dir, 'merged.jsonl')}, dispatch it, collect again)`);
+  for (const p of pending) lines.push(`REVIEWER: ${p.name} status=pending (build its packet with --findings ${path.join(dir, 'merged.jsonl')} --like ${dir} --only red-team, dispatch it, collect again)`);
   if (shown.length < results.length) lines.push(`REVIEWERS_CLEAN: ${results.length - shown.length} more, each status=clean`);
   for (const a of manifest.packets.filter(p => p.role === 'audit')) {
     let last = '';
