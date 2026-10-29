@@ -2517,11 +2517,20 @@ holding only its first section therefore no longer wipes the rest of the PR.
 The redaction scan runs on the merged bytes, so a MEDIUM or HIGH finding can
 come from a kept section; the `RULE:` line's `LINE:` is in the merged text.
 When the current body cannot be read (`gh pr view --json body` fails) nothing
-is posted, exit 3.
+is posted, exit 3. When the current body holds a title the file rewrites more
+than once (an earlier description pasted below a `---` under the new one, as
+on gstack-evals#19), the file's section matches no single copy, so nothing is
+posted, exit 64: `gstack-post: the PR's current body holds "What changed" more
+than once, so the file's copy matches no single section; nothing was posted.
+Rerun with --replace and the whole body`. Merging would replace one copy and
+keep the stale other beside it.
 
 **Fix.** Nothing, when the kept sections are wanted. To overwrite the whole
 body with the file, rerun with `--replace`. To drop a section, post the body
-with `--replace` or edit it on the host.
+with `--replace` or edit it on the host. For the duplicate-title refusal, write
+the whole body you want (keep the earlier description under a title of its own,
+such as `## Original description`, if it should stay) and post it with
+`--replace`.
 
 <a id="redact-prepush-email"></a>
 ### `MEDIUM  pii.email  <file>:<line>` from the pre-push hook
@@ -3361,6 +3370,27 @@ specifiers in test files that resolved to no repo file (for example a
 `extends` hop that was not followed (only relative `extends`, at most 4 hops). If
 a test does cover the file, declare it under `dependencies`; if the resolver
 should have found it, report the specifier as a resolver gap.
+
+<a id="pregate-no-lane-own-policy"></a>
+**The branch adds the lane itself.** A branch that edits `.gstack/pregate.json`
+to give its own new files a lane still gets this error: pregate reads the policy
+from `origin/<base>` (or the user-owned file), never from the branch, so a
+branch cannot loosen its own gate ([trust boundary](pregate.md#trust-boundary)).
+That is intended, and pregate never switches to the branch's copy on its own.
+The fix line then opens `this branch edits .gstack/pregate.json, but the policy
+comes from origin/<base>@<sha>:.gstack/pregate.json so a branch cannot loosen
+its own gate, and a lane it adds counts only once it is on <base>` and names the
+two routes:
+
+1. Land the policy change in its own PR first (the reviewed route), then merge
+   the base into this branch and rerun.
+2. Rerun with `--policy-from head --allow-repo-commands`. The run reads the
+   branch's copy and its record says `policy head (unreviewed)`, so a
+   reviewer sees that the gate ran under a policy nobody has reviewed yet;
+   `gstack-ship-queue` never accepts a head-policy run as a remote mirror.
+
+An allowlist entry the branch adds to its own `pregate.json` is read the same
+way: it clears a finding only once it is on the base.
 
 <a id="pregate-lane-failed"></a>
 ### `PREGATE_LANE_FAILED`

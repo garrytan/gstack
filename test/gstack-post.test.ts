@@ -526,13 +526,40 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(fresh.body).toBe(receipt + "\n## A\n\nb\n");
     expect([fresh.replaced, fresh.kept, fresh.added]).toEqual([["A"], [], ["ship receipt"]]);
 
-    const twice = mergeBodySections("## A\na\n## A\na2\n", "## A\nnew\n");
-    expect(twice.body).toBe("## A\nnew\n\n## A\na2\n");
-    expect([twice.replaced, twice.kept]).toEqual([["A"], ["A"]]);
+    expect(() => mergeBodySections("## A\na\n## A\na2\n", "## A\nnew\n")).toThrow('holds "A" more than once');
+    const untouched = mergeBodySections("## A\na\n## A\na2\n", "## B\nb\n");
+    expect(untouched.body).toBe("## A\na\n## A\na2\n\n## B\nb\n");
+    expect([untouched.kept, untouched.added]).toEqual([["A", "A"], ["B"]]);
 
     const glued = mergeBodySections("## A\n\na", "## B\n\nb");
     expect(glued.body).toBe("## A\n\na\n\n## B\n\nb");
     expect(mergeBodySections("## A\n\na\n\n", "## B\n\nb\n").body).toBe("## A\n\na\n\n## B\n\nb\n");
+  });
+
+  // Value: protects=a PR body holding a section title twice (an old description pasted under the /ship body, gstack-evals#19) refuses to merge,
+  // posts nothing and names the fix, so the stale copy is never kept beside the new one; --replace posts the file as written;
+  // fails_when=the file's section replaces the first copy and the old one is kept (the #19 duplicate); why_new=the merge matched duplicate titles
+  // one to one and reported the leftover as kept; seam=the fake run answers gh pr view --json body; no_claim=real gh
+  test("a current body with a title twice refuses the merge and posts nothing; --replace posts the file", () => {
+    const fresh = RECEIPT("bbbb") + "\n## What changed\n\n- the /ship summary\n\n## Test plan\n\n- [x] bun test\n";
+    const current = RECEIPT("aaaa") + "\n## What changed\n\n- the /ship summary\n\n## Test plan\n\n- [x] bun test\n\n---\n\nOriginal intro.\n\n## What changed\n\n- the old summary\n\n## Checks\n\n- old checks\n";
+    const f = withBody(current, { "/b": fresh + "\n## Original description\n\nOriginal intro.\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], f)).toBe(EXIT.usage);
+    expect(f.posts().some(c => c.args[1] === "edit")).toBe(false);
+    expect(f.stderr()).toContain(`the PR's current body holds "What changed" more than once`);
+    expect(f.stderr()).toContain("Rerun with --replace and the whole body");
+
+    const replaced = withBody(current, { "/b": fresh });
+    expect(run(["pr-body", "5", "--body-file", "/b", "--replace"], replaced)).toBe(EXIT.posted);
+    expect(sent(replaced).input).toBe(fresh);
+  });
+
+  // Value: protects=a current body holding two ship-receipt blocks (an old receipt pasted below) refuses like a doubled title, so the stale
+  // receipt is never kept beside the new one; fails_when=receipt keys are exempted from the duplicate check or matched one to one again;
+  // why_new=only doubled ## titles were tested; seam=none; no_claim=how /ship reports the refusal
+  test("a current body with two receipt blocks refuses a file that carries a receipt", () => {
+    const current = RECEIPT("aaaa") + "\n## A\n\na\n\n" + RECEIPT("bbbb") + "\n## B\n\nb\n";
+    expect(() => mergeBodySections(current, RECEIPT("cccc") + "\n## A\n\nnew\n")).toThrow('holds "ship receipt" more than once');
   });
 
   // Value: protects=the body /ship composes (lib/ship-receipt.ts placeReceiptFirst: the receipt block, one blank line, then the sections) reposts

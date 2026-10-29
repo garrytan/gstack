@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.324.0] - 2026-10-29
 
 **A capped /ship on Capy no longer delegates or stops just because the host's own prompt is big, and a delegated child hands off instead of stopping.** A fresh Capy call costs 150-230k before any /ship work, so the 100k start and 150k segment thresholds fired on every capped Capy start and stopped two gstack-evals #36 children at their first boundary. The thresholds now measure context above a calibrated per-host call floor.
 
@@ -28,6 +28,63 @@
 
 ### Tests
 - `test/ship-budget-projection.test.ts` replays GSTA-2 (an 8M cap now reaches Step 6.5 and still stops with room to stop) and GSTA-152 PR B (the 29.28M refusal is admitted and the run stops before the cap), and covers the settle points, unseen charges and the delegate/handoff boundary. The first 8 tests failed at ad8e12d; the 3 review-fix tests failed at f30c33f.
+
+## [1.91.323.0] - 2026-10-29
+
+### Tests
+- `test/review-depth.test.ts`: the #19 shape plans fix-check, Red Team and native adversarial; full depth, a fail-closed classification, `--depth-floor full`, a 151-line, missing or unread range and a gate-touching fix keep the full pass; a forced specialist and changed numbers keep their reviewers; 150, 151 and a docs-only range; the scoped pass counts toward the cap and a blocker it leaves stops; `DEPTH_RULES` moves with the constant.
+- `test/review-plan-cli.test.ts`: `--range-base` plans `NEXT: scoped`; a 151-line range, no range, an unknown base and uncommitted fixes plan full.
+- `test/review-scope.test.ts`: `raised_by` from the explicit field, the specialist tag or `unknown`.
+- `test/ship-receipt-depth.test.ts`: the queue binds a receipt whose pass 2 was scoped.
+
+### Gate integrity
+- Addition to the 1.91.316.0 entry below: **Pass 2 after a blocking fix now reviews the fix in proportion to its size.** When pass 1 fixed a blocking finding on a diff below full depth and the fix range has at most 150 runtime lines, /ship runs a scoped pass: one fix-check, the Red Team and the native adversarial pass on the range, instead of the specialist army. On gstack-evals#19 a 3-file fix range (+18/-6) was planned for nine reviewers. Full depth, `--depth-floor full`, a fix that touched a gate path, a larger range, or a range it cannot read keeps the full pass 2. The two-pass cap and the stop for the owner are unchanged.
+- Addition to the 1.91.316.0 entry below: **`gstack-review-plan --range-base <sha>`** (`lib/review-depth.ts`): counts the committed fix range `<sha>..HEAD` the way the depth counts runtime lines, prints `FIX_RANGE: runtime_lines=<n>|unread (<why>) base=<sha>` (`fix_range` in `--json`), and `NEXT: scoped` when the scoped pass applies. `nextStep` takes the depth and `History.rangeRuntimeLines`; `SCOPED_RANGE_LINES` (150) joins `DEPTH_RULES`, so `rules=` changes. `REVIEW_PLAN:` ends with the step's `reason="…"`. Uncommitted or untracked edits, a range base that is not an ancestor of HEAD, an empty range, and a range the classifier cannot count all plan the full pass. A full pass 1 always gets a full pass 2: `--pass1-depth` carries pass 1's `REVIEW_DEPTH` (absent counts as full), so a fix that reverts a gate, auth, migration or gate-tagged edit cannot lower pass 2. The fix range is classified with its own `gstack-diff-scope` and `gstack-gate-diff` input, and a gate-class range plans the full pass and sets `fix_range.touched_gate`.
+- Addition to the 1.91.316.0 entry below: **Scoped dispatches**: the fix-check, every force-included specialist, the Red Team, the native adversarial pass when the range changes runtime lines, and the outside voice when published numbers changed. Step 11's voices that have not run yet stay listed. A light diff's raise to standard applies to the scoped set only.
+- Addition to the 1.91.316.0 entry below: **Step 9** (`ship/sections/review-army.md`): the repeat decision passes `--range-base $PASS_HEAD` and maps `NEXT: scoped` to decision 3; a scoped pass logs a full-pass `review` row with `"scope":"scoped"`, so it counts toward the cap and its roles land in `review_loop.dispatches` with no receipt schema change.
+- Addition to the 1.91.316.0 entry below: **`raised_by` on classified findings** (`gstack-review-scope classify`, `lib/review-scope.ts`): the reviewer that raised each finding (`core`, `qa`, a specialist, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`), from the finding's `raised_by` or `specialist` tag, else `unknown`. Step 9 copies it into the review-log row. Older rows without it still summarize.
+- Addition to the 1.91.316.0 entry below: **Docs**: docs/review-policy.md (rule 3, the transitions table, a scoped-pass section and Behavior changes) and docs/ship-policy.md rule 3.
+
+## [1.91.322.0] - 2026-10-29
+
+**A PR screen no longer runs the whole paid gate just because a changed file sits on every case's import path.** Editing a file like `lib/restamp.ts` reached all 113 gate cases through the derived-reference closure, so 19 of the 41 full screens between Oct 20 and 29 ran the full $33 gate for that reason alone. A narrow screen (`gstack-ship-queue ready --screen`, and `bun run eval:bg:pr`) now leaves such a file's cases to the train gate's full census, which runs every case before anything merges. Replayed on those 41 screens with today's maps, this saves about $457 a week, and the screens that caught real PR-caused reds (#3434, #3453) still run the full gate.
+
+### Changed
+- **Narrow screens** (`scripts/test-pr-profile.ts`, `scripts/lib/paid-select.ts`): a changed file whose derived references reach every gate case and that nothing narrower selects is a hub file. On a narrow screen it selects no case or judge; the paid plan's reason and the coverage summary name it and say the train gate runs those cases. Full-gate files, shared runtime and build inputs, paid-runner inputs, files the derivation cannot place and files deleted by the PR select exactly what they did before. `ready --screen --broad`, `pull_request` runs (the merge gate when the base has no `train` block), the train gate, `eval:bg:gate`, periodic and release runs are unchanged.
+- **The READY screen preview** (`lib/ship-queue-train-ready.ts`) and the per-push screening summary now show the narrow screen's selection.
+- **`test/size-ledger/**`** is a touchfile of the 20 cases that read `test/helpers/size-ledger.ts` (all periodic or marathon), so a size-ledger baseline change no longer restores the full gate. `careful/bin/mask-commit-message.awk`, loaded only by the free-tested `check-careful.sh` hook, is free-only.
+
+### Tests
+- `test/pr-dependencies.test.ts`: a hub-only diff selects nothing on a narrow screen and every gate case on a broad one or with no policy set; a hub beside a shared runtime input, an unknown file or a full-gate file still runs the full gate; a hub beside a direct edit keeps that edit's cases; a deleted file is never a hub; the PR workflow plans narrow only for dispatches; size-ledger baselines select no gate case.
+
+## [1.91.321.0] - 2026-10-29
+
+**Free Tests passes again on Ubicloud runner image 20261026.1.0.** Every Linux job that landed on that image failed the cookie-import Playwright pipe smoke, in-shard and again on the serial retry, and a rerun passed only when it happened to land on the older 20261021.1.0 image. Both images keep `kernel.apparmor_restrict_unprivileged_userns=1`, but 20261026 loads three AppArmor profiles instead of 123, so nothing grants the bundled Chromium a user namespace and its sandbox aborts with `credentials.cc:131 ... Permission denied`. The two Linux jobs that launch Chromium now grant user namespaces to that one binary, the way Ubuntu's own `chrome` profile does.
+
+### Fixed
+- **`.github/workflows/free-tests.yml`**: `free-suite` and `quick-bun-default` gain a step after the SUID sandbox helper step. It resolves Playwright's Chromium, refuses any path outside `~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome`, and loads an AppArmor profile that grants `userns` to that path alone. The kernel restriction stays on for every other binary. The SUID helper step is unchanged, and no step passes `--no-sandbox` or runs `sysctl`. Diagnostic dispatch 40921806393 ran 17 jobs: all 9 on 20261026 failed the smoke without the profile and passed with it, and all 8 on 20261021 passed throughout.
+
+### Tests
+- `test/chromium-sandbox-ci.test.ts`: four cases, two per job, run the real step with stubbed `bun` and `sudo`. They check that the step sits after the helper and before the suite, the exact profile bytes and the `apparmor_parser -r` call, that no protection-lowering flag appears, and that an unexpected Chromium path is refused before any privileged call. They fail against main's workflow.
+
+## [1.91.320.0] - 2026-10-29
+
+**A branch that adds its own pregate lane now learns why it still fails, and `gstack-post pr-body` no longer keeps a stale copy of a section.** Pregate reads its policy from the base branch so a branch cannot loosen its own gate. A branch that had already declared a lane in its own `.gstack/pregate.json` was still told to declare it, and went round in a circle. Separately, a PR body that held `## What changed` twice (an old description pasted under the /ship body) kept the old copy every time /ship reposted.
+
+### Fixed
+- **`PREGATE_NO_LANE`**: when the branch edits `.gstack/pregate.json` and the policy comes from the base copy or the user-owned file, the fix line names that policy, says a lane the branch adds counts only once it is on the base, and offers both routes: land the policy change in its own PR first, or rerun with `--policy-from head --allow-repo-commands`, which records the run as unreviewed. Pregate still never reads the branch's policy on its own. (#3574)
+- **`gstack-post pr-body`**: when the PR's current body holds a title from the file more than once, it posts nothing, exits 64 and says to rerun with `--replace` and the whole body. /ship's PR-body step stops on that refusal and reports the duplicated titles instead of reposting with `--replace` itself, since a person chooses which copy stays. (#3575)
+
+### Docs
+- `docs/troubleshooting.md#pregate-no-lane-own-policy` explains the own-policy case and its two routes; `docs/pregate.md`'s trust boundary links it. The `gstack-post-pr-body-merge` entry covers the duplicate-title refusal.
+
+### Tests
+- `test/pregate-selection.test.ts`: the own-policy fix line under the base policy; a head-policy run and a branch that deletes `pregate.json` get the plain fix.
+- `test/pregate-user-policy.test.ts`: the own-policy line names the user file as the policy source.
+- `test/gstack-post.test.ts`: a doubled title refuses and posts nothing, `--replace` posts the file, and a body with two receipt blocks refuses too.
+
+### Gate integrity
+- `test/gstack-post.test.ts`: the duplicate-titles assertion that expected the first copy replaced and the second kept now expects the refusal, plus a case where duplicates the file does not touch are still kept.
 
 ## [1.91.319.0] - 2026-10-29
 

@@ -49,14 +49,14 @@ export function skillOwnCases(selected: readonly string[], touchfiles: Record<st
   return selected.filter(id => (touchfiles[id] ?? []).some(glob => skills.some(s => glob.startsWith(`${s}/`)))).sort();
 }
 
-/** gstack's paid selector over a diff (today's PR selection; T2 narrows it), loaded only when the policy asks for it. */
+/** gstack's paid selector over a diff, as a narrow screen (`--screen` without `--broad`) plans it, loaded only when the policy asks for it. */
 export async function gstackPaidSelection(repoRoot: string, baseSha: string, changed: string[], hasTemplate: (dir: string) => boolean): Promise<ScreenSelection> {
   const { computePaidCaseSelection } = await import('../scripts/lib/paid-select');
   const { E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES } = await import('../test/helpers/touchfiles');
   const skills = touchedSkills(changed, hasTemplate);
-  let e2e: string[]; let judges: number; let note = "today's PR selection; T2's narrowed screen has not landed";
+  let e2e: string[]; let judges: number; let note = "the narrow screen's selection; --broad adds the dependents of files whose references reach every gate case";
   try {
-    const s = computePaidCaseSelection({ profile: 'pr', rootDir: repoRoot, changedFiles: changed, env: { ...process.env, EVALS_BASE: baseSha, EVALS_ALL: '' } }).selection;
+    const s = computePaidCaseSelection({ profile: 'pr', rootDir: repoRoot, changedFiles: changed, env: { ...process.env, EVALS_BASE: baseSha, EVALS_ALL: '', EVALS_SCREEN_POLICY: 'narrow' } }).selection;
     e2e = s.e2e ?? Object.keys(E2E_TOUCHFILES);
     judges = s.judges ? s.judges.length : Object.keys(LLM_JUDGE_TOUCHFILES).length;
   } catch (error) {

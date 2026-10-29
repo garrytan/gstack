@@ -25,7 +25,10 @@ passes. Standalone, `gstack-regen check` lists the commands and exits 3
 (`REPO_COMMANDS_NOT_ALLOWED`); `gstack-pregate` marks `regen` and `lanes`
 `incomplete`, never `pass`. `--policy-from head` (a PR that introduces or
 changes a pin file) is accepted only with `--allow-repo-commands` and the record
-says `policy head (unreviewed)`. An unresolvable base exits 3 with
+says `policy head (unreviewed)`. So a lane or allowlist entry a branch adds to
+its own `pregate.json` counts only once it is on the base; `PREGATE_NO_LANE`'s
+fix line says so when the branch edits the file
+([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)). An unresolvable base exits 3 with
 `POLICY_SOURCE_UNAVAILABLE`. Globs are repo-relative (no `..`, no absolute
 paths, at most 64 per list); commands are one line under 512 bytes.
 

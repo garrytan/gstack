@@ -131,6 +131,19 @@ describe('gstack-pregate with a user-owned policy', () => {
     expect(lanes.fix).toContain(`under dependencies — or empty_lanes for other documentation — in ${userPolicy}`);
   }, 60_000);
 
+  // Value: protects=under a user-owned policy, a branch that adds its own .gstack/pregate.json is told the user file is the policy, by path;
+  //   fails_when=the own-policy line is limited to the base copy or hardcodes origin as the source; why_new=the own-policy line is new and its
+  //   test covers the base copy only; seam=none; no_claim=which route suits a user-policy repository
+  test('the own-policy no-lane fix names the user file as the policy source', () => {
+    const { repo, userPolicy, run } = setup();
+    writePolicy(userPolicy, { local: LOCAL_ALL });
+    commit(repo, { 'lib/orphan.js': 'exports.lonely = () => 2;\n', '.gstack/pregate.json': JSON.stringify({ runner: 'node --test {files}', dependencies: { 'lib/orphan.js': ['test/util.test.js'] } }) });
+    expect(run().status).not.toBe(EXIT.ok);
+    const lanes = JSON.parse(fs.readFileSync(path.join(repo.work, '.gstack/tmp/pregate.json'), 'utf8')).checks.find((c: { id: string }) => c.id === 'lanes');
+    expect(lanes.code).toBe('PREGATE_NO_LANE');
+    expect(lanes.fix).toStartWith(`this branch edits .gstack/pregate.json, but the policy comes from user ${userPolicy} so a branch cannot loosen its own gate`);
+  }, 60_000);
+
   // Value: protects=an invalid, sealed-bearing or unreadable user file refuses with PREGATE_CONFIG_INVALID naming the file, with a fix
   //   that points at the file rather than the base branch; fails_when=user-file errors run on defaults, or sealed/price_file are accepted
   //   and look active while nothing reads them; why_new=the user source is new; seam=none; no_claim=the sealed guard itself

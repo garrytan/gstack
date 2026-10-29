@@ -1133,6 +1133,15 @@ list each unmapped file that caused a fallback with one of these labels:
   list classifies (for example `ETHOS.md`); map it, exempt it, or derive its
   directory.
 
+Narrow screens (`gstack-ship-queue ready --screen` without `--broad`) and
+`eval:bg:pr` (`test:pr` defaults `EVALS_SCREEN_POLICY=narrow`) leave out a
+derived file whose closure reaches every gate case; the plan lists it as left to
+the train gate's full census, and that census runs those cases.
+`pull_request` runs, broad screens, `EVALS_SCREEN_POLICY=broad` and
+`--profile full` keep every derived dependent. Full-gate inputs and unknown files
+still restore the full gate on a narrow screen. The policy is in
+[ship-policy.md](ship-policy.md#run-a-merge-train).
+
 The fallback rate is a label, not the bill: a dependents run whose derived
 closure reaches every gate case costs about what a full-fallback run does.
 `bun run test:health` leads with the cost per merged PR and reports
