@@ -4,14 +4,15 @@
  * contract (lib/review-prompts.ts, the text the generated prose renders), its
  * checklists inlined, its DIFF_CMD diff at -U8 against the literal diff base with
  * a stat, at most 8 KB of the plan, a read budget, and the output path its result
- * goes to. A packet over PACKET_CAP_BYTES is sharded by path, never truncated.
+ * goes to. A packet over PACKET_CAP_BYTES is sharded by path, never truncated. At every depth
+ * a pass's specialist lines become one batched packet per shard (SPECIALIST_PACKING).
  * Selection is lib/review-depth.ts planReview's (through lib/review-plan-live.ts);
  * collect is lib/review-packet-collect.ts.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Dispatch, Role } from './review-depth';
+import { classifyPath, type Dispatch, type Role } from './review-depth';
 import * as P from './review-prompts';
 
 export const PACKET_CAP_BYTES = 200_000;
@@ -20,6 +21,31 @@ export const MANIFEST = 'manifest.json';
 export const AUDITS = ['test-coverage', 'plan-completion'] as const;
 export type AuditName = (typeof AUDITS)[number];
 export type PacketRole = Role | 'audit';
+
+export type Packing = 'batched' | 'parallel';
+export const PACKINGS: readonly Packing[] = ['batched', 'parallel'];
+/**
+ * How build packs a pass's specialist DISPATCH lines: `batched` is one packet per shard inlining every
+ * selected checklist (light's contract, each finding tagged with its checklist, a COVERED line collect
+ * checks); `parallel` is one packet per specialist. The no-loss replay flips this one value.
+ */
+export const SPECIALIST_PACKING: Packing = 'batched';
+
+/** Every per-specialist dispatch of a pass as one `specialist batched` dispatch in the first one's place: checklists in plan order, the diff all of them read (the excludes they share). */
+export function packSpecialists(dispatches: readonly Dispatch[]): Dispatch[] {
+  const each = dispatches.filter(d => d.role === 'specialist' && !d.checklists);
+  if (each.length < 2) return [...dispatches];
+  const first = each[0]!;
+  const batched: Dispatch = { role: 'specialist', name: 'batched', effort: first.effort, exclude: first.exclude.filter(x => each.every(d => d.exclude.includes(x))), checklists: each.map(d => d.name) };
+  return dispatches.flatMap(d => (d === first ? [batched] : each.includes(d) ? [] : [d]));
+}
+
+/** Data files: no code path for the coverage audit to trace. */
+const DATA_PATH = /\.(json|jsonl|ndjson|ya?ml|toml|csv|tsv|svg|png|jpe?g|gif|webp|ico|pdf)$/i;
+/** The changed paths the coverage audit traces: code-class paths that are not data. Docs, tests and data have none. */
+export function auditCodePaths(paths: readonly string[], root: string): string[] {
+  return paths.filter(p => classifyPath(p, root) === 'code' && !DATA_PATH.test(p));
+}
 
 export interface PacketEntry {
   role: PacketRole; name: string; reviewer: string; effort: string; file: string; out: string; bytes: number;
@@ -126,16 +152,16 @@ interface RoleText { title: string; instructions: string[]; contract: string; ch
 const doneLine = (name: string) => `DONE ${name} crit=<n> info=<n>`;
 
 function roleText(d: Dispatch, ctx: BuildContext, testFw: string): RoleText {
-  const jsonOut = (name: string) => `Write your result to the output path below with your file-write tool: \`NO FINDINGS\` alone, or the JSON lines and nothing else. Then reply with exactly one line, \`${doneLine(name)}\`, counting the CRITICAL and INFORMATIONAL findings you wrote. The parent reads only that file.`;
+  const jsonOut = (name: string, covered?: readonly string[]) => `Write your result to the output path below with your file-write tool: \`NO FINDINGS\` alone, or the JSON lines and nothing else${covered ? `, then one last line \`COVERED: ${covered.join(',')}\` naming every checklist you applied (leave out one you did not apply: the parent counts it as missing coverage)` : ''}. Then reply with exactly one line, \`${doneLine(name)}\`, counting the CRITICAL and INFORMATIONAL findings you wrote. The parent reads only that file.`;
   const contract = P.SPECIALIST_CONTRACT.replace('{TEST_FW}', testFw);
   const base = { extra: [] as string[], diffLabel: 'Diff', summary: false, checklists: [] as string[] };
   switch (d.role) {
     case 'specialist': {
-      if (d.checklists) return { ...base, title: 'batched specialist', checklists: d.checklists,
-        instructions: [P.DEFENSIVE_REVIEW_FRAMING, `${P.SPECIALIST_INTRO} Apply every checklist below against the diff below; the red-team checklist goes last and looks for what the others missed.`],
-        contract: `${contract}\n\nTag each finding with the checklist that found it: \`"specialist":"<checklist name>"\`.`, reply: jsonOut(d.name) };
+      if (d.checklists) return { ...base, title: 'batched specialist', checklists: d.checklists, extra: d.checklists.includes('state-machines') ? [P.STATE_MATRIX_OUTPUT] : [],
+        instructions: [P.DEFENSIVE_REVIEW_FRAMING, `${P.SPECIALIST_INTRO} Apply every checklist below against the diff below${d.checklists.includes('red-team') ? '; the red-team checklist goes last and looks for what the others missed' : ''}.`],
+        contract: `${contract}\n\nTag each finding with the checklist that found it: \`"specialist":"<checklist name>"\`.`, reply: jsonOut(d.name, d.checklists) };
       const framed = d.name === 'security';
-      const extra = d.name === 'state-machines' ? [`Your output file is also the matrix record file: write the matrix record(s) the checklist describes there with your findings; the parent runs \`gstack-state-matrix check\` on it.`] : [];
+      const extra = d.name === 'state-machines' ? [P.STATE_MATRIX_OUTPUT] : [];
       return { ...base, title: `${d.name} specialist`, checklists: [d.name], summary: framed, extra,
         instructions: [...(framed ? [P.DEFENSIVE_REVIEW_FRAMING, P.FIXTURE_SUMMARY_PACKET] : []), `${P.SPECIALIST_INTRO} Apply the checklist below against the diff below.`],
         contract: `${contract}\n\nTag every finding \`"specialist":"${d.name}"\`.`, reply: jsonOut(d.name) };
@@ -231,9 +257,9 @@ export function auditPrompt(skillRoot: string, audit: AuditName, base: string): 
 
 export function auditDraft(audit: AuditName, ctx: BuildContext, base: string, effort: string): PacketDraft {
   const { stack, testFw } = detectStack(ctx.root);
-  const budget = 'The diff is below; do not rerun git diff. Read only files in the diff, their tests and the files the plan names, in named line ranges of at most 200 lines; no whole-repository search, no other packets, no transcript. Writes and test runs only as the audit instructions permit.';
+  const budget = audit === 'test-coverage' ? P.AUDIT_READ_ONLY : 'The diff is below; do not rerun git diff. Read only files in the diff, their tests and the files the plan names, in named line ranges of at most 200 lines; no whole-repository search, no other packets, no transcript. Writes and test runs only as the audit instructions permit.';
   const plan = audit === 'plan-completion' && ctx.plan ? [`## Plan (whole, \`${ctx.plan.path}\`)\n\n${block(ctx.plan.text)}`, ''] : [];
-  const head = [`Role: ${audit} audit (effort=${effort}).`, '', `## Instructions\n\n${auditPrompt(ctx.skillRoot, audit, base)}`, '',
+  const head = [`Role: ${audit} audit (effort=${effort}).`, '', `## Instructions\n\n${auditPrompt(ctx.skillRoot, audit, base).replace('<allowed|audit-only>', 'audit-only')}`, '',
     `## Output\n\nWrite your whole final answer to the output path below, its LAST line the JSON object the instructions name. Then reply with exactly one line, \`DONE <NAME>\`.`, '',
     ...(ctx.context ? [`## Parent context\n\n${block(ctx.context.trim())}`, ''] : []),
     ...common({ ...ctx, plan: audit === 'plan-completion' ? undefined : ctx.plan }, stack, testFw, null, budget), ...plan];

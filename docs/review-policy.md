@@ -338,8 +338,13 @@ writes one packet per `DISPATCH:` line holding:
 
 - the role's instructions and findings contract from `lib/review-prompts.ts`, the
   strings the resolvers render into `/review`'s prose, so packet and prose cannot drift;
-- its checklist inlined (every `checklists=` entry for light depth's batched
-  specialist, each finding tagged with its checklist);
+- its checklists inlined. At every depth a pass's specialist lines are one
+  `specialist batched` packet per shard (`PACKED:` names its checklists; light's adds the
+  Red Team's), each finding tagged with its checklist and a last `COVERED:` line naming
+  every checklist applied; `--fanout parallel` (or `SPECIALIST_PACKING` in
+  `lib/review-packet.ts`, the no-loss replay's switch) keeps one packet per specialist.
+  The Red Team, the adversarial pass, the outside voice, the fix-check and the audits stay
+  separate packets;
 - its `DIFF_CMD` diff at `-U8` against the literal diff base (`--range <sha>` from
   pass 2 on), exclusions honored and untracked files included, under a stat; the
   security specialist, the Red Team and the native adversarial pass see tests and
@@ -356,7 +361,9 @@ The Red Team's packet waits for the specialists (`--only red-team --findings
 <dir>/merged.jsonl`; until then collect lists it `pending`), the fix-check packet takes
 `--fix-list`, `--tests` and `--callers` with `--range $PASS_HEAD`, and `--audit
 test-coverage|plan-completion` writes a Step 7/8 audit packet from the generated
-section's prompt. An outside backend gets the outside-voice packet as its prompt file.
+section's prompt. The coverage audit packet is read-only (three calls: read, write, reply;
+the parent writes and runs the tests it proposes), and a diff with no code path (docs,
+data and tests only) prints `AUDIT_SKIPPED:` and builds none. An outside backend gets the outside-voice packet as its prompt file.
 
 `gstack-review-packet collect --dir <dir>` reads every output file and prints at most
 60 lines: one `REVIEWER:` line per packet (`clean`, `findings`, `missing`, `invalid`
@@ -364,10 +371,12 @@ or `pending`), each CRITICAL on one line, and counts for INFORMATIONAL. It does 
 9.2's stages 1–3 (invalid lines skipped and counted, an advisory CRITICAL kept CRITICAL,
 defects and advice merged apart by identity with every source label) into
 `merged.jsonl` and writes `informational.md` for the PR body. Missing or unusable
-output exits 3 with `REVIEW_COVERAGE_INCOMPLETE`
+output, or a batched packet whose `COVERED:` line leaves out a checklist it inlined
+(`uncovered=` on its `REVIEWER:` line), exits 3 with `REVIEW_COVERAGE_INCOMPLETE`
 ([troubleshooting.md](troubleshooting.md#review-coverage-incomplete)). Selection, depth,
 the floor and the transitions are unchanged: only what a reviewer reads and what
-returns to the parent changed.
+returns to the parent changed. The gate scan likewise gives the parent its `GATE_SUMMARY:`
+line and one index line per read-level hunk, never the hunk text.
 
 ## Two checklist rules with ids
 

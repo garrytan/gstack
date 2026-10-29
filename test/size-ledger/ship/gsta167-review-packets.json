@@ -1,4 +1,4 @@
 {
-  "bytes": -3324,
-  "why": "GSTA-167 reviewer packets: Step 9.1 dispatches each reviewer by one packet file (gstack-review-packet build/collect) in place of the inlined specialist prompt; Red Team, fix-check, Step 11 and the Step 7/8 audits read packets too"
+  "bytes": -2687,
+  "why": "GSTA-167 reviewer packets: Step 9.1 dispatches each reviewer by one packet file (gstack-review-packet build/collect) in place of the inlined specialist prompt; Red Team, fix-check, Step 11 and the Step 7/8 audits read packets too. PR 3b: a pass's specialists are one batched packet per shard with a COVERED line, Step 7 skips the audit on a diff with no code path and its packet is read-only, the gate scan prints the summary and hunk index only"
 }

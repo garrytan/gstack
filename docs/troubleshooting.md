@@ -1914,8 +1914,10 @@ wrote its return with status=refused.
 
 **Meaning.** A reviewer /ship dispatched by packet left no usable result: its output file
 (the packet's `out=` path) is missing or empty, or holds neither `NO FINDINGS` nor one valid
-finding line. The detail names each such packet as `<name>=missing` or `<name>=invalid`. Exit 3:
-that coverage is incomplete, never clean, and a peer's result cannot stand in for it.
+finding line, or a batched packet's last `COVERED:` line leaves out a checklist it inlined.
+The detail names each such packet as `<name>=missing`, `<name>=invalid` or
+`<name>=uncovered:<checklists>`. Exit 3: that coverage is incomplete, never clean, and a
+peer's result cannot stand in for it.
 
 **Fix.** Confirm the reviewer stopped, dispatch the same packet again with the same brief,
 then rerun `gstack-review-packet collect --dir <dir>`. Step 9.4's decision 1 governs the pass
