@@ -5481,12 +5481,12 @@ Garry for each; revisit 2026-10-29 unless a date says otherwise.
   (`['paste', 'enter', 'end_turn']`). Wait for the CLI's own write instead of a
   timer (docs/TESTING_INTERNALS.md#flake-ledger). **Effort:** S. **Priority:** P2.
 - **Split the free files the weekly seed puts over 60 s** —
-  `test/setup-install-registry.test.ts` (84 s), `test/brain-sync.test.ts` (89 s)
-  and `test/setup-codex-scope.test.ts` (64 s) are allowlisted with this todo in
-  `scripts/free-test-seed-allowlist.json` (2026-10-19 recording);
-  `test/host-renders-prune.test.ts` (57 s) and
-  `test/setup-codex-scope-namespaces.test.ts` are next. Split
-  each by describe block, rerun `bun run test:ubicloud --record-durations` and
+  `test/setup-install-registry.test.ts` (67 s) and `test/brain-sync.test.ts`
+  (64 s) are allowlisted with this todo in `scripts/free-test-seed-allowlist.json`
+  (2026-10-29 recording; `test/setup-codex-scope.test.ts` fell to 49 s and left it).
+  `test/host-renders-prune.test.ts`, `test/setup-codex-scope-namespaces.test.ts`
+  and six other files the 2026-10-29 recordings put over 60 s were split in
+  GSTA-151. Split each remaining file by describe block, rerun `bun run test:ubicloud --record-durations` and
   delete the entries. **Effort:** S each. **Priority:** P2.
 
 ## /write-skill follow-ups (filed via /autoplan on GSTA-133, 2026-10-27)

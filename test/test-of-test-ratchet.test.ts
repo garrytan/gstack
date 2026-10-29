@@ -56,6 +56,7 @@ const BASELINE = [
   'test/ceo-split-question-policy.test.ts',
   'test/ceo-stale-fill-decision.test.ts', // replays census reports against the paid CEO section-loading case's structured checker
   'test/changed-files-union.test.ts',
+  'test/claude-overlay-setup-installs.test.ts', // GSTA-151: its bin/gstack-skill-start assertion moved to test/claude-overlay-setup-project.test.ts in the shard-time split; the remaining cases still run the real ./setup through test/helpers/install-fixture.ts
   'test/claude-provider-keychain.test.ts',
   'test/codex-carve-fixture.test.ts',
   'test/codex-eval-recording.test.ts',
@@ -83,6 +84,8 @@ const BASELINE = [
   'test/docsync-atomic-writes.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/docsync-child-marker.test.ts', // replays a PR-lane capture against the paid ship-docsync case's child-marker check
   'test/docsync-command-grammar.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
+  'test/docsync-fault-interface-faults.test.ts', // GSTA-151: split from test/docsync-fault-interface.test.ts for shard time; replays the fault-control callbacks through the generated child
+  'test/docsync-fault-interface-legacy.test.ts', // GSTA-151: split from test/docsync-fault-interface.test.ts for shard time; replays the legacy-control callbacks through the generated child
   'test/docsync-nested-writes.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/dx-selected-navigation-ap.test.ts',
   'test/eng-batching-current-ledger.test.ts',
@@ -124,6 +127,7 @@ const BASELINE = [
   'test/helpers/session-runner.test.ts',
   'test/helpers/sync-command-capture.test.ts',
   'test/hooks-windows-paths.test.ts',
+  'test/host-renders-prune-shared-root.test.ts', // GSTA-151: split from test/host-renders-prune.test.ts for shard time; runs the real ./setup prune through test/helpers/install-fixture.ts
   'test/ios-debug-bridge-release-guard.test.ts',
   'test/ios-qa-stateserver-hardening.test.ts',
   'test/ios-qa-swift-build.test.ts',
@@ -208,10 +212,13 @@ const BASELINE = [
   'test/session-runner-timeout.test.ts',
   'test/setup-browser-hint.test.ts',
   'test/setup-bun-cmd-and-pipe-bugs.test.ts',
+  'test/setup-codex-scope-runtime-links.test.ts', // GSTA-151: split from test/setup-codex-scope-review-boundaries.test.ts for shard time; runs the real ./setup through test/helpers/install-fixture.ts
   'test/setup-conductor-worktree.test.ts',
   'test/setup-playwright-platform.test.ts',
   'test/setup-sections-linking.test.ts',
   'test/shared-libs-cancellation.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
+  'test/shared-libs-checker-interface-evidence-declared.test.ts', // GSTA-151: split from test/shared-libs-checker-interface-evidence.test.ts for shard time; same cases, slices the same paid source
+  'test/shared-libs-checker-interface-evidence-replays.test.ts', // GSTA-151: split from test/shared-libs-checker-interface-evidence.test.ts for shard time; same cases
   'test/shared-libs-checker-interface-evidence.test.ts', // slices test/skill-e2e-shared-libs.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/shared-libs-fixture.test.ts', // slices test/skill-e2e-shared-libs-periodic.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/shared-libs-plan-actor.test.ts',

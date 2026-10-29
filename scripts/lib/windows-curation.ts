@@ -258,6 +258,26 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/claude-overlay-fixture.ts, so the source scan misses them',
   },
   {
+    file: 'test/claude-overlay-setup-lifecycle.test.ts',
+    reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/claude-overlay-fixture.ts, so the source scan misses them',
+  },
+  {
+    file: 'test/claude-overlay-setup-project.test.ts',
+    reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/claude-overlay-fixture.ts, so the source scan misses them',
+  },
+  {
+    file: 'test/host-renders-prune-shared-root.test.ts',
+    reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/install-fixture.ts, so the source scan misses them',
+  },
+  {
+    file: 'test/host-renders-prune-migration.test.ts',
+    reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/install-fixture.ts, so the source scan misses them',
+  },
+  {
+    file: 'test/setup-codex-scope-runtime-links.test.ts',
+    reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/install-fixture.ts and test/helpers/setup-codex-scope-cyclic.ts, so the source scan misses them',
+  },
+  {
     file: 'test/cso-scanner-cli.test.ts',
     reason: 'drives the prebuilt POSIX CSO launcher with /usr/bin/git and a POSIX-only PATH; native Windows launcher behavior is covered by the dedicated cso-windows-launcher gate',
   },
@@ -295,8 +315,41 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-ship-queue against the stateful #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard run 39152702056)',
   },
   {
+    file: 'test/ship-queue-train-bisect.test.ts',
+    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+  },
+  {
+    file: 'test/ship-queue-train-verify.test.ts',
+    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+  },
+  {
+    file: 'test/ship-queue-train-freeze.test.ts',
+    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+  },
+  {
     file: 'test/ship-queue-train-cost.test.ts',
     reason: 'drives bin/gstack-ship-queue train verdict against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard 2 on #3478 at d5e6a7d)',
+  },
+  // GSTA-151 splits: parts of files the curation excluded as a whole keep that platform scope.
+  {
+    file: 'test/docsync-fault-interface-legacy.test.ts',
+    reason: 'split from test/docsync-fault-interface.test.ts, excluded as a whole by its POSIX mode-bit checks; replays the same docsync callbacks through the generated bun-test child',
+  },
+  {
+    file: 'test/docsync-fault-interface-faults.test.ts',
+    reason: 'split from test/docsync-fault-interface.test.ts, excluded as a whole by its POSIX mode-bit checks; replays the same docsync callbacks through the generated bun-test child',
+  },
+  {
+    file: 'test/shared-libs-checker-interface-evidence.test.ts',
+    reason: 'runs bin/gstack-review-log (shebang) through test/helpers/shared-libs-checker-evidence.ts captures (Windows CreateProcess does not parse shebangs)',
+  },
+  {
+    file: 'test/shared-libs-checker-interface-evidence-declared.test.ts',
+    reason: 'split from test/shared-libs-checker-interface-evidence.test.ts: runs bin/gstack-review-log (shebang) through test/helpers/shared-libs-checker-evidence.ts captures (Windows CreateProcess does not parse shebangs)',
+  },
+  {
+    file: 'test/shared-libs-checker-interface-evidence-replays.test.ts',
+    reason: 'split from test/shared-libs-checker-interface-evidence.test.ts, which spawned bin/gstack-review-log (shebang); its prerequisite checks run the same review-log commands through bash',
   },
   {
     file: 'test/ship-queue-train-ops.test.ts',
@@ -338,6 +391,8 @@ export const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   { file: 'test/gstack-config-gbrain-refresh.test.ts', reason: 'E6: runs bin/gstack-config through explicit bash; its gbrain/python3 shims are found by bash PATH lookup, never launched by CreateProcess' },
   { file: 'test/hook-scripts.test.ts', reason: '#3067 PowerShell and NotebookEdit hook coverage: every hook runs through spawnSync("bash", [script]) with the payload on stdin, scratch state lives under os.tmpdir(); its /tmp/ literals are payload strings, never opened; symlink, newline-path and POSIX-PATH cases are skipIf win32' },
   { file: 'test/gstack-doctor.test.ts', reason: 'runs bin/gstack-doctor and setup --status through explicit bash argv in an os.tmpdir fixture; its bun/codex/claude/probe stubs are found by bash PATH lookup, and expected paths use bash spellings' },
+  { file: 'test/gstack-doctor-check.test.ts', reason: 'split from test/gstack-doctor.test.ts: runs bin/gstack-doctor --check through explicit bash argv in the test/helpers/doctor-fixture.ts os.tmpdir fixture; its stubs are found by bash PATH lookup, and expected paths use bash spellings' },
+  { file: 'test/gstack-doctor-launch.test.ts', reason: 'split from test/gstack-doctor.test.ts: runs bin/gstack-doctor through explicit bash argv in the test/helpers/doctor-fixture.ts os.tmpdir fixture; Windows bash and platform rows are injected through GSTACK_DOCTOR_PLATFORM, and POSIX-path cases skip on win32' },
   // Fix wave PR 5 (item 10b, #3197): the fixture runBin launches bins through lib/script-invocation.ts
   // (bun bins as Bun argv, bash bins through Git Bash); passed on windows-latest in the fix wave PR 5 windows-free-tests run.
   { file: 'test/gstack-regen.test.ts', reason: 'runs bin/gstack-regen through the fixture runBin (lib/script-invocation.ts) and its regen commands through the resolved Git Bash' },
