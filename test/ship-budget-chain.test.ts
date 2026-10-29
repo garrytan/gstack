@@ -11,11 +11,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { loadCalibration, MAX_CHAIN_DEPTH, stepProjection } from '../lib/ship-budget';
+import { loadCalibration, MAX_CHAIN_DEPTH, stepProjection, unitConstants } from '../lib/ship-budget';
 import { budgetHarness, type Harness } from './helpers/ship-budget-harness';
 
 const cal = loadCalibration();
 const FLOOR = cal.units['capy-tokens']!.call_floor!;
+const K = unitConstants(cal, 'capy-tokens');
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures', 'claude-usage-2.1.292.json'), 'utf8'));
 const harnesses: Harness[] = [];
 const fresh = () => { const h = budgetHarness(); harnesses.push(h); return h; };
@@ -234,5 +235,52 @@ describe('a chained return is charged once', () => {
     const session = h.field(launched.out, 'CHILD', 'session');
     expect(h.ledger(child.ledger).meter.sessions).toContain(session);
     expect(h.ledger(s.ledger).meter.sessions).toEqual([FIXTURE.sessions.parent, session]);
+  });
+});
+
+describe('a child returns complete only when its own work is finished', () => {
+  test('a child that returns before reconciling its grandchild returns incomplete and names the handoff', () => {
+    const h = fresh();
+    const s = start(h, ['--token-cap', '200M', '--reading', '98000']);
+    const child = handOff(h, s.run, '1', '22', 200_000);
+    expect(check(h, child.run, '1', '2', ['--reading', '600000']).code).toBe(0);
+    expect(h.field(check(h, child.run, '6', '7', ['--reading', '1500000']).out, 'BUDGET', 'verdict')).toBe('delegate');
+    const grand = handOff(h, child.run, '7', '22', 1_500_000);
+    const ret = h.sb(['return', '--run', child.run, '--to', '22', '--changed', 'Reviews', '--reading', '1600000']);
+    expect(ret.code, ret.out + ret.err).toBe(0);
+    expect(ret.out).toMatch(/^RETURN: handoff=[0-9a-f]{64} status=incomplete steps=1-22/);
+    expect(ret.out).toContain(`UNRECONCILED: handoff=${h.ledger(child.ledger).handoffs[0].sha} steps=7-22`);
+    expect(ret.out).toContain(grand.returnFile);
+    const top = h.sb(['reconcile', '--run', s.run, '--return', child.returnFile, '--reading', '1700000']);
+    expect(top.code).toBe(3);
+    expect(top.out).toContain('child=incomplete');
+  });
+
+  test('a child with an ADMIT remainder it never re-checked returns incomplete with a DROPPED line', () => {
+    const h = fresh();
+    const s = start(h, ['--token-cap', '900M', '--reading', '0', '--reserve', '0']);
+    const subCap = K.stop_overhead + Math.floor(1.5 * K.per_dispatch);
+    const ho = h.sb(['handoff', '--run', s.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '100000', '--sub-cap', String(subCap)]);
+    expect(ho.code, ho.out + ho.err).toBe(0);
+    const child = h.field(h.sb(['verify-handoff', '--in', ho.out.match(/^HANDOFF: (\S+)/m)![1]!, '--reading', '100000']).out, 'BUDGET_RUN', 'id');
+    const b = check(h, child, '9', 'dispatch:specialist,specialist,red-team', ['--reading', '100000']);
+    expect(b.code, b.out + b.err).toBe(0);
+    expect(b.out).toMatch(/^ADMIT: 1 of 3 \(remaining=specialist,red-team\)/m);
+    const ret = h.sb(['return', '--run', child, '--to', '11.5', '--reading', '100000']);
+    expect(ret.out).toMatch(/^RETURN: handoff=[0-9a-f]{64} status=incomplete steps=7-11.5/);
+    expect(ret.out).toMatch(/^DROPPED: step=9 reservation=\S+ roles=specialist,red-team/m);
+    expect(ret.out.trim().split('\n').at(-1)).toMatch(/^GSTACK_RESULT: skill=ship status=incomplete run=/);
+  });
+
+  test("a grandchild handoff outside the child's own Steps refuses and reserves nothing", () => {
+    const h = fresh();
+    const s = start(h, ['--token-cap', '200M', '--reading', '98000']);
+    const child = handOff(h, s.run, '7', '11.5', 200_000);
+    for (const [from, to] of [['7', '22'], ['6', '11.5']]) {
+      const r = h.sb(['handoff', '--run', child.run, '--from', from!, '--to', to!, '--base', 'origin/main', '--reading', '300000']);
+      expect(r.code).toBe(2);
+      expect(r.err).toContain(`--from ${from} --to ${to} is outside this child's Steps 7-11.5`);
+    }
+    expect(h.ledger(child.ledger).reservations.filter((r: any) => r.kind === 'child')).toHaveLength(0);
   });
 });

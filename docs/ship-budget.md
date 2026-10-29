@@ -129,7 +129,10 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
      `verdict=continue` with one `CONTEXT_HIGH:` line (call, floor, threshold, depth, reason).
 
    The admission cap still stops a child (`reason=budget_exhausted`). It reconciles any
-   grandchild, then ends with `return` (at most 40 lines).
+   grandchild, then ends with `return` (at most 40 lines). `return` reports `status=incomplete`
+   while one of the child's own handoffs is unreconciled (`UNRECONCILED:`) or an ADMIT remainder
+   was never re-checked (`DROPPED:`), so a delegated segment cannot drop readers or leave a
+   grandchild writing after the parent moves on.
 4. `gstack-ship-budget reconcile --run <id> --return <file> --reading <n>`; idempotent per handoff hash,
    so a duplicate return charges nothing twice. A refused, incomplete or interrupted child
    exits 3: regenerate the handoff or stop. Up a chain each token is charged once: the Capy

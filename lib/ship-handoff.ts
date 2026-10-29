@@ -81,8 +81,7 @@ export function cmdHandoff(argv: string[], ctx: Ctx): Outcome {
   if (!base) throw usageError('handoff needs --base origin/<base> (the merge base is pinned against it)');
   const file = ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env);
   const child = str(o, 'child-session');
-  if (child) joinMeter(file, child, ctx.env);
-  return mutateLedger(file, ctx.env, l => {
+  const out = mutateLedger(file, ctx.env, (l): Outcome => {
     const depth = l.depth ?? (l.parent ? 1 : 0);
     if (depth >= MAX_CHAIN_DEPTH) throw usageError(`run ${l.run} is at chain depth ${depth}, the maximum (${MAX_CHAIN_DEPTH}); continue instead`);
     const at = (s: string) => SHIP_STEPS.indexOf(s as any);
@@ -108,6 +107,8 @@ export function cmdHandoff(argv: string[], ctx: Ctx): Outcome {
     l.handoffs.push({ ...draft, sha });
     return { stdout: [`HANDOFF: ${draft.file} sha256=${sha} sub_cap=${subCap}`, `RETURN_FILE: ${draft.return_file}`, budgetLine(l, { call, next: from, projected: subCap, verdict: 'delegate' })], exit: 0 };
   });
+  if (child && out.exit === 0) joinMeter(file, child, ctx.env);
+  return out;
 }
 
 function handoffBlock(text: string): any {
@@ -166,9 +167,15 @@ export function cmdReturn(argv: string[], ctx: Ctx): Outcome {
     readMeter(l, o, false);
     const head = git(ctx.cwd, ['rev-parse', 'HEAD']);
     const tree = pinsNow(ctx.cwd, 'HEAD', ctx.env).wtree;
-    const lines = [`RETURN: handoff=${l.parent.handoff_sha} status=${status} steps=${l.parent.from}-${to} head=${head} tree=${tree}`,
+    const accepted = new Set((l as any).accepted_skips as string[] | undefined ?? []);
+    const unreconciled = l.handoffs.filter(h => !h.reconciled_at);
+    const dropped = l.reservations.filter(r => r.remaining?.length && !accepted.has(r.id));
+    const result = status === 'complete' && (unreconciled.length || dropped.length) ? 'incomplete' : status;
+    const lines = [`RETURN: handoff=${l.parent.handoff_sha} status=${result} steps=${l.parent.from}-${to} head=${head} tree=${tree}`,
+      ...unreconciled.map(h => `UNRECONCILED: handoff=${h.sha} steps=${h.from}-${h.to} (reconcile --run ${l.run} --return ${h.return_file} before returning)`),
+      ...dropped.map(r => `DROPPED: step=${r.step} reservation=${r.id} roles=${r.remaining!.join(',')} (ADMIT named them; no later check requested them)`),
       `RECORD_CHANGED: ${str(o, 'changed') ?? 'none'}`, budgetLine(l, { call: null, next: '-', projected: 0, verdict: 'continue' }),
-      `GSTACK_RESULT: skill=ship status=${status} run=${l.dir}`];
+      `GSTACK_RESULT: skill=ship status=${result} run=${l.dir}`];
     writeReturnFile(l.parent.return_file, lines);
     l.closed_at = new Date().toISOString();
     return { stdout: lines, exit: 0 };
