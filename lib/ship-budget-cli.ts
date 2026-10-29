@@ -44,8 +44,13 @@ const meterFile = (l: Ledger) => path.join(l.dir, 'claude-meter.json');
 /** Whether this command took a fresh reading (Claude Code reads its journals on every command). */
 const freshReading = (l: Ledger, o: Opts) => l.meter.contract.meter === 'claude' || str(o, 'reading') !== undefined;
 
-/** Take this command's reading under the run's meter contract; returns the per-call charge when known. */
-export function readMeter(l: Ledger, o: Opts, requireReading: boolean): number | null {
+/**
+ * Take this command's reading under the run's meter contract; returns the
+ * per-call charge when known. On Capy that charge is --reading minus a
+ * --prior-reading taken in the previous call; a prior older than the run's last
+ * reading spans several calls, so it is ignored (call unknown) with a note.
+ */
+export function readMeter(l: Ledger, o: Opts, requireReading: boolean, notes: string[] = []): number | null {
   const reading = tokensOpt(o, 'reading');
   const prior = tokensOpt(o, 'prior-reading');
   const meter = l.meter.contract.meter;
@@ -63,8 +68,14 @@ export function readMeter(l: Ledger, o: Opts, requireReading: boolean): number |
     return null;
   }
   if (prior !== undefined && prior > reading) throw budgetError('BUDGET_READING_REJECTED', `--prior-reading ${prior} is above --reading ${reading}`);
+  const last = l.meter.last;
   applyReading(l, reading, 'flag');
-  return prior === undefined ? null : reading - prior;
+  if (prior === undefined) return null;
+  if (last !== null && prior < last) {
+    notes.push(`CALL_UNKNOWN: --prior-reading ${prior} is older than the run's last reading ${last}; it spans several calls, so the per-call charge is unknown (pass the reading your previous call returned)`);
+    return null;
+  }
+  return reading - prior;
 }
 
 /** The stop block: STOP, the resumable RECOVER line and GSTACK_RESULT incomplete; a child also writes its return. */
@@ -249,15 +260,17 @@ export function cmdCheck(argv: string[], ctx: Ctx): Outcome {
     const back = returned.map(id => l.reservations.find(r => r.id === id && r.kind === 'dispatch'));
     const bad = returned.filter((_, i) => !back[i]);
     if (bad.length) throw usageError(`--returned ${bad.join(',')} is not a dispatch reservation of run ${l.run}; fix: pass the RESERVATION ids check printed for the reviewers that came back`);
-    const call = readMeter(l, o, true);
+    const notes: string[] = [];
+    const call = readMeter(l, o, true, notes);
+    const fresh = freshReading(l, o);
     for (const r of l.reservations) {
       const done = r.kind === 'step' ? r.state === 'open' : r.kind === 'dispatch' && (back.includes(r) || (next.kind === 'step' && r.state === 'consumed'));
-      if (done) settleIn(l, r);
+      if (done) settleIn(l, r, { reading: fresh && back.includes(r) ? l.meter.last ?? undefined : undefined });
     }
-    const drift = freshReading(l, o) ? measureSettled(l) : [];
+    const drift = fresh ? measureSettled(l, next.kind === 'step') : [];
     if (l.parent && next.kind === 'step' && SHIP_STEPS.indexOf(step as any) >= SHIP_STEPS.indexOf(l.parent.from as any)) l.steps_done = [...new Set([...(l.steps_done ?? []), step])];
     const out = decide(l, step, next, call);
-    return { stdout: [...drift, ...out.stdout], exit: out.exit };
+    return { stdout: [...notes, ...drift, ...out.stdout], exit: out.exit };
   });
 }
 
@@ -270,8 +283,9 @@ export function cmdSettle(argv: string[], ctx: Ctx, release = false): Outcome {
     if (!r) throw usageError(`reservation ${id} is not in run ${l.run}`);
     if (release) { if (r.state === 'open') r.state = 'released'; return { stdout: [`RELEASED: id=${id} state=${r.state}`], exit: 0 }; }
     readMeter(l, o, false);
-    settleIn(l, r, { unknown: o.unknown === true, cal: loadCalibration(l.calibration) });
-    return { stdout: [`SETTLED: id=${id} state=${r.state}`, ...(freshReading(l, o) ? measureSettled(l) : [])], exit: 0 };
+    const fresh = freshReading(l, o);
+    settleIn(l, r, { unknown: o.unknown === true, cal: loadCalibration(l.calibration), reading: fresh ? l.meter.last ?? undefined : undefined });
+    return { stdout: [`SETTLED: id=${id} state=${r.state}`, ...(fresh ? measureSettled(l, false) : [])], exit: 0 };
   });
 }
 

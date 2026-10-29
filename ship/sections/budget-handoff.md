@@ -9,15 +9,15 @@ Field-by-field reference: docs/ship-budget.md. Exit 0 continue or delegate, 3 st
 2 usage; any non-zero exit means the next step does not start.
 
 **Meter.** Read one per command:
-- Capy: in one execute program return only `(await tools.thread.get({ thread_id: "this" })).cost.tokens`
-  and pass it as `--reading <n>`. For the per-call charge, read it again in your next
-  call and pass the earlier value as `--prior-reading <n>`.
+- Capy: read `(await tools.thread.get({ thread_id: "this" })).cost.tokens` in the same program as the
+  `gstack-ship-budget` command, never its own call: `--reading <n>`. `--prior-reading <n>` (per-call
+  charge) is your previous call's reading; one older than the run's last reading is ignored.
 - Claude Code: `start --session <id>`, or echo the nonce the refusal prints once and
   rerun `start --nonce <value>`; the helper reads the journals itself (never `--reading`).
 - Elsewhere: `--meter estimate` (printed `meter=estimate`), only when the owner accepts it.
 
 **Every boundary.** `gstack-ship-budget check --run <id> --step <done> --next <step> --reading <n>`.
-Before each dispatch batch, reserve the batch as one sum, then pass the printed id once
+Before each dispatch batch, reserve the batch as one sum, one role per `DISPATCH:` line, then pass the printed id once
 (`READING` is the current counter reading; `RESERVATION_ID` is the id the check prints):
 
 ```bash
@@ -26,10 +26,10 @@ Before each dispatch batch, reserve the batch as one sum, then pass the printed 
 ```
 
 On `ADMIT: k of n (remaining=<roles>)`, dispatch only those k and re-check the remaining roles
-after they settle; `close` flags roles never re-checked. `--finish` settles the reservation and the pass's other dispatch reservations. Admitting reviewers one at
-a time, name each one that came back in the next check's `--returned <id>`. A dispatch with no `review-log --start` settles with
-`gstack-ship-budget settle --run <id> --reservation <id>` when it returns
-(`--unknown` when the meter cannot see it), or `release` if it never ran.
+after they settle; `close` flags roles never re-checked. `--finish` settles the reservation and the pass's other dispatch reservations.
+Settle each reader when it returns: the next check's `--returned <id>`, or
+`gstack-ship-budget settle --run <id> --reservation <id> --reading <n>` (`--unknown` when the meter
+cannot see it); `release` one that never ran. Only these are measured: `--finish` or a step change settles without a reading.
 
 **verdict=stop.** Print the STOP, RECOVER and GSTACK_RESULT lines as your last output and
 end status=incomplete. Raising the cap is the owner's call: `/ship --resume <record>

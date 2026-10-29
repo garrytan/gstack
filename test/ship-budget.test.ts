@@ -92,8 +92,8 @@ describe('reservations', () => {
     const c = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:specialist', '--reading', '0']);
     const id = h.field(c.out, 'RESERVATION', 'id');
     expect(Number(h.field(c.out, 'RESERVATION', 'tokens'))).toBe(K.per_dispatch);
-    h.sb(['settle', '--run', s.run, '--reservation', id]);
     const spent = 2 * K.per_dispatch;
+    h.sb(['settle', '--run', s.run, '--reservation', id, '--reading', String(spent)]);
     const next = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:red-team', '--reading', String(spent)]);
     expect(Number(h.field(next.out, 'BUDGET', 'used'))).toBe(spent);
     const projected = Number(h.field(next.out, 'BUDGET', 'projected'));

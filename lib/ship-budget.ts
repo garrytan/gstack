@@ -57,6 +57,7 @@ export interface Reservation {
   id: string; kind: 'step' | 'dispatch' | 'child'; step: string; next: string; roles?: string[]; tokens: number; at: string;
   state: 'open' | 'consumed' | 'settled' | 'released'; token?: string; started_at?: string; settled_at?: string;
   prior?: number; reading_at?: number | null; epoch?: number; actual?: number; unseen?: boolean; remaining?: string[];
+  settled_reading?: number; unmeasured?: boolean;
 }
 export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; prior: number; projected: number; actual: number }
 export interface Handoff {
@@ -189,26 +190,48 @@ export function projector(l: Ledger, cal: Calibration = loadCalibration(l.calibr
 }
 
 /**
- * Measure settled reservations against the current (fresh) reading: a step
- * from its reading to now; settled dispatches as one group from the earliest
- * of their readings, split by role. A charge the meter cannot see (settled
- * --unknown, or a Claude-metered outside voice) is never measured. Returns one
- * DRIFT line per measurement.
+ * Measure settled reservations against the current (fresh) reading (GSTA-167).
+ * A dispatch is measured only to the reading it was settled with when it
+ * returned (settle --reading, check --returned): dispatches settled at the same
+ * reading form one group from the earliest of their readings, split per reader
+ * (one role per reader). One settled without a reading (review-log --finish, a
+ * step change) is UNMEASURED: its interval also holds the parent's own work.
+ * A step is measured on a step change, from its reading to now minus the
+ * dispatches reserved after it, so the parent's interleaved calls stay in the
+ * step; a window holding an unmeasured dispatch leaves the step unmeasured. A
+ * charge the meter cannot see (settled --unknown, or a Claude-metered outside
+ * voice) is never measured. Returns one DRIFT or UNMEASURED line each.
  */
-export function measureSettled(l: Ledger): string[] {
+export function measureSettled(l: Ledger, stepChange = true): string[] {
   const last = l.meter.last;
   if (last === null) return [];
-  const pending = l.reservations.filter(r => r.state === 'settled' && r.kind !== 'child' && r.actual === undefined && !r.unseen
+  const pending = l.reservations.filter(r => r.state === 'settled' && r.kind !== 'child' && r.actual === undefined && !r.unseen && !r.unmeasured
     && typeof r.reading_at === 'number' && r.epoch === l.meter.epoch && last >= r.reading_at);
-  const dispatches = pending.filter(r => r.kind === 'dispatch');
-  const from = Math.min(...dispatches.map(r => r.reading_at!));
-  const roles = dispatches.reduce((n, r) => n + (r.roles?.length ?? 1), 0);
-  return pending.map(r => {
-    const actual = r.kind === 'dispatch' ? Math.round(((last - from) * (r.roles?.length ?? 1)) / roles) : last - r.reading_at!;
+  const lines: string[] = [];
+  const measure = (r: Reservation, actual: number) => {
     r.actual = actual;
     (l.samples ??= []).push({ id: r.id, kind: r.kind as Sample['kind'], epoch: l.meter.epoch, prior: r.prior ?? r.tokens, projected: r.tokens, actual });
-    return `DRIFT: id=${r.id} kind=${r.kind} next=${r.next} projected=${r.tokens} actual=${actual} ratio=${(actual / Math.max(1, r.tokens)).toFixed(2)}`;
-  });
+    lines.push(`DRIFT: id=${r.id} kind=${r.kind} next=${r.next} projected=${r.tokens} actual=${actual} ratio=${(actual / Math.max(1, r.tokens)).toFixed(2)}`);
+  };
+  const unmeasured = (r: Reservation, reason: string) => {
+    r.unmeasured = true;
+    lines.push(`UNMEASURED: id=${r.id} kind=${r.kind} next=${r.next} reason=${reason}`);
+  };
+  const dispatches = pending.filter(r => r.kind === 'dispatch');
+  for (const r of dispatches) if (r.settled_reading === undefined) unmeasured(r, 'settled_without_reading');
+  for (const end of new Set(dispatches.filter(r => !r.unmeasured).map(r => r.settled_reading!))) {
+    const group = dispatches.filter(r => r.settled_reading === end);
+    const from = Math.min(...group.map(r => r.reading_at!));
+    const readers = group.reduce((n, r) => n + (r.roles?.length ?? 1), 0);
+    for (const r of group) measure(r, Math.round(((end - from) * (r.roles?.length ?? 1)) / readers));
+  }
+  if (!stepChange) return lines;
+  for (const r of pending.filter(x => x.kind === 'step')) {
+    const inside = l.reservations.slice(l.reservations.indexOf(r) + 1).filter(d => d.kind === 'dispatch' && d.state !== 'released' && !d.unseen && d.epoch === l.meter.epoch);
+    if (inside.some(d => d.actual === undefined)) { unmeasured(r, 'dispatch_unmeasured'); continue; }
+    measure(r, Math.max(0, last - r.reading_at! - inside.reduce((n, d) => n + d.actual!, 0)));
+  }
+  return lines;
 }
 
 /** Steps from..to inclusive plus their usual reviewer batches at the prior: a child's segment estimate. */
@@ -297,10 +320,11 @@ export function reserveIn(l: Ledger, r: Omit<Reservation, 'id' | 'at' | 'state'>
 }
 
 /** Settle at completion: the meter already holds the spend; estimate and unseen charges are booked here. */
-export function settleIn(l: Ledger, r: Reservation, opts: { unknown?: boolean; cal?: Calibration } = {}): void {
+export function settleIn(l: Ledger, r: Reservation, opts: { unknown?: boolean; cal?: Calibration; reading?: number } = {}): void {
   if (r.state === 'settled' || r.state === 'released') return;
   r.state = 'settled';
   r.settled_at = new Date().toISOString();
+  if (opts.reading !== undefined) r.settled_reading = opts.reading;
   if (opts.unknown) { l.unknown += r.tokens; r.unseen = true; return; }
   if (l.meter.contract.meter === 'estimate') { l.estimate_used += r.tokens; return; }
   const unseen = l.meter.contract.meter === 'claude' ? (r.roles ?? []).filter(x => x === 'outside-voice').length : 0;

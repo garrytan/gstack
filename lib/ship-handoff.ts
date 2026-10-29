@@ -51,6 +51,17 @@ export function recordSection(text: string, name: string): string[] | undefined 
   return lines.slice(at, end < 0 ? lines.length : end);
 }
 
+/** The ship sections each step reads (ship/sections/manifest.json); conditional ones (apple-release, measure, greptile, shared-code-reuse, handoff) load only when their trigger fires. */
+const STEP_SECTIONS: Record<string, string[]> = {
+  '4': ['tests'], '5': ['tests'], '6': ['tests'], '6.5': ['greptile-early'], '7': ['test-coverage'], '8': ['plan-completion'], '9': ['review-army'],
+  '11': ['adversarial'], '13': ['changelog'], '14.5': ['documentation'], '18': ['pr-body', 'capy-pr'], '19': ['pr-body', 'capy-pr'],
+};
+
+/** The sections a child running Steps from..to reads (GSTA-167): its own steps' only. */
+export function segmentSections(from: string, to: string): string[] {
+  return [...new Set(SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1).flatMap(s => STEP_SECTIONS[s] ?? []))];
+}
+
 function brief(l: Ledger, h: Omit<Handoff, 'sha'>, pins: Record<string, unknown>, recordText: string, o: Record<string, string | undefined>): string {
   const reviews = recordSection(recordText, 'Reviews') ?? [];
   const tokens = [...new Set(reviews.join('\n').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g) ?? [])];
@@ -65,6 +76,8 @@ function brief(l: Ledger, h: Omit<Handoff, 'sha'>, pins: Record<string, unknown>
     block.trail ? `2. Run \`gstack-decision-trail start ${block.trail} <your run id>\` before any trail write.` : '2. No decision trail was named.',
     `3. Run /ship --continue <this file> for Steps ${h.from}-${h.to} only, under the printed child run: \`check\` at every boundary and before every dispatch batch, obeying \`verdict=\`. The context rule never stops you: \`verdict=delegate\` hands your remaining steps to a fresh child the same way (ship/sections/budget-handoff.md), and a \`CONTEXT_HIGH:\` note means continue. This run is at chain depth ${h.depth} of ${MAX_CHAIN_DEPTH}.`,
     block.launch_file ? `4. Source the launch file \`${block.launch_file}\` in every shell that runs a gstack command (its path only; never print its values).` : '4. No GSTACK_LAUNCH_FILE was named.', '',
+    '## Read', '',
+    `Only ship/SKILL.md's step list and, under ship/sections/, ${[...segmentSections(h.from, h.to), 'budget-handoff'].map(s => s + '.md').join(', ')}; a conditional section only when its manifest.json trigger fires. Never read ship/sections/preamble.md in full or docs/ship-budget.md: budget-handoff.md is the whole budget procedure.`, '',
     '## Record', '', `You are the only writer of \`${l.record}\` during this segment. It keeps its six headings (${RECORD_HEADINGS.join(', ')}). Original start tokens: ${tokens.join(', ') || 'none'}.`, '',
     '## Decisions and approvals in scope (verbatim from the record)', '', ...(recordSection(recordText, 'Decisions') ?? ['(none recorded)']), '',
     '## Budget', '', `Sub-cap ${h.sub_cap} ${block.unit} (meter=${block.meter}); the parent keeps a ${l.tail} tail reserve. Ledger: ${l.file}.`, '',
