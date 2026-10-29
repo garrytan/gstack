@@ -6,12 +6,12 @@
  * check run or a red one keeps a commit out; a cut that stopped half-way is
  * finished by the next run (docs/releases.md).
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
+import { gitFixtureTemplate, rebindGitDir } from './helpers/git-fixture-template';
 import {
   BACKSTOP_CHECK, FLOOR_HOURS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git,
@@ -55,19 +55,10 @@ function fakeGh(state: State): Gh {
   };
 }
 
-function fixture() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-release-cut-'));
-  bases.push(base);
-  const origin = path.join(base, 'origin.git');
-  const seed = path.join(base, 'seed');
-  const work = path.join(base, 'work');
-  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
-  fs.mkdirSync(seed);
-  git(seed, 'init', '-q', '-b', 'main');
-  git(seed, 'remote', 'add', 'origin', origin);
-  const shas: Record<string, string> = {};
-  let changelog = '# Changelog\n';
-  const release = (version: string, headline: string, o: { message?: string; files?: Record<string, string> } = {}) => {
+/** Commits a release (VERSION, a CHANGELOG headline, optional files) in seed and pushes it to origin. */
+function releaser(seed: string, shas: Record<string, string>) {
+  let changelog = fs.existsSync(path.join(seed, 'CHANGELOG.md')) ? fs.readFileSync(path.join(seed, 'CHANGELOG.md'), 'utf8') : '# Changelog\n';
+  return (version: string, headline: string, o: { message?: string; files?: Record<string, string> } = {}) => {
     changelog = changelog.replace('# Changelog\n', '# Changelog\n\n## [' + version + '] - 2026-10-2' + version.slice(-1) + '\n\n**' + headline + '**\n\n### Fixed\n- a thing\n');
     fs.writeFileSync(path.join(seed, 'VERSION'), version + '\n');
     fs.writeFileSync(path.join(seed, 'CHANGELOG.md'), changelog);
@@ -78,11 +69,39 @@ function fixture() {
     shas[version] = git(seed, 'rev-parse', 'HEAD');
     return shas[version]!;
   };
-  release('1.0.0', 'First one.');
-  release('1.0.1', 'Second: the updater no longer skips.');
-  release('1.0.2', 'Third fixes Windows.');
-  release('1.0.3', 'Fourth trims the preamble.');
-  execFileSync('git', ['clone', '-q', origin, work], { timeout: 30_000 });
+}
+
+/** origin with releases 1.0.0..1.0.3 pushed from seed, and work cloned from it; built once for this file, copied per test. */
+const template = gitFixtureTemplate({
+  prefix: 'gstack-release-cut-',
+  build: (base) => {
+    const origin = path.join(base, 'origin.git');
+    const seed = path.join(base, 'seed');
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
+    fs.mkdirSync(seed);
+    git(seed, 'init', '-q', '-b', 'main');
+    git(seed, 'remote', 'add', 'origin', origin);
+    const shas: Record<string, string> = {};
+    const release = releaser(seed, shas);
+    release('1.0.0', 'First one.');
+    release('1.0.1', 'Second: the updater no longer skips.');
+    release('1.0.2', 'Third fixes Windows.');
+    release('1.0.3', 'Fourth trims the preamble.');
+    execFileSync('git', ['clone', '-q', origin, path.join(base, 'work')], { timeout: 30_000 });
+    return shas;
+  },
+  rebind: (copy, tpl) => { for (const repo of ['seed', 'work']) rebindGitDir(path.join(copy, repo, '.git'), tpl, copy); },
+});
+afterAll(() => template.dispose());
+
+function fixture() {
+  const { root: base, meta } = template.copy();
+  bases.push(base);
+  const origin = path.join(base, 'origin.git');
+  const seed = path.join(base, 'seed');
+  const work = path.join(base, 'work');
+  const shas: Record<string, string> = { ...meta };
+  const release = releaser(seed, shas);
   const refresh = () => { git(work, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*'); git(work, 'fetch', '-q', '--tags', 'origin'); };
   const state: State = { checks: {}, released: new Set(), calls: [] };
   return { base, origin, seed, work, shas, release, refresh, state, gh: fakeGh(state), git: gitIn(work), repo: 'o/r' };

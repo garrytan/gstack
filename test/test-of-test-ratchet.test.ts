@@ -101,6 +101,7 @@ const BASELINE = [
   'test/extension-pty-inject-invariant.test.ts',
   'test/gbrain-source-worktree-advance.test.ts',
   'test/gbrain-sync-voyage-code-3-integration.test.ts',
+  'test/git-fixture-template.test.ts', // GSTA-151: pins the copy isolation and leak scan of test/helpers/git-fixture-template.ts, which the templated git fixtures in release-cut, train-backstop, restamp-mentions, pregate-user-policy and held-install-recovery rely on
   'test/gstack-gbrain-source-wireup.test.ts',
   'test/gstack-home-module-scope.test.ts',
   'test/gstack-upgrade-migration-v1_17_0_0.test.ts',
