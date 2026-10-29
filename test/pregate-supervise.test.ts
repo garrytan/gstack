@@ -204,9 +204,11 @@ describe('gstack-pregate: the test stage never hangs silently', () => {
     expect(pregate(during, []).status).toBe(EXIT.fail);
     expect(lanes(during).detail).toContain('working tree changed during the check');
     const after = makeFixtureRepo(); repos.push(after);
-    commit(after, { 'test/leftover.test.js': "const test = require('node:test');\nconst { spawn } = require('node:child_process');\ntest('leaves a child', () => { spawn('sh', ['-c', 'sleep 2; echo changed >> README.md'], { stdio: 'ignore' }).unref(); });\n" });
+    commit(after, { 'test/leftover.test.js': "const test = require('node:test');\nconst { spawn } = require('node:child_process');\ntest('leaves a child', () => { const c = spawn('sh', ['-c', 'sleep 2; echo changed >> README.md'], { stdio: 'ignore' }); require('node:fs').writeFileSync(require('node:path').join(__dirname, '..', '..', 'leftover.pid'), String(c.pid)); c.unref(); });\n" });
     expect(pregate(after, []).status).toBe(EXIT.ok);
-    await Bun.sleep(2500);
+    const until = Date.now() + 3000;
+    const leftover = await pidFrom(path.join(after.root, 'leftover.pid'), 3000).catch(() => 0);
+    if (leftover) await goneSoon(leftover, Math.max(0, until - Date.now()));
     expect(fs.readFileSync(path.join(after.work, 'README.md'), 'utf8')).toBe('# fixture\n');
   }, 90_000);
 

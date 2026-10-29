@@ -25,6 +25,7 @@ function waitFor(pred: () => boolean, ms: number): boolean {
   }
   return pred();
 }
+const GO_FILE_WAIT = 'i=0; while [ ! -e "$1" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done; [ -e "$1" ]';
 function logHas(p: string, needle: string): boolean {
   try { return fs.readFileSync(p, 'utf-8').includes(needle); } catch { return false; }
 }
@@ -33,19 +34,21 @@ describe('gstack-detach', () => {
   test('detaches (different pgid), returns immediately, completes, writes EXIT sentinel', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gd-'));
     const log = path.join(dir, 'run.log');
+    const go = path.join(dir, 'go');
     try {
       const t0 = Date.now();
-      const r = spawnSync(DETACH, ['--log', log, '--', 'bash', '-c', 'sleep 2; echo body-ran'], { encoding: 'utf-8', timeout: 10000 });
+      const r = spawnSync(DETACH, ['--log', log, '--', 'bash', '-c', GO_FILE_WAIT + ' && echo body-ran', 'body', go], { encoding: 'utf-8', timeout: 10000 });
       const elapsed = Date.now() - t0;
       expect(r.status).toBe(0);
       expect(r.stdout).toContain(`gstack-detach LOG ${log}`);
       expect(elapsed).toBeLessThan(1500);                         // non-blocking
+      fs.writeFileSync(go, '');
       expect(waitFor(() => logHas(log, '### gstack-detach EXIT=0 ###'), 8000)).toBe(true);
       expect(logHas(log, 'body-ran')).toBe(true);                 // ran to completion after launcher returned
       const m = fs.readFileSync(log, 'utf-8').match(/pgid=(\d+)/);
       expect(m).not.toBeNull();
       expect(m![1]).not.toBe(ownPgid());                          // detached into its own group
-    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    } finally { fs.writeFileSync(go, ''); fs.rmSync(dir, { recursive: true, force: true }); }
   }, 15000);
 
   test('default log is run-scoped under ~/.gstack-dev/eval-runs (no shared /tmp)', () => {
@@ -127,17 +130,20 @@ describe('gstack-detach', () => {
     const lock = `gstack-detach-test-${process.pid}`;
     const logA = path.join(dir, 'a.log');
     const logB = path.join(dir, 'b.log');
+    const release = path.join(dir, 'release');
     try {
-      // First holds the lock for ~3s; second must wait then acquire.
-      spawnSync(DETACH, ['--log', logA, '--lock', lock, '--', 'sleep', '3'], { encoding: 'utf-8', timeout: 10000, env: { ...process.env, HOME: dir } });
+      // First holds the lock until the test writes the release file; second must wait then acquire.
+      spawnSync(DETACH, ['--log', logA, '--lock', lock, '--', 'bash', '-c', GO_FILE_WAIT, 'holder', release], { encoding: 'utf-8', timeout: 10000, env: { ...process.env, HOME: dir } });
       waitFor(() => logHas(logA, "ACQUIRED"), 4000);
       spawnSync(DETACH, ['--log', logB, '--lock', lock, '--', 'echo', 'second-ran'], { encoding: 'utf-8', timeout: 10000, env: { ...process.env, HOME: dir } });
       // Second should report WAITING (first still holds it) then ACQUIRE after release.
       expect(waitFor(() => logHas(logB, 'WAITING for lock'), 4000)).toBe(true);
+      fs.writeFileSync(release, '');
       expect(waitFor(() => logHas(logB, '### gstack-detach EXIT=0 ###'), 12000)).toBe(true);
       expect(logHas(logB, 'second-ran')).toBe(true);
       expect(fs.existsSync(path.join(dir, '.gstack', 'locks', `${lock}.lock`))).toBe(true);
     } finally {
+      fs.writeFileSync(release, '');
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }, 20000);

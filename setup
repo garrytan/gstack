@@ -1527,15 +1527,15 @@ _kill_tree() {
 # poll the PID and SIGKILL the whole probe tree past the deadline. Returns
 # the probe's exit code, or 124 on timeout.
 _wait_with_deadline() {
-  local pid="$1" deadline_s="$2" waited=0
+  local pid="$1" deadline_s="$2" end
+  end=$((SECONDS + deadline_s))
   while kill -0 "$pid" 2>/dev/null; do
-    if [ "$waited" -ge "$deadline_s" ]; then
+    if [ "$SECONDS" -gt "$end" ]; then
       _kill_tree "$pid"
       wait "$pid" 2>/dev/null || true
       return 124
     fi
-    sleep 1
-    waited=$((waited + 1))
+    sleep 0.1
   done
   wait "$pid"
 }

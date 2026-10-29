@@ -353,8 +353,9 @@ describe('context-restore offers newer checkpoints it used to skip (#3065)', () 
       const sibling = repo('elsewhere', 'git@github.com:acme/elsewhere.git');
       const outside = save(sibling, 'sibling work', '20261002-100000');
       const below = save(pkg, 'pkg feature', '20261001-100000');
-      expect(restore(mono).out).not.toContain(outside);
-      expect(restore(mono).lines).toContain(`BELOW_CWD ${below}`);
+      const r = restore(mono);
+      expect(r.out).not.toContain(outside);
+      expect(r.lines).toContain(`BELOW_CWD ${below}`);
 
       // 200 newer checkpoints of another project push the below-cwd one out of the read window.
       const dir = path.dirname(outside);
