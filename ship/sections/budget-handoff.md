@@ -9,15 +9,15 @@ Field-by-field reference: docs/ship-budget.md. Exit 0 continue or delegate, 3 st
 2 usage; any non-zero exit means the next step does not start.
 
 **Meter.** Read one per command:
-- Capy: in one execute program return only `(await tools.thread.get({ thread_id: "this" })).cost.tokens`
-  and pass it as `--reading <n>`. For the per-call charge, read it again in your next
-  call and pass the earlier value as `--prior-reading <n>`.
+- Capy: read `(await tools.thread.get({ thread_id: "this" })).cost.tokens` in the same program as the
+  `gstack-ship-budget` command, never its own call: `--reading <n>`. `--prior-reading <n>` (per-call
+  charge) is your previous call's reading; one older than the run's last reading is ignored.
 - Claude Code: `start --session <id>`, or echo the nonce the refusal prints once and
   rerun `start --nonce <value>`; the helper reads the journals itself (never `--reading`).
 - Elsewhere: `--meter estimate` (printed `meter=estimate`), only when the owner accepts it.
 
 **Every boundary.** `gstack-ship-budget check --run <id> --step <done> --next <step> --reading <n>`.
-Before each dispatch batch, reserve the batch as one sum, then pass the printed id once
+Before each dispatch batch, reserve the batch as one sum, one role per `DISPATCH:` line, then pass the printed id once
 (`READING` is the current counter reading; `RESERVATION_ID` is the id the check prints;
 `--next` is the `BUDGET_NEXT:` value the batch's `gstack-review-packet build` printed, one
 role per packet, never packet names):
@@ -27,10 +27,11 @@ role per packet, never packet names):
 ~/.claude/skills/gstack/bin/gstack-review-log --start review --reservation "$RESERVATION_ID"
 ```
 
-`--finish` settles it and the pass's other dispatch reservations. Admitting reviewers one at
-a time, name each one that came back in the next check's `--returned <id>`. A dispatch with no `review-log --start` settles with
-`gstack-ship-budget settle --run <id> --reservation <id>` when it returns
-(`--unknown` when the meter cannot see it), or `release` if it never ran.
+On `ADMIT: k of n (remaining=<roles>)`, dispatch only those k and re-check the remaining roles
+after they settle; `close` flags roles never re-checked. `--finish` settles the reservation and the pass's other dispatch reservations.
+Settle each reader when it returns: the next check's `--returned <id>`, or
+`gstack-ship-budget settle --run <id> --reservation <id> --reading <n>` (`--unknown` when the meter
+cannot see it); `release` one that never ran. Only these are measured: `--finish` or a step change settles without a reading.
 
 **verdict=stop.** Print the STOP, RECOVER and GSTACK_RESULT lines as your last output and
 end status=incomplete. Raising the cap is the owner's call: `/ship --resume <record>
@@ -47,9 +48,11 @@ fresh child; you wait and advance only after reconciling it:
    GSTACK_LAUNCH_FILE, run /ship --continue <HANDOFF file>"; on Claude Code
    `gstack-ship-budget launch --in <HANDOFF file>` (background, explicit permissions).
 3. The child runs `verify-handoff --in <file>` first (`--reading <n>` on Capy); a
-   `HANDOFF_PIN_MOVED` refusal returns status=refused. It admits against its sub-cap,
-   never delegates, and ends with `gstack-ship-budget return --run <child> --to <step>
-   --changed <sections>` (at most 40 lines).
+   `HANDOFF_PIN_MOVED` refusal returns status=refused. It admits against its sub-cap and
+   never stops on the context rule: after a completed step, `verdict=delegate` hands its
+   remaining steps to a grandchild through these four steps (depth 3 at most); a
+   `CONTEXT_HIGH:` note means continue. It reconciles any grandchild, then ends with
+   `gstack-ship-budget return --run <child> --to <step> --changed <sections>` (at most 40 lines).
 4. `gstack-ship-budget reconcile --run <id> --return <RETURN_FILE> --reading <n>`. Read the
    record, never the child's transcript. Exit 3 (refused, incomplete or interrupted):
    regenerate the handoff or stop.

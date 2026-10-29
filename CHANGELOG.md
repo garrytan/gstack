@@ -22,6 +22,22 @@
 ### Tests
 - `test/review-packet.test.ts`: 41 tests covering packet contents, sharding, audits, budget roles, read ranges, data summaries (including a symlinked CSV that must not leak its target), stale manifests and collect's validation. Each fix in this entry has a test that failed before it.
 
+**A capped /ship on Capy no longer delegates or stops just because the host's own prompt is big, and a delegated child hands off instead of stopping.** A fresh Capy call costs 150-230k before any /ship work, so the 100k start and 150k segment thresholds fired on every capped Capy start and stopped two gstack-evals #36 children at their first boundary. The thresholds now measure context above a calibrated per-host call floor.
+
+### Fixed
+- **Thresholds sit above the host call floor.** `lib/ship-budget-calibration.json` gives each meter a `call_floor` (Capy 150k, Claude Code 40k, estimate 0); `start --call-floor <n>` overrides it and children inherit it. `BUDGET:` and `STOP:` lines print `call_floor=` and `above_floor=`.
+- **A child never stops on the context rule.** After a completed step it hands its remaining steps to a grandchild through the same handoff, verify, return and reconcile commands (chain depth 3 at most). Before its first completed step, at the maximum depth, or past its segment it continues with one `CONTEXT_HIGH:` line. The admission cap still stops it.
+- **A delegated child cannot return complete with work left over.** `return` reports `status=incomplete` with `UNRECONCILED:` or `DROPPED:` lines while one of its own grandchildren is unreconciled or a batch remainder was never re-checked.
+- **Reviewer drift is measured to each reader's return, per reader.** A dispatch is measured only to the reading it was settled with when it returned (`check --returned`, `settle --reading`); `--finish` and a step change settle without one and print `UNMEASURED:`. A step is measured at the step change minus the dispatches reserved inside it, so the parent's own calls stay in the step. On #34 a Red Team interval that covered the child's own review and QA taught a 1.818 factor; on #36 a six-reader batch reserved as one role taught 2.041 and priced the Red Team at 15.17M, a false STOP. The budget section now asks for one role per `DISPATCH:` line.
+- **A `--prior-reading` older than the run's last reading is ignored** (`CALL_UNKNOWN:`, `call=unknown`). On #34 a reading six calls old produced `call=1068386` and a false `CONTEXT_HIGH`. The meter read now happens inside the same program as the budget command, never as its own call (the #34 child made 11 meter-only calls at about 286k each).
+- **A handoff brief names only its segment's sections** (Steps 7-11.5: test-coverage, plan-completion, review-army, adversarial; Steps 12-22: changelog, documentation, pr-body, capy-pr; budget-handoff.md always). It never sends the child to preamble.md in full or docs/ship-budget.md.
+
+### Changed
+- **Parallel reviewer batches near the cap admit the largest prefix that fits** (`ADMIT: k of n (remaining=<roles>)`) instead of refusing the whole batch; each reader is priced at the larger of its projection and the run's measured mean for that role. `close` flags remaining roles nobody re-checked (`DROPPED:`, `status=incomplete` until the owner accepts).
+
+### Tests
+- `test/ship-budget-chain.test.ts` replays #36 (a child at its first boundary continues) and covers the Capy floor, grandchild handoff at depth 2, the depth-3 cap, charging a chained return once on all three meters, and the incomplete return. `test/ship-budget-batch.test.ts` replays #35's 7-reader batch near the cap. `test/ship-budget-reader-drift.test.ts` replays #36's per-reader Red Team price and #34's Red Team interval and stale prior reading; `test/ship-handoff-brief.test.ts` checks the brief's section list.
+
 ## [1.91.324.0] - 2026-10-29
 
 **A /ship token cap now projects each step and reviewer from what the run has actually spent, so real caps stop refusing work that costs a fraction of the old guess.** On GSTA-152 a 29.28M cap refused its third reviewer because every dispatch was projected at 7.43M while real ones cost 0.23 to 1.02M; on GSTA-2 an 8M cap stopped before Step 6 after Steps 1 to 5 cost about 0.27M each, because every step was projected at 2.25M.

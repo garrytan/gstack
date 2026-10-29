@@ -158,7 +158,7 @@ describe('dispatch reservations settle when the reviewer returns (GST-101)', () 
     expect(bad.err).toContain('--returned');
   });
 
-  test('--finish settles every consumed dispatch reservation of the pass, and the next reading measures them as one group', () => {
+  test('--finish settles every consumed dispatch reservation of the pass; settled without a reading, they stay unmeasured (GSTA-167)', () => {
     const h = fresh();
     const s = started(h, '80M');
     const tokens: string[] = [];
@@ -175,7 +175,8 @@ describe('dispatch reservations settle when the reviewer returns (GST-101)', () 
     expect(dispatches().map((r: any) => r.state)).toEqual(['settled', 'settled', 'settled']);
     const next = h.sb(['check', '--run', s.run, '--step', '9', '--next', '10', '--reading', String(reading)]);
     expect(h.field(next.out, 'BUDGET', 'reserved')).toBe('0');
-    expect(dispatches().map((r: any) => r.actual)).toEqual([500_000, 500_000, 500_000]);
+    expect(dispatches().map((r: any) => [r.actual, r.unmeasured])).toEqual([[undefined, true], [undefined, true], [undefined, true]]);
+    expect(next.out.split('\n').filter(l => l.startsWith('UNMEASURED:') && l.includes('kind=dispatch'))).toHaveLength(3);
   });
 
   test('moving to the next step settles dispatch reservations a reviewer consumed in the step before', () => {
@@ -185,7 +186,8 @@ describe('dispatch reservations settle when the reviewer returns (GST-101)', () 
     expect(h.reviewLog(['--start', 'adversarial-review', '--reservation', id]).code).toBe(0);
     const c = h.sb(['check', '--run', s.run, '--step', '11', '--next', '11.5', '--reading', '600000']);
     expect(c.code).toBe(0);
-    expect(h.ledger(s.ledger).reservations.find((r: any) => r.id === id)).toMatchObject({ state: 'settled', actual: 600_000 });
+    expect(h.ledger(s.ledger).reservations.find((r: any) => r.id === id)).toMatchObject({ state: 'settled', unmeasured: true });
+    expect(c.out).toContain(`UNMEASURED: id=${id} kind=dispatch next=dispatch:outside-voice reason=settled_without_reading`);
   });
 
   test('close prints projected against actual for the run', () => {

@@ -1,0 +1,4 @@
+{
+  "bytes": 73,
+  "why": "GSTA-167 PR 3a: budget-handoff meter read inside the budget command's program, one role per DISPATCH line, settle readers with a reading at return"
+}
