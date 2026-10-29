@@ -166,6 +166,101 @@ describe('gstack-review-packet build', () => {
     expect(a.text).toContain('+export const zeta19 = 19;');
     expect(build(r, ['--audit', 'plan-completion']).status).toBe(2);
   });
+
+  // Value: protects=a Step 7/8 audit past the packet cap stays one packet holding the whole diff, so the parent gets one coverage or plan verdict and one generation allowance; fails_when=audits shard like reviewers (a plan item built in another shard reads NOT DONE, each shard generates tests);
+  //   why_new=the sharding test covers reviewers only; seam=none; no_claim=how a child reads a packet past its context (it reads the file in ranges)
+  test('an audit past the cap is never sharded: one packet, every path of the diff', () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 30; i++) files[`src/f${i}.ts`] = lines(400, `v${i}_`);
+    const r = repo({}, files);
+    fs.writeFileSync(path.join(r.state, 'plan.md'), '# Plan\n- [ ] add src/f0.ts\n');
+    for (const extra of [['--audit', 'test-coverage'], ['--audit', 'plan-completion', '--plan-file', path.join(r.state, 'plan.md')]]) {
+      const b = build(r, extra);
+      expect(b.status).toBe(0);
+      const ps = packets(b.stdout);
+      expect(ps.map(p => p.name)).toEqual([extra[1]!]);
+      expect(ps[0]!.bytes).toBeGreaterThan(200_000);
+      expect(ps[0]!.text).not.toContain('This is shard');
+      for (let i = 0; i < 30; i++) expect(ps[0]!.text).toContain(`+export const v${i}_399 = 399;`);
+    }
+  });
+  // Value: protects=a full rebuild deletes the previous head's output files, so collect cannot count a stale review as fresh coverage; fails_when=writePackets/writeManifest stop removing old .out files;
+  //   why_new=no test rebuilds over an out dir that holds results; seam=none; no_claim=removal of packets for reviewers absent from the new plan beyond the reviewer rebuilt here
+  test('a rebuild clears earlier reviewer outputs: a stale result never stands as coverage of the new head', () => {
+    const r = repo({}, { 'src/a.ts': lines(80, 'eta') });
+    const first = packets(build(r, ['--only', 'testing']).stdout)[0]!;
+    fs.writeFileSync(first.out, 'NO FINDINGS\n');
+    expect(spawnSync(BIN, ['collect', '--dir', r.out], { encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    expect(build(r, ['--only', 'testing']).status).toBe(0);
+    expect(fs.existsSync(first.out)).toBe(false);
+    const c = spawnSync(BIN, ['collect', '--dir', r.out], { encoding: 'utf8', timeout: 60_000 });
+    expect(c.status).toBe(3);
+    expect(c.stdout).toContain('REVIEWER: testing status=missing');
+  });
+
+  // Value: protects=build refuses bad inputs with usage exit 2 instead of writing packets; fails_when=an --audit name, unreadable --plan-file or non-commit --range is accepted;
+  //   why_new=only missing fix-check inputs and plan-completion without a plan are tested; seam=none; no_claim=the stderr wording
+  test('usage refusals: an unknown --audit, an unreadable --plan-file and a --range that is not a commit exit 2 with no packet', () => {
+    const r = repo({}, { 'src/a.ts': lines(20, 'theta') });
+    for (const extra of [['--audit', 'bogus'], ['--plan-file', path.join(r.state, 'nope.md')], ['--range', 'not-a-commit']]) {
+      const b = build(r, extra);
+      expect(b.status).toBe(2);
+      expect(b.stdout).not.toContain('PACKET:');
+    }
+  });
+
+  // Value: protects=build without --out-dir and collect without --dir refuse with usage exit 2 and write nothing; fails_when=either guard is dropped and the command defaults a directory (cwd) or crashes;
+  //   why_new=every other test passes --out-dir/--dir; seam=none; no_claim=the stderr wording
+  test('build without --out-dir and collect without --dir exit 2 and write nothing', () => {
+    const r = repo({}, { 'src/a.ts': lines(20, 'iota') });
+    const before = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout;
+    const b = run(r, ['build', '--base', 'main', '--gate-tagged', '0']);
+    expect(b.status).toBe(2);
+    expect(b.stdout).not.toContain('PACKET:');
+    const c = run(r, ['collect']);
+    expect(c.status).toBe(2);
+    expect(c.stdout).toBe('');
+    expect(spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout).toBe(before);
+    expect(fs.readdirSync(r.out)).toEqual([]);
+  });
+
+  // Value: protects=the outside-voice packet carries CODEX_BOUNDARY_TEXT, OUTSIDE_CONTRACT and the verbatim-reply instruction; fails_when=the outside-voice role text drops the boundary, contract or reply line;
+  //   why_new=only the resolver's boundary literal is compared, never the packet; seam=none; no_claim=that the outside model obeys the boundary
+  test('the outside-voice packet carries the filesystem boundary, the severity contract and the verbatim-reply instruction', () => {
+    const r = repo({}, { 'src/a.ts': lines(80, 'kappa') });
+    const b = build(r, ['--only', 'outside-voice']);
+    expect(b.status).toBe(0);
+    const ov = packets(b.stdout).find(p => p.role === 'outside-voice')!;
+    expect(ov.text).toContain(P.CODEX_BOUNDARY_TEXT);
+    expect(ov.text).toContain(P.OUTSIDE_ADVERSARIAL);
+    expect(ov.text).toContain(P.OUTSIDE_CONTRACT);
+    expect(ov.text).toContain('the parent saves it verbatim to the output path below');
+    expect(ov.text).toContain('+export const kappa79 = 79;');
+  });
+
+  // Value: protects=packets written under an in-repo --out-dir or anything under .gstack/tmp never enter a later packet's diff; fails_when=the insideOut skip is dropped, so a rebuild reviews the previous packets (and their diffs);
+  //   why_new=every other test writes --out-dir outside the fixture repo; seam=none; no_claim=a later build into a different out dir, or tracked files under the out dir
+  test('packets under an in-repo --out-dir and files under .gstack/tmp never appear in a later packet\'s diff', () => {
+    const r = repo({}, { 'src/a.ts': lines(80, 'lambda') });
+    fs.mkdirSync(path.join(r.dir, '.gstack/tmp/other'), { recursive: true });
+    fs.writeFileSync(path.join(r.dir, '.gstack/tmp/other/stray.md'), 'STRAY_TMP_MARKER\n');
+    const inRepo = path.join(r.dir, 'review-out');
+    const first = run(r, ['build', '--base', 'main', '--gate-tagged', '0', '--out-dir', inRepo, '--only', 'testing']);
+    expect(first.status).toBe(0);
+    expect(fs.readdirSync(inRepo).some(f => f.endsWith('.packet.md'))).toBe(true);
+    const second = run(r, ['build', '--base', 'main', '--gate-tagged', '0', '--out-dir', inRepo]);
+    expect(second.status).toBe(0);
+    const all = packets(second.stdout);
+    expect(all.length).toBeGreaterThan(0);
+    for (const p of all) {
+      expect(p.text).toContain('+export const lambda79 = 79;');
+      expect(p.text).not.toContain('diff --git a/review-out/');
+      expect(p.text).not.toMatch(/^ review-out\/\S* \|/m);
+      expect(p.text).not.toContain('diff --git a/.gstack/tmp/');
+      expect(p.text).not.toMatch(/^ \.gstack\/tmp\/\S* \|/m);
+      expect(p.text).not.toContain('STRAY_TMP_MARKER');
+    }
+  });
 });
 
 describe('the packet prose and the generated SKILL.md prose are one text', () => {
@@ -183,6 +278,21 @@ describe('the packet prose and the generated SKILL.md prose are one text', () =>
   test('the outside voice boundary the safety-rule registry pins in the resolver is the packet\'s boundary', () => {
     const line = read('scripts/resolvers/outside-voice-steps.ts').split('\n').find(l => l.startsWith('const CODEX_BOUNDARY = '))!;
     expect(line).toBe(`const CODEX_BOUNDARY = '${P.CODEX_BOUNDARY_TEXT}\\\\n\\\\n';`);
+  });
+  // Value: protects=every gstack-review-packet command the /ship sections tell the parent to run uses only flags the binary documents; fails_when=a flag is renamed in the bin or the prose keeps a retired one (--hunks);
+  //   why_new=build tests drive the bin directly, never the commands the prose names; seam=none; no_claim=flag values, argument order and the prose's "plus that plan run's flags" composition
+  test('/ship prose names only gstack-review-packet flags the binary documents', () => {
+    const known = new Set(spawnSync(BIN, ['--help'], { encoding: 'utf8', timeout: 30_000 }).stdout.match(/--[a-z][a-z-]*/g)!);
+    const spans: string[] = [];
+    for (const s of ['review-army', 'adversarial', 'test-coverage', 'plan-completion']) {
+      const text = read(`ship/sections/${s}.md`);
+      spans.push(...(text.match(/`[^`]*gstack-review-packet (?:build|collect)[^`]*`/g) ?? []));
+      spans.push(...(text.match(/build its packet with that plan run's flags plus `[^`]*`/g) ?? []));
+    }
+    expect(spans.length).toBeGreaterThanOrEqual(7);
+    const named = spans.flatMap(s => s.match(/--[a-z][a-z-]*/g) ?? []);
+    expect(named).toContain('--fix-list');
+    expect(named.filter(n => !known.has(n))).toEqual([]);
   });
   test('the resolvers import the prompt bodies instead of holding a copy', () => {
     for (const f of ['scripts/resolvers/review-army.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/fix-check.ts', 'scripts/resolvers/defensive-review.ts']) {
@@ -265,5 +375,56 @@ describe('gstack-review-packet collect', () => {
     expect(r.stdout).toContain('REVIEWER: outside-voice status=findings crit=1 info=1');
     expect(r.stdout).toContain('REVIEWER: adversarial status=findings crit=0 info=1');
     expect(r.stdout).toContain('RECOMMENDATION: adversarial: Ship as-is because the race needs two writers');
+  });
+  // Value: protects=collect treats a missing or non-JSON Step 7/8 audit output as incomplete coverage (exit 3); fails_when=the AUDIT status check or its push into results is dropped or inverted;
+  //   why_new=collect tests above use reviewer roles only; seam=none; no_claim=the audit's JSON schema (only that its last line parses as an object)
+  test('an audit output whose last line is a JSON object is present; missing or prose output is incomplete coverage, exit 3', () => {
+    const audit = [{ role: 'specialist', name: 'testing' }, { role: 'audit', name: 'test-coverage' }];
+    const ok = collect(dir(audit, { testing: 'NO FINDINGS', 'test-coverage': 'diagram\n{"coverage_pct":50,"gaps":1}\n' }));
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toMatch(/^AUDIT: test-coverage status=present /m);
+    expect(ok.stdout).toMatch(/^COLLECT: reviewers=1 /m);
+    const missing = collect(dir(audit, { testing: 'NO FINDINGS', 'test-coverage': null }));
+    expect(missing.status).toBe(3);
+    expect(missing.stdout).toMatch(/test-coverage=missing.*\(REVIEW_COVERAGE_INCOMPLETE\)$/m);
+    const prose = collect(dir(audit, { testing: 'NO FINDINGS', 'test-coverage': 'All paths are covered.\n' }));
+    expect(prose.status).toBe(3);
+    expect(prose.stdout).toMatch(/^AUDIT: test-coverage status=invalid /m);
+  });
+
+  // Value: protects=a deferred Red Team is reported pending and neither read nor counted as missing coverage; fails_when=collect reads deferred entries' (empty) out path or drops the pending line;
+  //   why_new=the build test asserts only PACKET_DEFERRED, never collect's handling; seam=none; no_claim=that the Red Team later runs (parent workflow)
+  test('a deferred Red Team is listed pending with its build hint and does not make coverage incomplete', () => {
+    const r = collect(dir([...specialists, { role: 'red-team', name: 'red-team', deferred: true } as Entry], { testing: 'NO FINDINGS', security: 'NO FINDINGS' }));
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/^REVIEWER: red-team status=pending \(build its packet with --findings \S+merged\.jsonl/m);
+    expect(r.stdout).toMatch(/^COLLECT: reviewers=3 clean=2 findings=0 missing=0 invalid=0 .* pending=1 /m);
+  });
+
+  // Value: protects=per-role output validation: a matrix record alone is clean, a specialist line without its required fields is invalid, a refused outside voice is invalid;
+  //   fails_when=validFinding stops requiring confidence/category/specialist, matrix records stop counting, or a refusal reads clean; why_new=no collect test covers these branches;
+  //   seam=none; no_claim=gstack-state-matrix check semantics (matrix content is not validated here)
+  test.each([
+    ['state-machines matrix record alone is clean', 'specialist', '{"matrix":{"states":["a","b"]}}', 0, 'clean'],
+    ['specialist line missing confidence/category/specialist is invalid', 'specialist', '{"severity":"CRITICAL","path":"src/a.ts","summary":"s"}', 3, 'invalid'],
+    ['outside voice refusal is invalid', 'outside-voice', 'I cannot review this code.', 3, 'invalid'],
+  ])('%s', (_label, role, text, code, status) => {
+    const r = collect(dir([{ role, name: 'r1' }], { r1: text }));
+    expect(r.status).toBe(code);
+    expect(r.stdout).toContain(`REVIEWER: r1 status=${status}`);
+  });
+
+  // Value: protects=collect on a dir without a readable manifest exits 1 and never reports clean; fails_when=the missing-manifest guard is dropped and an empty plan reads as complete coverage (exit 0);
+  //   why_new=every collect test writes a valid manifest; seam=none; no_claim=the stderr wording
+  test('collect on a dir with no readable manifest exits 1 and never reports clean', () => {
+    const empty = tmp('review-packet-collect-');
+    const corrupt = tmp('review-packet-collect-');
+    fs.writeFileSync(path.join(corrupt, 'manifest.json'), '{not json');
+    for (const d of [empty, corrupt]) {
+      const r = collect(d);
+      expect(r.status).toBe(1);
+      expect(r.stdout).not.toContain('COLLECT:');
+      expect(r.stderr).toContain('manifest');
+    }
   });
 });

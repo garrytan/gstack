@@ -4,7 +4,8 @@
  * contract (lib/review-prompts.ts, the text the generated prose renders), its
  * checklists inlined, its DIFF_CMD diff at -U8 against the literal diff base with
  * a stat, at most 8 KB of the plan, a read budget, and the output path its result
- * goes to. A packet over PACKET_CAP_BYTES is sharded by path, never truncated.
+ * goes to. A reviewer packet over PACKET_CAP_BYTES is sharded by path, never
+ * truncated; a Step 7/8 audit is one packet (one verdict, one generation allowance).
  * Selection is lib/review-depth.ts planReview's (through lib/review-plan-live.ts);
  * collect is lib/review-packet-collect.ts.
  */
@@ -177,7 +178,7 @@ export function writePackets(draft: PacketDraft, ctx: BuildContext): PacketEntry
   const fileOf = (name: string) => path.join(ctx.outDir, `${name}.packet.md`);
   const fixed = bytes(render(draft, `${draft.name}.99of99`, outOf(`${draft.name}.99of99`), { index: 99, total: 99, oversize: true }, ''));
   const budget = Math.max(cap - fixed - 64, 1);
-  let shards = shardChunks(draft.diff.chunks, budget);
+  let shards = draft.role === 'audit' ? [{ text: draft.diff.chunks.join(''), oversize: false }] : shardChunks(draft.diff.chunks, budget);
   const total = draft.diff.chunks.reduce((n, c) => n + bytes(c), 0);
   for (let b = Math.ceil((total / shards.length) * 1.02); shards.length > 1 && b < budget; b = Math.ceil(b * 1.05)) {
     const even = shardChunks(draft.diff.chunks, b);
