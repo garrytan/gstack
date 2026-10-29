@@ -68,12 +68,12 @@ describe('/ship Step 7 child prompt carries the rules before an unchanged JSON p
   const FIELDS = ['coverage_pct', 'gaps', 'diagram', 'tests_added', 'coverage_pct_value', 'weak_gaps', 'tests_extended', 'tests_rejected', 'regression_proof'];
 
   test('template order: audit, rules, JSON protocol', () => {
-    const child = between(read('ship/sections/test-coverage.md.tmpl'), '````text', '````\n\n**Parent processing:**');
+    const child = between(read('ship/sections/audit-test-coverage.md.tmpl'), '````text', '````');
     expectOrdered(child, ['{{TEST_COVERAGE_AUDIT_SHIP}}', `${IMPLEMENTER_DISPATCH_RULES_HEADING}:`, '{{IMPLEMENTER_DISPATCH_RULES}}', 'output a single JSON object on the LAST LINE', JSON_LINE_PREFIX], 'ship child prompt');
   });
 
   test('rendered prompt carries the list and the LAST-line field set is unchanged', () => {
-    const child = between(read('ship/sections/test-coverage.md'), '````text', '````\n\n**Parent processing:**');
+    const child = between(read('ship/sections/audit-test-coverage.md'), '````text', '````');
     expect(child).toContain(IMPLEMENTER_DISPATCH_RULES);
     expect(child.indexOf(IMPLEMENTER_DISPATCH_RULES)).toBeLessThan(child.indexOf(JSON_LINE_PREFIX));
     const line = child.split('\n').find(l => l.startsWith(JSON_LINE_PREFIX))!;

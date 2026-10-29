@@ -14,6 +14,7 @@ const readShip = () => readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Impor
 const readTemplate = (name: string) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 const reviewTemplate = readTemplate('ship/sections/review-army.md.tmpl');
 const coverageTemplate = readTemplate('ship/sections/test-coverage.md.tmpl');
+const coveragePrompt = readTemplate('ship/sections/audit-test-coverage.md.tmpl');
 const entryTemplate = readTemplate('ship/SKILL.md.tmpl');
 const controlTemplate = between(entryTemplate, '### Ship control flow', '{{SECTION_INDEX:ship}}');
 const entry = compact(entryTemplate);
@@ -68,9 +69,9 @@ test('named QA risks need explicit acceptance through AskUserQuestion', () => {
 });
 
 test('coverage generation has one bounded allowance and an audit-only child prompt', () => {
-  const allowance = compact(between(coverageTemplate, /^/, '````text'));
-  expectTokens(allowance, ['2 generation passes', '30-path/5-tests-per-pass/2-minute'], 'coverage allowance');
-  const prompt = coverageTemplate.split('````text\n')[1]?.split('\n````')[0] ?? '';
+  expect(coverageTemplate).not.toContain('````text');
+  expectTokens(compact(coverageTemplate), ['2 generation passes', '30-path/5-tests-per-pass/2-minute', 'ship/sections/audit-test-coverage.md'], 'coverage allowance');
+  const prompt = coveragePrompt.split('````text\n')[1]?.split('\n````')[0] ?? '';
   expectTokens(prompt, ['Generation: <allowed|audit-only>; passes used: <N> of 2.', '"coverage_pct":N,"gaps":N', '"tests_added":["path",...]'], 'coverage child prompt');
   expectOrdered(prompt, [/audit-only/, '{{TEST_COVERAGE_AUDIT_SHIP}}'], 'coverage child prompt');
   expectMentions(prompt, [['not', 'commit'], ['not', 'push']], 'coverage child prompt');

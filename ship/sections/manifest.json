@@ -41,6 +41,20 @@
       "trigger": "auditing plan completion, verification, and scope drift (Step 8)"
     },
     {
+      "id": "audit-test-coverage",
+      "file": "audit-test-coverage.md",
+      "title": "Step 7 audit prompt (packet input)",
+      "trigger": "never read by the agent: gstack-review-packet build --audit test-coverage inlines it into the Step 7 audit packet",
+      "runner_only": true
+    },
+    {
+      "id": "audit-plan-completion",
+      "file": "audit-plan-completion.md",
+      "title": "Step 8 audit prompt (packet input)",
+      "trigger": "never read by the agent: gstack-review-packet build --audit plan-completion inlines it into the Step 8 audit packet",
+      "runner_only": true
+    },
+    {
       "id": "review-army",
       "file": "review-army.md",
       "title": "Pre-landing review + specialist army",
@@ -86,7 +100,7 @@
       "id": "capy-pr",
       "file": "capy-pr.md",
       "title": "Capy PR body: What changed (before/after images), Why, Approvals",
-      "trigger": "Step 19 printed CAPY_PR: on (a Capy session, GSTACK_CAPY=1) — read before composing the PR body"
+      "trigger": "Step 19 printed CAPY_PR: on (a Capy session, GSTACK_CAPY=1) \u2014 read before composing the PR body"
     },
     {
       "id": "handoff",

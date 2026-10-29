@@ -1,0 +1,14 @@
+## Plan completion audit prompt
+
+Read only by `gstack-review-packet build --audit plan-completion`, which inlines the fence
+below into the audit packet. The /ship parent never reads this file.
+
+````text
+You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff origin/<base>` and inspect untracked files from `git status` to see the full proposed change. Do not commit or push. Report only: classify every item, but do not execute Gate Logic, ask the user, or advance the workflow. The parent applies those gates to your report.
+
+{{PLAN_COMPLETION_AUDIT_SHIP}}
+
+After your analysis, output a single JSON object with exactly these seven fields on the LAST LINE of your response (no other text after it):
+{"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}
+Counts map one-to-one to the classifications above and sum to total_items. No plan or no actionable items means all counts are zero with the skip reason in summary. Do not classify work as deferred; only the parent can record a user-approved deferral.
+````

@@ -298,11 +298,11 @@ export function draftFor(d: Dispatch, ctx: BuildContext): PacketDraft {
     diff: reviewerDiff(ctx.root, ctx.diffBase, d.exclude, t.summary, insideOut(ctx), d.role === 'specialist' && (d.checklists ? d.checklists.includes('testing') : d.name === 'testing') ? underTests : undefined), diffLabel: t.diffLabel, diffCmd: diffCmd(ctx.diffBase, d.exclude, t.summary) };
 }
 
-/** An audit's prompt is the generated section's text fence: the packet and the SKILL.md prose are one text. */
+/** An audit's prompt is the text fence of its generated prompt-only section (ship/sections/audit-<name>.md), which the /ship parent never reads. */
 export function auditPrompt(skillRoot: string, audit: AuditName, base: string, baseRef = `origin/${base}`): string {
-  const section = fs.readFileSync(path.join(skillRoot, 'ship', 'sections', `${audit}.md`), 'utf8');
+  const section = fs.readFileSync(path.join(skillRoot, 'ship', 'sections', `audit-${audit}.md`), 'utf8');
   const m = /^(`{4,})text\n([\s\S]*?)\n\1$/m.exec(section);
-  if (!m) throw new Error(`ship/sections/${audit}.md has no prompt fence`);
+  if (!m) throw new Error(`ship/sections/audit-${audit}.md has no prompt fence`);
   return m[2]!.replaceAll('origin/<base>', baseRef).replaceAll('<base>', base);
 }
 

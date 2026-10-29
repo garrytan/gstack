@@ -119,7 +119,7 @@ describe('ship/SKILL.md — Plan Completion gate invariants', () => {
   });
 
   test('successful plan audits use the declared seven-field contract without an error field', () => {
-    const audit = fs.readFileSync(path.join(SHIP_DIR, 'sections/plan-completion.md'), 'utf8');
+    const audit = ['plan-completion.md', 'audit-plan-completion.md'].map(f => fs.readFileSync(path.join(SHIP_DIR, 'sections', f), 'utf8')).join('\n');
     const line = audit.split('\n').find(line => line.startsWith('{"total_items":N,'));
     expect(line).toBeDefined();
     const contract = JSON.parse(line!.replace(/:N([,}])/g, ':0$1'));
@@ -330,8 +330,12 @@ describe('F1: plan binding, docs/designs candidates, exact not-run line', () => 
 
   test('ship binds the plan in the parent before dispatch; the child never searches', () => {
     const md = fs.readFileSync(sections.ship, 'utf8');
-    expect(md.indexOf('### Plan File Discovery')).toBeLessThan(md.indexOf('````text'));
-    const child = md.slice(md.indexOf('````text'), md.lastIndexOf('````'));
+    const prompt = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'audit-plan-completion.md'), 'utf8');
+    expect(md).toContain('### Plan File Discovery');
+    expect(md).not.toContain('````text');
+    expect(md).toContain('ship/sections/audit-plan-completion.md');
+    const child = prompt.slice(prompt.indexOf('````text'), prompt.lastIndexOf('````'));
+    expect(child.length).toBeGreaterThan(0);
     expect(child).not.toContain('### Plan File Discovery');
     expectMentions(child, [['do not', 'another', 'search']], 'child');
     expect(md).toMatch(/not-run line, skip dispatch/);
@@ -362,7 +366,8 @@ describe('ACCEPTANCE_EDITED: parent-computed acceptance-text drift', () => {
     const parent = between(rendered, '**Parent processing:**', '**Audit-failure fallback:**');
     expectOrdered(parent, ['1. Check the task', `\`${ACCEPTANCE_EDITED}\` beside the child's classes`, 'Apply Gate Logic below', '### Acceptance edits (parent-computed)'], 'parent processing');
     expect(rendered.indexOf('### Acceptance edits (parent-computed)')).toBeLessThan(rendered.indexOf('### Gate Logic'));
-    expectAbsent(between(rendered, '````text', '````\n\n**Parent processing:**'), [ACCEPTANCE_EDITED], 'child prompt');
+    const prompt = fs.readFileSync(path.join(SHIP_DIR, 'sections', 'audit-plan-completion.md'), 'utf8');
+    expectAbsent(between(prompt, '````text', /````\s*$/), [ACCEPTANCE_EDITED], 'child prompt');
     const contract = rendered.split('\n').find(line => line.startsWith('{"total_items":N,'))!;
     expect(Object.keys(JSON.parse(contract.replace(/:N([,}])/g, ':0$1')))).toHaveLength(7);
   });

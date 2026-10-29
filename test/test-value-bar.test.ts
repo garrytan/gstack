@@ -27,7 +27,7 @@ const bar = (mode: TestValueBarMode) => generateTestValueBar(ctx, [mode]);
 
 const CARD_FORMAT = 'Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none; no_claim=<...>';
 const NO_CLAIM_EXAMPLE_TOKENS = NO_CLAIM_EXAMPLES.map(example => `no_claim=${example}`);
-const shipSection = read('ship/sections/test-coverage.md');
+const shipSection = read('ship/sections/test-coverage.md') + '\n' + read('ship/sections/audit-test-coverage.md');
 const shipGate = generateTestCoverageAuditInner(ctx, 'ship', 'gate');
 
 const CONTRACT: Record<TestValueBarMode, { render: string; required: string[]; absent?: string[] }> = {

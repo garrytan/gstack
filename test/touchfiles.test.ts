@@ -141,7 +141,7 @@ describe('selectTests', () => {
     const consumers = [
       ['plan-eng-review/sections/review-sections.md', 'TEST_COVERAGE_AUDIT_PLAN'],
       ['ship/sections/tests.md', 'TEST_BOOTSTRAP'],
-      ['ship/sections/test-coverage.md', 'TEST_COVERAGE_AUDIT_SHIP'],
+      ['ship/sections/audit-test-coverage.md', 'TEST_COVERAGE_AUDIT_SHIP'],
       ['design-review/sections/test-bootstrap.md', 'TEST_BOOTSTRAP'],
     ];
     for (const [output, token] of consumers) {
@@ -215,7 +215,7 @@ describe('selectTests', () => {
     ['ship/sections/tests.md', 'ship/SKILL.md workflow',
       'ship/SKILL.md', '# Ship:', '## Important Rules', '## Test Framework Bootstrap'],
     ['ship/sections/test-coverage.md', 'ship/SKILL.md workflow',
-      'ship/SKILL.md', '# Ship:', '## Important Rules', '### REGRESSION RULE (mandatory)'],
+      'ship/SKILL.md', '# Ship:', '## Important Rules', '### Shared subagent dispatch'],
     ['plan-design-review/sections/review-sections.md', 'plan-design-review/SKILL.md passes',
       'plan-design-review/SKILL.md', '## Review Sections', ASK_QUESTIONS_HEADING,
       '## Review Sections (7 passes, after scope is agreed)'],

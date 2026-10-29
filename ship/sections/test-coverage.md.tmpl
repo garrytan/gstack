@@ -15,7 +15,7 @@ Dispatch the audit through Agent with `subagent_type: "general-purpose"` and
 **By packet:** write the subagent-prompt inputs below to `.gstack/tmp/audit-context.txt`,
 run `~/.claude/skills/gstack/bin/gstack-review-packet build --audit test-coverage --base <base>
 --out-dir .gstack/tmp/review-packets-audit --context .gstack/tmp/audit-context.txt
---passes-used <N>` (the packet holds the prompt below and
+--passes-used <N>` (the packet holds the audit prompt and
 the diff; an audit is one packet, never sharded) and brief the child only with the packet brief and its `read=` ranges:
 "Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names."
 Wait for its `out=` file's LAST-line JSON before applying the coverage gate. `AUDIT_SKIPPED:` (no code path: docs,
@@ -42,21 +42,9 @@ git worktree prune
 find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'gstack-base-control.*' -mmin +10 2>/dev/null | while IFS= read -r d; do git worktree remove --force "$d/wt" >/dev/null 2>&1; rm -rf "$d"; done
 ```
 
-````text
-You are running a ship-workflow test coverage audit. Run `git diff origin/<base>` to include uncommitted tracked changes; also read relevant non-ignored untracked source/tests. Do not commit or push. Perform only this audit; return unresolved user decisions to the parent instead of asking or advancing to another workflow step.
-
-Generation: <allowed|audit-only>; passes used: <N> of 2. Audit-only overrides every generation instruction below.
-
-{{TEST_COVERAGE_AUDIT_SHIP}}
-
-Rules for the implementing agent:
-{{IMPLEMENTER_DISPATCH_RULES}}
-Report any such change in the prose before the JSON line; the JSON fields below are unchanged.
-
-After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
+The audit's prompt is `ship/sections/audit-test-coverage.md`; build inlines it into the packet, so
+never read it yourself. Its `out=` file ends with one JSON line:
 {"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...],"coverage_pct_value":N,"weak_gaps":[{"path":"...","existing_test":"...","reason":"star_one|gate_failed|unrated"}],"tests_extended":["path",...],"tests_rejected":[{"path_or_gap":"...","reason_code":"...","reason":"..."}],"regression_proof":{"red_at_head":N,"base_green":N,"base_unavailable":N}}
-`coverage_pct` is Y (paths with any test), `coverage_pct_value` is X (paths with a ★★/★★★ test), `gaps` counts only paths with no test. Use null for an undetermined or skipped coverage percentage, not zero. Include every remaining gap in the diagram so the parent can target a second pass.
-````
 
 **Parent processing:**
 
