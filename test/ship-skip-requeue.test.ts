@@ -69,7 +69,7 @@ describe.each(ALL_HOST_CONFIGS.map(({ name }) => name))('%s ship skip/requeue co
   });
 
   test('fresh review after edits, native coverage and cycle limits remain required', () => {
-    expect(finish).toContain('**Required native review incomplete:** STOP');
+    expect(finish).toContain('**Dispatched native review incomplete:** STOP');
     expectMentions(finish, [['before', 'pending', 'insert']], 'finish');
     expectMentions(finish, [['never', 'three-cycle', 'resets']], 'finish');
     expect(review).toContain('Set CYCLES to 0 on first entry only');

@@ -1,6 +1,8 @@
-**Step 9's last full-pass plan governs this step:** run the native pass only on
-`DISPATCH: adversarial-native` and the outside voice only on
-`DISPATCH: outside-voice`. Without the native line (light depth at runtime 0;
+**Step 9's last full-pass plan governs this step:** it alone decides which voices run.
+The native pass runs only on `DISPATCH: adversarial-native`. The outside voice
+(challenge, plus structured review at 200+ lines or on request) runs only on
+`DISPATCH: outside-voice` and a preflight of `ready` or `unverified`; run the
+preflight only for that line. Without the native line (light depth at runtime 0;
 above 0 the plan lists it beside the batched specialist), print `ADVERSARIAL: skipped (review plan)`;
 with neither line, take decision 3 of Finish the adversarial phase. Under a token cap,
 reserve the planned voices as one batch (`gstack-ship-budget check --next dispatch:<roles>`)

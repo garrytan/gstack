@@ -274,7 +274,7 @@ describe('ship source controller', () => {
 
   test('native recovery has one corrected attempt and cannot borrow outside completion', () => {
     const finish = adversarial.slice(adversarial.indexOf('### Finish the adversarial phase'));
-    const recovery = finish.slice(finish.indexOf('1. **Required native'), finish.indexOf('2. **Fixes queued'));
+    const recovery = finish.slice(finish.indexOf('1. **Dispatched native'), finish.indexOf('2. **Fixes queued'));
     expectMentions(recovery, [['stop', 'confirm', 'stopped']], 'recovery');
     expectMentions(recovery, [['cannot', 'outside-provider', 'replace']], 'recovery');
     expectMentions(recovery, [['only', 'prerequisite', 'correction']], 'recovery');
@@ -290,7 +290,7 @@ describe('ship source controller', () => {
     const ctx = { host, skillName: 'ship', tmplPath: '', paths: HOST_PATHS[host] };
     const ship = generateAdversarialStep(ctx);
     const finish = compact(ship.slice(ship.indexOf('### Finish the adversarial phase')));
-    const branches = ['Required native review incomplete', 'Fixes queued after native completion', 'Native complete with no queued fixes']
+    const branches = ['Dispatched native review incomplete', 'Fixes queued after native completion', 'Native complete with no queued fixes']
       .map(label => finish.indexOf(label));
     expect(branches.every(index => index >= 0)).toBe(true);
     expect(branches).toEqual([...branches].sort((a, b) => a - b));

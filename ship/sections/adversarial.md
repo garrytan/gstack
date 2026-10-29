@@ -1,8 +1,10 @@
 <!-- AUTO-GENERATED from adversarial.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-**Step 9's last full-pass plan governs this step:** run the native pass only on
-`DISPATCH: adversarial-native` and the outside voice only on
-`DISPATCH: outside-voice`. Without the native line (light depth at runtime 0;
+**Step 9's last full-pass plan governs this step:** it alone decides which voices run.
+The native pass runs only on `DISPATCH: adversarial-native`. The outside voice
+(challenge, plus structured review at 200+ lines or on request) runs only on
+`DISPATCH: outside-voice` and a preflight of `ready` or `unverified`; run the
+preflight only for that line. Without the native line (light depth at runtime 0;
 above 0 the plan lists it beside the batched specialist), print `ADVERSARIAL: skipped (review plan)`;
 with neither line, take decision 3 of Finish the adversarial phase. Under a token cap,
 reserve the planned voices as one batch (`gstack-ship-budget check --next dispatch:<roles>`)
@@ -68,21 +70,20 @@ echo "CODEX_MODE: $_CODEX_MODE"
 ```
 
 Branch on the echoed `CODEX_MODE`:
-- **`disabled`** (or a send's `consent_missing` line) — `codex_reviews` is off or unreadable. Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."
-- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`disabled`** (or a send's `consent_missing` line) — `codex_reviews` is off or unreadable. Skip the Codex passes. Print: "Codex passes skipped (codex_reviews disabled)."
+- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Skip the Codex passes.
+- **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Skip the Codex passes.
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
-- **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Keep the required Claude adversarial pass; do not dispatch a duplicate. The ~10s round trip is cached for 1h.
-- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Skip the Codex passes.
+- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Skip the Codex passes.
+- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Skip the Codex passes. The ~10s round trip is cached for 1h.
+- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Skip the Codex passes.
+- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Skip the Codex passes.
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out or, with `(rate_limited)`, hit a 429; say so, and let the pass's own verdict decide.
 
-`CODEX_MODE: disabled` means skip the Codex passes ONLY.
-`ready` and `unverified` run them; every other mode skips them with the printed reason.
+`CODEX_MODE` gates only the planned Codex passes: `ready` and `unverified` run them; every other mode skips them with the printed reason.
 
-**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size (still requires `CODEX_MODE: ready` (or `unverified`)).
+**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", the planned Codex voice also runs its structured review regardless of diff size.
 
 ---
 
@@ -111,7 +112,7 @@ If the subagent fails or times out, record native coverage as incomplete. Contin
 
 ---
 
-### Codex adversarial challenge (runs whenever `CODEX_MODE` is `ready` or `unverified`)
+### Codex adversarial challenge (on `DISPATCH: outside-voice`, when `CODEX_MODE` is `ready` or `unverified`)
 
 If `CODEX_MODE` is `ready` or `unverified`:
 
@@ -160,7 +161,7 @@ esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 600000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Retain the required native pass without duplicating it; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 600000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Never dispatch a native pass in its place; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 Present the full output verbatim. An unavailable outside challenge does not block shipping by itself; supported findings still enter Step 11, and the structured P0/P1 and non-convergence gates still apply.
 
@@ -169,15 +170,11 @@ Present the full output verbatim. An unavailable outside challenge does not bloc
 - **Timeout:** "Codex timed out after 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if Codex had reviewed.
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
 
-
-
-For other modes, retain the native pass above; do not dispatch it again.
-
 ---
 
 ### Codex structured review (large diffs only, 200+ lines)
 
-If `CODEX_MODE` is `ready` or `unverified` and either `DIFF_TOTAL >= 200` or the user requested the override above:
+On `DISPATCH: outside-voice`, if `CODEX_MODE` is `ready` or `unverified` and either `DIFF_TOTAL >= 200` or the user requested the override above:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P0]-[P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
@@ -222,7 +219,7 @@ esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 600000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Retain the required native pass without duplicating it; it cannot complete outside coverage. Scratch cleanup is automatic.
+Use Bash `timeout: 600000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Never dispatch a native pass in its place; it cannot complete outside coverage. Scratch cleanup is automatic.
 
 The Codex backend uses `codex review --base` without a positional prompt: those arguments are mutually exclusive. Never drop --base to resolve an argv error; prompt-only review changes the diff scope.
 
@@ -244,7 +241,7 @@ Read stderr for errors (same error handling as Codex adversarial above).
 
 
 
-If `DIFF_TOTAL < 200` without that override, skip structured review; the adversarial passes still run.
+If `DIFF_TOTAL < 200` without that override, skip structured review; the planned adversarial passes still run.
 
 ---
 
@@ -306,7 +303,7 @@ REVIEW_START. Keep scoped approvals.
 Optional outside failures retain their own incomplete records. Apply these decisions
 in order before leaving Step 11:
 
-1. **Required native review incomplete:** STOP and confirm the native task stopped.
+1. **Dispatched native review incomplete:** STOP and confirm the native task stopped.
    Outside-provider output cannot replace this pass. One recovery retry is allowed
    only after a concrete prerequisite correction and restored access; count it in
    the invocation record before launch. Capture a fresh PASS_START and persist the

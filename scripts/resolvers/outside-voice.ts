@@ -47,10 +47,10 @@ fi`;
 /** Caller-owned workflow role. Only enumerated plan-review generators pass it; everything else stays no-role. */
 export type OutsideRole = 'plan-review';
 
-export function outsideVoicePreflight(ctx: TemplateContext, opts: { disabledBehavior: 'skip-all' | 'codex-only' | 'opt-in'; nativeReview?: boolean; role?: OutsideRole }): string {
+export function outsideVoicePreflight(ctx: TemplateContext, opts: { disabledBehavior: 'skip-all' | 'codex-only' | 'opt-in'; nativeReview?: boolean; role?: OutsideRole; planDispatch?: boolean }): string {
   const v = outsideVoiceFor(ctx);
   if (v.id === 'codex' && (opts.disabledBehavior === 'codex-only' || (opts.disabledBehavior === 'skip-all' && !opts.role))) {
-    let preflight = outsideVoiceLabels(ctx, codexPreflight({ disabledBehavior: opts.disabledBehavior, nativeReview: opts.nativeReview, role: !!opts.role }))
+    let preflight = outsideVoiceLabels(ctx, codexPreflight({ disabledBehavior: opts.disabledBehavior, nativeReview: opts.nativeReview, role: !!opts.role, planDispatch: opts.planDispatch }))
       .replace('```bash\n', `\`\`\`bash\n${runtimeRootPrelude(ctx)}\n`);
     if (['plan-eng-review', 'plan-ceo-review'].includes(ctx.skillName)) {
       preflight = preflight.replace("follow the workflow's native-review instructions below",
@@ -82,7 +82,7 @@ ${readiness}
 
 ${ctx.skillName === 'ship' && opts.disabledBehavior === 'opt-in' ? `Ship attempts this optional design check when frontend review applies and \`codex_reviews\` allows it.
 Unset means the default, enabled; the first send prints a one-time notice.
-\`CODEX_MODE\` names the provider here, **${v.label}**.` : `The historical \`CODEX_MODE\` variable describes **${v.label}** availability here.`}${opts.disabledBehavior === 'opt-in' ? " `CODEX_MODE: disabled` or a send's `consent_missing` line: `codex_reviews` is off or unreadable; do not ask; record `outside_status: disabled`." : ''} ${opts.role ? 'The invocation checks auth and the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) plan-review model.' : 'Authentication and configured model validity are checked by the actual invocation, without overriding either.'} Missing/broken CLI: install or repair ${v.label}; authentication failure: run \`${v.id === 'codex' ? 'codex login' : 'claude auth login'}\`. ${opts.disabledBehavior === 'skip-all' ? "Disabled ends this entire extra review step (so does a send's `consent_missing` line), including the native fallback; record outside_status: disabled and continue after the section. Disabled is not an unavailable provider and never triggers a replacement reviewer." : opts.disabledBehavior === 'codex-only' ? "Disabled skips only the outside CLI (so does a send's `consent_missing` line); retain the native pass." : ctx.skillName === 'ship' ? '' : 'Otherwise honor this caller’s opt-in/skip choice.'} ${opts.disabledBehavior === 'skip-all' ? 'Provider failure is missing outside coverage; follow the caller’s existing fallback only when reviews are enabled.' : opts.disabledBehavior === 'codex-only' ? 'Non-ready means missing outside coverage. Keep the required native pass without duplicating it.' : 'Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback.'} Never substitute another external provider.`;
+\`CODEX_MODE\` names the provider here, **${v.label}**.` : `The historical \`CODEX_MODE\` variable describes **${v.label}** availability here.`}${opts.disabledBehavior === 'opt-in' ? " `CODEX_MODE: disabled` or a send's `consent_missing` line: `codex_reviews` is off or unreadable; do not ask; record `outside_status: disabled`." : ''} ${opts.role ? 'The invocation checks auth and the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) plan-review model.' : 'Authentication and configured model validity are checked by the actual invocation, without overriding either.'} Missing/broken CLI: install or repair ${v.label}; authentication failure: run \`${v.id === 'codex' ? 'codex login' : 'claude auth login'}\`. ${opts.disabledBehavior === 'skip-all' ? "Disabled ends this entire extra review step (so does a send's `consent_missing` line), including the native fallback; record outside_status: disabled and continue after the section. Disabled is not an unavailable provider and never triggers a replacement reviewer." : opts.planDispatch ? "Disabled skips the outside CLI (so does a send's `consent_missing` line)." : opts.disabledBehavior === 'codex-only' ? "Disabled skips only the outside CLI (so does a send's `consent_missing` line); retain the native pass." : ctx.skillName === 'ship' ? '' : 'Otherwise honor this caller’s opt-in/skip choice.'} ${opts.disabledBehavior === 'skip-all' ? 'Provider failure is missing outside coverage; follow the caller’s existing fallback only when reviews are enabled.' : opts.planDispatch ? 'Non-ready means missing outside coverage.' : opts.disabledBehavior === 'codex-only' ? 'Non-ready means missing outside coverage. Keep the required native pass without duplicating it.' : 'Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback.'} Never substitute another external provider.`;
 }
 
 export interface OutsideCommandOptions {
@@ -97,7 +97,8 @@ export interface OutsideCommandOptions {
   reasoningEffort?: 'high' | 'medium';
   /** Creative proposals retain the recommendation gate with task-specific wording. */
   purpose?: 'design-direction';
-  nativeAlreadyRequired?: boolean;
+  /** The adversarial step's native pass: always required (/review) or run per the review plan's DISPATCH line (/ship). */
+  nativePass?: 'required' | 'planned';
   /** Resolve the plan-review policy once in the invocation shell and bind it through probe and dispatch. */
   role?: OutsideRole;
 }
@@ -188,7 +189,7 @@ export function outsideVoiceInvocation(ctx: TemplateContext, requested: OutsideC
 ${outsideVoiceCommand(ctx, opts)}
 \`\`\`
 
-Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing ${planRecommendation ? 'Recommendation: <action> because <reason>' : opts.purpose === 'design-direction' ? 'Recommendation' : 'score/severity/completion'} markers, timeout or CLI failure means \`outside_status: unavailable\`. P0/P1 findings block like native ones; \`OUTSIDE_STATUS: unverified\` is missing coverage. ${opts.purpose === 'design-direction' ? 'Continue completed proposals; native completion does not count as outside coverage.' : opts.nativeAlreadyRequired ? 'Retain the required native pass without duplicating it; it cannot complete outside coverage.' : "Use the caller's fallback; missing coverage is never clean/PASS."} ${nativeStructured ? 'Scratch cleanup is automatic.' : 'After either outcome, delete only your private prompt; scratch cleanup is automatic.'}`;
+Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing ${planRecommendation ? 'Recommendation: <action> because <reason>' : opts.purpose === 'design-direction' ? 'Recommendation' : 'score/severity/completion'} markers, timeout or CLI failure means \`outside_status: unavailable\`. P0/P1 findings block like native ones; \`OUTSIDE_STATUS: unverified\` is missing coverage. ${opts.purpose === 'design-direction' ? 'Continue completed proposals; native completion does not count as outside coverage.' : opts.nativePass === 'required' ? 'Retain the required native pass without duplicating it; it cannot complete outside coverage.' : opts.nativePass === 'planned' ? 'Never dispatch a native pass in its place; it cannot complete outside coverage.' : "Use the caller's fallback; missing coverage is never clean/PASS."} ${nativeStructured ? 'Scratch cleanup is automatic.' : 'After either outcome, delete only your private prompt; scratch cleanup is automatic.'}`;
 }
 
 /**

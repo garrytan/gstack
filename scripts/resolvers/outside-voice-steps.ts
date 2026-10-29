@@ -143,7 +143,7 @@ If the subagent fails or times out, record native coverage as incomplete. Contin
 }
 
 function adversarialOutsideChallenge(ctx: TemplateContext, isShip: boolean): string {
-  return `### ${outsideVoiceFor(ctx).label} adversarial challenge (runs whenever \`CODEX_MODE\` is \`ready\` or \`unverified\`)
+  return `### ${outsideVoiceFor(ctx).label} adversarial challenge (${isShip ? 'on \`DISPATCH: outside-voice\`, when' : 'runs whenever'} \`CODEX_MODE\` is \`ready\` or \`unverified\`)
 
 If \`CODEX_MODE\` is \`ready\` or \`unverified\`:
 
@@ -151,16 +151,12 @@ Outside prompt (supply repository context from the parent):
 
 "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Use the supplied branch diff. If it was not supplied and you have repository tools, run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE". Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale."
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: true, diffCommand: 'DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"' })}
+${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativePass: isShip ? 'planned' : 'required', diffCommand: 'DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"' })}
 
 Present the full output verbatim. ${isShip ? 'An unavailable outside challenge does not block shipping by itself; supported findings still enter Step 11, and the structured P0/P1 and non-convergence gates still apply.' : 'This outside challenge is informational; supported findings still enter Step 5 Fix-First, whose approval and convergence gates apply.'}
 
 **Error handling:** Only this optional outside adversarial pass is non-blocking; native completion and structured-review decisions still apply.
-${outsideVoiceFailurePolicy(ctx, { timeoutMinutes: 9, onTimeout: 'missing-coverage', stderrOnEmpty: true, fallback: 'none', escape: 1 })}
-
-
-
-For other modes, retain the native pass above; do not dispatch it again.
+${outsideVoiceFailurePolicy(ctx, { timeoutMinutes: 9, onTimeout: 'missing-coverage', stderrOnEmpty: true, fallback: 'none', escape: 1 })}${isShip ? '' : '\n\n\n\nFor other modes, retain the native pass above; do not dispatch it again.'}
 
 ---`;
 }
@@ -168,11 +164,11 @@ For other modes, retain the native pass above; do not dispatch it again.
 function adversarialStructuredReview(ctx: TemplateContext, isShip: boolean): string {
   return `### ${outsideVoiceFor(ctx).label} structured review (large diffs only, 200+ lines)
 
-If \`CODEX_MODE\` is \`ready\` or \`unverified\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
+${isShip ? 'On \`DISPATCH: outside-voice\`, if' : 'If'} \`CODEX_MODE\` is \`ready\` or \`unverified\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P0]-[P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: true, structuredBase: '<base>', gate: 'structured', diffCommand: 'DIFF_BASE=$(git merge-base <base> HEAD) && git diff "$DIFF_BASE"' })}
+${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativePass: isShip ? 'planned' : 'required', structuredBase: '<base>', gate: 'structured', diffCommand: 'DIFF_BASE=$(git merge-base <base> HEAD) && git diff "$DIFF_BASE"' })}
 
 ${outsideVoiceFor(ctx).id === 'codex' ? 'The Codex backend uses `codex review --base` without a positional prompt: those arguments are mutually exclusive. Never drop --base to resolve an argv error; prompt-only review changes the diff scope.' : 'The Claude Code backend receives the parent-captured base diff, including committed and working-tree changes, because review mode cannot execute git.'}
 
@@ -194,7 +190,7 @@ Read stderr for errors (same error handling as ${outsideVoiceFor(ctx).label} adv
 
 
 
-If \`DIFF_TOTAL < 200\` without that override, skip structured review; the adversarial passes still run.
+If \`DIFF_TOTAL < 200\` without that override, skip structured review; the ${isShip ? 'planned ' : ''}adversarial passes still run.
 
 ---`;
 }
@@ -249,13 +245,15 @@ echo "DIFF_SIZE: $DIFF_TOTAL"
 
 **Detect the ${outsideVoiceFor(ctx).label} master switch + tool availability:**
 
-${outsideVoicePreflight(ctx, { disabledBehavior: 'codex-only', nativeReview: true })}
+${outsideVoicePreflight(ctx, { disabledBehavior: 'codex-only', nativeReview: true, planDispatch: isShip })}
 
-\`CODEX_MODE: disabled\` means skip the ${outsideVoiceFor(ctx).label} passes ONLY.
-\`ready\` and \`unverified\` run them; every other mode skips them with the printed reason.${isShip ? '' : `
-The ${outsideVoiceFor(ctx).nativeLabel} adversarial subagent always runs.`}
+${isShip ? `\`CODEX_MODE\` gates only the planned ${outsideVoiceFor(ctx).label} passes: \`ready\` and \`unverified\` run them; every other mode skips them with the printed reason.
 
-**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the ${outsideVoiceFor(ctx).label} structured review regardless of diff size (still requires \`CODEX_MODE: ready\` (or \`unverified\`)).
+**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", the planned ${outsideVoiceFor(ctx).label} voice also runs its structured review regardless of diff size.` : `\`CODEX_MODE: disabled\` means skip the ${outsideVoiceFor(ctx).label} passes ONLY.
+\`ready\` and \`unverified\` run them; every other mode skips them with the printed reason.
+The ${outsideVoiceFor(ctx).nativeLabel} adversarial subagent always runs.
+
+**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the ${outsideVoiceFor(ctx).label} structured review regardless of diff size (still requires \`CODEX_MODE: ready\` (or \`unverified\`)).`}
 
 ---
 
@@ -296,7 +294,7 @@ REVIEW_START. Keep scoped approvals.
 Optional outside failures retain their own incomplete records. Apply these decisions
 in order before leaving Step 11:
 
-1. **Required native review incomplete:** STOP and confirm the native task stopped.
+1. **Dispatched native review incomplete:** STOP and confirm the native task stopped.
    Outside-provider output cannot replace this pass. One recovery retry is allowed
    only after a concrete prerequisite correction and restored access; count it in
    the invocation record before launch. Capture a fresh PASS_START and persist the

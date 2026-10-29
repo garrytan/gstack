@@ -85,9 +85,9 @@ For each comment in `comments`:
 
 **SUPPRESSED:** Skip silently — these are known false positives from previous triage.
 
-**After triage:** If fixes were approved, save their approvals and comment references.
-Run Step 9's full review/fix loop, then return here. Finish the saved replies
-without asking again about completed fixes, and classify new comments.
+**After triage:** If fixes were approved, save their approvals and comment references,
+then insert `9 → 10` before the pending work (control-flow rule 2). On that return,
+finish the saved replies without asking again about completed fixes, and classify new comments.
 With no queued fixes, continue to Step 11.
 
 ---
