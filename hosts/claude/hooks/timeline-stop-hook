@@ -7,5 +7,8 @@
 # Every failure path — bun missing, script crash — still exits 0.
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 HERE="$(cd "$(dirname "$0")" && pwd)" || exit 0
-bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$HERE/timeline-stop-hook.ts" || true
+TS="$HERE/timeline-stop-hook.ts"
+# Windows: bun.exe is a native binary and cannot resolve MSYS paths (/c/...).
+command -v cygpath >/dev/null 2>&1 && TS="$(cygpath -w "$TS")"
+bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$TS" || true
 exit 0

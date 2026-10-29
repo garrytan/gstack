@@ -67,7 +67,7 @@ switch (command) {
       const commands = [config.cliCommand, ...(config.cliAliases || [])];
       for (const cmd of commands) {
         try {
-          execSync(`command -v ${shellEscape(cmd)}`, { stdio: 'pipe' });
+          execSync(`command -v ${shellEscape(cmd)}`, { stdio: 'pipe', timeout: 10_000 });
           console.log(config.name);
           break;  // Found this host, move to next
         } catch {

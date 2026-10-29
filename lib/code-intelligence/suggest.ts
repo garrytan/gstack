@@ -36,6 +36,7 @@ export function trackedFileCount(repoPath: string): number | null {
   const result = spawnSync("git", ["-C", resolve(repoPath), "ls-files"], {
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
+    timeout: 15_000,
   });
   if (result.status !== 0 || typeof result.stdout !== "string") return null;
   const out = result.stdout.trim();
