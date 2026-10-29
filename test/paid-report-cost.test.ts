@@ -12,6 +12,7 @@ import { anthropicUsageCostUsd, streamedUsageCostUsd } from '../lib/pricing';
 import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
 import type { SessionLedgerRow } from './helpers/session-ledger';
 import { recordE2E } from './helpers/e2e-helpers';
+import { newTranscriptSessionId, pricedTranscript, ptyTranscriptCostUsd, transcriptFiles } from './helpers/pty/transcript-cost';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const session = (over: Partial<SessionLedgerRow>): SessionLedgerRow => ({ key: 'k', runner: 'agent-sdk', started_at: 't', elapsed_ms: 1, end: 'aborted', ...over });
@@ -126,5 +127,77 @@ describe('junitCensus cost binding', () => {
   test('a cost-only record never sets the trial\'s model, which keys its pass-rate series', () => {
     const history = census(labelled.map(r => ({ ...r, model: 'claude-opus-5-5' }))).history;
     expect(history.map(h => [h.case, h.model])).toEqual([['browse-basic', undefined], ['browse-snapshot', undefined]]);
+  });
+});
+
+describe('PTY transcript pricing (GSTA-150 PR 3)', () => {
+  const SID = '11111111-2222-4333-8444-555555555555';
+  const OTHER = '99999999-2222-4333-8444-555555555555';
+  const assistant = (sid: string, id: string, model: string, usage: object, extra: object = {}) =>
+    JSON.stringify({ type: 'assistant', sessionId: sid, cwd: '/fixture/cwd', message: { id, model, role: 'assistant', usage }, ...extra });
+  const fixture = (write: (project: string) => void) => {
+    const config = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-cost-'));
+    const project = path.join(config, 'projects', '-fixture-cwd');
+    fs.mkdirSync(project, { recursive: true });
+    write(project);
+    return config;
+  };
+
+  test('prices the session, its inline sidechains and subagent files, each message id once at its largest output', () => {
+    const config = fixture(project => {
+      fs.writeFileSync(path.join(project, `${SID}.jsonl`), [
+        JSON.stringify({ type: 'user', sessionId: SID, message: { role: 'user', content: 'hi' } }),
+        assistant(SID, 'msg_a', 'claude-opus-5-5', { input_tokens: 1000, output_tokens: 10 }),
+        assistant(SID, 'msg_a', 'claude-opus-5-5', { input_tokens: 1000, output_tokens: 500 }),
+        assistant(SID, 'msg_side', 'claude-opus-5-5', { input_tokens: 0, output_tokens: 1000 }, { isSidechain: true }),
+        assistant(SID, 'msg_syn', '<synthetic>', { input_tokens: 0, output_tokens: 0 }),
+        '{"partial":',
+      ].join('\n'));
+      fs.mkdirSync(path.join(project, SID, 'subagents'), { recursive: true });
+      fs.writeFileSync(path.join(project, SID, 'subagents', 'agent-x.jsonl'),
+        assistant(SID, 'msg_sub', 'claude-opus-5-5', { input_tokens: 0, cache_read_input_tokens: 10000, output_tokens: 0 }) + '\n');
+      fs.writeFileSync(path.join(project, `${OTHER}.jsonl`), assistant(OTHER, 'msg_foreign', 'claude-opus-5-5', { input_tokens: 1_000_000 }) + '\n');
+    });
+    try {
+      // opus-5-5: $4 in, $20 out, $0.20 cached per MTok.
+      const expected = (1000 * 4 + 500 * 20 + 1000 * 20 + 10000 * 0.2) / 1_000_000;
+      expect(ptyTranscriptCostUsd(config, SID)).toBeCloseTo(expected, 6);
+      expect(pricedTranscript({ transcriptCostUsd: () => ptyTranscriptCostUsd(config, SID) }).streamed_cost_usd).toBeCloseTo(expected, 6);
+    } finally { fs.rmSync(config, { recursive: true, force: true }); }
+  });
+
+  test('stays cost-unknown without a transcript, a session id, usage, a priced model or a readable file, and never throws', () => {
+    const unpriced = fixture(project => fs.writeFileSync(path.join(project, `${SID}.jsonl`),
+      assistant(SID, 'msg_a', 'claude-opus-5-5', { output_tokens: 1 }) + '\n' + assistant(SID, 'msg_b', 'some-unpriced-model', { output_tokens: 1 }) + '\n'));
+    const empty = fixture(project => fs.writeFileSync(path.join(project, `${SID}.jsonl`), JSON.stringify({ type: 'user', sessionId: SID }) + '\n'));
+    const unreadable = fixture(project => fs.mkdirSync(path.join(project, `${SID}.jsonl`)));
+    try {
+      expect(ptyTranscriptCostUsd(unpriced, SID)).toBeUndefined();
+      expect(ptyTranscriptCostUsd(empty, SID)).toBeUndefined();
+      expect(ptyTranscriptCostUsd(empty, OTHER)).toBeUndefined();
+      expect(ptyTranscriptCostUsd(unpriced, undefined)).toBeUndefined();
+      expect(ptyTranscriptCostUsd(null, SID)).toBeUndefined();
+      expect(ptyTranscriptCostUsd(path.join(empty, 'missing'), SID)).toBeUndefined();
+      expect(ptyTranscriptCostUsd(unreadable, SID)).toBeUndefined();
+      expect(newTranscriptSessionId(unreadable, new Set(), '/fixture/cwd')).toBeUndefined();
+      expect(pricedTranscript(undefined)).toEqual({});
+      expect(pricedTranscript({})).toEqual({});
+    } finally { for (const dir of [unpriced, empty, unreadable]) fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('a launch claims only the one transcript it created for its own cwd', () => {
+    const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pty-cost-cwd-')));
+    const line = (sid: string, at: string) => JSON.stringify({ type: 'user', sessionId: sid, cwd: at }) + '\n';
+    const config = fixture(project => fs.writeFileSync(path.join(project, `${OTHER}.jsonl`), line(OTHER, cwd)));
+    try {
+      const before = transcriptFiles(config);
+      const project = path.join(config, 'projects', '-fixture-cwd');
+      fs.writeFileSync(path.join(project, '22222222-2222-4333-8444-555555555555.jsonl'), line('22222222-2222-4333-8444-555555555555', '/a/concurrent/test'));
+      expect(newTranscriptSessionId(config, before, cwd)).toBeUndefined();
+      fs.writeFileSync(path.join(project, `${SID}.jsonl`), line(SID, cwd));
+      expect(newTranscriptSessionId(config, before, cwd)).toBe(SID);
+      fs.writeFileSync(path.join(project, '33333333-2222-4333-8444-555555555555.jsonl'), line('33333333-2222-4333-8444-555555555555', cwd));
+      expect(newTranscriptSessionId(config, before, cwd)).toBeUndefined();
+    } finally { fs.rmSync(config, { recursive: true, force: true }); fs.rmSync(cwd, { recursive: true, force: true }); }
   });
 });

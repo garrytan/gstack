@@ -10,6 +10,7 @@
 import { launchClaudePty, type ClaudePtyOptions, type ClaudePtySession } from './launch';
 import { screenPanelEnd } from './screen';
 import { appendSessionLedger, sessionKey, type SessionEnd } from '../session-ledger';
+import { pricedTranscript } from './transcript-cost';
 
 /**
  * The runners' launch seam: how a session starts, and the clock the runner
@@ -97,7 +98,7 @@ export async function runPtySession<R>(plan: PtySessionPlan<R>): Promise<R> {
   } finally {
     appendSessionLedger({ key: sessionKey('pty', undefined), runner: 'pty', started_at: startedAt,
       budget_ms: plan.budgetMs ?? plan.launch.timeoutMs ?? 240_000, elapsed_ms: plan.driver.monotonic() - started,
-      end, ...safePanelEnd(session), billed: false });
+      end, ...safePanelEnd(session), billed: false, ...pricedTranscript(session) });
     try {
       try { plan.beforeClose?.(session, failure); }
       catch (error) { if (!failure) { failure = { error }; throw error; } }

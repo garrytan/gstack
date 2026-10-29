@@ -2263,11 +2263,14 @@ case with `bun run eval:pass-rates --headroom --case <id>`.
 ### `cost unknown (no billing captured for any of <N> trial(s))` / `cost $<x> known + <N> of <M> trial(s) cost unknown`
 
 **Meaning.** Some trials' cost was not captured, so only the known sum is
-shown. A trial is cost-unknown when it ran a PTY session (PTY sessions record
-no billing), a Codex session that completed no turn or whose model has no price
-row, a `claude -p` session that ended without a result, or an aborted Agent
-SDK session whose streamed usage could not be priced (no usage, or a model with
-no price row). An aborted Agent SDK session with priced usage counts its
+shown. A trial is cost-unknown when it ran a PTY session whose transcript
+could not be priced (a non-hermetic or resumed launch, the native
+AskUserQuestion capture, two new transcripts for one cwd, no transcript or
+usage, or a model with no price row), a
+Codex session that completed no turn or whose model has no price row, a
+`claude -p` session that ended without a result, or an aborted Agent SDK
+session whose streamed usage could not be priced (no usage, or a model with no
+price row). A PTY or aborted Agent SDK session that does price counts its
 `streamed_cost_usd` instead. A trial is also unknown when no record and no
 session can be attributed to it, for example a multi-case shard's
 display-label record without `cost_case_id` (a one-case shard's records are

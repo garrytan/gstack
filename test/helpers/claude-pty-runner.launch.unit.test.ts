@@ -76,3 +76,43 @@ process.stdout.write(JSON.stringify({ capture: resolveEvalModel('capture'),
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 60_000);
 });
+
+describe('launchClaudePty transcript pricing (GSTA-150 PR 3)', () => {
+  test.skipIf(process.platform === 'win32')('prices the transcript this launch created for its cwd, without adding a launch argument; opting out prices nothing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pty-transcript-cost-'));
+    try {
+      const fake = join(dir, 'fake-claude');
+      writeFileSync(fake, `#!${process.execPath}
+const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
+const project = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', 'fake-project');
+fs.mkdirSync(project, { recursive: true });
+fs.writeFileSync(path.join(project, crypto.randomUUID() + '.jsonl'), JSON.stringify({ type: 'assistant', cwd: process.cwd(),
+  message: { id: 'msg_' + crypto.randomUUID(), model: 'claude-opus-5-5', usage: { input_tokens: 0, output_tokens: 1000 } } }) + '\\n');
+process.stdout.write('ARGV=' + JSON.stringify(process.argv.slice(2)) + '\\n');
+setInterval(() => {}, 1000);
+`, { mode: 0o755 });
+      const runner = pathToFileURL(join(import.meta.dir, 'claude-pty-runner.ts')).href;
+      const worker = join(dir, 'worker.ts');
+      writeFileSync(worker, `import { launchClaudePty } from ${JSON.stringify(runner)};
+import * as fs from 'node:fs';
+const run = async (opts) => {
+  const cwd = fs.mkdtempSync(${JSON.stringify(join(dir, 'cwd-'))});
+  const session = await launchClaudePty({ cwd, timeoutMs: 5000, ...opts });
+  try {
+    await session.waitFor(/ARGV=\\[.*\\]/, { timeoutMs: 4000, pollMs: 20 });
+    return { argv: JSON.parse(/ARGV=(\\[.*\\])/.exec(session.visibleText())[1]), cost: session.transcriptCostUsd?.() ?? null };
+  } finally { await session.close(); }
+};
+const [priced, optedOut] = await Promise.all([run({}), run({ priceTranscript: false })]);
+process.stdout.write(JSON.stringify({ priced, optedOut }));
+`);
+      const result = spawnSync(process.execPath, [worker], { cwd: join(import.meta.dir, '../..'), encoding: 'utf8', timeout: 30_000,
+        env: { ...process.env, BROWSE_TERMINAL_BINARY: fake, EVALS_HERMETIC: '1' } });
+      expect(result.status, result.stderr).toBe(0);
+      const { priced, optedOut } = JSON.parse(result.stdout.trim().split('\n').at(-1)!);
+      expect(priced.cost).toBeCloseTo(0.02, 6);
+      expect(optedOut.cost).toBeNull();
+      expect(priced.argv).not.toContain('--session-id');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }, 60_000);
+});

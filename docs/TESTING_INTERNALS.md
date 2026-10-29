@@ -648,9 +648,10 @@ no price row). A rule case's trial in the JUnit census (`caseCost` in
 carries: each ledger session without a terminal result (`billed: false`) adds
 its `streamed_cost_usd`, and a trial with no record adds each billed session's
 own `cost_usd` (Codex). The trial is cost-unknown when any record says
-`cost_known: false`, when any of those sessions has no priced cost (every PTY
-session, a `claude -p` session that ended without a result, an aborted Agent
-SDK session with no usage or an unpriced model), or when it has neither records
+`cost_known: false`, when any of those sessions has no priced cost (a PTY
+session whose transcript does not price, a `claude -p` session that ended
+without a result, an aborted Agent SDK session with no usage or an unpriced
+model), or when it has neither records
 nor sessions. A case in `MODEL_FREE_CASES` (`timeline-event-flow`, which runs
 no model) with neither is a known $0. A panel trial (`behavior`, `judge`) from
 an isolated trial shard keeps the older rule (`trialCostKnown` in
@@ -694,8 +695,20 @@ by `streamedUsageCostUsd` (`lib/pricing.ts`), each message id once at its
 largest output, subagent turns included, `<synthetic>` messages skipped,
 5-minute cache writes at 1.25x and 1-hour writes at 2x the input rate. The
 field is absent when no message carries usage or any message's model has no
-price row, so an unpriced session stays cost-unknown, never $0. The ledger
-rides in each slice artifact beside the shard results.
+price row, so an unpriced session stays cost-unknown, never $0. A PTY session
+records `streamed_cost_usd` from its transcript the same way. Both PTY ledger
+writers price `<CLAUDE_CONFIG_DIR>/projects/*/<id>.jsonl` plus
+`<id>/subagents/*.jsonl` (`test/helpers/pty/transcript-cost.ts`), where the
+id is the caller's `--session-id`, else the one transcript that appeared
+during this launch for its cwd. The launcher adds no argument. Pricing never
+takes the whole directory, because concurrent PTY tests in one process share
+one hermetic config dir; two new transcripts for one cwd are ambiguous and stay
+unknown. A non-hermetic or resumed launch, a caller that opts out
+(`priceTranscript: false`, the native AskUserQuestion capture, which never
+reads model transcripts), a missing transcript, no usage, an unpriced model or
+a read error leaves the field absent (cost-unknown), and a pricing failure
+never fails the test. The row keeps `billed: false`. The ledger rides in each slice
+artifact beside the shard results.
 
 **Quarantine** (`CASE_QUARANTINE`, same file). An entry needs: a per-trial rate
 below 95% over at least 10 post-policy trials of the case's current input
@@ -1207,9 +1220,11 @@ observation never removes a command and a missing or empty artifact never erases
 one; removing a command is a reviewed edit. While the map is in shadow mode it
 changes no selection, so a PR that changes only the map selects no paid case.
 
-Dollar figures are lower bounds. Known cost excludes PTY trials, whose cost is
-unknown: about 39% of observed case runs in the committed map. The shadow block
-and `test:health` both say so.
+Dollar figures are lower bounds. Known cost excludes trials whose cost is
+unknown: about 39% of observed case runs in the committed map, mostly PTY
+trials recorded before PTY sessions were priced from their transcripts
+([Failure causes and details](#failure-causes)). The shadow block and
+`test:health` both say so.
 
 - **Shadow block:** `prCoverage.shadow` in the paid-plan manifest lists the gate
   cases the map would select, would drop and would add, a provenance line per
