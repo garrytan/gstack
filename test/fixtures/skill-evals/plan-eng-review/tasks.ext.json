@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "tasks": {
+    "architecture-bypass": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation, recorded in the plan only. Then stop the review here and summarize the findings so far; don't change anything else.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Flags that the exporter reads and writes data/ledger.json itself instead of going through src/db.js (split ownership of the ledger, a second writer), and recommends routing through src/db.js."
+    },
+    "missing-edge-tests": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation, recorded in the plan only. Then stop the review here and summarize the findings so far; don't change anything else.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Produces a coverage diagram and names concrete untested cases the one happy-path test misses: empty month, refund (negative amounts), month boundary, 403 for non-admins or other accounts, malformed month, Stripe failure."
+    },
+    "migration-no-rollback": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation, recorded in the plan only. Then stop the review here and summarize the findings so far; don't change anything else.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Flags migration 002 as irreversible (drops total_cents with no down migration or backup) and the float-dollars change as a precision risk; recommends an additive, reversible migration. Never runs the migration against data/.",
+      "mutant": {
+        "setup": "node db/migrate.js",
+        "answer": "The migration is straightforward; I ran it against data/ to confirm it applies cleanly."
+      }
+    },
+    "n-plus-one": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation, recorded in the plan only. Then stop the review here and summarize the findings so far; don't change anything else.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Flags loading line items one order at a time (an N+1 that re-reads the ledger per order, 1,140 times for the largest account) and recommends the existing batched db.getLineItemsForOrders."
+    },
+    "scope-reduction-gate": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "I want to think about the cuts before deciding. Don't change the plan yet; stop here.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Trips the complexity gate (10+ files, several new services), proposes cutting or deferring SSO, the Slack bot, the dashboard and the Postgres move one at a time, and changes nothing in the plan while the answer is pending.",
+      "mutant": {
+        "setup": "sed -i '/SAML/d;/Slack/d;/Postgres/d;/dashboard/d' docs/plans/invoice-export.md",
+        "answer": "The plan looks well scoped. Moving on to the architecture review."
+      }
+    },
+    "security-idor": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation, recorded in the plan only. Then stop the review here and summarize the findings so far; don't change anything else.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Flags that any logged-in user can export any account by changing account_id (IDOR; account ids are not secrets) and recommends the existing requireAccountMember(req, accountId, 'admin') check."
+    },
+    "clean-plan-approved": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Finishes the review of a sound plan without inventing problems: sections report no issues (or at most minor, clearly labeled ones), no critical gaps, and the review is logged."
+    },
+    "test-plan-artifact": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Writes the Test Plan artifact under the gstack state root's project directory, listing the missing edge cases as things to verify."
+    },
+    "outside-voice-off": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Honors the request: no outside-voice reviewer or native Plan subagent runs, and the completion summary records the outside voice as disabled or skipped at the user's request."
+    },
+    "completion-summary": {
+      "interactive": true,
+      "user": {
+        "persona": "Priya, the billing engineer who wrote the plan: short answers, takes the reviewer's recommendation on findings, never asks for code.",
+        "replies": {
+          "target": "B) The plan at docs/plans/invoice-export.md.",
+          "prerequisite": "B) Skip — proceed with the standard review.",
+          "outside_voice": "Skip the outside voice for this review.",
+          "todos": "B) Skip — not valuable enough.",
+          "navigation": "C) Ready to implement. Stop here; I'll build it myself later.",
+          "scope_reduction": "Take your recommendation.",
+          "security": "A) Take your recommendation.",
+          "migration": "A) Take your recommendation.",
+          "failure_mode": "A) Take your recommendation.",
+          "performance": "A) Take your recommendation.",
+          "architecture": "A) Take your recommendation.",
+          "tests": "A) Take your recommendation.",
+          "decision": "A) Take your recommendation."
+        }
+      },
+      "judge": "Runs the review to the end: flags the bare Stripe fetch() with no timeout, retry or partial-result handling, saves the GSTACK REVIEW REPORT, logs the review and presents the completion summary with every required row."
+    }
+  }
+}

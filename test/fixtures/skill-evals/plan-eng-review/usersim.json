@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "note": "Scripted-user classifier for the /plan-eng-review suite; replaces the runner's categories.json for this suite. An AskUserQuestion is classified on its header, then its question text, then its option labels; a prose question on the last prose_window_chars of the turn. Within a tier the first category in order with a keyword (lowercase substring) present wins. Specific finding categories precede the generic decision category.",
+  "order": [
+    {
+      "category": "target",
+      "keywords": [
+        "what should i review",
+        "branch diff",
+        "review target"
+      ]
+    },
+    {
+      "category": "prerequisite",
+      "keywords": [
+        "office-hours",
+        "office hours",
+        "prerequisite",
+        "design doc"
+      ]
+    },
+    {
+      "category": "outside_voice",
+      "keywords": [
+        "outside voice",
+        "second opinion",
+        "independent",
+        "codex",
+        "cold read",
+        "cross-model"
+      ]
+    },
+    {
+      "category": "todos",
+      "keywords": [
+        "todo"
+      ]
+    },
+    {
+      "category": "navigation",
+      "keywords": [
+        "next step",
+        "ready to implement",
+        "review chaining",
+        "plan-design-review",
+        "plan-ceo-review",
+        "run /ship"
+      ]
+    },
+    {
+      "category": "scope_reduction",
+      "keywords": [
+        "scope",
+        "complexity",
+        "arrangement",
+        "defer",
+        "sso",
+        "saml",
+        "slack",
+        "dashboard",
+        "postgres"
+      ]
+    },
+    {
+      "category": "security",
+      "keywords": [
+        "authoriz",
+        "idor",
+        "security",
+        "access control",
+        "account_id",
+        "permission",
+        "tenant",
+        "403"
+      ]
+    },
+    {
+      "category": "migration",
+      "keywords": [
+        "migration",
+        "rollback",
+        "roll back",
+        "backfill",
+        "irreversible",
+        "total_cents",
+        "float"
+      ]
+    },
+    {
+      "category": "failure_mode",
+      "keywords": [
+        "timeout",
+        "retry",
+        "retries",
+        "failure mode",
+        "stripe",
+        "outage",
+        "partial",
+        "error handling"
+      ]
+    },
+    {
+      "category": "performance",
+      "keywords": [
+        "n+1",
+        "query",
+        "queries",
+        "performance",
+        "batch",
+        "getlineitems",
+        "per-order",
+        "per order"
+      ]
+    },
+    {
+      "category": "architecture",
+      "keywords": [
+        "architecture",
+        "boundary",
+        "coupling",
+        "data access",
+        "data layer",
+        "db.js",
+        "ownership",
+        "ledger.json",
+        "shape",
+        "module"
+      ]
+    },
+    {
+      "category": "tests",
+      "keywords": [
+        "test",
+        "coverage",
+        "edge case",
+        "regression",
+        "gap"
+      ]
+    },
+    {
+      "category": "decision",
+      "keywords": [
+        "fix",
+        "apply",
+        "remedy",
+        "accept",
+        "approve",
+        "change",
+        "keep",
+        "recommend"
+      ]
+    }
+  ],
+  "fallback": "Take your recommendation. Don't write or change any code.",
+  "limits": {
+    "max_prose_replies": 6,
+    "max_ask_answers": 24,
+    "max_replies_per_category": 6,
+    "prose_window_chars": 600
+  }
+}
