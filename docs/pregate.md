@@ -569,7 +569,8 @@ Every refusal line starts with a reason code:
 | `PREGATE_REMOTE_CAP_TOO_LOW` | 5 | the cap cannot buy a 20-minute run at the size's price; nothing created |
 | `PREGATE_REMOTE_NO_PRICE` | 5 | `UBI_SIZE` has no list price in the script |
 | `PREGATE_REMOTE_TIMEOUT_TOO_SHORT` | 5 | pregate's deadline leaves the VM under 300 s after the 135 s teardown reserve; nothing created |
-| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed; the VM, its teardown line and `spent=` follow |
+| `PREGATE_REMOTE_OWNER_REQUIRED` | 2 | `UBI_OWNER` is unset; nothing created (every VM must name its owner) |
+| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed, or the runner's `UBICLOUD: left=` line is not `0`; the VM, its teardown line and `spent=` follow |
 | `PREGATE_REMOTE_INTERRUPTED` | 130 | TERM or INT; ubi-runner tears the VM down on its own |
 
 <a id="guards"></a>

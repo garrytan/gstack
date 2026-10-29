@@ -54,8 +54,10 @@ describe('ubicloud free-suite runner', () => {
     const runner = read('scripts/ubicloud/ubi-runner.sh');
     expect(runner).toContain('"umask 022; $*"');
     // Armed before the create request and shielded from a second signal (record-before-create teardown, plan E2).
-    expect(runner).toMatch(/trap 'trap "" INT TERM HUP QUIT; cmd_down "\$RUN_VM"[^']*' EXIT/);
-    expect(runner.indexOf("trap 'trap \"\" INT TERM HUP QUIT; cmd_down \"$RUN_VM\"")).toBeLessThan(runner.indexOf('cmd_up "${up_args[@]}" >/dev/null'));
+    expect(runner).toContain(`trap 'run_teardown "$?"' EXIT`);
+    expect(runner.indexOf(`trap 'run_teardown "$?"' EXIT`)).toBeLessThan(runner.indexOf('cmd_up "${up_args[@]}" >/dev/null'));
+    const teardown = runner.slice(runner.indexOf('run_teardown() {'), runner.indexOf('\n}\n', runner.indexOf('run_teardown() {')));
+    expect(teardown.indexOf('trap "" INT TERM HUP QUIT')).toBeLessThan(teardown.indexOf('cmd_down "$RUN_VM"'));
   });
 
   test('pull retrieves the retained free-test logs and skips a glob that matches nothing', () => {
@@ -210,7 +212,7 @@ esac
       expect(r.exitCode).toBe(1);
       const err = r.stderr.toString();
       expect(err).toMatch(/reaping expired eu-central-h1\/ubirun-other-1000000000-bbbb-t1 \(owner other; its TTL ended \d+ min ago\)/);
-      expect(err).toMatch(/quota preflight refused eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t4 \(standard-16\): it needs 16 vCPUs and the project's VMs already use 16 of 31/);
+      expect(err).toMatch(/quota preflight refused eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 \(standard-16\): it needs 16 vCPUs and the project's VMs already use 16 of 31/);
       expect(err).toContain('create refused before any request: vCPU quota exhausted');
       const destroyed = f.calls().split('\n').filter(l => l.includes('destroy'));
       expect(destroyed).toHaveLength(1);
@@ -220,20 +222,36 @@ esac
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
-  test('UBI_REAP=0 skips the reap and UBI_TTL_HOURS=0 names the VM without a TTL; reap alone never touches unexpired or TTL-less names', () => {
-    const listed = 'eu-central-h1 ubirun-other-1000000000-bbbb-t1\neu-central-h1 ubirun-thrd1-9999999999-dddd-t1\neu-central-h1 ubirun-thrd1-1000000000-aaaa\neu-central-h1 ubirun-1000000000-cccc\n';
+  test('UBI_REAP=0 skips the reap and UBI_TTL_HOURS sets the name\'s TTL; reap destroys expired TTLs and old TTL-less ubirun names, never unexpired, recent or foreign ones', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const listed = `eu-central-h1 ubirun-other-1000000000-bbbb-t1\neu-central-h1 ubirun-thrd1-9999999999-dddd-t1\neu-central-h1 ubirun-thrd1-1000000000-aaaa\neu-central-h1 ubirun-1000000000-cccc\neu-central-h1 ubirun-peer-${now - 3 * 3600}-eeee\neu-central-h1 team-db-1000000000-ffff\n`;
     const f = fakeApi({ destroy: 200, listed });
     try {
-      const up = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'up'], { env: { ...process.env, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_POLL_SECONDS: '1', UBI_VM_RECORD: f.record, UBI_OWNER: 'thrd1', UBI_QUOTA_VCPUS: '64', UBI_REAP: '0', UBI_TTL_HOURS: '0' }, timeout: 90_000 });
+      const up = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'up'], { env: { ...process.env, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_POLL_SECONDS: '1', UBI_VM_RECORD: f.record, UBI_OWNER: 'thrd1', UBI_QUOTA_VCPUS: '96', UBI_REAP: '0', UBI_TTL_HOURS: '7' }, timeout: 90_000 });
       expect(up.exitCode).toBe(1);
-      expect(up.stderr.toString()).toMatch(/quota preflight refused eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8} \(standard-16\): it needs 16 vCPUs and the project's VMs already use 64 of 64/);
+      expect(up.stderr.toString()).toMatch(/quota preflight refused eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t7 \(standard-16\): it needs 16 vCPUs and the project's VMs already use 96 of 96/);
       expect(f.calls()).not.toContain('destroy');
       const reap = f.run('reap');
       expect(reap.exitCode).toBe(0);
-      const destroyed = f.calls().split('\n').filter(l => l.includes('destroy'));
-      expect(destroyed).toHaveLength(1);
-      expect(destroyed[0]).toContain('ubirun-other-1000000000-bbbb-t1');
+      expect(reap.stderr.toString()).toMatch(/reaping TTL-less eu-central-h1\/ubirun-thrd1-1000000000-aaaa \(owner thrd1; \d+h old, legacy sweep at 4h\)/);
+      const destroyed = f.calls().split('\n').filter(l => l.includes('destroy')).map(l => l.match(/ubirun-[a-z0-9-]+|team-db-[a-z0-9-]+/)?.[0]).sort();
+      expect(destroyed).toEqual(['ubirun-1000000000-cccc', 'ubirun-other-1000000000-bbbb-t1', 'ubirun-thrd1-1000000000-aaaa']);
       expect(f.run('reap').stderr.toString()).toContain('reap: no expired VMs');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test('up and run refuse without UBI_OWNER before any API call; list, usage, reap and down still work without it', () => {
+    const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 vm-a\n', owner: '' });
+    try {
+      for (const args of [['up'], ['run', '--', 'true']]) {
+        const r = f.run(...args);
+        expect(r.exitCode).toBe(1);
+        expect(r.stderr.toString()).toContain('UBI_OWNER is not set: every VM must carry its owner; export UBI_OWNER=<your thread or session code>');
+        expect(r.stderr.toString()).toContain('(UBI_OWNER_REQUIRED)');
+      }
+      expect(f.calls()).toBe('');
+      for (const args of [['list'], ['usage'], ['reap']]) expect(f.run(...args).exitCode).toBe(0);
+      expect(f.run('down', 'vm-a').exitCode).toBe(0);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
@@ -381,8 +399,8 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       'name=$(printf \'%s\' "$body" | sed -n \'s/.*"vm", *"[^/"]*\\/\\([^"]*\\)".*/\\1/p\')\n' +
       'case "$body" in\n' +
       '  *\'"create"\'*) if [ -n ' + JSON.stringify(opts.refuse ?? '') + ' ]; then printf \'%s\' ' + JSON.stringify(opts.refuse ?? '') + ' > "$out"; printf 400; else echo "$loc $name" >> "$listed"; : > "$out"; printf 200; fi ;;\n' +
-      '  *destroy*) : > "$out"; grep -v " $name$" "$listed" > "$listed.tmp"; mv "$listed.tmp" "$listed"; printf 200 ;;\n' +
-      '  *\'"list"\'*) cat "$listed" > "$out"; printf 200 ;;\n' +
+      '  *destroy*) : > "$out"; if [ -f "$listed.destroy-fails" ]; then printf 500; else grep -v " $name$" "$listed" > "$listed.tmp"; mv "$listed.tmp" "$listed"; printf 200; fi ;;\n' +
+      '  *\'"list"\'*) if [ -f "$listed.list-fails" ]; then echo down > "$out"; printf 503; else cat "$listed" > "$out"; printf 200; fi ;;\n' +
       '  *\'"show"\'*) [ -z "${FAKE_SHOW_DELAY:-}" ] || sleep "$FAKE_SHOW_DELAY"; if grep -q " $name$" "$listed"; then printf \'state: running\\nsize: standard-16\\nip4: 192.0.2.1\\n\' > "$out"; printf 200; else : > "$out"; printf 404; fi ;;\n' +
       '  *) : > "$out"; printf 200 ;;\n' +
       'esac\n');
@@ -439,7 +457,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(f.ssh()).toMatch(/setsid -w bash -c 'printf %s \$\$ >~\/\.ubirun-setup-\d+\.sid; cd work\/[^ ]+ && \. ~\/\.ubirun-env && bash -l ~\/\.ubirun-setup\.sh'; else bash -c '[^']*'; fi$/m);
       expect(readFileSync(join(f.root, 'cancel.log'), 'utf8')).toMatch(/rm -f ~\/\.ubirun-setup-\d+\.sid; \[ -z "\$sid" \] \|\| \{ pkill -TERM -s "\$sid"; sleep 2; pkill -KILL -s "\$sid"; \}/);
       expect(f.calls()).toContain('destroy');
-      expect(err).toMatch(/destroyed eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t4/);
+      expect(err).toMatch(/destroyed eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3/);
       expect(f.listed()).toBe('');
       expect(readFileSync(f.record, 'utf8')).toBe('');
     } finally { rmSync(f.root, { recursive: true, force: true }); }
@@ -454,6 +472,40 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(r.stderr.toString()).toMatch(/watchdog: command ran \d+s \(UBI_RUN_TIMEOUT=3\); killing it/);
       expect(r.stderr.toString()).toContain('command exited 124 after');
       expect(f.calls()).toContain('destroy');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 60_000);
+
+  test('run: ends with UBICLOUD: left=0 for its own VM; a same-owner sibling is counted as information and does not fail the run', () => {
+    const f = fakeVm({ listed: 'eu-central-h1 ubirun-thrd1-9999999999-sib1-t3\n' });
+    try {
+      const r = f.run(['run', '--src', f.root, '--', 'true'], { UBI_REAP: '0' });
+      const err = r.stderr.toString();
+      expect(r.exitCode, err).toBe(0);
+      expect(err).toMatch(/UBICLOUD: left=0 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n/);
+      expect(f.listed()).toBe('eu-central-h1 ubirun-thrd1-9999999999-sib1-t3\n');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 30_000);
+
+  test('run: a passing command whose teardown fails exits 1 with UBICLOUD: left=1 and the down command; an unreadable VM list fails closed', () => {
+    const f = fakeVm();
+    try {
+      writeFileSync(join(f.root, 'listed.destroy-fails'), '');
+      const leaked = f.run(['run', '--src', f.root, '--', 'true'], { UBI_REAP: '0', UBI_DOWN_TIMEOUT: '3' });
+      const err = leaked.stderr.toString();
+      expect(leaked.exitCode, err).toBe(1);
+      expect(err).toMatch(/UBICLOUD: left=1 owner=thrd1 vm=(ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3) others=0\n[^]*VM cleanup not confirmed for \1 \(left=1\); destroy it with: \S+ down \1/);
+      expect(f.listed()).toContain('ubirun-thrd1-');
+      const blind = fakeVm();
+      try {
+        writeFileSync(join(blind.root, 'bin/curl.real'), readFileSync(join(blind.root, 'bin/curl')));
+        chmodSync(join(blind.root, 'bin/curl.real'), 0o755);
+        writeFileSync(join(blind.root, 'bin/curl'), '#!/usr/bin/env bash\nif [ -f ' + JSON.stringify(join(blind.root, 'armed')) + ' ]; then touch ' + JSON.stringify(join(blind.root, 'listed.list-fails')) + '; fi\nexec ' + JSON.stringify(join(blind.root, 'bin/curl.real')) + ' "$@"\n');
+        chmodSync(join(blind.root, 'bin/curl'), 0o755);
+        writeFileSync(join(blind.root, 'command-mode'), 'touch ' + JSON.stringify(join(blind.root, 'armed')));
+        const r = blind.run(['run', '--src', blind.root, '--', 'true'], { UBI_REAP: '0' });
+        expect(r.exitCode, r.stderr.toString()).toBe(1);
+        expect(r.stderr.toString()).toMatch(/UBICLOUD: left=unknown owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=unknown\n/);
+      } finally { rmSync(blind.root, { recursive: true, force: true }); }
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 60_000);
 
@@ -612,7 +664,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(f.calls()).toContain('"create"');
       expect(existsSync(join(f.state, 'quota-max'))).toBe(false);
       const name = stale.stdout.toString().trim();
-      expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t4$/);
+      expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3$/);
       expect(run(f, ['down', name]).exitCode).toBe(0);
       expect(f.listed()).toBe('eu-central-h1 ubirun-peer-9999999999-cccc\n');
     } finally { rmSync(f.root, { recursive: true, force: true }); }
@@ -660,12 +712,17 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       const listFails = run(f, ['reap']);
       expect(listFails.exitCode).toBe(1);
       expect(listFails.stderr.toString()).toContain("reap: could not list the project's VMs; nothing destroyed");
-      for (const ttl of ['08', '1000', 'abc']) {
+      for (const ttl of ['0', '08', '1000', 'abc']) {
         const r = run(f, ['owner'], { UBI_TTL_HOURS: ttl });
         expect(r.exitCode).toBe(1);
-        expect(r.stderr.toString()).toContain('UBI_TTL_HOURS must be a whole number of hours from 0 to 999');
+        expect(r.stderr.toString()).toContain('UBI_TTL_HOURS must be a whole number of hours from 1 to 999');
       }
       expect(run(f, ['owner'], { UBI_TTL_HOURS: '999' }).exitCode).toBe(0);
+      for (const legacy of ['0', '04', 'x']) {
+        const r = run(f, ['owner'], { UBI_LEGACY_HOURS: legacy });
+        expect(r.exitCode).toBe(1);
+        expect(r.stderr.toString()).toContain('UBI_LEGACY_HOURS must be a whole number of hours from 1 to 9999');
+      }
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 30_000);
 });
