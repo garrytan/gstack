@@ -22,6 +22,7 @@
  * Incidents: p0-4-pipe-hidden-failure (`false | tail` read as green),
  * p0-4-windows-lane-unrun (a Windows-only change merged with its lane unrun).
  */
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { baseInputs, sha256 } from '../context';
@@ -37,6 +38,9 @@ import { adapterFor, readRange, supervise, type Counter, type Supervised } from 
 import { matchesAny } from '../../ship-policy';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
 
+/** The runner a `.py`-only selection gets; it needs the pytest module importable by python3 (`pytestMissing`). */
+const PYTEST = 'python3 -m pytest {files}';
+
 /** The test command with `{files}`; detected from the repo when the config does not name one. */
 export function detectRunner(ctx: Pick<PregateContext, 'config' | 'repoRoot'>, files: readonly string[]): string | null {
   if (ctx.config.runner) return ctx.config.runner;
@@ -47,7 +51,7 @@ export function detectRunner(ctx: Pick<PregateContext, 'config' | 'repoRoot'>, f
   if (has('bunfig.toml') || has('bun.lock') || has('bun.lockb')) return 'bun test {files}';
   if (deps.vitest) return 'npx vitest run {files}';
   if (deps.jest) return 'npx jest {files}';
-  if (files.every(f => /\.py$/.test(f)) && files.length) return 'python3 -m pytest {files}';
+  if (files.every(f => /\.py$/.test(f)) && files.length) return PYTEST;
   if (files.every(f => /\.[cm]?js$/.test(f)) && files.length) return 'node --test {files}';
   if (files.every(f => /\.[cm]?[jt]sx?$/.test(f)) && files.length && Bun.which('bun')) return 'bun test {files}';
   return null;
@@ -105,6 +109,17 @@ export function dartRunner(repoRoot: string, root: string, env: NodeJS.ProcessEn
   const fvm = fvmPinned(repoRoot, root) && onPath('fvm', env);
   if (!fvm && !onPath(tool, env)) return { missing: tool };
   return { runner: `${fvm ? 'fvm ' : ''}${tool} test {files}` };
+}
+
+/**
+ * The tool `python3 -m pytest` lacks on the PATH of `env`: `python3` when it is off PATH, `pytest` when that python3
+ * cannot import it (a `pytest` script on PATH may belong to another interpreter), null when both are there.
+ */
+function pytestMissing(env: NodeJS.ProcessEnv): string | null {
+  const python = Bun.which('python3', { PATH: env.PATH ?? '' });
+  if (!python) return 'python3';
+  const r = spawnSync(python, ['-c', 'import importlib.util, sys; sys.exit(importlib.util.find_spec("pytest") is None)'], { env, stdio: 'ignore', timeout: 10_000 });
+  return r.status === 0 ? null : 'pytest';
 }
 
 /**
@@ -221,7 +236,9 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
   }
   if (rest.length) {
     const runner = detectRunner(ctx, rest);
-    if (runner) groups.push({ runner, cwd: '', files: rest });
+    const lacking = runner === PYTEST ? pytestMissing(ctx.env) : null;
+    if (lacking) { missing.add(lacking); unclaimed.push(...rest); }
+    else if (runner) groups.push({ runner, cwd: '', files: rest });
     else unclaimed.push(...rest);
   }
   for (const [root, list] of [...packages].sort(([a], [b]) => a.localeCompare(b))) groups.push({ runner: (pkgRunners.get(root) as { runner: string }).runner, cwd: root, files: list });
