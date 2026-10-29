@@ -363,8 +363,8 @@ audits reserve as `specialist`, shards as their parent role) and `read=`, line r
 under 30,000 bytes each. Capy's read tool returns about 37,800 characters of a file and
 drops the rest without a notice, and shell output past about 35,000 characters spills to
 a log, so a reviewer reads its packet with the read tool, one parallel call per range,
-and finishes in about three calls. `BUDGET_NEXT: dispatch:<roles>` is the value for
-`gstack-ship-budget check --next`. A partial build (`--only`) keeps other reviewers'
+and finishes in about three calls. `BUDGET_NEXT: dispatch:<role@bytes,...>` is the value for
+`gstack-ship-budget check --next`; the bytes price each reader from its packet. A partial build (`--only`) keeps other reviewers'
 entries only at the same head, diff base and diff content; any other build starts the
 manifest over and removes the old outputs, except a Red Team build (`--findings`), which refuses
 with `STALE_MANIFEST` (exit 3) so it never reviews another tree than the specialists did.

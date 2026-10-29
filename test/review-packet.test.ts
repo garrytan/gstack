@@ -271,11 +271,11 @@ describe('gstack-review-packet build', () => {
     const want: Record<string, string> = { specialist: 'specialist', 'adversarial-native': 'adversarial-native', 'outside-voice': 'outside-voice' };
     for (const p of ps) expect(p.budgetRole).toBe(want[p.role]!);
     const next = /^BUDGET_NEXT: (\S+)$/m.exec(b.stdout)![1]!;
-    expect(next).toBe(`dispatch:${ps.map(p => p.budgetRole).join(',')}`);
-    expect(parseNext(next)).toEqual({ kind: 'dispatch', roles: ps.map(p => p.budgetRole) });
+    expect(next).toBe(`dispatch:${ps.map(p => `${p.budgetRole}@${p.bytes}`).join(',')}`);
+    expect(parseNext(next)).toEqual({ kind: 'dispatch', roles: ps.map(p => p.budgetRole), bytes: ps.map(p => p.bytes) });
     const a = build(r, ['--audit', 'test-coverage']);
     expect(packets(a.stdout)[0]!.budgetRole).toBe('specialist');
-    expect(a.stdout).toMatch(/^BUDGET_NEXT: dispatch:specialist$/m);
+    expect(a.stdout).toMatch(new RegExp(`^BUDGET_NEXT: dispatch:specialist@${packets(a.stdout)[0]!.bytes}$`, 'm'));
   });
 
   // Value: protects=a packet is read whole in one turn: its read= ranges cover every line, each under the read tool's measured budget, and it ends with END OF PACKET; fails_when=a range overruns the budget (silently truncated read) or a line falls between ranges;
@@ -355,6 +355,30 @@ describe('gstack-review-packet build', () => {
     expect(build(r, ['--only', 'testing']).status).toBe(0);
     expect(readManifestOf(r.out).map(p => p.reviewer)).toEqual(['testing']);
     expect(fs.existsSync(first.find(p => p.name === 'maintainability')!.out)).toBe(false);
+  });
+
+  // Value: protects=gstack's own run artifacts (a QA report under .gstack/qa-reports/, a run directory under .gstack/) never enter a packet or the content key, so the Red Team build after QA is not refused; fails_when=the untracked filter drops only .gstack/tmp/ (GSTA-167 replay 2 on gstack-evals #36: QA wrote its report into the worktree and the Red Team build hit STALE_MANIFEST);
+  //   why_new=the stale test edits source, never a run artifact; seam=none; no_claim=artifacts gstack writes outside .gstack/
+  test('a QA report or run directory written under .gstack/ after the specialists build neither enters a packet nor makes the Red Team build stale', () => {
+    const r = repo({}, { 'src/a.ts': lines(80, 'nu') });
+    const first = packets(build(r, ['--only', 'testing']).stdout);
+    for (const p of first) fs.writeFileSync(p.out, 'NO FINDINGS\n');
+    for (const [rel, text] of [['.gstack/qa-reports/qa-report-app-2026-10-29.md', 'QA_REPORT_MARKER\n'], ['.gstack/ship-runs/run-1/notes.md', 'RUN_DIR_MARKER\n']]) {
+      fs.mkdirSync(path.dirname(path.join(r.dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(r.dir, rel), text);
+    }
+    fs.writeFileSync(path.join(r.out, 'merged.jsonl'), '');
+    const red = build(r, ['--only', 'red-team', '--findings', path.join(r.out, 'merged.jsonl')]);
+    expect(red.stdout).not.toContain('STALE_MANIFEST');
+    expect(red.status, red.stdout + red.stderr).toBe(0);
+    for (const p of packets(red.stdout)) {
+      expect(p.text).not.toContain('QA_REPORT_MARKER');
+      expect(p.text).not.toContain('RUN_DIR_MARKER');
+    }
+    fs.writeFileSync(path.join(r.dir, 'src/new.ts'), 'export const UNTRACKED_SOURCE = 1;\n');
+    const stale = build(r, ['--only', 'red-team', '--findings', path.join(r.out, 'merged.jsonl')]);
+    expect(stale.status).toBe(3);
+    expect(stale.stdout).toContain('STALE_MANIFEST: content changed');
   });
 
   // Value: protects=a Step 7/8 audit past the packet cap stays one packet holding the whole diff, so the parent gets one coverage or plan verdict and one generation allowance; fails_when=audits shard like reviewers (a plan item built in another shard reads NOT DONE, each shard generates tests);

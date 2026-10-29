@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { isRunArtifact } from './review-collect';
 import { classifyPath, type Dispatch, type Role } from './review-depth';
 import * as P from './review-prompts';
 
@@ -273,7 +274,7 @@ const diffCmd = (base: string, exclude: readonly string[], summary: boolean) => 
   return `git diff -U8 ${base}${specs.length ? ` -- . ${specs.map(x => `'${x}'`).join(' ')}` : ''}`;
 };
 const underTests = (p: string) => /(^|\/)(tests?|fixtures?|__tests__)\//.test(p);
-const insideOut = (ctx: BuildContext) => (p: string) => p.startsWith('.gstack/tmp/') || path.resolve(ctx.root, p).startsWith(path.resolve(ctx.outDir) + path.sep);
+const insideOut = (ctx: BuildContext) => (p: string) => isRunArtifact(p) || path.resolve(ctx.root, p).startsWith(path.resolve(ctx.outDir) + path.sep);
 
 function common(ctx: BuildContext, stack: string, testFw: string, learnings: string | null, budget: string): string[] {
   return [`## Context\n\nStack: ${stack}. Test framework: ${testFw}. Diff base: \`${ctx.diffBase}\`; head \`${ctx.head}\`.${learnings === null ? '' : ` Past learnings: ${learnings || 'none'}`}`, '',

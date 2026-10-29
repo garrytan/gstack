@@ -47,8 +47,8 @@ ${PLAN_FLAGS_HELP}
 build prints PACKET: <role> <name> effort=<e> bytes=<n> tokens~=<n/4> budget_role=<r> read=<from-to,...> file=<path> out=<path>
 per packet (a reviewer past ${PACKET_CAP_BYTES} bytes is sharded by path as <name>.1ofK, never truncated; read= are the line
 ranges, each under ${READ_CHUNK_BYTES} bytes, a reviewer reads in parallel), PACKED: specialist batched checklists=<a,b> shards=<k>
-per batched reviewer, PACKETS: n=<k> total_bytes=<n> fingerprint=<plan fingerprint> and BUDGET_NEXT: dispatch:<one budget_role
-per packet> for gstack-ship-budget check --next. collect exits 3 with REVIEW_COVERAGE_INCOMPLETE when any packet's output is
+per batched reviewer, PACKETS: n=<k> total_bytes=<n> fingerprint=<plan fingerprint> and BUDGET_NEXT: dispatch:<one budget_role@bytes
+per packet> for gstack-ship-budget check --next (the bytes price each reader from its packet). collect exits 3 with REVIEW_COVERAGE_INCOMPLETE when any packet's output is
 missing or unusable, or a batched packet's COVERED: line leaves out a checklist it inlined.
 ${exitTableHelp()}`;
 
@@ -139,7 +139,7 @@ function build(): number {
   writeManifest(absOut, { version: 1, head, diff_base: diffBase, fingerprint: plan.numbers.fingerprint, content }, entries, has('--only'));
   const built = entries.filter(e => !e.deferred);
   out.push(...built.map(packetLine), `PACKETS: n=${built.length} total_bytes=${built.reduce((n, e) => n + e.bytes, 0)} fingerprint=${plan.numbers.fingerprint}`);
-  if (built.length) out.push(`BUDGET_NEXT: dispatch:${built.map(e => budgetRole(e.role)).join(',')}`);
+  if (built.length) out.push(`BUDGET_NEXT: dispatch:${built.map(e => `${budgetRole(e.role)}@${e.bytes}`).join(',')}`);
   process.stdout.write(out.join('\n') + '\n');
   return EXIT.ok;
 }

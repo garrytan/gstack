@@ -32,6 +32,12 @@ function git(root: string, args: string[]): { ok: boolean; out: string; err: str
   return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
 }
 const scratch = (p: string) => p.startsWith('.gstack/tmp/');
+/**
+ * gstack's own run artifacts in the worktree: any untracked file under a .gstack/
+ * subdirectory (QA reports in .gstack/qa-reports/, review scratch in .gstack/tmp/,
+ * run directories). The committed .gstack/*.json configuration stays reviewable.
+ */
+export const isRunArtifact = (p: string) => p.startsWith('.gstack/') && p.indexOf('/', '.gstack/'.length) > 0;
 const oneLine = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').trim().slice(0, 200);
 const unavailable = (input: string, detail: string): RegistryInfo => ({ sha: null, outputs: [], error: { code: 'registry_unavailable', detail: oneLine(detail), input, repair: 'fetch the base branch (git fetch origin <base>) so its commit and registry resolve' } });
 
@@ -128,7 +134,7 @@ export function collectLive(root: string, base: string): Collected {
   const diff = readDiff(root, [mergeBase], errors);
   const others = git(root, ['ls-files', '--others', '--exclude-standard', '-z']);
   if (!others.ok) errors.push({ code: 'numstat_failed', detail: oneLine(others.err || 'git ls-files failed'), input: 'git ls-files --others --exclude-standard', repair: 'run the command by hand and fix what git reports' });
-  const untracked = others.out.split('\0').filter(p => p && !scratch(p)).sort();
+  const untracked = others.out.split('\0').filter(p => p && !isRunArtifact(p)).sort();
   for (const p of untracked) {
     let buf: Buffer;
     try { buf = fs.readFileSync(path.join(root, p)); } catch { diff.perPath.push({ path: p, lines: 0, binary: true }); continue; }
