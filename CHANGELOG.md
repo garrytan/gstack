@@ -38,6 +38,25 @@
 ### Tests
 - `test/ship-budget-chain.test.ts` replays #36 (a child at its first boundary continues) and covers the Capy floor, grandchild handoff at depth 2, the depth-3 cap, charging a chained return once on all three meters, and the incomplete return. `test/ship-budget-batch.test.ts` replays #35's 7-reader batch near the cap. `test/ship-budget-reader-drift.test.ts` replays #36's per-reader Red Team price and #34's Red Team interval and stale prior reading; `test/ship-handoff-brief.test.ts` checks the brief's section list.
 
+**Replay fixes for capped /ship on Capy: readers are measured only by their own program, a later build reuses the first build's flags, and handoff children read exact line ranges.** Round-2 replays of gstack-evals #34 and #36 (GSTA-167) showed a false STOP, a Red Team build refused after QA, a misbuilt outside voice and handoff children that read the whole skill.
+
+### Fixed
+- **A reader batch is measured only by the dispatch program's own reading pair.** `settle` and `check --returned` take `--dispatched-at <before>` and `--readers <n>`. A dispatch without that pair is `UNMEASURED reason=no_dispatch_reading`, one with another command's reading in between is `reason=reading_between`, and a `--dispatched-at` above the reading is refused (`BUDGET_READING_REJECTED`).
+- **Readers are priced from their packets.** `BUDGET_NEXT:` prints `role@bytes`; `--next` prices each reader at three calls of the call floor plus its packet's tokens, and the dispatch drift factor is capped at the larger of that prior and the clean per-reader mean.
+- **A failed child stops its parent.** Reconciling a refused, incomplete or interrupted child sets the run stopped (`child_<status>`), so every check refuses until a regenerated child reconciles complete or the owner resumes.
+- **A multi-role reservation admits one review start per role**, so a pass reserved as one sum no longer ends with `STOP: reason=budget_check_skipped`.
+- **gstack's own run artifacts never enter a packet.** Untracked files under any `.gstack/` directory (QA reports, run directories) stay out of packets, the content key and the live plan, so a Red Team build after QA is no longer refused with `STALE_MANIFEST`.
+- **The Capy launch file puts the checkout's `bin/` on PATH** (appended once), so a bare `gstack-*` command no longer fails with `command not found`.
+- **A handoff to Step 22 returns at Step 22.** The brief names its last step and the exact `return --to` value; a 12-22 child returning 21 reconciled `child=incomplete`.
+
+### Added
+- **`gstack-review-packet build --like <dir>`** reuses the plan flags, `--range`, `--plan-file` and `--fanout` an earlier build recorded in its manifest; flags given beside it win and `--out-dir` defaults to `<dir>`. The Red Team and Step 11 builds use it.
+- **The handoff brief prints `READ:` line ranges** per file: ship/SKILL.md's contract, the segment's own steps, the self-check and Important Rules (never the preamble or section index), and each segment section, review-army.md without Step 9.1's selection rules.
+
+### Changed
+- **Each review pass is one execute program** in a fixed order (build, `check --next`, `review-log --start` per role, reading, create, poll, reading, `settle`, collect), and the Capy meter is read inside the program that runs the budget command, never in a call of its own.
+- **The Step 7 and 8 audit prompts moved to prompt-only sections** (`ship/sections/audit-test-coverage.md`, `audit-plan-completion.md`) that only `gstack-review-packet build` reads. The parent's sections shrink from 37,498 to 15,645 bytes (test-coverage) and 26,538 to 17,537 (plan-completion). Every gate stays where it was.
+
 ## [1.91.324.0] - 2026-10-29
 
 **A /ship token cap now projects each step and reviewer from what the run has actually spent, so real caps stop refusing work that costs a fraction of the old guess.** On GSTA-152 a 29.28M cap refused its third reviewer because every dispatch was projected at 7.43M while real ones cost 0.23 to 1.02M; on GSTA-2 an 8M cap stopped before Step 6 after Steps 1 to 5 cost about 0.27M each, because every step was projected at 2.25M.
