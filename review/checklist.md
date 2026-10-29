@@ -5,8 +5,9 @@
 Review the merge-base diff from the caller, including its selected uncommitted and new source. Use the caller's detected base, not a hardcoded branch. Cite `file:line` and suggest fixes. Only flag real problems.
 
 **Two-pass review:**
-- **Pass 1 (CRITICAL):** Run SQL & Data Safety, Race Conditions, LLM Output Trust Boundary, Shell Injection, Enum Completeness, and Gate Integrity first. Highest severity.
-- **Pass 2 (INFORMATIONAL):** Run remaining categories below. Lower severity but still actioned.
+- **Pass 1 (check first):** Run SQL & Data Safety, Race Conditions, LLM Output Trust Boundary, Shell Injection, Enum Completeness, and Gate Integrity first. These categories hold blocking defects most often.
+- **Pass 2 (check second):** Run remaining categories below. Still actioned.
+- **The pass never sets severity.** Rate every finding from either pass by the blocking floor (Severity Classification below): a Pass 2 finding that would fail a test, break production, lose data or secrets, or open a security hole is CRITICAL, and a Pass 1 finding that would not is INFORMATIONAL.
 - **Specialist categories (handled by parallel subagents, NOT this checklist):** Test Gaps, Dead Code, Magic Numbers, Conditional Side Effects, Performance & Bundle Impact, Crypto & Entropy, Simplification (unrequested structure). See `review/specialists/` for these.
 
 Completeness Gaps and Simplification are orthogonal, not contradictory: Completeness pushes coverage UP (tests, edge cases, error paths), Simplification pushes unrequested structure DOWN (one-implementation abstractions, hand-rolled stdlib, dead flexibility). The same diff can legitimately receive both.
@@ -35,7 +36,7 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 
 ## Review Categories
 
-### Pass 1 — CRITICAL
+### Pass 1 — check first
 
 #### SQL & Data Safety
 - String interpolation in SQL (even if values are `.to_i`/`.to_f` — use parameterized queries (Rails: sanitize_sql_array/Arel; Node: prepared statements; Python: parameterized queries))
@@ -48,6 +49,7 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 - find-or-create without unique DB index — concurrent calls can create duplicates
 - Status transitions that don't use atomic `WHERE old_status = ? UPDATE SET new_status` — concurrent updates can skip or double-apply transitions
 - Unsafe HTML rendering (Rails: .html_safe/raw(); React: dangerouslySetInnerHTML; Vue: v-html; Django: |safe/mark_safe) on user-controlled data (XSS)
+- State swapped before the step that can fail: current handles, pointers or registered handlers (a browser, connection or context, an exit-on-disconnect listener) replaced before a restore, connect or write that can throw, with no snapshot and rollback, so a failure leaves the object on closed or partial state or fires a handler meant for the new state. Swap after the step succeeds, or snapshot and restore in the catch.
 
 #### LLM Output Trust Boundary
 - LLM-generated values (emails, URLs, names) written to DB or passed to mailers without format validation. Add lightweight guards (`EMAIL_REGEXP`, `URI.parse`, `.strip`) before persisting.
@@ -55,10 +57,11 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 - LLM-generated URLs fetched without allowlist — SSRF risk if URL points to internal network (Python: `urllib.parse.urlparse` → check hostname against blocklist before `requests.get`/`httpx.get`)
 - LLM output stored in knowledge bases or vector DBs without sanitization — stored prompt injection risk
 
-#### Shell Injection (Python-specific)
-- `subprocess.run()` / `subprocess.call()` / `subprocess.Popen()` with `shell=True` AND f-string/`.format()` interpolation in the command string — use argument arrays instead
+#### Shell Injection
+- Python: `subprocess.run()` / `subprocess.call()` / `subprocess.Popen()` with `shell=True` AND f-string/`.format()` interpolation in the command string — use argument arrays instead
 - `os.system()` with variable interpolation — replace with `subprocess.run()` using argument arrays
 - `eval()` / `exec()` on LLM-generated code without sandboxing
+- Shell scripts: `eval`, `source`/`.`, `sh -c`/`bash -c`, or output a caller evals or sources (`eval "$(tool)"`), built from a value read from a file, environment variable, argument or network that sibling paths validate or sanitize and this path does not (a cached value echoed without the filter the compute path applies). Name the reaching input. Not a finding by itself: a quoted expansion passed as one argument (`"$x"`), or shell metacharacters inside a literal.
 
 #### Enum & Value Completeness
 When the diff introduces a new enum value, status string, tier name, or type constant, or loosens what an input accepts (a new MIME type, extension or flag, or a widened validator/parser/guard):
@@ -84,7 +87,7 @@ A gate is anything that would have made this change fail: a test, an assertion, 
 - Run `~/.claude/skills/gstack/bin/gstack-approval-classes check --base <base>`. Each declared `APPROVAL_CLASS:` line (an upgrade-time row rewrite, a trust or visibility change, an existing-user default flip, a data repair, as the repo declares them) is a finding that needs the owner's approval: name its `APPROVAL_SCOPE: <class>@<digest12>` token, because /ship's receipt refuses (`APPROVAL_CITATION_MISSING`) until the PR body cites an approval bound to it. The approval is the owner's, never the reviewer's. `(built-in, report-only)` lines are informational; `none` means no declared classes.
 - A data repair must be explicit (its own command or flag), preview-first (a dry run that lists the rows before any write) and unreachable from upgrade, migration or startup paths. Flag a repair that runs by default, writes without a preview, or is called from an upgrade or migration.
 
-### Pass 2 — INFORMATIONAL
+### Pass 2 — check second
 
 #### Async/Sync Mixing (Python-specific)
 - Synchronous `subprocess.run()`, `open()`, `requests.get()` inside `async def` endpoints — blocks the event loop. Use `asyncio.to_thread()`, `aiofiles`, or `httpx.AsyncClient` instead.
@@ -161,8 +164,17 @@ A finding is a defect class, not a line. Before rating any finding from either p
 
 ## Severity Classification
 
+CRITICAL is the blocking floor: a finding that would fail a test, break production,
+lose data or secrets, or open a security hole (injection, auth bypass, secret exposure).
+Everything else is INFORMATIONAL.
+
+A category says what to check and in which order; it never sets severity. Rate every
+finding (core Pass 1 or Pass 2, a specialist, the Red Team) by the floor above. Gate
+Integrity: a read hunk that fails its one question is CRITICAL (the relaxation silences
+a failing gate); a hunk that passes it is not a finding.
+
 ```
-CRITICAL (highest severity):      INFORMATIONAL (main agent):      SPECIALIST (parallel subagents):
+PASS 1 (check first):             PASS 2 (check second):           SPECIALIST (parallel subagents):
 ├─ SQL & Data Safety              ├─ Async/Sync Mixing             ├─ Testing specialist
 ├─ Race Conditions & Concurrency  ├─ Column/Field Name Safety      ├─ Maintainability specialist
 ├─ LLM Output Trust Boundary      ├─ Dead Code (version only)      ├─ Security specialist
@@ -211,7 +223,7 @@ the fix, it's ASK.
 **Informational findings default toward AUTO-FIX** (they're more mechanical).
 
 **Severity glossary** (the words /ship's review loop budgets by; docs/review-policy.md):
-- **blocker**: the intended case is wrong. A test would fail, production breaks, or data or secrets are lost. CRITICAL; fixed on every pass, or named to the owner at the cap.
+- **blocker**: the intended case is wrong. A test would fail, production breaks, data or secrets are lost, or a security hole opens. CRITICAL; fixed on every pass, or named to the owner at the cap.
 - **should**: a real bug a caller will hit, inside the intended case. Fixed when it is in the diff on pass 1; filed and deferred when it is in code the PR did not change.
 - **nit**: everything else, including style, naming, wording and "I would have done it differently". A named note in the PR body; never a reason for another pass.
 Two stop rules follow from the budget: if a pass's fixes grew the diff past what the request needs, cut that growth first; and reaching the cap approves nothing, so a standing blocker is reported, not waved through.

@@ -620,11 +620,11 @@ test('security specialist checks authorization paths a route-guard read misses',
 // sits in the core CRITICAL pass every diff size gets, its findings reach a
 // human through one four-option question, and the record carries identity
 // fields a later reader can act on. Tokens and order only; the prose is free.
-test('Gate Integrity is a Pass 1 category that is ASK-only and keeps the three levels apart', () => {
+test('Gate Integrity is a Pass 1 (check-first) category that is ASK-only and keeps the three levels apart', () => {
   const checklist = readFileSync(join(root, 'review/checklist.md'), 'utf8');
-  const pass1 = between(checklist, '### Pass 1 — CRITICAL', '### Pass 2 — INFORMATIONAL');
+  const pass1 = between(checklist, '### Pass 1 — check first', '### Pass 2 — check second');
   expect(pass1).toContain('#### Gate Integrity');
-  expect(between(checklist, '**Two-pass review:**', '**Output format:**')).toMatch(/Pass 1 \(CRITICAL\):[^\n]*Gate Integrity/);
+  expect(between(checklist, '**Two-pass review:**', '**Output format:**')).toMatch(/Pass 1 \(check first\):[^\n]*Gate Integrity/);
   const category = compact(between(pass1, '#### Gate Integrity'));
   expectTokens(category, ['GATE_SUMMARY:', 'RH-1', 'RH-3', 'RH-4', 'RH-12', 'RH-13', 'RH-14', 'RH-15', 'RH-16', 'RH-2', 'RH-5',
     '**Listed**', '**Read**', '**Finding**', 'gstack-decision-search --query "<dec-id>"'], 'Gate Integrity category');

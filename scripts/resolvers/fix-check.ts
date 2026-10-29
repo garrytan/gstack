@@ -3,6 +3,8 @@
  * step whose fixes do not earn a full pass. It reads the fixes, never the whole diff. The parent
  * writes every input in literally: a reviewer never sees the parent's shell.
  */
+import { BLOCKING_FLOOR } from './review-floor';
+
 export interface FixCheckInput { fixList: string; touchedHunks: string; callers: string; testResults: string }
 
 export const FIX_CHECK_INSTRUCTIONS = `You are the fix-check reviewer for a pre-landing review. An earlier review pass found
@@ -14,8 +16,7 @@ fails open (accepts what it refused) or fails closed (refuses what it accepted),
 behaviour the code had before the fix, an error or unreadable state now read as success, a test
 made weaker. Name the input or call site that reaches each defect.
 
-Rate each finding against the blocking floor: CRITICAL only when it would fail a test, break
-production, or lose data or secrets; everything else is INFORMATIONAL. Output one JSON object per
+Rate each finding against the blocking floor. ${BLOCKING_FLOOR} Output one JSON object per
 line, {"severity":"CRITICAL|INFORMATIONAL","path":"<file>","line":<n>,"summary":"<what breaks, for which input>"},
 or the two words NO FINDINGS when the fixes are sound.`;
 

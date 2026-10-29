@@ -10,11 +10,14 @@ instead of restating it. A one-line crew rule is enough:
 
 ## The blocking floor
 
-A finding is **blocking** when it is a CRITICAL defect: it would fail a test,
-break production, or lose data or secrets. Everything else is below the floor:
-an advisory, an informational item, a test finding (category `testing`: a gap,
-a weak or flaky test), a wording or naming note, a style or simplification
-suggestion. Below-floor findings are reported, never fixed after pass 1 of a
+A finding is **blocking** when it is a CRITICAL defect. CRITICAL is the blocking
+floor: a finding that would fail a test, break production, lose data or secrets, or
+open a security hole (injection, auth bypass, secret exposure). Everything else is
+INFORMATIONAL. Below the floor are an advisory, an informational item, a test
+finding (category `testing`: a gap, a weak or flaky test), a wording or naming
+note, a style or simplification suggestion. A checklist pass, category or
+specialist lens never sets severity; a product defect the Testing specialist finds
+at the floor carries category `correctness`, so it is classified as a defect. Below-floor findings are reported, never fixed after pass 1 of a
 ship, and never earn another review pass.
 
 Three words cover every finding, and the loop budgets by them: a **blocker** is

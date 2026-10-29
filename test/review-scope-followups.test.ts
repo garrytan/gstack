@@ -120,7 +120,7 @@ describe('checklist rules with ids (docs/review-policy.md)', () => {
   });
 
   test('test-keyboard-count-loop is a Pass 2 informational rule that keeps a counted loop only when the count is the behavior', () => {
-    const pass2 = section('### Pass 2 — INFORMATIONAL', '## Sideways sweep');
+    const pass2 = section('### Pass 2 — check second', '## Sideways sweep');
     expect(pass2).toContain('#### Keyboard-Count Test Loops');
     expect(pass2).toContain('(`test-keyboard-count-loop`)');
     expect(pass2).toContain('Locate the target by role, label or test id');

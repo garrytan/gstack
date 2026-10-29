@@ -13,6 +13,7 @@ import type { TemplateContext } from './types';
 import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
 import { learningsCapture, LEARNINGS_VERDICT } from './learnings';
 import { DEFENSIVE_REVIEW_FRAMING, FIXTURE_SUMMARY_MODE } from './defensive-review';
+import { BLOCKING_FLOOR } from './review-floor';
 
 function generateSpecialistSelection(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
@@ -146,14 +147,13 @@ Every other specialist, including Testing, reads the full diff with fixtures.
 
 Required fields: severity, confidence, path, category, summary, specialist.
 Optional: line, fix, fingerprint, evidence, test_stub, advisory, evidence_paths, helper_target, cause.
-CRITICAL means a test that would fail, a production break, or a security or data-loss defect; everything else is INFORMATIONAL.
+${BLOCKING_FLOOR}
 A defect the diff causes but that shows elsewhere (a caller broken by a changed signature, a consumer of a removed export) keeps the victim as \`path\` and names the changed line in \`cause\`: {\\"cause\\":{\\"path\\":\\"file\\",\\"line\\":N}}. Without it the finding reads as pre-existing code.
 
 Leave extraction advice to the core shared-code check; report real defects in duplicated code independently, keep advisory metadata on structural advice, and never call a demonstrated defect advisory because a shared helper could fix it.
 
-If you can write a test that would catch this issue, include it in the \`test_stub\` field.
-Use the detected test framework ({TEST_FW}). Write a minimal skeleton — describe/it/test
-blocks with clear intent. Skip test_stub for architectural or design-only findings.
+For a finding a test could catch, add a minimal \`test_stub\` skeleton in the detected test
+framework ({TEST_FW}); skip it for architectural or design-only findings.
 
 Output nothing else: no preamble, no summary or commentary.
 

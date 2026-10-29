@@ -4,6 +4,7 @@ Scope: Always-on (every review)
 Output: JSON objects, one finding per line. Schema:
 {"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"testing","summary":"...","fix":"...","fingerprint":"path:line:testing","specialist":"testing"}
 Optional: line, fix, fingerprint, evidence, test_stub.
+Category `testing` is for test findings (a missing, weak or flaky test), which sit below the blocking floor. A product-code defect you find that meets the floor uses category `correctness` and fingerprint `path:line:correctness`, with its CRITICAL severity, so it is classified as a defect, not a test gap.
 If no findings: output `NO FINDINGS` and nothing else.
 
 If the caller explicitly asks for an ASCII coverage diagram, first read the

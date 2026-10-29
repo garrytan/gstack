@@ -927,8 +927,8 @@ describe('Enum & Value Completeness in review checklist', () => {
     expect(checklist).toContain('Enum & Value Completeness');
   });
 
-  test('Enum & Value Completeness is classified as CRITICAL', () => {
-    // It should appear under Pass 1 — CRITICAL, not Pass 2
+  test('Enum & Value Completeness is a Pass 1 (check-first) category', () => {
+    // It should appear under Pass 1 — check first, not Pass 2
     const pass1Start = checklist.indexOf('### Pass 1');
     const pass2Start = checklist.indexOf('### Pass 2');
     const enumStart = checklist.indexOf('Enum & Value Completeness');
@@ -952,13 +952,13 @@ describe('Enum & Value Completeness in review checklist', () => {
     expect(stale.slice(0, stale.indexOf('\n### ', 5))).toContain('User-facing strings (errors, toasts, labels) whose guarding condition changed');
   });
 
-  test('Enum & Value Completeness is in the severity classification as CRITICAL', () => {
+  test('Enum & Value Completeness is in the Pass 1 column of the check-order tree', () => {
     const gateSection = checklist.slice(checklist.indexOf('## Severity Classification'));
-    // The ASCII art has CRITICAL on the left and INFORMATIONAL on the right
-    // Enum & Value Completeness should appear on a line with the CRITICAL tree (├─ or └─)
+    // The ASCII art has Pass 1 (check first) on the left and Pass 2 on the right
+    // Enum & Value Completeness should appear on a line of the Pass 1 tree (├─ or └─)
     const enumLine = gateSection.split('\n').find(l => l.includes('Enum & Value Completeness'));
     expect(enumLine).toBeDefined();
-    // It's on the left (CRITICAL) side — starts with ├─ or └─
+    // It's on the left (Pass 1) side — starts with ├─ or └─
     expect(enumLine!.trimStart().startsWith('├─') || enumLine!.trimStart().startsWith('└─')).toBe(true);
   });
 
