@@ -25,7 +25,7 @@ import { resolveStateRoot } from './state-root';
 import { resultLine, type ResultCodeName } from './result-codes';
 import { capyDriveFolder } from './autoplan-checkpoint';
 import { BIN_DIR, runScriptSync } from './script-invocation';
-import type { Role } from './review-depth';
+import { SMALL_DIFF_LINES, type Role } from './review-depth';
 
 export const SHIP_STEPS = ['0.9', '1', '2', '3', '4', '5', '6', '6.5', '7', '8', '9', '10', '11', '11.5', '12', '13', '14', '14.5', '15', '16', '17', '18', '19', '20', '21', '22'] as const;
 export const DISPATCH_ROLES = ['specialist', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check'] as const satisfies readonly Role[];
@@ -197,6 +197,33 @@ export function segmentEstimate(cal: Calibration, unit: string, from: string, to
   const i = SHIP_STEPS.indexOf(from as any), j = SHIP_STEPS.indexOf(to as any);
   const k = unitConstants(cal, unit);
   return SHIP_STEPS.slice(i, j + 1).reduce((sum, s) => sum + stepProjection(cal, unit, s) + (cal.segment_dispatches[s] ?? 0) * k.per_dispatch, 0);
+}
+
+/**
+ * Small-run rule (GSTA-167 PR 4). A delegation pays a fixed child cost (boot, install check, verify-handoff,
+ * section reads, reconcile: gstack-evals #34's two children cost 4.53M, 2-4.5M each) to save the parent's
+ * context above the host floor on each call of the segment. #34's parent calls ran 0.2-0.3M over a 0.15M
+ * floor, so a fresh child saves at most about 3/8 of a call, and a segment under CHILD_FIXED_COST over that
+ * share (12M) cannot pay for its child. A light-depth diff (runtime lines at most SMALL_DIFF_LINES) keeps
+ * its segment when the segment's calibrated calls at this run's own per-call charge stay under that.
+ */
+export const SMALL_RUN_LINES = SMALL_DIFF_LINES;
+export const CHILD_FIXED_COST = 4_500_000;
+export const SMALL_RUN_SEGMENT = CHILD_FIXED_COST / 0.375;
+/** #34's per-call charge midpoint, used when this call's charge is unknown. */
+export const SMALL_RUN_CALL = 250_000;
+
+export function smallRunSegment(cal: Calibration, from: string, to: string, call: number | null): number {
+  const steps = SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1);
+  return steps.reduce((n, s) => n + (cal.step_calls[s] ?? cal.step_calls.default ?? 0), 0) * (call ?? SMALL_RUN_CALL);
+}
+
+/** The SMALL_RUN line when a segment boundary should continue instead of delegating; null keeps the delegate rule. */
+export function keepsSmallRun(cal: Calibration, o: { runtimeLines: number | undefined; from: string; to: string; call: number | null }): string | null {
+  if (o.runtimeLines === undefined || o.runtimeLines > SMALL_RUN_LINES) return null;
+  const segment = smallRunSegment(cal, o.from, o.to, o.call);
+  if (segment > SMALL_RUN_SEGMENT) return null;
+  return `SMALL_RUN: runtime_lines=${o.runtimeLines}<=${SMALL_RUN_LINES} segment=${o.from}-${o.to} projected=${segment}<=${SMALL_RUN_SEGMENT}; continuing here: a child's fixed ${CHILD_FIXED_COST} would cost more than it saves`;
 }
 
 export const runDirFor = (env: NodeJS.ProcessEnv, run: string) => path.join(resolveStateRoot(env), 'ship-runs', run);

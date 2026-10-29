@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import {
   BudgetError, DEFAULT_TAIL, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
-  admits, applyReading, budgetError, budgetLine, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
+  admits, applyReading, budgetError, budgetLine, keepsSmallRun, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
   parseNext, parseRecordBlock, parseStep, parseTokens, pointMarker, projector, readLedger, reserveIn, restoreRun, reviewPaths,
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
   type Ledger, type MeterKind, type Next,
@@ -94,7 +94,7 @@ export function writeReturnFile(file: string, lines: string[]): void {
 }
 
 /** Admission and the delegate rule for one boundary; reserves the admitted work under a cap. */
-export function decide(l: Ledger, step: string, next: Next, call: number | null, startThreshold = false): Outcome {
+export function decide(l: Ledger, step: string, next: Next, call: number | null, startThreshold = false, runtimeLines?: number): Outcome {
   const p = projector(l);
   const nextId = next.kind === 'step' ? next.step : `dispatch:${next.roles.join(',')}`;
   const { prior, tokens: projected } = p.project(next);
@@ -102,7 +102,8 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
     return { stdout: stopLines(l, { call, next: nextId, step, projected, reason: 'budget_exhausted' }), exit: 3 };
   }
   const boundary = next.kind === 'step' && (startThreshold ? next.step === '1' : next.step === '7' || next.step === '12');
-  const wants = boundary && (startThreshold ? call !== null && call >= DELEGATE_START_CALL : call === null || call >= DELEGATE_SEGMENT_CALL);
+  const small = boundary && !startThreshold && next.kind === 'step' ? keepsSmallRun(loadCalibration(l.calibration), { runtimeLines, from: next.step, to: SEGMENTS[next.step]!, call }) : null;
+  const wants = boundary && !small && (startThreshold ? call !== null && call >= DELEGATE_START_CALL : call === null || call >= DELEGATE_SEGMENT_CALL);
   if (wants && (l.role === 'child' || l.delegate === 'never')) {
     return { stdout: stopLines(l, { call, next: nextId, step, projected, reason: 'context_threshold' }), exit: 3 };
   }
@@ -110,7 +111,7 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
     return { stdout: [budgetLine(l, { call, next: nextId, projected, verdict: 'delegate' }),
       `DELEGATE: Steps ${next.step}-${SEGMENTS[next.step]} go to a fresh child: gstack-ship-budget handoff --run ${l.run} --from ${next.step} --to ${SEGMENTS[next.step]} --base origin/<base> (ship/sections/budget-handoff.md)`], exit: 0 };
   }
-  const lines = [budgetLine(l, { call, next: nextId, projected, verdict: 'continue' })];
+  const lines = [budgetLine(l, { call, next: nextId, projected, verdict: 'continue' }), ...(small ? [small] : [])];
   if (l.cap !== null) {
     const r = reserveIn(l, { kind: next.kind, step, next: nextId, tokens: projected, prior, ...(next.kind === 'dispatch' ? { roles: next.roles } : {}) });
     lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${projected}`);
@@ -190,7 +191,9 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
  * reviewer consumed), measure them, then admit the next step or dispatch.
  */
 export function cmdCheck(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'step', 'next', 'reading', 'prior-reading', 'returned']);
+  const o = parseArgs(argv, ['run', 'record', 'step', 'next', 'reading', 'prior-reading', 'returned', 'runtime-lines']);
+  const runtimeRaw = str(o, 'runtime-lines');
+  if (runtimeRaw !== undefined && !/^\d+$/.test(runtimeRaw)) throw usageError(`--runtime-lines '${runtimeRaw}' is not a line count; pass runtime_lines from gstack-review-plan --json`);
   const step = parseStep(str(o, 'step'));
   const next = parseNext(str(o, 'next'));
   const returned = (str(o, 'returned') ?? '').split(',').filter(Boolean);
@@ -206,7 +209,7 @@ export function cmdCheck(argv: string[], ctx: Ctx): Outcome {
       if (done) settleIn(l, r);
     }
     const drift = freshReading(l, o) ? measureSettled(l) : [];
-    const out = decide(l, step, next, call);
+    const out = decide(l, step, next, call, false, runtimeRaw === undefined ? undefined : Number(runtimeRaw));
     return { stdout: [...drift, ...out.stdout], exit: out.exit };
   });
 }

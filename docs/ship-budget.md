@@ -117,6 +117,14 @@ Step 12, 150k or more (or an unknown charge) delegates the next segment (7–11.
 
 `--delegate never` turns delegate into stop for hosts without children.
 
+**Small runs keep their segment.** `check --runtime-lines <n>` (runtime_lines from
+`gstack-review-plan --json`, which `gstack-ship-preflight` prints) continues at the Step 7 and
+Step 12 boundaries, with a `SMALL_RUN:` line, when the diff is light (at most 50 runtime lines)
+and the segment's calibrated calls at this run's per-call charge cost at most 12M. A child costs
+a fixed 2–4.5M (gstack-evals #34: boot, install check, verify-handoff, section reads,
+reconcile) and saves at most about 3/8 of each parent call, so a segment under 4.5M ÷ 0.375
+cannot pay for one. Without the flag the rule above applies unchanged.
+
 ## Stop and resume
 
 A stop prints
