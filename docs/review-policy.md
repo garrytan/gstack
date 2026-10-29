@@ -211,7 +211,8 @@ plan-completion audit, the Step 14.5 docs audit, decision-trail reviewers,
 watchers) runs at `light`: the same model at a lower reasoning effort, never a
 cheaper model family. The outside voice keeps its own provider and effort
 (`codex_effort`). A host that cannot set a subagent's effort runs it at its
-default. `gstack-config set review_effort_tiers off` (or `--no-tiers`) runs
+default; Capy maps the tiers onto subagent model settings
+([capy/skill/gstack/SKILL.md](../capy/skill/gstack/SKILL.md)). `gstack-config set review_effort_tiers off` (or `--no-tiers`) runs
 the audits and watchers at the host default too
 ([model-policy.md](model-policy.md#reasoning-effort)).
 

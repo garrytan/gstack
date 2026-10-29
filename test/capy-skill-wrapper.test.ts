@@ -457,6 +457,20 @@ describe('capy skill: vendored text and support file', () => {
     expect(below(fs.readFileSync(path.join(REPO, 'VERSION'), 'utf8').trim(), min)).toBe(false);
   });
 
+  test('SKILL.md maps the review effort tiers onto Capy subagent settings', () => {
+    const text = fs.readFileSync(path.join(SKILL, 'SKILL.md'), 'utf8');
+    const adapt = text.slice(text.indexOf('## Adapt host-specific instructions to Capy'), text.indexOf('## Maintenance'));
+    const line = adapt.split('\n').find(l => l.includes('AUDIT_EFFORT: light')) ?? '';
+    expect(line).toMatch(/`effort=full` means a new subagent on the shared machine with `model` omitted when the lane runs at `high` reasoning or above, otherwise the lane's own `model_id` with `reasoning_mode` `high`/);
+    expect(line).toContain('never hand a blocking review to a subagent started at a lower setting');
+    expect(line).toMatch(/`AUDIT_EFFORT: light` means the lane's own `model_id` with `reasoning_mode` `low` or `medium` \(else its lowest setting above `none`\), never a cheaper model/);
+    expect(line).toContain('`AUDIT_EFFORT: host` means `model` omitted');
+    expect(line).toMatch(/outside voice's `effort=host` is the other-family subagent above, on that family's strongest model at `high` reasoning/);
+    for (const doc of ['docs/model-policy.md', 'docs/review-policy.md']) {
+      expect(fs.readFileSync(path.join(REPO, doc), 'utf8')).toContain('Capy maps the tiers onto subagent model settings');
+    }
+  });
+
   test('SKILL.md: frontmatter, line cap, the session protocol tokens, and every command it names exists', () => {
     const text = fs.readFileSync(path.join(SKILL, 'SKILL.md'), 'utf8');
     expect(text).toMatch(/^---\nname: gstack\ndescription: .+\n---\n/);

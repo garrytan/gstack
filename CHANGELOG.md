@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+**Capy lanes now know what gstack's review effort tiers mean on Capy.** gstack's review plan prints an effort on every reviewer it dispatches (`effort=full`, or the outside voice's `effort=host`) and on `AUDIT_EFFORT:` for the audits and watchers (`light`, or `host` with tiers off). The Capy skill never said how to honour them, so each lane guessed, and GStack Minder's crew kept its own mapping in CREW.md rule 30(c). Garry approved the mapping on 2026-10-29 ("Do it").
+
+### Changed
+- **capy/skill/gstack/SKILL.md** maps each tier onto Capy's subagent settings. A blocking reviewer (`effort=full`) is a new subagent at the lane's model and at least `high` reasoning. An audit at `light` uses the lane's own model at `low` or `medium` reasoning, never a cheaper model. The outside voice runs on another family's strongest model at `high` reasoning. Each subagent's first report names the model and reasoning it ran at.
+- **docs/model-policy.md** and **docs/review-policy.md** point Capy readers at that line.
+
+### Tests
+- `test/capy-skill-wrapper.test.ts` pins the mapping and both pointers. It fails on the skill as main had it.
+
+### For Capy owners
+- Lanes read the Drive copy of the skill. After this release, copy `capy/skill/gstack/` to the Drive skill folder, because a prose change does not trigger the installer's stale-copy warning.
+
 ## [1.91.319.0] - 2026-10-29
 
 **`gstack-pregate sealed` no longer prints a line that reads like a push confirmation.** On gstack-evals#29 the lane read `pushed aeb2413` in the `SEALED:` line as the push landing, while the remote stayed at 9036ab1 (#3565). `sealed` never pushes: it checks the commits a push would publish. `pushed <sha>` was its label for the commit whose `sealed` policy it read beside the base branch's.

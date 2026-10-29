@@ -166,8 +166,10 @@ plan-completion and docs audits, decision-trail reviewers and watchers
 (`AUDIT_EFFORT:` in the plan's output). A paid replay showed why reviewers stay
 at full: a medium-effort fix-check missed a fail-open in gate code that the same
 check at full effort caught. A host that cannot set a subagent's effort runs it
-at its default. `gstack-config set review_effort_tiers off` (default `on`)
-runs the audits and watchers at the host default too
+at its default; Capy maps the tiers onto subagent model settings
+([capy/skill/gstack/SKILL.md](../capy/skill/gstack/SKILL.md)).
+`gstack-config set review_effort_tiers off` (default `on`) runs the audits and
+watchers at the host default too
 ([review-policy.md](review-policy.md#review-depth)).
 
 ## Which workflows use the tiers?
