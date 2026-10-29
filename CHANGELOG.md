@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+**/ship reviewers now read one packet file each, and the parent reads a findings record of at most 60 lines instead of every reviewer's transcript.** On this PR's own /ship, pass 2's eight reviewers cost 8.6M tokens on the root counter, against 52.6M for pass 1's eleven (pass 2 read the fix range, pass 1 the whole diff, so the two are not directly comparable).
+
+### Added
+- **`gstack-review-packet build`** writes one packet per `DISPATCH:` line of the review plan: the role's instructions and findings contract, its checklists, that reviewer's diff, a plan excerpt, a read budget and the output path. Steps 7 and 8 audits, the specialists, the Red Team, the fix-check and Step 11's adversarial pass and outside voice all dispatch this way. A packet over 200 KB is split by path; no hunk is cut and no path is dropped. Audits are never split.
+- Each `PACKET:` line names its `budget_role` and `read=` line ranges of at most 30,000 bytes, and build prints `BUDGET_NEXT: dispatch:<roles>` for `gstack-ship-budget check --next`. A reviewer reads its packet with parallel range reads and finishes in about three calls.
+- **`gstack-review-packet collect`** parses, validates and dedupes every reviewer's output, prints one line per reviewer plus each CRITICAL, and writes `merged.jsonl` and `informational.md` for the PR body. Missing or unusable output exits 3 with `REVIEW_COVERAGE_INCOMPLETE`.
+
+### Changed
+- Every reviewer prompt lives in `lib/review-prompts.ts`; the resolvers import it, so a packet and the generated SKILL.md prose cannot drift. /review's generated output is unchanged.
+- Large `.json`, `.jsonl`, `.ndjson`, `.csv` and `.tsv` changes (over 400 changed lines, not package or config manifests) reach reviewers as a summary built from the diff alone. The testing reviewer and the coverage audit still read data under `test/` or `fixtures/` in full.
+- The Capy dispatch paragraph in `capy/skill/gstack/SKILL.md` builds packets, starts reviewers on the shared machine, polls with `transcript: "none"` and returns only collect's output.
+
+### Fixed
+- `--base origin/main` no longer becomes `origin/origin/main` in audit prompts.
+- A partial build keeps other reviewers' results only at the same head, diff base and diff content; a Red Team build against a changed tree refuses with `STALE_MANIFEST`.
+- Collect counts a state-machines matrix record only from the state-machines reviewer, and a CRITICAL line that fails to parse or validate makes its reviewer invalid instead of disappearing.
+
+### Tests
+- `test/review-packet.test.ts`: 41 tests covering packet contents, sharding, audits, budget roles, read ranges, data summaries (including a symlinked CSV that must not leak its target), stale manifests and collect's validation. Each fix in this entry has a test that failed before it.
+
 ## [1.91.324.0] - 2026-10-29
 
 **A /ship token cap now projects each step and reviewer from what the run has actually spent, so real caps stop refusing work that costs a fraction of the old guess.** On GSTA-152 a 29.28M cap refused its third reviewer because every dispatch was projected at 7.43M while real ones cost 0.23 to 1.02M; on GSTA-2 an 8M cap stopped before Step 6 after Steps 1 to 5 cost about 0.27M each, because every step was projected at 2.25M.

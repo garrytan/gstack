@@ -18,11 +18,11 @@ Dispatch the audit through Agent with `subagent_type: "general-purpose"` and
 run `~/.claude/skills/gstack/bin/gstack-review-packet build --audit test-coverage --base <base>
 --out-dir .gstack/tmp/review-packets-audit --context .gstack/tmp/audit-context.txt
 --passes-used <N>` (the packet holds the prompt below and
-the diff) and brief the child only "Read <file> and follow it: it is your whole task. Write
-your result to <out>. Reply with only the DONE line it names." Wait for its `out=` file's
-LAST-line JSON before applying the coverage gate. `AUDIT_SKIPPED:` (no code path: docs,
+the diff; an audit is one packet, never sharded) and brief the child only with the packet brief and its `read=` ranges:
+"Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names."
+Wait for its `out=` file's LAST-line JSON before applying the coverage gate. `AUDIT_SKIPPED:` (no code path: docs,
 data, tests) builds nothing: print it, dispatch nothing, apply the gate with zero paths.
-The packet is read-only in three calls; with generation allowed,
+The packet is read-only; with generation allowed,
 the parent writes and runs the tests its diagram proposes (caps and value bar below)
 and lists them in `tests_added`/`tests_extended` before item 3.
 

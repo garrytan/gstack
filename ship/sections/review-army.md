@@ -373,12 +373,15 @@ its `DIFF_CMD:` diff at -U8 against the literal diff base with a stat, past lear
 --out-dir "$_PK" --only specialist,red-team` plus the plan run's flags, `--range <sha>` (the literal `RANGE_BASE` sha)
 from pass 2 on and `--plan-file <plan>` when a plan is bound. Each `PACKET:` line is one
 reviewer; a diff past 200 KB is split by path into shards (`batched.1of3`), each its
-own reviewer. `PACKETS:` carries the plan's fingerprint. Step 9.1 dispatches every
+own reviewer. Its `read=` ranges are what the reviewer reads in parallel, each under one
+read call's budget. `PACKETS:` carries the plan's fingerprint; under a token cap,
+`gstack-ship-budget check --next` takes build's `BUDGET_NEXT:` value (one
+`budget_role=` per packet), never packet names. Step 9.1 dispatches every
 packet; the Red Team's waits for collect (below) and Step 11 builds its own.
 
 Launch one subagent per packet via the Agent tool (`subagent_type: "general-purpose"`,
 `run_in_background: false` when available; A launch receipt means it went background: await its completion notice.) at its `effort=` on the same model
-family. The whole brief is "Read <file> and follow it: it is your whole task. Write your result to <out>. Reply with only the DONE line it names." Never paste a diff,
+family. The whole brief is "Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names." with that packet's `read=` ranges. Never paste a diff,
 checklist or finding into a brief.
 
 **Fan-out (`--review-fanout auto|serial|parallel` in the prompt; default `auto`).**

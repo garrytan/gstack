@@ -4,12 +4,14 @@
  * contract (lib/review-prompts.ts, the text the generated prose renders), its
  * checklists inlined, its DIFF_CMD diff at -U8 against the literal diff base with
  * a stat, at most 8 KB of the plan, a read budget, and the output path its result
- * goes to. A packet over PACKET_CAP_BYTES is sharded by path, never truncated. At every depth
- * a pass's specialist lines become one batched packet per shard (SPECIALIST_PACKING).
+ * goes to. A reviewer packet over PACKET_CAP_BYTES is sharded by path, never
+ * truncated; a Step 7/8 audit is one packet (one verdict, one generation allowance). At every
+ * depth a pass's specialist lines become one batched packet per shard (SPECIALIST_PACKING).
  * Selection is lib/review-depth.ts planReview's (through lib/review-plan-live.ts);
  * collect is lib/review-packet-collect.ts.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath, type Dispatch, type Role } from './review-depth';
@@ -17,6 +19,10 @@ import * as P from './review-prompts';
 
 export const PACKET_CAP_BYTES = 200_000;
 export const PLAN_EXCERPT_BYTES = 8 * 1024;
+/** One read-tool call's share of a packet: Capy's read returns ~37.8K chars and drops the rest silently, so packets are read as parallel ranges under this. */
+export const READ_CHUNK_BYTES = 30_000;
+/** A data-format file (.json/.jsonl/.ndjson/.csv/.tsv, not a package or config manifest) past this many changed lines reaches reviewers as a summary. */
+export const DATA_SUMMARY_LINES = 400;
 export const MANIFEST = 'manifest.json';
 export const AUDITS = ['test-coverage', 'plan-completion'] as const;
 export type AuditName = (typeof AUDITS)[number];
@@ -31,9 +37,9 @@ export const PACKINGS: readonly Packing[] = ['batched', 'parallel'];
  */
 export const SPECIALIST_PACKING: Packing = 'batched';
 
-/** Every per-specialist dispatch of a pass as one `specialist batched` dispatch in the first one's place: checklists in plan order, the diff all of them read (the excludes they share). */
-export function packSpecialists(dispatches: readonly Dispatch[]): Dispatch[] {
-  const each = dispatches.filter(d => d.role === 'specialist' && !d.checklists);
+/** Every per-specialist dispatch of a pass as one `specialist batched` dispatch in the first one's place: checklists in plan order, the diff all of them read (the excludes they share). `keep` leaves a specialist its own packet (build's --only naming it). */
+export function packSpecialists(dispatches: readonly Dispatch[], keep: (d: Dispatch) => boolean = () => false): Dispatch[] {
+  const each = dispatches.filter(d => d.role === 'specialist' && !d.checklists && !keep(d));
   if (each.length < 2) return [...dispatches];
   const first = each[0]!;
   const batched: Dispatch = { role: 'specialist', name: 'batched', effort: first.effort, exclude: first.exclude.filter(x => each.every(d => d.exclude.includes(x))), checklists: each.map(d => d.name) };
@@ -50,13 +56,17 @@ export function auditCodePaths(paths: readonly string[], root: string): string[]
 export interface PacketEntry {
   role: PacketRole; name: string; reviewer: string; effort: string; file: string; out: string; bytes: number;
   checklists: string[]; fixtures: 'full' | 'summary'; shard: { index: number; total: number; oversize: boolean } | null;
+  /** Line ranges (`from-to`, comma-joined) that read the packet whole, each under READ_CHUNK_BYTES. */
+  read?: string;
   /** The Red Team before collect: listed so collect reports it pending until its packet is built. */
   deferred?: boolean;
 }
-export interface Manifest { version: 1; head: string; diff_base: string; fingerprint: string; packets: PacketEntry[] }
+export interface Manifest { version: 1; head: string; diff_base: string; fingerprint: string; content?: string; packets: PacketEntry[] }
 
 export interface BuildContext {
   root: string; skillRoot: string; binDir: string; outDir: string; head: string; diffBase: string; fingerprint: string;
+  /** The ref `origin/<base>` stands for in prompt text (lib/review-collect.ts resolveBaseRef). */
+  baseRef?: string;
   plan?: { path: string; text: string };
   /** Merged findings for the Red Team (collect's merged.jsonl), one summary line each. */
   findings?: string[];
@@ -100,7 +110,31 @@ export function checklistPath(skillRoot: string, name: string): string {
 export interface ReviewerDiff { stat: string; chunks: string[]; fixtureStat: string | null; paths: string[] }
 
 /** The reviewer's DIFF_CMD at -U8 (tracked and untracked, exclusions honored) split per file; fixtures go to a stat in summary mode. */
-export function reviewerDiff(root: string, diffBase: string, exclude: readonly string[], summary: boolean, skip: (p: string) => boolean): ReviewerDiff {
+const DATA_FILE = /\.(json|jsonl|ndjson|csv|tsv)$/i;
+const MANIFEST_FILE = /^(package(-lock)?\.json|composer\.json|deno\.jsonc?|tsconfig[^/]*\.json|[^/]*\.config\.json)$/i;
+
+/** Keys or columns read from the diff's own lines (added, else removed), never from the working tree, which a symlink can point outside the diff. */
+function topLevelKeys(file: string, changed: string[]): string {
+  const side = changed.some(l => l.startsWith('+')) ? '+' : '-';
+  const text = changed.filter(l => l.startsWith(side)).map(l => l.slice(1)).join('\n');
+  try {
+    if (/\.(csv|tsv)$/i.test(file)) return `columns: ${text.split('\n')[0]!.slice(0, 300)}`;
+    const v = /\.json$/i.test(file) ? JSON.parse(text) : JSON.parse(text.split('\n').find(l => l.trim()) ?? 'null');
+    const keys = (o: unknown) => (o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o).slice(0, 30).join(', ') : '');
+    return Array.isArray(v) ? `array of ${v.length}; first item keys: ${keys(v[0]) || '(none)'}` : `top-level keys: ${keys(v) || '(none)'}`;
+  } catch { return 'top-level keys: (not parsed)'; }
+}
+
+/** A large data-format file's chunk as a summary: its changed-line count, keys, and the first and last 40 changed lines. */
+function dataSummary(p: string, chunk: string): string | null {
+  if (!DATA_FILE.test(p) || MANIFEST_FILE.test(path.basename(p))) return null;
+  const changed = chunk.split('\n').filter(l => /^[+-]/.test(l) && !/^(\+\+\+|---) /.test(l));
+  if (changed.length <= DATA_SUMMARY_LINES) return null;
+  return [`diff --git a/${p} b/${p}`, `DATA SUMMARY: ${p} (${changed.length} changed lines, a data file shown as a summary; ask the parent for a line range if a finding needs one)`,
+    topLevelKeys(p, changed), 'first 40 changed lines:', ...changed.slice(0, 40), '…', 'last 40 changed lines:', ...changed.slice(-40), ''].join('\n');
+}
+
+export function reviewerDiff(root: string, diffBase: string, exclude: readonly string[], summary: boolean, skip: (p: string) => boolean, keepData: (p: string) => boolean = () => false): ReviewerDiff {
   const fixtureSpecs = summary ? P.FIXTURE_PATHSPECS.map(p => `:(exclude)${p}`) : [];
   const spec = ['--', '.', ...exclude, ...fixtureSpecs];
   const diff = git(root, ['diff', '-U8', '--no-color', '--no-ext-diff', '--no-renames', diffBase, ...spec]);
@@ -119,7 +153,8 @@ export function reviewerDiff(root: string, diffBase: string, exclude: readonly s
     fixtureStat = [git(root, ['diff', '--stat=200', '--no-renames', diffBase, ...fx]).trimEnd(), ...listed.map(p => ` ${p} | untracked`)].filter(Boolean).join('\n') || '(no test or fixture changes)';
   }
   const paths = chunks.map(c => /^diff --git a\/(.*?) b\//.exec(c)?.[1] ?? '?');
-  return { stat: stat || '(empty diff)', chunks, fixtureStat, paths };
+  const shown = chunks.map((c, i) => (keepData(paths[i]!) ? c : dataSummary(paths[i]!, c) ?? c));
+  return { stat: stat || '(empty diff)', chunks: shown, fixtureStat, paths };
 }
 
 /** Diff pieces packed into shards under `budget` bytes; a file over it splits at hunks; a hunk over it is its own oversize shard. */
@@ -193,7 +228,21 @@ function render(draft: PacketDraft, name: string, out: string, shard: { index: n
     `## Output\n\nOutput path: \`${out}\``, '', ...draft.tail,
     `## Diff stat\n\n${block(draft.diff.stat)}`, '',
     ...(draft.diff.fixtureStat !== null ? [`## Tests and fixtures (summary mode)\n\n${block(draft.diff.fixtureStat)}`, ''] : []),
-    `## ${draft.diffLabel} (\`${draft.diffCmd}\`, untracked files included)\n\n${block(diffText, 'diff')}`, ''].join('\n');
+    `## ${draft.diffLabel} (\`${draft.diffCmd}\`, untracked files included)\n\n${block(diffText, 'diff')}`, '', `END OF PACKET ${name}`, ''].join('\n');
+}
+
+/** Line ranges that read `text` whole, each at most READ_CHUNK_BYTES (a single longer line is its own range). */
+export function readRanges(text: string): string {
+  const lines = text.replace(/\n$/, '').split('\n');
+  const out: string[] = [];
+  let from = 1, size = 0;
+  lines.forEach((l, i) => {
+    const b = bytes(l) + 1;
+    if (size && size + b > READ_CHUNK_BYTES) { out.push(`${from}-${i}`); from = i + 1; size = 0; }
+    size += b;
+  });
+  out.push(`${from}-${lines.length}`);
+  return out.join(',');
 }
 
 /** One reviewer's packet files (one, or k shards), written under outDir; returns their manifest entries. */
@@ -203,7 +252,7 @@ export function writePackets(draft: PacketDraft, ctx: BuildContext): PacketEntry
   const fileOf = (name: string) => path.join(ctx.outDir, `${name}.packet.md`);
   const fixed = bytes(render(draft, `${draft.name}.99of99`, outOf(`${draft.name}.99of99`), { index: 99, total: 99, oversize: true }, ''));
   const budget = Math.max(cap - fixed - 64, 1);
-  let shards = shardChunks(draft.diff.chunks, budget);
+  let shards = draft.role === 'audit' ? [{ text: draft.diff.chunks.join(''), oversize: false }] : shardChunks(draft.diff.chunks, budget);
   const total = draft.diff.chunks.reduce((n, c) => n + bytes(c), 0);
   for (let b = Math.ceil((total / shards.length) * 1.02); shards.length > 1 && b < budget; b = Math.ceil(b * 1.05)) {
     const even = shardChunks(draft.diff.chunks, b);
@@ -215,7 +264,7 @@ export function writePackets(draft: PacketDraft, ctx: BuildContext): PacketEntry
     const text = render(draft, name, outOf(name), shard, s.text);
     fs.writeFileSync(fileOf(name), text, { mode: 0o600 });
     fs.rmSync(outOf(name), { force: true });
-    return { role: draft.role, name, reviewer: draft.name, effort: draft.effort, file: fileOf(name), out: outOf(name), bytes: bytes(text), checklists: draft.checklists, fixtures: draft.summary ? 'summary' : 'full', shard };
+    return { role: draft.role, name, reviewer: draft.name, effort: draft.effort, file: fileOf(name), out: outOf(name), bytes: bytes(text), checklists: draft.checklists, fixtures: draft.summary ? 'summary' : 'full', shard, read: readRanges(text) };
   });
 }
 
@@ -223,6 +272,7 @@ const diffCmd = (base: string, exclude: readonly string[], summary: boolean) => 
   const specs = [...exclude, ...(summary ? P.FIXTURE_PATHSPECS.map(p => `:(exclude)${p}`) : [])];
   return `git diff -U8 ${base}${specs.length ? ` -- . ${specs.map(x => `'${x}'`).join(' ')}` : ''}`;
 };
+const underTests = (p: string) => /(^|\/)(tests?|fixtures?|__tests__)\//.test(p);
 const insideOut = (ctx: BuildContext) => (p: string) => p.startsWith('.gstack/tmp/') || path.resolve(ctx.root, p).startsWith(path.resolve(ctx.outDir) + path.sep);
 
 function common(ctx: BuildContext, stack: string, testFw: string, learnings: string | null, budget: string): string[] {
@@ -244,37 +294,43 @@ export function draftFor(d: Dispatch, ctx: BuildContext): PacketDraft {
     `## Instructions\n\n${t.instructions.join('\n\n')}`, '', `## Findings contract\n\n${t.contract}\n\n${t.reply}`, '',
     ...t.extra.flatMap(s => [s, '']), ...common(ctx, stack, testFw, learnings, P.READ_BUDGET), ...checklists.flatMap(s => [s, ''])];
   return { role: d.role, name: d.name.split(' ')[0]!, effort: d.effort, checklists: t.checklists, summary: t.summary, head, tail: [],
-    diff: reviewerDiff(ctx.root, ctx.diffBase, d.exclude, t.summary, insideOut(ctx)), diffLabel: t.diffLabel, diffCmd: diffCmd(ctx.diffBase, d.exclude, t.summary) };
+    diff: reviewerDiff(ctx.root, ctx.diffBase, d.exclude, t.summary, insideOut(ctx), d.role === 'specialist' && (d.checklists ? d.checklists.includes('testing') : d.name === 'testing') ? underTests : undefined), diffLabel: t.diffLabel, diffCmd: diffCmd(ctx.diffBase, d.exclude, t.summary) };
 }
 
 /** An audit's prompt is the generated section's text fence: the packet and the SKILL.md prose are one text. */
-export function auditPrompt(skillRoot: string, audit: AuditName, base: string): string {
+export function auditPrompt(skillRoot: string, audit: AuditName, base: string, baseRef = `origin/${base}`): string {
   const section = fs.readFileSync(path.join(skillRoot, 'ship', 'sections', `${audit}.md`), 'utf8');
   const m = /^(`{4,})text\n([\s\S]*?)\n\1$/m.exec(section);
   if (!m) throw new Error(`ship/sections/${audit}.md has no prompt fence`);
-  return m[2]!.replaceAll('<base>', base);
+  return m[2]!.replaceAll('origin/<base>', baseRef).replaceAll('<base>', base);
 }
 
 export function auditDraft(audit: AuditName, ctx: BuildContext, base: string, effort: string): PacketDraft {
   const { stack, testFw } = detectStack(ctx.root);
   const budget = audit === 'test-coverage' ? P.AUDIT_READ_ONLY : 'The diff is below; do not rerun git diff. Read only files in the diff, their tests and the files the plan names, in named line ranges of at most 200 lines; no whole-repository search, no other packets, no transcript. Writes and test runs only as the audit instructions permit.';
   const plan = audit === 'plan-completion' && ctx.plan ? [`## Plan (whole, \`${ctx.plan.path}\`)\n\n${block(ctx.plan.text)}`, ''] : [];
-  const head = [`Role: ${audit} audit (effort=${effort}).`, '', `## Instructions\n\n${auditPrompt(ctx.skillRoot, audit, base).replace('<allowed|audit-only>', 'audit-only')}`, '',
+  const head = [`Role: ${audit} audit (effort=${effort}).`, '', `## Instructions\n\n${auditPrompt(ctx.skillRoot, audit, base, ctx.baseRef).replace('<allowed|audit-only>', 'audit-only')}`, '',
     `## Output\n\nWrite your whole final answer to the output path below, its LAST line the JSON object the instructions name. Then reply with exactly one line, \`DONE <NAME>\`.`, '',
     ...(ctx.context ? [`## Parent context\n\n${block(ctx.context.trim())}`, ''] : []),
     ...common({ ...ctx, plan: audit === 'plan-completion' ? undefined : ctx.plan }, stack, testFw, null, budget), ...plan];
-  return { role: 'audit', name: audit, effort, checklists: [], summary: false, head, tail: [], diff: reviewerDiff(ctx.root, ctx.diffBase, [], false, insideOut(ctx)), diffLabel: 'Diff', diffCmd: diffCmd(ctx.diffBase, [], false) };
+  return { role: 'audit', name: audit, effort, checklists: [], summary: false, head, tail: [], diff: reviewerDiff(ctx.root, ctx.diffBase, [], false, insideOut(ctx), audit === 'test-coverage' ? underTests : undefined), diffLabel: 'Diff', diffCmd: diffCmd(ctx.diffBase, [], false) };
+}
+
+/** The reviewed content's identity: the whole diff a reviewer could be shown, hashed; a partial build keeps other reviewers only when it is unchanged. */
+export function contentKey(ctx: BuildContext): string {
+  return createHash('sha256').update(reviewerDiff(ctx.root, ctx.diffBase, [], false, insideOut(ctx), () => true).chunks.join('')).digest('hex').slice(0, 16);
 }
 
 export function readManifest(dir: string): Manifest | null {
   try { return JSON.parse(fs.readFileSync(path.join(dir, MANIFEST), 'utf8')) as Manifest; } catch { return null; }
 }
 
-/** Write the manifest; a partial build (--only) replaces entries of the same reviewer and keeps the rest. */
+/** Write the manifest; a partial build (--only) at the same head, diff base and content replaces entries of the same reviewer and keeps the rest; any other build starts over. */
 export function writeManifest(dir: string, m: Omit<Manifest, 'packets'>, packets: PacketEntry[], partial: boolean): Manifest {
-  const prior = partial ? readManifest(dir) : null;
+  const old = readManifest(dir);
+  const prior = partial && old && old.head === m.head && old.diff_base === m.diff_base && old.content === m.content ? old : null;
   const rebuilt = new Set(packets.map(p => p.reviewer));
-  if (!partial) for (const old of readManifest(dir)?.packets ?? []) { if (old.deferred) continue; fs.rmSync(old.out, { force: true }); if (!packets.some(p => p.file === old.file)) fs.rmSync(old.file, { force: true }); }
+  if (!prior) for (const old of readManifest(dir)?.packets ?? []) { if (old.deferred) continue; fs.rmSync(old.out, { force: true }); if (!packets.some(p => p.file === old.file)) fs.rmSync(old.file, { force: true }); }
   const kept = (prior?.packets ?? []).filter(p => !rebuilt.has(p.reviewer));
   const manifest: Manifest = { ...m, packets: [...kept, ...packets] };
   fs.writeFileSync(path.join(dir, MANIFEST), JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
@@ -282,5 +338,10 @@ export function writeManifest(dir: string, m: Omit<Manifest, 'packets'>, packets
 }
 
 export function packetLine(p: PacketEntry): string {
-  return `PACKET: ${p.role} ${p.name} effort=${p.effort} bytes=${p.bytes} tokens~=${Math.ceil(p.bytes / 4)} file=${p.file} out=${p.out}`;
+  return `PACKET: ${p.role} ${p.name} effort=${p.effort} bytes=${p.bytes} tokens~=${Math.ceil(p.bytes / 4)} budget_role=${budgetRole(p.role)} read=${p.read ?? '1-1'} file=${p.file} out=${p.out}`;
+}
+
+/** The gstack-ship-budget dispatch role a packet reserves as: audits as a specialist reader, shards as their parent role. */
+export function budgetRole(role: PacketRole): Exclude<PacketRole, 'audit'> {
+  return role === 'audit' ? 'specialist' : role;
 }

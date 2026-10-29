@@ -56,7 +56,7 @@ describe('defensive-security framing reaches every adversarial dispatch', () => 
     const army = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'review-army.md'), 'utf-8').replace(/\s+/g, ' ');
     const adversarial = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'adversarial.md'), 'utf-8').replace(/\s+/g, ' ');
     expect(army).toContain('the defensive framing and the diff with fixtures in summary mode');
-    expect(adversarial).toContain('packet carries the defensive framing, the prompt below, the diff with fixtures in summary mode');
+    expect(adversarial).toContain('packet carries the defensive framing, the native adversarial prompt (`ADVERSARIAL_NATIVE`), the diff with fixtures in summary mode');
     expect(army).not.toContain(FRAMING_SENTENCE);
   });
 
