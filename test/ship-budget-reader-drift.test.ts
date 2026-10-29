@@ -1,7 +1,8 @@
 /**
- * GSTA-167 PR 3a: dispatch drift is measured per reader and only to the reading
- * a dispatch was settled with when it returned, never across the parent's own
- * work; the parent's interleaved calls stay in the step's sample. The per-call
+ * GSTA-167 PR 3a: dispatch drift is measured per reader and only from the
+ * dispatch program's reading right before its readers started (--dispatched-at)
+ * to the one it was settled with after they returned, never across the parent's
+ * own work; the parent's interleaved calls stay in the step's sample. The per-call
  * charge takes a prior reading from the previous call only. Replays
  * gstack-evals #36 (a six-reader batch taught a 2.041 factor and priced the Red
  * Team at 15.17M, a false STOP with 14.4M of sub-cap unused) and #34 (the Red
@@ -51,14 +52,16 @@ describe('per-reader dispatch drift (#36)', () => {
     expect(first.out).toMatch(/^ADMIT: 2 of 6 /m);
     const r1 = h.field(first.out, 'RESERVATION', 'id');
     expect(h.reviewLog(['--start', 'review', '--reservation', r1]).code).toBe(0);
+    let at = reading;
     reading += 2 * READER;
-    const rest = check(h, s.run, '9', 'dispatch:' + SIX.slice(2).join(','), reading, ['--returned', r1]);
+    const rest = check(h, s.run, '9', 'dispatch:' + SIX.slice(2).join(','), reading, ['--returned', r1, '--dispatched-at', String(at)]);
     expect(rest.out).toMatch(new RegExp(`^DRIFT: id=${r1} kind=dispatch next=dispatch:specialist,specialist projected=${2 * K.per_dispatch} actual=${2 * READER} ratio=0\\.23$`, 'm'));
     expect(rest.out).not.toContain('ADMIT:');
     expect(Number(h.field(rest.out, 'BUDGET', 'projected'))).toBe(4 * priced(2 * READER, 2));
     const r2 = h.field(rest.out, 'RESERVATION', 'id');
+    at = reading;
     reading += 4 * READER;
-    const red = check(h, s.run, '9', 'dispatch:red-team', reading, ['--returned', r2]);
+    const red = check(h, s.run, '9', 'dispatch:red-team', reading, ['--returned', r2, '--dispatched-at', String(at)]);
     expect(h.field(red.out, 'BUDGET', 'verdict')).toBe('continue');
     expect(Number(h.field(red.out, 'BUDGET', 'projected'))).toBe(priced(2 * READER, 2));
     expect(Number(h.field(red.out, 'BUDGET', 'projected'))).toBeLessThan(3_000_000);
@@ -69,13 +72,13 @@ describe('per-reader dispatch drift (#36)', () => {
     const h = fresh();
     const s = start(h, 200_000_000);
     const a = h.field(check(h, s.run, '9', 'dispatch:' + SIX.join(','), 0).out, 'RESERVATION', 'id');
-    const b = check(h, s.run, '9', 'dispatch:red-team', 6 * READER, ['--returned', a]);
+    const b = check(h, s.run, '9', 'dispatch:red-team', 6 * READER, ['--returned', a, '--dispatched-at', '0']);
     const r = h.ledger(s.ledger).reservations.find((x: any) => x.id === a);
     expect(r.actual).toBe(6 * READER);
     expect(Number(h.field(b.out, 'BUDGET', 'projected'))).toBe(priced(6 * READER, 6));
     const red = h.field(b.out, 'RESERVATION', 'id');
     const heavy = 3_910_000;
-    const c = check(h, s.run, '9', 'dispatch:red-team,specialist', 6 * READER + heavy, ['--returned', red]);
+    const c = check(h, s.run, '9', 'dispatch:red-team,specialist', 6 * READER + heavy, ['--returned', red, '--dispatched-at', String(6 * READER)]);
     const factor = Math.max(READER / K.per_dispatch, heavy / K.per_dispatch) * cal.headroom;
     expect(Number(h.field(c.out, 'BUDGET', 'projected'))).toBe(Math.max(roundUp(K.per_dispatch * factor), heavy) + Math.max(roundUp(K.per_dispatch * factor), READER));
   });
@@ -89,7 +92,7 @@ describe('a dispatch is measured to its return, never across the parent\'s own w
     const specialists = h.field(check(h, s.run, '9', 'dispatch:' + SIX.join(','), 4_000_000).out, 'RESERVATION', 'id');
     expect(h.reviewLog(['--start', 'review', '--reservation', specialists]).code).toBe(0);
     let reading = 4_000_000 + 6 * READER;
-    const redCheck = check(h, s.run, '9', 'dispatch:red-team', reading, ['--returned', specialists]);
+    const redCheck = check(h, s.run, '9', 'dispatch:red-team', reading, ['--returned', specialists, '--dispatched-at', '4000000']);
     const red = h.field(redCheck.out, 'RESERVATION', 'id');
     expect(h.reviewLog(['--start', 'review', '--reservation', red]).code).toBe(0);
     reading += READER + 3_000_000;
@@ -109,7 +112,7 @@ describe('a dispatch is measured to its return, never across the parent\'s own w
     check(h, s.run, '8', '9', 3_500_000);
     const red = h.field(check(h, s.run, '9', 'dispatch:red-team', 4_000_000).out, 'RESERVATION', 'id');
     expect(h.reviewLog(['--start', 'review', '--reservation', red]).code).toBe(0);
-    const settled = ok(h, ['settle', '--run', s.run, '--reservation', red, '--reading', String(4_000_000 + READER)]);
+    const settled = ok(h, ['settle', '--run', s.run, '--reservation', red, '--dispatched-at', '4000000', '--reading', String(4_000_000 + READER)]);
     expect(settled.out).toMatch(new RegExp(`^DRIFT: id=${red} kind=dispatch next=dispatch:red-team projected=${K.per_dispatch} actual=${READER} ratio=0\\.23$`, 'm'));
     const step = check(h, s.run, '9', '10', 4_000_000 + READER + 3_000_000);
     expect(step.out).toMatch(/^DRIFT: id=\S+ kind=step next=9 projected=\d+ actual=3500000 ratio=\d+\.\d\d$/m);
@@ -127,6 +130,74 @@ describe('a dispatch is measured to its return, never across the parent\'s own w
     expect(next.out).toMatch(new RegExp(`^UNMEASURED: id=${id} kind=dispatch `, 'm'));
     expect(h.field(next.out, 'BUDGET', 'calibration')).toEndWith('dispatch:prior');
     expect(Number(h.field(next.out, 'BUDGET', 'projected'))).toBe(K.per_dispatch);
+  });
+});
+
+/**
+ * GSTA-167 PR 3, replay 2 on gstack-evals #36 (handoffs/GSTA-167/replay2-36.md): the
+ * batched reader's reservation r5 was settled only at the next --returned check
+ * (17.72M -> 27.01M), so its interval held the child's own core review, QA and
+ * packet build, and the Red Team was priced at 7.43M x 1.875 = 13.94M: a false
+ * STOP with 14.8M of sub-cap unused. Only the dispatch program's own pair (read
+ * right before the readers start, again after they all settle) measures now, and
+ * a packet's bytes price its reader.
+ */
+describe("only the dispatch program's reading pair measures readers; packets price them (replay 2, #36)", () => {
+  const R5 = { cap: 34_044_378, spent: 19_258_962, reserved: 17_720_000, settled: 27_010_000, bytes: 112_110, red: 57_153 };
+  const childStart = (h: Harness) => start(h, R5.cap, R5.settled - R5.spent);
+  const floor = cal.units['capy-tokens']!.call_floor!;
+  const packetPrior = (bytes: number) => roundUp(3 * (floor + Math.ceil(bytes / 4)));
+
+  test('r5 replay: settled at the next --returned check with no dispatch reading, r5 is UNMEASURED and the Red Team is priced from its packet, not 13.94M', () => {
+    const h = fresh();
+    const s = childStart(h);
+    const r5 = h.field(check(h, s.run, '9', `dispatch:specialist@${R5.bytes}`, R5.reserved).out, 'RESERVATION', 'id');
+    expect(h.reviewLog(['--start', 'review', '--reservation', r5]).code).toBe(0);
+    const red = check(h, s.run, '9', `dispatch:red-team@${R5.red}`, R5.settled, ['--returned', r5]);
+    expect(red.out).toMatch(new RegExp(`^UNMEASURED: id=${r5} kind=dispatch next=dispatch:specialist reason=no_dispatch_reading$`, 'm'));
+    expect(red.out).not.toMatch(/^DRIFT: id=\S+ kind=dispatch /m);
+    expect(h.field(red.out, 'BUDGET', 'used')).toBe(String(R5.spent));
+    expect(h.field(red.out, 'BUDGET', 'verdict')).toBe('continue');
+    expect(Number(h.field(red.out, 'BUDGET', 'projected'))).toBe(packetPrior(R5.red));
+    expect(Number(h.field(red.out, 'BUDGET', 'projected'))).toBeLessThanOrEqual(2_000_000);
+    expect(red.out).not.toContain('STOP:');
+  });
+
+  test("the dispatch program's pair measures only the readers, and the learned factor never prices a reader above the clean per-reader mean", () => {
+    const h = fresh();
+    const s = childStart(h);
+    const r5 = h.field(check(h, s.run, '9', `dispatch:specialist@${R5.bytes}`, R5.reserved).out, 'RESERVATION', 'id');
+    const before = R5.settled - 1_510_000;
+    const settled = ok(h, ['settle', '--run', s.run, '--reservation', r5, '--dispatched-at', String(before), '--reading', String(R5.settled), '--readers', '1']);
+    expect(settled.out).toMatch(new RegExp(`^DRIFT: id=${r5} kind=dispatch next=dispatch:specialist projected=${packetPrior(R5.bytes)} actual=1510000 `, 'm'));
+    const red = check(h, s.run, '9', `dispatch:red-team@${R5.red}`, R5.settled);
+    const factor = (1_510_000 / packetPrior(R5.bytes)) * cal.headroom;
+    expect(roundUp(packetPrior(R5.red) * factor)).toBeGreaterThan(1_510_000);
+    expect(Number(h.field(red.out, 'BUDGET', 'projected'))).toBe(1_510_000);
+    expect(h.field(red.out, 'BUDGET', 'verdict')).toBe('continue');
+  });
+
+  test('a dispatch reading older than another command\'s reading is UNMEASURED (a later program), and one above the settle reading is refused', () => {
+    const h = fresh();
+    const s = childStart(h);
+    const r5 = h.field(check(h, s.run, '9', `dispatch:specialist@${R5.bytes}`, R5.reserved).out, 'RESERVATION', 'id');
+    const late = ok(h, ['settle', '--run', s.run, '--reservation', r5, '--dispatched-at', String(R5.reserved - 1), '--reading', String(R5.settled)]);
+    expect(late.out).toMatch(new RegExp(`^UNMEASURED: id=${r5} kind=dispatch next=dispatch:specialist reason=reading_between$`, 'm'));
+    const r6 = h.field(check(h, s.run, '9', `dispatch:red-team@${R5.red}`, R5.settled).out, 'RESERVATION', 'id');
+    const bad = h.sb(['settle', '--run', s.run, '--reservation', r6, '--dispatched-at', String(R5.settled + 2), '--reading', String(R5.settled + 1)]);
+    expect(bad.code).toBe(2);
+    expect(bad.err).toContain('BUDGET_READING_REJECTED');
+    expect(h.sb(['settle', '--run', s.run, '--reservation', r6, '--readers', '2', '--reading', String(R5.settled + 1)]).code).toBe(2);
+  });
+
+  test('--readers splits the pair\'s interval per reader for the role mean', () => {
+    const h = fresh();
+    const s = start(h, 200_000_000);
+    const id = h.field(check(h, s.run, '9', 'dispatch:specialist@40000,specialist@40000', 1_000_000).out, 'RESERVATION', 'id');
+    ok(h, ['settle', '--run', s.run, '--reservation', id, '--dispatched-at', '1000000', '--reading', '4000000', '--readers', '2']);
+    expect(h.ledger(s.ledger).reservations.find((x: any) => x.id === id)).toMatchObject({ actual: 3_000_000, readers: 2, dispatched_at: 1_000_000 });
+    const next = check(h, s.run, '9', 'dispatch:specialist@40000', 4_000_000);
+    expect(Number(h.field(next.out, 'BUDGET', 'projected'))).toBe(1_500_000);
   });
 });
 
@@ -165,9 +236,9 @@ describe('the budget section states both contracts', () => {
     expect(tmpl).toMatch(/--prior-reading[\s\S]{0,200}previous call/);
     expect(tmpl).toMatch(/older than the run's last reading is ignored/);
   });
-  test('a batch names one role per reader and each reader is settled with a reading when it returns', () => {
+  test('a batch names one role per reader and is settled with the dispatch program\'s own reading pair', () => {
     expect(tmpl).toMatch(/one role per (?:reader|`DISPATCH:` line)/);
-    expect(tmpl).toMatch(/Settle each reader when it returns[\s\S]{0,200}--reservation <id> --reading <n>/);
-    expect(tmpl).toMatch(/Only these are measured: `--finish` or a step change settles without a reading/);
+    expect(tmpl).toMatch(/Settle each batch in the program that dispatched it[\s\S]{0,300}--dispatched-at <before> --reading <after> --readers <n>/);
+    expect(tmpl).toMatch(/Only that pair is measured: `check --returned`, a settle from a later\s+program \(no `--dispatched-at`\), `--finish` or a step change settles without measuring/);
   });
 });

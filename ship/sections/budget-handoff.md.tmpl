@@ -27,9 +27,11 @@ role per packet, never packet names):
 
 On `ADMIT: k of n (remaining=<roles>)`, dispatch only those k and re-check the remaining roles
 after they settle; `close` flags roles never re-checked. `--finish` settles the reservation and the pass's other dispatch reservations.
-Settle each reader when it returns: the next check's `--returned <id>`, or
-`gstack-ship-budget settle --run <id> --reservation <id> --reading <n>` (`--unknown` when the meter
-cannot see it); `release` one that never ran. Only these are measured: `--finish` or a step change settles without a reading.
+Settle each batch in the program that dispatched it: read the counter right before the readers
+start and right after the last one settles, then `gstack-ship-budget settle --run <id> --reservation <id>
+--dispatched-at <before> --reading <after> --readers <n>` (`--unknown` when the meter cannot see it);
+`release` one that never ran. Only that pair is measured: `check --returned`, a settle from a later
+program (no `--dispatched-at`), `--finish` or a step change settles without measuring.
 
 **verdict=stop.** Print the STOP, RECOVER and GSTACK_RESULT lines as your last output and
 end status=incomplete. Raising the cap is the owner's call: `/ship --resume <record>
@@ -53,7 +55,8 @@ fresh child; you wait and advance only after reconciling it:
    `gstack-ship-budget return --run <child> --to <step> --changed <sections>` (at most 40 lines).
 4. `gstack-ship-budget reconcile --run <id> --return <RETURN_FILE> --reading <n>`. Read the
    record, never the child's transcript. Exit 3 (refused, incomplete or interrupted):
-   regenerate the handoff or stop.
+   regenerate the handoff or stop; every check refuses until a regenerated child reconciles
+   complete or the owner resumes.
 
 **--resume <record>** and **--continue <handoff>** (you are the child) attach to the existing
 record and ledger instead of a fresh Step 1: keep the attempt counts and start tokens; under

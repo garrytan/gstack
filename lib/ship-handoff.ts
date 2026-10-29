@@ -229,10 +229,12 @@ export function cmdReconcile(argv: string[], ctx: Ctx): Outcome {
     h.status = ret && ret.to !== h.to && ret.status === 'complete' ? 'incomplete' : ret?.status ?? 'interrupted';
     h.child_used = childUsed;
     h.reconciled_at = new Date().toISOString();
+    if (h.status !== 'complete') l.stopped = { at: h.reconciled_at, reason: `child_${h.status}`, step: h.from, next: h.from };
+    else if (l.stopped?.reason.startsWith('child_')) delete l.stopped;
     pointMarker(l.marker, l);
     const after = SHIP_STEPS[SHIP_STEPS.indexOf(h.to as any) + 1] ?? '-';
     const lines = [`RECONCILED: handoff=${h.sha} child=${h.status} child_used=${childUsed}`, budgetLine(l, { call, next: h.status === 'complete' ? after : h.from, projected: 0, verdict: h.status === 'complete' ? 'continue' : 'stop' })];
-    if (h.status !== 'complete') lines.push(`NEXT: the child returned ${h.status}; regenerate the handoff (gstack-ship-budget handoff --run ${l.run} --from ${h.from} --to ${h.to} --base origin/<base>) or stop`);
+    if (h.status !== 'complete') lines.push(`NEXT: the child returned ${h.status}; regenerate the handoff (gstack-ship-budget handoff --run ${l.run} --from ${h.from} --to ${h.to} --base origin/<base>) or stop. Every check refuses until a regenerated child reconciles complete or the owner resumes (gstack-ship-budget resume --record ${l.record})`);
     return { stdout: lines, exit: exitFor(h.status) };
   });
 }
