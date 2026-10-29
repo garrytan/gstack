@@ -74,7 +74,7 @@ export function renderFixCheckPrompt(i: FixCheckInput): string {
 }
 
 /** What every reviewer packet allows beyond itself. */
-export const READ_BUDGET = 'Everything you need is in this packet. You may make at most 5 more reads, each a named line range of at most 200 lines of a file in this diff (code around a hunk, a caller the diff changed). No whole-repository search, no git commands, no other packets, no transcript, no web.';
+export const READ_BUDGET = 'Everything you need is in this packet. You may read at most 2 more named line ranges, each at most 200 lines of a file in this diff (code around a hunk, a caller the diff changed), both in one turn as parallel calls. No whole-repository search, no git commands, no other packets, no transcript, no web.';
 
 /** The native adversarial pass writes JSONL like the specialists, plus a classification and its Recommendation line. */
 export const ADVERSARIAL_CONTRACT = 'Write each finding as one JSON object per line with the specialist fields (`"specialist":"adversarial"`) plus `"classification":"FIXABLE|INVESTIGATE"`, rated against the same floor (CRITICAL only for a test that would fail, a production break, or a security or data-loss defect); `NO FINDINGS` when nothing would fail. End with the one `Recommendation:` line either way.';
@@ -84,5 +84,5 @@ export const OUTSIDE_CONTRACT = 'Write one finding per line as `[Critical] path:
 
 /** The whole brief a packet reviewer receives; the packet carries the rest. */
 export function packetBrief(file: string, out: string): string {
-  return `Read ${file} and follow it: it is your whole task. Write your result to ${out}. Reply with only the DONE line it names.`;
+  return `Turn 1: read ${file} with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to ${out} in one write and reply with only the DONE line it names.`;
 }

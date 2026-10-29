@@ -5,8 +5,8 @@
 `DISPATCH: outside-voice`. Without the native line (light depth at runtime 0;
 above 0 the plan lists it beside the batched specialist), print `ADVERSARIAL: skipped (review plan)`;
 with neither line, take decision 3 of Finish the adversarial phase. Under a token cap,
-reserve the planned voices as one batch (`gstack-ship-budget check --next dispatch:<roles>`)
-and add `--reservation <id>` to the `--start adversarial-review` call below.
+reserve the planned voices as one batch (`gstack-ship-budget check --next <the BUDGET_NEXT value
+Step 11's packet build prints>`, never packet names) and add `--reservation <id>` to the `--start adversarial-review` call below.
 
 ## Step 11: Adversarial review
 
@@ -98,7 +98,7 @@ Those files are part of the recorded content too.
 
 Dispatch via the Agent tool with `run_in_background: false` when available (background is the default since Claude Code v2.1.198); findings must arrive before review concludes. A launch receipt means it went background: await its completion notice. Fresh context avoids checklist bias, but this is the same harness, not an independent model unless runtime identity proves otherwise.
 
-Build Step 11's packets from Step 9's last full-pass plan: `~/.claude/skills/gstack/bin/gstack-review-packet build --only adversarial,outside-voice --base <base> --out-dir "$_PKA"` with `_PKA=.gstack/tmp/review-packets-adv-p$PASS`, that plan run's flags and `--range <RANGE_BASE sha>` from pass 2 on. The `adversarial` packet carries the defensive framing, the prompt below, the diff with fixtures in summary mode and a JSONL contract (`NO FINDINGS` is the expected result for a clean range). Its whole brief is "Read <file> and follow it: it is your whole task. Write your result to <out>. Reply with only the DONE line it names."
+Build Step 11's packets from Step 9's last full-pass plan: `~/.claude/skills/gstack/bin/gstack-review-packet build --only adversarial,outside-voice --base <base> --out-dir "$_PKA"` with `_PKA=.gstack/tmp/review-packets-adv-p$PASS`, that plan run's flags and `--range <RANGE_BASE sha>` from pass 2 on. Leave `outside-voice` out of `--only` when nothing will run it (`CODEX_MODE` neither `ready` nor `unverified` and no reviewer on another model family): collect counts a built packet with no output as missing coverage. The `adversarial` packet carries the defensive framing, the native adversarial prompt (`ADVERSARIAL_NATIVE`), the diff with fixtures in summary mode and a JSONL contract (`NO FINDINGS` is the expected result for a clean range). Its whole brief is "Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names." with that packet's `read=` ranges.
 
 Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** are queued for the parent; do not edit during Step 11. **INVESTIGATE findings** are presented as informational.
 

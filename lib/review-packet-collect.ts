@@ -38,7 +38,7 @@ export function parseOutput(packet: PacketEntry, text: string | null): ReviewerR
   const r: ReviewerResult = { packet, status: 'missing', findings: [], records: 0, invalid: 0 };
   if (text === null || !text.trim()) return r;
   if (packet.role === 'outside-voice') return parseOutside(r, text);
-  let clean = false;
+  let clean = false, badCritical = false;
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('```')) continue;
@@ -46,12 +46,16 @@ export function parseOutput(packet: PacketEntry, text: string | null): ReviewerR
     if (/^Recommendation:/i.test(line)) { r.recommendation = line; continue; }
     let v: unknown;
     try { v = JSON.parse(line); } catch { r.invalid++; continue; }
-    if (v && typeof v === 'object' && 'matrix' in v) { r.records++; continue; }
+    if (v && typeof v === 'object' && !Array.isArray(v) && 'matrix' in v) {
+      const m = (v as { matrix: unknown }).matrix;
+      if (packet.checklists.includes('state-machines') && m && typeof m === 'object') r.records++; else r.invalid++;
+      continue;
+    }
     const f = validFinding(v, packet.role);
-    if (!f) { r.invalid++; continue; }
+    if (!f) { r.invalid++; if ((v as { severity?: unknown } | null)?.severity === 'CRITICAL') badCritical = true; continue; }
     r.findings.push({ ...f, specialist: str(f.specialist) ? f.specialist : packet.reviewer });
   }
-  r.status = r.findings.length ? 'findings' : clean || r.records ? 'clean' : 'invalid';
+  r.status = badCritical ? 'invalid' : r.findings.length ? 'findings' : clean || r.records ? 'clean' : 'invalid';
   return r;
 }
 

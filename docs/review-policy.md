@@ -343,11 +343,27 @@ writes one packet per `DISPATCH:` line holding:
 - its `DIFF_CMD` diff at `-U8` against the literal diff base (`--range <sha>` from
   pass 2 on), exclusions honored and untracked files included, under a stat; the
   security specialist, the Red Team and the native adversarial pass see tests and
-  fixtures as a stat only;
+  fixtures as a stat only; a data-format file (`.json`, `.jsonl`, `.ndjson`, `.csv`,
+  `.tsv`, not a package or config manifest) past 400 changed lines reaches every role
+  as a `DATA SUMMARY` (changed-line count, top-level keys, first and last 40 changed
+  lines), except the testing reviewer and the coverage audit for data under `test/` or
+  `fixtures/`;
 - at most 8 KB of `--plan-file`, and past learnings for specialists;
-- a read budget: at most 5 more reads of named ranges (200 lines at most) of files in
-  the diff, no repository search, no other packets, no transcript;
-- its output path and the reply `DONE <name> crit=<n> info=<n>`.
+- a read budget: at most 2 more named ranges (200 lines at most) of files in the diff,
+  in one turn, no repository search, no other packets, no transcript;
+- its output path and the reply `DONE <name> crit=<n> info=<n>`, then `END OF PACKET <name>`.
+
+Each `PACKET:` line carries `budget_role=` (the `gstack-ship-budget` dispatch role:
+audits reserve as `specialist`, shards as their parent role) and `read=`, line ranges
+under 30,000 bytes each. Capy's read tool returns about 37,800 characters of a file and
+drops the rest without a notice, and shell output past about 35,000 characters spills to
+a log, so a reviewer reads its packet with the read tool, one parallel call per range,
+and finishes in about three calls. `BUDGET_NEXT: dispatch:<roles>` is the value for
+`gstack-ship-budget check --next`. A partial build (`--only`) keeps other reviewers'
+entries only at the same head, diff base and diff content; any other build starts the
+manifest over and removes the old outputs. Collect counts a matrix record only from a
+reviewer that applies the state-machines checklist, and a `CRITICAL` line that fails
+validation makes its reviewer `invalid`.
 
 A packet over 200,000 bytes is split by path into `<name>.1ofK` packets of the same
 reviewer, each with the whole instructions and checklist: no hunk is cut and no path

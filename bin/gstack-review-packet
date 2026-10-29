@@ -20,7 +20,8 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { runScriptSync } from '../lib/script-invocation';
 import { reviewPlanLine } from '../lib/review-depth';
 import { flagReader, livePlan, parsePlanFlags, planPass, PLAN_FLAGS_HELP } from '../lib/review-plan-live';
-import { AUDITS, auditDraft, draftFor, packetLine, PACKET_CAP_BYTES, readManifest, writeManifest, writePackets, type AuditName, type BuildContext, type PacketEntry } from '../lib/review-packet';
+import { AUDITS, auditDraft, budgetRole, contentKey, draftFor, packetLine, PACKET_CAP_BYTES, READ_CHUNK_BYTES, readManifest, writeManifest, writePackets, type AuditName, type BuildContext, type PacketEntry } from '../lib/review-packet';
+import { resolveBaseRef } from '../lib/review-collect';
 import { collect } from '../lib/review-packet-collect';
 
 const BIN = 'gstack-review-packet';
@@ -39,9 +40,10 @@ ${PLAN_FLAGS_HELP}
   collect --dir <dir>                  read every packet's output: one REVIEWER: line each, every CRITICAL on one
                                        line, INFORMATIONAL counts; writes merged.jsonl and informational.md in <dir>
 
-build prints PACKET: <role> <name> effort=<e> bytes=<n> tokens~=<n/4> file=<path> out=<path> per packet
-(a reviewer past ${PACKET_CAP_BYTES} bytes is sharded by path as <name>.1ofK, never truncated) and
-PACKETS: n=<k> total_bytes=<n> fingerprint=<plan fingerprint>. collect exits 3 with
+build prints PACKET: <role> <name> effort=<e> bytes=<n> tokens~=<n/4> budget_role=<r> read=<from-to,...> file=<path> out=<path>
+per packet (a reviewer past ${PACKET_CAP_BYTES} bytes is sharded by path as <name>.1ofK, never truncated; read= are the line
+ranges, each under ${READ_CHUNK_BYTES} bytes, a reviewer reads in parallel), PACKETS: n=<k> total_bytes=<n> fingerprint=<plan fingerprint>
+and BUDGET_NEXT: dispatch:<one budget_role per packet> for gstack-ship-budget check --next. collect exits 3 with
 REVIEW_COVERAGE_INCOMPLETE when any packet's output is missing or unusable.
 ${exitTableHelp()}`;
 
@@ -76,7 +78,7 @@ function build(): number {
   if (range !== undefined && spawnSync('git', ['rev-parse', '--verify', '-q', `${range}^{commit}`], { cwd: root, encoding: 'utf8', timeout: 15_000 }).status !== 0) return fail(`--range ${range} is not a commit`);
   const diffBase = range ?? collected.mergeBase!;
   fs.mkdirSync(absOut, { recursive: true, mode: 0o700 });
-  const ctx: BuildContext = { root, skillRoot: path.resolve(binDir, '..'), binDir, outDir: absOut, head, diffBase, fingerprint: plan.numbers.fingerprint, learnings: learningsFor(binDir),
+  const ctx: BuildContext = { root, skillRoot: path.resolve(binDir, '..'), binDir, outDir: absOut, head, diffBase, baseRef: resolveBaseRef(root, flags.base), fingerprint: plan.numbers.fingerprint, learnings: learningsFor(binDir),
     ...(planText !== undefined ? { plan: { path: flag('--plan-file')!, text: planText } } : {}) };
   const out: string[] = [];
   let entries: PacketEntry[] = [];
@@ -116,9 +118,10 @@ function build(): number {
     }
     out.unshift(reviewPlanLine(plan, planPass(plan, flags.pass)));
   }
-  writeManifest(absOut, { version: 1, head, diff_base: diffBase, fingerprint: plan.numbers.fingerprint }, entries, has('--only'));
+  writeManifest(absOut, { version: 1, head, diff_base: diffBase, fingerprint: plan.numbers.fingerprint, content: contentKey(ctx) }, entries, has('--only'));
   const built = entries.filter(e => !e.deferred);
   out.push(...built.map(packetLine), `PACKETS: n=${built.length} total_bytes=${built.reduce((n, e) => n + e.bytes, 0)} fingerprint=${plan.numbers.fingerprint}`);
+  if (built.length) out.push(`BUDGET_NEXT: dispatch:${built.map(e => budgetRole(e.role)).join(',')}`);
   process.stdout.write(out.join('\n') + '\n');
   return EXIT.ok;
 }
