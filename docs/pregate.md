@@ -139,7 +139,7 @@ Review each entry before committing the file on the base branch.
 
 `{ "tests": [globs] }` names whole-tree tests that scan every file of a kind (tripwires, ratchets, conformance and fixture inventories). A diff-selected run never maps a touched file to them, so they used to pass the selected gate and then fail CI (GST-98). When a branch selects any test, owes a lane, or edits this file, the `lanes` selection adds every tracked test file a glob matches. `--explain` prints each one as `<test> (always_run, .gstack/always-run.json)`, and a glob that matches no test as `<glob> matches no test file`. A docs-only branch adds nothing.
 
-The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list runs in about 14 s on the CI VM.
+The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list matches 15 test files; the 13 with a seed in `scripts/free-test-durations.json` (recorded 2026-10-19) total about 13 s there, and `bun-entry-isolation` and `launch-env-echo-ratchet` have no seed yet.
 
 ## `gstack-pregate`
 
@@ -528,3 +528,500 @@ gstack's own example: `.gstack/pregate.json` declares
 with `bun run test:ubicloud`'s environment, refuses before creating the VM when
 the cap cannot buy a 20-minute run at the size's list price (`UBI_SIZE`,
 default `standard-16`), checks the tree and the planned file set on the VM
+before any test runs, and reports `spent=` from billed minutes. Without a key
+it runs the same files locally in parallel shards
+(`test-free-shards.ts --files-from`) and reports `spent=0`, after a
+`backend=local (N cores; not the CI environment)` line. Paid test files in the
+selection (skill-e2e and the other paid globs in `test/helpers/paid-test-set.ts`)
+are named and left to the paid PR gate; a selection of only paid files reports
+`tests=0`, which never clears the obligation. The command is the same either way
+(`--remote` always needs a cap; the keyless path spends nothing).
+
+pregate kills the gate at its `--timeout` (default 600 s) with a 5 s grace, so
+the script finishes before that deadline: it reads the deadline from
+`PREGATE_TIMEOUT_S`, else from the `gstack-pregate` command it runs under (its
+`--timeout`, else 600), reserves 120 s for teardown plus 15 s margin, and tells
+the VM to stop at whichever comes first, that point or the cap's wall (at most
+45 minutes, minus 3 for teardown). A deadline that leaves the VM under 300 s
+refuses before any VM (`PREGATE_REMOTE_TIMEOUT_TOO_SHORT`). At create time it
+prints the VM's name and the exact
+`bash scripts/ubicloud/ubi-runner.sh down <name>` line to destroy it if the
+run is killed before its teardown line. The whole script is parsed before it
+runs, so editing it during a run changes nothing. `--timeout 2700` gives a
+whole-tier run room inside the 45-minute wall:
+
+```bash
+gstack-pregate --stage tests --remote --spend-cap 2 --timeout 2700 --allow-repo-commands
+```
+
+Measured (October 2026): keyed, all 1,280 free files on standard-16 took 404 s
+from start to teardown (create 24 s, setup 72 s, tests 250 s) for $0.06.
+Keyless on 4 cores, 98 files took 103 s, and GSTA-35's 798-file selection took
+3,550 s, so keyless is practical for small selections only. A large selection
+on a small machine needs a key, or a `--timeout` longer than the run. Keyless also runs in
+your environment, not CI's: a file that needs what setup-free-suite.sh installs
+(Playwright's Chromium, Xvfb) fails locally until you install it.
+
+Every refusal line starts with a reason code:
+
+| code | exit | meaning |
+|---|---|---|
+| `PREGATE_REMOTE_USAGE` | 2 | an input is missing or malformed; run it through `gstack-pregate --stage tests --remote` |
+| `PREGATE_REMOTE_TREE_MISMATCH` | 3 | the working tree is not `PREGATE_TREE`; nothing uploaded, nothing spent |
+| `PREGATE_REMOTE_TREE_MOVED` | 3 | the tree changed during the run (the moved paths are listed); no result reported |
+| `PREGATE_REMOTE_VM_TREE` | 3 | the VM's unpacked tree or planned file set differs from what was checked locally |
+| `PREGATE_REMOTE_NO_RESULT` | 1 | test-free-shards printed no result (a rejected file list) |
+| `PREGATE_REMOTE_PAID_ONLY` | 0 | every selected file is a paid test file; `tests=0` cannot clear |
+| `PREGATE_REMOTE_CAP_TOO_LOW` | 5 | the cap cannot buy a 20-minute run at the size's price; nothing created |
+| `PREGATE_REMOTE_NO_PRICE` | 5 | `UBI_SIZE` has no list price in the script |
+| `PREGATE_REMOTE_TIMEOUT_TOO_SHORT` | 5 | pregate's deadline leaves the VM under 300 s after the 135 s teardown reserve; nothing created |
+| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed; the VM, its teardown line and `spent=` follow |
+| `PREGATE_REMOTE_INTERRUPTED` | 130 | TERM or INT; ubi-runner tears the VM down on its own |
+
+<a id="guards"></a>
+## Guards and the lane-done rule
+
+A lane runs `gstack-pregate run --allow-repo-commands` on its branch before it
+reports done, and its handoff carries the `PREGATE:` line (the coordinator
+contract says so word for word). The unit tier covers the changed files'
+tests; guards cover the repo's mechanical gates the import graph cannot see:
+
+```json
+{ "guards": [
+    { "id": "serial-manifest", "when": ["test/**/*.serial.test.ts", "scripts/serial-files.tsv"],
+      "command": "bun test test/scripts/serial-files.test.ts",
+      "fix": "add the file's row to scripts/serial-files.tsv" } ] }
+```
+
+`dependencies` still maps globs to extra *tests* the lanes check selects; a
+guard is a *command* with its own fix line. Older gstack refuses unknown keys
+(`PREGATE_CONFIG_INVALID`), so a repo commits `guards` only after the gstack
+that reads them ships. The worked gbrain configuration is in
+[gbrain worked configs](#gbrain-worked-configs).
+
+<a id="allowlist"></a>
+## Allowlist: benign findings the secrets check accepts
+
+The `secrets` check cannot be downgraded, and that is right for a key. It also
+refused 1,800 per-trial dummy tokens in eval receipts (`"key": "sk-trial-<id>"`
+reads as `env.kv`), an 11-digit Actions run id read as a phone number (one
+after a run word such as `run`, `screen` or `gate` is exempt in the scanner
+since the GSTA-121 follow-up; the allowlist still covers one after any other
+word), and
+excalidraw.com's public Firebase key that every rebuild of a bundle re-adds
+(harness-evals #81/#83, GSTA-102, GSTA-106). `allowlist` in the policy names
+those, each with its scope and its reason:
+
+```json
+{ "allowlist": [
+    { "finding": "env.kv", "paths": ["evals/**/receipts/*.json"], "pattern": "sk-trial-[0-9a-f-]+", "reason": "dummy per-trial meter ids" },
+    { "finding": "pii.phone.e164", "pattern": "\\d{11}", "reason": "GitHub Actions run ids in reports" },
+    { "finding": "google.api_key", "paths": ["lib/render/dist/bundle.js"], "pattern": "AIza[0-9A-Za-z_-]{35}", "reason": "the vendor's public web key, restricted server-side" } ] }
+```
+
+- `finding` is a gstack-redact finding id (`env.kv`, `google.api_key`,
+  `pii.phone.e164`, `internal.hostname`, …) or one of the categories `pii`,
+  `internal`, `hygiene`, `legal`. A secret is always named by its id; the
+  `secret` category cannot be allowlisted whole.
+- `paths` are contained globs over the added file's repo path; `pattern` is a
+  regular expression matched **at the finding's position in the added line**
+  and ending at a token boundary, so a dummy token's shape never covers a real
+  key that shares its line or starts the same way. One of the two is required;
+  `reason` always is, and the record repeats it.
+- **`env.value` is never allowlisted.** It is the real value of a
+  credential-named variable of the environment pregate ran in (#3449), found in
+  the added lines whatever its shape. Validation refuses an entry naming it
+  (`PREGATE_CONFIG_INVALID`), and the matcher never consults the list for it,
+  so a stale or hand-edited policy cannot silence it either. The scanner's own
+  `engine.*` refusals (an oversize input fails closed) are refused and kept the
+  same way: they are the scanner declining its input, not a finding in it.
+- A `pattern` entry needs the finding's position. When the scanner gave none,
+  the entry is inert for that finding and the row says so (`allowlist[0]
+  env.kv not tested on env.kv (<file>): the scanner gave no position for its
+  pattern; the finding is kept`) rather than silently keeping it.
+
+The `secrets` row says `N allowlisted (<ids>)` and lists each allowlisted
+finding with the entry (`allowlisted env.kv (evals/receipts/t1.json, added line
+3) by allowlist[0] env.kv: dummy per-trial meter ids`); `inputs.allowlist`
+carries the entries' digest, so a changed list is a changed input. The list is
+read from the base branch's copy (reviewed) or the user-owned file, like every
+other key; an unparsed scanner report keeps its exit-code verdict and is never
+allowlisted.
+
+<a id="environment"></a>
+## Environment failures, apart from diff failures
+
+A lane that could not run is not a lane that failed. When a check could not run
+its command because of the machine (truther #617: a root runner with a vitest
+config that found no file, a corpus fetch that stalled on one host and passed
+on another), the check is `incomplete` under its own code,
+**`PREGATE_ENVIRONMENT`**, with `cause: "environment"` and an
+`environment: { kind, evidence, proof }` object in `pregate.json`, an
+`environment: <kind> — <evidence>` table line, and a fix that says so. A
+failure the branch caused carries `cause: "diff"` (`PREGATE_LANE_FAILED`,
+`PREGATE_GUARD_FAILED`, `PREGATE_SECRETS`). Kinds:
+
+| Kind | Evidence |
+|---|---|
+| `missing-binary` | exit 127, `command not found`, a spawn `ENOENT`, a runner tool `not on PATH` (dart, flutter, cargo, a package manager) |
+| `network` | `ENOTFOUND`, `ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EAI_AGAIN`, `Could not resolve host`, `fetch failed`, a TLS handshake or certificate failure |
+| `quota` | `quota`, `429 Too Many Requests`, `rate limit`, `insufficient_quota` (a vCPU quota on the remote backend) |
+| `disk` | `ENOSPC`, `No space left on device`, `EDQUOT` |
+| `runtime` | the install verdict or the pinned Bun refused (`BUN_RESOLUTION_DRIFT`, `INSTALL_UNVERIFIED`) |
+| `tool` | gstack's own scanner (gstack-redact) did not finish or exited outside its contract |
+
+The classifier is conservative. A local lane that exited non-zero is read from
+its output **only when its runner reported no test summary** (nothing ran) and
+the runner was not seen starting a test file; a run whose summary counts `N
+ran, M failed` is the diff's failure whatever its log says, so a test that
+failed on `ECONNREFUSED` is still a red test. A remote gate that exited
+without a `PREGATE_REMOTE:` line is read from its **preamble only** (its first
+40 lines, before any test output could stream): a VM refused for quota or an
+unreachable API there never ran the tests, so it is environment and the
+obligation stays uncleared, while a `quota` in a streamed test name is not. A
+guard that ran and said no is the diff's. Exit 127 and `command not found`
+count as `missing-binary` only when the command's **own** binary is off
+PATH: a runner, guard or gate script the diff controls that exits 127 (a
+package script naming a tool that is not installed) is the diff's failure. A
+stall or a timeout keeps `PREGATE_STALLED` / `PREGATE_INCOMPLETE`: a hang
+has no single cause, and so does a runner killed by a signal.
+
+`proof` records how the cause was established. `launch` is certain: the
+command could not start, its binary is off PATH, the runtime or a gstack tool
+refused; the fix ends `the diff is not at fault`. `output` means a rule
+matched the command's text before any test was counted, which the diff's own
+output could have written (a test that prints `fetch failed` and exits the
+process before the summary); the table line says `(inferred from output)` and
+the fix asks for confirmation on another machine or with `--remote` before
+the diff is treated as clear. Neither proof ever passes the check.
+
+`gstack-pregate verify` reports `PREGATE_ENVIRONMENT: <n> check(s) blocked by
+the environment (<kinds>), not by the diff` when every incomplete check is
+environment-caused, naming any check whose cause was inferred from output
+alone, and names the kinds beside the generic `PREGATE_INCOMPLETE` otherwise;
+`--json` carries `cause` and `environment` per check. A lane that waives such
+a run cites the kind, the evidence and the proof, not a test name, and clears
+the lane remotely (`--remote`, or `gstack-pregate clear` with a run URL)
+rather than on the broken machine. Incomplete never passes.
+
+<a id="scratch"></a>
+## Scratch: one directory per run, under the state root
+
+Every run owns `<state root>/projects/<slug>/pregate/runs/<run id>/` (mode
+0700; `<run id>` is `--run <id>` reduced to `[A-Za-z0-9._-]`, else
+`<UTC stamp>-<pid>-<4 hex>`). The secrets scan's added-line copies
+(`secrets/`, deleted after the scan), the lane log (`lanes/lanes.log`), each
+guard's log (`guards/<id>.log`) and the remote gate's log and file list
+(`remote/`) live there, never under `os.tmpdir()`: two pregates in parallel
+(two lanes on one machine, a subagent beside its parent) never share a path,
+and the log a `fix:` line names survives a host that wipes `/tmp` between
+wakes. `pregate.json` records the directory as `scratch` and the table prints
+`scratch: <dir>`. A `--run <id>` whose directory already exists (a finished run
+under the same name, or a second run beside a live one) is never shared, since
+a second run would truncate the first's logs: the run takes `<id>-2` … `-9`
+and the record names the directory it got. Runs older than 7 days under the
+same project are pruned when a new run starts (the current run never is). An
+unwritable state root falls back to a private directory under `os.tmpdir()`,
+still one per run, and `--explain` says so.
+
+<a id="timing"></a>
+## Timing assertions
+
+`timing` reads only the lines the branch added or changed in test code (test
+files and files under `test/`, `tests/`, `spec/` or `__tests__/`; never
+fixture trees). It reports three patterns:
+
+| Pattern | Example |
+|---|---|
+| `wall-time-bound` | `expect(Date.now() - t0).toBeLessThan(400)`, `expect(elapsedMs).toBeLessThanOrEqual(2_000)`, `assert elapsed < 0.5` |
+| `cpu-time-bound` | `expect(cpuMs(() => parse(x))).toBeLessThan(150)`, `assert time.process_time() - c0 < 0.2` |
+| `sleep-then-assert` | `await Bun.sleep(50); expect(calls).toBe(1)` (a fixed sleep, not a polling loop) |
+
+A comparison with `0`, a named bound (`timeoutMs`, `TTL_MS`), a timestamp
+ordered against a bare `Date.now()` and a `while (… Date.now() < deadline)`
+poll are not reported. Changing the bound of an existing assertion is a changed
+line, so it is reported.
+
+**Escape.** When the bound is the contract (a hang check with wide headroom, a
+CPU-time bound on a pure function), put `gstack-timing-ok: <reason>` in a
+comment, in any comment syntax (`//`, `#`, `/* */`, `--`), on the line or
+the line above. The reason is required; an empty one is still reported with
+`(gstack-timing-ok needs a reason)`. `--explain` lists every escape and its
+reason.
+
+**Warn, not block (measured 2026-10-16).** The detector was run over:
+
+- gstack's own test tree: 263 hits in 123 of 1,566 test files (176
+  `wall-time-bound`, 87 `sleep-then-assert`), mostly real timing assertions,
+  most of them generous "does not hang" bounds.
+- gstack's last 51 commits on main: 9 of the 47 that touched tests would have
+  been flagged (29 hits; #3190 alone has 7).
+- gbrain's last 100 commits on master: 37 of the 95 that touched tests would
+  have been flagged (147 hits).
+- The five gbrain timing-flake fixes (#6050, #6493, #6726, #6746, #6862): 31 of
+  38 fix sites were flagged before the fix. The misses are flakes with no
+  timing comparison on the line (an injected deadline in #6050, a
+  `Promise.race` with a sleep and a deadline parameter in #6862) and ratio or
+  percentile checks computed far from the clock read. The correct fix in
+  #6726 (wall clock to thread CPU time) is still a bound and is reported 21
+  times.
+
+Blocking would stop about a fifth of gstack's and two fifths of gbrain's
+test-touching commits, including correct fixes, so the check warns. A repo
+that wants it stricter keeps the warning in its review rule (the /review
+checklist has the same rule) and /investigate's flake playbook says what to do
+with a timing flake: never raise the bound.
+
+<a id="sealed"></a>
+## Sealed output: the pre-push hook and `gstack-pregate sealed`
+
+```json
+{ "sealed": {
+    "paths": ["heldout/**", "**/sealed/**"],
+    "transcripts": ["runs/**/transcript*.jsonl"],
+    "allow_paths": ["**/sealed/*/MANIFEST.json", "**/protected/MANIFEST.json"],
+    "answer_markers": ["SEALED ANSWER:"],
+    "seed_patterns": ["shuffle_seed=\\d+"],
+    "local_paths": true,
+    "case_insensitive": true } }
+```
+
+A repo with a `sealed` key gets a configured local check against accidental
+publication whenever the managed pre-push hook (`gstack-redact
+install-prepush-hook`, no reinstall needed) or the standalone preflight runs:
+
+```
+gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--json]
+```
+
+- **Boundary.** Every commit the push publishes: `git rev-list <local sha>
+  --not --remotes=<remote>` (and the remote tip when the ref exists); a
+  destination with no refs means everything reachable. `--range` names the
+  commits explicitly.
+- **Rules.** `sealed.path` and `sealed.transcript` check every path a commit
+  adds, renames or copies, whatever its content (binary, empty, deleted again
+  in a later commit); `sealed.answer`, `sealed.seed` and `sealed.local_path`
+  (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`) check each commit's added
+  lines. Findings print rule, `file[:line]` and commit, never the text.
+- **Globs.** `paths`, `transcripts` and `allow_paths` match the whole
+  repo-relative path from the repository root. `*` and `?` stay inside one
+  path segment; `**/` spans zero or more directories; a `**` not followed by
+  `/` matches across directories (`heldout/**` covers every depth under
+  `heldout/`); `[` and `{` are literal. So `sealed/**` misses `tasks/x/sealed/a.json`:
+  to guard a `sealed/` directory wherever it sits, write `**/sealed/**`.
+- **Case.** Matching is case-sensitive. `case_insensitive: true` folds case
+  for `paths` and `transcripts` only, so `**/heldout/**` also catches
+  `HELDOUT/` and `HeldOut/`. Separator and spelling variants (`hold-out/`,
+  `held_out/`, `heldout-v2/`) are not folded: list each as its own glob.
+  The effective value is the base branch's OR the pushed one (it only tightens).
+- **Exceptions.** `allow_paths` exempts publishable files that sit next to
+  sealed data (a `MANIFEST.json` of hashes and counts) from `sealed.path` and
+  `sealed.transcript`, applied after the deny globs and before waivers. They
+  are read from the destination base branch only: an exception a push adds
+  takes effect once it lands on the base branch, so a branch can never widen
+  its own. They never fold case. An entry whose file name contains `**`, or
+  is only wildcards before its extension (`**`, `sealed/*`, `**/*.json`,
+  `sealed/**.json`), is refused; a partial wildcard such as `MANIFEST*.json`
+  is accepted and matches every file it spells, so name the file. An exempt file is checked by the
+  text rules only, so configure `answer_markers` when you exempt files next to
+  sealed data. Each exempt path is listed on every push (`exempt <rule>
+  <file> commit <sha> (sealed.allow_paths <glob>)`) and counted as
+  `exempt=<n>` on the `SEALED:` line.
+- **Version skew.** A gstack older than the release whose CHANGELOG adds
+  `sealed.allow_paths` refuses `allow_paths` and `case_insensitive` as
+  unknown keys, so every push and `gstack-pregate run` in the repository
+  fail on that machine. Raise `min_gstack_version` in
+  `.gstack/ship-policy.json` to that release before landing either key.
+- **Policy.** The union of the destination base branch's `sealed` and the
+  pushed commit's: a push can tighten it, never relax it (`allow_paths` come
+  from the base branch alone, and a pushed deny glob cannot override one). The
+  `SEALED:` line names both as `policy=<remote>/<base> + commit <sha12>`.
+  `gstack-pregate sealed` only checks and never pushes, so confirm a push with
+  `git ls-remote <remote> <ref>`. A malformed or
+  unreadable policy refuses. Waivers come only from the base branch's
+  `.gstack/sealed-allow.tsv` (`rule<TAB>path<TAB>sha<TAB>reason`) and are
+  listed on every push.
+- **Visibility.** `sealed.visibility` from the base branch, else a cache under
+  the state root (`sealed-visibility.json`: a `public` answer for 24 hours, a
+  `private` one for 1 hour before it may turn a refusal into a warning), else
+  `gh repo view --json visibility` (5 s). Unknown, unreadable or newly created
+  counts as public. Public refuses (`SEALED_OUTPUT_REFUSED`, exit 1); private
+  warns.
+
+Capy's pull-request tool may not run local git hooks, so an agent runs
+`gstack-pregate sealed` before any push or PR creation in a repo with a
+`sealed` config (the coordinator contract says so). Hosted CI on the public
+repository only detects a bypass after the upload.
+
+<a id="regate"></a>
+## `gstack-pregate regate`: does the gate still cover HEAD
+
+```
+gstack-pregate regate --against <gated-head> --bundle <evidence-bundle.json> [--require <lane,...>]
+                      [--pr <n>] [--from <gate-ahead.json>] [--predecessor-pr <n> | --predecessor-ref <ref>]
+                      [--base <branch>] [--json]
+gstack-pregate --against <gated-head> ...      the same verb
+```
+
+It evaluates a tree receipt now (never a stored one) between the gated head
+and HEAD under the base branch's ship policy, so the repo's `stamp_files` and
+`stamp_patterns` decide what a stamp is ([ship-policy](ship-policy.md#tree-receipt)).
+Reuse needs an evidence bundle produced on the gated tree, the same execution
+identity, and a predecessor head that is still the recorded one (read from
+`--from`, default `.gstack/tmp/gate-ahead.json` when it names this gated
+head). It prints each differing file (a non-stamp difference with its first
+line), then:
+
+```
+STAMP_ONLY: yes|no files=<n> [changed=<n>]
+LANE: <label> reusable|rerun|not-reusable (<reason>)      one per bundle lane and per --require lane
+MIGRATION_COLLISION: none (...) | unknown (...) | <id> <file> vs <origin/main|PR #n> <file>
+REGATE: not-needed | needed (<every reason>)
+```
+
+`REGATE: not-needed` (exit 0) only when the tree is stamp-only, every lane in
+the bundle and in `--require` is reusable (a stamp-sensitive lane reruns, so it
+needs a regate), the predecessor head is known and unmoved, and the migration
+lookup finished with no collision. Anything else is `needed` (exit 1); no
+bundle prints `REGATE: needed (no gate evidence for <head> ...)`.
+
+Migrations come from the ship policy's `migrations` (`dir`, `id` regex with
+one capture group). The numbers this branch adds under `dir` are compared with
+the base branch's tree and with every other open PR
+(`gh pr list --state open --limit 1000 --json number,headRefOid,files`; the PR
+itself is skipped by head sha or `--pr`). A PR listing 100 files is truncated
+by GitHub, so its full list is fetched with `gh api --paginate`. A failed
+query, 1000 listed PRs or an unfetchable file list is
+`MIGRATION_COLLISION: unknown (...)`, which blocks `not-needed`
+([`MIGRATION_COLLISION`](troubleshooting.md#migration-collision)).
+
+<a id="gbrain-worked-configs"></a>
+## gbrain worked configs
+
+gbrain commits these on master after the gstack that reads the new keys ships
+(older gstack refuses unknown keys). Its `.gitignore` ignores `.gstack/*`
+today, so the change also adds `!.gstack/pregate.json` and
+`!.gstack/ship-policy.json`; both changes are gbrain's.
+
+`.gstack/pregate.json`: guards for the gates the import graph cannot see.
+
+```json
+{
+  "dependencies": {
+    "test/**/*.serial.test.ts": ["test/scripts/serial-files.test.ts"],
+    "scripts/serial-files.tsv": ["test/scripts/serial-files.test.ts"],
+    "src/cli.ts": ["test/cli-goldens.test.ts"],
+    "src/commands/**": ["test/cli-goldens.test.ts"],
+    "src/core/operations*.ts": ["test/cli-goldens.test.ts"]
+  },
+  "guards": [
+    { "id": "serial-manifest", "when": ["test/**/*.serial.test.ts", "scripts/serial-files.tsv", "scripts/run-serial-tests.sh"],
+      "command": "bun test test/scripts/serial-files.test.ts",
+      "fix": "add the serial file's row to scripts/serial-files.tsv" },
+    { "id": "cli-goldens", "when": ["src/cli.ts", "src/cli/**", "src/commands/**", "src/core/operations*.ts", "src/core/ops/**"],
+      "command": "bun test --timeout=60000 test/cli-goldens.test.ts test/cli-dispatch-phase.test.ts test/export-surface-golden.test.ts",
+      "fix": "bun run regen:all, then justify each changed golden in the PR body" },
+    { "id": "regen-check", "when": ["src/**", "skills/**", "templates/**", "plugin/**"],
+      "command": "bun scripts/regen-all.ts --check",
+      "fix": "bun run regen:all and commit the regenerated files" },
+    { "id": "migration-order", "when": ["src/core/schema-migrations/**"],
+      "command": "bun scripts/check-schema-migration-order.ts",
+      "fix": "renumber the migration to the next free number on master" }
+  ]
+}
+```
+
+`.gstack/ship-policy.json`: the stamp rule and migrations. On a pure restamp
+of a gbrain master tree from 0.60.188.0 to 0.60.189.0 the tree receipt
+classifies all 16 changed files as stamps under this policy; an added line in
+`src/core/behavior-change-notice.ts` stays a change.
+
+```json
+{
+  "bump": "patch",
+  "queue_mode": "stamp-at-merge",
+  "changelog": "CHANGELOG.md",
+  "stamp_files": [
+    "VERSION", "package.json", "CHANGELOG.md", "openclaw.plugin.json",
+    ".claude-plugin/plugin.json", ".codex-plugin/plugin.json",
+    "plugin-variants/*/.claude-plugin/plugin.json", "plugin-variants/*/.codex-plugin/plugin.json",
+    "plugin-variants/*/README.md", "plugin/README.md",
+    "BOOTSTRAP_FOR_AGENTS.md", "templates/bootstrap/template-repo/README.md",
+    "src/core/behavior-change-notice.ts"
+  ],
+  "stamp_patterns": [
+    "\"version\": \"{version}\"",
+    "since: '{version}'",
+    "<!-- gbrain-plugin-tree-stamp: {version} -->",
+    "<!-- gbrain-template-stamp: {version} -->",
+    "<!-- gbrain-runbook-stamp: {version} -->"
+  ],
+  "migrations": { "dir": "src/core/schema-migrations", "id": "^v(\\d+)-" }
+}
+```
+
+gbrain's `bun run release:restamp` fetches master, picks its own version,
+refuses a dirty tree and commits, so it cannot be `restamp_command` as it
+stands; the stamp rule above lets gstack's own restamp writer do the work.
+A gbrain mode that takes the version and writes only stamps would make it one.
+
+gbrain-evals `.gstack/pregate.json`: the sealed paths. The globs below are
+placeholders in the shape the guard reads; gbrain-evals fills in its own
+held-out and transcript layout.
+
+```json
+{ "sealed": {
+    "paths": ["heldout/**"],
+    "transcripts": ["runs/**/transcript*.jsonl"],
+    "answer_markers": ["SEALED ANSWER:"],
+    "seed_patterns": ["shuffle_seed=\\d+"],
+    "local_paths": true } }
+```
+
+<a id="issue-links"></a>
+## `gstack-issue-links`
+
+```
+gstack-issue-links [--base <ref>] [--issue <n>]... [--ci-run <id>]... [--supersedes <pr>]... [--credit <pr>]...
+                   [--no-auto-links] [--author <login>] [--repo <owner/repo>] [--out issues.json] [--json]
+```
+
+Reads `origin/<base>..HEAD`. `Fixes #N` only on explicit closure intent: a
+`Fixes`/`Closes`/`Resolves #N` trailer line or `--issue N`. A bare mention
+(a subject's `(#N)` included), a partial fix, a deferred ask and every
+cross-repo `owner/repo#N` are `Refs`. A parenthesised named reference,
+`(name #N, #M)`, `(name PR #N)` or `(name issue #N)`, where the name is one
+token that is not a closure, reference, filler or version word, is a
+cross-repo `Refs name#N`, never a same-repo Refs line or a promotion
+candidate; `(see #12)`, `(closing #12)` and `(#301)` stay bare refs.
+Same-repo references are printed as
+promotion candidates (`reference #N ← <commit line> (promote: fix #N)` on
+stderr, `candidates` in `--json`): the owner's `fix #N` reply reruns with
+`--issue N`; an unattended run keeps them `Refs` and lists them in the
+handoff. Each closure issue is read through `gstack-issue-guard`; one that
+cannot be read is `Refs #N (unreadable …)` with `ISSUE_UNREADABLE` (exit 1),
+never `Fixes`.
+
+Each `--ci-run <id>` is searched among open issues whose body names it and
+rendered `Flake: #N (run <id>)` only for a bot-opened issue of this repository
+that names that run (its `flake:json` `first_seen.run_id`, or this repository's
+`actions/runs/<id>` URL) and a test (`flake:json` `file › test`, or a
+`Flake: <test>` title). Two issues for the same test keep the lower number;
+every refused match is printed with its reason.
+
+Open PRs by other authors (not this branch, and not this PR's author: `--author`,
+else the `gh` viewer; when the viewer is an app such as `capy-ai[bot]`, the HEAD
+commit's GitHub user, else the owner of a user-owned repository, else the gap is
+`ISSUE_LOOKUP_FAILED`) whose closing
+set overlaps this PR's `Fixes` are `Related: #N (@author)`, read page by page
+from each issue's closing-PR references, in unattended runs too. `Supersedes #N`
+replaces that line and `Contributed by @author` is added (the credit lines of
+`lib/contributor-mode.ts`) only with `--supersedes N` / `--credit N`, after the
+owner confirms.
+`--no-auto-links` skips the lookup. A failed lookup prints `ISSUE_LOOKUP_FAILED`
+and keeps the other lines. The stderr preview names the source of each line.
+
+The printed lines go under `## Issues` in the PR body; `--out` writes the
+object (`fixes`, `refs`, `flakes`, `related`) `gstack-ship-receipt write
+--issues @file` embeds. With `--body`, that write refuses a body missing any of
+those lines (`ISSUE_LINKS_MISSING`).
