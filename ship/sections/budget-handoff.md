@@ -51,7 +51,8 @@ corrupt ledger takes `--rebuild-from-record`.
 **verdict=delegate.** The next segment (Steps 7–11.5, 12–22, or 1–22 at start) runs in a
 fresh child; you wait and advance only after reconciling it:
 1. `gstack-ship-budget handoff --run <id> --from 7 --to 11.5 --base origin/<base> --reading <n>`
-   (add `--reviewed-tree <t>`, `--trail <file> --trail-run <id>`). It prints `HANDOFF:` and `RETURN_FILE:`.
+   (add `--reviewed-tree <t>`, `--trail <file> --trail-run <id>`). It prints `HANDOFF:` and `RETURN_FILE:`;
+   the brief lists the child's `READ:` line ranges and names `--to` as its last step.
 2. Launch: on Capy a subagent on the shared machine whose brief is "Load gstack, source
    GSTACK_LAUNCH_FILE, run /ship --continue <HANDOFF file>"; on Claude Code
    `gstack-ship-budget launch --in <HANDOFF file>` (background, explicit permissions).
@@ -60,7 +61,7 @@ fresh child; you wait and advance only after reconciling it:
    never stops on the context rule: after a completed step, `verdict=delegate` hands its
    remaining steps to a grandchild through these four steps (depth 3 at most); a
    `CONTEXT_HIGH:` note means continue. It reconciles any grandchild, then ends with
-   `gstack-ship-budget return --run <child> --to <step> --changed <sections>` (at most 40 lines).
+   `gstack-ship-budget return --run <child> --to <the brief's last step> --changed <sections>` (at most 40 lines).
 4. `gstack-ship-budget reconcile --run <id> --return <RETURN_FILE> --reading <n>`. Read the
    record, never the child's transcript. Exit 3 (refused, incomplete or interrupted):
    regenerate the handoff or stop; every check refuses until a regenerated child reconciles

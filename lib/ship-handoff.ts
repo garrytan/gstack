@@ -62,6 +62,36 @@ export function segmentSections(from: string, to: string): string[] {
   return [...new Set(SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1).flatMap(s => STEP_SECTIONS[s] ?? []))];
 }
 
+const SKILL_ROOT = path.resolve(import.meta.dir, '..');
+
+/** The exact line ranges a child of Steps from..to reads (GSTA-167): ship/SKILL.md's contract (never its preamble or section index), its own steps, the self-check and Important Rules; each segment section whole, except review-army.md's Step 9.1 selection rules, which the review plan's DISPATCH lines replace. */
+export function readRanges(from: string, to: string, root = SKILL_ROOT): string[] {
+  const read = (rel: string) => { try { const l = fs.readFileSync(path.join(root, rel), 'utf8').split('\n'); return l.at(-1) === '' ? l.slice(0, -1) : l; } catch { return null; } };
+  const steps = new Set<string>(SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1));
+  const line = (rs: [number, number][]) => rs.sort((a, b) => a[0] - b[0]).reduce<[number, number][]>((m, r) => { const last = m.at(-1); if (last && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1]); else m.push([...r]); return m; }, []).map(([a, b]) => `${a}-${b}`).join(',');
+  const out: string[] = [];
+  const skill = read('ship/SKILL.md');
+  if (skill) {
+    const bounds = skill.flatMap((l, i) => /^(# |## (Step |Section |Important Rules))/.test(l) ? [i] : []);
+    const end = (i: number) => bounds.find(k => k > i) ?? skill.length;
+    const rs: [number, number][] = [];
+    skill.forEach((l, i) => {
+      const step = /^## Step ([\d.]+):/.exec(l)?.[1];
+      if (l.startsWith('# Ship:') || (step && steps.has(step)) || l.startsWith('## Section self-check') || l.startsWith('## Important Rules')) rs.push([i + 1, end(i)]);
+    });
+    out.push(`READ: ship/SKILL.md:${line(rs)}`);
+  }
+  for (const s of [...segmentSections(from, to), 'budget-handoff']) {
+    const rel = `ship/sections/${s}.md`;
+    const lines = read(rel);
+    if (!lines) continue;
+    const skipFrom = s === 'review-army' ? lines.findIndex(l => l.startsWith('### Detect stack and scope')) : -1;
+    const skipTo = skipFrom >= 0 ? lines.findIndex(l => l.startsWith('### Dispatch specialists by packet')) : -1;
+    out.push(`READ: ${rel}:${line(skipTo > skipFrom ? [[1, skipFrom], [skipTo + 1, lines.length]] : [[1, lines.length]])}`);
+  }
+  return out;
+}
+
 function brief(l: Ledger, h: Omit<Handoff, 'sha'>, pins: Record<string, unknown>, recordText: string, o: Record<string, string | undefined>): string {
   const reviews = recordSection(recordText, 'Reviews') ?? [];
   const tokens = [...new Set(reviews.join('\n').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g) ?? [])];
@@ -77,12 +107,12 @@ function brief(l: Ledger, h: Omit<Handoff, 'sha'>, pins: Record<string, unknown>
     `3. Run /ship --continue <this file> for Steps ${h.from}-${h.to} only, under the printed child run: \`check\` at every boundary and before every dispatch batch, obeying \`verdict=\`. The context rule never stops you: \`verdict=delegate\` hands your remaining steps to a fresh child the same way (ship/sections/budget-handoff.md), and a \`CONTEXT_HIGH:\` note means continue. This run is at chain depth ${h.depth} of ${MAX_CHAIN_DEPTH}.`,
     block.launch_file ? `4. Source the launch file \`${block.launch_file}\` in every shell that runs a gstack command (its path only; never print its values).` : '4. No GSTACK_LAUNCH_FILE was named.', '',
     '## Read', '',
-    `Only ship/SKILL.md's step list and, under ship/sections/, ${[...segmentSections(h.from, h.to), 'budget-handoff'].map(s => s + '.md').join(', ')}; a conditional section only when its manifest.json trigger fires. Never read ship/sections/preamble.md in full or docs/ship-budget.md: budget-handoff.md is the whole budget procedure.`, '',
+    `Only ship/SKILL.md's step list and, under ship/sections/, ${[...segmentSections(h.from, h.to), 'budget-handoff'].map(s => s + '.md').join(', ')}; a conditional section only when its manifest.json trigger fires. Never read ship/sections/preamble.md in full or docs/ship-budget.md: budget-handoff.md is the whole budget procedure. Read only the \`READ:\` ranges below (\`path:first-last\`, from the gstack install root), in one parallel call; Step 9.1's selection rules are left out because the review plan's \`DISPATCH:\` lines replace them.`, '', ...readRanges(h.from, h.to), '',
     '## Record', '', `You are the only writer of \`${l.record}\` during this segment. It keeps its six headings (${RECORD_HEADINGS.join(', ')}). Original start tokens: ${tokens.join(', ') || 'none'}.`, '',
     '## Decisions and approvals in scope (verbatim from the record)', '', ...(recordSection(recordText, 'Decisions') ?? ['(none recorded)']), '',
     '## Budget', '', `Sub-cap ${h.sub_cap} ${block.unit} (meter=${block.meter}); the parent keeps a ${l.tail} tail reserve. Ledger: ${l.file}.`, '',
     '## Return contract', '',
-    `Finish with \`gstack-ship-budget return --run <your child run> --to <last step done> --changed <record sections you changed>\`. It writes ${h.return_file} (at most ${RETURN_MAX_LINES} lines: the steps done, new HEAD and tree, the record sections changed, the BUDGET line and GSTACK_RESULT) and prints the same lines. The parent reads the record, never your transcript.`, '',
+    `Your last step is Step ${h.to}. After it, finish with \`gstack-ship-budget return --run <your child run> --to ${h.to} --changed <record sections you changed>\` (a child that stops earlier returns \`--status incomplete --to <last step done>\`). It writes ${h.return_file} (at most ${RETURN_MAX_LINES} lines: the steps done, new HEAD and tree, the record sections changed, the BUDGET line and GSTACK_RESULT) and prints the same lines. The parent reads the record, never your transcript.`, '',
   ].join('\n');
 }
 

@@ -127,7 +127,12 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
 1. `gstack-ship-budget handoff --run <id> --from 12 --to 22 --base origin/<base> --reading <n>` writes a
    brief (mode 0600, under the run directory) with the pins (HEAD, merge base, working tree,
    reviewed tree), the record with its six headings and start tokens, the decisions in scope
-   with the owner's words, the decision trail, the budget and the return contract. It reserves
+   with the owner's words, the decision trail, the budget and the return contract. Its `READ:`
+   lines are the child's whole reading list as line ranges: ship/SKILL.md's contract, the
+   segment's own steps, the self-check and Important Rules (never the preamble or section
+   index), and each segment section, review-army.md without Step 9.1's selection rules (the
+   review plan's `DISPATCH:` lines replace them). The return contract names `--to` as the
+   segment's last step, so a 12-22 child returns `--to 22`. It reserves
    the child's sub-cap: min(cap − used − reserved − unknown − the calibrated tail reserve and stop
    overhead, the segment estimate), or `--sub-cap`. A child handing off reserves its whole
    remaining sub-cap instead (cap − used − reserved − unknown − its stop overhead).
