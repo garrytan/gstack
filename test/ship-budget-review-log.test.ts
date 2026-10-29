@@ -113,6 +113,7 @@ describe('gstack-review-log --start under a token cap', () => {
     expect(h.ledger(run.ledger).reservations.find((r: any) => r.id === id).state).toBe('settled');
     const close = h.sb(['close', '--run', run.run, '--reading', '10']);
     expect(close.out).not.toContain('BUDGET_CHECK_SKIPPED');
+    expect(close.out).not.toContain('reason=budget_check_skipped');
     expect(close.code, close.out).toBe(0);
   });
 

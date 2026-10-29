@@ -29,6 +29,12 @@ role per packet, never packet names):
 
 On `ADMIT: k of n (remaining=<roles>)`, dispatch only those k and re-check the remaining roles
 after they settle; `close` flags roles never re-checked. `--finish` settles the reservation and the pass's other dispatch reservations.
+
+**One program per review pass.** One execute program (one shell script off Capy) runs, in order:
+`gstack-review-packet build` (a later build in the pass is `build --like <first dir>`), `check --next "$BUDGET_NEXT"`,
+`gstack-review-log --start` once per role on the printed reservation, the reading `BEFORE`, the readers
+(`tools.subagent.create` on Capy), the poll until the last settles (`tools.subagent.get`), the reading `AFTER`,
+`gstack-ship-budget settle`, then `gstack-review-packet collect`, returning only collect's output.
 Settle each batch in the program that dispatched it: read the counter right before the readers
 start and right after the last one settles, then `gstack-ship-budget settle --run <id> --reservation <id>
 --dispatched-at <before> --reading <after> --readers <n>` (`--unknown` when the meter cannot see it);

@@ -236,6 +236,31 @@ describe('the budget section states both contracts', () => {
     expect(tmpl).toMatch(/--prior-reading[\s\S]{0,200}previous call/);
     expect(tmpl).toMatch(/older than the run's last reading is ignored/);
   });
+  // Value: protects=no gstack prose tells the agent to read the meter in a call of its own (each such call costs a full context, about 0.2M on #34/#36); fails_when=capy SKILL.md keeps "one execute program returning only that number" or the section asks for a meter-only call;
+  //   why_new=the template test above never read the Capy skill; seam=none; no_claim=how often an agent obeys the prose
+  test('the Capy skill reads the meter inside the budget command\'s program and names no meter-only call', () => {
+    const capy = fs.readFileSync(path.join(import.meta.dir, '..', 'capy', 'skill', 'gstack', 'SKILL.md'), 'utf8');
+    const caps = capy.slice(capy.indexOf('Token caps on /ship'), capy.indexOf('/ship reviewers on Capy'));
+    expect(caps.length).toBeGreaterThan(0);
+    expect(caps).not.toContain('returning only that number');
+    expect(caps).toMatch(/inside the same (?:execute )?program as the\s+`gstack-ship-budget` command/);
+    for (const text of [capy, tmpl]) expect(text).not.toMatch(/read it again in your next call|meter-only call(?!s? (?:is|are) never)/);
+  });
+  // Value: protects=each review pass is one execute program in a fixed order, so the readers' reading pair brackets only them and no build, start or poll costs its own parent call; fails_when=the order breaks (a start after the readers are created, a settle after collect) or later builds hand-copy flags instead of --like;
+  //   why_new=no test reads the pass order; seam=none; no_claim=the model's adherence
+  test('a review pass is one execute program: build, check --next, review-log --start, BEFORE, create, poll, AFTER and settle, collect', () => {
+    const capy = fs.readFileSync(path.join(import.meta.dir, '..', 'capy', 'skill', 'gstack', 'SKILL.md'), 'utf8');
+    const pass = capy.slice(capy.indexOf('/ship reviewers on Capy'), capy.indexOf('## Plan, approve, ship'));
+    expect(pass).toMatch(/one execute program per review pass/);
+    const order = ['gstack-review-packet build', 'check --next', 'gstack-review-log --start', 'BEFORE', 'tools.subagent.create', 'tools.subagent.get', 'AFTER', 'gstack-ship-budget settle', 'gstack-review-packet collect'];
+    for (const text of [pass, tmpl.slice(tmpl.indexOf('**One program per review pass.**'))]) {
+      const at = order.map(o => text.indexOf(o));
+      expect(at.every(i => i >= 0), order.filter((_, k) => at[k]! < 0).join(',')).toBe(true);
+      expect([...at].sort((a, b) => a - b)).toEqual(at);
+    }
+    expect(pass).toContain('--like');
+    expect(pass).not.toContain("with the plan run's flags");
+  });
   test('a batch names one role per reader and is settled with the dispatch program\'s own reading pair', () => {
     expect(tmpl).toMatch(/one role per (?:reader|`DISPATCH:` line)/);
     expect(tmpl).toMatch(/Settle each batch in the program that dispatched it[\s\S]{0,300}--dispatched-at <before> --reading <after> --readers <n>/);
