@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+**A capped /ship on Capy no longer delegates or stops just because the host's own prompt is big, and a delegated child hands off instead of stopping.** A fresh Capy call costs 150-230k before any /ship work, so the 100k start and 150k segment thresholds fired on every capped Capy start and stopped two gstack-evals #36 children at their first boundary. The thresholds now measure context above a calibrated per-host call floor.
+
+### Fixed
+- **Thresholds sit above the host call floor.** `lib/ship-budget-calibration.json` gives each meter a `call_floor` (Capy 150k, Claude Code 40k, estimate 0); `start --call-floor <n>` overrides it and children inherit it. `BUDGET:` and `STOP:` lines print `call_floor=` and `above_floor=`.
+- **A child never stops on the context rule.** After a completed step it hands its remaining steps to a grandchild through the same handoff, verify, return and reconcile commands (chain depth 3 at most). Before its first completed step, at the maximum depth, or past its segment it continues with one `CONTEXT_HIGH:` line. The admission cap still stops it.
+- **A delegated child cannot return complete with work left over.** `return` reports `status=incomplete` with `UNRECONCILED:` or `DROPPED:` lines while one of its own grandchildren is unreconciled or a batch remainder was never re-checked.
+
+### Changed
+- **Parallel reviewer batches near the cap admit the largest prefix that fits** (`ADMIT: k of n (remaining=<roles>)`) instead of refusing the whole batch; each reader is priced at the larger of its projection and the run's measured mean for that role. `close` flags remaining roles nobody re-checked (`DROPPED:`, `status=incomplete` until the owner accepts).
+
+### Tests
+- `test/ship-budget-chain.test.ts` replays #36 (a child at its first boundary continues) and covers the Capy floor, grandchild handoff at depth 2, the depth-3 cap, charging a chained return once on all three meters, and the incomplete return. `test/ship-budget-batch.test.ts` replays #35's 7-reader batch near the cap.
+
 **A /ship token cap now projects each step and reviewer from what the run has actually spent, so real caps stop refusing work that costs a fraction of the old guess.** On GSTA-152 a 29.28M cap refused its third reviewer because every dispatch was projected at 7.43M while real ones cost 0.23 to 1.02M; on GSTA-2 an 8M cap stopped before Step 6 after Steps 1 to 5 cost about 0.27M each, because every step was projected at 2.25M.
 
 ### Fixed
