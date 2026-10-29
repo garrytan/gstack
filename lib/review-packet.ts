@@ -87,9 +87,11 @@ export interface ReviewerDiff { stat: string; chunks: string[]; fixtureStat: str
 const DATA_FILE = /\.(json|jsonl|ndjson|csv|tsv)$/i;
 const MANIFEST_FILE = /^(package(-lock)?\.json|composer\.json|deno\.jsonc?|tsconfig[^/]*\.json|[^/]*\.config\.json)$/i;
 
-function topLevelKeys(file: string): string {
+/** Keys or columns read from the diff's own lines (added, else removed), never from the working tree, which a symlink can point outside the diff. */
+function topLevelKeys(file: string, changed: string[]): string {
+  const side = changed.some(l => l.startsWith('+')) ? '+' : '-';
+  const text = changed.filter(l => l.startsWith(side)).map(l => l.slice(1)).join('\n');
   try {
-    const text = fs.readFileSync(file, 'utf8');
     if (/\.(csv|tsv)$/i.test(file)) return `columns: ${text.split('\n')[0]!.slice(0, 300)}`;
     const v = /\.json$/i.test(file) ? JSON.parse(text) : JSON.parse(text.split('\n').find(l => l.trim()) ?? 'null');
     const keys = (o: unknown) => (o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o).slice(0, 30).join(', ') : '');
@@ -98,12 +100,12 @@ function topLevelKeys(file: string): string {
 }
 
 /** A large data-format file's chunk as a summary: its changed-line count, keys, and the first and last 40 changed lines. */
-function dataSummary(root: string, p: string, chunk: string): string | null {
+function dataSummary(p: string, chunk: string): string | null {
   if (!DATA_FILE.test(p) || MANIFEST_FILE.test(path.basename(p))) return null;
   const changed = chunk.split('\n').filter(l => /^[+-]/.test(l) && !/^(\+\+\+|---) /.test(l));
   if (changed.length <= DATA_SUMMARY_LINES) return null;
   return [`diff --git a/${p} b/${p}`, `DATA SUMMARY: ${p} (${changed.length} changed lines, a data file shown as a summary; ask the parent for a line range if a finding needs one)`,
-    topLevelKeys(path.join(root, p)), 'first 40 changed lines:', ...changed.slice(0, 40), '…', 'last 40 changed lines:', ...changed.slice(-40), ''].join('\n');
+    topLevelKeys(p, changed), 'first 40 changed lines:', ...changed.slice(0, 40), '…', 'last 40 changed lines:', ...changed.slice(-40), ''].join('\n');
 }
 
 export function reviewerDiff(root: string, diffBase: string, exclude: readonly string[], summary: boolean, skip: (p: string) => boolean, keepData: (p: string) => boolean = () => false): ReviewerDiff {
@@ -125,7 +127,7 @@ export function reviewerDiff(root: string, diffBase: string, exclude: readonly s
     fixtureStat = [git(root, ['diff', '--stat=200', '--no-renames', diffBase, ...fx]).trimEnd(), ...listed.map(p => ` ${p} | untracked`)].filter(Boolean).join('\n') || '(no test or fixture changes)';
   }
   const paths = chunks.map(c => /^diff --git a\/(.*?) b\//.exec(c)?.[1] ?? '?');
-  const shown = chunks.map((c, i) => (keepData(paths[i]!) ? c : dataSummary(root, paths[i]!, c) ?? c));
+  const shown = chunks.map((c, i) => (keepData(paths[i]!) ? c : dataSummary(paths[i]!, c) ?? c));
   return { stat: stat || '(empty diff)', chunks: shown, fixtureStat, paths };
 }
 

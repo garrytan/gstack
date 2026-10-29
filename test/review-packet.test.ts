@@ -169,8 +169,6 @@ describe('gstack-review-packet build', () => {
     expect(build(r, ['--audit', 'plan-completion']).status).toBe(2);
   });
 
-  // Value: protects=a Step 7/8 audit past the packet cap stays one packet holding the whole diff, so the parent gets one coverage or plan verdict and one generation allowance; fails_when=audits shard like reviewers (a plan item built in another shard reads NOT DONE, each shard generates tests);
-  //   why_new=the sharding test covers reviewers only; seam=none; no_claim=how a child reads a packet past its context (it reads the file in ranges)
   // Value: protects=--base origin/main names origin/main in the audit prompt; fails_when=the prompt prefixes origin/ to a ref that already has it (git diff origin/origin/main);
   //   why_new=every build test passes --base main with no origin remote; seam=none; no_claim=a base with no origin remote (covered: it stays as given)
   test('--base origin/main and --base main both put origin/main in the audit prompt, never origin/origin/main', () => {
@@ -246,20 +244,46 @@ describe('gstack-review-packet build', () => {
     expect(ps.find(p => p.name === 'maintainability')!.text).not.toContain('"id": "d-700"');
   });
 
+  // Value: protects=a data summary is built from the diff alone, so no file outside the diff reaches a packet; fails_when=topLevelKeys reads the working tree and follows a symlink that replaced a large CSV;
+  //   why_new=the #34 test adds plain files only; seam=none; no_claim=other symlink shapes git shows as one-line diffs
+  test('a large CSV replaced by a symlink to a private file: the summary never reads the link target', () => {
+    const secret = path.join(tmp('review-packet-secret-'), 'id_key');
+    fs.writeFileSync(secret, 'PRIVATE-KEY-MATERIAL-7f3a,never,in,a,packet\n');
+    const csv = 'id,name,score\n' + Array.from({ length: 500 }, (_, i) => `${i},row${i},${i % 7}`).join('\n') + '\n';
+    const r = repo({ 'data/scores.csv': csv }, { 'src/a.ts': lines(5, 'nu') });
+    fs.rmSync(path.join(r.dir, 'data/scores.csv'));
+    fs.symlinkSync(secret, path.join(r.dir, 'data/scores.csv'));
+    const b = build(r, ['--only', 'security,outside-voice']);
+    expect(b.status).toBe(0);
+    const ps = packets(b.stdout);
+    expect(ps.map(p => p.name).sort()).toEqual(['outside-voice', 'security']);
+    for (const p of ps) {
+      expect(p.text).toContain('DATA SUMMARY: data/scores.csv');
+      expect(p.text).not.toContain('PRIVATE-KEY-MATERIAL');
+    }
+  });
+
   // Value: protects=a partial build after the head moved drops the old run's reviewers and their outputs; fails_when=writeManifest keeps entries from another head, so stale clean results count as coverage of new code;
   //   why_new=partial-build tests stay on one head; seam=none; no_claim=a working-tree edit at the same head beyond the one exercised here
-  test('a partial build keeps other reviewers only at the same head, base and content; otherwise their entries and outputs go', () => {
+  test('a partial build keeps other reviewers only at the same head, base and content; otherwise it starts over, and a Red Team build refuses', () => {
     const r = repo({}, { 'src/a.ts': lines(80, 'mu') });
     const first = packets(build(r, ['--only', 'testing,maintainability']).stdout);
     for (const p of first) fs.writeFileSync(p.out, 'NO FINDINGS\n');
     expect(build(r, ['--only', 'testing']).status).toBe(0);
     expect(readManifestOf(r.out).map(p => p.reviewer).sort()).toEqual(['maintainability', 'testing']);
     fs.writeFileSync(path.join(r.dir, 'src/a.ts'), lines(81, 'mu'));
+    fs.writeFileSync(path.join(r.out, 'merged.jsonl'), '');
+    const red = build(r, ['--only', 'red-team', '--findings', path.join(r.out, 'merged.jsonl')]);
+    expect(red.status).toBe(3);
+    expect(red.stdout).toContain('STALE_MANIFEST: content changed');
+    expect(readManifestOf(r.out).map(p => p.reviewer).sort()).toEqual(['maintainability', 'testing']);
     expect(build(r, ['--only', 'testing']).status).toBe(0);
     expect(readManifestOf(r.out).map(p => p.reviewer)).toEqual(['testing']);
     expect(fs.existsSync(first.find(p => p.name === 'maintainability')!.out)).toBe(false);
   });
 
+  // Value: protects=a Step 7/8 audit past the packet cap stays one packet holding the whole diff, so the parent gets one coverage or plan verdict and one generation allowance; fails_when=audits shard like reviewers (a plan item built in another shard reads NOT DONE, each shard generates tests);
+  //   why_new=the sharding test covers reviewers only; seam=none; no_claim=how a child reads a packet past its context (it reads the file in ranges)
   test('an audit past the cap is never sharded: one packet, every path of the diff', () => {
     const files: Record<string, string> = {};
     for (let i = 0; i < 30; i++) files[`src/f${i}.ts`] = lines(400, `v${i}_`);
@@ -534,6 +558,14 @@ describe('gstack-review-packet collect', () => {
   //   why_new=invalid-line tests only use non-JSON text; seam=none; no_claim=the validity rules themselves
   test('a CRITICAL line missing required fields next to a valid finding makes the reviewer invalid, exit 3', () => {
     const r = collect(dir([{ role: 'specialist', name: 'testing' }], { testing: [finding({}), '{"severity":"CRITICAL","path":"src/a.ts","summary":"real blocker"}'].join('\n') }));
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain('REVIEWER: testing status=invalid');
+  });
+
+  // Value: protects=a CRITICAL in another case or on an unparseable line still makes the reviewer invalid; fails_when=only an exact, parseable severity "CRITICAL" trips the guard;
+  //   why_new=the guard test above uses a parseable exact-case line; seam=none; no_claim=prose findings, which the contract already rejects
+  test.each(['{"severity":"Critical","confidence":8,"path":"a.ts","category":"x","summary":"s","specialist":"testing"}', '{"severity":"CRITICAL","path":"a.ts","summary":"trailing comma",}', '[CRITICAL] a.ts: prose blocker'])('a case-variant or unparseable CRITICAL line next to a valid finding makes the reviewer invalid: %s', bad => {
+    const r = collect(dir([{ role: 'specialist', name: 'testing' }], { testing: [finding({}), bad].join('\n') }));
     expect(r.status).toBe(3);
     expect(r.stdout).toContain('REVIEWER: testing status=invalid');
   });

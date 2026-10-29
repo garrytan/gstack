@@ -80,6 +80,10 @@ function build(): number {
   fs.mkdirSync(absOut, { recursive: true, mode: 0o700 });
   const ctx: BuildContext = { root, skillRoot: path.resolve(binDir, '..'), binDir, outDir: absOut, head, diffBase, baseRef: resolveBaseRef(root, flags.base), fingerprint: plan.numbers.fingerprint, learnings: learningsFor(binDir),
     ...(planText !== undefined ? { plan: { path: flag('--plan-file')!, text: planText } } : {}) };
+  const content = contentKey(ctx);
+  const old = has('--findings') ? readManifest(absOut) : null;
+  const stale = old && ([['head', head], ['diff_base', diffBase], ['content', content]] as const).find(([k, v]) => old[k] !== v)?.[0];
+  if (stale) { process.stdout.write(`STALE_MANIFEST: ${stale} changed since the build in ${outDir} that produced --findings; the Red Team would review another tree than the specialists. Rebuild that pass's packets first.\n`); return EXIT.refused; }
   const out: string[] = [];
   let entries: PacketEntry[] = [];
   if (audit) {
@@ -118,7 +122,7 @@ function build(): number {
     }
     out.unshift(reviewPlanLine(plan, planPass(plan, flags.pass)));
   }
-  writeManifest(absOut, { version: 1, head, diff_base: diffBase, fingerprint: plan.numbers.fingerprint, content: contentKey(ctx) }, entries, has('--only'));
+  writeManifest(absOut, { version: 1, head, diff_base: diffBase, fingerprint: plan.numbers.fingerprint, content }, entries, has('--only'));
   const built = entries.filter(e => !e.deferred);
   out.push(...built.map(packetLine), `PACKETS: n=${built.length} total_bytes=${built.reduce((n, e) => n + e.bytes, 0)} fingerprint=${plan.numbers.fingerprint}`);
   if (built.length) out.push(`BUDGET_NEXT: dispatch:${built.map(e => budgetRole(e.role)).join(',')}`);

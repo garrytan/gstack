@@ -45,14 +45,14 @@ export function parseOutput(packet: PacketEntry, text: string | null): ReviewerR
     if (NO_FINDINGS.test(line)) { clean = true; continue; }
     if (/^Recommendation:/i.test(line)) { r.recommendation = line; continue; }
     let v: unknown;
-    try { v = JSON.parse(line); } catch { r.invalid++; continue; }
+    try { v = JSON.parse(line); } catch { r.invalid++; if (/\bCRITICAL\b/i.test(line)) badCritical = true; continue; }
     if (v && typeof v === 'object' && !Array.isArray(v) && 'matrix' in v) {
       const m = (v as { matrix: unknown }).matrix;
       if (packet.checklists.includes('state-machines') && m && typeof m === 'object') r.records++; else r.invalid++;
       continue;
     }
     const f = validFinding(v, packet.role);
-    if (!f) { r.invalid++; if ((v as { severity?: unknown } | null)?.severity === 'CRITICAL') badCritical = true; continue; }
+    if (!f) { r.invalid++; if (/^critical$/i.test(String((v as { severity?: unknown } | null)?.severity))) badCritical = true; continue; }
     r.findings.push({ ...f, specialist: str(f.specialist) ? f.specialist : packet.reviewer });
   }
   r.status = badCritical ? 'invalid' : r.findings.length ? 'findings' : clean || r.records ? 'clean' : 'invalid';

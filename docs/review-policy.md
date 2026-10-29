@@ -351,7 +351,7 @@ writes one packet per `DISPATCH:` line holding:
 - at most 8 KB of `--plan-file`, and past learnings for specialists;
 - a read budget: at most 2 more named ranges (200 lines at most) of files in the diff,
   in one turn, no repository search, no other packets, no transcript;
-- its output path and the reply `DONE <name> crit=<n> info=<n>`, then `END OF PACKET <name>`.
+- its output path and the reply `DONE <name> crit=<n> info=<n>`; its last line is `END OF PACKET <name>`.
 
 Each `PACKET:` line carries `budget_role=` (the `gstack-ship-budget` dispatch role:
 audits reserve as `specialist`, shards as their parent role) and `read=`, line ranges
@@ -361,9 +361,11 @@ a log, so a reviewer reads its packet with the read tool, one parallel call per 
 and finishes in about three calls. `BUDGET_NEXT: dispatch:<roles>` is the value for
 `gstack-ship-budget check --next`. A partial build (`--only`) keeps other reviewers'
 entries only at the same head, diff base and diff content; any other build starts the
-manifest over and removes the old outputs. Collect counts a matrix record only from a
-reviewer that applies the state-machines checklist, and a `CRITICAL` line that fails
-validation makes its reviewer `invalid`.
+manifest over and removes the old outputs, except a Red Team build (`--findings`), which refuses
+with `STALE_MANIFEST` (exit 3) so it never reviews another tree than the specialists did.
+Collect counts a matrix record only from a reviewer that applies the state-machines
+checklist, and a line naming `CRITICAL` in any case that fails to parse or validate makes its
+reviewer `invalid`.
 
 A packet over 200,000 bytes is split by path into `<name>.1ofK` packets of the same
 reviewer, each with the whole instructions and checklist: no hunk is cut and no path
