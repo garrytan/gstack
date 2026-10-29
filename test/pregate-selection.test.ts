@@ -230,6 +230,9 @@ describe('literals (pure)', () => {
     expect(parseSummary('Tests:       1 failed, 7 passed, 8 total')).toEqual({ ran: 8, failed: 1 });
     expect(parseSummary('===== 3 passed in 0.1s =====')).toEqual({ ran: 3, failed: 0 });
     expect(parseSummary('No tests found')).toEqual({ ran: 0, failed: 0 });
+    // Playwright lists the failed tests between its counts, so each count line is read on its own.
+    expect(parseSummary('  2 failed\n    [e2e] › a.spec.ts:9:1 › one\n    [e2e] › b.spec.ts:4:1 › two\n  1 flaky\n    [e2e] › c.spec.ts:2:1 › three\n  3 skipped\n  135 passed (3.0m)', 'npx playwright test {files}')).toEqual({ ran: 138, failed: 2 });
+    expect(parseSummary('  137 passed (1.1m)', 'npx playwright test {files}')).toEqual({ ran: 137, failed: 0 });
     expect(parseSummary('ok')).toEqual({ ran: null, failed: null });
   });
   test('config: unknown keys, secrets in warn, a runner without {files} and an uncontained glob are PREGATE_CONFIG_INVALID', () => {
@@ -693,6 +696,28 @@ describe('nested JS packages run their own runner from their own directory', () 
     const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'bun test {files}' } } as PregateContext;
     write(repo.work, 'app/package.json', APP['app/package.json']);
     expect(planRuns(declared, ['app/src/sum.test.ts']).groups).toEqual([{ runner: 'bun test {files}', cwd: '', files: ['app/src/sum.test.ts'] }]);
+  });
+
+  // Value: protects=a Playwright spec in a repo whose unit runner is vitest runs through `playwright test`, never vitest (which finds
+  //   no test files and exits 1 on a diff that touches only specs); fails_when=the repo-wide runner takes every JS/TS test again;
+  //   why_new=no detection knew Playwright; seam=none; no_claim=a real Playwright run (plan only)
+  test('a spec importing @playwright/test runs through playwright test from its package; the other tests keep their runner', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const ctx = ctxFor(repo, pmShim(repo));
+    write(repo.work, 'package.json', JSON.stringify({ name: 'fixture', devDependencies: { vitest: '^3.2.0', '@playwright/test': '^1.48.0' } }) + '\n');
+    write(repo.work, 'tests/e2e/home.spec.ts', "import { expect, test } from '@playwright/test';\ntest('home', async ({ page }) => expect(page).toBeTruthy());\n");
+    write(repo.work, 'app/e2e/app.spec.ts', "import { test } from \"@playwright/test\";\ntest('app', () => {});\n");
+    expect(planRuns(ctx, ['tests/e2e/home.spec.ts', 'test/util.test.js', 'app/src/sum.test.ts', 'app/e2e/app.spec.ts'])).toEqual({ groups: [
+      { runner: 'npx vitest run {files}', cwd: '', files: ['test/util.test.js'] },
+      { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },
+      { runner: 'npx playwright test {files}', cwd: '', files: ['tests/e2e/home.spec.ts'] },
+      { runner: 'pnpm exec playwright test {files}', cwd: 'app', files: ['e2e/app.spec.ts'] },
+    ], unclaimed: [], missing: [], noPubspec: [] });
+    // A declared runner still takes every file, Playwright specs included.
+    const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'bun test {files}' } } as PregateContext;
+    expect(planRuns(declared, ['tests/e2e/home.spec.ts']).groups).toEqual([{ runner: 'bun test {files}', cwd: '', files: ['tests/e2e/home.spec.ts'] }]);
+    // A package manager missing from PATH leaves the spec unclaimed naming it.
+    expect(planRuns(ctxFor(repo, { PATH: path.join(repo.root, 'empty-path') }), ['app/e2e/app.spec.ts'])).toEqual({ groups: [], unclaimed: ['app/e2e/app.spec.ts'], missing: ['pnpm'], noPubspec: [] });
   });
 
   // Value: protects=the reported case end to end: a touched source file in a nested pnpm+vitest package runs `pnpm exec vitest run`
