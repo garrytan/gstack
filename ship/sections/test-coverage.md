@@ -14,13 +14,7 @@ default when `gstack-config get review_effort_tiers` prints `off`).
 
 Dispatch the audit through Agent with `subagent_type: "general-purpose"` and
 `run_in_background: false`, using the shared foreground-dispatch rule above.
-**By packet:** write the subagent-prompt inputs below to `.gstack/tmp/audit-context.txt`,
-run `~/.claude/skills/gstack/bin/gstack-review-packet build --audit test-coverage --base <base>
---out-dir .gstack/tmp/review-packets-audit --context .gstack/tmp/audit-context.txt
---generation <allowed|audit-only> --passes-used <N>` (the packet holds the prompt below and
-the diff; an audit is one packet, never sharded) and brief the child only with the packet brief and its `read=` ranges:
-"Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names."
-Wait for its `out=` file's LAST-line JSON before applying the coverage gate.
+Wait for its LAST-line JSON before applying the coverage gate.
 
 **Generation allowance:** Maximum 2 generation passes total per invocation.
 Count each generation-authorized attempt before dispatch/inline execution, including
@@ -339,7 +333,7 @@ After your analysis, output a single JSON object on the LAST LINE of your respon
 
 **Parent processing:**
 
-1. Read the packet's `out=` file, never the transcript. Parse its LAST line as JSON.
+1. Read the subagent's final output. Parse the LAST line as JSON.
 2. Store `coverage_pct`, `coverage_pct_value`, `gaps`, `weak_gaps`, `tests_added`,
    `tests_extended`, `tests_rejected` and `regression_proof`. A missing new key counts
    as empty; say so in the summary (an older installed prompt must not fail the gate).

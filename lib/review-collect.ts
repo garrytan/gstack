@@ -109,15 +109,10 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
   return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [] });
 }
 
-/** The ref a base names: origin/<base> when it resolves, else <base> as given (so origin/main stays origin/main). */
-export function resolveBaseRef(root: string, base: string): string {
-  return git(root, ['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]).ok ? `origin/${base}` : base;
-}
-
 /** The working tree against the merge base with origin/<base> (or <base>), untracked files counted per path; the registry is the base ref's commit. */
 export function collectLive(root: string, base: string): Collected {
   const errors: DepthError[] = [];
-  const ref = resolveBaseRef(root, base);
+  const ref = git(root, ['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]).ok ? `origin/${base}` : base;
   const registry = loadRegistryAt(root, ref);
   const mb = git(root, ['merge-base', ref, 'HEAD']);
   if (!mb.ok) {

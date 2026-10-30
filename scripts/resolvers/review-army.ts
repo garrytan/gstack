@@ -13,10 +13,6 @@ import type { TemplateContext } from './types';
 import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
 import { learningsCapture, LEARNINGS_VERDICT } from './learnings';
 import { DEFENSIVE_REVIEW_FRAMING, FIXTURE_SUMMARY_MODE } from './defensive-review';
-import { RED_TEAM_INTRO, RED_TEAM_OUTPUT, SPECIALIST_CONTRACT, SPECIALIST_INTRO, packetBrief } from '../../lib/review-prompts';
-
-/** A lib/review-prompts.ts string inside a quoted prose prompt. */
-const quoted = (s: string) => s.replaceAll('"', '\\"');
 
 function generateSpecialistSelection(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
@@ -103,13 +99,23 @@ function diffBase(ctx: TemplateContext): string {
 }
 
 function generateSpecialistDispatch(ctx: TemplateContext): string {
-  if (ctx.skillName === 'ship') return generatePacketDispatch(ctx);
   return `### Dispatch specialists in parallel
 
 For each selected specialist, launch an independent subagent via the Agent tool.
 **Launch ALL selected specialists in a single message** (multiple Agent tool calls)
 so they run in parallel. Each subagent has fresh context — no prior review bias.
-
+${ctx.skillName === 'ship' ? `
+**Fan-out (\`--review-fanout auto|serial|parallel\` in the prompt; default \`auto\`).**
+Under \`auto\`, when the host reports fewer free subagent slots than selected
+specialists (Capy caps a thread at 8 running subagents, and waiting or idle ones hold
+a slot), dispatch in batches of the free-slot count, at least one per batch, each
+batch in one message, and start the next batch only after every reader of the
+previous one has finished or is confirmed stopped; print \`Fan-out: N specialists in
+M batches of K\`. A host that reports no slot count runs one parallel batch.
+\`serial\` is batches of one; \`parallel\` is one batch regardless of slots (a refused
+launch is a failed reader, never silently dropped coverage). Batching changes the
+order, never the set: every selected specialist still runs before Step 9.2 merges.
+` : ''}
 **Each specialist subagent prompt:**
 
 Each specialist prompt includes:
@@ -132,10 +138,24 @@ Every other specialist, including Testing, reads the full diff with fixtures.
 
 5. Instructions:
 
-"${SPECIALIST_INTRO} Read the checklist at {checklist path}, then run
-\`${diffBase(ctx)} && git diff "$DIFF_BASE"\` to get the full diff. Apply the checklist against the diff.
+"You are a specialist code reviewer. Read the checklist at {checklist path}, then run
+\`${diffBase(ctx)} && git diff "$DIFF_BASE"${ctx.skillName === 'ship' ? ' <exclude>' : ''}\` to get the ${ctx.skillName === 'ship' ? 'diff (`<diff-base>`: write the sha in before dispatch, the merge base on pass 1 and `RANGE_BASE` from pass 2 on; never a shell variable; `<exclude>`: everything after `<diff-base>` on this reviewer\'s `DIFF_CMD:` line, verbatim; empty on `DIFF_EXCLUDE: none`)' : 'full diff'}. Apply the checklist against the diff.
 
-${quoted(SPECIALIST_CONTRACT)}
+\`NO FINDINGS\` alone is the expected, complete result for a clean diff; never invent an item. Otherwise output one JSON object per finding per line, 400 words at most:
+{\\"severity\\":\\"CRITICAL|INFORMATIONAL\\",\\"confidence\\":N,\\"path\\":\\"file\\",\\"line\\":N,\\"category\\":\\"category\\",\\"summary\\":\\"description\\",\\"fix\\":\\"recommended fix\\",\\"fingerprint\\":\\"path:line:category\\",\\"specialist\\":\\"name\\"}
+
+Required fields: severity, confidence, path, category, summary, specialist.
+Optional: line, fix, fingerprint, evidence, test_stub, advisory, evidence_paths, helper_target, cause.
+CRITICAL means a test that would fail, a production break, or a security or data-loss defect; everything else is INFORMATIONAL.
+A defect the diff causes but that shows elsewhere (a caller broken by a changed signature, a consumer of a removed export) keeps the victim as \`path\` and names the changed line in \`cause\`: {\\"cause\\":{\\"path\\":\\"file\\",\\"line\\":N}}. Without it the finding reads as pre-existing code.
+
+Leave extraction advice to the core shared-code check; report real defects in duplicated code independently, keep advisory metadata on structural advice, and never call a demonstrated defect advisory because a shared helper could fix it.
+
+If you can write a test that would catch this issue, include it in the \`test_stub\` field.
+Use the detected test framework ({TEST_FW}). Write a minimal skeleton — describe/it/test
+blocks with clear intent. Skip test_stub for architectural or design-only findings.
+
+Output nothing else: no preamble, no summary or commentary.
 
 Stack context: {STACK}
 Past learnings: {learnings or 'none'}"
@@ -144,62 +164,10 @@ Past learnings: {learnings or 'none'}"
 - Use \`subagent_type: "general-purpose"\`
 - Pass ${FOREGROUND_IF_AVAILABLE} on every specialist Agent call — background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}; omitting an available flag is not foreground. ${BACKGROUND_RECOVERY}
 
-${WAIT_FOR_READERS}`;
-}
-
-const WAIT_FOR_READERS = `**Wait for readers before editing:**
+**Wait for readers before editing:**
 - Confirm that each task has finished or is stopped. A timeout alone does not prove termination. If a reader or writer is still active, wait; if its state is unknown, inspect its task/process status. If you cannot confirm it stopped, use the parent's Fix-First stop path without edits.
 - A failed task may be stopped without having completed its review. Record the failure and retain usable partial findings.
 - Continue independent evidence collection after a terminal failure. Missing dispatched coverage remains incomplete, never completed or clean; successful peers cannot replace it.`;
-
-/**
- * /ship dispatches by packet (docs/review-policy.md#reviewer-packets): each reviewer reads one
- * file gstack-review-packet wrote from the same plan, and the parent reads only collect's record.
- */
-function generatePacketDispatch(ctx: TemplateContext): string {
-  const bin = ctx.paths.binDir;
-  return `### Dispatch specialists by packet
-
-Each reviewer reads one packet and nothing else. \`gstack-review-packet build\` runs the
-plan \`gstack-review-plan\` runs (pass the same flags) and writes one packet per \`DISPATCH:\`
-line: the role's instructions and findings contract, its checklists inlined (all of
-\`checklists=\` for \`specialist batched\`), its \`DIFF_CMD:\` diff at -U8 against the literal
-diff base with a stat, past learnings, a read budget and its output path. With
-\`_PK=.gstack/tmp/review-packets-p$PASS\`, run \`${bin}/gstack-review-packet build --base <base>
---out-dir "$_PK" --only specialist,red-team\` plus the plan run's flags, \`--range <sha>\` (the literal \`RANGE_BASE\` sha)
-from pass 2 on and \`--plan-file <plan>\` when a plan is bound. Each \`PACKET:\` line is one
-reviewer; a diff past 200 KB is split by path into shards (\`testing.1of3\`), each its
-own reviewer. Its \`read=\` ranges are what the reviewer reads in parallel, each under one
-read call's budget. \`PACKETS:\` carries the plan's fingerprint; under a token cap,
-\`gstack-ship-budget check --next\` takes build's \`BUDGET_NEXT:\` value (one
-\`budget_role=\` per packet), never packet names. Step 9.1 dispatches every
-packet; the Red Team's waits for collect (below) and Step 11 builds its own.
-
-Launch one subagent per packet via the Agent tool (\`subagent_type: "general-purpose"\`,
-${FOREGROUND_IF_AVAILABLE}; ${BACKGROUND_RECOVERY}) at its \`effort=\` on the same model
-family. The whole brief is "${packetBrief('<file>', '<out>')}" with that packet's \`read=\` ranges. Never paste a diff,
-checklist or finding into a brief.
-
-**Fan-out (\`--review-fanout auto|serial|parallel\` in the prompt; default \`auto\`).**
-Under \`auto\`, when the host reports fewer free subagent slots than selected
-specialists (Capy caps a thread at 8 running subagents, and waiting or idle ones hold
-a slot), dispatch in batches of the free-slot count, at least one per batch, each
-batch in one message, and start the next batch only after every reader of the
-previous one has finished or is confirmed stopped; print \`Fan-out: N specialists in
-M batches of K\`. A host that reports no slot count runs one parallel batch.
-\`serial\` is batches of one; \`parallel\` is one batch regardless of slots (a refused
-launch is a failed reader, never silently dropped coverage). Batching changes the
-order, never the set: every selected specialist still runs before Step 9.2 merges.
-
-${WAIT_FOR_READERS}
-
-**Collect:** \`${bin}/gstack-review-packet collect --dir "$_PK"\` reads every packet's output
-file and prints one \`REVIEWER:\` line each, every CRITICAL on one line and counts for
-INFORMATIONAL. It does stages 1–3 of Step 9.2 into \`$_PK/merged.jsonl\` and writes
-\`$_PK/informational.md\` for Step 19's PR body. Exit 3 \`REVIEW_COVERAGE_INCOMPLETE\` is
-missing dispatched coverage (decision 1). Step 9.2 continues from that output and
-\`merged.jsonl\`, never from a reviewer's transcript. When a state-machines packet ran,
-run \`${bin}/gstack-state-matrix check <its out file>\` on its output.`;
 }
 
 function generateFindingsMerge(ctx: TemplateContext): string {
@@ -215,7 +183,7 @@ their source labels: specialist scoring is not the final review's defect count.
 
 #### 1. Parse outputs
 
-After specialist attempts settle, collect their outputs, tagged by actual source.${isShip ? ' In /ship, \`gstack-review-packet collect\` has done stages 1–3 for the dispatched reviewers: read its output and \`merged.jsonl\`.' : ''}
+After specialist attempts settle, collect their outputs, tagged by actual source.
 \`NO FINDINGS\` is a completed, clean result, never a failed reviewer. Otherwise parse
 each JSON line and skip invalid lines. Missing or unusable output is incomplete
 coverage, not an empty success. Keep each specialist's returned findings for activity stats.
@@ -339,24 +307,23 @@ function generateRedTeam(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
   const stepMerge = isShip ? '9.2' : '4.6';
   const fixFirstRef = isShip ? 'Step 9.3 dedup, then Step 9.4 Fix-First' : 'Step 5 Fix-First';
-  const dispatch = isShip ? `If the plan lists \`DISPATCH: red-team\`, build its packet once Step 9.1's collect has run:
-\`${ctx.paths.binDir}/gstack-review-packet build --only red-team --findings "$_PK/merged.jsonl"\` plus
-the Step 9.1 build's flags. It inlines the red-team checklist, the merged findings one
-line each, the defensive framing and the diff with fixtures in summary mode. Dispatch
-it with the same packet brief, then run collect again: Step 9.4 needs a collect with \`pending=0\`.` : `If activated, dispatch one more subagent via the Agent tool (pass ${FOREGROUND_IF_AVAILABLE} — foreground; subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; ${BACKGROUND_RECOVERY})
+  return `### Red Team dispatch (conditional)
+
+**Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
+
+If activated, dispatch one more subagent via the Agent tool (pass ${FOREGROUND_IF_AVAILABLE} — foreground; subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; ${BACKGROUND_RECOVERY})
 
 The Red Team subagent receives:
 1. The red-team checklist path \`${ctx.paths.skillRoot}/review/specialists/red-team.md\` (it reads the file)
 2. The merged specialist findings from Step ${stepMerge}, one line each (so it knows what was already caught)
 3. The git diff command
 
-Prompt, after the defensive framing and fixture handling from item 4 of the specialist dispatch: "${RED_TEAM_INTRO} Read the checklist at {red-team checklist path}, list changed files with \`${diffBase(ctx)} && git diff --name-status "$DIFF_BASE"\`, read them as that fixture handling says, and look for gaps.
-${RED_TEAM_OUTPUT}"`;
-  return `### Red Team dispatch (conditional)
-
-**Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
-
-${dispatch}
+Prompt, after the defensive framing and fixture handling from item 4 of the specialist dispatch: "You are a red team reviewer. The code has already been reviewed by N specialists
+who found the following issues: {merged findings summary}. Your job is to find what they
+MISSED. Read the checklist at {red-team checklist path}, list changed files with \`${diffBase(ctx)} && git diff --name-status "$DIFF_BASE"\`, read them as that fixture handling says, and look for gaps.
+Output findings as JSON objects (same schema as the specialists), or \`NO FINDINGS\` alone, the expected result when they missed nothing. Focus on cross-cutting
+concerns, integration boundary issues, and failure modes that specialist checklists
+don't cover."
 
 Tag Red Team findings \`"specialist":"red-team"\`.
 Add them to the original specialist outputs and rerun stages 1–8 of Step ${stepMerge}

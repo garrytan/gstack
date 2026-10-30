@@ -236,8 +236,7 @@ test('Step 9.4 applies the cap before any edit, names its scratch files under .g
   for (const host of ALL_HOST_CONFIGS) {
     const army = generateReviewArmy({ host: host.name, skillName: 'ship', tmplPath: '', paths: HOST_PATHS[host.name] });
     if (!army) continue;
-    // Packets carry the literal sha: Step 9.1's build takes it as --range, and the Red Team's build reuses those flags.
-    expectTokens(army, ['--range <sha>', 'the Step 9.1 build\'s flags'], `${host.name} ship review army range`);
+    expect(army.match(/DIFF_BASE=<diff-base>/g)?.length, `${host.name} ship review army range`).toBe(2);
     expectAbsent(army, ['${RANGE_BASE'], `${host.name} ship review army fallback`);
     expectTokens(army, ['--review-fanout auto|serial|parallel', /Fan-out: N specialists in\s+M batches of K/], `${host.name} ship review army fan-out`);
     const review = generateReviewArmy({ host: host.name, skillName: 'review', tmplPath: '', paths: HOST_PATHS[host.name] });

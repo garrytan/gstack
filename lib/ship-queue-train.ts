@@ -100,22 +100,22 @@ export const pinList = (slots: Array<{ pr: string; head: string }>) => slots.map
 export const prsArgs = (slots: Array<{ pr: string; head: string }>, explicit?: boolean) => `--prs ${pinList(slots)}${explicit ? ` --order ${slots.map(s => s.pr).join(',')}` : ''}`;
 
 /**
- * Slot order: screened PRs first, then unscreened, each in READY order;
- * enough unscreened PRs form their own train. An explicit order (`--order`,
+ * Slot order: screened PRs first, then unscreened PRs fill the remaining
+ * seats, each in READY order (GSTA-165: most PRs ride unscreened, so a
+ * screened-only train would hold the pool). An explicit order (`--order`,
  * every admitted PR once) replaces that rule: slots follow it, the first
  * `max` ride and the rest are held.
  */
-export function orderSlots(slots: TrainSlot[], max: number, explicit?: readonly string[]): { train: TrainSlot[]; held: TrainSlot[]; split: boolean } {
+export function orderSlots(slots: TrainSlot[], max: number, explicit?: readonly string[]): { train: TrainSlot[]; held: TrainSlot[] } {
   if (explicit) {
     const all = explicit.map(pr => slots.find(s => s.pr === pr)!);
-    return { train: all.slice(0, max), held: all.slice(max), split: false };
+    return { train: all.slice(0, max), held: all.slice(max) };
   }
   const byReady = (a: TrainSlot, b: TrainSlot) => a.ready_at.localeCompare(b.ready_at) || Number(a.pr) - Number(b.pr);
   const screened = slots.filter(s => s.screen.choice === 'screen').sort(byReady);
   const unscreened = slots.filter(s => s.screen.choice !== 'screen').sort(byReady);
-  if (screened.length && unscreened.length >= max) return { train: screened.slice(0, max), held: [...screened.slice(max), ...unscreened], split: true };
   const all = [...screened, ...unscreened];
-  return { train: all.slice(0, max), held: all.slice(max), split: false };
+  return { train: all.slice(0, max), held: all.slice(max) };
 }
 
 /** When a train under its size may dispatch: its oldest READY plus the fill time; null when it may dispatch now. */
@@ -389,7 +389,7 @@ async function newTrain(env: TrainEnv, o: BuildOptions): Promise<{ t: TrainRecor
   const lines = [
     ...admitted.lines,
     `ORDER: ${order.train.map((s, i) => `${i + 1}:#${s.pr}(${s.screen.choice === 'screen' ? 'screened' : 'unscreened'})`).join(' ')}${explicit ? ' (explicit --order)' : ''}`,
-    ...(order.held.length ? [`HELD: ${order.held.map(s => '#' + s.pr).join(',')} (${order.split ? 'unscreened PRs form their own train' : `over the train size ${env.train.max_size}`})`] : []),
+    ...(order.held.length ? [`HELD: ${order.held.map(s => '#' + s.pr).join(',')} (over the train size ${env.train.max_size})`] : []),
   ];
   const baseSha = git(env.ctx.repoRoot, ['rev-parse', `${env.remote}/${env.ctx.base}`]).out;
   const key = sha256(JSON.stringify({ base: baseSha, slots: order.train.map(s => `${s.pr}@${s.head}`) }));
