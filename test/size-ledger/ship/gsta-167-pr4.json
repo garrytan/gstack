@@ -1,0 +1,4 @@
+{
+  "bytes": 3358,
+  "why": "GSTA-167 PR 4: Step 14.5 on Capy audits documentation through one read-only packet whose auditor prompt lives in the documentation section (gstack-review-packet build --audit docs, gstack-docs-candidate apply); Steps 1-3, 5, 12, 15-17 hand their shell blocks to gstack-ship-preflight and gstack-ship-release, so the skeleton shrinks back to its cap while the union grows by the auditor prompt"
+}
