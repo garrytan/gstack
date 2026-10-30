@@ -7,12 +7,13 @@
  * in the range since the previous pass (or the diff) and notes the rest.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import {
-  isBlocking, kindOf, locusOf, parseHunks, raisedBy, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
-  type ScopedFinding,
+  isBlocking, kindOf, locusOf, mapStateMatrixOutput, parseHunks, raisedBy, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
+  UNTESTED_CELL, type ScopedFinding, type ScopeFinding,
 } from '../lib/review-scope';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
@@ -433,5 +434,64 @@ describe('raised_by: which reviewer raised a classified finding (GSTA-152 D6)', 
     expect(scoped.map(f => f.raised_by)).toEqual(['security', 'unknown']);
     const old = { skill: 'review', via: 'ship', timestamp: '2026-10-28T10:00:00Z', findings: [{ fingerprint: 'src/a.ts:3:logic', blocking: true, action: 'fixed' }] };
     expect(summarizeReviewLoop([old], '2026-10-28T09:00:00Z')).toMatchObject({ passes: 1, blocking_found: 1, fixed: 1 });
+  });
+});
+
+describe('GSTA-167 part 4b: untested state-matrix cells map below the floor per matrix cell, before the merge', () => {
+  const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'state-matrix-6792', 'captured-output.jsonl');
+  const parse = (text: string) => text.split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(o => !o.matrix);
+  const scope = (findings: ScopeFinding[], policy: 'frozen' | 'all' = 'frozen') => scopeFindings(findings, { policy, pass: 1, diffHunks: { 'src/takes/proposals.ts': 'whole', 'src/m.ts': 'whole' }, rangeHunks: null });
+  const matrix = (test: string | null) => JSON.stringify({ specialist: 'state-machines', matrix: { machine: 'm (src/m.ts)', kinds: ['hold'], actions: ['release'], cells: [{ kind: 'hold', action: 'release', row: 'hold released', test }] } });
+  const untested = { severity: 'CRITICAL', confidence: 7, path: 'src/m.ts', line: 9, category: 'state-matrix', summary: 'untested cell: hold × release → hold released', fingerprint: 'src/m.ts:state-matrix:hold:release', specialist: 'state-machines', cell: { kind: 'hold', action: 'release' } };
+
+  // Value: protects=the captured #6792 review keeps its wrong-row and collapsed-kinds defects blocking while each untested cell
+  //   alone on its cell becomes a pass-1 note; matrix records pass through byte for byte; fails_when=a defect is demoted or a
+  //   pure test gap blocks; seam=mapStateMatrixOutput before Step 9.3's merge
+  test('#6792: four lone untested cells become notes; wrong rows, collapsed kinds and cells they share stay blocking', () => {
+    const raw = fs.readFileSync(FIXTURE, 'utf8');
+    const out = mapStateMatrixOutput(raw);
+    expect(out.mapped).toBe(4);
+    expect(out.text.split('\n')[0]).toBe(raw.split('\n')[0]);
+    const scoped = scope(parse(out.text));
+    const blocking = scoped.filter(f => f.blocking).map(f => f.summary!.split(':')[0]);
+    expect(blocking.sort()).toEqual(['collapsed kinds', 'untested cell', 'untested cell', 'wrong row', 'wrong row']);
+    const notes = scoped.filter(f => f.state_matrix === UNTESTED_CELL);
+    expect(notes.map(f => [f.kind, f.blocking, f.scope, f.severity, f.raw_severity])).toEqual(Array(4).fill(['test-gap', false, 'note', 'INFORMATIONAL', 'CRITICAL']));
+  });
+
+  // Value: protects=F3, a wrong-row finding that reuses the untested cell's fingerprint can never be folded into a demoted record;
+  //   fails_when=the merge keeps the demoted summary and the data-loss row drops to Review notes; seam=the merge keeps CRITICAL if either
+  test('a wrong row sharing the untested cell and its fingerprint keeps both CRITICAL, before and after a merge', () => {
+    const wrong = { ...untested, summary: 'wrong row: hold × release deletes the hold', line: 12 };
+    const out = mapStateMatrixOutput([matrix(null), JSON.stringify(untested), JSON.stringify(wrong)].join('\n'));
+    expect(out.mapped).toBe(0);
+    const merged = { ...parse(out.text)[0], severity: 'CRITICAL' };
+    expect(scope([merged])[0]).toMatchObject({ kind: 'defect', blocking: true, scope: 'fix' });
+    const demoted = parse(mapStateMatrixOutput([matrix(null), JSON.stringify(untested)].join('\n')).text)[0];
+    expect(scope([{ ...demoted, severity: 'CRITICAL' }])[0]).toMatchObject({ kind: 'defect', blocking: true });
+  });
+
+  test('no matrix record, a cell the matrix maps to a test, or a lone wrong row on an untested cell: every one stays CRITICAL', () => {
+    const wrongAlone = { ...untested, summary: 'wrong row: hold × release deletes the hold' };
+    for (const text of [JSON.stringify(untested), [matrix('test/m.test.ts:4'), JSON.stringify(untested)].join('\n'), [matrix(null), JSON.stringify(wrongAlone)].join('\n')]) {
+      const out = mapStateMatrixOutput(text);
+      expect([out.mapped, out.text]).toEqual([0, text]);
+      expect(scope(parse(text))[0]!.blocking).toBe(true);
+    }
+  });
+
+  test('policy all fixes a mapped cell; other policies note it from pass 1 on, in or out of the diff', () => {
+    const [f] = parse(mapStateMatrixOutput([matrix(null), JSON.stringify(untested)].join('\n')).text);
+    expect(scope([f], 'all')[0]!.scope).toBe('fix');
+    expect(scope([f])[0]!.scope).toBe('note');
+    expect(scopeFindings([f], { policy: 'diff-plus-blocking', pass: 2, diffHunks: {}, rangeHunks: {} })[0]!.scope).toBe('note');
+  });
+
+  test('gstack-state-matrix findings prints the mapped output and the count on stderr; check still reads the raw file', () => {
+    const r = spawnSync('bun', ['--no-env-file', '--config=/dev/null', path.join(ROOT, 'bin', 'gstack-state-matrix'), 'findings', FIXTURE], { encoding: 'utf8', timeout: 60_000 });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('STATE_MATRIX_FINDINGS: mapped=4');
+    expect(r.stdout).toBe(mapStateMatrixOutput(fs.readFileSync(FIXTURE, 'utf8')).text);
+    expect(fs.readFileSync(path.join(ROOT, 'review', 'specialists', 'state-machines.md'), 'utf8')).toContain('- **Untested cell (CRITICAL; this rule\'s High tier).**');
   });
 });

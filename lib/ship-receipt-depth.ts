@@ -18,7 +18,7 @@ import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import type { ShipReceipt } from './headless-artifacts';
 import { collectCommit } from './review-collect';
-import { classifyPath, depthOfCommitInput, type Depth } from './review-depth';
+import { depthOfCommitInput, gateScanNeeded, type Depth } from './review-depth';
 import { runScriptSync } from './script-invocation';
 import { bindReceipt, type ReceiptBindingCode } from './ship-receipt';
 import { docsExceptionLine, parseReceiptDocs } from './ship-receipt-docs';
@@ -59,7 +59,7 @@ export function receiptDepthAtHead(repoRoot: string, base: string, binDir: strin
   const c = collectCommit(repoRoot, baseRev, head);
   const scope = scopeOfRange(repoRoot, binDir, baseRev, head);
   let tagged: number | null = 0;
-  if (c.paths.some(p => classifyPath(p, c.root) !== 'docs')) {
+  if (gateScanNeeded(c.paths, c.root)) {
     const atHead = git(repoRoot, ['rev-parse', 'HEAD']).out === head && git(repoRoot, ['diff', '--quiet', 'HEAD', '--']).ok;
     const g = atHead ? runScriptSync(path.join(binDir, 'gstack-gate-diff'), [baseRev], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 }) : null;
     const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g?.stdout ?? '');

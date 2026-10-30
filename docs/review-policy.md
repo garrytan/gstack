@@ -58,7 +58,7 @@ whatever class it resembles.
 | **bounded repeat work** | A re-dispatch on every call, a redundant screen after main moves, an orphaned scratch branch, a refusal that could come one step earlier in the sequence, a settle that could wait one more check. | The operation completes, nothing is lost, and the cost is one more bounded run; uncapped spend is the sideways sweep's CRITICAL, not this class. |
 | **conservative refusal** | Stale state scoped wider than its cause: a RED verdict that keeps refusing a head after main moved, a pending result that keeps refusing after it settled. | A refusal costs a rerun and never passes something wrong; a wrong pass would be the floor. |
 | **artifact presentation** | A string from an artifact printed verbatim into a parsed line (whitespace, control characters); a classifier that reads a non-zero exit code beside a non-RED verdict as RED. | Display and classification of the repository's own output; it forges no parsed field. |
-| **test gap** | A state-matrix cell without a test, a coverage percentage, a weak or flaky test, a fixture that shares the coordinator's environment. | Category `testing`, below the floor by definition above; a gap is work for the test audit, not a defect in the diff. |
+| **test gap** | A state-matrix cell without a test, a coverage percentage, a weak or flaky test, a fixture that shares the coordinator's environment. | Category `testing`, below the floor by definition above; a gap is work for the test audit, not a defect in the diff. Precedence for state machines: the specialist still reports each untested cell CRITICAL so `gstack-state-matrix check` proves the matrix complete, and `gstack-state-matrix findings` maps it to INFORMATIONAL per matrix cell before the merge; a wrong row or collapsed kinds stays CRITICAL, and a cell with a second finding keeps both. |
 
 A reviewer that wants a class promoted argues it against the floor with a
 reaching input, in the finding, and the owner rules; the table records the
@@ -168,6 +168,22 @@ or test path, CI workflows, credential, state-root and the paths below).
 commit's `.gstack/generated.json` registers. Docs, tests and release metadata are never
 runtime; a `.tmpl` edit plus its regenerated `SKILL.md` counts the template once.
 
+**Data files no code names are docs.** A changed or deleted JSON, JSONL, NDJSON, CSV,
+TSV or raster image (PNG, JPEG, GIF, WebP, BMP, ICO, AVIF) counts as docs when no
+non-docs file names its basename at the head, at the merge base or, for live /ship, in
+the working tree with untracked files; a data file named only by another data file
+follows that file, four files deep. Precedence: agent prose (`.gstack/**`), a test or
+fixture path, a gate path, a config file (`.github/**`, anything under a `config/`
+directory, dotfiles, `*.config.*`, `package.json`, lockfiles, `tsconfig*.json`,
+`manifest.json` and the other tool manifests `lib/review-depth.ts` lists) and a named
+consumer each keep the path code, and YAML, TOML and SVG are always code. More than
+2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
+and fails the depth closed. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
+finds the consumers, `gstack-ship-preflight`'s `RUNTIME_LINES` reads the same
+function); every path-only caller (the receipt's gate-scan decision, the Step 16
+post-review route, /autoplan's docs-only scope) keeps data files code. A numeric claim
+in a data file still schedules the outside voice.
+
 | Depth | When | Pass 1 dispatches |
 |---|---|---|
 | **light**, runtime 0 | docs and tests only, or only registered outputs | the core checklist only; the outside voice when the diff publishes numbers |
@@ -248,6 +264,9 @@ the audits and watchers at the host default too
   prompt. At runtime 0 light runs no adversarial pass either.
 - Standard reads thresholds on runtime lines, not the whole diff, so a test-heavy
   diff with few runtime lines dispatches fewer specialists.
+- A JSON, CSV, TSV or raster data file no code names is docs, not runtime (GSTA-167
+  part 4a). A binary image no code names is no longer a `binary_code_path` error
+  that forces full depth; one that code names still is.
 
 ## What the receipt records
 

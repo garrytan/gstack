@@ -7,12 +7,8 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { classifyPath } from './review-depth';
-import { matchesAny } from './ship-policy';
+import { classifyDiff } from './review-depth';
 import { bin, firstLine, flagReader, gh, git, hostedOrigin, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
-
-/** Data files: code-class paths with no runtime behavior, left out of RUNTIME_LINES. */
-const DATA_PATH = /\.(json|jsonl|ndjson|ya?ml|toml|csv|tsv|svg|png|jpe?g|gif|webp|ico|pdf)$/i;
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -94,10 +90,8 @@ function merge(cwd: string, base: string, r: Report): boolean {
   let runtime = 'unknown';
   try {
     const j = JSON.parse(plan.stdout);
-    const outputs: string[] = j.registry?.outputs ?? [];
-    const counted = (j.per_path as { path: string; lines: number; binary: boolean }[]).filter(e => !e.binary && !(j.stamp_only ?? []).includes(e.path)
-      && !(outputs.length && matchesAny(outputs, e.path)) && classifyPath(e.path, cwd) === 'code' && !DATA_PATH.test(e.path));
-    runtime = String(counted.reduce((n, e) => n + e.lines, 0));
+    const c = classifyDiff({ paths: j.paths, perPath: j.per_path, stampOnly: j.stamp_only, registry: j.registry, consumed: j.consumed, root: cwd, gateTagged: 0 });
+    runtime = String(c.runtimeLines ?? 'unknown');
   } catch { /* unknown */ }
   r.add(`RUNTIME_LINES: ${runtime} (gstack-ship-budget check --runtime-lines at the Step 9 and 12 boundaries)`);
   return true;

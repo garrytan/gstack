@@ -157,3 +157,19 @@ describe('gstack-ship-preflight', () => {
     expect(f.run(PREFLIGHT, ['--base', 'main', '--lane', 'nolabel']).status).toBe(2);
   });
 });
+
+describe('GSTA-167 part 4a: RUNTIME_LINES and REVIEW_DEPTH share one owner', () => {
+  // Value: protects=preflight's RUNTIME_LINES equals gstack-review-plan's runtime_lines on a mixed diff (code, a data file code
+  //   names, one nothing names, config JSON, YAML); fails_when=the two counts disagree, as preflight's own DATA_PATH did; seam=classifyDiff
+  test('a mixed diff counts the same runtime lines in preflight and the review plan', () => {
+    const f = fx({}, {
+      'src/b.ts': 'export const b = 2;\n', 'src/load.ts': "export const u = 'used.json';\n", 'data/used.json': '[1,\n2,\n3]\n',
+      'data/rows.json': Array.from({ length: 100 }, (_, i) => `{"i":${i}}`).join('\n') + '\n', 'config/app.json': '{"a":1}\n', 'deploy.yaml': 'a: 1\nb: 2\n',
+    });
+    const preflight = lineOf(f.run(PREFLIGHT, ['--base', 'main']).stdout, 'RUNTIME_LINES');
+    const plan = JSON.parse(f.run(path.join(path.dirname(PREFLIGHT), 'gstack-review-plan'), ['--base', 'main', '--json', '--gate-tagged', '0']).stdout);
+    expect(plan.runtime_lines).toBe(1 + 1 + 3 + 1 + 2);
+    expect(preflight).toMatch(new RegExp(`^RUNTIME_LINES: ${plan.runtime_lines} `));
+    expect(plan.consumed).toEqual(['data/used.json']);
+  });
+});

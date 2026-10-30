@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { classifyDiff, classifyPath, depthFor, depthOfCommitInput, diffCommand, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
+import { classifyDiff, classifyPath, dataCandidate, depthFor, gateScanNeeded, depthOfCommitInput, diffCommand, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
 import { summarizeReviewLoop } from '../lib/review-scope';
 
 const ROOT = path.join(import.meta.dir, '..');
@@ -389,5 +389,59 @@ describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () =
     expect(tmpl).toContain('raised_by');
     const policy = fs.readFileSync(path.join(ROOT, 'docs/review-policy.md'), 'utf8');
     expect(policy).toContain('| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |');
+  });
+});
+
+describe('GSTA-167 part 4a: data files no code names are docs (classifyDiff only)', () => {
+  const json = (n: number) => ({ path: 'wiki/post/data.json', lines: n, binary: false });
+  // Value: protects=a data-only docs PR (gstack-evals #34: 6,687 lines of wiki JSON) plans light with no specialists; fails_when=an
+  //   unconsumed JSON counts as runtime lines; seam=ClassInput.consumed from lib/review-collect.ts
+  test('wiki JSON no code names is docs and a 6,687-line diff plans light; a numbers-bearing JSON keeps the outside voice', () => {
+    const input = { paths: ['wiki/post/data.json'], perPath: [json(6687)], consumed: [] as string[], gateTagged: 0 };
+    const c = classifyDiff(input);
+    expect([c.class, c.runtimeLines]).toEqual(['docs', 0]);
+    expect(c.reasons).toContain('docs: 1 data path(s) no code names');
+    const plan = planReview(base({ ...input, scope: {}, diffLines: 6687, numbers: scanNumbers({ 'wiki/post/data.json': ['{"recall": "19/29"}'] }) }));
+    expect([plan.depth, roles(plan)]).toEqual(['light', ['outside-voice:outside-voice:host']]);
+    expect(planReview(base({ ...input, scope: {}, diffLines: 6687 })).dispatches).toEqual([]);
+  });
+  test('a consumed data file, an unscanned diff and an overflowing scan all keep the file code', () => {
+    for (const consumed of [['wiki/post/data.json'], undefined, 'all' as const]) {
+      const c = classifyDiff({ paths: ['wiki/post/data.json'], perPath: [json(80)], consumed, gateTagged: 0 });
+      expect([c.class, c.runtimeLines]).toEqual(['code', 80]);
+    }
+  });
+  test.each([
+    'config/runtime.json', 'package.json', 'package-lock.json', 'tsconfig.build.json', 'app/.eslintrc.json', 'vite.config.json', 'public/manifest.json',
+    '.gstack/ship-policy.json', '.gstack/generated.json', '.github/workflows/ci.yml', 'fly.toml', 'wrangler.toml', 'docker-compose.yml', 'k8s/deploy.yaml',
+    'openapi.yaml', 'public/icon.svg', 'lib/gate-thresholds.json',
+  ])('%s with no consumer stays code (config, agent prose, gate, YAML, TOML, SVG)', p => {
+    expect(dataCandidate(p)).toBe(false);
+    expect(classifyDiff({ paths: [p], perPath: [{ path: p, lines: 3, binary: false }], consumed: [], gateTagged: 0 }).class).not.toBe('docs');
+  });
+  test.each(['data/rows.csv', 'data/rows.tsv', 'logs/events.jsonl', 'assets/hero.png', 'assets/photo.JPEG', 'wiki/index.json'])('%s is a data candidate', p => expect(dataCandidate(p)).toBe(true));
+  test('test fixtures stay tests and markdown stays docs: the rule never touches a non-code class', () => {
+    expect(classifyDiff({ paths: ['test/fixtures/a.json'], consumed: [], gateTagged: 0 }).class).toBe('tests');
+    expect(dataCandidate('test/fixtures/a.json')).toBe(false);
+  });
+  // Value: protects=F17, the behavior change is named: an image no code names is docs, not a binary_code_path error; one code names
+  //   still fails closed; fails_when=either direction flips; seam=none
+  test('a binary PNG no code names is docs with no error; one code names is still binary_code_path (full)', () => {
+    const png = { path: 'assets/hero.png', lines: 0, binary: true };
+    const free = classifyDiff({ paths: ['assets/hero.png', 'src/app.ts'], perPath: [png, { path: 'src/app.ts', lines: 4, binary: false }], consumed: [], gateTagged: 0 });
+    expect([free.errors, free.runtimeLines]).toEqual([[], 4]);
+    const named = classifyDiff({ paths: ['assets/hero.png'], perPath: [png], consumed: ['assets/hero.png'], gateTagged: 0 });
+    expect(named.errors.map(e => e.code)).toEqual(['binary_code_path']);
+  });
+  // Value: protects=F1, the receipt's gate scan cannot be skipped through the data rule; fails_when=a data-only range reads as
+  //   needing no scan, so tagged=0 is recorded unscanned; seam=lib/ship-receipt-depth.ts receiptDepthAtHead
+  test('gateScanNeeded is path-only: a data-only range still needs the scan, a markdown-only range does not', () => {
+    expect(gateScanNeeded(['wiki/post/data.json'])).toBe(true);
+    expect(gateScanNeeded(['assets/hero.png', 'README.md'])).toBe(true);
+    expect(gateScanNeeded(['README.md', 'docs/a.md'])).toBe(false);
+    expect(classifyPath('wiki/post/data.json')).toBe('code');
+  });
+  test('a deleted data file stays guarded: a code diff that deletes one is gate class', () => {
+    expect(classifyDiff({ paths: ['src/app.ts', 'wiki/old.json'], deleted: ['wiki/old.json'], consumed: [], gateTagged: 0 }).class).toBe('gate');
   });
 });

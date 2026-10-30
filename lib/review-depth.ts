@@ -48,10 +48,18 @@ const GATE_PATH = [
   /^lib\/review-(depth|collect|scope)\.ts$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
+/** Data files: JSON, CSV, TSV and raster images. YAML, TOML and SVG are never data here: deploy configs, API specs and executable SVG stay code. */
+export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
+/** Data-shaped files tools read by convention, with no code naming them: always code. */
+const DATA_CONFIG = [
+  /(^|\/)\.github\//, /(^|\/)config\//, /(^|\/)\.[^/]+$/, /(^|\/)[^/]+\.config\.[^/]+$/,
+  /(^|\/)(package|package-lock|npm-shrinkwrap|composer|deno|jsr|tsconfig[^/]*|jsconfig[^/]*|manifest|app|vercel|netlify|firebase|renovate|turbo|nx|lerna|biome|angular|nest-cli|lint-staged|components|pyrightconfig|cdk|serverless|appsettings[^/]*)\.json$/i,
+];
+
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
   SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, SCOPED_RANGE_LINES,
-  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
+  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
 /**
@@ -70,7 +78,21 @@ export function classifyPath(p: string, root?: string | readonly string[]): Path
   return root.includes(top) ? 'code' : 'docs';
 }
 
-export type DepthErrorCode = 'scope_error' | 'gate_scan_unavailable' | 'registry_unavailable' | 'registry_invalid' | 'numstat_failed' | 'binary_code_path';
+/**
+ * A code-class path the data rule may move to docs: a data extension, and not agent prose, a gate path or a config file.
+ * Only classifyDiff applies the rule, and only to a candidate its collector found no consumer for (ClassInput.consumed);
+ * classifyPath and every path-only caller keep data files code.
+ */
+export function dataCandidate(p: string, root?: string | readonly string[]): boolean {
+  return DATA_PATH.test(p) && classifyPath(p, root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p));
+}
+
+/** Whether a range needs the gate scan: any path that is not docs by the path-only rule. The data rule never skips it. */
+export function gateScanNeeded(paths: readonly string[], root?: string | readonly string[]): boolean {
+  return paths.some(p => classifyPath(p, root) !== 'docs');
+}
+
+export type DepthErrorCode = 'scope_error' | 'gate_scan_unavailable' | 'registry_unavailable' | 'registry_invalid' | 'numstat_failed' | 'binary_code_path' | 'consumer_scan_failed';
 /** Why a depth failed closed to full: the input it could not read, a sanitized cause and the repair; `result` is the result code behind it when one exists. */
 export interface DepthError { code: DepthErrorCode; detail: string; input: string; repair: string; result?: ResultCodeName }
 export interface PathLines { path: string; lines: number; binary: boolean }
@@ -94,12 +116,18 @@ export interface ClassInput {
   registry?: RegistryInfo;
   /** Collector failures (a diff git could not list): each fails the depth closed. */
   errors?: readonly DepthError[];
+  /**
+   * The data candidates (dataCandidate) a non-docs file names at the head, the merge base or in the working tree
+   * (lib/review-collect.ts). A candidate not listed counts as docs; 'all' or no scan keeps every data file code.
+   */
+  consumed?: readonly string[] | 'all';
 }
 export interface ClassResult { class: DiffClass; reasons: string[]; errors: DepthError[]; runtimeLines: number | null }
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
-const pathClass = (i: ClassInput, p: string): PathClass => ((i.stampOnly ?? []).includes(p) ? 'docs' : classifyPath(p, i.root));
+const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && dataCandidate(p, i.root);
+const pathClass = (i: ClassInput, p: string): PathClass => ((i.stampOnly ?? []).includes(p) || unconsumedData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
 export function classifyDiff(i: ClassInput): ClassResult {
@@ -109,6 +137,8 @@ export function classifyDiff(i: ClassInput): ClassResult {
   const raise = (c: DiffClass, why: string) => { if (CLASS_RANK[c] > CLASS_RANK[cls]) cls = c; reasons.push(why); };
   if (!i.paths.length) raise('docs', 'no changed paths');
   for (const p of i.paths) { const c = pathClass(i, p); if (CLASS_RANK[c] > CLASS_RANK[cls]) raise(c, `${c}: ${p}`); }
+  const data = i.paths.filter(p => unconsumedData(i, p));
+  if (data.length) reasons.push(`docs: ${data.length} data path(s) no code names`);
   const s = i.scope ?? {};
   if (s.SCOPE_ERROR) {
     raise('code', `scope error: ${s.SCOPE_ERROR}`);
