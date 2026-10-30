@@ -428,12 +428,13 @@ function verifiedOutputs(repoRoot: string, base: string, pregateFile: string | u
   return regen.proven.filter(p => !/[*?[\]\\]/.test(p) && matchesAny(owned, p));
 }
 
-interface ProductRules { extra: { metadata: string[]; outputs: readonly string[] }; metadata: string[]; templates: readonly string[] }
+interface ProductRules { extra: { metadata: string[]; outputs: readonly string[]; fragments?: string }; metadata: string[]; templates: readonly string[] }
 function productRules(repoRoot: string, base: string, outputs: readonly string[]): ProductRules {
   const load = loadPolicyFromBase(repoRoot, base);
   const policy: ShipPolicy | null = isUnavailable(load) ? null : load.policy;
-  const extra = { metadata: [...(policy?.stamp_files ?? []), ...(policy?.stamp_paths ?? []), ...(policy?.release_outputs ?? []), ...(policy?.changelog ? [policy.changelog] : [])], outputs };
-  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...outputs], templates: policy?.stamp_patterns ?? [] };
+  const fragments = policy?.changelog_fragments?.dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '');
+  const extra = { metadata: [...(policy?.stamp_files ?? []), ...(policy?.stamp_paths ?? []), ...(policy?.release_outputs ?? []), ...(policy?.changelog ? [policy.changelog] : [])], outputs, fragments };
+  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...(fragments ? [`${fragments}/*.md`] : []), ...outputs], templates: policy?.stamp_patterns ?? [] };
 }
 
 /**
