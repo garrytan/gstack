@@ -8,7 +8,7 @@
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runScriptSync } from './script-invocation';
-import { collectCommit, collectLive, type Collected } from './review-collect';
+import { collectCommit, collectLive, resolveBaseRef, type Collected } from './review-collect';
 import { classifyDiff, planReview, scanNumbers, SCOPED_RANGE_LINES, type Depth, type History, type ReviewPlan } from './review-depth';
 
 export interface PlanFlags {
@@ -90,7 +90,7 @@ export function livePlan(f: PlanFlags, binDir: string, bin: string): LivePlan | 
     const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
     return g.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
   };
-  const scope = scopeOf([f.base]);
+  const scope = scopeOf([resolveBaseRef(root, f.base)]);
   let gateTagged = f.gateTagged !== undefined ? f.gateTagged : gateTagsOf([f.base]);
   if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
   const tiersSetting = runScriptSync(path.join(binDir, 'gstack-config'), ['get', 'review_effort_tiers'], { encoding: 'utf8', timeout: 15_000 });

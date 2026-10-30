@@ -273,6 +273,7 @@ const forcedBy = (i: PlanInput) => (n: string) => i.force === 'all' || (Array.is
 /** The specialists a full pass selects for a class: class sets the eligible set, hit-rate gating applies inside it, gate class ignores gating. */
 export function specialistsFor(cls: DiffClass, i: PlanInput, skipped: string[] = []): Specialist[] {
   const s = i.scope ?? {};
+  const unknown = !!s.SCOPE_ERROR;
   const forced = forcedBy(i);
   if (cls === 'docs') { skipped.push('specialists (docs class)'); return SPECIALISTS.filter(forced); }
   if (cls === 'tests') { skipped.push('specialists except testing (tests class)'); return SPECIALISTS.filter(n => n === 'testing' || forced(n)); }
@@ -282,9 +283,9 @@ export function specialistsFor(cls: DiffClass, i: PlanInput, skipped: string[] =
     if (i.diffLines < SMALL_DIFF_LINES) return false;
     switch (n) {
       case 'testing': case 'maintainability': return true;
-      case 'security': return s.SCOPE_AUTH === 'true' || (s.SCOPE_BACKEND === 'true' && i.diffLines > LARGE_DIFF_LINES);
+      case 'security': return unknown || s.SCOPE_AUTH === 'true' || (s.SCOPE_BACKEND === 'true' && i.diffLines > LARGE_DIFF_LINES);
       case 'simplification': return i.diffLines > LARGE_DIFF_LINES;
-      default: return scopeWants[n]!(s);
+      default: return unknown || scopeWants[n]!(s);
     }
   };
   return SPECIALISTS.filter(n => {

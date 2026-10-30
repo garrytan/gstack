@@ -11,6 +11,15 @@ const none = scanNumbers({});
 const base = (o: Partial<PlanInput>): PlanInput => ({ paths: ['src/app.ts'], scope: { SCOPE_BACKEND: 'true', SCOPE_STATE_MACHINE: 'false' }, gateTagged: 0, diffLines: 120, history: { fullPasses: 0, last: 'none' }, numbers: none, ...o });
 const roles = (p: ReturnType<typeof planReview>) => p.dispatches.map(d => `${d.role}:${d.name}:${d.effort}`);
 
+describe('a scope error fails the specialist selection closed', () => {
+  // Value: protects=an unreadable diff scope selects every scope-gated specialist instead of none; fails_when=SCOPE_ERROR leaves all SCOPE_* false and security/performance drop silently;
+  //   why_new=GSTA-167 dogfood on #3633 (no local main); seam=none; no_claim=the scope tool's own errors
+  test('SCOPE_ERROR=no_base keeps security, performance, api-contract, data-migration and design', () => {
+    const names = planReview(base({ scope: { SCOPE_ERROR: 'no_base' }, diffLines: 1000 })).dispatches.filter(d => d.role === 'specialist').map(d => d.name);
+    for (const n of ['security', 'performance', 'api-contract', 'data-migration', 'design']) expect(names).toContain(n);
+  });
+});
+
 describe('classifyPath: agent-read markdown is code', () => {
   test.each([
     ['README.md', 'docs'], ['CHANGELOG.md', 'docs'], ['docs/howto-x.md', 'docs'], ['TODOS.md', 'docs'],

@@ -41,6 +41,16 @@ describe('gstack-review-plan', () => {
     expect(plan.audit_effort).toBe('light');
     expect(JSON.parse(run(r, ['--json', '--no-tiers']).stdout).audit_effort).toBe('host');
   });
+  // Value: protects=the plan reads diff scope from origin/<base> like collectLive, so a clone with no local base branch keeps its scope-gated specialists; fails_when=gstack-diff-scope <base> fails on a missing local ref and security/performance silently drop;
+  //   why_new=GSTA-167 dogfood on #3633: a Capy checkout has no local main; seam=gstack-diff-scope; no_claim=which specialists a scope selects
+  test('no local base branch: scope comes from origin/<base> and the scope-gated specialists stay', () => {
+    const r = repo({ 'src/a.ts': Array.from({ length: 80 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n' });
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });
+    git('update-ref', 'refs/remotes/origin/main', 'main'); git('branch', '-D', 'main');
+    const out = run(r, []).stdout;
+    expect(out).not.toContain('scope_error');
+    expect(out).toContain('DISPATCH: specialist performance');
+  });
   test('a below-floor fix after pass 1 plans one fix-check', () => {
     const r = run(repo({ 'src/a.ts': 'export const a = 1;\n' }), ['--pass', '1', '--last', 'full', '--fixed-below']);
     expect(r.stdout).toContain('next=fix-check dispatches=1');
