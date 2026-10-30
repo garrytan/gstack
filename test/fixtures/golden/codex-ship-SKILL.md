@@ -478,7 +478,7 @@ git merge origin/<base> --no-edit
 **If already up to date:** Continue silently.
 
 **Ship policy:** `$GSTACK_ROOT/bin/gstack-ship-policy show-effective --base <base>`
-(docs/ship-policy.md); its `ship:` lines bind Steps 12–16 and history.
+(docs/ship-policy.md); its `ship:` lines bind Steps 12-16 and history.
 
 If integration changes the artifact or distribution configuration inspected in Step 2,
 repeat Step 2 (decisions included) on the merged content, then Step 4.
