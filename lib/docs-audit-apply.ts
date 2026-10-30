@@ -12,7 +12,7 @@ import * as path from 'node:path';
 
 /** Files a documentation edit never touches: release metadata, manifests and lockfiles the parent owns. */
 const PROTECTED = [/^CHANGELOG\.md$/, /^TODOS\.md$/, /^VERSION$/, /(^|\/)package(-lock)?\.json$/, /(^|\/)(bun\.lockb?|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|Gemfile\.lock)$/, /(^|\/)sections\/manifest\.json$/, /^agents-digest\//];
-const GENERATED = /^(?:[^\n]*\n){0,2}<!-- AUTO-GENERATED/;
+const GENERATED = /^(?:---\n[\s\S]*?\n---\n)?(?:[^\n]*\n){0,2}<!-- AUTO-GENERATED/;
 
 export interface DocsAuditResult {
   schema_version: 1; audit_id: string; status: 'updated' | 'current' | 'blocked';

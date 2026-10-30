@@ -172,3 +172,20 @@ describe('gstack-docs-candidate apply', () => {
     expect(fs.readFileSync(path.join(outside, 'target.md'), 'utf8')).toBe('secret target\n');
   });
 });
+
+describe('docs audit apply: generated files behind frontmatter', () => {
+  // Value: protects=a generated SKILL.md whose AUTO-GENERATED marker follows YAML frontmatter is refused like any generated file; fails_when=apply edits a generated skill file and Skill Docs Freshness fails on the next run;
+  //   why_new=GSTA-167 /ship red team on #3633 (CRITICAL); seam=none; no_claim=which docs the candidate lists
+  test('an edit to a frontmatter-first generated file is a blocker, not a write', async () => {
+    const { applyDocsFindings } = await import('../lib/docs-audit-apply');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-gen-'));
+    try {
+      const text = '---\nname: x\ndescription: y\nallowed-tools:\n  - Bash\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl -->\nold\n';
+      fs.mkdirSync(path.join(root, 'x')); fs.writeFileSync(path.join(root, 'x', 'SKILL.md'), text);
+      const out = [JSON.stringify({ path: 'x/SKILL.md', action: 'edit', kind: 'stale', summary: 's', old: 'old', new: 'new' }), JSON.stringify({ schema_version: 1, audit_id: 'a1', documentation_section: 'Docs.' })].join('\n');
+      const res = applyDocsFindings(root, { audit_id: 'a1', mode: 'write', docs: ['x/SKILL.md'] }, out);
+      expect(res.result?.blockers.join('\n')).toContain('generated file');
+      expect(fs.readFileSync(path.join(root, 'x', 'SKILL.md'), 'utf8')).toBe(text);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+});
