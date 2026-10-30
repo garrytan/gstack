@@ -85,6 +85,15 @@ describe('gstack-ship-preflight', () => {
     expect(lineOf(r.stdout, 'POLICY')).toContain('queue_mode=stamp-at-merge');
   });
 
+  // Value: protects=Step 1's scope check reads the fetched origin/<base>, so a clone without a local base branch still sees frontend files; fails_when=the preflight reports frontend=false because gstack-diff-scope could not resolve a local <base>;
+  //   why_new=GSTA-167 dogfood on #3633: a Capy checkout has no local main and SCOPE printed false; seam=gstack-diff-scope; no_claim=design review itself
+  test('no local base branch: SCOPE still reads the fetched base', () => {
+    const f = fx({}, { 'web/site.css': 'a { color: red; }\n' });
+    f.git('branch', '-D', 'main');
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(lineOf(r.stdout, 'SCOPE')).toMatch(/^SCOPE: frontend=true /);
+  });
+
   // Value: protects=a failing lane and a zero-run lane both stop for Step 5's triage; fails_when=exit 0 with zero tests counts as a pass, or a failure continues to Step 6;
   //   why_new=moved from Step 5's lane block; seam=gstack-evidence tests_ran; no_claim=the triage outcome
   test('a failing lane and a ZERO-RUN lane stop for Step 5 triage', () => {
