@@ -73,6 +73,19 @@ describe('gstack-review-dispatch render: briefs from the sections, slots only', 
     expect(fs.readFileSync(path.join(out, 'review-ledger.jsonl'), 'utf8')).toContain('"event":"rendered"');
     expect(run(['render', '--role', 'specialist', '--name', 'no-such-specialist', '--out', out, '--diff-base', SHA]).stderr).toContain('BRIEF_RENDER_FAILED: checklist not found');
   });
+
+  // Value: protects=the lean ensemble's one batched reader (GSTA-167 part 2) gets checklist paths when the parent passes the plan's
+  //   checklists= names as printed; fails_when=the brief names bare checklist words a reader cannot open, or an unknown name
+  //   renders; seam=gstack-review-dispatch render
+  test('specialist-batched takes the DISPATCH checklists= names and writes each checklist path into the brief', () => {
+    const out = tmp();
+    const r = run(['render', '--role', 'specialist-batched', '--out', out, '--diff-base', SHA, '--checklists', 'testing,security,state-machines']);
+    expect(r.status, r.stderr).toBe(0);
+    const root = path.join(import.meta.dir, '..');
+    const lists = ['testing', 'security', 'state-machines'].map(n => path.join(root, 'review/specialists', `${n}.md`)).join(', ');
+    expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8')).toContain(`Read each checklist at ${lists} (tag each finding's`);
+    expect(run(['render', '--role', 'specialist-batched', '--out', out, '--diff-base', SHA, '--checklists', 'testing,maintenance']).stderr).toContain('BRIEF_RENDER_FAILED: checklist not found');
+  });
 });
 
 describe('gstack-review-dispatch sent, collect, judge and verify: nothing changed on the way in or out', () => {
@@ -212,6 +225,31 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const m: MergedLine[] = [{ id: 'r#1', reader: 'r', label: 'FIXABLE', raw: 'x', output_sha256: 'h' }];
     expect(judge(m, [{ id: 'r#1', severity: 'severe' }]).invalid).toEqual(['r#1']);
     expect(judge(m, [{ id: 'r#1', severity: 'INFORMATIONAL', reason: 'a real defect' }]).ok).toBe(true);
+  });
+
+  // Value: protects=normalizer v2 in production (GSTA-167 part 1, certified by round 5's G1): a prose voice's Blocks: yes reaches
+  //   merged.jsonl as CRITICAL, so judge refuses a lead that keeps it below the floor; Blocks: no never lowers a label;
+  //   fails_when=a Blocks: yes finding is collected at its Medium or INVESTIGATE label, a Blocks line with no finding before it is
+  //   lost, or Blocks: no demotes; seam=parseFindings, judge
+  test('a prose voice\'s Blocks: yes collects as CRITICAL, on its own line or the finding just before it; Blocks: no never lowers', () => {
+    const out = [
+      '1. Retry loop drops the last row (queue.ts:78). Severity: Medium · Blocks: yes',
+      '2. INVESTIGATE: lock order in pool.ts:12',
+      '   Blocks: yes',
+      '3. FIXABLE: stale cache key (cache.ts:4)',
+      '   Severity: High',
+      '   Blocks: no',
+      '4. Token never expires (auth.ts:9)',
+      '   Fix: check exp',
+      '   **Blocks:** yes',
+      'Recommendation: Fix the retry loop because it loses rows',
+    ].join('\n');
+    const got = parseFindings('outside-voice', out);
+    expect(got.map(g => g.label)).toEqual(['CRITICAL', 'CRITICAL', 'FIXABLE', 'High', 'CRITICAL']);
+    expect(got[1]!.raw).toBe('2. INVESTIGATE: lock order in pool.ts:12 | Blocks: yes');
+    expect(got[4]!.raw).toBe('Fix: check exp | **Blocks:** yes');
+    const m: MergedLine[] = got.map((g, i) => ({ id: `o#${i + 1}`, reader: 'outside-voice', label: g.label, raw: g.raw, output_sha256: 'h' }));
+    expect(judge(m, m.map(x => ({ id: x.id, severity: x.label === 'CRITICAL' ? 'Medium' : x.label }))).downgraded).toEqual(['o#1', 'o#2', 'o#5']);
   });
 
   test('verify on a ledger that kept no prompts says so and exits 3', () => {

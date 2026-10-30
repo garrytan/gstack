@@ -413,7 +413,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `merged.jsonl` with the label exactly as written (a JSON line's `severity`, or a
    prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE wherever it
    stands, headings and table rows included; a top-level list item under a label-only
-   heading takes that label). A phantom finding costs a fold; a lost one costs the gate.
+   heading takes that label). A prose voice's `Blocks: yes` collects as CRITICAL: on
+   its own line, or on the finding just before it; with no finding there it is one
+   (normalizer v2, GSTA-167). A phantom finding costs a fold; a lost one costs the gate.
 4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id

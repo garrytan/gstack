@@ -8,7 +8,8 @@
  *   judgment  each lead-judgment change: an added or promoted finding, with its reason
  *   judge     the verdict on the parent's judged set (ok, or the dropped and downgraded ids)
  *
- * Findings reach merged.jsonl only through collect, with each voice's label exactly as written.
+ * Findings reach merged.jsonl only through collect, with each voice's label exactly as written,
+ * except that a prose voice's `Blocks: yes` collects as CRITICAL (GSTA-167 normalizer v2).
  * The parent's judged set may add or promote a finding and may fold a duplicate into one at least
  * as severe; it never drops or downgrades one. verify replays every check from the ledger alone.
  */
@@ -53,29 +54,47 @@ const LABEL_HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(${LABELS})(?:\\s+(?:fin
 const HEADING = /^(?:#{1,6}\s|\*\*[^*]+\*\*:?$)/;
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
+/** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
+const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 
 export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
 
-/** One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or FIXABLE/INVESTIGATE label, and each top-level list item under a label-only heading (the stronger of the two labels). */
+/**
+ * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
+ * FIXABLE/INVESTIGATE label, and each top-level list item under a label-only heading (the stronger of the two labels). A
+ * `Blocks: yes` makes its own line CRITICAL, or the finding on the line just before it; with no finding there it is one.
+ */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
   const out: Array<{ label: string; raw: string }> = [];
   let section: string | null = null;
+  let previous: { label: string; raw: string } | null = null;
+  let previousText = '';
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
-    if (!t || /^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) continue;
+    if (!t) continue;
+    const before: { label: string; raw: string } | null = previous;
+    const beforeText = previousText;
+    previous = null;
+    previousText = t;
+    if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) continue;
+    if (BLOCKS_YES.test(t) && !ANY_LABEL.test(t) && !t.startsWith('{')) {
+      if (before) { before.label = 'CRITICAL'; before.raw += ` | ${t}`; previous = before; }
+      else out.push(previous = { label: 'CRITICAL', raw: beforeText ? `${beforeText} | ${t}` : t });
+      continue;
+    }
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = heading[1]!; continue; }
     if (line === line.trimStart() && HEADING.test(t)) section = null;
     if (t.startsWith('{')) {
       try {
         const o = JSON.parse(t) as Record<string, unknown>;
-        if (typeof o.severity === 'string') { out.push({ label: o.severity, raw: t }); continue; }
+        if (typeof o.severity === 'string') { out.push(previous = { label: o.severity, raw: t }); continue; }
       } catch { /* prose that starts with a brace */ }
     }
     const inline = ANY_LABEL.exec(t)?.[1];
     const inherited = section && line === line.trimStart() && LIST_ITEM.test(t) ? section : undefined;
     const label = inline && inherited ? stronger(inherited, inline) : inline ?? inherited;
-    if (label) out.push({ label, raw: t });
+    if (label) out.push(previous = { label: BLOCKS_YES.test(t) ? 'CRITICAL' : label, raw: t });
   }
   return out;
 }
