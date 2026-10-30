@@ -46,7 +46,9 @@ describe('gstack-review-plan', () => {
   test('no local base branch: scope comes from origin/<base> and the scope-gated specialists stay', () => {
     const r = repo({ 'src/a.ts': Array.from({ length: 80 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n' });
     const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });
-    git('update-ref', 'refs/remotes/origin/main', 'main'); git('branch', '-D', 'main');
+    expect(git('update-ref', 'refs/remotes/origin/main', 'main').status).toBe(0);
+    expect(git('branch', '-D', 'main').status).toBe(0);
+    expect(git('rev-parse', '--verify', '-q', 'main').status).not.toBe(0);
     const out = run(r, []).stdout;
     expect(out).not.toContain('scope_error');
     expect(out).toContain('DISPATCH: specialist performance');
