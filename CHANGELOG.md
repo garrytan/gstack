@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.335.0] - 2026-10-30
 
 ### Fixed
 - **Captains now read factory.md and the owner's model preference.** A Capy session with no gstack checkout (every Captain and coordinator, which run `install.sh --check --for none`) used to skip factory.md without a word and never applied `agent_model`, because both were read only from the checkout. The skill now tells it to read the `factory.md` beside SKILL.md, to say `factory.md: none` on its own line when there isn't one, and to read the `agent_model` line of `preferences.yaml` itself. Owners get the fix by copying `capy/skill/gstack/` into the Drive skill folder.
