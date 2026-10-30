@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.337.0] - 2026-10-30
 
 ### Changed
 - **Plan first has two narrow fix exemptions.** An S1 emergency (a broken install or upgrade, a red main, a security bug) and a fix from a problem list that was already diagnosed and audited can be built without an `/autoplan` run. Every other fix, a one-line bug fix included, gets a one-round, eng-only plan. `docs/captain.md` § Plan before build says how, and `captain/SKILL.md`, `captain/templates/CREW.md` rule 24 and the Capy skill's SKILL.md list the same exemptions.
