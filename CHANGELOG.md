@@ -12,6 +12,7 @@
 
 ### Tests
 - The reviewer briefs rendered for the same sample diff at this branch and at 1.91.325.0 (dcd62c3) are identical. `test/review-packet.test.ts` goes away with the code it tested, and the tests #3621 edited return to their 1.91.325.0 text.
+- `test/review-packets-removed.test.ts` (new) fails if any removed packet file comes back or any tracked file other than this CHANGELOG still names one, so a branch cut before this revert cannot merge a dangling call to them.
 
 ## [1.91.330.0] - 2026-10-30
 
