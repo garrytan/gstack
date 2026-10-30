@@ -256,6 +256,9 @@ an environment pin. See [selection recovery](troubleshooting.md#model-policy-sel
 `gstack-models` with no arguments is `list`. Both `list` and `resolve` accept
 `--json`. Plan-review resolution requires `--provider anthropic|openai`;
 implementation resolution can omit the provider to return both recommendations.
+Agent resolution (`--role agent`) takes no `--provider`; its JSON carries an
+`agent` object instead of `selections`, and `list --json` adds the same
+top-level `agent` key.
 
 ```bash
 "$GSTACK_ROOT/bin/gstack-models" resolve --role plan-review --provider anthropic --json

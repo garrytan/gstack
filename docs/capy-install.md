@@ -423,6 +423,11 @@ GSTACK_LAUNCH_FILE: <verdict file without .json>.env
 
 `GSTACK_LAUNCH_FILE` names the same assignments as a sourceable script (mode
 0600, beside the verdict under the state root; the PATH prepend is idempotent).
+When the session starts from the Drive skill (a bootstrapper outside the
+checkout), the file also exports `GSTACK_PREFERENCES_FILE`, the path of
+`preferences.yaml` beside that skill's SKILL.md, which the `GSTACK_LAUNCH` line
+leaves out; `gstack-models resolve --role agent` reads it
+([your model preference](model-policy.md#your-model-preference)).
 The file is part of the ok verdict: a passing run that cannot write it exits 1
 with `gstack: fail launch-file — could not write the launch file <path>; fix:
 make <dir> writable, or set GSTACK_STATE_ROOT to a writable directory
