@@ -1,5 +1,144 @@
 # Changelog
 
+## [1.91.335.0] - 2026-10-30
+
+### Fixed
+- **Captains now read factory.md and the owner's model preference.** A Capy session with no gstack checkout (every Captain and coordinator, which run `install.sh --check --for none`) used to skip factory.md without a word and never applied `agent_model`, because both were read only from the checkout. The skill now tells it to read the `factory.md` beside SKILL.md, to say `factory.md: none` on its own line when there isn't one, and to read the `agent_model` line of `preferences.yaml` itself. Owners get the fix by copying `capy/skill/gstack/` into the Drive skill folder.
+
+## [1.91.334.0] - 2026-10-30
+
+**OpenClaw opens gstack's large task skills again (GST-110).** #3555 made `hybrid` OpenClaw's default and registered review, investigate, qa, ship and plan-eng-review as skills of their own. OpenClaw 2026.10.6 serves a registered skill's `SKILL.md` whole or refuses it, with a 32,768-byte limit when its model catalog has no context window for the model. In HARN-5's panel the agent's first read of the 77,691-byte `gstack-review` file was refused in 4 of 5 trials, and opens fell from 5/5 to 0/5. Under the router layout the same file had been read as a plain file inside the router's folder, which OpenClaw pages.
+
+### Fixed
+- **`gstack-harness register openclaw`** (`lib/harness-register.ts`): a skill whose rendered `SKILL.md` is over 32,000 bytes (`OPENCLAW_INSTRUCTION_MAX`, under both OpenClaw's 32,768-byte limit and the 32,000-character budget it applies with a 100K-200K-token context window, with the OpenClaw source lines it comes from) is registered as a short entry with the same frontmatter whose body says to read the skill's full `SKILL.md` in a plain copy of every skill and follow it. In hybrid that copy is the router's `gstack/skills/`, where the router layout read the same file, now including the five task skills; under `--skills all` it is `.gstack-skills/`, a folder OpenClaw's skill scan skips. Because the copy holds every skill, `sections/` paths and sibling paths such as `../gstack-qa/` and autoplan's `../gstack-plan-eng-review/SKILL.md` resolve to full texts. That covers four of hybrid's five direct skills and 26 of 63 skills in `--skills all` today. OpenClaw treats only a registered skill folder's `SKILL.md` as an instruction file. The ledger records the copies, so refresh, mode switches, upgrades from a #3555 registration and uninstall handle them. Skill bodies are unchanged, and Hermes, dots and `generic` registrations are byte-identical.
+- docs/hosts.md and docs/OPENCLAW.md describe the entry and the limit, and docs/uninstall.md's manual OpenClaw removal command also removes `.gstack-skills/`.
+
+### Tests
+- `test/harness-register.test.ts`: in hybrid and all, every `SKILL.md` OpenClaw would register is within the limit, each entry names a full `SKILL.md` that exists, has the same frontmatter, is outside OpenClaw's registered set and is in the ledger, every `../gstack-*` path in the copied texts resolves to a full text, re-registering over a #3555 registration converts it cleanly, and uninstall leaves nothing. Hermes's registration equals its render byte for byte. With `GSTACK_OPENCLAW_BIN` or `openclaw` on PATH, a real `openclaw skills list --json` and `skills info` show exactly `gstack` and the five task skills, each served from an entry within the limit.
+
+## [1.91.333.0] - 2026-10-30
+
+**`gstack-factory-scorecard --now` now ends the window, so a past week no longer counts what happened after it.** Every line counts only items whose timestamps fall in `[now - since-days, now)`. Before, `--now` moved only the start, so `--now 2026-10-15T00:00:00Z --since-days 14` counted 290 merged PRs (every merge from 2026-10-01 through the day of the run) where the window holds 65, and the gate-run and release lines also counted through the day of the run. Rerun with the fix, the two weeks before 2026-10-15 show 65 merged PRs and the two weeks before 2026-10-29 show 197, matching GitHub search for both windows.
+
+### Fixed
+- **`lib/factory-scorecard.ts`**: one window (`scoreWindow`, `inWindow`) bounds merged PRs and their lead times, gate runs and their cost, the red-train rate, flaky events, free-suite retries, issues and releases. The workflow-runs query asks GitHub for the window's days (`created=<start>..<end>`), and the issue searches use a closed time range instead of `>=start`. Releases are read to the last page, because GitHub orders them by creation and a draft can be published long after it was created, and a PR, gate-run or release read that runs past 20 pages now marks its line unavailable instead of printing a partial count.
+- **`scripts/lib/ci-history.ts`**: `listWorkflowRuns` takes an optional `until` (exclusive), compares both ends of the window as instants and skips a run whose `created_at` does not parse; `createdFilter` builds the runs API's `created` query for both callers.
+- **`docs/recommended-harness.md`**: "Where gstack's own numbers stand" is remeasured for the exact week of 2026-10-19 through 2026-10-25 UTC: 83 merged PRs (not 103), median lead time 6.5h, 54 gate runs (52 green, 2 red), $1,361.94 of known gate cost, 17 paid flake records across 11 cases, 0 releases. The earlier figures came from a run before this fix, so they counted past the end of the week.
+
+### Tests
+- `test/factory-scorecard.test.ts`: a PR merged exactly at `--now`, and a gate run, free run and release after it, are left out; the runs and issue queries carry the window's end. A sub-second `--now` keeps the issue search range inside the window, releases behind a full page of newer ones are found, a release published late is found on a later page, and a PR, gate-run or release read past the page cap is unavailable.
+
+## [1.91.332.0] - 2026-10-30
+
+**gstack can remember which model you want your agents on, and every Capy session now reads a one-page summary of how crews work.** Set `agent_model` once (`opus`, another family, or an exact `provider/model`) and `gstack-models resolve --role agent` returns it whenever an agent picks a model for a lane, subagent or reviewer. Unset, every agent keeps its own model, and gstack takes no position for or against any model. A cross-family outside voice and a model under test in an eval ignore the preference on purpose. On Capy the preference lives in `preferences.yaml` beside the gstack skill in your Drive, so it survives fresh machines without being copied anywhere.
+
+### Added
+- **`gstack-models resolve --role agent [--request <model>]`**: the agent role. A one-job request wins and is never saved, then `agent_model` in this machine's config.yaml, then the preferences file, then `host`. Output names the winner, both stored values and the exemptions; `list` gains an agent block and `list --json` a top-level `agent` key, with `selections` unchanged.
+- **`agent_model`** in `gstack-config`, checked with the same grammar as the resolver: `host`, a family (`opus`, `fable`, `sonnet`, `haiku`, `astra`, `sol`, `luna`, `terra`) or `<provider>/<model>`. A bad value stops only the agent role, naming the file and the fix; plan-review, implementation and eval-arms keep resolving.
+- **`capy/skill/gstack/factory.md`**: thirteen practices the Captain crews converged on, each pointing at the rule it summarizes, at most 3,300 bytes. SKILL.md's session start tells every session to read it once.
+
+### Changed
+- The Capy session start (`bin/gstack-capy-session`, which updates with the checkout) points `GSTACK_PREFERENCES_FILE` at `preferences.yaml` next to the Drive skill's SKILL.md, and the installer writes it into the launch file. `--check` never writes the skill folder, and the frozen Drive bootstrapper is unchanged.
+- SKILL.md allows exactly one write in the skill folder: `preferences.yaml`, when the owner asks an agent to remember a preference.
+- `docs/model-policy.md` gains "Your model preference". `docs/captain.md` links factory.md, says to forward an owner's rule for every Captain, in the same turn, to the thread that keeps the account's shared rules, and says the Captain archives its own child threads by its plan for each, including ones its crew or automations started.
+
+## [1.91.331.0] - 2026-10-30
+
+**`/ship` and `/review` go back to the reviewers they used in 1.91.325.0, because the newer reviewers missed real blockers.** In 1.91.326.0 (#3621) each reviewer started reading one prepared packet of the diff instead of reading the diff and the code around it, and the parent read a short findings record. 1.91.330.0 (#3636) let packet reviewers read a little beyond their hunks. A replay of 14 merged PRs (GSTA-167 no-loss round 3) then showed that the old reviewers find 19 of the 30 known blockers, and the packet reviewers, even with the looser reading rule, found only 10 of those 19 (the replay's counting rule favored the old review, and the packet reviewers also found 2 blockers it missed, but the preregistered bar allowed 1 miss and they had 9). So reviews run with gstack 1.91.326.0 through 1.91.330.0 are not as thorough as the review before them, and a PR reviewed on one of those versions may still hide a blocker the old review would have caught.
+
+If you use gstack through Capy, copy `capy/skill/gstack/` over your Drive skill folder again after upgrading, because the copy from 1.91.326.0 tells `/ship` to run `gstack-review-packet`, which this release removes. A `/ship` run that started on 1.91.326.0 through 1.91.330.0 should be restarted after the upgrade for the same reason.
+
+### Removed
+- The packet reviewers: `bin/gstack-review-packet`, `lib/review-packet.ts`, `lib/review-packet-collect.ts`, `lib/review-plan-live.ts`, `lib/review-prompts.ts`, their tests, the reading rule #3636 added for packets, and the two size-ledger entries that paid for them.
+
+### Changed
+- The specialist dispatch, reviewer prompts and findings collect in `ship/sections/`, `scripts/resolvers/`, `bin/gstack-review-plan`, `lib/review-collect.ts`, `docs/review-policy.md`, `docs/ship-budget.md` and `docs/troubleshooting.md` are back to what 1.91.325.0 shipped, byte for byte. Everything else that landed since then stays, including the Capy README, the ship-queue screen change and the pregate always-run list.
+
+### Tests
+- The reviewer briefs rendered for one sample diff at 21ad261 and at 1.91.325.0 (dcd62c3) were identical when checked once by hand; no test repeats that comparison. `test/review-packet.test.ts` goes away with the code it tested, and the tests #3621 edited return to their 1.91.325.0 text.
+- `test/review-packets-removed.test.ts` (new) fails if any removed packet file comes back or any tracked file other than this CHANGELOG still names one or the packet-only anchors and codes, so a branch cut before this revert cannot merge a dangling call to them. It is on `.gstack/always-run.json`, so the selected pregate runs it on every code branch.
+
+## [1.91.330.0] - 2026-10-30
+
+**/ship reviewers now check a suspected defect against the code it depends on before they report it or let it go.** A reviewer packet used to allow at most two more ranges of up to 200 lines, from files in the diff, in one turn. In GSTA-167's no-loss replay, 7 recorded blockers needed context outside those ranges, and no reviewer found them. Each reviewer now confirms or rules out a suspected defect by reading the callers and callees of changed functions, the tests that cover them, and the config and contracts they read. It uses grep and the read tool, at most 8 reads in at most 2 turns of parallel calls. The coverage audit keeps its own budget.
+
+### Changed
+- **Reviewer read rule** (`lib/review-prompts.ts`): `READ_BUDGET`, which every specialist, Red Team, adversarial, outside-voice and fix-check packet carries, and the packet brief (`packetBrief`), which now allows two read turns before the write.
+- `docs/review-policy.md` (reviewer packets), `capy/skill/gstack/SKILL.md` (/ship reviewers on Capy) and the generated ship sections (review-army, adversarial, test-coverage) say the same.
+
+### Tests
+- `test/review-packet.test.ts`: the batched specialist, Red Team, adversarial and fix-check packets carry the rule; the coverage audit keeps its own budget; the rule names callers, callees, tests and contracts with its read and turn bound; the Capy skill and the policy match it.
+- `test/size-ledger/ship/gsta-167-review-reads.json`: 108 bytes for the longer brief, rendered three times in the ship sections.
+
+## [1.91.329.0] - 2026-10-30
+
+**A selected pregate now runs the whole-tree tripwires and ratchets on every code branch, so they fail before review instead of in CI.** #3592 and #3593 passed their selected gate and then failed CI on exactly these scanners, because no touched file maps to a test that reads the whole tree.
+
+### Added
+- **`.gstack/always-run.json`** (`{ "tests": [globs] }`): whole-tree tests that join the `lanes` selection whenever a branch selects any test, owes a lane, or edits the list. `--explain` prints each as `<test> (always_run, .gstack/always-run.json)` and a glob that matches nothing as `<glob> matches no test file`. A docs-only branch adds nothing. A missing file means an empty list; a malformed one stops the check with a message naming the file. gstack's list names 15 tests (tripwires, ratchets, env-host fence conformance, free-fixtures, bun-entry-isolation, egress wiring); `host-conformance`, which runs `./setup`, stays off it.
+- docs/pregate.md has a section on the file and why it is separate from `pregate.json` (older readers reject unknown keys there).
+
+### Tests
+- `test/pregate-always-run.test.ts`: a code change adds the scanner the import graph never selects, and not without the file; a docs-only branch adds nothing; an edit to the list runs it and owes no lane; malformed lists stop; gstack's own list names only tracked tests and includes the GST-98 scanners.
+
+## [1.91.328.0] - 2026-10-30
+
+**Most PRs no longer pay for a solo paid screen before the merge train runs the same cases.** `gstack-ship-queue ready` used to recommend `--screen` whenever a diff touched a skill's own cases, which is almost every PR, and the screens (16 to 19 a day at about $32 each) cost more than the train gates that rerun all 137 cases a few hours later. Of 41 full screens between Oct 20 and 29, the 3 that caught a real bug all came from diffs the selector can't narrow (an unknown dependency or a shared runtime input). The recommendation is now `--screen` only in that case; every other PR rides unscreened and the train gate's full census covers it. Because most PRs now ride unscreened, a train also stopped holding them back, so unscreened PRs fill the seats a screened PR leaves.
+
+### Changed
+- **Screen recommendation** (`lib/ship-queue-train-ready.ts`): `--screen` when the paid selector's mode is `full-fallback` or the selector cannot select; otherwise `--no-screen`. The `SCREEN:` lines name the selector's mode and reason.
+- **Slot order** (`lib/ship-queue-train.ts` `orderSlots`): screened PRs first, then unscreened PRs fill the remaining seats in READY order. The rule that built a screened-only train and held every unscreened PR once `max_size` of them waited is gone, along with its `HELD: … (unscreened PRs form their own train)` line. `--order` still overrides.
+- **Train replay model** (`lib/gate-cost-history.ts` `pickTrain`) seats trains the same way.
+- **Not in this change:** a focused paid run of a no-screen PR's own cases, bound to its READY receipt, needs a new `screen_policy: own` route in evals.yml (GSTA-165 1b, deferred). The matching rule 22 text in `captain/templates/CREW.md` is also deferred, as is a train-record field that attributes a red train to the PR that caused it, which the trigger for reverting this default needs (GSTA-165 v2 item 6).
+
+### Tests
+- `test/ship-queue-train-logic.test.ts`: one screened plus five unscreened at size 5 seats five; a full unscreened pool at size 3 seats three; a skill-template diff recommends `--no-screen`; a `bun.lock` diff recommends `--screen` with its full-fallback reason. These tests failed before the change. Two more pin the diffs that still screen. A diff that mixes a skill template with `bun.lock` recommends `--screen`, and a diff the selector cannot select recommends `--screen` with the full gate selection. `test/ship-queue-train.test.ts` and `test/gate-cost.test.ts` change their ordering expectations on purpose.
+
+## [1.91.327.0] - 2026-10-30
+
+**A new page shows how gstack and Capy run as a software factory, with measured numbers.** `capy/README.md` explains how Capy Captains, their crews and gstack's skills fit together, from the plan-first approval loop and `/ship` before READY to merge trains, fix waves, the daily flaky pass and peer Captains. It compares the 14 days after 2026-10-15 with the 14 days before: 197 PRs merged to gstack's main against 65, and 194 versions shipped against 62. It also says what those numbers leave out. The median PR shrank from 1,292 changed lines to 422, and the median time from opening a PR to merging it grew from 1.1 hours to 5.6, because trains batch merges. A footnote gives the windows and the method behind every figure, and the page ends with tips and how Garry uses the setup day to day.
+
+### Docs
+- **`capy/README.md`**: the new page (how the pieces fit, the measured before/after, why we think it works, tips, and how Garry uses it).
+- The documentation table in `README.md` and the introduction of `docs/captain.md` link to it.
+
+## [1.91.326.0] - 2026-10-30
+
+**/ship reviewers now read one packet file each, and the parent reads a findings record of at most 60 lines instead of every reviewer's transcript.** On this PR's own /ship, pass 2's eight reviewers cost 8.6M tokens on the root counter, against 52.6M for pass 1's eleven (pass 2 read the fix range, pass 1 the whole diff, so the two are not directly comparable).
+
+### Added
+- **`gstack-review-packet build`** writes one packet per `DISPATCH:` line of the review plan: the role's instructions and findings contract, its checklists, that reviewer's diff, a plan excerpt, a read budget and the output path. Steps 7 and 8 audits, the specialists, the Red Team, the fix-check and Step 11's adversarial pass and outside voice all dispatch this way. A packet over 200 KB is split by path; no hunk is cut and no path is dropped. Audits are never split.
+- Each `PACKET:` line names its `budget_role` and `read=` line ranges of at most 30,000 bytes, and build prints `BUDGET_NEXT: dispatch:<roles>` for `gstack-ship-budget check --next`. A reviewer reads its packet with parallel range reads and finishes in about three calls.
+- **`gstack-review-packet collect`** parses, validates and dedupes every reviewer's output, prints one line per reviewer plus each CRITICAL, and writes `merged.jsonl` and `informational.md` for the PR body. Missing or unusable output exits 3 with `REVIEW_COVERAGE_INCOMPLETE`.
+
+### Changed
+- Every reviewer prompt lives in `lib/review-prompts.ts`; the resolvers import it, so a packet and the generated SKILL.md prose cannot drift. /review's generated output is unchanged.
+- Large `.json`, `.jsonl`, `.ndjson`, `.csv` and `.tsv` changes (over 400 changed lines, not package or config manifests) reach reviewers as a summary built from the diff alone. The testing reviewer and the coverage audit still read data under `test/` or `fixtures/` in full.
+- The Capy dispatch paragraph in `capy/skill/gstack/SKILL.md` builds packets, starts reviewers on the shared machine, polls with `transcript: "none"` and returns only collect's output.
+
+### Fixed
+- `--base origin/main` no longer becomes `origin/origin/main` in audit prompts.
+- A partial build keeps other reviewers' results only at the same head, diff base and diff content; a Red Team build against a changed tree refuses with `STALE_MANIFEST`.
+- Collect counts a state-machines matrix record only from the state-machines reviewer, and a CRITICAL line that fails to parse or validate makes its reviewer invalid instead of disappearing.
+
+### Tests
+- `test/review-packet.test.ts`: 41 tests covering packet contents, sharding, audits, budget roles, read ranges, data summaries (including a symlinked CSV that must not leak its target), stale manifests and collect's validation. Each fix in this entry has a test that failed before it.
+
+## [1.91.325.0] - 2026-10-30
+
+**A capped /ship on Capy no longer delegates or stops just because the host's own prompt is big, and a delegated child hands off instead of stopping.** A fresh Capy call costs 150-230k before any /ship work, so the 100k start and 150k segment thresholds fired on every capped Capy start and stopped two gstack-evals #36 children at their first boundary. The thresholds now measure context above a calibrated per-host call floor.
+
+### Fixed
+- **Thresholds sit above the host call floor.** `lib/ship-budget-calibration.json` gives each meter a `call_floor` (Capy 150k, Claude Code 40k, estimate 0); `start --call-floor <n>` overrides it and children inherit it. `BUDGET:` and `STOP:` lines print `call_floor=` and `above_floor=`.
+- **A child never stops on the context rule.** After a completed step it hands its remaining steps to a grandchild through the same handoff, verify, return and reconcile commands (chain depth 3 at most). Before its first completed step, at the maximum depth, or past its segment it continues with one `CONTEXT_HIGH:` line. The admission cap still stops it.
+- **A delegated child cannot return complete with work left over.** `return` reports `status=incomplete` with `UNRECONCILED:` or `DROPPED:` lines while one of its own grandchildren is unreconciled or a batch remainder was never re-checked.
+
+### Changed
+- **Parallel reviewer batches near the cap admit the largest prefix that fits** (`ADMIT: k of n (remaining=<roles>)`) instead of refusing the whole batch; each reader is priced at the larger of its projection and the run's measured mean for that role. `close` flags remaining roles nobody re-checked (`DROPPED:`, `status=incomplete` until the owner accepts).
+
+### Tests
+- `test/ship-budget-chain.test.ts` replays #36 (a child at its first boundary continues) and covers the Capy floor, grandchild handoff at depth 2, the depth-3 cap, charging a chained return once on all three meters, and the incomplete return. `test/ship-budget-batch.test.ts` replays #35's 7-reader batch near the cap.
+
 ## [1.91.324.0] - 2026-10-29
 
 **A /ship token cap now projects each step and reviewer from what the run has actually spent, so real caps stop refusing work that costs a fraction of the old guess.** On GSTA-152 a 29.28M cap refused its third reviewer because every dispatch was projected at 7.43M while real ones cost 0.23 to 1.02M; on GSTA-2 an 8M cap stopped before Step 6 after Steps 1 to 5 cost about 0.27M each, because every step was projected at 2.25M.

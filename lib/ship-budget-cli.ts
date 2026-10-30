@@ -12,8 +12,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import {
-  BudgetError, DEFAULT_TAIL, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
-  admits, applyReading, budgetError, budgetLine, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
+  BudgetError, DEFAULT_TAIL, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
+  aboveFloor, admits, applyReading, budgetError, budgetLine, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
   parseNext, parseRecordBlock, parseStep, parseTokens, pointMarker, projector, readLedger, reserveIn, restoreRun, reviewPaths,
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
   type Ledger, type MeterKind, type Next,
@@ -68,7 +68,7 @@ export function readMeter(l: Ledger, o: Opts, requireReading: boolean): number |
 }
 
 /** The stop block: STOP, the resumable RECOVER line and GSTACK_RESULT incomplete; a child also writes its return. */
-export function stopLines(l: Ledger, f: { call: number | null; next: string; step: string; projected: number; reason: 'budget_exhausted' | 'context_threshold' }): string[] {
+export function stopLines(l: Ledger, f: { call: number | null; next: string; step: string; projected: number; reason: 'budget_exhausted' | 'context_threshold'; threshold?: number }): string[] {
   l.stopped = { at: new Date().toISOString(), reason: f.reason, step: f.step, next: f.next };
   const t = tally(l);
   const p = projector(l);
@@ -80,7 +80,7 @@ export function stopLines(l: Ledger, f: { call: number | null; next: string; ste
       resultLine('gstack-ship-budget', 'BUDGET_CAP_REACHED', `next ${f.next} needs ${f.projected} + reserve ${p.reserve}`),
       `RECOVER: /ship --resume ${l.record ?? '<record>'} --token-cap ${t.used + t.reserved + t.unknown + tailCost}`);
   } else {
-    lines.push(`STOP: reason=context_threshold call=${f.call ?? 'unknown'} threshold=${DELEGATE_SEGMENT_CALL} next=${f.next} (${l.role === 'child' ? 'a child never delegates' : '--delegate never'})`,
+    lines.push(`STOP: reason=context_threshold call=${f.call ?? 'unknown'} call_floor=${p.floor} above_floor=${aboveFloor(f.call, p.floor) ?? 'unknown'} threshold=${f.threshold ?? DELEGATE_SEGMENT_CALL} next=${f.next} (--delegate never)`,
       `RECOVER: /ship --resume ${l.record ?? '<record>'} in a fresh session`);
   }
   lines.push(`GSTACK_RESULT: skill=ship status=incomplete run=${l.dir}`);
@@ -93,28 +93,75 @@ export function writeReturnFile(file: string, lines: string[]): void {
   fs.writeFileSync(file, lines.join('\n') + '\n', { mode: 0o600 });
 }
 
-/** Admission and the delegate rule for one boundary; reserves the admitted work under a cap. */
+/**
+ * Admission and the delegate rule for one boundary; reserves the admitted work
+ * under a cap (a dispatch batch goes to admitBatch). The rule compares the call's context above the host floor (an
+ * unknown charge delegates at a segment boundary, never at start). A child
+ * never stops on it: after a completed step it hands its remaining steps to a
+ * grandchild, and before one, at the maximum depth or past its segment it
+ * continues with a CONTEXT_HIGH note. Admission still stops anyone.
+ */
 export function decide(l: Ledger, step: string, next: Next, call: number | null, startThreshold = false): Outcome {
+  if (next.kind === 'dispatch') return admitBatch(l, step, next.roles, call);
   const p = projector(l);
-  const nextId = next.kind === 'step' ? next.step : `dispatch:${next.roles.join(',')}`;
+  const nextId = next.step;
   const { prior, tokens: projected } = p.project(next);
   if (!admits(tally(l), projected, p.reserve, l.cap)) {
     return { stdout: stopLines(l, { call, next: nextId, step, projected, reason: 'budget_exhausted' }), exit: 3 };
   }
-  const boundary = next.kind === 'step' && (startThreshold ? next.step === '1' : next.step === '7' || next.step === '12');
-  const wants = boundary && (startThreshold ? call !== null && call >= DELEGATE_START_CALL : call === null || call >= DELEGATE_SEGMENT_CALL);
-  if (wants && (l.role === 'child' || l.delegate === 'never')) {
-    return { stdout: stopLines(l, { call, next: nextId, step, projected, reason: 'context_threshold' }), exit: 3 };
+  const threshold = startThreshold ? DELEGATE_START_CALL : DELEGATE_SEGMENT_CALL;
+  const above = aboveFloor(call, p.floor);
+  const boundary = (startThreshold ? next.step === '1' : next.step === '7' || next.step === '12');
+  const wants = boundary && (above === null ? !startThreshold : above >= threshold);
+  const depth = l.depth ?? (l.parent ? 1 : 0);
+  const hold = !wants || !l.parent ? undefined
+    : !l.steps_done?.length ? 'no step completed since verify-handoff'
+    : depth >= MAX_CHAIN_DEPTH ? `chain depth ${depth} is the maximum`
+    : l.delegate === 'never' ? '--delegate never'
+    : SHIP_STEPS.indexOf(nextId as any) > SHIP_STEPS.indexOf(l.parent.to as any) ? `Step ${nextId} is past this child's Steps ${l.parent.from}-${l.parent.to}` : undefined;
+  if (wants && !l.parent && l.delegate === 'never') {
+    return { stdout: stopLines(l, { call, next: nextId, step, projected, reason: 'context_threshold', threshold }), exit: 3 };
   }
-  if (wants && next.kind === 'step') {
+  if (wants && !hold) {
+    const to = l.parent ? l.parent.to : SEGMENTS[next.step];
     return { stdout: [budgetLine(l, { call, next: nextId, projected, verdict: 'delegate' }),
-      `DELEGATE: Steps ${next.step}-${SEGMENTS[next.step]} go to a fresh child: gstack-ship-budget handoff --run ${l.run} --from ${next.step} --to ${SEGMENTS[next.step]} --base origin/<base> (ship/sections/budget-handoff.md)`], exit: 0 };
+      `DELEGATE: Steps ${next.step}-${to} go to a fresh ${l.parent ? `grandchild (chain depth ${depth + 1})` : 'child'}: gstack-ship-budget handoff --run ${l.run} --from ${next.step} --to ${to} --base origin/<base> (ship/sections/budget-handoff.md)`], exit: 0 };
   }
   const lines = [budgetLine(l, { call, next: nextId, projected, verdict: 'continue' })];
+  if (hold) lines.push(`CONTEXT_HIGH: call=${call ?? 'unknown'} call_floor=${p.floor} above_floor=${above ?? 'unknown'} threshold=${threshold} next=${nextId} depth=${depth}; continuing: ${hold}`);
   if (l.cap !== null) {
-    const r = reserveIn(l, { kind: next.kind, step, next: nextId, tokens: projected, prior, ...(next.kind === 'dispatch' ? { roles: next.roles } : {}) });
+    const r = reserveIn(l, { kind: 'step', step, next: nextId, tokens: projected, prior });
     lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${projected}`);
   }
+  return { stdout: lines, exit: 0 };
+}
+
+/**
+ * A dispatch batch: each reader is priced at max(its projection, the run's
+ * measured mean for its role) and the batch is reserved as one sum. When it
+ * does not fit, the largest prefix that does is admitted and ADMIT names the
+ * rest; the reservation keeps them as `remaining` until a later check of the
+ * same step requests them, and close flags any still left. Only a batch whose
+ * first reader does not fit stops.
+ */
+function admitBatch(l: Ledger, step: string, roles: string[], call: number | null): Outcome {
+  const p = projector(l);
+  const prices = roles.map(p.reader);
+  const cost = (k: number) => prices.slice(0, k).reduce((a, b) => a + b, 0);
+  const t = tally(l);
+  let k = roles.length;
+  while (k > 0 && !admits(t, cost(k), p.reserve, l.cap)) k--;
+  if (k === 0) return { stdout: stopLines(l, { call, next: `dispatch:${roles.join(',')}`, step, projected: cost(roles.length), reason: 'budget_exhausted' }), exit: 3 };
+  const admitted = roles.slice(0, k), remaining = roles.slice(k), nextId = `dispatch:${admitted.join(',')}`;
+  const lines = [budgetLine(l, { call, next: nextId, projected: cost(k), verdict: 'continue' })];
+  if (remaining.length) lines.push(`ADMIT: ${k} of ${roles.length} (remaining=${remaining.join(',')}); dispatch these ${k} now and re-check --next dispatch:${remaining.join(',')} after they settle`);
+  if (l.cap === null) return { stdout: lines, exit: 0 };
+  for (const role of roles) {
+    const older = l.reservations.find(r => r.step === step && r.remaining?.includes(role));
+    older?.remaining!.splice(older.remaining!.indexOf(role), 1);
+  }
+  const r = reserveIn(l, { kind: 'dispatch', step, next: nextId, tokens: cost(k), prior: p.project({ kind: 'dispatch', roles: admitted }).prior, roles: admitted, ...(remaining.length ? { remaining } : {}) });
+  lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${cost(k)}`);
   return { stdout: lines, exit: 0 };
 }
 
@@ -143,11 +190,12 @@ function pickMeter(o: Opts): MeterKind | undefined {
 }
 
 export function cmdStart(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger']);
+  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor']);
   const record = str(o, 'record');
   if (!record) throw usageError('start needs --record <invocation record path>');
   const rawCap = str(o, 'token-cap') ?? ctx.env.GSTACK_SHIP_TOKEN_CAP;
   const cap = rawCap === undefined || rawCap === 'none' ? null : parseTokens(rawCap, '--token-cap');
+  const callFloor = tokensOpt(o, 'call-floor');
   const delegate = str(o, 'delegate') ?? 'auto';
   if (delegate !== 'auto' && delegate !== 'never') throw usageError(`--delegate '${delegate}' is not auto or never`);
   const existing = parseRecordBlock(record);
@@ -173,6 +221,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     delegate, role: 'parent', meter: { contract, epoch: 1, baseline: 0, last: null, ...(sessions ? { sessions, config_dir: claudeConfigDir(ctx.env) } : {}) },
     epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     marker: paths.marker, review_log: paths.reviewLog, ...(str(o, 'calibration') ? { calibration: path.resolve(str(o, 'calibration')!) } : {}),
+    ...(callFloor !== undefined ? { call_floor: callFloor } : {}),
   };
   if (meter === 'capy' && tokensOpt(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', 'start --meter capy');
   if (meter === 'capy') l.meter.baseline = tokensOpt(o, 'reading')!;
@@ -206,6 +255,7 @@ export function cmdCheck(argv: string[], ctx: Ctx): Outcome {
       if (done) settleIn(l, r);
     }
     const drift = freshReading(l, o) ? measureSettled(l) : [];
+    if (l.parent && next.kind === 'step' && SHIP_STEPS.indexOf(step as any) >= SHIP_STEPS.indexOf(l.parent.from as any)) l.steps_done = [...new Set([...(l.steps_done ?? []), step])];
     const out = decide(l, step, next, call);
     return { stdout: [...drift, ...out.stdout], exit: out.exit };
   });
@@ -239,13 +289,16 @@ export function cmdClose(argv: string[], ctx: Ctx): Outcome {
     lines.push(`BUDGET_DRIFT: steps=${count('step')} step_projected=${sum('step', 'projected')} step_actual=${sum('step', 'actual')} dispatches=${count('dispatch')} dispatch_projected=${sum('dispatch', 'projected')} dispatch_actual=${sum('dispatch', 'actual')}`);
     const accepted = new Set((l as any).accepted_skips as string[] | undefined ?? []);
     const skipped = l.cap === null ? [] : unreservedDispatches(l).filter(s => !accepted.has(s.started));
-    if (skipped.length && str(o, 'approved-by') && str(o, 'words')) {
-      (l as any).accepted_skips = [...accepted, ...skipped.map(s => s.started)];
-      lines.push(`ACCEPTED: ${skipped.length} unreserved dispatches by ${str(o, 'approved-by')}: "${str(o, 'words')}"`);
-    } else if (skipped.length) {
+    const dropped = l.reservations.filter(r => r.remaining?.length && !accepted.has(r.id));
+    if ((skipped.length || dropped.length) && str(o, 'approved-by') && str(o, 'words')) {
+      (l as any).accepted_skips = [...accepted, ...skipped.map(s => s.started), ...dropped.map(r => r.id)];
+      lines.push(`ACCEPTED: ${skipped.length} unreserved dispatches${dropped.length ? ` and ${dropped.length} unfinished batches` : ''} by ${str(o, 'approved-by')}: "${str(o, 'words')}"`);
+    } else if (skipped.length || dropped.length) {
       for (const s of skipped) lines.push(resultLine('gstack-ship-budget', 'BUDGET_CHECK_SKIPPED', `role=${s.skill} step=${s.step} started=${s.started} spend=unknown`));
-      l.stopped = { at: new Date().toISOString(), reason: 'budget_check_skipped', step: '22', next: '22' };
-      lines.push(`STOP: reason=budget_check_skipped dispatches=${skipped.length}; owner decision: accept the unreserved spend (close --record ${l.record} --approved-by <who> --words <their words>) or rerun them under reservations`,
+      for (const r of dropped) lines.push(`DROPPED: step=${r.step} reservation=${r.id} roles=${r.remaining!.join(',')} (ADMIT named them; no later check requested them)`);
+      const reason = skipped.length ? 'budget_check_skipped' : 'batch_incomplete';
+      l.stopped = { at: new Date().toISOString(), reason, step: '22', next: '22' };
+      lines.push(`STOP: reason=${reason} dispatches=${skipped.length}${dropped.length ? ` unfinished_batches=${dropped.length}` : ''}; owner decision: accept ${skipped.length ? 'the unreserved spend' : 'the readers that never ran'} (close --record ${l.record} --approved-by <who> --words <their words>) or rerun them under reservations`,
         `GSTACK_RESULT: skill=ship status=incomplete run=${l.dir}`);
       return { stdout: lines, exit: 3 };
     }

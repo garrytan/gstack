@@ -8,7 +8,11 @@ controller the same model at run time is [`/captain`](skills.md#captain) (it als
 to `/crew`); the lane-side rules for a thread working under a Captain are in
 [`capy/skill/gstack/captain.md`](../capy/skill/gstack/captain.md) and
 [capy-install.md](capy-install.md#working-under-a-captain). Every file named below has a
-copy-paste template under [`captain/templates/`](../captain/templates/).
+copy-paste template under [`captain/templates/`](../captain/templates/). For the story of how
+one owner's crews run this day to day, with measured numbers, read
+[capy/README.md](../capy/README.md). Every Capy session also reads
+[`capy/skill/gstack/factory.md`](../capy/skill/gstack/factory.md), a one-page summary of
+these practices with pointers to the rules.
 
 ## The model in one paragraph
 
@@ -30,7 +34,10 @@ by a daily pass; nothing is retried into green.
 - **The controller** (the Captain) runs the crew: starts lanes on disjoint files, keeps the
   rules file, the digest and the notes, validates READYs, builds and merges trains, calls
   slots, relays asks to the owner in the three shapes, runs the flaky pass, and decides
-  everything that needs no access, credentials, spend over cap or a cited approval.
+  everything that needs no access, credentials, spend over cap or a cited approval. It
+  archives its own child threads, including ones its crew or its automations started
+  outside the crew, when its plan for each thread says that thread's work is done; it
+  knows each thread's next step, so nobody else archives them.
 - **A lane** (a crew thread) owns named files, builds on its own branch and machine,
   runs /ship, sends one READY block, stamps on call (merging the base into its pin only
   as part of that stamp commit, or when the controller names a real-code conflict),
@@ -359,7 +366,9 @@ only the run the lane named.
 Every report ends with one Lesson. The controller reads lessons before chat, and each
 one becomes a rule in CREW.md, a line in AGENTS.md, or a tool fix filed as an issue;
 nothing stays a lesson for long. Rules carry the thread that produced them, so a new lane
-can read the incident behind the rule.
+can read the incident behind the rule. When the owner states a rule meant for every
+Captain, forward it in the same turn to the thread that keeps the account's shared rules,
+so every crew gets it.
 
 ## Setting it up on Capy
 

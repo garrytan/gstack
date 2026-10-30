@@ -37,7 +37,7 @@ no paid call: the Codex rows report the cached model check and its age, and
 
 ## Model policy
 
-The [model-policy guide](model-policy.md) explains the two tiers, all six
+The [model-policy guide](model-policy.md) explains the two tiers, all seven
 settings, precedence and the read-only inspection command. A resolved selection
 is not proof that the requested provider or model can run.
 
@@ -1832,9 +1832,10 @@ GSTACK_RESULT lines.
 <a id="budget-cap-reached"></a>
 ### `gstack-ship-budget: ... (BUDGET_CAP_REACHED)`
 
-**Meaning.** The next step or dispatch batch would push used + open reservations + unknown
-charges + its projection + the tail and stop reserve past the admission cap, so it did not
-start. Exit 3. `gstack-review-log --start` prints the same code (exit 1) for a dispatch
+**Meaning.** The next step, or the first reader of a dispatch batch, would push used + open
+reservations + unknown charges + its projection + the tail and stop reserve past the admission
+cap, so it did not start. Exit 3. A batch that partly fits is not refused: `check` admits the
+largest prefix that fits and prints `ADMIT: k of n (remaining=<roles>)`. `gstack-review-log --start` prints the same code (exit 1) for a dispatch
 after the run stopped. The cap admits work; it cannot stop a turn already running, so the
 overshoot is bounded by the misprojection of work admitted before the stop.
 

@@ -564,7 +564,7 @@ describe('train build', () => {
     expect(dispatches(fx, 'free-tests.yml').length).toBe(4);
   }, 180_000);
 
-  test('ordering: screened PRs first in READY order; enough unscreened PRs wait for their own train', () => {
+  test('ordering: screened PRs first in READY order; unscreened PRs fill the remaining seats', () => {
     const fx = make({ ...TRAIN_POLICY, train: { ...TRAIN_BLOCK, max_size: 2 } });
     const h = ['1', '2', '3'].map(pr => openPr(fx, pr));
     readyReceipt(fx, '1', h[0]!, { at: '2026-10-18T08:00:00.000Z' });
@@ -572,8 +572,8 @@ describe('train build', () => {
     readyReceipt(fx, '3', h[2]!, { at: '2026-10-18T09:00:00.000Z', screen: true });
     const r = queue(fx, ['train', 'build', '--prs', `1@${h[0]},2@${h[1]},3@${h[2]}`, '--dry-run']);
     expect(r.status).toBe(EXIT.ok);
-    expect(line(r.out, 'ORDER:')).toBe('ORDER: 1:#3(screened)');
-    expect(line(r.out, 'HELD:')).toBe('HELD: #2,#1 (unscreened PRs form their own train)');
+    expect(line(r.out, 'ORDER:')).toBe('ORDER: 1:#3(screened) 2:#2(unscreened)');
+    expect(line(r.out, 'HELD:')).toBe('HELD: #1 (over the train size 2)');
     const wide = make();
     const w = ['1', '2', '3'].map(pr => openPr(wide, pr));
     readyReceipt(wide, '1', w[0]!, { at: '2026-10-18T08:00:00.000Z' });

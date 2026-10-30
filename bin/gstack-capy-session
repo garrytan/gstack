@@ -91,6 +91,18 @@ report_behind() {
     GSTACK_CAPY_BEHIND_TO="$(git -C "$ROOT" show FETCH_HEAD:VERSION 2>/dev/null | head -1)" GSTACK_CAPY_BEHIND_FIX="$1"
 }
 unset GSTACK_CAPY_BEHIND GSTACK_CAPY_BEHIND_TO GSTACK_CAPY_BEHIND_FIX GSTACK_CAPY_BEHIND_BLOCKED
+# The owner's preferences.yaml sits beside the Drive skill's SKILL.md and is
+# read where it lies (never copied), so --check never writes the skill folder
+# and a newer file is seen by the next command. The installer writes the path
+# into the launch file; gstack-models resolve --role agent reads it. A wrapper
+# inside this checkout is no Drive skill, so it names no preferences file.
+if [ -n "${GSTACK_CAPY_WRAPPER_PATH:-}" ]; then
+  _prefs_dir="$(dirname "$(dirname "$GSTACK_CAPY_WRAPPER_PATH")")"
+  case "$_prefs_dir/" in
+    "$ROOT"/*) ;;
+    *) export GSTACK_PREFERENCES_FILE="$_prefs_dir/preferences.yaml" ;;
+  esac
+fi
 RERUN="bash ${GSTACK_CAPY_WRAPPER_PATH:-<skill>/scripts/install.sh}${SKILL:+ --for $SKILL}"
 if [ "$CHECK" -eq 1 ]; then
   if behind; then
