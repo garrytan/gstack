@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.325.0] - 2026-10-30
 
 **A capped /ship on Capy no longer delegates or stops just because the host's own prompt is big, and a delegated child hands off instead of stopping.** A fresh Capy call costs 150-230k before any /ship work, so the 100k start and 150k segment thresholds fired on every capped Capy start and stopped two gstack-evals #36 children at their first boundary. The thresholds now measure context above a calibrated per-host call floor.
 
