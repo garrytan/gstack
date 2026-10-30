@@ -384,10 +384,16 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
    the ledger collected is a drop. Each addition and promotion is logged with its reason.
 5. `verify --ledger <f>` replays all of it from the run's ledger: rendered against
-   dispatched hashes, a collected output for every sent reader (`NOT_COLLECTED`
-   otherwise), output hashes against the merged lines they produced, and the judgment
-   rerun against the recorded judged set, covering every collected id. A ledger from a run that kept no prompts prints
-   `VERIFY: no brief records` (exit 3), never clean.
+   dispatched hashes per render (each render is one dispatch of its reader, so a
+   two-pass ledger checks pass-1 sends against pass-1 briefs; a later render prints as
+   `<reader>@2`), a collected output for every sent reader (`NOT_COLLECTED`
+   otherwise; a reader that failed is collected from its failure text, with zero
+   findings, and its coverage is logged `unavailable`). A mismatched send re-sent
+   byte-exact before anything was collected is void and counted (`voided=N` on the
+   verdict line); one that produced an output stays `MISMATCH`. Then output hashes
+   against the merged lines they produced, and the judgment rerun against the
+   recorded judged set, covering every collected id. A ledger from a run that kept no
+   prompts prints `VERIFY: no brief records` (exit 3), never clean.
 
 ## Where this is enforced
 

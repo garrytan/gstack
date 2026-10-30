@@ -117,7 +117,7 @@ function main(): number {
     const v = verify(ledger);
     for (const r of v.rows) process.stdout.write(`${r.kind} ${r.reader} ${r.status} ${r.detail}\n`);
     if (!v.briefs) { process.stdout.write('VERIFY: no brief records (this run\'s ledger kept no prompts; dispatched-vs-rendered cannot be checked)\n'); return EXIT.refused; }
-    process.stdout.write(`VERIFY: ${v.clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length}\n`);
+    process.stdout.write(`VERIFY: ${v.clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}\n`);
     return v.clean ? EXIT.ok : EXIT.fail;
   }
   process.stderr.write(`gstack-review-dispatch: unknown command ${cmd}\n${HELP}\n`);

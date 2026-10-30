@@ -99,6 +99,30 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect([v.status, v.stdout.includes('BRIEF specialist/testing MISMATCH'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
   });
 
+  // Value: protects=verify checks each render as its own dispatch, so a two-pass ledger compares pass-1 sends with pass-1 briefs, and a mismatched send re-sent byte-exact before any collect is reported as voided, never hidden; a mismatched send that produced an output stays dirty; fails_when=a run-wide verify prints dirty for a clean two-pass run, a superseded mismatch blocks, voided is not printed, or an output collected under a mismatched send reads clean (GSTA-189 #36 replay: VERIFY dirty briefs=9 outputs=16, every output MATCH);
+  //   why_new=verify compared every send with the reader's last render; seam=sent, collect and verify; no_claim=which pass a render belongs to beyond ledger order
+  test('two passes verify per render; a superseded mismatch is voided=1; a mismatched send with an output stays dirty', () => {
+    const p = pass();
+    const out = p.w('spec.out', 'NO FINDINGS\n');
+    const send = (file: string) => run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', file]);
+    const take = () => run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', out, '--merged', p.merged]);
+    send(p.file); take();
+    const second = field(run(['render', '--role', 'specialist', '--name', 'testing', '--out', tmp(), '--ledger', p.ledger, '--diff-base', 'b'.repeat(40)]).stdout, 'file');
+    const truncated = p.w('truncated.txt', fs.readFileSync(second, 'utf8').slice(0, 200));
+    expect(send(truncated).status).toBe(1);
+    send(second); take();
+    expect(run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', p.w('judged.jsonl', '')]).status).toBe(0);
+    const v = run(['verify', '--ledger', p.ledger]);
+    expect([v.status, v.stdout.includes('BRIEF specialist/testing MATCH'), v.stdout.includes('BRIEF specialist/testing@2 MATCH'), v.stdout.includes(' voided=1\n'), v.stdout.includes('VERIFY: clean briefs=2 outputs=2 voided=1')]).toEqual([0, true, true, true, true]);
+    const q = pass();
+    const qt = q.w('t.txt', fs.readFileSync(q.file, 'utf8').slice(0, 200));
+    run(['sent', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--sent', qt]);
+    run(['collect', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--output', q.w('o.out', 'NO FINDINGS\n'), '--merged', q.merged]);
+    run(['sent', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--sent', q.file]);
+    const w = run(['verify', '--ledger', q.ledger]);
+    expect([w.status, w.stdout.includes('BRIEF specialist/testing MISMATCH'), w.stdout.includes('brief_not_sent_verbatim'), w.stdout.includes('voided=0')]).toEqual([1, true, true, true]);
+  });
+
   // Value: protects=findings reach merged.jsonl only through collect with each voice's label as written, and lead judgment can add or promote but never drop or downgrade; fails_when=the parent drops a reader's finding, lowers its severity, folds it into a weaker duplicate or adds one silently, or merged lines no longer trace to the output hash;
   //   why_new=merging was the model's own prose step; seam=collect, judge and verify; no_claim=that the judged set is used downstream by Step 9.4
   test('collect keeps raw labels; judge rejects a drop and a downgrade, accepts a reasoned promotion and a fold into an equal duplicate', () => {
@@ -180,7 +204,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
 
   test('judge and parseFindings as functions: an unknown severity is invalid, NO FINDINGS and the Recommendation line are not findings', () => {
     expect(parseFindings('r', 'NO FINDINGS\n')).toEqual([]);
-    expect(parseFindings('r', '## High\n1. The auth check skips webhooks (a.ts:4)\n  - Impact: nested evidence\n- second one\n## Notes\n- not a finding\n**Critical findings**\n- real one\n**Recommendations**\n- consider renaming foo\n').map(f => [f.label, f.raw])).toEqual([['High', '1. The auth check skips webhooks (a.ts:4)'], ['High', '- second one'], ['Critical', '- real one']]);
+    expect(parseFindings('r', '## High\n1. The auth check skips webhooks (a.ts:4)\n  - Impact: nested evidence\n   **Fix:**\n- second one\n## Notes\n- not a finding\n**Critical findings**\n- real one\n**Recommendations**\n- consider renaming foo\n').map(f => [f.label, f.raw])).toEqual([['High', '1. The auth check skips webhooks (a.ts:4)'], ['High', '- second one'], ['Critical', '- real one']]);
     const shapes = ['1. **Unbounded retry in queue.ts:78** (FIXABLE): loops on 429', '2. `auth.ts:42` skips token expiry check — INVESTIGATE', '### CRITICAL: missing auth check in api.ts:10', '#### [P1] token not expired', '### High: authorization bypass (auth.ts:14)', '- **HIGH**: leak', '| High | race in queue.ts:4 |', 'Classification: INVESTIGATE', '7. **Informational: reads every file**'];
     expect(parseFindings('r', shapes.join('\n')).map(f => f.label)).toEqual(['FIXABLE', 'INVESTIGATE', 'CRITICAL', 'P1', 'High', 'HIGH', 'High', 'INVESTIGATE', 'Informational']);
     expect(parseFindings('r', 'FIXABLE: race in a.ts:3\nINVESTIGATE: odd lock\nRecommendation: Fix the race because x\n').map(f => f.label)).toEqual(['FIXABLE', 'INVESTIGATE']);

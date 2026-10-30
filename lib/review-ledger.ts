@@ -64,7 +64,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     if (!t || /^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) continue;
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = heading[1]!; continue; }
-    if (HEADING.test(t)) section = null;
+    if (line === line.trimStart() && HEADING.test(t)) section = null;
     if (t.startsWith('{')) {
       try {
         const o = JSON.parse(t) as Record<string, unknown>;
@@ -142,36 +142,54 @@ const collectedIds = (events: LedgerEvent[]) => events.filter(e => e.event === '
 export interface VerifyRow { kind: 'BRIEF' | 'OUTPUT' | 'JUDGE'; reader: string; status: string; detail: string }
 
 /** Replay every check from a finished run's ledger: briefs dispatched as rendered, outputs merged as returned, judgment without loss. */
-export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; briefs: number } {
+export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; briefs: number; voided: number } {
   const events = readLedger(ledger);
   const rows: VerifyRow[] = [];
   const short = (s: unknown) => (typeof s === 'string' ? s.slice(0, 12) : '-');
-  const readers = [...new Set(events.filter(e => e.event === 'rendered').map(e => String(e.reader)))];
-  for (const reader of readers) {
-    const r = lastRendered(events, reader)!;
-    const sent = events.filter(e => e.event === 'sent' && e.reader === reader);
+  // Each render opens one dispatch of its reader (a pass); its sends and outputs run until that reader's next render.
+  const renders = events.flatMap((e, i) => (e.event === 'rendered' ? [i] : []));
+  const episodes = renders.map((at, n) => {
+    const reader = String(events[at]!.reader);
+    const next = renders.slice(n + 1).find(j => events[j]!.reader === reader) ?? events.length;
+    const nth = renders.slice(0, n + 1).filter(j => events[j]!.reader === reader).length;
+    return { at, next, reader, label: nth > 1 ? `${reader}@${nth}` : reader };
+  });
+  let voided = 0;
+  for (const p of episodes) {
+    const r = events[p.at]!;
+    const inside = events.map((e, i) => ({ e, i })).filter(({ e, i }) => i > p.at && i < p.next && e.reader === p.reader);
+    const sent = inside.filter(({ e }) => e.event === 'sent');
     let fileNow = '';
     try { fileNow = typeof r.file === 'string' && fs.existsSync(r.file) ? promptHash(fs.readFileSync(r.file, 'utf8')) : ''; } catch { /* unreadable */ }
-    const collected = events.some(e => e.event === 'output' && e.reader === reader);
-    const status = !sent.length ? 'NOT_SENT' : !sent.every(s => s.sha256 === r.sha256) ? 'MISMATCH' : collected ? 'MATCH' : 'NOT_COLLECTED';
+    // A mismatched send is void when the reader was re-sent byte-exact before anything was collected from it.
+    let mismatched = 0, epVoided = 0;
+    for (const s of sent.filter(({ e }) => e.sha256 !== r.sha256)) {
+      const after = inside.find(({ e, i }) => i > s.i && (e.event === 'output' || (e.event === 'sent' && e.sha256 === r.sha256)));
+      if (after?.e.event === 'sent') epVoided++; else mismatched++;
+    }
+    voided += epVoided;
+    const lastMatch = [...sent].reverse().find(({ e }) => e.sha256 === r.sha256);
+    const collected = !!lastMatch && inside.some(({ e, i }) => e.event === 'output' && i > lastMatch.i);
+    const status = !sent.length ? 'NOT_SENT' : mismatched ? 'MISMATCH' : collected ? 'MATCH' : 'NOT_COLLECTED';
     const tampered = fileNow && fileNow !== r.sha256 ? ' file_changed_since_render' : '';
-    rows.push({ kind: 'BRIEF', reader, status: tampered ? 'MISMATCH' : status, detail: `rendered=${short(r.sha256)} sent=${sent.map(s => short(s.sha256)).join(',') || '-'}${tampered}` });
+    rows.push({ kind: 'BRIEF', reader: p.label, status: tampered ? 'MISMATCH' : status, detail: `rendered=${short(r.sha256)} sent=${sent.map(({ e }) => short(e.sha256)).join(',') || '-'}${epVoided ? ` voided=${epVoided}` : ''}${tampered}` });
   }
-  for (const o of events.filter(e => e.event === 'output')) {
+  for (const [i, o] of events.entries()) {
+    if (o.event !== 'output') continue;
     const reader = String(o.reader);
+    const p = episodes.find(q => q.reader === reader && q.at < i && i < q.next);
     let status = 'MATCH';
     const notes: string[] = [];
-    const rendered = lastRendered(events, reader);
-    const sent = events.filter(e => e.event === 'sent' && e.reader === reader);
-    if (!rendered) { status = 'MISMATCH'; notes.push('brief_not_rendered'); }
-    else if (!sent.length || sent.some(s => s.sha256 !== rendered.sha256)) { status = 'MISMATCH'; notes.push('brief_not_sent_verbatim'); }
+    const lastSent = p ? events.slice(p.at + 1, i).filter(e => e.event === 'sent' && e.reader === reader).at(-1) : undefined;
+    if (!p) { status = 'MISMATCH'; notes.push('brief_not_rendered'); }
+    else if (!lastSent || lastSent.sha256 !== events[p.at]!.sha256) { status = 'MISMATCH'; notes.push('brief_not_sent_verbatim'); }
     if (typeof o.file === 'string' && fs.existsSync(o.file) && promptHash(fs.readFileSync(o.file, 'utf8')) !== o.sha256) { status = 'MISMATCH'; notes.push('output_file_changed'); }
     const ids = Array.isArray(o.ids) ? (o.ids as string[]) : [];
     let lines: MergedLine[] = [];
     try { lines = typeof o.merged === 'string' ? readJsonl<MergedLine>(o.merged).filter(l => ids.includes(l.id)) : []; } catch { notes.push('merged_unreadable'); status = 'MISMATCH'; }
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
-    rows.push({ kind: 'OUTPUT', reader, status, detail: `sha=${short(o.sha256)} findings=${ids.length}${notes.length ? ' ' + notes.join(' ') : ''}` });
+    rows.push({ kind: 'OUTPUT', reader: p?.label ?? reader, status, detail: `sha=${short(o.sha256)} findings=${ids.length}${notes.length ? ' ' + notes.join(' ') : ''}` });
   }
   const lastJudge = events.map(e => e.event).lastIndexOf('judge');
   if (lastJudge >= 0) {
@@ -192,6 +210,6 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const status = !v.ok ? 'REJECTED' : notes.length ? 'MISMATCH' : 'OK';
     rows.push({ kind: 'JUDGE', reader: '-', status, detail: `dropped=${JSON.stringify(v.dropped)} downgraded=${JSON.stringify(v.downgraded)} added=${v.added} promoted=${v.promoted} folded=${v.folded}${notes.length ? ' ' + notes.join(' ') : ''}` });
   } else if (events.some(e => e.event === 'output')) rows.push({ kind: 'JUDGE', reader: '-', status: 'MISSING', detail: 'outputs were collected but no judged set was checked' });
-  const clean = readers.length > 0 && rows.every(r => r.status === 'MATCH' || r.status === 'OK');
-  return { rows, clean, briefs: readers.length };
+  const clean = episodes.length > 0 && rows.every(r => r.status === 'MATCH' || r.status === 'OK');
+  return { rows, clean, briefs: episodes.length, voided };
 }
