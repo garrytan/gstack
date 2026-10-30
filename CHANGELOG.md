@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+**A capped /ship on Capy now counts only its own tokens, prices steps from what this run actually spends per call, and sends each review specialist its own reader by default.** Before, a lane's budget read the root thread, so it also counted every sibling lane: on #3633 the root moved 37.3M while the lane itself spent 22.9M.
+
+### Changed
+- **The Capy meter reads the agent's own thread.** `--reading` is that thread's own `cost.tokens`, its subagents included. A handoff child starts counting at its own `verify-handoff` reading, and `reconcile` charges the `used=` its return prints.
+- **Steps are priced at this run's own per-call charge.** Once `check` has measured three per-call charges, it prices a step at its call count times their median, so one early estimate no longer blocks a capped run (gstack-evals #36 projected Step 8 at 16.43M and it cost 0.34M). Step call counts are refit from the round-3 replay ledgers.
+- **`gstack-review-packet build` gives each specialist its own packet by default.** `--fanout batched` is now an explicit opt-in, because the GSTA-167 no-loss replay found 11 of 30 recorded blockers with one packet per specialist and 8 with batched packets.
+
+### Fixed
+- **The review plan reads the diff scope from `origin/<base>`.** Without a local base branch, the plan used to drop the security and performance specialists without saying so. An unreadable scope now keeps every scope-gated specialist.
+- **`--finish` settles a later open Red Team batch** even after the pass program already settled the first batch, so the documented fallback runs.
+- **`check` prints the reservation id on its own `RESERVATION_ID:` line**, and the Step 14.5 docs-audit check passes `--reading`, so neither leaves a dispatch unmeasured.
+- **`reconcile --record` finds the parent run after a `--continue` child returns.** The child shares the parent's record, so the command used to pick the child's run and refuse with "no handoff". It now follows the returned child back to its parent.
+- **Applying the same docs-audit findings twice changes nothing.** A second apply used to append the same sentence again.
+
 **A capped /ship measures reviewer drift per reader, ignores a stale prior reading, and sends a handoff child only its own segment's sections.** Replays of gstack-evals #34 and #36 (GSTA-167) showed false STOPs from a batch reserved as one role and from a reading six calls old.
 
 ### Fixed
