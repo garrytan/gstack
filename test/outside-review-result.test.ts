@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { classifyOutsideReview, validateOutsideReview, type OutsideGate } from '../lib/outside-review-result';
+import { classifyOutsideReview, codexSessionId, validateOutsideReview, type OutsideGate } from '../lib/outside-review-result';
 import { gateOutcomeLine, type GateReason } from '../lib/gate-outcomes';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -333,5 +333,26 @@ describe('a mid-run Codex usage limit is unavailable (quota_exhausted); a mid-ru
         expect({ stderr, classifier: classifyOutsideReview({ text: '', stderr, exit: 1, gate: 'review' }).reason }).toEqual({ stderr, classifier: reason });
       }
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe('codex review restatement inputs', () => {
+  test('the two captured clean gpt-6-astra replies stay untagged_review: the parser is not loosened', () => {
+    for (const text of [
+      'No actionable defects found. Existing TypeScript changes are formatting and documentation only; the new documentation checker appears consistent with repository conventions. Formatting, typecheck, and documentation checks passed; runtime and Electron tests were not run.',
+      'The change only adds an accurate documentation comment to the addition function and does not alter behavior.',
+    ]) expect(classifyOutsideReview({ text, gate: 'structured' }).reason).toBe('untagged_review');
+  });
+  test('codexSessionId reads only a whole `session id: <uuid>` line', () => {
+    const id = '019a5c3e-7b21-7d40-9f3a-2c6e1b8d4f10';
+    expect(codexSessionId(`OpenAI Codex v0.164.0\n--------\nsession id: ${id}\n--------\n`)).toBe(id);
+    expect(codexSessionId(`+ echo "session id: ${id}"\n`)).toBeUndefined();
+    expect(codexSessionId('session id: not-a-uuid\n')).toBeUndefined();
+    expect(codexSessionId('')).toBeUndefined();
+  });
+  test('--restate without a session id leaves the verdict unverified and runs nothing', () => {
+    const r = cli(['--restate', 'gpt-6-astra', '--left', '500', '--stderr', file('no id here\n'), 'structured', file('Reads fine.')]);
+    expect(r.status).toBe(4);
+    expect(r.stdout).toBe('VERDICT: unverified\nFINDINGS: none\nREASON: untagged_review\n');
   });
 });

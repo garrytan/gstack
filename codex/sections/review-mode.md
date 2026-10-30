@@ -71,8 +71,11 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
   "$_CODEX_PROBE" log-event codex_nonzero_exit "review:$_CODEX_EXIT"
 fi
-bun --no-env-file --config=/dev/null ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review' --exit "$_CODEX_EXIT" --stderr "$TMPERR" structured "$TMPOUT"
+bun --no-env-file --config=/dev/null ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --restate "$_CODEX_SEL" --left $((330-SECONDS)) structured "$TMPOUT"
 ```
+
+An untagged reply is restated by the same Codex session (by its printed `session id:`,
+never `--last`); only a tagged restatement replaces `VERDICT: unverified`.
 
 
 **Custom-instructions path (user typed `/codex review <focus>`):** custom instructions
