@@ -46,9 +46,9 @@ function scratch(baseFiles: Record<string, string | Buffer>, objectFormat: 'sha1
   const work = path.join(root, 'work'); const origin = path.join(root, 'origin.git'); const state = path.join(root, 'state');
   fs.mkdirSync(work); fs.mkdirSync(state);
   const env = { HOME: root, GSTACK_HOME: state, GSTACK_STATE_ROOT: state, GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
-  fs.writeFileSync(env.GIT_CONFIG_GLOBAL, `[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n\tdefaultObjectFormat = ${objectFormat}\n`);
-  spawnSync('git', ['init', '-q', '--bare', origin], { env: { ...process.env, ...env }, timeout: 30_000 });
-  sh(work, env, ['init', '-q', '-b', 'main']);
+  fs.writeFileSync(env.GIT_CONFIG_GLOBAL, `[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n`);
+  spawnSync('git', ['init', '-q', '--bare', `--object-format=${objectFormat}`, origin], { env: { ...process.env, ...env }, timeout: 30_000 });
+  sh(work, env, ['init', '-q', '-b', 'main', `--object-format=${objectFormat}`]);
   write(work, { 'README.md': '# evals\n', ...baseFiles });
   sh(work, env, ['add', '-A']); sh(work, env, ['commit', '-q', '-m', 'base']);
   sh(work, env, ['remote', 'add', 'origin', origin]);
