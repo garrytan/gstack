@@ -56,6 +56,19 @@ describe('ship budget skill structure', () => {
     }
   });
 
+  // Value: protects=the Step 14.5 docs-audit reader is measured: its dispatch program reads the counter right before the reader starts and right after it settles and settles with that pair (gstack-evals #34 round 3: the docs-audit settle ran from a later program, so it was unmeasured); fails_when=documentation.md drops the check, either reading or the --dispatched-at settle, or puts the settle in a later program;
+  //   why_new=the pass-order tests read only the review sections; seam=none; no_claim=the agent keeps the program whole
+  test('the docs-audit dispatch program reads BEFORE and AFTER around its one reader and settles with --readers 1 in that program', () => {
+    const doc = read('ship/sections/documentation.md.tmpl');
+    const capy = doc.slice(doc.indexOf('**On Capy, by packet:**'), doc.indexOf('````text'));
+    const order = ['gstack-ship-budget check --run <id> --step 14.5 --next "$BUDGET_NEXT"', 'BEFORE', 'tools.subagent.create', 'tools.subagent.get', 'AFTER',
+      'gstack-ship-budget settle --run <id> --reservation <id> --dispatched-at <BEFORE> --reading <AFTER> --readers 1'];
+    const at = order.map(o => capy.indexOf(o));
+    expect(at.every(i => i >= 0), order.filter((_, k) => at[k]! < 0).join(' | ')).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(capy).toMatch(/all in that same (?:execute )?program/);
+  });
+
   test('every review-log --start in the dispatch sections takes a reservation when a cap is set', () => {
     for (const rel of ['ship/sections/review-army.md.tmpl', 'ship/sections/adversarial.md.tmpl']) expect(read(rel)).toContain('--reservation');
   });
