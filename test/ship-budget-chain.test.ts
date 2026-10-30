@@ -196,6 +196,28 @@ describe('a chained return is charged once', () => {
     expect(close.out).toContain('BUDGET_FINAL: used=5300000 reserved=0');
   });
 
+  // Value: protects=the parent reconciles by --record after a --continue child returned, the way ship run ship-20261030T022114-ef9f9a on #3633 did; fails_when=--record resolves to the child run whose writes last replaced the record's gstack-budget block, so reconcile refuses with "no handoff ... in run <child>";
+  test('reconcile --record after a --continue child returned reconciles the parent run the record belongs to', () => {
+    const h = fresh();
+    const record = h.record();
+    const s = h.sb(['start', '--record', record, '--token-cap', '160M', '--reading', '1000000']);
+    expect(s.code, s.out + s.err).toBe(0);
+    const parent = h.field(s.out, 'BUDGET_RUN', 'id');
+    const ho = h.sb(['handoff', '--record', record, '--from', '12', '--to', '22', '--base', 'origin/main', '--reading', '1100000']);
+    expect(ho.code, ho.out + ho.err).toBe(0);
+    const returnFile = ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!;
+    const v = h.sb(['verify-handoff', '--in', ho.out.match(/^HANDOFF: (\S+)/m)![1]!, '--reading', '200000']);
+    expect(v.code, v.out + v.err).toBe(0);
+    const child = h.field(v.out, 'BUDGET_RUN', 'id');
+    expect(check(h, child, '12', '13', ['--reading', '900000']).code).toBe(0);
+    expect(h.sb(['return', '--run', child, '--to', '22', '--changed', 'Reviews', '--reading', '1500000']).code).toBe(0);
+    const rec = h.sb(['reconcile', '--record', record, '--return', returnFile, '--reading', '1600000']);
+    expect(rec.code, rec.out + rec.err).toBe(0);
+    expect(rec.out).toContain('child=complete child_used=1300000');
+    expect(h.ledger(h.field(s.out, 'BUDGET_RUN', 'ledger')).handoffs[0].reconciled_at).toBeTruthy();
+    expect(fs.readFileSync(record, 'utf8')).toContain(`run=${parent} `);
+  });
+
   test("estimate meter: the grandchild's settled spend reaches the root once, through the child's return", () => {
     const h = fresh();
     const s = start(h, ['--token-cap', '400M', '--meter', 'estimate']);

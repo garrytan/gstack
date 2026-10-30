@@ -471,12 +471,23 @@ export function parseRecordBlock(record: string): Record<string, string> | undef
   return Object.fromEntries(body.split(/\s+/).filter(Boolean).map(kv => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)]));
 }
 
-/** Resolve --run or --record to a ledger file; never by branch or working directory. */
+/**
+ * Resolve --run or --record to a ledger file; never by branch or working directory.
+ * A handoff child writes the shared record's block while it runs; once it has
+ * written its return file the record is its parent's again, so --record
+ * follows the parent link (the parent reconciles by --record after a child).
+ */
 export function ledgerFileFor(o: { run?: string; record?: string }, env: NodeJS.ProcessEnv): string {
   if (o.record) {
     const block = parseRecordBlock(o.record);
     if (!block?.ledger) throw budgetError('BUDGET_LEDGER_INVALID', `${o.record}: no gstack-budget block (run gstack-ship-budget start --record ${o.record} first)`);
-    return block.ledger;
+    let file = block.ledger;
+    while (fs.existsSync(file)) {
+      const parent = readLedger(file).parent;
+      if (!parent || !fs.existsSync(parent.return_file)) break;
+      file = parent.ledger;
+    }
+    return file;
   }
   if (o.run) {
     if (!/^[A-Za-z0-9._-]+$/.test(o.run)) throw usageError(`--run '${o.run}' is not a run id`);
