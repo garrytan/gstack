@@ -30,12 +30,19 @@ const fixtureFor = (caseId: QaCallerCase, installRuntime = false) => {
   return fixture;
 };
 const context = (fixture: QaCallerFixture) => ({ runtime: fixture.runtime, fixtureRoot: fixture.cwd });
+/** The gate scan block as run 40707142223 rendered it; GSTA-167 PR 3b's block prints only the summary and hunk index on success. */
+const CAPTURED_GATE_SUCCESS = `then\n  printf '%s\\n' "$GATE_OUT"\nelse`;
+const CURRENT_GATE_SUCCESS = `then\n  printf '%s\\n' "$GATE_OUT" | sed -n '/^GATE_SUMMARY: /p; /^\\[/p; /: unsupported/p'\nelse`;
+const currentGateBlock = (command: string) => command.includes('GATE_OUT=$(') ? command.replace(CAPTURED_GATE_SUCCESS, CURRENT_GATE_SUCCESS) : command;
 
 describe('ship Step 9 review plan through the qa-callers transport', () => {
   for (const [run, trial] of Object.entries(captured.runs) as [string, { root: string; commands: { command: string }[] }][]) {
     test(`captured ${run}: every Bash call the actor made is inside the declared interface`, () => {
       const fixture = fixtureFor('ship-exploratory-plan-checks', true);
-      const commands = trial.commands.map(({ command }) => command.replaceAll(trial.root, fixture.root));
+      const commands = trial.commands.map(({ command }) => currentGateBlock(command.replaceAll(trial.root, fixture.root)));
+      const gate = commands.filter(command => command.includes('GATE_OUT=$('));
+      expect(gate).toHaveLength(1);
+      expect(fixture.workflowCommands).toContain(gate[0]!);
       expect(commands.filter(command => command.includes('/bin/gstack-review-plan '))).toEqual([`${fixture.runtime}/bin/gstack-review-plan --base main`]);
       expect(commands.filter(command => !qaCallerCommandAllowed(command, fixture.workflowCommands, context(fixture)))).toEqual([]);
     });
