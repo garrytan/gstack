@@ -89,7 +89,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const p = pass();
     const ok = run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
     expect([ok.status, ok.stdout.startsWith('BRIEF_SENT: reader=specialist/testing')]).toEqual([0, true]);
-    expect(run(['verify', '--ledger', p.ledger]).stdout).toContain('BRIEF specialist/testing MATCH');
+    expect(run(['verify', '--ledger', p.ledger]).stdout).toMatch(/^BRIEF specialist\/testing NOT_COLLECTED rendered=(\w+) sent=\1$/m);
     const lines = fs.readFileSync(p.file, 'utf8').split('\n');
     const trimmed = p.w('trimmed.txt', lines.filter((_, i) => i !== 3).join('\n'));
     const bad = run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', trimmed]);
@@ -160,10 +160,29 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(judge(m, [{ id: 'a#1', severity: 'CRITICAL', duplicate_of: 'a#2' }, { id: 'a#2', severity: 'CRITICAL' }]).ok).toBe(true);
   });
 
+  // Value: protects=judge and verify see every collected finding: a judged set built from a merged file that leaves one out is a drop, and a reader sent a brief but never collected leaves verify dirty; fails_when=judge --merged <subset> or skipping one reader's collect still reads clean (/ship #3648 pass-2 Red Team, adversarial and outside voice);
+  //   why_new=judge trusted the merged file it was given and verify only checked collected readers; seam=judge and verify; no_claim=the host's dispatch
+  test('a judge over a merged subset is a drop and verify flags it; a sent reader never collected is NOT_COLLECTED', () => {
+    const p = pass();
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    const spec = p.w('spec.out', '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"x","specialist":"testing"}\n{"severity":"INFORMATIONAL","path":"b.ts","line":1,"category":"n","summary":"y","specialist":"testing"}\n');
+    run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', spec, '--merged', p.merged]);
+    const subset = p.w('subset.jsonl', fs.readFileSync(p.merged, 'utf8').split('\n')[1] + '\n');
+    const judged = p.w('judged.jsonl', JSON.stringify({ id: 'specialist/testing#2', severity: 'INFORMATIONAL' }) + '\n');
+    const j = run(['judge', '--ledger', p.ledger, '--merged', subset, '--judged', judged]);
+    expect([j.status, j.stdout + j.stderr]).toEqual([1, expect.stringContaining('specialist/testing#1')]);
+    expect(run(['verify', '--ledger', p.ledger]).stdout).toContain('merged_ids_missing=specialist/testing#1');
+    const q = pass();
+    run(['sent', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--sent', q.file]);
+    const v = run(['verify', '--ledger', q.ledger]);
+    expect([v.status, v.stdout.includes('BRIEF specialist/testing NOT_COLLECTED')]).toEqual([1, true]);
+  });
+
   test('judge and parseFindings as functions: an unknown severity is invalid, NO FINDINGS and the Recommendation line are not findings', () => {
     expect(parseFindings('r', 'NO FINDINGS\n')).toEqual([]);
-    expect(parseFindings('r', 'Summary: no CRITICAL issues remain.\n')).toEqual([]);
-    expect(parseFindings('r', '## High\n1. The auth check skips webhooks (a.ts:4)\n- second one\n## Notes\n- not a finding\n').map(f => [f.label, f.raw])).toEqual([['High', '1. The auth check skips webhooks (a.ts:4)'], ['High', '- second one']]);
+    expect(parseFindings('r', '## High\n1. The auth check skips webhooks (a.ts:4)\n  - Impact: nested evidence\n- second one\n## Notes\n- not a finding\n**Critical findings**\n- real one\n**Recommendations**\n- consider renaming foo\n').map(f => [f.label, f.raw])).toEqual([['High', '1. The auth check skips webhooks (a.ts:4)'], ['High', '- second one'], ['Critical', '- real one']]);
+    const shapes = ['1. **Unbounded retry in queue.ts:78** (FIXABLE): loops on 429', '2. `auth.ts:42` skips token expiry check — INVESTIGATE', '### CRITICAL: missing auth check in api.ts:10', '#### [P1] token not expired', '### High: authorization bypass (auth.ts:14)', '- **HIGH**: leak', '| High | race in queue.ts:4 |', 'Classification: INVESTIGATE', '7. **Informational: reads every file**'];
+    expect(parseFindings('r', shapes.join('\n')).map(f => f.label)).toEqual(['FIXABLE', 'INVESTIGATE', 'CRITICAL', 'P1', 'High', 'HIGH', 'High', 'INVESTIGATE', 'Informational']);
     expect(parseFindings('r', 'FIXABLE: race in a.ts:3\nINVESTIGATE: odd lock\nRecommendation: Fix the race because x\n').map(f => f.label)).toEqual(['FIXABLE', 'INVESTIGATE']);
     const m: MergedLine[] = [{ id: 'r#1', reader: 'r', label: 'FIXABLE', raw: 'x', output_sha256: 'h' }];
     expect(judge(m, [{ id: 'r#1', severity: 'severe' }]).invalid).toEqual(['r#1']);

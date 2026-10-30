@@ -376,14 +376,17 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    one is `BRIEF_MISMATCH`, and that reader's review does not count.
 3. `collect` hashes each reader's raw output and appends its findings to
    `merged.jsonl` with the label exactly as written (a JSON line's `severity`, or a
-   prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE).
+   prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE wherever it
+   stands, headings and table rows included; a top-level list item under a label-only
+   heading takes that label). A phantom finding costs a fold; a lost one costs the gate.
 4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
-   promotes one without a reason (`JUDGMENT_REJECTED`). Each addition and promotion
-   is logged with its reason.
+   promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
+   the ledger collected is a drop. Each addition and promotion is logged with its reason.
 5. `verify --ledger <f>` replays all of it from the run's ledger: rendered against
-   dispatched hashes, output hashes against the merged lines they produced, and the
-   judgment verdict. A ledger from a run that kept no prompts prints
+   dispatched hashes, a collected output for every sent reader (`NOT_COLLECTED`
+   otherwise), output hashes against the merged lines they produced, and the judgment
+   rerun against the recorded judged set, covering every collected id. A ledger from a run that kept no prompts prints
    `VERIFY: no brief records` (exit 3), never clean.
 
 ## Where this is enforced

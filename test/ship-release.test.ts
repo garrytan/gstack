@@ -125,6 +125,10 @@ describe('finish (Steps 15-16)', () => {
       const r = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
       expect([r.status, r.stdout.includes(`STOP: behavior, tests or build inputs changed since review (${file})`)]).toEqual([3, true]);
     }
+    const g = fx();
+    const reviewed = wtree(g);
+    const built = g.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', snapshot(g), '--lane', LANE, '--build', `printf '{"name":"fx","version":"1.0.0","scripts":{"postinstall":"x"}}\\n' > package.json`]);
+    expect([built.status, built.stdout.includes('STOP: behavior, tests or build inputs changed since review (package.json)')]).toEqual([3, true]);
   });
 });
 

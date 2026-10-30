@@ -44,16 +44,18 @@ export function rank(label: string): number | null {
   const r = RANKS[label.trim().replace(/^\[|\]$/g, '').toLowerCase()];
   return r === undefined ? null : r;
 }
-const LABELS = 'CRITICAL|INFORMATIONAL|Critical|High|Medium|Low|P[0-3]|FIXABLE|INVESTIGATE';
-/** A finding line opens with its label: "- **High**: …", "1. [P1] …", "FIXABLE: …". A label later in a sentence ("no CRITICAL issues remain") is not one. */
-const LEAD_LABEL = new RegExp(`^(?:[-*+]|\\d+[.)])?\\s*[*_[(]*(${LABELS})[*_\\])]*(?=\\s*[:\\-—–]|\\s+\\S)`);
-/** A heading that is only a label ("## High", "**Critical findings**") gives its label to the list items under it. */
+const LABELS = 'CRITICAL|INFORMATIONAL|Critical|Informational|High|HIGH|Medium|MEDIUM|Low|LOW|P[0-3]|FIXABLE|INVESTIGATE';
+/** A label anywhere on a line makes it a finding, headings and table rows included: losing a finding costs more than keeping a phantom one, which the judge may fold. */
+const ANY_LABEL = new RegExp(`(?<![A-Za-z0-9])(${LABELS})(?![A-Za-z0-9])`);
+/** A heading that is only a label ("## High", "**Critical findings**") gives its label to the top-level list items under it, until the next heading or bold-only line. */
 const LABEL_HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(${LABELS})(?:\\s+(?:findings?|severity|issues?))?\\s*:?\\**\\s*$`);
+const HEADING = /^(?:#{1,6}\s|\*\*[^*]+\*\*:?$)/;
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
+const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 
 export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
 
-/** One reader's findings as written: a JSON object per line (severity kept as written); else each prose line that opens with a severity or FIXABLE/INVESTIGATE label, and each list item under a label-only heading. */
+/** One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or FIXABLE/INVESTIGATE label, and each top-level list item under a label-only heading (the stronger of the two labels). */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
   const out: Array<{ label: string; raw: string }> = [];
   let section: string | null = null;
@@ -62,16 +64,17 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     if (!t || /^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) continue;
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = heading[1]!; continue; }
-    if (/^#{1,6}\s/.test(t)) { section = null; continue; }
+    if (HEADING.test(t)) section = null;
     if (t.startsWith('{')) {
       try {
         const o = JSON.parse(t) as Record<string, unknown>;
         if (typeof o.severity === 'string') { out.push({ label: o.severity, raw: t }); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    const m = LEAD_LABEL.exec(t);
-    if (m) out.push({ label: m[1]!, raw: t });
-    else if (section && LIST_ITEM.test(t)) out.push({ label: section, raw: t });
+    const inline = ANY_LABEL.exec(t)?.[1];
+    const inherited = section && line === line.trimStart() && LIST_ITEM.test(t) ? section : undefined;
+    const label = inline && inherited ? stronger(inherited, inline) : inline ?? inherited;
+    if (label) out.push({ label, raw: t });
   }
   return out;
 }
@@ -120,6 +123,9 @@ export function judge(merged: MergedLine[], judged: JudgedLine[]): Judgment {
 /** judge, logged: one judgment event per addition and promotion, then the verdict. */
 export function recordJudgment(ledger: string, merged: MergedLine[], judged: JudgedLine[], judgedFile: string, mergedFile: string): Judgment {
   const res = judge(merged, judged);
+  const given = new Set(merged.map(m => m.id));
+  const absent = collectedIds(readLedger(ledger)).filter(id => !given.has(id));
+  if (absent.length) { res.dropped.push(...absent); res.ok = false; }
   const byId = new Map(judged.map(j => [j.id, j]));
   const labels = new Map(merged.map(m => [m.id, m.label]));
   if (res.ok) {
@@ -129,6 +135,9 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
   appendEvent(ledger, { event: 'judge', ok: res.ok, judged: judgedFile, judged_sha256: promptHash(fs.readFileSync(judgedFile, 'utf8')), merged: mergedFile, merged_ids: merged.map(m => m.id), dropped: res.dropped, downgraded: res.downgraded, unexplained: res.unexplained, invalid: res.invalid, added: res.added.length, promoted: res.promoted.length, folded: res.folded.length });
   return res;
 }
+
+/** Every id collect recorded, in order. */
+const collectedIds = (events: LedgerEvent[]) => events.filter(e => e.event === 'output').flatMap(e => (Array.isArray(e.ids) ? (e.ids as string[]) : []));
 
 export interface VerifyRow { kind: 'BRIEF' | 'OUTPUT' | 'JUDGE'; reader: string; status: string; detail: string }
 
@@ -143,7 +152,8 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const sent = events.filter(e => e.event === 'sent' && e.reader === reader);
     let fileNow = '';
     try { fileNow = typeof r.file === 'string' && fs.existsSync(r.file) ? promptHash(fs.readFileSync(r.file, 'utf8')) : ''; } catch { /* unreadable */ }
-    const status = !sent.length ? 'NOT_SENT' : sent.every(s => s.sha256 === r.sha256) ? 'MATCH' : 'MISMATCH';
+    const collected = events.some(e => e.event === 'output' && e.reader === reader);
+    const status = !sent.length ? 'NOT_SENT' : !sent.every(s => s.sha256 === r.sha256) ? 'MISMATCH' : collected ? 'MATCH' : 'NOT_COLLECTED';
     const tampered = fileNow && fileNow !== r.sha256 ? ' file_changed_since_render' : '';
     rows.push({ kind: 'BRIEF', reader, status: tampered ? 'MISMATCH' : status, detail: `rendered=${short(r.sha256)} sent=${sent.map(s => short(s.sha256)).join(',') || '-'}${tampered}` });
   }
@@ -169,6 +179,9 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const notes: string[] = [];
     const late = events.slice(lastJudge + 1).filter(e => e.event === 'output').map(e => String(e.reader));
     if (late.length) notes.push(`output_after_judge=${late.join(',')}`);
+    const judgedIds = new Set(Array.isArray(v.merged_ids) ? (v.merged_ids as string[]) : []);
+    const missing = collectedIds(events.slice(0, lastJudge)).filter(id => !judgedIds.has(id));
+    if (missing.length) notes.push(`merged_ids_missing=${missing.join(',')}`);
     let rerun: Judgment | null = null;
     try {
       const judgedText = fs.readFileSync(String(v.judged), 'utf8');

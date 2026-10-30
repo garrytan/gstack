@@ -151,13 +151,13 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   const list = lanes(argv) as { label: string; command: string }[];
   const policy = shipPolicy(cwd, base);
   if (!commitRelease(cwd, releasePaths(policy, cwd, 'HEAD'), flag('--trailer'), r)) return r;
-  const release = releasePaths(policy, cwd, flag('--reviewed-tree')!);
   for (const cmd of all('--build')) {
     const b = sh(cwd, cmd);
     r.add(`BUILD: ${b.status === 0 ? 'ok' : `FAIL exit=${b.status}`} ${cmd.slice(0, 120)}`);
     if (b.status !== 0) return r.stop(`Build failed or prerequisite missing: ${firstLine(b.stderr || b.stdout)}; repair it, then repeat stage 1`);
   }
   if (!all('--build').length) r.add('BUILD: none passed (record the inspected sources, or pass --build per declared command)');
+  const release = releasePaths(policy, cwd, flag('--reviewed-tree')!);
   if (!route(cwd, flag('--reviewed-tree')!, release, has('--docs-rechecked'), r)) return r;
   const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', flag('--docs-post')!], 120_000);
   let stale: string[] | null = null;
