@@ -157,7 +157,7 @@ describe('gstack-owner-brief render --captain', () => {
 describe('carried decisions at a cap gate (#3546)', () => {
   const r = capyRunner();
   afterAll(() => r.cleanup());
-  const SECTIONS = '\n## Before → after\n\nBefore: retries hammer. After: they back off.\n\n## Why it matters\n\nOutages.\n\n## What caused this work\n\nIncident 7.\n\n## Big decisions\n\n1. Exponential backoff.\n';
+  const SECTIONS = '\n## ELI5\n\nRetries wait longer each time.\n\n## Before → after\n\nBefore: retries hammer. After: they back off.\n\n## Why it matters\n\nOutages.\n\n## What caused this work\n\nIncident 7.\n\n## Big decisions\n\n1. Exponential backoff.\n';
   const PLAN = SMALL_PLAN + SECTIONS;
   const WORDS: Record<string, string> = { 'keep your direction': 'keep the plan as written', 'accept the change': "make the reviewer's change" };
 

@@ -84,6 +84,7 @@ coverage, not a completed review.
 | `model_frontier_openai` | Catalog's OpenAI frontier model | Explicit OpenAI model identifier |
 | `model_smart_claude` | Catalog's Anthropic smart model | Explicit Anthropic model identifier |
 | `model_smart_openai` | Catalog's OpenAI smart model | Explicit OpenAI model identifier |
+| `agent_model` | unset (`host`) | `host`, a family or `<provider>/<model>`; see [your model preference](#your-model-preference) |
 
 For plan reviews, a model named for that invocation wins over
 `GSTACK_CLAUDE_MODEL` or `GSTACK_CODEX_MODEL`. That environment override wins over
@@ -119,6 +120,55 @@ policy and extra native CLI flags are not visible to this check; `--help` and
 JSON output list these limits. Use an explicit compatible model for those cases,
 or `host` mode for plan reviews. Implementation recommendations require an
 explicit implementation model rather than delegating to a hidden native choice.
+
+## Your model preference
+
+gstack takes no position for or against any model. If you prefer one, gstack
+remembers it and uses it whenever it picks a model for a working agent: a lane,
+a subagent or a reviewer. When it is unset, every agent keeps its own model.
+
+```bash
+"$GSTACK_ROOT/bin/gstack-config" set agent_model opus
+"$GSTACK_ROOT/bin/gstack-models" resolve --role agent
+```
+
+| Value | Meaning |
+| --- | --- |
+| `host` (the default) | keep the running agent's own model and leave the model field out |
+| a family: `opus`, `fable`, `sonnet`, `haiku`, `astra`, `sol`, `luna`, `terra` | today's model in that family (`opus` is `anthropic/claude-opus-5-5`); it moves when gstack's family table moves |
+| `<provider>/<model>` | that exact model, for example `anthropic/claude-opus-5-5` |
+
+The first match wins: a request for one job (`resolve --role agent --request sol`,
+never saved), then `agent_model` in this machine's config.yaml, then
+`agent_model` in the file `GSTACK_PREFERENCES_FILE` names, then `host`. The
+output names the winner and shows both stored values; `--json` prints the
+provider, model, provider-qualified `id` and source.
+
+Two cases ignore the preference on purpose: a cross-family outside voice (the
+`plan-review` role picks the other provider) and a model under test in an eval
+(`eval-arms` and `/eval-plan` arms).
+
+A value gstack can't use stops only the agent role, naming the file and the fix.
+`plan-review`, `implementation` and `eval-arms` keep resolving, and
+`gstack-models list` shows the problem in its agent block.
+
+**On Capy.** Each cloud machine starts fresh, so config.yaml does not carry
+over. Keep the preference in `preferences.yaml` next to the gstack skill's
+SKILL.md in your Drive: one `agent_model: <value>` line, with `#` comments
+allowed (any other key is ignored with a warning). The session start puts the
+file's path in the launch file as `GSTACK_PREFERENCES_FILE` and gstack reads it
+where it is: nothing is copied, and `--check` never writes the skill folder. Agents write that
+file only when you ask them to remember a preference. To change or clear it for
+good, edit or delete that line; `gstack-config unset agent_model` clears this
+machine only. Copying a newer `capy/skill/gstack/` over the skill folder leaves
+`preferences.yaml` alone, because the shipped folder has no such file.
+
+A Capy session with no gstack checkout (a Captain or coordinator that runs
+`install.sh --check --for none`) can't run the resolver, so the skill tells it
+to read the `agent_model` line itself. There a family means the newest model of
+that family the host lists, while the resolver maps each family to the id in
+its table (today they agree: `opus` is `anthropic/claude-opus-5-5`). Anything
+it can't use means the session keeps its own model and says so.
 
 ## Reasoning effort
 
@@ -213,6 +263,9 @@ an environment pin. See [selection recovery](troubleshooting.md#model-policy-sel
 `gstack-models` with no arguments is `list`. Both `list` and `resolve` accept
 `--json`. Plan-review resolution requires `--provider anthropic|openai`;
 implementation resolution can omit the provider to return both recommendations.
+Agent resolution (`--role agent`) takes no `--provider`; its JSON carries an
+`agent` object instead of `selections`, and `list --json` adds the same
+top-level `agent` key.
 
 ```bash
 "$GSTACK_ROOT/bin/gstack-models" resolve --role plan-review --provider anthropic --json

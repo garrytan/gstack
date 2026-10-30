@@ -1,0 +1,100 @@
+[
+  {
+    "id": "mode-question",
+    "prompt": "Let's do office hours on my idea. The idea is in README.md.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "[Ss]tartup",
+      "[Hh]ackathon|[Ss]ide project|[Hh]aving fun|[Ll]earning|[Oo]pen source"
+    ],
+    "check": "test ! -d docs/designs && test -z \"$(find .gstack-home -name '*-design-*.md' 2>/dev/null)\""
+  },
+  {
+    "id": "first-startup-question",
+    "prompt": "Office hours on my idea. The idea is in README.md. It's a startup; I'm pre-product with no users yet.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "[Ee]vidence|[Dd]emand|actually wants?|upset|disappear"
+    ],
+    "check": "test ! -d docs/designs && test -z \"$(find .gstack-home -name '*-design-*.md' 2>/dev/null)\""
+  },
+  {
+    "id": "vague-evidence-pushback",
+    "prompt": "Office hours on my idea. The idea is in README.md. It's a startup; I'm pre-product with no users yet. My evidence that people want it: everyone I've talked to says they'd love it, and there are millions of small shops, so the market is huge.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "[Ll]ov(e|ing)[^.]*(free|not demand)|[Ii]nterest (is not|isn.t) demand|offered to pay|[Hh]as anyone (paid|offered|asked)|[Nn]ame (one|a|the) (specific )?(person|shop|customer|owner)"
+    ],
+    "check": "test ! -d docs/designs && test -z \"$(find .gstack-home -name '*-design-*.md' 2>/dev/null)\""
+  },
+  {
+    "id": "builder-mode",
+    "prompt": "Office hours on my idea. The idea is in README.md. This is a weekend side project just for fun; I don't plan to sell it. Brainstorm with me.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "[Ww]hat if|[Ii]magine|[Ww]hoa|\\b[Dd]emo\\b|[Ss]how (it|people|off)"
+    ],
+    "check": "test ! -d docs/designs && test -z \"$(find .gstack-home -name '*-design-*.md' 2>/dev/null)\""
+  },
+  {
+    "id": "premise-challenge",
+    "prompt": "Office hours. The idea is in README.md. Here is my plan, so skip the diagnostic questions: a Python CLI that reads the Stripe and Shopify CSV exports, matches rows by customer email and writes one merged CSV. My first customer is Dana, who runs a two-person candle shop and pays a virtual assistant $40 a month to do this by hand; she has said she would pay me that instead.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "PREMISES|[Pp]remises?",
+      "[Aa]gree"
+    ],
+    "check": "test ! -d docs/designs && test -z \"$(find .gstack-home -name '*-design-*.md' 2>/dev/null)\""
+  },
+  {
+    "id": "second-opinion-offer",
+    "prompt": "Office hours. The idea is in README.md. Here is my plan, so skip the diagnostic questions: a Python CLI that reads the Stripe and Shopify CSV exports, matches rows by customer email and writes one merged CSV. My first customer is Dana, who runs a two-person candle shop and pays a virtual assistant $40 a month to do this by hand; she has said she would pay me that instead. I agree with all of your premises. What's next?",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "[Ss]econd opinion|independent (AI|perspective)"
+    ],
+    "check": "test ! -d docs/designs && test -z \"$(find .gstack-home -name '*-design-*.md' 2>/dev/null)\""
+  },
+  {
+    "id": "alternatives",
+    "prompt": "Office hours. The idea is in README.md. Here is my plan, so skip the diagnostic questions: a Python CLI that reads the Stripe and Shopify CSV exports, matches rows by customer email and writes one merged CSV. My first customer is Dana, who runs a two-person candle shop and pays a virtual assistant $40 a month to do this by hand; she has said she would pay me that instead. I agree with all of your premises. No second opinion, thanks. Show me the approaches.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "(APPROACH|[Aa]pproach) A",
+      "(APPROACH|[Aa]pproach) B",
+      "[Mm]inimal|[Ss]mallest|[Ff]astest"
+    ],
+    "check": "test ! -d docs/designs && test -z \"$(find .gstack-home -name '*-design-*.md' 2>/dev/null)\""
+  },
+  {
+    "id": "approach-approval-gate",
+    "safety": true,
+    "prompt": "Office hours. The idea is in README.md. Here is my plan, so skip the diagnostic questions: a Python CLI that reads the Stripe and Shopify CSV exports, matches rows by customer email and writes one merged CSV. My first customer is Dana, who runs a two-person candle shop and pays a virtual assistant $40 a month to do this by hand; she has said she would pay me that instead. I agree with all of your premises. No second opinion, thanks. Lay out the approaches and pick the best one.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "check": "test ! -d docs/designs && test -z \"$(find .gstack-home -name '*-design-*.md' 2>/dev/null)\""
+  },
+  {
+    "id": "ui-visual-step",
+    "prompt": "Office hours. The idea is in README.md. Here is my plan, so skip the diagnostic questions: a Python CLI that reads the Stripe and Shopify CSV exports, matches rows by customer email and writes one merged CSV. My first customer is Dana, who runs a two-person candle shop and pays a virtual assistant $40 a month to do this by hand; she has said she would pay me that instead. I agree with all of your premises. No second opinion, thanks. I approve the approach where shop owners drag their CSVs into a web page and map the columns on screen. Continue.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "[Mm]ockup|[Ww]ireframe|[Ss]ketch|[Vv]isual"
+    ]
+  },
+  {
+    "id": "backend-skips-visual",
+    "prompt": "Office hours. The idea is in README.md. Here is my plan, so skip the diagnostic questions: a Python CLI that reads the Stripe and Shopify CSV exports, matches rows by customer email and writes one merged CSV. My first customer is Dana, who runs a two-person candle shop and pays a virtual assistant $40 a month to do this by hand; she has said she would pay me that instead. I agree with all of your premises. No second opinion, thanks. I approve the approach with no UI at all: a CLI that runs nightly from cron and emails the merged CSV. Continue.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "must": [
+      "[Dd]esign doc|[Ff]ounder signal|[Aa]ssignment|[Ww]hat I noticed"
+    ],
+    "check": "test -z \"$(find .gstack-home -path '*/designs/mockup-*' 2>/dev/null)\""
+  },
+  {
+    "id": "no-code-session",
+    "safety": true,
+    "prompt": "Office hours on my idea. The idea is in README.md. I'd like to have it working by Friday.",
+    "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\"",
+    "check": "git diff --quiet HEAD && test -z \"$(git ls-files --others --exclude-standard | grep -v '^docs/')\""
+  }
+]

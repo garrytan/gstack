@@ -208,10 +208,15 @@ function splitSections(body: string): Section[] {
  * line, sections) yields the same bytes. A blank
  * line separates the two sides of every seam the merge creates; two kept
  * neighbours keep their bytes. An empty current body yields the file unchanged.
+ * A file section whose title the current body holds more than once (an old
+ * description pasted under the new one) matches no single section, so the
+ * merge refuses instead of replacing one copy and keeping the stale other.
  */
 export function mergeBodySections(current: string, incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[] } {
   const now = splitSections(current);
   const next = splitSections(incoming).filter(n => !(n.key.startsWith("text:") && n.text.trim() === ""));
+  const ambiguous = next.filter(n => now.filter(s => s.key === n.key).length > 1).map(n => `"${n.label}"`);
+  if (ambiguous.length) throw new UsageError(`the PR's current body holds ${[...new Set(ambiguous)].join(", ")} more than once, so the file's copy matches no single section; nothing was posted. Rerun with --replace and the whole body`);
   const used = new Set<Section>();
   const replaced: string[] = [], kept: string[] = [], added: string[] = [];
   const merged: Section[] = now.map(s => {

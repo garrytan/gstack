@@ -23,7 +23,7 @@ line yourself; gstack never writes the plan.
 
 1. `next` prints one `ATTEMPT: <id> phase=<p> voice=native|outside prompt=<file> result=<file>`
    per voice. Dispatch the native prompt to a subagent on your model and the outside prompt to
-   a subagent on another model family (or `gstack-outside-voice run`). Each writes `result=`.
+   a subagent on another model family (or `gstack-outside-voice run`). Each writes `result=`. The first `next` also prints `REVIEW_ESTIMATE:` (most attempts and reservations the review can take).
 2. Submit each voice exactly once (`BOUND:`). Both voices in closes the phase (`PHASE_CLOSED:`).
 3. Repeat `next` until `status=gate_pending` (`GATE: gate_rev=<n>`); render it with `gstack-gate render <dir>/gate.json --all` and relay every page with the two cost lines printed under `GATE:`: `GATE_SPEND:` (spent, worst case, cap, headroom, attempts; host-subagent attempts are priced unknown and counted at their reservation, so quote their real figure from the host's cost view) and `GATE_REC_COST:` (the phases `rec` can reopen and the estimate for them, an upper bound; `gate_cost` in `--json`).
    You never approve the gate for the owner. Offer `rec` (every recommendation, plan changes included) as the default.
@@ -35,6 +35,7 @@ line yourself; gstack never writes the plan.
 5. `REOPENED: <phases>` means loop `next` again (Eng last). `APPROVED:` means `export` (`DISPATCHES: <n> est_input_tokens=<k>`, relative).
 6. Rounds: one by default; a second only for High or Critical findings; cap 2 (`--max-rounds`). A `revise` whose decisions all resolve below
    High prints `APPLIED: <ids> without re-review (below High)`. At the cap with High open, `ESCALATE: evidence sufficient, decision needed`: relay it, never ask for another round.
+7. Carry-forward ([docs/unattended.md#carry-forward](../docs/unattended.md#carry-forward); `--no-carry-forward` on the first `next` opts out): a later gate that asks nothing new takes the owner's words from the gate before it (`CARRIED:`, then `APPROVED:`); `CARRY: no (<why>)` leaves it for the owner; `CARRY_CHECK:` means one reviewer from another model family reads the printed delta prompt, then `check --out <dir> --attempt <id> --result <file> --model <id>` (or `--unavailable "<reason>"`).
 
 ### On Capy
 
@@ -48,9 +49,8 @@ line yourself; gstack never writes the plan.
   with `gstack-config set autoplan_checkpoint drive`) so a run survives machine replacement: a
   generation is published at rest, after each bound voice and after each phase transition; restore
   with `resume --out <new dir> --from <dir>/<run>`, which never redispatches a bound voice.
-- Plans carry `## Before → after`, `## Why it matters`, `## What caused this work`, `## Big decisions`;
-  relay the printed `RELAY: gstack-owner-brief render --captain` output to your Captain (or the person),
-  then `gstack-approvals import --autoplan <dir>` after `answer` (`capy/skill/gstack/captain.md`).
+- Plans carry `## ELI5` (5-10 plain sentences), `## Before → after`, `## Why it matters`, `## What caused this work`, `## Big decisions`;
+  relay the printed `RELAY: gstack-owner-brief render --captain` output to your Captain (or the person), then `gstack-approvals import --autoplan <dir>` after `answer` (`--stack <b1,b2,...>` for a stack; `capy/skill/gstack/captain.md`).
 
 ### Commands
 

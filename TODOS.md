@@ -3587,6 +3587,34 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ## Ship
 
+### Crew template rule 22: say when a lane picks `--screen` (GSTA-165 1a follow-up)
+
+**What:** Update the rule 22 text in `captain/templates/CREW.md` (and its `docs/captain.md` home if it repeats the rule) so a lane picks `--screen` only when `gstack-ship-queue ready` recommends it: the paid selector's mode is `full-fallback` or it cannot select.
+
+**Why:** `gstack-ship-queue ready` now recommends `--no-screen` for every diff the selector can narrow, and unscreened PRs fill train seats. A crew instantiated from the template still reads the older screen guidance, so lanes can keep paying for screens the recommendation no longer asks for.
+
+**Context:** The GSTA-165 plan's PR 1 (D1) listed this doc change beside the code; PR #3619 shipped the code, `docs/ship-policy.md` and tests and left the template text out. Template rule 22 ("/ship before every READY") names the receipt and its homes but not the screen choice, and rule 6 names `--screen|--no-screen` without saying which to pick.
+
+Deferred from plan: /home/user/.capy/drive/captain-gstack-minder/plans/GSTA-165.md
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** PR #3619
+
+### Train records: attribute a red train to the PR that caused it (GSTA-165 v2 item 6)
+
+**What:** Add an attribution field to the merge-train record so each red train names the PR (or none, or infra) that caused it.
+
+**Why:** The trigger for reverting GSTA-165 D1 (screen only full-fallback diffs) is "PR-attributed red trains exceed the forecast (about 10% at size 3, 16% at size 5) by 2x over 20 trains". Without an attribution field nobody can measure it, so the default cannot be revisited on evidence.
+
+**Context:** Restated in handoffs/GSTA-165/v2-additions.md item 6 and unassigned to a PR. Start from the train record in `lib/ship-queue-train-record.ts` and what `train bisect` writes back to it.
+
+Deferred from plan: /home/user/.capy/drive/captain-gstack-minder/plans/GSTA-165.md
+
+**Effort:** M
+**Priority:** P1
+**Depends on:** PR #3619
+
 ### Runtime enforcement of foreground dispatch (PreToolUse hook)
 
 **What:** A PreToolUse hook (settings.json) that forces or verifies `run_in_background: false` on Agent tool calls made inside gstack workflows, making the #497/#2440 bug class structurally impossible on Claude Code instead of prose-pinned.

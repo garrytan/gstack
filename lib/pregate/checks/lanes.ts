@@ -518,9 +518,19 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   return noPolicy ? withStarter(ctx, sel, result) : result;
 }
 
+/**
+ * The fix line for PREGATE_NO_LANE. When the branch edits `.gstack/pregate.json`
+ * while the policy comes from elsewhere (the base copy, or the user-owned file),
+ * a lane the branch adds does not count yet, and saying "declare its lane" again
+ * sends the author round in a circle. That is the trust boundary working (a
+ * branch cannot loosen its own gate), so the line says so and names the two
+ * routes; it never switches to the head policy on its own.
+ */
 function noLaneFix(ctx: PregateContext, noLane: readonly string[]): string {
   const device = noLane.some(isDeviceDart) ? `; pregate does not run device tests, so declare "**/integration_test/**": [] (and "**/test_driver/**": []) and let CI run them` : '';
-  return `add a test that names the file, or declare its lane (or []) under dependencies — or empty_lanes for other documentation — in ${ctx.configFile}${device}`;
+  const fix = `add a test that names the file, or declare its lane (or []) under dependencies — or empty_lanes for other documentation — in ${ctx.configFile}${device}`;
+  if (ctx.configKind === 'head' || !ctx.touched.some(t => t.path === PREGATE_CONFIG_PATH && t.status !== 'D')) return fix;
+  return `this branch edits ${PREGATE_CONFIG_PATH}, but the policy comes from ${ctx.configLabel} so a branch cannot loosen its own gate, and a lane it adds counts only once it is on ${ctx.base}: land the policy change in its own PR first, or rerun with --policy-from head --allow-repo-commands, which records the run as policy head (unreviewed); otherwise ${fix}`;
 }
 
 export const lanesCheck: CheckDef = { id: 'lanes', stage: 'tests', tier: 1, downgradable: true, needsRepoCommands: true, run };

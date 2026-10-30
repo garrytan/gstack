@@ -78,7 +78,7 @@ installs and passes the conformance tests but has no certification run yet;
 | GitHub Copilot CLI | experimental | `--host copilot` → `~/.copilot/skills/gstack-*/` | `/gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host copilot` |
 | Antigravity CLI | experimental | `--host agy` (or `--host antigravity`) → `~/.gemini/antigravity-cli/skills/gstack-*/` | `/gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host agy` |
 | Slate | instruction-only | `--host slate` (points at the Claude install; Slate reads `.claude/skills`) | `/office-hours` via the Claude install | advisory, not blocked | — | `./setup --host claude` |
-| OpenClaw | experimental | `--host openclaw` (one `gstack` router skill in OpenClaw's skills folder; automatic when setup runs inside OpenClaw; ACP route in [docs/OPENCLAW.md](docs/OPENCLAW.md)) | ask for the task; the agent opens the `gstack` skill | advisory, not blocked | — | `./setup --host openclaw` |
+| OpenClaw | experimental | `--host openclaw` (five task skills and one `gstack` router skill in OpenClaw's skills folder; automatic when setup runs inside OpenClaw; ACP route in [docs/OPENCLAW.md](docs/OPENCLAW.md)) | ask for the task; the agent opens the matching task skill or the `gstack` router | advisory, not blocked | — | `./setup --host openclaw` |
 | Hermes | experimental | `--host hermes` (every skill in `$HERMES_HOME/skills/gstack`; automatic when setup runs inside Hermes) | ask for the task, or `/gstack-review` | advisory, not blocked | — | `./setup --host hermes` |
 | GBrain (mod) | instruction-only | `--host gbrain` (brain-aware variants ship from the GBrain repo) | — | advisory, not blocked | — | — |
 
@@ -242,6 +242,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 |-----|---------------|
 | [Skill Deep Dives](docs/skills.md) | Philosophy, examples, and workflow for every skill (includes Greptile integration) |
 | [The recommended harness](docs/recommended-harness.md) | gstack + Capy from zero to the first merged train: install, the Captain and its Drive, trains, the daily flaky pass, the twice-weekly release, the factory scorecard, what is Capy-specific, known Capy limits |
+| [gstack + Capy: the software factory](capy/README.md) | What we built with Capy Captains and gstack, how the pieces fit, the measured before/after, tips, and how Garry uses it |
 | [Why gstack](docs/why-gstack.md) | The story, the productivity numbers and their caveats, Karpathy's failure modes, parallel sprints |
 | [Install details](docs/install.md) | Setup timing, requirements in detail, team mode, the hooks setup registers, agent harness registration |
 | [Other agents](docs/hosts.md) | Agent harnesses (OpenClaw, Hermes, dots, QM, Muse Code, Grok, any other), OpenClaw and ClawHub, per-host notes, the Codex profile and model tiers, outside-review providers, the design binary's models |
