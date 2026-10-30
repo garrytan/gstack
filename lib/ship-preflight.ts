@@ -22,7 +22,8 @@ const DIST = /(^|\/)(cmd\/[^/]+\/main\.go|bin\/[^/]+|Cargo\.toml|setup\.py|packa
 
 function integrate(cwd: string, base: string, r: Report): boolean {
   const branch = git(cwd, ['branch', '--show-current']).stdout.trim();
-  const head = git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.trim().replace(/^origin\//, '');
+  const remote = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(git(cwd, ['ls-remote', '--symref', 'origin', 'HEAD'], 60_000).stdout)?.[1];
+  const head = remote ?? git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.trim().replace(/^origin\//, '');
   r.add(`BRANCH: ${branch || '(detached)'} base=${base}`);
   if (!branch || branch === base || branch === head) { r.stop(`on the base branch (${branch || 'detached HEAD'}): ship from a feature branch`); return false; }
   const status = git(cwd, ['status', '--porcelain']).stdout.split('\n').filter(Boolean);

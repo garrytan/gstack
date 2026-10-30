@@ -45,6 +45,17 @@ describe('gstack-ship-preflight', () => {
     expect(fetch.stdout).not.toContain('MERGE:');
   });
 
+  // Value: protects=the default-branch abort reads the remote's HEAD, not a local origin/HEAD a clone pointed at the feature branch; fails_when=a checkout whose local origin/HEAD names the feature branch is refused as "on the base branch";
+  //   why_new=GSTA-167 dogfood on #3633: a Capy checkout's origin/HEAD is the PR branch; seam=git ls-remote --symref; no_claim=offline fallback
+  test('a local origin/HEAD naming the feature branch is not the default branch', () => {
+    const f = fx();
+    f.git('update-ref', 'refs/remotes/origin/feat', 'HEAD');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.stdout).not.toContain('STOP: on the base branch');
+    expect(r.status).toBe(0);
+  });
+
   // Value: protects=Step 3 merges the base and a conflict stops with the files named, leaving the merge for the agent to resolve; fails_when=the bin resolves a conflict itself, aborts the merge, or continues to tests;
   //   why_new=moved from the Step 3 prose; seam=git merge; no_claim=which side is right
   test('a merged base is reported; a conflict stops with the conflicted files and the merge left in place', () => {
