@@ -39,9 +39,10 @@ const prVersionEnv = (process.env.PR_VERSION ?? "").trim();
 // head is unstamped and the lane stamps at its slot (docs/ship-policy.md#run-a-merge-train).
 // The workflow passes BASE_REF and HEAD_SHA with the PR head checked out as cwd.
 if (process.env.BASE_REF && process.env.HEAD_SHA) {
-  const train = classifyTrainHead({ repoRoot: process.cwd(), baseRef: process.env.BASE_REF, head: process.env.HEAD_SHA });
+  const train = classifyTrainHead({ repoRoot: process.cwd(), baseRef: process.env.BASE_REF, head: process.env.HEAD_SHA, author: process.env.PR_AUTHOR });
   if (train.kind === "unstamped") {
-    console.log(`✓ ${tag} is unstamped under the base's train policy: VERSION and package.json match its merge base, any changed release output is what the release tool generates at the merge base's VERSION, and the CHANGELOG change is confined to [Unreleased]. The lane stamps at its slot.`);
+    const entry = train.entry === "fragment" ? `its entry is ${train.fragments} CHANGELOG fragment(s)` : train.entry === "none-bot" ? "it is a bot PR with no entry (the merge step writes one from its title)" : "the CHANGELOG change is confined to [Unreleased]";
+    console.log(`✓ ${tag} is unstamped under the base's ship policy: VERSION and package.json match its merge base, any changed release output is what the release tool generates at the merge base's VERSION, and ${entry}. The merge step stamps it.`);
     process.exit(0);
   }
   if (train.kind === "invalid") {
@@ -49,8 +50,12 @@ if (process.env.BASE_REF && process.env.HEAD_SHA) {
     process.exit(1);
   }
   if (train.kind === "stamped" && prVersionEnv !== train.expected) {
-    console.log(`::error::${tag} claims v${prVersionEnv}, but under the base's train policy a stamped head must carry v${train.expected} (base + bump, what gstack-restamp --next allocates at its slot). Leave VERSION, package.json and the release outputs at the base's values until the slot is called.`);
+    console.log(`::error::${tag} claims v${prVersionEnv}, but under the base's ship policy a stamped head must carry v${train.expected} (base + the effective bump, what gstack-restamp --next allocates at the merge step). Leave VERSION, package.json and the release outputs at the base's values until the merge step stamps them.`);
     process.exit(1);
+  }
+  if (train.kind === "stamped" && train.fragments) {
+    console.log(`✓ ${tag} carries v${train.expected}, what the merge step allocates under changelog_fragments; the land lock serializes allocation, so open claims do not apply.`);
+    process.exit(0);
   }
 }
 

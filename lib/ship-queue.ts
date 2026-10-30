@@ -39,6 +39,7 @@ import {
   type AttemptRecord, type QueueFailure,
 } from './ship-queue-gate';
 import { wtreeFingerprint } from './script-invocation';
+import { nowIso, persist, readyPath, repoIdentity } from './ship-queue-train-record';
 import { buildReceipt, type TreeReceipt } from './tree-receipt';
 
 export type Gh = (args: string[]) => { ok: boolean; out: string; err?: string };
@@ -147,12 +148,12 @@ export function latestRunPerName<T extends { name?: unknown; id?: unknown; statu
 }
 
 /** CI at one exact SHA: the latest check run per name (as GitHub's rollup counts) and every commit-status context; unreadable or incomplete is unknown, never green. */
-export function ciAtHead(ctx: QueueContext, sha: string): { line: string; green: boolean; none: boolean; checks: Array<{ name: string; status: string; conclusion: string | null }> } {
+export function ciAtHead(ctx: QueueContext, sha: string): { line: string; green: boolean; none: boolean; checks: Array<{ name: string; status: string; conclusion: string | null }>; contexts: Array<{ name: string; state: string }> } {
   const at = sha.slice(0, 12);
   const runs = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/check-runs`, 'check_runs');
-  if ('error' in runs) return { line: `unknown at ${at} (${runs.error})`, green: false, none: false, checks: [] };
+  if ('error' in runs) return { line: `unknown at ${at} (${runs.error})`, green: false, none: false, checks: [], contexts: [] };
   const statuses = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/status`, 'statuses');
-  if ('error' in statuses) return { line: `unknown at ${at} (${statuses.error})`, green: false, none: false, checks: [] };
+  if ('error' in statuses) return { line: `unknown at ${at} (${statuses.error})`, green: false, none: false, checks: [], contexts: [] };
   const checks = latestRunPerName(runs.items).map(c => ({ name: String(c.name ?? ''), status: String(c.status ?? ''), conclusion: c.conclusion === undefined || c.conclusion === null ? null : String(c.conclusion) }));
   const verdicts = [
     ...checks.map(c => c.status !== 'completed' ? 'pending' : c.conclusion === 'success' ? 'passed' : c.conclusion === 'skipped' || c.conclusion === 'neutral' ? 'skipped' : 'failed'),
@@ -161,7 +162,7 @@ export function ciAtHead(ctx: QueueContext, sha: string): { line: string; green:
   const count = (v: string) => verdicts.filter(x => x === v).length;
   const [passed, failed, pending, skipped] = [count('passed'), count('failed'), count('pending'), count('skipped')];
   const green = verdicts.length > 0 && pending === 0 && failed === 0;
-  return { line: `${green ? 'green' : pending ? 'pending' : verdicts.length ? 'red' : 'none'} at ${at} (passed=${passed} failed=${failed} pending=${pending} skipped=${skipped})`, green, none: verdicts.length === 0, checks };
+  return { line: `${green ? 'green' : pending ? 'pending' : verdicts.length ? 'red' : 'none'} at ${at} (passed=${passed} failed=${failed} pending=${pending} skipped=${skipped})`, green, none: verdicts.length === 0, checks, contexts: statuses.items.map(s => ({ name: String(s.context ?? ''), state: String(s.state ?? '') })) };
 }
 
 /**
@@ -277,6 +278,12 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (!pregateOk) return fail({ code: 'QUEUE_NOT_READY', message: `the pregate result is not a current pass: ${pregateLine}` }, lines, run);
   if (gate && !gate.ok) return fail({ code: 'QUEUE_GATE_MISSING', message: `full_e2e is set and no passing gate is bound to ${head.slice(0, 12)}: ${gate.line}` }, lines, run);
   if (!receipt.ok) return fail({ code: receipt.code, message: receipt.message }, lines, run);
+  if (!policy.policy.train && policy.policy.changelog_fragments) {
+    const repo = repoIdentity(ctx.repoRoot);
+    const now = nowIso();
+    const p = persist(ctx.repoRoot, [{ schema: 1, kind: 'ready', repo_key: repo.key, pr: o.pr, head, base_sha: baseSha, ready_at: now, screen: { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null }, updated_at: now }], { remote: ctx.remote ?? 'origin' });
+    lines.push(`READY_RECEIPT: ${readyPath(repo.key, o.pr, head)} (${p.detail})`);
+  }
   return { ok: true, lines, run };
 }
 

@@ -34,12 +34,16 @@ export interface ScreenChoice {
 }
 export interface TrainSlot { pr: string; head: string; ready_at: string; screen: ScreenChoice }
 export interface TrainPrefix { index: number; commit: string; tree: string; pr: string | null }
+/** A stamped prefix S_i (changelog_fragments trains, lib/ship-queue-train-stamp.ts): what slot i publishes, exactly. */
+export interface StampedPrefix { index: number; commit: string; tree: string; pr: string; version: string; date: string }
 export interface FreeRun { run: number | null; url: string | null; head_sha: string | null; conclusion: string | null; verdict: 'green' | 'red' | 'missing' | 'stale' | 'cancelled' | 'pending' }
 export interface TrainRecord {
   schema: 1; kind: 'train'; nonce: string; key: string; repo_key: string; repo: string; base: { ref: string; sha: string }; policy: string;
   slots: TrainSlot[]; held: string[]; prefixes: TrainPrefix[]; head: string; tree: string; branch: string;
   urgent: boolean; repair: boolean; explicit_order?: boolean; state: TrainState; free: FreeRun | null; attempts: string[];
   merged: Array<{ pr: string; sha: string; tree: string; at: string }>; superseded_by: string | null;
+  /** S_1..S_k when the base policy declares changelog_fragments; head and tree are then S_k's. Absent on plain trains. */
+  stamped?: StampedPrefix[];
   effects: Array<{ at: string; what: string }>; error: string | null; created_at: string; updated_at: string;
 }
 export type AttemptPurpose = 'gate' | 'rebuild' | 'infra-redispatch' | 'bisect';

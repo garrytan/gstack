@@ -122,6 +122,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the rebuild is not allowed: the bisect was not all green, the train was already rebuilt (or re-dispatched), or there is no bisect or INFRA record',
     fix: 'route the red cases to a repair lane; the train is rebuilt only once the repair merges (a changed train)',
   },
+  QUEUE_TRAIN_STAMP_MISMATCH: {
+    anchor: 'queue-train-stamp-mismatch',
+    summary: 'a stamped train prefix S_i is not the merge of S_(i-1) and its pin modulo stamps, or differs from the plain prefix T_i outside release paths, or could not be stamped; nothing was pushed',
+    fix: 'read the named slot and files: a stamp hook writing product files is fixed in the hook; otherwise rebuild the train without that slot and report it',
+  },
   QUEUE_TRAIN_TREE_MISMATCH: {
     anchor: 'queue-train-tree-mismatch',
     summary: 'main’s tree is neither the train’s prefix before this PR nor after it (modulo stamps), so the merge does not publish what the gate tested',
@@ -298,6 +303,32 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'receipt-git-too-old',
     summary: 'gstack-ship-receipt carry needs git 2.39 or later for `git patch-id --verbatim`; the installed git is older, so the product diff could not be compared',
     fix: 'upgrade git to 2.39 or later (the refusal names the installed version), then rerun carry; otherwise run /ship on the new head',
+  },
+  // Changelog fragments and the per-PR merge step (lib/changelog-fragments.ts, lib/ship-queue-land.ts).
+  CHANGELOG_FRAGMENT_INVALID: {
+    anchor: 'changelog-fragment-invalid',
+    summary: 'a CHANGELOG fragment is not one regular .md file directly in the fragment directory with entry text, optional bump front matter and no release heading, or one of that name already landed with other text',
+    fix: 'rewrite the named fragment as a flat <dir>/<slug>.md with only the entry text (and optional "bump: minor|major" front matter), rename it if the name already landed, then rerun',
+  },
+  QUEUE_LAND_LOCKED: {
+    anchor: 'queue-land-locked',
+    summary: 'another gstack-ship-queue land holds the repository land lock (refs/notes/gstack-land), so this one would race it for the next version',
+    fix: 'wait for the holder named in the line to finish; if it crashed, gstack-ship-queue land --pr <n> --break-lock (refused while its journal shows a push in flight)',
+  },
+  QUEUE_LAND_CONFLICT: {
+    anchor: 'queue-land-conflict',
+    summary: 'the PR conflicts with the base branch in product files (or a release field cannot be resolved alone), so the merge step cannot stamp it',
+    fix: 'the lane merges the base branch into the PR, resolves the named files, runs /ship and reports READY again',
+  },
+  QUEUE_LAND_DRIFT: {
+    anchor: 'queue-land-drift',
+    summary: 'the base branch moved between the merge step\'s last check and the squash merge, so main\'s tree is not the stamped tree land verified',
+    fix: 'gstack-ship-queue land --pr <n> --repair opens a PR whose only change is a fragment for what the outside merge brought; /ship and land it, which releases the lock',
+  },
+  QUEUE_LAND_BASE_BUSY: {
+    anchor: 'queue-land-base-busy',
+    summary: 'the base branch moved during the stamp commit\'s CI on each of the allowed restamp attempts, so land stopped instead of restamping again',
+    fix: 'find what is merging outside land (every merge should go through it), then rerun gstack-ship-queue land --pr <n>; it resumes from its journal',
   },
   // gstack-pr-wait (lib/pr-wait.ts): the landing-path PR watcher's two terminal codes.
   PR_WAIT_BLOCKED: {
