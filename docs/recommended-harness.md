@@ -257,13 +257,17 @@ line whose input could not be read says `unavailable (<reason>)` rather than 0.
 gstack-factory-scorecard --repo owner/name --since-days 7 \
   [--crew login,login] [--gate-workflow evals.yml] [--free-workflow free-tests.yml] \
   [--train-prefix train/] [--ready-marker 'READY #\d+|SHIP_RECEIPT:'] [--pass-marker '"passes": (\d+)|passes=(\d+)'] \
-  [--pass-cap 3] [--out-dir .context/factory-scorecard]
+  [--pass-cap 3] [--out-dir .context/factory-scorecard] [--now <iso>]
 ```
 
 `--repo` defaults to the origin remote's owner/name on github.com (or
 `GH_HOST`) and is required without one. Each run writes this window's `scorecard.md` and `scorecard.csv`
 to `--out-dir` and appends the same rows to `trend.csv` there, so a weekly
 retro accumulates its own trend without renaming files.
+
+The window is `[now - since-days, now)`: `--now` (default: the current time)
+sets its end, and every line counts only items inside it, so a past week
+measured later does not count anything that happened after that week.
 
 | Line | How it is counted | What one of the best software factories would show |
 |---|---|---|
