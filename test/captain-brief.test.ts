@@ -66,10 +66,10 @@ function run(plan: string, o: { answered?: boolean; urgent?: boolean } = {}): st
   return dir;
 }
 
-function brief(dir: string) {
+function brief(dir: string, captainName?: string) {
   const loaded = loadBriefInputs(dir);
   if ('error' in loaded) throw new Error(loaded.error.message);
-  return { ...renderCaptainBrief(loaded.inputs, { outDir: dir }), gate: loaded.inputs.gate };
+  return { ...renderCaptainBrief(loaded.inputs, { outDir: dir, captainName }), gate: loaded.inputs.gate };
 }
 
 describe('heading parser', () => {
@@ -96,7 +96,7 @@ describe('renderCaptainBrief', () => {
     expect(t).toContain('- C: Approve the plan "Widget export fix". We could: 1) approve, with the plan changes marked above; 2) approve the plan as reviewed;');
     expect(t).toContain('A named option (for example "A2") takes that option instead.');
     expect(t).not.toMatch(/^GStack Minder$/m);
-    expect(renderCaptainBrief(loadBriefInputs(run(FULL_PLAN)).inputs, { outDir: run(FULL_PLAN), captainName: 'GStack Minder' }).text).toMatch(/^GStack Minder\n- A: /m);
+    expect(brief(run(FULL_PLAN), 'GStack Minder').text).toMatch(/^GStack Minder\n- A: /m);
     const [ownerPart, agentPart] = t.split('\n---\n');
     for (const item of b.gate.items) expect(ownerPart).not.toMatch(new RegExp(`\\b${item.id}[a-e]?\\b`));
     expect(ownerPart).not.toContain('gate_rev');
