@@ -169,7 +169,10 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
    grandchild's.
 
 `--delegate never` turns delegate into stop for a parent on a host without children; a child
-continues with a `CONTEXT_HIGH:` note instead.
+continues with a `CONTEXT_HIGH:` note instead. `--delegate measured` (what `ship/DRIVER.md` starts
+with) delegates only when a measured call is 150k or more above the floor at a segment boundary; an
+unknown charge continues there. A parent driving /ship from the driver carries no skill text a fresh
+child would shed, so a child pays its fixed cost only when the parent's own context grew.
 
 **Small runs keep their segment.** `check --runtime-lines <n>` (runtime_lines from
 `gstack-review-plan --json`, which `gstack-ship-preflight` prints) continues at the Step 7 and

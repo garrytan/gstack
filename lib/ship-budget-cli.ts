@@ -129,7 +129,7 @@ export function writeReturnFile(file: string, lines: string[]): void {
 /**
  * Admission and the delegate rule for one boundary; reserves the admitted work
  * under a cap (a dispatch batch goes to admitBatch). The rule compares the call's context above the host floor (an
- * unknown charge delegates at a segment boundary, never at start). A light diff
+ * unknown charge delegates at a segment boundary, never at start; under --delegate measured it continues). A light diff
  * whose segment costs less than a child keeps it (keepsSmallRun). A child
  * never stops on it: after a completed step it hands its remaining steps to a
  * grandchild, and before one, at the maximum depth or past its segment it
@@ -148,7 +148,7 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
   const boundary = (startThreshold ? next.step === '1' : next.step === '7' || next.step === '12');
   const to = l.parent ? l.parent.to : SEGMENTS[next.step]!;
   const small = boundary && !startThreshold ? keepsSmallRun(loadCalibration(l.calibration), { runtimeLines, from: next.step, to, call }) : null;
-  const wants = boundary && !small && (above === null ? !startThreshold : above >= threshold);
+  const wants = boundary && !small && (above === null ? !startThreshold && l.delegate !== 'measured' : above >= threshold);
   const depth = l.depth ?? (l.parent ? 1 : 0);
   const hold = !wants || !l.parent ? undefined
     : !l.steps_done?.length ? 'no step completed since verify-handoff'
@@ -234,7 +234,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const cap = rawCap === undefined || rawCap === 'none' ? null : parseTokens(rawCap, '--token-cap');
   const callFloor = tokensOpt(o, 'call-floor');
   const delegate = str(o, 'delegate') ?? 'auto';
-  if (delegate !== 'auto' && delegate !== 'never') throw usageError(`--delegate '${delegate}' is not auto or never`);
+  if (delegate !== 'auto' && delegate !== 'never' && delegate !== 'measured') throw usageError(`--delegate '${delegate}' is not auto, never or measured`);
   const existing = parseRecordBlock(record);
   if (existing?.ledger && fs.existsSync(existing.ledger) && !readLedger(existing.ledger).closed_at) {
     const l = readLedger(existing.ledger);

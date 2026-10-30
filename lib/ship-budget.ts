@@ -70,7 +70,7 @@ export interface Handoff {
 }
 export interface Ledger {
   schema_version: 1; kind: 'gstack-ship-budget'; run: string; dir: string; file: string; record?: string; created_at: string;
-  cap: number | null; tail: number; stop_overhead: number; delegate: 'auto' | 'never'; role: 'parent' | 'child';
+  cap: number | null; tail: number; stop_overhead: number; delegate: 'auto' | 'never' | 'measured'; role: 'parent' | 'child';
   parent?: { run: string; ledger: string; handoff_sha: string; from: string; to: string; return_file: string };
   meter: { contract: MeterContract; epoch: number; baseline: number; last: number | null; last_at?: string; sessions?: string[]; config_dir?: string };
   epochs: Array<{ epoch: number; contract: MeterContract; baseline: number; last: number | null; used: number }>;

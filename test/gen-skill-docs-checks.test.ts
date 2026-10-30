@@ -47,6 +47,7 @@ describe('generator artifact and dry-run contract', () => {
       { relativePath: 'review/design-checklist.md', kind: 'asset', host: 'claude' },
       { relativePath: 'lib/dom-dump.js', kind: 'asset', host: 'claude' },
       { relativePath: 'autoplan/DRIVER.md', kind: 'asset', host: 'claude' },
+      { relativePath: 'ship/DRIVER.md', kind: 'asset', host: 'claude' },
       ...ALL_HOST_NAMES.filter(host => includesSkill(getHostConfig(host), 'qa')).map(host => ({
         relativePath: host === 'claude' ? 'qa/templates/functional-report-template.md'
           : `${getHostConfig(host).hostSubdir}/skills/gstack-qa/templates/functional-report-template.md`,

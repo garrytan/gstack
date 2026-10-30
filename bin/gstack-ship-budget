@@ -6,7 +6,7 @@
  * reserve fit under the cap.
  *
  *   start   --record <path> [--token-cap <n|none>] [--meter capy|claude|estimate] [--reading <n>] [--prior-reading <n>]
- *           [--session <id>|--nonce <v>] [--reserve <n>] [--delegate auto|never] [--calibration <file>] [--ledger <path>]
+ *           [--session <id>|--nonce <v>] [--reserve <n>] [--delegate auto|never|measured] [--calibration <file>] [--ledger <path>]
  *   check   --run <id>|--record <path> --step <id> --next <id|dispatch:<role>[,<role>...]> [--reading <n>] [--prior-reading <n>] [--returned <id>[,<id>...]] [--runtime-lines <n>]
  *   settle  --run|--record --reservation <id> [--unknown] [--reading <n>]      release --run|--record --reservation <id>
  *   handoff --run|--record --from <step> --to <step> --base origin/<base> [--reviewed-tree <t>] [--trail <f> --trail-run <id>]
