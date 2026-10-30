@@ -349,8 +349,13 @@ writes one packet per `DISPATCH:` line holding:
   lines), except the testing reviewer and the coverage audit for data under `test/` or
   `fixtures/`;
 - at most 8 KB of `--plan-file`, and past learnings for specialists;
-- a read budget: at most 2 more named ranges (200 lines at most) of files in the diff,
-  in one turn, no repository search, no other packets, no transcript;
+- a read rule: before reporting, the reviewer confirms or rules out each suspected defect
+  from what it depends on outside the hunks (the callers and callees of changed functions,
+  the tests that cover them, the config and contracts they read), with grep and the read
+  tool, at most 8 reads in at most 2 turns of parallel calls; no other packets, no
+  transcript (GSTA-167: under a budget of 2 ranges around the hunks, 7 recorded blockers
+  that needed context outside them were found by no reviewer); an audit keeps its own
+  budget (files in the diff, their tests and the files the plan names);
 - its output path and the reply `DONE <name> crit=<n> info=<n>`; its last line is `END OF PACKET <name>`.
 
 Each `PACKET:` line carries `budget_role=` (the `gstack-ship-budget` dispatch role:
@@ -358,7 +363,7 @@ audits reserve as `specialist`, shards as their parent role) and `read=`, line r
 under 30,000 bytes each. Capy's read tool returns about 37,800 characters of a file and
 drops the rest without a notice, and shell output past about 35,000 characters spills to
 a log, so a reviewer reads its packet with the read tool, one parallel call per range,
-and finishes in about three calls. `BUDGET_NEXT: dispatch:<roles>` is the value for
+and finishes in at most four turns. `BUDGET_NEXT: dispatch:<roles>` is the value for
 `gstack-ship-budget check --next`. A partial build (`--only`) keeps other reviewers'
 entries only at the same head, diff base and diff content; any other build starts the
 manifest over and removes the old outputs, except a Red Team build (`--findings`), which refuses

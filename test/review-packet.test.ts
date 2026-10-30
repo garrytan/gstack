@@ -59,6 +59,7 @@ describe('gstack-review-packet build', () => {
     for (const p of all) expect(p.text).not.toContain('UNRELATED_MARKER');
     expect(b.stdout).toMatch(/^PACKETS: n=\d+ total_bytes=\d+ fingerprint=\S+$/m);
     expect(all.find(p => p.name === 'adversarial')!.text).toContain(P.ADVERSARIAL_NATIVE);
+    expect(all.find(p => p.name === 'adversarial')!.text).toContain(P.READ_BUDGET);
   });
 
   test('the defensive framing reaches the security and adversarial packets with fixtures as a stat; testing reads fixtures in full', () => {
@@ -87,6 +88,7 @@ describe('gstack-review-packet build', () => {
       expect(batched.text).toContain(checklist(c));
     }
     expect(batched.text).toContain('Tag each finding with the checklist that found it');
+    expect(batched.text).toContain(P.READ_BUDGET);
   });
 
   test('exclusions are honored: maintainability leaves out docs and tests; testing keeps tests; untracked files are in', () => {
@@ -139,6 +141,7 @@ describe('gstack-review-packet build', () => {
     expect(red.text).toContain(P.DEFENSIVE_REVIEW_FRAMING);
     expect(red.text).toContain(P.RED_TEAM_OUTPUT);
     expect(red.text).toContain(checklist('red-team'));
+    expect(red.text).toContain(P.READ_BUDGET);
     expect(red.text).not.toContain('+PAYLOAD_MARKER');
     expect(red.text).toContain('test/fixture.test.ts');
     const manifest = JSON.parse(fs.readFileSync(path.join(r.out, 'manifest.json'), 'utf8'));
@@ -155,6 +158,7 @@ describe('gstack-review-packet build', () => {
     const b = build(r, [...flags, '--fix-list', w('fix.txt', 'FIX_LIST_MARKER'), '--tests', w('tests.txt', '12 pass')]);
     const fc = packets(b.stdout).find(p => p.role === 'fix-check')!;
     expect(fc.text).toContain(P.FIX_CHECK_INSTRUCTIONS);
+    expect(fc.text).toContain(P.READ_BUDGET);
     expect(fc.text).toContain('FIX_LIST_MARKER');
     expect(fc.text).toContain('+export const FIXED = 1;');
     expect(fc.text).not.toContain('+export const eps0 = 0;');
@@ -166,6 +170,8 @@ describe('gstack-review-packet build', () => {
     expect(a.text).toContain('You are running a ship-workflow test coverage audit. Run `git diff main`');
     expect(a.text).toContain('Generation: audit-only; passes used: 1 of 2.');
     expect(a.text).toContain('+export const zeta19 = 19;');
+    expect(a.text).not.toContain(P.READ_BUDGET);
+    expect(a.text).toContain('Read only files in the diff, their tests and the files the plan names');
     expect(build(r, ['--audit', 'plan-completion']).status).toBe(2);
   });
 
@@ -390,6 +396,23 @@ describe('the packet prose and the generated SKILL.md prose are one text', () =>
     expect(read('ship/sections/review-army.md')).toContain(P.packetBrief('<file>', '<out>'));
     expect(read('ship/sections/adversarial.md')).toContain(P.packetBrief('<file>', '<out>'));
     expect(read('ship/sections/test-coverage.md')).toContain(P.packetBrief('<file>', '<out>'));
+  });
+  // Value: protects=every reviewer confirms or rules out a suspected defect from what it depends on outside the hunks (callers, callees, covering tests, config and contracts), in bounded batched reads, and the Capy reviewer paragraph and policy say the same; fails_when=the rule shrinks back to a fixed count of ranges around the hunks (GSTA-167 replay: 7 blockers needing outside context found by no arm) or loses its read and turn bound;
+  //   why_new=the build tests only hold the packet equal to READ_BUDGET, never what it allows; seam=none; no_claim=that a model follows the rule
+  test('the read rule sends reviewers past the hunks to callers, callees, tests and contracts, bounded and batched', () => {
+    for (const clause of ['confirm or rule out each suspected defect', 'the callers and callees of changed functions, the tests that cover them, and the config/contracts they read',
+      'Use grep and the read tool freely', 'batching reads into parallel calls; at most 8 reads, in at most 2 turns', 'Never stop at the hunk when the defect would show elsewhere']) expect(P.READ_BUDGET).toContain(clause);
+    expect(P.READ_BUDGET).not.toContain('at most 2 more');
+    const brief = P.packetBrief('<file>', '<out>');
+    expect(brief).not.toContain('2 more ranges');
+    expect(brief).toContain('Turns 2 and 3, only if needed: the reads its Read budget allows, each turn\'s calls in parallel.');
+    const capy = read('capy/skill/gstack/SKILL.md').replace(/\s+/g, ' ');
+    expect(capy).not.toContain('one turn of extra ranges');
+    expect(capy).toContain('up to two turns that confirm or rule out each suspected defect from what it depends on outside the hunks');
+    expect(capy).toContain('at most 8 reads');
+    const policy = read('docs/review-policy.md').replace(/\s+/g, ' ');
+    expect(policy).not.toContain('at most 2 more named ranges');
+    expect(policy).toContain('at most 8 reads in at most 2 turns');
   });
   test('the outside voice boundary the safety-rule registry pins in the resolver is the packet\'s boundary', () => {
     const line = read('scripts/resolvers/outside-voice-steps.ts').split('\n').find(l => l.startsWith('const CODEX_BOUNDARY = '))!;

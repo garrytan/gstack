@@ -19,7 +19,7 @@ run `~/.claude/skills/gstack/bin/gstack-review-packet build --audit test-coverag
 --out-dir .gstack/tmp/review-packets-audit --context .gstack/tmp/audit-context.txt
 --generation <allowed|audit-only> --passes-used <N>` (the packet holds the prompt below and
 the diff; an audit is one packet, never sharded) and brief the child only with the packet brief and its `read=` ranges:
-"Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names."
+"Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turns 2 and 3, only if needed: the reads its Read budget allows, each turn's calls in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names."
 Wait for its `out=` file's LAST-line JSON before applying the coverage gate.
 
 **Generation allowance:** Maximum 2 generation passes total per invocation.
