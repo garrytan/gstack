@@ -17,6 +17,7 @@ import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVE
 import { outsideVoiceFailurePolicy, outsideVoiceFor, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance } from './outside-voice';
 import { runtimeRootPrelude } from './runtime-root';
 import { DEFENSIVE_REVIEW_FRAMING, FIXTURE_SUMMARY_MODE } from './defensive-review';
+import { ADVERSARIAL_NATIVE, OUTSIDE_ADVERSARIAL, packetBrief } from '../../lib/review-prompts';
 
 const CODEX_BOUNDARY = 'Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\\n\\n';
 
@@ -128,12 +129,12 @@ Those files are part of the recorded content too.
 
 Dispatch via the Agent tool with ${FOREGROUND_IF_AVAILABLE} (background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}); findings must arrive before review concludes. ${BACKGROUND_RECOVERY} Fresh context avoids checklist bias, but this is the same harness, not an independent model unless runtime identity proves otherwise.
 
-Subagent prompt:
+${isShip ? `Build Step 11's packets from Step 9's last full-pass plan: \`~/.claude/skills/gstack/bin/gstack-review-packet build --only adversarial,outside-voice --base <base> --out-dir "$_PKA"\` with \`_PKA=.gstack/tmp/review-packets-adv-p$PASS\`, that plan run's flags and \`--range <RANGE_BASE sha>\` from pass 2 on. Leave \`outside-voice\` out of \`--only\` when nothing will run it (\`CODEX_MODE\` neither \`ready\` nor \`unverified\` and no reviewer on another model family): collect counts a built packet with no output as missing coverage. The \`adversarial\` packet carries the defensive framing, the native adversarial prompt (\`ADVERSARIAL_NATIVE\`), the diff with fixtures in summary mode and a JSONL contract (\`NO FINDINGS\` is the expected result for a clean range). Its whole brief is "${packetBrief('<file>', '<out>')}" with that packet's \`read=\` ranges.` : `Subagent prompt:
 "${DEFENSIVE_REVIEW_FRAMING}
 
-Read the diff for this branch. First list changed files: \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff --name-status "$DIFF_BASE"\`. ${FIXTURE_SUMMARY_MODE}${isShip ? ' From Step 9\'s pass 2 on, \`DIFF_BASE=$RANGE_BASE\` applies here too; \`NO FINDINGS\` is the expected result for a clean range.' : ''}
+Read the diff for this branch. First list changed files: \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff --name-status "$DIFF_BASE"\`. ${FIXTURE_SUMMARY_MODE}
 
-Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\` — examples: \`Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s\` or \`Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production\`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
+${ADVERSARIAL_NATIVE}"`}
 
 Present findings under an \`ADVERSARIAL REVIEW (${outsideVoiceFor(ctx).nativeLabel} subagent):\` header. **FIXABLE findings** ${isShip ? 'are queued for the parent; do not edit during Step 11' : "are queued for the parent's Fix-First handling at Step 5; do not edit during Step 4.8"}. **INVESTIGATE findings** are presented as informational.
 
@@ -147,11 +148,11 @@ function adversarialOutsideChallenge(ctx: TemplateContext, isShip: boolean): str
 
 If \`CODEX_MODE\` is \`ready\` or \`unverified\`:
 
-Outside prompt (supply repository context from the parent):
+${isShip ? `On \`DISPATCH: outside-voice\` the \`outside-voice\` packet is the prepared prompt file: it carries the boundary, the prompt below, the diff and the severity contract. Save the response verbatim to its \`out=\` path, then run \`gstack-review-packet collect --dir "$_PKA"\` once both Step 11 reviewers settled.` : 'Outside prompt (supply repository context from the parent):'}
 
-"${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Use the supplied branch diff. If it was not supplied and you have repository tools, run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE". Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale."
+"${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Use the supplied branch diff. If it was not supplied and you have repository tools, run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE". ${OUTSIDE_ADVERSARIAL}"
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: true, diffCommand: 'DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"' })}
+${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: true, ...(isShip ? {} : { diffCommand: 'DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"' }) })}
 
 Present the full output verbatim. ${isShip ? 'An unavailable outside challenge does not block shipping by itself; supported findings still enter Step 11, and the structured P0/P1 and non-convergence gates still apply.' : 'This outside challenge is informational; supported findings still enter Step 5 Fix-First, whose approval and convergence gates apply.'}
 

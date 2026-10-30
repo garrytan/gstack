@@ -1832,9 +1832,10 @@ GSTACK_RESULT lines.
 <a id="budget-cap-reached"></a>
 ### `gstack-ship-budget: ... (BUDGET_CAP_REACHED)`
 
-**Meaning.** The next step or dispatch batch would push used + open reservations + unknown
-charges + its projection + the tail and stop reserve past the admission cap, so it did not
-start. Exit 3. `gstack-review-log --start` prints the same code (exit 1) for a dispatch
+**Meaning.** The next step, or the first reader of a dispatch batch, would push used + open
+reservations + unknown charges + its projection + the tail and stop reserve past the admission
+cap, so it did not start. Exit 3. A batch that partly fits is not refused: `check` admits the
+largest prefix that fits and prints `ADMIT: k of n (remaining=<roles>)`. `gstack-review-log --start` prints the same code (exit 1) for a dispatch
 after the run stopped. The cap admits work; it cannot stop a turn already running, so the
 overshoot is bounded by the misprojection of work admitted before the stop.
 
@@ -1908,6 +1909,18 @@ wrote its return with status=refused.
 
 **Fix.** The parent reconciles the refusal and regenerates the handoff at the current tree
 (`gstack-ship-budget handoff ...`) or stops.
+
+<a id="review-coverage-incomplete"></a>
+### `gstack-review-packet collect: ... (REVIEW_COVERAGE_INCOMPLETE)`
+
+**Meaning.** A reviewer /ship dispatched by packet left no usable result: its output file
+(the packet's `out=` path) is missing or empty, or holds neither `NO FINDINGS` nor one valid
+finding line. The detail names each such packet as `<name>=missing` or `<name>=invalid`. Exit 3:
+that coverage is incomplete, never clean, and a peer's result cannot stand in for it.
+
+**Fix.** Confirm the reviewer stopped, dispatch the same packet again with the same brief,
+then rerun `gstack-review-packet collect --dir <dir>`. Step 9.4's decision 1 governs the pass
+meanwhile ([review-policy.md](review-policy.md#reviewer-packets)).
 
 ## Browser
 
