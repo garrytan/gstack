@@ -102,9 +102,10 @@ export function createdFilter(since: string, until?: string): string {
 
 /**
  * Every completed run of `workflow` created at or after `since` (and before
- * `until` when given), newest first, paging until a page is short or older
- * than `since`. A failure on any page throws: a partial history is never
- * reported as a complete one.
+ * `until` when given), newest first, paging until a page is short (the
+ * `created` filter bounds the range server-side). A run whose created_at does
+ * not parse is skipped. A failure on any page throws: a partial history is
+ * never reported as a complete one.
  */
 export function listWorkflowRuns(client: GhClient, repo: string, workflow: string,
   opts: { since: string; until?: string; branch?: string; event?: string; maxPages?: number }): CiRun[] {
@@ -115,7 +116,8 @@ export function listWorkflowRuns(client: GhClient, repo: string, workflow: strin
     const body = client.getJson(`repos/${repo}/actions/workflows/${workflow}/runs?${query.join('&')}&page=${page}`) as { workflow_runs?: any[] };
     const runs = Array.isArray(body?.workflow_runs) ? body.workflow_runs : [];
     for (const run of runs) {
-      if (String(run.created_at) < opts.since || (opts.until && Date.parse(String(run.created_at)) >= Date.parse(opts.until))) continue;
+      const created = Date.parse(String(run.created_at));
+      if (!(created >= Date.parse(opts.since)) || (opts.until && created >= Date.parse(opts.until))) continue;
       if ((opts.branch && run.head_branch !== opts.branch) || (opts.event && run.event !== opts.event)) continue;
       out.push({ id: Number(run.id), attempt: Number(run.run_attempt ?? 1), sha: String(run.head_sha ?? ''), branch: String(run.head_branch ?? ''),
         event: String(run.event ?? ''), status: String(run.status ?? ''), conclusion: run.conclusion ?? null,

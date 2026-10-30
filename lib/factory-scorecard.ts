@@ -6,8 +6,11 @@
  * so ("unavailable: <reason>") instead of printing 0.
  *
  * The window is [now - since-days, now): every input below counts an item only
- * when its timestamp falls inside it (inWindow), so a past window reproduces
- * after the fact.
+ * when its timestamp falls inside it (inWindow), so a past window does not
+ * count anything that happened after it. Attributes are read as they are now
+ * (a run's latest conclusion, an issue's latest closed_at, artifacts that have
+ * not expired). A read that runs past MAX_PAGES marks its line unavailable
+ * instead of printing a partial count.
  *
  * Inputs, all REST reads (no write, no paid work):
  *   merged PRs           pulls?state=closed&base=<base>, merged_at inside the window;
@@ -72,6 +75,7 @@ export const DEFAULTS = {
 export const CREW_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const PAGE = 100;
 const MAX_PAGES = 20;
+const pageCap = (what: string) => new Error(`${what} ran past ${MAX_PAGES} pages of ${PAGE}; a partial count is not reported`);
 const COST_LINE = /\*\*\$(\d+(?:\.\d+)?)\*\* rule\/judge cost|\bcost=\$(\d+(?:\.\d+)?)/g;
 
 export interface MergedPr {
@@ -165,7 +169,8 @@ function pullsPage(source: ScorecardSource, o: ScorecardOptions, page: number): 
 export function readMergedPrs(source: ScorecardSource, o: ScorecardOptions, w: ScoreWindow): MergedPr[] {
   const out: MergedPr[] = [];
   const crewLogins = o.crew ? new Set(o.crew.map(l => l.toLowerCase())) : null;
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  for (let page = 1; ; page++) {
+    if (page > MAX_PAGES) throw pageCap(`PRs updated since ${w.start}`);
     const pulls = pullsPage(source, o, page);
     for (const pr of pulls) {
       const mergedAt = typeof pr.merged_at === 'string' ? pr.merged_at : null;
@@ -266,7 +271,8 @@ export function readGateRuns(source: ScorecardSource, o: ScorecardOptions, w: Sc
   const query = [`status=completed`, `per_page=${PAGE}`, createdFilter(w.start, w.end),
     ...(o.gateEvent ? [`event=${encodeURIComponent(o.gateEvent)}`] : [])].join('&');
   const gates: GateRun[] = [];
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  for (let page = 1; ; page++) {
+    if (page > MAX_PAGES) throw pageCap('gate runs in the window');
     const body = source.getJson(`repos/${o.repo}/actions/workflows/${o.gateWorkflow}/runs?${query}&page=${page}`) as { workflow_runs?: any[] };
     const runs = Array.isArray(body?.workflow_runs) ? body.workflow_runs : [];
     for (const run of runs) {
@@ -317,10 +323,18 @@ function searchCount(source: ScorecardSource, q: string): number | null {
   return typeof body?.total_count === 'number' ? body.total_count : null;
 }
 
+/** Releases published inside the window, drafts excluded; pages (newest first) stop once a page's oldest publication predates the window. */
 export function readReleases(source: ScorecardSource, repo: string, w: ScoreWindow): Array<{ tag: string; publishedAt: string }> {
-  const body = source.getJson(`repos/${repo}/releases?per_page=${PAGE}&page=1`);
-  return (Array.isArray(body) ? body : []).filter(r => !r.draft && inWindow(r.published_at, w))
-    .map(r => ({ tag: String(r.tag_name ?? ''), publishedAt: String(r.published_at) }));
+  const out: Array<{ tag: string; publishedAt: string }> = [];
+  for (let page = 1; ; page++) {
+    if (page > MAX_PAGES) throw pageCap(`releases published since ${w.start}`);
+    const body = source.getJson(`repos/${repo}/releases?per_page=${PAGE}&page=${page}`);
+    const releases = Array.isArray(body) ? body : [];
+    out.push(...releases.filter(r => !r.draft && inWindow(r.published_at, w)).map(r => ({ tag: String(r.tag_name ?? ''), publishedAt: String(r.published_at) })));
+    const published = releases.map(r => r.published_at).filter((at): at is string => typeof at === 'string');
+    if (releases.length < PAGE || (published.length && published[published.length - 1]! < w.start)) break;
+  }
+  return out;
 }
 
 /** Every read, each guarded: one unreadable input marks its lines unavailable and the rest still print. */

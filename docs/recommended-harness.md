@@ -297,7 +297,7 @@ artifacts read for all 54):
 | Review passes per PR | no number: 0 of 83 PRs carried a pass count | the receipt's `passes` field lands with /ship's convergence rule; until then crews record the count in the READY block, and the marker reads it from a PR comment |
 | Gate runs | 52 green / 2 red / 0 cancelled; known cost $1,361.94 on 52 of 54 runs | green rate 96%; cost unknown only on the 2 red runs (the red train and the red screen) |
 | Known gate cost per merged PR | $16.41 (a floor) | trains averaged $32.48 each for up to 5 PRs (21 trains with a known cost), screens $21.18 each (29 with a known cost) |
-| Red-train rate | 5% (1 red of 22 trains; 0 red backstop, 1 red screen) | 1 of 22 is 4.5%, just under the bar |
+| Red-train rate | 5% (1 red of 22 trains; 0 red backstop, 1 red screen) | the tool rounds 1 of 22 (4.5%) to 5%, so this is just under the 5% bar; the 1 red screen is counted separately from trains |
 | Flaky events | 17 paid cases passed on their one rerun (rerun spend $7.20); 17 free-suite retries in 17 of 83 runs | above the bar on both: 0.31 flaky cases per gate against 0.1, and 20% of free runs retried against 1%. One case (`ship-docsync-current`) did it four times in three days |
 | Issues opened / closed | 28 / 51 | inside the bar |
 | Releases cut | 0 | none inside the week: the first weekly release, v1.91.242.0, was published at 12:01 UTC on 2026-10-26, just after the window closed (see the starvation caveat above) |
@@ -306,8 +306,7 @@ Read the gap honestly: lead time and throughput are where they should be, the
 gate is green and its cost is mostly known, and flakiness is the line that is
 not. The daily pass exists for exactly that line; the scorecard's job is to
 show next week whether it moved. The inventory lane's per-PR baseline CSV in
-the Captain's Drive (142 merged PRs over the eleven days before this window
-closed) holds the longer history behind these numbers; from here on
+the Captain's Drive holds the longer history behind these numbers; from here on
 `trend.csv` in `--out-dir` carries the weeks.
 
 ## What is Capy-specific and what is not

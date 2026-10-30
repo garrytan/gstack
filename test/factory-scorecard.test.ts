@@ -11,8 +11,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  BENCHMARKS, DEFAULTS, classifyGate, collectScorecard, fixtureSource, flakeRecords, fmtHours, gateOutcome, passCount, percentile, readComments, renderCsv,
-  renderMarkdown, scorecardRows, verdictCost, type FixtureFile, type ScorecardOptions,
+  BENCHMARKS, DEFAULTS, classifyGate, collectScorecard, fixtureSource, flakeRecords, fmtHours, gateOutcome, inWindow, passCount, percentile, readComments, renderCsv,
+  renderMarkdown, scorecardRows, searchRange, verdictCost, type FixtureFile, type ScorecardOptions,
 } from '../lib/factory-scorecard';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -125,7 +125,7 @@ describe('factory-scorecard: recorded window', () => {
   });
 
   test('--now closes the window: a PR, gate run, free run or release at or after now is left out, and the runs and issue queries carry the end', () => {
-    // Value: protects=every windowed line counts [now - since-days, now) only, so a past window reproduces after the fact; fails_when=a read filters on the window start alone or a query drops the end bound; why_new=GST-135: --now 2026-10-15 counted 284 merged PRs (every merge through the run date) against 65 in the window, and the gate and release lines ignored --now; seam=none; no_claim=GitHub's server-side date filters, which the reads re-check per item
+    // Value: protects=every windowed line counts [now - since-days, now) only, so a past window counts nothing that happened after it; fails_when=a read filters on the window start alone or a query drops the end bound; why_new=GST-135: --now 2026-10-15 counted 290 merged PRs (every merge through the 2026-10-30 run) against 65 in the window, and the gate and release lines ignored --now; seam=none; no_claim=GitHub's server-side date filters, which the reads re-check per item
     const fx = fixture();
     const key = (part: string) => Object.keys(fx.responses).find(k => k.includes(part))!;
     (fx.responses[key('/pulls?')] as any[]).unshift({ number: 106, title: 'merged at the window end', user: { login: 'garry' }, author_association: 'OWNER',
@@ -156,6 +156,26 @@ describe('factory-scorecard: recorded window', () => {
       'search/issues?q=repo:acme/widgets is:issue created:2026-10-19T12:00:00Z..2026-10-26T11:59:59Z&per_page=1',
       'search/issues?q=repo:acme/widgets is:issue closed:2026-10-19T12:00:00Z..2026-10-26T11:59:59Z&per_page=1',
     ]);
+  });
+
+  test('a past window pages past newer releases, and a read that runs past the page cap is unavailable instead of partial', () => {
+    // Value: protects=a past window still finds its releases behind a full page of newer ones, and a PR read that never reaches the window start reports unavailable rather than a short count; fails_when=releases read page 1 only again or the PR loop exits at MAX_PAGES without throwing; why_new=adversarial review of GST-135 found both truncations silent for past windows; seam=none; no_claim=GitHub's ordering of releases beyond newest-first
+    const fx = fixture();
+    const releasesKey = (page: number) => `repos/acme/widgets/releases?per_page=100&page=${page}`;
+    const recorded = fx.responses[releasesKey(1)] as any[];
+    fx.responses[releasesKey(1)] = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v2.0.${i}`, draft: false, prerelease: false, published_at: '2026-10-27T00:00:00Z' }));
+    fx.responses[releasesKey(2)] = recorded;
+    expect(collectScorecard(fixtureSource(fx, scratch()), options()).releases.map(r => r.tag)).toEqual(['v1.0.0']);
+    const pullsKey = (page: number) => `repos/acme/widgets/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=${page}`;
+    const capped = fixture();
+    for (let page = 1; page <= 20; page++) {
+      capped.responses[pullsKey(page)] = Array.from({ length: 100 }, (_, i) => ({ number: page * 1000 + i, title: 'closed without merge', user: { login: 'garry' },
+        author_association: 'OWNER', created_at: '2026-10-25T00:00:00Z', merged_at: null, updated_at: '2026-10-25T00:00:00Z' }));
+    }
+    const card = collectScorecard(fixtureSource(capped, scratch()), options());
+    expect(card.unavailable).toHaveLength(1);
+    expect(card.unavailable[0]).toStartWith('merged PRs: PRs updated since 2026-10-19T12:00:00.000Z ran past 20 pages of 100');
+    expect(byId(scorecardRows(card)).merged).toStartWith('unavailable (');
   });
 
   test('--max-artifact-runs caps artifact reads: later runs count without cost or flake data', () => {
@@ -298,6 +318,15 @@ describe('factory-scorecard: pieces', () => {
       JSON.stringify({ kind: 'other', case: 'z', rerun_cost_usd: 9 }), ''].join('\n'));
     expect(flakeRecords([path.join(dir, 'a')])).toEqual({ flakes: 2, rerunUsd: 0.5 });
     expect(flakeRecords([path.join(dir, 'missing')])).toEqual({ flakes: 0, rerunUsd: 0 });
+  });
+
+  test('the window is end-exclusive at millisecond precision; the issue search range stays inside it at whole seconds', () => {
+    // Value: protects=a sub-second --now (the default, Date.now()) neither drops an issue at the end second nor counts one before the start; fails_when=either rounding in searchRange flips or inWindow stops rejecting unparsable timestamps; why_new=the --now test uses a whole-second now only; seam=none; no_claim=GitHub search's inclusive-range semantics
+    const w = { start: '2026-10-19T12:00:00.500Z', end: '2026-10-26T12:00:00.500Z' };
+    expect(searchRange(w)).toBe('2026-10-19T12:00:01Z..2026-10-26T12:00:00Z');
+    expect(searchRange({ start: '2026-10-19T12:00:00.000Z', end: '2026-10-26T12:00:00.000Z' })).toBe('2026-10-19T12:00:00Z..2026-10-26T11:59:59Z');
+    expect(['2026-10-19T12:00:00Z', '2026-10-19T12:00:01Z', '2026-10-26T12:00:00Z', '2026-10-26T12:00:01Z'].map(at => inWindow(at, w))).toEqual([false, true, true, false]);
+    expect([undefined, null, '', 'soon', 1793000000000].map(at => inWindow(at, w))).toEqual([false, false, false, false, false]);
   });
 
   test('percentile is nearest-rank: p50 and p90 of small samples, null when empty', () => {
