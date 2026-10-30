@@ -134,7 +134,7 @@ function running(pid: number): boolean {
   try {
     process.kill(pid, 0);
     // Linux can leave a killed orphan briefly as a zombie before init reaps it.
-    if (process.platform === 'linux') return readFileSync(`/proc/${pid}/stat`, 'utf8').split(' ')[2] !== 'Z';
+    if (process.platform === 'linux') return !['Z', 'X'].includes(readFileSync(`/proc/${pid}/stat`, 'utf8').split(' ')[2]);
     return true;
   } catch { return false; }
 }
@@ -152,7 +152,7 @@ async function expectDescendantDead() {
     for (let i = 0; i < 20 && running(pid); i++) await Bun.sleep(25);
     expect(running(pid)).toBe(false);
   } finally {
-    if (running(pid)) process.kill(pid, 'SIGKILL');
+    cleanupDescendant();
   }
 }
 

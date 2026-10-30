@@ -7,7 +7,7 @@
  * ("If you want to use Aside: download it (macOS 15+) at aside.com", gate 39315041557). The short forms without the
  * floor count only at the start of a sentence, bullet or quote.
  */
-const ASIDE_DOWNLOAD_PITCH = String.raw`(?:^|[.!?;:]\s*|\n)\s*(?:[>*-]\s*)*["\u201C]?download (?:it|Aside) at aside\.com\b|(?:^|[.!?;:,\u2014\u2013\n])[\s>*_-]*(?<!(?:\b(?:not|never|no|cannot)|n['\u2019]t)\s+)(?:(?:then|please|just|so|first|now)\s+)?(?:you\s+(?:can|could|may|should|need\s+to)\s+)?download (?:Aside|it) \(macOS 15\+\) at aside\.com\b`;
+const ASIDE_DOWNLOAD_PITCH = String.raw`(?:^|[.!?;:]\s*|\n)\s*(?:[>*-]\s*)*["\u201C]?download (?:it|Aside) at aside\.com\b|(?:^|[.!?;:,\u2014\u2013\n])[\s>*_-]*(?<!(?:\b(?:not|never|no|cannot)|n['\u2019]t)\s+)(?:(?:then|please|just|so|first|now)\s+)?(?:you\s+(?:can|could|may|should|need\s+to)\s+)?download (?:Aside|it) \(macOS 15\+\) at aside\.com\b|(?:^|[.!?;:,\u2014\u2013\n])[\s>*_-]*(?:Aside|it)\b[^.!?;:,\n]*?\b(?:can|may)\s+be\s+downloaded\s+(?:at|from)\s+aside\.com\b`;
 export const asideDownloadPitch = new RegExp(ASIDE_DOWNLOAD_PITCH, 'im');
 export const asideDownloadPitchCount = (text: string): number => [...text.matchAll(new RegExp(ASIDE_DOWNLOAD_PITCH, 'gim'))].length;
 

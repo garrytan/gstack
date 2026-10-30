@@ -425,7 +425,10 @@ test('internal worker relays every guard receipt before its containment process 
     stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
   });
   const messages: any[] = [];
-  worker.on('message', message => messages.push(message));
+  worker.on('message', (message: any) => {
+    messages.push(message);
+    worker.send({ type: 'qa-deadline-receipt-ack', seq: message.seq }, () => {});
+  });
   const code = await new Promise<number | null>(resolve => worker.once('close', resolve));
   expect(code).toBe(17);
   expect(messages.map(message => message.type)).toEqual(['qa-deadline-receipt', 'qa-deadline-receipt']);
