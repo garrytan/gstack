@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+**gstack can remember which model you want your agents on, and every Capy session now reads a one-page summary of how crews work.** Set `agent_model` once (`opus`, another family, or an exact `provider/model`) and `gstack-models resolve --role agent` returns it whenever an agent picks a model for a lane, subagent or reviewer. Unset, every agent keeps its own model, and gstack takes no position for or against any model. A cross-family outside voice and a model under test in an eval ignore the preference on purpose. On Capy the preference lives in `preferences.yaml` beside the gstack skill in your Drive, so it survives fresh machines without being copied anywhere.
+
+### Added
+- **`gstack-models resolve --role agent [--request <model>]`**: the agent role. A one-job request wins and is never saved, then `agent_model` in this machine's config.yaml, then the preferences file, then `host`. Output names the winner, both stored values and the exemptions; `list` gains an agent block and `list --json` a top-level `agent` key, with `selections` unchanged.
+- **`agent_model`** in `gstack-config`, checked with the same grammar as the resolver: `host`, a family (`opus`, `fable`, `sonnet`, `haiku`, `astra`, `sol`, `luna`, `terra`) or `<provider>/<model>`. A bad value stops only the agent role, naming the file and the fix; plan-review, implementation and eval-arms keep resolving.
+- **`capy/skill/gstack/factory.md`**: thirteen practices the Captain crews converged on, each pointing at the rule it summarizes, at most 3,300 bytes. SKILL.md's session start tells every session to read it once.
+
+### Changed
+- The Capy session start (`bin/gstack-capy-session`, which updates with the checkout) points `GSTACK_PREFERENCES_FILE` at `preferences.yaml` next to the Drive skill's SKILL.md, and the installer writes it into the launch file. `--check` stays read-only, and the frozen Drive bootstrapper is unchanged.
+- SKILL.md allows exactly one write in the skill folder: `preferences.yaml`, when the owner asks an agent to remember a preference.
+- `docs/model-policy.md` gains "Your model preference". `docs/captain.md` links factory.md and says to forward an owner's rule for every Captain, in the same turn, to the thread that keeps the account's shared rules.
+
 ## [1.91.327.0] - 2026-10-30
 
 **A new page shows how gstack and Capy run as a software factory, with measured numbers.** `capy/README.md` explains how Capy Captains, their crews and gstack's skills fit together, from the plan-first approval loop and `/ship` before READY to merge trains, fix waves, the daily flaky pass and peer Captains. It compares the 14 days after 2026-10-15 with the 14 days before: 197 PRs merged to gstack's main against 65, and 194 versions shipped against 62. It also says what those numbers leave out. The median PR shrank from 1,292 changed lines to 422, and the median time from opening a PR to merging it grew from 1.1 hours to 5.6, because trains batch merges. A footnote gives the windows and the method behind every figure, and the page ends with tips and how Garry uses the setup day to day.
