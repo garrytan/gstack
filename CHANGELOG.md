@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.331.0] - 2026-10-30
 
 **`/ship` and `/review` go back to the reviewers they used in 1.91.325.0, because the newer reviewers missed real blockers.** In 1.91.326.0 (#3621) each reviewer started reading one prepared packet of the diff instead of reading the diff and the code around it, and the parent read a short findings record. 1.91.330.0 (#3636) let packet reviewers read a little beyond their hunks. A replay of 14 merged PRs (GSTA-167 no-loss round 3) then showed that the old reviewers find 19 of the 30 known blockers, and the packet reviewers, even with the looser reading rule, found only 10 of those 19 (the replay's counting rule favored the old review, and the packet reviewers also found 2 blockers it missed, but the preregistered bar allowed 1 miss and they had 9). So reviews run with gstack 1.91.326.0 through 1.91.330.0 are not as thorough as the review before them, and a PR reviewed on one of those versions may still hide a blocker the old review would have caught.
 
