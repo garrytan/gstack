@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.333.0] - 2026-10-30
 
 **`gstack-factory-scorecard --now` now ends the window, so a past week no longer counts what happened after it.** Every line counts only items whose timestamps fall in `[now - since-days, now)`. Before, `--now` moved only the start, so `--now 2026-10-15T00:00:00Z --since-days 14` counted 290 merged PRs (every merge from 2026-10-01 through the day of the run) where the window holds 65, and the gate-run and release lines also counted through the day of the run. Rerun with the fix, the two weeks before 2026-10-15 show 65 merged PRs and the two weeks before 2026-10-29 show 197, matching GitHub search for both windows.
 
