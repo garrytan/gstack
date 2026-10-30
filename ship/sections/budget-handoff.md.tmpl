@@ -31,7 +31,7 @@ after they settle; `close` flags roles never re-checked. `--finish` settles the 
 
 **One program per review pass.** One execute program (one shell script off Capy) runs, in order:
 `gstack-review-packet build` (a later build in the pass is `build --like <first dir>`), `check --next "$BUDGET_NEXT"`,
-`gstack-review-log --start <skill> --reservation <id>` once per row the step logs, the reading `BEFORE`, the readers
+`gstack-review-log --start <skill> --reservation <id>` once per row the step logs (a later batch of the same pass (the Red Team or an ADMIT remainder) takes no start; `--finish` settles it), the reading `BEFORE`, the readers
 (`tools.subagent.create` on Capy), the poll until the last settles (`tools.subagent.get`), the reading `AFTER`,
 `gstack-ship-budget settle`, then `gstack-review-packet collect`, returning only collect's output.
 Settle each batch in the program that dispatched it: read the counter right before the readers

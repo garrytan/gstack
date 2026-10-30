@@ -117,6 +117,28 @@ describe('gstack-review-log --start under a token cap', () => {
     expect(close.code, close.out).toBe(0);
   });
 
+  // Value: protects=a later batch of the same Step 9 pass (the Red Team, built after collect) takes no start of its own and still settles when the pass finishes, so no start token is left unfinished and no reservation stays open (gstack-evals #34 round 3: an extra red-team --start review token was never finished); fails_when=--finish settles only reservations a start consumed, leaving the Red Team's open and counted as reserved at close;
+  //   why_new=the --finish tests above start every batch; seam=none; no_claim=that the program's own settle ran
+  test('--finish REVIEW_START settles the pass\'s later Red Team batch that took no start; close finds nothing reserved or unreserved', () => {
+    const h = fresh();
+    const run = capped(h);
+    const first = reserve(h, run.run, 'dispatch:specialist');
+    const start = h.reviewLog(['--start', 'review', '--reservation', first]);
+    expect(start.code, start.err).toBe(0);
+    const redTeam = reserve(h, run.run, 'dispatch:red-team');
+    const earlier = h.ledger(run.ledger).reservations.find((r: any) => r.id === redTeam);
+    expect(earlier.state).toBe('open');
+    const row = { skill: 'review', timestamp: new Date().toISOString(), status: 'clean', issues_found: 0, critical: 0, informational: 0 };
+    const fin = h.reviewLog([JSON.stringify(row), '--finish', start.out.trim()]);
+    expect(fin.code, fin.err).toBe(0);
+    expect(fin.err).toContain(`settled budget reservations ${first},${redTeam}`);
+    expect(h.ledger(run.ledger).reservations.filter((r: any) => r.kind === 'dispatch').map((r: any) => r.state)).toEqual(['settled', 'settled']);
+    const close = h.sb(['close', '--run', run.run, '--reading', '10']);
+    expect(close.out).toContain('reserved=0');
+    expect(close.out).not.toContain('BUDGET_CHECK_SKIPPED');
+    expect(close.code, close.out).toBe(0);
+  });
+
   test('close prints one BUDGET_CHECK_SKIPPED line per unreserved dispatch and ends incomplete', () => {
     const h = fresh();
     const run = capped(h);

@@ -514,8 +514,10 @@ export function admitReviewStart(marker: string, reservation: string | undefined
 
 /**
  * gstack-review-log --finish TOKEN: the pass is over, so settle the reservation
- * that start consumed and every other dispatch reservation started in the same
- * step (a pass logs one row even when its reviewers were admitted one by one).
+ * that start consumed, every other dispatch reservation started in the same
+ * step (a pass logs one row even when its reviewers were admitted one by one),
+ * and every later batch of the pass reserved after it that took no start (Step
+ * 9's Red Team or an ADMIT remainder).
  */
 export function settleReviewFinish(marker: string, token: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   const active = activeLedger(marker);
@@ -524,7 +526,8 @@ export function settleReviewFinish(marker: string, token: string, env: NodeJS.Pr
   return mutateLedger(active.file, env, l => {
     const r = l.reservations.find(started);
     if (!r) return undefined;
-    const pass = l.reservations.filter(x => x.kind === 'dispatch' && x.state === 'consumed' && x.step === r.step);
+    const at = l.reservations.indexOf(r);
+    const pass = l.reservations.filter((x, i) => x.kind === 'dispatch' && x.step === r.step && (x.state === 'consumed' || (x.state === 'open' && i > at)));
     for (const x of pass) settleIn(l, x);
     return pass.map(x => x.id).join(',');
   });

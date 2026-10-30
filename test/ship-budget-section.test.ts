@@ -48,6 +48,14 @@ describe('ship budget skill structure', () => {
     expect(handoff).not.toContain('once per role on the printed reservation');
   });
 
+  // Value: protects=the pass program says a later batch of the same Step 9 pass takes no start, so the Red Team leaves no unfinished token; fails_when=the section tells every batch to start once per role;
+  //   why_new=the start test above pins the row rule only; seam=none; no_claim=the agent follows it
+  test('a later batch of the same Step 9 pass (Red Team, an ADMIT remainder) takes no start of its own', () => {
+    for (const rel of ['ship/sections/budget-handoff.md.tmpl', 'ship/sections/review-army.md.tmpl']) {
+      expect(read(rel), rel).toMatch(/later batch of the same (?:Step 9 )?pass \(the Red Team or an ADMIT remainder\) takes no start/);
+    }
+  });
+
   test('every review-log --start in the dispatch sections takes a reservation when a cap is set', () => {
     for (const rel of ['ship/sections/review-army.md.tmpl', 'ship/sections/adversarial.md.tmpl']) expect(read(rel)).toContain('--reservation');
   });
