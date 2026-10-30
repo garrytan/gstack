@@ -9,8 +9,8 @@
  * when its timestamp falls inside it (inWindow), so a past window does not
  * count anything that happened after it. Attributes are read as they are now
  * (a run's latest conclusion, an issue's latest closed_at, artifacts that have
- * not expired). A read that runs past MAX_PAGES marks its line unavailable
- * instead of printing a partial count.
+ * not expired). A merged-PR, gate-run or release read that runs past MAX_PAGES
+ * marks its line unavailable instead of printing a partial count.
  *
  * Inputs, all REST reads (no write, no paid work):
  *   merged PRs           pulls?state=closed&base=<base>, merged_at inside the window;
@@ -323,7 +323,7 @@ function searchCount(source: ScorecardSource, q: string): number | null {
   return typeof body?.total_count === 'number' ? body.total_count : null;
 }
 
-/** Releases published inside the window, drafts excluded; pages (newest first) stop once a page's oldest publication predates the window. */
+/** Releases published inside the window, drafts excluded; every page is read, because GitHub orders releases by creation and a draft can be published long after it was created. */
 export function readReleases(source: ScorecardSource, repo: string, w: ScoreWindow): Array<{ tag: string; publishedAt: string }> {
   const out: Array<{ tag: string; publishedAt: string }> = [];
   for (let page = 1; ; page++) {
@@ -331,8 +331,7 @@ export function readReleases(source: ScorecardSource, repo: string, w: ScoreWind
     const body = source.getJson(`repos/${repo}/releases?per_page=${PAGE}&page=${page}`);
     const releases = Array.isArray(body) ? body : [];
     out.push(...releases.filter(r => !r.draft && inWindow(r.published_at, w)).map(r => ({ tag: String(r.tag_name ?? ''), publishedAt: String(r.published_at) })));
-    const published = releases.map(r => r.published_at).filter((at): at is string => typeof at === 'string');
-    if (releases.length < PAGE || (published.length && published[published.length - 1]! < w.start)) break;
+    if (releases.length < PAGE) break;
   }
   return out;
 }

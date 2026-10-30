@@ -178,6 +178,28 @@ describe('factory-scorecard: recorded window', () => {
     expect(byId(scorecardRows(card)).merged).toStartWith('unavailable (');
   });
 
+  test('gate-run and release reads past the page cap are unavailable, and a release published late is found on a later page', () => {
+    // Value: protects=the gate, cost and red-train lines and the releases line report unavailable instead of a short count, and a draft published inside the window counts wherever it sits in GitHub's creation order; fails_when=either loop exits at MAX_PAGES without throwing, or release paging stops on a page's oldest publication again; why_new=review of GST-135 found only the merged-PR cap tested and the release stop relying on publication order; seam=none; no_claim=GitHub's 1,000-result limit on filtered workflow-run lists
+    const fx = fixture();
+    const releasesKey = (page: number) => `repos/acme/widgets/releases?per_page=100&page=${page}`;
+    fx.responses[releasesKey(1)] = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v0.9.${i}`, draft: false, created_at: '2026-10-01T00:00:00Z', published_at: '2026-10-02T00:00:00Z' }));
+    fx.responses[releasesKey(2)] = [{ tag_name: 'v0.1.0', draft: false, created_at: '2026-09-01T00:00:00Z', published_at: '2026-10-20T00:00:00Z' }];
+    expect(collectScorecard(fixtureSource(fx, scratch()), options()).releases.map(r => r.tag)).toEqual(['v0.1.0']);
+    const capped = fixture();
+    const runsKey = Object.keys(capped.responses).find(k => k.includes('/evals.yml/runs?'))!.replace(/page=1$/, 'page=');
+    const run = (capped.responses[runsKey + '1'] as any).workflow_runs[0];
+    for (let page = 1; page <= 20; page++) {
+      capped.responses[runsKey + page] = { workflow_runs: Array.from({ length: 100 }, (_, i) => ({ ...run, id: page * 1000 + i })) };
+      capped.responses[releasesKey(page)] = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v${page}.${i}`, draft: false, published_at: '2026-10-27T00:00:00Z' }));
+    }
+    const card = collectScorecard(fixtureSource(capped, scratch()), options());
+    expect(card.unavailable.some(u => u.startsWith('gate runs: gate runs in the window ran past 20 pages of 100'))).toBe(true);
+    expect(card.unavailable.some(u => u.startsWith('releases: releases published since 2026-10-19T12:00:00.000Z ran past 20 pages of 100'))).toBe(true);
+    const values = byId(scorecardRows(card));
+    expect(values.gates).toStartWith('unavailable (');
+    expect(values.releases).toStartWith('unavailable (');
+  });
+
   test('--max-artifact-runs caps artifact reads: later runs count without cost or flake data', () => {
     const card = collectScorecard(fixtureSource(fixture(), scratch()), options({ maxArtifactRuns: 2 }));
     expect(card.artifactRunsRead).toBe(2);
