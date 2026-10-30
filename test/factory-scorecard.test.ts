@@ -326,7 +326,7 @@ describe('factory-scorecard: pieces', () => {
     expect(searchRange(w)).toBe('2026-10-19T12:00:01Z..2026-10-26T12:00:00Z');
     expect(searchRange({ start: '2026-10-19T12:00:00.000Z', end: '2026-10-26T12:00:00.000Z' })).toBe('2026-10-19T12:00:00Z..2026-10-26T11:59:59Z');
     expect(['2026-10-19T12:00:00Z', '2026-10-19T12:00:01Z', '2026-10-26T12:00:00Z', '2026-10-26T12:00:01Z'].map(at => inWindow(at, w))).toEqual([false, true, true, false]);
-    expect([undefined, null, '', 'soon', 1793000000000].map(at => inWindow(at, w))).toEqual([false, false, false, false, false]);
+    expect([undefined, null, '', 'soon', Date.parse('2026-10-20T00:00:00Z')].map(at => inWindow(at, w))).toEqual([false, false, false, false, false]);
   });
 
   test('percentile is nearest-rank: p50 and p90 of small samples, null when empty', () => {
