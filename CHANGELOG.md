@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.341.0] - 2026-10-30
 
 **gstack no longer leaves Ubicloud VMs running after a lane dies (GST-118).** A runner killed mid-run, a copy of the runner without a TTL, or a VM with no owner could keep billing until someone noticed. Now every VM names its owner and its lifetime, the next `up` anywhere destroys anything past its lifetime, and every run says in one line whether its VM is gone.
 
