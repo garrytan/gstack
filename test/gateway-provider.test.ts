@@ -9,22 +9,28 @@ import { estimateCostUsd, hasPricing } from '../lib/pricing';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-provider-'));
 const savedBin = process.env.GSTACK_CLAUDE_BIN;
+const savedArgs = process.env.GSTACK_CLAUDE_BIN_ARGS;
 afterEach(() => {
   if (savedBin === undefined) delete process.env.GSTACK_CLAUDE_BIN;
   else process.env.GSTACK_CLAUDE_BIN = savedBin;
+  if (savedArgs === undefined) delete process.env.GSTACK_CLAUDE_BIN_ARGS;
+  else process.env.GSTACK_CLAUDE_BIN_ARGS = savedArgs;
 });
 
-/** A stand-in claude CLI: records its env and prints a result envelope billing FAKE_MODELS. */
+/** A stand-in claude CLI run by bun (so it works on Windows): records its env and prints a result envelope billing FAKE_MODELS. */
 function fakeClaude(): string {
-  const bin = path.join(tmp, 'claude');
-  fs.writeFileSync(bin, [
-    '#!/bin/sh',
-    'cat > /dev/null',
-    'env > "$FAKE_ENV_OUT"',
-    'printf \'{"type":"result","subtype":"success","is_error":false,"result":"ok","num_turns":2,"usage":{"input_tokens":1000,"output_tokens":10,"cache_read_input_tokens":50,"cache_creation_input_tokens":7},"modelUsage":{%s}}\' "$FAKE_MODELS"',
-  ].join('\n') + '\n', { mode: 0o755 });
-  return bin;
+  const script = path.join(tmp, 'fake-claude.js');
+  fs.writeFileSync(script, [
+    "const fs = require('fs');",
+    "fs.writeFileSync(process.env.FAKE_ENV_OUT, Object.entries(process.env).map(([k, v]) => k + '=' + v).join('\\n') + '\\n');",
+    "const modelUsage = JSON.parse('{' + (process.env.FAKE_MODELS || '') + '}');",
+    "process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', num_turns: 2, usage: { input_tokens: 1000, output_tokens: 10, cache_read_input_tokens: 50, cache_creation_input_tokens: 7 }, modelUsage }));",
+  ].join('\n') + '\n');
+  process.env.GSTACK_CLAUDE_BIN_ARGS = JSON.stringify([script]);
+  return process.execPath;
 }
+
+
 
 describe('gateway provider', () => {
   test('the child env drops every Anthropic credential and pins all aliases to the arm model', () => {
