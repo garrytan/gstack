@@ -187,9 +187,18 @@ in a data file still schedules the outside voice.
 | Depth | When | Pass 1 dispatches |
 |---|---|---|
 | **light**, runtime 0 | docs and tests only, or only registered outputs | the core checklist only; the outside voice when the diff publishes numbers |
-| **light**, runtime 1–50 | `SMALL_DIFF_LINES` or fewer runtime lines | core, one **batched** specialist (testing, maintainability and security checklists, the specialists scope selects and the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
-| **standard** | more than 50 runtime lines | the code set with every threshold (specialists at 50, simplification at 100, Red Team at 200) read on runtime lines; specialists leave docs and registered outputs out of their diff, and every specialist but Testing leaves tests out too; adversarial and outside voice read everything |
-| **full** | gate class, or any classifier error | the gate set, unchanged: every reviewer on the whole diff, the Red Team always, no hit-rate gating |
+| **light**, runtime 1–50 | `SMALL_DIFF_LINES` or fewer runtime lines | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
+| **standard** | more than 50 runtime lines | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
+| **full** | gate class, or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
+
+**Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
+subagent reads Testing and Security on every code or gate diff, plus
+State-machines, Data-migration, API-contract and Design when scope asks (a
+forced checklist always joins). Maintainability, Performance and Simplification
+are read only when forced (`SKIP:` names them). The Red Team reads the batched
+reader's merged findings. A free re-score of saved C and D findings lost 0 of
+the 29 blockers (handoffs/GSTA-167/lean-ensemble-rescore.md); live Arm L must pass
+before this merges.
 
 A fixed blocking finding, a CRITICAL or an open blocker raises a light diff to
 standard for the next step (`step=standard`): its specialists read at least 50 lines
@@ -265,6 +274,8 @@ the specialists, audits and watchers at the host default too
   Team and the native adversarial pass on the range instead of the specialist army.
 - A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
   core checklist and the gate scan review it.
+- Every depth dispatches one batched specialist instead of one reader per
+  checklist; Maintainability, Performance and Simplification run only when forced.
 - Light no longer runs a separate Red Team: the batched specialist carries its
   prompt. At runtime 0 light runs no adversarial pass either.
 - Standard reads thresholds on runtime lines, not the whole diff, so a test-heavy

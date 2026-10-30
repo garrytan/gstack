@@ -10,6 +10,7 @@ const ROOT = path.join(import.meta.dir, '..');
 const none = scanNumbers({});
 const base = (o: Partial<PlanInput>): PlanInput => ({ paths: ['src/app.ts'], scope: { SCOPE_BACKEND: 'true', SCOPE_STATE_MACHINE: 'false' }, gateTagged: 0, diffLines: 120, history: { fullPasses: 0, last: 'none' }, numbers: none, ...o });
 const roles = (p: ReturnType<typeof planReview>) => p.dispatches.map(d => `${d.role}:${d.name}:${d.effort}`);
+const batch = (p: ReturnType<typeof planReview>) => p.dispatches.find(d => d.role === 'specialist' && d.name === 'batched')?.checklists;
 
 describe('classifyPath: agent-read markdown is code', () => {
   test.each([
@@ -84,12 +85,14 @@ describe('planReview', () => {
   });
   test('code class pass 1: specialists at medium, the native adversarial at full, the outside voice at its own', () => {
     const p = planReview(base({}));
-    expect(roles(p)).toEqual(['specialist:testing:medium', 'specialist:maintainability:medium', 'specialist:security:medium', 'specialist:performance:medium', 'specialist:simplification:medium', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(roles(p)).toEqual(['specialist:batched:medium', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(batch(p)).toEqual(['testing', 'security']);
+    expect(p.skipped).toContain('maintainability, performance, simplification (lean ensemble: read only when forced)');
   });
   test('gate class forces red team and ignores hit-rate gating', () => {
-    const p = planReview(base({ gateTagged: 1, gated: ['security'] }));
+    const p = planReview(base({ gateTagged: 1, gated: ['security', 'state-machines'], scope: { SCOPE_BACKEND: 'true' } }));
     expect(roles(p)).toContain('red-team:red-team:full');
-    expect(roles(p)).toContain('specialist:security:medium');
+    expect(batch(p)).toEqual(['testing', 'security', 'state-machines']);
   });
   test('code class honours hit-rate gating and small-diff skip', () => {
     expect(roles(planReview(base({ gated: ['simplification'] })))).not.toContain('specialist:simplification:medium');
@@ -155,7 +158,9 @@ describe('GSTA-131 pass-1 review repairs', () => {
     expect(scanNumbers({ 'test/fixtures/bench.json': ['{ "ratio": 0.74 }'] }).publishes).toBe(true);
   });
   test('--all-specialists forces every specialist; a code diff past 200 lines or with a CRITICAL adds the Red Team', () => {
-    expect(planReview(base({ force: 'all' })).dispatches.filter(d => d.role === 'specialist').length).toBe(9);
+    const all = planReview(base({ force: 'all' }));
+    expect(all.dispatches.filter(d => d.role === 'specialist').length).toBe(1);
+    expect([...batch(all)!].sort()).toEqual(['api-contract', 'data-migration', 'design', 'maintainability', 'performance', 'security', 'simplification', 'state-machines', 'testing']);
     const has = (o: Partial<PlanInput>) => roles(planReview(base(o))).some(r => r.startsWith('red-team'));
     expect(has({ diffLines: 120 })).toBe(false);
     expect(has({ diffLines: 201 })).toBe(true);
@@ -172,12 +177,14 @@ describe('GSTA-131 coverage: Red Team and specialist arms', () => {
     expect(roles(planReview(base({ diffLines: 20, gateTagged: 1 })))).toContain('red-team:red-team');
   });
   test('scope arms select their specialist, state machines default on when scope is unknown, and --force all reaches docs class', () => {
-    const picked = (scope: Record<string, string>) => roles(planReview(base({ scope: { SCOPE_STATE_MACHINE: 'false', ...scope } })));
-    expect(picked({ SCOPE_MIGRATIONS: 'true' })).toContain('specialist:data-migration');
-    expect(picked({ SCOPE_API: 'true' })).toContain('specialist:api-contract');
-    expect(picked({ SCOPE_FRONTEND: 'true' })).toContain('specialist:design');
-    expect(roles(planReview(base({ scope: {} })))).toContain('specialist:state-machines');
-    expect(roles(planReview(base({ scope: { SCOPE_STATE_MACHINE: 'false' } })))).not.toContain('specialist:state-machines');
+    const picked = (scope: Record<string, string>) => batch(planReview(base({ scope: { SCOPE_STATE_MACHINE: 'false', ...scope } })));
+    expect(picked({ SCOPE_MIGRATIONS: 'true' })).toContain('data-migration');
+    expect(picked({ SCOPE_API: 'true' })).toContain('api-contract');
+    expect(picked({ SCOPE_FRONTEND: 'true' })).toEqual(['testing', 'security', 'design']);
+    expect(batch(planReview(base({ scope: {} })))).toContain('state-machines');
+    expect(batch(planReview(base({ scope: { SCOPE_STATE_MACHINE: 'false' } })))).not.toContain('state-machines');
+    expect(batch(planReview(base({ force: ['maintainability'] })))).toEqual(['testing', 'security', 'maintainability']);
+    expect(batch(planReview(base({ gated: ['design'], scope: { SCOPE_FRONTEND: 'true', SCOPE_STATE_MACHINE: 'false' } })))).toEqual(['testing', 'security']);
     const docsAll = planReview(base({ paths: ['docs/a.md'], force: 'all' }));
     expect(docsAll.class).toBe('docs');
     expect(docsAll.dispatches.filter(d => d.role === 'specialist').length).toBeGreaterThan(5);
@@ -198,7 +205,7 @@ describe('review depth: the matrix', () => {
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 48, 'test/a.test.ts': 190, 'docs/a.md': 9 }), diffLines: 247 }));
     expect([p.depth, p.runtimeLines]).toEqual(['light', 48]);
     expect(p.dispatches).toEqual([
-      { role: 'specialist', name: 'batched', effort: 'full', exclude: [':(exclude)docs/a.md'], checklists: ['testing', 'maintainability', 'security', 'performance', 'red-team'] },
+      { role: 'specialist', name: 'batched', effort: 'full', exclude: [':(exclude)docs/a.md'], checklists: ['testing', 'security', 'red-team'] },
       { role: 'adversarial-native', name: 'adversarial', effort: 'full', exclude: [], reason: 'backtest inconclusive (GSTA-147 D5)' },
     ]);
     expect(p.skipped.join('; ')).toContain('red-team (light depth');
@@ -207,10 +214,10 @@ describe('review depth: the matrix', () => {
   test('runtime 51 is standard: thresholds read runtime lines, reviewers read their own hunks', () => {
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 51, 'test/a.test.ts': 400, 'README.md': 3 }), diffLines: 454 }));
     expect([p.depth, p.runtimeLines]).toEqual(['standard', 51]);
-    expect(roles(p)).toEqual(['specialist:testing:medium', 'specialist:maintainability:medium', 'specialist:performance:medium', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(roles(p)).toEqual(['specialist:batched:medium', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(batch(p)).toEqual(['testing', 'security']);
     const ex = Object.fromEntries(p.dispatches.map(d => [d.name, d.exclude]));
-    expect(ex.testing).toEqual([':(exclude)README.md']);
-    expect(ex.maintainability).toEqual([':(exclude)README.md', ':(exclude)test/a.test.ts']);
+    expect(ex.batched).toEqual([':(exclude)README.md']);
     expect([ex.adversarial, ex['outside-voice']]).toEqual([[], []]);
   });
   test.each([
@@ -257,7 +264,7 @@ describe('review depth: the matrix', () => {
   test('a fixed blocker in light raises the next full step to the standard set, Red Team included', () => {
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 30 }), history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
     expect([p.depth, p.stepDepth]).toEqual(['light', 'standard']);
-    expect(roles(p)).toEqual(['specialist:testing:medium', 'specialist:maintainability:medium', 'specialist:performance:medium', 'red-team:red-team:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(roles(p)).toEqual(['specialist:batched:medium', 'red-team:red-team:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
   });
   test('--depth-floor raises and never lowers', () => {
     expect(depthFor({ cls: 'code', runtimeLines: 10, errors: [], floor: 'full' })).toBe('full');
@@ -311,7 +318,7 @@ describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () =
   test('the #19 shape plans one fix-check, the Red Team and the native adversarial pass, not the specialist army', () => {
     const before = planReview(n19({ history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
     expect(before.next.step).toBe('full');
-    expect(before.dispatches.length).toBeGreaterThanOrEqual(6);
+    expect(roles(before)).toEqual(['specialist:batched:medium', 'red-team:red-team:full']);
     const p = planReview(n19());
     expect(p.next.step).toBe('scoped');
     expect(p.next.reason).toContain('24 runtime lines');
@@ -457,3 +464,34 @@ describe('GSTA-167 part 4a: data files no code names are docs (classifyDiff only
     expect(classifyDiff({ paths: ['src/app.ts', 'wiki/old.json'], deleted: ['wiki/old.json'], consumed: [], gateTagged: 0 }).class).toBe('gate');
   });
 });
+
+describe('lean ensemble: one batched specialist at standard and full depth (GSTA-167 part 2)', () => {
+  const fixture = (name: string): PlanInput => {
+    const x = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/review-depth', `${name}.json`), 'utf8'));
+    return { paths: x.paths, deleted: x.deleted, stampOnly: x.stamp_only ?? [], scope: x.scope, gateTagged: x.gate_tagged, diffLines: x.diff_lines, numbers: x.numbers, perPath: x.per_path, registry: x.registry_outputs ? { sha: null, outputs: x.registry_outputs } : undefined, history: { fullPasses: 0, last: 'none' } };
+  };
+  const specialists = (p: ReturnType<typeof planReview>) => p.dispatches.filter(d => d.role === 'specialist');
+  // Value: protects=the lean ensemble's reader set (testing and security always, the four scoped checklists when scope asks,
+  //   maintainability, performance and simplification only when forced) on captured diffs; fails_when=a plan dispatches more than
+  //   one specialist reader at standard or full, drops testing or security, or the Red Team or voices change; seam=planReview
+  test('the captured gate fixture plans one batched reader, the Red Team and both voices', () => {
+    const p = planReview(fixture('code'));
+    expect([p.class, p.depth]).toEqual(['gate', 'full']);
+    expect(roles(p)).toEqual(['specialist:batched:medium', 'red-team:red-team:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(batch(p)).toEqual(['testing', 'security', 'state-machines']);
+    expect(batch(planReview({ ...fixture('code'), scope: { ...fixture('code').scope, SCOPE_MIGRATIONS: 'true', SCOPE_API: 'true', SCOPE_FRONTEND: 'true', SCOPE_STATE_MACHINE: 'false' } }))).toEqual(['testing', 'security', 'data-migration', 'api-contract', 'design']);
+  });
+  test('the captured docs fixture dispatches no reader at standard and one batched reader when floored to full', () => {
+    expect(specialists(planReview({ ...fixture('docs-only'), floor: 'standard' }))).toEqual([]);
+    const full = planReview({ ...fixture('docs-only'), floor: 'full' });
+    expect(specialists(full).map(d => [d.name, d.effort, d.checklists])).toEqual([['batched', 'medium', ['testing', 'security', 'state-machines']]]);
+  });
+  test('a standard code plan reads one batched reader on its own hunks, and a forced checklist joins it', () => {
+    const p = planReview(base({ diffLines: 400, scope: { SCOPE_BACKEND: 'true', SCOPE_STATE_MACHINE: 'false' } }));
+    expect(specialists(p).map(d => [d.name, d.checklists])).toEqual([['batched', ['testing', 'security']]]);
+    expect(roles(p)).toContain('red-team:red-team:full');
+    expect(batch(planReview(base({ force: ['performance', 'simplification'] })))).toEqual(['testing', 'security', 'performance', 'simplification']);
+    expect(specialists(planReview(base({ tiers: false })))[0]!.effort).toBe('host');
+  });
+});
+

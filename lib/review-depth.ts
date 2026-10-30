@@ -29,8 +29,10 @@ export const RED_TEAM_LINES = 200;
 export const LARGE_DIFF_LINES = 100;
 /** The largest fix range, in runtime lines, a pass 2 after a blocking fix reviews as a scoped pass (GSTA-152 D6); a starting value. */
 export const SCOPED_RANGE_LINES = 150;
-/** The checklists light's batched specialist always reads, whatever the scope. */
-export const LIGHT_FIXED: readonly Specialist[] = ['testing', 'maintainability', 'security'];
+/** The checklists the batched specialist always reads on code and gate class, whatever the depth or scope (GSTA-167 part 2). */
+export const LIGHT_FIXED: readonly Specialist[] = ['testing', 'security'];
+/** The checklists the batched specialist adds when scope asks; maintainability, performance and simplification are read only when forced. */
+export const BATCH_SCOPED: readonly Specialist[] = ['data-migration', 'api-contract', 'design', 'state-machines'];
 /**
  * Each blocking role's effort (GSTA-167 part 3, CREW 30c): specialists at medium, which is how the no-loss controls ran
  * them; the Red Team, the native adversarial pass and the fix-check at full (the lane's reasoning); the outside voice at
@@ -64,7 +66,7 @@ const DATA_CONFIG = [
 
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
-  SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, SCOPED_RANGE_LINES, ROLE_EFFORT,
+  SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
   patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
@@ -290,7 +292,7 @@ export interface PlanInput extends ClassInput {
   /** false under --no-tiers or review_effort_tiers off: specialists run at the host's default effort. */
   tiers?: boolean;
 }
-/** One reviewer. `exclude` holds git pathspec argv items the reviewer's diff leaves out; `checklists` names what light's batched specialist reads. */
+/** One reviewer. `exclude` holds git pathspec argv items the reviewer's diff leaves out; `checklists` names what the batched specialist reads. */
 export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string }
 export interface ReviewPlan extends DepthResult {
   /** The depth this step runs at: light raised to standard by a fixed blocker, a CRITICAL or an open blocker. */
@@ -332,6 +334,29 @@ export function specialistsFor(cls: DiffClass, i: PlanInput, skipped: string[] =
   });
 }
 
+/**
+ * The checklists the one batched specialist reads (the lean ensemble, GSTA-167 part 2): the class sets the base (none for docs,
+ * testing for tests, LIGHT_FIXED for code and gate), BATCH_SCOPED joins when scope asks and hit-rate gating allows (gate class
+ * ignores gating), and a forced checklist always joins.
+ */
+export function batchChecklists(cls: DiffClass, i: PlanInput, skipped: string[] = []): Specialist[] {
+  const forced = forcedBy(i);
+  const codeLike = cls === 'code' || cls === 'gate';
+  const base: readonly Specialist[] = codeLike ? LIGHT_FIXED : cls === 'tests' ? ['testing'] : [];
+  if (cls === 'docs') skipped.push('specialists (docs class)');
+  if (cls === 'tests') skipped.push('specialists except testing (tests class)');
+  const extra = SPECIALISTS.filter(n => {
+    if (base.includes(n)) return false;
+    if (forced(n)) return true;
+    if (!codeLike || !BATCH_SCOPED.includes(n) || !scopeWants[n]!(i.scope ?? {})) return false;
+    if (cls !== 'gate' && (i.gated ?? []).includes(n)) { skipped.push(`${n} (gated by hit rate)`); return false; }
+    return true;
+  });
+  const dropped = SPECIALISTS.filter(n => codeLike && !BATCH_SCOPED.includes(n) && !base.includes(n) && !extra.includes(n));
+  if (dropped.length) skipped.push(`${dropped.join(', ')} (lean ensemble: read only when forced)`);
+  return [...base, ...extra];
+}
+
 /** A path as one git exclude pathspec; a glob character or a leading colon makes it literal. */
 const excludeSpec = (p: string) => `:(exclude${/[*?[\]\\]/.test(p) || p.startsWith(':') ? ',literal' : ''})${p}`;
 const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
@@ -355,15 +380,13 @@ export function planReview(i: PlanInput): ReviewPlan {
   const dispatches: Dispatch[] = [];
   const add = (role: Role, name: string, effort: Effort, exclude: string[] = [], extra: Partial<Dispatch> = {}) => dispatches.push({ role, name, effort, exclude, ...extra });
   const docsAndOutputs = i.paths.filter(p => pathClass(i, p) === 'docs' || isOutput(i, p)).map(excludeSpec);
-  const tests = i.paths.filter(p => pathClass(i, p) === 'tests' && !isOutput(i, p)).map(excludeSpec);
   const numbersChanged = i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint;
   const firstVoices = h.fullPasses === 0 || !i.adversarialRan;
   const specialist: Effort = i.tiers === false ? 'host' : ROLE_EFFORT.specialist;
   if (next.step === 'full' && stepDepth === 'light') {
     const forced = forcedBy(i);
     if (runtimeLines > 0) {
-      const scoped = SPECIALISTS.filter(n => !LIGHT_FIXED.includes(n) && (forced(n) || (scopeWants[n]?.(i.scope ?? {}) && !(i.gated ?? []).includes(n))));
-      add('specialist', 'batched', ROLE_EFFORT['red-team'], docsAndOutputs, { checklists: [...LIGHT_FIXED, ...scoped, 'red-team'] });
+      add('specialist', 'batched', ROLE_EFFORT['red-team'], docsAndOutputs, { checklists: [...batchChecklists('code', i, skipped), 'red-team'] });
       skipped.push('red-team (light depth: the batched specialist carries the Red Team prompt)');
       if (firstVoices) add('adversarial-native', 'adversarial', 'full', [], { reason: LIGHT_ADVERSARIAL_REASON });
     } else {
@@ -378,7 +401,8 @@ export function planReview(i: PlanInput): ReviewPlan {
     const dcls: DiffClass = full ? 'gate' : cls;
     const raised = !full && runtimeLines <= SMALL_DIFF_LINES;
     const lines = full ? i.diffLines : Math.max(runtimeLines, raised ? SMALL_DIFF_LINES : 0);
-    for (const n of specialistsFor(dcls, { ...i, diffLines: lines }, skipped)) add('specialist', n, specialist, full ? [] : n === 'testing' ? docsAndOutputs : [...docsAndOutputs, ...tests]);
+    const checklists = batchChecklists(dcls, i, skipped);
+    if (checklists.length) add('specialist', 'batched', specialist, full ? [] : docsAndOutputs, { checklists });
     const redTeam = dcls === 'gate' || (dcls === 'code' && (lines > RED_TEAM_LINES || !!i.criticalFound || raised));
     if (redTeam) add('red-team', 'red-team', 'full');
     else skipped.push(`red-team (${dcls} class${dcls === 'code' ? `, ${lines} runtime lines, no critical` : ''})`);
