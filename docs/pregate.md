@@ -843,7 +843,8 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   listed on every push. A waiver counts only when `sha` is the finding's full
   commit sha (40 hex characters, 64 in a SHA-256 repository); a shortened or
   mistyped one is ignored, so the finding still refuses, and stderr names it
-  (`ignored waiver <rule> <path> sha <value>`) with the full commit to write.
+  (`ignored waiver <rule>  <path>  sha <value> (...)`) with the full commit to
+  write.
   `--json` lists them as `ignoredWaivers`.
 - **Visibility.** `sealed.visibility` from the base branch, else a cache under
   the state root (`sealed-visibility.json`: a `public` answer for 24 hours, a
