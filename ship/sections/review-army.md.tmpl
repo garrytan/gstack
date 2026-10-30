@@ -15,26 +15,25 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 --base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
 gave `--depth-floor <d>` (it only raises); a repeat uses the plan run that picked it.
 A `scoped` repeat is a full pass on the range: its `fix-check` is decision 3.5's
-reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass; Step 9.1
-builds its packet too (`--only specialist,red-team,fix-check` with decision 3.5's files).
+reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
 `runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
 (specialists, Red Team, Step 11's voices), each at its `effort=` on the same model
-family and reading only its packet (Step 9.1), in place of 9.1's and 9.2's own selection rules;
-`specialist batched` (light depth) is one subagent whose packet inlines every checklist its
+family and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
+`specialist batched` (light depth) is one subagent reading every checklist its
 `checklists=` names, Red Team included, tagging each finding with its checklist.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
-`"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]` (`prompt_bytes`: its `PACKET:` bytes), `"depth"`,
+`"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,
 `"runtime_lines"`, `"depth_rules"` (the `rules` hash) and
 `"gate_scan":{"tagged":N|null,"head":"<sha>"}` from those lines.
 
 **Pass 2+ reads the range, not the tree** (`review_scope frozen`): the core read
-in item 2 becomes `git diff $RANGE_BASE`, and every packet (specialists, Red Team,
-the Step 11 reviewers) is built on a literal sha you write in (`--range <sha>`):
+in item 2 becomes `git diff $RANGE_BASE`, and every dispatched prompt (specialists,
+Red Team, the Step 11 reviewers) carries a literal sha you write in:
 `DIFF_BASE=<diff-base>`, the merge base on pass 1 and `RANGE_BASE` from pass 2 on.
 A reviewer never sees your shell's `RANGE_BASE`; a variable left in a prompt
-re-reads the whole branch. An outside backend receives the range `RANGE_BASE..HEAD` in its packet.
+re-reads the whole branch. An outside backend receives the range `RANGE_BASE..HEAD`.
 Under `review_scope all` every pass reads the full diff. The gate scan (2.5) and
 the QA probes keep the whole candidate:
 they are tools, not reviewers. `NO FINDINGS` is the expected result for a clean range.
@@ -248,11 +247,10 @@ Other scopes apply decisions 2–4 in order.
    growth before anything else; the repeat reviews the cut as part of the range. Tests must pass or retain approval for the same verified pre-existing
    failures and scope. Keep CYCLES and scoped approvals across this repeat; PASS increments on entry.
 3.5. **One fix-check.** Take a `gstack-review-log --start review-fix-check` token (`--reservation <id>` under a cap); write the
-   fix list, callers of changed symbols and test results to `.gstack/tmp/fix-check-*.txt`;
-   build its packet with that plan run's flags plus `--only fix-check,outside-voice --range $PASS_HEAD
-   --fix-list <f> --tests <f> --callers <f>` into `.gstack/tmp/review-packets-fc` (the touched hunks are
-   its diff); dispatch it with the packet brief, plus the outside voice only if the plan
-   lists it, then collect. Log item 6's
+   fix list, touched hunks (`git diff $PASS_HEAD`), callers of changed symbols and
+   test results to `.gstack/tmp/fix-check-*.txt`; dispatch one full-effort reviewer
+   on `gstack-review-plan --fix-check-prompt --fix-list <f> --hunks <f> --tests <f>
+   --callers <f>`, plus the outside voice only if the plan lists it. Log item 6's
    row as `"skill":"review-fix-check"` with `--finish <token>`; not a pass. A
    CRITICAL goes to decision 2; otherwise decision 4.
 4. **No edits in this pass:** Resolve the required-probe gate below. Only after it

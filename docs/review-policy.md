@@ -325,76 +325,6 @@ batches of 8`). Batching changes the order, never the set: every selected
 specialist runs before the merge stage, and the Red Team's activation reads
 the merged result as before.
 
-<a id="reviewer-packets"></a>
-## Reviewer packets
-
-A `/ship` reviewer reads one file and the parent reads one record. On Capy a call
-costs a host floor plus its context, so a reviewer that reads the whole diff and
-explores the repository pays for that context on every call (GSTA-152 measured a
-pass-1 specialist that explored at about 2.7M tokens, and one with a lean brief at
-0.23–0.51M). `gstack-review-packet build --base <base> --out-dir <dir>` takes
-`gstack-review-plan`'s flags, runs the same plan (`lib/review-plan-live.ts`) and
-writes one packet per `DISPATCH:` line holding:
-
-- the role's instructions and findings contract from `lib/review-prompts.ts`, the
-  strings the resolvers render into `/review`'s prose, so packet and prose cannot drift;
-- its checklist inlined (every `checklists=` entry for light depth's batched
-  specialist, each finding tagged with its checklist);
-- its `DIFF_CMD` diff at `-U8` against the literal diff base (`--range <sha>` from
-  pass 2 on), exclusions honored and untracked files included, under a stat; the
-  security specialist, the Red Team and the native adversarial pass see tests and
-  fixtures as a stat only; a data-format file (`.json`, `.jsonl`, `.ndjson`, `.csv`,
-  `.tsv`, not a package or config manifest) past 400 changed lines reaches every role
-  as a `DATA SUMMARY` (changed-line count, top-level keys, first and last 40 changed
-  lines), except the testing reviewer and the coverage audit for data under `test/` or
-  `fixtures/`;
-- at most 8 KB of `--plan-file`, and past learnings for specialists;
-- a read rule: before reporting, the reviewer confirms or rules out each suspected defect
-  from what it depends on outside the hunks (the callers and callees of changed functions,
-  the tests that cover them, the config and contracts they read), with grep and the read
-  tool, at most 8 reads in at most 2 turns of parallel calls; no other packets, no
-  transcript (GSTA-167: under a budget of 2 ranges around the hunks, 7 recorded blockers
-  that needed context outside them were found by no reviewer); an audit keeps its own
-  budget (files in the diff, their tests and the files the plan names);
-- its output path and the reply `DONE <name> crit=<n> info=<n>`; its last line is `END OF PACKET <name>`.
-
-Each `PACKET:` line carries `budget_role=` (the `gstack-ship-budget` dispatch role:
-audits reserve as `specialist`, shards as their parent role) and `read=`, line ranges
-under 30,000 bytes each. Capy's read tool returns about 37,800 characters of a file and
-drops the rest without a notice, and shell output past about 35,000 characters spills to
-a log, so a reviewer reads its packet with the read tool, one parallel call per range,
-and finishes in at most four turns. `BUDGET_NEXT: dispatch:<roles>` is the value for
-`gstack-ship-budget check --next`. A partial build (`--only`) keeps other reviewers'
-entries only at the same head, diff base and diff content; any other build starts the
-manifest over and removes the old outputs, except a Red Team build (`--findings`), which refuses
-with `STALE_MANIFEST` (exit 3) so it never reviews another tree than the specialists did.
-Collect counts a matrix record only from a reviewer that applies the state-machines
-checklist, and a line naming `CRITICAL` in any case that fails to parse or validate makes its
-reviewer `invalid`.
-
-A packet over 200,000 bytes is split by path into `<name>.1ofK` packets of the same
-reviewer, each with the whole instructions and checklist: no hunk is cut and no path
-dropped, and a hunk alone over the cap gets its own shard with a `SHARD_OVERSIZE` note.
-A Step 7/8 audit packet is never split: the parent gates on one coverage or plan
-verdict with one generation allowance, and a plan item built in another shard's paths
-would read NOT DONE.
-The Red Team's packet waits for the specialists (`--only red-team --findings
-<dir>/merged.jsonl`; until then collect lists it `pending`), the fix-check packet takes
-`--fix-list`, `--tests` and `--callers` with `--range $PASS_HEAD`, and `--audit
-test-coverage|plan-completion` writes a Step 7/8 audit packet from the generated
-section's prompt. An outside backend gets the outside-voice packet as its prompt file.
-
-`gstack-review-packet collect --dir <dir>` reads every output file and prints at most
-60 lines: one `REVIEWER:` line per packet (`clean`, `findings`, `missing`, `invalid`
-or `pending`), each CRITICAL on one line, and counts for INFORMATIONAL. It does Step
-9.2's stages 1–3 (invalid lines skipped and counted, an advisory CRITICAL kept CRITICAL,
-defects and advice merged apart by identity with every source label) into
-`merged.jsonl` and writes `informational.md` for the PR body. Missing or unusable
-output exits 3 with `REVIEW_COVERAGE_INCOMPLETE`
-([troubleshooting.md](troubleshooting.md#review-coverage-incomplete)). Selection, depth,
-the floor and the transitions are unchanged: only what a reviewer reads and what
-returns to the parent changed.
-
 ## Two checklist rules with ids
 
 Two findings `review/checklist.md` names by rule id so a PR body, a review log
@@ -429,8 +359,7 @@ trailers, appended }`.
 
 ## Where this is enforced
 
-- `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every reviewer reads a [packet](#reviewer-packets) built with its diff base as a literal sha (the merge base on pass 1, `--range <RANGE_BASE>` from pass 2 on) and its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
-- `lib/review-prompts.ts`, `lib/review-packet.ts`, `lib/review-packet-collect.ts`, `lib/review-plan-live.ts`, `bin/gstack-review-packet`: the reviewer prompts' one source, packet build (shards, read budget) and collect (`REVIEW_COVERAGE_INCOMPLETE`) (`test/review-packet.test.ts`).
+- `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
 - `lib/review-depth.ts`, `bin/gstack-review-plan`: the diff class, the depth (`depthFor`, `DEPTH_RULES`, `depthOfCommitInput`), each dispatch's `exclude` pathspecs and `DIFF_CMD`, the transition table, the numeric-claim scan and each role's effort tier (`test/review-depth.test.ts`, `test/review-plan-cli.test.ts`).
 - `lib/review-collect.ts`: `collectCommit` (git objects only, from any checkout) and `collectLive` (the working tree), per-path lines and the base commit's registry (`test/review-collect.test.ts`).
