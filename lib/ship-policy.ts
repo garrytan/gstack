@@ -41,6 +41,8 @@ export interface ShipPolicy {
   stamp_paths: string[];
   /** The CHANGELOG re-headed on a restamp; null for repos without one. */
   changelog: string | null;
+  /** Unversioned CHANGELOG fragments (`<dir>/<slug>.md`) a PR adds instead of an `[Unreleased]` section; null keeps `[Unreleased]`. */
+  changelog_fragments: { dir: string; required_checks?: string[] } | null;
   /** Path of a paired repo to restamp identically (tier 2). */
   mirror: string | null;
   /** `merge-only` refuses a squash or rebase plan in /ship. */
@@ -102,6 +104,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   release_outputs: [],
   stamp_paths: [],
   changelog: 'CHANGELOG.md',
+  changelog_fragments: null,
   mirror: null,
   history: 'squash-ok',
   preregistration_shas: [],
@@ -131,6 +134,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   release_outputs: 'Globs the release tool may write beyond the version files, lockfiles, CHANGELOG and stamp_paths. Any other output refuses the restamp.',
   stamp_paths: 'Globs (repo-relative, no `..`) where exact `(was X)`, `since: X` and `vX` mentions of the old version are rewritten.',
   changelog: 'CHANGELOG path re-headed on a restamp (the PR’s `[Unreleased]` or old-version section moves to the top under the new version). null to skip.',
+  changelog_fragments: '{ dir, required_checks? } or null: a PR adds one unversioned `<dir>/<slug>.md` fragment (optional `bump: minor|major` front matter) instead of an `[Unreleased]` section and leaves VERSION, the manifest version and released CHANGELOG sections at its merge base; the restamp folds every fragment under the allocated version and deletes the files (docs/ship-policy.md#changelog-fragments). `required_checks` lists the check runs or status contexts `train land` requires present and green on a stamp commit. null keeps `[Unreleased]`.',
   mirror: 'Relative path of a paired repo to restamp identically; writes are confined to it. null to skip.',
   history: 'merge-only | squash-ok. merge-only makes /ship refuse a squash or rebase plan.',
   preregistration_shas: 'Commits that must be ancestors of HEAD before push (preregistered evals); checked by `gstack-evidence ancestor`.',
@@ -176,12 +180,14 @@ export const TRAIN_KEYS_VERSION = '1.91.146.0';
 // its key, so a value a stamp did not move fails there.
 export const REVIEW_SCOPE_KEY_VERSION = '1.91.256.0';
 export const DOCS_CAPS_KEY_VERSION = '1.91.270.0';
+export const CHANGELOG_FRAGMENTS_KEY_VERSION = '1.91.336.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
   pr_count: '1.91.73.0', maintainers: '1.91.73.0', stamp_files: '1.91.98.0', stamp_patterns: '1.91.98.0', restamp_command: '1.91.98.0',
   migrations: '1.91.98.0', gate_command: SHIP_QUEUE_KEYS_VERSION, full_e2e: SHIP_QUEUE_KEYS_VERSION, min_gstack_version: SHIP_QUEUE_KEYS_VERSION,
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
+  changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -360,6 +366,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('full_e2e' in obj && typeof obj.full_e2e !== 'boolean') errors.push({ code: 'POLICY_INVALID', path: 'full_e2e', message: 'must be true or false' });
   if ('train' in obj && obj.train !== null) trainErrors(obj.train, errors);
   if ('docs' in obj && obj.docs !== null) docsErrors(obj.docs, errors);
+  if ('changelog_fragments' in obj && obj.changelog_fragments !== null) fragmentsErrors(obj.changelog_fragments, errors);
   if ('stamp_paths' in obj) listErrors('stamp_paths', obj.stamp_paths, errors, globError);
   for (const key of ['changelog', 'mirror'] as const) {
     if (!(key in obj) || obj[key] === null) continue;
@@ -439,6 +446,16 @@ function docsErrors(raw: unknown, errors: PolicyError[]): void {
     if (why) errors.push({ code: 'POLICY_CONTAINMENT', path: `docs.caps[${i}].path`, message: `${JSON.stringify(c.path)} ${why}` });
     if (!Number.isInteger(c.max_bytes) || (c.max_bytes as number) < 1) errors.push({ code: 'POLICY_INVALID', path: `docs.caps[${i}].max_bytes`, message: 'must be an integer >= 1' });
   });
+}
+
+function fragmentsErrors(raw: unknown, errors: PolicyError[]): void {
+  const d = raw as Record<string, unknown> | null;
+  if (!d || typeof d !== 'object' || Array.isArray(d)) { errors.push({ code: 'POLICY_INVALID', path: 'changelog_fragments', message: 'must be { dir, required_checks? } or null' }); return; }
+  const rc = d.required_checks;
+  if (rc !== undefined && (!Array.isArray(rc) || rc.length > 50 || new Set(rc).size !== rc.length || rc.some(n => typeof n !== 'string' || !/^[^\n]{1,100}$/.test(n)))) errors.push({ code: 'POLICY_INVALID', path: 'changelog_fragments.required_checks', message: `${JSON.stringify(rc)} must be up to 50 distinct check names of 1-100 characters` });
+  for (const k of Object.keys(d)) if (k !== 'dir' && k !== 'required_checks') errors.push({ code: 'POLICY_INVALID', path: `changelog_fragments.${k}`, message: 'unknown key' });
+  const why = typeof d.dir === 'string' ? containedRelative(d.dir) ?? (/[*?[\]{}]/.test(d.dir) || d.dir.replace(/\/+$/, '') === '.' ? 'must be one directory, not a glob or the repository root' : null) : 'must be a string';
+  if (why) errors.push({ code: 'POLICY_CONTAINMENT', path: 'changelog_fragments.dir', message: `${JSON.stringify(d.dir)} ${why}` });
 }
 
 /** Merge a parsed file over the defaults, recording per-key provenance. */
@@ -556,6 +573,8 @@ export function shipConsequences(policy: ShipPolicy, base: string): string[] {
     out.push(`shared merge queue: when a coordinator runs the queue, \`gstack-ship-queue ready --pr <n>\`, \`gate-ahead --after <pr> --pr <n>\` and \`stamp --pr <n> --version <X> --expect-gated <sha> --expect-base <sha>\` replace the calls above; stamp only when your slot is called, send the READY block and the QUEUE_STAMP: line; the coordinator runs \`gstack-ship-queue verify\` (docs/ship-policy.md#run-a-shared-merge-queue)${policy.gate_command ? `; gate command: \`${policy.gate_command}\`` : ''}`);
     out.push('gate-ahead: with .gstack/tmp/gate-ahead.json present, Step 16 reuses only the lanes `gstack-tree-receipt --from .gstack/tmp/gate-ahead.json --predecessor-pr <pr> --bundle <bundle> --json > .gstack/tmp/tree-receipt.json` marks reusable; stamp-sensitive and not-eligible lanes run live; `--force-gate <reason>` is the coordinator\'s call');
   } else out.push('queue_mode claim-at-open: Step 12 runs as written (claims through gstack-next-version)');
+  const frag = policy.changelog_fragments?.dir.replace(/\/+$/, '');
+  if (frag) out.push(`changelog_fragments ${frag}: Step 12 writes no version and Step 13 writes the entry as ${frag}/<branch-slug>.md (the entry text only, no heading; \`bump: minor\` or \`bump: major\` front matter only when the change warrants more than the policy bump), never an [Unreleased] section; lint it with \`gstack-prose-lint ${frag}/<branch-slug>.md --gate\`; \`gstack-ship-queue land\` assigns the version at merge (docs/ship-policy.md#changelog-fragments)`);
   out.push(policy.bump === 'patch' ? 'bump patch: Step 12 never asks for MINOR or MAJOR; PATCH or MICRO by size' : 'bump ask: Step 12 asks for MINOR and MAJOR as written');
   out.push(policy.review_scope === 'all'
     ? 'review_scope all: Step 9.4 fixes every finding on every pass (gstack-review-scope classify --policy all)'

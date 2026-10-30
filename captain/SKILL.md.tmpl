@@ -189,6 +189,13 @@ Never merge out of order, never merge anything else while a train is merging, an
 skip the second verify: a mismatch there is what writes the freeze. When every slot has
 merged, `train prune --train "$NONCE"` deletes the train branch.
 
+**Under `changelog_fragments`** (a stamped train: `train build` printed `S1:`..`Sk:` lines)
+there is no slot call and no lane stamp. Per slot, in `ORDER`, run
+`gstack-ship-queue train land --train "$NONCE" --pr "$PR"` until it exits 0. It pushes the
+stamped prefix S_i as a commit on [pin, `BASE`], waits for the policy's `required_checks`,
+merges with `--match-head-commit` and confirms `BASE` is S_i exactly. A rerun resumes from
+its journal, and any other `BASE` freezes the queue as above (docs/ship-policy.md#train-land).
+
 **The tree rule.** A gate covers a tree, not a commit. A head whose diff from the gated
 prefix touches only `STAMP_FILES` reuses the gate; that is what lets the lane stamp after
 the gate ran. Anything else is a new tree and needs a new gate.
@@ -283,7 +290,9 @@ a plan; relay it whole. Template: `captain/templates/plan-ask.md`.
 its first act after the session-start check and sends the controller the plan ask above; the controller relays it, and the
 lane builds only after the owner's word is answered into the run and it reports `APPROVED`.
 New scope taken on part-way gets its own plan. Read-only lanes, the flaky pass's repairs,
-slot stamps, CHANGELOG resolves and cap re-pins under a grant are exempt. The brief a
+slot stamps, CHANGELOG resolves, cap re-pins under a grant, S1 emergencies (broken install
+or upgrade, red main, a security bug) and fixes from an already-diagnosed, audited problem
+list are exempt; every other fix gets a one-round, eng-only plan. The brief a
 controller hands a lane, with its `Plan: required | approved | exempt` line, is
 `captain/templates/brief.md`; the rule is `docs/captain.md` (Plan before build).
 

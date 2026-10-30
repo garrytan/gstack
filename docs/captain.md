@@ -134,7 +134,7 @@ alone is not an ask.
 A lane that builds something plans first. Its first act after the session-start install
 check, before any product code, is a `/autoplan` run on its brief, sized to the work. The
 phases run in order, CEO, then design, then DX, then eng, with design and DX only when the
-scope has them, and a one-file fix gets a short run (`--no-ui --no-dx --max-rounds 1`, with
+scope has them, and a fix the exemptions below don't cover gets a short run (`--no-ui --no-dx --max-rounds 1`, with
 `--estimate-usd` set so a small `--spend-cap` still seats its attempts), not no run. On Capy the
 unattended loop is `autoplan/DRIVER.md` in the gstack checkout. New functionality a lane
 takes on part-way, scope its brief did not name, gets its own plan and its own ask before
@@ -178,7 +178,13 @@ The brief's done line names the row. A plan approval is not a READY field; the
 
 **Exemptions.** Read-only lanes (triage, research, measurement, a review voice), the daily
 flaky pass's repairs, slot stamps, CHANGELOG-only conflict resolves and a size or budget
-cap re-pinned under the controller's written grant need no plan. A crew may add exemptions
+cap re-pinned under the controller's written grant need no plan. Two kinds of fix are exempt
+too: an S1 emergency (a broken install or upgrade, a red main, a security bug), and a fix
+from a problem list that was already diagnosed and audited, where that list is the plan.
+Every other fix, a one-line bug fix included, gets a one-round, eng-only plan: the short
+run above, with the CEO phase closed before its voices are dispatched
+(`gstack-autoplan close --out <run dir> --phase ceo --deferred "eng-only fix plan" --by agent:<thread>`).
+A crew may add exemptions
 in its rules file with the owner's words and date; it does not remove these. The brief
 says which applies, `Plan: required | approved: <run> | exempt: <reason>`, so an
 already-approved plan is not planned twice and exempt work does not wait on an ask.
@@ -263,6 +269,13 @@ loop, per train:
    lane stamps and pushes only the base merge and the stamp files; `verify --train`;
    `gh pr merge --match-head-commit`; `verify --train` again.
 4. `train prune` when every slot has merged.
+
+Under `changelog_fragments` ([ship-policy.md](ship-policy.md#train-land)) lanes READY with a
+fragment (`changelog.d/<slug>.md`) instead of an `[Unreleased]` section, there is no slot
+call and no lane stamp, and step 3 is one command per slot: `train land --train <nonce> --pr
+<n>` commits the stamped prefix S_i on [pin, main], pushes it, waits for checks, merges and
+confirms main is S_i exactly. Outside a train, `gstack-ship-queue land --pr <n>` is the same
+step for one PR ([ship-policy.md](ship-policy.md#land)).
 
 A red train: `train bisect` on the red cases over every prefix. An attributed PR leaves
 the train and goes back to its lane; red on the base branch itself is fixed forward

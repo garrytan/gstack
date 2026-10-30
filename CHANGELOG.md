@@ -1,30 +1,111 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.342.0] - 2026-10-30
 
-**A capped `/ship` on Capy now spends fewer agent turns and counts only its own tokens, while every reviewer still gets exactly the brief 1.91.331.0 gives it.** Two new commands do `/ship`'s fixed shell work, a short driver file replaces reading the whole skill when a parent agent runs `/ship`, and the budget measures each reviewer batch on its own instead of across the parent's work. Replays of gstack-evals #34 and #36 (GSTA-167) spent 12.19M tokens on Steps 12-17 and 0.25-0.4M on each parent turn; these changes cut turns, not reviewer context.
-
-### Added
-- **`gstack-ship-preflight`** runs Steps 1-3 (branch guard, status, fetch, diff stat, PR and receipt carry, scope, base merge, distribution, policy, runtime lines) and Step 5 (pregate, then the test lanes in parallel) in one call. **`gstack-ship-release`** runs Step 12's version, Steps 15-16's release commit and verification, and Step 17's push. Each prints at most 30 lines; `STOP:` names the decision left to the agent and `NEXT:` the step to run. Under `queue_mode stamp-at-merge` the version step prints `VERSION: skipped (policy: ...)` and writes nothing.
-- **`ship/DRIVER.md`**, a compact host-neutral driver for a parent agent running `/ship` unattended: one or two calls per phase, and the section each STOP needs. Its audit, review, adversarial and documentation phases run their sections as written, so it never restates or shortens a reviewer's brief.
-- **`gstack-review-dispatch`** gates every `/ship` reviewer brief and finding. `render` builds a reader's brief from its section with only declared slots filled, `sent` checks the prompt a dispatch passed against that brief by sha256 (`BRIEF_MISMATCH` voids the review), `collect` is the only way findings reach `merged.jsonl` (each with its label as written), and `judge` refuses a judged set that drops or downgrades a collected finding. `verify --ledger` replays all of it per pass from the run's ledger and prints `VERIFY: clean` only when nothing was lost; a mismatched send that was re-sent exact before anything was collected shows as `voided=N`.
-- **Small runs keep their segment.** `check --runtime-lines <n>` continues at the Step 9 and Step 12 boundaries with a `SMALL_RUN:` line when the diff has at most 50 runtime lines and the segment would cost less than a child's fixed startup.
+**gstack now versions its own PRs at merge time: a PR adds `changelog.d/<branch-slug>.md` instead of a version, and trains merge through `train land` instead of slot calls.** `.gstack/ship-policy.json` turns `changelog_fragments` on with the checks every PR runs as `required_checks`, and `min_gstack_version` moves to 1.91.340.0, the first release that reads `required_checks` and counts a stamped slot as merged only when GitHub reports it MERGED, so an older gstack refuses the file by name.
 
 ### Changed
-- **The Capy meter reads the agent's own thread**, its subagents included, inside the same program as the budget command, never in a call of its own. A handoff child counts from its own `verify-handoff` reading, and `reconcile` charges the `used=` its return prints.
-- **Steps are priced at the run's own per-call charge** once three calls are measured; a prior reading older than the run's last reading is ignored (`CALL_UNKNOWN:`).
-- **A reviewer batch is measured only by its own program's reading pair** (`settle --dispatched-at <before> --reading <after> --readers <n>`); anything else prints `UNMEASURED:` and leaves the factor alone. `check` prints the reservation id alone on a `RESERVATION_ID:` line, a multi-role reservation admits one review start per role, and `--finish` settles a later Red Team batch of the same pass.
-- **A handoff brief lists the child's `READ:` line ranges**: its own steps of `ship/SKILL.md` and each of its sections whole, and names the last step it returns at.
-- **The Capy launch file appends the checkout's `bin/` to PATH**, so a bare `gstack-ship-budget` resolves.
+- **`changelog_fragments` is on for gstack** (`.gstack/ship-policy.json`, `changelog.d/README.md`): `required_checks` lists `free-tests`, `windows-free-tests`, `Check VERSION is not stale vs queue`, `quality`, `check-freshness` and `actionlint`. Path-filtered workflows stay out of the list, because a stamp commit of a PR outside their paths never gets those checks.
+- **`CHANGELOG_FRAGMENTS_KEY_VERSION` is 1.91.336.0**, the version #3594 landed at, in place of the placeholder 1.92.0.0.
+- **/captain teaches `train land`**: under `changelog_fragments` there is no slot call; the controller runs `gstack-ship-queue train land` per slot in order (`captain/SKILL.md.tmpl`, `docs/skills.md`).
 
 ### Fixed
-- **A failed child stops its parent** until a regenerated child reconciles complete or the owner resumes, and `reconcile --record` finds the parent run after a `--continue` child.
-- **`close` counts review starts reserved in handoff children**, so a dispatch reserved inside a child is no longer flagged as unreserved at the root.
-- **A dependency or script change after review is re-reviewed.** `gstack-ship-release finish` counts package.json and package-lock.json as release metadata only when the version alone changed, never counts bun.lock, and decides after any `--build` runs. TODOS.md edits rerun the test lanes.
-- **`push` stops when the sealed-output guard could not run**, not only when it refuses.
+- **A stacked PR whose only own line sits inside its released parent's list merges its CHANGELOG instead of refusing** (`lib/changelog-check.ts`): `mergeChangelogs` filed the line as an addition to the parent's released entry and returned null, so #3613's slot needed a hand resolve. When that would leave the child nothing of its own, the inserted lines are now the child's entry; on #3613's real CHANGELOGs the result equals the resolve that shipped.
 
 ### Tests
-- `test/review-packets-removed.test.ts` now also pins the reviewer briefs, checklists, fix-check prompt and depth rules by content, so a change to what a reviewer sees fails until its no-loss replay is recorded.
+- `test/changelog-merge-damage.test.ts`: a child whose only own bullet sits at the top of the released parent's `### Changed` list keeps it as its entry and passes `ownEntryAboveMain`; a child with no line of its own, a reordered parent bullet and a duplicated one stay null.
+- `test/gstack-ship-policy.test.ts`: every `required_checks` name is a check a pull_request workflow without a path filter reports (a job's `name:`, or its id when it has none), and `min_gstack_version` is at least the key's introducing version.
+
+## [1.91.341.0] - 2026-10-30
+
+**gstack no longer leaves Ubicloud VMs running after a lane dies (GST-118).** A runner killed mid-run, a copy of the runner without a TTL, or a VM with no owner could keep billing until someone noticed. Now every VM names its owner and its lifetime, the next `up` anywhere destroys anything past its lifetime, and every run says in one line whether its VM is gone.
+
+### Fixed
+- **`scripts/ubicloud/ubi-runner.sh`**: `up`, `run` and `verify` refuse without `UBI_OWNER` (`UBI_OWNER_REQUIRED`), so no VM is created that nobody can name. The default TTL drops from 4 hours to 3 (`UBI_TTL_HOURS`, 1-999), checked only when a VM is created, so an old setting never blocks `down` or `reap`. `reap`, which every `up` runs first, now also destroys the caller's own `ubirun-<UBI_OWNER>-*` VMs that carry no TTL (made by older runner copies) once they are 4 hours old (`UBI_LEGACY_HOURS`). Another owner's TTL-less VM, an untagged one and names outside the `ubirun-` prefix are never touched, because only a TTL lets reap judge another lane's VM.
+- **`UBICLOUD: left=<0|1|unknown> owner=<o> vm=<name> others=<n>`**: `run` and `verify` end with this line, checked against the project's VM list after teardown. Anything but `left=0` turns a passing command into exit 1 and prints the `down` command to run; `run --keep` prints `left=1 ... kept=1` and keeps its exit status.
+- **`scripts/ubicloud/pregate-remote.sh`**: the remote pregate refuses without `UBI_OWNER` (`PREGATE_REMOTE_OWNER_REQUIRED`), names its VM with a TTL taken from its own stop deadline plus 15 minutes (`-t1` at today's 2,700-second timeout), and fails with `PREGATE_REMOTE_INFRA` unless the runner reports `left=0`. It reads that line from the file named by `UBI_LEFT_FILE`, never from the remote command's output.
+- docs/TESTING_INTERNALS.md, docs/pregate.md, docs/skills.md and the `/ubicloud` skill describe the owner rule, the new TTL default, the legacy sweep and the `left=` line.
+
+### Tests
+- `test/ubicloud-runner.test.ts`: refusal without an owner, the TTL bounds, the legacy sweep at the default and at `UBI_LEGACY_HOURS=2` (never another owner's, an untagged or an owner-less caller's), `left=0`, `left=1` on a failed destroy (with a failing command keeping exit 7), `run --keep`, and read-only commands accepting an old `UBI_TTL_HOURS=0`.
+- `test/ubicloud-pregate-remote.test.ts`: the owner refusal, the `-t1` TTL at today's timeout, and `left=1`, `left=unknown` and a missing line each failing closed with the `down` hint.
+
+## [1.91.340.0] - 2026-10-30
+
+### Changed
+- **A stamped train counts a slot as merged only when GitHub reports its PR MERGED** (`lib/ship-queue-train-verify.ts`, #3603): for a stamped train, `train land` refuses to confirm a PR GitHub reports open even when main's tree is its S_i (`QUEUE_PROOF_MISSING`), and the merged count, the freeze decision and the freeze record read every slot's GitHub state instead of trusting the record's `merged` entries. Plain trains are unchanged.
+
+## [1.91.339.0] - 2026-10-30
+
+**Merge trains can stamp every slot themselves under `changelog_fragments`: `train build` builds a stamped prefix for each slot and `train land` publishes it, so no lane stamps a PR by hand.** gstack's own policy still leaves the key off (docs/ship-policy.md#changelog-fragments).
+
+### Added
+- **Stamped merge trains** (`lib/ship-queue-train-stamp.ts`, `lib/ship-queue-train-land.ts`): under `changelog_fragments`, `train build` also builds S_i = stamp(merge(S_(i-1), pin_i)) for every slot, checks each is the merge modulo stamps, keeps every earlier release entry byte for byte and equals the plain prefix outside release paths (`QUEUE_TRAIN_STAMP_MISMATCH`), refuses a symlinked release file before stamping, and gates S_k. `train land --train <nonce> --pr <n>` publishes slot i's S_i exactly. It makes a deterministic stamp commit on [pin, main], journals it before it is pushed under the pin's lease with the `evals-no-debounce` label, waits for checks, merges with `--match-head-commit` and confirms main's tree; a rerun adopts its own stamp head, a PR retargeted off the base refuses, and any other main freezes the queue as before. It first verifies the whole record against git (T0 and S_1..S_k must be the gated head's first-parent chain, each S_i's second parent slot i's pin) and uses only that chain, and it merges only when every name in the new `changelog_fragments.required_checks` is present and green on the stamp commit. `verify --train` refuses a stamped train and names `train land`; `train bisect` of a stamped train tests T0 and S_1..S_k.
+
+### Changed
+- **The main backstop covers a stamped train's merges by exact tree** (`scripts/train-backstop.ts`, `scripts/train-gate.ts`): a record's S_i prefixes cover main only when its tree is exactly S_i; plain T_i prefixes still cover modulo stamps.
+- **A train merge keeps a pin's manifest edits** (`lib/ship-queue-train.ts`): a `package.json` or lockfile conflict against the previous prefix merges three-way with the prefix's version (the same `mergeManifest` land uses) instead of taking the prefix's whole file; anything else that conflicts is a train conflict.
+- **Version Gate reads a stacked child's stamp commit by its own fragments**: a parent's fragment the base has already released is skipped rather than counted again.
+
+### Tests
+- `test/ship-queue-train-stamp.test.ts`: S2 keeps S1's release and runs the versions in order with each slot's bump; a stacked child folds only its own fragment; a four-part package.json base keeps four parts in every S_i, read from S_(i-1); a pin's manifest edit beside the version line survives the previous slot's bump; a symlinked CHANGELOG refuses before anything is written outside; a tampered earlier version or a product change is refused.
+- `test/ship-queue-train-land.test.ts`: build records S1 and S2 and gates S2; land publishes each slot exactly with the label; a foreign push is never overwritten; a merge outside the train freezes the queue; a failed stamp commit pushes nothing; a rerun after the push or after the journal resumes; a retargeted PR refuses; a red stamped train bisects its stamped chain; a plain train refuses `train land`.
+- `test/train-backstop.test.ts`: main equal to S1 is covered; the same tree with another VERSION is gated; a chain mixing stamped and plain prefixes is refused.
+- `test/version-gate-fragments.test.ts`: a stacked child's stamp counts only its own fragment once its parent has landed.
+
+## [1.91.338.0] - 2026-10-30
+
+**A sealed-guard waiver now counts only when it names the full commit sha.** A `.gstack/sealed-allow.tsv` line used to accept a sha as short as 7 hex characters and waive any commit whose sha started with it. A PR author could generate a commit with the same first 7 characters in minutes and publish different content at the same path under an old, reviewed waiver. A waiver now matches only the finding's full commit sha (40 hex characters, 64 in a SHA-256 repository). A shortened, uppercase or mistyped sha is ignored, so the finding still refuses, and stderr says which line was ignored and which commit the finding is in, to review before anyone waives it.
+
+### Changed
+- `lib/sealed-guard.ts`: waivers compare the whole commit sha; `gstack-pregate sealed --json` adds `ignoredWaivers` (rule, path, the sha as written, the finding's commit) for waiver lines that name a finding's rule and path but not its commit, once per line and commit. Lines that match no finding, and waivers that applied to another commit in the push, stay silent.
+- The refusal hint, the `SEALED_OUTPUT_REFUSED` fix text, docs/pregate.md and docs/troubleshooting.md say the sha must be the full commit sha.
+
+### Tests
+- `test/sealed-guard.test.ts`: 7-, 12- and 39-character prefixes, an uppercase sha and one extra character do not waive and are named; the full sha waives, trailing whitespace included; another commit's full sha does not waive; a short line with no matching finding prints nothing; a waiver applied to one commit is not reported for a later one; a text rule with two matching lines names a short waiver once; a SHA-256 repository accepts 64 characters and rejects 40, 63 and 65; error reports carry an empty list. The two existing waiver tests now write the full sha.
+
+## [1.91.337.0] - 2026-10-30
+
+### Changed
+- **Plan first has two narrow fix exemptions.** An S1 emergency (a broken install or upgrade, a red main, a security bug) and a fix from a problem list that was already diagnosed and audited can be built without an `/autoplan` run. Every other fix, a one-line bug fix included, gets a one-round, eng-only plan. `docs/captain.md` § Plan before build says how, and `captain/SKILL.md`, `captain/templates/CREW.md` rule 24 and the Capy skill's SKILL.md list the same exemptions.
+
+## [1.91.336.0] - 2026-10-30
+
+**A repository can now assign its version when a PR merges instead of inside the PR: PRs carry unversioned CHANGELOG fragments and `gstack-ship-queue land` stamps, pushes and merges.** Today every PR picks a version before it merges, so each merge makes the next PR's version stale and its lane redoes the stamp (a median 14.5 minutes from stamp commit to merge over 30 slots, Oct 27-29; the queue froze on hand-made stamps in #3422 and #3487). With `changelog_fragments` on, two PRs cut from one base cannot collide, and nobody stamps by hand. gstack's own policy does not turn it on in this release (docs/ship-policy.md#changelog-fragments).
+
+### Added
+- **`changelog_fragments: { dir }`** (`lib/ship-policy.ts`, `lib/changelog-fragments.ts`): a PR adds `<dir>/<slug>.md` with its entry text and optional `bump: minor|major` front matter. Fragments are read as Git blobs only; a symlink, gitlink, nested path, empty or oversized fragment, one with a release heading, a reused name, or one whose text is already released on the base (a parent PR's fragment carried in by stacked history) is `CHANGELOG_FRAGMENT_INVALID` before any version is allocated.
+- **`gstack-restamp` folds fragments**: their bodies go above any legacy `[Unreleased]` section under one new heading, the files are deleted, and the highest declared bump wins over the policy's. The tree receipt's `changelog-fragments` rule accepts exactly that fold and nothing else.
+- **`gstack-ship-queue land --pr <n>`** (`lib/ship-queue-land.ts`): the per-PR merge step. It takes the land lock (`refs/notes/gstack-land`), checks the /ship receipt, the READY receipt and checks at the pin, merges the base resolving release fields only (a clean dependency edit survives; a product conflict refuses), stamps, pushes a commit with parents [pin, base] under an exact lease, waits for checks, restamps if the base moved (at most twice), squashes with `--match-head-commit` (merges with `--merge` under `history: merge-only`) and confirms the base tree. A PR whose base is another branch refuses before the lock; a refusal before the push releases the lock. Every step is journaled and resumable, also from the stamp commit's pin when the local journal is gone. `--repair` opens the follow-up PR after `QUEUE_LAND_DRIFT`; `--census` prints what land would do with every open PR, writing nothing.
+- **/ship writes the fragment** (`lib/ship-policy.ts`, `ship/SKILL.md.tmpl`): under the key, `show-effective` prints a `ship: changelog_fragments` line, so Step 12 writes no version and Step 13 writes `<dir>/<branch-slug>.md` (linted with `gstack-prose-lint --gate`) instead of an `[Unreleased]` section; the skill's policy paragraph now says its `ship:` lines bind Steps 12–16.
+- **`restamp_command` gets `GSTACK_RESTAMP_BASE_SHA`**, the release predecessor, so a repo counter such as a SAVE_VERSION computes predecessor + 1 from the base and never from the branch.
+- New result codes with troubleshooting anchors: `CHANGELOG_FRAGMENT_INVALID`, `QUEUE_LAND_LOCKED`, `QUEUE_LAND_CONFLICT`, `QUEUE_LAND_DRIFT`, `QUEUE_LAND_BASE_BUSY`.
+
+### Changed
+- **Version Gate runs on every PR** (the path filter is gone), so under `changelog_fragments` a PR that touches no release file still proves it carries a fragment. An unstamped head keeps its release fields at its merge base and adds a valid fragment (legacy `[Unreleased]` passes; a `[bot]` author needs none); a merge-step stamp commit must have parents [pin, base] and carry the base plus its fragments' effective bump, so a lane that stamps its own head fails. Without the key nothing changes.
+
+### Tests
+- `test/changelog-fragments.test.ts`: blob-only reads and refusals, a carried-back fragment refused on whole released lines only, bump precedence, fold order with a legacy section, the restamp fold and its tree receipt, an edited fold refused.
+- `test/ship-queue-land.test.ts` (bare origin and a gh shim): happy path; two PRs from one base without a collision; a legacy stamp plus a dependency edit; a title-derived entry; a product conflict; the lock and `--break-lock`; the base moving during CI; a foreign push never overwritten; a missing receipt; drift, `--repair` and the lock release; the census; a receipt that fails #3567's depth check refuses; a base with a four-part package.json in `stamp_files` lands four parts (#3557), gstack's own shape stays three; one run without `--no-wait` merges; a PR on another base refuses; `--break-lock` refuses a drift lock; a conflict releases the lock; a stacked parent's fragment refuses; a lost journal resumes; `merge-only` merges with `--merge`; a merge GitHub completed behind an error reply reconciles; `--break-lock` refuses a holder mid-merge; `--repair` resumes after a failed PR create and its PR takes over from a clean checkout; a symlinked legacy VERSION refuses in `--dry-run`; a `package.json` version source keeps its dependency edits.
+- `test/version-gate-fragments.test.ts`: fragment heads, premature version changes, a bot author, an advanced base, an invalid fragment, the stamp commit's effective bump (open version claims do not apply to it), and the workflow's missing path filter.
+- `test/restamp-command-boundary.test.ts`: the hook reads its counter from `GSTACK_RESTAMP_BASE_SHA`, not the branch.
+
+## [1.91.335.0] - 2026-10-30
+
+### Fixed
+- **Captains now read factory.md and the owner's model preference.** A Capy session with no gstack checkout (every Captain and coordinator, which run `install.sh --check --for none`) used to skip factory.md without a word and never applied `agent_model`, because both were read only from the checkout. The skill now tells it to read the `factory.md` beside SKILL.md, to say `factory.md: none` on its own line when there isn't one, and to read the `agent_model` line of `preferences.yaml` itself. Owners get the fix by copying `capy/skill/gstack/` into the Drive skill folder.
+
+## [1.91.334.0] - 2026-10-30
+
+**OpenClaw opens gstack's large task skills again (GST-110).** #3555 made `hybrid` OpenClaw's default and registered review, investigate, qa, ship and plan-eng-review as skills of their own. OpenClaw 2026.10.6 serves a registered skill's `SKILL.md` whole or refuses it, with a 32,768-byte limit when its model catalog has no context window for the model. In HARN-5's panel the agent's first read of the 77,691-byte `gstack-review` file was refused in 4 of 5 trials, and opens fell from 5/5 to 0/5. Under the router layout the same file had been read as a plain file inside the router's folder, which OpenClaw pages.
+
+### Fixed
+- **`gstack-harness register openclaw`** (`lib/harness-register.ts`): a skill whose rendered `SKILL.md` is over 32,000 bytes (`OPENCLAW_INSTRUCTION_MAX`, under both OpenClaw's 32,768-byte limit and the 32,000-character budget it applies with a 100K-200K-token context window, with the OpenClaw source lines it comes from) is registered as a short entry with the same frontmatter whose body says to read the skill's full `SKILL.md` in a plain copy of every skill and follow it. In hybrid that copy is the router's `gstack/skills/`, where the router layout read the same file, now including the five task skills; under `--skills all` it is `.gstack-skills/`, a folder OpenClaw's skill scan skips. Because the copy holds every skill, `sections/` paths and sibling paths such as `../gstack-qa/` and autoplan's `../gstack-plan-eng-review/SKILL.md` resolve to full texts. That covers four of hybrid's five direct skills and 26 of 63 skills in `--skills all` today. OpenClaw treats only a registered skill folder's `SKILL.md` as an instruction file. The ledger records the copies, so refresh, mode switches, upgrades from a #3555 registration and uninstall handle them. Skill bodies are unchanged, and Hermes, dots and `generic` registrations are byte-identical.
+- docs/hosts.md and docs/OPENCLAW.md describe the entry and the limit, and docs/uninstall.md's manual OpenClaw removal command also removes `.gstack-skills/`.
+
+### Tests
+- `test/harness-register.test.ts`: in hybrid and all, every `SKILL.md` OpenClaw would register is within the limit, each entry names a full `SKILL.md` that exists, has the same frontmatter, is outside OpenClaw's registered set and is in the ledger, every `../gstack-*` path in the copied texts resolves to a full text, re-registering over a #3555 registration converts it cleanly, and uninstall leaves nothing. Hermes's registration equals its render byte for byte. With `GSTACK_OPENCLAW_BIN` or `openclaw` on PATH, a real `openclaw skills list --json` and `skills info` show exactly `gstack` and the five task skills, each served from an entry within the limit.
+
 ## [1.91.333.0] - 2026-10-30
 
 **`gstack-factory-scorecard --now` now ends the window, so a past week no longer counts what happened after it.** Every line counts only items whose timestamps fall in `[now - since-days, now)`. Before, `--now` moved only the start, so `--now 2026-10-15T00:00:00Z --since-days 14` counted 290 merged PRs (every merge from 2026-10-01 through the day of the run) where the window holds 65, and the gate-run and release lines also counted through the day of the run. Rerun with the fix, the two weeks before 2026-10-15 show 65 merged PRs and the two weeks before 2026-10-29 show 197, matching GitHub search for both windows.
