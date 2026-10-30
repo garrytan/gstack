@@ -242,15 +242,20 @@ passes `--adversarial-ran` so a repeat lists them no more. Later full passes rer
 specialists on the range only. Step 11.5 binds a planned skip through the Step 9
 record's `CURRENT` freshness instead of a native record.
 
-**Effort.** Every reviewer that can block a ship (the core checklist,
-specialists, the Red Team, the native adversarial pass, fix-checks) runs at
-`full` effort. Work that cannot block (the Step 7 coverage audit, the Step 8
+**Effort.** The core checklist, the Red Team, the native adversarial pass and
+fix-checks run at `full` effort (the lane's reasoning); specialists run at
+`medium` (GSTA-167 part 3: the no-loss controls ran them there), except light's
+batched specialist, which carries the Red Team prompt and stays `full`. The
+outside voice and the native adversarial pass carry the floor sentence and end
+each finding with `Severity:` and `Blocks: yes|no`; a finding is CRITICAL when
+its label rule says so (native FIXABLE, outside Critical or High) or it says
+`Blocks: yes`, and `Blocks: no` never lowers one (`proseVoiceSeverity`). Work that cannot block (the Step 7 coverage audit, the Step 8
 plan-completion audit, the Step 14.5 docs audit, decision-trail reviewers,
 watchers) runs at `light`: the same model at a lower reasoning effort, never a
 cheaper model family. The outside voice keeps its own provider and effort
 (`codex_effort`). A host that cannot set a subagent's effort runs it at its
 default. `gstack-config set review_effort_tiers off` (or `--no-tiers`) runs
-the audits and watchers at the host default too
+the specialists, audits and watchers at the host default too
 ([model-policy.md](model-policy.md#reasoning-effort)).
 
 ### Behavior changes

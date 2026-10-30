@@ -82,17 +82,17 @@ describe('planReview', () => {
     expect(p.depth).toBe('light');
     expect(roles(p)).toEqual([]);
   });
-  test('code class pass 1: every reviewer at full effort, the outside voice at its own', () => {
+  test('code class pass 1: specialists at medium, the native adversarial at full, the outside voice at its own', () => {
     const p = planReview(base({}));
-    expect(roles(p)).toEqual(['specialist:testing:full', 'specialist:maintainability:full', 'specialist:security:full', 'specialist:performance:full', 'specialist:simplification:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(roles(p)).toEqual(['specialist:testing:medium', 'specialist:maintainability:medium', 'specialist:security:medium', 'specialist:performance:medium', 'specialist:simplification:medium', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
   });
   test('gate class forces red team and ignores hit-rate gating', () => {
     const p = planReview(base({ gateTagged: 1, gated: ['security'] }));
     expect(roles(p)).toContain('red-team:red-team:full');
-    expect(roles(p)).toContain('specialist:security:full');
+    expect(roles(p)).toContain('specialist:security:medium');
   });
   test('code class honours hit-rate gating and small-diff skip', () => {
-    expect(roles(planReview(base({ gated: ['simplification'] })))).not.toContain('specialist:simplification:full');
+    expect(roles(planReview(base({ gated: ['simplification'] })))).not.toContain('specialist:simplification:medium');
     expect(planReview(base({ diffLines: 20 })).dispatches.filter(d => d.role === 'specialist').map(d => d.name)).toEqual(['batched']);
   });
   test('pass 2 reruns the army on the range but not the adversarial or outside voice once Step 11 ran', () => {
@@ -113,9 +113,21 @@ describe('planReview', () => {
     const p = planReview(base({ numbers, reviewedNumbers: 'old', history: { fullPasses: 1, last: 'full', fixedBelow: true } }));
     expect(roles(p)).toEqual(['fix-check:fix-check:full', 'outside-voice:outside-voice (numbers changed):host']);
   });
-  test('no reviewer runs below full effort (GSTA-131 eval: a light fix-check missed a fail-open a full one caught)', () => {
-    for (const h of [{ fullPasses: 0, last: 'none' }, { fullPasses: 1, last: 'full', fixedBelow: true }, { fullPasses: 1, last: 'full', fixedBlocking: true }] as const)
-      expect(planReview(base({ gateTagged: 1, history: h })).dispatches.filter(d => d.role !== 'outside-voice').every(d => d.effort === 'full')).toBe(true);
+  // Value: protects=GSTA-167 part 3 (specialists at medium, CREW 30c) without moving the GSTA-131 lesson (a light fix-check missed
+  //   a fail-open a full one caught): Red Team, native adversarial and fix-check stay full; fails_when=any of those drops below
+  //   full, a specialist leaves medium, or --no-tiers leaves a specialist off the host default; seam=planReview
+  test('specialists run at medium; the Red Team, native adversarial and fix-check stay full; --no-tiers sends specialists to host', () => {
+    for (const h of [{ fullPasses: 0, last: 'none' }, { fullPasses: 1, last: 'full', fixedBelow: true }, { fullPasses: 1, last: 'full', fixedBlocking: true }] as const) {
+      const d = planReview(base({ gateTagged: 1, history: h })).dispatches;
+      expect(d.filter(x => x.role === 'specialist').every(x => x.effort === 'medium')).toBe(true);
+      expect(d.filter(x => ['red-team', 'adversarial-native', 'fix-check'].includes(x.role)).every(x => x.effort === 'full')).toBe(true);
+      expect(d.filter(x => x.role === 'outside-voice').every(x => x.effort === 'host')).toBe(true);
+    }
+    const gate = planReview(base({ gateTagged: 1 })).dispatches;
+    expect(gate.map(x => x.role)).toEqual(expect.arrayContaining(['specialist', 'red-team', 'adversarial-native']));
+    const host = planReview(base({ gateTagged: 1, tiers: false })).dispatches;
+    expect(host.filter(x => x.role === 'specialist').every(x => x.effort === 'host')).toBe(true);
+    expect(host.filter(x => x.role === 'red-team' || x.role === 'adversarial-native').every(x => x.effort === 'full')).toBe(true);
   });
   test('done dispatches nothing', () => expect(planReview(base({ history: { fullPasses: 1, last: 'full' } })).dispatches).toEqual([]));
 });
@@ -195,7 +207,7 @@ describe('review depth: the matrix', () => {
   test('runtime 51 is standard: thresholds read runtime lines, reviewers read their own hunks', () => {
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 51, 'test/a.test.ts': 400, 'README.md': 3 }), diffLines: 454 }));
     expect([p.depth, p.runtimeLines]).toEqual(['standard', 51]);
-    expect(roles(p)).toEqual(['specialist:testing:full', 'specialist:maintainability:full', 'specialist:performance:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(roles(p)).toEqual(['specialist:testing:medium', 'specialist:maintainability:medium', 'specialist:performance:medium', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
     const ex = Object.fromEntries(p.dispatches.map(d => [d.name, d.exclude]));
     expect(ex.testing).toEqual([':(exclude)README.md']);
     expect(ex.maintainability).toEqual([':(exclude)README.md', ':(exclude)test/a.test.ts']);
@@ -245,7 +257,7 @@ describe('review depth: the matrix', () => {
   test('a fixed blocker in light raises the next full step to the standard set, Red Team included', () => {
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 30 }), history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
     expect([p.depth, p.stepDepth]).toEqual(['light', 'standard']);
-    expect(roles(p)).toEqual(['specialist:testing:full', 'specialist:maintainability:full', 'specialist:performance:full', 'red-team:red-team:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
+    expect(roles(p)).toEqual(['specialist:testing:medium', 'specialist:maintainability:medium', 'specialist:performance:medium', 'red-team:red-team:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
   });
   test('--depth-floor raises and never lowers', () => {
     expect(depthFor({ cls: 'code', runtimeLines: 10, errors: [], floor: 'full' })).toBe('full');

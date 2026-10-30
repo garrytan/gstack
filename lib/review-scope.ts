@@ -129,6 +129,20 @@ function fingerprintLine(fp: unknown): number | undefined {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
+/** The blocking floor in Garry's words (docs/review-policy.md, CREW rule 23); every reviewer prompt carries it verbatim. */
+export const BLOCKING_FLOOR = 'would fail a test, break production, or lose data or secrets';
+
+/**
+ * Normalizer v2 for the two prose voices (GSTA-167 part 1, additive): a finding is CRITICAL when the old label rule says
+ * so (native FIXABLE; outside voice Critical or High, or P0/P1) or when it carries `Blocks: yes`. `Blocks: no` never
+ * demotes a finding the label rule makes CRITICAL; everything else is INFORMATIONAL.
+ */
+export function proseVoiceSeverity(voice: 'adversarial-native' | 'outside-voice', f: { label?: string; severity?: string; blocks?: string }): 'CRITICAL' | 'INFORMATIONAL' {
+  const label = String(voice === 'adversarial-native' ? f.label ?? '' : f.severity ?? '').trim().toUpperCase();
+  const byLabel = voice === 'adversarial-native' ? label === 'FIXABLE' : ['CRITICAL', 'HIGH', 'P0', 'P1'].includes(label);
+  return byLabel || /^yes\b/i.test(String(f.blocks ?? '').trim()) ? 'CRITICAL' : 'INFORMATIONAL';
+}
+
 /** The categories a reviewer uses for a test finding; `testing` is what the Testing specialist's schema emits. */
 export const TEST_GAP_CATEGORIES: readonly string[] = ['testing', 'tests', 'test-gap', 'test-coverage', 'coverage', 'missing-test', 'untested'];
 

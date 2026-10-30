@@ -53,13 +53,14 @@ describe('reviewer packets stay reverted (GSTA-167)', () => {
 const NO_LOSS_REPLAYS = {
   '#3638': 'no-loss round 3: main restored the pre-#3621 reviewers (v1.91.331.0)',
   'PR-a': "GSTA-167 variant G Arm 4: structural plan identity at the 14 cohort heads and the free exact re-score of saved C, D and A' findings (parts 4a and 4b)",
+  'G1': "GSTA-167 variant G Arm G1: live no-loss replay of both prose voices with part 1's prompts, 2 passes, normalizer v2, paired rule against pooled C' (parts 1 and 3; specialists at medium as in C and C2)",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
-    'ship/sections/review-army.md': { sha: '8cb848bf22f4decd1b88f18b0a3359af81fc4e45ff81abf626ebf0a1557f8668', replay: 'PR-a' },
-    'ship/sections/adversarial.md': { sha: '3f361c1f42605c8329048c81162216e7bf9902bdbb2327811c39ee4e201bb95d', replay: '#3638' },
+    'ship/sections/review-army.md': { sha: '7ee6cfac4432a83a8a91d77c6adb3574c23a762c7f8b4fb379d5b8a8d7398730', replay: 'G1' },
+    'ship/sections/adversarial.md': { sha: 'c48aa7717c7438941fa23418367e19a62e07edda7445d0d5a55924e172dd5d33', replay: 'G1' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
-    'review/sections/adversarial.md': { sha: 'a402018055670f50b75322ab92a0b03d740c481cc5ef2f2ac72b281dae29ec7b', replay: '#3638' },
+    'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
     'review/checklist.md': { sha: '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699', replay: '#3638' },
     'review/design-checklist.md': { sha: 'b9205f88313cc64902c0b13e9685722ab8138d3dcc58916154f47274abda7d83', replay: '#3638' },
     'review/gate-integrity.md': { sha: 'f570db344c9a01df633bcaa281d6017f4f12420fd3e0aa3078c1ce06e0df8332', replay: '#3638' },
@@ -73,7 +74,7 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/state-machines.md': { sha: '597215e4438d85d9cc71b48097c61eef7cba4f4b09dc14c92b4b94893b3d3ea2', replay: '#3638' },
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: '49a32aa4e94df58d9aebc34ed46bfff7153cc2202ad43692d07390560e617372', replay: 'PR-a' },
+    'lib/review-depth.ts': { sha: 'f5599365da06fe6d9829701c3d7e7f716703d87b9b577835e2dc5c938a8f6e6b', replay: 'G1' },
 };
 
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {

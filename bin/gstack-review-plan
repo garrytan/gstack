@@ -43,7 +43,7 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
   --range-base <sha>        the fix range's base (this pass's PASS_HEAD): after a fixed blocker on a diff below full depth, a
                             committed range of at most ${SCOPED_RANGE_LINES} runtime lines plans a scoped pass; anything unread plans the full pass
-  --no-tiers                audits and watchers at the host's default effort too (as gstack-config review_effort_tiers off does)
+  --no-tiers                specialists, audits and watchers at the host's default effort too (as gstack-config review_effort_tiers off does)
   --json                    the plan as JSON (depth, runtime_lines, rules, errors with input and repair, gate_scan, per-dispatch exclude)
   --pass1-depth <d>         pass 1's REVIEW_DEPTH depth: full, or absent, keeps pass 2 full
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
@@ -129,7 +129,7 @@ function main(): number {
     }
   }
   const plan = planReview({
-    ...collected, scope, gateTagged, numbers: scanNumbers(added), force, gated: list('--gated'), floor,
+    ...collected, scope, gateTagged, numbers: scanNumbers(added), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
     history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below'), blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines },
   });
@@ -149,7 +149,7 @@ function main(): number {
     if (!d.exclude.length) out.push(`DIFF_EXCLUDE: ${key} none`);
   }
   for (const s of plan.skipped) out.push(`SKIP: ${s}`);
-  out.push(`AUDIT_EFFORT: ${auditEffort} (coverage, plan-completion and docs audits, decision-trail reviewers, watchers; reviewers above stay full)`);
+  out.push(`AUDIT_EFFORT: ${auditEffort} (coverage, plan-completion and docs audits, decision-trail reviewers, watchers; reviewers above run at their effort=)`);
   process.stdout.write(out.join('\n') + '\n');
   return EXIT.ok;
 }

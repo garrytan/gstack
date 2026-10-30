@@ -35,7 +35,7 @@ export interface Fixture { name: string; commit: string; paths: string[]; delete
 /** clean: pass 1 finds nothing; nits: pass 1 fixes below-floor findings; blocker: pass 1 fixes a blocker; adversarial-fix: Step 11 finds a should that is fixed; fix-regression: a pass-1 fix introduces a blocker the next step finds. */
 type Scenario = 'clean' | 'nits' | 'blocker' | 'adversarial-fix' | 'fix-regression';
 const SCENARIOS: Scenario[] = ['clean', 'nits', 'blocker', 'adversarial-fix', 'fix-regression'];
-interface Call { role: string; name?: string; effort: 'full' | 'light' | 'host'; diffBytes: number }
+interface Call { role: string; name?: string; effort: 'full' | 'medium' | 'light' | 'host'; diffBytes: number }
 
 const fileBytes = (rel: string) => { try { return fs.statSync(path.join(ROOT, rel)).size; } catch { return 0; } };
 function promptBytes(role: string, name: string): number {

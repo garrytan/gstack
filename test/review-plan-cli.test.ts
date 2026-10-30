@@ -33,13 +33,20 @@ describe('gstack-review-plan', () => {
     const r = run(repo({ 'docs/bench.md': 'Median latency fell 42% to 180 ms.\n' }), []);
     expect(r.stdout).toContain('DISPATCH: outside-voice outside-voice effort=host');
   });
-  test('--json carries the class, the next step, every dispatch with its effort and the audit effort; --no-tiers renders audits at host effort', () => {
+  test('--json carries the class, the next step, every dispatch with its effort and the audit effort; --no-tiers renders specialists and audits at host effort', () => {
     const r = repo({ 'src/a.ts': Array.from({ length: 80 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n' });
     const plan = JSON.parse(run(r, ['--json']).stdout);
     expect(plan).toMatchObject({ class: 'code', next: { step: 'full' }, pass: 0 });
-    expect(plan.dispatches.find((d: any) => d.role === 'specialist').effort).toBe('full');
+    expect(plan.dispatches.filter((d: any) => d.role === 'specialist').map((d: any) => d.effort)).toEqual(expect.arrayContaining(['medium']));
+    expect(plan.dispatches.filter((d: any) => d.role === 'specialist').every((d: any) => d.effort === 'medium')).toBe(true);
+    expect(plan.dispatches.find((d: any) => d.role === 'adversarial-native').effort).toBe('full');
     expect(plan.audit_effort).toBe('light');
-    expect(JSON.parse(run(r, ['--json', '--no-tiers']).stdout).audit_effort).toBe('host');
+    expect(run(r, []).stdout).toContain('DISPATCH: specialist testing effort=medium');
+    const host = JSON.parse(run(r, ['--json', '--no-tiers']).stdout);
+    expect(host.audit_effort).toBe('host');
+    expect(host.dispatches.filter((d: any) => d.role === 'specialist').every((d: any) => d.effort === 'host')).toBe(true);
+    expect(host.dispatches.find((d: any) => d.role === 'adversarial-native').effort).toBe('full');
+    expect(run(r, ['--no-tiers']).stdout).toContain('DISPATCH: specialist testing effort=host');
   });
   test('a below-floor fix after pass 1 plans one fix-check', () => {
     const r = run(repo({ 'src/a.ts': 'export const a = 1;\n' }), ['--pass', '1', '--last', 'full', '--fixed-below']);
