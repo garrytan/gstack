@@ -545,7 +545,7 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     };
     const preferenceSentence = (text: string) => {
       const read = readSentence(text);
-      const start = read.indexOf('With no checkout, also read');
+      const start = read.indexOf('With no checkout, or after a `for=none` trailer');
       return start < 0 ? '' : read.slice(start);
     };
     const unknownFamilies = (sentence: string) =>
@@ -575,7 +575,8 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
       expect(pref).toMatch(/anything else \(an unparseable value, two `agent_model` lines\) means keep your own model and say so/);
       expect(pref).toContain('cross-family outside voice');
       expect(pref).toContain("an eval's model under test");
-      expect(pref).toContain('with a checkout, `gstack-models resolve --role agent` is the source');
+      expect(pref).toContain('With no checkout, or after a `for=none` trailer');
+      expect(pref).toContain('after `gstack: ok <revision> for=<skill>`, `gstack-models resolve --role agent` is the source');
     });
 
     test('every family the preference sentence names is a family the resolver knows', () => {
