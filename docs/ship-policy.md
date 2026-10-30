@@ -92,7 +92,7 @@ hard-code:
   "history": "squash-ok",
   "stamp_sensitive_gates": ["tests"],
   "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-free-tests", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
-  "min_gstack_version": "1.91.336.0"
+  "min_gstack_version": "1.91.340.0"
 }
 ```
 
@@ -104,8 +104,9 @@ every PR (branch protection enforces only `free-tests`); a workflow with a path
 filter (Windows Setup E2E, make-pdf gate, Native ARM Setup Smoke, Dependency
 Review) is left out, because a stamp commit of a PR outside its paths never
 gets that check and `train land` would hold on it. `min_gstack_version` is
-the release that introduced the key, so an older gstack refuses the file by
-name (`POLICY_GSTACK_TOO_OLD`).
+1.91.340.0, the first release that reads `required_checks` and counts a
+stamped slot as merged only when GitHub reports it MERGED, so an older gstack
+refuses the file by name (`POLICY_GSTACK_TOO_OLD`).
 
 `.gstack/ship-policy.example.json` shows every key set the way a serial-merge
 repo with a release script, docs mentions and a mirror would set them.

@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
 import { CHANGELOG_FRAGMENTS_KEY_VERSION, DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, globToRegExp, matchesAny, validatePolicy } from '../lib/ship-policy';
 import { fillDue } from '../lib/ship-queue-train';
+import { cmpVersion, parseVersion } from '../lib/version-source';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -126,13 +127,13 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     for (const wf of [raw.train.gate_workflow, raw.train.free_workflow]) expect(fs.existsSync(path.join(root, '.github/workflows', wf))).toBe(true);
   });
 
-  // Value: protects=train land on gstack itself: every changelog_fragments.required_checks name is a job of a pull_request workflow without a path filter, so a stamp commit always gets it; fails_when=a name is misspelled or names a path-filtered workflow's job, and train land holds every slot whose PR skips those paths; why_new=the key was off on gstack; seam=the policy file and .github/workflows; no_claim=that the checks pass
+  // Value: protects=train land on gstack itself: every changelog_fragments.required_checks name is a job of a pull_request workflow without a path filter, so a stamp commit always gets it; fails_when=a name is misspelled, names a path-filtered workflow's job, or names a job id GitHub reports under its `name:` instead, and train land holds every slot whose PR skips those paths; why_new=the key was off on gstack; seam=the policy file and .github/workflows; no_claim=that the checks pass
   test('turns changelog_fragments on with required checks every PR runs', () => {
     const root = path.join(import.meta.dir, '..');
     const raw = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8'));
     expect(raw.changelog_fragments.dir).toBe('changelog.d');
     expect(fs.existsSync(path.join(root, 'changelog.d', 'README.md'))).toBe(true);
-    expect(raw.min_gstack_version).toBe(CHANGELOG_FRAGMENTS_KEY_VERSION);
+    expect(cmpVersion(parseVersion(raw.min_gstack_version)!, parseVersion(CHANGELOG_FRAGMENTS_KEY_VERSION)!)).toBeGreaterThanOrEqual(0);
     const jobs = new Set<string>();
     for (const f of fs.readdirSync(path.join(root, '.github/workflows')).filter(f => f.endsWith('.yml'))) {
       const text = fs.readFileSync(path.join(root, '.github/workflows', f), 'utf8');
@@ -140,9 +141,8 @@ describe("gstack's own .gstack/ship-policy.json", () => {
       if (!/^\s+pull_request:/m.test(on) || /^\s+paths(-ignore)?:/m.test(on)) continue;
       const body = text.slice(text.search(/^jobs:/m));
       for (const m of body.matchAll(/^  ([A-Za-z0-9_-]+):\n((?:    .*\n|\s*\n)*)/gm)) {
-        jobs.add(m[1]!);
         const name = /^    name:\s*(.+)$/m.exec(m[2]!)?.[1]?.trim();
-        if (name) jobs.add(name);
+        jobs.add(name ?? m[1]!);
       }
     }
     expect(raw.changelog_fragments.required_checks.filter((n: string) => !jobs.has(n))).toEqual([]);

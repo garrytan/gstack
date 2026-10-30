@@ -152,6 +152,9 @@ describe("a stacked child whose parent was released since the fork (GSTA-96, tra
     expect(merged).toBe(`# C\n\n## [Unreleased]\n\n### Changed\n- mine\n\n${released}\n## [1.0.0] - d\n\n- base\n`);
     expect(ownEntryAboveMain(merged, theirs, new Set(['### Changed', '- mine', '- one', '- two', '- new thing', '### Added', '**Parent paragraph.**']))).toBeNull();
     expect(carryReleasedParent('# C\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- one\n- two\n\n## [1.0.0] - d\n\n- base\n', theirs, base)).toBeNull();
+    // A reordered or duplicated parent bullet is not the child's entry: it stays a hand resolve.
+    expect(mergeChangelogs('# C\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- two\n- one\n\n## [1.0.0] - d\n\n- base\n', theirs, base)).toBeNull();
+    expect(mergeChangelogs('# C\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- one\n- one\n- two\n\n## [1.0.0] - d\n\n- base\n', theirs, base)).toBeNull();
   });
 
   // Value: protects=carryReleasedParent rewrites only a child that still holds the released parent's entry and keeps an existing Gate integrity section's neighbours in place; fails_when=an unrelated [Unreleased] or an already-stamped head is rewritten or the correction lands outside Gate integrity; why_new=the shapes test above never has a child without the parent's entry, a head without [Unreleased], or a Gate integrity section followed by another heading; seam=none; no_claim=the wording of corrections beyond one edited line

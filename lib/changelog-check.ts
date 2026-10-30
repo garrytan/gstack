@@ -257,10 +257,12 @@ function fragments(removed: string, added: string): { old: string; new: string }
  * byte for byte main's. A line the child inserted between two of the parent's
  * lines counts as an addition to the parent's entry, unless that would leave
  * the child nothing of its own: then the inserted lines are the child's entry
- * (#3613 put its only bullet at the top of #3595's `### Changed` list). Null
- * when the shape is something else: no single `[Unreleased]` on our side, no
- * released entry of theirs the base lacks whose text our section holds, or
- * nothing of the child's own left either way.
+ * (#3613 put its only bullet at the top of #3595's `### Changed` list), and a
+ * line meant as an amendment to the parent lands there too. Null when the
+ * shape is something else: no single `[Unreleased]` on our side, no released
+ * entry of theirs the base lacks whose text our section holds, nothing of the
+ * child's own left either way, or a child entry that repeats a released
+ * parent line (a reordered or duplicated bullet is a hand resolve).
  */
 export function carryReleasedParent(ours: string, theirs: string, base: string): { text: string; notes: string[] } | null {
   return carryWith(ours, theirs, base, true) ?? carryWith(ours, theirs, base, false);
@@ -276,11 +278,13 @@ function carryWith(ours: string, theirs: string, base: string, insertsJoinParent
   const notes: string[] = [];
   const bullets: string[] = [];
   let carried = false;
+  const parentLines = new Set<string>();
   for (const parent of parseChangelog(theirs).sections.filter(s => !s.unreleased && !baseKeys.has(s.version!))) {
     const pl = parent.lines.slice(1);
     const ownBlocks = entryBlocks({ ...unreleased[0]!, lines: ['', ...lines] });
     if (!entryBlocks(parent).some(b => ownBlocks.includes(b))) continue;
     carried = true;
+    for (const l of pl) if (content(l)) parentLines.add(l);
     // LCS over content lines only: blanks and sub-headings recur in both entries and would anchor wrongly.
     const lcs = Array.from({ length: pl.length + 1 }, () => new Uint32Array(lines.length + 1));
     for (let i = pl.length - 1; i >= 0; i--) for (let j = lines.length - 1; j >= 0; j--) {
@@ -328,6 +332,7 @@ function carryWith(ours: string, theirs: string, base: string, insertsJoinParent
   });
   while (kept.length && !kept.at(-1)!.trim()) kept.pop();
   if (!kept.some(content)) return null;
+  if (kept.some(l => content(l) && parentLines.has(l))) return null;
   if (bullets.length) {
     const at = kept.findIndex(l => GATE_INTEGRITY_RE.test(l));
     if (at < 0) kept.push('', '### Gate integrity', ...bullets);

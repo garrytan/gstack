@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-**gstack now versions its own PRs at merge time: a PR adds `changelog.d/<branch-slug>.md` instead of a version, and trains merge through `train land` instead of slot calls.** `.gstack/ship-policy.json` turns `changelog_fragments` on with the checks every PR runs as `required_checks`, and `min_gstack_version` moves to 1.91.336.0, the release that introduced the key, so an older gstack refuses the file by name.
+**gstack now versions its own PRs at merge time: a PR adds `changelog.d/<branch-slug>.md` instead of a version, and trains merge through `train land` instead of slot calls.** `.gstack/ship-policy.json` turns `changelog_fragments` on with the checks every PR runs as `required_checks`, and `min_gstack_version` moves to 1.91.340.0, the first release that reads `required_checks` and counts a stamped slot as merged only when GitHub reports it MERGED, so an older gstack refuses the file by name.
 
 ### Changed
 - **`changelog_fragments` is on for gstack** (`.gstack/ship-policy.json`, `changelog.d/README.md`): `required_checks` lists `free-tests`, `windows-free-tests`, `Check VERSION is not stale vs queue`, `quality`, `check-freshness` and `actionlint`. Path-filtered workflows stay out of the list, because a stamp commit of a PR outside their paths never gets those checks.
@@ -13,8 +13,8 @@
 - **A stacked PR whose only own line sits inside its released parent's list merges its CHANGELOG instead of refusing** (`lib/changelog-check.ts`): `mergeChangelogs` filed the line as an addition to the parent's released entry and returned null, so #3613's slot needed a hand resolve. When that would leave the child nothing of its own, the inserted lines are now the child's entry; on #3613's real CHANGELOGs the result equals the resolve that shipped.
 
 ### Tests
-- `test/changelog-merge-damage.test.ts`: a child whose only own bullet sits at the top of the released parent's `### Changed` list keeps it as its entry and passes `ownEntryAboveMain`; a child with no line of its own stays null.
-- `test/gstack-ship-policy.test.ts`: every `required_checks` name is a job of a pull_request workflow without a path filter, and `min_gstack_version` equals the key's introducing version.
+- `test/changelog-merge-damage.test.ts`: a child whose only own bullet sits at the top of the released parent's `### Changed` list keeps it as its entry and passes `ownEntryAboveMain`; a child with no line of its own, a reordered parent bullet and a duplicated one stay null.
+- `test/gstack-ship-policy.test.ts`: every `required_checks` name is a check a pull_request workflow without a path filter reports (a job's `name:`, or its id when it has none), and `min_gstack_version` is at least the key's introducing version.
 
 ## [1.91.340.0] - 2026-10-30
 
