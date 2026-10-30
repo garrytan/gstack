@@ -120,7 +120,8 @@ one reviewer from another model family reads the unreviewed delta first (`gstack
 else prints `CARRY: no (<why>)` and goes to the person as today (`docs/unattended.md#carry-forward`).
 
 If the person answers in words ("split it into two PRs"), map the words to tokens, answer, and confirm in one
-line what you recorded ("Recorded: split into two PRs; everything else as recommended"). A plan missing a
+line what you recorded ("Recorded: split into two PRs; everything else as recommended"). A named option ("B2")
+answers as `--reply "rec except <token>"`, with the token from the last line's letter map. A plan missing a
 section renders "Not ready for approval" with no reply invitation, and exits 1 (`CAPTAIN_BRIEF_INCOMPLETE`):
 add the sections, run `gstack-autoplan revise --plan <file>`, and render again. For a decision that is not an
 autoplan gate, write the same five parts by hand.

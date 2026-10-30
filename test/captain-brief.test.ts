@@ -102,7 +102,11 @@ describe('renderCaptainBrief', () => {
     expect(ownerPart).not.toContain('gate_rev');
     expect(ownerPart).not.toContain('gstack-autoplan revise');
     expect(agentPart).toContain(`rec_hash=${recHash(b.gate)}`);
-    expect(agentPart).toContain('rec resolves to d1a d2b p1b; "do it" answers as rec; letters: A1=d1a A2=d1b B1=d2b B2=d2a C1=p1b C2=p1a C3=p1c C4=p1d C5=p1e;');
+    expect(agentPart).toContain('rec resolves to d1a d2b p1b; "do it" answers as rec; letters: A1=d1a A2=d1b B1=d2b B2=d2a C1=p1b C2=p1a C3=p1c C4=p1d C5=p1e; a named option answers as `--reply "rec except <token>"` (A2 = rec except d1b);');
+    const named = parseReply('rec except d1b', b.gate);
+    expect(named.valid).toBe(true);
+    expect(named.pending).toEqual([]);
+    expect(named.choices.find(c => c.id === 'd1')?.chosen).toBe('b');
   });
 
   test('a plan missing a section is not ready for approval and invites no reply', () => {

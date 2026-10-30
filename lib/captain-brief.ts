@@ -118,6 +118,7 @@ export function renderCaptainBrief(inputs: BriefInputs, o: { outDir: string; cap
   const need: string[] = ['### What we need from you', ''];
   const letter = (n: number) => String.fromCharCode(65 + n);
   const ordered = (i: GateItem) => [...i.options.filter(x => x.key === recKey(i)), ...i.options.filter(x => x.key !== recKey(i))];
+  const example = asked.findIndex(i => i.options.length > 1);
   if (!pending) need.push('Nothing. This gate is answered.', '');
   else if (missing.length) need.push('Nothing to answer yet: the plan goes out again once it is complete.', '');
   else {
@@ -129,13 +130,12 @@ export function renderCaptainBrief(inputs: BriefInputs, o: { outDir: string; cap
       const because = i.recommended_basis?.trim() ? ` (why: ${i.recommended_basis.trim()})` : '';
       need.push(`- ${letter(n)}: ${ask}. We could: ${opts.map((x, k) => `${k + 1}) ${plainOption(x.text)}`).join('; ')}. Recommendation: ${plainOption(opts[0]?.text ?? recKey(i))}${note}${because}. ${letter(n)}1 to take recommendation.`);
     });
-    const example = asked.findIndex(i => i.options.length > 1);
     need.push('', `**do it** takes every recommendation in this list at full scope, the follow-ons the plan names (docs, trains, cleanups) included, carried through to done with no further ask. A named option${example >= 0 ? ` (for example "${letter(example)}2")` : ''} takes that option instead. Anything else, say it in words: a change that alters the plan reopens its review before anything is built.`, '');
     need.push(`Reply: **do it**${example >= 0 ? `, or name options such as **${letter(example)}2**` : ''}`, '');
   }
   const tokens = rec.map(c => `${c.id}${c.chosen}`).join(' ');
   const letters = pending && !missing.length ? asked.flatMap((i, n) => ordered(i).map((x, k) => `${letter(n)}${k + 1}=${i.id}${x.key}`)).join(' ') : '';
-  const trailer = `_For the relaying agent, not the person:_ run ${list.run}, gate_rev=${list.gate_rev}, rec_hash=${hash}; rec resolves to ${tokens}; "do it" answers as rec;${letters ? ` letters: ${letters};` : ''} plan ${plan.file ?? '(missing)'} (sha256 ${plan.sha}). Answer with ` +
+  const trailer = `_For the relaying agent, not the person:_ run ${list.run}, gate_rev=${list.gate_rev}, rec_hash=${hash}; rec resolves to ${tokens}; "do it" answers as rec;${letters ? ` letters: ${letters}; a named option answers as \`--reply "rec except <token>"\`${example >= 0 ? ` (${letter(example)}2 = rec except ${asked[example]!.id}${ordered(asked[example]!)[1]!.key})` : ''};` : ''} plan ${plan.file ?? '(missing)'} (sha256 ${plan.sha}). Answer with ` +
     `\`gstack-autoplan answer --out ${o.outDir} --gate-rev ${list.gate_rev} --reply rec --rec-hash ${hash} --by agent:<id> --owner-reply "<their exact words>"\`, then \`gstack-approvals import --autoplan ${o.outDir} --by <name>\`.`;
   // The price sits above the trailer: the relaying agent sends everything above that line, so the person approving sees it.
   const cost = inputs.run ? ['### Cost', '', gateCostSentence(gateCost(o.outDir, list, { phase_order: inputs.run.phase_order ?? [], outside_enabled: inputs.run.outside_enabled !== false, spend_cap_usd: inputs.run.spend_cap_usd ?? null, scope_flags: inputs.run.scope_flags })), ''] : [];
