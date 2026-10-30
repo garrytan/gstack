@@ -144,7 +144,9 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
 3. The child runs `verify-handoff` first; a moved pin refuses
    ([HANDOFF_PIN_MOVED](troubleshooting.md#handoff-pin-moved)). It admits against its sub-cap
    with child_used = its own counter's reading − its reading at `verify-handoff` and is the only
-   writer of the record; `reconcile` charges the `BUDGET used=` its return prints. The
+   writer of the record; `reconcile` records the `BUDGET used=` its return prints as the
+   handoff's child_used and settles its reservation (only `meter=estimate` adds it to the
+   parent's used; the Capy and Claude Code meters already hold it, step 4). The
    context rule never stops a child. When it fires at one of the child's boundaries:
    - once the child has completed a step since `verify-handoff`, `verdict=delegate` hands its
      remaining steps (the next step through the end of its segment) to a fresh grandchild
