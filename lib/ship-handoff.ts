@@ -218,7 +218,11 @@ export function cmdReturn(argv: string[], ctx: Ctx): Outcome {
   return mutateLedger(ledgerFileFor({ run: str(o, 'run') }, ctx.env), ctx.env, l => {
     if (l.role !== 'child' || !l.parent) throw usageError(`run ${l.run} is not a child run`);
     readMeter(l, o, false);
-    for (const r of l.reservations) if (r.kind === 'step' && r.state === 'open') settleIn(l, r);
+    for (const r of l.reservations) {
+      if (r.kind !== 'step' || r.state !== 'open') continue;
+      if (l.meter.contract.meter === 'estimate') r.state = 'released';
+      else settleIn(l, r);
+    }
     const head = git(ctx.cwd, ['rev-parse', 'HEAD']);
     const tree = pinsNow(ctx.cwd, 'HEAD', ctx.env).wtree;
     const accepted = new Set((l as any).accepted_skips as string[] | undefined ?? []);
