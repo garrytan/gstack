@@ -5,11 +5,11 @@
 **A sealed-guard waiver now counts only when it names the full commit sha.** A `.gstack/sealed-allow.tsv` line used to accept a sha as short as 7 hex characters and waive any commit whose sha started with it. A PR author could generate a commit with the same first 7 characters in minutes and publish different content at the same path under an old, reviewed waiver. A waiver now matches only the finding's full commit sha (40 hex characters, 64 in a SHA-256 repository). A shortened, uppercase or mistyped sha is ignored, so the finding still refuses, and stderr says which line was ignored and which full sha to write.
 
 ### Changed
-- `lib/sealed-guard.ts`: waivers compare the whole commit sha; `gstack-pregate sealed --json` adds `ignoredWaivers` (rule, path, the sha as written, the finding's commit) for waiver lines that name a finding's rule and path but not its commit. Lines that match no finding stay silent.
+- `lib/sealed-guard.ts`: waivers compare the whole commit sha; `gstack-pregate sealed --json` adds `ignoredWaivers` (rule, path, the sha as written, the finding's commit) for waiver lines that name a finding's rule and path but not its commit, once per line and commit. Lines that match no finding, and waivers that applied to another commit in the push, stay silent.
 - The refusal hint, the `SEALED_OUTPUT_REFUSED` fix text, docs/pregate.md and docs/troubleshooting.md say the sha must be the full commit sha.
 
 ### Tests
-- `test/sealed-guard.test.ts`: 7-, 12- and 39-character prefixes, an uppercase sha and one extra character do not waive and are named; the full sha waives, trailing whitespace included; another commit's full sha does not waive; a short line with no matching finding prints nothing; a SHA-256 repository accepts 64 characters and rejects 40, 63 and 65; error reports carry an empty list. The two existing waiver tests now write the full sha.
+- `test/sealed-guard.test.ts`: 7-, 12- and 39-character prefixes, an uppercase sha and one extra character do not waive and are named; the full sha waives, trailing whitespace included; another commit's full sha does not waive; a short line with no matching finding prints nothing; a waiver applied to one commit is not reported for a later one; a text rule with two matching lines names a short waiver once; a SHA-256 repository accepts 64 characters and rejects 40, 63 and 65; error reports carry an empty list. The two existing waiver tests now write the full sha.
 
 ## [1.91.330.0] - 2026-10-30
 

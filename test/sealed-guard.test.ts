@@ -377,21 +377,19 @@ describe('waivers name the full commit sha (GST-268)', () => {
   const TRANSCRIPT = 'runs/c1/transcript.jsonl';
   const line = (sha: string) => `sealed.transcript\t${TRANSCRIPT}\t${sha}\tsynthetic fixture\n`;
 
-  test('a 7-, 12- or 39-character prefix, an uppercase sha or a sha with one extra character does not waive; each is named as ignored with the full commit', () => {
-    for (const cut of [(x: string) => x.slice(0, 7), (x: string) => x.slice(0, 12), (x: string) => x.slice(0, 39), (x: string) => x.toUpperCase(), (x: string) => `${x}a`]) {
-      const s = scratch({ '.gstack/pregate.json': policy(SEALED) });
-      const sha = commit(s, { [TRANSCRIPT]: '{}\n' });
-      landOnMain(s, { '.gstack/sealed-allow.tsv': line(cut(sha)) });
-      const h = hook(s);
-      expect(h.code).toBe(1);
-      expect(h.err).toContain(`ignored waiver sealed.transcript  ${TRANSCRIPT}  sha ${cut(sha)}`);
-      expect(h.err).toContain(`full commit sha ${sha}`);
-      const pre = preflight(s);
-      expect(pre.code).toBe(1);
-      expect(pre.out).toMatch(/^SEALED: refused findings=1 .* waived=0 /m);
-      const j = JSON.parse(preflight(s, ['--json']).out);
-      expect(j.ignoredWaivers).toEqual([{ rule: 'sealed.transcript', path: TRANSCRIPT, sha: cut(sha), commit: sha }]);
-    }
+  const SHORT: Array<[string, (x: string) => string]> = [['a 7-character prefix', x => x.slice(0, 7)], ['a 12-character prefix', x => x.slice(0, 12)], ['a 39-character prefix', x => x.slice(0, 39)], ['an uppercase sha', x => x.toUpperCase()], ['one extra character', x => `${x}a`]];
+  test.each(SHORT)('%s does not waive and is named as ignored with the full commit', (_label, cut) => {
+    const s = scratch({ '.gstack/pregate.json': policy(SEALED) });
+    const sha = commit(s, { [TRANSCRIPT]: '{}\n' });
+    landOnMain(s, { '.gstack/sealed-allow.tsv': line(cut(sha)) });
+    const h = hook(s);
+    expect(h.code).toBe(1);
+    expect(h.err).toContain(`ignored waiver sealed.transcript  ${TRANSCRIPT}  sha ${cut(sha)}`);
+    expect(h.err).toContain(`full commit sha ${sha}`);
+    const pre = preflight(s);
+    expect(pre.code).toBe(1);
+    expect(pre.out).toMatch(/^SEALED: refused findings=1 .* waived=0 /m);
+    expect(JSON.parse(preflight(s, ['--json']).out).ignoredWaivers).toEqual([{ rule: 'sealed.transcript', path: TRANSCRIPT, sha: cut(sha), commit: sha }]);
   });
 
   test('the full 40-character sha waives, trailing whitespace included, with no ignored note', () => {
@@ -414,7 +412,7 @@ describe('waivers name the full commit sha (GST-268)', () => {
     const r = hook(s);
     expect(r.code).toBe(1);
     expect(r.err).toContain(`ignored waiver sealed.transcript  ${TRANSCRIPT}  sha ${first}`);
-    expect(r.err).toContain(`full commit sha ${second}`);
+    expect(r.err).toContain(`it names another commit; this finding is in commit ${second}`);
   });
 
   test('a short waiver line on the base branch prints nothing on a push with no matching finding', () => {
@@ -425,16 +423,35 @@ describe('waivers name the full commit sha (GST-268)', () => {
     expect(r.err).not.toContain('ignored waiver');
   });
 
-  test('a SHA-256 repository waives with the full 64-character sha; a 40-, 63- or 65-character value does not', () => {
-    for (const [cut, waives] of [[(x: string) => x, true], [(x: string) => x.slice(0, 40), false], [(x: string) => x.slice(0, 63), false], [(x: string) => `${x}a`, false]] as Array<[(x: string) => string, boolean]>) {
-      const s = scratch({ '.gstack/pregate.json': policy(SEALED) }, 'sha256');
-      const sha = commit(s, { [TRANSCRIPT]: '{}\n' });
-      expect(sha).toMatch(/^[0-9a-f]{64}$/);
-      landOnMain(s, { '.gstack/sealed-allow.tsv': line(cut(sha)) });
-      const pre = preflight(s);
-      expect(pre.code).toBe(waives ? 0 : 1);
-      expect(pre.err.includes('ignored waiver')).toBe(!waives);
-    }
+  const SHA256: Array<[string, (x: string) => string, boolean]> = [['the full 64 characters waive', x => x, true], ['a 40-character prefix does not', x => x.slice(0, 40), false], ['a 63-character prefix does not', x => x.slice(0, 63), false], ['65 characters do not', x => `${x}a`, false]];
+  test.each(SHA256)('a SHA-256 repository: %s', (_label, cut, waives) => {
+    const s = scratch({ '.gstack/pregate.json': policy(SEALED) }, 'sha256');
+    const sha = commit(s, { [TRANSCRIPT]: '{}\n' });
+    expect(sha).toMatch(/^[0-9a-f]{64}$/);
+    landOnMain(s, { '.gstack/sealed-allow.tsv': line(cut(sha)) });
+    const pre = preflight(s);
+    expect(pre.code).toBe(waives ? 0 : 1);
+    expect(pre.err.includes('ignored waiver')).toBe(!waives);
+  });
+
+  test('a waiver that applied in one commit is not reported as ignored for a later commit at the same path', () => {
+    const s = scratch({ '.gstack/pregate.json': policy(SEALED) });
+    const first = commit(s, { 'notes/a.md': 'SEALED ANSWER: b\n' });
+    const second = commit(s, { 'notes/a.md': 'SEALED ANSWER: b\nSEALED ANSWER: c\n' });
+    landOnMain(s, { '.gstack/sealed-allow.tsv': `sealed.answer\tnotes/a.md\t${first}\tsynthetic fixture\n` });
+    const j = JSON.parse(preflight(s, ['--json']).out);
+    expect(j.waived.map((w: { commit: string }) => w.commit)).toEqual([first]);
+    expect(j.findings.map((f: { commit: string }) => f.commit)).toEqual([second]);
+    expect(j.ignoredWaivers).toEqual([]);
+  });
+
+  test('a short waiver for a text rule with several matching lines is named once', () => {
+    const s = scratch({ '.gstack/pregate.json': policy(SEALED) });
+    const sha = commit(s, { 'notes/a.md': 'SEALED ANSWER: b\nSEALED ANSWER: c\n' });
+    landOnMain(s, { '.gstack/sealed-allow.tsv': `sealed.answer\tnotes/a.md\t${sha.slice(0, 7)}\tsynthetic fixture\n` });
+    const j = JSON.parse(preflight(s, ['--json']).out);
+    expect(j.findings).toHaveLength(2);
+    expect(j.ignoredWaivers).toEqual([{ rule: 'sealed.answer', path: 'notes/a.md', sha: sha.slice(0, 7), commit: sha }]);
   });
 
   test('an error report carries an empty ignoredWaivers list', () => {

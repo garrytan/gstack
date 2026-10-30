@@ -275,12 +275,18 @@ export function evaluateSealed(o: EvaluateOptions): SealedReport {
     if (entry) waived.push({ ...f, reason: entry.reason });
     return !entry;
   });
-  const ignoredWaivers = findings.flatMap(f => allow.filter(a => a.rule === f.rule && a.path === f.file).map(a => ({ rule: a.rule, path: a.path, sha: a.sha, commit: f.commit })));
+  const ignored = new Map<string, SealedReport['ignoredWaivers'][number]>();
+  for (const f of findings) for (const a of allow) {
+    if (a.rule !== f.rule || a.path !== f.file || waived.some(w => w.commit === a.sha && w.rule === a.rule && w.file === a.path)) continue;
+    ignored.set(`${a.rule}\t${a.path}\t${a.sha}\t${f.commit}`, { rule: a.rule, path: a.path, sha: a.sha, commit: f.commit });
+  }
+  const ignoredWaivers = [...ignored.values()];
   const vis = policy.visibility ? { visibility: policy.visibility as Visibility, source: `${VISIBILITY_OVERRIDE_KEY} override` } : resolveVisibility(o.remoteUrl, { env: o.env, gh: o.gh });
   const status = findings.length === 0 ? 'clear' : vis.visibility === 'private' ? 'warned' : 'refused';
   return { status, policyLabels: labels, commits: commits.length, findings, exempt, waived, ignoredWaivers, visibility: vis.visibility, visibilitySource: vis.source, target: o.target };
 }
 
+const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const where = (f: SealedFinding) => `${f.file || '(unknown file)'}${f.line ? `:${f.line}` : ''}`;
 
 /** stderr text for a report: findings one per line (`<rule>  <file[:line]>  commit <sha12>`), never the matched text. */
@@ -288,7 +294,7 @@ export function renderSealed(r: SealedReport, context: string): string {
   const lines: string[] = [];
   for (const e of r.exempt) lines.push(`${context}: exempt ${e.rule}  ${where(e)}  commit ${e.commit.slice(0, 12)} (sealed.allow_paths ${e.glob})`);
   for (const w of r.waived) lines.push(`${context}: waived ${w.rule}  ${where(w)}  commit ${w.commit.slice(0, 12)} (${SEALED_ALLOW_PATH}: ${w.reason})`);
-  for (const i of r.ignoredWaivers) lines.push(`${context}: ignored waiver ${i.rule}  ${i.path}  sha ${i.sha} (${SEALED_ALLOW_PATH} must name the full commit sha ${i.commit})`);
+  for (const i of r.ignoredWaivers) lines.push(`${context}: ignored waiver ${i.rule}  ${i.path}  sha ${i.sha} (${FULL_SHA.test(i.sha) ? `it names another commit; this finding is in commit ${i.commit}` : `${SEALED_ALLOW_PATH} must name the full commit sha ${i.commit}`})`);
   const vis = `visibility: ${r.visibility}${r.visibility === 'unknown' ? ', counted public' : ''}; ${r.visibilitySource}`;
   const body = r.findings.map(f => `  ${f.rule}  ${where(f)}  commit ${f.commit.slice(0, 12)}`);
   if (r.status === 'error') {
