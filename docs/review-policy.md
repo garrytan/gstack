@@ -115,7 +115,7 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a full pass that fixed only below-floor findings | one fix-check |
 | a full pass at the cap that fixed a blocking finding | one fix-check |
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
-| a fix-check that found nothing blocking | done |
+| a fix-check that found nothing blocking (below-floor fixes before it included) | done |
 | a fix-check that found a blocking finding | stop: name it for the owner |
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the

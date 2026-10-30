@@ -46,6 +46,15 @@ describe('gstack-review-plan', () => {
     expect(r.stdout).toContain('next=fix-check dispatches=1');
     expect(r.stdout).toContain('DISPATCH: fix-check fix-check effort=full');
   });
+  // Value: protects=the CLI the ship loop calls after a fix-check prints NEXT: done when the fix-check was clean and only below-floor fixes came before it; fails_when=`--last fix-check --fixed-below` prints NEXT: stop with a blocking-finding reason (GSTA-167 replay 8G on #34);
+  //   why_new=no CLI case covered --last fix-check; seam=bin/gstack-review-plan (lib/review-depth.ts stays at its no-loss pin); no_claim=the fix-check reviewer's verdict
+  test('a clean fix-check after below-floor fixes prints NEXT: done', () => {
+    const r = run(repo({ 'src/a.ts': 'export const a = 1;\n' }), ['--pass', '1', '--last', 'fix-check', '--fixed-below']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('NEXT: done');
+    expect(r.stdout).not.toContain('NEXT: stop');
+    expect(run(repo({ 'src/a.ts': 'export const a = 1;\n' }), ['--pass', '1', '--last', 'fix-check', '--fixed-below', '--blocking-open']).stdout).toContain('NEXT: stop');
+  });
   test('--fix-check-prompt renders the fix-check reviewer prompt from the parent\'s files and refuses a missing one', () => {
     const r = repo({ 'docs/howto.md': '# x\n' });
     const w = (n: string, t: string) => { const f = path.join(r.state, n); fs.writeFileSync(f, t); return f; };
