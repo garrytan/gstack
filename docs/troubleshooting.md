@@ -37,7 +37,7 @@ no paid call: the Codex rows report the cached model check and its age, and
 
 ## Model policy
 
-The [model-policy guide](model-policy.md) explains the two tiers, all six
+The [model-policy guide](model-policy.md) explains the two tiers, all seven
 settings, precedence and the read-only inspection command. A resolved selection
 is not proof that the requested provider or model can run.
 
@@ -1909,18 +1909,6 @@ wrote its return with status=refused.
 
 **Fix.** The parent reconciles the refusal and regenerates the handoff at the current tree
 (`gstack-ship-budget handoff ...`) or stops.
-
-<a id="review-coverage-incomplete"></a>
-### `gstack-review-packet collect: ... (REVIEW_COVERAGE_INCOMPLETE)`
-
-**Meaning.** A reviewer /ship dispatched by packet left no usable result: its output file
-(the packet's `out=` path) is missing or empty, or holds neither `NO FINDINGS` nor one valid
-finding line. The detail names each such packet as `<name>=missing` or `<name>=invalid`. Exit 3:
-that coverage is incomplete, never clean, and a peer's result cannot stand in for it.
-
-**Fix.** Confirm the reviewer stopped, dispatch the same packet again with the same brief,
-then rerun `gstack-review-packet collect --dir <dir>`. Step 9.4's decision 1 governs the pass
-meanwhile ([review-policy.md](review-policy.md#reviewer-packets)).
 
 ## Browser
 

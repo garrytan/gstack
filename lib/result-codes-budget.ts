@@ -1,8 +1,7 @@
 /**
  * Result codes for the /ship token budget (bin/gstack-ship-budget, the
  * reservation check in `gstack-review-log --start`) and the fresh-context
- * handoff (lib/ship-handoff.ts), plus the reviewer packets' coverage stop
- * (lib/review-packet-collect.ts). Kept beside lib/result-codes.ts, which spreads
+ * handoff (lib/ship-handoff.ts). Kept beside lib/result-codes.ts, which spreads
  * this table into RESULT_CODES; the same rules apply: one stable
  * docs/troubleshooting.md anchor, a summary and a fix clause each. The flow is
  * documented in docs/ship-budget.md.
@@ -39,11 +38,6 @@ export const BUDGET_RESULT_CODES = {
     anchor: 'budget-check-skipped',
     summary: 'a dispatch under a cap started without an unspent reservation id from gstack-ship-budget check, or reused or mismatched one',
     fix: 'run gstack-ship-budget check --run <id> --step <s> --next dispatch:<roles> before the dispatch and pass its RESERVATION id once; a reservation is never created after the fact, so an unreserved dispatch ends the run status=incomplete for the owner to accept',
-  },
-  REVIEW_COVERAGE_INCOMPLETE: {
-    anchor: 'review-coverage-incomplete',
-    summary: 'a dispatched reviewer wrote no usable result: its packet output file is missing, empty, or holds neither NO FINDINGS nor a valid finding',
-    fix: 'confirm the reviewer stopped, then dispatch its packet again with the same brief and rerun collect; missing coverage is never clean, and a peer cannot replace it',
   },
   HANDOFF_PIN_MOVED: {
     anchor: 'handoff-pin-moved',

@@ -211,7 +211,7 @@ did it go on by default.
 
 - [docs/recommended-harness.md](../docs/recommended-harness.md): set it up, day 0 to the first merged train.
 - [docs/captain.md](../docs/captain.md): the controller's reference (READY contract, trains, approvals, digest, flaky pass).
-- [capy/skill/gstack/](skill/gstack/): the Capy skill every thread loads, and its [captain.md](skill/gstack/captain.md) for lanes.
+- [capy/skill/gstack/](skill/gstack/): the Capy skill every thread loads, its [factory.md](skill/gstack/factory.md) one-page summary of how crews work, and its [captain.md](skill/gstack/captain.md) for lanes.
 - [docs/why-gstack.md](../docs/why-gstack.md): the longer story behind gstack itself.
 
 [^1]: Windows are UTC, [2026-10-01, 2026-10-15) before and
