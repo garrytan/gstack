@@ -12,7 +12,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { AgentModelError, MODEL_FAMILIES, parseAgentModel, readPreferencesFile, resolveAgentModel } from '../lib/agent-model';
+import { AgentModelError, MODEL_FAMILIES, parseAgentModel, readPreferencesFile, renderAgentModel, resolveAgentModel } from '../lib/agent-model';
 import { MODEL_CATALOG } from '../lib/model-catalog';
 import { modelsMain } from '../lib/model-policy-cli';
 
@@ -37,6 +37,7 @@ describe('value grammar', () => {
     expect(parseAgentModel('host')).toEqual({ kind: 'host' });
     expect(parseAgentModel(' opus ')).toEqual({ kind: 'model', provider: 'anthropic', model: 'claude-opus-5-5', family: 'opus' });
     expect(parseAgentModel('OPUS')).toMatchObject({ family: 'opus' });
+    expect(parseAgentModel('Host')).toEqual({ kind: 'host' });
     expect(parseAgentModel('openai/gpt-6.1-sol')).toEqual({ kind: 'model', provider: 'openai', model: 'gpt-6.1-sol', family: null });
     for (const bad of ['', 'opux', 'claude-opus-5-5', 'Anthropic/x', 'anthropic/', '/x', 'anthropic/a b', 'anthropic/x\u001b[31m']) expect(parseAgentModel(bad)).toBeNull();
   });
@@ -50,7 +51,7 @@ describe('value grammar', () => {
 
   test('bin/gstack-config accepts and refuses exactly what the resolver does', () => {
     const e = env(tmp());
-    for (const value of ['host', 'opus', 'sonnet', 'terra', 'anthropic/claude-opus-5-5', 'openai/gpt-6.1-sol', 'opux', 'claude-opus-5-5', 'Anthropic/x', 'anthropic/a b', 'anthropic/']) {
+    for (const value of ['host', 'Host', 'opus', 'OPUS', 'Sol', 'sonnet', 'terra', 'anthropic/claude-opus-5-5', 'openai/gpt-6.1-sol', 'opux', 'claude-opus-5-5', 'Anthropic/x', 'anthropic/a b', 'anthropic/']) {
       const r = config(e, ['set', 'agent_model', value]);
       expect(r.status === 0, value + r.stderr).toBe(parseAgentModel(value) !== null);
     }
@@ -86,6 +87,22 @@ describe('precedence and sources', () => {
     expect(resolveAgentModel({ env: e })).toMatchObject({ status: 'host', source: { kind: 'config' } });
     expect(config(e, ['unset', 'agent_model']).status).toBe(0);
     expect(resolveAgentModel({ env: e })).toMatchObject({ id: 'anthropic/claude-opus-5-5', source: { kind: 'preferences' } });
+  });
+
+  test('a broken preferences file never blocks a request or this machine\'s config.yaml, and its raw value is never echoed', () => {
+    const base = tmp();
+    const prefs = path.join(base, 'preferences.yaml');
+    fs.writeFileSync(prefs, 'agent_model: opus\nagent_model: sol\n');
+    const e = env(base, { GSTACK_PREFERENCES_FILE: prefs });
+    expect(() => resolveAgentModel({ env: e })).toThrow(/sets agent_model twice/);
+    const requested = resolveAgentModel({ env: e, request: 'sonnet' });
+    expect(requested).toMatchObject({ family: 'sonnet', source: { kind: 'request' } });
+    expect(requested.warnings.join('\n')).toContain('sets agent_model twice');
+    setConfig(e, 'agent_model: opus\n');
+    expect(resolveAgentModel({ env: e })).toMatchObject({ family: 'opus', source: { kind: 'config' } });
+    fs.writeFileSync(prefs, 'agent_model: x\u001b]0;title\u0007\u009b31m\u202e\n');
+    const shown = renderAgentModel(resolveAgentModel({ env: e })).join('\n');
+    expect(shown).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
   });
 
   test('an invalid value at the winning source is an error naming the source and the fix, never a silent fallback', () => {
@@ -151,6 +168,12 @@ describe('the preferences file', () => {
     expect(() => readPreferencesFile(f)).toThrow(/sets agent_model twice/);
   });
 
+  test('CRLF line endings, a byte-order mark and a trailing comment still read the value', () => {
+    const f = path.join(tmp(), 'preferences.yaml');
+    fs.writeFileSync(f, '\ufeff# owner preferences\r\nagent_model: opus   # my pick\r\n');
+    expect(readPreferencesFile(f)).toEqual({ value: 'opus', warnings: [] });
+  });
+
   test('a missing file is silent; an oversized file or a directory is ignored with a warning', () => {
     const base = tmp();
     expect(readPreferencesFile(path.join(base, 'absent.yaml'))).toEqual({ value: null, warnings: [] });
@@ -183,5 +206,7 @@ describe('Capy wiring', () => {
     expect(r.stdout).toContain('PREFS=' + path.join(skill, 'preferences.yaml'));
     expect(fs.readdirSync(skill).sort()).toEqual(before);
     expect(run({}).stdout).toContain('PREFS=unset');
+    const inCheckout = run({ GSTACK_CAPY_WRAPPER_REV: '3', GSTACK_CAPY_WRAPPER_PATH: path.join(root, 'capy', 'skill', 'gstack', 'scripts', 'install.sh') });
+    expect(inCheckout.stdout).toContain('PREFS=unset');
   });
 });

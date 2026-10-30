@@ -62,8 +62,12 @@ export class AgentModelError extends Error {
   }
 }
 
+function printable(value: string): string {
+  return value.replace(/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ');
+}
+
 function sanitize(value: string): string {
-  return value.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200);
+  return printable(value).slice(0, 200);
 }
 
 type Parsed = { kind: 'host' } | { kind: 'model'; provider: string; model: string; family: string | null };
@@ -71,7 +75,7 @@ type Parsed = { kind: 'host' } | { kind: 'model'; provider: string; model: strin
 /** host | a family name | <provider>/<model>. Syntax only; bin/gstack-config holds the same grammar. */
 export function parseAgentModel(raw: string): Parsed | null {
   const value = raw.trim();
-  if (value === 'host') return { kind: 'host' };
+  if (value.toLowerCase() === 'host') return { kind: 'host' };
   const family = MODEL_FAMILIES.find(f => f.family === value.toLowerCase());
   if (family) return { kind: 'model', provider: family.provider, model: family.model, family: family.family };
   const slash = value.indexOf('/');
@@ -96,22 +100,23 @@ export function readPreferencesFile(file: string): { value: string | null; warni
   try {
     const stat = fs.statSync(file);
     if (!stat.isFile()) return { value: null, warnings: [`${file} is not a file; ignored`] };
-    if (stat.size > PREFERENCES_FILE_MAX_BYTES) return { value: null, warnings: [`${file} is over ${PREFERENCES_FILE_MAX_BYTES} bytes; ignored`] };
-    text = fs.readFileSync(file, 'utf-8');
+    const bytes = stat.size > PREFERENCES_FILE_MAX_BYTES ? null : fs.readFileSync(file);
+    if (!bytes || bytes.length > PREFERENCES_FILE_MAX_BYTES) return { value: null, warnings: [`${file} is over ${PREFERENCES_FILE_MAX_BYTES} bytes; ignored`] };
+    text = bytes.toString('utf-8').replace(/^\uFEFF/, '');
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     return { value: null, warnings: code === 'ENOENT' ? [] : [`${file} is unreadable (${code ?? 'unknown error'}); ignored`] };
   }
   const warnings: string[] = [];
   let value: string | null = null;
-  text.split('\n').forEach((line, i) => {
+  text.split(/\r?\n/).forEach((line, i) => {
     const trimmed = line.trim();
     if (trimmed === '' || trimmed.startsWith('#')) return;
     const m = /^([a-z][a-z0-9_]*):(.*)$/.exec(line);
     if (!m) { warnings.push(`${file}:${i + 1} is not a 'key: value' line; ignored`); return; }
     if (m[1] !== AGENT_MODEL_KEY) { warnings.push(`${file}:${i + 1} sets '${sanitize(m[1])}', which gstack does not read from preferences; ignored`); return; }
     if (value !== null) throw new AgentModelError(`${file} sets agent_model twice`, 'keep one agent_model line', [`edit ${file}`]);
-    value = m[2].trim().replace(/^(["'])(.*)\1$/, '$2');
+    value = m[2].replace(/\s#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2');
   });
   return { value: value === '' ? null : value, warnings };
 }
@@ -121,7 +126,13 @@ export function resolveAgentModel(opts: { env?: StateRootEnv; platform?: NodeJS.
   const reading = readConfigKeyWithRoot('agent_model', env, opts.platform ?? process.platform);
   const configPath = reading.root ? path.join(reading.root, 'config.yaml') : null;
   const preferencesPath = env.GSTACK_PREFERENCES_FILE?.trim() || null;
-  const prefs = preferencesPath ? readPreferencesFile(preferencesPath) : { value: null, warnings: [] };
+  let prefs: { value: string | null; warnings: string[] } = { value: null, warnings: [] };
+  try {
+    if (preferencesPath) prefs = readPreferencesFile(preferencesPath);
+  } catch (error) {
+    if (!(error instanceof AgentModelError) || (opts.request === undefined && reading.value === null)) throw error;
+    prefs = { value: null, warnings: [`${error.problem}; ignored because a higher-priority source is set`] };
+  }
   const candidates: Array<{ kind: AgentModelSourceKind; value: string | null; path: string | null; repair: string[] }> = [
     { kind: 'request', value: opts.request ?? null, path: null, repair: ['pass --request host, a family or <provider>/<model>'] },
     { kind: 'config', value: reading.value, path: configPath, repair: ['gstack-config set agent_model <host|family|provider/model>', 'gstack-config unset agent_model'] },
@@ -150,8 +161,8 @@ export function renderAgentModel(s: AgentModelSelection): string[] {
       : `from agent_model in ${s.source.path}, ${s.source.kind === 'config' ? 'this machine' : 'the preferences file'}`;
   const lines = [s.status === 'host'
     ? `agent: host - keep the running agent's own model and omit the model field (${from})`
-    : `agent: ${s.id}${s.family ? ` (${s.family})` : ''} - ${from}`];
-  lines.push(`  config.yaml agent_model: ${s.sources.config ?? 'unset'}; preferences agent_model: ${s.sources.preferences ?? 'unset'}${s.sources.preferencesPath ? ` (${s.sources.preferencesPath})` : ' (GSTACK_PREFERENCES_FILE unset)'}`);
+    : `agent: ${s.id}${s.family ? ` (${s.family})` : ''} - ${from}`].map(printable);
+  lines.push(printable(`  config.yaml agent_model: ${s.sources.config ?? 'unset'}; preferences agent_model: ${s.sources.preferences ?? 'unset'}${s.sources.preferencesPath ? ` (${s.sources.preferencesPath})` : ' (GSTACK_PREFERENCES_FILE unset)'}`));
   lines.push(`  exempt: ${s.exemptions.join('; ')}`);
   lines.push('  change it on this machine: gstack-config set agent_model <host|family|provider/model>; keep it across Capy machines: agent_model in the skill folder\'s preferences.yaml');
   for (const w of s.warnings) lines.push(`  warning: ${sanitize(w)}`);

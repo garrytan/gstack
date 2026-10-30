@@ -157,7 +157,7 @@ over. Keep the preference in `preferences.yaml` next to the gstack skill's
 SKILL.md in your Drive: one `agent_model: <value>` line, with `#` comments
 allowed (any other key is ignored with a warning). The session start puts the
 file's path in the launch file as `GSTACK_PREFERENCES_FILE` and gstack reads it
-where it is: nothing is copied, and `--check` writes nothing. Agents write that
+where it is: nothing is copied, and `--check` never writes the skill folder. Agents write that
 file only when you ask them to remember a preference. To change or clear it for
 good, edit or delete that line; `gstack-config unset agent_model` clears this
 machine only. Copying a newer `capy/skill/gstack/` over the skill folder leaves

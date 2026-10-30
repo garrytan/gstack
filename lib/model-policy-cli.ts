@@ -191,7 +191,7 @@ function renderSelections(role: ModelRole, config: ModelPolicyConfig, selections
   return lines;
 }
 
-function renderList(config: ModelPolicyConfig, selections: ModelSelection[], env: StateRootEnv): string {
+function renderList(config: ModelPolicyConfig, selections: ModelSelection[], env: StateRootEnv, platform: NodeJS.Platform): string {
   const effort = codexEffortSetting(env);
   const commands = modelPolicyCommands();
   const configCommand = `'${CONFIG_BIN.replaceAll('\\', '/').replaceAll("'", "'\\''")}'`;
@@ -204,7 +204,7 @@ function renderList(config: ModelPolicyConfig, selections: ModelSelection[], env
     '',
     `codex effort: ${effort.value ?? 'each gate\'s default'} (${effort.source === 'env' ? 'GSTACK_CODEX_EFFORT' : effort.source === 'config' ? `codex_effort in ${config.path}` : 'default; set codex_effort'})${effort.valid ? '' : ` - invalid; Codex calls stop before sending. Use ${CODEX_EFFORT_LEVELS.join(', ')}`}; /spec keeps medium`,
     '',
-    ...agentLines(env),
+    ...agentLines(env, platform),
     '',
     `catalog v${MODEL_CATALOG_VERSION} (sha256 ${modelCatalogSha256().slice(0, 12)})`,
   ];
@@ -260,8 +260,8 @@ function renderAgentError(error: ReturnType<AgentModelError['toJSON']>): string[
 }
 
 /** The agent block of `list`: a bad agent_model is reported here and never fails the other roles. */
-function agentLines(env: StateRootEnv): string[] {
-  const agent = agentOrError(env);
+function agentLines(env: StateRootEnv, platform: NodeJS.Platform): string[] {
+  const agent = agentOrError(env, platform);
   return 'error' in agent ? renderAgentError(agent.error) : renderAgentModel(agent);
 }
 
@@ -334,8 +334,8 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
   const code = errors.length ? 1 : 0;
   if (json) {
     const doc = document(command, config, selections, errors, env);
-    return { code, stdout: `${JSON.stringify(command === 'list' ? { ...doc, agent: agentOrError(env) } : doc, null, 2)}\n`, stderr: '' };
+    return { code, stdout: `${JSON.stringify(command === 'list' ? { ...doc, agent: agentOrError(env, platform) } : doc, null, 2)}\n`, stderr: '' };
   }
-  const stdout = command === 'list' ? renderList(config, selections, env) : role === 'eval-arms' ? renderEvalArms(config, selections) : renderResolve(role as ModelRole, config, selections);
+  const stdout = command === 'list' ? renderList(config, selections, env, platform) : role === 'eval-arms' ? renderEvalArms(config, selections) : renderResolve(role as ModelRole, config, selections);
   return { code, stdout, stderr: errors.map(renderError).join('') };
 }

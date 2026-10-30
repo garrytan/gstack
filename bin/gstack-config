@@ -843,7 +843,7 @@ $_gstack_legacy_root"
     if [ "$KEY" = "agent_model" ]; then
       VALUE="${VALUE#"${VALUE%%[![:space:]]*}"}"
       VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
-      case "$VALUE" in
+      case "$(printf '%s' "$VALUE" | LC_ALL=C tr 'A-Z' 'a-z')" in
         host|opus|fable|sonnet|haiku|astra|sol|luna|terra) ;;
         *) printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[a-z][a-z0-9-]{0,31}/[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$' || {
              echo "Error: agent_model '$VALUE' not recognized. Use host, a family (opus, fable, sonnet, haiku, astra, sol, luna, terra) or <provider>/<model> such as anthropic/claude-opus-5-5. Existing value left unchanged. fix: gstack-config unset agent_model returns to host (https://github.com/garrytan/gstack/blob/main/docs/model-policy.md#your-model-preference)" >&2
