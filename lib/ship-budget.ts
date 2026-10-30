@@ -65,6 +65,8 @@ export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; 
 export interface Handoff {
   n: number; sha: string; file: string; from: string; to: string; sub_cap: number; reservation: string; reading_at: number | null;
   epoch: number; return_file: string; reconciled_at?: string; status?: string; child_used?: number; depth?: number;
+  /** Ledgers of the child runs verify-handoff opened on this brief: close audits their starts too. */
+  child_ledgers?: string[];
 }
 export interface Ledger {
   schema_version: 1; kind: 'gstack-ship-budget'; run: string; dir: string; file: string; record?: string; created_at: string;
@@ -528,12 +530,21 @@ export function settleReviewFinish(marker: string, token: string, env: NodeJS.Pr
   });
 }
 
-/** close's audit: review-log rows of this run with no reservation consumed before they started. */
+/** Every review-log start a reservation of this run or of a handoff child below it admitted. */
+function treeStarts(l: Ledger, seen = new Set<string>()): Array<{ token: string; at: string }> {
+  if (seen.has(l.file)) return [];
+  seen.add(l.file);
+  const own = l.reservations.flatMap(r => r.starts ?? (r.started_at && r.token ? [{ token: r.token, at: r.started_at }] : []));
+  const children = l.handoffs.flatMap(h => h.child_ledgers ?? []).flatMap(file => { try { return treeStarts(readLedger(file), seen); } catch { return []; } });
+  return [...own, ...children];
+}
+
+/** close's audit: review-log rows of this run with no reservation, its own or a handoff child's, consumed before they started. */
 export function unreservedDispatches(l: Ledger): Array<{ skill: string; step: string; started: string }> {
   if (!l.review_log) return [];
   let lines: string[];
   try { lines = fs.readFileSync(l.review_log, 'utf8').split('\n').filter(Boolean); } catch { return []; }
-  const starts = l.reservations.flatMap(r => r.starts ?? (r.started_at && r.token ? [{ token: r.token, at: r.started_at }] : []));
+  const starts = treeStarts(l);
   const out: Array<{ skill: string; step: string; started: string }> = [];
   for (const line of lines) {
     let row: any;

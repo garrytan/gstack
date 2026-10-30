@@ -135,6 +135,36 @@ describe('gstack-review-log --start under a token cap', () => {
     expect(accepted.out).toContain('ACCEPTED: 1 unreserved dispatches by Garry');
   });
 
+  // Value: protects=a dispatch reserved and finished inside a handoff child is not flagged at the root's close (gstack-evals #34 round 3: close printed budget_check_skipped dispatches=3 for Steps 9 and 11, which ran in child 1); fails_when=close audits review-log rows against the root ledger's own reservations only;
+  //   why_new=every close test above runs on one ledger; seam=none; no_claim=that the child passed the reservation (the start refuses without one)
+  test('close counts starts reserved in its handoff children; an unreserved row in the child window is still flagged', () => {
+    const h = fresh();
+    const root = capped(h, '200M');
+    const ho = h.sb(['handoff', '--run', root.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '1000000']);
+    expect(ho.code, ho.out + ho.err).toBe(0);
+    const v = h.sb(['verify-handoff', '--in', ho.out.match(/^HANDOFF: (\S+) /m)![1]!, '--reading', '100000']);
+    expect(v.code, v.out + v.err).toBe(0);
+    const child = h.field(v.out, 'BUDGET_RUN', 'id');
+    const id = h.field(h.sb(['check', '--run', child, '--step', '8', '--next', 'dispatch:specialist', '--reading', '200000']).out, 'RESERVATION', 'id');
+    const start = h.reviewLog(['--start', 'review', '--reservation', id]);
+    expect(start.code, start.err).toBe(0);
+    const row = { skill: 'review', timestamp: new Date().toISOString(), status: 'clean', issues_found: 0, critical: 0, informational: 0 };
+    expect(h.reviewLog([JSON.stringify(row), '--finish', start.out.trim()]).code).toBe(0);
+    expect(h.sb(['return', '--run', child, '--to', '11.5', '--reading', '300000']).code).toBe(0);
+    expect(h.sb(['reconcile', '--run', root.run, '--return', ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!, '--reading', '1400000']).code).toBe(0);
+    const clean = h.sb(['close', '--run', root.run, '--reading', '1500000']);
+    expect(clean.out).not.toContain('BUDGET_CHECK_SKIPPED');
+    expect(clean.code, clean.out).toBe(0);
+    const h2 = fresh();
+    const root2 = capped(h2, '200M');
+    const ho2 = h2.sb(['handoff', '--run', root2.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '1000000']);
+    expect(h2.sb(['verify-handoff', '--in', ho2.out.match(/^HANDOFF: (\S+) /m)![1]!, '--reading', '100000']).code).toBe(0);
+    expect(h2.reviewLog([JSON.stringify({ ...row, timestamp: new Date(Date.now() + 1000).toISOString() })]).code).toBe(0);
+    const flagged = h2.sb(['close', '--run', root2.run, '--reading', '1500000']);
+    expect(flagged.code).toBe(3);
+    expect(flagged.out.split('\n').filter(l => l.endsWith('(BUDGET_CHECK_SKIPPED)'))).toHaveLength(1);
+  });
+
   test('a stopped run refuses every later dispatch until resume', () => {
     const h = fresh();
     const run = capped(h, '20M');

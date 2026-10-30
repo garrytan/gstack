@@ -35,6 +35,19 @@ describe('ship budget skill structure', () => {
     for (const m of text.matchAll(/--next dispatch:([a-z,-]+)/g)) for (const role of m[1]!.split(',')) expect(DISPATCH_ROLES as readonly string[]).toContain(role);
   });
 
+  // Value: protects=every capped review-log start in Steps 9 and 11 carries the batch's reservation, and Step 9's REVIEW_START is taken on a reservation that exists (built and checked first); fails_when=item 2 reserves before the packet build exists, the fix-check or a Step 11 voice start omits --reservation, or the pass program starts once per role instead of once per logged row;
+  //   why_new=the test above only checks that each file mentions --reservation somewhere; seam=none; no_claim=the agent follows the order
+  test('each capped review-log start names its reservation: Step 9 item 2 and 3.5, both Step 11 voices, the pass program', () => {
+    const army = read('ship/sections/review-army.md.tmpl');
+    expect(army).toContain('run Step 9.1\'s `gstack-review-packet build` and `gstack-ship-budget check` first, then `gstack-review-log --start review --reservation <id>`');
+    expect(army).toContain('`gstack-review-log --start review-fix-check --reservation <id>`');
+    const adv = read('ship/sections/adversarial.md.tmpl');
+    expect(adv).toMatch(/every `--start adversarial-review` below \(the native pass's and each outside voice's PASS_START\) takes `--reservation <id>`/);
+    const handoff = read('ship/sections/budget-handoff.md.tmpl');
+    expect(handoff).toContain('`gstack-review-log --start <skill> --reservation <id>` once per row the step logs');
+    expect(handoff).not.toContain('once per role on the printed reservation');
+  });
+
   test('every review-log --start in the dispatch sections takes a reservation when a cap is set', () => {
     for (const rel of ['ship/sections/review-army.md.tmpl', 'ship/sections/adversarial.md.tmpl']) expect(read(rel)).toContain('--reservation');
   });

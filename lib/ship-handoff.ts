@@ -197,6 +197,10 @@ export function cmdVerifyHandoff(argv: string[], ctx: Ctx): Outcome {
   };
   if (parent.meter.contract.meter === 'claude' && !str(o, 'session')) throw usageError('verify-handoff on meter=claude needs --session <this child session id>');
   readMeter(child, o, true);
+  mutateLedger(parent.file, ctx.env, p => {
+    const ph = p.handoffs.find(x => x.sha === sha)!;
+    ph.child_ledgers = [...(ph.child_ledgers ?? []), child.file];
+  });
   writeLedger(child, ctx.env);
   pointMarker(child.marker, child);
   return { stdout: [`HANDOFF_OK: steps=${block.from}-${block.to} sha256=${sha}`, `BUDGET_RUN: id=${run} ledger=${child.file}`, budgetLine(child, { call: null, next: block.from, projected: 0, verdict: 'continue' })], exit: 0 };
