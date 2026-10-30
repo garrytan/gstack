@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.326.0] - 2026-10-30
 
 **/ship reviewers now read one packet file each, and the parent reads a findings record of at most 60 lines instead of every reviewer's transcript.** On this PR's own /ship, pass 2's eight reviewers cost 8.6M tokens on the root counter, against 52.6M for pass 1's eleven (pass 2 read the fix range, pass 1 the whole diff, so the two are not directly comparable).
 
@@ -21,6 +21,21 @@
 
 ### Tests
 - `test/review-packet.test.ts`: 41 tests covering packet contents, sharding, audits, budget roles, read ranges, data summaries (including a symlinked CSV that must not leak its target), stale manifests and collect's validation. Each fix in this entry has a test that failed before it.
+
+## [1.91.325.0] - 2026-10-30
+
+**A capped /ship on Capy no longer delegates or stops just because the host's own prompt is big, and a delegated child hands off instead of stopping.** A fresh Capy call costs 150-230k before any /ship work, so the 100k start and 150k segment thresholds fired on every capped Capy start and stopped two gstack-evals #36 children at their first boundary. The thresholds now measure context above a calibrated per-host call floor.
+
+### Fixed
+- **Thresholds sit above the host call floor.** `lib/ship-budget-calibration.json` gives each meter a `call_floor` (Capy 150k, Claude Code 40k, estimate 0); `start --call-floor <n>` overrides it and children inherit it. `BUDGET:` and `STOP:` lines print `call_floor=` and `above_floor=`.
+- **A child never stops on the context rule.** After a completed step it hands its remaining steps to a grandchild through the same handoff, verify, return and reconcile commands (chain depth 3 at most). Before its first completed step, at the maximum depth, or past its segment it continues with one `CONTEXT_HIGH:` line. The admission cap still stops it.
+- **A delegated child cannot return complete with work left over.** `return` reports `status=incomplete` with `UNRECONCILED:` or `DROPPED:` lines while one of its own grandchildren is unreconciled or a batch remainder was never re-checked.
+
+### Changed
+- **Parallel reviewer batches near the cap admit the largest prefix that fits** (`ADMIT: k of n (remaining=<roles>)`) instead of refusing the whole batch; each reader is priced at the larger of its projection and the run's measured mean for that role. `close` flags remaining roles nobody re-checked (`DROPPED:`, `status=incomplete` until the owner accepts).
+
+### Tests
+- `test/ship-budget-chain.test.ts` replays #36 (a child at its first boundary continues) and covers the Capy floor, grandchild handoff at depth 2, the depth-3 cap, charging a chained return once on all three meters, and the incomplete return. `test/ship-budget-batch.test.ts` replays #35's 7-reader batch near the cap.
 
 ## [1.91.324.0] - 2026-10-29
 
