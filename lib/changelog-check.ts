@@ -254,11 +254,19 @@ function fragments(removed: string, added: string): { old: string; new: string }
  * the child changed inside them becomes a correction bullet under the child's
  * own `### Gate integrity` (the convention #3453's entry used for its parent),
  * so no wording the gate carried is lost and the released entry below stays
- * byte for byte main's. Null when the shape is something else: no single
- * `[Unreleased]` on our side, no released entry of theirs the base lacks whose
- * text our section holds, or nothing of the child's own left.
+ * byte for byte main's. A line the child inserted between two of the parent's
+ * lines counts as an addition to the parent's entry, unless that would leave
+ * the child nothing of its own: then the inserted lines are the child's entry
+ * (#3613 put its only bullet at the top of #3595's `### Changed` list). Null
+ * when the shape is something else: no single `[Unreleased]` on our side, no
+ * released entry of theirs the base lacks whose text our section holds, or
+ * nothing of the child's own left either way.
  */
 export function carryReleasedParent(ours: string, theirs: string, base: string): { text: string; notes: string[] } | null {
+  return carryWith(ours, theirs, base, true) ?? carryWith(ours, theirs, base, false);
+}
+
+function carryWith(ours: string, theirs: string, base: string, insertsJoinParent: boolean): { text: string; notes: string[] } | null {
   const a = parseChangelog(ours);
   const unreleased = a.sections.filter(s => s.unreleased);
   if (unreleased.length !== 1) return null;
@@ -302,7 +310,7 @@ export function carryReleasedParent(ours: string, theirs: string, base: string):
         }
       }
       // Lines added between two of the parent's own lines, or after its last beside an edit there, belong to its entry; the rest are the child's.
-      if (k > 0 && (k < hunks.length - 1 || h.removed.length)) for (const j of h.added) {
+      if (insertsJoinParent && k > 0 && (k < hunks.length - 1 || h.removed.length)) for (const j of h.added) {
         parentAt.add(j);
         bullets.push(`- Addition to the ${v} entry below: ${strip(lines[j]!)}`);
         notes.push(`${v}: added "${strip(lines[j]!).slice(0, 60)}"`);

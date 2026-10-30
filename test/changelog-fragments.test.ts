@@ -12,7 +12,7 @@ import { mergePolicy, validatePolicy } from '../lib/ship-policy';
 import { buildReceipt } from '../lib/tree-receipt';
 import { BASE_POLICY, cleanup, makeFixtureRepo, readFile, restamp, type FixtureRepo } from './helpers/restamp-fixture';
 
-const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.92.0.0' };
+const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };
 const repos: FixtureRepo[] = [];
 const fixture = () => { const r = makeFixtureRepo({ policy: POLICY }); repos.push(r); return r; };
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });

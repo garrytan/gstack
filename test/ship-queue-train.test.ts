@@ -111,7 +111,7 @@ describe('the policy gate', () => {
 
   // Value: protects=under changelog_fragments ready records the READY receipt land checks, only after every ready check passed; fails_when=land has no proof of the pregate; why_new=the case above covers the key off; seam=none; no_claim=the notes push to a real GitHub remote
   test('under changelog_fragments ready records a READY receipt; a failed pregate records none', () => {
-    const fx = make({ ...BASE_POLICY, changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.92.0.0' });
+    const fx = make({ ...BASE_POLICY, changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' });
     const head = openPr(fx, '1');
     fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
     const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();

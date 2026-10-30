@@ -13,7 +13,7 @@ import {
   GREEN_GATE, RED_GATE, TRAIN_POLICY, line, nonceOf, openPr, queue, readyReceipt, shippedBody, trainFixture, trainJson, type TrainFixture,
 } from './helpers/ship-queue-train-fixture';
 
-const POLICY = { ...TRAIN_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.92.0.0' };
+const POLICY = { ...TRAIN_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };
 const fixtures: TrainFixture[] = [];
 afterEach(() => { while (fixtures.length) cleanup(fixtures.pop()!.repo); });
 

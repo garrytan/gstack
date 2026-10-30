@@ -17,7 +17,7 @@ import { resolveReleaseConflicts } from '../lib/ship-queue-land';
 import { mergePolicy } from '../lib/ship-policy';
 import { persist, repoIdentity } from '../lib/ship-queue-train-record';
 
-const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.92.0.0' };
+const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 

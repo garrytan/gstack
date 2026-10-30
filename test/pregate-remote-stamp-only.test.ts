@@ -297,7 +297,7 @@ describe.skipIf(process.platform === 'win32')('clear --receipt under changelog_f
   test('the fold of a deleted fragment is a stamp; a fold that changed the text is not', () => {
     const repo = makeFixtureRepo({
       pregate: { ...BASE_PREGATE, remote_gate: GATE },
-      baseFiles: { '.gstack/ship-policy.json': JSON.stringify({ ...POLICY, changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.92.0.0' }, null, 2) + '\n', VERSION: '1.0.0\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.0] - 2026-10-01\n\n- base\n' },
+      baseFiles: { '.gstack/ship-policy.json': JSON.stringify({ ...POLICY, changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' }, null, 2) + '\n', VERSION: '1.0.0\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.0] - 2026-10-01\n\n- base\n' },
     });
     repos.push(repo);
     repo.git('checkout', '-q', 'feature');
