@@ -4,56 +4,39 @@
  *
  *   gstack-review-plan --base <ref> [--pass <full passes run>] [--last none|full|fix-check] [--fixed-blocking] [--fixed-below]
  *                      [--blocking-open] [--touched-gate] [--critical-found] [--adversarial-ran] [--gate-tagged <n>] [--gated a,b] [--force a,b|all]
- *                      [--reviewed-numbers <fingerprint>] [--depth-floor standard|full] [--no-tiers] [--json]
+ *                      [--reviewed-numbers <fingerprint>] [--depth-floor standard|full] [--range-base <sha>] [--pass1-depth light|standard|full] [--no-tiers] [--json]
  *   gstack-review-plan --fix-check-prompt --fix-list <file> --hunks <file> --tests <file> [--callers <file>]
  *
  * Reads the diff against the merge base with <ref> (committed, tracked uncommitted
  * edits and untracked files, through lib/review-collect.ts collectLive), runs
  * gstack-diff-scope and, unless --gate-tagged is given, gstack-gate-diff; prints
  * REVIEW_CLASS:, REVIEW_DEPTH: (depth, runtime lines, the rules hash, reasons and
- * result codes), GATE_SCAN:, REVIEW_PLAN:, one DEPTH_ERROR: per input that failed
+ * result codes), GATE_SCAN:, FIX_RANGE: (with --range-base), REVIEW_PLAN:, one DEPTH_ERROR: per input that failed
  * the depth closed, one DISPATCH: plus DIFF_CMD: (and DIFF_EXCLUDE: none) per
  * reviewer and one SKIP: per reviewer left out. A plan that fails closed to full
  * exits 0; a diff git cannot list exits 1. Logic: lib/review-depth.ts.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import { runScriptSync } from '../lib/script-invocation';
-import { collectLive } from '../lib/review-collect';
-import { diffCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, type Depth, type History } from '../lib/review-depth';
-import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
+import { diffCommand, reviewDepthLine, reviewPlanLine } from '../lib/review-depth';
+import { flagReader, livePlan, parsePlanFlags, planPass, PLAN_FLAGS_HELP } from '../lib/review-plan-live';
+import { renderFixCheckPrompt } from '../lib/review-prompts';
 
 const HELP = `gstack-review-plan — the review depth of the next /ship step (docs/review-policy.md#review-depth)
 
-  --base <ref>              the base branch (merge base with HEAD is the diff base); required
-  --pass <n>                full review passes already run in this invocation (default 0)
-  --last none|full|fix-check  the step that just finished (default none: plan pass 1)
-  --fixed-blocking          the finished step fixed a blocking finding (raises light to standard)
-  --fixed-below             the finished step fixed findings below the floor
-  --blocking-open           a blocking finding is still open in fix scope
-  --touched-gate            a fix touched a gate-class path
-  --critical-found          a specialist reported a CRITICAL finding (Red Team on code class; raises light to standard)
-  --adversarial-ran         Step 11's native adversarial pass already ran (a repeat skips it)
-  --gate-tagged <n>         gate hunks the gate scan tagged (default: run gstack-gate-diff; failure means unavailable)
-  --gated a,b               specialists the hit-rate stats tag GATE_CANDIDATE
-  --force a,b|all           specialists forced by prompt flags (--all-specialists is all)
-  --reviewed-numbers <fp>   the numeric-claim fingerprint the outside voice already reviewed
-  --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
+${PLAN_FLAGS_HELP}
   --no-tiers                audits and watchers at the host's default effort too (as gstack-config review_effort_tiers off does)
   --json                    the plan as JSON (depth, runtime_lines, rules, errors with input and repair, gate_scan, per-dispatch exclude)
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
 
-Depth: light (runtime lines <= 50), standard (above 50), full (gate class or any DEPTH_ERROR). A full plan
+Depth: light (runtime lines <= 50), standard (above 50), full (gate class or any DEPTH_ERROR). NEXT: full, scoped
+(a full pass on the range: fix-check, Red Team, native adversarial), fix-check, stop or done. A full plan
 from an error exits 0; exit 1 means no plan could be built (git could not list the diff).
 ${exitTableHelp()}`;
 
 const args = process.argv.slice(2);
-const flag = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-const has = (n: string) => args.includes(n);
-const list = (n: string) => (flag(n) ?? '').split(',').map(s => s.trim()).filter(Boolean);
-const git = (a: string[]) => { const r = spawnSync('git', ['-c', 'core.quotePath=false', ...a], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
+const { flag, has } = flagReader(args);
 
 function main(): number {
   if (has('--help') || has('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
@@ -68,52 +51,22 @@ function main(): number {
     process.stdout.write(renderFixCheckPrompt({ fixList, touchedHunks, testResults, callers }));
     return EXIT.ok;
   }
-  const base = flag('--base');
-  if (!base) { process.stderr.write(`gstack-review-plan: --base <ref> is required\n${HELP}\n`); return EXIT.usage; }
-  const last = (flag('--last') ?? 'none') as History['last'];
-  if (!['none', 'full', 'fix-check'].includes(last)) { process.stderr.write('gstack-review-plan: --last must be none, full or fix-check\n'); return EXIT.usage; }
-  const pass = Number(flag('--pass') ?? '0');
-  if (!Number.isInteger(pass) || pass < 0) { process.stderr.write('gstack-review-plan: --pass needs an integer >= 0\n'); return EXIT.usage; }
-  const floor = flag('--depth-floor') as Depth | undefined;
-  if (has('--depth-floor') && floor !== 'standard' && floor !== 'full') { process.stderr.write('gstack-review-plan: --depth-floor must be standard or full (a floor only raises the depth)\n'); return EXIT.usage; }
-  const root = git(['rev-parse', '--show-toplevel'])?.trim();
-  if (!root) { process.stderr.write('gstack-review-plan: run it inside a git checkout\n'); return EXIT.fail; }
-  process.chdir(root);
-  const collected = collectLive(root, base);
-  if (collected.errors.length) {
-    for (const e of collected.errors) process.stderr.write(`gstack-review-plan: git could not list the diff (${e.input}: ${e.detail}); fix: ${e.repair}; no plan is safer than a plan for an empty diff\n`);
-    return EXIT.fail;
-  }
-  const head = git(['rev-parse', 'HEAD'])?.trim() ?? 'unknown';
-  const binDir = path.dirname(Bun.fileURLToPath(import.meta.url));
-  const scopeRun = runScriptSync(path.join(binDir, 'gstack-diff-scope'), [base], { encoding: 'utf8', timeout: 60_000 });
-  const scope: Record<string, string> = {};
-  for (const l of (scopeRun.stdout ?? '').split('\n')) { const m = /^(SCOPE_[A-Z_]+)=(.*)$/.exec(l); if (m) scope[m[1]!] = m[2]!; }
-  if (scopeRun.status !== 0 && !scope.SCOPE_ERROR) scope.SCOPE_ERROR = `exit ${scopeRun.status}`;
-  let gateTagged: number | null = null;
-  if (flag('--gate-tagged') !== undefined) gateTagged = Number(flag('--gate-tagged'));
-  else {
-    const g = runScriptSync(path.join(binDir, 'gstack-gate-diff'), [base], { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
-    const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
-    gateTagged = g.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
-  }
-  if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
-  const force = flag('--force') === 'all' ? 'all' as const : list('--force');
-  const tiersSetting = runScriptSync(path.join(binDir, 'gstack-config'), ['get', 'review_effort_tiers'], { encoding: 'utf8', timeout: 15_000 });
-  const auditEffort = has('--no-tiers') || (tiersSetting.stdout ?? '').trim() === 'off' ? 'host' : 'light';
-  const { added, diffLines, paths, deleted, stampOnly, perPath, registry } = collected;
-  const plan = planReview({
-    ...collected, scope, gateTagged, numbers: scanNumbers(added), force, gated: list('--gated'), floor,
-    criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
-    history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below'), blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') },
-  });
+  const flags = parsePlanFlags(args, 'gstack-review-plan');
+  if ('usage' in flags) { process.stderr.write(`${flags.usage}\n${flag('--base') ? '' : `${HELP}\n`}`); return EXIT.usage; }
+  const live = livePlan(flags, path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-plan');
+  if ('errors' in live) { process.stderr.write(live.errors.map(e => e + '\n').join('')); return EXIT.fail; }
+  const { plan, collected, head, gateTagged, auditEffort, scope, fixRange } = live;
+  const { pass, floor } = flags;
+  const { diffLines, paths, deleted, stampOnly, perPath, registry } = collected;
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
-    process.stdout.write(JSON.stringify({ ...rest, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly }) + '\n');
+    process.stdout.write(JSON.stringify({ ...rest, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly }) + '\n');
     return EXIT.ok;
   }
-  const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`, reviewPlanLine(plan, pass + (plan.next.step === 'full' ? 1 : 0)), `NEXT: ${plan.next.step} (${plan.next.reason})`];
+  const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`];
+  if (fixRange) out.push(`FIX_RANGE: ${fixRange.runtime_lines === null ? `unread (${fixRange.error})` : `runtime_lines=${fixRange.runtime_lines}`} base=${fixRange.base}`);
+  out.push(reviewPlanLine(plan, planPass(plan, pass)), `NEXT: ${plan.next.step} (${plan.next.reason})`);
   for (const e of plan.errors) out.push(`DEPTH_ERROR: ${e.code} input=${e.input} detail=${e.detail}; fix: ${e.repair}${e.result ? ` (${e.result})` : ''}`);
   for (const d of plan.dispatches) {
     const key = d.name.split(' ')[0];

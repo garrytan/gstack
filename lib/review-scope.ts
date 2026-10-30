@@ -13,6 +13,7 @@
  *
  * Pure functions here; bin/gstack-review-scope runs git and gh.
  */
+import { SPECIALISTS } from './review-depth';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
 export type Kind = 'defect' | 'test-gap' | 'advisory';
@@ -30,7 +31,22 @@ export interface ScopeFinding {
   cause?: { path?: string; line?: number };
   [key: string]: unknown;
 }
-export interface ScopedFinding extends ScopeFinding { locus: Locus; kind: Kind; blocking: boolean; scope: ScopeAction }
+export interface ScopedFinding extends ScopeFinding { locus: Locus; kind: Kind; blocking: boolean; scope: ScopeAction; raised_by?: string }
+
+/** Who can raise a finding: the core checklist, QA probes, a specialist by name and the review-depth roles; anything else is `unknown`. */
+const RAISERS: readonly string[] = ['core', 'qa', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', ...SPECIALISTS];
+const RAISER_ALIASES: Record<string, string> = { adversarial: 'adversarial-native' };
+
+/** The reviewer that raised a finding, for attributing passes later (GSTA-152 D6): its `raised_by` when known, else its `specialist` tag, else `unknown`. */
+export function raisedBy(finding: ScopeFinding): string {
+  for (const v of [finding.raised_by, finding.specialist]) {
+    if (typeof v !== 'string') continue;
+    const k = v.trim().toLowerCase().replace(/[\s_]+/g, '-');
+    const name = RAISER_ALIASES[k] ?? k;
+    if (RAISERS.includes(name)) return name;
+  }
+  return 'unknown';
+}
 
 /** Per path, the new-side line ranges a diff touched; `'whole'` for an added or untracked file. */
 export type HunkMap = Record<string, Array<[number, number]> | 'whole'>;
@@ -152,7 +168,7 @@ export function scopeFindings(findings: readonly ScopeFinding[], input: ScopeInp
     else if (locus === 'outside') scope = !blocking ? 'note' : input.policy === 'diff-plus-blocking' || !placed ? 'fix' : 'defer';
     else if (input.pass <= 1) scope = 'fix';
     else scope = blocking ? 'fix' : 'note';
-    return { ...finding, locus, kind, blocking, scope };
+    return { ...finding, locus, kind, blocking, scope, raised_by: raisedBy(finding) };
   });
 }
 

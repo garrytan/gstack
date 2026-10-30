@@ -338,6 +338,7 @@ gstack_result_anchor() {
     BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
     BUDGET_CHECK_SKIPPED) printf '%s' 'budget-check-skipped' ;;
+    REVIEW_COVERAGE_INCOMPLETE) printf '%s' 'review-coverage-incomplete' ;;
     HANDOFF_PIN_MOVED) printf '%s' 'handoff-pin-moved' ;;
     *) return 1 ;;
   esac

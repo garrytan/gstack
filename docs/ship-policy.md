@@ -920,7 +920,8 @@ construction:
    pass. `NO FINDINGS` is the expected reviewer result for a clean range, never a
    failed review.
 3. **Two full passes plus one fix-check is the cap**, stepped by the
-   [transition table](review-policy.md#transitions). A pass that applied no edits
+   [transition table](review-policy.md#transitions); a
+   [scoped pass](review-policy.md#scoped-pass) counts as a full pass. A pass that applied no edits
    continues to Step 10: the loop ships with its deferred and noted items named in
    the PR body. A blocking finding still open after the last allowed step stops
    the run and names the finding (path, severity, problem) for the owner instead

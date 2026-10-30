@@ -29,6 +29,15 @@ describe('ship-budget calibration', () => {
     }
   });
 
+  test('every meter unit has its own per-call floor: the largest round_to multiple at or below its observed fresh call, justified', () => {
+    for (const unit of ['capy-tokens', 'claude-usage-tokens', 'estimate-tokens']) {
+      const u = cal.units[unit]!;
+      expect(u.call_floor_why?.length ?? 0, unit).toBeGreaterThan(80);
+      const observed = u.call_floor_observed ?? 0;
+      expect(u.call_floor, unit).toBe(Math.floor(observed / cal.round_to) * cal.round_to);
+    }
+  });
+
   test('every meter unit resolves to constants (calibration is per meter)', () => {
     for (const unit of ['capy-tokens', 'claude-usage-tokens', 'estimate-tokens']) {
       expect(unitConstants(cal, unit).per_dispatch).toBeGreaterThan(0);

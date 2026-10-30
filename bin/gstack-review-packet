@@ -1,0 +1,149 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-review-packet — one packet file per /ship reviewer, and the parent's compact read of
+ * their results (docs/review-policy.md#reviewer-packets).
+ *
+ *   gstack-review-packet build --base <ref> --out-dir <dir> [--range <sha>] [--plan-file <path>] [--only a,b]
+ *                              [--findings <merged.jsonl>] [--fix-list <f> --tests <f> [--callers <f>]] [plan flags]
+ *   gstack-review-packet build --audit test-coverage|plan-completion --base <ref> --out-dir <dir> [--plan-file <path>]
+ *                              [--context <file>] [--generation allowed|audit-only] [--passes-used <n>]
+ *   gstack-review-packet collect --dir <dir>
+ *
+ * build runs the plan gstack-review-plan prints (lib/review-plan-live.ts, same flags) and writes
+ * one packet per DISPATCH line; collect reads every packet's output file. Logic: lib/review-packet.ts,
+ * lib/review-packet-collect.ts.
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { runScriptSync } from '../lib/script-invocation';
+import { reviewPlanLine } from '../lib/review-depth';
+import { flagReader, livePlan, parsePlanFlags, planPass, PLAN_FLAGS_HELP } from '../lib/review-plan-live';
+import { AUDITS, auditDraft, budgetRole, contentKey, draftFor, packetLine, PACKET_CAP_BYTES, READ_CHUNK_BYTES, readManifest, writeManifest, writePackets, type AuditName, type BuildContext, type PacketEntry } from '../lib/review-packet';
+import { resolveBaseRef } from '../lib/review-collect';
+import { collect } from '../lib/review-packet-collect';
+
+const BIN = 'gstack-review-packet';
+const HELP = `${BIN} — one packet file per /ship reviewer; collect reads their results (docs/review-policy.md#reviewer-packets)
+
+  build --base <ref> --out-dir <dir>   write one packet per DISPATCH line of the plan gstack-review-plan prints
+    --range <sha>                      the diff base from pass 2 on (RANGE_BASE; fix-check: PASS_HEAD); default the merge base
+    --plan-file <path>                 add at most 8 KB of the plan to each packet (the plan-completion audit gets it whole)
+    --only a,b                         only these reviewers (names or roles: adversarial, outside-voice, red-team, ...)
+    --findings <merged.jsonl>          collect's merged findings: builds the red-team packet (deferred without it)
+    --fix-list <f> --tests <f> [--callers <f>]  the fix-check packet's inputs (its hunks are the --range diff)
+    --audit test-coverage|plan-completion  the Step 7/8 audit packet instead of the plan's reviewers
+    --context <file> --generation allowed|audit-only --passes-used <n>  the audit's parent-supplied inputs
+  plan flags (same as gstack-review-plan):
+${PLAN_FLAGS_HELP}
+  collect --dir <dir>                  read every packet's output: one REVIEWER: line each, every CRITICAL on one
+                                       line, INFORMATIONAL counts; writes merged.jsonl and informational.md in <dir>
+
+build prints PACKET: <role> <name> effort=<e> bytes=<n> tokens~=<n/4> budget_role=<r> read=<from-to,...> file=<path> out=<path>
+per packet (a reviewer past ${PACKET_CAP_BYTES} bytes is sharded by path as <name>.1ofK, never truncated; read= are the line
+ranges, each under ${READ_CHUNK_BYTES} bytes, a reviewer reads in parallel), PACKETS: n=<k> total_bytes=<n> fingerprint=<plan fingerprint>
+and BUDGET_NEXT: dispatch:<one budget_role per packet> for gstack-ship-budget check --next. collect exits 3 with
+REVIEW_COVERAGE_INCOMPLETE when any packet's output is missing or unusable.
+${exitTableHelp()}`;
+
+const args = process.argv.slice(2);
+const { flag, has, list } = flagReader(args);
+const fail = (msg: string, code: number = EXIT.usage) => { process.stderr.write(`${BIN}: ${msg}\n`); return code; };
+const readFlag = (n: string): string | null | undefined => { const f = flag(n); if (f === undefined) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
+
+function learningsFor(binDir: string) {
+  return (domain: string): string => {
+    const r = runScriptSync(path.join(binDir, 'gstack-learnings-search'), ['--type', 'pitfall', '--query', domain, '--limit', '5'], { encoding: 'utf8', timeout: 20_000 });
+    if (r.status !== 0) return 'unavailable';
+    return Buffer.from((r.stdout ?? '').trim()).subarray(0, 2048).toString('utf8');
+  };
+}
+
+function build(): number {
+  const outDir = flag('--out-dir');
+  if (!outDir) return fail('build needs --out-dir <dir>');
+  const audit = flag('--audit') as AuditName | undefined;
+  if (has('--audit') && !AUDITS.includes(audit as AuditName)) return fail(`--audit must be ${AUDITS.join(' or ')}`);
+  const flags = parsePlanFlags(args, BIN);
+  if ('usage' in flags) return fail(flags.usage.replace(`${BIN}: `, ''));
+  const planText = readFlag('--plan-file');
+  if (planText === null) return fail(`--plan-file ${flag('--plan-file')} is not readable`);
+  const binDir = path.dirname(Bun.fileURLToPath(import.meta.url));
+  const absOut = path.resolve(outDir);
+  const live = livePlan(flags, binDir, BIN);
+  if ('errors' in live) { process.stderr.write(live.errors.map(e => e + '\n').join('')); return EXIT.fail; }
+  const { plan, collected, head, root } = live;
+  const range = flag('--range');
+  if (range !== undefined && spawnSync('git', ['rev-parse', '--verify', '-q', `${range}^{commit}`], { cwd: root, encoding: 'utf8', timeout: 15_000 }).status !== 0) return fail(`--range ${range} is not a commit`);
+  const diffBase = range ?? collected.mergeBase!;
+  fs.mkdirSync(absOut, { recursive: true, mode: 0o700 });
+  const ctx: BuildContext = { root, skillRoot: path.resolve(binDir, '..'), binDir, outDir: absOut, head, diffBase, baseRef: resolveBaseRef(root, flags.base), fingerprint: plan.numbers.fingerprint, learnings: learningsFor(binDir),
+    ...(planText !== undefined ? { plan: { path: flag('--plan-file')!, text: planText } } : {}) };
+  const content = contentKey(ctx);
+  const old = has('--findings') ? readManifest(absOut) : null;
+  const stale = old && ([['head', head], ['diff_base', diffBase], ['content', content]] as const).find(([k, v]) => old[k] !== v)?.[0];
+  if (stale) { process.stdout.write(`STALE_MANIFEST: ${stale} changed since the build in ${outDir} that produced --findings; the Red Team would review another tree than the specialists. Rebuild that pass's packets first.\n`); return EXIT.refused; }
+  const out: string[] = [];
+  let entries: PacketEntry[] = [];
+  if (audit) {
+    const context = readFlag('--context');
+    if (context === null) return fail(`--context ${flag('--context')} is not readable`);
+    if (audit === 'plan-completion' && planText === undefined) return fail('--audit plan-completion needs --plan-file <the bound plan>');
+    let draft = auditDraft(audit, { ...ctx, ...(context ? { context } : {}) }, flags.base, live.auditEffort);
+    const gen = flag('--generation'), used = flag('--passes-used');
+    if (gen || used) draft = { ...draft, head: draft.head.map(s => s.replace('<allowed|audit-only>', gen ?? '<allowed|audit-only>').replace('passes used: <N>', `passes used: ${used ?? '<N>'}`)) };
+    entries = writePackets(draft, ctx);
+  } else {
+    const only = list('--only');
+    const wanted = (role: string, key: string) => !only.length || only.includes(key) || only.includes(role);
+    const findingsText = readFlag('--findings');
+    if (findingsText === null) return fail(`--findings ${flag('--findings')} is not readable`);
+    for (const d of plan.dispatches) {
+      const key = d.name.split(' ')[0]!;
+      if (!wanted(d.role, key)) continue;
+      if (d.role === 'red-team' && findingsText === undefined) {
+        out.push(`PACKET_DEFERRED: red-team (after collect: build --only red-team --findings ${path.join(outDir, 'merged.jsonl')} with these flags)`);
+        entries.push({ role: 'red-team', name: 'red-team', reviewer: 'red-team', effort: d.effort, file: '', out: '', bytes: 0, checklists: ['red-team'], fixtures: 'summary', shard: null, deferred: true });
+        continue;
+      }
+      let dctx = ctx;
+      if (d.role === 'red-team') {
+        const findings = findingsText!.split('\n').filter(Boolean).flatMap(l => { try { const f = JSON.parse(l); return [`[${f.severity}] ${f.path}${f.line ? `:${f.line}` : ''} (${(f.sources ?? [f.specialist]).join(' + ')}) ${String(f.summary).replace(/\s+/g, ' ')}`.slice(0, 300)]; } catch { return []; } });
+        const specialists = new Set((readManifest(absOut)?.packets ?? []).filter(p => p.role === 'specialist').map(p => p.reviewer)).size;
+        dctx = { ...ctx, findings, specialists };
+      }
+      if (d.role === 'fix-check') {
+        const [fixList, tests, callers] = [readFlag('--fix-list'), readFlag('--tests'), readFlag('--callers')];
+        if (!fixList || !tests || callers === null) return fail('the plan dispatches fix-check: pass readable --fix-list and --tests files (--callers optional)');
+        dctx = { ...ctx, fixCheck: { fixList, tests, callers: callers ?? '' } };
+      }
+      entries.push(...writePackets(draftFor(d, dctx), dctx));
+    }
+    out.unshift(reviewPlanLine(plan, planPass(plan, flags.pass)));
+  }
+  writeManifest(absOut, { version: 1, head, diff_base: diffBase, fingerprint: plan.numbers.fingerprint, content }, entries, has('--only'));
+  const built = entries.filter(e => !e.deferred);
+  out.push(...built.map(packetLine), `PACKETS: n=${built.length} total_bytes=${built.reduce((n, e) => n + e.bytes, 0)} fingerprint=${plan.numbers.fingerprint}`);
+  if (built.length) out.push(`BUDGET_NEXT: dispatch:${built.map(e => budgetRole(e.role)).join(',')}`);
+  process.stdout.write(out.join('\n') + '\n');
+  return EXIT.ok;
+}
+
+function collectCmd(): number {
+  const dir = flag('--dir');
+  if (!dir) return fail('collect needs --dir <dir>');
+  const r = collect(path.resolve(dir));
+  if ('error' in r) return fail(r.error, EXIT.fail);
+  process.stdout.write(r.lines.join('\n') + '\n');
+  return r.complete ? EXIT.ok : EXIT.refused;
+}
+
+function main(): number {
+  if (has('--help') || has('-h') || !args.length) { process.stdout.write(HELP + '\n'); return args.length ? EXIT.ok : EXIT.usage; }
+  if (args[0] === 'build') return build();
+  if (args[0] === 'collect') return collectCmd();
+  return fail(`unknown command ${args[0]}; run ${BIN} --help`);
+}
+
+process.exit(main());
