@@ -157,6 +157,7 @@
     { "file": "lib/autoplan-scope.ts", "movedFrom": "(new: UI evidence from rendered surfaces and the plan scope marker, shared by the runner and the snapshot tool, field wave B2c)" },
     { "file": "lib/source-root.ts", "movedFrom": "(new: the source checkout behind an install root, from its recorded .source-path, field wave B2e)" },
     { "file": "scripts/resolvers/autoplan-driver.ts", "movedFrom": "(new: renders autoplan/DRIVER.md from the runner's constants, field wave B2e)" },
+    { "file": "scripts/resolvers/ship-driver.ts", "movedFrom": "(new: renders ship/DRIVER.md's STOP-to-heading list, GSTA-167 PR 5)" },
     { "file": "lib/script-invocation.ts", "movedFrom": "(new: the one Windows bash resolver, shebang-bin invocation and wtreeFingerprint, from spawn-bin.ts and gbrain-exec.ts, #3197)" },
     { "file": "lib/autoplan-budget.ts", "movedFrom": "(new: round cap, default host estimate, budget_exhausted stop and the budget verb, field list 2 W5)" },
     { "file": "lib/autoplan-confirm.ts", "movedFrom": "(new: confirm-round plan delta, revision-qualified correlation and settled findings, field list 2 W5)" },
