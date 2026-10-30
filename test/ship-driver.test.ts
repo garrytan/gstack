@@ -187,6 +187,14 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     for (const text of [doc, capy]) expect(text).not.toMatch(/\b270 ?s\b/);
   });
 
+  // Value: protects=a reader counts as settled only once it has run (status done or failed, or a final summary), in the driver, the Capy skill and the budget section, so a poll never closes a batch on a subagent that was just created; fails_when=the settled rule is dropped or lets a bare idle status through (replay 7e #36: the Red Team reservation settled actual=0 because a just-created subagent read idle);
+  //   why_new=replay 7e; seam=none; no_claim=the host's status semantics beyond done, failed, idle and summary
+  test('a poll settles a reader only at done, failed or a summary, never on a fresh idle', () => {
+    expect(flat(doc)).toContain('(5) a poll until every reader settles (status `done` or `failed`, or a final summary; a fresh `idle` has not run)');
+    expect(read('capy/skill/gstack/SKILL.md')).toContain('a reader is settled only at status `done` or `failed` or with a `summary` (a just-created `idle` reader has not run)');
+    expect(flat(read('ship/sections/budget-handoff.md.tmpl'))).toContain('the wait until the last settles (`done`, `failed` or a final summary; a fresh `idle` has not run)');
+  });
+
   // Value: protects=audits that cannot block (Steps 7, 8, 9.2.1, 14.5) run on a small model at low effort with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
   //   why_new=audit model routing is new; seam=none; no_claim=the audits' recall
   test('audit readers run on a small model at low effort, named for Capy, and Phase 3 dispatches only what READER names', () => {

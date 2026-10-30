@@ -46,7 +46,8 @@ waiting child saves nothing: the parent's cache expires during its wait too. Pas
 parent makes no other call while it runs: (1) `gstack-review-plan --base <base>` with the pass's
 flags (its `DISPATCH:` lines; Step 14.5 has one reader, `docs`); (2) `gstack-review-log --start
 <skill>` once per row the step logs (Step 14.5 takes none); (3) `BEFORE`; (4) one subagent per reader;
-(5) a poll until every reader settles; (6) `note` with the reading pair; a later batch (the Red Team,
+(5) a poll until every reader settles (status `done` or `failed`, or a final summary; a fresh `idle`
+has not run); (6) `note` with the reading pair; a later batch (the Red Team,
 given the specialists' collected lines) repeats (3)-(6); (7) the collect: return only each reader's
 final output and status. The next call applies the section's merge, judgment, fixes and persistence;
 it never walks the dispatch steps call by call.

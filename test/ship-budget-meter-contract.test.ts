@@ -83,6 +83,25 @@ describe('the Capy meter is the agent\'s own jam counter', () => {
     expect(budget).toContain('On Capy pass no --reading or --credits: the parent charges child_used from its own counter around your work');
   });
 
+  // Value: protects=a child's return settles its open step reservation, so no step reservation stays open in the child ledger after it hands back; fails_when=return leaves the last step's reservation open (replay 7e #36: return left the Step 17 reservation r8, 742,152 tokens, open);
+  //   why_new=replay 7e; seam=none; no_claim=the settled amount's accuracy
+  test('return settles the child\'s open Step 17 reservation', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--token-cap', '400M', '--reading', '1000000']);
+    const ho = h.sb(['handoff', '--run', h.field(s.out, 'BUDGET_RUN', 'id'), '--from', '12', '--to', '22', '--base', 'origin/main', '--reading', '1500000']);
+    const v = h.sb(['verify-handoff', '--in', ho.out.match(/^HANDOFF: (\S+) /m)![1]!, '--reading', '200000']);
+    expect(v.code, v.out + v.err).toBe(0);
+    const child = h.field(v.out, 'BUDGET_RUN', 'id');
+    const c = h.sb(['check', '--run', child, '--step', '16', '--next', '17', '--reading', '900000']);
+    expect(c.code, c.out + c.err).toBe(0);
+    const id = h.field(c.out, 'RESERVATION', 'id');
+    const ret = h.sb(['return', '--run', child, '--to', '22', '--reading', '1600000']);
+    expect(ret.code, ret.out + ret.err).toBe(0);
+    const ledger = h.ledger(h.field(v.out, 'BUDGET_RUN', 'ledger'));
+    expect(ledger.reservations.find((r: any) => r.id === id).state).toBe('settled');
+    expect(ledger.reservations.filter((r: any) => r.state === 'open')).toEqual([]);
+  });
+
   // Value: protects=a Capy child with no jam id of its own verifies, checks, returns and is reconciled from the parent's counter delta; fails_when=verify-handoff or a child check refuses with BUDGET_READING_MISSING, an unknown charge delegates the child onward, or reconcile charges the child's own BUDGET used=0 instead of the parent's delta;
   //   why_new=replay 7e #36 (handoffs/GSTA-167/replay7e-36.md); seam=none; no_claim=that the parent's counter excludes its own pings
   test('a child handoff passes verify-handoff with no jam id of its own and the parent measures it', () => {

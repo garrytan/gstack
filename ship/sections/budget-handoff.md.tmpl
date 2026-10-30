@@ -34,7 +34,8 @@ after they settle; `close` flags roles never re-checked. `--finish` settles the 
 the same order): `gstack-review-plan` (its `DISPATCH:` lines), `check --step <n> --next dispatch:<roles>`,
 `gstack-review-log --start <skill> --reservation <id>` once per
 row the step logs, the reading `BEFORE`, the readers exactly as the step dispatches them (their
-prompts unchanged), the wait until the last settles, the reading `AFTER`, `gstack-ship-budget settle`;
+prompts unchanged), the wait until the last settles (`done`, `failed` or a final summary; a fresh `idle`
+has not run), the reading `AFTER`, `gstack-ship-budget settle`;
 a later batch of the same pass (the Red Team or an ADMIT remainder) takes no start and repeats the
 rest (`--finish` settles it); last the collect, returning only the readers' final outputs. Step 11's
 voices and Step 14.5's audit (`dispatch:docs`, no start) are one program each.

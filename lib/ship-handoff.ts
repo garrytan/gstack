@@ -26,7 +26,7 @@ import { wtreeFingerprint } from './script-invocation';
 import { resultLine } from './result-codes';
 import {
   MAX_CHAIN_DEPTH, SHIP_STEPS, budgetError, budgetLine, ledgerFileFor, loadCalibration, mintRunId, mutateLedger, parseStep, pointMarker,
-  projector, readLedger, reserveIn, runDirFor, segmentEstimate, tally, usageError, writeLedger, type Handoff, type Ledger,
+  projector, readLedger, reserveIn, runDirFor, segmentEstimate, settleIn, tally, usageError, writeLedger, type Handoff, type Ledger,
 } from './ship-budget';
 import { loadMeterState, saveMeterState } from './claude-usage';
 import { parseArgs, readMeter, stopLines, str, tokensOpt, writeReturnFile, type Ctx, type Outcome } from './ship-budget-cli';
@@ -218,6 +218,7 @@ export function cmdReturn(argv: string[], ctx: Ctx): Outcome {
   return mutateLedger(ledgerFileFor({ run: str(o, 'run') }, ctx.env), ctx.env, l => {
     if (l.role !== 'child' || !l.parent) throw usageError(`run ${l.run} is not a child run`);
     readMeter(l, o, false);
+    for (const r of l.reservations) if (r.kind === 'step' && r.state === 'open') settleIn(l, r);
     const head = git(ctx.cwd, ['rev-parse', 'HEAD']);
     const tree = pinsNow(ctx.cwd, 'HEAD', ctx.env).wtree;
     const accepted = new Set((l as any).accepted_skips as string[] | undefined ?? []);
