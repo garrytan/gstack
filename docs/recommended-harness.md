@@ -284,22 +284,23 @@ the gap next to the number.
 
 ### Where gstack's own numbers stand
 
-Measured on gstack's repository with this tool for 2026-10-19 to 2026-10-26
-(the first full week of trains and `/ship`-before-READY; 103 merged PRs, 77
-gate runs, artifacts read for the newest 60):
+Measured on gstack's repository with this tool for the week of 2026-10-19
+through 2026-10-25, UTC (`--now 2026-10-26T00:00:00Z --since-days 7`; the first
+full week of trains and `/ship`-before-READY; 83 merged PRs, 54 gate runs,
+artifacts read for all 54):
 
 | Line | gstack, that week | Against the bar |
 |---|---|---|
-| Merged PRs | 103 (crew 100, outside 3) | volume is there; outside contributions are few and are ported by the crew rather than merged from forks |
-| Lead time, created → merged | median 7.9h, p90 23.7h | inside the bar on both |
-| Lead time, READY → merged | no number: 0 of 103 PRs had a READY comment | the crew reports READY in-thread; step 6 above (post it on the PR) is what makes this measurable |
-| Review passes per PR | no number: 0 of 103 PRs carried a pass count | the receipt's `passes` field lands with /ship's convergence rule; until then crews record the count in the READY block, and the marker reads it from a PR comment |
-| Gate runs | 73 green / 4 red / 0 cancelled; known cost $1,628 on 59 of 77 runs | green rate 95%; cost unknown on 18 runs (screens that planned no cases, and runs older than the artifact cap) |
-| Known gate cost per merged PR | $15.81 (a floor) | about $24 per train of up to 5 PRs, plus screens; one gate per PR would have been about $33 each |
-| Red-train rate | 4% (1 red of 28 trains; 0 red backstop, 3 red screens) | inside the bar; the three red screens were one judge reading a moved file |
-| Flaky events | 21 paid cases passed on their one rerun (rerun spend $10.72); 17 free-suite retries in 17 of 103 runs | above the bar on both: 0.27 flaky cases per gate against 0.1, and 17% of free runs retried against 1%. One family (`ship-docsync-*`) repeated three times in two days |
-| Issues opened / closed | 50 / 56 | inside the bar |
-| Releases cut | 1 (the first weekly release) | on schedule, with the starvation caveat above |
+| Merged PRs | 83 (crew 80, outside 3) | volume is there; the 3 outside PRs are bot PRs (2 from github-actions, 1 from dependabot), and outside contributions are ported by the crew rather than merged from forks |
+| Lead time, created to merged | median 6.5h, p90 20.0h | inside the bar on both |
+| Lead time, READY to merged | no number: 0 of 83 PRs had a READY comment | the crew reports READY in-thread; step 6 above (post it on the PR) is what makes this measurable |
+| Review passes per PR | no number: 0 of 83 PRs carried a pass count | the receipt's `passes` field lands with /ship's convergence rule; until then crews record the count in the READY block, and the marker reads it from a PR comment |
+| Gate runs | 52 green / 2 red / 0 cancelled; known cost $1,361.94 on 52 of 54 runs | green rate 96%; cost unknown only on the 2 red runs (the red train and the red screen) |
+| Known gate cost per merged PR | $16.41 (a floor) | trains averaged $32.48 each for up to 5 PRs (21 trains with a known cost), screens $21.18 each (29 with a known cost) |
+| Red-train rate | 5% (1 red of 22 trains; 0 red backstop, 1 red screen) | 1 of 22 is 4.5%, just under the bar |
+| Flaky events | 17 paid cases passed on their one rerun (rerun spend $7.20); 17 free-suite retries in 17 of 83 runs | above the bar on both: 0.31 flaky cases per gate against 0.1, and 20% of free runs retried against 1%. One case (`ship-docsync-current`) did it four times in three days |
+| Issues opened / closed | 28 / 51 | inside the bar |
+| Releases cut | 0 | none inside the week: the first weekly release, v1.91.242.0, was published at 12:01 UTC on 2026-10-26, just after the window closed (see the starvation caveat above) |
 
 Read the gap honestly: lead time and throughput are where they should be, the
 gate is green and its cost is mostly known, and flakiness is the line that is

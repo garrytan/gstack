@@ -124,6 +124,40 @@ describe('factory-scorecard: recorded window', () => {
     expect(values.merged).toBe('3 (crew 2, outside 1)');
   });
 
+  test('--now closes the window: a PR, gate run, free run or release at or after now is left out, and the runs and issue queries carry the end', () => {
+    // Value: protects=every windowed line counts [now - since-days, now) only, so a past window reproduces after the fact; fails_when=a read filters on the window start alone or a query drops the end bound; why_new=GST-135: --now 2026-10-15 counted 284 merged PRs (every merge through the run date) against 65 in the window, and the gate and release lines ignored --now; seam=none; no_claim=GitHub's server-side date filters, which the reads re-check per item
+    const fx = fixture();
+    const key = (part: string) => Object.keys(fx.responses).find(k => k.includes(part))!;
+    (fx.responses[key('/pulls?')] as any[]).unshift({ number: 106, title: 'merged at the window end', user: { login: 'garry' }, author_association: 'OWNER',
+      created_at: '2026-10-26T10:00:00Z', merged_at: '2026-10-26T12:00:00Z', updated_at: '2026-10-26T13:00:00Z', base: { ref: 'main' } });
+    fx.responses['repos/acme/widgets/issues/106/comments?per_page=100&page=1'] = [];
+    const gateRuns = fx.responses[key('/evals.yml/runs?')] as { workflow_runs: any[] };
+    gateRuns.workflow_runs.unshift({ ...gateRuns.workflow_runs.find(r => r.id === 9002), id: 9007, conclusion: 'success', created_at: '2026-10-26T12:30:00Z' });
+    const freeRuns = fx.responses[key('/free-tests.yml/runs?')] as { workflow_runs: any[] };
+    freeRuns.workflow_runs.unshift({ ...freeRuns.workflow_runs[0], id: 8004, created_at: '2026-10-26T13:00:00Z' });
+    (fx.responses[key('/releases?')] as any[]).unshift({ tag_name: 'v1.2.0', draft: false, prerelease: false, published_at: '2026-10-26T12:00:00Z' });
+    const source = fixtureSource(fx, scratch());
+    const card = collectScorecard(source, options());
+    expect(card.unavailable).toEqual([]);
+    expect(card.prs.map(p => p.number)).toEqual([101, 103, 102]);
+    expect(card.gates.map(g => g.id)).toEqual([9004, 9003, 9002, 9001]);
+    expect(card.freeRuns.map(r => r.id)).toEqual([8003, 8002, 8001]);
+    expect(card.releases.map(r => r.tag)).toEqual(['v1.0.0']);
+    const values = byId(scorecardRows(card));
+    expect(values.merged).toBe('3 (crew 2, outside 1)');
+    expect(values.lead_time).toBe('median 8.0h, p90 5.0d');
+    expect(values.gates).toBe('2 / 1 / 1; known cost $43.00 on 2 of 4 runs');
+    expect(values.releases).toBe('1 (v1.0.0)');
+    for (const workflow of ['/evals.yml/runs?', '/free-tests.yml/runs?']) {
+      expect(decodeURIComponent(source.calls.find(c => c.includes(workflow))!)).toContain('created=2026-10-19..2026-10-26');
+    }
+    const searches = source.calls.filter(c => c.startsWith('search/issues')).map(decodeURIComponent);
+    expect(searches).toEqual([
+      'search/issues?q=repo:acme/widgets is:issue created:2026-10-19T12:00:00Z..2026-10-26T11:59:59Z&per_page=1',
+      'search/issues?q=repo:acme/widgets is:issue closed:2026-10-19T12:00:00Z..2026-10-26T11:59:59Z&per_page=1',
+    ]);
+  });
+
   test('--max-artifact-runs caps artifact reads: later runs count without cost or flake data', () => {
     const card = collectScorecard(fixtureSource(fixture(), scratch()), options({ maxArtifactRuns: 2 }));
     expect(card.artifactRunsRead).toBe(2);

@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+**`gstack-factory-scorecard --now` now ends the window, so a past week reports that week's numbers.** Every line counts only what happened in `[now - since-days, now)`. Before, `--now` moved only the start, so `--now 2026-10-15T00:00:00Z --since-days 14` counted 290 merged PRs (every merge from 2026-10-01 through the day of the run) where the window holds 65, and the gate-run and release lines also counted through the day of the run. Rerun with the fix, the two weeks before 2026-10-15 show 65 merged PRs and the two weeks before 2026-10-29 show 197, matching GitHub search for both windows.
+
+### Fixed
+- **`lib/factory-scorecard.ts`**: one window (`scoreWindow`, `inWindow`) bounds merged PRs and their lead times, gate runs and their cost, the red-train rate, flaky events, free-suite retries, issues and releases. The workflow-runs query asks GitHub for the window's days (`created=<start>..<end>`), and the issue searches use a closed time range instead of `>=start`.
+- **`scripts/lib/ci-history.ts`**: `listWorkflowRuns` takes an optional `until` (exclusive) and `createdFilter` builds the runs API's `created` query for both callers.
+- **`docs/recommended-harness.md`**: "Where gstack's own numbers stand" is remeasured for the exact week of 2026-10-19 through 2026-10-25 UTC: 83 merged PRs (not 103), median lead time 6.5h, 54 gate runs (52 green, 2 red), $1,361.94 of known gate cost, 0 releases. The earlier figures counted through midday on 2026-10-26.
+
+### Tests
+- `test/factory-scorecard.test.ts`: a PR merged exactly at `--now`, and a gate run, free run and release after it, are left out; the runs and issue queries carry the window's end.
+
 ## [1.91.327.0] - 2026-10-30
 
 **A new page shows how gstack and Capy run as a software factory, with measured numbers.** `capy/README.md` explains how Capy Captains, their crews and gstack's skills fit together, from the plan-first approval loop and `/ship` before READY to merge trains, fix waves, the daily flaky pass and peer Captains. It compares the 14 days after 2026-10-15 with the 14 days before: 197 PRs merged to gstack's main against 65, and 194 versions shipped against 62. It also says what those numbers leave out. The median PR shrank from 1,292 changed lines to 422, and the median time from opening a PR to merging it grew from 1.1 hours to 5.6, because trains batch merges. A footnote gives the windows and the method behind every figure, and the page ends with tips and how Garry uses the setup day to day.
