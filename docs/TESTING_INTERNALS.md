@@ -1002,8 +1002,10 @@ The runner is also the `/ubicloud` skill's engine (`bin/gstack-ubi` execs it).
 A generated name ends in `-t<hours>` (`UBI_TTL_HOURS`, 1-999, default 3; pregate-remote.sh
 uses its stop deadline plus 15 minutes, rounded up: `-t1` today), the creator's own statement of how long the VM may live: `reap`
 destroys every VM in the project whose TTL ended more than ten minutes ago,
-whichever owner made it, and every `ubirun-*` name without a TTL (older runner
-copies) once it is `UBI_LEGACY_HOURS` old (default 4); every `up` runs it
+whichever owner made it, and the caller's own `ubirun-<UBI_OWNER>-*` names
+without a TTL (older runner copies) once they are `UBI_LEGACY_HOURS` old
+(default 4). Another owner's TTL-less VM and an untagged one are never reaped,
+because only a TTL lets reap judge another lane's VM. Every `up` runs it
 first (`UBI_REAP=0` skips it). Names outside the `ubirun-` prefix are never reaped. The
 quota preflight adds the size's vCPUs to the project's running VMs and refuses
 before the create request when that exceeds the known ceiling

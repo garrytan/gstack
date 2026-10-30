@@ -146,8 +146,9 @@ A VM in `records` but absent from `list` is already gone: `$U down <name>`
 forgets it. A VM in the project under another owner is theirs; leave it (its
 TTL will reap it). Every `up` runs `$U reap` first, destroying any VM whose
 `-t<hours>` TTL ended more than ten minutes ago, whichever owner made it, and
-any `ubirun-*` name with no TTL once it is `UBI_LEGACY_HOURS` old (default 4);
-names outside the `ubirun-` prefix are never reaped.
+this owner's own `ubirun-<UBI_OWNER>-*` names with no TTL once they are
+`UBI_LEGACY_HOURS` old (default 4). Another owner's TTL-less VM, an untagged
+one and names outside the `ubirun-` prefix are never reaped.
 
 Quota: with `UBI_QUOTA_VCPUS=<project ceiling>` exported (or after one refusal,
 whose maximum the runner remembers), `up` adds the size's vCPUs to the project's

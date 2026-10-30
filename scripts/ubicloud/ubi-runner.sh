@@ -44,9 +44,9 @@
 # TTL and reaper: a name this script generates ends in -t<hours> (UBI_TTL_HOURS,
 # 1-999, default 3), the creator's own declaration of how long the VM may live.
 # `reap` destroys every VM in the project whose TTL expired more than ten
-# minutes ago, whichever owner made it, and every ubirun-* name with no TTL
-# (older runner copies, hand-built names) once it is UBI_LEGACY_HOURS old
-# (default 4); every `up` runs it first (UBI_REAP=0 skips it), so a runner
+# minutes ago, whichever owner made it, and this owner's own ubirun-<owner>-*
+# names with no TTL once they are UBI_LEGACY_HOURS old (default 4; another
+# owner's or an untagged TTL-less VM is never reaped); every `up` runs it first (UBI_REAP=0 skips it), so a runner
 # killed by a sleeping machine leaves nothing behind for longer than its TTL.
 # Names outside the ubirun- prefix are never reaped.
 #
@@ -318,8 +318,9 @@ vm_rows() {
 
 # reap: destroy every VM whose name carries a TTL that ended more than
 # REAP_GRACE seconds ago, whichever owner created it (the TTL is that owner's
-# own declaration), and every TTL-less ubirun-* name at least LEGACY_HOURS old
-# (nobody declared a lifetime for it). Names outside the prefix are never touched.
+# own declaration), and the caller's own TTL-less ubirun-<UBI_OWNER>-* names at
+# least LEGACY_HOURS old. Another owner's TTL-less VM, an untagged one, and names
+# outside the prefix are never touched: only a TTL lets reap judge another lane's VM.
 cmd_reap() {
   local now rows loc name owner expires created n=0 failed=0
   [[ "$LEGACY_HOURS" =~ ^[1-9][0-9]{0,3}$ ]] || die "UBI_LEGACY_HOURS must be a whole number of hours from 1 to 9999 with no leading zero (how old a TTL-less ubirun-* VM must be before reap destroys it)"
@@ -331,7 +332,7 @@ cmd_reap() {
       [ "$now" -ge $(( expires + REAP_GRACE )) ] || continue
       log "reaping expired $loc/$name (owner $owner; its TTL ended $(( (now - expires) / 60 )) min ago)"
     else
-      [ "$owner" != . ] && [ "$created" != - ] || continue
+      [ -n "${UBI_OWNER:-}" ] && [ "$owner" = "$OWNER" ] && [ "$created" != - ] || continue
       [ $(( now - 10#$created )) -ge $(( LEGACY_HOURS * 3600 )) ] || continue
       log "reaping TTL-less $loc/$name (owner $owner; $(( (now - 10#$created) / 3600 ))h old, legacy sweep at ${LEGACY_HOURS}h)"
     fi
@@ -805,7 +806,7 @@ cmd_run() {
   cmd_up "${up_args[@]}" >/dev/null
   if [[ "$name" =~ -t([0-9]+)$ ]]; then
     log "$name carries a ${BASH_REMATCH[1]}h TTL (any later run of this script reaps it); if this process dies first: $0 down $name"
-  elif [[ "$name" =~ ^$PREFIX-[a-z][a-z0-9]{0,11}-[0-9]{10}- ]]; then
+  elif [[ "$name" =~ ^$PREFIX-$OWNER-[0-9]{10}- ]]; then
     log "$name has no TTL (reap destroys it once it is ${LEGACY_HOURS}h old); if this process dies before its teardown line, destroy it with: $0 down $name"
   else
     log "$name has no TTL and no reapable name, so nothing reaps it; if this process dies before its teardown line, destroy it with: $0 down $name"
@@ -960,15 +961,15 @@ usage: ubi-runner.sh <command> [args]
   owner                  print this caller's owner tag ($OWNER)
   records                VMs this machine created and has not confirmed gone ($VM_RECORD)
   gc HOURS               destroy this owner's VMs older than HOURS (never other owners')
-  reap                   destroy every VM whose -t<hours> TTL has ended (any owner) and every
-                         TTL-less ubirun-* VM older than UBI_LEGACY_HOURS
+  reap                   destroy every VM whose -t<hours> TTL has ended (any owner) and this
+                         owner's TTL-less ubirun-* VMs older than UBI_LEGACY_HOURS
   cli ARGS...            raw Ubicloud CLI passthrough (e.g. cli vm list)
 
 VMs are named $PREFIX-<owner>-<epoch>-<suffix>-t<ttl hours>; up, run and verify need
 UBI_OWNER (e.g. your thread code); run and verify end with a UBICLOUD: left=<n> line.
 defaults: size=$DEFAULT_SIZE location=$DEFAULT_LOCATION (env UBI_SIZE, UBI_LOCATION)
 env: UBI_TTL_HOURS (${TTL_HOURS}h in the name, 1-999), UBI_REAP (0: up skips the reap),
-     UBI_LEGACY_HOURS (${LEGACY_HOURS}h: reap's bound for TTL-less ubirun-* names),
+     UBI_LEGACY_HOURS (${LEGACY_HOURS}h: reap's bound for this owner's TTL-less ubirun-* names),
      UBI_IDLE_TIMEOUT (${IDLE_TIMEOUT}s of silence kills the remote command, exit 124; 0 disables),
      UBI_RUN_TIMEOUT (${RUN_TIMEOUT}s wall clock; 0 unlimited), UBI_HEARTBEAT (${HEARTBEAT}s between heartbeat lines),
      UBI_QUOTA_VCPUS (project vCPU ceiling for the preflight; else the last refusal's maximum),

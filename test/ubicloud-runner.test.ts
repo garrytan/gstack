@@ -222,27 +222,31 @@ esac
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
-  test('UBI_REAP=0 skips the reap and UBI_TTL_HOURS sets the name\'s TTL; reap destroys expired TTLs and old TTL-less ubirun names, never unexpired, recent or foreign ones', () => {
+  test('UBI_REAP=0 skips the reap and UBI_TTL_HOURS sets the name\'s TTL; reap destroys expired TTLs and this owner\'s old TTL-less names, never unexpired, recent, another owner\'s TTL-less, untagged or foreign ones', () => {
     const now = Math.floor(Date.now() / 1000);
-    const listed = `eu-central-h1 ubirun-other-1000000000-bbbb-t1\neu-central-h1 ubirun-thrd1-9999999999-dddd-t1\neu-central-h1 ubirun-thrd1-1000000000-aaaa\neu-central-h1 ubirun-1000000000-cccc\neu-central-h1 ubirun-peer-${now - 3 * 3600}-eeee\neu-central-h1 team-db-1000000000-ffff\n`;
+    const listed = `eu-central-h1 ubirun-other-1000000000-bbbb-t1\neu-central-h1 ubirun-thrd1-9999999999-dddd-t1\neu-central-h1 ubirun-thrd1-1000000000-aaaa\neu-central-h1 ubirun-1000000000-cccc\neu-central-h1 ubirun-thrd1-${now - 3 * 3600}-eeee\neu-central-h1 ubirun-gbra240-1000000000-gggg\neu-central-h1 team-db-1000000000-ffff\n`;
     const f = fakeApi({ destroy: 200, listed });
     try {
-      const up = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'up'], { env: { ...process.env, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_POLL_SECONDS: '1', UBI_VM_RECORD: f.record, UBI_OWNER: 'thrd1', UBI_QUOTA_VCPUS: '96', UBI_REAP: '0', UBI_TTL_HOURS: '7' }, timeout: 90_000 });
+      const up = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'up'], { env: { ...process.env, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_POLL_SECONDS: '1', UBI_VM_RECORD: f.record, UBI_OWNER: 'thrd1', UBI_QUOTA_VCPUS: '112', UBI_REAP: '0', UBI_TTL_HOURS: '7' }, timeout: 90_000 });
       expect(up.exitCode).toBe(1);
-      expect(up.stderr.toString()).toMatch(/quota preflight refused eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t7 \(standard-16\): it needs 16 vCPUs and the project's VMs already use 96 of 96/);
+      expect(up.stderr.toString()).toMatch(/quota preflight refused eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t7 \(standard-16\): it needs 16 vCPUs and the project's VMs already use 112 of 112/);
       expect(f.calls()).not.toContain('destroy');
       const reap = f.run('reap');
       expect(reap.exitCode).toBe(0);
       expect(reap.stderr.toString()).toMatch(/reaping TTL-less eu-central-h1\/ubirun-thrd1-1000000000-aaaa \(owner thrd1; \d+h old, legacy sweep at 4h\)/);
       const destroyed = f.calls().split('\n').filter(l => l.includes('destroy')).map(l => l.match(/ubirun-[a-z0-9-]+|team-db-[a-z0-9-]+/)?.[0]).sort();
-      expect(destroyed).toEqual(['ubirun-1000000000-cccc', 'ubirun-other-1000000000-bbbb-t1', 'ubirun-thrd1-1000000000-aaaa']);
+      expect(destroyed).toEqual(['ubirun-other-1000000000-bbbb-t1', 'ubirun-thrd1-1000000000-aaaa']);
       expect(f.run('reap').stderr.toString()).toContain('reap: no expired VMs');
       // Value: protects=UBI_LEGACY_HOURS sets reap's bound for TTL-less ubirun names (a 3h-old name is spared at 4h, reaped at 2h); fails_when=reap ignores UBI_LEGACY_HOURS and keeps a fixed bound; why_new=only the default bound and the validation are tested; seam=none; no_claim=real Ubicloud list and destroy (fake curl)
       const lowered = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'reap'], { env: { ...process.env, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_POLL_SECONDS: '1', UBI_VM_RECORD: f.record, UBI_OWNER: 'thrd1', UBI_LEGACY_HOURS: '2' }, timeout: 90_000 });
       expect(lowered.exitCode).toBe(0);
-      expect(lowered.stderr.toString()).toMatch(/reaping TTL-less eu-central-h1\/ubirun-peer-\d{10}-eeee \(owner peer; 3h old, legacy sweep at 2h\)/);
-      expect(f.calls()).toMatch(/ubirun-peer-\d{10}-eeee[^\n]*destroy/);
-      expect(f.calls()).not.toMatch(/(team-db|dddd)[^\n]*destroy/);
+      expect(lowered.stderr.toString()).toMatch(/reaping TTL-less eu-central-h1\/ubirun-thrd1-\d{10}-eeee \(owner thrd1; 3h old, legacy sweep at 2h\)/);
+      expect(f.calls()).toMatch(/ubirun-thrd1-\d{10}-eeee[^\n]*destroy/);
+      // Value: protects=the legacy sweep never destroys another lane's or an untagged TTL-less VM (GST-324: 22 gbra240 eval VMs lost); fails_when=the sweep matches any owner again; why_new=the cross-owner sweep destroyed a paid eval; seam=none; no_claim=real Ubicloud list and destroy (fake curl)
+      expect(f.calls()).not.toMatch(/(team-db|dddd|gggg|cccc)[^\n]*destroy/);
+      const ownerless = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'reap'], { env: { ...process.env, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_POLL_SECONDS: '1', UBI_VM_RECORD: f.record, UBI_OWNER: '', UBI_LEGACY_HOURS: '1' }, timeout: 90_000 });
+      expect(ownerless.exitCode).toBe(0);
+      expect(ownerless.stderr.toString()).not.toContain('reaping TTL-less');
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 30_000);
 
