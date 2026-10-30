@@ -216,11 +216,11 @@ while :; do
   attempt=$(( attempt + 1 ))
   : >"$log"
   : >"$stream"
-  rm -f "$log.pid" "$log.timedout"
+  rm -f "$log.pid" "$log.timedout" "$log.left"
   t0=$(date +%s)
-  vm_name="ubirun-$(bash "$here/ubi-runner.sh" owner)-$(date +%s)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')-t1"
+  vm_name="ubirun-$(bash "$here/ubi-runner.sh" owner)-$(date +%s)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')-t$(( (stop_after + 900 + 3599) / 3600 ))"
   say "VM $vm_name; if this run is killed before its teardown line, destroy it with: bash scripts/ubicloud/ubi-runner.sh down $vm_name"
-  python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+  UBI_LEFT_FILE="$log.left" python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
     bash -c "$vm_session" pregate-remote-vm "$stop_after" "$log" "$stream" "$here/ubi-runner.sh" "${args[@]}" -n "$vm_name" &
   vmrun=$!
   tail -n +1 -f "$stream" &
@@ -254,7 +254,8 @@ span() { if [ -n "$1" ] && [ -n "$2" ]; then echo "$(( $2 - $1 ))s"; else echo "
 say "phases: create $(span "$t0" "$t_ready"), setup $(span "$t_setup" "$t_run"), run $(span "$t_run" "$t_exit"), teardown $(span "$t_exit" "$t_end"); total $(( t_end - started ))s (target 600s)"
 say "log: $log"
 
-left=$(sed -n 's/^[0-9]* UBICLOUD: left=\([^ ]*\) .*/\1/p' "$log" | tail -1)
+left=""
+[ ! -f "$log.left" ] || left=$(sed -n 's/^UBICLOUD: left=\([^ ]*\) .*/\1/p' "$log.left" | tail -1)
 if [ "$left" != 0 ]; then
   stop 4 PREGATE_REMOTE_INFRA "VM cleanup not confirmed (UBICLOUD: left=${left:-missing}); no result reported" \
     "VM: $vm_name; destroy it with: bash scripts/ubicloud/ubi-runner.sh down $vm_name" "log: $log" "spent=$spent ($billed billed min on $size)"

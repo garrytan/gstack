@@ -484,11 +484,16 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
   test('run: ends with UBICLOUD: left=0 for its own VM; a same-owner sibling is counted as information and does not fail the run', () => {
     const f = fakeVm({ listed: 'eu-central-h1 ubirun-thrd1-9999999999-sib1-t3\n' });
     try {
-      const r = f.run(['run', '--src', f.root, '--', 'true'], { UBI_REAP: '0' });
+      const leftFile = join(f.root, 'left');
+      const r = f.run(['run', '--src', f.root, '--', 'true'], { UBI_REAP: '0', UBI_LEFT_FILE: leftFile });
       const err = r.stderr.toString();
       expect(r.exitCode, err).toBe(0);
       expect(err).toMatch(/UBICLOUD: left=0 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n/);
       expect(f.listed()).toBe('eu-central-h1 ubirun-thrd1-9999999999-sib1-t3\n');
+      // Value: protects=UBI_LEFT_FILE carries the same leftover line pregate-remote.sh parses, apart from the command's output; fails_when=the file is not written or its format drifts from pregate-remote.sh's parser; why_new=the pregate stub hand-copies the format; seam=none; no_claim=real VM teardown (fake API and ssh)
+      expect(readFileSync(leftFile, 'utf8')).toMatch(/^UBICLOUD: left=0 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n$/);
+      const parser = read('scripts/ubicloud/pregate-remote.sh').match(/left=\$\(sed -n '([^']+)' "\$log\.left"/)![1];
+      expect(Bun.spawnSync(['sed', '-n', parser, leftFile]).stdout.toString()).toBe('0\n');
       // Value: protects=run --keep reports its live VM as UBICLOUD: left=1 ... kept=1 and never a clean left=0; fails_when=the kept line is dropped or --keep still prints the teardown line; why_new=no test runs run --keep; seam=none; no_claim=real VM lifetime (fake API and ssh)
       const kept = f.run(['run', '--src', f.root, '--keep', '--', 'true'], { UBI_REAP: '0' });
       const keptErr = kept.stderr.toString();
@@ -731,13 +736,14 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(listFails.exitCode).toBe(1);
       expect(listFails.stderr.toString()).toContain("reap: could not list the project's VMs; nothing destroyed");
       for (const ttl of ['0', '08', '1000', 'abc']) {
-        const r = run(f, ['owner'], { UBI_TTL_HOURS: ttl });
+        const r = run(f, ['up'], { UBI_TTL_HOURS: ttl });
         expect(r.exitCode).toBe(1);
         expect(r.stderr.toString()).toContain('UBI_TTL_HOURS must be a whole number of hours from 1 to 999');
       }
-      expect(run(f, ['owner'], { UBI_TTL_HOURS: '999' }).exitCode).toBe(0);
+      // Value: protects=an old UBI_TTL_HOURS=0 or bad UBI_LEGACY_HOURS never blocks commands that create nothing (down, list, owner); fails_when=the TTL checks move back to startup; why_new=the checks were global and blocked cleanup; seam=none; no_claim=real down against the API (owner stands in for every read-only command)
+      expect(run(f, ['owner'], { UBI_TTL_HOURS: '0', UBI_LEGACY_HOURS: '0' }).exitCode).toBe(0);
       for (const legacy of ['0', '04', 'x']) {
-        const r = run(f, ['owner'], { UBI_LEGACY_HOURS: legacy });
+        const r = run(f, ['reap'], { UBI_LEGACY_HOURS: legacy });
         expect(r.exitCode).toBe(1);
         expect(r.stderr.toString()).toContain('UBI_LEGACY_HOURS must be a whole number of hours from 1 to 9999');
       }

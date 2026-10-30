@@ -40,7 +40,7 @@ const UBI_RUNNER_STUB = `#!/usr/bin/env bash
 # Every teardown is appended to $STUB_CALLS.down.
 set -uo pipefail
 [ "$1" != owner ] || { echo stub; exit 0; }
-left() { [ "\${STUB_LEFT:-0}" = none ] || echo "UBICLOUD: left=\${STUB_LEFT:-0} owner=stub vm=$name others=0" >&2; }
+left() { [ "\${STUB_LEFT:-0}" = none ] || echo "UBICLOUD: left=\${STUB_LEFT:-0} owner=stub vm=$name others=0" | tee -a "\${UBI_LEFT_FILE:-/dev/null}" >&2; }
 [ "$1" = run ] || exit 2
 shift
 printf '%s\\n' "$*" >>"$STUB_CALLS"

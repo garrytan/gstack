@@ -990,7 +990,8 @@ recorded there before the create call and forgotten only after a confirmed
 destroy, so a killed runner leaves a name to clean up. `run` and `verify` end
 with `UBICLOUD: left=<0|1|unknown> owner=<o> vm=<name> others=<n>`, checked
 against the project's VM list after teardown; anything but `left=0` turns a
-passing command into exit 1. No owner-age sweep runs by default (the TTL reaper
+passing command into exit 1. pregate-remote.sh reads that line from the file
+named by `UBI_LEFT_FILE`, never from the command's output. No owner-age sweep runs by default (the TTL reaper
 below covers every owner); set
 `UBI_GC_HOURS` to a positive number (or run `gc HOURS`; `gc 0` is a no-op) to
 sweep only this owner's VMs older than that. For other commands, use the runner
@@ -999,7 +1000,7 @@ or its `up` / `ssh` / `sync` / `pull` / `down` steps (`--help` lists them).
 
 The runner is also the `/ubicloud` skill's engine (`bin/gstack-ubi` execs it).
 A generated name ends in `-t<hours>` (`UBI_TTL_HOURS`, 1-999, default 3; pregate-remote.sh
-uses `-t1`), the creator's own statement of how long the VM may live: `reap`
+uses its stop deadline plus 15 minutes, rounded up: `-t1` today), the creator's own statement of how long the VM may live: `reap`
 destroys every VM in the project whose TTL ended more than ten minutes ago,
 whichever owner made it, and every `ubirun-*` name without a TTL (older runner
 copies) once it is `UBI_LEGACY_HOURS` old (default 4); every `up` runs it

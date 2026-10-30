@@ -172,6 +172,7 @@ and for browser tests `xvfb` plus
   it with every result: `left=0` means this run's VM is confirmed gone. `left=1`
   or `left=unknown` turns a passing command into exit 1; run the printed `down`
   command now. `others` counts this owner's other VMs, for information.
+  `run --keep` prints `left=1 ... kept=1` instead and keeps its exit status.
 - Exit 124 with `watchdog: <phase> printed nothing for <n>s` (or `ran <n>s`)
   means the remote hung or exceeded its budget; the last 40 lines follow.
   Diagnose from them before rerunning; a hang is a failure, not infrastructure.
