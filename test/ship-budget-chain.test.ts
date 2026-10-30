@@ -61,7 +61,7 @@ describe('per-call thresholds above the host floor', () => {
   test('at a segment boundary, 150k above the floor delegates and less continues; an unknown charge still delegates', () => {
     const h = fresh();
     const s = start(h, ['--token-cap', '80M', '--reading', '1000000']);
-    const low = check(h, s.run, '6', '7', ['--reading', '1230000', '--prior-reading', '1000000']);
+    const low = check(h, s.run, '8', '9', ['--reading', '1230000', '--prior-reading', '1000000']);
     expect(low.code, low.out + low.err).toBe(0);
     expect(h.field(low.out, 'BUDGET', 'above_floor')).toBe('80000');
     expect(h.field(low.out, 'BUDGET', 'verdict')).toBe('continue');
@@ -76,7 +76,7 @@ describe('per-call thresholds above the host floor', () => {
   test('--delegate measured (ship/DRIVER.md): an unknown charge continues at a segment boundary; 150k above the floor still delegates', () => {
     const h = fresh();
     const s = start(h, ['--token-cap', '80M', '--reading', '1000000', '--delegate', 'measured']);
-    const unknown = check(h, s.run, '6', '7', ['--reading', '1100000']);
+    const unknown = check(h, s.run, '8', '9', ['--reading', '1100000']);
     expect(unknown.code, unknown.out + unknown.err).toBe(0);
     expect(h.field(unknown.out, 'BUDGET', 'above_floor')).toBe('unknown');
     expect(h.field(unknown.out, 'BUDGET', 'verdict')).toBe('continue');
@@ -105,7 +105,7 @@ describe('a child never stops on the context rule', () => {
   test('#36 replay: a child at its first boundary with zero completed steps continues with one CONTEXT_HIGH note', () => {
     const h = fresh();
     const s = start(h, ['--token-cap', '400M', '--reading', '98000']);
-    for (const [from, to, step, at] of [['7', '11.5', '6', 1_000_000], ['12', '22', '11.5', 2_000_000]] as const) {
+    for (const [from, to, step, at] of [['9', '11.5', '8', 1_000_000], ['12', '22', '11.5', 2_000_000]] as const) {
       const c = handOff(h, s.run, from, to, at);
       const r = check(h, c.run, step, from, ['--reading', String(at + 200_000)]);
       expect(r.code, r.out + r.err).toBe(0);
@@ -126,18 +126,18 @@ describe('a child never stops on the context rule', () => {
     const child = handOff(h, s.run, '1', '22', 200_000);
     expect(h.ledger(child.ledger).depth).toBe(1);
     expect(check(h, child.run, '1', '2', ['--reading', '600000']).code).toBe(0);
-    const d = check(h, child.run, '6', '7', ['--reading', '1500000']);
+    const d = check(h, child.run, '8', '9', ['--reading', '1500000']);
     expect(d.code, d.out + d.err).toBe(0);
     expect(h.field(d.out, 'BUDGET', 'verdict')).toBe('delegate');
-    expect(d.out).toContain(`gstack-ship-budget handoff --run ${child.run} --from 7 --to 22`);
+    expect(d.out).toContain(`gstack-ship-budget handoff --run ${child.run} --from 9 --to 22`);
     expect(d.out).not.toContain('RESERVATION');
     const room = ['admission_cap', 'used', 'reserved', 'unknown', 'tail'].map(k => Number(h.field(d.out, 'BUDGET', k)));
-    const grand = handOff(h, child.run, '7', '22', 1_500_000);
+    const grand = handOff(h, child.run, '9', '22', 1_500_000);
     expect(grand.subCap).toBe(room[0]! - room[1]! - room[2]! - room[3]! - room[4]!);
     expect(h.field(grand.v.out, 'BUDGET', 'admission_cap')).toBe(String(grand.subCap));
     const g = h.ledger(grand.ledger);
-    expect(g).toMatchObject({ role: 'child', depth: 2, parent: { run: child.run, ledger: child.ledger, from: '7', to: '22' } });
-    expect(h.ledger(child.ledger).handoffs[0]).toMatchObject({ depth: 2, from: '7', to: '22' });
+    expect(g).toMatchObject({ role: 'child', depth: 2, parent: { run: child.run, ledger: child.ledger, from: '9', to: '22' } });
+    expect(h.ledger(child.ledger).handoffs[0]).toMatchObject({ depth: 2, from: '9', to: '22' });
     const text = fs.readFileSync(grand.brief, 'utf8');
     expect(text).toContain('"depth": 2');
     expect(text).not.toContain('a delegate rule stops you');
@@ -157,11 +157,11 @@ describe('a child never stops on the context rule', () => {
       chain.push(c.ledger);
     }
     expect(chain.map(f => h.ledger(f).depth)).toEqual([1, 2, 3]);
-    const r = check(h, run, '6', '7', ['--reading', String((reading += 100_000))]);
+    const r = check(h, run, '8', '9', ['--reading', String((reading += 100_000))]);
     expect(r.code, r.out + r.err).toBe(0);
     expect(h.field(r.out, 'BUDGET', 'verdict')).toBe('continue');
     expect(r.out).toMatch(/^CONTEXT_HIGH: .*chain depth 3 is the maximum/m);
-    const refused = h.sb(['handoff', '--run', run, '--from', '7', '--to', '22', '--base', 'origin/main', '--reading', String(reading)]);
+    const refused = h.sb(['handoff', '--run', run, '--from', '9', '--to', '22', '--base', 'origin/main', '--reading', String(reading)]);
     expect(refused.code).toBe(2);
     expect(refused.err).toContain('chain depth 3');
   });
@@ -174,12 +174,12 @@ describe('a child never stops on the context rule', () => {
     const returnFile = ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!;
     const child = h.field(h.sb(['verify-handoff', '--in', brief, '--reading', '110000']).out, 'BUDGET_RUN', 'id');
     expect(check(h, child, '1', '2', ['--reading', '120000']).code).toBe(0);
-    const stop = check(h, child, '6', '7', ['--reading', '2120000']);
+    const stop = check(h, child, '8', '9', ['--reading', '2120000']);
     expect(stop.code).toBe(3);
     expect(stop.out).toContain('STOP: reason=budget_exhausted');
     expect(stop.out).toContain('(BUDGET_CAP_REACHED)');
     expect(stop.out).not.toContain('context_threshold');
-    expect(fs.readFileSync(returnFile, 'utf8')).toMatch(/^RETURN: handoff=[0-9a-f]{64} status=incomplete steps=1-22 next=7/);
+    expect(fs.readFileSync(returnFile, 'utf8')).toMatch(/^RETURN: handoff=[0-9a-f]{64} status=incomplete steps=1-22 next=9/);
   });
 });
 
@@ -189,9 +189,9 @@ describe('a chained return is charged once', () => {
     const s = start(h, ['--token-cap', '200M', '--reading', '1000000']);
     const child = handOff(h, s.run, '1', '22', 1_100_000, ['--reading', '1200000']);
     expect(check(h, child.run, '1', '2', ['--reading', '1500000']).code).toBe(0);
-    expect(h.field(check(h, child.run, '6', '7', ['--reading', '2000000']).out, 'BUDGET', 'verdict')).toBe('delegate');
-    const grand = handOff(h, child.run, '7', '22', 2_100_000, ['--reading', '2200000']);
-    expect(check(h, grand.run, '7', '8', ['--reading', '3000000']).code).toBe(0);
+    expect(h.field(check(h, child.run, '8', '9', ['--reading', '2000000']).out, 'BUDGET', 'verdict')).toBe('delegate');
+    const grand = handOff(h, child.run, '9', '22', 2_100_000, ['--reading', '2200000']);
+    expect(check(h, grand.run, '9', '10', ['--reading', '3000000']).code).toBe(0);
     expect(h.sb(['return', '--run', grand.run, '--to', '22', '--changed', 'Reviews', '--reading', '6000000']).code).toBe(0);
     const mid = h.sb(['reconcile', '--run', child.run, '--return', grand.returnFile, '--reading', '6100000']);
     expect(mid.code, mid.out + mid.err).toBe(0);
@@ -239,13 +239,13 @@ describe('a chained return is charged once', () => {
     const s = start(h, ['--token-cap', '400M', '--meter', 'estimate']);
     const child = handOff(h, s.run, '1', '22', null);
     expect(check(h, child.run, '1', '2').code).toBe(0);
-    expect(h.field(check(h, child.run, '6', '7').out, 'BUDGET', 'verdict')).toBe('delegate');
-    const grand = handOff(h, child.run, '7', '22', null);
-    expect(check(h, grand.run, '7', '8').code).toBe(0);
-    expect(check(h, grand.run, '8', '9').code).toBe(0);
+    expect(h.field(check(h, child.run, '8', '9').out, 'BUDGET', 'verdict')).toBe('delegate');
+    const grand = handOff(h, child.run, '9', '22', null);
+    expect(check(h, grand.run, '9', '10').code).toBe(0);
+    expect(check(h, grand.run, '10', '11').code).toBe(0);
     const gret = h.sb(['return', '--run', grand.run, '--to', '22', '--changed', 'Reviews']);
     const grandUsed = Number(h.field(gret.out, 'BUDGET', 'used'));
-    expect(grandUsed).toBe(stepProjection(cal, 'estimate-tokens', '8'));
+    expect(grandUsed).toBe(stepProjection(cal, 'estimate-tokens', '10'));
     const childOwn = stepProjection(cal, 'estimate-tokens', '2');
     for (let i = 0; i < 2; i++) expect(h.sb(['reconcile', '--run', child.run, '--return', grand.returnFile]).code).toBe(0);
     const cret = h.sb(['return', '--run', child.run, '--to', '22', '--changed', 'Reviews']);
@@ -264,8 +264,8 @@ describe('a chained return is charged once', () => {
     const s = start(h, ['--token-cap', '400M', '--session', FIXTURE.sessions.parent]);
     const child = handOff(h, s.run, '1', '22', null, ['--session', 'child-session-1']);
     expect(check(h, child.run, '1', '2').code).toBe(0);
-    expect(h.field(check(h, child.run, '6', '7').out, 'BUDGET', 'verdict')).toBe('delegate');
-    const ho = h.sb(['handoff', '--run', child.run, '--from', '7', '--to', '22', '--base', 'origin/main']);
+    expect(h.field(check(h, child.run, '8', '9').out, 'BUDGET', 'verdict')).toBe('delegate');
+    const ho = h.sb(['handoff', '--run', child.run, '--from', '9', '--to', '22', '--base', 'origin/main']);
     const brief = ho.out.match(/^HANDOFF: (\S+)/m)![1]!;
     const fake = path.join(h.root, 'fake-claude');
     fs.writeFileSync(fake, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -282,7 +282,7 @@ describe('a reconcile that stops the parent stops every check (replay 2, #36)', 
   test('after an incomplete child, check refuses every step until resume; a regenerated child that returns complete also clears it', () => {
     const h = fresh();
     const s = start(h, ['--token-cap', '200M', '--reading', '0', '--reserve', '0']);
-    const child = handOff(h, s.run, '7', '11.5', 1_000_000);
+    const child = handOff(h, s.run, '9', '11.5', 1_000_000);
     const ret = h.sb(['return', '--run', child.run, '--to', '9', '--status', 'incomplete', '--reading', '5000000']);
     expect(ret.code, ret.out + ret.err).toBe(0);
     const rec = h.sb(['reconcile', '--run', s.run, '--return', child.returnFile, '--reading', '5100000']);
@@ -292,19 +292,19 @@ describe('a reconcile that stops the parent stops every check (replay 2, #36)', 
     for (const next of ['9', '7', 'dispatch:red-team']) {
       const c = check(h, s.run, '8', next, ['--reading', '5200000']);
       expect(c.code, next).toBe(3);
-      expect(c.out).toMatch(/^STOP: reason=child_incomplete at Step 7; resume first: /m);
+      expect(c.out).toMatch(/^STOP: reason=child_incomplete at Step 9; resume first: /m);
       expect(c.out).not.toContain('RESERVATION:');
     }
     const resumed = h.sb(['resume', '--run', s.run, '--reading', '5300000']);
     expect(resumed.code, resumed.out + resumed.err).toBe(0);
-    expect(resumed.out).toContain('RESUMED: from=Step 7 (child_incomplete)');
+    expect(resumed.out).toContain('RESUMED: from=Step 9 (child_incomplete)');
     expect(check(h, s.run, '8', '9', ['--reading', '5400000']).code).toBe(0);
 
     const t = start(h, ['--token-cap', '200M', '--reading', '0', '--reserve', '0']);
-    const first = handOff(h, t.run, '7', '11.5', 1_000_000);
+    const first = handOff(h, t.run, '9', '11.5', 1_000_000);
     h.sb(['return', '--run', first.run, '--to', '9', '--status', 'incomplete', '--reading', '2000000']);
     expect(h.sb(['reconcile', '--run', t.run, '--return', first.returnFile, '--reading', '2000000']).code).toBe(3);
-    const second = handOff(h, t.run, '7', '11.5', 2_100_000);
+    const second = handOff(h, t.run, '9', '11.5', 2_100_000);
     expect(h.sb(['return', '--run', second.run, '--to', '11.5', '--reading', '3000000']).code).toBe(0);
     const done = h.sb(['reconcile', '--run', t.run, '--return', second.returnFile, '--reading', '3100000']);
     expect(done.code, done.out).toBe(0);
@@ -318,12 +318,12 @@ describe('a child returns complete only when its own work is finished', () => {
     const s = start(h, ['--token-cap', '200M', '--reading', '98000']);
     const child = handOff(h, s.run, '1', '22', 200_000);
     expect(check(h, child.run, '1', '2', ['--reading', '600000']).code).toBe(0);
-    expect(h.field(check(h, child.run, '6', '7', ['--reading', '1500000']).out, 'BUDGET', 'verdict')).toBe('delegate');
-    const grand = handOff(h, child.run, '7', '22', 1_500_000);
+    expect(h.field(check(h, child.run, '8', '9', ['--reading', '1500000']).out, 'BUDGET', 'verdict')).toBe('delegate');
+    const grand = handOff(h, child.run, '9', '22', 1_500_000);
     const ret = h.sb(['return', '--run', child.run, '--to', '22', '--changed', 'Reviews', '--reading', '1600000']);
     expect(ret.code, ret.out + ret.err).toBe(0);
     expect(ret.out).toMatch(/^RETURN: handoff=[0-9a-f]{64} status=incomplete steps=1-22/);
-    expect(ret.out).toContain(`UNRECONCILED: handoff=${h.ledger(child.ledger).handoffs[0].sha} steps=7-22`);
+    expect(ret.out).toContain(`UNRECONCILED: handoff=${h.ledger(child.ledger).handoffs[0].sha} steps=9-22`);
     expect(ret.out).toContain(grand.returnFile);
     const top = h.sb(['reconcile', '--run', s.run, '--return', child.returnFile, '--reading', '1700000']);
     expect(top.code).toBe(3);
@@ -334,14 +334,14 @@ describe('a child returns complete only when its own work is finished', () => {
     const h = fresh();
     const s = start(h, ['--token-cap', '900M', '--reading', '0', '--reserve', '0']);
     const subCap = K.stop_overhead + Math.floor(1.5 * K.per_dispatch);
-    const ho = h.sb(['handoff', '--run', s.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '100000', '--sub-cap', String(subCap)]);
+    const ho = h.sb(['handoff', '--run', s.run, '--from', '9', '--to', '11.5', '--base', 'origin/main', '--reading', '100000', '--sub-cap', String(subCap)]);
     expect(ho.code, ho.out + ho.err).toBe(0);
     const child = h.field(h.sb(['verify-handoff', '--in', ho.out.match(/^HANDOFF: (\S+)/m)![1]!, '--reading', '100000']).out, 'BUDGET_RUN', 'id');
     const b = check(h, child, '9', 'dispatch:specialist,specialist,red-team', ['--reading', '100000']);
     expect(b.code, b.out + b.err).toBe(0);
     expect(b.out).toMatch(/^ADMIT: 1 of 3 \(remaining=specialist,red-team\)/m);
     const ret = h.sb(['return', '--run', child, '--to', '11.5', '--reading', '100000']);
-    expect(ret.out).toMatch(/^RETURN: handoff=[0-9a-f]{64} status=incomplete steps=7-11.5/);
+    expect(ret.out).toMatch(/^RETURN: handoff=[0-9a-f]{64} status=incomplete steps=9-11.5/);
     expect(ret.out).toMatch(/^DROPPED: step=9 reservation=\S+ roles=specialist,red-team/m);
     expect(ret.out.trim().split('\n').at(-1)).toMatch(/^GSTACK_RESULT: skill=ship status=incomplete run=/);
   });
@@ -349,12 +349,46 @@ describe('a child returns complete only when its own work is finished', () => {
   test("a grandchild handoff outside the child's own Steps refuses and reserves nothing", () => {
     const h = fresh();
     const s = start(h, ['--token-cap', '200M', '--reading', '98000']);
-    const child = handOff(h, s.run, '7', '11.5', 200_000);
+    const child = handOff(h, s.run, '9', '11.5', 200_000);
     for (const [from, to] of [['7', '22'], ['6', '11.5']]) {
       const r = h.sb(['handoff', '--run', child.run, '--from', from!, '--to', to!, '--base', 'origin/main', '--reading', '300000']);
       expect(r.code).toBe(2);
-      expect(r.err).toContain(`--from ${from} --to ${to} is outside this child's Steps 7-11.5`);
+      expect(r.err).toContain(`--from ${from} --to ${to} is outside this child's Steps 9-11.5`);
     }
     expect(h.ledger(child.ledger).reservations.filter((r: any) => r.kind === 'child')).toHaveLength(0);
+  });
+});
+
+describe('variant E: the review segment and the docs reader (GSTA-167 replay 5)', () => {
+  // Value: protects=Steps 7-8 stay with the parent and the fresh child starts at Step 9 with Steps 9-11.5, so the child reads only the review sections; fails_when=the Step 7 boundary delegates again or the Step 9 boundary hands off any other segment;
+  //   why_new=the boundary tests above take whichever segment the code names; seam=none; no_claim=what a child costs (handoffs/GSTA-167/replay5-anatomy.md estimates ~3M on #34)
+  test('Step 7 is no boundary; Step 9 delegates Steps 9-11.5 and Step 12 delegates Steps 12-22', () => {
+    const h = fresh();
+    const high = (step: string, next: string, at: number) => check(h, start(h, ['--token-cap', '400M', '--reading', '1000000']).run, step, next, ['--reading', String(at + 400_000), '--prior-reading', String(at)]);
+    const seven = high('6', '7', 1_100_000);
+    expect(h.field(seven.out, 'BUDGET', 'verdict')).toBe('continue');
+    expect(seven.out).not.toContain('DELEGATE:');
+    const nine = high('8', '9', 1_100_000);
+    expect(h.field(nine.out, 'BUDGET', 'verdict')).toBe('delegate');
+    expect(nine.out).toMatch(/^DELEGATE: Steps 9-11\.5 go to a fresh child: gstack-ship-budget handoff --run \S+ --from 9 --to 11\.5 /m);
+    expect(high('11.5', '12', 1_100_000).out).toMatch(/^DELEGATE: Steps 12-22 go to a fresh child/m);
+  });
+
+  // Value: protects=the Step 14.5 documentation audit is a metered dispatch role: priced per reader, reserved, and measured from its own reading pair, so its reader stays out of Step 14.5's step sample; fails_when=dispatch:docs is refused, priced other than a reader, or settles UNMEASURED with a valid pair, or the step sample swallows the audit (#34 replay 5: projected 1.83M, actual 7.64M, calibration=step:5.092);
+  //   why_new=no role covered the docs audit; seam=none; no_claim=the docs reader's real size
+  test('dispatch:docs is reserved at the reader price, settles with a DRIFT line, and Step 14.5 measures only the parent\'s own calls', () => {
+    const h = fresh();
+    const s = start(h, ['--token-cap', '400M', '--reading', '1000000']);
+    expect(check(h, s.run, '14', '14.5', ['--reading', '1100000']).code).toBe(0);
+    const c = check(h, s.run, '14.5', 'dispatch:docs', ['--reading', '1200000']);
+    expect(c.code, c.out + c.err).toBe(0);
+    expect(h.field(c.out, 'BUDGET', 'projected')).toBe(String(K.per_dispatch));
+    const id = h.field(c.out, 'RESERVATION', 'id');
+    const settled = h.sb(['settle', '--run', s.run, '--reservation', id, '--dispatched-at', '1200000', '--reading', '3200000', '--readers', '1']);
+    expect(settled.code, settled.out + settled.err).toBe(0);
+    expect(settled.out).toMatch(new RegExp(`^DRIFT: id=${id} kind=dispatch next=dispatch:docs projected=${K.per_dispatch} actual=2000000 `, 'm'));
+    const step = check(h, s.run, '14.5', '15', ['--reading', '3500000']);
+    expect(step.out).toMatch(/^DRIFT: id=\S+ kind=step next=14\.5 projected=\d+ actual=400000 /m);
+    expect(h.sb(['check', '--run', s.run, '--step', '15', '--next', 'dispatch:doc', '--reading', '3600000']).err).toContain('valid: specialist, red-team, adversarial-native, outside-voice, fix-check, docs');
   });
 });

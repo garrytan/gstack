@@ -28,7 +28,8 @@ import { BIN_DIR, runScriptSync } from './script-invocation';
 import { SMALL_DIFF_LINES, type Role } from './review-depth';
 
 export const SHIP_STEPS = ['0.9', '1', '2', '3', '4', '5', '6', '6.5', '7', '8', '9', '10', '11', '11.5', '12', '13', '14', '14.5', '15', '16', '17', '18', '19', '20', '21', '22'] as const;
-export const DISPATCH_ROLES = ['specialist', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check'] as const satisfies readonly Role[];
+/** Reviewer roles plus `docs`, the Step 14.5 documentation audit: each is one reader priced and reconciled the same way. */
+export const DISPATCH_ROLES = ['specialist', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', 'docs'] as const satisfies readonly (Role | 'docs')[];
 type MissingRole = Exclude<Role, typeof DISPATCH_ROLES[number]>;
 const ROLES_COMPLETE: [MissingRole] extends [never] ? true : never = true;
 void ROLES_COMPLETE;
@@ -40,8 +41,8 @@ export const DELEGATE_START_CALL = 100_000;
 export const DELEGATE_SEGMENT_CALL = 150_000;
 /** Handoffs between the root run and the deepest child; a run at this depth continues instead of handing off. */
 export const MAX_CHAIN_DEPTH = 3;
-/** Segment boundaries (before Step 7, before Step 12) and the last step each segment runs. */
-export const SEGMENTS: Record<string, string> = { '1': '22', '7': '11.5', '12': '22' };
+/** Segment boundaries (before Step 9, before Step 12) and the last step each segment runs: Steps 7-8 stay with the parent, so the review child reads only what dispatch needs. */
+export const SEGMENTS: Record<string, string> = { '1': '22', '9': '11.5', '12': '22' };
 export const DEFAULT_TAIL = 2_000_000;
 const DIFF_REVIEW_STEP: Record<string, string> = { review: '9', 'review-fix-check': '9', 'design-review-lite': '9', 'adversarial-review': '11', 'codex-review': '11' };
 

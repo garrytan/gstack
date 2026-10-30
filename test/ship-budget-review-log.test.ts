@@ -226,7 +226,7 @@ describe('gstack-review-log --start under a token cap', () => {
   test('close counts starts reserved in its handoff children; an unreserved row in the child window is still flagged', () => {
     const h = fresh();
     const root = capped(h, '200M');
-    const ho = h.sb(['handoff', '--run', root.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '1000000']);
+    const ho = h.sb(['handoff', '--run', root.run, '--from', '9', '--to', '11.5', '--base', 'origin/main', '--reading', '1000000']);
     expect(ho.code, ho.out + ho.err).toBe(0);
     const v = h.sb(['verify-handoff', '--in', ho.out.match(/^HANDOFF: (\S+) /m)![1]!, '--reading', '100000']);
     expect(v.code, v.out + v.err).toBe(0);
@@ -243,7 +243,7 @@ describe('gstack-review-log --start under a token cap', () => {
     expect(clean.code, clean.out).toBe(0);
     const h2 = fresh();
     const root2 = capped(h2, '200M');
-    const ho2 = h2.sb(['handoff', '--run', root2.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '1000000']);
+    const ho2 = h2.sb(['handoff', '--run', root2.run, '--from', '9', '--to', '11.5', '--base', 'origin/main', '--reading', '1000000']);
     expect(h2.sb(['verify-handoff', '--in', ho2.out.match(/^HANDOFF: (\S+) /m)![1]!, '--reading', '100000']).code).toBe(0);
     expect(h2.reviewLog([JSON.stringify({ ...row, timestamp: new Date(Date.now() + 1000).toISOString() })]).code).toBe(0);
     const flagged = h2.sb(['close', '--run', root2.run, '--reading', '1500000']);

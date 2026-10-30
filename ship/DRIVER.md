@@ -13,8 +13,13 @@ says otherwise; print its result lines verbatim. `STOP:` (exit 3) means nothing 
 names the next act. Read a section only when a phase or the list at the end sends you, never
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
 there, come back. Unattended, a question with a recommended option takes it (log it); a gate
-disposition and every approval stay pending and end the run. Keep a private invocation record
-(Release, Decisions, Reviews, Checks, Documentation, Next steps).
+disposition and every approval stay pending and end the run. Keep a private invocation record (the
+`--record` file): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
+(Phases 1-3: lanes, pregate, evals, `Coverage:`, the plan checks, `Scope Check:`), **Decisions** (any
+phase: each answered or auto-taken question, in its words), **Reviews** (Phases 4-6: the plan line,
+start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phase 7: version,
+CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (every phase: the next act).
+`gstack-ship-budget handoff` refuses a record that lacks any of them.
 
 **Reviewers are the sections' own.** Phases 3, 4 and 5 and Step 14.5 run their section in full, as
 written: every audit, specialist, Red Team, fix-check, adversarial, outside-voice and documentation
@@ -23,11 +28,20 @@ restates none of them and never shortens a reviewer's brief.
 
 Budget: read your own token counter (subagents included) in the program that runs
 `gstack-ship-budget` (`--reading R --prior-reading <last R>`); `check --step <done> --next <step>`
-opens each phase, `check --step <n> --next dispatch:<roles>` (one role per `DISPATCH:` line) each
-reviewer batch, its `RESERVATION_ID:` going to that pass's `--start ... --reservation` (a later batch
-of the pass takes no start). Settle each batch in the program that dispatched it: the reading
-`BEFORE` right before the readers start, the wait until the last settles, the reading `AFTER`, then
-`settle --reservation <id> --dispatched-at <BEFORE> --reading <AFTER> --readers <n>`. Obey `verdict=`.
+opens each phase. Obey `verdict=`.
+
+**One program per pass.** Each review pass (Phase 4), Step 11 (Phase 5) and the Step 14.5 audit is
+one program, and the parent makes no other call while it runs: (1) the plan, `gstack-review-plan
+--base <base>` with the pass's flags (its `DISPATCH:` lines; Step 14.5 has one reader, `docs`);
+(2) `check --step <n> --next dispatch:<roles>`, one role per reader, then `gstack-review-log --start
+<skill> --reservation <id>` once per row the step logs (Step 14.5 takes none); (3) the reading
+`BEFORE`; (4) one subagent per reader, its brief copied verbatim from the section with only its
+placeholders filled; (5) a poll until every reader settles; (6) the reading `AFTER`, then `settle
+--reservation <id> --dispatched-at <BEFORE> --reading <AFTER> --readers <n>`; a later batch of the pass
+(the Red Team, given the specialists' collected lines; an `ADMIT:` remainder) repeats (2)-(6) with
+no start; (7) the collect: return only each reader's final output and status. The parent applies
+the section's merge, judgment, fixes and persistence to that return in one or two calls; it never
+walks the dispatch steps call by call.
 
 ## 1. Preflight and tests: Steps 0, 0.9, 1, 2, 3, 4, 5
 
@@ -50,18 +64,23 @@ only if `gstack-greptile-early detect` finds Greptile.
 ## 3. Audits: Steps 7, 8, 8.1, 8.2
 
 Read `sections/test-coverage.md` and `sections/plan-completion.md` and run Steps 7, 8, 8.1 and 8.2
-as they are written. Prints `Coverage:`, `Plan completion:` and Step 8.2's `Scope Check:`.
+as they are written, here (never delegated). Prints `Coverage:`, `Plan completion:` and Step 8.2's
+`Scope Check:`; write them under Checks. `check --step 8 --next 9` closes the phase: on `DELEGATE:`,
+Steps 9-11.5 go to a fresh child (`sections/budget-handoff.md`) that reads only
+`sections/review-army.md`, `sections/adversarial.md` and the record.
 
 ## 4. Review: Steps 9, 9.1, 9.2, 9.2.1, 9.3, 9.4
 
-Read `sections/review-army.md` in full and run Step 9 through Step 9.4 and its repeat decision as
-written, `gstack-review-plan` included. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop`
-stops; `full` or `scoped` reruns Step 5 and this phase; `done` goes on.
+Read `sections/review-army.md` in full. Each pass is one program (above) that runs Step 9's plan
+and start, Step 9.1's specialists and Step 9.2's Red Team as written; on its return run the core
+checklist, Steps 9.2, 9.2.1, 9.3 and 9.4 and the repeat decision as written, `gstack-review-plan`
+included. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or `scoped`
+reruns Step 5 and this phase; `done` goes on.
 
 ## 5. Adversarial: Step 11
 
-Read `sections/adversarial.md` and run Step 11 as written, only the voices the last full-pass plan
-lists (neither prints `ADVERSARIAL: skipped (review plan)`). Missing outside coverage is `unavailable`, never clean. Queued fixes: Steps 9, 10, 11 again.
+Read `sections/adversarial.md` and run Step 11 as written in one program (above), only the voices
+the last full-pass plan lists (neither prints `ADVERSARIAL: skipped (review plan)`). Missing outside coverage is `unavailable`, never clean. Queued fixes: Steps 9, 10, 11 again.
 
 ## 6. Bind: Step 11.5
 
@@ -72,7 +91,7 @@ planned skip) agree on `wtree`, `start_wtree`, `end_wtree`. Save that reviewed t
 
 - Step 12: `gstack-ship-release version --base <base> [--bump micro|patch] --why '<line>'`; MINOR or MAJOR is a question. `VERSION: skipped (policy: ...)` means the repo's ship policy stamps the version elsewhere: write no version.
 - Step 13: one user-facing CHANGELOG entry; `gstack-prose-lint CHANGELOG.md --base origin/<base> --gate` until `PROSE_LINT: ok`. Step 14: TODOS.md deferrals and completions.
-- Step 14.5, every ship: read `sections/documentation.md` and run its audit as written, then `gstack-ship-receipt docs-caps --base <base>`; print `Documentation:`. One re-audit at most.
+- Step 14.5, every ship: read `sections/documentation.md` and run its audit as written, as one program (above) with `--next dispatch:docs`, then `gstack-ship-receipt docs-caps --base <base>`; print `Documentation:`. One re-audit at most.
 - Steps 15, 16: commit features in bisectable chunks, then `gstack-ship-release finish --base <base> --reviewed-tree <t> --docs-post <post> --lane ... [--build <cmd>] --trailer '<t>'`: `ROUTE:`, `DOCS:`, `EVIDENCE:` (FRESH; STALE or MISSING reruns once), `PREGATE:`. Print them, the last `Gate edits:` and each `tests_ran`.
 - Step 17: `gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `PUSH:` (pushed or ALREADY_PUSHED). Its pre-push offer STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`); unattended takes the recommended install. Never force-push.
 

@@ -49,7 +49,7 @@ describe('the Capy meter is the agent\'s own jam counter', () => {
     const h = fresh();
     const s = h.sb(['start', '--record', h.record(), '--token-cap', '200M', '--reading', '1000000']);
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
-    const ho = h.sb(['handoff', '--run', run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '8000000']);
+    const ho = h.sb(['handoff', '--run', run, '--from', '9', '--to', '11.5', '--base', 'origin/main', '--reading', '8000000']);
     expect(ho.code, ho.out + ho.err).toBe(0);
     const brief = ho.out.match(/^HANDOFF: (\S+) /m)![1]!;
     const returnFile = ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!;

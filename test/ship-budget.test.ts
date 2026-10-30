@@ -189,11 +189,11 @@ describe('delegation', () => {
   test('a segment boundary with an unknown per-call charge delegates; --delegate never stops instead', () => {
     const h = fresh();
     const a = started(h, ['--token-cap', '80M', '--reading', '0']);
-    const d = h.sb(['check', '--run', a.run, '--step', '6', '--next', '7', '--reading', '100']);
+    const d = h.sb(['check', '--run', a.run, '--step', '8', '--next', '9', '--reading', '100']);
     expect(d.code).toBe(0);
     expect(h.field(d.out, 'BUDGET', 'verdict')).toBe('delegate');
     expect(d.out).not.toContain('RESERVATION');
-    const small = h.sb(['check', '--run', a.run, '--step', '6', '--next', '7', '--reading', '1100', '--prior-reading', '1000']);
+    const small = h.sb(['check', '--run', a.run, '--step', '8', '--next', '9', '--reading', '1100', '--prior-reading', '1000']);
     expect(h.field(small.out, 'BUDGET', 'verdict')).toBe('continue');
     const n = started(h, ['--token-cap', '80M', '--reading', '0', '--delegate', 'never']);
     const stop = h.sb(['check', '--run', n.run, '--step', '11.5', '--next', '12', '--reading', '100']);
@@ -204,9 +204,9 @@ describe('delegation', () => {
   test('full chain: delegate, handoff, verify, child checks, 40-line return, idempotent reconcile, close', () => {
     const h = fresh();
     const s = started(h, ['--token-cap', '80M', '--reading', '1000000']);
-    const d = h.sb(['check', '--run', s.run, '--step', '6', '--next', '7', '--reading', '1200000', '--prior-reading', '800000']);
+    const d = h.sb(['check', '--run', s.run, '--step', '8', '--next', '9', '--reading', '1200000', '--prior-reading', '800000']);
     expect(h.field(d.out, 'BUDGET', 'verdict')).toBe('delegate');
-    const ho = h.sb(['handoff', '--run', s.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '1300000']);
+    const ho = h.sb(['handoff', '--run', s.run, '--from', '9', '--to', '11.5', '--base', 'origin/main', '--reading', '1300000']);
     expect(ho.code).toBe(0);
     const brief = ho.out.match(/^HANDOFF: (\S+) sha256=([0-9a-f]{64}) sub_cap=(\d+)$/m)!;
     expect(brief).toBeTruthy();
@@ -225,7 +225,7 @@ describe('delegation', () => {
     expect(cc.code).toBe(0);
     const past = h.sb(['check', '--run', child, '--step', '11', '--next', '12', '--reading', '6000000']);
     expect(past.code).toBe(0);
-    expect(past.out).toMatch(/^CONTEXT_HIGH: .*Step 12 is past this child's Steps 7-11\.5/m);
+    expect(past.out).toMatch(/^CONTEXT_HIGH: .*Step 12 is past this child's Steps 9-11\.5/m);
     const ret = h.sb(['return', '--run', child, '--to', '11.5', '--changed', 'Reviews,Checks', '--reading', '9000000']);
     expect(ret.code).toBe(0);
     expect(ret.out.trim().split('\n').length).toBeLessThanOrEqual(40);

@@ -88,7 +88,7 @@ describe('a dispatch is measured to its return, never across the parent\'s own w
   test('#34 replay: a Red Team settled by the step change after the child\'s review and QA is UNMEASURED, so the voices keep the per-reader factor', () => {
     const h = fresh();
     const s = start(h, 200_000_000);
-    check(h, s.run, '8', '9', 3_500_000);
+    check(h, s.run, '8', '9', 3_500_000, ['--prior-reading', '3400000']);
     const specialists = h.field(check(h, s.run, '9', 'dispatch:' + SIX.join(','), 4_000_000).out, 'RESERVATION', 'id');
     expect(h.reviewLog(['--start', 'review', '--reservation', specialists]).code).toBe(0);
     let reading = 4_000_000 + 6 * READER;
@@ -109,7 +109,7 @@ describe('a dispatch is measured to its return, never across the parent\'s own w
   test('settled with a reading at its return, the Red Team measures only its own interval; the parent\'s QA after it lands in Step 9\'s sample', () => {
     const h = fresh();
     const s = start(h, 200_000_000);
-    check(h, s.run, '8', '9', 3_500_000);
+    check(h, s.run, '8', '9', 3_500_000, ['--prior-reading', '3400000']);
     const red = h.field(check(h, s.run, '9', 'dispatch:red-team', 4_000_000).out, 'RESERVATION', 'id');
     expect(h.reviewLog(['--start', 'review', '--reservation', red]).code).toBe(0);
     const settled = ok(h, ['settle', '--run', s.run, '--reservation', red, '--dispatched-at', '4000000', '--reading', String(4_000_000 + READER)]);
@@ -231,7 +231,7 @@ describe('the per-call charge takes a prior reading from the previous call only 
   test('#34 replay: a child passing the parent\'s handoff reading as its prior gets call=unknown, not 1068386', () => {
     const h = fresh();
     const s = start(h, 400_000_000, 2_110_477);
-    const ho = ok(h, ['handoff', '--run', s.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '8094129']);
+    const ho = ok(h, ['handoff', '--run', s.run, '--from', '9', '--to', '11.5', '--base', 'origin/main', '--reading', '8094129']);
     const brief = ho.out.match(/^HANDOFF: (\S+) /m)![1]!;
     const v = ok(h, ['verify-handoff', '--in', brief, '--reading', '8800000']);
     const child = h.field(v.out, 'BUDGET_RUN', 'id');
@@ -253,22 +253,24 @@ describe('the budget section states both contracts', () => {
   //   why_new=the template test above never read the Capy skill; seam=none; no_claim=how often an agent obeys the prose
   test('the Capy skill reads the meter inside the budget command\'s program and names no meter-only call', () => {
     const capy = fs.readFileSync(path.join(import.meta.dir, '..', 'capy', 'skill', 'gstack', 'SKILL.md'), 'utf8');
-    const caps = capy.slice(capy.indexOf('Token caps on /ship'), capy.indexOf('/ship reviewer batches on Capy'));
+    const caps = capy.slice(capy.indexOf('Token caps on /ship'), capy.indexOf('/ship reviewers on Capy'));
     expect(caps.length).toBeGreaterThan(0);
     expect(caps).not.toContain('returning only that number');
     expect(caps).toMatch(/inside the same (?:execute )?program as the\s+`gstack-ship-budget` command/);
     for (const text of [capy, tmpl]) expect(text).not.toMatch(/read it again in your next call|meter-only call(?!s? (?:is|are) never)/);
   });
-  // Value: protects=each reviewer batch is one execute program in a fixed order, so the readers' reading pair brackets only them and no start or poll costs its own parent call, and each reviewer's brief is copied from its section; fails_when=the order breaks (a start after the readers are created, a settle before the poll) or the Capy paragraph stops copying the section's brief;
-  //   why_new=no test reads the batch order; seam=none; no_claim=the model's adherence
-  test('a reviewer batch is one execute program: check --step --next, review-log --start, BEFORE, create, poll, AFTER, settle', () => {
+  // Value: protects=each review pass (and Step 11, and the Step 14.5 audit) is one execute program in a fixed order, so the readers' reading pair brackets only them and no plan, start, poll or later batch costs its own parent call, and each reviewer's brief is copied from its section; fails_when=the order breaks (a start after the readers are created, a settle before the poll, the plan after the dispatch) or the Capy paragraph goes back to one program per batch or stops copying the section's brief;
+  //   why_new=no test reads the pass order; seam=none; no_claim=the model's adherence (GSTA-167 replay 5: arm D walked Steps 9-9.4 in 27 calls)
+  test('a review pass is one execute program: plan, check --next dispatch, review-log --start, BEFORE, create, poll, AFTER, settle, collect', () => {
     const capy = fs.readFileSync(path.join(import.meta.dir, '..', 'capy', 'skill', 'gstack', 'SKILL.md'), 'utf8');
-    const pass = capy.slice(capy.indexOf('/ship reviewer batches on Capy'), capy.indexOf('## Plan, approve, ship'));
-    expect(pass).toMatch(/one execute program per batch/);
+    const pass = capy.slice(capy.indexOf('/ship reviewers on Capy'), capy.indexOf('## Plan, approve, ship'));
+    expect(pass).toMatch(/one execute program per review pass, per Step 11 and for the Step 14\.5 audit/);
+    expect(pass).not.toMatch(/one execute program per batch/);
     expect(pass).toContain('its brief copied verbatim from the section that dispatches it');
-    const order = ['check --run <id> --step <n> --next dispatch:<roles>', 'gstack-review-log --start', 'tools.subagent.create', 'tools.subagent.get', 'AFTER', 'gstack-ship-budget settle'];
-    const block = tmpl.slice(tmpl.indexOf('**One program per dispatch batch.**'));
-    const tmplOrder = ['check --step <n> --next dispatch:<roles>', 'gstack-review-log --start', 'BEFORE', 'AFTER', 'gstack-ship-budget settle'];
+    expect(pass).toContain('never walks the dispatch steps call by call');
+    const order = ['gstack-review-plan --base <base>', 'check --run <id> --step <n> --next dispatch:<roles>', 'gstack-review-log --start', 'tools.subagent.create', 'tools.subagent.get', 'AFTER', 'gstack-ship-budget settle', 'return only each reader\'s final output'];
+    const block = tmpl.slice(tmpl.indexOf('**One program per review pass.**'));
+    const tmplOrder = ['gstack-review-plan', 'check --step <n> --next dispatch:<roles>', 'gstack-review-log --start', 'BEFORE', 'AFTER', 'gstack-ship-budget settle', 'the collect'];
     for (const [text, want] of [[pass, order], [block, tmplOrder]] as const) {
       const at = want.map(o => text.indexOf(o));
       expect(at.every(i => i >= 0), want.filter((_, k) => at[k]! < 0).join(',')).toBe(true);

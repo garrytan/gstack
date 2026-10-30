@@ -95,7 +95,8 @@ prints `ADMIT: k of n (remaining=<roles>)`: dispatch those k, then re-check the 
 once they settle. Only a batch whose first reader does not fit stops, and `close` flags remaining
 roles no later check requested (`DROPPED:`, status=incomplete until the owner accepts).
 Roles are review-depth's: `specialist`, `red-team`, `adversarial-native`, `outside-voice`,
-`fix-check`. `--finish <token>` is the pass's completion receipt: it settles that reservation and
+`fix-check`, plus `docs`, the Step 14.5 documentation audit, which takes no review-log start and
+settles in its program like the others. `--finish <token>` is the pass's completion receipt: it settles that reservation and
 every other dispatch reservation started in the same step, so reviewers admitted one at a time
 do not stay reserved. The program that dispatches a batch measures it: it reads the counter right
 before it starts the readers and again right after the last one settles, then runs `settle
@@ -117,8 +118,8 @@ fresh session with the ship skill loaded, before any /ship work. The floor is `c
 unit in `lib/ship-budget-calibration.json` (150k on Capy, where a fresh thread's calls cost
 150–230k; 40k on Claude Code; 0 for the estimate meter, whose charge is always unknown), or
 `start --call-floor <n>`, which the ledger records and every child inherits. At start, 100k or
-more above the floor delegates the whole /ship. Before Step 7 and before Step 12, 150k or more
-above the floor (or an unknown charge) delegates the next segment (7–11.5, 12–22). The BUDGET
+more above the floor delegates the whole /ship. Before Step 9 and before Step 12, 150k or more
+above the floor (or an unknown charge) delegates the next segment (9–11.5, 12–22). The BUDGET
 line prints `call`, `call_floor` and `above_floor`, so each verdict can be checked:
 
 1. `gstack-ship-budget handoff --run <id> --from 12 --to 22 --base origin/<base> --reading <n>` writes a
@@ -170,7 +171,7 @@ unknown charge continues there. A parent driving /ship from the driver carries n
 child would shed, so a child pays its fixed cost only when the parent's own context grew.
 
 **Small runs keep their segment.** `check --runtime-lines <n>` (runtime_lines from
-`gstack-review-plan --json`, which `gstack-ship-preflight` prints) continues at the Step 7 and
+`gstack-review-plan --json`, which `gstack-ship-preflight` prints) continues at the Step 9 and
 Step 12 boundaries, with a `SMALL_RUN:` line, when the diff is light (at most 50 runtime lines)
 and the segment's calibrated calls at this run's per-call charge cost at most 12M. A child costs
 a fixed 2–4.5M (gstack-evals #34: boot, install check, verify-handoff, section reads,

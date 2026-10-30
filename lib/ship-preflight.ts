@@ -99,7 +99,7 @@ function merge(cwd: string, base: string, r: Report): boolean {
       && !(outputs.length && matchesAny(outputs, e.path)) && classifyPath(e.path, cwd) === 'code' && !DATA_PATH.test(e.path));
     runtime = String(counted.reduce((n, e) => n + e.lines, 0));
   } catch { /* unknown */ }
-  r.add(`RUNTIME_LINES: ${runtime} (gstack-ship-budget check --runtime-lines at the Step 7 and 12 boundaries)`);
+  r.add(`RUNTIME_LINES: ${runtime} (gstack-ship-budget check --runtime-lines at the Step 9 and 12 boundaries)`);
   return true;
 }
 

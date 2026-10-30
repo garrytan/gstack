@@ -29,11 +29,14 @@ Before each dispatch batch, reserve the batch as one sum, one role per `DISPATCH
 On `ADMIT: k of n (remaining=<roles>)`, dispatch only those k and re-check the remaining roles
 after they settle; `close` flags roles never re-checked. `--finish` settles the reservation and the pass's other dispatch reservations.
 
-**One program per dispatch batch.** On Capy one execute program runs, in order (elsewhere the same order):
-`check --step <n> --next dispatch:<roles>`, `gstack-review-log --start <skill> --reservation <id>` once per
-row the step logs (a later batch of the same pass (the Red Team or an ADMIT remainder) takes no start;
-`--finish` settles it), the reading `BEFORE`, the readers exactly as the step dispatches them (their
-prompts unchanged), the wait until the last settles, the reading `AFTER`, then `gstack-ship-budget settle`.
+**One program per review pass.** On Capy one execute program runs a whole pass, in order (elsewhere
+the same order): `gstack-review-plan` (its `DISPATCH:` lines), `check --step <n> --next dispatch:<roles>`,
+`gstack-review-log --start <skill> --reservation <id>` once per
+row the step logs, the reading `BEFORE`, the readers exactly as the step dispatches them (their
+prompts unchanged), the wait until the last settles, the reading `AFTER`, `gstack-ship-budget settle`;
+a later batch of the same pass (the Red Team or an ADMIT remainder) takes no start and repeats the
+rest (`--finish` settles it); last the collect, returning only the readers' final outputs. Step 11's
+voices and Step 14.5's audit (`dispatch:docs`, no start) are one program each.
 Settle each batch in the program that dispatched it: read the counter right before the readers
 start and right after the last one settles, then `gstack-ship-budget settle --run <id> --reservation <id>
 --dispatched-at <before> --reading <after> --readers <n>` (`--unknown` when the meter cannot see it);
@@ -47,9 +50,10 @@ end status=incomplete. Raising the cap is the owner's call: `/ship --resume <rec
 `resume --run <id>` restores the ledger and record from the Drive checkpoint; a
 corrupt ledger takes `--rebuild-from-record`.
 
-**verdict=delegate.** The next segment (Steps 7–11.5, 12–22, or 1–22 at start) runs in a
-fresh child; you wait and advance only after reconciling it:
-1. `gstack-ship-budget handoff --run <id> --from 7 --to 11.5 --base origin/<base> --reading <n>`
+**verdict=delegate.** The next segment (Steps 9–11.5, 12–22, or 1–22 at start) runs in a
+fresh child; you wait and advance only after reconciling it. Steps 7–8 stay with the parent: the
+Steps 9–11.5 child reads review-army.md and adversarial.md and takes their results from the record.
+1. `gstack-ship-budget handoff --run <id> --from 9 --to 11.5 --base origin/<base> --reading <n>`
    (add `--reviewed-tree <t>`, `--trail <file> --trail-run <id>`). It prints `HANDOFF:` and `RETURN_FILE:`;
    the brief lists the child's `READ:` line ranges and names `--to` as its last step.
 2. Launch: on Capy a subagent on the shared machine whose brief is "Load gstack, source

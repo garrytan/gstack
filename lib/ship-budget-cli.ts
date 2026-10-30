@@ -145,7 +145,7 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
   }
   const threshold = startThreshold ? DELEGATE_START_CALL : DELEGATE_SEGMENT_CALL;
   const above = aboveFloor(call, p.floor);
-  const boundary = (startThreshold ? next.step === '1' : next.step === '7' || next.step === '12');
+  const boundary = (startThreshold ? next.step === '1' : next.step in SEGMENTS && next.step !== '1');
   const to = l.parent ? l.parent.to : SEGMENTS[next.step]!;
   const small = boundary && !startThreshold ? keepsSmallRun(loadCalibration(l.calibration), { runtimeLines, from: next.step, to, call }) : null;
   const wants = boundary && !small && (above === null ? !startThreshold && l.delegate !== 'measured' : above >= threshold);

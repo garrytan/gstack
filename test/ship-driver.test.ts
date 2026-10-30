@@ -122,6 +122,35 @@ describe('ship/DRIVER.md covers the skeleton', () => {
   });
 });
 
+describe('one program per pass (GSTA-167 variant E)', () => {
+  const flat = (s: string) => s.replace(/\s+/g, ' ');
+  const phase = (h: string) => flat(doc.slice(doc.indexOf(h), doc.indexOf('\n## ', doc.indexOf(h) + 1)));
+  // Value: protects=a review pass, Step 11 and the Step 14.5 audit each run as one program in the fixed order plan, reserve and start, BEFORE, readers, poll, AFTER and settle, later batches, collect, so the parent spends no call inside a pass and the reading pair brackets only the readers; fails_when=a phase goes back to walking Steps 9-9.4 call by call (replay 5: arm D's 69 orchestrator calls in Steps 7-14.5 against round 4's 21), the order breaks, or a phase stops pointing at the shared program;
+  //   why_new=the coverage tests above check step ids, codes and section names only; seam=none; no_claim=the parent's adherence or the call count it reaches
+  test('the shared program lists its acts in order and Phases 4, 5 and Step 14.5 run through it', () => {
+    const block = flat(doc.slice(doc.indexOf('**One program per pass.**'), doc.indexOf('\n## ', doc.indexOf('**One program per pass.**'))));
+    expect(block).toContain('Each review pass (Phase 4), Step 11 (Phase 5) and the Step 14.5 audit is one program, and the parent makes no other call while it runs');
+    const order = ['gstack-review-plan --base <base>', 'check --step <n> --next dispatch:<roles>', 'gstack-review-log --start <skill> --reservation <id>', '(3) the reading `BEFORE`',
+      '(4) one subagent per reader, its brief copied verbatim from the section', '(5) a poll until every reader settles', '(6) the reading `AFTER`', '--dispatched-at <BEFORE> --reading <AFTER> --readers <n>',
+      'a later batch of the pass (the Red Team', '(7) the collect: return only each reader\'s final output', 'it never walks the dispatch steps call by call'];
+    const at = order.map(o => block.indexOf(o));
+    expect(order.filter((_, k) => at[k]! < 0)).toEqual([]);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(phase('## 4. Review')).toContain('Each pass is one program (above)');
+    expect(phase('## 5. Adversarial')).toContain('in one program (above)');
+    expect(phase('## 7. Release')).toContain('read `sections/documentation.md` and run its audit as written, as one program (above) with `--next dispatch:docs`');
+  });
+
+  // Value: protects=Steps 7-8 run in the parent and the fresh child starts at Step 9, reading only the review sections and the record; fails_when=the driver delegates the audits again or the child is told to read the audit sections;
+  //   why_new=the budget tests pin the boundary, not the driver's phase text; seam=none; no_claim=the child's actual reads
+  test('Phase 3 keeps the audits here and closes with the Step 9 handoff to a review-only child', () => {
+    const p3 = phase('## 3. Audits');
+    for (const s of ['as they are written, here (never delegated)', 'write them under Checks', '`check --step 8 --next 9` closes the phase', 'Steps 9-11.5 go to a fresh child',
+      'reads only `sections/review-army.md`, `sections/adversarial.md` and the record']) expect(p3).toContain(s);
+    expect(read('ship/sections/budget-handoff.md')).toContain('--from 9 --to 11.5');
+  });
+});
+
 describe('STOP anchors', () => {
   test('every STOP row is rendered and its anchor names a heading that exists', () => {
     for (const s of SHIP_DRIVER_STOPS) {

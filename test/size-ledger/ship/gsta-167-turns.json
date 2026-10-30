@@ -1,4 +1,4 @@
 {
-  "bytes": 841,
-  "why": "GSTA-167 turns: Steps 1-3, 5, 12 and 15-17 name gstack-ship-preflight and gstack-ship-release; own-jam meter and dispatch-pair metering in budget-handoff"
+  "bytes": 1203,
+  "why": "GSTA-167: ship preflight/release bins and the compact driver (+841); variant E: budget-handoff.md runs one program per review pass and hands Steps 9-11.5 to the review child (+362)"
 }
