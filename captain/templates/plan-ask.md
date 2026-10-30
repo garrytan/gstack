@@ -32,6 +32,12 @@ output, a screen, a cost or time number>
 **do it** = take every recommendation in this list at full scope, including <the follow-ons
 named: docs, trains, cleanups>, and carry them through to done with no further ask. A named
 option ("A2") takes that option instead.
+
+<only when the owner must act; the exact link, never a menu path (a Capy app page: its exact path and field)>
+- C: <code> needs you to <action>, because <why>. Open <exact URL>, then:
+  1. Click <button>.
+  2. Type <value> in <field>.
+  3. Reply **done**.
 ```
 
 When the answer comes back, record it before the work starts. For an autoplan gate:

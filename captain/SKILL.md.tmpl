@@ -290,7 +290,10 @@ the owner is five: the Captain's name, then one lettered line per decision, lett
 across the list: `- A: <code> hit problem p, which happens when h. We could fix it in these
 ways: 1) x; 2) y; 3) z. Recommendation: x because why. A1 to take recommendation.` The
 recommendation is option 1; "do it" takes every recommendation in the last list, and a named
-option ("A2") takes that option instead. Home: `docs/captain.md`, The ask format.
+option ("A2") takes that option instead. When the owner has to do something, the line
+carries the exact link to the page (never a menu path; a Capy app page gets its exact path
+and field), numbered steps in the simplest words, and the one word to reply when done.
+Home: `docs/captain.md`, The ask format.
 
 **Plan before build.** A lane that builds something runs a sized `/autoplan` on its brief as
 its first act after the session-start check and sends the controller the plan ask above; the controller relays it, and the

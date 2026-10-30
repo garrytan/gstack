@@ -354,6 +354,22 @@ The recommendation is always option 1. "do it" takes every recommendation in the
 list; a named option ("A2") takes that option instead. `<code>` is the issue, PR or thread
 the decision is about. An ask that cannot be put this way is not ready to send.
 
+**When the owner has to do something** (create a token, approve a deployment, accept an
+invite, change a setting), the line carries the exact link to the page where it happens, a
+full URL and never a menu path like "Settings → Tokens", then numbered steps in the
+simplest words: what to click, what to type, what to name it, and the one word to reply
+when it is done. A page inside the Capy app is the one exception, because it has no stable
+link: name the exact path and field instead ("Settings → Integrations → Slack, the Channel
+field").
+
+```text
+<Captain name>
+- A: <code> needs you to <action>, because <why>. Open <exact URL>, then:
+  1. Click <button>.
+  2. Type <value> in <field> and name it <name>.
+  3. Reply **done**.
+```
+
 ## The digest
 
 `DIGEST.md` is rewritten every controller turn: **Needs you** (decisions only the owner
