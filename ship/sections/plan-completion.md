@@ -54,6 +54,10 @@ done
 **Subagent prompt:** Substitute `<base>` and supply the bound plan's absolute path
 or complete text, including user-approved scope changes. When discovery printed the
 not-run line, skip dispatch. The child does not inherit the parent's conversation.
+**By packet:** `~/.claude/skills/gstack/bin/gstack-review-packet build --audit plan-completion
+--base <base> --plan-file <bound plan> --out-dir .gstack/tmp/review-packets-audit` writes the
+prompt below, the whole plan and the diff into one packet; brief the child only with Step 7's
+packet brief and read the LAST line of its `out=` file.
 
 ````text
 You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff origin/<base>` and inspect untracked files from `git status` to see the full proposed change. Do not commit or push. Report only: classify every item, but do not execute Gate Logic, ask the user, or advance the workflow. The parent applies those gates to your report.
@@ -172,7 +176,7 @@ Counts map one-to-one to the classifications above and sum to total_items. No pl
 **Parent processing:**
 
 1. Check the task's terminal status. Without successful completion and valid LAST-line
-   JSON, use the audit-failure fallback below. Require exactly the seven declared
+   JSON, use the audit-failure fallback below (that JSON is its `out=` file's last line). Require exactly the seven declared
    fields: nonnegative integer counts whose classification sum equals `total_items`,
    and a string `summary`. Missing,
    extra or invalid fields fail. Valid no-plan/no-actionable reports retain zero counts

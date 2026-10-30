@@ -9,6 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { generateReviewArmy } from '../scripts/resolvers/review-army';
+import { SPECIALIST_CONTRACT } from '../lib/review-prompts';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -45,9 +46,13 @@ describe('review-loop budget wording', () => {
       expect(judgment.length).toBeGreaterThan(200);
       for (const filter of ['Nit gravity', 'Hypothetical, not actual', 'Structure for a case that does not exist', 'A different design is not a defect', 'Missing context']) expect(judgment).toContain(filter);
       expect(judgment).toContain('returned `NO FINDINGS` was right');
+    }
+    // /review renders the specialist prompt; /ship's reviewers read it from their packet (lib/review-prompts.ts).
+    for (const text of [rendered[1]!, read('review/sections/review-army.md'), SPECIALIST_CONTRACT]) {
       expect(text).toContain('names the changed line in `cause`');
       expect(text).toContain('Optional: line, fix, fingerprint, evidence, test_stub, advisory, evidence_paths, helper_target, cause.');
     }
+    for (const text of [rendered[0]!, read('ship/sections/review-army.md')]) expect(text).toContain('gstack-review-packet build');
   });
 
   test('docs/review-policy.md states the glossary, the stop rules and lead judgment once', () => {

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.328.0] - 2026-10-30
 
 **Most PRs no longer pay for a solo paid screen before the merge train runs the same cases.** `gstack-ship-queue ready` used to recommend `--screen` whenever a diff touched a skill's own cases, which is almost every PR, and the screens (16 to 19 a day at about $32 each) cost more than the train gates that rerun all 137 cases a few hours later. Of 41 full screens between Oct 20 and 29, the 3 that caught a real bug all came from diffs the selector can't narrow (an unknown dependency or a shared runtime input). The recommendation is now `--screen` only in that case; every other PR rides unscreened and the train gate's full census covers it. Because most PRs now ride unscreened, a train also stopped holding them back, so unscreened PRs fill the seats a screened PR leaves.
 
@@ -12,6 +12,51 @@
 
 ### Tests
 - `test/ship-queue-train-logic.test.ts`: one screened plus five unscreened at size 5 seats five; a full unscreened pool at size 3 seats three; a skill-template diff recommends `--no-screen`; a `bun.lock` diff recommends `--screen` with its full-fallback reason. These tests failed before the change. Two more pin the diffs that still screen. A diff that mixes a skill template with `bun.lock` recommends `--screen`, and a diff the selector cannot select recommends `--screen` with the full gate selection. `test/ship-queue-train.test.ts` and `test/gate-cost.test.ts` change their ordering expectations on purpose.
+
+## [1.91.327.0] - 2026-10-30
+
+**A new page shows how gstack and Capy run as a software factory, with measured numbers.** `capy/README.md` explains how Capy Captains, their crews and gstack's skills fit together, from the plan-first approval loop and `/ship` before READY to merge trains, fix waves, the daily flaky pass and peer Captains. It compares the 14 days after 2026-10-15 with the 14 days before: 197 PRs merged to gstack's main against 65, and 194 versions shipped against 62. It also says what those numbers leave out. The median PR shrank from 1,292 changed lines to 422, and the median time from opening a PR to merging it grew from 1.1 hours to 5.6, because trains batch merges. A footnote gives the windows and the method behind every figure, and the page ends with tips and how Garry uses the setup day to day.
+
+### Docs
+- **`capy/README.md`**: the new page (how the pieces fit, the measured before/after, why we think it works, tips, and how Garry uses it).
+- The documentation table in `README.md` and the introduction of `docs/captain.md` link to it.
+
+## [1.91.326.0] - 2026-10-30
+
+**/ship reviewers now read one packet file each, and the parent reads a findings record of at most 60 lines instead of every reviewer's transcript.** On this PR's own /ship, pass 2's eight reviewers cost 8.6M tokens on the root counter, against 52.6M for pass 1's eleven (pass 2 read the fix range, pass 1 the whole diff, so the two are not directly comparable).
+
+### Added
+- **`gstack-review-packet build`** writes one packet per `DISPATCH:` line of the review plan: the role's instructions and findings contract, its checklists, that reviewer's diff, a plan excerpt, a read budget and the output path. Steps 7 and 8 audits, the specialists, the Red Team, the fix-check and Step 11's adversarial pass and outside voice all dispatch this way. A packet over 200 KB is split by path; no hunk is cut and no path is dropped. Audits are never split.
+- Each `PACKET:` line names its `budget_role` and `read=` line ranges of at most 30,000 bytes, and build prints `BUDGET_NEXT: dispatch:<roles>` for `gstack-ship-budget check --next`. A reviewer reads its packet with parallel range reads and finishes in about three calls.
+- **`gstack-review-packet collect`** parses, validates and dedupes every reviewer's output, prints one line per reviewer plus each CRITICAL, and writes `merged.jsonl` and `informational.md` for the PR body. Missing or unusable output exits 3 with `REVIEW_COVERAGE_INCOMPLETE`.
+
+### Changed
+- Every reviewer prompt lives in `lib/review-prompts.ts`; the resolvers import it, so a packet and the generated SKILL.md prose cannot drift. /review's generated output is unchanged.
+- Large `.json`, `.jsonl`, `.ndjson`, `.csv` and `.tsv` changes (over 400 changed lines, not package or config manifests) reach reviewers as a summary built from the diff alone. The testing reviewer and the coverage audit still read data under `test/` or `fixtures/` in full.
+- The Capy dispatch paragraph in `capy/skill/gstack/SKILL.md` builds packets, starts reviewers on the shared machine, polls with `transcript: "none"` and returns only collect's output.
+
+### Fixed
+- `--base origin/main` no longer becomes `origin/origin/main` in audit prompts.
+- A partial build keeps other reviewers' results only at the same head, diff base and diff content; a Red Team build against a changed tree refuses with `STALE_MANIFEST`.
+- Collect counts a state-machines matrix record only from the state-machines reviewer, and a CRITICAL line that fails to parse or validate makes its reviewer invalid instead of disappearing.
+
+### Tests
+- `test/review-packet.test.ts`: 41 tests covering packet contents, sharding, audits, budget roles, read ranges, data summaries (including a symlinked CSV that must not leak its target), stale manifests and collect's validation. Each fix in this entry has a test that failed before it.
+
+## [1.91.325.0] - 2026-10-30
+
+**A capped /ship on Capy no longer delegates or stops just because the host's own prompt is big, and a delegated child hands off instead of stopping.** A fresh Capy call costs 150-230k before any /ship work, so the 100k start and 150k segment thresholds fired on every capped Capy start and stopped two gstack-evals #36 children at their first boundary. The thresholds now measure context above a calibrated per-host call floor.
+
+### Fixed
+- **Thresholds sit above the host call floor.** `lib/ship-budget-calibration.json` gives each meter a `call_floor` (Capy 150k, Claude Code 40k, estimate 0); `start --call-floor <n>` overrides it and children inherit it. `BUDGET:` and `STOP:` lines print `call_floor=` and `above_floor=`.
+- **A child never stops on the context rule.** After a completed step it hands its remaining steps to a grandchild through the same handoff, verify, return and reconcile commands (chain depth 3 at most). Before its first completed step, at the maximum depth, or past its segment it continues with one `CONTEXT_HIGH:` line. The admission cap still stops it.
+- **A delegated child cannot return complete with work left over.** `return` reports `status=incomplete` with `UNRECONCILED:` or `DROPPED:` lines while one of its own grandchildren is unreconciled or a batch remainder was never re-checked.
+
+### Changed
+- **Parallel reviewer batches near the cap admit the largest prefix that fits** (`ADMIT: k of n (remaining=<roles>)`) instead of refusing the whole batch; each reader is priced at the larger of its projection and the run's measured mean for that role. `close` flags remaining roles nobody re-checked (`DROPPED:`, `status=incomplete` until the owner accepts).
+
+### Tests
+- `test/ship-budget-chain.test.ts` replays #36 (a child at its first boundary continues) and covers the Capy floor, grandchild handoff at depth 2, the depth-3 cap, charging a chained return once on all three meters, and the incomplete return. `test/ship-budget-batch.test.ts` replays #35's 7-reader batch near the cap.
 
 ## [1.91.324.0] - 2026-10-29
 

@@ -32,9 +32,14 @@ export const DISPATCH_ROLES = ['specialist', 'red-team', 'adversarial-native', '
 type MissingRole = Exclude<Role, typeof DISPATCH_ROLES[number]>;
 const ROLES_COMPLETE: [MissingRole] extends [never] ? true : never = true;
 void ROLES_COMPLETE;
-/** D3: per-call charge that runs the whole /ship in a fresh child, and the one that delegates a heavy segment. */
+/**
+ * D3: per-call context above the host's per-call floor (GSTA-167) that runs the
+ * whole /ship in a fresh child, and the one that delegates a heavy segment.
+ */
 export const DELEGATE_START_CALL = 100_000;
 export const DELEGATE_SEGMENT_CALL = 150_000;
+/** Handoffs between the root run and the deepest child; a run at this depth continues instead of handing off. */
+export const MAX_CHAIN_DEPTH = 3;
 /** Segment boundaries (before Step 7, before Step 12) and the last step each segment runs. */
 export const SEGMENTS: Record<string, string> = { '1': '22', '7': '11.5', '12': '22' };
 export const DEFAULT_TAIL = 2_000_000;
@@ -51,12 +56,12 @@ export const METER_CONTRACTS: Record<MeterKind, MeterContract> = {
 export interface Reservation {
   id: string; kind: 'step' | 'dispatch' | 'child'; step: string; next: string; roles?: string[]; tokens: number; at: string;
   state: 'open' | 'consumed' | 'settled' | 'released'; token?: string; started_at?: string; settled_at?: string;
-  prior?: number; reading_at?: number | null; epoch?: number; actual?: number; unseen?: boolean;
+  prior?: number; reading_at?: number | null; epoch?: number; actual?: number; unseen?: boolean; remaining?: string[];
 }
 export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; prior: number; projected: number; actual: number }
 export interface Handoff {
   n: number; sha: string; file: string; from: string; to: string; sub_cap: number; reservation: string; reading_at: number | null;
-  epoch: number; return_file: string; reconciled_at?: string; status?: string; child_used?: number;
+  epoch: number; return_file: string; reconciled_at?: string; status?: string; child_used?: number; depth?: number;
 }
 export interface Ledger {
   schema_version: 1; kind: 'gstack-ship-budget'; run: string; dir: string; file: string; record?: string; created_at: string;
@@ -68,6 +73,7 @@ export interface Ledger {
   reservations: Reservation[]; handoffs: Handoff[];
   cap_raises: Array<{ from: number | null; to: number | null; by: string; words: string; at: string }>;
   marker?: string; review_log?: string; calibration?: string; samples?: Sample[]; tail_explicit?: boolean;
+  call_floor?: number; depth?: number; steps_done?: string[];
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
 }
 
@@ -106,7 +112,7 @@ export interface Calibration {
   observations: Record<string, Array<{ run: string; value: number; source: string }>>;
   constants: Record<'per_call' | 'per_dispatch' | 'stop_overhead', number>;
   step_calls: Record<string, number>; step_dispatches: Record<string, number>; segment_dispatches: Record<string, number>;
-  units: Record<string, { fit?: string; seeded_from?: string; why?: string }>;
+  units: Record<string, { fit?: string; seeded_from?: string; why?: string; call_floor?: number; call_floor_observed?: number | null; call_floor_why?: string }>;
 }
 export const CALIBRATION_FILE = path.join(import.meta.dir, 'ship-budget-calibration.json');
 
@@ -153,7 +159,10 @@ export function measuredFactor(l: Ledger, cal: Calibration, kind: Sample['kind']
 /**
  * Projections calibrated by the run's measured factors. The tail reserve scales
  * with the step factor unless --reserve set it; the stop overhead keeps its
- * calibrated fit so a run always has room to stop.
+ * calibrated fit so a run always has room to stop. `floor` is the host's
+ * per-call floor: start --call-floor, else the unit's calibrated value.
+ * `reader` prices one dispatch reader at max(its projection, the run's mean
+ * measured cost for that role over settled dispatch reservations).
  */
 export function projector(l: Ledger, cal: Calibration = loadCalibration(l.calibration)) {
   const unit = l.meter.contract.unit;
@@ -166,7 +175,17 @@ export function projector(l: Ledger, cal: Calibration = loadCalibration(l.calibr
   const segment = (from: string, to: string) => SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1)
     .reduce((sum, s) => sum + project({ kind: 'step', step: s }).tokens + (cal.segment_dispatches[s] ?? 0) * project({ kind: 'dispatch', roles: ['specialist'] }).tokens, 0);
   const label = (f: number | null) => (f === null ? 'prior' : f.toFixed(3));
-  return { project, segment, reserve: (l.tail_explicit ? l.tail : scale(l.tail, step)) + l.stop_overhead, label: `step:${label(step)},dispatch:${label(dispatch)}` };
+  const measured = new Map<string, number[]>();
+  for (const r of l.reservations) {
+    if (r.kind !== 'dispatch' || r.actual === undefined || r.unseen || r.epoch !== l.meter.epoch) continue;
+    for (const role of r.roles ?? []) measured.set(role, [...(measured.get(role) ?? []), r.actual / r.roles!.length]);
+  }
+  const reader = (role: string) => {
+    const seen = measured.get(role) ?? [];
+    return Math.max(project({ kind: 'dispatch', roles: [role] }).tokens, seen.length ? Math.ceil(seen.reduce((a, b) => a + b, 0) / seen.length) : 0);
+  };
+  return { project, segment, reader, reserve: (l.tail_explicit ? l.tail : scale(l.tail, step)) + l.stop_overhead, label: `step:${label(step)},dispatch:${label(dispatch)}`,
+    floor: l.call_floor ?? cal.units[unit]?.call_floor ?? 0 };
 }
 
 /**
@@ -265,8 +284,11 @@ export function admits(t: { used: number; reserved: number; unknown: number }, p
 export function budgetLine(l: Ledger, f: { call: number | null; next: string; projected: number; verdict: string }): string {
   const t = tally(l);
   const p = projector(l);
-  return `BUDGET: used=${t.used} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} tail=${p.reserve} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} call=${f.call ?? 'unknown'} next=${f.next} projected=${f.projected} calibration=${p.label} verdict=${f.verdict}`;
+  return `BUDGET: used=${t.used} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} tail=${p.reserve} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} call=${f.call ?? 'unknown'} call_floor=${p.floor} above_floor=${aboveFloor(f.call, p.floor) ?? 'unknown'} next=${f.next} projected=${f.projected} calibration=${p.label} verdict=${f.verdict}`;
 }
+
+/** The per-call context above the host floor that the delegate thresholds compare; null when the charge is unknown. */
+export const aboveFloor = (call: number | null, floor: number) => (call === null ? null : Math.max(0, call - floor));
 
 export function reserveIn(l: Ledger, r: Omit<Reservation, 'id' | 'at' | 'state'>): Reservation {
   const row: Reservation = { ...r, id: `${l.run}-r${l.next_id++}`, at: new Date().toISOString(), state: 'open', reading_at: l.meter.last, epoch: l.meter.epoch };
