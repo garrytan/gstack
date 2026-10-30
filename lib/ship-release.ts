@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import { classifyPath } from './review-depth';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
-import { bin, firstLine, flagReader, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short } from './ship-bin-common';
+import { bin, evidenceExempt, firstLine, flagReader, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
@@ -149,8 +149,9 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   const base = flag('--base')!;
   const r = new Report();
   const list = lanes(argv) as { label: string; command: string }[];
-  const release = releasePaths(shipPolicy(cwd, base));
-  if (!commitRelease(cwd, release, flag('--trailer'), r)) return r;
+  const policy = shipPolicy(cwd, base);
+  if (!commitRelease(cwd, releasePaths(policy, cwd, 'HEAD'), flag('--trailer'), r)) return r;
+  const release = releasePaths(policy, cwd, flag('--reviewed-tree')!);
   for (const cmd of all('--build')) {
     const b = sh(cwd, cmd);
     r.add(`BUILD: ${b.status === 0 ? 'ok' : `FAIL exit=${b.status}`} ${cmd.slice(0, 120)}`);
@@ -165,7 +166,7 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   r.add(`DOCS: ${stale.length ? `stale (${short(stale)})` : 'fresh against the Step 14.5 post-audit snapshot'}`);
   if (stale.length) return r.stop('documentation inputs changed since the accepted audit: use stage 3 recovery (the remaining re-audit, or a named risk); never refresh hashes');
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
-  const allow = release.join(',');
+  const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;
   for (const l of list) {
     let e = check(l);
@@ -210,6 +211,7 @@ export function push(argv: readonly string[], cwd: string): Report {
   const sealed = bin(cwd, 'gstack-pregate', ['sealed'], 120_000);
   r.add(`SEALED: ${sealed.status === 0 ? 'clear' : sealed.status === 1 ? 'refused' : `not checked (exit ${sealed.status})`}`);
   if (sealed.status === 1) return r.stop(`sealed output would be published: ${firstLine(sealed.stderr)}; remove it from the commits, then repeat Step 16`);
+  if (sealed.status !== 0) return r.stop(`the sealed-output guard did not run (exit ${sealed.status}: ${firstLine(sealed.stderr || sealed.stdout)}); repair it, then rerun push`);
   const local = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
   const remote = git(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`], 120_000);
   if (remote.status !== 0) return r.stop(`cannot verify the remote branch (${firstLine(remote.stderr)}): restore access before pushing`);

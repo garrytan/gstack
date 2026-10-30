@@ -44,24 +44,34 @@ export function rank(label: string): number | null {
   const r = RANKS[label.trim().replace(/^\[|\]$/g, '').toLowerCase()];
   return r === undefined ? null : r;
 }
-const PROSE_LABEL = /(?:^|[\s[(*|:-])(CRITICAL|INFORMATIONAL|Critical|High|Medium|Low|P[0-3]|FIXABLE|INVESTIGATE)(?=$|[\s\]):*|,.-])/;
+const LABELS = 'CRITICAL|INFORMATIONAL|Critical|High|Medium|Low|P[0-3]|FIXABLE|INVESTIGATE';
+/** A finding line opens with its label: "- **High**: …", "1. [P1] …", "FIXABLE: …". A label later in a sentence ("no CRITICAL issues remain") is not one. */
+const LEAD_LABEL = new RegExp(`^(?:[-*+]|\\d+[.)])?\\s*[*_[(]*(${LABELS})[*_\\])]*(?=\\s*[:\\-—–]|\\s+\\S)`);
+/** A heading that is only a label ("## High", "**Critical findings**") gives its label to the list items under it. */
+const LABEL_HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(${LABELS})(?:\\s+(?:findings?|severity|issues?))?\\s*:?\\**\\s*$`);
+const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
 
 export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
 
-/** One reader's findings as written: a JSON object per line (severity kept as written), else each prose line carrying a severity or FIXABLE/INVESTIGATE label. */
+/** One reader's findings as written: a JSON object per line (severity kept as written); else each prose line that opens with a severity or FIXABLE/INVESTIGATE label, and each list item under a label-only heading. */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
   const out: Array<{ label: string; raw: string }> = [];
+  let section: string | null = null;
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
     if (!t || /^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) continue;
+    const heading = LABEL_HEADING.exec(t);
+    if (heading) { section = heading[1]!; continue; }
+    if (/^#{1,6}\s/.test(t)) { section = null; continue; }
     if (t.startsWith('{')) {
       try {
         const o = JSON.parse(t) as Record<string, unknown>;
         if (typeof o.severity === 'string') { out.push({ label: o.severity, raw: t }); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    const m = PROSE_LABEL.exec(t);
+    const m = LEAD_LABEL.exec(t);
     if (m) out.push({ label: m[1]!, raw: t });
+    else if (section && LIST_ITEM.test(t)) out.push({ label: section, raw: t });
   }
   return out;
 }
@@ -93,7 +103,8 @@ export function judge(merged: MergedLine[], judged: JudgedLine[]): Judgment {
     const j = byId.get(m.id);
     if (!j) { res.dropped.push(m.id); continue; }
     const target = j.duplicate_of ? byId.get(j.duplicate_of) : j;
-    if (!target) { res.dropped.push(m.id); continue; }
+    // A duplicate folds into a different line that stands on its own; a self-fold, a cycle or a chain keeps no survivor.
+    if (!target || (j.duplicate_of && (j.duplicate_of === j.id || target.duplicate_of))) { res.dropped.push(m.id); continue; }
     const from = rank(m.label) ?? 0;
     const to = rank(target.severity);
     if (to === null) continue;
@@ -107,7 +118,7 @@ export function judge(merged: MergedLine[], judged: JudgedLine[]): Judgment {
 }
 
 /** judge, logged: one judgment event per addition and promotion, then the verdict. */
-export function recordJudgment(ledger: string, merged: MergedLine[], judged: JudgedLine[], judgedFile: string): Judgment {
+export function recordJudgment(ledger: string, merged: MergedLine[], judged: JudgedLine[], judgedFile: string, mergedFile: string): Judgment {
   const res = judge(merged, judged);
   const byId = new Map(judged.map(j => [j.id, j]));
   const labels = new Map(merged.map(m => [m.id, m.label]));
@@ -115,7 +126,7 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
     for (const id of res.added) appendEvent(ledger, { event: 'judgment', kind: 'added', id, to: byId.get(id)!.severity, reason: byId.get(id)!.reason });
     for (const id of res.promoted) appendEvent(ledger, { event: 'judgment', kind: 'promoted', id, from: labels.get(id), to: byId.get(id)!.severity, reason: byId.get(id)!.reason });
   }
-  appendEvent(ledger, { event: 'judge', ok: res.ok, judged: judgedFile, dropped: res.dropped, downgraded: res.downgraded, unexplained: res.unexplained, invalid: res.invalid, added: res.added.length, promoted: res.promoted.length, folded: res.folded.length });
+  appendEvent(ledger, { event: 'judge', ok: res.ok, judged: judgedFile, judged_sha256: promptHash(fs.readFileSync(judgedFile, 'utf8')), merged: mergedFile, merged_ids: merged.map(m => m.id), dropped: res.dropped, downgraded: res.downgraded, unexplained: res.unexplained, invalid: res.invalid, added: res.added.length, promoted: res.promoted.length, folded: res.folded.length });
   return res;
 }
 
@@ -140,6 +151,10 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const reader = String(o.reader);
     let status = 'MATCH';
     const notes: string[] = [];
+    const rendered = lastRendered(events, reader);
+    const sent = events.filter(e => e.event === 'sent' && e.reader === reader);
+    if (!rendered) { status = 'MISMATCH'; notes.push('brief_not_rendered'); }
+    else if (!sent.length || sent.some(s => s.sha256 !== rendered.sha256)) { status = 'MISMATCH'; notes.push('brief_not_sent_verbatim'); }
     if (typeof o.file === 'string' && fs.existsSync(o.file) && promptHash(fs.readFileSync(o.file, 'utf8')) !== o.sha256) { status = 'MISMATCH'; notes.push('output_file_changed'); }
     const ids = Array.isArray(o.ids) ? (o.ids as string[]) : [];
     let lines: MergedLine[] = [];
@@ -148,10 +163,21 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
     rows.push({ kind: 'OUTPUT', reader, status, detail: `sha=${short(o.sha256)} findings=${ids.length}${notes.length ? ' ' + notes.join(' ') : ''}` });
   }
-  const verdicts = events.filter(e => e.event === 'judge');
-  if (verdicts.length) {
-    const v = verdicts[verdicts.length - 1]!;
-    rows.push({ kind: 'JUDGE', reader: '-', status: v.ok ? 'OK' : 'REJECTED', detail: `dropped=${JSON.stringify(v.dropped)} downgraded=${JSON.stringify(v.downgraded)} added=${v.added} promoted=${v.promoted} folded=${v.folded}` });
+  const lastJudge = events.map(e => e.event).lastIndexOf('judge');
+  if (lastJudge >= 0) {
+    const v = events[lastJudge]!;
+    const notes: string[] = [];
+    const late = events.slice(lastJudge + 1).filter(e => e.event === 'output').map(e => String(e.reader));
+    if (late.length) notes.push(`output_after_judge=${late.join(',')}`);
+    let rerun: Judgment | null = null;
+    try {
+      const judgedText = fs.readFileSync(String(v.judged), 'utf8');
+      if (promptHash(judgedText) !== v.judged_sha256) notes.push('judged_changed_since_judge');
+      rerun = judge(readJsonl<MergedLine>(String(v.merged)), readJsonl<JudgedLine>(String(v.judged)));
+    } catch { notes.push('judged_or_merged_unreadable'); }
+    if (rerun && !rerun.ok) notes.push(`rerun_rejects dropped=${JSON.stringify(rerun.dropped)} downgraded=${JSON.stringify(rerun.downgraded)}`);
+    const status = !v.ok ? 'REJECTED' : notes.length ? 'MISMATCH' : 'OK';
+    rows.push({ kind: 'JUDGE', reader: '-', status, detail: `dropped=${JSON.stringify(v.dropped)} downgraded=${JSON.stringify(v.downgraded)} added=${v.added} promoted=${v.promoted} folded=${v.folded}${notes.length ? ' ' + notes.join(' ') : ''}` });
   } else if (events.some(e => e.event === 'output')) rows.push({ kind: 'JUDGE', reader: '-', status: 'MISSING', detail: 'outputs were collected but no judged set was checked' });
   const clean = readers.length > 0 && rows.every(r => r.status === 'MATCH' || r.status === 'OK');
   return { rows, clean, briefs: readers.length };

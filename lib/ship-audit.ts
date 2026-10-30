@@ -80,10 +80,12 @@ export function audit(cwd: string, base: string, out: string): Report {
 
   const tests = files.filter(p => TEST_PATH.test(p)).map(p => ({ p, text: readOr(path.join(cwd, p)) }));
   const runtime = files.filter(p => !TEST_PATH.test(p) && !DATA_PATH.test(p) && fs.existsSync(path.join(cwd, p)) && classifyPath(p, cwd) === 'code');
+  // One read of the tracked test tree for every changed file, instead of one full-tree git grep per file.
+  const testTree = runtime.length ? git(cwd, ['ls-files', '-z', '--', ...TEST_SPECS]).stdout.split('\0').filter(Boolean).map(f => readOr(path.join(cwd, f))) : [];
   const map = runtime.map(p => ({
     p,
     changed: tests.filter(t => t.p.includes(stem(p)) || t.text.includes(stem(p))).length,
-    referencing: git(cwd, ['grep', '-l', '-F', '-e', stem(p), '--', ...TEST_SPECS]).stdout.split('\n').filter(Boolean).length,
+    referencing: testTree.filter(text => text.includes(stem(p))).length,
   }));
   const mapFile = path.join(out, 'coverage.txt');
   fs.writeFileSync(mapFile, map.map(m => `${m.p} changed_tests=${m.changed} referencing_tests=${m.referencing}\n`).join(''), { mode: 0o600 });

@@ -107,6 +107,9 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const spec = p.w('spec.out', '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"off by one","specialist":"testing"}\n{"severity":"INFORMATIONAL","path":"a.ts","line":9,"category":"style","summary":"name","specialist":"testing"}\n');
     const outside = p.w('outside.out', 'Findings:\n1. **High**: retry loop never backs off (q.ts:78)\n2. Low - log line is noisy\nRecommendation: Fix the retry because it DoSes the pool\n');
     const c1 = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', spec, '--merged', p.merged]);
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const ov = field(run(['render', '--role', 'outside-voice', '--out', p.out, '--diff-base', head]).stdout, 'file');
+    run(['sent', '--ledger', p.ledger, '--role', 'outside-voice', '--sent', ov]);
     const c2 = run(['collect', '--ledger', p.ledger, '--role', 'outside-voice', '--output', outside, '--merged', p.merged]);
     expect([c1.stdout.includes('findings=2'), c2.stdout.includes('findings=2')]).toEqual([true, true]);
     const merged = fs.readFileSync(p.merged, 'utf8').trim().split('\n').map(l => JSON.parse(l) as MergedLine);
@@ -129,14 +132,38 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(ledger).toContain('"kind":"promoted","id":"outside-voice#2","from":"Low","to":"INFORMATIONAL","reason":"it hides a real error line"');
     expect(ledger).toContain('"kind":"added","id":"lead#1"');
     const v = run(['verify', '--ledger', p.ledger]);
-    expect([v.status, v.stdout.includes('OUTPUT outside-voice MATCH'), v.stdout.includes('JUDGE - OK'), v.stdout.includes('VERIFY: clean briefs=1 outputs=2')]).toEqual([0, true, true, true]);
+    expect([v.status, v.stdout.includes('OUTPUT outside-voice MATCH'), v.stdout.includes('JUDGE - OK'), v.stdout.includes('VERIFY: clean briefs=2 outputs=2')]).toEqual([0, true, true, true]);
     fs.writeFileSync(p.merged, fs.readFileSync(p.merged, 'utf8').replace('"label":"Low"', '"label":"Low","x":1').replace(/"output_sha256":"[0-9a-f]+"}\n$/, '"output_sha256":"' + '0'.repeat(64) + '"}\n'));
     const tampered = run(['verify', '--ledger', p.ledger]);
     expect([tampered.status, tampered.stdout.includes('OUTPUT outside-voice MISMATCH')]).toEqual([1, true]);
   });
 
+  // Value: protects=verify is clean only when every collected output came from a brief rendered and sent verbatim, nothing was collected after the judgment, and the judged set still passes as recorded; a fold keeps a standalone survivor; fails_when=outputs from hand-written briefs, a finding collected after judge, a judged.jsonl edited after judge, a self-fold or a fold cycle still read clean (/ship #3648 pass-1 Red Team);
+  //   why_new=the first gate trusted the last verdict and any duplicate_of; seam=verify and judge; no_claim=the host's dispatch
+  test('verify is dirty for an unrendered reader, an output after judge and a judged set edited after judge; self-folds and fold cycles are drops', () => {
+    const p = pass();
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    const spec = p.w('spec.out', '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"x","specialist":"testing"}\n');
+    run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', spec, '--merged', p.merged]);
+    const judged = p.w('judged.jsonl', JSON.stringify({ id: 'specialist/testing#1', severity: 'CRITICAL' }) + '\n');
+    expect(run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged]).status).toBe(0);
+    expect(run(['verify', '--ledger', p.ledger]).stdout).toContain('VERIFY: clean');
+    fs.appendFileSync(judged, JSON.stringify({ id: 'lead#1', severity: 'Low', reason: 'late' }) + '\n');
+    expect(run(['verify', '--ledger', p.ledger]).stdout).toContain('judged_changed_since_judge');
+    const hand = p.w('hand.out', '{"severity":"CRITICAL","path":"b.ts","line":1,"category":"x","summary":"y","specialist":"red-team"}\n');
+    run(['collect', '--ledger', p.ledger, '--role', 'red-team', '--output', hand, '--merged', p.merged]);
+    const v = run(['verify', '--ledger', p.ledger]);
+    expect([v.status, v.stdout.includes('OUTPUT red-team MISMATCH'), v.stdout.includes('brief_not_rendered'), v.stdout.includes('output_after_judge=red-team')]).toEqual([1, true, true, true]);
+    const m: MergedLine[] = [{ id: 'a#1', reader: 'a', label: 'CRITICAL', raw: 'x', output_sha256: 'h' }, { id: 'a#2', reader: 'a', label: 'CRITICAL', raw: 'y', output_sha256: 'h' }];
+    expect(judge(m, [{ id: 'a#1', severity: 'CRITICAL', duplicate_of: 'a#1' }, { id: 'a#2', severity: 'CRITICAL' }]).dropped).toEqual(['a#1']);
+    expect(judge(m, [{ id: 'a#1', severity: 'CRITICAL', duplicate_of: 'a#2' }, { id: 'a#2', severity: 'CRITICAL', duplicate_of: 'a#1' }]).dropped).toEqual(['a#1', 'a#2']);
+    expect(judge(m, [{ id: 'a#1', severity: 'CRITICAL', duplicate_of: 'a#2' }, { id: 'a#2', severity: 'CRITICAL' }]).ok).toBe(true);
+  });
+
   test('judge and parseFindings as functions: an unknown severity is invalid, NO FINDINGS and the Recommendation line are not findings', () => {
     expect(parseFindings('r', 'NO FINDINGS\n')).toEqual([]);
+    expect(parseFindings('r', 'Summary: no CRITICAL issues remain.\n')).toEqual([]);
+    expect(parseFindings('r', '## High\n1. The auth check skips webhooks (a.ts:4)\n- second one\n## Notes\n- not a finding\n').map(f => [f.label, f.raw])).toEqual([['High', '1. The auth check skips webhooks (a.ts:4)'], ['High', '- second one']]);
     expect(parseFindings('r', 'FIXABLE: race in a.ts:3\nINVESTIGATE: odd lock\nRecommendation: Fix the race because x\n').map(f => f.label)).toEqual(['FIXABLE', 'INVESTIGATE']);
     const m: MergedLine[] = [{ id: 'r#1', reader: 'r', label: 'FIXABLE', raw: 'x', output_sha256: 'h' }];
     expect(judge(m, [{ id: 'r#1', severity: 'severe' }]).invalid).toEqual(['r#1']);

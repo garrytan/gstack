@@ -7,8 +7,7 @@
 ### Added
 - **`gstack-ship-preflight`** runs Steps 1-3 (branch guard, status, fetch, diff stat, PR and receipt carry, scope, base merge, distribution, policy, runtime lines) and Step 5 (pregate, then the test lanes in parallel) in one call. **`gstack-ship-release`** runs Step 12's version, Steps 15-16's release commit and verification, and Step 17's push. Each prints at most 30 lines; `STOP:` names the decision left to the agent and `NEXT:` the step to run. Under `queue_mode stamp-at-merge` the version step prints `VERSION: skipped (policy: ...)` and writes nothing.
 - **`ship/DRIVER.md`**, a compact host-neutral driver for a parent agent running `/ship` unattended: one or two calls per phase, and the section each STOP needs. Its audit, review, adversarial and documentation phases run their sections as written, so it never restates or shortens a reviewer's brief.
-- **`gstack-ship-budget start --delegate measured`** delegates a segment only when a measured call is 150k or more above the host floor; an unknown charge continues.
-- **Small runs keep their segment.** `check --runtime-lines <n>` continues at the Step 7 and Step 12 boundaries with a `SMALL_RUN:` line when the diff has at most 50 runtime lines and the segment would cost less than a child's fixed startup.
+- **Small runs keep their segment.** `check --runtime-lines <n>` continues at the Step 9 and Step 12 boundaries with a `SMALL_RUN:` line when the diff has at most 50 runtime lines and the segment would cost less than a child's fixed startup.
 
 ### Changed
 - **The Capy meter reads the agent's own thread**, its subagents included, inside the same program as the budget command, never in a call of its own. A handoff child counts from its own `verify-handoff` reading, and `reconcile` charges the `used=` its return prints.

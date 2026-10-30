@@ -113,6 +113,19 @@ describe('finish (Steps 15-16)', () => {
     expect(h.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed3, '--docs-post', post3]).stdout).toContain("STOP: no test lanes: require Step 5's explicit untested-scope approval");
     expect(h.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed3]).status).toBe(2);
   });
+
+  // Value: protects=a dependency or script edit to package.json, and any lockfile edit, after review takes the re-review route; a version-only bump stays release metadata; fails_when=finish treats package.json or bun.lock as metadata whatever changed in them (/ship #3648 pass-1 security, CRITICAL);
+  //   why_new=releasePaths exempted the manifests and lockfiles by name; seam=gstack-wtree, git; no_claim=the re-review itself
+  test('a script or dependency edit to package.json, or a bun.lock edit, after review stops finish', () => {
+    for (const [file, text] of [['package.json', '{"name":"fx","version":"1.0.0","scripts":{"test":"exit 0"}}\n'], ['bun.lock', '{"lockfileVersion":1}\n']]) {
+      const f = fx();
+      const reviewed = wtree(f);
+      const post = snapshot(f);
+      f.write({ [file]: text }); f.commit(`late ${file}`);
+      const r = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
+      expect([r.status, r.stdout.includes(`STOP: behavior, tests or build inputs changed since review (${file})`)]).toEqual([3, true]);
+    }
+  });
 });
 
 describe('push (Step 17)', () => {

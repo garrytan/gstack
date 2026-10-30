@@ -6,6 +6,7 @@
  * assigns to the agent.
  */
 import { spawn, spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
 
@@ -67,12 +68,37 @@ export function shipPolicy(cwd: string, base: string): Record<string, any> | nul
   try { return JSON.parse(r.stdout).policy ?? null; } catch { return null; }
 }
 
-/** Release metadata a version stamp and Steps 13-14 write: the release commit's paths, never a behavior change. */
-export function releasePaths(policy: Record<string, any> | null): string[] {
+/** Manifests a version stamp writes: release metadata only while the edit changes nothing but the version. */
+export const VERSIONED_MANIFESTS = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json'];
+
+/** True when `p` in the working tree differs from `p` at `ref` (a commit or tree) in its version fields alone; a new, deleted or unparseable file never qualifies. */
+export function versionOnlyEdit(cwd: string, ref: string, p: string): boolean {
+  const before = git(cwd, ['show', `${ref}:${p}`]);
+  if (before.status !== 0) return false;
+  let now: string;
+  try { now = fs.readFileSync(path.join(cwd, p), 'utf8'); } catch { return false; }
+  const strip = (s: string) => {
+    const o = JSON.parse(s);
+    delete o.version;
+    if (o.packages?.['']) delete o.packages[''].version;
+    return JSON.stringify(o);
+  };
+  try { return strip(before.stdout) === strip(now); } catch { return false; }
+}
+
+/**
+ * Release metadata a version stamp and Steps 13-14 write, compared against `ref`: the release commit's paths,
+ * never a behavior change. A manifest counts only while its edit is version-only (a dependency, script or
+ * lockfile change is a build input); bun.lock never counts.
+ */
+export function releasePaths(policy: Record<string, any> | null, cwd: string, ref: string): string[] {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
-  return [...new Set(['VERSION', 'CHANGELOG.md', 'TODOS.md', 'package.json', 'package-lock.json', 'bun.lock', 'agents-digest/gstack-AGENTS.md',
+  return [...new Set(['VERSION', 'CHANGELOG.md', 'TODOS.md', 'agents-digest/gstack-AGENTS.md', ...VERSIONED_MANIFESTS.filter(p => versionOnlyEdit(cwd, ref, p)),
     ...(typeof policy?.changelog === 'string' ? [policy.changelog] : []), ...list(policy?.release_outputs), ...list(policy?.stamp_paths)])];
 }
+
+/** The paths a lane receipt may ignore: release metadata except TODOS.md, whose Step 14 edit reruns the lanes (ship/SKILL.md Step 16). */
+export const evidenceExempt = (release: readonly string[]) => release.filter(p => p !== 'TODOS.md');
 
 export const short = (list: readonly string[], n = 6) => list.slice(0, n).join(',') + (list.length > n ? `,+${list.length - n} more` : '');
 export const firstLine = (s: string) => s.trim().split('\n').filter(Boolean).at(-1)?.slice(0, 240) ?? '';

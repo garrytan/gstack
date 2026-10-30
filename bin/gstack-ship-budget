@@ -8,10 +8,12 @@
  * takes --credits <cost.credits> beside it.
  *
  *   start   --record <path> [--token-cap <n|none>] [--mode admit|observe] [--meter capy|claude|estimate] [--reading <n>] [--credits <c>]
- *           [--prior-reading <n>] [--session <id>|--nonce <v>] [--reserve <n>] [--delegate auto|never|measured] [--calibration <file>] [--ledger <path>]
+ *           [--prior-reading <n>] [--session <id>|--nonce <v>] [--reserve <n>] [--delegate auto|never] [--calibration <file>] [--ledger <path>]
  *   note    --run|--record --step <id> [--label <text>] --reading <n> [--credits <c>] [--dispatched-at <n> [--dispatched-credits <c>] --readers <k>]
- *   check   --run <id>|--record <path> --step <id> --next <id|dispatch:<role>[,<role>...]> [--reading <n>] [--prior-reading <n>] [--returned <id>[,<id>...]] [--runtime-lines <n>]
- *   settle  --run|--record --reservation <id> [--unknown] [--reading <n>]      release --run|--record --reservation <id>
+ *   check   --run <id>|--record <path> --step <id> --next <id|dispatch:<role>[,<role>...]> [--reading <n>] [--credits <c>] [--prior-reading <n>]
+ *           [--returned <id>[,<id>...]] [--runtime-lines <n>] [--dispatched-at <n> --readers <k>]
+ *   settle  --run|--record --reservation <id> [--unknown] [--reading <n>] [--credits <c>] [--dispatched-at <n> --readers <k>]
+ *   release --run|--record --reservation <id>
  *   handoff --run|--record --from <step> --to <step> --base origin/<base> [--reviewed-tree <t>] [--trail <f> --trail-run <id>]
  *           [--sub-cap <n>] [--reading <n>] [--child-session <id>]
  *   launch  --in <brief>   (Claude Code: background headless child with explicit permissions)
@@ -38,7 +40,8 @@ const commands: Record<string, () => Outcome> = {
   reconcile: () => cmdReconcile(rest, ctx), resume: () => cmdResume(rest, ctx), close: () => cmdClose(rest, ctx),
 };
 if (!command || command === '--help' || command === '-h' || !commands[command]) {
-  const text = (await Bun.file(import.meta.path).text()).split('\n').slice(2, 27).map(l => l.replace(/^ \* ?/, '')).join('\n');
+  const lines = (await Bun.file(import.meta.path).text()).split('\n');
+  const text = lines.slice(2, lines.indexOf(' */')).map(l => l.replace(/^ \* ?/, '')).join('\n');
   (command && command !== '--help' && command !== '-h' ? console.error : console.log)(text);
   process.exit(command && command !== '--help' && command !== '-h' ? 2 : 0);
 }
