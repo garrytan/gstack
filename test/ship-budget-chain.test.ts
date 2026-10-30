@@ -73,6 +73,22 @@ describe('per-call thresholds above the host floor', () => {
     expect(h.field(unknown.out, 'BUDGET', 'verdict')).toBe('delegate');
   });
 
+  test('--delegate measured (ship/DRIVER.md): an unknown charge continues at a segment boundary; 150k above the floor still delegates', () => {
+    const h = fresh();
+    const s = start(h, ['--token-cap', '80M', '--reading', '1000000', '--delegate', 'measured']);
+    const unknown = check(h, s.run, '6', '7', ['--reading', '1100000']);
+    expect(unknown.code, unknown.out + unknown.err).toBe(0);
+    expect(h.field(unknown.out, 'BUDGET', 'above_floor')).toBe('unknown');
+    expect(h.field(unknown.out, 'BUDGET', 'verdict')).toBe('continue');
+    expect(unknown.out).not.toContain('DELEGATE:');
+    const high = check(h, s.run, '11.5', '12', ['--reading', '2000000', '--prior-reading', '1700000']);
+    expect(h.field(high.out, 'BUDGET', 'above_floor')).toBe('150000');
+    expect(h.field(high.out, 'BUDGET', 'verdict')).toBe('delegate');
+    const bad = h.sb(['start', '--record', h.record(), '--token-cap', '60M', '--reading', '0', '--delegate', 'sometimes']);
+    expect(bad.code).toBe(2);
+    expect(bad.err).toContain("--delegate 'sometimes' is not auto, never or measured");
+  });
+
   test('--call-floor overrides the calibrated floor and is recorded in the ledger', () => {
     const h = fresh();
     const s = start(h, ['--token-cap', '60M', '--reading', '218000', '--prior-reading', '98000', '--call-floor', '0']);
