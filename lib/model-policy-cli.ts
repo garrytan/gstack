@@ -15,6 +15,7 @@ import {
   type ModelSelection,
 } from './model-policy';
 import { readConfigKey, type StateRootEnv } from './state-root';
+import { AgentModelError, renderAgentModel, resolveAgentModel, type AgentModelSelection } from './agent-model';
 
 export interface ModelsCliResult {
   code: 0 | 1 | 2;
@@ -33,6 +34,7 @@ export const MODELS_HELP = `Usage:
   gstack-models resolve --role plan-review --provider anthropic|openai [--json]
   gstack-models resolve --role implementation [--provider anthropic|openai] [--json]
   gstack-models resolve --role eval-arms [--provider anthropic|openai] [--json]
+  gstack-models resolve --role agent [--request <model>] [--json]
   gstack-models --help
 
 Shows which model each gstack role uses and why. It reads config.yaml, the
@@ -57,6 +59,15 @@ Roles:
   eval-arms       The arms /eval-plan compares: the implementation-tier model of
                   each provider under the same precedence (plan E1). Pricing per
                   arm comes from lib/pricing.ts via gstack-eval-plan arms.
+  agent           The model you want gstack's working agents (lanes, subagents,
+                  reviewers) to run on: your preference, not a gstack policy.
+                  Precedence: --request (one job, never saved), then agent_model
+                  in config.yaml (this machine), then agent_model in the file
+                  GSTACK_PREFERENCES_FILE names (on Capy, preferences.yaml in
+                  the gstack skill folder), then host (keep the agent's own
+                  model). Values: host, a family (opus, fable, sonnet, haiku,
+                  astra, sol, luna, terra) or <provider>/<model>. A cross-family
+                  outside voice and a model under test in an eval ignore it.
 
 Settings (gstack-config set|unset <key>):
   plan_review_tier       frontier | smart | host   (default frontier)
@@ -180,7 +191,7 @@ function renderSelections(role: ModelRole, config: ModelPolicyConfig, selections
   return lines;
 }
 
-function renderList(config: ModelPolicyConfig, selections: ModelSelection[], env: StateRootEnv): string {
+function renderList(config: ModelPolicyConfig, selections: ModelSelection[], env: StateRootEnv, platform: NodeJS.Platform): string {
   const effort = codexEffortSetting(env);
   const commands = modelPolicyCommands();
   const configCommand = `'${CONFIG_BIN.replaceAll('\\', '/').replaceAll("'", "'\\''")}'`;
@@ -192,6 +203,8 @@ function renderList(config: ModelPolicyConfig, selections: ModelSelection[], env
     ...renderSelections('implementation', config, selections),
     '',
     `codex effort: ${effort.value ?? 'each gate\'s default'} (${effort.source === 'env' ? 'GSTACK_CODEX_EFFORT' : effort.source === 'config' ? `codex_effort in ${config.path}` : 'default; set codex_effort'})${effort.valid ? '' : ` - invalid; Codex calls stop before sending. Use ${CODEX_EFFORT_LEVELS.join(', ')}`}; /spec keeps medium`,
+    '',
+    ...agentLines(env, platform),
     '',
     `catalog v${MODEL_CATALOG_VERSION} (sha256 ${modelCatalogSha256().slice(0, 12)})`,
   ];
@@ -233,6 +246,37 @@ function renderResolve(role: ModelRole, config: ModelPolicyConfig, selections: M
   return lines.join('\n') + '\n';
 }
 
+function agentOrError(env: StateRootEnv, platform?: NodeJS.Platform, request?: string): AgentModelSelection | { error: ReturnType<AgentModelError['toJSON']> } {
+  try {
+    return resolveAgentModel({ env, platform, request });
+  } catch (error) {
+    if (!(error instanceof AgentModelError)) throw error;
+    return { error: error.toJSON() };
+  }
+}
+
+function renderAgentError(error: ReturnType<AgentModelError['toJSON']>): string[] {
+  return [`agent: ${error.problem}`, `  cause: ${error.cause}`, ...error.repair.map(step => `  fix: ${step}`), `  docs: ${error.docs}`];
+}
+
+/** The agent block of `list`: a bad agent_model is reported here and never fails the other roles. */
+function agentLines(env: StateRootEnv, platform: NodeJS.Platform): string[] {
+  const agent = agentOrError(env, platform);
+  return 'error' in agent ? renderAgentError(agent.error) : renderAgentModel(agent);
+}
+
+function agentResult(env: StateRootEnv, platform: NodeJS.Platform, request: string | undefined, json: boolean): ModelsCliResult {
+  const agent = agentOrError(env, platform, request);
+  if ('error' in agent) {
+    return json
+      ? { code: 1, stdout: `${JSON.stringify({ schemaVersion: 1, command: 'resolve', ok: false, offline: true, note: OFFLINE_NOTE, agent: null, errors: [agent.error] }, null, 2)}\n`, stderr: '' }
+      : { code: 1, stdout: '', stderr: renderAgentError(agent.error).map(l => `gstack-models: ${l.trimStart()}`).join('\n') + '\n' };
+  }
+  return json
+    ? { code: 0, stdout: `${JSON.stringify({ schemaVersion: 1, command: 'resolve', ok: true, offline: true, note: OFFLINE_NOTE, agent, errors: [] }, null, 2)}\n`, stderr: '' }
+    : { code: 0, stdout: [...renderAgentModel(agent), `(${OFFLINE_NOTE})`].join('\n') + '\n', stderr: '' };
+}
+
 export function modelsMain(args: string[], env: StateRootEnv = process.env, platform: NodeJS.Platform = process.platform, cwd: string = process.cwd()): ModelsCliResult {
   const json = args.includes('--json');
   if (args.includes('--help') || args.includes('-h')) return { code: 0, stdout: MODELS_HELP, stderr: '' };
@@ -244,7 +288,7 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
     const arg = rest.shift()!;
     if (arg === '--json') continue;
     const [name, inline] = arg.includes('=') ? [arg.slice(0, arg.indexOf('=')), arg.slice(arg.indexOf('=') + 1)] : [arg, undefined];
-    if (command === 'list' || (name !== '--role' && name !== '--provider')) return usage(`unknown argument '${arg}' for ${command}`, json);
+    if (command === 'list' || (name !== '--role' && name !== '--provider' && name !== '--request')) return usage(`unknown argument '${arg}' for ${command}`, json);
     if (options[name] !== undefined) return usage(`${name} given twice`, json);
     const value = inline ?? rest.shift();
     if (value === undefined || value === '' || value.startsWith('--')) return usage(`${name} needs a value`, json);
@@ -254,7 +298,12 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
   const providerArg = options['--provider'];
   const provider = parseProvider(providerArg);
   if (command === 'resolve') {
-    if (role !== 'plan-review' && role !== 'implementation' && role !== 'eval-arms') return usage(role === undefined ? 'resolve needs --role plan-review|implementation|eval-arms' : `unknown role '${role}': use plan-review, implementation or eval-arms`, json);
+    if (role !== 'plan-review' && role !== 'implementation' && role !== 'eval-arms' && role !== 'agent') return usage(role === undefined ? 'resolve needs --role plan-review|implementation|eval-arms|agent' : `unknown role '${role}': use plan-review, implementation, eval-arms or agent`, json);
+    if (role === 'agent') {
+      if (providerArg !== undefined) return usage('resolve --role agent takes no --provider; the preference names its provider', json);
+      return agentResult(env, platform, options['--request'], json);
+    }
+    if (options['--request'] !== undefined) return usage('--request applies only to --role agent', json);
     if (providerArg !== undefined && !provider) return usage(`unknown provider '${providerArg}': use anthropic or openai`, json);
     if (role === 'plan-review' && !provider) return usage('resolve --role plan-review needs --provider anthropic|openai (the opposing provider for your host)', json);
   }
@@ -283,7 +332,10 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
   // eval-arms (plan E1): the implementation-tier resolution of each provider, one arm each.
   if (role === 'eval-arms') for (const s of selections) (s as { role: string }).role = 'eval-arms';
   const code = errors.length ? 1 : 0;
-  if (json) return { code, stdout: `${JSON.stringify(document(command, config, selections, errors, env), null, 2)}\n`, stderr: '' };
-  const stdout = command === 'list' ? renderList(config, selections, env) : role === 'eval-arms' ? renderEvalArms(config, selections) : renderResolve(role as ModelRole, config, selections);
+  if (json) {
+    const doc = document(command, config, selections, errors, env);
+    return { code, stdout: `${JSON.stringify(command === 'list' ? { ...doc, agent: agentOrError(env, platform) } : doc, null, 2)}\n`, stderr: '' };
+  }
+  const stdout = command === 'list' ? renderList(config, selections, env, platform) : role === 'eval-arms' ? renderEvalArms(config, selections) : renderResolve(role as ModelRole, config, selections);
   return { code, stdout, stderr: errors.map(renderError).join('') };
 }

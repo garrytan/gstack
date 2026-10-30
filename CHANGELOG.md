@@ -23,6 +23,31 @@
 
 ### Tests
 - `test/review-packets-removed.test.ts` now also pins the reviewer briefs, checklists, fix-check prompt and depth rules by content, so a change to what a reviewer sees fails until its no-loss replay is recorded.
+## [1.91.333.0] - 2026-10-30
+
+**`gstack-factory-scorecard --now` now ends the window, so a past week no longer counts what happened after it.** Every line counts only items whose timestamps fall in `[now - since-days, now)`. Before, `--now` moved only the start, so `--now 2026-10-15T00:00:00Z --since-days 14` counted 290 merged PRs (every merge from 2026-10-01 through the day of the run) where the window holds 65, and the gate-run and release lines also counted through the day of the run. Rerun with the fix, the two weeks before 2026-10-15 show 65 merged PRs and the two weeks before 2026-10-29 show 197, matching GitHub search for both windows.
+
+### Fixed
+- **`lib/factory-scorecard.ts`**: one window (`scoreWindow`, `inWindow`) bounds merged PRs and their lead times, gate runs and their cost, the red-train rate, flaky events, free-suite retries, issues and releases. The workflow-runs query asks GitHub for the window's days (`created=<start>..<end>`), and the issue searches use a closed time range instead of `>=start`. Releases are read to the last page, because GitHub orders them by creation and a draft can be published long after it was created, and a PR, gate-run or release read that runs past 20 pages now marks its line unavailable instead of printing a partial count.
+- **`scripts/lib/ci-history.ts`**: `listWorkflowRuns` takes an optional `until` (exclusive), compares both ends of the window as instants and skips a run whose `created_at` does not parse; `createdFilter` builds the runs API's `created` query for both callers.
+- **`docs/recommended-harness.md`**: "Where gstack's own numbers stand" is remeasured for the exact week of 2026-10-19 through 2026-10-25 UTC: 83 merged PRs (not 103), median lead time 6.5h, 54 gate runs (52 green, 2 red), $1,361.94 of known gate cost, 17 paid flake records across 11 cases, 0 releases. The earlier figures came from a run before this fix, so they counted past the end of the week.
+
+### Tests
+- `test/factory-scorecard.test.ts`: a PR merged exactly at `--now`, and a gate run, free run and release after it, are left out; the runs and issue queries carry the window's end. A sub-second `--now` keeps the issue search range inside the window, releases behind a full page of newer ones are found, a release published late is found on a later page, and a PR, gate-run or release read past the page cap is unavailable.
+
+## [1.91.332.0] - 2026-10-30
+
+**gstack can remember which model you want your agents on, and every Capy session now reads a one-page summary of how crews work.** Set `agent_model` once (`opus`, another family, or an exact `provider/model`) and `gstack-models resolve --role agent` returns it whenever an agent picks a model for a lane, subagent or reviewer. Unset, every agent keeps its own model, and gstack takes no position for or against any model. A cross-family outside voice and a model under test in an eval ignore the preference on purpose. On Capy the preference lives in `preferences.yaml` beside the gstack skill in your Drive, so it survives fresh machines without being copied anywhere.
+
+### Added
+- **`gstack-models resolve --role agent [--request <model>]`**: the agent role. A one-job request wins and is never saved, then `agent_model` in this machine's config.yaml, then the preferences file, then `host`. Output names the winner, both stored values and the exemptions; `list` gains an agent block and `list --json` a top-level `agent` key, with `selections` unchanged.
+- **`agent_model`** in `gstack-config`, checked with the same grammar as the resolver: `host`, a family (`opus`, `fable`, `sonnet`, `haiku`, `astra`, `sol`, `luna`, `terra`) or `<provider>/<model>`. A bad value stops only the agent role, naming the file and the fix; plan-review, implementation and eval-arms keep resolving.
+- **`capy/skill/gstack/factory.md`**: thirteen practices the Captain crews converged on, each pointing at the rule it summarizes, at most 3,300 bytes. SKILL.md's session start tells every session to read it once.
+
+### Changed
+- The Capy session start (`bin/gstack-capy-session`, which updates with the checkout) points `GSTACK_PREFERENCES_FILE` at `preferences.yaml` next to the Drive skill's SKILL.md, and the installer writes it into the launch file. `--check` never writes the skill folder, and the frozen Drive bootstrapper is unchanged.
+- SKILL.md allows exactly one write in the skill folder: `preferences.yaml`, when the owner asks an agent to remember a preference.
+- `docs/model-policy.md` gains "Your model preference". `docs/captain.md` links factory.md, says to forward an owner's rule for every Captain, in the same turn, to the thread that keeps the account's shared rules, and says the Captain archives its own child threads by its plan for each, including ones its crew or automations started.
 
 ## [1.91.331.0] - 2026-10-30
 

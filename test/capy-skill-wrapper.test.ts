@@ -479,3 +479,60 @@ describe('capy skill: vendored text and support file', () => {
     expect([...codes].filter(c => !(c in RESULT_CODES))).toEqual([]);
   });
 });
+
+describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
+  const FACTORY = path.join(SKILL, 'factory.md');
+  /** Problems with a factory page's citations: [path: Heading, Heading; path2], [/skill], and plain repo paths in prose. Bare SKILL.md is the sibling file. */
+  function citationProblems(text: string): string[] {
+    const problems: string[] = [];
+    const headingsOf = (file: string) => new Set(fs.readFileSync(file, 'utf8').split('\n').filter(l => /^#{1,6} /.test(l)).map(l => l.replace(/^#+ /, '').trim()));
+    const resolve = (p: string) => p === 'SKILL.md' ? path.join(SKILL, 'SKILL.md') : path.join(REPO, p);
+    for (const m of text.matchAll(/\[([^\]]+)\]/g)) {
+      for (const part of m[1].split(';').map(s => s.trim())) {
+        if (part.startsWith('/')) {
+          if (!fs.existsSync(path.join(REPO, part.slice(1), 'SKILL.md'))) problems.push(`unknown skill ${part}`);
+          continue;
+        }
+        const [file, headings] = part.split(/:\s*/, 2);
+        if (!fs.existsSync(resolve(file))) { problems.push(`missing file ${file}`); continue; }
+        const known = headingsOf(resolve(file));
+        const list = !headings ? [] : known.has(headings.trim()) ? [headings.trim()] : headings.split(',').map(s => s.trim()).filter(Boolean);
+        for (const h of list) if (!known.has(h)) problems.push(`missing heading ${file}: ${h}`);
+      }
+    }
+    for (const m of text.matchAll(/\b((?:capy|docs|lib|bin)\/[A-Za-z0-9_./-]+\.md)\b/g)) {
+      if (!fs.existsSync(path.join(REPO, m[1]))) problems.push(`missing file ${m[1]}`);
+    }
+    return [...new Set(problems)];
+  }
+
+  test('it fits the 3,300-byte budget, and every citation, heading and skill it names resolves', () => {
+    const text = fs.readFileSync(FACTORY, 'utf8');
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3300);
+    expect(text).toMatch(/^# How we work/);
+    expect(citationProblems(text)).toEqual([]);
+  });
+
+  test('negative controls: a missing file, a missing heading and an unknown skill are each caught', () => {
+    expect(citationProblems('[docs/no-such-page.md: Anything]')).toEqual(['missing file docs/no-such-page.md']);
+    expect(citationProblems('[docs/captain.md: No Such Heading]')).toEqual(['missing heading docs/captain.md: No Such Heading']);
+    expect(citationProblems('[/no-such-skill]')).toEqual(['unknown skill /no-such-skill']);
+    expect(citationProblems('see capy/no-such.md')).toEqual(['missing file capy/no-such.md']);
+  });
+
+  test('it ships to every Capy user: no crew codes or owner names, a model preference instead of a model rule', () => {
+    const text = fs.readFileSync(FACTORY, 'utf8');
+    expect(text).not.toMatch(/\b(?:GSTA|GBRA|HARN|TRUT|FOUN|ALPH|GST)-\d+/);
+    expect(text).not.toMatch(/\bGarry\b/);
+    expect(text).toContain('gstack-models resolve --role agent');
+    expect(text).not.toMatch(/no sonnet/i);
+    expect(fs.readFileSync(path.join(REPO, 'docs/model-policy.md'), 'utf8')).not.toMatch(/no sonnet/i);
+  });
+
+  test('SKILL.md points every session at it from Session start, and names preferences.yaml as the one file an agent may write in the skill folder', () => {
+    const text = fs.readFileSync(path.join(SKILL, 'SKILL.md'), 'utf8');
+    const sessionStart = text.slice(text.indexOf('## Session start'), text.indexOf('## Launch every gstack command'));
+    expect(sessionStart).toContain('read `capy/skill/gstack/factory.md` in the checkout');
+    expect(sessionStart).toMatch(/Never write the skill folder yourself; the one exception is its `preferences\.yaml`/);
+  });
+});

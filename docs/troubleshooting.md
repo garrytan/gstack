@@ -37,7 +37,7 @@ no paid call: the Codex rows report the cached model check and its age, and
 
 ## Model policy
 
-The [model-policy guide](model-policy.md) explains the two tiers, all six
+The [model-policy guide](model-policy.md) explains the two tiers, all seven
 settings, precedence and the read-only inspection command. A resolved selection
 is not proof that the requested provider or model can run.
 

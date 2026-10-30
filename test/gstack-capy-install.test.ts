@@ -514,6 +514,18 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     expect(conflict.stderr).toContain('(RUNTIME_PIN_CONFLICT; ');
   });
 
+  test('the session GSTACK_PREFERENCES_FILE is written into the launch file, so every gstack command finds the owner preferences; without it no line is written', () => {
+    const f = fixture();
+    const prefs = '/drive/skills/gstack/preferences.yaml';
+    const r = run(f, ['--for', 'autoplan'], { GSTACK_PREFERENCES_FILE: prefs });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    const launch = verdicts(f)[0].replace(/\.json$/, '.env');
+    expect(fs.readFileSync(launch, 'utf8')).toContain("export GSTACK_PREFERENCES_FILE='" + prefs + "'");
+    const plain = run(f, ['--for', 'autoplan']);
+    expect(plain.status, plain.stdout + plain.stderr).toBe(0);
+    expect(fs.readFileSync(launch, 'utf8')).not.toContain('GSTACK_PREFERENCES_FILE');
+  });
+
   test('the verdict file records checkout, HEAD, workflow, trailer and the Bun resolution, keyed by checkout and project; --check certifies without setup or downloads', () => {
     const f = fixture();
     const r = run(f, ['--for', 'autoplan']);
