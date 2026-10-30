@@ -117,7 +117,7 @@ function brief(l: Ledger, h: Omit<Handoff, 'sha'>, pins: Record<string, unknown>
 }
 
 export function cmdHandoff(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'from', 'to', 'base', 'reviewed-tree', 'trail', 'trail-run', 'sub-cap', 'reading', 'prior-reading', 'child-session']);
+  const o = parseArgs(argv, ['run', 'record', 'from', 'to', 'base', 'reviewed-tree', 'trail', 'trail-run', 'sub-cap', 'reading', 'credits', 'prior-reading', 'child-session']);
   const from = parseStep(str(o, 'from'), '--from'), to = parseStep(str(o, 'to'), '--to');
   if (SHIP_STEPS.indexOf(from as any) > SHIP_STEPS.indexOf(to as any)) throw usageError(`--from ${from} is after --to ${to}`);
   const base = str(o, 'base');
@@ -160,7 +160,7 @@ function handoffBlock(text: string): any {
 }
 
 export function cmdVerifyHandoff(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['in', 'reading', 'session']);
+  const o = parseArgs(argv, ['in', 'reading', 'credits', 'session']);
   const file = str(o, 'in');
   if (!file) throw usageError('verify-handoff needs --in <brief>');
   const text = fs.readFileSync(file, 'utf8');
@@ -205,7 +205,7 @@ export function cmdVerifyHandoff(argv: string[], ctx: Ctx): Outcome {
 }
 
 export function cmdReturn(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'to', 'changed', 'status', 'reading']);
+  const o = parseArgs(argv, ['run', 'to', 'changed', 'status', 'reading', 'credits']);
   const to = parseStep(str(o, 'to'), '--to');
   const status = str(o, 'status') ?? 'complete';
   if (!['complete', 'refused', 'incomplete'].includes(status)) throw usageError(`--status '${status}' is not complete, refused or incomplete`);
@@ -240,7 +240,7 @@ export function parseReturn(text: string): { handoff: string; status: string; to
 }
 
 export function cmdReconcile(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'return', 'handoff', 'reading', 'prior-reading']);
+  const o = parseArgs(argv, ['run', 'record', 'return', 'handoff', 'reading', 'credits', 'prior-reading']);
   return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
     const retFile = str(o, 'return');
     const text = retFile && fs.existsSync(retFile) ? fs.readFileSync(retFile, 'utf8') : undefined;

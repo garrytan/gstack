@@ -13,10 +13,10 @@ import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import {
   BudgetError, DEFAULT_TAIL, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
-  aboveFloor, admits, applyReading, budgetError, budgetLine, keepsSmallRun, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
+  aboveFloor, admits, applyCredits, applyReading, budgetError, creditsUsed, parseCredits, budgetLine, keepsSmallRun, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
   parseNext, parseRecordBlock, parseStep, parseTokens, pointMarker, projector, readLedger, reserveIn, restoreRun, reviewPaths,
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
-  type Ledger, type MeterKind, type Next,
+  type Ledger, type MeterKind, type Next, type Note,
 } from './ship-budget';
 import { claudeConfigDir, loadMeterState, newMeterState, nonceSessions, readClaudeUsage, saveMeterState, sessionJournals } from './claude-usage';
 
@@ -51,6 +51,7 @@ const freshReading = (l: Ledger, o: Opts) => l.meter.contract.meter === 'claude'
  * reading spans several calls, so it is ignored (call unknown) with a note.
  */
 export function readMeter(l: Ledger, o: Opts, requireReading: boolean, notes: string[] = []): number | null {
+  if (str(o, 'credits') !== undefined) applyCredits(l, parseCredits(str(o, 'credits'), '--credits'));
   const reading = tokensOpt(o, 'reading');
   const prior = tokensOpt(o, 'prior-reading');
   const meter = l.meter.contract.meter;
@@ -136,6 +137,7 @@ export function writeReturnFile(file: string, lines: string[]): void {
  * continues with a CONTEXT_HIGH note. Admission still stops anyone.
  */
 export function decide(l: Ledger, step: string, next: Next, call: number | null, startThreshold = false, runtimeLines?: number): Outcome {
+  if (l.mode === 'observe') return observed(l, step, next.kind === 'dispatch' ? `dispatch:${next.roles.join(',')}` : next.step, call);
   if (next.kind === 'dispatch') return admitBatch(l, step, next.roles, call);
   const p = projector(l);
   const nextId = next.step;
@@ -169,6 +171,14 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
     lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${projected}`, `RESERVATION_ID: ${r.id}`);
   }
   return { stdout: lines, exit: 0 };
+}
+
+/** An observe run's verdict: continue, or the hard stop once used + unknown pass the cap. Nothing is reserved. */
+function observed(l: Ledger, step: string, next: string, call: number | null, line?: string): Outcome {
+  const t = tally(l);
+  const head = line ? [line] : [];
+  if (l.cap !== null && t.used + t.unknown > l.cap) return { stdout: [...head, ...stopLines(l, { call, next, step, projected: 0, reason: 'budget_exhausted' })], exit: 3 };
+  return { stdout: [...head, budgetLine(l, { call, next, projected: 0, verdict: 'continue' })], exit: 0 };
 }
 
 /**
@@ -225,7 +235,9 @@ function pickMeter(o: Opts): MeterKind | undefined {
 }
 
 export function cmdStart(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor']);
+  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode']);
+  const mode = str(o, 'mode') ?? 'admit';
+  if (mode !== 'admit' && mode !== 'observe') throw usageError(`--mode '${mode}' is not admit or observe`);
   const record = str(o, 'record');
   if (!record) throw usageError('start needs --record <invocation record path>');
   const rawCap = str(o, 'token-cap') ?? ctx.env.GSTACK_SHIP_TOKEN_CAP;
@@ -256,7 +268,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     delegate, role: 'parent', meter: { contract, epoch: 1, baseline: 0, last: null, ...(sessions ? { sessions, config_dir: claudeConfigDir(ctx.env) } : {}) },
     epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     marker: paths.marker, review_log: paths.reviewLog, ...(str(o, 'calibration') ? { calibration: path.resolve(str(o, 'calibration')!) } : {}),
-    ...(callFloor !== undefined ? { call_floor: callFloor } : {}),
+    ...(callFloor !== undefined ? { call_floor: callFloor } : {}), ...(mode === 'observe' ? { mode } : {}),
   };
   if (meter === 'capy' && tokensOpt(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', 'start --meter capy');
   if (meter === 'capy') l.meter.baseline = tokensOpt(o, 'reading')!;
@@ -274,7 +286,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
  * reviewer consumed), measure them, then admit the next step or dispatch.
  */
 export function cmdCheck(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'step', 'next', 'reading', 'prior-reading', 'returned', 'dispatched-at', 'readers', 'runtime-lines']);
+  const o = parseArgs(argv, ['run', 'record', 'step', 'next', 'reading', 'credits', 'prior-reading', 'returned', 'dispatched-at', 'readers', 'runtime-lines']);
   const runtimeRaw = str(o, 'runtime-lines');
   if (runtimeRaw !== undefined && !/^\d+$/.test(runtimeRaw)) throw usageError(`--runtime-lines '${runtimeRaw}' is not a line count; pass runtime_lines from gstack-review-plan --json`);
   const step = parseStep(str(o, 'step'));
@@ -304,7 +316,7 @@ export function cmdCheck(argv: string[], ctx: Ctx): Outcome {
 }
 
 export function cmdSettle(argv: string[], ctx: Ctx, release = false): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'reservation', ...(release ? [] : ['reading', 'dispatched-at', 'readers'])], release ? [] : ['unknown']);
+  const o = parseArgs(argv, ['run', 'record', 'reservation', ...(release ? [] : ['reading', 'credits', 'dispatched-at', 'readers'])], release ? [] : ['unknown']);
   const id = str(o, 'reservation');
   if (!id) throw usageError(`${release ? 'release' : 'settle'} needs --reservation <id>`);
   return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
@@ -320,19 +332,21 @@ export function cmdSettle(argv: string[], ctx: Ctx, release = false): Outcome {
 }
 
 export function cmdClose(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'reading', 'approved-by', 'words']);
+  const o = parseArgs(argv, ['run', 'record', 'reading', 'credits', 'approved-by', 'words']);
   return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
     readMeter(l, o, false);
     for (const r of l.reservations) if (r.kind === 'step' && r.state === 'open') settleIn(l, r);
     if (freshReading(l, o)) measureSettled(l);
     const t = tally(l);
     const open = l.reservations.filter(r => r.kind === 'dispatch' && r.state === 'consumed').length;
-    const lines = [`BUDGET_FINAL: used=${t.used} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} open_dispatches=${open}`];
+    const credits = creditsUsed(l);
+    const lines = [`BUDGET_FINAL: used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} open_dispatches=${open}`];
     const sum = (kind: string, k: 'projected' | 'actual') => (l.samples ?? []).filter(s => s.kind === kind).reduce((n, s) => n + s[k], 0);
     const count = (kind: string) => (l.samples ?? []).filter(s => s.kind === kind).length;
+    if (l.notes?.length) lines.push(`BUDGET_TIMELINE: ${l.notes.map(noteText).join('; ')}`);
     lines.push(`BUDGET_DRIFT: steps=${count('step')} step_projected=${sum('step', 'projected')} step_actual=${sum('step', 'actual')} dispatches=${count('dispatch')} dispatch_projected=${sum('dispatch', 'projected')} dispatch_actual=${sum('dispatch', 'actual')}`);
     const accepted = new Set((l as any).accepted_skips as string[] | undefined ?? []);
-    const skipped = l.cap === null ? [] : unreservedDispatches(l).filter(s => !accepted.has(s.started));
+    const skipped = l.cap === null || l.mode === 'observe' ? [] : unreservedDispatches(l).filter(s => !accepted.has(s.started));
     const dropped = l.reservations.filter(r => r.remaining?.length && !accepted.has(r.id));
     if ((skipped.length || dropped.length) && str(o, 'approved-by') && str(o, 'words')) {
       (l as any).accepted_skips = [...accepted, ...skipped.map(s => s.started), ...dropped.map(r => r.id)];
@@ -352,9 +366,39 @@ export function cmdClose(argv: string[], ctx: Ctx): Outcome {
   });
 }
 
+const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n.used}${n.credits === undefined ? '' : ` credits=${n.credits}`}`
+  + (n.readers ? ` readers=${n.readers.n} readers_tokens=${n.readers.tokens}${n.readers.credits === undefined ? '' : ` readers_credits=${n.readers.credits}`}` : '');
+
+/**
+ * note: record one program's readings (tokens and credits) and, when --dispatched-at
+ * brackets them, the readers it dispatched; stop only once used + unknown pass the cap.
+ * It reserves, admits and delegates nothing: ship/DRIVER.md's observe runs end every
+ * program with it instead of a check at each boundary.
+ */
+export function cmdNote(argv: string[], ctx: Ctx): Outcome {
+  const o = parseArgs(argv, ['run', 'record', 'step', 'label', 'reading', 'credits', 'dispatched-at', 'dispatched-credits', 'readers']);
+  const step = parseStep(str(o, 'step'));
+  const label = str(o, 'label');
+  return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
+    if (l.closed_at) throw usageError(`run ${l.run} is closed`);
+    if (l.stopped) return { stdout: [budgetLine(l, { call: null, next: l.stopped.next, projected: 0, verdict: 'stop' }), `STOP: reason=${l.stopped.reason} at Step ${l.stopped.step}; resume first: gstack-ship-budget resume --record ${l.record}`, `GSTACK_RESULT: skill=ship status=incomplete run=${l.dir}`], exit: 3 };
+    if (l.meter.contract.meter === 'capy' && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `note --step ${step}: run ${l.run} meter=capy`);
+    const dispatched = dispatchedOpt(o, null);
+    const before = str(o, 'dispatched-credits') === undefined ? undefined : parseCredits(str(o, 'dispatched-credits'), '--dispatched-credits');
+    if (before !== undefined && !dispatched) throw usageError('--dispatched-credits needs --dispatched-at <the token reading taken with it>');
+    readMeter(l, o, true);
+    const credits = creditsUsed(l);
+    const readers = dispatched && l.meter.last !== null ? { n: dispatched.readers ?? 1, tokens: l.meter.last - dispatched.at,
+      ...(before !== undefined && l.credits ? { credits: Math.round((l.credits.last - before) * 100) / 100 } : {}) } : undefined;
+    const n: Note = { step, ...(label ? { label } : {}), at: new Date().toISOString(), used: tally(l).used, ...(credits === null ? {} : { credits }), ...(readers ? { readers } : {}) };
+    (l.notes ??= []).push(n);
+    return observed(l, step, label ?? step, null, `NOTE: ${noteText(n)}`);
+  });
+}
+
 /** resume: re-attach after a stop or a machine change; rebuild or restore a lost ledger; journal a cap raise. */
 export function cmdResume(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['record', 'run', 'reading', 'prior-reading', 'meter', 'session', 'nonce', 'token-cap', 'approved-by', 'words'], ['rebuild-from-record']);
+  const o = parseArgs(argv, ['record', 'run', 'reading', 'credits', 'prior-reading', 'meter', 'session', 'nonce', 'token-cap', 'approved-by', 'words'], ['rebuild-from-record']);
   const cap = str(o, 'token-cap');
   if (cap !== undefined && (!str(o, 'approved-by') || !str(o, 'words'))) throw usageError('resume --token-cap needs --approved-by <who> --words <the owner\'s words>; raising the cap is the owner\'s call');
   const lines: string[] = [];
@@ -409,6 +453,7 @@ function rebuildLedger(file: string, record: string | undefined, ctx: Ctx, o: Op
     meter: { contract: METER_CONTRACTS[meter], epoch: num('epoch') + 1, baseline: meter === 'capy' ? reading! : 0, last: meter === 'capy' ? reading! : null },
     epochs: [], carried_used: num('used'), estimate_used: 0, unknown: num('unknown') + num('reserved'), next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     ...(() => { try { return { marker: reviewPaths(ctx.cwd, ctx.env).marker, review_log: reviewPaths(ctx.cwd, ctx.env).reviewLog }; } catch { return {}; } })(),
+    ...(b.mode === 'observe' ? { mode: 'observe' as const } : {}),
   };
   if (meter === 'estimate') l.estimate_used = 0;
   fs.mkdirSync(l.dir, { recursive: true, mode: 0o700 });

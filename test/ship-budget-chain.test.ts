@@ -392,3 +392,60 @@ describe('variant E: the review segment and the docs reader (GSTA-167 replay 5)'
     expect(h.sb(['check', '--run', s.run, '--step', '15', '--next', 'dispatch:doc', '--reading', '3600000']).err).toContain('valid: specialist, red-team, adversarial-native, outside-voice, fix-check, docs');
   });
 });
+
+describe('variant G: observe mode, note and credits (GSTA-167)', () => {
+  // Value: protects=an observe run records each program's tokens and credits and the readers a program bracketed, reserves nothing, writes no review-log marker, and closes with the timeline; fails_when=note admits, reserves or delegates, a review-log start under observe needs a reservation, close flags the unreserved start, or the timeline drops credits;
+  //   why_new=observe mode and note are new; seam=gstack-review-log --start; no_claim=the host counter's accuracy
+  test('note records tokens, credits and the reader pair, reserves nothing, and close prints BUDGET_TIMELINE', () => {
+    const h = fresh();
+    const s = start(h, ['--mode', 'observe', '--token-cap', '400M', '--reading', '1000000', '--credits', '100']);
+    expect(s.r.out).not.toContain('RESERVATION');
+    const six = h.sb(['note', '--run', s.run, '--step', '6', '--reading', '1200000', '--credits', '150.5']);
+    expect(six.code, six.out + six.err).toBe(0);
+    expect(six.out).toMatch(/^NOTE: 6 used=200000 credits=50\.5$/m);
+    expect(h.field(six.out, 'BUDGET', 'verdict')).toBe('continue');
+    expect(h.field(six.out, 'BUDGET', 'credits')).toBe('50.5');
+    expect(h.reviewLog(['--start', 'review']).code).toBe(0);
+    const pass = h.sb(['note', '--run', s.run, '--step', '9', '--label', 'dispatch:specialist,red-team', '--reading', '3200000', '--credits', '400',
+      '--dispatched-at', '1200000', '--dispatched-credits', '150.5', '--readers', '2']);
+    expect(pass.code, pass.out + pass.err).toBe(0);
+    expect(pass.out).toMatch(/^NOTE: 9:dispatch:specialist,red-team used=2200000 credits=300 readers=2 readers_tokens=2000000 readers_credits=249\.5$/m);
+    const l = h.ledger(s.ledger);
+    expect(l.reservations).toEqual([]);
+    expect(l.mode).toBe('observe');
+    expect(fs.readFileSync(l.record, 'utf8')).toMatch(/used=2200000 credits=300 .*mode=observe/);
+    const close = h.sb(['close', '--run', s.run, '--reading', '3300000', '--credits', '410']);
+    expect(close.code, close.out + close.err).toBe(0);
+    expect(close.out).toContain('BUDGET_FINAL: used=2300000 credits=310 reserved=0');
+    expect(close.out).toContain('BUDGET_TIMELINE: 6 used=200000 credits=50.5; 9:dispatch:specialist,red-team used=2200000 credits=300 readers=2 readers_tokens=2000000 readers_credits=249.5');
+  });
+
+  // Value: protects=the cap stays one hard stop in observe mode: a note past it stops with the resumable block, and a credits reading below the last is refused like a token reading; fails_when=observe never stops, stops below the cap, or accepts a credits regression;
+  //   why_new=observe mode is new; seam=none; no_claim=what a stop costs
+  test('a note past the cap stops; at the cap it continues; a lower credits reading is refused', () => {
+    const h = fresh();
+    const s = start(h, ['--mode', 'observe', '--token-cap', '5M', '--reading', '1000000', '--credits', '100']);
+    expect(h.sb(['note', '--run', s.run, '--step', '8', '--reading', '6000000', '--credits', '200']).code).toBe(0);
+    const low = h.sb(['note', '--run', s.run, '--step', '9', '--reading', '6000000', '--credits', '150']);
+    expect(low.code).toBe(2);
+    expect(low.err).toContain('BUDGET_READING_REJECTED');
+    const over = h.sb(['note', '--run', s.run, '--step', '9', '--reading', '6000001', '--credits', '210']);
+    expect(over.code).toBe(3);
+    expect(over.out).toContain('STOP: reason=budget_exhausted');
+    expect(over.out).toContain('GSTACK_RESULT: skill=ship status=incomplete');
+    expect(h.sb(['note', '--run', s.run, '--step', '12', '--reading', '6100000']).code).toBe(3);
+  });
+
+  // Value: protects=credits ride every reading in admission mode too, so the ship/SKILL.md path reports both units; fails_when=check or settle refuse --credits, or the BUDGET line omits credits once a reading exists, or prints it before any;
+  //   why_new=credits are new; seam=none; no_claim=credits-to-dollars conversion
+  test('admission mode takes --credits on start and check and prints credits only once one is read', () => {
+    const h = fresh();
+    const plain = start(h, ['--token-cap', '400M', '--reading', '1000000']);
+    expect(plain.r.out).not.toMatch(/credits=/);
+    const s = start(h, ['--token-cap', '400M', '--reading', '1000000', '--credits', '12.25']);
+    const c = check(h, s.run, '6', '7', ['--reading', '1100000', '--credits', '20']);
+    expect(c.code, c.out + c.err).toBe(0);
+    expect(h.field(c.out, 'BUDGET', 'credits')).toBe('7.75');
+    expect(h.sb(['note', '--run', s.run, '--step', '7', '--reading', '1200000', '--credits', 'x']).code).toBe(2);
+  });
+});

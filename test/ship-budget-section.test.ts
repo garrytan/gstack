@@ -62,6 +62,14 @@ describe('ship budget skill structure', () => {
     }
   });
 
+  // Value: protects=the budget section's Capy meter reads tokens and credits in the program that runs the command, never spends a call only to read the meter, and points a driver run at observe mode; fails_when=the section asks for a per-call meter read again (budget-handoff.md:12-13 at b617445: 11 meter-only calls at 286k each on #34's child), drops --credits, or loses the observe pointer;
+  //   why_new=variant G; seam=none; no_claim=the agent's adherence
+  test('the budget section reads credits beside tokens, never spends a call on the meter, and points driver runs at observe mode', () => {
+    const text = read('ship/sections/budget-handoff.md.tmpl').replace(/\s+/g, ' ');
+    for (const s of ['--reading <cost.tokens> --credits <cost.credits>', 'never spend a call only to read the meter', 'A `ship/DRIVER.md` run starts `--mode observe` instead: no check, reservation or handoff; each program ends with `note`']) expect(text).toContain(s);
+    expect(read('docs/ship-budget.md')).toContain('## Observe mode (ship/DRIVER.md)');
+  });
+
   test('every review-log --start in the dispatch sections takes a reservation when a cap is set', () => {
     for (const rel of ['ship/sections/review-army.md.tmpl', 'ship/sections/adversarial.md.tmpl']) expect(read(rel)).toContain('--reservation');
   });

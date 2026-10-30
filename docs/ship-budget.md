@@ -21,6 +21,28 @@ room for the receipt steps, and the stop overhead (calibrated) keeps room to sto
 the run has measured a step, the tail reserve scales with its measured step cost (a `--reserve`
 you set stays as given); the stop overhead never scales.
 
+## Observe mode (ship/DRIVER.md)
+
+`start --mode observe` turns the ledger into a record. No step or dispatch is admitted, reserved or
+delegated, so a run spends no call on the meter: each program the driver runs ends with
+
+    gstack-ship-budget note --run <id> --step <last step> [--label <what ran>] --reading <tokens> --credits <credits> \
+      [--dispatched-at <tokens before the readers> --dispatched-credits <credits before> --readers <n>]
+
+which prints `NOTE: <step>[:<label>] used=<n> credits=<c> [readers=<n> readers_tokens=<n> readers_credits=<c>]`
+and the `BUDGET:` line. The cap is one hard stop: a note (or a check) whose `used + unknown` is past
+`--token-cap` prints the stop block and exits 3, and nothing else stops the run. No review-log marker
+is written, so `gstack-review-log --start` takes no `--reservation`, and `close` audits no
+unreserved dispatch. `close` prints `BUDGET_TIMELINE:`, one entry per note. The admission mode
+below is what `ship/SKILL.md` runs; it is unchanged.
+
+**Credits.** Every command that takes `--reading` also takes `--credits <cost.credits>` from the
+same `thread.get`. Tokens count a cached read the same as a fresh one; credits are what the run
+costs, including the full-context re-bill after a gap over five minutes (about 40x a cached call,
+handoffs/GSTA-167/cache-probe.md). The first credits reading is the baseline; the `BUDGET:`,
+`BUDGET_FINAL:` and record-block lines print `credits=<used>` once one exists, and a reading below
+the last is refused like a token reading ([BUDGET_READING_REJECTED](troubleshooting.md#budget-reading-rejected)).
+
 ## Quickstart
 
 **Capy.** Read your own jam's counter inside the execute program that runs the command, never as a
@@ -165,8 +187,8 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
    grandchild's.
 
 `--delegate never` turns delegate into stop for a parent on a host without children; a child
-continues with a `CONTEXT_HIGH:` note instead. `--delegate measured` (what `ship/DRIVER.md` starts
-with) delegates only when a measured call is 150k or more above the floor at a segment boundary; an
+continues with a `CONTEXT_HIGH:` note instead. `--delegate measured` (what `ship/DRIVER.md` started
+with before observe mode) delegates only when a measured call is 150k or more above the floor at a segment boundary; an
 unknown charge continues there. A parent driving /ship from the driver carries no skill text a fresh
 child would shed, so a child pays its fixed cost only when the parent's own context grew.
 

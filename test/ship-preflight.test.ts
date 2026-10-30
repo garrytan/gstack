@@ -157,3 +157,38 @@ describe('gstack-ship-preflight', () => {
     expect(f.run(PREFLIGHT, ['--base', 'main', '--lane', 'nolabel']).status).toBe(2);
   });
 });
+
+// lib/ship-audit.ts: the --audit mode's logic.
+describe('gstack-ship-preflight --audit (GSTA-167 variant G)', () => {
+  // Value: protects=one call writes the diff and the matching TODOS.md items to files the parent reads instead of TODOS.md and the diff, maps changed runtime files to tests, and names the audit readers still needed; fails_when=the diff or TODOS.md comes back whole, an untested runtime file is called covered, a changed test is missed, or a changed docs/designs/ plan is not offered;
+  //   why_new=the --audit mode is new (GSTA-185: TODOS.md read in full twice and the diff three times per run); seam=git, gstack-slug; no_claim=coverage quality beyond file names
+  test('writes diff and todos files, maps coverage, and prints READER for the coverage and plan audits', () => {
+    const todos = '# TODOS\n\n## Ship\n- fix budget rounding in src/budget.ts\n- an unrelated item\n\n## Other\n- nothing here\n';
+    const f = fx({ 'TODOS.md': todos }, { 'src/budget.ts': 'export const budget = 1;\n', 'src/other.ts': 'export const o = 1;\n', 'test/budget.test.ts': "import { budget } from '../src/budget';\n" });
+    const out = path.join(f.root, 'audit');
+    const r = f.run(PREFLIGHT, ['--audit', '--base', 'main', '--out', out], { HOME: f.root });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(lineOf(r.stdout, 'CONTEXT')).toMatch(new RegExp(`^CONTEXT: diff=${out}/diff.patch bytes=\\d+ files=3 commits=1 `));
+    expect(fs.readFileSync(path.join(out, 'diff.patch'), 'utf8')).toContain('+export const o = 1;');
+    expect(lineOf(r.stdout, 'TODOS')).toMatch(/^TODOS: bytes=\d+ hits=1 file=/);
+    expect(fs.readFileSync(path.join(out, 'todos.md'), 'utf8')).toBe('## Ship\n- fix budget rounding in src/budget.ts\n');
+    expect(r.stdout).not.toContain('an unrelated item');
+    expect(r.stdout).toContain('COVERAGE_MAP: src/budget.ts changed_tests=1 referencing_tests=1');
+    expect(r.stdout).toContain('COVERAGE_MAP: src/other.ts changed_tests=0 referencing_tests=0');
+    expect(r.stdout).toContain('Coverage: 1 of 2 changed runtime files have no changed test naming them (src/other.ts)');
+    expect(r.stdout).toContain('Plan completion audit: not run (no plan is bound to this branch');
+    expect(lineOf(r.stdout, 'READER')).toBe('READER: coverage=needed plan=none');
+  });
+
+  // Value: protects=a branch whose runtime files all have changed tests skips the coverage reader, and a changed docs/designs/ plan asks for the plan reader; fails_when=the coverage reader runs on a fully tested diff, or a branch's design doc is not a candidate;
+  //   why_new=the --audit mode is new; seam=git; no_claim=that the plan is the right one
+  test('a fully tested diff needs no coverage reader; a changed design doc needs the plan reader', () => {
+    const f = fx({}, { 'src/budget.ts': 'export const budget = 1;\n', 'test/budget.test.ts': "import { budget } from '../src/budget';\n", 'docs/designs/budget.md': '# Plan\n' });
+    const r = f.run(PREFLIGHT, ['--audit', '--base', 'main', '--out', path.join(f.root, 'audit')], { HOME: f.root });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain('Coverage: deterministic (each of 1 changed runtime files has a changed test naming it; no audit reader)');
+    expect(r.stdout).toContain('PLAN_CANDIDATE: docs/designs/budget.md');
+    expect(lineOf(r.stdout, 'READER')).toBe('READER: coverage=none plan=needed');
+    expect(f.run(PREFLIGHT, ['--audit', '--base', 'main']).status).toBe(2);
+  });
+});

@@ -11,7 +11,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DELEGATE_SEGMENT_CALL, SHIP_STEPS } from '../lib/ship-budget';
+import { SHIP_STEPS } from '../lib/ship-budget';
 import { RESULT_CODES } from '../lib/result-codes';
 import { SHIP_DRIVER_STOPS } from '../scripts/resolvers/ship-driver';
 import { runGeneration, SHIP_DRIVER_RELPATH } from '../scripts/gen-skill-docs';
@@ -91,10 +91,10 @@ describe('ship/DRIVER.md covers the skeleton', () => {
     expect([...codes].filter(c => !doc.includes(c) && !bins.includes(c))).toEqual([]);
   });
 
-  test('every gate the skeleton holds keeps a driver line: tests, pregate, receipt, push, queue, delegation', () => {
+  test('every gate the skeleton holds keeps a driver line: tests, pregate, receipt, push, queue, the budget stop', () => {
     for (const line of ['ZERO-RUN', 'gstack-ship-release finish', 'gstack-pregate clear', 'One re-audit at most', 'gstack-ship-receipt docs-caps',
       'Step 14.5, every ship', 'never clean', 'gstack-ship-receipt write', '`SHIP_RECEIPT:`', 'gstack-ship-receipt result --pr <n>',
-      'gstack-ship-queue ready --pr <n>', 'Never force-push', `--delegate measured`, `${DELEGATE_SEGMENT_CALL / 1000}k or more above the host floor`]) {
+      'gstack-ship-queue ready --pr <n>', 'Never force-push', '--mode observe', 'the one stop check']) {
       expect(doc, line).toContain(line);
     }
   });
@@ -102,7 +102,7 @@ describe('ship/DRIVER.md covers the skeleton', () => {
   // Value: protects=a driven /ship sends every reviewer the brief ship/SKILL.md sends (GSTA-167 no-loss round 3: shortened reviewer context lost 9 of 19 blockers); fails_when=a review phase paraphrases its section instead of running it, or the driver copies a reviewer prompt line it could let drift;
   //   why_new=the coverage tests above check step ids and codes only; seam=none; no_claim=that the parent reads the section
   test('the review phases run their sections as written and the driver restates no reviewer prompt', () => {
-    for (const [phase, sections] of [['## 3. Audits', ['test-coverage', 'plan-completion']], ['## 4. Review', ['review-army']], ['## 5. Adversarial', ['adversarial']]] as const) {
+    for (const [phase, sections] of [['## 3. Audits and review', ['test-coverage', 'plan-completion', 'review-army']], ['## 4. Judgment', ['adversarial']]] as const) {
       const text = doc.slice(doc.indexOf(phase), doc.indexOf('\n## ', doc.indexOf(phase) + 1));
       for (const sec of sections) expect(text, phase).toContain(`\`sections/${sec}.md\``);
       expect(text, phase).toMatch(/as\s+(?:they are\s+)?written/);
@@ -127,27 +127,74 @@ describe('one program per pass (GSTA-167 variant E)', () => {
   const phase = (h: string) => flat(doc.slice(doc.indexOf(h), doc.indexOf('\n## ', doc.indexOf(h) + 1)));
   // Value: protects=a review pass, Step 11 and the Step 14.5 audit each run as one program in the fixed order plan, reserve and start, BEFORE, readers, poll, AFTER and settle, later batches, collect, so the parent spends no call inside a pass and the reading pair brackets only the readers; fails_when=a phase goes back to walking Steps 9-9.4 call by call (replay 5: arm D's 69 orchestrator calls in Steps 7-14.5 against round 4's 21), the order breaks, or a phase stops pointing at the shared program;
   //   why_new=the coverage tests above check step ids, codes and section names only; seam=none; no_claim=the parent's adherence or the call count it reaches
-  test('the shared program lists its acts in order and Phases 4, 5 and Step 14.5 run through it', () => {
+  test('the shared program lists its acts in order and the review pass, Step 11 and Step 14.5 run through it', () => {
     const block = flat(doc.slice(doc.indexOf('**One program per pass.**'), doc.indexOf('\n## ', doc.indexOf('**One program per pass.**'))));
-    expect(block).toContain('Each review pass (Phase 4), Step 11 (Phase 5) and the Step 14.5 audit is one program, and the parent makes no other call while it runs');
-    const order = ['gstack-review-plan --base <base>', 'check --step <n> --next dispatch:<roles>', 'gstack-review-log --start <skill> --reservation <id>', '(3) the reading `BEFORE`',
-      '(4) one subagent per reader, its brief copied verbatim from the section', '(5) a poll until every reader settles', '(6) the reading `AFTER`', '--dispatched-at <BEFORE> --reading <AFTER> --readers <n>',
-      'a later batch of the pass (the Red Team', '(7) the collect: return only each reader\'s final output', 'it never walks the dispatch steps call by call'];
+    expect(block).toContain('Each review pass, Step 11 and the Step 14.5 audit is one program, and the parent makes no other call while it runs');
+    const order = ['gstack-review-plan --base <base>', 'gstack-review-log --start <skill>` once per row the step logs', '(3) `BEFORE`',
+      '(4) one subagent per reader', '(5) a poll until every reader settles', '(6) `note` with the reading pair',
+      'a later batch (the Red Team', '(7) the collect: return only each reader\'s final output', 'it never walks the dispatch steps call by call'];
     const at = order.map(o => block.indexOf(o));
     expect(order.filter((_, k) => at[k]! < 0)).toEqual([]);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
-    expect(phase('## 4. Review')).toContain('Each pass is one program (above)');
-    expect(phase('## 5. Adversarial')).toContain('in one program (above)');
-    expect(phase('## 7. Release')).toContain('read `sections/documentation.md` and run its audit as written, as one program (above) with `--next dispatch:docs`');
+    expect(block).not.toContain('--reservation');
+    expect(phase('## 3. Audits and review')).toContain('and the pass (above)');
+    expect(phase('## 4. Judgment')).toContain('Step 11 from `sections/adversarial.md` as written (above)');
+    expect(phase('## 6. Notes and documentation')).toContain('read `sections/documentation.md` and run its audit as written, as one program (above)');
   });
 
-  // Value: protects=Steps 7-8 run in the parent and the fresh child starts at Step 9, reading only the review sections and the record; fails_when=the driver delegates the audits again or the child is told to read the audit sections;
-  //   why_new=the budget tests pin the boundary, not the driver's phase text; seam=none; no_claim=the child's actual reads
-  test('Phase 3 keeps the audits here and closes with the Step 9 handoff to a review-only child', () => {
-    const p3 = phase('## 3. Audits');
-    for (const s of ['as they are written, here (never delegated)', 'write them under Checks', '`check --step 8 --next 9` closes the phase', 'Steps 9-11.5 go to a fresh child',
-      'reads only `sections/review-army.md`, `sections/adversarial.md` and the record']) expect(p3).toContain(s);
-    expect(read('ship/sections/budget-handoff.md')).toContain('--from 9 --to 11.5');
+  // Value: protects=the parent reads the diff and TODOS.md once, through gstack-ship-preflight --audit's files, and the audit sections only when their reader is needed; fails_when=a phase sends the parent back to TODOS.md (346 KB on gstack, read twice per run at b617445) or the full diff (read three times), or reads test-coverage.md and plan-completion.md unconditionally;
+  //   why_new=variant G moves those reads into the Phase 2 program; seam=none; no_claim=the bytes a parent actually reads
+  test('Phase 2 runs --audit and the reads in its program, and no phase reads TODOS.md or the full diff into the parent', () => {
+    const p2 = phase('## 2. Preflight');
+    for (const s of ['gstack-ship-preflight --audit --base <base> --out <run dir>', 'writes the diff once (`CONTEXT:`)', '(`TODOS:`)', 'READER: coverage=<needed|none> plan=<needed|none>',
+      'only when its reader is `needed`', 'Never read TODOS.md or the full diff into the parent']) expect(p2).toContain(s);
+    expect(phase('## 4. Judgment')).toContain('on the todos and commits files');
+    expect(phase('## 6. Notes and documentation')).toContain('edited from the todos file');
+  });
+});
+
+describe('variant G: the call plan, observe budget, waits and audit readers (GSTA-167)', () => {
+  const flat = (s: string) => s.replace(/\s+/g, ' ');
+  // Value: protects=the driver is a fixed plan of one call per phase that covers every ship step, at 9 calls for one clean pass and at most 12; fails_when=a step loses its phase, a phase is split back into per-step calls, or the stated call count drifts from the phase count (GSTA-185 appendix: 195 literal / 70 batched calls at b617445);
+  //   why_new=the coverage tests check step ids anywhere in the driver, not which call runs them; seam=none; no_claim=the model's real call count
+  test('each phase is one call, the phase headings cover every ship step, and the stated count is phases plus the report', () => {
+    const headings = [...doc.matchAll(/^## (\d+)\. (.+)$/gm)];
+    expect(headings.map(h => Number(h[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    const covered = new Set(headings.flatMap(h => [...stepsNamed(h[2]!, false)]));
+    expect(SHIP_STEPS.filter(s => !covered.has(s))).toEqual([]);
+    expect(doc).toContain('Each phase below is one call');
+    const calls = flat(doc.slice(doc.indexOf('**Calls.**'), doc.indexOf('\n\n', doc.indexOf('**Calls.**'))));
+    expect(calls).toContain(`One pass with no fixes is ${headings.length + 1} calls: Phases 1-${headings.length} and the report; at most 12`);
+  });
+
+  // Value: protects=the ledger records instead of admitting: one note at each program's end with tokens and credits, the reader pair inside the dispatching program, and the cap as the single stop; fails_when=the driver brings back a check per boundary, a reservation, a meter-only call or a handoff (replay 5: 11 meter-only calls at 286k on #34's child), or drops the credits reading;
+  //   why_new=observe mode is new; seam=none; no_claim=the host's counter accuracy
+  test('the budget paragraph runs observe mode: note with --reading and --credits, no check per step, the cap as the one stop', () => {
+    const budget = flat(doc.slice(doc.indexOf('**Budget: observe.**'), doc.indexOf('\n\n', doc.indexOf('**Budget: observe.**'))));
+    for (const s of ['gstack-ship-budget start --mode observe', 'gstack-ship-budget note --step <last step> --reading R --credits C', '`cost.credits`',
+      'No check per step, no reservation, no meter-only call, no handoff', '--dispatched-at <R> --dispatched-credits <C> --readers <n>']) expect(budget).toContain(s);
+    expect(doc).not.toMatch(/check --step|--next dispatch:|--delegate measured/);
+    expect(doc).toContain('gstack-ship-budget close --reading R --credits C');
+  });
+
+  // Value: protects=no call waits past the 5-minute prompt cache: programs return within 240 s and the next call resumes the wait, with the choice of a ping over a waiting child stated where the parent and Capy read it; fails_when=a phase waits in one program until slow work ends (cache probe: a call after a 7-minute gap cost ~2,820 credits against ~70), the cadence goes back to 270 s (16 s from the cache lifetime), or the reason is dropped;
+  //   why_new=wait hygiene is new; seam=none; no_claim=the host's cache lifetime
+  test('waits ping every 240 s in the driver and the Capy skill, and both say why a waiting child is not used', () => {
+    const waits = flat(doc.slice(doc.indexOf('**Waits.**'), doc.indexOf('\n\n', doc.indexOf('**Waits.**'))));
+    for (const s of ['No call waits past 240 s', 'the next call resumes', 'A small waiting child saves nothing', 'Past 100 minutes']) expect(waits).toContain(s);
+    const capy = read('capy/skill/gstack/SKILL.md');
+    for (const s of ['never let 5 minutes pass between calls', '`duration_seconds: 240`', 'A small waiting child saves nothing']) expect(capy).toContain(s);
+    for (const text of [doc, capy]) expect(text).not.toMatch(/\b270 ?s\b/);
+  });
+
+  // Value: protects=audits that cannot block (Steps 7, 8, 9.2.1, 14.5) run on a small model at low effort with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
+  //   why_new=audit model routing is new; seam=none; no_claim=the audits' recall
+  test('audit readers run on a small model at low effort, named for Capy, and Phase 3 dispatches only what READER names', () => {
+    expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 9.2.1, 14.5) cannot block, so each runs on a small model at low effort; their findings go to the PR body');
+    expect(flat(doc)).toContain('`Coverage:` and Step 8\'s line come from `--audit` when no reader ran');
+    const capy = read('capy/skill/gstack/SKILL.md');
+    expect(capy).toContain('model: { model_id: "anthropic/claude-sonnet-5-5", reasoning_mode: "low" }');
+    expect(capy).toContain('`anthropic/claude-haiku-5-5` also fits');
   });
 });
 
@@ -182,7 +229,7 @@ describe('shape', () => {
       expect(capy).toContain(`For \`/${s}\` driven from Capy, read \`${s}/DRIVER.md\` in the checkout (\`~/.local/share/gstack/${s}/DRIVER.md\`)`);
       expect(capy).toContain(`A checkout without that file predates it; follow its \`${s}/SKILL.md\` instead`);
     }
-    expect(capy).toContain('--delegate measured');
+    expect(capy).toContain('--mode observe');
   });
 });
 

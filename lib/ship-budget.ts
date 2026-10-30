@@ -62,6 +62,8 @@ export interface Reservation {
   /** Every review-log start this reservation admitted: one per role (token and started_at keep the first). */
   starts?: Array<{ token: string; at: string }>;
 }
+/** One observation: the run's totals at a program's end, and the readers it dispatched when it measured them. */
+export interface Note { step: string; label?: string; at: string; used: number; credits?: number; readers?: { n: number; tokens: number; credits?: number } }
 export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; prior: number; projected: number; actual: number }
 export interface Handoff {
   n: number; sha: string; file: string; from: string; to: string; sub_cap: number; reservation: string; reading_at: number | null;
@@ -82,6 +84,11 @@ export interface Ledger {
   call_floor?: number; depth?: number; steps_done?: string[];
   /** Capy per-call charges (--reading minus a fresh --prior-reading), per epoch: step priors use their median. */
   calls?: Array<{ epoch: number; value: number }>;
+  /** observe (ship/DRIVER.md): readings are recorded by note and the cap is one hard stop; no reservation, admission or delegation. */
+  mode?: 'admit' | 'observe';
+  /** Capy cost.credits readings beside the token meter: baseline is the first reading, last the newest. */
+  credits?: { baseline: number; last: number };
+  notes?: Note[];
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
 }
 
@@ -376,10 +383,26 @@ export function admits(t: { used: number; reserved: number; unknown: number }, p
   return cap === null || t.used + t.reserved + t.unknown + projected + reserve <= cap;
 }
 
+/** A cost.credits value: a non-negative decimal, kept to two places. */
+export function parseCredits(raw: string | undefined, flag: string): number {
+  if (!/^\d+(?:\.\d+)?$/.test((raw ?? '').trim())) throw usageError(`${flag} '${raw ?? ''}' is not a credits reading; fix: pass cost.credits from the same thread.get as --reading, e.g. 845009.2`);
+  return Math.round(Number(raw) * 100) / 100;
+}
+
+/** Store a credits reading; the first is the baseline, and one below the last is refused like a token reading. */
+export function applyCredits(l: Ledger, value: number | undefined): void {
+  if (value === undefined) return;
+  if (l.credits && value < l.credits.last) throw budgetError('BUDGET_READING_REJECTED', `--credits ${value} is below the last credits reading ${l.credits.last}`);
+  l.credits = { baseline: l.credits?.baseline ?? value, last: value };
+}
+
+export const creditsUsed = (l: Ledger): number | null => (l.credits ? Math.round((l.credits.last - l.credits.baseline) * 100) / 100 : null);
+
 export function budgetLine(l: Ledger, f: { call: number | null; next: string; projected: number; verdict: string }): string {
   const t = tally(l);
   const p = projector(l);
-  return `BUDGET: used=${t.used} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} tail=${p.reserve} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} call=${f.call ?? 'unknown'} call_floor=${p.floor} above_floor=${aboveFloor(f.call, p.floor) ?? 'unknown'} next=${f.next} projected=${f.projected} calibration=${p.label} verdict=${f.verdict}`;
+  const credits = creditsUsed(l);
+  return `BUDGET: used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} tail=${p.reserve} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} call=${f.call ?? 'unknown'} call_floor=${p.floor} above_floor=${aboveFloor(f.call, p.floor) ?? 'unknown'} next=${f.next} projected=${f.projected} calibration=${p.label} verdict=${f.verdict}`;
 }
 
 /** The per-call context above the host floor that the delegate thresholds compare; null when the charge is unknown. */
@@ -437,7 +460,8 @@ const BLOCK = /```gstack-budget\n[\s\S]*?\n```\n?/;
 export function recordBlock(l: Ledger): string {
   const t = tally(l);
   const open = l.handoffs.filter(h => !h.reconciled_at).map(h => h.sha).join(',') || 'none';
-  return `run=${l.run} ledger=${l.file} role=${l.role} cap=${l.cap ?? 'none'} tail=${l.tail} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} baseline=${l.meter.baseline} used=${t.used} reserved=${t.reserved} unknown=${t.unknown} stop=${l.stopped?.reason ?? 'none'} handoff=${open}`;
+  const credits = creditsUsed(l);
+  return `run=${l.run} ledger=${l.file} role=${l.role} cap=${l.cap ?? 'none'} tail=${l.tail} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} baseline=${l.meter.baseline} used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} stop=${l.stopped?.reason ?? 'none'} handoff=${open}${l.mode === 'observe' ? ' mode=observe' : ''}`;
 }
 
 /** The record's fenced gstack-budget block: written by the bin, never by the agent. */
@@ -495,7 +519,7 @@ export function reviewPaths(cwd: string, env: NodeJS.ProcessEnv): { marker: stri
 
 export function pointMarker(marker: string | undefined, l: Ledger): void {
   if (!marker) return;
-  if (l.cap === null) { try { fs.unlinkSync(marker); } catch {} return; }
+  if (l.cap === null || l.mode === 'observe') { try { fs.unlinkSync(marker); } catch {} return; }
   writePrivate(marker, JSON.stringify({ run: l.run, ledger: l.file }) + '\n');
 }
 
@@ -503,7 +527,7 @@ function activeLedger(marker: string): Ledger | undefined {
   let pointer: { ledger?: string };
   try { pointer = JSON.parse(fs.readFileSync(marker, 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return undefined; throw e; }
   const l = pointer.ledger && fs.existsSync(pointer.ledger) ? readLedger(pointer.ledger) : undefined;
-  return l && l.cap !== null && !l.closed_at ? l : undefined;
+  return l && l.cap !== null && l.mode !== 'observe' && !l.closed_at ? l : undefined;
 }
 
 /**

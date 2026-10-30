@@ -8,6 +8,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
+import { audit } from './ship-audit';
 import { matchesAny } from './ship-policy';
 import { bin, firstLine, flagReader, gh, git, hostedOrigin, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
 
@@ -18,6 +19,8 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
 
   gstack-ship-preflight --base <base> [--lane <label>=<command>]...   Steps 1-3; with lanes also Step 5
   gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...   Step 5 only (after a repair)
+  gstack-ship-preflight --audit --base <base> --out <dir>   the single reads and Steps 7-8's deterministic audits
+      (CONTEXT, TODOS, COVERAGE_MAP, Coverage, PLAN_*, READER: coverage=needed|none plan=needed|none)
 
 Prints at most 30 lines: BRANCH, STATUS, DIFF, PR/CARRY, APPLE, SCOPE, MERGE, DISTRIBUTION, POLICY,
 RUNTIME_LINES, PREGATE, one LANE line per lane, then NEXT: lines. STOP: names what the agent must
@@ -121,6 +124,11 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   const base = flag('--base');
   const list = lanes(argv);
   if (has('--help') || has('-h')) return { text: PREFLIGHT_HELP + '\n', exit: 0 };
+  if (has('--audit')) {
+    const out = flag('--out');
+    if (!base || !out) return { text: 'gstack-ship-preflight: --audit needs --base <base> --out <dir>\n', exit: 2 };
+    return { text: audit(cwd, base, out).render(), exit: 0 };
+  }
   if (!base || typeof list === 'string') return { text: `gstack-ship-preflight: ${typeof list === 'string' ? list : '--base <base> is required'}\n`, exit: 2 };
   if (has('--tests-only') && !list.length) return { text: 'gstack-ship-preflight: --tests-only needs at least one --lane <label>=<command>\n', exit: 2 };
   const r = new Report();

@@ -4,13 +4,16 @@ The cap is an **admission cap**: `gstack-ship-budget check` admits the next step
 dispatch only when used + open reservations + unknown + its projection + the tail
 and stop reserve fit. Work already admitted can still overrun its projection.
 Field-by-field reference: docs/ship-budget.md. Exit 0 continue or delegate, 3 stop,
-2 usage; any non-zero exit means the next step does not start.
+2 usage; any non-zero exit means the next step does not start. A `ship/DRIVER.md` run starts
+`--mode observe` instead: no check, reservation or handoff; each program ends with `note`, and only a
+note past the cap stops.
 
 **Meter.** Read one per command:
-- Capy: read `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` (your own jam, its
+- Capy: read `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost` (your own jam, its
   subagents included; a root thread's is `"this"`) in the same program as the
-  `gstack-ship-budget` command, never its own call: `--reading <n>`. `--prior-reading <n>` (per-call
-  charge; three of them price steps at the run's own median) is your previous call's reading; one older than the run's last reading is ignored.
+  `gstack-ship-budget` command, never its own call: `--reading <cost.tokens> --credits <cost.credits>`.
+  `--prior-reading <n>` (per-call charge; three of them price steps at the run's own median) is a reading
+  your previous call already took; never spend a call only to read the meter. One older than the run's last reading is ignored.
 - Claude Code: `start --session <id>`, or echo the nonce the refusal prints once and
   rerun `start --nonce <value>`; the helper reads the journals itself (never `--reading`).
 - Elsewhere: `--meter estimate` (printed `meter=estimate`), only when the owner accepts it.
