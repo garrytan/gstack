@@ -87,23 +87,24 @@ project can follow it:
 3. **What caused this work.** The trigger: an issue or PR link, a failed run, a user report, or the
    person's request, quoted.
 4. **Big decisions.** For each: the options considered, the pick and why, and what would flip it.
-5. **What we need from you.** One decision, the options and their costs, the pick, and the one-word reply.
-   The recommended reply is the default (`rec` for an autoplan gate). Never offer "the plan as first
-   written" as the default.
-6. **"do it".** Every ask ends with a "do it" reply: take every recommendation at full scope, the follow-ons
-   the plan names (docs, trains, cleanups) included, and carry them through to done with no further ask.
-   Say in one line what it covers. For an autoplan gate, "do it" answers as `rec`; record the words.
+5. **What we need from you.** The ask format (`docs/captain.md`, The ask format): the Captain's name, then one
+   lettered line per decision, letters unique across the list: "A: <code> hit problem p, which happens when h.
+   We could fix it in these ways: 1) x; 2) y; 3) z. Recommendation: x because why. A1 to take recommendation."
+   The recommendation is option 1. Never offer "the plan as first written" as the default.
+6. **"do it".** Every ask ends with "do it": take every recommendation in the list at full scope, the follow-ons
+   the plan names (docs, trains, cleanups) included, and carry them through to done with no further ask. A named
+   option ("A2") takes that option instead. For an autoplan gate, "do it" answers as `rec`; record the words.
 
 For an autoplan run, open the plan with `## ELI5` (5-10 plain sentences), then write parts 1 to 4 as
 `## Before → after`, `## Why it matters`, `## What caused this work` and `## Big decisions` sections. Then, at the gate:
 
 ```bash
-gstack-owner-brief render --captain --out <run dir>
+gstack-owner-brief render --captain --out <run dir> --captain-name "<Captain name>"
 ```
 
-It prints a header line ("Decision needed … Reply **rec** …"), the `### ELI5` summary (on a run whose gate
-carries `eli5`), the four plan sections (each capped, with a pointer to the plan for the rest), and "What we need from you", which lists every choice `rec` takes, in
-words, and closes with the "do it" reply, then a `### Cost` section (spent so far, worst case, and the estimate for
+It prints a header line ("Decision needed … Reply **do it** …"), the `### ELI5` summary (on a run whose gate
+carries `eli5`), the four plan sections (each capped, with a pointer to the plan for the rest), and "What we need from you", one lettered
+line per choice in the ask format, closed by "do it", then a `### Cost` section (spent so far, worst case, and the estimate for
 the phases `rec` can reopen). The last line, "For the relaying agent", carries the run, `gate_rev`, `rec_hash` and the exact
 `gstack-autoplan answer` command. Relay everything above that line. When the reply comes back:
 
