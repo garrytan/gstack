@@ -381,7 +381,7 @@ packet; the Red Team's waits for collect (below) and Step 11 builds its own.
 
 Launch one subagent per packet via the Agent tool (`subagent_type: "general-purpose"`,
 `run_in_background: false` when available; A launch receipt means it went background: await its completion notice.) at its `effort=` on the same model
-family. The whole brief is "Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names." with that packet's `read=` ranges. Never paste a diff,
+family. The whole brief is "Turn 1: read <file> with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turns 2 and 3, only if needed: the reads its Read budget allows, each turn's calls in parallel. Last turn: write your result to <out> in one write and reply with only the DONE line it names." with that packet's `read=` ranges. Never paste a diff,
 checklist or finding into a brief.
 
 **Fan-out (`--review-fanout auto|serial|parallel` in the prompt; default `auto`).**

@@ -8,7 +8,9 @@ controller the same model at run time is [`/captain`](skills.md#captain) (it als
 to `/crew`); the lane-side rules for a thread working under a Captain are in
 [`capy/skill/gstack/captain.md`](../capy/skill/gstack/captain.md) and
 [capy-install.md](capy-install.md#working-under-a-captain). Every file named below has a
-copy-paste template under [`captain/templates/`](../captain/templates/).
+copy-paste template under [`captain/templates/`](../captain/templates/). For the story of how
+one owner's crews run this day to day, with measured numbers, read
+[capy/README.md](../capy/README.md).
 
 ## The model in one paragraph
 

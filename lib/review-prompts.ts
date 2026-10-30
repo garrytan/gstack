@@ -74,7 +74,7 @@ export function renderFixCheckPrompt(i: FixCheckInput): string {
 }
 
 /** What every reviewer packet allows beyond itself. */
-export const READ_BUDGET = 'Everything you need is in this packet. You may read at most 2 more named line ranges, each at most 200 lines of a file in this diff (code around a hunk, a caller the diff changed), both in one turn as parallel calls. No whole-repository search, no git commands, no other packets, no transcript, no web.';
+export const READ_BUDGET = 'The packet is your starting context: the diff, checklists and contract. Before reporting, confirm or rule out each suspected defect by reading what it depends on outside the hunks: the callers and callees of changed functions, the tests that cover them, and the config/contracts they read. Use grep and the read tool freely for that, batching reads into parallel calls; at most 8 reads, in at most 2 turns. Never stop at the hunk when the defect would show elsewhere. Do not rerun git diff (the diff is below); no other packets, no transcript, no web.';
 
 /** The coverage audit packet's budget: an audit, never a writer; the parent writes and runs the tests it proposes. */
 export const AUDIT_READ_ONLY = 'This audit is read-only and keeps the brief to three turns: read the read= ranges of this packet, write the output file, reply with the DONE line. Make no edits, write no tests, run no tests, git or other commands and read no other file, whatever the audit instructions say about generating, running or reading: the parent writes and runs the tests. Judge coverage from the diff below and the tests it changes; put each test you would write, with its value card, in the diagram as a gap, mark a path whose tests this packet does not show as an unverified gap for the parent to confirm, and leave `tests_added` and `tests_extended` empty.';
@@ -90,5 +90,5 @@ export const OUTSIDE_CONTRACT = 'Write one finding per line as `[Critical] path:
 
 /** The whole brief a packet reviewer receives; the packet carries the rest. */
 export function packetBrief(file: string, out: string): string {
-  return `Turn 1: read ${file} with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turn 2, only if needed: at most 2 more ranges, in parallel. Last turn: write your result to ${out} in one write and reply with only the DONE line it names.`;
+  return `Turn 1: read ${file} with your file-reading tool (never cat: shell output past ~35 KB spills to a log), one parallel call per line range its PACKET line lists as read=; load no skill and read no SKILL.md. The packet is your whole task and ends with END OF PACKET. Turns 2 and 3, only if needed: the reads its Read budget allows, each turn's calls in parallel. Last turn: write your result to ${out} in one write and reply with only the DONE line it names.`;
 }

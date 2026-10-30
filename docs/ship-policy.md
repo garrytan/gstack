@@ -414,9 +414,12 @@ gstack-ship-queue ready --pr 42 --screen [--broad] # dispatches one paid screen 
 ```
 
 Without a choice it prints the `SCREEN:` selection (with
-`screen_selection: gstack-paid`, the skill's own cases and `recommend
---screen` or `--no-screen`: `--screen` when the screen selects a skill's own
-cases) and refuses with `READY_SCREEN_CHOICE_REQUIRED`. The price line says
+`screen_selection: gstack-paid`, the skill's own cases, the selector's mode and
+`recommend --screen` or `--no-screen`: `--screen` only when the selector's
+mode is `full-fallback`, an unknown dependency or a shared runtime input that
+restores every case, or when it cannot select at all; every other PR rides
+unscreened, and the train gate's full census runs its cases on the tree that
+merges) and refuses with `READY_SCREEN_CHOICE_REQUIRED`. The price line says
 the dollar figure is pending the cost replay; until it lands, `SCREEN:` shows
 case counts and the recommendation only. A lane that already ran focused
 local cases says so in the READY block and may pass `--no-screen`. `--screen`
@@ -466,8 +469,8 @@ gstack-ship-queue train build --prs 41@<sha>,42@<sha>,43@<sha>
 ```
 
 It prints `ORDER:` (the slot order to announce: screened PRs first in READY
-order, then unscreened; when `max_size` or more unscreened PRs wait they form
-their own train and `HELD:` lists them; `--order <pr>,<pr>,...` naming every
+order, then unscreened PRs fill the remaining seats, and `HELD:` lists the PRs
+over `max_size`; `--order <pr>,<pr>,...` naming every
 pinned PR once replaces that rule, for a PR that must merge before another,
 and the train's later `NEXT:` rebuilds keep it), one `PREFIX: T<i> <commit>
 tree=<tree>` per prefix and one `SLOT:` per PR. `--dry-run` adds the
