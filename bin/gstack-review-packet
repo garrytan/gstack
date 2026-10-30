@@ -4,7 +4,7 @@
  * their results (docs/review-policy.md#reviewer-packets).
  *
  *   gstack-review-packet build --base <ref> --out-dir <dir> [--range <sha>] [--plan-file <path>] [--only a,b]
- *                              [--findings <merged.jsonl>] [--fix-list <f> --tests <f> [--callers <f>]] [--fanout batched|parallel] [plan flags]
+ *                              [--findings <merged.jsonl>] [--fix-list <f> --tests <f> [--callers <f>]] [--fanout parallel|batched] [plan flags]
  *   gstack-review-packet build --like <earlier build dir> [--out-dir <dir>] [--only a,b] [--findings <merged.jsonl>]
  *   gstack-review-packet build --audit test-coverage|plan-completion --base <ref> --out-dir <dir> [--plan-file <path>]
  *                              [--context <file>] [--passes-used <n>]
@@ -12,7 +12,7 @@
  *   gstack-review-packet collect --dir <dir>
  *
  * build runs the plan gstack-review-plan prints (lib/review-plan-live.ts, same flags) and writes
- * one packet per DISPATCH line, a pass's specialist lines packed into one batched packet; collect reads every packet's output file. Logic: lib/review-packet.ts,
+ * one packet per DISPATCH line (--fanout batched packs a pass's specialist lines into one); collect reads every packet's output file. Logic: lib/review-packet.ts,
  * lib/review-packet-collect.ts.
  */
 import * as fs from 'node:fs';
@@ -31,9 +31,9 @@ const BIN = 'gstack-review-packet';
 const HELP = `${BIN} — one packet file per /ship reviewer; collect reads their results (docs/review-policy.md#reviewer-packets)
 
   build --base <ref> --out-dir <dir>   write one packet per DISPATCH line of the plan gstack-review-plan prints
-    --fanout batched|parallel          batched (default ${SPECIALIST_PACKING}): a pass's specialist lines are one packet
-                                       per shard inlining every checklist (a specialist --only names keeps its own);
-                                       parallel: one packet per specialist
+    --fanout parallel|batched          default ${SPECIALIST_PACKING}. parallel: one packet per specialist; batched (opt-in):
+                                       a pass's specialist lines are one packet per shard inlining every checklist
+                                       (a specialist --only names keeps its own)
     --range <sha>                      the diff base from pass 2 on (RANGE_BASE; fix-check: PASS_HEAD); default the merge base
     --plan-file <path>                 add at most 8 KB of the plan to each packet (the plan-completion audit gets it whole)
     --like <dir>                       reuse the plan flags, --range, --plan-file and --fanout of the build in <dir>

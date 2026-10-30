@@ -174,11 +174,11 @@ describe('gstack-review-packet build', () => {
     return [...plan.stdout.matchAll(/^DISPATCH: (\S+) (\S+)/gm)].map(m => ({ role: m[1]!, name: m[2]! }));
   };
 
-  test('standard depth: the pass\'s specialist lines are one batched packet inlining every selected checklist; red-team and adversarial stay separate', () => {
+  test('standard depth: each specialist line is its own packet by default; --fanout batched packs them into one packet inlining every selected checklist; red-team and adversarial stay separate', () => {
     const r = repo({}, { 'src/a.ts': lines(260, 'kappa'), 'test/a.test.ts': 'TEST_MARKER\n', 'docs/guide.md': '# Guide\nDOCS_MARKER\n' });
     const selected = planDispatches(r).filter(d => d.role === 'specialist').map(d => d.name);
     expect(selected.length).toBeGreaterThan(1);
-    const b = build(r);
+    const b = build(r, ['--fanout', 'batched']);
     expect(b.status).toBe(0);
     const all = packets(b.stdout);
     const specialists = all.filter(p => p.role === 'specialist');
@@ -194,25 +194,25 @@ describe('gstack-review-packet build', () => {
     expect(b.stdout).toContain(`PACKED: specialist batched checklists=${selected.join(',')} shards=1`);
     expect(b.stdout).toContain('PACKET_DEFERRED: red-team');
     expect(all.some(p => p.role === 'adversarial-native')).toBe(true);
-    const parallel = packets(build(r, ['--fanout', 'parallel']).stdout).filter(p => p.role === 'specialist');
+    const parallel = packets(build(r).stdout).filter(p => p.role === 'specialist');
     expect(parallel.map(p => p.name)).toEqual(selected);
     expect(build(r, ['--fanout', 'serial']).status).toBe(2);
   });
 
   test('the default packing is the one switch SPECIALIST_PACKING names', () => {
-    expect(SPECIALIST_PACKING).toBe('batched');
+    expect(SPECIALIST_PACKING).toBe('parallel');
   });
 
-  test('full depth: every specialist batched, the diff unexcluded; the Red Team counts the batched checklists', () => {
+  test('full depth under --fanout batched: every specialist batched, the diff unexcluded; the Red Team counts the batched checklists', () => {
     const r = repo({}, { 'src/a.ts': lines(260, 'lambda'), 'docs/guide.md': '# Guide\nDOCS_MARKER\n' });
     const selected = planDispatches(r, ['--depth-floor', 'full']).filter(d => d.role === 'specialist').map(d => d.name);
-    const b = build(r, ['--depth-floor', 'full']);
+    const b = build(r, ['--depth-floor', 'full', '--fanout', 'batched']);
     const specialists = packets(b.stdout).filter(p => p.role === 'specialist');
     expect(specialists.map(p => p.name)).toEqual(['batched']);
     expect(specialists[0]!.text).toContain('+DOCS_MARKER');
     const merged = path.join(r.out, 'merged.jsonl');
     fs.writeFileSync(merged, '');
-    const red = packets(build(r, ['--depth-floor', 'full', '--only', 'red-team', '--findings', merged]).stdout)[0]!;
+    const red = packets(build(r, ['--depth-floor', 'full', '--fanout', 'batched', '--only', 'red-team', '--findings', merged]).stdout)[0]!;
     expect(red.text).toContain(`reviewed by ${selected.length} specialists`);
   });
 
@@ -220,7 +220,7 @@ describe('gstack-review-packet build', () => {
     const files: Record<string, string> = {};
     for (let i = 0; i < 30; i++) files[`src/f${i}.ts`] = lines(400, `w${i}_`);
     const r = repo({}, files);
-    const shards = packets(build(r, ['--only', 'specialist']).stdout);
+    const shards = packets(build(r, ['--only', 'specialist', '--fanout', 'batched']).stdout);
     expect(shards.length).toBeGreaterThan(1);
     expect(shards.map(s => s.name)).toEqual(shards.map((_, i) => `batched.${i + 1}of${shards.length}`));
     for (const s of shards) { expect(s.bytes).toBeLessThanOrEqual(200_000); expect(s.text).toContain(checklist('testing')); expect(s.text).toContain(checklist('maintainability')); }
@@ -522,9 +522,10 @@ describe('the packet prose and the generated SKILL.md prose are one text', () =>
     expect(read('ship/sections/adversarial.md')).toContain(P.packetBrief('<file>', '<out>'));
     expect(read('ship/sections/test-coverage.md')).toContain(P.packetBrief('<file>', '<out>'));
   });
-  test('/ship Step 9 dispatches the batched packet at every depth and logs its checklists; Step 7 skips a no-code audit and writes tests itself', () => {
+  test('/ship Step 9 dispatches one packet per specialist unless --fanout batched and logs a batched reader\'s checklists; Step 7 skips a no-code audit and writes tests itself', () => {
     const army = read('ship/sections/review-army.md');
-    expect(army).toContain('--fanout parallel');
+    expect(army).toContain('--fanout batched');
+    expect(army).toMatch(/explicit opt-in/);
     expect(army).toContain('"checklists":[');
     expect(army).toContain('PACKED:');
     expect(army).toMatch(/checklists include state-machines/);

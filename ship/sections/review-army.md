@@ -23,10 +23,11 @@ Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
 `runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
 (specialists, Red Team, Step 11's voices) as Step 9.1's `PACKET:` lines, each at its `effort=` on the same model
 family and reading only its packet, in place of 9.1's and 9.2's own selection rules.
-At every depth a pass's specialist lines are one `specialist batched` reader per shard
-(`PACKED:` names its checklists; `--fanout parallel` keeps one per specialist): its packet
-inlines every checklist (light's adds the Red Team's), tags each finding with its checklist
-and ends with a `COVERED:` line collect checks.
+Each specialist line is its own reader (light's plan line is already one `specialist batched`
+reader with the Red Team's checklist). `--fanout batched`, an explicit opt-in, packs a pass's
+specialist lines into one `specialist batched` reader per shard (`PACKED:` names its checklists):
+its packet inlines every checklist, tags each finding with its checklist and ends with a
+`COVERED:` line collect checks.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
 `"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]` (one per `PACKET:`, `prompt_bytes` its bytes;
@@ -366,13 +367,13 @@ Print the selection:
 
 Each reviewer reads one packet and nothing else. `gstack-review-packet build` runs the
 plan `gstack-review-plan` runs (pass the same flags) and writes one packet per `DISPATCH:`
-line: the role's instructions and findings contract, its checklists inlined (a pass's specialist
-lines are one `specialist batched` packet, `PACKED:` naming its checklists, unless `--fanout parallel`),
+line: the role's instructions and findings contract, its checklists inlined (one packet per specialist
+line; `--fanout batched`, an explicit opt-in, packs them into one `specialist batched` packet, `PACKED:` naming its checklists),
 its `DIFF_CMD:` diff at -U8 against the literal diff base with a stat, past learnings, a read budget and its output path. With
 `_PK=.gstack/tmp/review-packets-p$PASS`, run `~/.claude/skills/gstack/bin/gstack-review-packet build --base <base>
 --out-dir "$_PK" --only specialist,red-team` plus the plan run's flags, `--range <sha>` (the literal `RANGE_BASE` sha)
 from pass 2 on and `--plan-file <plan>` when a plan is bound. Each `PACKET:` line is one
-reviewer; a diff past 200 KB is split by path into shards (`batched.1of3`), each its
+reviewer; a diff past 200 KB is split by path into shards (`testing.1of3`), each its
 own reviewer. Its `read=` ranges are what the reviewer reads in parallel, each under one
 read call's budget. `PACKETS:` carries the plan's fingerprint; under a token cap,
 `gstack-ship-budget check --next` takes build's `BUDGET_NEXT:` value (one

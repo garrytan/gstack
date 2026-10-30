@@ -1,4 +1,4 @@
 {
-  "bytes": 1371,
-  "why": "GSTA-167 #3633 meter fixes: own-jam meter, reservation id line and every capped start on --reservation, Red Team takes no start, docs-audit settle in its dispatch program, step priors from the run's median per-call charge"
+  "bytes": 1521,
+  "why": "GSTA-167: specialist packets default to parallel (--fanout batched opt-in, no-loss round 2); Step 14.5 check passes --reading"
 }

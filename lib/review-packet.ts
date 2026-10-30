@@ -5,8 +5,8 @@
  * checklists inlined, its DIFF_CMD diff at -U8 against the literal diff base with
  * a stat, at most 8 KB of the plan, a read budget, and the output path its result
  * goes to. A reviewer packet over PACKET_CAP_BYTES is sharded by path, never
- * truncated; a Step 7/8 audit is one packet (one verdict, one generation allowance). At every
- * depth a pass's specialist lines become one batched packet per shard (SPECIALIST_PACKING).
+ * truncated; a Step 7/8 audit is one packet (one verdict, one generation allowance). Each
+ * specialist line is its own packet unless `--fanout batched` packs a pass's into one per shard (SPECIALIST_PACKING).
  * Selection is lib/review-depth.ts planReview's (through lib/review-plan-live.ts);
  * collect is lib/review-packet-collect.ts.
  */
@@ -36,9 +36,10 @@ export const PACKINGS: readonly Packing[] = ['batched', 'parallel'];
 /**
  * How build packs a pass's specialist DISPATCH lines: `batched` is one packet per shard inlining every
  * selected checklist (light's contract, each finding tagged with its checklist, a COVERED line collect
- * checks); `parallel` is one packet per specialist. The no-loss replay flips this one value.
+ * checks); `parallel` is one packet per specialist. The no-loss replay's round 2 (GSTA-167) found 11 of 30
+ * recorded blockers parallel and 8 batched, so parallel stays the default and batched is an explicit opt-in.
  */
-export const SPECIALIST_PACKING: Packing = 'batched';
+export const SPECIALIST_PACKING: Packing = 'parallel';
 
 /** Every per-specialist dispatch of a pass as one `specialist batched` dispatch in the first one's place: checklists in plan order, the diff all of them read (the excludes they share). `keep` leaves a specialist its own packet (build's --only naming it). */
 export function packSpecialists(dispatches: readonly Dispatch[], keep: (d: Dispatch) => boolean = () => false): Dispatch[] {

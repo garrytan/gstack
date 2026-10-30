@@ -338,11 +338,13 @@ writes one packet per `DISPATCH:` line holding:
 
 - the role's instructions and findings contract from `lib/review-prompts.ts`, the
   strings the resolvers render into `/review`'s prose, so packet and prose cannot drift;
-- its checklists inlined. At every depth a pass's specialist lines are one
-  `specialist batched` packet per shard (`PACKED:` names its checklists; light's adds the
-  Red Team's), each finding tagged with its checklist and a last `COVERED:` line naming
-  every checklist applied; `--fanout parallel` (or `SPECIALIST_PACKING` in
-  `lib/review-packet.ts`, the no-loss replay's switch) keeps one packet per specialist.
+- its checklists inlined. Each specialist line is its own packet (`SPECIALIST_PACKING` in
+  `lib/review-packet.ts`; light's plan line is already one batched specialist with the Red
+  Team's checklist). `--fanout batched` is an explicit opt-in that packs a pass's specialist
+  lines into one `specialist batched` packet per shard (`PACKED:` names its checklists), each
+  finding tagged with its checklist and a last `COVERED:` line naming every checklist
+  applied. The GSTA-167 no-loss replay's round 2 found 11 of 30 recorded blockers with
+  parallel packets and 8 with batched ones, so batched did not become the default.
   The Red Team, the adversarial pass, the outside voice, the fix-check and the audits stay
   separate packets;
 - its `DIFF_CMD` diff at `-U8` against the literal diff base (`--range <sha>` from

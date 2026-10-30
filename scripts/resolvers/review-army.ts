@@ -162,13 +162,13 @@ function generatePacketDispatch(ctx: TemplateContext): string {
 
 Each reviewer reads one packet and nothing else. \`gstack-review-packet build\` runs the
 plan \`gstack-review-plan\` runs (pass the same flags) and writes one packet per \`DISPATCH:\`
-line: the role's instructions and findings contract, its checklists inlined (a pass's specialist
-lines are one \`specialist batched\` packet, \`PACKED:\` naming its checklists, unless \`--fanout parallel\`),
+line: the role's instructions and findings contract, its checklists inlined (one packet per specialist
+line; \`--fanout batched\`, an explicit opt-in, packs them into one \`specialist batched\` packet, \`PACKED:\` naming its checklists),
 its \`DIFF_CMD:\` diff at -U8 against the literal diff base with a stat, past learnings, a read budget and its output path. With
 \`_PK=.gstack/tmp/review-packets-p$PASS\`, run \`${bin}/gstack-review-packet build --base <base>
 --out-dir "$_PK" --only specialist,red-team\` plus the plan run's flags, \`--range <sha>\` (the literal \`RANGE_BASE\` sha)
 from pass 2 on and \`--plan-file <plan>\` when a plan is bound. Each \`PACKET:\` line is one
-reviewer; a diff past 200 KB is split by path into shards (\`batched.1of3\`), each its
+reviewer; a diff past 200 KB is split by path into shards (\`testing.1of3\`), each its
 own reviewer. Its \`read=\` ranges are what the reviewer reads in parallel, each under one
 read call's budget. \`PACKETS:\` carries the plan's fingerprint; under a token cap,
 \`gstack-ship-budget check --next\` takes build's \`BUDGET_NEXT:\` value (one
