@@ -89,6 +89,7 @@ describe('/captain skill', () => {
       expect(text, rel).toContain('one-round, eng-only plan');
     }
     expect(read('docs/captain.md')).toContain('gstack-autoplan close --out <run dir> --phase ceo --deferred');
+    expect(read('captain/templates/brief.md').replace(/\s+/g, ' ')).toContain('gstack-autoplan close --out <run dir> --phase ceo --deferred');
   });
 
   test('is generic: parameters, not one crew\'s codes, names or repository', () => {
