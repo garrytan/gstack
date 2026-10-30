@@ -66,7 +66,9 @@ one program measure nothing: Capy books a call after its program ends.
 A jam's own counter includes its own subagents, outside voices too (measured 2026-10-30: +10.92M
 across a six-reader dispatch with two ~0.35M parent calls between). `"this"` is the root thread,
 whose counter also holds every sibling tree, so a subagent running /ship passes its own jam id;
-a root thread's own jam id is its `"this"`. A handoff child reads its own counter too.
+a root thread's own jam id is its `"this"`. A Capy handoff child cannot read its own jam id, so it
+verifies with no reading and prints `METER: parent`; the parent's handoff and reconcile readings,
+taken on its own counter (which holds the child), measure it.
 
 **Claude Code.** `gstack-ship-budget start --record <record> --token-cap 25M --session <id>`. Without the
 session id, `start --meter claude` prints a nonce: echo it once, then rerun with `--nonce <value>`.
@@ -161,7 +163,9 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
    with explicit permission flags and the return file named.
 3. The child runs `verify-handoff` first; a moved pin refuses
    ([HANDOFF_PIN_MOVED](troubleshooting.md#handoff-pin-moved)). It admits against its sub-cap
-   with child_used = its own counter's reading − its reading at `verify-handoff` and is the only
+   with child_used = its own counter's reading − its reading at `verify-handoff` (a parent-metered
+   Capy child takes no reading, never delegates on an unknown charge, and returns `METER: parent`,
+   so `reconcile` charges the parent's counter delta since `handoff`) and is the only
    writer of the record; `reconcile` records the `BUDGET used=` its return prints as the
    handoff's child_used and settles its reservation (only `meter=estimate` adds it to the
    parent's used; the Capy and Claude Code meters already hold it, step 4). The

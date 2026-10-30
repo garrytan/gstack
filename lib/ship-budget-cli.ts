@@ -65,7 +65,7 @@ export function readMeter(l: Ledger, o: Opts, requireReading: boolean, notes: st
     return usage.lastCall;
   }
   if (reading === undefined) {
-    if (requireReading && l.cap !== null) throw budgetError('BUDGET_READING_MISSING', `run ${l.run} meter=capy unit=capy-tokens epoch=${l.meter.epoch}`);
+    if (requireReading && l.cap !== null && !l.parent_metered) throw budgetError('BUDGET_READING_MISSING', `run ${l.run} meter=capy unit=capy-tokens epoch=${l.meter.epoch}`);
     return null;
   }
   if (prior !== undefined && prior > reading) throw budgetError('BUDGET_READING_REJECTED', `--prior-reading ${prior} is above --reading ${reading}`);
@@ -150,7 +150,7 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
   const boundary = (startThreshold ? next.step === '1' : next.step in SEGMENTS && next.step !== '1');
   const to = l.parent ? l.parent.to : SEGMENTS[next.step]!;
   const small = boundary && !startThreshold ? keepsSmallRun(loadCalibration(l.calibration), { runtimeLines, from: next.step, to, call }) : null;
-  const wants = boundary && !small && (above === null ? !startThreshold && l.delegate !== 'measured' : above >= threshold);
+  const wants = boundary && !small && (above === null ? !startThreshold && l.delegate !== 'measured' && !l.parent_metered : above >= threshold);
   const depth = l.depth ?? (l.parent ? 1 : 0);
   const hold = !wants || !l.parent ? undefined
     : !l.steps_done?.length ? 'no step completed since verify-handoff'

@@ -84,6 +84,8 @@ export interface Ledger {
   call_floor?: number; depth?: number; steps_done?: string[];
   /** Capy per-call charges (--reading minus a fresh --prior-reading), per epoch: step priors use their median. */
   calls?: Array<{ epoch: number; value: number }>;
+  /** A Capy handoff child verified with no reading: a subagent cannot read its own jam id, so the parent's reconcile reading measures it. */
+  parent_metered?: boolean;
   /** observe (ship/DRIVER.md): readings are recorded by note and the cap is one hard stop; no reservation, admission or delegation. */
   mode?: 'admit' | 'observe';
   /** Capy cost.credits readings beside the token meter: baseline is the first reading, last the newest. */

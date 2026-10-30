@@ -68,18 +68,44 @@ describe('the Capy meter is the agent\'s own jam counter', () => {
     expect(h.field(rec.out, 'BUDGET', 'used')).toBe('10500000');
   });
 
-  // Value: protects=the child's brief tells it to read its own jam counter and that its return is what the parent charges; fails_when=the brief's verify-handoff or Budget lines omit the own-counter reading;
-  //   why_new=ship-handoff-brief tests read only the Read and Return sections; seam=none; no_claim=the child obeys
-  test('the handoff brief names the child\'s own jam counter for every reading and the return as the charge', () => {
+  // Value: protects=a Capy handoff child never needs its own jam id: the brief tells it to verify with no reading and never to borrow the parent's or root's counter, and the parent's own counter measures it; fails_when=the brief asks the child for its own jam counter again (replay 7e #36: every child failed verify-handoff with BUDGET_READING_MISSING, ~5M wasted, then metered off the root);
+  //   why_new=replaces the own-counter brief test, whose contract replay 7e showed a subagent cannot meet; seam=none; no_claim=the child obeys
+  test('the handoff brief tells a Capy child to take no reading and says the parent charges it from its own counter', () => {
     const h = fresh();
     const s = h.sb(['start', '--record', h.record(), '--token-cap', '200M', '--reading', '1000000']);
     const ho = h.sb(['handoff', '--run', h.field(s.out, 'BUDGET_RUN', 'id'), '--from', '12', '--to', '22', '--base', 'origin/main', '--reading', '2000000']);
     const text = fs.readFileSync(ho.out.match(/^HANDOFF: (\S+) /m)![1]!, 'utf8');
     const start = text.slice(text.indexOf('## Start'), text.indexOf('## Read'));
-    expect(start).toContain('(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens');
-    expect(start).toMatch(/never the parent's or the root's/);
+    expect(start).toContain('with no `--reading` on Capy: a subagent cannot read its own jam id');
+    expect(start).toMatch(/never pass the parent's or the root's counter/);
+    expect(start).not.toContain('<your own jam id>');
     const budget = text.slice(text.indexOf('## Budget'), text.indexOf('## Return contract'));
-    expect(budget).toMatch(/Every --reading is your own jam counter \(your subagents included\)/);
-    expect(budget).toMatch(/the parent charges child_used from the BUDGET used= your return prints/);
+    expect(budget).toContain('On Capy pass no --reading or --credits: the parent charges child_used from its own counter around your work');
+  });
+
+  // Value: protects=a Capy child with no jam id of its own verifies, checks, returns and is reconciled from the parent's counter delta; fails_when=verify-handoff or a child check refuses with BUDGET_READING_MISSING, an unknown charge delegates the child onward, or reconcile charges the child's own BUDGET used=0 instead of the parent's delta;
+  //   why_new=replay 7e #36 (handoffs/GSTA-167/replay7e-36.md); seam=none; no_claim=that the parent's counter excludes its own pings
+  test('a child handoff passes verify-handoff with no jam id of its own and the parent measures it', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--token-cap', '400M', '--reading', '1000000']);
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const ho = h.sb(['handoff', '--run', run, '--from', '9', '--to', '11.5', '--base', 'origin/main', '--reading', '1500000']);
+    expect(ho.code, ho.out + ho.err).toBe(0);
+    const v = h.sb(['verify-handoff', '--in', ho.out.match(/^HANDOFF: (\S+) /m)![1]!]);
+    expect(v.code, v.out + v.err).toBe(0);
+    expect(v.out).toContain('HANDOFF_OK: steps=9-11.5');
+    expect(v.out).toMatch(/^METER: parent \(no counter of its own/m);
+    const child = h.field(v.out, 'BUDGET_RUN', 'id');
+    const c = h.sb(['check', '--run', child, '--step', '9', '--next', '10']);
+    expect(c.code, c.out + c.err).toBe(0);
+    expect(c.err).not.toContain('BUDGET_READING_MISSING');
+    expect(h.field(c.out, 'BUDGET', 'verdict')).toBe('continue');
+    expect(h.sb(['check', '--run', child, '--step', '10', '--next', '11']).out).not.toContain('DELEGATE:');
+    const ret = h.sb(['return', '--run', child, '--to', '11.5']);
+    expect(ret.code, ret.out + ret.err).toBe(0);
+    expect(ret.out).toContain('METER: parent');
+    const rec = h.sb(['reconcile', '--run', run, '--return', ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!, '--reading', '9500000']);
+    expect(rec.code, rec.out + rec.err).toBe(0);
+    expect(rec.out).toContain('child=complete child_used=8000000');
   });
 });

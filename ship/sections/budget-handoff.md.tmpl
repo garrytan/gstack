@@ -60,7 +60,8 @@ Steps 9–11.5 child reads review-army.md and adversarial.md and takes their res
 2. Launch: on Capy a subagent on the shared machine whose brief is "Load gstack, source
    GSTACK_LAUNCH_FILE, run /ship --continue <HANDOFF file>"; on Claude Code
    `gstack-ship-budget launch --in <HANDOFF file>` (background, explicit permissions).
-3. The child runs `verify-handoff --in <file>` first (`--reading <n>` on Capy, its own counter); a
+3. The child runs `verify-handoff --in <file>` first, with no `--reading` on Capy (a subagent cannot read
+   its own jam id; `METER: parent`: the parent's handoff and reconcile readings measure it); a
    `HANDOFF_PIN_MOVED` refusal returns status=refused. It admits against its sub-cap and
    never stops on the context rule: after a completed step, `verdict=delegate` hands its
    remaining steps to a grandchild through these four steps (depth 3 at most); a
