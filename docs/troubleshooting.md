@@ -37,7 +37,7 @@ no paid call: the Codex rows report the cached model check and its age, and
 
 ## Model policy
 
-The [model-policy guide](model-policy.md) explains the two tiers, all six
+The [model-policy guide](model-policy.md) explains the two tiers, all seven
 settings, precedence and the read-only inspection command. A resolved selection
 is not proof that the requested provider or model can run.
 
@@ -1832,9 +1832,10 @@ GSTACK_RESULT lines.
 <a id="budget-cap-reached"></a>
 ### `gstack-ship-budget: ... (BUDGET_CAP_REACHED)`
 
-**Meaning.** The next step or dispatch batch would push used + open reservations + unknown
-charges + its projection + the tail and stop reserve past the admission cap, so it did not
-start. Exit 3. `gstack-review-log --start` prints the same code (exit 1) for a dispatch
+**Meaning.** The next step, or the first reader of a dispatch batch, would push used + open
+reservations + unknown charges + its projection + the tail and stop reserve past the admission
+cap, so it did not start. Exit 3. A batch that partly fits is not refused: `check` admits the
+largest prefix that fits and prints `ADMIT: k of n (remaining=<roles>)`. `gstack-review-log --start` prints the same code (exit 1) for a dispatch
 after the run stopped. The cap admits work; it cannot stop a turn already running, so the
 overshoot is bounded by the misprojection of work admitted before the stop.
 
@@ -2516,11 +2517,20 @@ holding only its first section therefore no longer wipes the rest of the PR.
 The redaction scan runs on the merged bytes, so a MEDIUM or HIGH finding can
 come from a kept section; the `RULE:` line's `LINE:` is in the merged text.
 When the current body cannot be read (`gh pr view --json body` fails) nothing
-is posted, exit 3.
+is posted, exit 3. When the current body holds a title the file rewrites more
+than once (an earlier description pasted below a `---` under the new one, as
+on gstack-evals#19), the file's section matches no single copy, so nothing is
+posted, exit 64: `gstack-post: the PR's current body holds "What changed" more
+than once, so the file's copy matches no single section; nothing was posted.
+Rerun with --replace and the whole body`. Merging would replace one copy and
+keep the stale other beside it.
 
 **Fix.** Nothing, when the kept sections are wanted. To overwrite the whole
 body with the file, rerun with `--replace`. To drop a section, post the body
-with `--replace` or edit it on the host.
+with `--replace` or edit it on the host. For the duplicate-title refusal, write
+the whole body you want (keep the earlier description under a title of its own,
+such as `## Original description`, if it should stay) and post it with
+`--replace`.
 
 <a id="redact-prepush-email"></a>
 ### `MEDIUM  pii.email  <file>:<line>` from the pre-push hook
@@ -3360,6 +3370,27 @@ specifiers in test files that resolved to no repo file (for example a
 `extends` hop that was not followed (only relative `extends`, at most 4 hops). If
 a test does cover the file, declare it under `dependencies`; if the resolver
 should have found it, report the specifier as a resolver gap.
+
+<a id="pregate-no-lane-own-policy"></a>
+**The branch adds the lane itself.** A branch that edits `.gstack/pregate.json`
+to give its own new files a lane still gets this error: pregate reads the policy
+from `origin/<base>` (or the user-owned file), never from the branch, so a
+branch cannot loosen its own gate ([trust boundary](pregate.md#trust-boundary)).
+That is intended, and pregate never switches to the branch's copy on its own.
+The fix line then opens `this branch edits .gstack/pregate.json, but the policy
+comes from origin/<base>@<sha>:.gstack/pregate.json so a branch cannot loosen
+its own gate, and a lane it adds counts only once it is on <base>` and names the
+two routes:
+
+1. Land the policy change in its own PR first (the reviewed route), then merge
+   the base into this branch and rerun.
+2. Rerun with `--policy-from head --allow-repo-commands`. The run reads the
+   branch's copy and its record says `policy head (unreviewed)`, so a
+   reviewer sees that the gate ran under a policy nobody has reviewed yet;
+   `gstack-ship-queue` never accepts a head-policy run as a remote mirror.
+
+An allowlist entry the branch adds to its own `pregate.json` is read the same
+way: it clears a finding only once it is on the base.
 
 <a id="pregate-lane-failed"></a>
 ### `PREGATE_LANE_FAILED`

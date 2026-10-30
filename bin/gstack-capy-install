@@ -677,6 +677,7 @@ write_launch_file() {
     echo "export GSTACK_EPHEMERAL=$(shq "${GSTACK_EPHEMERAL:-1}")"
     echo "export GSTACK_CAPY=1"
     echo "export GSTACK_INSTALL_VERDICT=$(shq "$VERDICT")"
+    if [ -n "${GSTACK_PREFERENCES_FILE:-}" ]; then echo "export GSTACK_PREFERENCES_FILE=$(shq "$GSTACK_PREFERENCES_FILE")"; fi
   } > "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$LAUNCH_FILE" || { rm -f "$tmp"; return 1; }
 }
 if [ "$RC" -eq 0 ] && ! write_launch_file; then

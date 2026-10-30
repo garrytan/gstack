@@ -11,7 +11,6 @@ import { BUDGET_BIN, budgetHarness, type Harness } from './helpers/ship-budget-h
 
 const cal = loadCalibration();
 const K = unitConstants(cal, 'capy-tokens');
-const STEP2 = stepProjection(cal, 'capy-tokens', '2');
 const harnesses: Harness[] = [];
 const fresh = () => { const h = budgetHarness(); harnesses.push(h); return h; };
 afterEach(() => { while (harnesses.length) harnesses.pop()!.cleanup(); });
@@ -42,12 +41,11 @@ describe('parsing and the admission rule', () => {
 
   test('CLI boundary: a check exactly at the cap continues, one token over stops (exit 3)', () => {
     const h = fresh();
-    const cap = 40_000_000;
     for (const [extra, code, verdict] of [[0, 0, 'continue'], [1, 3, 'stop']] as const) {
-      const s = started(h, ['--token-cap', String(cap), '--reading', '0', '--reserve', '0']);
+      const cap = K.per_dispatch + K.stop_overhead - extra;
+      const s = started(h, ['--token-cap', String(cap), '--reading', '3000000', '--reserve', '0']);
       expect(s.r.code).toBe(0);
-      const reading = cap - STEP2 - K.stop_overhead + extra;
-      const c = h.sb(['check', '--run', s.run, '--step', '1', '--next', '2', '--reading', String(reading)]);
+      const c = h.sb(['check', '--run', s.run, '--step', '1', '--next', 'dispatch:specialist', '--reading', '3000000']);
       expect(c.code).toBe(code);
       expect(h.field(c.out, 'BUDGET', 'verdict')).toBe(verdict);
       expect(h.field(c.out, 'BUDGET', 'admission_cap')).toBe(String(cap));
@@ -56,14 +54,14 @@ describe('parsing and the admission rule', () => {
 });
 
 describe('reservations', () => {
-  test('a parallel batch is reserved as one sum and refused whole when it would overshoot', () => {
+  test('a parallel batch is reserved as one sum; when it would overshoot only the prefix that fits is admitted', () => {
     const h = fresh();
     const cap = 2 * K.per_dispatch + K.stop_overhead + 1_000_000;
     const s = started(h, ['--token-cap', String(cap), '--reading', '0', '--reserve', '0']);
     const over = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:specialist,red-team,fix-check', '--reading', '0']);
-    expect(over.code).toBe(3);
-    expect(over.out).toContain('(BUDGET_CAP_REACHED)');
-    expect(h.ledger(s.ledger).reservations.filter((r: any) => r.kind === 'dispatch')).toHaveLength(0);
+    expect(over.code).toBe(0);
+    expect(over.out).toContain('ADMIT: 2 of 3 (remaining=fix-check)');
+    expect(h.ledger(s.ledger).reservations.filter((r: any) => r.kind === 'dispatch').map((r: any) => [r.tokens, r.roles])).toEqual([[2 * K.per_dispatch, ['specialist', 'red-team']]]);
   });
 
   test('#31 replay: a 25M cap stops before the dispatch that would cross it', () => {
@@ -98,7 +96,9 @@ describe('reservations', () => {
     const spent = 2 * K.per_dispatch;
     const next = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:red-team', '--reading', String(spent)]);
     expect(Number(h.field(next.out, 'BUDGET', 'used'))).toBe(spent);
-    expect(next.code).toBe(spent + K.per_dispatch + K.stop_overhead <= cap ? 0 : 3);
+    const projected = Number(h.field(next.out, 'BUDGET', 'projected'));
+    expect(projected).toBe(Math.ceil((K.per_dispatch * 2 * cal.headroom) / cal.round_to) * cal.round_to);
+    expect(next.code).toBe(spent + projected + K.stop_overhead <= cap ? 0 : 3);
     const later = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:red-team', '--reading', String(cap - K.stop_overhead - K.per_dispatch + 1)]);
     expect(later.code).toBe(3);
   });
@@ -176,10 +176,11 @@ describe('meters and exit codes', () => {
 });
 
 describe('delegation', () => {
-  test('start from a long-lived context (call >= 100k) delegates the whole /ship', () => {
+  test('start from a long-lived context (100k or more above the host floor) delegates the whole /ship', () => {
     const h = fresh();
-    const s = started(h, ['--token-cap', '60M', '--reading', '9000000', '--prior-reading', '8880000']);
-    expect(h.field(s.r.out, 'BUDGET', 'call')).toBe('120000');
+    const s = started(h, ['--token-cap', '60M', '--reading', '9000000', '--prior-reading', '8740000']);
+    expect(h.field(s.r.out, 'BUDGET', 'call')).toBe('260000');
+    expect(h.field(s.r.out, 'BUDGET', 'above_floor')).toBe('110000');
     expect(h.field(s.r.out, 'BUDGET', 'verdict')).toBe('delegate');
     expect(s.r.out).toContain('--from 1 --to 22');
   });
@@ -202,7 +203,7 @@ describe('delegation', () => {
   test('full chain: delegate, handoff, verify, child checks, 40-line return, idempotent reconcile, close', () => {
     const h = fresh();
     const s = started(h, ['--token-cap', '80M', '--reading', '1000000']);
-    const d = h.sb(['check', '--run', s.run, '--step', '6', '--next', '7', '--reading', '1200000', '--prior-reading', '1000000']);
+    const d = h.sb(['check', '--run', s.run, '--step', '6', '--next', '7', '--reading', '1200000', '--prior-reading', '800000']);
     expect(h.field(d.out, 'BUDGET', 'verdict')).toBe('delegate');
     const ho = h.sb(['handoff', '--run', s.run, '--from', '7', '--to', '11.5', '--base', 'origin/main', '--reading', '1300000']);
     expect(ho.code).toBe(0);
@@ -221,7 +222,9 @@ describe('delegation', () => {
     expect(h.field(v.out, 'BUDGET', 'used')).toBe('100000');
     const cc = h.sb(['check', '--run', child, '--step', '8', '--next', '9', '--reading', '5000000']);
     expect(cc.code).toBe(0);
-    expect(h.sb(['check', '--run', child, '--step', '11', '--next', '12', '--reading', '6000000']).out).toContain('a child never delegates');
+    const past = h.sb(['check', '--run', child, '--step', '11', '--next', '12', '--reading', '6000000']);
+    expect(past.code).toBe(0);
+    expect(past.out).toMatch(/^CONTEXT_HIGH: .*Step 12 is past this child's Steps 7-11\.5/m);
     const ret = h.sb(['return', '--run', child, '--to', '11.5', '--changed', 'Reviews,Checks', '--reading', '9000000']);
     expect(ret.code).toBe(0);
     expect(ret.out.trim().split('\n').length).toBeLessThanOrEqual(40);

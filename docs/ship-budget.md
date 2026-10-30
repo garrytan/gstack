@@ -17,7 +17,9 @@ Exactly at the cap is admitted; one token over is not. A parallel review batch i
 one sum before any of it starts. Admitted work can still cost more than its projection, and
 gstack cannot stop a host mid-turn from bash, so a run can finish above the cap by the
 misprojection of work already admitted. The tail reserve (default 2M, `--reserve <n>`) keeps
-room for the receipt steps, and the stop overhead (calibrated) keeps room to stop cleanly.
+room for the receipt steps, and the stop overhead (calibrated) keeps room to stop cleanly. Once
+the run has measured a step, the tail reserve scales with its measured step cost (a `--reserve`
+you set stays as given); the stop overhead never scales.
 
 ## Quickstart
 
@@ -48,7 +50,7 @@ With a cap set and no readable meter, start refuses
 
 ## The BUDGET line
 
-    BUDGET: used=<n> reserved=<n> unknown=<n> admission_cap=<n|none> tail=<n> unit=<u> meter=<m> epoch=<n> call=<n|unknown> next=<id> projected=<n> verdict=continue|delegate|stop
+    BUDGET: used=<n> reserved=<n> unknown=<n> admission_cap=<n|none> tail=<n> unit=<u> meter=<m> epoch=<n> call=<n|unknown> call_floor=<n> above_floor=<n|unknown> next=<id> projected=<n> calibration=step:<f|prior>,dispatch:<f|prior> verdict=continue|delegate|stop
 
 | Field | Meaning |
 |---|---|
@@ -56,10 +58,12 @@ With a cap set and no readable meter, start refuses
 | `reserved` | Open reservations: admitted steps, started dispatches, and each open child's sub-cap counted as max(sub_cap, child_used), never both |
 | `unknown` | Charges the meter cannot see (an external-CLI outside voice on Claude Code), counted at their reservation |
 | `admission_cap` | The cap, or `none` |
-| `tail` | Tail reserve plus stop overhead, held back from every admission |
+| `tail` | Tail reserve (scaled by the step factor once measured) plus stop overhead, held back from every admission |
 | `unit`, `meter`, `epoch` | The meter contract: `capy-tokens` (root counter), `claude-usage-tokens` (journal usage), `estimate-tokens`; a meter change opens a new epoch |
 | `call` | The per-call charge: two Capy readings in consecutive calls, or the last Claude Code call's usage |
-| `next`, `projected` | What the check was for and its calibrated projection |
+| `call_floor`, `above_floor` | The host's per-call floor (see Delegation) and the charge above it, max(0, call − floor); the delegate rule compares `above_floor` |
+| `next`, `projected` | What the check was for and its projection: the prior times the run's factor for that kind |
+| `calibration` | The run's step and dispatch factors (see Calibration), or `prior` before the first measurement |
 | `verdict` | `continue` (exit 0, prints `RESERVATION:` under a cap), `delegate` (exit 0), `stop` (exit 3) |
 
 Any exit other than 0 means the next step does not start. Exit 2 is a usage or validation
@@ -76,34 +80,68 @@ gstack-ship-budget check --run <id> --step 9 --next dispatch:specialist,red-team
 gstack-review-log --start review --reservation <id>
 ```
 
+Each reader is priced at max(its projection, the run's measured mean for that role over settled
+dispatches). When the whole batch does not fit, `check` admits the largest prefix that does and
+prints `ADMIT: k of n (remaining=<roles>)`: dispatch those k, then re-check the remaining roles
+once they settle. Only a batch whose first reader does not fit stops, and `close` flags remaining
+roles no later check requested (`DROPPED:`, status=incomplete until the owner accepts).
 Roles are review-depth's: `specialist`, `red-team`, `adversarial-native`, `outside-voice`,
-`fix-check`. `--finish <token>` settles the reservation at the dispatch's completion receipt.
+`fix-check`. `--finish <token>` is the pass's completion receipt: it settles that reservation and
+every other dispatch reservation started in the same step, so reviewers admitted one at a time
+do not stay reserved. Name a reviewer that came back in your next check
+(`check ... --returned <id>[,<id>...]`), or, when other work comes first, `settle --reservation <id>
+--reading <n>` as it returns so its cost is measured alone. A check that moves to the next step
+settles every dispatch a reviewer started in the step before.
 `close` audits after the fact: each review-log row of the run with no reservation gets one
 BUDGET_CHECK_SKIPPED line and the run ends status=incomplete for the owner to accept
 (`close --approved-by <who> --words "<their words>"`); a reservation is never created after the fact.
 
 ## Delegation
 
-At start, a per-call charge of 100k or more delegates the whole /ship. Before Step 7 and before
-Step 12, 150k or more (or an unknown charge) delegates the next segment (7–11.5, 12–22):
+The delegate rule measures context above the host's per-call floor: what one call costs in a
+fresh session with the ship skill loaded, before any /ship work. The floor is `call_floor` per
+unit in `lib/ship-budget-calibration.json` (150k on Capy, where a fresh thread's calls cost
+150–230k; 40k on Claude Code; 0 for the estimate meter, whose charge is always unknown), or
+`start --call-floor <n>`, which the ledger records and every child inherits. At start, 100k or
+more above the floor delegates the whole /ship. Before Step 7 and before Step 12, 150k or more
+above the floor (or an unknown charge) delegates the next segment (7–11.5, 12–22). The BUDGET
+line prints `call`, `call_floor` and `above_floor`, so each verdict can be checked:
 
 1. `gstack-ship-budget handoff --run <id> --from 12 --to 22 --base origin/<base> --reading <n>` writes a
    brief (mode 0600, under the run directory) with the pins (HEAD, merge base, working tree,
    reviewed tree), the record with its six headings and start tokens, the decisions in scope
    with the owner's words, the decision trail, the budget and the return contract. It reserves
-   the child's sub-cap: min(cap − used − reserved − tail, the segment estimate), or `--sub-cap`.
+   the child's sub-cap: min(cap − used − reserved − unknown − the calibrated tail reserve and stop
+   overhead, the segment estimate), or `--sub-cap`. A child handing off reserves its whole
+   remaining sub-cap instead (cap − used − reserved − unknown − its stop overhead).
 2. The child is a Capy subagent on the shared machine, or on Claude Code
    `gstack-ship-budget launch --in <brief>`: a background `claude -p` (resolved through lib/claude-bin.ts)
    with explicit permission flags and the return file named.
 3. The child runs `verify-handoff` first; a moved pin refuses
    ([HANDOFF_PIN_MOVED](troubleshooting.md#handoff-pin-moved)). It admits against its sub-cap
-   with child_used = reading − reading at handoff, is the only writer of the record, and never
-   delegates again: a delegate rule stops it. It ends with `return` (at most 40 lines).
+   with child_used = reading − reading at handoff and is the only writer of the record. The
+   context rule never stops a child. When it fires at one of the child's boundaries:
+   - once the child has completed a step since `verify-handoff`, `verdict=delegate` hands its
+     remaining steps (the next step through the end of its segment) to a fresh grandchild
+     through these same four steps. The chain depth (1 for a child, 2 for a grandchild, at most
+     3) is recorded in the brief, the handoff and the new ledger;
+   - before its first completed step, at depth 3, or when the next step is past its segment,
+     `verdict=continue` with one `CONTEXT_HIGH:` line (call, floor, threshold, depth, reason).
+
+   The admission cap still stops a child (`reason=budget_exhausted`). It reconciles any
+   grandchild, then ends with `return` (at most 40 lines). `return` reports `status=incomplete`
+   while one of the child's own handoffs is unreconciled (`UNRECONCILED:`) or an ADMIT remainder
+   was never re-checked (`DROPPED:`), so a delegated segment cannot drop readers or leave a
+   grandchild writing after the parent moves on.
 4. `gstack-ship-budget reconcile --run <id> --return <file> --reading <n>`; idempotent per handoff hash,
    so a duplicate return charges nothing twice. A refused, incomplete or interrupted child
-   exits 3: regenerate the handoff or stop.
+   exits 3: regenerate the handoff or stop. Up a chain each token is charged once: the Capy
+   counter already includes the whole subtree, a session `launch` starts joins the Claude Code
+   meter of every ancestor, and under `meter=estimate` a child's returned `used` carries its
+   grandchild's.
 
-`--delegate never` turns delegate into stop for hosts without children.
+`--delegate never` turns delegate into stop for a parent on a host without children; a child
+continues with a `CONTEXT_HIGH:` note instead.
 
 ## Stop and resume
 
@@ -135,7 +173,22 @@ largest observation times 1.5, rounded up to 10,000 tokens. The leave-one-out te
 (test/ship-budget-calibration.test.ts) covers the per-call constant only, the one observed
 across three runs; per-dispatch has two observations and stop overhead one. Only the Capy
 meter has observations; the Claude Code and estimate units are seeded from it until a
-Claude-metered /ship completes.
+Claude-metered /ship completes. Each unit's `call_floor` is calibrated separately, with its
+evidence in `call_floor_why`; a floor is the largest 10,000 multiple at or below its smallest
+observed fresh call.
+
+These constants are the prior. Each settled step or dispatch is measured on the next fresh
+reading (a step from its check's reading to the next one; dispatches settled together as one
+group, split by role), and prints
+
+    DRIFT: id=<reservation> kind=step|dispatch next=<id> projected=<n> actual=<n> ratio=<actual/projected>
+
+From then on the run projects steps and dispatches with its own factor: the largest
+actual/prior ratio among its last three measurements of that kind, times 1.5. The step factor
+also scales the default tail reserve. Dispatches keep the prior until the first
+dispatch is measured, so under a tight cap admit one reviewer first and let it calibrate the rest.
+`close` prints `BUDGET_DRIFT:` with the run's projected and actual totals per kind. The estimate
+meter has no readings, so it always projects at the prior.
 
 ## Token cap and USD spend cap
 

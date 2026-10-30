@@ -7,8 +7,8 @@
  *
  *   start   --record <path> [--token-cap <n|none>] [--meter capy|claude|estimate] [--reading <n>] [--prior-reading <n>]
  *           [--session <id>|--nonce <v>] [--reserve <n>] [--delegate auto|never] [--calibration <file>] [--ledger <path>]
- *   check   --run <id>|--record <path> --step <id> --next <id|dispatch:<role>[,<role>...]> [--reading <n>] [--prior-reading <n>]
- *   settle  --run|--record --reservation <id> [--unknown]      release --run|--record --reservation <id>
+ *   check   --run <id>|--record <path> --step <id> --next <id|dispatch:<role>[,<role>...]> [--reading <n>] [--prior-reading <n>] [--returned <id>[,<id>...]]
+ *   settle  --run|--record --reservation <id> [--unknown] [--reading <n>]      release --run|--record --reservation <id>
  *   handoff --run|--record --from <step> --to <step> --base origin/<base> [--reviewed-tree <t>] [--trail <f> --trail-run <id>]
  *           [--sub-cap <n>] [--reading <n>] [--child-session <id>]
  *   launch  --in <brief>   (Claude Code: background headless child with explicit permissions)

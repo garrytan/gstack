@@ -475,6 +475,7 @@ jobs:
       - name: Print the screening selection and its estimated cost (no paid case runs)
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVALS_SCREEN_POLICY: narrow
         run: |
           EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slices 1
           bun --no-env-file --config=/dev/null --no-install run scripts/train-gate.ts screen-summary /tmp/paid-plan/manifest.json --pr "$PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
@@ -569,6 +570,9 @@ jobs:
           EVALS_CACHE_DIR: ${{ steps.reuse.outputs.reuse == 'on' && '/tmp/gstack-eval-input-cache' || '' }}
           # Dispatch diff base (CEO-17): a screen's merge-commit first parent, else the exact merge-base, else the named base branch, else detection.
           EVALS_BASE: ${{ needs.route.outputs.screen_base || inputs.base_sha || (inputs.base_ref != '' && format('origin/{0}', inputs.base_ref)) || '' }}
+          # Dispatched screens and eval:bg:pr default to narrow; a broad screen (`ready --screen --broad`) and a
+          # pull_request run (the merge gate when no train block exists) keep every derived dependent.
+          EVALS_SCREEN_POLICY: ${{ inputs.screen_policy || (github.event_name == 'workflow_dispatch' && 'narrow') || 'broad' }}
         run: EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slice-budget 420 --jobs 2 --max-parallel 20
 
       # R2a/R2: reuse holds only when this head's own plan selects exactly the
