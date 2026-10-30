@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import { classifyPath } from './review-depth';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
-import { bin, evidenceExempt, firstLine, flagReader, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short } from './ship-bin-common';
+import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
@@ -60,7 +60,8 @@ export function version(argv: readonly string[], cwd: string): Report {
   const base = flag('--base')!;
   const r = new Report();
   const policy = shipPolicy(cwd, base);
-  if (policy?.queue_mode === 'stamp-at-merge') return r.add('VERSION: skipped (policy: queue_mode stamp-at-merge replaces Step 12 items 1-4; the merge stamps it)').next('Step 13: write the CHANGELOG entry under ## [Unreleased]');
+  const fragment = fragmentPath(policy, cwd);
+  if (policy?.queue_mode === 'stamp-at-merge' || fragment) return r.add(`VERSION: skipped (policy: ${fragment ? 'changelog_fragments' : 'queue_mode stamp-at-merge'} replaces Step 12 items 1-4; the merge stamps it)`).next(fragment ? `Step 13: write the entry as ${fragment} (entry text only, no heading), never an [Unreleased] section` : 'Step 13: write the CHANGELOG entry under ## [Unreleased]');
   let c = classify(cwd, base);
   if (c.error) return r.stop(`a configured version file is missing, empty, unreadable or malformed: ${c.error}; fix it or its pin, then rerun (never substitute 0.0.0.0)`);
   if (c.state === 'DRIFT_STALE_PKG') {

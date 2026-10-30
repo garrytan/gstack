@@ -100,9 +100,9 @@ question; `VERSION: skipped (policy: ...)`: write no version.
 
 ## 6. Notes and documentation: Steps 13, 14, 14.5
 
-Step 13: one user-facing CHANGELOG entry from the commits file; `gstack-prose-lint CHANGELOG.md --base
-origin/<base> --gate` until `PROSE_LINT: ok`. Step 14: TODOS.md deferrals and completions, edited from
-the todos file. Step 14.5, every ship: read `sections/documentation.md` and run its audit as written, as
+Step 13: one user-facing entry from the commits file, where `NEXT:` says;
+`gstack-prose-lint <it> --base origin/<base> --gate` until `PROSE_LINT: ok`. Step 14: TODOS.md deferrals and
+completions, edited from the todos file. Step 14.5, every ship: read `sections/documentation.md` and run its audit as written, as
 one program (above), then `gstack-ship-receipt docs-caps --base <base>`; print `Documentation:`.
 One re-audit at most.
 

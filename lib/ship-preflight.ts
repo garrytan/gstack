@@ -92,7 +92,7 @@ function merge(cwd: string, base: string, r: Report): boolean {
     r.add(`DISTRIBUTION: candidates=${short(candidates, 5)} release_workflow=${[...wf, ...(gitlab ? ['GITLAB_CI_RELEASE'] : [])].join(',') || 'none'}`)
       .next('Step 2: read each candidate (and manifests for new binaries or exports); a new distributable without a pipeline needs Step 2\'s question');
   }
-  r.add(`POLICY: ${['bump', 'queue_mode', 'review_scope', 'history'].map(k => `${k}=${policy?.[k] ?? '?'}`).join(' ')} (binds Steps 12, 16 and history)`);
+  r.add(`POLICY: ${['bump', 'queue_mode', 'review_scope', 'history'].map(k => `${k}=${policy?.[k] ?? '?'}`).join(' ')} (binds Steps 12-16 and history)`);
   const plan = bin(cwd, 'gstack-review-plan', ['--base', base, '--json'], 180_000);
   let runtime = 'unknown';
   try {

@@ -85,6 +85,28 @@ describe('finish (Steps 15-16)', () => {
     expect(f.git('ls-remote', '--heads', 'origin', 'feat').stdout).toBe('');
   });
 
+  // Value: protects=under changelog_fragments the branch's own fragment is release metadata: version writes nothing and names it in NEXT, finish commits it as the release commit and the route counts it as metadata, and another fragment is still a feature file; fails_when=finish stops on changelog.d/<slug>.md or routes it to re-review (/ship #3648 fix-check 4, CRITICAL);
+  //   why_new=releasePaths predates changelog_fragments (#3654); seam=gstack-ship-policy show-effective, gstack-wtree; no_claim=the merge step's fold
+  test('under changelog_fragments the branch fragment is release metadata and Step 12 names it', () => {
+    const f = fx({ '.gstack/ship-policy.json': '{"changelog_fragments":{"dir":"changelog.d"},"min_gstack_version":"1.91.336.0"}\n', 'changelog.d/README.md': 'Fragments.\n' });
+    const reviewed = wtree(f);
+    const v = f.run(RELEASE, ['version', '--base', 'main']);
+    expect(v.status).toBe(0);
+    expect(lineOf(v.stdout, 'VERSION')).toContain('skipped (policy: changelog_fragments');
+    expect(v.stdout).toContain('NEXT: Step 13: write the entry as changelog.d/feat.md');
+    expect(read(f, 'VERSION')).toBe('1.0.0.0\n');
+    const post = snapshot(f);
+    const args = ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE];
+    f.write({ 'changelog.d/other.md': 'Not this branch.\n' });
+    expect(f.run(RELEASE, args).stdout).toContain('STOP: uncommitted changes outside release metadata: changelog.d/other.md');
+    fs.rmSync(path.join(f.work, 'changelog.d/other.md'));
+    f.write({ 'changelog.d/feat.md': 'One entry.\n' });
+    const ok = f.run(RELEASE, args);
+    expect(ok.stdout).toMatch(/^COMMIT: [0-9a-f]{12} chore: changelog and TODOS \(changelog\.d\/feat\.md\)/m);
+    expect(lineOf(ok.stdout, 'ROUTE')).toMatch(/behavior=0 docs=0 metadata=1/);
+    expect(ok.status).toBe(0);
+  });
+
   // Value: protects=a behavior change after review inserts the re-review route, an authored doc change needs --docs-rechecked, stale docs and failing or absent lanes stop; fails_when=any of these continues to push;
   //   why_new=moved from Step 16 stages 2-4; seam=same; no_claim=the repair itself
   test('behavior after review, unrechecked docs, stale docs, a failing lane and no lanes each stop', () => {

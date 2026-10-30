@@ -8,6 +8,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fragmentSlug } from './changelog-fragments';
 import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
 
 export interface Run { status: number | null; stdout: string; stderr: string }
@@ -93,8 +94,16 @@ export function versionOnlyEdit(cwd: string, ref: string, p: string): boolean {
  */
 export function releasePaths(policy: Record<string, any> | null, cwd: string, ref: string): string[] {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
+  const fragment = fragmentPath(policy, cwd);
   return [...new Set(['VERSION', 'CHANGELOG.md', 'TODOS.md', 'agents-digest/gstack-AGENTS.md', ...VERSIONED_MANIFESTS.filter(p => versionOnlyEdit(cwd, ref, p)),
-    ...(typeof policy?.changelog === 'string' ? [policy.changelog] : []), ...list(policy?.release_outputs), ...list(policy?.stamp_paths)])];
+    ...(typeof policy?.changelog === 'string' ? [policy.changelog] : []), ...(fragment ? [fragment] : []), ...list(policy?.release_outputs), ...list(policy?.stamp_paths)])];
+}
+
+/** Under `changelog_fragments`, the branch's own Step 13 entry `<dir>/<branch-slug>.md` (docs/ship-policy.md#changelog-fragments); null without the key. */
+export function fragmentPath(policy: Record<string, any> | null, cwd: string): string | null {
+  const dir = policy?.changelog_fragments?.dir;
+  if (typeof dir !== 'string') return null;
+  return `${dir.replace(/\/+$/, '')}/${fragmentSlug(git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim())}.md`;
 }
 
 /** The paths a lane receipt may ignore: release metadata except TODOS.md, whose Step 14 edit reruns the lanes (ship/SKILL.md Step 16). */
