@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-**A sealed-guard waiver now counts only when it names the full commit sha.** A `.gstack/sealed-allow.tsv` line used to accept a sha as short as 7 hex characters and waive any commit whose sha started with it. A PR author could generate a commit with the same first 7 characters in minutes and publish different content at the same path under an old, reviewed waiver. A waiver now matches only the finding's full commit sha (40 hex characters, 64 in a SHA-256 repository). A shortened, uppercase or mistyped sha is ignored, so the finding still refuses, and stderr says which line was ignored and which full sha to write.
+**A sealed-guard waiver now counts only when it names the full commit sha.** A `.gstack/sealed-allow.tsv` line used to accept a sha as short as 7 hex characters and waive any commit whose sha started with it. A PR author could generate a commit with the same first 7 characters in minutes and publish different content at the same path under an old, reviewed waiver. A waiver now matches only the finding's full commit sha (40 hex characters, 64 in a SHA-256 repository). A shortened, uppercase or mistyped sha is ignored, so the finding still refuses, and stderr says which line was ignored and which commit the finding is in, to review before anyone waives it.
 
 ### Changed
 - `lib/sealed-guard.ts`: waivers compare the whole commit sha; `gstack-pregate sealed --json` adds `ignoredWaivers` (rule, path, the sha as written, the finding's commit) for waiver lines that name a finding's rule and path but not its commit, once per line and commit. Lines that match no finding, and waivers that applied to another commit in the push, stay silent.
