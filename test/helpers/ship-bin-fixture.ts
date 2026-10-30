@@ -21,9 +21,12 @@ export interface ShipFx {
   /** Push to origin/main from a second clone, moving the base under the feature branch. */
   advanceBase(files: Record<string, string>): void;
   gh(script: string): void;
-  run(bin: string, args: string[]): { status: number | null; stdout: string; stderr: string };
+  run(bin: string, args: string[], extraEnv?: Record<string, string>): { status: number | null; stdout: string; stderr: string };
   cleanup(): void;
 }
+
+/** origin's URL as a GitHub remote; the clone's insteadOf maps it to the bare repository, so gh calls see a GitHub repo and git still works offline. */
+export const GITHUB_URL = 'https://github.com/fx/fx.git';
 
 const IDENTITY = ['-c', 'user.email=fixture@example.com', '-c', 'user.name=Fixture', '-c', 'commit.gpgsign=false'];
 
@@ -49,6 +52,7 @@ export function shipFixture(base: Record<string, string> = {}, feat: Record<stri
     'README.md': '# Fx\n', 'src/a.ts': 'export const a = 1;\n', ...base });
   must(gitIn(work, ['add', '-A']), 'add'); must(gitIn(work, ['commit', '-qm', 'base']), 'seed commit');
   must(gitIn(work, ['push', '-q', 'origin', 'main']), 'push base'); gitIn(work, ['remote', 'set-head', 'origin', 'main']);
+  must(gitIn(work, ['config', `url.${origin}.insteadOf`, GITHUB_URL]), 'insteadOf'); must(gitIn(work, ['config', 'remote.origin.url', GITHUB_URL]), 'github origin');
   must(gitIn(work, ['checkout', '-qb', 'feat']), 'branch');
   writeIn(work, feat);
   must(gitIn(work, ['add', '-A']), 'add feat'); must(gitIn(work, ['commit', '-qm', 'feat']), 'feat commit');
@@ -61,14 +65,14 @@ export function shipFixture(base: Record<string, string> = {}, feat: Record<stri
     write: files => writeIn(work, files),
     commit: msg => { must(gitIn(work, ['add', '-A']), 'add'); must(gitIn(work, ['commit', '-qm', msg]), msg); },
     advanceBase: files => {
-      const other = path.join(root, `other-${Date.now()}`);
+      const other = fs.mkdtempSync(path.join(root, 'other-'));
       must(gitIn(root, ['clone', '-q', origin, other]), 'clone other');
       writeIn(other, files);
       must(gitIn(other, ['add', '-A']), 'add'); must(gitIn(other, ['commit', '-qm', 'base moves']), 'base moves'); must(gitIn(other, ['push', '-q', 'origin', 'main']), 'push');
     },
     gh: script => { fs.writeFileSync(path.join(stub, 'gh'), `#!/bin/sh\n${script}\n`, { mode: 0o755 }); },
-    run: (bin, args) => {
-      const r = spawnSync(bin, args, { cwd: work, encoding: 'utf8', timeout: 300_000, env });
+    run: (bin, args, extraEnv = {}) => {
+      const r = spawnSync(bin, args, { cwd: work, encoding: 'utf8', timeout: 300_000, env: { ...env, ...extraEnv } });
       return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
     },
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),

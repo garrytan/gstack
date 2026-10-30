@@ -120,6 +120,36 @@ describe('gstack-ship-preflight', () => {
     expect(r.stdout).toContain('NEXT: Step 4');
   });
 
+  // Value: protects=the branch name reaches gh as one argv item, never through a shell; fails_when=a branch named with $(...) runs a command on the shipper's machine;
+  //   why_new=GSTA-167 /ship review of #3633 (security, CRITICAL); seam=gh; no_claim=gh's own handling of the name
+  test('a branch name with shell syntax is never executed', () => {
+    const f = fx();
+    const name = 'x$(touch${IFS}PWNED)';
+    expect(f.git('checkout', '-qb', name).status).toBe(0);
+    f.gh('echo 7');
+    f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fs.existsSync(path.join(f.work, 'PWNED'))).toBe(false);
+  });
+
+  // Value: protects=a local-path origin skips the open-PR and carry checks with a reason instead of asking gh, which cannot map it to a repository (and fails outright under a GH_HOST); fails_when=gh runs against a local remote and CARRY reports a GH_HOST failure;
+  //   why_new=GSTA-167 replay 3 of gstack-evals #34 (CARRY: not checked, GH_HOST); seam=gh; no_claim=hosted remotes, which gh resolves itself
+  test('a local-path origin is not checked by gh', () => {
+    const f = fx();
+    f.gh('echo "none of the git remotes configured for this repository correspond to the GH_HOST environment variable" >&2; exit 1');
+    f.git('config', 'remote.origin.url', f.origin);
+    const local = f.run(PREFLIGHT, ['--base', 'main'], { GH_HOST: 'ghe.example.com' });
+    expect(lineOf(local.stdout, 'PR')).toMatch(/^PR: not checked \(origin is a local path/);
+    expect(local.stdout).not.toContain('CARRY:');
+    expect(local.status).toBe(0);
+  });
+
+  // Value: protects=RUNTIME_LINES (the small-run delegation input) counts code lines the way the packets classify paths, leaving data files out; fails_when=a JSON attachment inflates the runtime count;
+  //   why_new=GSTA-167 replay 3 of gstack-evals #34 (RUNTIME_LINES 6687 counted JSON); seam=gstack-review-plan --json per_path; no_claim=the review depth's own count
+  test('RUNTIME_LINES leaves data files out', () => {
+    const f = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'data/rows.json': Array.from({ length: 100 }, (_, i) => `{"i":${i}}`).join('\n') + '\n' });
+    expect(lineOf(f.run(PREFLIGHT, ['--base', 'main']).stdout, 'RUNTIME_LINES')).toMatch(/^RUNTIME_LINES: 1 /);
+  });
+
   test('usage: --base is required and --tests-only needs a lane', () => {
     const f = fx();
     expect(f.run(PREFLIGHT, []).status).toBe(2);

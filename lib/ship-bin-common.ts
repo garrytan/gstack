@@ -19,6 +19,15 @@ export function git(cwd: string, args: string[], timeout = 120_000): Run {
 export function bin(cwd: string, name: string, args: string[], timeout = 600_000): Run {
   return done(runScriptSync(path.join(BIN_DIR, name), args, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 }));
 }
+/** Whether origin's configured URL names a host (https, ssh or scp form), before any insteadOf rewrite; a local path or file:// remote has none, so gh cannot map it to a repository. */
+export function hostedOrigin(cwd: string): boolean {
+  const url = git(cwd, ['config', '--get', 'remote.origin.url']).stdout.trim();
+  return /^(?:[a-z][a-z0-9+.-]*:\/\/(?:[^@/\s]+@)?[^/:\s]+[:/]|[^@/\s]+@[^/:\s]+:)\S+$/i.test(url) && !/^file:/i.test(url);
+}
+/** gh with argv, never a shell, so a branch name cannot change what runs. */
+export function gh(cwd: string, args: string[], timeout = 60_000): Run {
+  return done(spawnSync('gh', args, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }));
+}
 export function sh(cwd: string, command: string, timeout = 1_800_000): Run {
   return done(runBashSync(command, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 }));
 }

@@ -7,7 +7,9 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { bin, firstLine, flagReader, git, laneLine, lanes, Report, runLanes, shipPolicy, short, sh } from './ship-bin-common';
+import { auditCodePaths } from './review-packet';
+import { matchesAny } from './ship-policy';
+import { bin, firstLine, flagReader, gh, git, hostedOrigin, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -34,9 +36,10 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
   const commits = git(cwd, ['rev-list', '--count', `origin/${base}..HEAD`]).stdout.trim();
   r.add(`DIFF: ${stat || 'no changes'}; commits=${commits || 0}${lines > 200 ? '; over 200 lines: recommend /plan-eng-review or /autoplan' : ''}`);
-  const pr = sh(cwd, `gh pr list --head ${JSON.stringify(branch)} --state open --json number --jq '.[0].number // empty'`, 60_000);
-  const n = pr.stdout.trim();
-  if (pr.status !== 0) r.add(`CARRY: not checked (gh pr list failed: ${firstLine(pr.stderr)})`);
+  const pr = hostedOrigin(cwd) ? gh(cwd, ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number', '--jq', '.[0].number // empty']) : null;
+  const n = pr?.stdout.trim() ?? '';
+  if (!pr) r.add('PR: not checked (origin is a local path, not a hosted remote gh can map; Step 0 uses git-native commands)');
+  else if (pr.status !== 0) r.add(`CARRY: not checked (gh pr list failed: ${firstLine(pr.stderr)})`);
   else if (/^\d+$/.test(n)) {
     const carry = bin(cwd, 'gstack-ship-receipt', ['carry', '--pr', n, '--base', base, '--dry-run'], 120_000);
     const line = (carry.stdout.match(/^CARRY: .*$/m) ?? [`CARRY: check failed (${firstLine(carry.stderr)})`])[0];
@@ -86,7 +89,13 @@ function merge(cwd: string, base: string, r: Report): boolean {
   r.add(`POLICY: ${['bump', 'queue_mode', 'review_scope', 'history'].map(k => `${k}=${policy?.[k] ?? '?'}`).join(' ')} (binds Steps 12, 16 and history)`);
   const plan = bin(cwd, 'gstack-review-plan', ['--base', base, '--json'], 180_000);
   let runtime = 'unknown';
-  try { runtime = String(JSON.parse(plan.stdout).runtime_lines ?? 'unknown'); } catch { /* unknown */ }
+  try {
+    const j = JSON.parse(plan.stdout);
+    const outputs: string[] = j.registry?.outputs ?? [];
+    const counted = (j.per_path as { path: string; lines: number; binary: boolean }[]).filter(e => !e.binary && !(j.stamp_only ?? []).includes(e.path)
+      && !(outputs.length && matchesAny(outputs, e.path)) && auditCodePaths([e.path], cwd).length);
+    runtime = String(counted.reduce((n, e) => n + e.lines, 0));
+  } catch { /* unknown */ }
   r.add(`RUNTIME_LINES: ${runtime} (gstack-ship-budget check --runtime-lines at the Step 7 and 12 boundaries)`);
   return true;
 }

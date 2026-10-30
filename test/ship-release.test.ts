@@ -154,3 +154,18 @@ describe('push (Step 17)', () => {
     expect(r.stdout).toContain('never force-push');
   });
 });
+
+describe('gstack-ship-release push: branch names', () => {
+  // Value: protects=push's open-PR lookup passes the branch to gh as one argv item; fails_when=a branch named with $(...) runs a command before the push guards;
+  //   why_new=GSTA-167 /ship review of #3633 (security, CRITICAL); seam=gh; no_claim=gh's own handling of the name
+  test('a branch name with shell syntax is never executed by the gate lookup', () => {
+    const f = fx();
+    const name = 'x$(touch${IFS}PWNED)';
+    expect(f.git('checkout', '-qb', name).status).toBe(0);
+    fs.mkdirSync(f.state, { recursive: true });
+    fs.writeFileSync(path.join(f.state, '.redact-prepush-prompted'), '');
+    f.gh('echo 12');
+    f.run(RELEASE, ['push', '--branch', name, '--gate-open', '1']);
+    expect(fs.existsSync(path.join(f.work, 'PWNED'))).toBe(false);
+  });
+});
