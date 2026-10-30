@@ -18,7 +18,7 @@ const usage = (over: Partial<CellUsage> = {}): CellUsage => ({ input: 1000, cach
 
 describe('model panel selftest (free, no API)', () => {
   for (const task of PANEL_TASKS) {
-    test(task.key + ': the hidden check fails on the seed and passes on the reference', () => {
+    test(task.id + ': the hidden check fails on the seed and passes on the reference', () => {
       expect(fs.existsSync(task.check)).toBe(true);
       const seed = setupCell(task, 'selftest-seed');
       const ref = setupCell(task, 'selftest-ref');
@@ -36,7 +36,7 @@ describe('model panel selftest (free, no API)', () => {
   }
 
   test('the panel is the preregistered shape: 5 tasks, 4 arms, 3 trials', () => {
-    expect(PANEL_TASKS.map((t) => t.key)).toEqual(['model-panel-bugfix', 'model-panel-crud', 'model-panel-review', 'model-panel-changelog', 'model-panel-investigate']);
+    expect(PANEL_TASKS.map((t) => t.id)).toEqual(['model-panel-bugfix', 'model-panel-crud', 'model-panel-review', 'model-panel-changelog', 'model-panel-investigate']);
     expect(PANEL_ARMS.map((a) => a.model)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5', 'particle-ai/particle-1', 'deepseek/deepseek-v4.1-flash-1017']);
     expect(PANEL_TRIALS).toBe(3);
   });

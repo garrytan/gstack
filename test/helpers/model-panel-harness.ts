@@ -51,7 +51,7 @@ export const PANEL_ARMS: PanelArm[] = [
 
 export interface PanelTask {
   /** E2E_TOUCHFILES / E2E_TIERS key. */
-  key: string;
+  id: string;
   fixture: string;
   check: string;
   reference: string;
@@ -65,35 +65,35 @@ const LEAVE = '\n\nLeave your changes uncommitted in the working tree.';
 
 export const PANEL_TASKS: PanelTask[] = [
   {
-    key: 'model-panel-bugfix',
+    id: 'model-panel-bugfix',
     fixture: path.join(ARM_FIXTURES, 'bugfix-decoys'),
     check: check('bugfix-decoys'),
     reference: reference('bugfix-decoys'),
     ticket: 'Bug report: receipts print $10.5 for a $10.05 item.\n\nYou are in a small git repo. `node run-tests.js` currently fails on formatPrice(1005).\nFix the bug so all tests pass. Verify with: node run-tests.js' + LEAVE,
   },
   {
-    key: 'model-panel-crud',
+    id: 'model-panel-crud',
     fixture: path.join(ARM_FIXTURES, 'crud-endpoint'),
     check: check('crud-endpoint'),
     reference: reference('crud-endpoint'),
     ticket: 'Ticket: users need to delete notes.\n\nYou are in a small git repo containing an in-memory notes API (app.js, wired to HTTP in server.js).\nAdd DELETE /notes/:id: respond 204 on success and 404 for an unknown id, and cover the new endpoint in run-tests.js. Verify with: node run-tests.js' + LEAVE,
   },
   {
-    key: 'model-panel-review',
+    id: 'model-panel-review',
     fixture: fixture('review-seeded-bug'),
     check: check('review-seeded-bug'),
     reference: reference('review-seeded-bug'),
     ticket: 'Pre-landing review: PR.md describes a teammate\'s change, which added src/users.js.\n\nReview src/users.js the way a careful reviewer would before it ships: find the bugs that pass a quick read but break in production. Do not edit any source file. Write REVIEW.md with one numbered finding per bug, each naming file:line, what goes wrong, and the fix.' + LEAVE,
   },
   {
-    key: 'model-panel-changelog',
+    id: 'model-panel-changelog',
     fixture: fixture('changelog'),
     check: check('changelog'),
     reference: reference('changelog'),
     ticket: 'Release 1.4.0: write its CHANGELOG.md entry from COMMITS.md.\n\nRules: the new section goes above 1.3.0 and matches its format; list only changes a user of the app would notice, in everyday words; leave out build, test and tooling changes; do not edit older sections.' + LEAVE,
   },
   {
-    key: 'model-panel-investigate',
+    id: 'model-panel-investigate',
     fixture: fixture('investigate'),
     check: check('investigate'),
     reference: reference('investigate'),

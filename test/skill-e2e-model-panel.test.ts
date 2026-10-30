@@ -42,7 +42,7 @@ function consulted(result: Awaited<ReturnType<typeof runSkillTest>>): boolean {
 
 async function runCell(task: PanelTask, arm: PanelArm, trial: number): Promise<PanelRow | null> {
   if (stopped) return null;
-  const attempt = task.key + ':' + arm.id + ':' + trial + ':' + runId;
+  const attempt = task.id + ':' + arm.id + ':' + trial + ':' + runId;
   try {
     reserve(SPEND, attempt, arm.reserveUsd, { cap: PANEL_SPEND_CAP_USD, label: arm.model });
   } catch (err) {
@@ -61,7 +61,7 @@ async function runCell(task: PanelTask, arm: PanelArm, trial: number): Promise<P
       maxTurns: PANEL_MAX_TURNS,
       allowedTools: PANEL_ALLOWED_TOOLS,
       timeout: PANEL_TIMEOUT_MS,
-      testName: task.key + '-' + arm.id + '-t' + trial,
+      testName: task.id + '-' + arm.id + '-t' + trial,
       runId,
       model: arm.model,
       env: armEnv(arm),
@@ -73,13 +73,13 @@ async function runCell(task: PanelTask, arm: PanelArm, trial: number): Promise<P
     const cls = classifyCell(arm, result.exitReason, usage);
     const scored = cls.verdict === 'scored' ? runCheck(task, dirs.dir) : null;
     const row: PanelRow = {
-      task: task.key, arm: arm.id, model: arm.model, route: arm.route, trial,
+      task: task.id, arm: arm.id, model: arm.model, route: arm.route, trial,
       verdict: scored ? (scored.pass ? 'pass' : 'fail') : 'infra',
       reason: scored ? scored.detail : (cls as { reason: string }).reason,
       exitReason: result.exitReason, costUsd, usage, durationMs: Date.now() - started, consulted: consulted(result),
     };
     fs.appendFileSync(ROWS, JSON.stringify({ runId, ...row }) + '\n');
-    console.log('[model-panel] ' + task.key + ' ' + arm.id + ' t' + trial + ' ' + row.verdict + ' $' + (costUsd ?? 0).toFixed(4) + ' turns=' + (usage?.turns ?? 0) + ' ' + row.reason);
+    console.log('[model-panel] ' + task.id + ' ' + arm.id + ' t' + trial + ' ' + row.verdict + ' $' + (costUsd ?? 0).toFixed(4) + ' turns=' + (usage?.turns ?? 0) + ' ' + row.reason);
     return row;
   } finally {
     if (!settled) settle(SPEND, attempt, 'unknown');
@@ -102,9 +102,9 @@ async function pool<T>(jobs: Array<() => Promise<T>>, limit: number): Promise<T[
 const describePaid = describeE2ETier('periodic');
 
 for (const task of PANEL_TASKS) {
-  const selected = selectedTests === null || selectedTests.includes(task.key);
-  (selected ? describePaid : describe.skip)('Model panel: ' + task.key, () => {
-    test(task.key, async () => {
+  const selected = selectedTests === null || selectedTests.includes(task.id);
+  (selected ? describePaid : describe.skip)('Model panel: ' + task.id, () => {
+    test(task.id, async () => {
       fs.mkdirSync(OUT, { recursive: true });
       if (readLedger(SPEND).cap_usd === null) setCap(SPEND, PANEL_SPEND_CAP_USD);
       const jobs = PANEL_ARMS.flatMap((arm) => Array.from({ length: PANEL_TRIALS }, (_, i) => () => runCell(task, arm, i + 1)));
