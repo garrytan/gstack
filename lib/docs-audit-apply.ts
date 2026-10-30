@@ -2,7 +2,8 @@
  * docs-audit-apply — gstack-docs-candidate apply: the parent's mechanical half of the
  * Step 14.5 packet audit (lib/review-packet-docs.ts). The read-only reader writes one
  * JSON finding per line and a LAST-line object; apply makes each \`edit\` whose \`old\`
- * text occurs exactly once in a doc the candidate lists, refuses protected, generated,
+ * text occurs exactly once in a doc the candidate lists (an edit whose \`new\` text the doc
+ * already holds once, with no \`old\` outside it, is already applied and skipped), refuses protected, generated,
  * out-of-tree and read-only-mode edits as blockers, turns \`block\` findings into
  * blockers and \`note\` findings into decisions, and prints the audit result in the
  * schema a /document-release child returns (ship/sections/documentation.md).
@@ -53,6 +54,8 @@ export function applyDocsFindings(root: string, candidate: { audit_id: string; m
     if (!file.startsWith(realRoot + path.sep)) return refuse('resolves outside the repository');
     const entry = edited.get(f.path) ?? (() => { const before = fs.readFileSync(file, 'utf8'); return { before, now: before, edits: 0 }; })();
     if (GENERATED.test(entry.before)) return refuse('generated file; edit its template');
+    const count = (s: string, sub: string) => s.split(sub).length - 1;
+    if (f.new && count(entry.now, f.new) === 1 && count(entry.now, f.old) === count(f.new, f.old)) return;
     const at = entry.now.indexOf(f.old);
     if (at < 0 || entry.now.indexOf(f.old, at + 1) >= 0) return refuse(at < 0 ? 'old text not found' : 'old text occurs more than once');
     entry.now = entry.now.slice(0, at) + f.new + entry.now.slice(at + f.old.length);

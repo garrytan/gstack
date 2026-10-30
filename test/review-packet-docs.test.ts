@@ -189,3 +189,30 @@ describe('docs audit apply: generated files behind frontmatter', () => {
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });
+
+describe('docs audit apply: applying the same findings twice', () => {
+  // Value: protects=a second apply of the same reader output is a no-op reported current, so an edit whose new text appends to its old text is not appended again (#3633 Step 14.5: the HANDOFF_PIN_MOVED sentence landed twice in docs/troubleshooting.md); fails_when=apply re-applies an edit whose new text the file already holds, or reports an applied replace edit as a blocker;
+  //   why_new=GSTA-167 /ship run on #3633; seam=none; no_claim=edits whose new text appears elsewhere in the doc
+  test('the second apply leaves the file as after one apply and reports current with no blocker', async () => {
+    const { applyDocsFindings } = await import('../lib/docs-audit-apply');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-twice-'));
+    try {
+      fs.mkdirSync(path.join(root, 'docs'));
+      fs.writeFileSync(path.join(root, 'docs', 'fix.md'), 'Regenerate the handoff or stops.\nRun --fast.\n');
+      const out = [
+        JSON.stringify({ path: 'docs/fix.md', action: 'edit', kind: 'stale', summary: 'append', old: 'or stops.', new: 'or stops. The reconcile stops the run.' }),
+        JSON.stringify({ path: 'docs/fix.md', action: 'edit', kind: 'stale', summary: 'rename', old: '--fast', new: '--quick' }),
+        JSON.stringify({ schema_version: 1, audit_id: 'a1', documentation_section: 'Docs.' }),
+      ].join('\n');
+      const cand = { audit_id: 'a1', mode: 'write', docs: ['docs/fix.md'] };
+      const first = applyDocsFindings(root, cand, out);
+      expect(first.result).toMatchObject({ status: 'updated', files_updated: ['docs/fix.md'], blockers: [] });
+      const once = fs.readFileSync(path.join(root, 'docs', 'fix.md'), 'utf8');
+      expect(once).toBe('Regenerate the handoff or stops. The reconcile stops the run.\nRun --quick.\n');
+      const second = applyDocsFindings(root, cand, out);
+      expect(second.exit).toBe(0);
+      expect(second.result).toMatchObject({ status: 'current', files_updated: [], blockers: [] });
+      expect(fs.readFileSync(path.join(root, 'docs', 'fix.md'), 'utf8')).toBe(once);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+});
