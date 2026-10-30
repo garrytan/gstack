@@ -126,6 +126,57 @@ describe('a no-findings statement counts only as the reply\'s conclusion (#3294)
   });
 });
 
+// #3469: Codex often signs a clean review off with one sentence about the checks it
+// ran. That sentence follows the conclusion; it does not replace it.
+describe('a check-results sentence after the no-findings conclusion keeps it the conclusion (#3469)', () => {
+  const FINDING = 'The fallback path now swallows ENOENT and returns an empty config.';
+
+  test("the reporter's codex review sign-offs read clean through the reporter's CLI invocation", () => {
+    for (const text of [
+      'No actionable regressions were identified in the diff. Tests, lint, and build all pass.',
+      'The changes introduce no definite, actionable regressions. Tests, lint, and build all pass.',
+    ]) {
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
+      const r = cli(['--label', 'probe', '--exit', '0', '--stderr', file(''), 'structured', file(text)]);
+      expect([r.status, r.stdout]).toEqual([0, 'VERDICT: clean\nFINDINGS: none\n']);
+    }
+  });
+
+  test('other check-results sign-offs, one or several', () => {
+    for (const text of ['No issues found. Typecheck passes.', 'No regressions found in this change. The tests pass.\nLint passes.',
+      'I found no issues. Tests and build succeeded.', 'This patch introduces no regressions. All tests pass.']) {
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
+    }
+  });
+
+  test('the #3294 safeguards still hold with a check-results sentence after them', () => {
+    for (const text of [
+      `${FINDING}\nNo issues in the parser. Tests pass.`,
+      'No regressions found. Tests pass, but the fallback path now swallows ENOENT.',
+      'No regressions found. Tests fail.',
+      'No issues found, except that the fallback path now swallows ENOENT. Lint passes.',
+      `${FINDING} The changes to the parser introduce no regressions. Tests pass.`,
+      'Tests, lint, and build all pass.',
+      // A dropped check-results sentence never turns a scoped claim into the reply's only sentence.
+      'No issues in the parser, while missing configuration now silently disables authentication. Tests pass.',
+      // The whole-change subject form is held to the scope rule even as the only sentence.
+      'The changes introduce no regressions in parsing, while missing configuration now silently disables authentication.',
+      // Removing inline code must not turn a failing check into a passing one.
+      'No issues found. Tests `do not` pass.',
+      'No issues found. `Not all` tests pass.',
+      'No issues found. Tests pass `only if the regression is skipped`.',
+      'tests pass.\nNo issues found.\n`Not all` tests pass.',
+      '```\ntests pass.\n```\nNo issues found.\n`Not all` tests pass.',
+      'No issues found. `Not all`\ntests pass.',
+      // After a colon the checks are a condition, not a result.
+      'No issues found in this patch, provided that:\nTests pass.',
+    ]) {
+      const r = classifyOutsideReview({ text, gate: 'structured' });
+      expect({ text, verdict: r.verdict, reason: r.reason }).toEqual({ text, verdict: 'unverified', reason: 'untagged_review' });
+    }
+  });
+});
+
 describe('validateOutsideReview keeps the text-only shape for direct importers', () => {
   test('existing shapes are unchanged', () => {
     expect(validateOutsideReview('', 'review')).toEqual({ completed: false, reason: 'empty response' });
