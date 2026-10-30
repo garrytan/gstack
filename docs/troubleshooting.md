@@ -3813,7 +3813,8 @@ and counts) can be exempted from the path rules with a `sealed.allow_paths`
 glob in the base branch's `.gstack/pregate.json`; the text rules still read it
 ([docs/pregate.md#sealed](pregate.md#sealed)). A reviewed false positive gets
 one line in the base branch's
-`.gstack/sealed-allow.tsv`: `rule<TAB>path<TAB>sha<TAB>reason`. A private
+`.gstack/sealed-allow.tsv`: `rule<TAB>path<TAB>sha<TAB>reason`, where `sha` is
+the full commit sha (a shortened one is ignored and named on stderr). A private
 destination sets `"visibility": "private"` under `sealed` in the base branch's
 `.gstack/pregate.json`. Capy's pull-request tool may not run local hooks, so
 run `gstack-pregate sealed` yourself before any push or PR creation.
