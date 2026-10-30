@@ -5,7 +5,6 @@
  * must trust most: which heading each STOP sends the parent to. test/ship-driver.test.ts
  * resolves every anchor against the generated files.
  */
-import { DELEGATE_SEGMENT_CALL } from '../../lib/ship-budget';
 import type { ResolverFn } from './types';
 
 /** Each STOP (or read-when line) a driver run can meet, and the one heading it reads, relative to <root>/ship/. */
@@ -36,8 +35,6 @@ export const SHIP_DRIVER_STOPS: Array<{ when: string; read: string }> = [
   { when: '`verdict=stop` or `DELEGATE:`', read: 'sections/budget-handoff.md#budget-and-context-handoff-read-when-a-cap-is-set-or-verdictdelegate-prints' },
   { when: '`QUEUE_RECEIPT_STALE`', read: '../docs/ship-policy.md#ship-before-ready' },
 ];
-
-export const generateShipDriverSegmentCall: ResolverFn = () => `${DELEGATE_SEGMENT_CALL / 1000}k`;
 
 export const generateShipDriverStops: ResolverFn = () =>
   SHIP_DRIVER_STOPS.map(s => `- ${s.when}: \`${s.read}\``).join('\n');

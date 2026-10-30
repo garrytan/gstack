@@ -34,7 +34,7 @@ of the pass takes no start). Settle each batch in the program that dispatched it
 CLAUDE.md names). Prints `STATUS:`, `DIFF:`, `PR:`, `CARRY:`, `SCOPE:`,
 `MERGE:`, `DISTRIBUTION:`, `POLICY:`, `RUNTIME_LINES:` (for `check --runtime-lines`), `PREGATE:`, `LANE:`.
 `CARRY: carried` ends the run on its `GSTACK_RESULT:` line. `--delegate measured` delegates a segment
-only when a measured call is {{SHIP_DRIVER_SEGMENT_CALL}} or more above the host floor (`DELEGATE:`). A lane
+only when a measured call is 150k or more above the host floor (`DELEGATE:`). A lane
 passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a failed lane; `unknown` is `count unavailable`.
 In-branch failures stop the ship; after a repair rerun with `--tests-only`. `requires-remote` needs
 `gstack-pregate clear` before Step 18. The readiness dashboard and a `PERSIST:` hint never replace Step 9.
