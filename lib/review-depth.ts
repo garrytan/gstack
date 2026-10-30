@@ -17,7 +17,7 @@ import { matchesAny } from './ship-policy';
 export type DiffClass = 'docs' | 'tests' | 'code' | 'gate';
 export type PathClass = 'docs' | 'tests' | 'code';
 export type Depth = 'light' | 'standard' | 'full';
-export type Effort = 'light' | 'full' | 'host';
+export type Effort = 'light' | 'medium' | 'full' | 'host';
 export type Role = 'specialist' | 'red-team' | 'adversarial-native' | 'outside-voice' | 'fix-check';
 export type Step = 'full' | 'scoped' | 'fix-check' | 'done' | 'stop';
 
@@ -31,6 +31,12 @@ export const LARGE_DIFF_LINES = 100;
 export const SCOPED_RANGE_LINES = 150;
 /** The checklists light's batched specialist always reads, whatever the scope. */
 export const LIGHT_FIXED: readonly Specialist[] = ['testing', 'maintainability', 'security'];
+/**
+ * Each blocking role's effort (GSTA-167 part 3, CREW 30c): specialists at medium, which is how the no-loss controls ran
+ * them; the Red Team, the native adversarial pass and the fix-check at full (the lane's reasoning); the outside voice at
+ * its own provider's. Light's batched specialist carries the Red Team prompt, so it stays full.
+ */
+export const ROLE_EFFORT = { specialist: 'medium', 'red-team': 'full', 'adversarial-native': 'full', 'fix-check': 'full', 'outside-voice': 'host' } as const satisfies Record<Role, Effort>;
 /** Why light with runtime above 0 keeps the native adversarial pass as its own dispatch. */
 export const LIGHT_ADVERSARIAL_REASON = 'backtest inconclusive (GSTA-147 D5)';
 const CLASS_RANK: Record<DiffClass, number> = { docs: 0, tests: 1, code: 2, gate: 3 };
@@ -58,7 +64,7 @@ const DATA_CONFIG = [
 
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
-  SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, SCOPED_RANGE_LINES,
+  SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, SCOPED_RANGE_LINES, ROLE_EFFORT,
   patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
@@ -281,6 +287,8 @@ export interface PlanInput extends ClassInput {
   reviewedNumbers?: string;
   /** --depth-floor: raises the depth, never lowers it. */
   floor?: Depth;
+  /** false under --no-tiers or review_effort_tiers off: specialists run at the host's default effort. */
+  tiers?: boolean;
 }
 /** One reviewer. `exclude` holds git pathspec argv items the reviewer's diff leaves out; `checklists` names what light's batched specialist reads. */
 export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string }
@@ -350,15 +358,16 @@ export function planReview(i: PlanInput): ReviewPlan {
   const tests = i.paths.filter(p => pathClass(i, p) === 'tests' && !isOutput(i, p)).map(excludeSpec);
   const numbersChanged = i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint;
   const firstVoices = h.fullPasses === 0 || !i.adversarialRan;
+  const specialist: Effort = i.tiers === false ? 'host' : ROLE_EFFORT.specialist;
   if (next.step === 'full' && stepDepth === 'light') {
     const forced = forcedBy(i);
     if (runtimeLines > 0) {
       const scoped = SPECIALISTS.filter(n => !LIGHT_FIXED.includes(n) && (forced(n) || (scopeWants[n]?.(i.scope ?? {}) && !(i.gated ?? []).includes(n))));
-      add('specialist', 'batched', 'full', docsAndOutputs, { checklists: [...LIGHT_FIXED, ...scoped, 'red-team'] });
+      add('specialist', 'batched', ROLE_EFFORT['red-team'], docsAndOutputs, { checklists: [...LIGHT_FIXED, ...scoped, 'red-team'] });
       skipped.push('red-team (light depth: the batched specialist carries the Red Team prompt)');
       if (firstVoices) add('adversarial-native', 'adversarial', 'full', [], { reason: LIGHT_ADVERSARIAL_REASON });
     } else {
-      for (const n of SPECIALISTS.filter(forced)) add('specialist', n, 'full');
+      for (const n of SPECIALISTS.filter(forced)) add('specialist', n, specialist);
       skipped.push('specialists, red-team and adversarial-native (light depth, runtime 0)');
     }
     if (h.fullPasses === 0 && i.numbers.publishes) add('outside-voice', 'outside-voice', 'host');
@@ -369,7 +378,7 @@ export function planReview(i: PlanInput): ReviewPlan {
     const dcls: DiffClass = full ? 'gate' : cls;
     const raised = !full && runtimeLines <= SMALL_DIFF_LINES;
     const lines = full ? i.diffLines : Math.max(runtimeLines, raised ? SMALL_DIFF_LINES : 0);
-    for (const n of specialistsFor(dcls, { ...i, diffLines: lines }, skipped)) add('specialist', n, 'full', full ? [] : n === 'testing' ? docsAndOutputs : [...docsAndOutputs, ...tests]);
+    for (const n of specialistsFor(dcls, { ...i, diffLines: lines }, skipped)) add('specialist', n, specialist, full ? [] : n === 'testing' ? docsAndOutputs : [...docsAndOutputs, ...tests]);
     const redTeam = dcls === 'gate' || (dcls === 'code' && (lines > RED_TEAM_LINES || !!i.criticalFound || raised));
     if (redTeam) add('red-team', 'red-team', 'full');
     else skipped.push(`red-team (${dcls} class${dcls === 'code' ? `, ${lines} runtime lines, no critical` : ''})`);
@@ -386,7 +395,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   } else if (next.step === 'scoped') {
     add('fix-check', 'fix-check', 'full');
     const forced = SPECIALISTS.filter(forcedBy(i));
-    for (const n of forced) add('specialist', n, 'full');
+    for (const n of forced) add('specialist', n, specialist);
     skipped.push(forced.length ? 'specialists (scoped pass; forced ones dispatched)' : 'specialists (scoped pass)');
     add('red-team', 'red-team', 'full');
     const stepElevenPending = !i.adversarialRan && cls === 'code';
