@@ -9,7 +9,8 @@ Field-by-field reference: docs/ship-budget.md. Exit 0 continue or delegate, 3 st
 2 usage; any non-zero exit means the next step does not start.
 
 **Meter.** Read one per command:
-- Capy: read `(await tools.thread.get({ thread_id: "this" })).cost.tokens` in the same program as the
+- Capy: read `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` (your own jam, its
+  subagents included; a root thread's is `"this"`) in the same program as the
   `gstack-ship-budget` command, never its own call: `--reading <n>`. `--prior-reading <n>` (per-call
   charge) is your previous call's reading; one older than the run's last reading is ignored.
 - Claude Code: `start --session <id>`, or echo the nonce the refusal prints once and
@@ -56,13 +57,13 @@ fresh child; you wait and advance only after reconciling it:
 2. Launch: on Capy a subagent on the shared machine whose brief is "Load gstack, source
    GSTACK_LAUNCH_FILE, run /ship --continue <HANDOFF file>"; on Claude Code
    `gstack-ship-budget launch --in <HANDOFF file>` (background, explicit permissions).
-3. The child runs `verify-handoff --in <file>` first (`--reading <n>` on Capy); a
+3. The child runs `verify-handoff --in <file>` first (`--reading <n>` on Capy, its own counter); a
    `HANDOFF_PIN_MOVED` refusal returns status=refused. It admits against its sub-cap and
    never stops on the context rule: after a completed step, `verdict=delegate` hands its
    remaining steps to a grandchild through these four steps (depth 3 at most); a
    `CONTEXT_HIGH:` note means continue. It reconciles any grandchild, then ends with
    `gstack-ship-budget return --run <child> --to <the brief's last step> --changed <sections>` (at most 40 lines).
-4. `gstack-ship-budget reconcile --run <id> --return <RETURN_FILE> --reading <n>`. Read the
+4. `gstack-ship-budget reconcile --run <id> --return <RETURN_FILE> --reading <n>` charges the return's own-counter `used=`. Read the
    record, never the child's transcript. Exit 3 (refused, incomplete or interrupted):
    regenerate the handoff or stop; every check refuses until a regenerated child reconciles
    complete or the owner resumes.

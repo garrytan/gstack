@@ -46,9 +46,9 @@ export const DEFAULT_TAIL = 2_000_000;
 const DIFF_REVIEW_STEP: Record<string, string> = { review: '9', 'review-fix-check': '9', 'design-review-lite': '9', 'adversarial-review': '11', 'codex-review': '11' };
 
 export type MeterKind = 'capy' | 'claude' | 'estimate';
-export interface MeterContract { version: 1; meter: MeterKind; unit: string; host_field: string; scope: 'root' | 'session' | 'run'; descendants: boolean }
+export interface MeterContract { version: 1; meter: MeterKind; unit: string; host_field: string; scope: 'thread' | 'session' | 'run'; descendants: boolean }
 export const METER_CONTRACTS: Record<MeterKind, MeterContract> = {
-  capy: { version: 1, meter: 'capy', unit: 'capy-tokens', host_field: 'tools.thread.get({ thread_id: "this" }).cost.tokens', scope: 'root', descendants: true },
+  capy: { version: 1, meter: 'capy', unit: 'capy-tokens', host_field: 'tools.thread.get({ thread_id: "<this agent\'s own jam id>" }).cost.tokens', scope: 'thread', descendants: true },
   claude: { version: 1, meter: 'claude', unit: 'claude-usage-tokens', host_field: 'journal message.usage input+cache_creation+cache_read+output, max per (message.id, requestId)', scope: 'session', descendants: true },
   estimate: { version: 1, meter: 'estimate', unit: 'estimate-tokens', host_field: 'lib/ship-budget-calibration.json projections', scope: 'run', descendants: true },
 };

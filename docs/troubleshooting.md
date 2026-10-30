@@ -1846,11 +1846,11 @@ owner's call: run the printed `RECOVER:` line; its resume needs
 <a id="budget-reading-missing"></a>
 ### `gstack-ship-budget: ... (BUDGET_READING_MISSING)`
 
-**Meaning.** The run's meter is the Capy root counter, a cap is set, and the command got no
+**Meaning.** The run's meter is the agent's own Capy jam counter, a cap is set, and the command got no
 `--reading`. Exit 2. No gstack binary can call Capy's API, so the agent reads it.
 
-**Fix.** In one execute program return only
-`(await tools.thread.get({ thread_id: "this" })).cost.tokens` and pass it as `--reading <n>`.
+**Fix.** In the execute program that runs the command, read
+`(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` and pass it as `--reading <n>`.
 
 <a id="budget-reading-rejected"></a>
 ### `gstack-ship-budget: ... (BUDGET_READING_REJECTED)`

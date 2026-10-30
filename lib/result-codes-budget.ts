@@ -18,7 +18,7 @@ export const BUDGET_RESULT_CODES = {
   BUDGET_READING_MISSING: {
     anchor: 'budget-reading-missing',
     summary: 'the Capy meter needs a fresh counter reading and none was passed',
-    fix: 'read cost.tokens from tools.thread.get({ thread_id: "this" }) in one execute program and pass it with --reading <n> (ship/sections/budget-handoff.md has the recipe)',
+    fix: 'read cost.tokens from tools.thread.get({ thread_id: "<your own jam id>" }) (your own jam, its subagents included, never the root thread) inside the execute program that runs the command and pass it with --reading <n> (ship/sections/budget-handoff.md has the recipe)',
   },
   BUDGET_READING_REJECTED: {
     anchor: 'budget-reading-rejected',

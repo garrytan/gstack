@@ -179,16 +179,17 @@ describe('a chained return is charged once', () => {
     expect(h.sb(['return', '--run', grand.run, '--to', '22', '--changed', 'Reviews', '--reading', '6000000']).code).toBe(0);
     const mid = h.sb(['reconcile', '--run', child.run, '--return', grand.returnFile, '--reading', '6100000']);
     expect(mid.code, mid.out + mid.err).toBe(0);
-    expect(mid.out).toContain('child=complete child_used=4000000');
-    expect(h.field(mid.out, 'BUDGET', 'used')).toBe('5000000');
+    // Each run reads its own counter from its verify-handoff reading, and reconcile charges the return's used=.
+    expect(mid.out).toContain('child=complete child_used=3800000');
+    expect(h.field(mid.out, 'BUDGET', 'used')).toBe('4900000');
     expect(h.field(mid.out, 'BUDGET', 'reserved')).toBe('0');
     const midAgain = h.sb(['reconcile', '--run', child.run, '--return', grand.returnFile, '--reading', '6100000']);
     expect(midAgain.out).toContain('nothing charged twice');
-    expect(h.field(midAgain.out, 'BUDGET', 'used')).toBe('5000000');
+    expect(h.field(midAgain.out, 'BUDGET', 'used')).toBe('4900000');
     expect(h.sb(['return', '--run', child.run, '--to', '22', '--changed', 'Reviews', '--reading', '6200000']).code).toBe(0);
     const top = h.sb(['reconcile', '--run', s.run, '--return', child.returnFile, '--reading', '6300000']);
     expect(top.code, top.out + top.err).toBe(0);
-    expect(top.out).toContain('child=complete child_used=5200000');
+    expect(top.out).toContain('child=complete child_used=5000000');
     expect(h.field(top.out, 'BUDGET', 'reserved')).toBe(String(stepProjection(cal, 'capy-tokens', '1')));
     expect(h.sb(['reconcile', '--run', s.run, '--return', child.returnFile, '--reading', '6300000']).out).toContain('nothing charged twice');
     const close = h.sb(['close', '--run', s.run, '--reading', '6300000']);

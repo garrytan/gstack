@@ -23,11 +23,11 @@ you set stays as given); the stop overhead never scales.
 
 ## Quickstart
 
-**Capy.** Read the root counter inside the execute program that runs the command, never as a
+**Capy.** Read your own jam's counter inside the execute program that runs the command, never as a
 call of its own:
 
 ```js
-const n = (await tools.thread.get({ thread_id: "this" })).cost.tokens;
+const n = (await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens;
 ```
 
 then pass it to
@@ -41,8 +41,10 @@ gstack-ship-budget check --run <id> --step 6 --next 7 --reading <n> [--prior-rea
 reading spans several calls, so it is ignored (`CALL_UNKNOWN:`, `call=unknown`). Two readings in
 one program measure nothing: Capy books a call after its program ends.
 
-The counter rolls up every subagent of the thread, outside voices included; Capy exposes no
-per-subagent counter, so other work in the same thread counts too (it only stops earlier).
+A jam's own counter includes its own subagents, outside voices too (measured 2026-10-30: +10.92M
+across a six-reader dispatch with two ~0.35M parent calls between). `"this"` is the root thread,
+whose counter also holds every sibling tree, so a subagent running /ship passes its own jam id;
+a root thread's own jam id is its `"this"`. A handoff child reads its own counter too.
 
 **Claude Code.** `gstack-ship-budget start --record <record> --token-cap 25M --session <id>`. Without the
 session id, `start --meter claude` prints a nonce: echo it once, then rerun with `--nonce <value>`.
@@ -64,7 +66,7 @@ With a cap set and no readable meter, start refuses
 | `unknown` | Charges the meter cannot see (an external-CLI outside voice on Claude Code), counted at their reservation |
 | `admission_cap` | The cap, or `none` |
 | `tail` | Tail reserve (scaled by the step factor once measured) plus stop overhead, held back from every admission |
-| `unit`, `meter`, `epoch` | The meter contract: `capy-tokens` (root counter), `claude-usage-tokens` (journal usage), `estimate-tokens`; a meter change opens a new epoch |
+| `unit`, `meter`, `epoch` | The meter contract: `capy-tokens` (the agent's own jam counter, subagents included), `claude-usage-tokens` (journal usage), `estimate-tokens`; a meter change opens a new epoch |
 | `call` | The per-call charge: two Capy readings in consecutive calls (a prior older than the run's last reading is ignored), or the last Claude Code call's usage |
 | `call_floor`, `above_floor` | The host's per-call floor (see Delegation) and the charge above it, max(0, call − floor); the delegate rule compares `above_floor` |
 | `next`, `projected` | What the check was for and its projection: the prior times the run's factor for that kind |
@@ -141,7 +143,8 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
    with explicit permission flags and the return file named.
 3. The child runs `verify-handoff` first; a moved pin refuses
    ([HANDOFF_PIN_MOVED](troubleshooting.md#handoff-pin-moved)). It admits against its sub-cap
-   with child_used = reading − reading at handoff and is the only writer of the record. The
+   with child_used = its own counter's reading − its reading at `verify-handoff` and is the only
+   writer of the record; `reconcile` charges the `BUDGET used=` its return prints. The
    context rule never stops a child. When it fires at one of the child's boundaries:
    - once the child has completed a step since `verify-handoff`, `verdict=delegate` hands its
      remaining steps (the next step through the end of its segment) to a fresh grandchild
