@@ -69,6 +69,14 @@ describe('ship budget skill structure', () => {
     expect(capy).toMatch(/all in that same (?:execute )?program/);
   });
 
+  // Value: protects=every prose site that takes a reservation id reads the RESERVATION_ID: line, never a field cut from RESERVATION:; fails_when=a dispatch section or the Capy skill names the id without that line;
+  //   why_new=the line is new; seam=none; no_claim=the agent copies it
+  test('the review pass, Steps 9, 11 and 14.5 and the Capy skill read the id from the RESERVATION_ID: line', () => {
+    for (const rel of ['ship/sections/budget-handoff.md.tmpl', 'ship/sections/review-army.md.tmpl', 'ship/sections/adversarial.md.tmpl', 'ship/sections/documentation.md.tmpl', 'capy/skill/gstack/SKILL.md']) {
+      expect(read(rel), rel).toContain('`RESERVATION_ID:`');
+    }
+  });
+
   test('every review-log --start in the dispatch sections takes a reservation when a cap is set', () => {
     for (const rel of ['ship/sections/review-army.md.tmpl', 'ship/sections/adversarial.md.tmpl']) expect(read(rel)).toContain('--reservation');
   });

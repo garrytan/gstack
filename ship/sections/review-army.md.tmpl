@@ -50,7 +50,7 @@ This pass is static; defer product probes to Step 9.2.1.
 
 1. Read `~/.claude/skills/gstack/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
-2. Before reading the diff, run `~/.claude/skills/gstack/bin/gstack-review-log --start review` and save its token as REVIEW_START (under a token cap, run Step 9.1's `gstack-review-packet build` and `gstack-ship-budget check` first, then `gstack-review-log --start review --reservation <id>`; 9.1's program then dispatches that batch with no second check or start; a later batch of the same Step 9 pass (the Red Team or an ADMIT remainder) takes no start, and `--finish REVIEW_START` settles it). Then run `git diff origin/<base>` (`git diff $RANGE_BASE` from pass 2 on). Read non-ignored untracked source files too (`git ls-files --others --exclude-standard`); the snapshot includes them.
+2. Before reading the diff, run `~/.claude/skills/gstack/bin/gstack-review-log --start review` and save its token as REVIEW_START (under a token cap, run Step 9.1's `gstack-review-packet build` and `gstack-ship-budget check` first, then `gstack-review-log --start review --reservation <id>` (`<id>` is check's `RESERVATION_ID:` line); 9.1's program then dispatches that batch with no second check or start; a later batch of the same Step 9 pass (the Red Team or an ADMIT remainder) takes no start, and `--finish REVIEW_START` settles it). Then run `git diff origin/<base>` (`git diff $RANGE_BASE` from pass 2 on). Read non-ignored untracked source files too (`git ls-files --others --exclude-standard`); the snapshot includes them.
 
    Every pass captures a full token (no `--fix-range`), so the record binds the
    whole tree even when reviewers read only the range.

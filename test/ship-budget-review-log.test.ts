@@ -139,6 +139,22 @@ describe('gstack-review-log --start under a token cap', () => {
     expect(close.code, close.out).toBe(0);
   });
 
+  // Value: protects=the reservation id is printed alone on its own line, so a child copies it without parsing the RESERVATION: line (gstack-evals #36 round 3: a misparsed id gave UNMEASURED, then BUDGET_CHECK_SKIPPED at close); fails_when=check prints no RESERVATION_ID: line, or it differs from RESERVATION: id=;
+  //   why_new=every test reads the id out of the RESERVATION: line; seam=none; no_claim=that the agent copies the right line
+  test('check prints RESERVATION_ID: <id> alone beside the RESERVATION: line, for a dispatch and a step, and the id starts a review', () => {
+    const h = fresh();
+    const run = capped(h);
+    const dispatch = h.sb(['check', '--run', run.run, '--step', '9', '--next', 'dispatch:specialist', '--reading', '0']);
+    const step = h.sb(['check', '--run', run.run, '--step', '1', '--next', '2', '--reading', '0']);
+    for (const out of [dispatch.out, step.out]) {
+      const ids = out.split('\n').filter(l => l.startsWith('RESERVATION_ID:'));
+      expect(ids).toHaveLength(1);
+      expect(ids[0]).toBe(`RESERVATION_ID: ${h.field(out, 'RESERVATION', 'id')}`);
+    }
+    const id = /^RESERVATION_ID: (\S+)$/m.exec(dispatch.out)![1]!;
+    expect(h.reviewLog(['--start', 'review', '--reservation', id]).code).toBe(0);
+  });
+
   test('close prints one BUDGET_CHECK_SKIPPED line per unreserved dispatch and ends incomplete', () => {
     const h = fresh();
     const run = capped(h);

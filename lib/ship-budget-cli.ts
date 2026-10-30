@@ -165,7 +165,7 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
   if (hold) lines.push(`CONTEXT_HIGH: call=${call ?? 'unknown'} call_floor=${p.floor} above_floor=${above ?? 'unknown'} threshold=${threshold} next=${nextId} depth=${depth}; continuing: ${hold}`);
   if (l.cap !== null) {
     const r = reserveIn(l, { kind: 'step', step, next: nextId, tokens: projected, prior });
-    lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${projected}`);
+    lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${projected}`, `RESERVATION_ID: ${r.id}`);
   }
   return { stdout: lines, exit: 0 };
 }
@@ -197,7 +197,7 @@ function admitBatch(l: Ledger, step: string, roles: string[], call: number | nul
   }
   const kept = bytes?.slice(0, k);
   const r = reserveIn(l, { kind: 'dispatch', step, next: nextId, tokens: cost(k), prior: p.project({ kind: 'dispatch', roles: admitted, ...(kept ? { bytes: kept } : {}) }).prior, roles: admitted, ...(kept ? { bytes: kept } : {}), ...(remaining.length ? { remaining } : {}) });
-  lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${cost(k)}`);
+  lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${cost(k)}`, `RESERVATION_ID: ${r.id}`);
   return { stdout: lines, exit: 0 };
 }
 

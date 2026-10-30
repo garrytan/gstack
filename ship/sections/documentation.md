@@ -45,7 +45,7 @@ never writes a doc. Under a token cap the dispatch is one program, like a review
 `gstack-ship-budget check --run <id> --step 14.5 --next "$BUDGET_NEXT"` (build's line), the reading `BEFORE`
 right before the reader starts, `tools.subagent.create`, a `tools.subagent.get` poll until it settles,
 the reading `AFTER`, then `gstack-ship-budget settle --run <id> --reservation <id> --dispatched-at <BEFORE> --reading <AFTER> --readers 1`,
-all in that same program; a settle from a later program is unmeasured.
+all in that same program (`--reservation` is check's `RESERVATION_ID:` line); a settle from a later program is unmeasured.
 
 ````text
 You are the /ship documentation auditor (Step 14.5). Read-only: edit no file, run no command, never commit, push or start another workflow. The parent applies your proposed edits mechanically and owns every decision you return. Audit id: <audit-id>. Mode: <mode>.

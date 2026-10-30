@@ -19,7 +19,7 @@ Field-by-field reference: docs/ship-budget.md. Exit 0 continue or delegate, 3 st
 
 **Every boundary.** `gstack-ship-budget check --run <id> --step <done> --next <step> --reading <n>`.
 Before each dispatch batch, reserve the batch as one sum, one role per `DISPATCH:` line, then pass the printed id once
-(`READING` is the current counter reading; `RESERVATION_ID` is the id the check prints;
+(`READING` is the current counter reading; `RESERVATION_ID` is the check's `RESERVATION_ID:` line, copied whole;
 `--next` is the `BUDGET_NEXT:` value the batch's `gstack-review-packet build` printed, one
 role per packet, never packet names):
 

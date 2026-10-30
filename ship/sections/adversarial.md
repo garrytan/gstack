@@ -6,7 +6,7 @@
 above 0 the plan lists it beside the batched specialist), print `ADVERSARIAL: skipped (review plan)`;
 with neither line, take decision 3 of Finish the adversarial phase. Under a token cap,
 reserve the planned voices as one batch (`gstack-ship-budget check --next <the BUDGET_NEXT value
-Step 11's packet build prints>`, never packet names); every `--start adversarial-review` below (the native pass's and each outside voice's PASS_START) takes `--reservation <id>`, one start per voice on that reservation.
+Step 11's packet build prints>`, never packet names); every `--start adversarial-review` below (the native pass's and each outside voice's PASS_START) takes `--reservation <id>` (check's `RESERVATION_ID:` line), one start per voice on that reservation.
 
 ## Step 11: Adversarial review
 

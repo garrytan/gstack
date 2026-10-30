@@ -71,7 +71,7 @@ With a cap set and no readable meter, start refuses
 | `call_floor`, `above_floor` | The host's per-call floor (see Delegation) and the charge above it, max(0, call − floor); the delegate rule compares `above_floor` |
 | `next`, `projected` | What the check was for and its projection: the prior times the run's factor for that kind |
 | `calibration` | The run's step and dispatch factors (see Calibration), or `prior` before the first measurement |
-| `verdict` | `continue` (exit 0, prints `RESERVATION:` under a cap), `delegate` (exit 0), `stop` (exit 3) |
+| `verdict` | `continue` (exit 0, prints `RESERVATION:` and the bare id as `RESERVATION_ID: <id>` under a cap), `delegate` (exit 0), `stop` (exit 3) |
 
 Any exit other than 0 means the next step does not start. Exit 2 is a usage or validation
 error on stderr with the code, the value and the repair. GSTACK_RESULT appears only on a stop,
