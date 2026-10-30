@@ -6,6 +6,7 @@
  *   gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only
  *                                  --base <rev> [--select <path>]... [--docs <path>]...
  *   gstack-docs-candidate compare <candidate.json>
+ *   gstack-docs-candidate apply <candidate.json> --findings <reader out file>
  *   gstack-docs-candidate [snapshot|compare] --help
  *
  * snapshot saves, NUL-safely and without writing to the repository: base SHA,
@@ -20,10 +21,14 @@
  * the index changed, which recorded paths' content changed or disappeared, and
  * which paths are newly dirty or untracked. It never decides whether a change
  * was permitted; the caller checks those paths against the child's report.
+ *
+ * apply makes a packet reader's proposed doc edits (lib/docs-audit-apply.ts) and
+ * prints the audit result a /document-release child would return, LAST line.
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { applyDocsFindings } from '../lib/docs-audit-apply';
 
 function git(args: string[]): string {
   const r = spawnSync('git', args, { encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, maxBuffer: 256 * 1024 * 1024 });
@@ -83,7 +88,8 @@ function one(args: string[], name: string): string {
 }
 
 const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]...
-       gstack-docs-candidate compare <candidate.json>`;
+       gstack-docs-candidate compare <candidate.json>
+       gstack-docs-candidate apply <candidate.json> --findings <reader out file>`;
 
 /** Each field compare needs that the record lacks or types wrongly; empty for a valid record. */
 function recordProblems(record: any): string[] {
@@ -98,7 +104,7 @@ function recordProblems(record: any): string[] {
 function main(argv: string[]): void {
   const [command, ...args] = argv;
   const topHelp = (command === '--help' || command === '-h') && !args.length;
-  const commandHelp = (command === 'snapshot' || command === 'compare') && args.length === 1 && args[0] === '--help';
+  const commandHelp = (command === 'snapshot' || command === 'compare' || command === 'apply') && args.length === 1 && args[0] === '--help';
   if (topHelp || commandHelp) {
     console.log(USAGE);
     return;
@@ -158,6 +164,15 @@ function main(argv: string[]): void {
       content_changed,
       newly_dirty,
     }));
+    return;
+  }
+  if (command === 'apply') {
+    if (args.length !== 3 || args[1] !== '--findings') throw new Error('apply takes <candidate.json> --findings <file>');
+    const record = JSON.parse(fs.readFileSync(args[0]!, 'utf8'));
+    if (typeof record?.audit_id !== 'string' || !Array.isArray(record.docs)) throw new Error(`${args[0]} is not a gstack-docs-candidate record (audit_id, docs)`);
+    const out = applyDocsFindings(fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim()), record, fs.existsSync(args[2]!) ? fs.readFileSync(args[2]!, 'utf8') : '');
+    console.log(out.lines.join('\n'));
+    process.exitCode = out.exit;
     return;
   }
   throw new Error(USAGE);

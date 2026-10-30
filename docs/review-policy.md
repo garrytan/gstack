@@ -384,7 +384,11 @@ The Red Team's packet waits for the specialists (`--only red-team --findings
 test-coverage|plan-completion` writes a Step 7/8 audit packet from the generated
 section's prompt. The coverage audit packet is read-only (three calls: read, write, reply;
 the parent writes and runs the tests it proposes), and a diff with no code path (docs,
-data and tests only) prints `AUDIT_SKIPPED:` and builds none. An outside backend gets the outside-voice packet as its prompt file.
+data and tests only) prints `AUDIT_SKIPPED:` and builds none. `--audit docs --candidate <snapshot>`
+writes Step 14.5's documentation audit on Capy: one read-only packet holding the documentation
+section's auditor prompt, the candidate's doc surfaces, the doc lines that name a changed code
+path and the diff of the changed docs plus that code. The reader proposes edits as findings;
+`gstack-docs-candidate apply` makes the unique, permitted ones and prints the audit result. An outside backend gets the outside-voice packet as its prompt file.
 
 `gstack-review-packet collect --dir <dir>` reads every output file and prints at most
 60 lines: one `REVIEWER:` line per packet (`clean`, `findings`, `missing`, `invalid`

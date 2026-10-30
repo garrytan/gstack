@@ -24,7 +24,9 @@ export const READ_CHUNK_BYTES = 30_000;
 /** A data-format file (.json/.jsonl/.ndjson/.csv/.tsv, not a package or config manifest) past this many changed lines reaches reviewers as a summary. */
 export const DATA_SUMMARY_LINES = 400;
 export const MANIFEST = 'manifest.json';
-export const AUDITS = ['test-coverage', 'plan-completion'] as const;
+export const AUDITS = ['test-coverage', 'plan-completion', 'docs'] as const;
+/** The ship section whose text fence is an audit's prompt. */
+const AUDIT_SECTION: Record<AuditName, string> = { 'test-coverage': 'test-coverage', 'plan-completion': 'plan-completion', docs: 'documentation' };
 export type AuditName = (typeof AUDITS)[number];
 export type PacketRole = Role | 'audit';
 
@@ -299,9 +301,9 @@ export function draftFor(d: Dispatch, ctx: BuildContext): PacketDraft {
 
 /** An audit's prompt is the generated section's text fence: the packet and the SKILL.md prose are one text. */
 export function auditPrompt(skillRoot: string, audit: AuditName, base: string, baseRef = `origin/${base}`): string {
-  const section = fs.readFileSync(path.join(skillRoot, 'ship', 'sections', `${audit}.md`), 'utf8');
+  const section = fs.readFileSync(path.join(skillRoot, 'ship', 'sections', `${AUDIT_SECTION[audit]}.md`), 'utf8');
   const m = /^(`{4,})text\n([\s\S]*?)\n\1$/m.exec(section);
-  if (!m) throw new Error(`ship/sections/${audit}.md has no prompt fence`);
+  if (!m) throw new Error(`ship/sections/${AUDIT_SECTION[audit]}.md has no prompt fence`);
   return m[2]!.replaceAll('origin/<base>', baseRef).replaceAll('<base>', base);
 }
 
