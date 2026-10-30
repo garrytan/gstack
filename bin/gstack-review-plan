@@ -38,7 +38,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --adversarial-ran         Step 11's native adversarial pass already ran (a repeat skips it)
   --gate-tagged <n>         gate hunks the gate scan tagged (default: run gstack-gate-diff; failure means unavailable)
   --gated a,b               specialists the hit-rate stats tag GATE_CANDIDATE
-  --force a,b|all           specialists forced by prompt flags (--all-specialists is all)
+  --force a,b|all           checklists forced into the batched specialist by prompt flags (--all-specialists is all); maintainability,
+                            performance and simplification are read only when forced
   --reviewed-numbers <fp>   the numeric-claim fingerprint the outside voice already reviewed
   --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
   --range-base <sha>        the fix range's base (this pass's PASS_HEAD): after a fixed blocker on a diff below full depth, a

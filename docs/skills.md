@@ -733,7 +733,7 @@ Every `/ship` run builds a code path map from your diff, searches for correspond
 
 ### Review gate
 
-`/ship` displays historical review readiness in the [Review Readiness Dashboard](#review-readiness-dashboard) during preflight. A missing Eng Review is reported without an extra question; it does not replace or waive the current pre-landing review. Step 9 still runs the checklist, applicable specialists and bounded exploratory QA, with its existing approval and completion gates.
+`/ship` displays historical review readiness in the [Review Readiness Dashboard](#review-readiness-dashboard) during preflight. A missing Eng Review is reported without an extra question; it does not replace or waive the current pre-landing review. Step 9 still runs the checklist, one batched specialist (Testing and Security, plus the checklists scope selects) and bounded exploratory QA, with its existing approval and completion gates.
 
 A lot of branches die when the interesting work is done and only the boring release work is left. Humans procrastinate that part. AI should not.
 

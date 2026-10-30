@@ -54,10 +54,11 @@ const NO_LOSS_REPLAYS = {
   '#3638': 'no-loss round 3: main restored the pre-#3621 reviewers (v1.91.331.0)',
   'PR-a': "GSTA-167 variant G Arm 4: structural plan identity at the 14 cohort heads and the free exact re-score of saved C, D and A' findings (parts 4a and 4b)",
   'G1': "GSTA-167 variant G Arm G1: live no-loss replay of both prose voices with part 1's prompts, 2 passes, normalizer v2, paired rule against pooled C' (parts 1 and 3; specialists at medium as in C and C2)",
+  'L': "GSTA-167 variant G Arm L: live no-loss replay of one batched reader (testing and security plus scoped checklists) and the Red Team on its findings, 2 passes, scored L∘G1 against G1 on the paired rule (part 2)",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
-    'ship/sections/review-army.md': { sha: '7ee6cfac4432a83a8a91d77c6adb3574c23a762c7f8b4fb379d5b8a8d7398730', replay: 'G1' },
+    'ship/sections/review-army.md': { sha: 'b7ca291a1cc63750bfb9710a4c12fd971523b9598da2a32ef80fb258eb0eceab', replay: 'L' },
     'ship/sections/adversarial.md': { sha: 'c48aa7717c7438941fa23418367e19a62e07edda7445d0d5a55924e172dd5d33', replay: 'G1' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
@@ -74,7 +75,7 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/state-machines.md': { sha: '597215e4438d85d9cc71b48097c61eef7cba4f4b09dc14c92b4b94893b3d3ea2', replay: '#3638' },
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: 'f5599365da06fe6d9829701c3d7e7f716703d87b9b577835e2dc5c938a8f6e6b', replay: 'G1' },
+    'lib/review-depth.ts': { sha: 'd4715a5f534d1470c63da879a3d66bb090a9b4929065d1f06c30acd97ef77bb0', replay: 'L' },
 };
 
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {
