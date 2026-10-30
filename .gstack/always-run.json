@@ -5,6 +5,7 @@
     "test/env-host-fence-conformance.test.ts",
     "test/free-fixtures.test.ts",
     "test/bun-entry-isolation.test.ts",
-    "test/egress-receipt-wiring.test.ts"
+    "test/egress-receipt-wiring.test.ts",
+    "test/review-packets-removed.test.ts"
   ]
 }

@@ -17,7 +17,7 @@ const REMOVED = [
   'lib/review-plan-live.ts',
   'lib/review-prompts.ts',
 ];
-const NAMES = /gstack-review-packet|review-packet-collect|review-plan-live|lib\/review-prompts|review-packet\.ts|READ_BUDGET/;
+const NAMES = /gstack-review-packet|review-packet-collect|review-plan-live|lib\/review-prompts|review-packet\.ts|READ_BUDGET|reviewer-packets|review-packets-fc|REVIEW_COVERAGE_INCOMPLETE|review-coverage-incomplete/;
 const SELF = path.relative(ROOT, import.meta.path);
 
 describe('reviewer packets stay reverted (GSTA-167)', () => {
@@ -25,10 +25,11 @@ describe('reviewer packets stay reverted (GSTA-167)', () => {
     expect(REMOVED.filter(f => fs.existsSync(path.join(ROOT, f)))).toEqual([]);
   });
 
-  test('no tracked file outside CHANGELOG.md names a removed packet file or the packet read rule', () => {
+  test('no tracked file outside CHANGELOG.md names a removed packet file, the packet read rule or a packet-only anchor or code', () => {
     const ls = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024 });
     expect(ls.status).toBe(0);
     const files = ls.stdout.split('\0').filter(f => f && f !== 'CHANGELOG.md' && f !== SELF && fs.existsSync(path.join(ROOT, f)));
+    expect(files.length).toBeGreaterThan(1000);
     const hits = files.filter(f => {
       const full = path.join(ROOT, f);
       if (!fs.statSync(full).isFile()) return false;
