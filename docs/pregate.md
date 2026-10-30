@@ -524,7 +524,7 @@ gstack-pregate verify                             # PREGATE_VERIFY: ok …; preg
 
 gstack's own example: `.gstack/pregate.json` declares
 `"remote_gate": "bash scripts/ubicloud/pregate-remote.sh"`. With
-`UBICLOUD_API_KEY` set the script runs the selected files on one Ubicloud VM
+`UBICLOUD_API_KEY` and `UBI_OWNER` set the script runs the selected files on one Ubicloud VM
 with `bun run test:ubicloud`'s environment, refuses before creating the VM when
 the cap cannot buy a 20-minute run at the size's list price (`UBI_SIZE`,
 default `standard-16`), checks the tree and the planned file set on the VM
