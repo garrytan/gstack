@@ -1,0 +1,4 @@
+{
+  "bytes": 1,
+  "why": "gstack-ship-preflight skips the base merge under queue_mode stamp-at-merge (Step 3 note)"
+}

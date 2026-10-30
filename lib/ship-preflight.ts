@@ -7,7 +7,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { bin, firstLine, flagReader, git, laneLine, lanes, Report, runLanes, short, sh } from './ship-bin-common';
+import { bin, firstLine, flagReader, git, laneLine, lanes, Report, runLanes, shipPolicy, short, sh } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -29,7 +29,7 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   r.add(`STATUS: modified=${status.filter(l => !l.startsWith('??')).length} untracked=${status.filter(l => l.startsWith('??')).length} (uncommitted changes ship with this run)`);
   const fetch = git(cwd, ['fetch', 'origin', base], 300_000);
   if (fetch.status !== 0) { r.stop(`git fetch origin ${base} failed: ${firstLine(fetch.stderr)}; restore access first`); return false; }
-  const stat = git(cwd, ['diff', `origin/${base}`, '--shortstat']).stdout.trim();
+  const stat = git(cwd, ['diff', forkPoint(cwd, base), '--shortstat']).stdout.trim();
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
   const commits = git(cwd, ['rev-list', '--count', `origin/${base}..HEAD`]).stdout.trim();
   r.add(`DIFF: ${stat || 'no changes'}; commits=${commits || 0}${lines > 200 ? '; over 200 lines: recommend /plan-eng-review or /autoplan' : ''}`);
@@ -52,19 +52,25 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   return merge(cwd, base, r);
 }
 
+const forkPoint = (cwd: string, base: string) => git(cwd, ['merge-base', `origin/${base}`, 'HEAD']).stdout.trim() || `origin/${base}`;
+
 function merge(cwd: string, base: string, r: Report): boolean {
-  const before = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
-  const m = git(cwd, ['merge', `origin/${base}`, '--no-edit'], 300_000);
-  if (m.status !== 0) {
-    const conflicts = git(cwd, ['diff', '--name-only', '--diff-filter=U']).stdout.split('\n').filter(Boolean);
-    r.stop(conflicts.length
-      ? `merge conflicts in ${short(conflicts, 8)}: resolve simple ones (VERSION, schema.rb, CHANGELOG ordering) yourself; for complex or ambiguous ones ask (Step 3), then commit the merge and rerun`
-      : `git merge origin/${base} failed: ${firstLine(m.stderr || m.stdout)}`);
-    return false;
+  const policy = shipPolicy(cwd, base);
+  if (policy?.queue_mode === 'stamp-at-merge') r.add('MERGE: skipped (queue_mode stamp-at-merge: the slot stamp merges the base; docs/ship-policy.md#ship-before-ready)');
+  else {
+    const before = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
+    const m = git(cwd, ['merge', `origin/${base}`, '--no-edit'], 300_000);
+    if (m.status !== 0) {
+      const conflicts = git(cwd, ['diff', '--name-only', '--diff-filter=U']).stdout.split('\n').filter(Boolean);
+      r.stop(conflicts.length
+        ? `merge conflicts in ${short(conflicts, 8)}: resolve simple ones (VERSION, schema.rb, CHANGELOG ordering) yourself; for complex or ambiguous ones ask (Step 3), then commit the merge and rerun`
+        : `git merge origin/${base} failed: ${firstLine(m.stderr || m.stdout)}`);
+      return false;
+    }
+    const after = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
+    r.add(after === before ? 'MERGE: up to date' : `MERGE: merged origin/${base} at ${after.slice(0, 12)}`);
   }
-  const after = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
-  r.add(after === before ? 'MERGE: up to date' : `MERGE: merged origin/${base} at ${after.slice(0, 12)}`);
-  const added = git(cwd, ['diff', `origin/${base}`, '--diff-filter=A', '--name-only']).stdout.split('\n');
+  const added = git(cwd, ['diff', forkPoint(cwd, base), '--diff-filter=A', '--name-only']).stdout.split('\n');
   const untracked = git(cwd, ['ls-files', '--others', '--exclude-standard']).stdout.split('\n');
   const candidates = [...new Set([...added, ...untracked].filter(p => p && DIST.test(p)))];
   if (!candidates.length) r.add('DISTRIBUTION: no new artifact paths');
@@ -74,9 +80,7 @@ function merge(cwd: string, base: string, r: Report): boolean {
     r.add(`DISTRIBUTION: candidates=${short(candidates, 5)} release_workflow=${[...wf, ...(gitlab ? ['GITLAB_CI_RELEASE'] : [])].join(',') || 'none'}`)
       .next('Step 2: read each candidate (and manifests for new binaries or exports); a new distributable without a pipeline needs Step 2\'s question');
   }
-  const policy = bin(cwd, 'gstack-ship-policy', ['show-effective', '--base', base], 60_000).stdout;
-  const pick = (k: string) => (new RegExp(`^${k}=(\\S+)`, 'm').exec(policy)?.[1] ?? '?').replace(/^"|"$/g, '');
-  r.add(`POLICY: ${['bump', 'queue_mode', 'review_scope', 'history'].map(k => `${k}=${pick(k)}`).join(' ')} (binds Steps 12, 16 and history)`);
+  r.add(`POLICY: ${['bump', 'queue_mode', 'review_scope', 'history'].map(k => `${k}=${policy?.[k] ?? '?'}`).join(' ')} (binds Steps 12, 16 and history)`);
   const plan = bin(cwd, 'gstack-review-plan', ['--base', base, '--json'], 180_000);
   let runtime = 'unknown';
   try { runtime = String(JSON.parse(plan.stdout).runtime_lines ?? 'unknown'); } catch { /* unknown */ }

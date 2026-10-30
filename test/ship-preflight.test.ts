@@ -60,6 +60,20 @@ describe('gstack-ship-preflight', () => {
     expect(r.stdout).not.toContain('LANE:');
   });
 
+  // Value: protects=under queue_mode stamp-at-merge /ship never merges the base into the branch (docs/ship-policy.md#ship-before-ready; the slot stamp does), and DIFF counts only the branch's own change; fails_when=the preflight merges main anyway or DIFF counts the base's movement;
+  //   why_new=GSTA-167 dogfood on #3633 hit the merge under stamp-at-merge; seam=gstack-ship-policy show-effective; no_claim=the slot stamp's merge
+  test('queue_mode stamp-at-merge: the base is not merged and DIFF is the branch alone', () => {
+    const f = fx({ '.gstack/ship-policy.json': '{"queue_mode":"stamp-at-merge"}\n' });
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.status).toBe(0);
+    expect(lineOf(r.stdout, 'MERGE')).toMatch(/^MERGE: skipped \(queue_mode stamp-at-merge/);
+    expect(f.git('rev-parse', 'HEAD').stdout.trim()).toBe(head);
+    expect(lineOf(r.stdout, 'DIFF')).toMatch(/^DIFF: 1 file changed, 1 insertion\(\+\); commits=1$/);
+    expect(lineOf(r.stdout, 'POLICY')).toContain('queue_mode=stamp-at-merge');
+  });
+
   // Value: protects=a failing lane and a zero-run lane both stop for Step 5's triage; fails_when=exit 0 with zero tests counts as a pass, or a failure continues to Step 6;
   //   why_new=moved from Step 5's lane block; seam=gstack-evidence tests_ran; no_claim=the triage outcome
   test('a failing lane and a ZERO-RUN lane stop for Step 5 triage', () => {
