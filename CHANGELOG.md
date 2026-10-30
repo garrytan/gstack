@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.336.0] - 2026-10-30
 
 **A repository can now assign its version when a PR merges instead of inside the PR: PRs carry unversioned CHANGELOG fragments and `gstack-ship-queue land` stamps, pushes and merges.** Today every PR picks a version before it merges, so each merge makes the next PR's version stale and its lane redoes the stamp (a median 14.5 minutes from stamp commit to merge over 30 slots, Oct 27-29; the queue froze on hand-made stamps in #3422 and #3487). With `changelog_fragments` on, two PRs cut from one base cannot collide, and nobody stamps by hand. gstack's own policy does not turn it on in this release (docs/ship-policy.md#changelog-fragments).
 
@@ -20,6 +20,22 @@
 - `test/ship-queue-land.test.ts` (bare origin and a gh shim): happy path; two PRs from one base without a collision; a legacy stamp plus a dependency edit; a title-derived entry; a product conflict; the lock and `--break-lock`; the base moving during CI; a foreign push never overwritten; a missing receipt; drift, `--repair` and the lock release; the census; a receipt that fails #3567's depth check refuses; a base with a four-part package.json in `stamp_files` lands four parts (#3557), gstack's own shape stays three; one run without `--no-wait` merges; a PR on another base refuses; `--break-lock` refuses a drift lock; a conflict releases the lock; a stacked parent's fragment refuses; a lost journal resumes; `merge-only` merges with `--merge`; a merge GitHub completed behind an error reply reconciles; `--break-lock` refuses a holder mid-merge; `--repair` resumes after a failed PR create and its PR takes over from a clean checkout; a symlinked legacy VERSION refuses in `--dry-run`; a `package.json` version source keeps its dependency edits.
 - `test/version-gate-fragments.test.ts`: fragment heads, premature version changes, a bot author, an advanced base, an invalid fragment, the stamp commit's effective bump (open version claims do not apply to it), and the workflow's missing path filter.
 - `test/restamp-command-boundary.test.ts`: the hook reads its counter from `GSTACK_RESTAMP_BASE_SHA`, not the branch.
+
+## [1.91.335.0] - 2026-10-30
+
+### Fixed
+- **Captains now read factory.md and the owner's model preference.** A Capy session with no gstack checkout (every Captain and coordinator, which run `install.sh --check --for none`) used to skip factory.md without a word and never applied `agent_model`, because both were read only from the checkout. The skill now tells it to read the `factory.md` beside SKILL.md, to say `factory.md: none` on its own line when there isn't one, and to read the `agent_model` line of `preferences.yaml` itself. Owners get the fix by copying `capy/skill/gstack/` into the Drive skill folder.
+
+## [1.91.334.0] - 2026-10-30
+
+**OpenClaw opens gstack's large task skills again (GST-110).** #3555 made `hybrid` OpenClaw's default and registered review, investigate, qa, ship and plan-eng-review as skills of their own. OpenClaw 2026.10.6 serves a registered skill's `SKILL.md` whole or refuses it, with a 32,768-byte limit when its model catalog has no context window for the model. In HARN-5's panel the agent's first read of the 77,691-byte `gstack-review` file was refused in 4 of 5 trials, and opens fell from 5/5 to 0/5. Under the router layout the same file had been read as a plain file inside the router's folder, which OpenClaw pages.
+
+### Fixed
+- **`gstack-harness register openclaw`** (`lib/harness-register.ts`): a skill whose rendered `SKILL.md` is over 32,000 bytes (`OPENCLAW_INSTRUCTION_MAX`, under both OpenClaw's 32,768-byte limit and the 32,000-character budget it applies with a 100K-200K-token context window, with the OpenClaw source lines it comes from) is registered as a short entry with the same frontmatter whose body says to read the skill's full `SKILL.md` in a plain copy of every skill and follow it. In hybrid that copy is the router's `gstack/skills/`, where the router layout read the same file, now including the five task skills; under `--skills all` it is `.gstack-skills/`, a folder OpenClaw's skill scan skips. Because the copy holds every skill, `sections/` paths and sibling paths such as `../gstack-qa/` and autoplan's `../gstack-plan-eng-review/SKILL.md` resolve to full texts. That covers four of hybrid's five direct skills and 26 of 63 skills in `--skills all` today. OpenClaw treats only a registered skill folder's `SKILL.md` as an instruction file. The ledger records the copies, so refresh, mode switches, upgrades from a #3555 registration and uninstall handle them. Skill bodies are unchanged, and Hermes, dots and `generic` registrations are byte-identical.
+- docs/hosts.md and docs/OPENCLAW.md describe the entry and the limit, and docs/uninstall.md's manual OpenClaw removal command also removes `.gstack-skills/`.
+
+### Tests
+- `test/harness-register.test.ts`: in hybrid and all, every `SKILL.md` OpenClaw would register is within the limit, each entry names a full `SKILL.md` that exists, has the same frontmatter, is outside OpenClaw's registered set and is in the ledger, every `../gstack-*` path in the copied texts resolves to a full text, re-registering over a #3555 registration converts it cleanly, and uninstall leaves nothing. Hermes's registration equals its render byte for byte. With `GSTACK_OPENCLAW_BIN` or `openclaw` on PATH, a real `openclaw skills list --json` and `skills info` show exactly `gstack` and the five task skills, each served from an entry within the limit.
 
 ## [1.91.333.0] - 2026-10-30
 
