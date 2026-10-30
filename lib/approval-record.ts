@@ -52,6 +52,11 @@ export type Env = NodeJS.ProcessEnv;
 
 const git = (cwd: string, args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
 
+/** A branch this checkout knows: a local head or an origin remote-tracking ref. */
+export function branchExists(cwd: string, branch: string): boolean {
+  return [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`].some(ref => git(cwd, ['rev-parse', '--verify', '--quiet', ref]).status === 0);
+}
+
 /** One contained path segment for a branch: readable prefix plus a hash of the exact ref. */
 export function branchKey(branch: string): string {
   const readable = branch.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[.-]+/, '').slice(0, 60) || 'branch';
@@ -226,13 +231,15 @@ export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?
   return [...head, ...lines, '', `Source: gstack-approvals record for ${cell(loc.branch)} (display only; not an approval citation).`, ''].join('\n');
 }
 
-interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; carried_from?: string; label?: string; chosen_text?: string }
+interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; carried_from?: string; label?: string; chosen_text?: string;
+  carried_gate_from?: string; carried_gate_rev?: number; carried_answered_by?: string; carried_under?: string; carry_check?: string }
 
 const stripRef = (t: string) => t.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
 
 /**
  * Rows for every answered gate in an autoplan run: one row per answer event (gate_rev, time, answerer), covering
- * the items it settled. Carried-forward answers were recorded when first given and are skipped. Ids are stable,
+ * the items it settled. Item answers carried from an earlier revision were recorded when first given and are skipped;
+ * a whole gate carried forward (lib/autoplan-carry.ts) gets its own row naming the revision its words came from. Ids are stable,
  * so a rerun (or a retry after an interrupted import) adds nothing twice.
  */
 export function importAutoplan(runDir: string, branch: string, by?: string): ApprovalRow[] | RecordError {
@@ -265,10 +272,16 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     const changed = items.filter(r => r.chosen && r.recommended && r.chosen !== r.recommended);
     const stillPending = rows.filter(r => r.gate_rev === rev && r.status === 'pending');
     const answerer = first.answered_by ?? 'unknown';
-    const who = answerer === 'human' ? (by ? `${by}, typed at the gate` : 'the owner, typed at the gate') : `${by ?? 'the owner'}, relayed by ${answerer}`;
-    const scope = `the reviewed plan (sha256 ${planSha}), ${changed.length ? `${changed.length} recommendation(s) changed: ${changed.map(r => stripRef(r.title ?? '')).join('; ')}` : 'every recommendation taken'}`;
+    const carried = p1?.carried_gate_from ? p1 : undefined;
+    const relayed = carried?.carried_answered_by && carried.carried_answered_by !== 'human' ? `, relayed by ${carried.carried_answered_by}` : '';
+    const who = carried ? `${by ?? 'the owner'} (words from gate_rev ${carried.carried_gate_rev}${relayed}), carried forward by gstack-autoplan`
+      : answerer === 'human' ? (by ? `${by}, typed at the gate` : 'the owner, typed at the gate') : `${by ?? 'the owner'}, relayed by ${answerer}`;
+    const unseen = items.filter(r => r.carried_under).map(r => stripRef(r.title ?? ''));
+    const checked = [...new Set(items.map(r => r.carry_check).filter((c): c is string => !!c))];
+    const scope = [`the reviewed plan (sha256 ${planSha}), ${changed.length ? `${changed.length} recommendation(s) changed: ${changed.map(r => stripRef(r.title ?? '')).join('; ')}` : 'every recommendation taken'}`,
+      unseen.length ? `taken under "do it", not seen by the owner: ${unseen.join('; ')}` : '', checked.length ? `post-cap delta checked by ${checked.join(', ')}` : ''].filter(Boolean).join('; ');
     const built = buildRow({
-      ask: `Approve the plan "${planTitle}" (autoplan run ${runId}, ${items.length + (p1 ? 1 : 0)} decisions)`.slice(0, CAPS.ask),
+      ask: `Approve the plan "${planTitle}" (autoplan run ${runId}, ${carried ? `gate_rev ${rev} carried forward from gate_rev ${carried.carried_gate_rev}, ` : ''}${items.length + (p1 ? 1 : 0)} decisions)`.slice(0, CAPS.ask),
       words: first.owner_reply ?? first.reply ?? '(no words recorded)',
       by: who.slice(0, CAPS.by),
       scope: scope.slice(0, CAPS.scope),

@@ -906,8 +906,10 @@ gstack's own templates and for any skill folder you own.
 - **Drift.** `test/skill-bin-drift.test.ts` fails when a template or rendered skill calls a gstack bin or flag that
   does not exist (`bun run scripts/skill-bin-drift.ts --skill <name>` for one skill). Its allowlist only shrinks.
 - **Full diet.** Report first, write the eval tasks before any cut
-  (`test/fixtures/skill-evals/<skill>/tasks.json`), cut, then prove before vs after vs no skill with the shared skill
-  eval (`docs/designs/SKILL_EVAL_CONTRACT.md`). A diet ships only when no task that passed before fails after.
+  (`test/fixtures/skill-evals/<skill>/tasks.json`), lock them (`gstack-evals skill-eval --lock`, then commit
+  `tasks.lock.json`; the shared eval refuses a paid run without it), cut, then prove before vs after vs no skill with
+  the shared skill eval (`docs/designs/SKILL_EVAL_CONTRACT.md`). A diet ships only when no task that passed before
+  fails after.
 
 `/write-skill` is not `/skillify`: `/skillify` codifies a browser scrape into a browser-skill. Adapted from
 [nicobailon/skill-diet](https://github.com/nicobailon/skill-diet) (MIT). The first diet, /learn, cut its template from

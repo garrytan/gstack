@@ -57,7 +57,8 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
   validate | init the working-tree ${PREGATE_CONFIG_PATH}
   sealed [--range <a..b>] [--remote <name>] [--base <branch>]
                   the sealed-output guard (docs/pregate.md#sealed) over the commits <remote> lacks, or the range:
-                  run it before any push or PR creation in a repo with a \`sealed\` config; exit 1 refuses (SEALED_OUTPUT_REFUSED)
+                  run it before any push or PR creation in a repo with a \`sealed\` config; exit 1 refuses (SEALED_OUTPUT_REFUSED);
+                  it never pushes: policy=<base> + commit <sha> names where the policy was read
   regate --against <gated-head> --bundle <file> [--require <lanes>] [--pr <n>] [--predecessor-pr <n> | --predecessor-ref <ref>]
                   a fresh tree receipt, each lane's reuse verdict, migration collisions (base branch and open PRs), then
                   REGATE: needed|not-needed (docs/pregate.md#regate); \`gstack-pregate --against <head>\` is the same verb; exit 1 = needed

@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { classifyDiff, classifyPath, depthFor, depthOfCommitInput, diffCommand, nextStep, planReview, scanNumbers, DEPTH_RULES, FULL_PASS_CAP, type DepthError, type PlanInput } from '../lib/review-depth';
+import { classifyDiff, classifyPath, depthFor, depthOfCommitInput, diffCommand, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
+import { summarizeReviewLoop } from '../lib/review-scope';
 
 const ROOT = path.join(import.meta.dir, '..');
 const none = scanNumbers({});
@@ -289,3 +290,104 @@ describe('review depth: diff commands and the rules hash', () => {
   });
 });
 
+describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () => {
+  const r = (p: ReturnType<typeof planReview>) => p.dispatches.map(d => `${d.role}:${d.name}`);
+  const fixed = (rangeRuntimeLines: number | null | undefined, o: Partial<PlanInput['history']> = {}): PlanInput['history'] => ({ fullPasses: 1, last: 'full', fixedBlocking: true, rangeRuntimeLines, ...o });
+  // gstack-evals#19: a standard diff, pass 1 fixed one CRITICAL from a QA probe, the fix range was 3 files +18/-6 of runtime.
+  const n19 = (o: Partial<PlanInput> = {}) => mixed({ perPath: per({ 'src/a.ts': 300, 'src/b.ts': 100, 'src/c.ts': 60, 'test/a.test.ts': 80 }), diffLines: 540, scope: { SCOPE_BACKEND: 'true' }, history: fixed(24), adversarialRan: true, ...o });
+
+  test('the #19 shape plans one fix-check, the Red Team and the native adversarial pass, not the specialist army', () => {
+    const before = planReview(n19({ history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
+    expect(before.next.step).toBe('full');
+    expect(before.dispatches.length).toBeGreaterThanOrEqual(6);
+    const p = planReview(n19());
+    expect(p.next.step).toBe('scoped');
+    expect(p.next.reason).toContain('24 runtime lines');
+    expect(r(p)).toEqual(['fix-check:fix-check', 'red-team:red-team', 'adversarial-native:adversarial']);
+    expect(p.dispatches.every(d => d.effort === 'full' && d.exclude.length === 0)).toBe(true);
+  });
+  test('Step 11 voices that have not run yet stay listed, as on a full pass 2', () => {
+    const p = planReview(n19({ adversarialRan: false }));
+    expect(r(p)).toEqual(['fix-check:fix-check', 'red-team:red-team', 'adversarial-native:adversarial', 'outside-voice:outside-voice']);
+    expect(p.skipped).toContain('specialists (scoped pass)');
+    expect(planReview(n19()).skipped).toEqual(expect.arrayContaining(['specialists (scoped pass)', 'outside-voice (scoped pass)']));
+    expect(planReview(n19({ force: ['security'] })).skipped).toContain('specialists (scoped pass; forced ones dispatched)');
+  });
+  test.each([
+    ['full depth (a gate tag)', { gateTagged: 1 }],
+    ['a fail-closed classification', { gateTagged: null }],
+    ['--depth-floor full', { floor: 'full' as const }],
+    ['a 151-line range', { history: fixed(151) }],
+    ['a missing range', { history: fixed(undefined) }],
+    ['an unread range', { history: fixed(null) }],
+    ['a fix that touched a gate-class path', { history: fixed(10, { touchedGate: true }) }],
+  ])('%s keeps the full pass 2', (_n, o) => {
+    const p = planReview(n19(o as Partial<PlanInput>));
+    expect(p.next.step).toBe('full');
+    expect(p.dispatches.some(d => d.role === 'specialist')).toBe(true);
+  });
+  test('a force-included specialist and changed published numbers keep their reviewers', () => {
+    expect(r(planReview(n19({ force: ['security'] })))).toEqual(['fix-check:fix-check', 'specialist:security', 'red-team:red-team', 'adversarial-native:adversarial']);
+    const numbers = scanNumbers({ 'docs/bench.md': ['3x faster'] });
+    expect(r(planReview(n19({ numbers, reviewedNumbers: 'old' })))).toContain('outside-voice:outside-voice (numbers changed)');
+    expect(r(planReview(n19({ numbers, reviewedNumbers: numbers.fingerprint })))).not.toContain('outside-voice:outside-voice (numbers changed)');
+  });
+  test('150 is scoped, 151 is full, and a docs-only range is scoped without the native adversarial pass', () => {
+    expect(SCOPED_RANGE_LINES).toBe(150);
+    expect(planReview(n19({ history: fixed(150) })).next.step).toBe('scoped');
+    expect(planReview(n19({ history: fixed(151) })).next.step).toBe('full');
+    const docs = planReview(n19({ history: fixed(0) }));
+    expect(docs.next.step).toBe('scoped');
+    expect(r(docs)).toEqual(['fix-check:fix-check', 'red-team:red-team']);
+  });
+  test('a light diff with a fixed blocker gets the scoped set: the raise adds the Red Team, never the standard army', () => {
+    const p = planReview(mixed({ perPath: per({ 'src/app.ts': 30 }), history: fixed(12), adversarialRan: true }));
+    expect(p.next.step).toBe('scoped');
+    expect(r(p)).toEqual(['fix-check:fix-check', 'red-team:red-team', 'adversarial-native:adversarial']);
+  });
+  test('the scoped pass counts toward the cap, and a blocker it leaves stops for the owner', () => {
+    expect(nextStep(fixed(10, { fullPasses: FULL_PASS_CAP }), 'standard').step).toBe('fix-check');
+    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', blockingOpen: true, rangeRuntimeLines: 10 }, 'light').step).toBe('stop');
+    const at = (m: number) => new Date(Date.UTC(2026, 9, 28, 10, m)).toISOString();
+    const rows = [
+      { skill: 'review', via: 'ship', timestamp: at(1), pass: 1, dispatches: [{ role: 'specialist' }, { role: 'adversarial-native' }] },
+      { skill: 'review', via: 'ship', timestamp: at(2), pass: 2, scope: 'scoped', dispatches: [{ role: 'fix-check' }, { role: 'red-team' }, { role: 'adversarial-native' }] },
+    ];
+    const s = summarizeReviewLoop(rows, at(0));
+    expect(s.passes).toBe(2);
+    expect(s.fix_checks).toBeUndefined();
+    expect(s.dispatches).toEqual({ specialist: 1, 'adversarial-native': 2, 'fix-check': 1, 'red-team': 1 });
+  });
+  test('nextStep without a depth keeps the full pass (planReview is where depth is known)', () => {
+    expect(nextStep(fixed(10)).step).toBe('full');
+    expect(nextStep(fixed(10), 'full').step).toBe('full');
+    expect(nextStep(fixed(10), 'standard').step).toBe('scoped');
+  });
+  test('REVIEW_PLAN prints the chosen step and its reason', () => {
+    const line = reviewPlanLine(planReview(n19()), 2);
+    expect(line).toMatch(/^REVIEW_PLAN: class=code pass=2 next=scoped dispatches=3 numbers=no fingerprint=none reason="[^"]*24 runtime lines[^"]*"$/);
+    expect(reviewPlanLine(planReview(n19({ history: fixed(151) })), 2)).toContain('reason="a blocking finding was fixed');
+  });
+  test('DEPTH_RULES changes when the scoped-range constant does', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depth-rules-scoped-'));
+    try {
+      const src = fs.readFileSync(path.join(ROOT, 'lib/review-depth.ts'), 'utf8');
+      expect(src).toContain('SCOPED_RANGE_LINES = 150');
+      fs.symlinkSync(path.join(ROOT, 'lib/ship-policy.ts'), path.join(dir, 'ship-policy.ts'));
+      fs.writeFileSync(path.join(dir, 'review-depth.ts'), src.replace('SCOPED_RANGE_LINES = 150', 'SCOPED_RANGE_LINES = 151'));
+      fs.writeFileSync(path.join(dir, 'print.ts'), "import { DEPTH_RULES } from './review-depth';\nconsole.log(DEPTH_RULES);\n");
+      const res = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', path.join(dir, 'print.ts')], { encoding: 'utf8', timeout: 30_000 });
+      expect(res.status, res.stderr).toBe(0);
+      expect(res.stdout.trim()).not.toBe(DEPTH_RULES);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  test('consumers name the scoped step: the Step 9 template and the transitions table', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'ship/sections/review-army.md.tmpl'), 'utf8');
+    expect(tmpl).toContain('--range-base $PASS_HEAD');
+    expect(tmpl).toContain('`scoped` is 3 too.');
+    expect(tmpl).toContain('"scope":"scoped"');
+    expect(tmpl).toContain('raised_by');
+    const policy = fs.readFileSync(path.join(ROOT, 'docs/review-policy.md'), 'utf8');
+    expect(policy).toContain('| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |');
+  });
+});

@@ -251,7 +251,7 @@ export function evaluateSealed(o: EvaluateOptions): SealedReport {
   let policy: SealedPolicy | null = base.policy;
   const labels = base.policy ? [base.label] : [];
   for (const t of o.targets) {
-    const pushed = sealedPolicyAt(o.repoRoot, t.pushedSha, `pushed ${t.pushedSha.slice(0, 12)}`);
+    const pushed = sealedPolicyAt(o.repoRoot, t.pushedSha, `commit ${t.pushedSha.slice(0, 12)}`);
     if ('error' in pushed) return { ...blank, status: 'error', error: `the sealed policy in ${pushed.label} is unreadable: ${pushed.error}` };
     if (pushed.policy) labels.push(pushed.label);
     policy = unionPolicies(policy, pushed.policy);

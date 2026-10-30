@@ -166,6 +166,8 @@ export interface CarryPlanInput {
   changedProduct: string[];
   mergeCommits: number;
   rangeDiff: string;
+  /** The base the receipt was reviewed against when it differs from the carry's (a stack parent that landed, #3570): productPatchId.from is then the recorded diff against it. */
+  retargetedFrom?: string;
 }
 export interface CarryRecord { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' }
 export type CarryPlan = { ok: true; carry: CarryRecord } | { ok: false; code: 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_TREE_MISMATCH'; message: string };
@@ -232,7 +234,7 @@ export function planCarry(input: CarryPlanInput): CarryPlan {
     const named = input.changedProduct.slice(0, CARRY_NAMED_PATHS);
     return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `product diff changed between ${input.from.slice(0, 12)} and ${input.head.slice(0, 12)}: ${named.join(', ') || 'patch-id differs'}${input.changedProduct.length > named.length ? ` (+${input.changedProduct.length - named.length} more)` : ''}` };
   }
-  const reasons: string[] = [];
+  const reasons: string[] = input.retargetedFrom ? [`stack parent ${input.retargetedFrom} landed`] : [];
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
   if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');
   if (input.changed.some(c => c.class === 'metadata')) reasons.push('release metadata');

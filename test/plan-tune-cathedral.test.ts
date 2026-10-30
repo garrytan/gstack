@@ -70,7 +70,7 @@ function scaffoldFixture(workDir: string): { workDir: string; stateRoot: string;
   // These imports are resolved relative to the copied install, not the source checkout.
   const libDir = path.join(workDir, 'lib');
   fs.mkdirSync(libDir, { recursive: true });
-  for (const file of ['jsonl-store.ts', 'is-conductor.ts', 'state-root.ts', 'bin-context.ts', 'remote-identity.ts', 'script-invocation.ts', 'bun-isolation.ts', 'result-codes.ts', 'result-codes-release.ts', 'result-codes-capy.ts']) {
+  for (const file of ['jsonl-store.ts', 'is-conductor.ts', 'state-root.ts', 'bin-context.ts', 'remote-identity.ts', 'script-invocation.ts', 'bun-isolation.ts', 'result-codes.ts', 'result-codes-release.ts', 'result-codes-capy.ts', 'result-codes-budget.ts']) {
     fs.copyFileSync(path.join(ROOT, 'lib', file), path.join(libDir, file));
   }
 

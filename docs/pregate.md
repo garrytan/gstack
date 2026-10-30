@@ -25,7 +25,10 @@ passes. Standalone, `gstack-regen check` lists the commands and exits 3
 (`REPO_COMMANDS_NOT_ALLOWED`); `gstack-pregate` marks `regen` and `lanes`
 `incomplete`, never `pass`. `--policy-from head` (a PR that introduces or
 changes a pin file) is accepted only with `--allow-repo-commands` and the record
-says `policy head (unreviewed)`. An unresolvable base exits 3 with
+says `policy head (unreviewed)`. So a lane or allowlist entry a branch adds to
+its own `pregate.json` counts only once it is on the base; `PREGATE_NO_LANE`'s
+fix line says so when the branch edits the file
+([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)). An unresolvable base exits 3 with
 `POLICY_SOURCE_UNAVAILABLE`. Globs are repo-relative (no `..`, no absolute
 paths, at most 64 per list); commands are one line under 512 bytes.
 
@@ -131,6 +134,12 @@ nearest directory above it that holds at most 25 of them, up to the
 writes `[]`, which would clear a file without a test. A file with no nearby
 test, and a lane whose matrix a planner computes, is printed as a `TODO`.
 Review each entry before committing the file on the base branch.
+
+## `.gstack/always-run.json`
+
+`{ "tests": [globs] }` names whole-tree tests that scan every file of a kind (tripwires, ratchets, conformance and fixture inventories). A diff-selected run never maps a touched file to them, so they used to pass the selected gate and then fail CI (GST-98). When a branch selects any test, owes a lane, or edits this file, the `lanes` selection adds every tracked test file a glob matches. `--explain` prints each one as `<test> (always_run, .gstack/always-run.json)`, and a glob that matches no test as `<glob> matches no test file`. A docs-only branch adds nothing.
+
+The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list matches 16 test files; the 13 with a seed in `scripts/free-test-durations.json` (recorded 2026-10-19) total about 13 s there, and `bun-entry-isolation`, `launch-env-echo-ratchet` and `review-packets-removed` have no seed yet.
 
 ## `gstack-pregate`
 
@@ -828,7 +837,10 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   `.gstack/ship-policy.json` to that release before landing either key.
 - **Policy.** The union of the destination base branch's `sealed` and the
   pushed commit's: a push can tighten it, never relax it (`allow_paths` come
-  from the base branch alone, and a pushed deny glob cannot override one). A malformed or
+  from the base branch alone, and a pushed deny glob cannot override one). The
+  `SEALED:` line names both as `policy=<remote>/<base> + commit <sha12>`.
+  `gstack-pregate sealed` only checks and never pushes, so confirm a push with
+  `git ls-remote <remote> <ref>`. A malformed or
   unreadable policy refuses. Waivers come only from the base branch's
   `.gstack/sealed-allow.tsv` (`rule<TAB>path<TAB>sha<TAB>reason`) and are
   listed on every push.

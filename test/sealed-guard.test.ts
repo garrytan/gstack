@@ -358,3 +358,17 @@ describe('visibility (cache under the state root; unknown counts as public)', ()
     } finally { fs.rmSync(state, { recursive: true, force: true }); }
   });
 });
+
+describe('gstack-pregate sealed is a check, not a push (#3565)', () => {
+  test('the SEALED line names the checked commit, never says pushed, and the remote ref does not move', () => {
+    const s = scratch({ '.gstack/pregate.json': policy(SEALED) });
+    const head = commit(s, { 'notes.md': 'ok\n' });
+    const before = sh(s.work, s.env, ['ls-remote', 'origin']);
+    const r = spawnSync('bun', [PREGATE, 'sealed'], { cwd: s.work, encoding: 'utf8', timeout: 60_000, env: { ...process.env, ...s.env } });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`policy=origin/main + commit ${head.slice(0, 12)}`);
+    expect(`${r.stdout}${r.stderr}`).not.toMatch(/\bpushed\b/);
+    expect(sh(s.work, s.env, ['ls-remote', 'origin'])).toBe(before);
+    expect(before).not.toContain('refs/heads/results');
+  });
+});

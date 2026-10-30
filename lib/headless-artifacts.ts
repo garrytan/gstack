@@ -41,6 +41,8 @@ export interface DecisionRow {
   recommended_basis?: string; changes?: string; origin?: string; carried_from?: string; chosen_text?: string;
   /** An agent-relayed answer: the owner's verbatim words, and whether they parsed under the gate grammar. */
   owner_reply?: string; owner_reply_parsed?: boolean; recommended_by?: string;
+  /** A whole-gate carry (lib/autoplan-carry.ts): the earlier p1 decision whose owner words this answer reuses, its gate_rev, why, who relayed them, items taken under "do it", and the delta check attempt. */
+  carried_gate_from?: string; carried_gate_rev?: number; carry_reason?: string; carried_answered_by?: string; carried_under?: string; carry_check?: string;
 }
 export interface TaskRow {
   schema_version: 2; run: string; id: string; title: string; status: TaskStatus; depends_on: string[];
@@ -170,6 +172,7 @@ export const ARTIFACT_SCHEMAS = {
       default_if_unanswered: nullableStr, gate_rev: { type: 'integer', minimum: 1 }, phase: str, chosen: nullableStr,
       answered_at: str, reply: str, source: str, cost: str,
       recommended_basis: str, changes: str, origin: str, carried_from: str, chosen_text: str,
+      carried_gate_from: str, carried_gate_rev: { type: 'integer', minimum: 1 }, carry_reason: str, carried_answered_by: str, carried_under: str, carry_check: str,
     },
   },
   tasks: {

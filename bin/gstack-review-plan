@@ -4,14 +4,14 @@
  *
  *   gstack-review-plan --base <ref> [--pass <full passes run>] [--last none|full|fix-check] [--fixed-blocking] [--fixed-below]
  *                      [--blocking-open] [--touched-gate] [--critical-found] [--adversarial-ran] [--gate-tagged <n>] [--gated a,b] [--force a,b|all]
- *                      [--reviewed-numbers <fingerprint>] [--depth-floor standard|full] [--no-tiers] [--json]
+ *                      [--reviewed-numbers <fingerprint>] [--depth-floor standard|full] [--range-base <sha>] [--pass1-depth light|standard|full] [--no-tiers] [--json]
  *   gstack-review-plan --fix-check-prompt --fix-list <file> --hunks <file> --tests <file> [--callers <file>]
  *
  * Reads the diff against the merge base with <ref> (committed, tracked uncommitted
  * edits and untracked files, through lib/review-collect.ts collectLive), runs
  * gstack-diff-scope and, unless --gate-tagged is given, gstack-gate-diff; prints
  * REVIEW_CLASS:, REVIEW_DEPTH: (depth, runtime lines, the rules hash, reasons and
- * result codes), GATE_SCAN:, REVIEW_PLAN:, one DEPTH_ERROR: per input that failed
+ * result codes), GATE_SCAN:, FIX_RANGE: (with --range-base), REVIEW_PLAN:, one DEPTH_ERROR: per input that failed
  * the depth closed, one DISPATCH: plus DIFF_CMD: (and DIFF_EXCLUDE: none) per
  * reviewer and one SKIP: per reviewer left out. A plan that fails closed to full
  * exits 0; a diff git cannot list exits 1. Logic: lib/review-depth.ts.
@@ -21,8 +21,8 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { runScriptSync } from '../lib/script-invocation';
-import { collectLive } from '../lib/review-collect';
-import { diffCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, type Depth, type History } from '../lib/review-depth';
+import { collectCommit, collectLive } from '../lib/review-collect';
+import { classifyDiff, diffCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
 import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
 
 const HELP = `gstack-review-plan — the review depth of the next /ship step (docs/review-policy.md#review-depth)
@@ -41,11 +41,15 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --force a,b|all           specialists forced by prompt flags (--all-specialists is all)
   --reviewed-numbers <fp>   the numeric-claim fingerprint the outside voice already reviewed
   --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
+  --range-base <sha>        the fix range's base (this pass's PASS_HEAD): after a fixed blocker on a diff below full depth, a
+                            committed range of at most ${SCOPED_RANGE_LINES} runtime lines plans a scoped pass; anything unread plans the full pass
   --no-tiers                audits and watchers at the host's default effort too (as gstack-config review_effort_tiers off does)
   --json                    the plan as JSON (depth, runtime_lines, rules, errors with input and repair, gate_scan, per-dispatch exclude)
+  --pass1-depth <d>         pass 1's REVIEW_DEPTH depth: full, or absent, keeps pass 2 full
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
 
-Depth: light (runtime lines <= 50), standard (above 50), full (gate class or any DEPTH_ERROR). A full plan
+Depth: light (runtime lines <= 50), standard (above 50), full (gate class or any DEPTH_ERROR). NEXT: full, scoped
+(a full pass on the range: fix-check, Red Team, native adversarial), fix-check, stop or done. A full plan
 from an error exits 0; exit 1 means no plan could be built (git could not list the diff).
 ${exitTableHelp()}`;
 
@@ -72,10 +76,14 @@ function main(): number {
   if (!base) { process.stderr.write(`gstack-review-plan: --base <ref> is required\n${HELP}\n`); return EXIT.usage; }
   const last = (flag('--last') ?? 'none') as History['last'];
   if (!['none', 'full', 'fix-check'].includes(last)) { process.stderr.write('gstack-review-plan: --last must be none, full or fix-check\n'); return EXIT.usage; }
+  const pass1Depth = (flag('--pass1-depth') ?? 'full') as Depth;
+  if (!['light', 'standard', 'full'].includes(pass1Depth)) { process.stderr.write('gstack-review-plan: --pass1-depth must be light, standard or full\n'); return EXIT.usage; }
   const pass = Number(flag('--pass') ?? '0');
   if (!Number.isInteger(pass) || pass < 0) { process.stderr.write('gstack-review-plan: --pass needs an integer >= 0\n'); return EXIT.usage; }
   const floor = flag('--depth-floor') as Depth | undefined;
   if (has('--depth-floor') && floor !== 'standard' && floor !== 'full') { process.stderr.write('gstack-review-plan: --depth-floor must be standard or full (a floor only raises the depth)\n'); return EXIT.usage; }
+  const rangeBase = flag('--range-base');
+  if (has('--range-base') && (!rangeBase || rangeBase.startsWith('-'))) { process.stderr.write('gstack-review-plan: --range-base needs the fix range\'s base commit (this pass\'s PASS_HEAD)\n'); return EXIT.usage; }
   const root = git(['rev-parse', '--show-toplevel'])?.trim();
   if (!root) { process.stderr.write('gstack-review-plan: run it inside a git checkout\n'); return EXIT.fail; }
   process.chdir(root);
@@ -86,34 +94,54 @@ function main(): number {
   }
   const head = git(['rev-parse', 'HEAD'])?.trim() ?? 'unknown';
   const binDir = path.dirname(Bun.fileURLToPath(import.meta.url));
-  const scopeRun = runScriptSync(path.join(binDir, 'gstack-diff-scope'), [base], { encoding: 'utf8', timeout: 60_000 });
-  const scope: Record<string, string> = {};
-  for (const l of (scopeRun.stdout ?? '').split('\n')) { const m = /^(SCOPE_[A-Z_]+)=(.*)$/.exec(l); if (m) scope[m[1]!] = m[2]!; }
-  if (scopeRun.status !== 0 && !scope.SCOPE_ERROR) scope.SCOPE_ERROR = `exit ${scopeRun.status}`;
-  let gateTagged: number | null = null;
-  if (flag('--gate-tagged') !== undefined) gateTagged = Number(flag('--gate-tagged'));
-  else {
-    const g = runScriptSync(path.join(binDir, 'gstack-gate-diff'), [base], { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+  const scopeOf = (args: string[]): Record<string, string> => {
+    const run = runScriptSync(path.join(binDir, 'gstack-diff-scope'), args, { encoding: 'utf8', timeout: 60_000 });
+    const s: Record<string, string> = {};
+    for (const l of (run.stdout ?? '').split('\n')) { const m = /^(SCOPE_[A-Z_]+)=(.*)$/.exec(l); if (m) s[m[1]!] = m[2]!; }
+    if (run.status !== 0 && !s.SCOPE_ERROR) s.SCOPE_ERROR = `exit ${run.status}`;
+    return s;
+  };
+  const gateTagsOf = (args: string[]): number | null => {
+    const g = runScriptSync(path.join(binDir, 'gstack-gate-diff'), args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
     const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
-    gateTagged = g.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
-  }
+    return g.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
+  };
+  const scope = scopeOf([base]);
+  let gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([base]);
   if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
   const force = flag('--force') === 'all' ? 'all' as const : list('--force');
   const tiersSetting = runScriptSync(path.join(binDir, 'gstack-config'), ['get', 'review_effort_tiers'], { encoding: 'utf8', timeout: 15_000 });
   const auditEffort = has('--no-tiers') || (tiersSetting.stdout ?? '').trim() === 'off' ? 'host' : 'light';
   const { added, diffLines, paths, deleted, stampOnly, perPath, registry } = collected;
+  let fixRange: { base: string; runtime_lines: number | null; error?: string; touched_gate?: true } | undefined;
+  if (rangeBase) {
+    const unread = (error: string) => ({ base: rangeBase, runtime_lines: null, error });
+    const resolved = git(['rev-parse', '--verify', '--quiet', `${rangeBase}^{commit}`])?.trim();
+    if (!resolved) fixRange = unread('not a commit in this repository');
+    else if (git(['merge-base', '--is-ancestor', resolved, 'HEAD']) === null) fixRange = unread('not an ancestor of HEAD');
+    else if (git(['diff', '--quiet', 'HEAD', '--']) === null || collected.untracked.length) fixRange = unread('uncommitted or untracked edits: commit the fixes first');
+    else {
+      const commit = collectCommit(root, resolved, 'HEAD');
+      const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', 'HEAD']), gateTagged: gateTagsOf([resolved]) });
+      fixRange = range.errors.length ? unread(range.errors.map(e => `${e.code} ${e.input}`).join('; '))
+        : !commit.paths.length ? unread('the fix range is empty: commit the fix after the range base')
+        : { base: rangeBase, runtime_lines: range.runtimeLines, ...(range.class === 'gate' ? { touched_gate: true as const } : {}) };
+    }
+  }
   const plan = planReview({
     ...collected, scope, gateTagged, numbers: scanNumbers(added), force, gated: list('--gated'), floor,
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
-    history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below'), blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') },
+    history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below'), blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines },
   });
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
-    process.stdout.write(JSON.stringify({ ...rest, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly }) + '\n');
+    process.stdout.write(JSON.stringify({ ...rest, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly }) + '\n');
     return EXIT.ok;
   }
-  const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`, reviewPlanLine(plan, pass + (plan.next.step === 'full' ? 1 : 0)), `NEXT: ${plan.next.step} (${plan.next.reason})`];
+  const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`];
+  if (fixRange) out.push(`FIX_RANGE: ${fixRange.runtime_lines === null ? `unread (${fixRange.error})` : `runtime_lines=${fixRange.runtime_lines}`} base=${fixRange.base}`);
+  out.push(reviewPlanLine(plan, pass + (plan.next.step === 'full' || plan.next.step === 'scoped' ? 1 : 0)), `NEXT: ${plan.next.step} (${plan.next.reason})`);
   for (const e of plan.errors) out.push(`DEPTH_ERROR: ${e.code} input=${e.input} detail=${e.detail}; fix: ${e.repair}${e.result ? ` (${e.result})` : ''}`);
   for (const d of plan.dispatches) {
     const key = d.name.split(' ')[0];

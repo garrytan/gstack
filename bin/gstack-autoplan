@@ -19,13 +19,14 @@
  *   gstack-autoplan release --out <dir> --attempt <id>  drop a reservation for an attempt that never ran
  *   gstack-autoplan close   --out <dir> --phase <p> --deferred "<reason>" --by <human|agent:<id>>   close a phase accepted-with-findings
  *   gstack-autoplan budget  --out <dir> [--spend-cap <usd>] [--max-rounds <n>] --by <human|agent:<id>>   the owner's journaled cap change
+ *   gstack-autoplan check   --out <dir> --attempt <id> --result <file> --model <id> | --unavailable <reason>   the delta check before a carry
  *   gstack-autoplan checkpoints --from <dir>            list checkpoint generations, newest first, with hash ok|bad
  *   gstack-autoplan contract                            print the coordinator contract every lane prompt inherits (plan E2)
  *
  * Logic: lib/autoplan-run.ts (next/submit/resume), lib/autoplan-gate.ts (close, gate, answer),
  * lib/autoplan-export.ts, lib/autoplan-prompts.ts, lib/spend-ledger.ts. Codes: lib/result-codes.ts.
  * Workflow commands end with GSTACK_RESULT: skill=autoplan status=<s> run=<dir>; the run is never approved here.
- * Mutating verbs (next, submit, answer, recommend, revise, close, budget, export, run) pass admission first (lib/autoplan-admission.ts)
+ * Mutating verbs (next, submit, answer, recommend, revise, close, budget, check, export, run) pass admission first (lib/autoplan-admission.ts)
  * and bring an older run directory forward (lib/autoplan-migrate.ts) under the run lock.
  */
 import * as fs from 'node:fs';
@@ -33,6 +34,7 @@ import * as path from 'node:path';
 import { amendmentSteps, answerGate, closeDeferred, finishGate, recommendGate } from '../lib/autoplan-gate';
 import { gateCost, gateCostPayload, renderGateCost, type GateCost } from '../lib/autoplan-gate-cost';
 import { attemptEstimate, changeBudget, escalateLine, liftStop } from '../lib/autoplan-budget';
+import { DEFAULT_CARRY_CHECK_CAP_USD, carryLines, submitCarryCheck } from '../lib/autoplan-carry';
 import { ANSWERED_BY_RE } from '../lib/gate-list';
 import { checkpointLines, checkpointRun, restoreCheckpoint, type CheckpointMoment } from '../lib/autoplan-checkpoint';
 import { admit, touchInstallLease } from '../lib/autoplan-admission';
@@ -60,6 +62,9 @@ DRIVER: ${driverFile()}
           --estimate-usd: reserved per new attempt; unattended Capy runs reserve a default for host attempts so --spend-cap binds
           --scaffold (first next): a plan missing one of its two sections is reviewed from <out>/plan-source.md with the heading added
           --light loads each phase's checklist plus the sections its scope needs (the unattended default); interactive kinds load everything
+          --no-carry-forward (first next): every later gate revision goes to the owner, even one that asks nothing new
+          --carry-check-cap <usd> (first next): the most one delta check may reserve before a carry (default ${DEFAULT_CARRY_CHECK_CAP_USD.toFixed(2)})
+          the first next prints REVIEW_ESTIMATE: the most the review can reserve at this scope and round cap
           prepare the current phase; one ATTEMPT: line per voice; ends awaiting_result
   submit  --out <dir> --phase <p> --voice native|outside --result <file> | --record <file> [--attest <reason>]
           --model <id> [--attempt <id>] [--runner <r>] [--usage-usd <n>] [--reconcile <jsonl>] [--json]
@@ -84,6 +89,9 @@ DRIVER: ${driverFile()}
   resume  --out <dir> [--from <checkpoint>] [--json]   --from restores a hash-verified checkpoint into an empty --out first
           (a collection or root restores its newest valid generation; GSTACK_AUTOPLAN_CHECKPOINT_DIR set: every command
           leaving the run at rest publishes a generation under <dir>/<run>/ and prints CHECKPOINT: on stderr)
+  check   --out <dir> --attempt <id> --result <file> --model <id> [--same-family "<why>"] | --unavailable "<reason>"
+          bind the one-reviewer delta check a CARRY_CHECK: line asked for: nothing at High or above carries the owner's
+          last answer (CARRIED:); otherwise, or when unavailable, the gate goes to the owner as before
   checkpoints --from <dir>          list checkpoint generations, newest first: run, gate_rev, time, hash ok|bad, current
   close   --out <dir> --phase <p> --deferred "<reason>" --by <human|agent:<id>>
           close the phase accepted-with-findings: open voices skipped (dispatched attempts settle unknown at their
@@ -180,7 +188,10 @@ function doNext(out: string, rest: string[], json: boolean): number {
     const ui = rest.includes('--ui') ? true : rest.includes('--no-ui') ? false : undefined;
     const maxRounds = num(rest, '--max-rounds');
     if (maxRounds !== undefined && (!Number.isInteger(maxRounds) || maxRounds < 1)) throw new RunError('ARTIFACT_SCHEMA', '--max-rounds needs an integer >= 1', 1);
+    const carryCheckCapUsd = num(rest, '--carry-check-cap');
+    if (carryCheckCapUsd !== undefined && !(carryCheckCapUsd >= 0)) throw new RunError('ARTIFACT_SCHEMA', '--carry-check-cap needs a number >= 0', 1);
     initRun({ plan, out, cwd, planHeading: flag(rest, '--plan-heading'), outsideEnabled: !rest.includes('--no-outside'), spendCap: num(rest, '--spend-cap') ?? null, maxRounds,
+      carryForward: !rest.includes('--no-carry-forward'), carryCheckCapUsd,
       deadlineMin: num(rest, '--deadline'), light: rest.includes('--light'), scaffold: rest.includes('--scaffold'), scope: { ui, developerTool: rest.includes('--developer-tool'), agentPrimary: rest.includes('--agent-primary'), dx: rest.includes('--no-dx') ? false : undefined, ...(rest.includes('--docs-only') ? { docsOnly: true } : {}) } }, initLines);
   }
   const redispatch = rest.flatMap((a, i) => (a === '--redispatch' && rest[i + 1] ? [rest[i + 1]!] : []));
@@ -257,11 +268,24 @@ function doClose(out: string, rest: string[], json: boolean): number {
   const r = closeDeferred(state, phase as Phase, { reason: reason.trim(), by, cause: 'owner' });
   moment = 'transition';
   const lines = [...r.lines, ...(stopped ? liftStop(state, `${phase} closed deferred by ${by}`) : [])];
-  if (!currentPhase(state)) { finishGate(state); lines.push(...gateLines(state, out)); }
+  if (!currentPhase(state)) { finishGate(state); lines.push(...carryLines(state), ...(state.status === 'gate_pending' ? gateLines(state, out) : [])); }
   else { state.status = 'running'; lines.push(`NEXT: gstack-autoplan next --out ${out}`); }
   writeState(state);
   lines.push(resultLineFor(state.status, out));
   emit(json, lines, { run: state.run, status: state.status, phase, blockers: r.blockers, gate_rev: state.gate_rev ?? null, ...gateCostField(state, out), out });
+  return EXIT.ok;
+}
+
+/** `check`: the delta reviewer's verdict before a carry (lib/autoplan-carry.ts). */
+function doCheck(out: string, rest: string[], json: boolean): number {
+  const unavailable = flag(rest, '--unavailable');
+  const result = flag(rest, '--result');
+  if (unavailable === undefined && (!result || !flag(rest, '--model'))) return usage('check needs --attempt <id> and --result <file> --model <id>, or --unavailable "<reason>"');
+  const r = submitCarryCheck({ out, attempt: flag(rest, '--attempt'), result: result ? path.resolve(result) : undefined, model: flag(rest, '--model'), unavailable, sameFamily: flag(rest, '--same-family') });
+  moment = 'transition';
+  const status = r.state.status;
+  const lines = [...r.lines, ...(status === 'gate_pending' ? gateLines(r.state, out) : []), ...(status === 'amend_pending' || status === 'running' ? [nextLine(r.state, out)] : []), resultLineFor(status, out)];
+  emit(json, lines, { run: r.state.run, status, gate_rev: r.state.gate_rev ?? null, carry: r.state.carry ?? null, out });
   return EXIT.ok;
 }
 
@@ -338,6 +362,7 @@ async function main(argv: string[]): Promise<number> {
     if (cmd === 'revise') return mutating(out, json, () => doRevise(out, rest, json));
     if (cmd === 'close') return mutating(out, json, () => doClose(out, rest, json));
     if (cmd === 'budget') return mutating(out, json, () => doBudget(out, rest, json));
+    if (cmd === 'check') return mutating(out, json, () => doCheck(out, rest, json));
     if (cmd === 'run') { const admission = admit(process.env); if (admission.lines.length) process.stdout.write(admission.lines.join('\n') + '\n'); return await doRun(out, rest, json); }
     if (cmd === 'status') {
       const state = readState(out);
@@ -416,7 +441,7 @@ async function main(argv: string[]): Promise<number> {
     if (e instanceof RunError) {
       process.stderr.write(resultLine(`gstack-autoplan ${cmd}`, e.code, e.detail) + '\n');
       if (e.after.lines?.length) process.stdout.write(e.after.lines.join('\n') + '\n');
-      if (['next', 'submit', 'answer', 'resume', 'run', 'revise', 'recommend', 'close', 'budget'].includes(cmd)) process.stdout.write(resultLineFor(e.after.status ?? 'refused', out) + '\n');
+      if (['next', 'submit', 'answer', 'resume', 'run', 'revise', 'recommend', 'close', 'budget', 'check'].includes(cmd)) process.stdout.write(resultLineFor(e.after.status ?? 'refused', out) + '\n');
       return e.exit === 3 ? EXIT.refused : EXIT.fail;
     }
     process.stderr.write(`gstack-autoplan ${cmd}: ${e?.message ?? e}\n`);

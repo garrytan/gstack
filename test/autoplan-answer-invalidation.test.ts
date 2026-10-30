@@ -113,7 +113,7 @@ describe('answer', () => {
   }, 30_000);
 
   test('a non-recommended choice on a ceo item is recorded without reopening; revise reopens the changed phases, archives their bound files, and the next gate is gate_rev 2', () => {
-    const out = gatedRun('reopen');
+    const out = gatedRun('reopen', ['--no-carry-forward']);
     const r = autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', 'all except d1b', '--json']);
     expect(r.status, r.stderr).toBe(0);
     const runId = readRun(out).run;
@@ -166,7 +166,7 @@ describe('answer', () => {
   }, 30_000);
 
   test('an eng-only override reopens nothing at answer; revise reruns every phase that reviewed the old plan; p1d reopens every phase; p1c keeps the gate; p1e ends incomplete', () => {
-    const out = gatedRun('eng-only', ['--max-rounds', '3']);
+    const out = gatedRun('eng-only', ['--max-rounds', '3', '--no-carry-forward']);
     const engOnly = autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', 'all except uc2b', '--json']);
     const runId = readRun(out).run;
     expect(JSON.parse(engOnly.stdout)).toMatchObject({ outcome: 'amend_pending', reopened: [], amendments: [`${runId}-uc2`] });
