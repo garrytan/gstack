@@ -1856,7 +1856,7 @@ owner's call: run the printed `RECOVER:` line; its resume needs
 ### `gstack-ship-budget: ... (BUDGET_READING_REJECTED)`
 
 **Meaning.** The reading breaks the run's meter contract: it is lower than the last reading
-of the same epoch, `--prior-reading` is above `--reading`, or `--reading` went to a meter that
+of the same epoch, `--prior-reading` or `--dispatched-at` is above `--reading`, or `--reading` went to a meter that
 reads its own source (Claude Code journals, the estimate). Exit 2; nothing changed.
 
 **Fix.** Pass the counter the run started with (the BUDGET line names meter, unit and epoch).
@@ -1908,7 +1908,7 @@ and actual value. Main moving alone keeps the merge base and never refuses. Exit
 wrote its return with status=refused.
 
 **Fix.** The parent reconciles the refusal and regenerates the handoff at the current tree
-(`gstack-ship-budget handoff ...`) or stops.
+(`gstack-ship-budget handoff ...`) or stops. The reconcile stops the run (`reason=child_refused`): every check refuses until a regenerated child reconciles complete or the owner runs `gstack-ship-budget resume`.
 
 <a id="review-coverage-incomplete"></a>
 ### `gstack-review-packet collect: ... (REVIEW_COVERAGE_INCOMPLETE)`
