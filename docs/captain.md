@@ -10,7 +10,9 @@ to `/crew`); the lane-side rules for a thread working under a Captain are in
 [capy-install.md](capy-install.md#working-under-a-captain). Every file named below has a
 copy-paste template under [`captain/templates/`](../captain/templates/). For the story of how
 one owner's crews run this day to day, with measured numbers, read
-[capy/README.md](../capy/README.md).
+[capy/README.md](../capy/README.md). Every Capy session also reads
+[`capy/skill/gstack/factory.md`](../capy/skill/gstack/factory.md), a one-page summary of
+these practices with pointers to the rules.
 
 ## The model in one paragraph
 
@@ -32,7 +34,10 @@ by a daily pass; nothing is retried into green.
 - **The controller** (the Captain) runs the crew: starts lanes on disjoint files, keeps the
   rules file, the digest and the notes, validates READYs, builds and merges trains, calls
   slots, relays asks to the owner in the three shapes, runs the flaky pass, and decides
-  everything that needs no access, credentials, spend over cap or a cited approval.
+  everything that needs no access, credentials, spend over cap or a cited approval. It
+  archives its own child threads, including ones its crew or its automations started
+  outside the crew, when its plan for each thread says that thread's work is done; it
+  knows each thread's next step, so nobody else archives them.
 - **A lane** (a crew thread) owns named files, builds on its own branch and machine,
   runs /ship, sends one READY block, stamps on call (merging the base into its pin only
   as part of that stamp commit, or when the controller names a real-code conflict),
@@ -129,7 +134,7 @@ alone is not an ask.
 A lane that builds something plans first. Its first act after the session-start install
 check, before any product code, is a `/autoplan` run on its brief, sized to the work. The
 phases run in order, CEO, then design, then DX, then eng, with design and DX only when the
-scope has them, and a one-file fix gets a short run (`--no-ui --no-dx --max-rounds 1`, with
+scope has them, and a fix the exemptions below don't cover gets a short run (`--no-ui --no-dx --max-rounds 1`, with
 `--estimate-usd` set so a small `--spend-cap` still seats its attempts), not no run. On Capy the
 unattended loop is `autoplan/DRIVER.md` in the gstack checkout. New functionality a lane
 takes on part-way, scope its brief did not name, gets its own plan and its own ask before
@@ -173,7 +178,13 @@ The brief's done line names the row. A plan approval is not a READY field; the
 
 **Exemptions.** Read-only lanes (triage, research, measurement, a review voice), the daily
 flaky pass's repairs, slot stamps, CHANGELOG-only conflict resolves and a size or budget
-cap re-pinned under the controller's written grant need no plan. A crew may add exemptions
+cap re-pinned under the controller's written grant need no plan. Two kinds of fix are exempt
+too: an S1 emergency (a broken install or upgrade, a red main, a security bug), and a fix
+from a problem list that was already diagnosed and audited, where that list is the plan.
+Every other fix, a one-line bug fix included, gets a one-round, eng-only plan: the short
+run above, with the CEO phase closed before its voices are dispatched
+(`gstack-autoplan close --out <run dir> --phase ceo --deferred "eng-only fix plan" --by agent:<thread>`).
+A crew may add exemptions
 in its rules file with the owner's words and date; it does not remove these. The brief
 says which applies, `Plan: required | approved: <run> | exempt: <reason>`, so an
 already-approved plan is not planned twice and exempt work does not wait on an ask.
@@ -361,7 +372,9 @@ only the run the lane named.
 Every report ends with one Lesson. The controller reads lessons before chat, and each
 one becomes a rule in CREW.md, a line in AGENTS.md, or a tool fix filed as an issue;
 nothing stays a lesson for long. Rules carry the thread that produced them, so a new lane
-can read the incident behind the rule.
+can read the incident behind the rule. When the owner states a rule meant for every
+Captain, forward it in the same turn to the thread that keeps the account's shared rules,
+so every crew gets it.
 
 ## Setting it up on Capy
 

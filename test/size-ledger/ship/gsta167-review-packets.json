@@ -1,4 +1,0 @@
-{
-  "bytes": -1608,
-  "why": "GSTA-167 reviewer packets: Step 9.1 dispatches each reviewer by one packet file (gstack-review-packet build/collect) in place of the inlined specialist prompt; Red Team, fix-check, Step 11 and the Step 7/8 audits read packets too; replay fixes: read= ranges and END OF PACKET in the reviewer brief, BUDGET_NEXT handoff, outside-voice left out of --only when nothing runs it"
-}

@@ -139,7 +139,7 @@ Review each entry before committing the file on the base branch.
 
 `{ "tests": [globs] }` names whole-tree tests that scan every file of a kind (tripwires, ratchets, conformance and fixture inventories). A diff-selected run never maps a touched file to them, so they used to pass the selected gate and then fail CI (GST-98). When a branch selects any test, owes a lane, or edits this file, the `lanes` selection adds every tracked test file a glob matches. `--explain` prints each one as `<test> (always_run, .gstack/always-run.json)`, and a glob that matches no test as `<glob> matches no test file`. A docs-only branch adds nothing.
 
-The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list matches 15 test files; the 13 with a seed in `scripts/free-test-durations.json` (recorded 2026-10-19) total about 13 s there, and `bun-entry-isolation` and `launch-env-echo-ratchet` have no seed yet.
+The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list matches 16 test files; the 13 with a seed in `scripts/free-test-durations.json` (recorded 2026-10-19) total about 13 s there, and `bun-entry-isolation`, `launch-env-echo-ratchet` and `review-packets-removed` have no seed yet.
 
 ## `gstack-pregate`
 
@@ -456,7 +456,8 @@ receipt for H when the two trees differ only as a stamp does:
   stamps, each hunk in them must be the exact old → new rewrite under
   `stamp_patterns` (literal `{version}` templates) or the built-in forms
   (`(was X)`, `since: X`, `vX`), and the version file, `package.json`'s
-  `version`, a lockfile's root version keys and a CHANGELOG re-heading have
+  `version`, a lockfile's root version keys and a CHANGELOG re-heading (under
+  `changelog_fragments`, also the fold of the fragments the head deletes) have
   their own built-in rules. There is no second list and no looser rule here:
   the file verdicts `clear` reaches on a pair are the verdicts
   `gstack-tree-receipt --gated G --current H` reaches, and its gate rule holds
@@ -475,7 +476,9 @@ receipt for H when the two trees differ only as a stamp does:
   the policy label (`origin/<base>@<sha>:.gstack/ship-policy.json`) and every
   differing path with the rule that classed it (`version-file`,
   `version-manifest`, `manifest-version`, `lockfile-root-version`,
-  `changelog-heading`, `stamp_files`, `stamp_paths`, `release_outputs`). `clear` prints the same
+  `changelog-heading`, `changelog-fragments` for the CHANGELOG under the fold,
+  `changelog_fragments` for a folded fragment's deletion, `stamp_files`,
+  `stamp_paths`, `release_outputs`). `clear` prints the same
   as `PREGATE_RECEIPT_SUBSTITUTED: …`, `verify` repeats it on its ok line, and
   the ship receipt carries the receipt string. The receipt's own tests and
   failed checks apply as before (its exit status is checked only when

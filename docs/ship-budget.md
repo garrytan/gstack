@@ -86,10 +86,7 @@ prints `ADMIT: k of n (remaining=<roles>)`: dispatch those k, then re-check the 
 once they settle. Only a batch whose first reader does not fit stops, and `close` flags remaining
 roles no later check requested (`DROPPED:`, status=incomplete until the owner accepts).
 Roles are review-depth's: `specialist`, `red-team`, `adversarial-native`, `outside-voice`,
-`fix-check`. /ship passes the `BUDGET_NEXT: dispatch:<roles>` value that the batch's
-`gstack-review-packet build` prints, one role per packet: a Step 7/8 audit reserves as
-`specialist` and a shard as its reviewer's role
-([review-policy.md](review-policy.md#reviewer-packets)). `--finish <token>` is the pass's completion receipt: it settles that reservation and
+`fix-check`. `--finish <token>` is the pass's completion receipt: it settles that reservation and
 every other dispatch reservation started in the same step, so reviewers admitted one at a time
 do not stay reserved. Name a reviewer that came back in your next check
 (`check ... --returned <id>[,<id>...]`), or, when other work comes first, `settle --reservation <id>

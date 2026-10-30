@@ -160,6 +160,9 @@ describe('gstack-ship-policy (bin)', () => {
     expect(r.out).toMatch(/^ship: bump patch: Step 12 never asks/m);
     expect(r.out).toMatch(/^ship: release_tool: `node gen\.js` runs only inside gstack-restamp/m);
     expect(r.out).not.toMatch(/^ship: history/m);
+    expect(r.out).not.toMatch(/^ship: changelog_fragments/m);
+    const frag = fixture({ policy: { ...BASE_POLICY, changelog_fragments: { dir: 'changelog.d/' }, min_gstack_version: '1.92.0.0' } });
+    expect(runBin(frag, 'gstack-ship-policy', ['show-effective', '--base', 'main']).out).toMatch(/^ship: changelog_fragments changelog\.d: Step 12 writes no version and Step 13 writes the entry as changelog\.d\/<branch-slug>\.md .*never an \[Unreleased\] section; lint it with `gstack-prose-lint changelog\.d\/<branch-slug>\.md --gate`/m);
     const strict = fixture({ policy: { ...BASE_POLICY, history: 'merge-only', queue_mode: 'claim-at-open', bump: 'ask', release_tool: null, preregistration_shas: ['0123456789abcdef0123456789abcdef01234567'] } });
     const lines = runBin(strict, 'gstack-ship-policy', ['show-effective', '--base', 'main']).out.split('\n').filter(l => l.startsWith('ship: '));
     expect(lines.map(l => l.split(':')[1]!.trim())).toEqual(['history merge-only', 'queue_mode claim-at-open', 'bump ask', 'review_scope frozen', 'preregistration']);

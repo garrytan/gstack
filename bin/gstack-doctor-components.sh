@@ -315,6 +315,11 @@ gstack_result_anchor() {
     RECEIPT_PROSE_MISMATCH) printf '%s' 'receipt-prose-mismatch' ;;
     RECEIPT_CARRY_PREGATE_STALE) printf '%s' 'receipt-carry-pregate-stale' ;;
     RECEIPT_GIT_TOO_OLD) printf '%s' 'receipt-git-too-old' ;;
+    CHANGELOG_FRAGMENT_INVALID) printf '%s' 'changelog-fragment-invalid' ;;
+    QUEUE_LAND_LOCKED) printf '%s' 'queue-land-locked' ;;
+    QUEUE_LAND_CONFLICT) printf '%s' 'queue-land-conflict' ;;
+    QUEUE_LAND_DRIFT) printf '%s' 'queue-land-drift' ;;
+    QUEUE_LAND_BASE_BUSY) printf '%s' 'queue-land-base-busy' ;;
     PR_WAIT_BLOCKED) printf '%s' 'pr-wait-blocked' ;;
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
     APPROVAL_RECORD_INVALID) printf '%s' 'approval-record-invalid' ;;
@@ -338,7 +343,6 @@ gstack_result_anchor() {
     BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
     BUDGET_CHECK_SKIPPED) printf '%s' 'budget-check-skipped' ;;
-    REVIEW_COVERAGE_INCOMPLETE) printf '%s' 'review-coverage-incomplete' ;;
     HANDOFF_PIN_MOVED) printf '%s' 'handoff-pin-moved' ;;
     *) return 1 ;;
   esac

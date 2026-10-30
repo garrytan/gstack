@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.338.0] - 2026-10-30
 
 **A sealed-guard waiver now counts only when it names the full commit sha.** A `.gstack/sealed-allow.tsv` line used to accept a sha as short as 7 hex characters and waive any commit whose sha started with it. A PR author could generate a commit with the same first 7 characters in minutes and publish different content at the same path under an old, reviewed waiver. A waiver now matches only the finding's full commit sha (40 hex characters, 64 in a SHA-256 repository). A shortened, uppercase or mistyped sha is ignored, so the finding still refuses, and stderr says which line was ignored and which commit the finding is in, to review before anyone waives it.
 
@@ -10,6 +10,90 @@
 
 ### Tests
 - `test/sealed-guard.test.ts`: 7-, 12- and 39-character prefixes, an uppercase sha and one extra character do not waive and are named; the full sha waives, trailing whitespace included; another commit's full sha does not waive; a short line with no matching finding prints nothing; a waiver applied to one commit is not reported for a later one; a text rule with two matching lines names a short waiver once; a SHA-256 repository accepts 64 characters and rejects 40, 63 and 65; error reports carry an empty list. The two existing waiver tests now write the full sha.
+
+## [1.91.337.0] - 2026-10-30
+
+### Changed
+- **Plan first has two narrow fix exemptions.** An S1 emergency (a broken install or upgrade, a red main, a security bug) and a fix from a problem list that was already diagnosed and audited can be built without an `/autoplan` run. Every other fix, a one-line bug fix included, gets a one-round, eng-only plan. `docs/captain.md` § Plan before build says how, and `captain/SKILL.md`, `captain/templates/CREW.md` rule 24 and the Capy skill's SKILL.md list the same exemptions.
+
+## [1.91.336.0] - 2026-10-30
+
+**A repository can now assign its version when a PR merges instead of inside the PR: PRs carry unversioned CHANGELOG fragments and `gstack-ship-queue land` stamps, pushes and merges.** Today every PR picks a version before it merges, so each merge makes the next PR's version stale and its lane redoes the stamp (a median 14.5 minutes from stamp commit to merge over 30 slots, Oct 27-29; the queue froze on hand-made stamps in #3422 and #3487). With `changelog_fragments` on, two PRs cut from one base cannot collide, and nobody stamps by hand. gstack's own policy does not turn it on in this release (docs/ship-policy.md#changelog-fragments).
+
+### Added
+- **`changelog_fragments: { dir }`** (`lib/ship-policy.ts`, `lib/changelog-fragments.ts`): a PR adds `<dir>/<slug>.md` with its entry text and optional `bump: minor|major` front matter. Fragments are read as Git blobs only; a symlink, gitlink, nested path, empty or oversized fragment, one with a release heading, a reused name, or one whose text is already released on the base (a parent PR's fragment carried in by stacked history) is `CHANGELOG_FRAGMENT_INVALID` before any version is allocated.
+- **`gstack-restamp` folds fragments**: their bodies go above any legacy `[Unreleased]` section under one new heading, the files are deleted, and the highest declared bump wins over the policy's. The tree receipt's `changelog-fragments` rule accepts exactly that fold and nothing else.
+- **`gstack-ship-queue land --pr <n>`** (`lib/ship-queue-land.ts`): the per-PR merge step. It takes the land lock (`refs/notes/gstack-land`), checks the /ship receipt, the READY receipt and checks at the pin, merges the base resolving release fields only (a clean dependency edit survives; a product conflict refuses), stamps, pushes a commit with parents [pin, base] under an exact lease, waits for checks, restamps if the base moved (at most twice), squashes with `--match-head-commit` (merges with `--merge` under `history: merge-only`) and confirms the base tree. A PR whose base is another branch refuses before the lock; a refusal before the push releases the lock. Every step is journaled and resumable, also from the stamp commit's pin when the local journal is gone. `--repair` opens the follow-up PR after `QUEUE_LAND_DRIFT`; `--census` prints what land would do with every open PR, writing nothing.
+- **/ship writes the fragment** (`lib/ship-policy.ts`, `ship/SKILL.md.tmpl`): under the key, `show-effective` prints a `ship: changelog_fragments` line, so Step 12 writes no version and Step 13 writes `<dir>/<branch-slug>.md` (linted with `gstack-prose-lint --gate`) instead of an `[Unreleased]` section; the skill's policy paragraph now says its `ship:` lines bind Steps 12–16.
+- **`restamp_command` gets `GSTACK_RESTAMP_BASE_SHA`**, the release predecessor, so a repo counter such as a SAVE_VERSION computes predecessor + 1 from the base and never from the branch.
+- New result codes with troubleshooting anchors: `CHANGELOG_FRAGMENT_INVALID`, `QUEUE_LAND_LOCKED`, `QUEUE_LAND_CONFLICT`, `QUEUE_LAND_DRIFT`, `QUEUE_LAND_BASE_BUSY`.
+
+### Changed
+- **Version Gate runs on every PR** (the path filter is gone), so under `changelog_fragments` a PR that touches no release file still proves it carries a fragment. An unstamped head keeps its release fields at its merge base and adds a valid fragment (legacy `[Unreleased]` passes; a `[bot]` author needs none); a merge-step stamp commit must have parents [pin, base] and carry the base plus its fragments' effective bump, so a lane that stamps its own head fails. Without the key nothing changes.
+
+### Tests
+- `test/changelog-fragments.test.ts`: blob-only reads and refusals, a carried-back fragment refused on whole released lines only, bump precedence, fold order with a legacy section, the restamp fold and its tree receipt, an edited fold refused.
+- `test/ship-queue-land.test.ts` (bare origin and a gh shim): happy path; two PRs from one base without a collision; a legacy stamp plus a dependency edit; a title-derived entry; a product conflict; the lock and `--break-lock`; the base moving during CI; a foreign push never overwritten; a missing receipt; drift, `--repair` and the lock release; the census; a receipt that fails #3567's depth check refuses; a base with a four-part package.json in `stamp_files` lands four parts (#3557), gstack's own shape stays three; one run without `--no-wait` merges; a PR on another base refuses; `--break-lock` refuses a drift lock; a conflict releases the lock; a stacked parent's fragment refuses; a lost journal resumes; `merge-only` merges with `--merge`; a merge GitHub completed behind an error reply reconciles; `--break-lock` refuses a holder mid-merge; `--repair` resumes after a failed PR create and its PR takes over from a clean checkout; a symlinked legacy VERSION refuses in `--dry-run`; a `package.json` version source keeps its dependency edits.
+- `test/version-gate-fragments.test.ts`: fragment heads, premature version changes, a bot author, an advanced base, an invalid fragment, the stamp commit's effective bump (open version claims do not apply to it), and the workflow's missing path filter.
+- `test/restamp-command-boundary.test.ts`: the hook reads its counter from `GSTACK_RESTAMP_BASE_SHA`, not the branch.
+
+## [1.91.335.0] - 2026-10-30
+
+### Fixed
+- **Captains now read factory.md and the owner's model preference.** A Capy session with no gstack checkout (every Captain and coordinator, which run `install.sh --check --for none`) used to skip factory.md without a word and never applied `agent_model`, because both were read only from the checkout. The skill now tells it to read the `factory.md` beside SKILL.md, to say `factory.md: none` on its own line when there isn't one, and to read the `agent_model` line of `preferences.yaml` itself. Owners get the fix by copying `capy/skill/gstack/` into the Drive skill folder.
+
+## [1.91.334.0] - 2026-10-30
+
+**OpenClaw opens gstack's large task skills again (GST-110).** #3555 made `hybrid` OpenClaw's default and registered review, investigate, qa, ship and plan-eng-review as skills of their own. OpenClaw 2026.10.6 serves a registered skill's `SKILL.md` whole or refuses it, with a 32,768-byte limit when its model catalog has no context window for the model. In HARN-5's panel the agent's first read of the 77,691-byte `gstack-review` file was refused in 4 of 5 trials, and opens fell from 5/5 to 0/5. Under the router layout the same file had been read as a plain file inside the router's folder, which OpenClaw pages.
+
+### Fixed
+- **`gstack-harness register openclaw`** (`lib/harness-register.ts`): a skill whose rendered `SKILL.md` is over 32,000 bytes (`OPENCLAW_INSTRUCTION_MAX`, under both OpenClaw's 32,768-byte limit and the 32,000-character budget it applies with a 100K-200K-token context window, with the OpenClaw source lines it comes from) is registered as a short entry with the same frontmatter whose body says to read the skill's full `SKILL.md` in a plain copy of every skill and follow it. In hybrid that copy is the router's `gstack/skills/`, where the router layout read the same file, now including the five task skills; under `--skills all` it is `.gstack-skills/`, a folder OpenClaw's skill scan skips. Because the copy holds every skill, `sections/` paths and sibling paths such as `../gstack-qa/` and autoplan's `../gstack-plan-eng-review/SKILL.md` resolve to full texts. That covers four of hybrid's five direct skills and 26 of 63 skills in `--skills all` today. OpenClaw treats only a registered skill folder's `SKILL.md` as an instruction file. The ledger records the copies, so refresh, mode switches, upgrades from a #3555 registration and uninstall handle them. Skill bodies are unchanged, and Hermes, dots and `generic` registrations are byte-identical.
+- docs/hosts.md and docs/OPENCLAW.md describe the entry and the limit, and docs/uninstall.md's manual OpenClaw removal command also removes `.gstack-skills/`.
+
+### Tests
+- `test/harness-register.test.ts`: in hybrid and all, every `SKILL.md` OpenClaw would register is within the limit, each entry names a full `SKILL.md` that exists, has the same frontmatter, is outside OpenClaw's registered set and is in the ledger, every `../gstack-*` path in the copied texts resolves to a full text, re-registering over a #3555 registration converts it cleanly, and uninstall leaves nothing. Hermes's registration equals its render byte for byte. With `GSTACK_OPENCLAW_BIN` or `openclaw` on PATH, a real `openclaw skills list --json` and `skills info` show exactly `gstack` and the five task skills, each served from an entry within the limit.
+
+## [1.91.333.0] - 2026-10-30
+
+**`gstack-factory-scorecard --now` now ends the window, so a past week no longer counts what happened after it.** Every line counts only items whose timestamps fall in `[now - since-days, now)`. Before, `--now` moved only the start, so `--now 2026-10-15T00:00:00Z --since-days 14` counted 290 merged PRs (every merge from 2026-10-01 through the day of the run) where the window holds 65, and the gate-run and release lines also counted through the day of the run. Rerun with the fix, the two weeks before 2026-10-15 show 65 merged PRs and the two weeks before 2026-10-29 show 197, matching GitHub search for both windows.
+
+### Fixed
+- **`lib/factory-scorecard.ts`**: one window (`scoreWindow`, `inWindow`) bounds merged PRs and their lead times, gate runs and their cost, the red-train rate, flaky events, free-suite retries, issues and releases. The workflow-runs query asks GitHub for the window's days (`created=<start>..<end>`), and the issue searches use a closed time range instead of `>=start`. Releases are read to the last page, because GitHub orders them by creation and a draft can be published long after it was created, and a PR, gate-run or release read that runs past 20 pages now marks its line unavailable instead of printing a partial count.
+- **`scripts/lib/ci-history.ts`**: `listWorkflowRuns` takes an optional `until` (exclusive), compares both ends of the window as instants and skips a run whose `created_at` does not parse; `createdFilter` builds the runs API's `created` query for both callers.
+- **`docs/recommended-harness.md`**: "Where gstack's own numbers stand" is remeasured for the exact week of 2026-10-19 through 2026-10-25 UTC: 83 merged PRs (not 103), median lead time 6.5h, 54 gate runs (52 green, 2 red), $1,361.94 of known gate cost, 17 paid flake records across 11 cases, 0 releases. The earlier figures came from a run before this fix, so they counted past the end of the week.
+
+### Tests
+- `test/factory-scorecard.test.ts`: a PR merged exactly at `--now`, and a gate run, free run and release after it, are left out; the runs and issue queries carry the window's end. A sub-second `--now` keeps the issue search range inside the window, releases behind a full page of newer ones are found, a release published late is found on a later page, and a PR, gate-run or release read past the page cap is unavailable.
+
+## [1.91.332.0] - 2026-10-30
+
+**gstack can remember which model you want your agents on, and every Capy session now reads a one-page summary of how crews work.** Set `agent_model` once (`opus`, another family, or an exact `provider/model`) and `gstack-models resolve --role agent` returns it whenever an agent picks a model for a lane, subagent or reviewer. Unset, every agent keeps its own model, and gstack takes no position for or against any model. A cross-family outside voice and a model under test in an eval ignore the preference on purpose. On Capy the preference lives in `preferences.yaml` beside the gstack skill in your Drive, so it survives fresh machines without being copied anywhere.
+
+### Added
+- **`gstack-models resolve --role agent [--request <model>]`**: the agent role. A one-job request wins and is never saved, then `agent_model` in this machine's config.yaml, then the preferences file, then `host`. Output names the winner, both stored values and the exemptions; `list` gains an agent block and `list --json` a top-level `agent` key, with `selections` unchanged.
+- **`agent_model`** in `gstack-config`, checked with the same grammar as the resolver: `host`, a family (`opus`, `fable`, `sonnet`, `haiku`, `astra`, `sol`, `luna`, `terra`) or `<provider>/<model>`. A bad value stops only the agent role, naming the file and the fix; plan-review, implementation and eval-arms keep resolving.
+- **`capy/skill/gstack/factory.md`**: thirteen practices the Captain crews converged on, each pointing at the rule it summarizes, at most 3,300 bytes. SKILL.md's session start tells every session to read it once.
+
+### Changed
+- The Capy session start (`bin/gstack-capy-session`, which updates with the checkout) points `GSTACK_PREFERENCES_FILE` at `preferences.yaml` next to the Drive skill's SKILL.md, and the installer writes it into the launch file. `--check` never writes the skill folder, and the frozen Drive bootstrapper is unchanged.
+- SKILL.md allows exactly one write in the skill folder: `preferences.yaml`, when the owner asks an agent to remember a preference.
+- `docs/model-policy.md` gains "Your model preference". `docs/captain.md` links factory.md, says to forward an owner's rule for every Captain, in the same turn, to the thread that keeps the account's shared rules, and says the Captain archives its own child threads by its plan for each, including ones its crew or automations started.
+
+## [1.91.331.0] - 2026-10-30
+
+**`/ship` and `/review` go back to the reviewers they used in 1.91.325.0, because the newer reviewers missed real blockers.** In 1.91.326.0 (#3621) each reviewer started reading one prepared packet of the diff instead of reading the diff and the code around it, and the parent read a short findings record. 1.91.330.0 (#3636) let packet reviewers read a little beyond their hunks. A replay of 14 merged PRs (GSTA-167 no-loss round 3) then showed that the old reviewers find 19 of the 30 known blockers, and the packet reviewers, even with the looser reading rule, found only 10 of those 19 (the replay's counting rule favored the old review, and the packet reviewers also found 2 blockers it missed, but the preregistered bar allowed 1 miss and they had 9). So reviews run with gstack 1.91.326.0 through 1.91.330.0 are not as thorough as the review before them, and a PR reviewed on one of those versions may still hide a blocker the old review would have caught.
+
+If you use gstack through Capy, copy `capy/skill/gstack/` over your Drive skill folder again after upgrading, because the copy from 1.91.326.0 tells `/ship` to run `gstack-review-packet`, which this release removes. A `/ship` run that started on 1.91.326.0 through 1.91.330.0 should be restarted after the upgrade for the same reason.
+
+### Removed
+- The packet reviewers: `bin/gstack-review-packet`, `lib/review-packet.ts`, `lib/review-packet-collect.ts`, `lib/review-plan-live.ts`, `lib/review-prompts.ts`, their tests, the reading rule #3636 added for packets, and the two size-ledger entries that paid for them.
+
+### Changed
+- The specialist dispatch, reviewer prompts and findings collect in `ship/sections/`, `scripts/resolvers/`, `bin/gstack-review-plan`, `lib/review-collect.ts`, `docs/review-policy.md`, `docs/ship-budget.md` and `docs/troubleshooting.md` are back to what 1.91.325.0 shipped, byte for byte. Everything else that landed since then stays, including the Capy README, the ship-queue screen change and the pregate always-run list.
+
+### Tests
+- The reviewer briefs rendered for one sample diff at 21ad261 and at 1.91.325.0 (dcd62c3) were identical when checked once by hand; no test repeats that comparison. `test/review-packet.test.ts` goes away with the code it tested, and the tests #3621 edited return to their 1.91.325.0 text.
+- `test/review-packets-removed.test.ts` (new) fails if any removed packet file comes back or any tracked file other than this CHANGELOG still names one or the packet-only anchors and codes, so a branch cut before this revert cannot merge a dangling call to them. It is on `.gstack/always-run.json`, so the selected pregate runs it on every code branch.
 
 ## [1.91.330.0] - 2026-10-30
 
