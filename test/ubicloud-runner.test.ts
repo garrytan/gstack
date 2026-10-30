@@ -493,7 +493,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       // Value: protects=UBI_LEFT_FILE carries the same leftover line pregate-remote.sh parses, apart from the command's output; fails_when=the file is not written or its format drifts from pregate-remote.sh's parser; why_new=the pregate stub hand-copies the format; seam=none; no_claim=real VM teardown (fake API and ssh)
       expect(readFileSync(leftFile, 'utf8')).toMatch(/^UBICLOUD: left=0 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n$/);
       const parser = read('scripts/ubicloud/pregate-remote.sh').match(/left=\$\(sed -n '([^']+)' "\$log\.left"/)![1];
-      expect(Bun.spawnSync(['sed', '-n', parser, leftFile]).stdout.toString()).toBe('0\n');
+      expect(Bun.spawnSync(['sed', '-n', parser, leftFile], { timeout: 30_000 }).stdout.toString()).toBe('0\n');
       // Value: protects=run --keep reports its live VM as UBICLOUD: left=1 ... kept=1 and never a clean left=0; fails_when=the kept line is dropped or --keep still prints the teardown line; why_new=no test runs run --keep; seam=none; no_claim=real VM lifetime (fake API and ssh)
       const kept = f.run(['run', '--src', f.root, '--keep', '--', 'true'], { UBI_REAP: '0' });
       const keptErr = kept.stderr.toString();
