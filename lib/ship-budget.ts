@@ -547,7 +547,7 @@ export function admitReviewStart(marker: string, reservation: string | undefined
  */
 export function settleReviewFinish(marker: string, token: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   const active = activeLedger(marker);
-  const started = (r: Reservation) => r.state === 'consumed' && (r.token === token || !!r.starts?.some(s => s.token === token));
+  const started = (r: Reservation) => (r.state === 'consumed' || r.state === 'settled') && (r.token === token || !!r.starts?.some(s => s.token === token));
   if (!active || !active.reservations.some(started)) return undefined;
   return mutateLedger(active.file, env, l => {
     const r = l.reservations.find(started);

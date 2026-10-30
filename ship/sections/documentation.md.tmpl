@@ -40,7 +40,7 @@ lines that name a changed code path and the diff of the changed docs plus that c
 build blocks before launch. Dispatch one subagent whose whole brief is Step 7's packet brief
 with this packet's `read=` ranges; retain the child id. It proposes edits as findings and
 never writes a doc. Under a token cap the dispatch is one program, like a review pass:
-`gstack-ship-budget check --run <id> --step 14.5 --next "$BUDGET_NEXT"` (build's line), the reading `BEFORE`
+`gstack-ship-budget check --run <id> --step 14.5 --next "$BUDGET_NEXT" --reading <n>` (build's line, a fresh reading), the reading `BEFORE`
 right before the reader starts, `tools.subagent.create`, a `tools.subagent.get` poll until it settles,
 the reading `AFTER`, then `gstack-ship-budget settle --run <id> --reservation <id> --dispatched-at <BEFORE> --reading <AFTER> --readers 1`,
 all in that same program (`--reservation` is check's `RESERVATION_ID:` line); a settle from a later program is unmeasured.

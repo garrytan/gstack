@@ -69,6 +69,16 @@ describe('ship budget skill structure', () => {
     expect(capy).toMatch(/all in that same (?:execute )?program/);
   });
 
+  // Value: protects=every concrete check command in the ship sections passes the counter, since on the Capy meter a check without --reading exits 2 and the dispatch it gates never starts (#3633 pass 2: Step 14.5's docs-audit check had no reading); fails_when=a section spells `gstack-ship-budget check --run` without `--reading`;
+  //   why_new=the order test above matches the command as a prefix; seam=none; no_claim=the agent fills the reading
+  test('every gstack-ship-budget check --run command in the ship sections passes --reading', () => {
+    for (const rel of fs.readdirSync(path.join(ROOT, 'ship/sections')).filter(n => n.endsWith('.md.tmpl'))) {
+      for (const cmd of read(`ship/sections/${rel}`).match(/gstack-ship-budget check --run [^`]*/g) ?? []) {
+        expect(cmd, rel).toContain('--reading');
+      }
+    }
+  });
+
   // Value: protects=every prose site that takes a reservation id reads the RESERVATION_ID: line, never a field cut from RESERVATION:; fails_when=a dispatch section or the Capy skill names the id without that line;
   //   why_new=the line is new; seam=none; no_claim=the agent copies it
   test('the review pass, Steps 9, 11 and 14.5 and the Capy skill read the id from the RESERVATION_ID: line', () => {

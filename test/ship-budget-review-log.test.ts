@@ -117,6 +117,54 @@ describe('gstack-review-log --start under a token cap', () => {
     expect(close.code, close.out).toBe(0);
   });
 
+  // Value: protects=--finish settles a later Red Team batch even after the pass program already settled the first batch, which is the documented order (the outside voice on #3633 pass 2: the started match required the first batch to stay consumed, so the fallback never ran); fails_when=settleReviewFinish only matches a still-consumed start reservation;
+  //   why_new=the test above finishes before any settle; seam=none; no_claim=that the Red Team program's own settle ran
+  test('--finish still settles the open Red Team batch after the pass program settled the first batch', () => {
+    const h = fresh();
+    const run = capped(h);
+    const first = reserve(h, run.run, 'dispatch:specialist');
+    const start = h.reviewLog(['--start', 'review', '--reservation', first]);
+    expect(start.code, start.err).toBe(0);
+    const settled = h.sb(['settle', '--run', run.run, '--reservation', first, '--dispatched-at', '0', '--reading', '5', '--readers', '1']);
+    expect(settled.code, settled.out).toBe(0);
+    const redTeam = h.field(h.sb(['check', '--run', run.run, '--step', '9', '--next', 'dispatch:red-team', '--reading', '5']).out, 'RESERVATION', 'id');
+    const row = { skill: 'review', timestamp: new Date().toISOString(), status: 'clean', issues_found: 0, critical: 0, informational: 0 };
+    const fin = h.reviewLog([JSON.stringify(row), '--finish', start.out.trim()]);
+    expect(fin.code, fin.err).toBe(0);
+    expect(fin.err).toContain(`settled budget reservations ${redTeam}`);
+    expect(h.ledger(run.ledger).reservations.find((r: any) => r.id === redTeam).state).toBe('settled');
+    expect(h.sb(['close', '--run', run.run, '--reading', '10']).out).toContain('reserved=0');
+  });
+
+  // Value: protects=--finish settles only its own pass: an open dispatch reserved before the start in the same step, and an open dispatch of another step stay open (the batched specialist on #3633 pass 2: untested cells of the filter); fails_when=the index or step filter in settleReviewFinish is dropped;
+  //   why_new=the tests above hold only the pass's own batches; seam=none; no_claim=the filters are the right pass boundary for design-review-lite
+  test('--finish leaves an earlier open batch of its step and another step\'s open batch open', () => {
+    const h = fresh();
+    const run = capped(h);
+    const earlier = reserve(h, run.run, 'dispatch:red-team');
+    const first = reserve(h, run.run, 'dispatch:specialist');
+    const start = h.reviewLog(['--start', 'review', '--reservation', first]);
+    expect(start.code, start.err).toBe(0);
+    const other = h.field(h.sb(['check', '--run', run.run, '--step', '11', '--next', 'dispatch:adversarial-native', '--reading', '0']).out, 'RESERVATION', 'id');
+    const state = (id: string) => h.ledger(run.ledger).reservations.find((r: any) => r.id === id)?.state;
+    expect([state(earlier), state(other)]).toEqual(['open', 'open']);
+    const row = { skill: 'review', timestamp: new Date().toISOString(), status: 'clean', issues_found: 0, critical: 0, informational: 0 };
+    expect(h.reviewLog([JSON.stringify(row), '--finish', start.out.trim()]).code).toBe(0);
+    expect([state(first), state(earlier), state(other)]).toEqual(['settled', 'open', 'open']);
+  });
+
+  test('--finish leaves a step reservation made after the start open', () => {
+    const h = fresh();
+    const run = capped(h);
+    const first = reserve(h, run.run, 'dispatch:specialist');
+    const start = h.reviewLog(['--start', 'review', '--reservation', first]);
+    expect(start.code, start.err).toBe(0);
+    const step = h.field(h.sb(['check', '--run', run.run, '--step', '9', '--next', '10', '--reading', '0']).out, 'RESERVATION', 'id');
+    const row = { skill: 'review', timestamp: new Date().toISOString(), status: 'clean', issues_found: 0, critical: 0, informational: 0 };
+    expect(h.reviewLog([JSON.stringify(row), '--finish', start.out.trim()]).code).toBe(0);
+    expect(h.ledger(run.ledger).reservations.find((r: any) => r.id === step)?.state).toBe('open');
+  });
+
   // Value: protects=a later batch of the same Step 9 pass (the Red Team, built after collect) takes no start of its own and still settles when the pass finishes, so no start token is left unfinished and no reservation stays open (gstack-evals #34 round 3: an extra red-team --start review token was never finished); fails_when=--finish settles only reservations a start consumed, leaving the Red Team's open and counted as reserved at close;
   //   why_new=the --finish tests above start every batch; seam=none; no_claim=that the program's own settle ran
   test('--finish REVIEW_START settles the pass\'s later Red Team batch that took no start; close finds nothing reserved or unreserved', () => {
