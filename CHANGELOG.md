@@ -12,7 +12,7 @@
 ### Changed
 - The Capy session start (`bin/gstack-capy-session`, which updates with the checkout) points `GSTACK_PREFERENCES_FILE` at `preferences.yaml` next to the Drive skill's SKILL.md, and the installer writes it into the launch file. `--check` never writes the skill folder, and the frozen Drive bootstrapper is unchanged.
 - SKILL.md allows exactly one write in the skill folder: `preferences.yaml`, when the owner asks an agent to remember a preference.
-- `docs/model-policy.md` gains "Your model preference". `docs/captain.md` links factory.md and says to forward an owner's rule for every Captain, in the same turn, to the thread that keeps the account's shared rules.
+- `docs/model-policy.md` gains "Your model preference". `docs/captain.md` links factory.md, says to forward an owner's rule for every Captain, in the same turn, to the thread that keeps the account's shared rules, and says the Captain archives its own child threads by its plan for each, including ones its crew or automations started.
 
 ## [1.91.327.0] - 2026-10-30
 

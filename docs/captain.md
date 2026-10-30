@@ -34,7 +34,10 @@ by a daily pass; nothing is retried into green.
 - **The controller** (the Captain) runs the crew: starts lanes on disjoint files, keeps the
   rules file, the digest and the notes, validates READYs, builds and merges trains, calls
   slots, relays asks to the owner in the three shapes, runs the flaky pass, and decides
-  everything that needs no access, credentials, spend over cap or a cited approval.
+  everything that needs no access, credentials, spend over cap or a cited approval. It
+  archives its own child threads, including ones its crew or its automations started
+  outside the crew, when its plan for each thread says that thread's work is done; it
+  knows each thread's next step, so nobody else archives them.
 - **A lane** (a crew thread) owns named files, builds on its own branch and machine,
   runs /ship, sends one READY block, stamps on call (merging the base into its pin only
   as part of that stamp commit, or when the controller names a real-code conflict),
