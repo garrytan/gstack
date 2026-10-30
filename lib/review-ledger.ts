@@ -13,6 +13,7 @@
  * as severe; it never drops or downgrades one. verify replays every check from the ledger alone.
  */
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { promptHash } from './review-brief';
 
 export interface LedgerEvent { event: 'rendered' | 'sent' | 'output' | 'judgment' | 'judge'; [k: string]: unknown }
@@ -85,7 +86,7 @@ export function collect(ledger: string, reader: string, output: string, mergedFi
   const prior = readLedger(ledger).filter(e => e.event === 'output' && e.reader === reader).length;
   const lines = parseFindings(reader, output).map((f, i) => ({ id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, raw: f.raw, output_sha256: sha }));
   fs.appendFileSync(mergedFile, lines.map(l => JSON.stringify(l) + '\n').join(''), { mode: 0o600 });
-  appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ?? null, merged: mergedFile, ids: lines.map(l => l.id) });
+  appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id) });
   return { sha, lines };
 }
 
@@ -132,7 +133,7 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
     for (const id of res.added) appendEvent(ledger, { event: 'judgment', kind: 'added', id, to: byId.get(id)!.severity, reason: byId.get(id)!.reason });
     for (const id of res.promoted) appendEvent(ledger, { event: 'judgment', kind: 'promoted', id, from: labels.get(id), to: byId.get(id)!.severity, reason: byId.get(id)!.reason });
   }
-  appendEvent(ledger, { event: 'judge', ok: res.ok, judged: judgedFile, judged_sha256: promptHash(fs.readFileSync(judgedFile, 'utf8')), merged: mergedFile, merged_ids: merged.map(m => m.id), dropped: res.dropped, downgraded: res.downgraded, unexplained: res.unexplained, invalid: res.invalid, added: res.added.length, promoted: res.promoted.length, folded: res.folded.length });
+  appendEvent(ledger, { event: 'judge', ok: res.ok, judged: path.resolve(judgedFile), judged_sha256: promptHash(fs.readFileSync(judgedFile, 'utf8')), merged: path.resolve(mergedFile), merged_ids: merged.map(m => m.id), dropped: res.dropped, downgraded: res.downgraded, unexplained: res.unexplained, invalid: res.invalid, added: res.added.length, promoted: res.promoted.length, folded: res.folded.length });
   return res;
 }
 
@@ -159,8 +160,10 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const r = events[p.at]!;
     const inside = events.map((e, i) => ({ e, i })).filter(({ e, i }) => i > p.at && i < p.next && e.reader === p.reader);
     const sent = inside.filter(({ e }) => e.event === 'sent');
+    // A later render into the same path overwrote this one's file by design; only the newest render of a path can check it.
+    const overwritten = renders.some(j => j > p.at && events[j]!.file === r.file);
     let fileNow = '';
-    try { fileNow = typeof r.file === 'string' && fs.existsSync(r.file) ? promptHash(fs.readFileSync(r.file, 'utf8')) : ''; } catch { /* unreadable */ }
+    try { fileNow = !overwritten && typeof r.file === 'string' && fs.existsSync(r.file) ? promptHash(fs.readFileSync(r.file, 'utf8')) : ''; } catch { /* unreadable */ }
     // A mismatched send is void when the reader was re-sent byte-exact before anything was collected from it.
     let mismatched = 0, epVoided = 0;
     for (const s of sent.filter(({ e }) => e.sha256 !== r.sha256)) {

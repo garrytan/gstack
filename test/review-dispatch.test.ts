@@ -100,18 +100,19 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   });
 
   // Value: protects=verify checks each render as its own dispatch, so a two-pass ledger compares pass-1 sends with pass-1 briefs, and a mismatched send re-sent byte-exact before any collect is reported as voided, never hidden; a mismatched send that produced an output stays dirty; fails_when=a run-wide verify prints dirty for a clean two-pass run, a superseded mismatch blocks, voided is not printed, or an output collected under a mismatched send reads clean (GSTA-189 #36 replay: VERIFY dirty briefs=9 outputs=16, every output MATCH);
-  //   why_new=verify compared every send with the reader's last render; seam=sent, collect and verify; no_claim=which pass a render belongs to beyond ledger order
+  //   why_new=verify compared every send with the reader's last render; both passes render into one briefs directory and judge runs with relative paths, as a dispatch program does (pass-3 fix-check); seam=sent, collect and verify; no_claim=which pass a render belongs to beyond ledger order
   test('two passes verify per render; a superseded mismatch is voided=1; a mismatched send with an output stays dirty', () => {
     const p = pass();
     const out = p.w('spec.out', 'NO FINDINGS\n');
     const send = (file: string) => run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', file]);
     const take = () => run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', out, '--merged', p.merged]);
     send(p.file); take();
-    const second = field(run(['render', '--role', 'specialist', '--name', 'testing', '--out', tmp(), '--ledger', p.ledger, '--diff-base', 'b'.repeat(40)]).stdout, 'file');
+    const second = field(run(['render', '--role', 'specialist', '--name', 'testing', '--out', p.out, '--ledger', p.ledger, '--diff-base', 'b'.repeat(40)]).stdout, 'file');
     const truncated = p.w('truncated.txt', fs.readFileSync(second, 'utf8').slice(0, 200));
     expect(send(truncated).status).toBe(1);
     send(second); take();
-    expect(run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', p.w('judged.jsonl', '')]).status).toBe(0);
+    p.w('judged.jsonl', '');
+    expect(run(['judge', '--ledger', 'review-ledger.jsonl', '--merged', 'merged.jsonl', '--judged', 'judged.jsonl'], p.out).status).toBe(0);
     const v = run(['verify', '--ledger', p.ledger]);
     expect([v.status, v.stdout.includes('BRIEF specialist/testing MATCH'), v.stdout.includes('BRIEF specialist/testing@2 MATCH'), v.stdout.includes(' voided=1\n'), v.stdout.includes('VERIFY: clean briefs=2 outputs=2 voided=1')]).toEqual([0, true, true, true, true]);
     const q = pass();

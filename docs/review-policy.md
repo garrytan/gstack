@@ -387,8 +387,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    dispatched hashes per render (each render is one dispatch of its reader, so a
    two-pass ledger checks pass-1 sends against pass-1 briefs; a later render prints as
    `<reader>@2`), a collected output for every sent reader (`NOT_COLLECTED`
-   otherwise; a reader that failed is collected from its failure text, with zero
-   findings, and its coverage is logged `unavailable`). A mismatched send re-sent
+   otherwise; a reader that failed is collected from its failure text, where any
+   label word becomes a finding the judge folds, and its coverage is logged
+   `unavailable` in the review-log row). A mismatched send re-sent
    byte-exact before anything was collected is void and counted (`voided=N` on the
    verdict line); one that produced an output stays `MISMATCH`. Then output hashes
    against the merged lines they produced, and the judgment rerun against the
