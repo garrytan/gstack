@@ -158,6 +158,12 @@ describe('shape', () => {
 });
 
 describe('generator inventory', () => {
+  test('the committed render names ship/DRIVER.md.tmpl as its source, and that template exists', () => {
+    const template = 'ship/DRIVER.md.tmpl';
+    expect(fs.existsSync(path.join(ROOT, template))).toBe(true);
+    expect(doc.split('\n')[0]).toBe(`<!-- AUTO-GENERATED from ${template} — do not edit directly -->`);
+  });
+
   test('a fresh render carries ship/DRIVER.md as a claude asset, byte-identical to the committed file', async () => {
     const written = await runGeneration({ host: 'claude', outputRoot: tmp, contentLinkRoot: null });
     expect(written.artifacts).toContainEqual({ relativePath: SHIP_DRIVER_RELPATH, kind: 'asset', host: 'claude' });
