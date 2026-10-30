@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+**/ship reviewers now check a suspected defect against the code it depends on before they report it or let it go.** A reviewer packet used to allow at most two more ranges of up to 200 lines, from files in the diff, in one turn. In GSTA-167's no-loss replay, 7 recorded blockers needed context outside those ranges, and no reviewer found them. Each reviewer now confirms or rules out a suspected defect by reading the callers and callees of changed functions, the tests that cover them, and the config and contracts they read. It uses grep and the read tool, at most 8 reads in at most 2 turns of parallel calls. The coverage audit keeps its own budget.
+
+### Changed
+- **Reviewer read rule** (`lib/review-prompts.ts`): `READ_BUDGET`, which every specialist, Red Team, adversarial, outside-voice and fix-check packet carries, and the packet brief (`packetBrief`), which now allows two read turns before the write.
+- `docs/review-policy.md` (reviewer packets), `capy/skill/gstack/SKILL.md` (/ship reviewers on Capy) and the generated ship sections (review-army, adversarial, test-coverage) say the same.
+
+### Tests
+- `test/review-packet.test.ts`: the batched specialist, Red Team, adversarial and fix-check packets carry the rule; the coverage audit keeps its own budget; the rule names callers, callees, tests and contracts with its read and turn bound; the Capy skill and the policy match it.
+- `test/size-ledger/ship/gsta-167-review-reads.json`: 108 bytes for the longer brief, rendered three times in the ship sections.
+
 ## [1.91.328.0] - 2026-10-30
 
 **Most PRs no longer pay for a solo paid screen before the merge train runs the same cases.** `gstack-ship-queue ready` used to recommend `--screen` whenever a diff touched a skill's own cases, which is almost every PR, and the screens (16 to 19 a day at about $32 each) cost more than the train gates that rerun all 137 cases a few hours later. Of 41 full screens between Oct 20 and 29, the 3 that caught a real bug all came from diffs the selector can't narrow (an unknown dependency or a shared runtime input). The recommendation is now `--screen` only in that case; every other PR rides unscreened and the train gate's full census covers it. Because most PRs now ride unscreened, a train also stopped holding them back, so unscreened PRs fill the seats a screened PR leaves.
