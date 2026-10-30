@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.332.0] - 2026-10-30
 
 **gstack can remember which model you want your agents on, and every Capy session now reads a one-page summary of how crews work.** Set `agent_model` once (`opus`, another family, or an exact `provider/model`) and `gstack-models resolve --role agent` returns it whenever an agent picks a model for a lane, subagent or reviewer. Unset, every agent keeps its own model, and gstack takes no position for or against any model. A cross-family outside voice and a model under test in an eval ignore the preference on purpose. On Capy the preference lives in `preferences.yaml` beside the gstack skill in your Drive, so it survives fresh machines without being copied anywhere.
 
