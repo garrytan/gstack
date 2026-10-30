@@ -40,7 +40,7 @@ const UBI_RUNNER_STUB = `#!/usr/bin/env bash
 # Every teardown is appended to $STUB_CALLS.down.
 set -uo pipefail
 [ "$1" != owner ] || { echo stub; exit 0; }
-left() { echo "UBICLOUD: left=\${STUB_LEFT:-0} owner=stub vm=$name others=0" >&2; }
+left() { [ "\${STUB_LEFT:-0}" = none ] || echo "UBICLOUD: left=\${STUB_LEFT:-0} owner=stub vm=$name others=0" >&2; }
 [ "$1" = run ] || exit 2
 shift
 printf '%s\\n' "$*" >>"$STUB_CALLS"
@@ -213,8 +213,9 @@ describe('pregate-remote.sh keyed path (stub ubi-runner)', () => {
     expect(remoteReportProblem(empty.report!, empty.report!.tree)).toBe('the remote gate reported 0 tests');
   }, 90_000);
 
+  // Value: protects=a runner that prints no UBICLOUD: left= line fails closed as PREGATE_REMOTE_INFRA (left=missing); fails_when=the leftover check treats an empty left as clean; why_new=the 1 and unknown rows never exercise a missing line; seam=none; no_claim=real ubi-runner output (stub runner)
   test('a passing run whose VM is not confirmed gone, or whose runner printed no leftover line, is PREGATE_REMOTE_INFRA, never a test result', () => {
-    for (const [stubLeft, shown] of [['1', 'left=1'], ['unknown', 'left=unknown']] as const) {
+    for (const [stubLeft, shown] of [['1', 'left=1'], ['unknown', 'left=unknown'], ['none', 'left=missing']] as const) {
       const r = gate(fixture(), ['test/alpha.test.ts'], { ...KEY, STUB_LEFT: stubLeft });
       expect(r.exit, r.out).toBe(4);
       expect(r.out).toContain(`PREGATE_REMOTE_INFRA: VM cleanup not confirmed (UBICLOUD: ${shown}); no result reported`);

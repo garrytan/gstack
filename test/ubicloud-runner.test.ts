@@ -237,8 +237,14 @@ esac
       const destroyed = f.calls().split('\n').filter(l => l.includes('destroy')).map(l => l.match(/ubirun-[a-z0-9-]+|team-db-[a-z0-9-]+/)?.[0]).sort();
       expect(destroyed).toEqual(['ubirun-1000000000-cccc', 'ubirun-other-1000000000-bbbb-t1', 'ubirun-thrd1-1000000000-aaaa']);
       expect(f.run('reap').stderr.toString()).toContain('reap: no expired VMs');
+      // Value: protects=UBI_LEGACY_HOURS sets reap's bound for TTL-less ubirun names (a 3h-old name is spared at 4h, reaped at 2h); fails_when=reap ignores UBI_LEGACY_HOURS and keeps a fixed bound; why_new=only the default bound and the validation are tested; seam=none; no_claim=real Ubicloud list and destroy (fake curl)
+      const lowered = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'reap'], { env: { ...process.env, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_POLL_SECONDS: '1', UBI_VM_RECORD: f.record, UBI_OWNER: 'thrd1', UBI_LEGACY_HOURS: '2' }, timeout: 90_000 });
+      expect(lowered.exitCode).toBe(0);
+      expect(lowered.stderr.toString()).toMatch(/reaping TTL-less eu-central-h1\/ubirun-peer-\d{10}-eeee \(owner peer; 3h old, legacy sweep at 2h\)/);
+      expect(f.calls()).toMatch(/ubirun-peer-\d{10}-eeee[^\n]*destroy/);
+      expect(f.calls()).not.toMatch(/(team-db|dddd)[^\n]*destroy/);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
-  });
+  }, 30_000);
 
   test('up and run refuse without UBI_OWNER before any API call; list, usage, reap and down still work without it', () => {
     const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 vm-a\n', owner: '' });
@@ -483,6 +489,13 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(r.exitCode, err).toBe(0);
       expect(err).toMatch(/UBICLOUD: left=0 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n/);
       expect(f.listed()).toBe('eu-central-h1 ubirun-thrd1-9999999999-sib1-t3\n');
+      // Value: protects=run --keep reports its live VM as UBICLOUD: left=1 ... kept=1 and never a clean left=0; fails_when=the kept line is dropped or --keep still prints the teardown line; why_new=no test runs run --keep; seam=none; no_claim=real VM lifetime (fake API and ssh)
+      const kept = f.run(['run', '--src', f.root, '--keep', '--', 'true'], { UBI_REAP: '0' });
+      const keptErr = kept.stderr.toString();
+      expect(kept.exitCode, keptErr).toBe(0);
+      expect(keptErr).toMatch(/UBICLOUD: left=1 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 kept=1\n/);
+      expect(keptErr).not.toContain('left=0');
+      expect(f.listed()).toMatch(/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3\n/);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 30_000);
 
@@ -495,6 +508,11 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(leaked.exitCode, err).toBe(1);
       expect(err).toMatch(/UBICLOUD: left=1 owner=thrd1 vm=(ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3) others=0\n[^]*VM cleanup not confirmed for \1 \(left=1\); destroy it with: \S+ down \1/);
       expect(f.listed()).toContain('ubirun-thrd1-');
+      // Value: protects=a failing command whose VM also leaks keeps its own exit status, not 1; fails_when=run_teardown exits 1 whenever left is not 0; why_new=the leak case above only runs a passing command; seam=none; no_claim=real destroy failure modes (fake API returns 500)
+      writeFileSync(join(f.root, 'command-mode'), 'exit 7');
+      const failedLeak = f.run(['run', '--src', f.root, '--', 'false'], { UBI_REAP: '0', UBI_DOWN_TIMEOUT: '3' });
+      expect(failedLeak.exitCode, failedLeak.stderr.toString()).toBe(7);
+      expect(failedLeak.stderr.toString()).toMatch(/UBICLOUD: left=1 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n/);
       const blind = fakeVm();
       try {
         writeFileSync(join(blind.root, 'bin/curl.real'), readFileSync(join(blind.root, 'bin/curl')));
