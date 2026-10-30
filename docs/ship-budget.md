@@ -227,6 +227,12 @@ From then on the run projects steps and dispatches with its own factor: the larg
 actual/prior ratio among its last three measurements of that kind, times 1.5. The step factor
 also scales the default tail reserve. Dispatches keep the prior until the first
 dispatch is measured, so under a tight cap admit one reviewer first and let it calibrate the rest.
+On the Capy meter a step's prior is its calibrated call count (`step_calls`) times the run's own
+median per-call charge over its last five measured calls (each `--reading` minus a fresh
+`--prior-reading`), once three are measured, unscaled (`calibration=…,call:<median>`); until then
+it uses the calibrated `per_call`. A step prior never carries a dispatch: each audit or reviewer
+batch is reserved by its own check, and a child's segment estimate counts them through
+`segment_dispatches`.
 `close` prints `BUDGET_DRIFT:` with the run's projected and actual totals per kind. The estimate
 meter has no readings, so it always projects at the prior.
 

@@ -39,7 +39,7 @@ const LEAN_DISPATCH = 500_000;
 const STOP_26 = 1_650_000;
 
 describe('projection calibrated from the run\'s own meter (GST-101)', () => {
-  test('GSTA-2 replay: an 8M cap admits Steps 6 and 6.5 after Steps 1-5 cost 0.27M each, and stops with room to stop', () => {
+  test('GSTA-2 replay: an 8M cap admits Steps 6, 6.5 and 7 after Steps 1-5 cost 0.27M each, and stops with room to stop', () => {
     const h = fresh();
     const cap = 8_000_000;
     const s = started(h, '8M');
@@ -49,7 +49,7 @@ describe('projection calibrated from the run\'s own meter (GST-101)', () => {
     let stop = '';
     for (let i = 0; i + 1 < steps.length; i++) {
       const calls = cal.step_calls[steps[i]!] ?? cal.step_calls.default!;
-      reading += Math.round((GSTA2_STEP / 3) * calls * (1 + 0.05 * i)) + (cal.step_dispatches[steps[i]!] ?? 0) * LEAN_DISPATCH;
+      reading += Math.round((GSTA2_STEP / 3) * calls * (1 + 0.05 * i)) + (['7', '8', '14.5'].includes(steps[i]!) ? (cal.segment_dispatches[steps[i]!] ?? 0) * LEAN_DISPATCH : 0);
       expect(reading, `spend after Step ${steps[i]}`).toBeLessThanOrEqual(cap);
       const c = h.sb(['check', '--run', s.run, '--step', steps[i]!, '--next', steps[i + 1]!, '--reading', String(reading)]);
       if (c.code === 3) { stop = c.out; break; }
@@ -57,7 +57,8 @@ describe('projection calibrated from the run\'s own meter (GST-101)', () => {
       admitted.push(steps[i + 1]!);
       if (steps[i + 1] === '6') expect(Number(h.field(c.out, 'BUDGET', 'projected'))).toBeLessThan(1_000_000);
     }
-    expect(admitted).toEqual(['2', '3', '4', '5', '6', '6.5']);
+    // GSTA-167 round 3: Step 7's prior no longer double-counts its audit dispatch (reserved by its own check), so Step 7 fits too.
+    expect(admitted).toEqual(['2', '3', '4', '5', '6', '6.5', '7']);
     expect(stop).toContain('STOP: reason=budget_exhausted');
     expect(reading + GSTA2_STOP).toBeLessThanOrEqual(cap);
   });

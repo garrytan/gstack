@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "note": "GSTA-152 plan item 8. Per-meter constants for /ship budget projections, fitted conservatively from metered runs: each constant is the largest observation times `headroom`, rounded up to `round_to` (lib/ship-budget.ts fitConstant). test/ship-budget-calibration.test.ts checks the constants equal the fit and that a leave-one-out fit on two runs is at or above the meter on the third. Savings claims count completed ships only. Each unit's call_floor (GSTA-167) is the host's per-call floor: what one call costs in a fresh session with the ship skill loaded, before any /ship work. The delegate thresholds compare the per-call charge minus this floor, so a host's own system prompt and tools never trigger delegation. A floor is the largest round_to multiple at or below its smallest observed fresh call, so it never hides real context growth; start --call-floor <n> overrides it for one run.",
+  "note": "GSTA-152 plan item 8. Per-meter constants for /ship budget projections, fitted conservatively from metered runs: each constant is the largest observation times `headroom`, rounded up to `round_to` (lib/ship-budget.ts fitConstant). test/ship-budget-calibration.test.ts checks the constants equal the fit and that a leave-one-out fit on two runs is at or above the meter on the third. Savings claims count completed ships only. Each unit's call_floor (GSTA-167) is the host's per-call floor: what one call costs in a fresh session with the ship skill loaded, before any /ship work. The delegate thresholds compare the per-call charge minus this floor, so a host's own system prompt and tools never trigger delegation. A floor is the largest round_to multiple at or below its smallest observed fresh call, so it never hides real context growth; start --call-floor <n> overrides it for one run. Step priors (GSTA-167 round 3): a step holds only its own calls; each audit dispatch (Steps 7, 8, 14.5) is reserved by its own check, so it moved from step_dispatches to segment_dispatches, where a child's segment estimate still counts it. On the Capy meter a step is priced at step_calls x the run's own median measured per-call charge once three calls are measured (lib/ship-budget.ts measuredPerCall), and at per_call before that. A keyed step_calls entry is the ceiling of the most calls step_calls_observed holds for it, and an unkeyed step's observations stay at or below default. Each observation is a step window's measured actual (step samples in the round-3 replay ledgers mirrored under the project-user Drive folder ship-budget/) divided by 330k, the per-call charge replay3-34.md reports for gstack-evals #34; replay3-36.md reports no per-call figure, so #36 uses the same 330k. Steps 7 and 9 have no step measurement yet and keep 12. The #3633 lane's first ledger (ship-20261030T020246-7c4b65) read the root counter, which holds sibling threads, so its step samples are left out.",
   "headroom": 1.5,
   "round_to": 10000,
   "observations": {
@@ -19,6 +19,16 @@
         "run": "gstack-evals#31",
         "value": 500000,
         "source": "GSTA-152 plan v3 evidence: the /ship child's context was about 0.5M per call at the handoff"
+      },
+      {
+        "run": "gstack-evals#34 round 3",
+        "value": 330000,
+        "source": "handoffs/GSTA-167/replay3-34.md: about 0.33M per late parent call, read from the replay thread's own counter"
+      },
+      {
+        "run": "GSTA-167 lane #3633",
+        "value": 350000,
+        "source": "GSTA-167 lane report, own-jam ledger ship-20261030T022114-ef9f9a: the lane's own calls run about 0.35M each (stated by the lane, not solved from the ledger)"
       }
     ],
     "per_dispatch": [
@@ -48,18 +58,60 @@
   },
   "step_calls": {
     "7": 12,
-    "8": 12,
+    "8": 13,
     "9": 12,
+    "14": 5,
     "default": 3
   },
-  "step_dispatches": {
+  "step_calls_observed": {
+    "8": [
+      {
+        "run": "gstack-evals#34 round 3",
+        "value": 12.16,
+        "source": "ledger ship-20261030T020705-eda850, step sample step 7 next 8 (the child's first step window, section reads included): actual 4012570 / 330k per call"
+      },
+      {
+        "run": "gstack-evals#36 round 3",
+        "value": 1.02,
+        "source": "ledger ship-20261030T020847-c940ef, step sample step 7 next 8: actual 335631 / 330k per call"
+      }
+    ],
+    "13": [
+      {
+        "run": "gstack-evals#34 round 3",
+        "value": 1.31,
+        "source": "ledger ship-20261030T021912-ab78e5, step sample step 12 next 13: actual 431321 / 330k per call"
+      }
+    ],
+    "14": [
+      {
+        "run": "gstack-evals#34 round 3",
+        "value": 4.24,
+        "source": "ledger ship-20261030T021912-ab78e5, step sample step 13 next 14: actual 1399070 / 330k per call"
+      }
+    ],
+    "15": [
+      {
+        "run": "gstack-evals#34 round 3",
+        "value": 2.4,
+        "source": "ledger ship-20261030T021912-ab78e5, step sample step 14.5 next 15: actual 790578 / 330k per call"
+      }
+    ],
+    "14.5": [
+      {
+        "run": "gstack-evals#34 round 3",
+        "value": 1.55,
+        "source": "ledger ship-20261030T021912-ab78e5, step sample step 14 next 14.5: actual 510368 / 330k per call"
+      }
+    ]
+  },
+  "step_dispatches": {},
+  "segment_dispatches": {
     "7": 1,
     "8": 1,
-    "14.5": 1
-  },
-  "segment_dispatches": {
     "9": 4,
-    "11": 2
+    "11": 2,
+    "14.5": 1
   },
   "units": {
     "capy-tokens": {

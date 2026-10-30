@@ -75,6 +75,7 @@ export function readMeter(l: Ledger, o: Opts, requireReading: boolean, notes: st
     notes.push(`CALL_UNKNOWN: --prior-reading ${prior} is older than the run's last reading ${last}; it spans several calls, so the per-call charge is unknown (pass the reading your previous call returned)`);
     return null;
   }
+  (l.calls ??= []).push({ epoch: l.meter.epoch, value: reading - prior });
   return reading - prior;
 }
 

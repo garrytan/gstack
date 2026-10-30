@@ -12,7 +12,7 @@ Field-by-field reference: docs/ship-budget.md. Exit 0 continue or delegate, 3 st
 - Capy: read `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` (your own jam, its
   subagents included; a root thread's is `"this"`) in the same program as the
   `gstack-ship-budget` command, never its own call: `--reading <n>`. `--prior-reading <n>` (per-call
-  charge) is your previous call's reading; one older than the run's last reading is ignored.
+  charge; three of them price steps at the run's own median) is your previous call's reading; one older than the run's last reading is ignored.
 - Claude Code: `start --session <id>`, or echo the nonce the refusal prints once and
   rerun `start --nonce <value>`; the helper reads the journals itself (never `--reading`).
 - Elsewhere: `--meter estimate` (printed `meter=estimate`), only when the owner accepts it.

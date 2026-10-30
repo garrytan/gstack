@@ -1,4 +1,4 @@
 {
-  "bytes": 1,
-  "why": "gstack-ship-preflight skips the base merge under queue_mode stamp-at-merge (Step 3 note)"
+  "bytes": 1371,
+  "why": "GSTA-167 #3633 meter fixes: own-jam meter, reservation id line and every capped start on --reservation, Red Team takes no start, docs-audit settle in its dispatch program, step priors from the run's median per-call charge"
 }

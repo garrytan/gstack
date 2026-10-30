@@ -79,6 +79,8 @@ export interface Ledger {
   cap_raises: Array<{ from: number | null; to: number | null; by: string; words: string; at: string }>;
   marker?: string; review_log?: string; calibration?: string; samples?: Sample[]; tail_explicit?: boolean;
   call_floor?: number; depth?: number; steps_done?: string[];
+  /** Capy per-call charges (--reading minus a fresh --prior-reading), per epoch: step priors use their median. */
+  calls?: Array<{ epoch: number; value: number }>;
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
 }
 
@@ -123,6 +125,7 @@ export interface Calibration {
   observations: Record<string, Array<{ run: string; value: number; source: string }>>;
   constants: Record<'per_call' | 'per_dispatch' | 'stop_overhead', number>;
   step_calls: Record<string, number>; step_dispatches: Record<string, number>; segment_dispatches: Record<string, number>;
+  step_calls_observed?: Record<string, Array<{ run: string; value: number; source: string }>>;
   units: Record<string, { fit?: string; seeded_from?: string; why?: string; call_floor?: number; call_floor_observed?: number | null; call_floor_why?: string }>;
 }
 export const CALIBRATION_FILE = path.join(import.meta.dir, 'ship-budget-calibration.json');
@@ -144,9 +147,24 @@ export function unitConstants(cal: Calibration, unit: string): Calibration['cons
   return entry.seeded_from ? unitConstants(cal, entry.seeded_from) : cal.constants;
 }
 
-export function stepProjection(cal: Calibration, unit: string, step: string): number {
-  const k = unitConstants(cal, unit);
-  return (cal.step_calls[step] ?? cal.step_calls.default ?? 0) * k.per_call + (cal.step_dispatches[step] ?? 0) * k.per_dispatch;
+export const stepCalls = (cal: Calibration, step: string) => cal.step_calls[step] ?? cal.step_calls.default ?? 0;
+
+/** A step's prior: its calibrated calls at `perCall` (the unit's per_call by default) plus any dispatches the step itself carries. */
+export function stepProjection(cal: Calibration, unit: string, step: string, perCall = unitConstants(cal, unit).per_call): number {
+  return stepCalls(cal, step) * perCall + (cal.step_dispatches[step] ?? 0) * unitConstants(cal, unit).per_dispatch;
+}
+
+/** Calls the per-call median looks at, and how many it needs before it replaces the calibrated per_call. */
+export const CALL_WINDOW = 5;
+export const MIN_CALLS = 3;
+
+/** The Capy run's median per-call charge over its last CALL_WINDOW measured calls of this epoch; null below MIN_CALLS or on another meter. */
+export function measuredPerCall(l: Ledger): number | null {
+  if (l.meter.contract.meter !== 'capy') return null;
+  const xs = (l.calls ?? []).filter(c => c.epoch === l.meter.epoch).slice(-CALL_WINDOW).map(c => c.value).sort((a, b) => a - b);
+  if (xs.length < MIN_CALLS) return null;
+  const mid = Math.floor(xs.length / 2);
+  return xs.length % 2 ? xs[mid]! : Math.round((xs[mid - 1]! + xs[mid]!) / 2);
 }
 
 /** Calls a packet reader makes: the parallel range reads, at most one turn of extra ranges, one write. */
@@ -180,6 +198,9 @@ export function measuredFactor(l: Ledger, cal: Calibration, kind: Sample['kind']
  * with the step factor unless --reserve set it; the stop overhead keeps its
  * calibrated fit so a run always has room to stop. `floor` is the host's
  * per-call floor: start --call-floor, else the unit's calibrated value.
+ * Once a Capy run has MIN_CALLS measured calls, a step is priced at its
+ * calibrated calls x their median (measuredPerCall) instead, unscaled: that
+ * median is already the run's own measurement.
  * `reader` prices one dispatch reader: its prior (packet-based when the bytes are
  * known) times the dispatch factor, but never above the larger of that prior and
  * the run's clean per-reader mean, and never below the role's own measured mean.
@@ -201,15 +222,20 @@ export function projector(l: Ledger, cal: Calibration = loadCalibration(l.calibr
     const scaled = scale(prior, dispatch);
     return Math.max(clean ? Math.min(scaled, Math.max(prior, clean)) : scaled, mean(measured.get(role) ?? []));
   };
+  const perCall = measuredPerCall(l);
   const project = (next: Next) => {
     if (next.kind === 'dispatch') return { prior: projection(cal, unit, next, floor), tokens: next.roles.reduce((n, role, i) => n + reader(role, next.bytes?.[i]), 0) };
+    if (perCall !== null) {
+      const prior = stepProjection(cal, unit, next.step, perCall);
+      return { prior, tokens: prior };
+    }
     const prior = projection(cal, unit, next);
     return { prior, tokens: scale(prior, step) };
   };
   const segment = (from: string, to: string) => SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1)
     .reduce((sum, s) => sum + project({ kind: 'step', step: s }).tokens + (cal.segment_dispatches[s] ?? 0) * project({ kind: 'dispatch', roles: ['specialist'] }).tokens, 0);
   const label = (f: number | null) => (f === null ? 'prior' : f.toFixed(3));
-  return { project, segment, reader, reserve: (l.tail_explicit ? l.tail : scale(l.tail, step)) + l.stop_overhead, label: `step:${label(step)},dispatch:${label(dispatch)}`, floor };
+  return { project, segment, reader, reserve: (l.tail_explicit ? l.tail : scale(l.tail, step)) + l.stop_overhead, label: `step:${label(step)},dispatch:${label(dispatch)}${perCall === null ? '' : `,call:${perCall}`}`, floor };
 }
 
 /**
@@ -289,7 +315,7 @@ export const SMALL_RUN_CALL = 250_000;
 
 export function smallRunSegment(cal: Calibration, from: string, to: string, call: number | null): number {
   const steps = SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1);
-  return steps.reduce((n, s) => n + (cal.step_calls[s] ?? cal.step_calls.default ?? 0), 0) * (call ?? SMALL_RUN_CALL);
+  return steps.reduce((n, s) => n + stepCalls(cal, s), 0) * (call ?? SMALL_RUN_CALL);
 }
 
 /** The SMALL_RUN line when a segment boundary should continue instead of delegating; null keeps the delegate rule. */
