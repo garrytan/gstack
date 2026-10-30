@@ -1,0 +1,112 @@
+<!-- AUTO-GENERATED from ship/DRIVER.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+# /ship driver: run /ship from a parent agent
+
+Read this instead of `ship/SKILL.md` when a parent agent on any host runs /ship
+(`SESSION_KIND: unattended`): bins do the mechanics; this file holds the phases, the judgment and the
+lines each phase prints. Commands live in `<root>/bin/` (`<root>` holds `ship/`). Run each with the
+`GSTACK_LAUNCH` assignments your installer printed (`. <the GSTACK_LAUNCH_FILE it printed>`), never
+`export $(...)`, `env`, `printenv` or a bare `set` in a tool fence.
+
+**Rules.** A phase is one program (an execute program on Capy, else a shell script) unless it
+says otherwise; print its result lines verbatim. `STOP:` (exit 3) means nothing after it ran; `NEXT:`
+names the next act. Read a section only when a phase or the list at the end sends you, never
+up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
+there, come back. Unattended, a question with a recommended option takes it (log it); a gate
+disposition and every approval stay pending and end the run. Keep a private invocation record
+(Release, Decisions, Reviews, Checks, Documentation, Next steps).
+
+**Reviewers are the sections' own.** Phases 3, 4 and 5 and Step 14.5 run their section in full, as
+written: every audit, specialist, Red Team, fix-check, adversarial, outside-voice and documentation
+prompt, its severity and confidence rules and its gates come from that section verbatim. This file
+restates none of them and never shortens a reviewer's brief.
+
+Budget: read your own token counter (subagents included) in the program that runs
+`gstack-ship-budget` (`--reading R --prior-reading <last R>`); `check --step <done> --next <step>`
+opens each phase, `check --step <n> --next dispatch:<roles>` (one role per `DISPATCH:` line) each
+reviewer batch, its `RESERVATION_ID:` going to that pass's `--start ... --reservation` (a later batch
+of the pass takes no start). Settle each batch in the program that dispatched it: the reading
+`BEFORE` right before the readers start, the wait until the last settles, the reading `AFTER`, then
+`settle --reservation <id> --dispatched-at <BEFORE> --reading <AFTER> --readers <n>`. Obey `verdict=`.
+
+## 1. Preflight and tests: Steps 0, 0.9, 1, 2, 3, 4, 5
+
+`gstack-ship-budget start --record <rec> [--token-cap <n>] --delegate measured --reading R` and
+`gstack-ship-preflight --base <base> --lane <label>=<command>...` (the test commands AGENTS.md or
+CLAUDE.md names). Prints `STATUS:`, `DIFF:`, `PR:`, `CARRY:`, `SCOPE:`,
+`MERGE:`, `DISTRIBUTION:`, `POLICY:`, `RUNTIME_LINES:` (for `check --runtime-lines`), `PREGATE:`, `LANE:`.
+`CARRY: carried` ends the run on its `GSTACK_RESULT:` line. `--delegate measured` delegates a segment
+only when a measured call is 150k or more above the host floor (`DELEGATE:`). A lane
+passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a failed lane; `unknown` is `count unavailable`.
+In-branch failures stop the ship; after a repair rerun with `--tests-only`. `requires-remote` needs
+`gstack-pregate clear` before Step 18. The readiness dashboard and a `PERSIST:` hint never replace Step 9.
+
+## 2. Evals and Greptile: Steps 6, 6.5, 10
+
+When prompts, templates, judges or eval harness changed, run the project's eval selector and
+pre-merge command (detached past 30 min); else record `evals: none affected`. Steps 6.5 and 10 run
+only if `gstack-greptile-early detect` finds Greptile.
+
+## 3. Audits: Steps 7, 8, 8.1, 8.2
+
+Read `sections/test-coverage.md` and `sections/plan-completion.md` and run Steps 7, 8, 8.1 and 8.2
+as they are written. Prints `Coverage:`, `Plan completion:` and Step 8.2's `Scope Check:`.
+
+## 4. Review: Steps 9, 9.1, 9.2, 9.2.1, 9.3, 9.4
+
+Read `sections/review-army.md` in full and run Step 9 through Step 9.4 and its repeat decision as
+written, `gstack-review-plan` included. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop`
+stops; `full` or `scoped` reruns Step 5 and this phase; `done` goes on.
+
+## 5. Adversarial: Step 11
+
+Read `sections/adversarial.md` and run Step 11 as written, only the voices the last full-pass plan
+lists (neither prints `ADVERSARIAL: skipped (review plan)`). Missing outside coverage is `unavailable`, never clean. Queued fixes: Steps 9, 10, 11 again.
+
+## 6. Bind: Step 11.5
+
+`gstack-review-read`: the final Step 9 row and Step 11 native row (or `CURRENT` freshness after a
+planned skip) agree on `wtree`, `start_wtree`, `end_wtree`. Save that reviewed tree.
+
+## 7. Release: Steps 12, 13, 14, 14.5, 15, 16, 17
+
+- Step 12: `gstack-ship-release version --base <base> [--bump micro|patch] --why '<line>'`; MINOR or MAJOR is a question. `VERSION: skipped (policy: ...)` means the repo's ship policy stamps the version elsewhere: write no version.
+- Step 13: one user-facing CHANGELOG entry; `gstack-prose-lint CHANGELOG.md --base origin/<base> --gate` until `PROSE_LINT: ok`. Step 14: TODOS.md deferrals and completions.
+- Step 14.5, every ship: read `sections/documentation.md` and run its audit as written, then `gstack-ship-receipt docs-caps --base <base>`; print `Documentation:`. One re-audit at most.
+- Steps 15, 16: commit features in bisectable chunks, then `gstack-ship-release finish --base <base> --reviewed-tree <t> --docs-post <post> --lane ... [--build <cmd>] --trailer '<t>'`: `ROUTE:`, `DOCS:`, `EVIDENCE:` (FRESH; STALE or MISSING reruns once), `PREGATE:`. Print them, the last `Gate edits:` and each `tests_ran`.
+- Step 17: `gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `PUSH:` (pushed or ALREADY_PUSHED). Its pre-push offer STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`); unattended takes the recommended install. Never force-push.
+
+## 8. Publish: Steps 18, 19, 19-C, 20, 21, 22
+
+- Step 18: the open-PR lookup; a title file starting `v<NEW_VERSION> `. `UNATTENDED_SHIP:` with no open PR at HEAD takes Step 18-H.
+- Step 19 body: the receipt block; with `CAPY_PR: on` (Step 19-C) What changed, Why, Blast radius, Approvals (`gstack-approvals render`); Summary, Test Coverage, Pre-Landing Review (`REVIEW_LOOP:`, `Gate edits:`, deferred, notes), Exploratory QA, Plan Completion, Verification Results, Issues, TODOS, Documentation, Test plan. `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> --body <body>`; `gstack-post pr-body` and `pr-title` (a new PR via the host's PR tool; a draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
+- Step 20: the ship metrics row via `gstack-review-log`.
+- Step 22: `gstack-ship-budget close`, then `gstack-ship-receipt result --pr <n>`: `GSTACK_RESULT: skill=ship status=complete run=<dir>`. Under a merge queue, `gstack-ship-queue ready --pr <n> [--screen|--no-screen]` at the pushed head; paste its output.
+
+## Where each STOP sends you (paths under `<root>/ship/`)
+
+- `merge conflicts`: `SKILL.md#step-3-merge-the-base-branch-before-tests`
+- `NEXT: carry route`: `SKILL.md#step-1-pre-flight`
+- `DISTRIBUTION: candidates=`: `SKILL.md#step-2-distribution-pipeline-check`
+- `APPLE:` with a store ask: `sections/apple-release.md#apple-app-store-release`
+- `pregate fail` or `incomplete`: `sections/tests.md#step-5-run-tests-on-merged-code`
+- a failed or zero-run lane: `sections/tests.md#test-failure-ownership-triage`
+- a red eval or a failed free-suite shard: `sections/measure.md#measure-then-fix-loop-a-red-paid-eval-or-a-failed-free-suite-shard`
+- Greptile found: `sections/greptile-early.md#step-65-early-greptile-pr-after-the-free-tests-pass`
+- coverage below target, a failed audit: `sections/test-coverage.md#step-7-test-coverage-audit`
+- plan items NOT DONE or UNVERIFIABLE: `sections/plan-completion.md#gate-logic`
+- `NEXT: stop`: `sections/review-army.md#decide-whether-to-repeat-step-9`
+- a `REVIEW_SCOPE_*` refusal, the review-log row: `sections/review-army.md#step-94-fix-first-and-persistence`
+- a required probe not passed: `sections/review-army.md#step-921-exploratory-qa-before-fix-first`
+- native adversarial incomplete, queued fixes: `sections/adversarial.md#finish-the-adversarial-phase`
+- Step 11.5 mismatch: `SKILL.md#step-115-bind-the-reviews`
+- a `version` STOP: `SKILL.md#step-12-version-bump-auto-decide`
+- `Documentation: blocked` or a `DOCS_CAP:` over: `sections/documentation.md#blocked-recovery`
+- finish: changed since review: `SKILL.md#2-choose-the-change-route`
+- finish: documentation inputs changed: `SKILL.md#3-resolve-documentation-freshness`
+- finish: build, lane or pregate STOP: `SKILL.md#4-verify-the-frozen-candidate`
+- a push STOP: `SKILL.md#step-17-push`
+- unattended, no open PR at HEAD: `sections/handoff.md#step-18-h-handoff-without-a-pr-automation-lanes`
+- a receipt write or `gstack-post` refusal: `sections/pr-body.md#compose-the-body-then-publish-through-gstack-post`
+- `verdict=stop` or `DELEGATE:`: `sections/budget-handoff.md#budget-and-context-handoff-read-when-a-cap-is-set-or-verdictdelegate-prints`
+- `QUEUE_RECEIPT_STALE`: `../docs/ship-policy.md#ship-before-ready`

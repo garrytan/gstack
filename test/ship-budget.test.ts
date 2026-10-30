@@ -92,12 +92,13 @@ describe('reservations', () => {
     const c = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:specialist', '--reading', '0']);
     const id = h.field(c.out, 'RESERVATION', 'id');
     expect(Number(h.field(c.out, 'RESERVATION', 'tokens'))).toBe(K.per_dispatch);
-    h.sb(['settle', '--run', s.run, '--reservation', id]);
     const spent = 2 * K.per_dispatch;
+    h.sb(['settle', '--run', s.run, '--reservation', id, '--dispatched-at', '0', '--reading', String(spent)]);
     const next = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:red-team', '--reading', String(spent)]);
     expect(Number(h.field(next.out, 'BUDGET', 'used'))).toBe(spent);
     const projected = Number(h.field(next.out, 'BUDGET', 'projected'));
-    expect(projected).toBe(Math.ceil((K.per_dispatch * 2 * cal.headroom) / cal.round_to) * cal.round_to);
+    // The factor (2 x headroom) is bounded by the clean per-reader mean it was learned from (GSTA-167).
+    expect(projected).toBe(Math.min(Math.ceil((K.per_dispatch * 2 * cal.headroom) / cal.round_to) * cal.round_to, spent));
     expect(next.code).toBe(spent + projected + K.stop_overhead <= cap ? 0 : 3);
     const later = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:red-team', '--reading', String(cap - K.stop_overhead - K.per_dispatch + 1)]);
     expect(later.code).toBe(3);
@@ -219,7 +220,7 @@ describe('delegation', () => {
     expect(v.code).toBe(0);
     const child = h.field(v.out, 'BUDGET_RUN', 'id');
     expect(h.field(v.out, 'BUDGET', 'admission_cap')).toBe(brief[3]);
-    expect(h.field(v.out, 'BUDGET', 'used')).toBe('100000');
+    expect(h.field(v.out, 'BUDGET', 'used')).toBe('0');
     const cc = h.sb(['check', '--run', child, '--step', '8', '--next', '9', '--reading', '5000000']);
     expect(cc.code).toBe(0);
     const past = h.sb(['check', '--run', child, '--step', '11', '--next', '12', '--reading', '6000000']);
@@ -232,7 +233,7 @@ describe('delegation', () => {
     const returnFile = ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!;
     const rec = h.sb(['reconcile', '--run', s.run, '--return', returnFile, '--reading', '9100000']);
     expect(rec.code).toBe(0);
-    expect(rec.out).toContain('child=complete child_used=7800000');
+    expect(rec.out).toContain('child=complete child_used=7600000');
     expect(h.field(rec.out, 'BUDGET', 'reserved')).toBe('0');
     const again = h.sb(['reconcile', '--run', s.run, '--return', returnFile, '--reading', '9200000']);
     expect(again.out).toContain('nothing charged twice');

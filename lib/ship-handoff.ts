@@ -6,7 +6,9 @@
  * trail, the budget and the return contract; its sha256 goes in the parent's
  * ledger with a reservation for the child's whole sub-cap. The child verifies
  * the brief before anything else and admits against its sub-cap with
- * child_used = reading - reading_at_handoff. The context rule never stops a
+ * child_used = its own counter's reading - its reading at verify-handoff (on
+ * Capy each run reads its own jam, subagents included, so a child's counter
+ * starts below its parent's); reconcile charges the BUDGET used= its return prints. The context rule never stops a
  * child (GSTA-167): once it has completed a step it hands its remaining steps
  * to a grandchild the same way, up to MAX_CHAIN_DEPTH handoffs from the root. It
  * returns at most 40 lines through a return file; the parent reconciles once
@@ -51,6 +53,45 @@ export function recordSection(text: string, name: string): string[] | undefined 
   return lines.slice(at, end < 0 ? lines.length : end);
 }
 
+/** The ship sections each step reads (ship/sections/manifest.json); conditional ones (apple-release, measure, greptile, shared-code-reuse, handoff) load only when their trigger fires. */
+const STEP_SECTIONS: Record<string, string[]> = {
+  '4': ['tests'], '5': ['tests'], '6': ['tests'], '6.5': ['greptile-early'], '7': ['test-coverage'], '8': ['plan-completion'], '9': ['review-army'],
+  '11': ['adversarial'], '13': ['changelog'], '14.5': ['documentation'], '18': ['pr-body', 'capy-pr'], '19': ['pr-body', 'capy-pr'],
+};
+
+/** The sections a child running Steps from..to reads (GSTA-167): its own steps' only. */
+export function segmentSections(from: string, to: string): string[] {
+  return [...new Set(SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1).flatMap(s => STEP_SECTIONS[s] ?? []))];
+}
+
+const SKILL_ROOT = path.resolve(import.meta.dir, '..');
+
+/** The exact line ranges a child of Steps from..to reads (GSTA-167): ship/SKILL.md's contract (never its preamble or section index), its own steps, the self-check and Important Rules; each segment section whole, so every reviewer brief is the section's own text. */
+export function readRanges(from: string, to: string, root = SKILL_ROOT): string[] {
+  const read = (rel: string) => { try { const l = fs.readFileSync(path.join(root, rel), 'utf8').split('\n'); return l.at(-1) === '' ? l.slice(0, -1) : l; } catch { return null; } };
+  const steps = new Set<string>(SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1));
+  const line = (rs: [number, number][]) => rs.sort((a, b) => a[0] - b[0]).reduce<[number, number][]>((m, r) => { const last = m.at(-1); if (last && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1]); else m.push([...r]); return m; }, []).map(([a, b]) => `${a}-${b}`).join(',');
+  const out: string[] = [];
+  const skill = read('ship/SKILL.md');
+  if (skill) {
+    const bounds = skill.flatMap((l, i) => /^(# |## (Step |Section |Important Rules))/.test(l) ? [i] : []);
+    const end = (i: number) => bounds.find(k => k > i) ?? skill.length;
+    const rs: [number, number][] = [];
+    skill.forEach((l, i) => {
+      const step = /^## Step ([\d.]+):/.exec(l)?.[1];
+      if (l.startsWith('# Ship:') || (step && steps.has(step)) || l.startsWith('## Section self-check') || l.startsWith('## Important Rules')) rs.push([i + 1, end(i)]);
+    });
+    out.push(`READ: ship/SKILL.md:${line(rs)}`);
+  }
+  for (const s of [...segmentSections(from, to), 'budget-handoff']) {
+    const rel = `ship/sections/${s}.md`;
+    const lines = read(rel);
+    if (!lines) continue;
+    out.push(`READ: ${rel}:${line([[1, lines.length]])}`);
+  }
+  return out;
+}
+
 function brief(l: Ledger, h: Omit<Handoff, 'sha'>, pins: Record<string, unknown>, recordText: string, o: Record<string, string | undefined>): string {
   const reviews = recordSection(recordText, 'Reviews') ?? [];
   const tokens = [...new Set(reviews.join('\n').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g) ?? [])];
@@ -61,15 +102,17 @@ function brief(l: Ledger, h: Omit<Handoff, 'sha'>, pins: Record<string, unknown>
     `# /ship handoff ${h.n}: Steps ${h.from}-${h.to}`, '',
     '```gstack-handoff', JSON.stringify(block, null, 2), '```', '',
     '## Start', '',
-    `1. Run \`gstack-ship-budget verify-handoff --in <this file>\` (on Capy add \`--reading <n>\`) before anything else. On a refusal, return its lines and stop.`,
+    `1. Run \`gstack-ship-budget verify-handoff --in <this file>\` (on Capy add \`--reading <n>\`, \`(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens\`, never the parent's or the root's) before anything else. On a refusal, return its lines and stop.`,
     block.trail ? `2. Run \`gstack-decision-trail start ${block.trail} <your run id>\` before any trail write.` : '2. No decision trail was named.',
     `3. Run /ship --continue <this file> for Steps ${h.from}-${h.to} only, under the printed child run: \`check\` at every boundary and before every dispatch batch, obeying \`verdict=\`. The context rule never stops you: \`verdict=delegate\` hands your remaining steps to a fresh child the same way (ship/sections/budget-handoff.md), and a \`CONTEXT_HIGH:\` note means continue. This run is at chain depth ${h.depth} of ${MAX_CHAIN_DEPTH}.`,
     block.launch_file ? `4. Source the launch file \`${block.launch_file}\` in every shell that runs a gstack command (its path only; never print its values).` : '4. No GSTACK_LAUNCH_FILE was named.', '',
+    '## Read', '',
+    `Only ship/SKILL.md's step list and, under ship/sections/, ${[...segmentSections(h.from, h.to), 'budget-handoff'].map(s => s + '.md').join(', ')}; a conditional section only when its manifest.json trigger fires. Never read ship/sections/preamble.md in full or docs/ship-budget.md: budget-handoff.md is the whole budget procedure. Read only the \`READ:\` ranges below (\`path:first-last\`, from the gstack install root), in one parallel call.`, '', ...readRanges(h.from, h.to), '',
     '## Record', '', `You are the only writer of \`${l.record}\` during this segment. It keeps its six headings (${RECORD_HEADINGS.join(', ')}). Original start tokens: ${tokens.join(', ') || 'none'}.`, '',
     '## Decisions and approvals in scope (verbatim from the record)', '', ...(recordSection(recordText, 'Decisions') ?? ['(none recorded)']), '',
-    '## Budget', '', `Sub-cap ${h.sub_cap} ${block.unit} (meter=${block.meter}); the parent keeps a ${l.tail} tail reserve. Ledger: ${l.file}.`, '',
+    '## Budget', '', `Sub-cap ${h.sub_cap} ${block.unit} (meter=${block.meter}); the parent keeps a ${l.tail} tail reserve. Ledger: ${l.file}. Every --reading is your own jam counter (your subagents included); the parent charges child_used from the BUDGET used= your return prints.`, '',
     '## Return contract', '',
-    `Finish with \`gstack-ship-budget return --run <your child run> --to <last step done> --changed <record sections you changed>\`. It writes ${h.return_file} (at most ${RETURN_MAX_LINES} lines: the steps done, new HEAD and tree, the record sections changed, the BUDGET line and GSTACK_RESULT) and prints the same lines. The parent reads the record, never your transcript.`, '',
+    `Your last step is Step ${h.to}. After it, finish with \`gstack-ship-budget return --run <your child run> --to ${h.to} --changed <record sections you changed>\` (a child that stops earlier returns \`--status incomplete --to <last step done>\`). It writes ${h.return_file} (at most ${RETURN_MAX_LINES} lines: the steps done, new HEAD and tree, the record sections changed, the BUDGET line and GSTACK_RESULT) and prints the same lines. The parent reads the record, never your transcript.`, '',
   ].join('\n');
 }
 
@@ -145,13 +188,17 @@ export function cmdVerifyHandoff(argv: string[], ctx: Ctx): Outcome {
     cap: parent.cap === null ? null : block.sub_cap, tail: 0, stop_overhead: parent.stop_overhead, delegate: parent.delegate, role: 'child',
     depth: h!.depth ?? (parent.depth ?? 0) + 1, ...(parent.call_floor !== undefined ? { call_floor: parent.call_floor } : {}),
     parent: { run: parent.run, ledger: parent.file, handoff_sha: sha, from: block.from, to: block.to, return_file: block.return_file },
-    meter: { contract: parent.meter.contract, epoch: 1, baseline: parent.meter.contract.meter === 'capy' ? block.reading_at ?? 0 : 0, last: null,
+    meter: { contract: parent.meter.contract, epoch: 1, baseline: parent.meter.contract.meter === 'capy' ? tokensOpt(o, 'reading') ?? 0 : 0, last: null,
       ...(parent.meter.contract.meter === 'claude' ? { sessions: [str(o, 'session') ?? ''], config_dir: parent.meter.config_dir } : {}) },
     epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     marker: parent.marker, review_log: parent.review_log, calibration: parent.calibration,
   };
   if (parent.meter.contract.meter === 'claude' && !str(o, 'session')) throw usageError('verify-handoff on meter=claude needs --session <this child session id>');
   readMeter(child, o, true);
+  mutateLedger(parent.file, ctx.env, p => {
+    const ph = p.handoffs.find(x => x.sha === sha)!;
+    ph.child_ledgers = [...(ph.child_ledgers ?? []), child.file];
+  });
   writeLedger(child, ctx.env);
   pointMarker(child.marker, child);
   return { stdout: [`HANDOFF_OK: steps=${block.from}-${block.to} sha256=${sha}`, `BUDGET_RUN: id=${run} ledger=${child.file}`, budgetLine(child, { call: null, next: block.from, projected: 0, verdict: 'continue' })], exit: 0 };
@@ -209,17 +256,19 @@ export function cmdReconcile(argv: string[], ctx: Ctx): Outcome {
     const ret = parsed ?? (own?.handoff === h.sha ? own : undefined);
     const call = readMeter(l, o, true);
     const metered = h.reading_at !== null && h.epoch === l.meter.epoch && l.meter.last !== null;
-    const childUsed = metered ? Math.max(0, l.meter.last! - h.reading_at!) : ret?.used ?? h.sub_cap;
+    const childUsed = ret?.used ?? (metered ? Math.max(0, l.meter.last! - h.reading_at!) : h.sub_cap);
     const r = l.reservations.find(x => x.id === h.reservation);
     if (r && (r.state === 'open' || r.state === 'consumed')) { r.state = 'settled'; r.settled_at = new Date().toISOString(); }
     if (l.meter.contract.meter === 'estimate') l.estimate_used += childUsed;
     h.status = ret && ret.to !== h.to && ret.status === 'complete' ? 'incomplete' : ret?.status ?? 'interrupted';
     h.child_used = childUsed;
     h.reconciled_at = new Date().toISOString();
+    if (h.status !== 'complete') l.stopped = { at: h.reconciled_at, reason: `child_${h.status}`, step: h.from, next: h.from };
+    else if (l.stopped?.reason.startsWith('child_')) delete l.stopped;
     pointMarker(l.marker, l);
     const after = SHIP_STEPS[SHIP_STEPS.indexOf(h.to as any) + 1] ?? '-';
     const lines = [`RECONCILED: handoff=${h.sha} child=${h.status} child_used=${childUsed}`, budgetLine(l, { call, next: h.status === 'complete' ? after : h.from, projected: 0, verdict: h.status === 'complete' ? 'continue' : 'stop' })];
-    if (h.status !== 'complete') lines.push(`NEXT: the child returned ${h.status}; regenerate the handoff (gstack-ship-budget handoff --run ${l.run} --from ${h.from} --to ${h.to} --base origin/<base>) or stop`);
+    if (h.status !== 'complete') lines.push(`NEXT: the child returned ${h.status}; regenerate the handoff (gstack-ship-budget handoff --run ${l.run} --from ${h.from} --to ${h.to} --base origin/<base>) or stop. Every check refuses until a regenerated child reconciles complete or the owner resumes (gstack-ship-budget resume --record ${l.record})`);
     return { stdout: lines, exit: exitFor(h.status) };
   });
 }

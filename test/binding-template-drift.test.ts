@@ -55,8 +55,9 @@ describe('content-binding template drift', () => {
 
   test('ship Step 5 lanes run wrapped with per-lane labels', () => {
     const tests = rendered('ship/sections/tests.md');
-    expect(tests).toContain('gstack-evidence run --label tests');
-    expect(tests).toContain('gstack-evidence run --label vitest');
+    expect(tests).toContain('gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>');
+    expect(tests).toContain('Each lane runs as `gstack-evidence run --label <label> -- \'<command>\'`');
+    expect(tests).toContain('use the same lane labels and exact commands again in Step 16');
   });
 
   test('land-and-deploy grades staleness content-first (wtree rule) and checks evidence', () => {

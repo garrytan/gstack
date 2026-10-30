@@ -220,6 +220,7 @@ const BASELINE = [
   'test/shared-libs-source-reads.test.ts', // slices test/skill-e2e-shared-libs-paths.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/shared-libs-stage-actor.test.ts', // slices test/skill-e2e-shared-libs.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/ship-coverage-audit-af.test.ts', // slices test/skill-e2e-workflow.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
+  'test/ship-release.test.ts', // GSTA-167 PR 4: runs bin/gstack-ship-release through test/helpers/ship-bin-fixture.ts's RELEASE path, so it names no bin/ literal itself
   'test/ship-section-fixture.test.ts',
   'test/skill-budget-regression.test.ts',
   'test/skill-fixture.test.ts', // slices test/skill-routing-e2e.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
