@@ -204,6 +204,16 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(capy).toContain('model: { model_id: "anthropic/claude-sonnet-5-5", reasoning_mode: "low" }');
     expect(capy).toContain('`anthropic/claude-haiku-5-5` also fits');
   });
+
+  // Value: protects=a driven /ship dispatches every blocking reader on its rendered brief file unchanged, checks it with `sent`, merges findings only through `collect`, gates judgment with `judge` and verifies the run before the bind; fails_when=the driver lets the model write or trim a brief again or merge findings in prose (round 4b: arm D lost 8 blockers with 75 of 112 briefs paraphrased);
+  //   why_new=the driver named no renderer or hash check; seam=none; no_claim=the parent's adherence, which verify checks after the fact
+  test('briefs go out as rendered and findings come back unchanged: render, sent, collect, judge, verify', () => {
+    const f = flat(doc);
+    for (const s of ["A blocking reader's prompt is its `gstack-review-dispatch render` file, unchanged", 'only via `collect`', '`judge` refuses a drop or downgrade',
+      '(4) one subagent per reader on its rendered file, then `sent` (`BRIEF_MISMATCH` voids it)', 'final output and status, via `collect`', '`JUDGMENT: ok` before any fix',
+      '`gstack-review-dispatch verify` (`VERIFY: clean`)']) expect(f).toContain(s);
+    expect(f.indexOf('gstack-review-dispatch verify')).toBeLessThan(f.indexOf('`gstack-review-read`'));
+  });
 });
 
 describe('STOP anchors', () => {
