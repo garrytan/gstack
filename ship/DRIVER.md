@@ -2,7 +2,7 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 # /ship driver: run /ship from a parent agent
 
-Read this instead of `ship/SKILL.md` when a parent agent on any host runs /ship unattended
+Read this instead of `ship/SKILL.md` when a parent agent on any host runs /ship
 (`SESSION_KIND: unattended`): bins do the mechanics; this file holds the phases, the judgment and the
 lines each phase prints. Commands live in `<root>/bin/` (`<root>` holds `ship/`). Run each with the
 `GSTACK_LAUNCH` assignments your installer printed (`. <the GSTACK_LAUNCH_FILE it printed>`), never
@@ -14,16 +14,17 @@ names the next act. Read a section only when the list at the end sends you, only
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
 there, come back. Unattended, a question with a recommended option takes it (log it); a gate
 disposition and every approval stay pending and end the run. Keep a private invocation record
-(Release, Decisions, Reviews, Checks, Documentation, Next steps) with every token, tree and path.
-Budget: read the host's token counter in the program that runs
+(Release, Decisions, Reviews, Checks, Documentation, Next steps).
+Budget: read your own token counter (subagents included) in the program that runs
 `gstack-ship-budget` (`--reading R --prior-reading <last R>`); `check --step <done> --next <step>`
-opens each phase, `check --next "$BUDGET_NEXT"` each reader batch; obey `verdict=`.
+opens each phase, `check --next "$BUDGET_NEXT"` each reader batch, its `RESERVATION_ID:` going to
+that pass's `--start ... --reservation` (a later batch of the pass takes no start); obey `verdict=`.
 
 ## 1. Preflight and tests: Steps 0, 0.9, 1, 2, 3, 4, 5
 
 `gstack-ship-budget start --record <rec> [--token-cap <n>] --delegate measured --reading R` and
 `gstack-ship-preflight --base <base> --lane <label>=<command>...` (the test commands AGENTS.md or
-CLAUDE.md names; then Step 4 bootstraps nothing). Prints `STATUS:`, `DIFF:`, `PR:`, `CARRY:`, `SCOPE:`,
+CLAUDE.md names). Prints `STATUS:`, `DIFF:`, `PR:`, `CARRY:`, `SCOPE:`,
 `MERGE:`, `DISTRIBUTION:`, `POLICY:`, `RUNTIME_LINES:` (for `check --runtime-lines`), `PREGATE:`, `LANE:`.
 `CARRY: carried` ends the run on its `GSTACK_RESULT:` line. `--delegate measured` delegates a segment
 only when a measured call is 150k or more above the host floor (`DELEGATE:`). A lane
@@ -34,7 +35,7 @@ In-branch failures stop the ship; after a repair rerun with `--tests-only`. `req
 ## 2. Evals and Greptile: Steps 6, 6.5, 10
 
 When prompts, templates, judges or eval harness changed, run the project's eval selector and
-pre-merge command (detached past 30 minutes); else record `evals: none affected`. Steps 6.5 and 10 run
+pre-merge command (detached past 30 min); else record `evals: none affected`. Steps 6.5 and 10 run
 only if `gstack-greptile-early detect` finds Greptile.
 
 ## 3. Audits: Steps 7, 8, 8.1, 8.2
@@ -98,8 +99,8 @@ planned skip) agree on `wtree`, `start_wtree`, `end_wtree`. Save that reviewed t
 ## 8. Publish: Steps 18, 19, 19-C, 20, 21, 22
 
 - Step 18: the open-PR lookup; a title file starting `v<NEW_VERSION> `. `UNATTENDED_SHIP:` with no open PR at HEAD takes Step 18-H.
-- Step 19 body: the receipt block; with `CAPY_PR: on` (Step 19-C) What changed, Why, Blast radius, Approvals (`gstack-approvals render`); Summary, Test Coverage, Pre-Landing Review (`REVIEW_LOOP:`, `Gate edits:`, deferred, notes), Exploratory QA, Plan Completion, Verification Results, Issues, TODOS, Documentation (`cat` the saved section), Test plan. `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> --body <body>`; `gstack-post pr-body` and `pr-title` (a new PR via the host's PR tool; a draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
-- Step 20: the ship metrics row via `gstack-review-log`. Step 21 is interactive only.
+- Step 19 body: the receipt block; with `CAPY_PR: on` (Step 19-C) What changed, Why, Blast radius, Approvals (`gstack-approvals render`); Summary, Test Coverage, Pre-Landing Review (`REVIEW_LOOP:`, `Gate edits:`, deferred, notes), Exploratory QA, Plan Completion, Verification Results, Issues, TODOS, Documentation, Test plan. `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> --body <body>`; `gstack-post pr-body` and `pr-title` (a new PR via the host's PR tool; a draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
+- Step 20: the ship metrics row via `gstack-review-log`.
 - Step 22: `gstack-ship-budget close`, then `gstack-ship-receipt result --pr <n>`: `GSTACK_RESULT: skill=ship status=complete run=<dir>`. Under a merge queue, `gstack-ship-queue ready --pr <n> [--screen|--no-screen]` at the pushed head; paste its output.
 
 ## Where each STOP sends you (paths under `<root>/ship/`)
