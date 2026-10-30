@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as P from '../lib/review-prompts';
-import { READ_CHUNK_BYTES, readManifest, shardChunks } from '../lib/review-packet';
+import { READ_CHUNK_BYTES, readManifest, shardChunks, SPECIALIST_PACKING } from '../lib/review-packet';
 import { parseNext } from '../lib/ship-budget';
 
 const ROOT = path.join(import.meta.dir, '..');
@@ -45,7 +45,7 @@ const checklist = (name: string) => fs.readFileSync(path.join(ROOT, 'review', 's
 describe('gstack-review-packet build', () => {
   test('a packet holds its instructions, contract, checklist, the diff and read budget, and no other repository content', () => {
     const r = repo({ 'src/unrelated.ts': 'export const UNRELATED_MARKER = 1;\n' }, { 'src/a.ts': lines(80, 'alpha') });
-    const b = build(r);
+    const b = build(r, ['--fanout', 'parallel']);
     expect(b.status).toBe(0);
     const all = packets(b.stdout);
     const testing = all.find(p => p.name === 'testing')!;
@@ -63,7 +63,7 @@ describe('gstack-review-packet build', () => {
 
   test('the defensive framing reaches the security and adversarial packets with fixtures as a stat; testing reads fixtures in full', () => {
     const r = repo({}, { 'src/auth/login.ts': lines(120, 'auth'), 'test/login.test.ts': 'PAYLOAD_MARKER\n' });
-    const all = packets(build(r, ['--force', 'security']).stdout);
+    const all = packets(build(r, ['--force', 'security', '--fanout', 'parallel']).stdout);
     for (const name of ['security', 'adversarial']) {
       const p = all.find(x => x.name === name)!;
       expect(p.text).toContain(P.DEFENSIVE_REVIEW_FRAMING);
@@ -91,7 +91,7 @@ describe('gstack-review-packet build', () => {
 
   test('exclusions are honored: maintainability leaves out docs and tests; testing keeps tests; untracked files are in', () => {
     const r = repo({}, { 'src/a.ts': lines(80, 'gamma'), 'docs/guide.md': '# Guide\nDOCS_MARKER\n', 'test/a.test.ts': 'TEST_MARKER\n' }, { 'src/new.ts': 'UNTRACKED_MARKER\n' });
-    const all = packets(build(r).stdout);
+    const all = packets(build(r, ['--fanout', 'parallel']).stdout);
     const m = all.find(p => p.name === 'maintainability')!;
     const t = all.find(p => p.name === 'testing')!;
     expect(m.text).not.toContain('+DOCS_MARKER');
@@ -130,7 +130,7 @@ describe('gstack-review-packet build', () => {
 
   test('the Red Team is deferred until collect; with --findings it reads them, the framing and fixtures in summary mode', () => {
     const r = repo({}, { 'src/a.ts': lines(260, 'delta'), 'test/fixture.test.ts': 'PAYLOAD_MARKER\n' });
-    expect(build(r).stdout).toContain('PACKET_DEFERRED: red-team');
+    expect(build(r, ['--fanout', 'parallel']).stdout).toContain('PACKET_DEFERRED: red-team');
     const merged = path.join(r.out, 'merged.jsonl');
     fs.writeFileSync(merged, JSON.stringify({ severity: 'CRITICAL', path: 'src/a.ts', line: 3, summary: 'KNOWN_FINDING', sources: ['testing'] }) + '\n');
     const red = packets(build(r, ['--only', 'red-team', '--findings', merged]).stdout)[0]!;
@@ -169,6 +169,81 @@ describe('gstack-review-packet build', () => {
     expect(build(r, ['--audit', 'plan-completion']).status).toBe(2);
   });
 
+  const planDispatches = (r: Repo, extra: string[] = []) => {
+    const plan = spawnSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', 'main', '--gate-tagged', '0', ...extra], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: r.state } });
+    return [...plan.stdout.matchAll(/^DISPATCH: (\S+) (\S+)/gm)].map(m => ({ role: m[1]!, name: m[2]! }));
+  };
+
+  test('standard depth: the pass\'s specialist lines are one batched packet inlining every selected checklist; red-team and adversarial stay separate', () => {
+    const r = repo({}, { 'src/a.ts': lines(260, 'kappa'), 'test/a.test.ts': 'TEST_MARKER\n', 'docs/guide.md': '# Guide\nDOCS_MARKER\n' });
+    const selected = planDispatches(r).filter(d => d.role === 'specialist').map(d => d.name);
+    expect(selected.length).toBeGreaterThan(1);
+    const b = build(r);
+    expect(b.status).toBe(0);
+    const all = packets(b.stdout);
+    const specialists = all.filter(p => p.role === 'specialist');
+    expect(specialists.map(p => p.name)).toEqual(['batched']);
+    const batched = specialists[0]!;
+    for (const c of selected) { expect(batched.text).toContain(`## Checklist: ${c}`); expect(batched.text).toContain(checklist(c)); }
+    expect(batched.text).not.toContain('## Checklist: red-team');
+    expect(batched.text).toContain('Tag each finding with the checklist that found it');
+    expect(batched.text).toContain(`COVERED: ${selected.join(',')}`);
+    expect(batched.text).toContain('+TEST_MARKER');
+    expect(batched.text).not.toContain('+DOCS_MARKER');
+    expect(batched.text).toContain('the parent runs `gstack-state-matrix check` on it');
+    expect(b.stdout).toContain(`PACKED: specialist batched checklists=${selected.join(',')} shards=1`);
+    expect(b.stdout).toContain('PACKET_DEFERRED: red-team');
+    expect(all.some(p => p.role === 'adversarial-native')).toBe(true);
+    const parallel = packets(build(r, ['--fanout', 'parallel']).stdout).filter(p => p.role === 'specialist');
+    expect(parallel.map(p => p.name)).toEqual(selected);
+    expect(build(r, ['--fanout', 'serial']).status).toBe(2);
+  });
+
+  test('the default packing is the one switch SPECIALIST_PACKING names', () => {
+    expect(SPECIALIST_PACKING).toBe('batched');
+  });
+
+  test('full depth: every specialist batched, the diff unexcluded; the Red Team counts the batched checklists', () => {
+    const r = repo({}, { 'src/a.ts': lines(260, 'lambda'), 'docs/guide.md': '# Guide\nDOCS_MARKER\n' });
+    const selected = planDispatches(r, ['--depth-floor', 'full']).filter(d => d.role === 'specialist').map(d => d.name);
+    const b = build(r, ['--depth-floor', 'full']);
+    const specialists = packets(b.stdout).filter(p => p.role === 'specialist');
+    expect(specialists.map(p => p.name)).toEqual(['batched']);
+    expect(specialists[0]!.text).toContain('+DOCS_MARKER');
+    const merged = path.join(r.out, 'merged.jsonl');
+    fs.writeFileSync(merged, '');
+    const red = packets(build(r, ['--depth-floor', 'full', '--only', 'red-team', '--findings', merged]).stdout)[0]!;
+    expect(red.text).toContain(`reviewed by ${selected.length} specialists`);
+  });
+
+  test('a batched diff past the cap is one batched packet per shard, each with every checklist', () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 30; i++) files[`src/f${i}.ts`] = lines(400, `w${i}_`);
+    const r = repo({}, files);
+    const shards = packets(build(r, ['--only', 'specialist']).stdout);
+    expect(shards.length).toBeGreaterThan(1);
+    expect(shards.map(s => s.name)).toEqual(shards.map((_, i) => `batched.${i + 1}of${shards.length}`));
+    for (const s of shards) { expect(s.bytes).toBeLessThanOrEqual(200_000); expect(s.text).toContain(checklist('testing')); expect(s.text).toContain(checklist('maintainability')); }
+  });
+
+  test('Step 7: a diff with no code path (docs and data only) builds no audit packet and says why', () => {
+    const r = repo({}, { 'docs/guide.md': '# Guide\n', 'data/scores.json': '{"a":1}\n' });
+    const b = build(r, ['--audit', 'test-coverage']);
+    expect(b.status).toBe(0);
+    expect(packets(b.stdout)).toEqual([]);
+    expect(b.stdout).toMatch(/^AUDIT_SKIPPED: test-coverage code_paths=0 \(.*docs\/guide\.md.*\)/m);
+    expect(fs.existsSync(path.join(r.out, 'test-coverage.packet.md'))).toBe(false);
+    const code = repo({}, { 'src/a.ts': lines(5, 'mu'), 'data/scores.json': '{"a":1}\n' });
+    expect(packets(build(code, ['--audit', 'test-coverage']).stdout).length).toBe(1);
+  });
+
+  test('the coverage audit packet is read-only: no edits, no test runs, three calls, whatever generation the parent has', () => {
+    const r = repo({}, { 'src/a.ts': lines(20, 'nu') });
+    const a = packets(build(r, ['--audit', 'test-coverage', '--generation', 'allowed', '--passes-used', '0']).stdout)[0]!;
+    expect(a.text).toContain('Generation: audit-only; passes used: 0 of 2.');
+    expect(a.text).toContain(P.AUDIT_READ_ONLY);
+  });
+
   // Value: protects=--base origin/main names origin/main in the audit prompt; fails_when=the prompt prefixes origin/ to a ref that already has it (git diff origin/origin/main);
   //   why_new=every build test passes --base main with no origin remote; seam=none; no_claim=a base with no origin remote (covered: it stays as given)
   test('--base origin/main and --base main both put origin/main in the audit prompt, never origin/origin/main', () => {
@@ -196,11 +271,11 @@ describe('gstack-review-packet build', () => {
     const want: Record<string, string> = { specialist: 'specialist', 'adversarial-native': 'adversarial-native', 'outside-voice': 'outside-voice' };
     for (const p of ps) expect(p.budgetRole).toBe(want[p.role]!);
     const next = /^BUDGET_NEXT: (\S+)$/m.exec(b.stdout)![1]!;
-    expect(next).toBe(`dispatch:${ps.map(p => p.budgetRole).join(',')}`);
-    expect(parseNext(next)).toEqual({ kind: 'dispatch', roles: ps.map(p => p.budgetRole) });
+    expect(next).toBe(`dispatch:${ps.map(p => `${p.budgetRole}@${p.bytes}`).join(',')}`);
+    expect(parseNext(next)).toEqual({ kind: 'dispatch', roles: ps.map(p => p.budgetRole), bytes: ps.map(p => p.bytes) });
     const a = build(r, ['--audit', 'test-coverage']);
     expect(packets(a.stdout)[0]!.budgetRole).toBe('specialist');
-    expect(a.stdout).toMatch(/^BUDGET_NEXT: dispatch:specialist$/m);
+    expect(a.stdout).toMatch(new RegExp(`^BUDGET_NEXT: dispatch:specialist@${packets(a.stdout)[0]!.bytes}$`, 'm'));
   });
 
   // Value: protects=a packet is read whole in one turn: its read= ranges cover every line, each under the read tool's measured budget, and it ends with END OF PACKET; fails_when=a range overruns the budget (silently truncated read) or a line falls between ranges;
@@ -280,6 +355,62 @@ describe('gstack-review-packet build', () => {
     expect(build(r, ['--only', 'testing']).status).toBe(0);
     expect(readManifestOf(r.out).map(p => p.reviewer)).toEqual(['testing']);
     expect(fs.existsSync(first.find(p => p.name === 'maintainability')!.out)).toBe(false);
+  });
+
+  // Value: protects=gstack's own run artifacts (a QA report under .gstack/qa-reports/, a run directory under .gstack/) never enter a packet or the content key, so the Red Team build after QA is not refused; fails_when=the untracked filter drops only .gstack/tmp/ (GSTA-167 replay 2 on gstack-evals #36: QA wrote its report into the worktree and the Red Team build hit STALE_MANIFEST);
+  //   why_new=the stale test edits source, never a run artifact; seam=none; no_claim=artifacts gstack writes outside .gstack/
+  test('a QA report or run directory written under .gstack/ after the specialists build neither enters a packet nor makes the Red Team build stale', () => {
+    const r = repo({}, { 'src/a.ts': lines(80, 'nu') });
+    const first = packets(build(r, ['--only', 'testing']).stdout);
+    for (const p of first) fs.writeFileSync(p.out, 'NO FINDINGS\n');
+    for (const [rel, text] of [['.gstack/qa-reports/qa-report-app-2026-10-29.md', 'QA_REPORT_MARKER\n'], ['.gstack/ship-runs/run-1/notes.md', 'RUN_DIR_MARKER\n']]) {
+      fs.mkdirSync(path.dirname(path.join(r.dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(r.dir, rel), text);
+    }
+    fs.writeFileSync(path.join(r.out, 'merged.jsonl'), '');
+    const red = build(r, ['--only', 'red-team', '--findings', path.join(r.out, 'merged.jsonl')]);
+    expect(red.stdout).not.toContain('STALE_MANIFEST');
+    expect(red.status, red.stdout + red.stderr).toBe(0);
+    for (const p of packets(red.stdout)) {
+      expect(p.text).not.toContain('QA_REPORT_MARKER');
+      expect(p.text).not.toContain('RUN_DIR_MARKER');
+    }
+    fs.writeFileSync(path.join(r.dir, 'src/new.ts'), 'export const UNTRACKED_SOURCE = 1;\n');
+    const stale = build(r, ['--only', 'red-team', '--findings', path.join(r.out, 'merged.jsonl')]);
+    expect(stale.status).toBe(3);
+    expect(stale.stdout).toContain('STALE_MANIFEST: content changed');
+  });
+
+  // Value: protects=a later build in the same pass reuses the first build's plan flags and fix range from its manifest, so the Red Team and Step 11's packets are built from the plan the specialists saw; fails_when=--like is missing or reuses no flags (GSTA-167 call anatomy: #34 and #36 rebuilt the outside voice from hand-copied flags and got another plan);
+  //   why_new=every other build passes its flags by hand; seam=none; no_claim=which flags the first build should take
+  test('build --like <dir> reuses that build\'s plan flags and --range; --out-dir defaults to it; a dir without a build manifest refuses', () => {
+    const r = repo({}, { 'src/a.ts': lines(80, 'xi') });
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });
+    const firstFeat = git('rev-parse', 'HEAD').stdout.trim();
+    fs.writeFileSync(path.join(r.dir, 'src/b.ts'), lines(20, 'omicron'));
+    git('add', '.');
+    expect(git('commit', '-qm', 'fix').status).toBe(0);
+    const first = build(r, ['--only', 'testing', '--depth-floor', 'full', '--range', firstFeat]);
+    expect(first.status, first.stderr).toBe(0);
+    const plain = run(r, ['build', '--base', 'main', '--gate-tagged', '0', '--out-dir', tmp('review-packet-plain-'), '--only', 'testing']);
+    const planOf = (s: string) => s.split('\n').find(l => l.startsWith('REVIEW_PLAN:'));
+    expect(planOf(plain.stdout)).not.toBe(planOf(first.stdout));
+    fs.writeFileSync(path.join(r.out, 'merged.jsonl'), '');
+    const red = run(r, ['build', '--like', r.out, '--only', 'red-team', '--findings', path.join(r.out, 'merged.jsonl')]);
+    expect(red.stdout).not.toContain('STALE_MANIFEST');
+    expect(red.status, red.stdout + red.stderr).toBe(0);
+    expect(planOf(red.stdout)).toBe(planOf(first.stdout));
+    expect(packets(red.stdout).map(p => p.name)).toEqual(['red-team']);
+    expect(readManifest(r.out)!.diff_base).toBe(firstFeat);
+    const other = tmp('review-packet-like-');
+    const adv = run(r, ['build', '--like', r.out, '--out-dir', other, '--only', 'adversarial']);
+    expect(adv.status, adv.stderr).toBe(0);
+    expect(planOf(adv.stdout)).toBe(planOf(first.stdout));
+    expect(readManifest(other)!.diff_base).toBe(firstFeat);
+    const none = run(r, ['build', '--like', tmp('review-packet-empty-'), '--only', 'adversarial']);
+    expect(none.status).toBe(2);
+    expect(none.stderr).toContain('--like');
+    expect(none.stdout).not.toContain('PACKET:');
   });
 
   // Value: protects=a Step 7/8 audit past the packet cap stays one packet holding the whole diff, so the parent gets one coverage or plan verdict and one generation allowance; fails_when=audits shard like reviewers (a plan item built in another shard reads NOT DONE, each shard generates tests);
@@ -391,6 +522,17 @@ describe('the packet prose and the generated SKILL.md prose are one text', () =>
     expect(read('ship/sections/adversarial.md')).toContain(P.packetBrief('<file>', '<out>'));
     expect(read('ship/sections/test-coverage.md')).toContain(P.packetBrief('<file>', '<out>'));
   });
+  test('/ship Step 9 dispatches the batched packet at every depth and logs its checklists; Step 7 skips a no-code audit and writes tests itself', () => {
+    const army = read('ship/sections/review-army.md');
+    expect(army).toContain('--fanout parallel');
+    expect(army).toContain('"checklists":[');
+    expect(army).toContain('PACKED:');
+    expect(army).toMatch(/checklists include state-machines/);
+    const coverage = read('ship/sections/test-coverage.md');
+    expect(coverage).toContain('AUDIT_SKIPPED:');
+    expect(coverage).not.toContain('--generation <allowed|audit-only>');
+    expect(coverage).toMatch(/the parent writes and runs the tests/);
+  });
   test('the outside voice boundary the safety-rule registry pins in the resolver is the packet\'s boundary', () => {
     const line = read('scripts/resolvers/outside-voice-steps.ts').split('\n').find(l => l.startsWith('const CODEX_BOUNDARY = '))!;
     expect(line).toBe(`const CODEX_BOUNDARY = '${P.CODEX_BOUNDARY_TEXT}\\\\n\\\\n';`);
@@ -459,6 +601,24 @@ describe('gstack-review-packet collect', () => {
     const prose = collect(dir(specialists, { testing: 'NO FINDINGS', security: 'Looks fine to me overall.' }));
     expect(prose.status).toBe(3);
     expect(prose.stdout).toContain('REVIEWER: security status=invalid');
+  });
+
+  test('a batched packet must end with COVERED naming every checklist it inlined; a missing one is incomplete coverage', () => {
+    const d = (out: string) => {
+      const x = dir([{ role: 'specialist', name: 'batched' }], { batched: out });
+      const m = JSON.parse(fs.readFileSync(path.join(x, 'manifest.json'), 'utf8'));
+      m.packets[0].checklists = ['testing', 'security'];
+      fs.writeFileSync(path.join(x, 'manifest.json'), JSON.stringify(m));
+      return x;
+    };
+    const ok = collect(d('NO FINDINGS\nCOVERED: testing, security'));
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toContain('REVIEWER: batched status=clean crit=0 info=0 covered=testing,security');
+    const partial = collect(d(finding({ specialist: 'testing' }) + '\nCOVERED: testing'));
+    expect(partial.status).toBe(3);
+    expect(partial.stdout).toContain('REVIEWER: batched status=findings crit=0 info=1 covered=testing uncovered=security');
+    expect(partial.stdout).toMatch(/batched=uncovered:security.*\(REVIEW_COVERAGE_INCOMPLETE\)$/m);
+    expect(collect(d('NO FINDINGS')).status).toBe(3);
   });
 
   test('INFORMATIONAL findings are counts in the record and lines in informational.md', () => {

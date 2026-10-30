@@ -25,7 +25,7 @@ import { resolveStateRoot } from './state-root';
 import { resultLine, type ResultCodeName } from './result-codes';
 import { capyDriveFolder } from './autoplan-checkpoint';
 import { BIN_DIR, runScriptSync } from './script-invocation';
-import type { Role } from './review-depth';
+import { SMALL_DIFF_LINES, type Role } from './review-depth';
 
 export const SHIP_STEPS = ['0.9', '1', '2', '3', '4', '5', '6', '6.5', '7', '8', '9', '10', '11', '11.5', '12', '13', '14', '14.5', '15', '16', '17', '18', '19', '20', '21', '22'] as const;
 export const DISPATCH_ROLES = ['specialist', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check'] as const satisfies readonly Role[];
@@ -57,6 +57,9 @@ export interface Reservation {
   id: string; kind: 'step' | 'dispatch' | 'child'; step: string; next: string; roles?: string[]; tokens: number; at: string;
   state: 'open' | 'consumed' | 'settled' | 'released'; token?: string; started_at?: string; settled_at?: string;
   prior?: number; reading_at?: number | null; epoch?: number; actual?: number; unseen?: boolean; remaining?: string[];
+  settled_reading?: number; unmeasured?: boolean; dispatched_at?: number; readers?: number; bytes?: Array<number | null>; late?: boolean;
+  /** Every review-log start this reservation admitted: one per role (token and started_at keep the first). */
+  starts?: Array<{ token: string; at: string }>;
 }
 export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; prior: number; projected: number; actual: number }
 export interface Handoff {
@@ -96,13 +99,19 @@ export function parseStep(raw: string | undefined, flag = '--step'): string {
   throw usageError(`${flag} '${raw ?? ''}' is not a ship step id; valid: ${SHIP_STEPS.join(', ')}; fix: use a step number from ship/SKILL.md.tmpl`);
 }
 
-export type Next = { kind: 'step'; step: string } | { kind: 'dispatch'; roles: string[] };
+/**
+ * A dispatch names one role per reader; `role@<bytes>` (gstack-review-packet's
+ * BUDGET_NEXT) carries that reader's packet size, which prices it from the packet.
+ */
+export type Next = { kind: 'step'; step: string } | { kind: 'dispatch'; roles: string[]; bytes?: Array<number | null> };
 export function parseNext(raw: string | undefined): Next {
   if (raw?.startsWith('dispatch:')) {
-    const roles = raw.slice('dispatch:'.length).split(',').filter(Boolean);
+    const items = raw.slice('dispatch:'.length).split(',').filter(Boolean).map(item => /^([a-z-]+)(?:@(\d+))?$/.exec(item));
+    const roles = items.map(m => m?.[1] ?? '?');
     const bad = roles.filter(r => !(DISPATCH_ROLES as readonly string[]).includes(r));
-    if (roles.length === 0 || bad.length) throw usageError(`--next '${raw}' names unknown roles (${bad.join(', ') || 'none given'}); valid: ${DISPATCH_ROLES.join(', ')}; fix: list the plan's roles, e.g. dispatch:specialist,red-team`);
-    return { kind: 'dispatch', roles };
+    if (roles.length === 0 || bad.length) throw usageError(`--next '${raw}' names unknown roles (${bad.join(', ') || 'none given'}); valid: ${DISPATCH_ROLES.join(', ')}, each optionally @<packet bytes>; fix: pass build's BUDGET_NEXT value, e.g. dispatch:specialist@112110,red-team@57153`);
+    const bytes = items.map(m => (m?.[2] === undefined ? null : Number(m[2])));
+    return { kind: 'dispatch', roles, ...(bytes.some(b => b !== null) ? { bytes } : {}) };
   }
   return { kind: 'step', step: parseStep(raw, '--next') };
 }
@@ -138,8 +147,16 @@ export function stepProjection(cal: Calibration, unit: string, step: string): nu
   return (cal.step_calls[step] ?? cal.step_calls.default ?? 0) * k.per_call + (cal.step_dispatches[step] ?? 0) * k.per_dispatch;
 }
 
-export function projection(cal: Calibration, unit: string, next: Next): number {
-  return next.kind === 'dispatch' ? next.roles.length * unitConstants(cal, unit).per_dispatch : stepProjection(cal, unit, next.step);
+/** Calls a packet reader makes: the parallel range reads, at most one turn of extra ranges, one write. */
+export const READER_CALLS = 3;
+
+/** One reader's prior: from its packet (READER_CALLS x (call floor + packet tokens)) when the bytes are known, else the calibrated per-dispatch constant. */
+export function readerPrior(cal: Calibration, unit: string, floor: number, bytes: number | null | undefined): number {
+  return bytes == null ? unitConstants(cal, unit).per_dispatch : Math.ceil((READER_CALLS * (floor + Math.ceil(bytes / 4))) / cal.round_to) * cal.round_to;
+}
+
+export function projection(cal: Calibration, unit: string, next: Next, floor = cal.units[unit]?.call_floor ?? 0): number {
+  return next.kind === 'dispatch' ? next.roles.reduce((n, _, i) => n + readerPrior(cal, unit, floor, next.bytes?.[i]), 0) : stepProjection(cal, unit, next.step);
 }
 
 /** How many recent measurements of a kind the run's factor looks at (GST-101). */
@@ -161,54 +178,90 @@ export function measuredFactor(l: Ledger, cal: Calibration, kind: Sample['kind']
  * with the step factor unless --reserve set it; the stop overhead keeps its
  * calibrated fit so a run always has room to stop. `floor` is the host's
  * per-call floor: start --call-floor, else the unit's calibrated value.
- * `reader` prices one dispatch reader at max(its projection, the run's mean
- * measured cost for that role over settled dispatch reservations).
+ * `reader` prices one dispatch reader: its prior (packet-based when the bytes are
+ * known) times the dispatch factor, but never above the larger of that prior and
+ * the run's clean per-reader mean, and never below the role's own measured mean.
  */
 export function projector(l: Ledger, cal: Calibration = loadCalibration(l.calibration)) {
   const unit = l.meter.contract.unit;
+  const floor = l.call_floor ?? cal.units[unit]?.call_floor ?? 0;
   const step = measuredFactor(l, cal, 'step'), dispatch = measuredFactor(l, cal, 'dispatch');
   const scale = (n: number, f: number | null) => (f === null ? n : roundUp(n * f, cal.round_to));
+  const measured = new Map<string, number[]>();
+  for (const r of l.reservations) {
+    if (r.kind !== 'dispatch' || r.actual === undefined || r.unseen || r.epoch !== l.meter.epoch) continue;
+    for (const role of r.roles ?? []) measured.set(role, [...(measured.get(role) ?? []), r.actual / (r.readers ?? r.roles!.length)]);
+  }
+  const mean = (xs: number[]) => (xs.length ? Math.ceil(xs.reduce((a, b) => a + b, 0) / xs.length) : 0);
+  const clean = mean([...measured.values()].flat());
+  const reader = (role: string, bytes?: number | null) => {
+    const prior = readerPrior(cal, unit, floor, bytes);
+    const scaled = scale(prior, dispatch);
+    return Math.max(clean ? Math.min(scaled, Math.max(prior, clean)) : scaled, mean(measured.get(role) ?? []));
+  };
   const project = (next: Next) => {
+    if (next.kind === 'dispatch') return { prior: projection(cal, unit, next, floor), tokens: next.roles.reduce((n, role, i) => n + reader(role, next.bytes?.[i]), 0) };
     const prior = projection(cal, unit, next);
-    return { prior, tokens: scale(prior, next.kind === 'dispatch' ? dispatch : step) };
+    return { prior, tokens: scale(prior, step) };
   };
   const segment = (from: string, to: string) => SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1)
     .reduce((sum, s) => sum + project({ kind: 'step', step: s }).tokens + (cal.segment_dispatches[s] ?? 0) * project({ kind: 'dispatch', roles: ['specialist'] }).tokens, 0);
   const label = (f: number | null) => (f === null ? 'prior' : f.toFixed(3));
-  const measured = new Map<string, number[]>();
-  for (const r of l.reservations) {
-    if (r.kind !== 'dispatch' || r.actual === undefined || r.unseen || r.epoch !== l.meter.epoch) continue;
-    for (const role of r.roles ?? []) measured.set(role, [...(measured.get(role) ?? []), r.actual / r.roles!.length]);
-  }
-  const reader = (role: string) => {
-    const seen = measured.get(role) ?? [];
-    return Math.max(project({ kind: 'dispatch', roles: [role] }).tokens, seen.length ? Math.ceil(seen.reduce((a, b) => a + b, 0) / seen.length) : 0);
-  };
-  return { project, segment, reader, reserve: (l.tail_explicit ? l.tail : scale(l.tail, step)) + l.stop_overhead, label: `step:${label(step)},dispatch:${label(dispatch)}`,
-    floor: l.call_floor ?? cal.units[unit]?.call_floor ?? 0 };
+  return { project, segment, reader, reserve: (l.tail_explicit ? l.tail : scale(l.tail, step)) + l.stop_overhead, label: `step:${label(step)},dispatch:${label(dispatch)}`, floor };
 }
 
 /**
- * Measure settled reservations against the current (fresh) reading: a step
- * from its reading to now; settled dispatches as one group from the earliest
- * of their readings, split by role. A charge the meter cannot see (settled
- * --unknown, or a Claude-metered outside voice) is never measured. Returns one
- * DRIFT line per measurement.
+ * Measure settled reservations against the current (fresh) reading (GSTA-167).
+ * A dispatch is measured only from the reading taken right before its readers
+ * started (--dispatched-at) to the one it was settled with after they all
+ * returned, both read inside the dispatch program, where the parent makes no
+ * model call; dispatches with the same pair split it per reader (--readers,
+ * else one per role). One settled without a reading (review-log --finish, a
+ * step change), without --dispatched-at (a later program), or after another
+ * command read the meter in between is UNMEASURED: its interval also holds the
+ * parent's own work, so it teaches nothing.
+ * A step is measured on a step change, from its reading to now minus the
+ * dispatches reserved after it, so the parent's interleaved calls stay in the
+ * step; a window holding an unmeasured dispatch leaves the step unmeasured. A
+ * charge the meter cannot see (settled --unknown, or a Claude-metered outside
+ * voice) is never measured. Returns one DRIFT or UNMEASURED line each.
  */
-export function measureSettled(l: Ledger): string[] {
+export function measureSettled(l: Ledger, stepChange = true): string[] {
   const last = l.meter.last;
   if (last === null) return [];
-  const pending = l.reservations.filter(r => r.state === 'settled' && r.kind !== 'child' && r.actual === undefined && !r.unseen
+  const pending = l.reservations.filter(r => r.state === 'settled' && r.kind !== 'child' && r.actual === undefined && !r.unseen && !r.unmeasured
     && typeof r.reading_at === 'number' && r.epoch === l.meter.epoch && last >= r.reading_at);
-  const dispatches = pending.filter(r => r.kind === 'dispatch');
-  const from = Math.min(...dispatches.map(r => r.reading_at!));
-  const roles = dispatches.reduce((n, r) => n + (r.roles?.length ?? 1), 0);
-  return pending.map(r => {
-    const actual = r.kind === 'dispatch' ? Math.round(((last - from) * (r.roles?.length ?? 1)) / roles) : last - r.reading_at!;
+  const lines: string[] = [];
+  const measure = (r: Reservation, actual: number) => {
     r.actual = actual;
     (l.samples ??= []).push({ id: r.id, kind: r.kind as Sample['kind'], epoch: l.meter.epoch, prior: r.prior ?? r.tokens, projected: r.tokens, actual });
-    return `DRIFT: id=${r.id} kind=${r.kind} next=${r.next} projected=${r.tokens} actual=${actual} ratio=${(actual / Math.max(1, r.tokens)).toFixed(2)}`;
-  });
+    lines.push(`DRIFT: id=${r.id} kind=${r.kind} next=${r.next} projected=${r.tokens} actual=${actual} ratio=${(actual / Math.max(1, r.tokens)).toFixed(2)}`);
+  };
+  const unmeasured = (r: Reservation, reason: string) => {
+    r.unmeasured = true;
+    lines.push(`UNMEASURED: id=${r.id} kind=${r.kind} next=${r.next} reason=${reason}`);
+  };
+  const dispatches = pending.filter(r => r.kind === 'dispatch');
+  for (const r of dispatches) {
+    if (r.settled_reading === undefined) unmeasured(r, 'settled_without_reading');
+    else if (r.late) unmeasured(r, 'reading_between');
+    else if (r.dispatched_at === undefined) unmeasured(r, 'no_dispatch_reading');
+  }
+  const count = (r: Reservation) => r.readers ?? r.roles?.length ?? 1;
+  const measurable = dispatches.filter(r => !r.unmeasured);
+  for (const key of new Set(measurable.map(r => `${r.dispatched_at}:${r.settled_reading}`))) {
+    const group = measurable.filter(r => `${r.dispatched_at}:${r.settled_reading}` === key);
+    const span = group[0]!.settled_reading! - group[0]!.dispatched_at!;
+    const readers = group.reduce((n, r) => n + count(r), 0);
+    for (const r of group) measure(r, Math.round((span * count(r)) / readers));
+  }
+  if (!stepChange) return lines;
+  for (const r of pending.filter(x => x.kind === 'step')) {
+    const inside = l.reservations.slice(l.reservations.indexOf(r) + 1).filter(d => d.kind === 'dispatch' && d.state !== 'released' && !d.unseen && d.epoch === l.meter.epoch);
+    if (inside.some(d => d.actual === undefined)) { unmeasured(r, 'dispatch_unmeasured'); continue; }
+    measure(r, Math.max(0, last - r.reading_at! - inside.reduce((n, d) => n + d.actual!, 0)));
+  }
+  return lines;
 }
 
 /** Steps from..to inclusive plus their usual reviewer batches at the prior: a child's segment estimate. */
@@ -216,6 +269,33 @@ export function segmentEstimate(cal: Calibration, unit: string, from: string, to
   const i = SHIP_STEPS.indexOf(from as any), j = SHIP_STEPS.indexOf(to as any);
   const k = unitConstants(cal, unit);
   return SHIP_STEPS.slice(i, j + 1).reduce((sum, s) => sum + stepProjection(cal, unit, s) + (cal.segment_dispatches[s] ?? 0) * k.per_dispatch, 0);
+}
+
+/**
+ * Small-run rule (GSTA-167 PR 4). A delegation pays a fixed child cost (boot, install check, verify-handoff,
+ * section reads, reconcile: gstack-evals #34's two children cost 4.53M, 2-4.5M each) to save the parent's
+ * context above the host floor on each call of the segment. #34's parent calls ran 0.2-0.3M over a 0.15M
+ * floor, so a fresh child saves at most about 3/8 of a call, and a segment under CHILD_FIXED_COST over that
+ * share (12M) cannot pay for its child. A light-depth diff (runtime lines at most SMALL_DIFF_LINES) keeps
+ * its segment when the segment's calibrated calls at this run's own per-call charge stay under that.
+ */
+export const SMALL_RUN_LINES = SMALL_DIFF_LINES;
+export const CHILD_FIXED_COST = 4_500_000;
+export const SMALL_RUN_SEGMENT = CHILD_FIXED_COST / 0.375;
+/** #34's per-call charge midpoint, used when this call's charge is unknown. */
+export const SMALL_RUN_CALL = 250_000;
+
+export function smallRunSegment(cal: Calibration, from: string, to: string, call: number | null): number {
+  const steps = SHIP_STEPS.slice(SHIP_STEPS.indexOf(from as any), SHIP_STEPS.indexOf(to as any) + 1);
+  return steps.reduce((n, s) => n + (cal.step_calls[s] ?? cal.step_calls.default ?? 0), 0) * (call ?? SMALL_RUN_CALL);
+}
+
+/** The SMALL_RUN line when a segment boundary should continue instead of delegating; null keeps the delegate rule. */
+export function keepsSmallRun(cal: Calibration, o: { runtimeLines: number | undefined; from: string; to: string; call: number | null }): string | null {
+  if (o.runtimeLines === undefined || o.runtimeLines > SMALL_RUN_LINES) return null;
+  const segment = smallRunSegment(cal, o.from, o.to, o.call);
+  if (segment > SMALL_RUN_SEGMENT) return null;
+  return `SMALL_RUN: runtime_lines=${o.runtimeLines}<=${SMALL_RUN_LINES} segment=${o.from}-${o.to} projected=${segment}<=${SMALL_RUN_SEGMENT}; continuing here: a child's fixed ${CHILD_FIXED_COST} would cost more than it saves`;
 }
 
 export const runDirFor = (env: NodeJS.ProcessEnv, run: string) => path.join(resolveStateRoot(env), 'ship-runs', run);
@@ -296,11 +376,22 @@ export function reserveIn(l: Ledger, r: Omit<Reservation, 'id' | 'at' | 'state'>
   return row;
 }
 
-/** Settle at completion: the meter already holds the spend; estimate and unseen charges are booked here. */
-export function settleIn(l: Ledger, r: Reservation, opts: { unknown?: boolean; cal?: Calibration } = {}): void {
+/**
+ * Settle at completion: the meter already holds the spend; estimate and unseen
+ * charges are booked here. `dispatched` is the dispatch program's reading from
+ * right before the readers started, with the reader count; `late` marks one
+ * another command's reading came after.
+ */
+export function settleIn(l: Ledger, r: Reservation, opts: { unknown?: boolean; cal?: Calibration; reading?: number; dispatched?: { at: number; readers?: number; late: boolean } } = {}): void {
   if (r.state === 'settled' || r.state === 'released') return;
   r.state = 'settled';
   r.settled_at = new Date().toISOString();
+  if (opts.reading !== undefined) r.settled_reading = opts.reading;
+  if (opts.reading !== undefined && opts.dispatched) {
+    if (opts.dispatched.late) r.late = true;
+    else r.dispatched_at = opts.dispatched.at;
+    if (opts.dispatched.readers !== undefined) r.readers = opts.dispatched.readers;
+  }
   if (opts.unknown) { l.unknown += r.tokens; r.unseen = true; return; }
   if (l.meter.contract.meter === 'estimate') { l.estimate_used += r.tokens; return; }
   const unseen = l.meter.contract.meter === 'claude' ? (r.roles ?? []).filter(x => x === 'outside-voice').length : 0;
@@ -390,9 +481,10 @@ function activeLedger(marker: string): Ledger | undefined {
 }
 
 /**
- * gstack-review-log --start under a cap: the dispatch needs an unspent, one-shot
- * dispatch reservation of the active run, consumed atomically with the start
- * capture. No marker (no cap), a marker whose ledger is gone, or a stopped run
+ * gstack-review-log --start under a cap: the dispatch needs a dispatch
+ * reservation of the active run with a role left to start (one start per role,
+ * so Step 11's native and outside voices share one reservation), consumed
+ * atomically with the start capture. No marker (no cap), a marker whose ledger is gone, or a stopped run
  * started without --reservation (a later uncapped review on the branch) runs
  * capture() exactly as before.
  */
@@ -405,11 +497,15 @@ export function admitReviewStart(marker: string, reservation: string | undefined
     if (!reservation) throw new BudgetError('BUDGET_CHECK_SKIPPED', resultLine('gstack-review-log', 'BUDGET_CHECK_SKIPPED', `no --reservation under the ${l.cap} cap of run ${l.run}; ${fix}`), 1);
     const r = l.reservations.find(x => x.id === reservation);
     if (!r || r.kind !== 'dispatch') throw new BudgetError('BUDGET_CHECK_SKIPPED', resultLine('gstack-review-log', 'BUDGET_CHECK_SKIPPED', `reservation ${reservation} is ${r ? `a ${r.kind} reservation` : 'not in'} run ${l.run}${r ? '' : ' (mismatched)'}; ${fix}`), 1);
-    if (r.state !== 'open') throw new BudgetError('BUDGET_CHECK_SKIPPED', resultLine('gstack-review-log', 'BUDGET_CHECK_SKIPPED', `reservation ${reservation} is already ${r.state}${r.token ? ` by start ${r.token}` : ''} (one-shot); ${fix}`), 1);
+    const starts = r.starts ?? (r.token ? [{ token: r.token, at: r.started_at ?? '' }] : []);
+    const slots = r.roles?.length ?? 1;
+    if (r.state !== 'open' && !(r.state === 'consumed' && starts.length < slots)) throw new BudgetError('BUDGET_CHECK_SKIPPED', resultLine('gstack-review-log', 'BUDGET_CHECK_SKIPPED', `reservation ${reservation} is already ${r.state}${r.token ? ` by start ${r.token}` : ''} (one start per role: ${starts.length} of ${slots} used); ${fix}`), 1);
     const out = capture();
+    const start = { token: out.split('\n')[0]!.trim(), at: new Date().toISOString() };
     r.state = 'consumed';
-    r.token = out.split('\n')[0]!.trim();
-    r.started_at = new Date().toISOString();
+    r.starts = [...starts, start];
+    r.token ??= start.token;
+    r.started_at ??= start.at;
     return out;
   });
 }
@@ -421,9 +517,10 @@ export function admitReviewStart(marker: string, reservation: string | undefined
  */
 export function settleReviewFinish(marker: string, token: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   const active = activeLedger(marker);
-  if (!active || !active.reservations.some(r => r.token === token && r.state === 'consumed')) return undefined;
+  const started = (r: Reservation) => r.state === 'consumed' && (r.token === token || !!r.starts?.some(s => s.token === token));
+  if (!active || !active.reservations.some(started)) return undefined;
   return mutateLedger(active.file, env, l => {
-    const r = l.reservations.find(x => x.token === token && x.state === 'consumed');
+    const r = l.reservations.find(started);
     if (!r) return undefined;
     const pass = l.reservations.filter(x => x.kind === 'dispatch' && x.state === 'consumed' && x.step === r.step);
     for (const x of pass) settleIn(l, x);
@@ -436,7 +533,7 @@ export function unreservedDispatches(l: Ledger): Array<{ skill: string; step: st
   if (!l.review_log) return [];
   let lines: string[];
   try { lines = fs.readFileSync(l.review_log, 'utf8').split('\n').filter(Boolean); } catch { return []; }
-  const reservedStarts = new Set(l.reservations.filter(r => r.started_at).map(r => r.token));
+  const starts = l.reservations.flatMap(r => r.starts ?? (r.started_at && r.token ? [{ token: r.token, at: r.started_at }] : []));
   const out: Array<{ skill: string; step: string; started: string }> = [];
   for (const line of lines) {
     let row: any;
@@ -444,8 +541,7 @@ export function unreservedDispatches(l: Ledger): Array<{ skill: string; step: st
     const step = DIFF_REVIEW_STEP[row?.skill];
     const started = row?.review_binding?.started_at ?? row?.timestamp;
     if (!step || typeof started !== 'string' || Date.parse(started) < Date.parse(l.created_at)) continue;
-    const startFile = l.reservations.find(r => r.started_at && r.token && Math.abs(Date.parse(r.started_at) - Date.parse(started)) < 5_000);
-    if (!startFile || !reservedStarts.has(startFile.token)) out.push({ skill: row.skill, step, started });
+    if (!starts.some(s => Math.abs(Date.parse(s.at) - Date.parse(started)) < 5_000)) out.push({ skill: row.skill, step, started });
   }
   return out;
 }

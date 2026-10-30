@@ -162,13 +162,13 @@ function generatePacketDispatch(ctx: TemplateContext): string {
 
 Each reviewer reads one packet and nothing else. \`gstack-review-packet build\` runs the
 plan \`gstack-review-plan\` runs (pass the same flags) and writes one packet per \`DISPATCH:\`
-line: the role's instructions and findings contract, its checklists inlined (all of
-\`checklists=\` for \`specialist batched\`), its \`DIFF_CMD:\` diff at -U8 against the literal
-diff base with a stat, past learnings, a read budget and its output path. With
+line: the role's instructions and findings contract, its checklists inlined (a pass's specialist
+lines are one \`specialist batched\` packet, \`PACKED:\` naming its checklists, unless \`--fanout parallel\`),
+its \`DIFF_CMD:\` diff at -U8 against the literal diff base with a stat, past learnings, a read budget and its output path. With
 \`_PK=.gstack/tmp/review-packets-p$PASS\`, run \`${bin}/gstack-review-packet build --base <base>
 --out-dir "$_PK" --only specialist,red-team\` plus the plan run's flags, \`--range <sha>\` (the literal \`RANGE_BASE\` sha)
 from pass 2 on and \`--plan-file <plan>\` when a plan is bound. Each \`PACKET:\` line is one
-reviewer; a diff past 200 KB is split by path into shards (\`testing.1of3\`), each its
+reviewer; a diff past 200 KB is split by path into shards (\`batched.1of3\`), each its
 own reviewer. Its \`read=\` ranges are what the reviewer reads in parallel, each under one
 read call's budget. \`PACKETS:\` carries the plan's fingerprint; under a token cap,
 \`gstack-ship-budget check --next\` takes build's \`BUDGET_NEXT:\` value (one
@@ -198,7 +198,7 @@ file and prints one \`REVIEWER:\` line each, every CRITICAL on one line and coun
 INFORMATIONAL. It does stages 1–3 of Step 9.2 into \`$_PK/merged.jsonl\` and writes
 \`$_PK/informational.md\` for Step 19's PR body. Exit 3 \`REVIEW_COVERAGE_INCOMPLETE\` is
 missing dispatched coverage (decision 1). Step 9.2 continues from that output and
-\`merged.jsonl\`, never from a reviewer's transcript. When a state-machines packet ran,
+\`merged.jsonl\`, never from a reviewer's transcript. When a packet's checklists include state-machines,
 run \`${bin}/gstack-state-matrix check <its out file>\` on its output.`;
 }
 
@@ -340,8 +340,8 @@ function generateRedTeam(ctx: TemplateContext): string {
   const stepMerge = isShip ? '9.2' : '4.6';
   const fixFirstRef = isShip ? 'Step 9.3 dedup, then Step 9.4 Fix-First' : 'Step 5 Fix-First';
   const dispatch = isShip ? `If the plan lists \`DISPATCH: red-team\`, build its packet once Step 9.1's collect has run:
-\`${ctx.paths.binDir}/gstack-review-packet build --only red-team --findings "$_PK/merged.jsonl"\` plus
-the Step 9.1 build's flags. It inlines the red-team checklist, the merged findings one
+\`${ctx.paths.binDir}/gstack-review-packet build --like "$_PK" --only red-team --findings "$_PK/merged.jsonl"\`
+(\`--like\` reuses the Step 9.1 build's flags, plan flags and \`--range\`, from its manifest). It inlines the red-team checklist, the merged findings one
 line each, the defensive framing and the diff with fixtures in summary mode. Dispatch
 it with the same packet brief, then run collect again: Step 9.4 needs a collect with \`pending=0\`.` : `If activated, dispatch one more subagent via the Agent tool (pass ${FOREGROUND_IF_AVAILABLE} — foreground; subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; ${BACKGROUND_RECOVERY})
 

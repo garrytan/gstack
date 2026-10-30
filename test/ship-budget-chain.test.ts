@@ -238,6 +238,41 @@ describe('a chained return is charged once', () => {
   });
 });
 
+describe('a reconcile that stops the parent stops every check (replay 2, #36)', () => {
+  // Replay 2: after reconcile printed verdict=stop for an incomplete child, check --next 9 still admitted Step 9.
+  test('after an incomplete child, check refuses every step until resume; a regenerated child that returns complete also clears it', () => {
+    const h = fresh();
+    const s = start(h, ['--token-cap', '200M', '--reading', '0', '--reserve', '0']);
+    const child = handOff(h, s.run, '7', '11.5', 1_000_000);
+    const ret = h.sb(['return', '--run', child.run, '--to', '9', '--status', 'incomplete', '--reading', '5000000']);
+    expect(ret.code, ret.out + ret.err).toBe(0);
+    const rec = h.sb(['reconcile', '--run', s.run, '--return', child.returnFile, '--reading', '5100000']);
+    expect(rec.code).toBe(3);
+    expect(h.field(rec.out, 'BUDGET', 'verdict')).toBe('stop');
+    expect(rec.out).toContain('Every check refuses until a regenerated child reconciles complete or the owner resumes');
+    for (const next of ['9', '7', 'dispatch:red-team']) {
+      const c = check(h, s.run, '8', next, ['--reading', '5200000']);
+      expect(c.code, next).toBe(3);
+      expect(c.out).toMatch(/^STOP: reason=child_incomplete at Step 7; resume first: /m);
+      expect(c.out).not.toContain('RESERVATION:');
+    }
+    const resumed = h.sb(['resume', '--run', s.run, '--reading', '5300000']);
+    expect(resumed.code, resumed.out + resumed.err).toBe(0);
+    expect(resumed.out).toContain('RESUMED: from=Step 7 (child_incomplete)');
+    expect(check(h, s.run, '8', '9', ['--reading', '5400000']).code).toBe(0);
+
+    const t = start(h, ['--token-cap', '200M', '--reading', '0', '--reserve', '0']);
+    const first = handOff(h, t.run, '7', '11.5', 1_000_000);
+    h.sb(['return', '--run', first.run, '--to', '9', '--status', 'incomplete', '--reading', '2000000']);
+    expect(h.sb(['reconcile', '--run', t.run, '--return', first.returnFile, '--reading', '2000000']).code).toBe(3);
+    const second = handOff(h, t.run, '7', '11.5', 2_100_000);
+    expect(h.sb(['return', '--run', second.run, '--to', '11.5', '--reading', '3000000']).code).toBe(0);
+    const done = h.sb(['reconcile', '--run', t.run, '--return', second.returnFile, '--reading', '3100000']);
+    expect(done.code, done.out).toBe(0);
+    expect(check(h, t.run, '11.5', '12', ['--reading', '3200000']).code).toBe(0);
+  });
+});
+
 describe('a child returns complete only when its own work is finished', () => {
   test('a child that returns before reconciling its grandchild returns incomplete and names the handoff', () => {
     const h = fresh();

@@ -2,7 +2,8 @@
  * review-packet-collect — the parent's only read of a packet review
  * (docs/review-policy.md#reviewer-packets): every packet's output file, parsed and
  * validated as /ship Step 9.2 stages 1–3 require, merged by identity, and a record
- * under COLLECT_MAX_LINES lines. Missing or unusable output is incomplete coverage.
+ * under COLLECT_MAX_LINES lines. Missing or unusable output is incomplete coverage, and so is
+ * a batched packet whose COVERED line leaves out a checklist it inlined.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -16,11 +17,12 @@ const LINE_MAX = 300;
 
 export type Finding = Record<string, unknown> & { severity: 'CRITICAL' | 'INFORMATIONAL'; path: string; summary: string };
 export type ReviewerStatus = 'clean' | 'findings' | 'missing' | 'invalid' | 'pending';
-export interface ReviewerResult { packet: PacketEntry; status: ReviewerStatus; findings: Finding[]; records: number; invalid: number; recommendation?: string }
+export interface ReviewerResult { packet: PacketEntry; status: ReviewerStatus; findings: Finding[]; records: number; invalid: number; recommendation?: string; covered?: string[] }
 export interface Merged extends Finding { sources: string[] }
 
 const str = (v: unknown) => typeof v === 'string' && v.trim().length > 0;
 const NO_FINDINGS = /^[\s`*]*NO[ _]FINDINGS[\s`*.]*$/i;
+const COVERED_LINE = /^[\s`*]*COVERED:\s*(.*?)[\s`*.]*$/i;
 const OUTSIDE_LINE = /^\s*(?:[-*]\s*)?\[(Critical|High|Medium|Low)\]\s+(\S+?)(?::(\d+))?\s+[—–-]\s+(.+)$/i;
 
 /** A JSONL finding valid for its role, or null; the specialist roles need their whole required field set. */
@@ -44,6 +46,8 @@ export function parseOutput(packet: PacketEntry, text: string | null): ReviewerR
     if (!line || line.startsWith('```')) continue;
     if (NO_FINDINGS.test(line)) { clean = true; continue; }
     if (/^Recommendation:/i.test(line)) { r.recommendation = line; continue; }
+    const covered = COVERED_LINE.exec(line);
+    if (covered) { r.covered = covered[1]!.split(',').map(c => c.trim()).filter(Boolean); continue; }
     let v: unknown;
     try { v = JSON.parse(line); } catch { r.invalid++; if (/\bCRITICAL\b/i.test(line)) badCritical = true; continue; }
     if (v && typeof v === 'object' && !Array.isArray(v) && 'matrix' in v) {
@@ -55,7 +59,7 @@ export function parseOutput(packet: PacketEntry, text: string | null): ReviewerR
     if (!f) { r.invalid++; if (/^critical$/i.test(String((v as { severity?: unknown } | null)?.severity))) badCritical = true; continue; }
     r.findings.push({ ...f, specialist: str(f.specialist) ? f.specialist : packet.reviewer });
   }
-  r.status = badCritical ? 'invalid' : r.findings.length ? 'findings' : clean || r.records ? 'clean' : 'invalid';
+  r.status = badCritical ? 'invalid' : r.findings.length ? 'findings' : clean || r.records || r.covered ? 'clean' : 'invalid';
   return r;
 }
 
@@ -110,6 +114,11 @@ export function mergeFindings(results: readonly ReviewerResult[]): Merged[] {
 const oneLine = (s: string) => (s.length > LINE_MAX ? s.slice(0, LINE_MAX - 1) + '…' : s);
 const where = (f: Finding) => `${f.path}${typeof f.line === 'number' ? `:${f.line}` : ''}`;
 
+/** A batched specialist packet: one reader applying every checklist it names. */
+const isBatched = (p: PacketEntry) => p.role === 'specialist' && p.reviewer === 'batched';
+/** The checklists a batched packet inlined that its COVERED line does not name. */
+const uncovered = (r: ReviewerResult) => (isBatched(r.packet) && r.status !== 'missing' && r.status !== 'invalid' ? r.packet.checklists.filter(c => !(r.covered ?? []).includes(c)) : []);
+
 export interface CollectResult { lines: string[]; complete: boolean; results: ReviewerResult[]; merged: Merged[] }
 
 /** Read every packet's output in `dir`, write merged.jsonl and informational.md there, and return the compact record. */
@@ -127,9 +136,14 @@ export function collect(dir: string): CollectResult | { error: string } {
   fs.writeFileSync(path.join(dir, 'informational.md'), `## Review notes (informational)\n\n${info.length ? info.map(note).join('\n') : 'None.'}\n`, { mode: 0o600 });
   const lines: string[] = [];
   const count = (r: ReviewerResult, s: string) => r.findings.filter(f => f.severity === s).length;
-  const shown = results.length > 25 ? results.filter(r => r.status !== 'clean') : results;
-  for (const r of shown) lines.push(`REVIEWER: ${r.packet.name} status=${r.status} crit=${count(r, 'CRITICAL')} info=${count(r, 'INFORMATIONAL')}${r.packet.fixtures === 'summary' ? ' fixtures=summary' : ''}${r.invalid ? ` invalid_lines=${r.invalid}` : ''}`);
-  for (const p of pending) lines.push(`REVIEWER: ${p.name} status=pending (build its packet with --findings ${path.join(dir, 'merged.jsonl')}, dispatch it, collect again)`);
+  const shown = results.length > 25 ? results.filter(r => r.status !== 'clean' || uncovered(r).length) : results;
+  const coverage = (r: ReviewerResult) => {
+    if (!isBatched(r.packet)) return '';
+    const missed = uncovered(r);
+    return ` covered=${r.packet.checklists.filter(c => (r.covered ?? []).includes(c)).join(',') || 'none'}${missed.length ? ` uncovered=${missed.join(',')}` : ''}`;
+  };
+  for (const r of shown) lines.push(`REVIEWER: ${r.packet.name} status=${r.status} crit=${count(r, 'CRITICAL')} info=${count(r, 'INFORMATIONAL')}${coverage(r)}${r.packet.fixtures === 'summary' ? ' fixtures=summary' : ''}${r.invalid ? ` invalid_lines=${r.invalid}` : ''}`);
+  for (const p of pending) lines.push(`REVIEWER: ${p.name} status=pending (build its packet with --findings ${path.join(dir, 'merged.jsonl')} --like ${dir} --only red-team, dispatch it, collect again)`);
   if (shown.length < results.length) lines.push(`REVIEWERS_CLEAN: ${results.length - shown.length} more, each status=clean`);
   for (const a of manifest.packets.filter(p => p.role === 'audit')) {
     let last = '';
@@ -139,7 +153,7 @@ export function collect(dir: string): CollectResult | { error: string } {
     lines.push(`AUDIT: ${a.name} status=${ok ? 'present' : last ? 'invalid' : 'missing'} out=${a.out}`);
     if (!ok) results.push({ packet: a, status: last ? 'invalid' : 'missing', findings: [], records: 0, invalid: 0 });
   }
-  const incomplete = results.filter(r => r.status === 'missing' || r.status === 'invalid');
+  const incomplete = results.filter(r => r.status === 'missing' || r.status === 'invalid' || uncovered(r).length);
   const tail = 6;
   const room = COLLECT_MAX_LINES - lines.length - tail;
   for (const m of crit.slice(0, Math.max(room, 0))) lines.push(oneLine(`CRITICAL: ${where(m)} [${m.sources.join('+')}]${typeof m.confidence === 'number' ? ` conf=${m.confidence}` : ''} ${String(m.summary).replace(/\s+/g, ' ')}${str(m.fix) ? ` fix: ${String(m.fix).replace(/\s+/g, ' ')}` : ''}`));
@@ -148,6 +162,6 @@ export function collect(dir: string): CollectResult | { error: string } {
   for (const r of results.filter(x => x.recommendation).slice(0, 2)) lines.push(oneLine(`RECOMMENDATION: ${r.packet.name}: ${r.recommendation!.replace(/^Recommendation:\s*/i, '')}`));
   const invalid = results.reduce((n, r) => n + r.invalid, 0);
   lines.push(`COLLECT: reviewers=${reviewers.length} clean=${results.filter(r => r.status === 'clean').length} findings=${results.filter(r => r.status === 'findings').length} missing=${results.filter(r => r.status === 'missing').length} invalid=${results.filter(r => r.status === 'invalid').length} crit=${crit.length} info=${info.length} invalid_lines=${invalid} pending=${pending.length} merged=${path.join(dir, 'merged.jsonl')}`);
-  if (incomplete.length) lines.push(resultLine('gstack-review-packet collect', 'REVIEW_COVERAGE_INCOMPLETE', oneLine(incomplete.map(r => `${r.packet.name}=${r.status}`).join(' ')).slice(0, 160)));
+  if (incomplete.length) lines.push(resultLine('gstack-review-packet collect', 'REVIEW_COVERAGE_INCOMPLETE', oneLine(incomplete.map(r => `${r.packet.name}=${uncovered(r).length ? `uncovered:${uncovered(r).join(',')}` : r.status}`).join(' ')).slice(0, 160)));
   return { lines: lines.slice(0, COLLECT_MAX_LINES), complete: !incomplete.length, results, merged };
 }

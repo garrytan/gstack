@@ -20,18 +20,12 @@ or complete text, including user-approved scope changes. When discovery printed 
 not-run line, skip dispatch. The child does not inherit the parent's conversation.
 **By packet:** `~/.claude/skills/gstack/bin/gstack-review-packet build --audit plan-completion
 --base <base> --plan-file <bound plan> --out-dir .gstack/tmp/review-packets-audit` writes the
-prompt below, the whole plan and the diff into one packet; brief the child only with Step 7's
+audit prompt, the whole plan and the diff into one packet; brief the child only with Step 7's
 packet brief and read the LAST line of its `out=` file.
 
-````text
-You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff origin/<base>` and inspect untracked files from `git status` to see the full proposed change. Do not commit or push. Report only: classify every item, but do not execute Gate Logic, ask the user, or advance the workflow. The parent applies those gates to your report.
-
-{{PLAN_COMPLETION_AUDIT_SHIP}}
-
-After your analysis, output a single JSON object with exactly these seven fields on the LAST LINE of your response (no other text after it):
+The audit's prompt is `ship/sections/audit-plan-completion.md`; build inlines it into the packet, so
+never read it yourself. Its `out=` file ends with one JSON line of exactly these seven fields:
 {"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}
-Counts map one-to-one to the classifications above and sum to total_items. No plan or no actionable items means all counts are zero with the skip reason in summary. Do not classify work as deferred; only the parent can record a user-approved deferral.
-````
 
 **Parent processing:**
 

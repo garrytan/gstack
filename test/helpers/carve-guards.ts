@@ -140,7 +140,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
         'The pr-body section prepares the title from that result',
         '## Step 14.5: Documentation audit (every ship)',
         'No documentation writer runs after push',
-        'dispatches the /document-release subagent',
+        'Every ship dispatches the documentation audit',
       ],
       // ...while the full create/update procedure stays carved into pr-body.md
       // (out of the skeleton, present in the union). Asserts BOTH PR paths

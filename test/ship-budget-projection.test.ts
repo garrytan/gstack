@@ -72,10 +72,11 @@ describe('projection calibrated from the run\'s own meter (GST-101)', () => {
       reading += 750_000;
       expect(h.sb(['check', '--run', s.run, '--step', steps[i]!, '--next', steps[i + 1]!, '--reading', String(reading)]).code).toBe(0);
     }
-    let previous = '';
+    let previous = '', at = 0;
     const dispatch = (role: string) => {
       reading += PARENT_CALL;
-      const c = h.sb(['check', '--run', s.run, '--step', '9', '--next', `dispatch:${role}`, '--reading', String(reading), ...(previous ? ['--returned', previous] : [])]);
+      const c = h.sb(['check', '--run', s.run, '--step', '9', '--next', `dispatch:${role}`, '--reading', String(reading), ...(previous ? ['--returned', previous, '--dispatched-at', String(at)] : [])]);
+      at = reading;
       return c;
     };
     for (const [role, cost] of [...PASS2, ...PASS3]) {
@@ -87,7 +88,7 @@ describe('projection calibrated from the run\'s own meter (GST-101)', () => {
     }
     const lean = h.ledger(s.ledger).reservations.filter((r: any) => r.kind === 'dispatch' && r.actual !== undefined);
     expect(lean.length).toBe(PASS2.length + PASS3.length - 1);
-    const settled = h.sb(['settle', '--run', s.run, '--reservation', previous, '--reading', String(reading)]);
+    const settled = h.sb(['settle', '--run', s.run, '--reservation', previous, '--dispatched-at', String(at), '--reading', String(reading)]);
     expect(settled.out).toMatch(/^DRIFT: id=\S+ kind=dispatch next=dispatch:fix-check projected=\d+ actual=368801 ratio=\d+\.\d\d$/m);
     reading = 17_790_000;
     previous = '';
@@ -104,8 +105,9 @@ describe('projection calibrated from the run\'s own meter (GST-101)', () => {
     for (let round = 0; round < 40 && !stop; round++) {
       parent += 50_000;
       reading += parent;
-      const c = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:fix-check', '--reading', String(reading), '--returned', previous]);
+      const c = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:fix-check', '--reading', String(reading), '--returned', previous, '--dispatched-at', String(at)]);
       if (c.code === 3) { stop = c.out; break; }
+      at = reading;
       previous = h.field(c.out, 'RESERVATION', 'id');
       expect(h.reviewLog(['--start', 'review-fix-check', '--reservation', previous]).code).toBe(0);
       reading += 368_801;
@@ -149,7 +151,7 @@ describe('dispatch reservations settle when the reviewer returns (GST-101)', () 
     const a = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:specialist', '--reading', '0']);
     const first = h.field(a.out, 'RESERVATION', 'id');
     expect(h.reviewLog(['--start', 'review', '--reservation', first]).code).toBe(0);
-    const b = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:specialist', '--reading', '400000', '--returned', first]);
+    const b = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:specialist', '--reading', '400000', '--returned', first, '--dispatched-at', '0']);
     expect(b.code, b.out + b.err).toBe(0);
     expect(h.field(b.out, 'BUDGET', 'reserved')).toBe('0');
     expect(h.ledger(s.ledger).reservations.find((r: any) => r.id === first)).toMatchObject({ state: 'settled', actual: 400_000 });
@@ -158,7 +160,7 @@ describe('dispatch reservations settle when the reviewer returns (GST-101)', () 
     expect(bad.err).toContain('--returned');
   });
 
-  test('--finish settles every consumed dispatch reservation of the pass, and the next reading measures them as one group', () => {
+  test('--finish settles every consumed dispatch reservation of the pass; settled without a reading, they stay unmeasured (GSTA-167)', () => {
     const h = fresh();
     const s = started(h, '80M');
     const tokens: string[] = [];
@@ -175,7 +177,8 @@ describe('dispatch reservations settle when the reviewer returns (GST-101)', () 
     expect(dispatches().map((r: any) => r.state)).toEqual(['settled', 'settled', 'settled']);
     const next = h.sb(['check', '--run', s.run, '--step', '9', '--next', '10', '--reading', String(reading)]);
     expect(h.field(next.out, 'BUDGET', 'reserved')).toBe('0');
-    expect(dispatches().map((r: any) => r.actual)).toEqual([500_000, 500_000, 500_000]);
+    expect(dispatches().map((r: any) => [r.actual, r.unmeasured])).toEqual([[undefined, true], [undefined, true], [undefined, true]]);
+    expect(next.out.split('\n').filter(l => l.startsWith('UNMEASURED:') && l.includes('kind=dispatch'))).toHaveLength(3);
   });
 
   test('moving to the next step settles dispatch reservations a reviewer consumed in the step before', () => {
@@ -185,7 +188,8 @@ describe('dispatch reservations settle when the reviewer returns (GST-101)', () 
     expect(h.reviewLog(['--start', 'adversarial-review', '--reservation', id]).code).toBe(0);
     const c = h.sb(['check', '--run', s.run, '--step', '11', '--next', '11.5', '--reading', '600000']);
     expect(c.code).toBe(0);
-    expect(h.ledger(s.ledger).reservations.find((r: any) => r.id === id)).toMatchObject({ state: 'settled', actual: 600_000 });
+    expect(h.ledger(s.ledger).reservations.find((r: any) => r.id === id)).toMatchObject({ state: 'settled', unmeasured: true });
+    expect(c.out).toContain(`UNMEASURED: id=${id} kind=dispatch next=dispatch:outside-voice reason=settled_without_reading`);
   });
 
   test('close prints projected against actual for the run', () => {

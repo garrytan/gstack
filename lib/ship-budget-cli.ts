@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import {
   BudgetError, DEFAULT_TAIL, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
-  aboveFloor, admits, applyReading, budgetError, budgetLine, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
+  aboveFloor, admits, applyReading, budgetError, budgetLine, keepsSmallRun, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
   parseNext, parseRecordBlock, parseStep, parseTokens, pointMarker, projector, readLedger, reserveIn, restoreRun, reviewPaths,
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
   type Ledger, type MeterKind, type Next,
@@ -44,8 +44,13 @@ const meterFile = (l: Ledger) => path.join(l.dir, 'claude-meter.json');
 /** Whether this command took a fresh reading (Claude Code reads its journals on every command). */
 const freshReading = (l: Ledger, o: Opts) => l.meter.contract.meter === 'claude' || str(o, 'reading') !== undefined;
 
-/** Take this command's reading under the run's meter contract; returns the per-call charge when known. */
-export function readMeter(l: Ledger, o: Opts, requireReading: boolean): number | null {
+/**
+ * Take this command's reading under the run's meter contract; returns the
+ * per-call charge when known. On Capy that charge is --reading minus a
+ * --prior-reading taken in the previous call; a prior older than the run's last
+ * reading spans several calls, so it is ignored (call unknown) with a note.
+ */
+export function readMeter(l: Ledger, o: Opts, requireReading: boolean, notes: string[] = []): number | null {
   const reading = tokensOpt(o, 'reading');
   const prior = tokensOpt(o, 'prior-reading');
   const meter = l.meter.contract.meter;
@@ -63,8 +68,35 @@ export function readMeter(l: Ledger, o: Opts, requireReading: boolean): number |
     return null;
   }
   if (prior !== undefined && prior > reading) throw budgetError('BUDGET_READING_REJECTED', `--prior-reading ${prior} is above --reading ${reading}`);
+  const last = l.meter.last;
   applyReading(l, reading, 'flag');
-  return prior === undefined ? null : reading - prior;
+  if (prior === undefined) return null;
+  if (last !== null && prior < last) {
+    notes.push(`CALL_UNKNOWN: --prior-reading ${prior} is older than the run's last reading ${last}; it spans several calls, so the per-call charge is unknown (pass the reading your previous call returned)`);
+    return null;
+  }
+  return reading - prior;
+}
+
+/**
+ * The dispatch program's reading from right before its readers started
+ * (--dispatched-at, with --readers), paired with this command's --reading taken
+ * after every reader settled. It is late when another command read the meter
+ * after it: the interval then spans a later program, so it measures nothing.
+ */
+function dispatchedOpt(o: Opts, lastBefore: number | null): { at: number; readers?: number; late: boolean } | undefined {
+  const at = tokensOpt(o, 'dispatched-at');
+  const raw = str(o, 'readers');
+  const readers = raw === undefined ? undefined : Number(raw);
+  if (readers !== undefined && !(Number.isInteger(readers) && readers > 0)) throw usageError(`--readers '${raw}' is not a positive integer`);
+  if (at === undefined) {
+    if (readers !== undefined) throw usageError('--readers needs --dispatched-at <the reading taken right before the readers started>');
+    return undefined;
+  }
+  const reading = tokensOpt(o, 'reading');
+  if (reading === undefined) throw usageError('--dispatched-at needs --reading <the reading taken after every reader settled, in the same program>');
+  if (at > reading) throw budgetError('BUDGET_READING_REJECTED', `--dispatched-at ${at} is above --reading ${reading}`);
+  return { at, ...(readers !== undefined ? { readers } : {}), late: lastBefore !== null && lastBefore > at };
 }
 
 /** The stop block: STOP, the resumable RECOVER line and GSTACK_RESULT incomplete; a child also writes its return. */
@@ -96,13 +128,14 @@ export function writeReturnFile(file: string, lines: string[]): void {
 /**
  * Admission and the delegate rule for one boundary; reserves the admitted work
  * under a cap (a dispatch batch goes to admitBatch). The rule compares the call's context above the host floor (an
- * unknown charge delegates at a segment boundary, never at start). A child
+ * unknown charge delegates at a segment boundary, never at start). A light diff
+ * whose segment costs less than a child keeps it (keepsSmallRun). A child
  * never stops on it: after a completed step it hands its remaining steps to a
  * grandchild, and before one, at the maximum depth or past its segment it
  * continues with a CONTEXT_HIGH note. Admission still stops anyone.
  */
-export function decide(l: Ledger, step: string, next: Next, call: number | null, startThreshold = false): Outcome {
-  if (next.kind === 'dispatch') return admitBatch(l, step, next.roles, call);
+export function decide(l: Ledger, step: string, next: Next, call: number | null, startThreshold = false, runtimeLines?: number): Outcome {
+  if (next.kind === 'dispatch') return admitBatch(l, step, next.roles, call, next.bytes);
   const p = projector(l);
   const nextId = next.step;
   const { prior, tokens: projected } = p.project(next);
@@ -112,7 +145,9 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
   const threshold = startThreshold ? DELEGATE_START_CALL : DELEGATE_SEGMENT_CALL;
   const above = aboveFloor(call, p.floor);
   const boundary = (startThreshold ? next.step === '1' : next.step === '7' || next.step === '12');
-  const wants = boundary && (above === null ? !startThreshold : above >= threshold);
+  const to = l.parent ? l.parent.to : SEGMENTS[next.step]!;
+  const small = boundary && !startThreshold ? keepsSmallRun(loadCalibration(l.calibration), { runtimeLines, from: next.step, to, call }) : null;
+  const wants = boundary && !small && (above === null ? !startThreshold : above >= threshold);
   const depth = l.depth ?? (l.parent ? 1 : 0);
   const hold = !wants || !l.parent ? undefined
     : !l.steps_done?.length ? 'no step completed since verify-handoff'
@@ -123,11 +158,10 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
     return { stdout: stopLines(l, { call, next: nextId, step, projected, reason: 'context_threshold', threshold }), exit: 3 };
   }
   if (wants && !hold) {
-    const to = l.parent ? l.parent.to : SEGMENTS[next.step];
     return { stdout: [budgetLine(l, { call, next: nextId, projected, verdict: 'delegate' }),
       `DELEGATE: Steps ${next.step}-${to} go to a fresh ${l.parent ? `grandchild (chain depth ${depth + 1})` : 'child'}: gstack-ship-budget handoff --run ${l.run} --from ${next.step} --to ${to} --base origin/<base> (ship/sections/budget-handoff.md)`], exit: 0 };
   }
-  const lines = [budgetLine(l, { call, next: nextId, projected, verdict: 'continue' })];
+  const lines = [budgetLine(l, { call, next: nextId, projected, verdict: 'continue' }), ...(small ? [small] : [])];
   if (hold) lines.push(`CONTEXT_HIGH: call=${call ?? 'unknown'} call_floor=${p.floor} above_floor=${above ?? 'unknown'} threshold=${threshold} next=${nextId} depth=${depth}; continuing: ${hold}`);
   if (l.cap !== null) {
     const r = reserveIn(l, { kind: 'step', step, next: nextId, tokens: projected, prior });
@@ -137,16 +171,17 @@ export function decide(l: Ledger, step: string, next: Next, call: number | null,
 }
 
 /**
- * A dispatch batch: each reader is priced at max(its projection, the run's
- * measured mean for its role) and the batch is reserved as one sum. When it
+ * A dispatch batch: each reader is priced by projector().reader (from its packet
+ * bytes when BUDGET_NEXT carries them) and the batch is reserved as one sum. When it
  * does not fit, the largest prefix that does is admitted and ADMIT names the
  * rest; the reservation keeps them as `remaining` until a later check of the
  * same step requests them, and close flags any still left. Only a batch whose
  * first reader does not fit stops.
  */
-function admitBatch(l: Ledger, step: string, roles: string[], call: number | null): Outcome {
+function admitBatch(l: Ledger, step: string, roles: string[], call: number | null, bytes?: Array<number | null>): Outcome {
   const p = projector(l);
-  const prices = roles.map(p.reader);
+  const prices = roles.map((role, i) => p.reader(role, bytes?.[i]));
+  const named = (from: number) => roles.slice(from).map((role, i) => (bytes?.[from + i] == null ? role : `${role}@${bytes[from + i]}`)).join(',');
   const cost = (k: number) => prices.slice(0, k).reduce((a, b) => a + b, 0);
   const t = tally(l);
   let k = roles.length;
@@ -154,13 +189,14 @@ function admitBatch(l: Ledger, step: string, roles: string[], call: number | nul
   if (k === 0) return { stdout: stopLines(l, { call, next: `dispatch:${roles.join(',')}`, step, projected: cost(roles.length), reason: 'budget_exhausted' }), exit: 3 };
   const admitted = roles.slice(0, k), remaining = roles.slice(k), nextId = `dispatch:${admitted.join(',')}`;
   const lines = [budgetLine(l, { call, next: nextId, projected: cost(k), verdict: 'continue' })];
-  if (remaining.length) lines.push(`ADMIT: ${k} of ${roles.length} (remaining=${remaining.join(',')}); dispatch these ${k} now and re-check --next dispatch:${remaining.join(',')} after they settle`);
+  if (remaining.length) lines.push(`ADMIT: ${k} of ${roles.length} (remaining=${remaining.join(',')}); dispatch these ${k} now and re-check --next dispatch:${named(k)} after they settle`);
   if (l.cap === null) return { stdout: lines, exit: 0 };
   for (const role of roles) {
     const older = l.reservations.find(r => r.step === step && r.remaining?.includes(role));
     older?.remaining!.splice(older.remaining!.indexOf(role), 1);
   }
-  const r = reserveIn(l, { kind: 'dispatch', step, next: nextId, tokens: cost(k), prior: p.project({ kind: 'dispatch', roles: admitted }).prior, roles: admitted, ...(remaining.length ? { remaining } : {}) });
+  const kept = bytes?.slice(0, k);
+  const r = reserveIn(l, { kind: 'dispatch', step, next: nextId, tokens: cost(k), prior: p.project({ kind: 'dispatch', roles: admitted, ...(kept ? { bytes: kept } : {}) }).prior, roles: admitted, ...(kept ? { bytes: kept } : {}), ...(remaining.length ? { remaining } : {}) });
   lines.push(`RESERVATION: id=${r.id} next=${nextId} tokens=${cost(k)}`);
   return { stdout: lines, exit: 0 };
 }
@@ -239,7 +275,9 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
  * reviewer consumed), measure them, then admit the next step or dispatch.
  */
 export function cmdCheck(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'step', 'next', 'reading', 'prior-reading', 'returned']);
+  const o = parseArgs(argv, ['run', 'record', 'step', 'next', 'reading', 'prior-reading', 'returned', 'dispatched-at', 'readers', 'runtime-lines']);
+  const runtimeRaw = str(o, 'runtime-lines');
+  if (runtimeRaw !== undefined && !/^\d+$/.test(runtimeRaw)) throw usageError(`--runtime-lines '${runtimeRaw}' is not a line count; pass runtime_lines from gstack-review-plan --json`);
   const step = parseStep(str(o, 'step'));
   const next = parseNext(str(o, 'next'));
   const returned = (str(o, 'returned') ?? '').split(',').filter(Boolean);
@@ -249,29 +287,36 @@ export function cmdCheck(argv: string[], ctx: Ctx): Outcome {
     const back = returned.map(id => l.reservations.find(r => r.id === id && r.kind === 'dispatch'));
     const bad = returned.filter((_, i) => !back[i]);
     if (bad.length) throw usageError(`--returned ${bad.join(',')} is not a dispatch reservation of run ${l.run}; fix: pass the RESERVATION ids check printed for the reviewers that came back`);
-    const call = readMeter(l, o, true);
+    if (str(o, 'dispatched-at') !== undefined && !back.length) throw usageError('--dispatched-at measures the reservations named by --returned; pass them, or use settle');
+    const notes: string[] = [];
+    const lastBefore = l.meter.last;
+    const dispatched = dispatchedOpt(o, lastBefore);
+    const call = readMeter(l, o, true, notes);
+    const fresh = freshReading(l, o);
     for (const r of l.reservations) {
       const done = r.kind === 'step' ? r.state === 'open' : r.kind === 'dispatch' && (back.includes(r) || (next.kind === 'step' && r.state === 'consumed'));
-      if (done) settleIn(l, r);
+      if (done) settleIn(l, r, back.includes(r) && fresh ? { reading: l.meter.last ?? undefined, dispatched } : {});
     }
-    const drift = freshReading(l, o) ? measureSettled(l) : [];
+    const drift = fresh ? measureSettled(l, next.kind === 'step') : [];
     if (l.parent && next.kind === 'step' && SHIP_STEPS.indexOf(step as any) >= SHIP_STEPS.indexOf(l.parent.from as any)) l.steps_done = [...new Set([...(l.steps_done ?? []), step])];
-    const out = decide(l, step, next, call);
-    return { stdout: [...drift, ...out.stdout], exit: out.exit };
+    const out = decide(l, step, next, call, false, runtimeRaw === undefined ? undefined : Number(runtimeRaw));
+    return { stdout: [...notes, ...drift, ...out.stdout], exit: out.exit };
   });
 }
 
 export function cmdSettle(argv: string[], ctx: Ctx, release = false): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'reservation', ...(release ? [] : ['reading'])], release ? [] : ['unknown']);
+  const o = parseArgs(argv, ['run', 'record', 'reservation', ...(release ? [] : ['reading', 'dispatched-at', 'readers'])], release ? [] : ['unknown']);
   const id = str(o, 'reservation');
   if (!id) throw usageError(`${release ? 'release' : 'settle'} needs --reservation <id>`);
   return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
     const r = l.reservations.find(x => x.id === id);
     if (!r) throw usageError(`reservation ${id} is not in run ${l.run}`);
     if (release) { if (r.state === 'open') r.state = 'released'; return { stdout: [`RELEASED: id=${id} state=${r.state}`], exit: 0 }; }
+    const dispatched = dispatchedOpt(o, l.meter.last);
     readMeter(l, o, false);
-    settleIn(l, r, { unknown: o.unknown === true, cal: loadCalibration(l.calibration) });
-    return { stdout: [`SETTLED: id=${id} state=${r.state}`, ...(freshReading(l, o) ? measureSettled(l) : [])], exit: 0 };
+    const fresh = freshReading(l, o);
+    settleIn(l, r, { unknown: o.unknown === true, cal: loadCalibration(l.calibration), reading: fresh ? l.meter.last ?? undefined : undefined, dispatched });
+    return { stdout: [`SETTLED: id=${id} state=${r.state}`, ...(fresh ? measureSettled(l, false) : [])], exit: 0 };
   });
 }
 

@@ -23,18 +23,23 @@ you set stays as given); the stop overhead never scales.
 
 ## Quickstart
 
-**Capy.** Read the root counter in one execute program that returns only that number:
+**Capy.** Read the root counter inside the execute program that runs the command, never as a
+call of its own:
 
 ```js
-return (await tools.thread.get({ thread_id: "this" })).cost.tokens;
+const n = (await tools.thread.get({ thread_id: "this" })).cost.tokens;
 ```
 
-then
+then pass it to
 
 ```bash
 gstack-ship-budget start --record <record> --token-cap 25M --reading <n>
 gstack-ship-budget check --run <id> --step 6 --next 7 --reading <n> [--prior-reading <n from your previous call>]
 ```
+
+`--prior-reading` must come from the call just before this one; a prior older than the run's last
+reading spans several calls, so it is ignored (`CALL_UNKNOWN:`, `call=unknown`). Two readings in
+one program measure nothing: Capy books a call after its program ends.
 
 The counter rolls up every subagent of the thread, outside voices included; Capy exposes no
 per-subagent counter, so other work in the same thread counts too (it only stops earlier).
@@ -60,7 +65,7 @@ With a cap set and no readable meter, start refuses
 | `admission_cap` | The cap, or `none` |
 | `tail` | Tail reserve (scaled by the step factor once measured) plus stop overhead, held back from every admission |
 | `unit`, `meter`, `epoch` | The meter contract: `capy-tokens` (root counter), `claude-usage-tokens` (journal usage), `estimate-tokens`; a meter change opens a new epoch |
-| `call` | The per-call charge: two Capy readings in consecutive calls, or the last Claude Code call's usage |
+| `call` | The per-call charge: two Capy readings in consecutive calls (a prior older than the run's last reading is ignored), or the last Claude Code call's usage |
 | `call_floor`, `above_floor` | The host's per-call floor (see Delegation) and the charge above it, max(0, call − floor); the delegate rule compares `above_floor` |
 | `next`, `projected` | What the check was for and its projection: the prior times the run's factor for that kind |
 | `calibration` | The run's step and dispatch factors (see Calibration), or `prior` before the first measurement |
@@ -80,21 +85,30 @@ gstack-ship-budget check --run <id> --step 9 --next dispatch:specialist,red-team
 gstack-review-log --start review --reservation <id>
 ```
 
-Each reader is priced at max(its projection, the run's measured mean for that role over settled
-dispatches). When the whole batch does not fit, `check` admits the largest prefix that does and
+Name one role per `DISPATCH:` line (six specialists are `specialist` six times): drift and the
+measured means are per reader. A reader's prior comes from its packet when `--next` carries
+`role@<bytes>`: 3 calls x (the host call floor + bytes/4), rounded up to 10,000; without bytes it is
+the calibrated per-dispatch constant. The run's dispatch factor scales that prior, but never above
+the larger of the prior and the run's clean per-reader mean, and the price never drops below the
+role's own measured mean. When the whole batch does not fit, `check` admits the largest prefix that does and
 prints `ADMIT: k of n (remaining=<roles>)`: dispatch those k, then re-check the remaining roles
 once they settle. Only a batch whose first reader does not fit stops, and `close` flags remaining
 roles no later check requested (`DROPPED:`, status=incomplete until the owner accepts).
 Roles are review-depth's: `specialist`, `red-team`, `adversarial-native`, `outside-voice`,
-`fix-check`. /ship passes the `BUDGET_NEXT: dispatch:<roles>` value that the batch's
+`fix-check`. /ship passes the `BUDGET_NEXT: dispatch:<role@bytes,...>` value that the batch's
 `gstack-review-packet build` prints, one role per packet: a Step 7/8 audit reserves as
 `specialist` and a shard as its reviewer's role
 ([review-policy.md](review-policy.md#reviewer-packets)). `--finish <token>` is the pass's completion receipt: it settles that reservation and
 every other dispatch reservation started in the same step, so reviewers admitted one at a time
-do not stay reserved. Name a reviewer that came back in your next check
-(`check ... --returned <id>[,<id>...]`), or, when other work comes first, `settle --reservation <id>
---reading <n>` as it returns so its cost is measured alone. A check that moves to the next step
-settles every dispatch a reviewer started in the step before.
+do not stay reserved. The program that dispatches a batch measures it: it reads the counter right
+before it starts the readers and again right after the last one settles, then runs `settle
+--reservation <id> --dispatched-at <before> --reading <after> --readers <n>` (or names the batch in
+a check with `--returned <id> --dispatched-at <before>`). The parent makes no model call inside that
+program, so the pair holds only the readers. A check that moves to the next step settles every
+dispatch a reviewer started in the step before. Only that pair is measured: `--finish`, a step
+change, `--returned` or a settle without `--dispatched-at` (a later program), and a
+`--dispatched-at` older than another command's reading, all settle without measuring, print
+`UNMEASURED:` and leave the factor alone (their interval also holds the parent's own work).
 `close` audits after the fact: each review-log row of the run with no reservation gets one
 BUDGET_CHECK_SKIPPED line and the run ends status=incomplete for the owner to accept
 (`close --approved-by <who> --words "<their words>"`); a reservation is never created after the fact.
@@ -113,7 +127,12 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
 1. `gstack-ship-budget handoff --run <id> --from 12 --to 22 --base origin/<base> --reading <n>` writes a
    brief (mode 0600, under the run directory) with the pins (HEAD, merge base, working tree,
    reviewed tree), the record with its six headings and start tokens, the decisions in scope
-   with the owner's words, the decision trail, the budget and the return contract. It reserves
+   with the owner's words, the decision trail, the budget and the return contract. Its `READ:`
+   lines are the child's whole reading list as line ranges: ship/SKILL.md's contract, the
+   segment's own steps, the self-check and Important Rules (never the preamble or section
+   index), and each segment section, review-army.md without Step 9.1's selection rules (the
+   review plan's `DISPATCH:` lines replace them). The return contract names `--to` as the
+   segment's last step, so a 12-22 child returns `--to 22`. It reserves
    the child's sub-cap: min(cap − used − reserved − unknown − the calibrated tail reserve and stop
    overhead, the segment estimate), or `--sub-cap`. A child handing off reserves its whole
    remaining sub-cap instead (cap − used − reserved − unknown − its stop overhead).
@@ -138,13 +157,22 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
    grandchild writing after the parent moves on.
 4. `gstack-ship-budget reconcile --run <id> --return <file> --reading <n>`; idempotent per handoff hash,
    so a duplicate return charges nothing twice. A refused, incomplete or interrupted child
-   exits 3: regenerate the handoff or stop. Up a chain each token is charged once: the Capy
+   exits 3 and stops the run (`reason=child_<status>`): every check refuses until a regenerated
+   child reconciles complete or `resume` runs; regenerate the handoff or stop. Up a chain each token is charged once: the Capy
    counter already includes the whole subtree, a session `launch` starts joins the Claude Code
    meter of every ancestor, and under `meter=estimate` a child's returned `used` carries its
    grandchild's.
 
 `--delegate never` turns delegate into stop for a parent on a host without children; a child
 continues with a `CONTEXT_HIGH:` note instead.
+
+**Small runs keep their segment.** `check --runtime-lines <n>` (runtime_lines from
+`gstack-review-plan --json`, which `gstack-ship-preflight` prints) continues at the Step 7 and
+Step 12 boundaries, with a `SMALL_RUN:` line, when the diff is light (at most 50 runtime lines)
+and the segment's calibrated calls at this run's per-call charge cost at most 12M. A child costs
+a fixed 2–4.5M (gstack-evals #34: boot, install check, verify-handoff, section reads,
+reconcile) and saves at most about 3/8 of each parent call, so a segment under 4.5M ÷ 0.375
+cannot pay for one. Without the flag the rule above applies unchanged.
 
 ## Stop and resume
 
@@ -180,11 +208,17 @@ Claude-metered /ship completes. Each unit's `call_floor` is calibrated separatel
 evidence in `call_floor_why`; a floor is the largest 10,000 multiple at or below its smallest
 observed fresh call.
 
-These constants are the prior. Each settled step or dispatch is measured on the next fresh
-reading (a step from its check's reading to the next one; dispatches settled together as one
-group, split by role), and prints
+These constants are the prior. A dispatch is measured from its dispatch program's
+`--dispatched-at` reading to the reading it was settled with in that program (dispatches with one
+pair split it per reader, `--readers` or one per role). A step is
+measured at the next step change, from its check's reading minus the dispatches reserved inside
+it, so the parent's interleaved calls stay in the step; a step holding an unmeasured dispatch is
+not measured. Each measurement prints
 
     DRIFT: id=<reservation> kind=step|dispatch next=<id> projected=<n> actual=<n> ratio=<actual/projected>
+
+and each reservation that cannot be measured prints
+`UNMEASURED: id=<reservation> kind=step|dispatch next=<id> reason=settled_without_reading|no_dispatch_reading|reading_between|dispatch_unmeasured`.
 
 From then on the run projects steps and dispatches with its own factor: the largest
 actual/prior ratio among its last three measurements of that kind, times 1.5. The step factor

@@ -60,7 +60,7 @@ test('/ship runs the gate scan before the checklist read, again after the covera
   const parent = between(coverage, '**Parent processing:**', '**Audit failure:**');
   expectOrdered(parent, ['6. Print a one-line summary', '7. **Rescan gate edits after the child returns.**', '{{GATE_SCAN_BLOCK}}', 'Gate Integrity'], 'Step 7 parent rescan');
   expectMentions(compact(parent), [['never', 'paths', 'child', 'reported'], ['child', 'green', 'claim']], 'Step 7 parent rescan');
-  const child = between(coverage, '````text', '````');
+  const child = between(read('ship/sections/audit-test-coverage.md.tmpl'), '````text', '````');
   expectAbsent(child, ['GATE_SCAN_BLOCK', 'gate_id'], 'Step 7 child prompt');
   expect(child).toContain('{"coverage_pct":N,"gaps":N,"diagram":');
 });

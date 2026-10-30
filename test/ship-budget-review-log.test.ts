@@ -73,7 +73,7 @@ describe('gstack-review-log --start under a token cap', () => {
   test('a reused reservation refuses; the first use consumes it and --finish settles it', () => {
     const h = fresh();
     const run = capped(h);
-    const id = reserve(h, run.run);
+    const id = reserve(h, run.run, 'dispatch:specialist');
     const ok = h.reviewLog(['--start', 'review', '--reservation', id]);
     expect(ok.code).toBe(0);
     const token = ok.out.trim();
@@ -88,6 +88,33 @@ describe('gstack-review-log --start under a token cap', () => {
     row = h.ledger(run.ledger).reservations.find((r: any) => r.id === id);
     expect(row.state).toBe('settled');
     expect(h.sb(['close', '--run', run.run, '--reading', '10']).code).toBe(0);
+  });
+
+  // GSTA-167 #34 replay: Step 11 reserved adversarial-native and outside-voice as one batch, and the second
+  // voice's --start refused (one-shot), so it ran unreserved and close stopped with budget_check_skipped.
+  test('a multi-role reservation admits one start per role, refuses the extra, and close finds nothing unreserved', () => {
+    const h = fresh();
+    const run = capped(h);
+    const id = reserve(h, run.run, 'dispatch:adversarial-native,outside-voice');
+    const tokens = [1, 2].map(() => {
+      const r = h.reviewLog(['--start', 'adversarial-review', '--reservation', id]);
+      expect(r.code, r.err).toBe(0);
+      return r.out.trim();
+    });
+    expect(new Set(tokens).size).toBe(2);
+    const extra = h.reviewLog(['--start', 'adversarial-review', '--reservation', id]);
+    expect(extra.code).toBe(1);
+    expect(extra.err).toContain('one start per role: 2 of 2 used');
+    expect(h.ledger(run.ledger).reservations.find((r: any) => r.id === id).starts.map((s: any) => s.token)).toEqual(tokens);
+    for (const token of tokens) {
+      const row = { skill: 'adversarial-review', timestamp: new Date().toISOString(), status: 'clean', source: 'in-host' };
+      expect(h.reviewLog([JSON.stringify(row), '--finish', token]).code).toBe(0);
+    }
+    expect(h.ledger(run.ledger).reservations.find((r: any) => r.id === id).state).toBe('settled');
+    const close = h.sb(['close', '--run', run.run, '--reading', '10']);
+    expect(close.out).not.toContain('BUDGET_CHECK_SKIPPED');
+    expect(close.out).not.toContain('reason=budget_check_skipped');
+    expect(close.code, close.out).toBe(0);
   });
 
   test('close prints one BUDGET_CHECK_SKIPPED line per unreserved dispatch and ends incomplete', () => {

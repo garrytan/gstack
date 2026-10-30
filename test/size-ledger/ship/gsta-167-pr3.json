@@ -1,0 +1,4 @@
+{
+  "bytes": 2574,
+  "why": "GSTA-167 PR 3: audit prompts move to prompt-only sections (parent reads 31 KB less; the union adds their headers), one-program review pass, --like, READ ranges and meter prose"
+}

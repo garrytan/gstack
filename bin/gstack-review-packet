@@ -4,13 +4,15 @@
  * their results (docs/review-policy.md#reviewer-packets).
  *
  *   gstack-review-packet build --base <ref> --out-dir <dir> [--range <sha>] [--plan-file <path>] [--only a,b]
- *                              [--findings <merged.jsonl>] [--fix-list <f> --tests <f> [--callers <f>]] [plan flags]
+ *                              [--findings <merged.jsonl>] [--fix-list <f> --tests <f> [--callers <f>]] [--fanout batched|parallel] [plan flags]
+ *   gstack-review-packet build --like <earlier build dir> [--out-dir <dir>] [--only a,b] [--findings <merged.jsonl>]
  *   gstack-review-packet build --audit test-coverage|plan-completion --base <ref> --out-dir <dir> [--plan-file <path>]
- *                              [--context <file>] [--generation allowed|audit-only] [--passes-used <n>]
+ *                              [--context <file>] [--passes-used <n>]
+ *   gstack-review-packet build --audit docs --candidate <snapshot.json> --base <ref> --out-dir <dir>
  *   gstack-review-packet collect --dir <dir>
  *
  * build runs the plan gstack-review-plan prints (lib/review-plan-live.ts, same flags) and writes
- * one packet per DISPATCH line; collect reads every packet's output file. Logic: lib/review-packet.ts,
+ * one packet per DISPATCH line, a pass's specialist lines packed into one batched packet; collect reads every packet's output file. Logic: lib/review-packet.ts,
  * lib/review-packet-collect.ts.
  */
 import * as fs from 'node:fs';
@@ -20,21 +22,31 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { runScriptSync } from '../lib/script-invocation';
 import { reviewPlanLine } from '../lib/review-depth';
 import { flagReader, livePlan, parsePlanFlags, planPass, PLAN_FLAGS_HELP } from '../lib/review-plan-live';
-import { AUDITS, auditDraft, budgetRole, contentKey, draftFor, packetLine, PACKET_CAP_BYTES, READ_CHUNK_BYTES, readManifest, writeManifest, writePackets, type AuditName, type BuildContext, type PacketEntry } from '../lib/review-packet';
+import { AUDITS, auditCodePaths, expandLike, reusedBuildFlags, auditDraft, budgetRole, contentKey, draftFor, packetLine, packSpecialists, PACKET_CAP_BYTES, PACKINGS, READ_CHUNK_BYTES, readManifest, SPECIALIST_PACKING, writeManifest, writePackets, type AuditName, type BuildContext, type PacketEntry, type Packing } from '../lib/review-packet';
 import { resolveBaseRef } from '../lib/review-collect';
+import { docsAuditDraft, readCandidate } from '../lib/review-packet-docs';
 import { collect } from '../lib/review-packet-collect';
 
 const BIN = 'gstack-review-packet';
 const HELP = `${BIN} — one packet file per /ship reviewer; collect reads their results (docs/review-policy.md#reviewer-packets)
 
   build --base <ref> --out-dir <dir>   write one packet per DISPATCH line of the plan gstack-review-plan prints
+    --fanout batched|parallel          batched (default ${SPECIALIST_PACKING}): a pass's specialist lines are one packet
+                                       per shard inlining every checklist (a specialist --only names keeps its own);
+                                       parallel: one packet per specialist
     --range <sha>                      the diff base from pass 2 on (RANGE_BASE; fix-check: PASS_HEAD); default the merge base
     --plan-file <path>                 add at most 8 KB of the plan to each packet (the plan-completion audit gets it whole)
+    --like <dir>                       reuse the plan flags, --range, --plan-file and --fanout of the build in <dir>
+                                       (its manifest); flags given here win; --out-dir defaults to <dir>
     --only a,b                         only these reviewers (names or roles: adversarial, outside-voice, red-team, ...)
     --findings <merged.jsonl>          collect's merged findings: builds the red-team packet (deferred without it)
     --fix-list <f> --tests <f> [--callers <f>]  the fix-check packet's inputs (its hunks are the --range diff)
-    --audit test-coverage|plan-completion  the Step 7/8 audit packet instead of the plan's reviewers
-    --context <file> --generation allowed|audit-only --passes-used <n>  the audit's parent-supplied inputs
+    --audit test-coverage|plan-completion  the Step 7/8 audit packet instead of the plan's reviewers; a diff with
+                                       no code path prints AUDIT_SKIPPED: test-coverage and builds nothing
+    --context <file> --passes-used <n>  the audit's parent-supplied inputs (the coverage packet is audit-only)
+    --audit docs --candidate <f>       the Step 14.5 documentation audit: one read-only packet over the gstack-docs-candidate
+                                       snapshot (doc surfaces, doc lines naming changed code, that diff); the reader
+                                       proposes edits as findings and gstack-docs-candidate apply makes them
   plan flags (same as gstack-review-plan):
 ${PLAN_FLAGS_HELP}
   collect --dir <dir>                  read every packet's output: one REVIEWER: line each, every CRITICAL on one
@@ -42,12 +54,14 @@ ${PLAN_FLAGS_HELP}
 
 build prints PACKET: <role> <name> effort=<e> bytes=<n> tokens~=<n/4> budget_role=<r> read=<from-to,...> file=<path> out=<path>
 per packet (a reviewer past ${PACKET_CAP_BYTES} bytes is sharded by path as <name>.1ofK, never truncated; read= are the line
-ranges, each under ${READ_CHUNK_BYTES} bytes, a reviewer reads in parallel), PACKETS: n=<k> total_bytes=<n> fingerprint=<plan fingerprint>
-and BUDGET_NEXT: dispatch:<one budget_role per packet> for gstack-ship-budget check --next. collect exits 3 with
-REVIEW_COVERAGE_INCOMPLETE when any packet's output is missing or unusable.
+ranges, each under ${READ_CHUNK_BYTES} bytes, a reviewer reads in parallel), PACKED: specialist batched checklists=<a,b> shards=<k>
+per batched reviewer, PACKETS: n=<k> total_bytes=<n> fingerprint=<plan fingerprint> and BUDGET_NEXT: dispatch:<one budget_role@bytes
+per packet> for gstack-ship-budget check --next (the bytes price each reader from its packet). collect exits 3 with REVIEW_COVERAGE_INCOMPLETE when any packet's output is
+missing or unusable, or a batched packet's COVERED: line leaves out a checklist it inlined.
 ${exitTableHelp()}`;
 
-const args = process.argv.slice(2);
+const like = expandLike(process.argv.slice(2));
+const args = 'args' in like ? like.args : process.argv.slice(2);
 const { flag, has, list } = flagReader(args);
 const fail = (msg: string, code: number = EXIT.usage) => { process.stderr.write(`${BIN}: ${msg}\n`); return code; };
 const readFlag = (n: string): string | null | undefined => { const f = flag(n); if (f === undefined) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
@@ -61,12 +75,15 @@ function learningsFor(binDir: string) {
 }
 
 function build(): number {
+  if ('error' in like) return fail(like.error);
   const outDir = flag('--out-dir');
   if (!outDir) return fail('build needs --out-dir <dir>');
   const audit = flag('--audit') as AuditName | undefined;
   if (has('--audit') && !AUDITS.includes(audit as AuditName)) return fail(`--audit must be ${AUDITS.join(' or ')}`);
   const flags = parsePlanFlags(args, BIN);
   if ('usage' in flags) return fail(flags.usage.replace(`${BIN}: `, ''));
+  const fanout = (flag('--fanout') ?? SPECIALIST_PACKING) as Packing;
+  if (!PACKINGS.includes(fanout)) return fail(`--fanout must be ${PACKINGS.join(' or ')}`);
   const planText = readFlag('--plan-file');
   if (planText === null) return fail(`--plan-file ${flag('--plan-file')} is not readable`);
   const binDir = path.dirname(Bun.fileURLToPath(import.meta.url));
@@ -74,8 +91,10 @@ function build(): number {
   const live = livePlan(flags, binDir, BIN);
   if ('errors' in live) { process.stderr.write(live.errors.map(e => e + '\n').join('')); return EXIT.fail; }
   const { plan, collected, head, root } = live;
-  const range = flag('--range');
-  if (range !== undefined && spawnSync('git', ['rev-parse', '--verify', '-q', `${range}^{commit}`], { cwd: root, encoding: 'utf8', timeout: 15_000 }).status !== 0) return fail(`--range ${range} is not a commit`);
+  const candidate = audit === 'docs' ? readCandidate(flag('--candidate')) : null;
+  if (candidate && 'error' in candidate) return fail(candidate.error);
+  const range = candidate?.base ?? flag('--range');
+  if (range !== undefined && spawnSync('git', ['rev-parse', '--verify', '-q', `${range}^{commit}`], { cwd: root, encoding: 'utf8', timeout: 15_000 }).status !== 0) return fail(`${candidate ? "the candidate's base" : '--range'} ${range} is not a commit`);
   const diffBase = range ?? collected.mergeBase!;
   fs.mkdirSync(absOut, { recursive: true, mode: 0o700 });
   const ctx: BuildContext = { root, skillRoot: path.resolve(binDir, '..'), binDir, outDir: absOut, head, diffBase, baseRef: resolveBaseRef(root, flags.base), fingerprint: plan.numbers.fingerprint, learnings: learningsFor(binDir),
@@ -90,27 +109,34 @@ function build(): number {
     const context = readFlag('--context');
     if (context === null) return fail(`--context ${flag('--context')} is not readable`);
     if (audit === 'plan-completion' && planText === undefined) return fail('--audit plan-completion needs --plan-file <the bound plan>');
-    let draft = auditDraft(audit, { ...ctx, ...(context ? { context } : {}) }, flags.base, live.auditEffort);
-    const gen = flag('--generation'), used = flag('--passes-used');
-    if (gen || used) draft = { ...draft, head: draft.head.map(s => s.replace('<allowed|audit-only>', gen ?? '<allowed|audit-only>').replace('passes used: <N>', `passes used: ${used ?? '<N>'}`)) };
-    entries = writePackets(draft, ctx);
+    const codePaths = audit === 'test-coverage' ? auditCodePaths(collected.paths, root) : null;
+    if (candidate) {
+      entries = writePackets(docsAuditDraft(ctx, flags.base, live.auditEffort, candidate), ctx);
+    } else if (codePaths?.length === 0) {
+      const shown = collected.paths.slice(0, 5).join(',') + (collected.paths.length > 5 ? `,+${collected.paths.length - 5} more` : '');
+      out.push(`AUDIT_SKIPPED: test-coverage code_paths=0 (docs, data and tests only: ${shown || 'empty diff'}); no audit dispatched, the coverage gate records zero paths`);
+    } else {
+      let draft = auditDraft(audit, { ...ctx, ...(context ? { context } : {}) }, flags.base, live.auditEffort);
+      const used = flag('--passes-used');
+      if (used) draft = { ...draft, head: draft.head.map(s => s.replace('passes used: <N>', `passes used: ${used}`)) };
+      entries = writePackets(draft, ctx);
+    }
   } else {
     const only = list('--only');
     const wanted = (role: string, key: string) => !only.length || only.includes(key) || only.includes(role);
     const findingsText = readFlag('--findings');
     if (findingsText === null) return fail(`--findings ${flag('--findings')} is not readable`);
-    for (const d of plan.dispatches) {
-      const key = d.name.split(' ')[0]!;
-      if (!wanted(d.role, key)) continue;
+    const selected = plan.dispatches.filter(d => wanted(d.role, d.name.split(' ')[0]!));
+    for (const d of fanout === 'batched' ? packSpecialists(selected, x => only.includes(x.name.split(' ')[0]!)) : selected) {
       if (d.role === 'red-team' && findingsText === undefined) {
-        out.push(`PACKET_DEFERRED: red-team (after collect: build --only red-team --findings ${path.join(outDir, 'merged.jsonl')} with these flags)`);
+        out.push(`PACKET_DEFERRED: red-team (after collect: build --like ${outDir} --only red-team --findings ${path.join(outDir, 'merged.jsonl')})`);
         entries.push({ role: 'red-team', name: 'red-team', reviewer: 'red-team', effort: d.effort, file: '', out: '', bytes: 0, checklists: ['red-team'], fixtures: 'summary', shard: null, deferred: true });
         continue;
       }
       let dctx = ctx;
       if (d.role === 'red-team') {
         const findings = findingsText!.split('\n').filter(Boolean).flatMap(l => { try { const f = JSON.parse(l); return [`[${f.severity}] ${f.path}${f.line ? `:${f.line}` : ''} (${(f.sources ?? [f.specialist]).join(' + ')}) ${String(f.summary).replace(/\s+/g, ' ')}`.slice(0, 300)]; } catch { return []; } });
-        const specialists = new Set((readManifest(absOut)?.packets ?? []).filter(p => p.role === 'specialist').map(p => p.reviewer)).size;
+        const specialists = new Set((readManifest(absOut)?.packets ?? []).filter(p => p.role === 'specialist').flatMap(p => p.checklists.filter(c => c !== 'red-team'))).size;
         dctx = { ...ctx, findings, specialists };
       }
       if (d.role === 'fix-check') {
@@ -118,14 +144,16 @@ function build(): number {
         if (!fixList || !tests || callers === null) return fail('the plan dispatches fix-check: pass readable --fix-list and --tests files (--callers optional)');
         dctx = { ...ctx, fixCheck: { fixList, tests, callers: callers ?? '' } };
       }
-      entries.push(...writePackets(draftFor(d, dctx), dctx));
+      const written = writePackets(draftFor(d, dctx), dctx);
+      if (d.checklists) out.push(`PACKED: specialist batched checklists=${d.checklists.join(',')} shards=${written.length}`);
+      entries.push(...written);
     }
     out.unshift(reviewPlanLine(plan, planPass(plan, flags.pass)));
   }
-  writeManifest(absOut, { version: 1, head, diff_base: diffBase, fingerprint: plan.numbers.fingerprint, content }, entries, has('--only'));
+  writeManifest(absOut, { version: 1, head, diff_base: diffBase, fingerprint: plan.numbers.fingerprint, content, build_flags: reusedBuildFlags(args) }, entries, has('--only'));
   const built = entries.filter(e => !e.deferred);
   out.push(...built.map(packetLine), `PACKETS: n=${built.length} total_bytes=${built.reduce((n, e) => n + e.bytes, 0)} fingerprint=${plan.numbers.fingerprint}`);
-  if (built.length) out.push(`BUDGET_NEXT: dispatch:${built.map(e => budgetRole(e.role)).join(',')}`);
+  if (built.length) out.push(`BUDGET_NEXT: dispatch:${built.map(e => `${budgetRole(e.role)}@${e.bytes}`).join(',')}`);
   process.stdout.write(out.join('\n') + '\n');
   return EXIT.ok;
 }

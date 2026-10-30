@@ -20,7 +20,8 @@ Reentry never resets the count or authorizes a launch.
 
 ## Prepare the candidate
 
-1. Read the installed document-release SKILL.md and its full audit-scope/release-body
+1. **On Capy (`GSTACK_CAPY=1`) the audit is one packet** and needs no document-release
+   read: skip to item 2. Elsewhere, read the installed document-release SKILL.md and its full audit-scope/release-body
    content (sections, or inlined on external hosts). A missing section
    or old `Ship-owned documentation mode` blocks before launch; never substitute.
 2. Select the base SHA. Store-only audits compare source/build content to a known
@@ -35,7 +36,31 @@ Reentry never resets the count or authorizes a launch.
 
 ## Launch the audit
 
-**Dispatch /document-release as a subagent** with the Agent tool (never Skill),
+**On Capy, by packet:** `~/.claude/skills/gstack/bin/gstack-review-packet build --audit docs --candidate <private.json> --base <base> --out-dir .gstack/tmp/review-packets-docs`
+writes one read-only packet: the auditor prompt below, the candidate's doc surfaces, the doc
+lines that name a changed code path and the diff of the changed docs plus that code. A refused
+build blocks before launch. Dispatch one subagent whose whole brief is Step 7's packet brief
+with this packet's `read=` ranges; retain the child id. It proposes edits as findings and
+never writes a doc.
+
+````text
+You are the /ship documentation auditor (Step 14.5). Read-only: edit no file, run no command, never commit, push or start another workflow. The parent applies your proposed edits mechanically and owns every decision you return. Audit id: <audit-id>. Mode: <mode>.
+
+Checklist, against the diff below and the docs it touches or names:
+1. Coverage map: each new, changed, renamed or removed public surface (commands, flags, config keys, environment variables, endpoints, skills, exported names) and where the docs cover it (reference, how-to, tutorial, explanation). Zero coverage is a critical gap, reference-only a common gap; report gaps as debt, never write new pages.
+2. Per file: README (features, install, examples, troubleshooting); ARCHITECTURE (diagrams and components match the code; be conservative); CONTRIBUTING (would each setup command still succeed for a new contributor); CLAUDE.md/AGENTS.md (structure, commands, build and test instructions); every other listed doc: does a line contradict the diff?
+3. Cross-doc: README and project instructions agree; every doc is reachable from README.md or CLAUDE.md/AGENTS.md; diagram entities the diff renamed, split, moved or removed.
+4. Classify each needed change: `edit` for a factual correction the diff clearly warrants (a table row, a path, a count, a flag name, a structure tree); `block` for narrative or positioning text, a removal, security-model text, more than ~10 lines in one section, a new section, uncertain relevance, a generated file (name its template), CHANGELOG, TODOS, VERSION, package or lock files, or any correction in read-only mode; `note` for debt and observations.
+
+Reads: this packet in its read= ranges, then at most one turn of named line ranges (200 lines or fewer) of the listed docs and the code they describe. No repository search, no other packet, no SKILL.md.
+
+Write to the output path in one write: one JSON object per finding, one per line:
+{"path":"<repo-relative doc>","line":<n>,"action":"edit|block|note","kind":"stale|missing|contradiction|discoverability|coverage|diagram","summary":"<one line>","old":"<exact current text, once in that file>","new":"<replacement>"}
+`old` and `new` only on `edit`. Then the LAST line, one JSON object:
+{"schema_version":1,"audit_id":"<audit-id>","files_reviewed":["<docs you actually read>"],"documentation_section":"<Markdown: audited scope, per-file status in Documentation health form, coverage debt, diagram drift; no ## Documentation heading>"}
+````
+
+**Elsewhere:** Dispatch /document-release as a subagent with the Agent tool (never Skill),
 `subagent_type: "general-purpose"`.
 
 **Foreground required:** pass `run_in_background: false` when available on the Agent call — subagents run in the background by default since Claude Code v2.1.198, so omitting an available flag gives a background run. A launch receipt means it went background: await its completion notice. Dispatch through the Agent tool only: invoking the target as a Skill, or executing its workflow inline in your own context, forfeits the fresh-context isolation this dispatch exists for, even though the skill may appear in your available-skills list. (Where a step defines an inline fallback, it applies only after a dispatched subagent has failed.) Retain the child id.
@@ -66,9 +91,13 @@ Reentry never resets the count or authorizes a launch.
 
 1. **Collect.** Inspect the child handle for terminal completion and final output
    within ~10 minutes; launch metadata is not completion. On failure/deadline,
-   use recovery before another writer.
+   use recovery before another writer. A packet reader's result is its `out=` file:
+   run `~/.claude/skills/gstack/bin/gstack-docs-candidate apply <candidate> --findings <out>`.
+   It makes each `edit` whose `old` text occurs once in a candidate doc (never a protected or
+   generated file, none in read-only mode), turns `block` findings and unappliable edits into
+   blockers, and prints the audit result on its LAST line; that line is the output below.
 2. **Check output.** Parse only the LAST nonempty line. Require every field/type,
-   exact audit id, schema, status invariant and actual spawned marker above, as
+   exact audit id, schema, status invariant and, from a /document-release child, the actual spawned marker above, as
    echoed in the child output; state files are not evidence of it.
    Never default or reconstruct missing values.
 3. **Check ownership.** Run `gstack-docs-candidate compare <candidate>`.

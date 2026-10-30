@@ -5,7 +5,8 @@
  * checklists inlined, its DIFF_CMD diff at -U8 against the literal diff base with
  * a stat, at most 8 KB of the plan, a read budget, and the output path its result
  * goes to. A reviewer packet over PACKET_CAP_BYTES is sharded by path, never
- * truncated; a Step 7/8 audit is one packet (one verdict, one generation allowance).
+ * truncated; a Step 7/8 audit is one packet (one verdict, one generation allowance). At every
+ * depth a pass's specialist lines become one batched packet per shard (SPECIALIST_PACKING).
  * Selection is lib/review-depth.ts planReview's (through lib/review-plan-live.ts);
  * collect is lib/review-packet-collect.ts.
  */
@@ -13,7 +14,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Dispatch, Role } from './review-depth';
+import { isRunArtifact } from './review-collect';
+import { classifyPath, type Dispatch, type Role } from './review-depth';
 import * as P from './review-prompts';
 
 export const PACKET_CAP_BYTES = 200_000;
@@ -23,9 +25,36 @@ export const READ_CHUNK_BYTES = 30_000;
 /** A data-format file (.json/.jsonl/.ndjson/.csv/.tsv, not a package or config manifest) past this many changed lines reaches reviewers as a summary. */
 export const DATA_SUMMARY_LINES = 400;
 export const MANIFEST = 'manifest.json';
-export const AUDITS = ['test-coverage', 'plan-completion'] as const;
+export const AUDITS = ['test-coverage', 'plan-completion', 'docs'] as const;
+/** The ship section whose text fence is an audit's prompt. */
+const AUDIT_SECTION: Record<AuditName, string> = { 'test-coverage': 'audit-test-coverage', 'plan-completion': 'audit-plan-completion', docs: 'documentation' };
 export type AuditName = (typeof AUDITS)[number];
 export type PacketRole = Role | 'audit';
+
+export type Packing = 'batched' | 'parallel';
+export const PACKINGS: readonly Packing[] = ['batched', 'parallel'];
+/**
+ * How build packs a pass's specialist DISPATCH lines: `batched` is one packet per shard inlining every
+ * selected checklist (light's contract, each finding tagged with its checklist, a COVERED line collect
+ * checks); `parallel` is one packet per specialist. The no-loss replay flips this one value.
+ */
+export const SPECIALIST_PACKING: Packing = 'batched';
+
+/** Every per-specialist dispatch of a pass as one `specialist batched` dispatch in the first one's place: checklists in plan order, the diff all of them read (the excludes they share). `keep` leaves a specialist its own packet (build's --only naming it). */
+export function packSpecialists(dispatches: readonly Dispatch[], keep: (d: Dispatch) => boolean = () => false): Dispatch[] {
+  const each = dispatches.filter(d => d.role === 'specialist' && !d.checklists && !keep(d));
+  if (each.length < 2) return [...dispatches];
+  const first = each[0]!;
+  const batched: Dispatch = { role: 'specialist', name: 'batched', effort: first.effort, exclude: first.exclude.filter(x => each.every(d => d.exclude.includes(x))), checklists: each.map(d => d.name) };
+  return dispatches.flatMap(d => (d === first ? [batched] : each.includes(d) ? [] : [d]));
+}
+
+/** Data files: no code path for the coverage audit to trace. */
+const DATA_PATH = /\.(json|jsonl|ndjson|ya?ml|toml|csv|tsv|svg|png|jpe?g|gif|webp|ico|pdf)$/i;
+/** The changed paths the coverage audit traces: code-class paths that are not data. Docs, tests and data have none. */
+export function auditCodePaths(paths: readonly string[], root: string): string[] {
+  return paths.filter(p => classifyPath(p, root) === 'code' && !DATA_PATH.test(p));
+}
 
 export interface PacketEntry {
   role: PacketRole; name: string; reviewer: string; effort: string; file: string; out: string; bytes: number;
@@ -35,7 +64,37 @@ export interface PacketEntry {
   /** The Red Team before collect: listed so collect reports it pending until its packet is built. */
   deferred?: boolean;
 }
-export interface Manifest { version: 1; head: string; diff_base: string; fingerprint: string; content?: string; packets: PacketEntry[] }
+export interface Manifest { version: 1; head: string; diff_base: string; fingerprint: string; content?: string; build_flags?: string[]; packets: PacketEntry[] }
+
+const REUSED_VALUE_FLAGS = ['--base', '--pass', '--last', '--gate-tagged', '--gated', '--force', '--reviewed-numbers', '--depth-floor', '--range-base', '--pass1-depth', '--range', '--plan-file', '--fanout'];
+const REUSED_SWITCHES = ['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate', '--critical-found', '--adversarial-ran', '--no-tiers'];
+
+/** The flags a later `build --like` reuses: the plan flags, the fix range, the plan file (absolute) and the packing. */
+export function reusedBuildFlags(args: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (REUSED_SWITCHES.includes(a)) out.push(a);
+    else if (REUSED_VALUE_FLAGS.includes(a) && args[i + 1] !== undefined) { out.push(a, a === '--plan-file' ? path.resolve(args[i + 1]!) : args[i + 1]!); i++; }
+  }
+  return out;
+}
+
+/** argv with `--like <dir>` expanded: that build's reused flags fill every flag argv does not give, and --out-dir defaults to the dir. */
+export function expandLike(argv: readonly string[]): { args: string[] } | { error: string } {
+  const i = argv.indexOf('--like');
+  if (i < 0) return { args: [...argv] };
+  const dir = argv[i + 1];
+  const prior = dir && !dir.startsWith('-') ? readManifest(path.resolve(dir))?.build_flags : undefined;
+  if (!prior) return { error: `--like ${dir ?? ''} needs a directory holding an earlier build's manifest.json with its build flags; build that pass with its flags first` };
+  const extra: string[] = [];
+  for (let j = 0; j < prior.length; j++) {
+    const width = REUSED_VALUE_FLAGS.includes(prior[j]!) ? 2 : 1;
+    if (!argv.includes(prior[j]!)) extra.push(...prior.slice(j, j + width));
+    j += width - 1;
+  }
+  return { args: [...argv.filter((_, k) => k !== i && k !== i + 1), ...(argv.includes('--out-dir') ? [] : ['--out-dir', dir!]), ...extra] };
+}
 
 export interface BuildContext {
   root: string; skillRoot: string; binDir: string; outDir: string; head: string; diffBase: string; fingerprint: string;
@@ -161,16 +220,16 @@ interface RoleText { title: string; instructions: string[]; contract: string; ch
 const doneLine = (name: string) => `DONE ${name} crit=<n> info=<n>`;
 
 function roleText(d: Dispatch, ctx: BuildContext, testFw: string): RoleText {
-  const jsonOut = (name: string) => `Write your result to the output path below with your file-write tool: \`NO FINDINGS\` alone, or the JSON lines and nothing else. Then reply with exactly one line, \`${doneLine(name)}\`, counting the CRITICAL and INFORMATIONAL findings you wrote. The parent reads only that file.`;
+  const jsonOut = (name: string, covered?: readonly string[]) => `Write your result to the output path below with your file-write tool: \`NO FINDINGS\` alone, or the JSON lines and nothing else${covered ? `, then one last line \`COVERED: ${covered.join(',')}\` naming every checklist you applied (leave out one you did not apply: the parent counts it as missing coverage)` : ''}. Then reply with exactly one line, \`${doneLine(name)}\`, counting the CRITICAL and INFORMATIONAL findings you wrote. The parent reads only that file.`;
   const contract = P.SPECIALIST_CONTRACT.replace('{TEST_FW}', testFw);
   const base = { extra: [] as string[], diffLabel: 'Diff', summary: false, checklists: [] as string[] };
   switch (d.role) {
     case 'specialist': {
-      if (d.checklists) return { ...base, title: 'batched specialist', checklists: d.checklists,
-        instructions: [P.DEFENSIVE_REVIEW_FRAMING, `${P.SPECIALIST_INTRO} Apply every checklist below against the diff below; the red-team checklist goes last and looks for what the others missed.`],
-        contract: `${contract}\n\nTag each finding with the checklist that found it: \`"specialist":"<checklist name>"\`.`, reply: jsonOut(d.name) };
+      if (d.checklists) return { ...base, title: 'batched specialist', checklists: d.checklists, extra: d.checklists.includes('state-machines') ? [P.STATE_MATRIX_OUTPUT] : [],
+        instructions: [P.DEFENSIVE_REVIEW_FRAMING, `${P.SPECIALIST_INTRO} Apply every checklist below against the diff below${d.checklists.includes('red-team') ? '; the red-team checklist goes last and looks for what the others missed' : ''}.`],
+        contract: `${contract}\n\nTag each finding with the checklist that found it: \`"specialist":"<checklist name>"\`.`, reply: jsonOut(d.name, d.checklists) };
       const framed = d.name === 'security';
-      const extra = d.name === 'state-machines' ? [`Your output file is also the matrix record file: write the matrix record(s) the checklist describes there with your findings; the parent runs \`gstack-state-matrix check\` on it.`] : [];
+      const extra = d.name === 'state-machines' ? [P.STATE_MATRIX_OUTPUT] : [];
       return { ...base, title: `${d.name} specialist`, checklists: [d.name], summary: framed, extra,
         instructions: [...(framed ? [P.DEFENSIVE_REVIEW_FRAMING, P.FIXTURE_SUMMARY_PACKET] : []), `${P.SPECIALIST_INTRO} Apply the checklist below against the diff below.`],
         contract: `${contract}\n\nTag every finding \`"specialist":"${d.name}"\`.`, reply: jsonOut(d.name) };
@@ -247,7 +306,7 @@ const diffCmd = (base: string, exclude: readonly string[], summary: boolean) => 
   return `git diff -U8 ${base}${specs.length ? ` -- . ${specs.map(x => `'${x}'`).join(' ')}` : ''}`;
 };
 const underTests = (p: string) => /(^|\/)(tests?|fixtures?|__tests__)\//.test(p);
-const insideOut = (ctx: BuildContext) => (p: string) => p.startsWith('.gstack/tmp/') || path.resolve(ctx.root, p).startsWith(path.resolve(ctx.outDir) + path.sep);
+const insideOut = (ctx: BuildContext) => (p: string) => isRunArtifact(p) || path.resolve(ctx.root, p).startsWith(path.resolve(ctx.outDir) + path.sep);
 
 function common(ctx: BuildContext, stack: string, testFw: string, learnings: string | null, budget: string): string[] {
   return [`## Context\n\nStack: ${stack}. Test framework: ${testFw}. Diff base: \`${ctx.diffBase}\`; head \`${ctx.head}\`.${learnings === null ? '' : ` Past learnings: ${learnings || 'none'}`}`, '',
@@ -268,22 +327,22 @@ export function draftFor(d: Dispatch, ctx: BuildContext): PacketDraft {
     `## Instructions\n\n${t.instructions.join('\n\n')}`, '', `## Findings contract\n\n${t.contract}\n\n${t.reply}`, '',
     ...t.extra.flatMap(s => [s, '']), ...common(ctx, stack, testFw, learnings, P.READ_BUDGET), ...checklists.flatMap(s => [s, ''])];
   return { role: d.role, name: d.name.split(' ')[0]!, effort: d.effort, checklists: t.checklists, summary: t.summary, head, tail: [],
-    diff: reviewerDiff(ctx.root, ctx.diffBase, d.exclude, t.summary, insideOut(ctx), d.role === 'specialist' && !d.checklists && d.name === 'testing' ? underTests : undefined), diffLabel: t.diffLabel, diffCmd: diffCmd(ctx.diffBase, d.exclude, t.summary) };
+    diff: reviewerDiff(ctx.root, ctx.diffBase, d.exclude, t.summary, insideOut(ctx), d.role === 'specialist' && (d.checklists ? d.checklists.includes('testing') : d.name === 'testing') ? underTests : undefined), diffLabel: t.diffLabel, diffCmd: diffCmd(ctx.diffBase, d.exclude, t.summary) };
 }
 
-/** An audit's prompt is the generated section's text fence: the packet and the SKILL.md prose are one text. */
+/** An audit's prompt is the text fence of its generated section (AUDIT_SECTION): the coverage and plan audits' prompt-only sections the /ship parent never reads, and the docs audit's documentation.md. */
 export function auditPrompt(skillRoot: string, audit: AuditName, base: string, baseRef = `origin/${base}`): string {
-  const section = fs.readFileSync(path.join(skillRoot, 'ship', 'sections', `${audit}.md`), 'utf8');
+  const section = fs.readFileSync(path.join(skillRoot, 'ship', 'sections', `${AUDIT_SECTION[audit]}.md`), 'utf8');
   const m = /^(`{4,})text\n([\s\S]*?)\n\1$/m.exec(section);
-  if (!m) throw new Error(`ship/sections/${audit}.md has no prompt fence`);
+  if (!m) throw new Error(`ship/sections/${AUDIT_SECTION[audit]}.md has no prompt fence`);
   return m[2]!.replaceAll('origin/<base>', baseRef).replaceAll('<base>', base);
 }
 
 export function auditDraft(audit: AuditName, ctx: BuildContext, base: string, effort: string): PacketDraft {
   const { stack, testFw } = detectStack(ctx.root);
-  const budget = 'The diff is below; do not rerun git diff. Read only files in the diff, their tests and the files the plan names, in named line ranges of at most 200 lines; no whole-repository search, no other packets, no transcript. Writes and test runs only as the audit instructions permit.';
+  const budget = audit === 'test-coverage' ? P.AUDIT_READ_ONLY : 'The diff is below; do not rerun git diff. Read only files in the diff, their tests and the files the plan names, in named line ranges of at most 200 lines; no whole-repository search, no other packets, no transcript. Writes and test runs only as the audit instructions permit.';
   const plan = audit === 'plan-completion' && ctx.plan ? [`## Plan (whole, \`${ctx.plan.path}\`)\n\n${block(ctx.plan.text)}`, ''] : [];
-  const head = [`Role: ${audit} audit (effort=${effort}).`, '', `## Instructions\n\n${auditPrompt(ctx.skillRoot, audit, base, ctx.baseRef)}`, '',
+  const head = [`Role: ${audit} audit (effort=${effort}).`, '', `## Instructions\n\n${auditPrompt(ctx.skillRoot, audit, base, ctx.baseRef).replace('<allowed|audit-only>', 'audit-only')}`, '',
     `## Output\n\nWrite your whole final answer to the output path below, its LAST line the JSON object the instructions name. Then reply with exactly one line, \`DONE <NAME>\`.`, '',
     ...(ctx.context ? [`## Parent context\n\n${block(ctx.context.trim())}`, ''] : []),
     ...common({ ...ctx, plan: audit === 'plan-completion' ? undefined : ctx.plan }, stack, testFw, null, budget), ...plan];

@@ -66,7 +66,10 @@ describe('workflow judge excerpts', () => {
     expect(text).not.toContain('GIT_SEQUENCE_EDITOR');
     expect(text).not.toContain("--exec 'true'");
     expect(text).not.toContain('-X ours');
-    expect(text).toContain('````text\nYou are running a ship-workflow');
+    expect(text).not.toContain('````text\nYou are running a ship-workflow');
+    for (const audit of ['test-coverage', 'plan-completion']) {
+      expect(readFileSync(new URL(`../ship/sections/audit-${audit}.md`, import.meta.url), 'utf8')).toContain('````text\nYou are running a ship-workflow');
+    }
   });
 
   test('ship review shortcuts retain dedup and fixes repeat the whole review cycle', () => {
@@ -129,13 +132,14 @@ describe('workflow judge excerpts', () => {
 
   test('ship approval gates stay outside the subagent prompts', () => {
     const text = readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Important Rules');
-    for (const [step, next, gate] of [[7, 8, '**7. Coverage gate:**'], [8, 9, '### Gate Logic']] as const) {
+    for (const [step, next, gate, audit] of [[7, 8, '**7. Coverage gate:**', 'test-coverage'], [8, 9, '### Gate Logic', 'plan-completion']] as const) {
       const section = text.slice(text.indexOf(`## Step ${step}:`), text.indexOf(`## Step ${next}:`));
-      const prompt = section.match(/````text\n([\s\S]*?)\n````/)![1];
+      const prompt = readFileSync(new URL(`../ship/sections/audit-${audit}.md`, import.meta.url), 'utf8').match(/````text\n([\s\S]*?)\n````/)![1];
       expect(prompt).not.toContain(gate);
       expect(prompt).not.toContain('Use AskUserQuestion:');
       expect(prompt).not.toContain('commit as');
-      expect(section.indexOf(gate)).toBeGreaterThan(section.indexOf('\n````\n'));
+      expect(section).not.toContain('````text');
+      expect(section).toContain(gate);
     }
     expect(text).toContain('"partial":N,"not_done":N');
     expect(text).toContain('"intentionally dropped"');

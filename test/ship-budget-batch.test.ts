@@ -47,9 +47,9 @@ describe('parallel dispatch admission near the cap', () => {
     const h = fresh();
     const s = start(h, 200_000_000);
     let id = h.field(batch(h, s.run, ['red-team'], 0).out, 'RESERVATION', 'id');
-    let reading = 3_000_000;
-    for (let i = 0; i < 4; i++, reading += 500_000) id = h.field(batch(h, s.run, ['specialist'], reading, ['--returned', id]).out, 'RESERVATION', 'id');
-    const c = batch(h, s.run, ['red-team', 'specialist'], reading, ['--returned', id]);
+    let reading = 3_000_000, at = 0;
+    for (let i = 0; i < 4; i++, reading += 500_000) { id = h.field(batch(h, s.run, ['specialist'], reading, ['--returned', id, '--dispatched-at', String(at)]).out, 'RESERVATION', 'id'); at = reading; }
+    const c = batch(h, s.run, ['red-team', 'specialist'], reading, ['--returned', id, '--dispatched-at', String(at)]);
     expect(c.code, c.out + c.err).toBe(0);
     const f = (500_000 / K.per_dispatch) * cal.headroom;
     const specialist = Math.ceil((K.per_dispatch * f) / cal.round_to) * cal.round_to;
@@ -72,7 +72,7 @@ describe('parallel dispatch admission near the cap', () => {
     const h = fresh();
     const s = start(h, CAP_35);
     const first = h.field(batch(h, s.run, READERS, AT_35).out, 'RESERVATION', 'id');
-    expect(h.sb(['settle', '--run', s.run, '--reservation', first, '--reading', String(AT_35 + 3 * 760_000)]).code).toBe(0);
+    expect(h.sb(['settle', '--run', s.run, '--reservation', first, '--dispatched-at', String(AT_35), '--reading', String(AT_35 + 3 * 760_000)]).code).toBe(0);
     const rest = batch(h, s.run, READERS.slice(3), AT_35 + 3 * 760_000);
     expect(rest.code, rest.out + rest.err).toBe(0);
     expect(rest.out).not.toContain('ADMIT:');

@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased]
+
+**A capped /ship measures reviewer drift per reader, ignores a stale prior reading, and sends a handoff child only its own segment's sections.** Replays of gstack-evals #34 and #36 (GSTA-167) showed false STOPs from a batch reserved as one role and from a reading six calls old.
+
+### Fixed
+- **Reviewer drift is measured to each reader's return, per reader.** A dispatch is measured only to the reading it was settled with when it returned (`check --returned`, `settle --reading`); `--finish` and a step change settle without one and print `UNMEASURED:`. A step is measured at the step change minus the dispatches reserved inside it, so the parent's own calls stay in the step. On #34 a Red Team interval that covered the child's own review and QA taught a 1.818 factor; on #36 a six-reader batch reserved as one role taught 2.041 and priced the Red Team at 15.17M, a false STOP. The budget section now asks for one role per `DISPATCH:` line.
+- **A `--prior-reading` older than the run's last reading is ignored** (`CALL_UNKNOWN:`, `call=unknown`). On #34 a reading six calls old produced `call=1068386` and a false `CONTEXT_HIGH`. The meter read now happens inside the same program as the budget command, never as its own call (the #34 child made 11 meter-only calls at about 286k each).
+- **A handoff brief names only its segment's sections** (Steps 7-11.5: test-coverage, plan-completion, review-army, adversarial; Steps 12-22: changelog, documentation, pr-body, capy-pr; budget-handoff.md always). It never sends the child to preamble.md in full or docs/ship-budget.md.
+
+### Tests
+- `test/ship-budget-reader-drift.test.ts` replays #36's per-reader Red Team price and #34's Red Team interval and stale prior reading; `test/ship-handoff-brief.test.ts` checks the brief's section list.
+
+**Replay fixes for capped /ship on Capy: readers are measured only by their own program, a later build reuses the first build's flags, and handoff children read exact line ranges.** Round-2 replays of gstack-evals #34 and #36 (GSTA-167) showed a false STOP, a Red Team build refused after QA, a misbuilt outside voice and handoff children that read the whole skill.
+
+### Fixed
+- **A reader batch is measured only by the dispatch program's own reading pair.** `settle` and `check --returned` take `--dispatched-at <before>` and `--readers <n>`. A dispatch without that pair is `UNMEASURED reason=no_dispatch_reading`, one with another command's reading in between is `reason=reading_between`, and a `--dispatched-at` above the reading is refused (`BUDGET_READING_REJECTED`).
+- **Readers are priced from their packets.** `BUDGET_NEXT:` prints `role@bytes`; `--next` prices each reader at three calls of the call floor plus its packet's tokens, and the dispatch drift factor is capped at the larger of that prior and the clean per-reader mean.
+- **A failed child stops its parent.** Reconciling a refused, incomplete or interrupted child sets the run stopped (`child_<status>`), so every check refuses until a regenerated child reconciles complete or the owner resumes.
+- **A multi-role reservation admits one review start per role**, so a pass reserved as one sum no longer ends with `STOP: reason=budget_check_skipped`.
+- **gstack's own run artifacts never enter a packet.** Untracked files under any `.gstack/` directory (QA reports, run directories) stay out of packets, the content key and the live plan, so a Red Team build after QA is no longer refused with `STALE_MANIFEST`.
+- **The Capy launch file puts the checkout's `bin/` on PATH** (appended once), so a bare `gstack-*` command no longer fails with `command not found`.
+- **A handoff to Step 22 returns at Step 22.** The brief names its last step and the exact `return --to` value; a 12-22 child returning 21 reconciled `child=incomplete`.
+
+### Added
+- **`gstack-review-packet build --like <dir>`** reuses the plan flags, `--range`, `--plan-file` and `--fanout` an earlier build recorded in its manifest; flags given beside it win and `--out-dir` defaults to `<dir>`. The Red Team and Step 11 builds use it.
+- **The handoff brief prints `READ:` line ranges** per file: ship/SKILL.md's contract, the segment's own steps, the self-check and Important Rules (never the preamble or section index), and each segment section, review-army.md without Step 9.1's selection rules.
+
+### Changed
+- **Each review pass is one execute program** in a fixed order (build, `check --next`, `review-log --start` per role, reading, create, poll, reading, `settle`, collect), and the Capy meter is read inside the program that runs the budget command, never in a call of its own.
+- **The Step 7 and 8 audit prompts moved to prompt-only sections** (`ship/sections/audit-test-coverage.md`, `audit-plan-completion.md`) that only `gstack-review-packet build` reads. The parent's sections shrink from 37,498 to 15,645 bytes (test-coverage) and 26,538 to 17,537 (plan-completion). Every gate stays where it was.
+
+**/ship moves its fixed shell work into two commands, audits docs through one packet on Capy, and keeps small runs in one context.** A light diff now continues at the Step 7 and Step 12 boundaries when its segment costs less than a child's fixed 2-4.5M startup (gstack-evals #34).
+
+### Added
+- **`gstack-ship-preflight`** runs Steps 1-3 (branch guard, status, fetch, diff stat, PR and receipt carry, scope, merge, distribution, policy, runtime lines) and Step 5 (pregate, then the test lanes in parallel). **`gstack-ship-release`** runs Step 12's version, Steps 15-16's finish and Step 17's idempotency check and push. Each prints at most 30 lines; `STOP:` names the decision left to the agent, `NEXT:` the step to run.
+- **Step 14.5 on Capy audits docs through one read-only packet** (`gstack-review-packet build --audit docs --candidate <snapshot>`): the auditor prompt, the candidate's doc surfaces, doc lines naming a changed code path and the docs-plus-code diff. The reader proposes edits as findings; `gstack-docs-candidate apply` makes each edit whose old text occurs once outside protected and generated files. Other hosts keep the /document-release subagent.
+
+### Changed
+- **Small runs keep their segment.** `gstack-ship-budget check --runtime-lines <n>` continues at the Step 7 and Step 12 boundaries with a `SMALL_RUN:` line when the diff has at most 50 runtime lines and the segment's calibrated calls at this run's per-call charge cost at most 12M. Without the flag the delegate rule is unchanged.
+
+### Tests
+- `test/ship-preflight.test.ts`, `test/ship-release.test.ts`, `test/review-packet-docs.test.ts` and `test/ship-budget-small-run.test.ts` cover the two commands, the docs packet and its apply step, and the small-run rule through the registered `check` command.
+
 ## [1.91.326.0] - 2026-10-30
 
 **/ship reviewers now read one packet file each, and the parent reads a findings record of at most 60 lines instead of every reviewer's transcript.** On this PR's own /ship, pass 2's eight reviewers cost 8.6M tokens on the root counter, against 52.6M for pass 1's eleven (pass 2 read the fix range, pass 1 the whole diff, so the two are not directly comparable).

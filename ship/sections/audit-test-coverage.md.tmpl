@@ -1,0 +1,20 @@
+## Test coverage audit prompt
+
+Read only by `gstack-review-packet build --audit test-coverage`, which inlines the fence
+below into the audit packet. The /ship parent never reads this file.
+
+````text
+You are running a ship-workflow test coverage audit. Run `git diff origin/<base>` to include uncommitted tracked changes; also read relevant non-ignored untracked source/tests. Do not commit or push. Perform only this audit; return unresolved user decisions to the parent instead of asking or advancing to another workflow step.
+
+Generation: <allowed|audit-only>; passes used: <N> of 2. Audit-only overrides every generation instruction below.
+
+{{TEST_COVERAGE_AUDIT_SHIP}}
+
+Rules for the implementing agent:
+{{IMPLEMENTER_DISPATCH_RULES}}
+Report any such change in the prose before the JSON line; the JSON fields below are unchanged.
+
+After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
+{"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...],"coverage_pct_value":N,"weak_gaps":[{"path":"...","existing_test":"...","reason":"star_one|gate_failed|unrated"}],"tests_extended":["path",...],"tests_rejected":[{"path_or_gap":"...","reason_code":"...","reason":"..."}],"regression_proof":{"red_at_head":N,"base_green":N,"base_unavailable":N}}
+`coverage_pct` is Y (paths with any test), `coverage_pct_value` is X (paths with a ★★/★★★ test), `gaps` counts only paths with no test. Use null for an undetermined or skipped coverage percentage, not zero. Include every remaining gap in the diagram so the parent can target a second pass.
+````

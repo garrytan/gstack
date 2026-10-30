@@ -119,7 +119,7 @@ describe('ship/SKILL.md — Plan Completion gate invariants', () => {
   });
 
   test('successful plan audits use the declared seven-field contract without an error field', () => {
-    const audit = fs.readFileSync(path.join(SHIP_DIR, 'sections/plan-completion.md'), 'utf8');
+    const audit = ['plan-completion.md', 'audit-plan-completion.md'].map(f => fs.readFileSync(path.join(SHIP_DIR, 'sections', f), 'utf8')).join('\n');
     const line = audit.split('\n').find(line => line.startsWith('{"total_items":N,'));
     expect(line).toBeDefined();
     const contract = JSON.parse(line!.replace(/:N([,}])/g, ':0$1'));
@@ -199,9 +199,13 @@ describe('ship/SKILL.md — Plan Completion gate invariants', () => {
   });
 });
 
+// GSTA-167 PR 4: Step 17's idempotency block moved into gstack-ship-release push; this runs the
+// bin the prose names, with the same remote states the block was tested against.
 test('push idempotency requires the live remote SHA and fails closed on transport errors', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-push-state-'));
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-push-root-'));
+  fs.writeFileSync(path.join(state, '.redact-prepush-prompted'), '');
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GSTACK_STATE_ROOT: state, GSTACK_HOME: state,
     GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid',
     GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' };
   const git = (...args: string[]) => {
@@ -215,25 +219,20 @@ test('push idempotency requires the live remote SHA and fails closed on transpor
     const remote = path.join(cwd, '.git/remote.git');
     git('init', '--bare', remote); git('remote', 'add', 'origin', remote);
     const source = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md.tmpl'), 'utf8');
-    const block = source.slice(source.indexOf('**Idempotency check:** Check if the branch'))
-      .match(/```bash\n([\s\S]*?)\n```/)![1].replaceAll('<branch-name>', 'feature');
-    const inspect = () => {
-      const r = spawnSync('bash', ['-c', block], { cwd, env, encoding: 'utf8', timeout: 30_000 });
-      if (r.error) throw new Error(`idempotency check did not run: ${r.error.message}; stderr: ${r.stderr}`);
-      return r;
-    };
-    expect(inspect().stdout).toContain('PUSH_NEEDED');
-    git('push', '-u', 'origin', 'feature');
-    expect(inspect().stdout).toContain('ALREADY_PUSHED');
+    const step17 = source.slice(source.indexOf('## Step 17:'), source.indexOf('## Step 18:'));
+    expect(step17).toContain('gstack-ship-release push');
+    expect(step17).toContain('a failed lookup STOPs');
+    const push = () => spawnSync(path.join(SHIP_DIR, '..', 'bin', 'gstack-ship-release'), ['push', '--branch', 'feature'], { cwd, env, encoding: 'utf8', timeout: 60_000 });
+    expect(push().stdout).toMatch(/PUSH: pushed [0-9a-f]{12} to origin\/feature/);
+    expect(push().stdout).toContain('PUSH: ALREADY_PUSHED');
     fs.appendFileSync(path.join(cwd, 'app'), 'new\n'); git('commit', '-am', 'new');
-    expect(inspect().stdout).toContain('PUSH_NEEDED');
-    git('push', 'origin', 'feature');
+    expect(push().stdout).toMatch(/PUSH: pushed /);
     fs.renameSync(remote, remote + '-offline');
-    const unavailable = inspect();
-    expect(unavailable.status).toBe(1);
+    const unavailable = push();
+    expect(unavailable.status).toBe(3);
     expect(unavailable.stdout).not.toContain('ALREADY_PUSHED');
-    expect(unavailable.stdout).toContain('BLOCKED');
-  } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
+    expect(unavailable.stdout).toContain('STOP: cannot verify the remote branch');
+  } finally { fs.rmSync(cwd, { recursive: true, force: true }); fs.rmSync(state, { recursive: true, force: true }); }
 }, 120_000);
 
 // F1 (#2768, #2800): the Plan Completion Audit used to fall back to "the newest
@@ -330,8 +329,12 @@ describe('F1: plan binding, docs/designs candidates, exact not-run line', () => 
 
   test('ship binds the plan in the parent before dispatch; the child never searches', () => {
     const md = fs.readFileSync(sections.ship, 'utf8');
-    expect(md.indexOf('### Plan File Discovery')).toBeLessThan(md.indexOf('````text'));
-    const child = md.slice(md.indexOf('````text'), md.lastIndexOf('````'));
+    const prompt = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'audit-plan-completion.md'), 'utf8');
+    expect(md).toContain('### Plan File Discovery');
+    expect(md).not.toContain('````text');
+    expect(md).toContain('ship/sections/audit-plan-completion.md');
+    const child = prompt.slice(prompt.indexOf('````text'), prompt.lastIndexOf('````'));
+    expect(child.length).toBeGreaterThan(0);
     expect(child).not.toContain('### Plan File Discovery');
     expectMentions(child, [['do not', 'another', 'search']], 'child');
     expect(md).toMatch(/not-run line, skip dispatch/);
@@ -362,7 +365,8 @@ describe('ACCEPTANCE_EDITED: parent-computed acceptance-text drift', () => {
     const parent = between(rendered, '**Parent processing:**', '**Audit-failure fallback:**');
     expectOrdered(parent, ['1. Check the task', `\`${ACCEPTANCE_EDITED}\` beside the child's classes`, 'Apply Gate Logic below', '### Acceptance edits (parent-computed)'], 'parent processing');
     expect(rendered.indexOf('### Acceptance edits (parent-computed)')).toBeLessThan(rendered.indexOf('### Gate Logic'));
-    expectAbsent(between(rendered, '````text', '````\n\n**Parent processing:**'), [ACCEPTANCE_EDITED], 'child prompt');
+    const prompt = fs.readFileSync(path.join(SHIP_DIR, 'sections', 'audit-plan-completion.md'), 'utf8');
+    expectAbsent(between(prompt, '````text', /````\s*$/), [ACCEPTANCE_EDITED], 'child prompt');
     const contract = rendered.split('\n').find(line => line.startsWith('{"total_items":N,'))!;
     expect(Object.keys(JSON.parse(contract.replace(/:N([,}])/g, ':0$1')))).toHaveLength(7);
   });
