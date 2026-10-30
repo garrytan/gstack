@@ -72,11 +72,11 @@ export class GatewayAdapter implements ProviderAdapter {
   }
 
   async available(): Promise<AvailabilityCheck> {
-    if (!resolveClaudeCommand()) {
-      return { ok: false, reason: 'claude CLI not found on PATH (the gateway arms run in Claude Code). Install: npm i -g @anthropic-ai/claude-code' };
-    }
     if (!this.source[GATEWAY_KEY_ENV]) {
       return { ok: false, reason: `${GATEWAY_KEY_ENV} is not set. Create a key at https://openrouter.ai/keys and export it.` };
+    }
+    if (!resolveClaudeCommand()) {
+      return { ok: false, reason: 'claude CLI not found on PATH (the gateway arms run in Claude Code). Install: npm i -g @anthropic-ai/claude-code' };
     }
     return { ok: true };
   }
