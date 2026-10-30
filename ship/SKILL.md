@@ -194,6 +194,11 @@ its absolute path, with these headings so a paused run can resume:
 - **Documentation:** candidate/id, attempts used, accepted hashes or named blocked exception.
 - **Next steps:** one ordered work list, with the current step marked.
 
+**Budget** (docs/ship-budget.md): `--token-cap <n|none>` (or GSTACK_SHIP_TOKEN_CAP); `--resume <record>`
+or `--continue <handoff>` re-attach. Step 1 runs `gstack-ship-budget start --record <record>`. With a cap,
+read `~/.claude/skills/gstack/ship/sections/budget-handoff.md`, `check` at each step boundary and dispatch
+batch, obey `verdict=`, `close` before Step 22.
+
 A **receipt** is saved evidence of a check's command, result and consumed content.
 A review's **start token** is the opaque value returned by `gstack-review-log --start`
 before it reads the diff. Keep `REVIEW_START` for Step 9, a separate `PASS_START` for
@@ -257,6 +262,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | preparing the title and creating or updating the PR/MR with the verified documentation outcome (Steps 18-19) | `sections/pr-body.md` |
 | Step 19 printed CAPY_PR: on (a Capy session, GSTACK_CAPY=1) — read before composing the PR body | `sections/capy-pr.md` |
 | handing the branch to a coordinator instead of opening a PR (--no-pr or an automation lane; Step 18) | `sections/handoff.md` |
+| a token cap is set or verdict=delegate printed (Step 1 on) | `sections/budget-handoff.md` |
 
 ---
 

@@ -29,6 +29,7 @@ import type { ModuleFilter } from './resolvers/types';
 import { insertRuntimePreludes } from './resolvers/runtime-root';
 import { generateSharedPreambleFile, hoistsPreamble, SHARED_PREAMBLE_FILE } from './resolvers/preamble-hoist';
 import { extractVoiceTriggers } from './resolvers/voice-triggers';
+import { frontmatterList, withTriggerLead } from '../lib/skill-triggers';
 import { ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
 import type { HostConfig } from './host-config';
 
@@ -510,7 +511,8 @@ function transformFrontmatter(content: string, host: Host): string {
   if (fmEnd === -1) return content;
   const frontmatter = content.slice(fmStart + 4, fmEnd);
   const body = content.slice(fmEnd + 4);
-  const { name, description } = extractNameAndDescription(content);
+  const { name, description: fullDescription } = extractNameAndDescription(content);
+  const description = fm.descriptionLead ? withTriggerLead(fullDescription, frontmatterList(content, 'triggers'), fm.descriptionLead) : fullDescription;
 
   // Description limit enforcement
   if (fm.descriptionLimit) {

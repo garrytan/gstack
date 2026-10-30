@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "note": "GSTA-152 plan item 8. Per-meter constants for /ship budget projections, fitted conservatively from metered runs: each constant is the largest observation times `headroom`, rounded up to `round_to` (lib/ship-budget.ts fitConstant). test/ship-budget-calibration.test.ts checks the constants equal the fit and that a leave-one-out fit on two runs is at or above the meter on the third. Savings claims count completed ships only. Each unit's call_floor (GSTA-167) is the host's per-call floor: what one call costs in a fresh session with the ship skill loaded, before any /ship work. The delegate thresholds compare the per-call charge minus this floor, so a host's own system prompt and tools never trigger delegation. A floor is the largest round_to multiple at or below its smallest observed fresh call, so it never hides real context growth; start --call-floor <n> overrides it for one run.",
+  "headroom": 1.5,
+  "round_to": 10000,
+  "observations": {
+    "per_call": [
+      {
+        "run": "gstack-evals#19",
+        "value": 240000,
+        "source": "GSTA-152 plan v3 evidence: late parent calls charged 0.22M then 0.24M (solved from the 29.3M and 16.3M counter windows; derived)"
+      },
+      {
+        "run": "gstack-evals#26",
+        "value": 400000,
+        "source": "GSTA-152 plan v3 evidence: late turns cost about 0.4M each (root counter read after every step)"
+      },
+      {
+        "run": "gstack-evals#31",
+        "value": 500000,
+        "source": "GSTA-152 plan v3 evidence: the /ship child's context was about 0.5M per call at the handoff"
+      }
+    ],
+    "per_dispatch": [
+      {
+        "run": "gstack-evals#19",
+        "value": 2400000,
+        "source": "GSTA-152 plan v3 evidence: about 2.4M per child, solved from the two counter windows (derived)"
+      },
+      {
+        "run": "gstack-evals#31",
+        "value": 4950000,
+        "source": "GSTA-152 plan v3 evidence: the /ship child and its 10 review dispatches account for about 49.5M (4-5M per dispatch)"
+      }
+    ],
+    "stop_overhead": [
+      {
+        "run": "gstack-evals#26",
+        "value": 1650000,
+        "source": "GSTA-152 plan v3 evidence: the stop message and the parent's checks took the counter from 39.40M to 41.05M"
+      }
+    ]
+  },
+  "constants": {
+    "per_call": 750000,
+    "per_dispatch": 7430000,
+    "stop_overhead": 2480000
+  },
+  "step_calls": {
+    "7": 12,
+    "8": 12,
+    "9": 12,
+    "default": 3
+  },
+  "step_dispatches": {
+    "7": 1,
+    "8": 1,
+    "14.5": 1
+  },
+  "segment_dispatches": {
+    "9": 4,
+    "11": 2
+  },
+  "units": {
+    "capy-tokens": {
+      "fit": "observations above (Capy root counter, children included)",
+      "call_floor": 150000,
+      "call_floor_observed": 150000,
+      "call_floor_why": "GSTA-2 (gstack 1.91.320.0, gstack-evals #35/#36): a fresh Capy thread's first counter reading is about 98k (host system prompt and tools) and every call with the ship skill loaded costs 150-230k before any /ship work; 150k is the smallest observed call. Below it, DELEGATE_START_CALL (100k) fired on every capped Capy start and DELEGATE_SEGMENT_CALL (150k) stopped two #36 children at their first boundary."
+    },
+    "claude-usage-tokens": {
+      "seeded_from": "capy-tokens",
+      "why": "no Claude Code-metered /ship yet; refit once one completes",
+      "call_floor": 40000,
+      "call_floor_observed": 46379,
+      "call_floor_why": "GSTA-167 measurement, 2026-10-29: Claude Code 2.1.312 on claude-opus-5-5 with gstack's 64 skills listed, metered as this meter does (input + cache_creation + cache_read + output per message): the first call of a fresh -p session cost 19,225 and the call after reading ship/SKILL.md in full cost 46,379. One observation, so the floor rounds down to 40k; refit once a Claude-metered /ship completes."
+    },
+    "estimate-tokens": {
+      "seeded_from": "capy-tokens",
+      "why": "the estimate meter projects with the Capy fit, which is at or above the meter on the metered runs",
+      "call_floor": 0,
+      "call_floor_observed": null,
+      "call_floor_why": "The estimate meter takes no readings, so its per-call charge is always unknown and the floor has nothing to subtract: an unknown charge keeps the pre-floor rule (delegate at a segment boundary, never at start)."
+    }
+  }
+}

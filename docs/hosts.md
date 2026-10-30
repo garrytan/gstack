@@ -24,6 +24,14 @@ neither does `./setup --local`.
 
 **What it writes.** Copies in the harness's own skills folder, never edits to
 `openclaw.json`, Hermes's `config.yaml` or any context file you did not name.
+A context block is opt-in: `gstack-harness register openclaw|hermes|generic
+--context <file>` writes the marked block into that file only, after printing
+the file and its scope (`profile` inside the harness's own home, else
+`project`). Setup, upgrades and refresh never add one, a block you delete stays
+deleted, a second `--context` file keeps the first (the ledger keys blocks by
+file), and uninstall restores each file byte for byte. It refuses `SOUL.md`,
+and for Hermes a new file that would outrank rules Hermes loads now
+(`.hermes.md`/`HERMES.md` load before `AGENTS.md`): `HARNESS_CONTEXT_REFUSED`.
 Every file goes into a ledger, `$GSTACK_STATE_ROOT/harness/<id>.ledger`, with
 its sha256. Registering again changes only what changed; a folder or skill name
 gstack did not write stops it (`HARNESS_UNOWNED_ENTRY`); `gstack-uninstall`
@@ -35,10 +43,24 @@ when it is the one gstack wrote; an edited block is left for you. `./setup
 `gstack-harness status` lists them and runs the harness's own skill list where
 it has one (`visible to harness: yes`). Errors: [troubleshooting](troubleshooting.md#agent-harnesses-gstack-harness).
 
+**Registered, listed, used.** These are three separate facts, and this page
+claims only the first two. *Registered*: gstack's files are in the harness's
+skills folder and its ledger (`gstack-harness status`). *Listed*: the harness
+puts the skill in the skills section of the model's prompt (`visible to
+harness: yes`, from the harness's own skill list). *Used*: in a task that fits,
+the model opens the matching skill and runs its first step. Use rates are
+pending HARN-5's fixed panel (OpenClaw and Hermes chat mode, five trials per
+cell). When they land they are measured under the eval adapter's
+`GSTACK_SESSION_KIND=spawned` marker, which auto-decides gstack's questions, so
+they say nothing yet about interactive sessions. Two levers aim at use:
+each router line opens with the skill's own trigger sentence ("Use when asked
+to ..."), and each Hermes description opens with a trigger list of at most 57
+characters, the part of a description Hermes's skills index shows.
+
 | Harness | What gstack registers | Install | Verify | Remove |
 |---|---|---|---|---|
-| OpenClaw | one `gstack` router skill (one description line in every request; its body lists every skill and its path) in `${OPENCLAW_STATE_DIR:-~/.openclaw}/skills/gstack`; `--skills all` registers every skill as its own top-level folder | `./setup --host openclaw`, or `./setup` inside OpenClaw | `openclaw skills list --json` shows `gstack` (source `openclaw-managed`, eligible) | `gstack-harness unregister openclaw` |
-| Hermes | every skill, as `gstack-<skill>` in one `gstack` category, in `${HERMES_HOME:-~/.hermes}/skills/gstack` (Hermes opens only skills it has indexed) | `./setup --host hermes`, or `./setup` inside Hermes | `hermes skills list` shows the `gstack-*` skills in category `gstack` | `gstack-harness unregister hermes` |
+| OpenClaw | default `--skills hybrid`: `gstack-review`, `gstack-investigate`, `gstack-qa`, `gstack-ship` and `gstack-plan-eng-review` as top-level skills plus one `gstack` router skill whose body lists every other skill and its path, in `${OPENCLAW_STATE_DIR:-~/.openclaw}/skills`. With OpenClaw 2026.10.6's 19 eligible bundled skills, hybrid's skills section is 10,290 characters, full format, under its 18,000-character budget; `--skills all` (17,971, compact format, descriptions cut) lists every skill as its own folder, `--skills router` (6,701) only the router | `./setup --host openclaw`, or `./setup` inside OpenClaw | `openclaw skills list --json` shows `gstack` and the five task skills (source `openclaw-managed`, eligible) | `gstack-harness unregister openclaw` |
+| Hermes | every skill, as `gstack-<skill>` in one `gstack` category, in `${HERMES_HOME:-~/.hermes}/skills/gstack`. Hermes's skills index lists only skills registered as folders, so a router would leave the rest out of the listing (`skill_view` still loads an unlisted skill by name, but nothing tells the model it exists) | `./setup --host hermes`, or `./setup` inside Hermes | `hermes skills list` shows the `gstack-*` skills in category `gstack` | `gstack-harness unregister hermes` |
 | dots (feder-cr) | the `gstack` router in `/home/dot/skills/gstack`, which the Dot lists every turn | `./setup` on the Dot's computer, or `gstack-harness register dots` | the Dot's Skills page, or `GET /skills` | `gstack-harness unregister dots` |
 | QM | **not available yet.** QM imports a skill pack by cloning the whole repository and caps it at 32 MiB and 5,000 files; gstack's repository is about 73 MiB, so `gstack-harness register qm --yes` stops before sending anything ([why](troubleshooting.md#harness-qm-pack-too-large)) | meanwhile, paste `gstack-harness register generic --print` into the agent's instructions | ask it for a gstack skill | delete the pasted text |
 | Muse Code, Grok Build | nothing: both read `~/.claude/skills`, so the Claude install (`./setup`) is what they see, with Claude tool names | `./setup` | `gstack-harness status` runs `muse skills list` / `grok inspect` and reports *discovered (Claude-rendered, unverified)* | `gstack-uninstall` |

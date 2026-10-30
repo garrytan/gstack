@@ -39,7 +39,15 @@ per reference.
 
 ## 6. Verify
 
-Run the before, after and no-skill versions through the shared skill eval
+Lock the tasks before any paid run, and before step 5's first cut when you can: the lock preregisters the tasks and
+the before copy's contract lines, and the shared eval refuses a paid run without it committed (LOCK_MISSING).
+
+```
+gstack-evals skill-eval --lock --tasks test/fixtures/skill-evals/<skill>/tasks.json
+git add test/fixtures/skill-evals/<skill>/ && git commit -m "test: lock <skill> eval tasks"
+```
+
+Then run the before, after and no-skill versions through the shared skill eval
 (docs/designs/SKILL_EVAL_CONTRACT.md), 3 trials each on the same model. Ship only when no task whose before panel
 passed fails after, no safety task breaks, and after is not worse by more than chance. Until the shared eval is
 available, run upstream skill-diet's `scripts/eval.mjs` at commit 5f41df1 (the version this text adapts) with the

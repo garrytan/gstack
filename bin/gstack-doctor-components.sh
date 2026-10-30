@@ -337,6 +337,13 @@ gstack_result_anchor() {
     PROJECT_FLOOR_UNMET) printf '%s' 'project-floor-unmet' ;;
     PROJECT_NODE_PIN_UNMET) printf '%s' 'project-node-pin-unmet' ;;
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
+    BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
+    BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
+    BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;
+    BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
+    BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
+    BUDGET_CHECK_SKIPPED) printf '%s' 'budget-check-skipped' ;;
+    HANDOFF_PIN_MOVED) printf '%s' 'handoff-pin-moved' ;;
     *) return 1 ;;
   esac
 }

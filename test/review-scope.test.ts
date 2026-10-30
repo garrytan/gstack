@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import {
-  isBlocking, kindOf, locusOf, parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
+  isBlocking, kindOf, locusOf, parseHunks, raisedBy, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
   type ScopedFinding,
 } from '../lib/review-scope';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -419,5 +419,19 @@ describe('gstack-review-scope (bin)', () => {
     expect(fs.existsSync(noneOut)).toBe(false);
     const late = runBin(repo, 'gstack-review-scope', ['summary', '--since', '2026-10-27T00:00:00Z']);
     expect(late.status).toBe(EXIT.fail);
+  });
+});
+
+describe('raised_by: which reviewer raised a classified finding (GSTA-152 D6)', () => {
+  test.each([
+    [{ raised_by: 'red-team' }, 'red-team'], [{ raised_by: 'QA' }, 'qa'], [{ raised_by: 'core' }, 'core'], [{ raised_by: 'fix-check' }, 'fix-check'],
+    [{ specialist: 'State Machines' }, 'state-machines'], [{ specialist: 'red-team' }, 'red-team'], [{ specialist: 'adversarial' }, 'adversarial-native'],
+    [{ specialist: 'outside-voice' }, 'outside-voice'], [{ raised_by: 'nonsense\n', specialist: 'testing' }, 'testing'], [{ specialist: 42 }, 'unknown'], [{}, 'unknown'],
+  ])('%j -> %s', (f, want) => expect(raisedBy(f as any)).toBe(want));
+  test('classify stamps raised_by on every finding, and an older row without it still summarizes', () => {
+    const scoped = scopeFindings([{ fingerprint: 'src/a.ts:3:logic', path: 'src/a.ts', line: 3, severity: 'CRITICAL', specialist: 'security' }, { fingerprint: 'src/a.ts:9:logic', path: 'src/a.ts', line: 9, severity: 'CRITICAL' }], { policy: 'frozen', pass: 1, diffHunks: { 'src/a.ts': 'whole' }, rangeHunks: null });
+    expect(scoped.map(f => f.raised_by)).toEqual(['security', 'unknown']);
+    const old = { skill: 'review', via: 'ship', timestamp: '2026-10-28T10:00:00Z', findings: [{ fingerprint: 'src/a.ts:3:logic', blocking: true, action: 'fixed' }] };
+    expect(summarizeReviewLoop([old], '2026-10-28T09:00:00Z')).toMatchObject({ passes: 1, blocking_found: 1, fixed: 1 });
   });
 });

@@ -205,3 +205,19 @@ describe('the review-loop exception (#3559)', () => {
     expect(!offBranch.ok && offBranch.message).toContain('is not the receipt head or an ancestor of it');
   }, 90_000);
 });
+
+describe('the queue and a scoped second pass (GSTA-152 D6)', () => {
+  // Value: protects=a receipt whose pass 2 was scoped (fix-check, Red Team, native adversarial; no specialists) READYs at the depth
+  // its head needs, with no schema change; fails_when=the queue reads review_loop.dispatches or passes as a depth signal; seam=bindShippedReceipt
+  test('a scoped pass 2 receipt at the required depth binds, its dispatch roles recorded as written', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const head = commit(repo, { 'lib/big.js': lines(80) });
+    const body = path.join(repo.root, 'body.md');
+    const loop = { passes: 2, blocking_found: 1, deferred: 0, fixed: 1, scope: 'frozen', dispatches: { specialist: 4, 'adversarial-native': 2, 'outside-voice': 1, 'fix-check': 1, 'red-team': 1 } };
+    expect(writeReceipt(repo, body, ['--review-loop', JSON.stringify(loop)]).status).toBe(EXIT.ok);
+    expect(receiptIn(body).review_loop).toMatchObject({ passes: 2, dispatches: loop.dispatches });
+    const bound = bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8'), '7', [head]);
+    expect(bound.ok).toBe(true);
+    expect(bound.ok && bound.depthLine).toContain('REVIEW_DEPTH: receipt=standard required=standard');
+  }, 60_000);
+});

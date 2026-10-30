@@ -93,7 +93,8 @@ incomplete coverage, which blocks until the reviewer is rerun.
    for every reviewer (the gate scan and QA probes keep the whole candidate) and
    classifies with `--range-base`. Only a blocking finding in that range or in
    the diff is `fix`; every below-floor finding is a `note`.
-3. **Two full passes is the cap**, plus at most one fix-check. A blocking
+3. **Two full passes is the cap**, plus at most one fix-check; a scoped pass
+   ([below](#scoped-pass)) is a full pass. A blocking
    finding still open after the last allowed step stops the run and names the
    finding (path, severity, problem) for the owner; a third full pass is the
    owner's call, never the loop's. The cap approves nothing.
@@ -108,7 +109,8 @@ incomplete coverage, which blocks until the reviewer is rerun.
 |---|---|
 | none | full pass 1 on the whole diff |
 | a full pass with no edits | done |
-| a full pass that fixed a blocking finding, below the cap | full pass on the range |
+| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |
+| a full pass that fixed a blocking finding, below the cap (full depth, a larger range, or a range or depth it could not read) | full pass on the range |
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
 | a full pass that fixed only below-floor findings | one fix-check |
 | a full pass at the cap that fixed a blocking finding | one fix-check |
@@ -120,6 +122,25 @@ A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is
 logged as a `review-fix-check` row, so it never counts as a pass. No army, no
 Red Team and no outside voice run on it.
+
+<a id="scoped-pass"></a>
+A **scoped pass** is pass 2 after a blocking fix when pass 1 and the diff both
+ran below full depth (no gate class, no depth error, no `--depth-floor full`).
+A full pass 1 always gets a full pass 2: `--pass1-depth` carries pass 1's
+`REVIEW_DEPTH`, and an absent flag counts as full. The fix range
+`RANGE_BASE..HEAD` must have at most `SCOPED_RANGE_LINES` (150) runtime lines, counted
+as the depth counts them (`gstack-review-plan --range-base $PASS_HEAD` prints
+`FIX_RANGE:`). It dispatches one fix-check on the range, the Red Team on the
+range, the native adversarial pass when the range changes runtime lines, every
+force-included specialist and the outside voice when published numbers changed.
+Step 11's voices that have not run yet stay listed, as on a full pass 2. It
+writes a full-pass `review` row with `"scope":"scoped"`, so it counts toward
+the cap, and a blocker it leaves open stops for the owner as before. A fix that
+touched a gate-class path (read from the range with its own scope and gate
+scan), a larger range, an empty range, or a
+range, classifier or depth it cannot read keeps the full pass 2. The 150-line figure is a starting value from
+a 24-PR backtest (GSTA-152 D6), to revisit once classified findings carry
+`raised_by`.
 
 The same floor and the same `NO FINDINGS` rule apply to `/review` on its own;
 its re-review loop keeps its three-cycle fix cap (`CYCLES`), and a pass that
@@ -156,7 +177,8 @@ runtime; a `.tmpl` edit plus its regenerated `SKILL.md` counts the template once
 
 A fixed blocking finding, a CRITICAL or an open blocker raises a light diff to
 standard for the next step (`step=standard`): its specialists read at least 50 lines
-and the Red Team runs, so a raise never dispatches less than light did. A fix-check
+and the Red Team runs, so a raise never dispatches less than light did. When the
+next step is a scoped pass, the raise applies to the scoped set only. A fix-check
 is the same at every depth.
 
 **Fail closed.** Each of these makes the depth full and is listed in `errors[]` with
@@ -217,6 +239,9 @@ the audits and watchers at the host default too
 
 ### Behavior changes
 
+- Pass 2 after a blocking fix on a diff below full depth, with a fix range of at
+  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check, the Red
+  Team and the native adversarial pass on the range instead of the specialist army.
 - A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
   core checklist and the gate scan review it.
 - Light no longer runs a separate Red Team: the batched specialist carries its
@@ -243,7 +268,8 @@ puts in the receipt:
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
-diff_bytes, status}]`; `summary` adds them up (older rows fall back to the
+diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,
+stamped by `gstack-review-scope classify`; `unknown` when untagged, absent on older rows); `summary` adds them up (older rows fall back to the
 specialist stats they record). The summary line appends `fix_checks=`,
 `dispatches=` and `est_input_tokens=` only when they were recorded, so an old
 loop prints the old line.

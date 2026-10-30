@@ -60,6 +60,11 @@ its absolute path, with these headings so a paused run can resume:
 - **Documentation:** candidate/id, attempts used, accepted hashes or named blocked exception.
 - **Next steps:** one ordered work list, with the current step marked.
 
+**Budget** (docs/ship-budget.md): `--token-cap <n|none>` (or GSTACK_SHIP_TOKEN_CAP); `--resume <record>`
+or `--continue <handoff>` re-attach. Step 1 runs `gstack-ship-budget start --record <record>`. With a cap,
+read `~/.claude/skills/gstack/ship/sections/budget-handoff.md`, `check` at each step boundary and dispatch
+batch, obey `verdict=`, `close` before Step 22.
+
 A **receipt** is saved evidence of a check's command, result and consumed content.
 A review's **start token** is the opaque value returned by `gstack-review-log --start`
 before it reads the diff. Keep `REVIEW_START` for Step 9, a separate `PASS_START` for
