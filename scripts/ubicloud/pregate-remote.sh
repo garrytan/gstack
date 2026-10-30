@@ -102,6 +102,7 @@ if [ -z "${UBICLOUD_API_KEY:-${UBICLOUD_API_TOKEN:-}}" ]; then
   exit "$rc"
 fi
 
+[ -n "${UBI_OWNER:-}" ] || stop 2 PREGATE_REMOTE_OWNER_REQUIRED "UBI_OWNER is not set: every VM must carry its owner" "nothing created, nothing spent" "rerun with UBI_OWNER=<your thread code>: $rerun"
 size=${UBI_SIZE:-standard-16}
 case $size in
   standard-2) ppm=0.00104 ;; standard-4) ppm=0.00208 ;; standard-8) ppm=0.00416 ;;
@@ -215,11 +216,11 @@ while :; do
   attempt=$(( attempt + 1 ))
   : >"$log"
   : >"$stream"
-  rm -f "$log.pid" "$log.timedout"
+  rm -f "$log.pid" "$log.timedout" "$log.left"
   t0=$(date +%s)
-  vm_name="ubirun-$(bash "$here/ubi-runner.sh" owner)-$(date +%s)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  vm_name="ubirun-$(bash "$here/ubi-runner.sh" owner)-$(date +%s)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')-t$(( (stop_after + 900 + 3599) / 3600 ))"
   say "VM $vm_name; if this run is killed before its teardown line, destroy it with: bash scripts/ubicloud/ubi-runner.sh down $vm_name"
-  python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+  UBI_LEFT_FILE="$log.left" python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
     bash -c "$vm_session" pregate-remote-vm "$stop_after" "$log" "$stream" "$here/ubi-runner.sh" "${args[@]}" -n "$vm_name" &
   vmrun=$!
   tail -n +1 -f "$stream" &
@@ -252,6 +253,13 @@ t_exit=$(at 'ubi-runner: command exited')
 span() { if [ -n "$1" ] && [ -n "$2" ]; then echo "$(( $2 - $1 ))s"; else echo "-"; fi; }
 say "phases: create $(span "$t0" "$t_ready"), setup $(span "$t_setup" "$t_run"), run $(span "$t_run" "$t_exit"), teardown $(span "$t_exit" "$t_end"); total $(( t_end - started ))s (target 600s)"
 say "log: $log"
+
+left=""
+[ ! -f "$log.left" ] || left=$(sed -n 's/^UBICLOUD: left=\([^ ]*\) .*/\1/p' "$log.left" | tail -1)
+if [ "$left" != 0 ]; then
+  stop 4 PREGATE_REMOTE_INFRA "VM cleanup not confirmed (UBICLOUD: left=${left:-missing}); no result reported" \
+    "VM: $vm_name; destroy it with: bash scripts/ubicloud/ubi-runner.sh down $vm_name" "log: $log" "spent=$spent ($billed billed min on $size)"
+fi
 
 vm_tree=$(sed -n 's/^[0-9]* PREGATE_VM_TREE \([0-9a-f]*\)$/\1/p' "$log" | tail -1)
 mismatch=$(grep -m1 -oE 'PREGATE_VM_(TREE|PLAN)_MISMATCH .*' "$log" || true)
