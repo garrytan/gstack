@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.91.339.0] - 2026-10-30
 
 **Merge trains can stamp every slot themselves under `changelog_fragments`: `train build` builds a stamped prefix for each slot and `train land` publishes it, so no lane stamps a PR by hand.** gstack's own policy still leaves the key off (docs/ship-policy.md#changelog-fragments).
 
@@ -17,6 +17,22 @@
 - `test/ship-queue-train-land.test.ts`: build records S1 and S2 and gates S2; land publishes each slot exactly with the label; a foreign push is never overwritten; a merge outside the train freezes the queue; a failed stamp commit pushes nothing; a rerun after the push or after the journal resumes; a retargeted PR refuses; a red stamped train bisects its stamped chain; a plain train refuses `train land`.
 - `test/train-backstop.test.ts`: main equal to S1 is covered; the same tree with another VERSION is gated; a chain mixing stamped and plain prefixes is refused.
 - `test/version-gate-fragments.test.ts`: a stacked child's stamp counts only its own fragment once its parent has landed.
+
+## [1.91.338.0] - 2026-10-30
+
+**A sealed-guard waiver now counts only when it names the full commit sha.** A `.gstack/sealed-allow.tsv` line used to accept a sha as short as 7 hex characters and waive any commit whose sha started with it. A PR author could generate a commit with the same first 7 characters in minutes and publish different content at the same path under an old, reviewed waiver. A waiver now matches only the finding's full commit sha (40 hex characters, 64 in a SHA-256 repository). A shortened, uppercase or mistyped sha is ignored, so the finding still refuses, and stderr says which line was ignored and which commit the finding is in, to review before anyone waives it.
+
+### Changed
+- `lib/sealed-guard.ts`: waivers compare the whole commit sha; `gstack-pregate sealed --json` adds `ignoredWaivers` (rule, path, the sha as written, the finding's commit) for waiver lines that name a finding's rule and path but not its commit, once per line and commit. Lines that match no finding, and waivers that applied to another commit in the push, stay silent.
+- The refusal hint, the `SEALED_OUTPUT_REFUSED` fix text, docs/pregate.md and docs/troubleshooting.md say the sha must be the full commit sha.
+
+### Tests
+- `test/sealed-guard.test.ts`: 7-, 12- and 39-character prefixes, an uppercase sha and one extra character do not waive and are named; the full sha waives, trailing whitespace included; another commit's full sha does not waive; a short line with no matching finding prints nothing; a waiver applied to one commit is not reported for a later one; a text rule with two matching lines names a short waiver once; a SHA-256 repository accepts 64 characters and rejects 40, 63 and 65; error reports carry an empty list. The two existing waiver tests now write the full sha.
+
+## [1.91.337.0] - 2026-10-30
+
+### Changed
+- **Plan first has two narrow fix exemptions.** An S1 emergency (a broken install or upgrade, a red main, a security bug) and a fix from a problem list that was already diagnosed and audited can be built without an `/autoplan` run. Every other fix, a one-line bug fix included, gets a one-round, eng-only plan. `docs/captain.md` § Plan before build says how, and `captain/SKILL.md`, `captain/templates/CREW.md` rule 24 and the Capy skill's SKILL.md list the same exemptions.
 
 ## [1.91.336.0] - 2026-10-30
 
