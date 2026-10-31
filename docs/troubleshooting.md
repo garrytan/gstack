@@ -2517,7 +2517,8 @@ and the first heading, or the whole body when it has no `## ` heading) is
 replaced by the file's own text above its first heading, or dropped when the
 file has none. A file with no `## ` section (a receipt-only or text-only post)
 leaves that text alone. One stderr line names what was replaced, kept, added
-and dropped, a dropped piece with its first line (`gstack-post: pr-body merged
+and dropped, a dropped piece with its first line, or with that line withheld
+when the redaction scan flags it (`gstack-post: pr-body merged
 by section: replaced What changed; kept ship receipt, Why, Approvals; added
 Tests; dropped leading text ("Draft from gh pr create")`). A body file holding
 only its first section therefore no longer wipes the rest of the PR, and an
