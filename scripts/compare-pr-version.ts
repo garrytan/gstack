@@ -41,6 +41,10 @@ const prVersionEnv = (process.env.PR_VERSION ?? "").trim();
 if (process.env.BASE_REF && process.env.HEAD_SHA) {
   const train = classifyTrainHead({ repoRoot: process.cwd(), baseRef: process.env.BASE_REF, head: process.env.HEAD_SHA, author: process.env.PR_AUTHOR });
   if (train.kind === "unstamped") {
+    if (train.entry === "kept") {
+      console.log(`✓ ${tag} keeps its merge base's VERSION and package.json version, as the base's ship policy (bump never) requires.`);
+      process.exit(0);
+    }
     const entry = train.entry === "fragment" ? `its entry is ${train.fragments} CHANGELOG fragment(s)` : train.entry === "none-bot" ? "it is a bot PR with no entry (the merge step writes one from its title)" : "the CHANGELOG change is confined to [Unreleased]";
     console.log(`✓ ${tag} is unstamped under the base's ship policy: VERSION and package.json match its merge base, any changed release output is what the release tool generates at the merge base's VERSION, and ${entry}. The merge step stamps it.`);
     process.exit(0);

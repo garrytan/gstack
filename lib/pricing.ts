@@ -76,6 +76,12 @@ export const PRICING: Record<string, ModelPricing> = {
   'gemini-3.1-pro-preview': { input_per_mtok: 2.00, output_per_mtok: 12.00, cached_input_per_mtok: 0.20, as_of: '2026-10' },
   'gemini-2.5-pro':     { input_per_mtok: 1.25,  output_per_mtok: 5.00,  as_of: '2026-04' },
   'gemini-2.5-flash':   { input_per_mtok: 0.30,  output_per_mtok: 1.20,  as_of: '2026-04' },
+
+  // Particle AI: https://docs.particle.ai/usage-billing (fetched 2026-10-30; peak rates, off-peak and flex are 50% lower;
+  // OpenRouter serves particle-ai/particle-1 at the same rates)
+  'particle-1':         { input_per_mtok: 0.25,  output_per_mtok: 1.00,  cached_input_per_mtok: 0.03, as_of: '2026-10' },
+  // https://openrouter.ai/deepseek/deepseek-v4.1-flash-1017 (fetched 2026-10-30; the route the model panel runs it on)
+  'deepseek-v4.1-flash-1017': { input_per_mtok: 0.15, output_per_mtok: 0.60, cached_input_per_mtok: 0.003, as_of: '2026-10' },
 };
 
 /**

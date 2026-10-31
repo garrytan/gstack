@@ -131,6 +131,7 @@ const BASELINE = [
   'test/llm-judge-frontier.test.ts',
   'test/llm-judge-stream.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/memory-cache-injection.test.ts',
+  'test/model-panel-selftest.test.ts', // GSTA-173: free instrument check for the paid model panel; its hidden checks, INFRA classes and wording rule live in the paid-path helper
   'test/module-size-ratchet.test.ts', // ratchet (c) source scanner (W2): measures product modules as text; its counter is test tooling
   'test/native-auto-decide-pty.test.ts',
   'test/no-suicide-exit.test.ts',
@@ -223,6 +224,7 @@ const BASELINE = [
   'test/ship-release.test.ts', // GSTA-167 PR 4: runs bin/gstack-ship-release through test/helpers/ship-bin-fixture.ts's RELEASE path, so it names no bin/ literal itself
   'test/ship-section-fixture.test.ts',
   'test/skill-budget-regression.test.ts',
+  'test/skill-eval-checks.test.ts', // GST-377: runs the committed skill-eval check commands, which gstack ships as data for gstack-evals' graders; no gstack module executes them
   'test/skill-fixture.test.ts', // slices test/skill-routing-e2e.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/skill-parser.test.ts',
   'test/spawnsync-timeout-tripwire.test.ts',

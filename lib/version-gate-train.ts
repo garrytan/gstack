@@ -17,7 +17,7 @@ import { matchesAny } from './ship-policy';
 
 export type TrainHead =
   | { kind: 'off' }
-  | { kind: 'unstamped'; fragments?: number; entry?: 'fragment' | 'unreleased' | 'none-bot' }
+  | { kind: 'unstamped'; fragments?: number; entry?: 'fragment' | 'unreleased' | 'none-bot' | 'kept' }
   | { kind: 'stamped'; expected: string; fragments?: boolean }
   | { kind: 'invalid'; reason: string };
 
@@ -96,11 +96,12 @@ export function classifyTrainHead(o: { repoRoot: string; baseRef: string; head: 
   let policy: any = null;
   try { policy = JSON.parse(show(base, '.gstack/ship-policy.json') ?? 'null'); } catch { policy = null; }
   const fragDir: string | null = typeof policy?.changelog_fragments?.dir === 'string' ? policy.changelog_fragments.dir : null;
-  if (!policy || ((typeof policy.train !== 'object' || policy.train === null) && !fragDir)) return { kind: 'off' };
+  if (!policy || ((typeof policy.train !== 'object' || policy.train === null) && !fragDir && policy.bump !== 'never')) return { kind: 'off' };
   const mergeBase = git(o.repoRoot, ['merge-base', base, o.head])?.trim();
   if (!mergeBase) return { kind: 'invalid', reason: `no merge base between ${base} and ${o.head}` };
 
   const npmVersion = (rev: string) => { try { return JSON.parse(show(rev, 'package.json') ?? '{}').version ?? null; } catch { return null; } };
+  if (policy.bump === 'never') return show(mergeBase, 'VERSION') === show(o.head, 'VERSION') && npmVersion(mergeBase) === npmVersion(o.head) ? { kind: 'unstamped', entry: 'kept' } : { kind: 'off' };
   const changed = (git(o.repoRoot, ['diff', '--name-only', mergeBase, o.head]) ?? '').split('\n').filter(Boolean);
   const releaseOutputs: string[] = Array.isArray(policy.release_outputs) ? policy.release_outputs : [];
   // touched: what marks the head as stamped (the labels only feed the length check below)
