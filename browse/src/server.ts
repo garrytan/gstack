@@ -14,6 +14,7 @@
  */
 
 import { BrowserManager, markDaemonProcess } from './browser-manager';
+import { runInRequestTab } from './session-tabs';
 import { handleReadCommand, hasOutArg } from './read-commands';
 import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
@@ -968,11 +969,11 @@ interface CommandResult {
  *   chainDepth: recursion guard — reject nested chains (depth > 0 means inside a chain)
  */
 async function handleCommandInternalImpl(
-  body: { command: string; args?: string[]; tabId?: number },
+  body: { command: string; args?: string[] },
   tokenInfo?: TokenInfo | null,
   opts?: { skipRateCheck?: boolean; skipActivity?: boolean; chainDepth?: number },
 ): Promise<CommandResult> {
-  const { args = [], tabId } = body;
+  const { args = [] } = body;
   const rawCommand = body.command;
 
   if (!rawCommand) {
@@ -1049,18 +1050,6 @@ async function handleCommandInternalImpl(
     if (!opts?.skipRateCheck && tokenInfo.token) recordCommand(tokenInfo.token);
   }
 
-  // Pin to a specific tab if requested (set by BROWSE_TAB env var, e.g. per-tab agent contexts).
-  // This prevents parallel agents from interfering with each other's tab context.
-  // Safe because Bun's event loop is single-threaded — no concurrent handleCommand.
-  let savedTabId: number | null = null;
-  if (tabId !== undefined && tabId !== null) {
-    savedTabId = browserManager.getActiveTabId();
-    // bringToFront: false — internal tab pinning must NOT steal window focus
-    try { browserManager.switchTab(tabId, { bringToFront: false }); } catch (err: any) {
-      console.warn('[browse] Failed to pin tab', tabId, ':', err.message);
-    }
-  }
-
   // ─── Tab ownership check (own-only tokens / pair-agent isolation) ──
   //
   // Only `own-only` tokens (pair-agent over tunnel) are bound to their own
@@ -1070,7 +1059,7 @@ async function handleCommandInternalImpl(
   //
   // Skip for `newtab` — it creates a tab rather than accessing one.
   if (command !== 'newtab' && tokenInfo && tokenInfo.clientId !== 'root' && tokenInfo.tabPolicy === 'own-only') {
-    const targetTab = tabId ?? browserManager.getActiveTabId();
+    const targetTab = browserManager.getActiveTabId();
     if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: isWriteInvocation(command, args), ownOnly: true })) {
       return {
         status: 403, json: true,
@@ -1277,21 +1266,8 @@ async function handleCommandInternalImpl(
     });
 
     browserManager.resetFailures();
-    // Restore original active tab if we pinned to a specific one
-    if (savedTabId !== null) {
-      try { browserManager.switchTab(savedTabId, { bringToFront: false }); } catch (restoreErr: any) {
-        console.warn('[browse] Failed to restore tab after command:', restoreErr.message);
-      }
-    }
     return { status: 200, result: tabWarning ? `${tabWarning}\n${result}` : result };
   } catch (err: any) {
-    // Restore original active tab even on error
-    if (savedTabId !== null) {
-      try { browserManager.switchTab(savedTabId, { bringToFront: false }); } catch (restoreErr: any) {
-        console.warn('[browse] Failed to restore tab after error:', restoreErr.message);
-      }
-    }
-
     // Activity: emit command_end (error) — skipped for chain subcommands
     const errorDuration = Date.now() - startTime;
     if (!opts?.skipActivity) {
@@ -1337,11 +1313,11 @@ async function handleCommandInternalImpl(
  * Do not bypass this by calling handleCommandInternalImpl directly.
  */
 async function handleCommandInternal(
-  body: { command: string; args?: string[]; tabId?: number },
+  body: { command: string; args?: string[]; tabId?: number; session?: string },
   tokenInfo?: TokenInfo | null,
   opts?: { skipRateCheck?: boolean; skipActivity?: boolean; chainDepth?: number },
 ): Promise<CommandResult> {
-  const cr = await handleCommandInternalImpl(body, tokenInfo, opts);
+  const cr = await runInRequestTab(browserManager, body, tokenInfo, () => handleCommandInternalImpl(body, tokenInfo, opts));
   return { ...cr, result: stripLoneSurrogates(cr.result) };
 }
 

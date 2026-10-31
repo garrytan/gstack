@@ -265,7 +265,7 @@ export async function handleMetaCommand(
     case 'tabs': {
       const tabs = await bm.getTabListWithTitles();
       return tabs.map(t =>
-        `${t.active ? '→ ' : '  '}[${t.id}] ${t.busy ? '(not responding)' : t.title || '(untitled)'} — ${t.url}`
+        `${t.active ? '→ ' : '  '}[${t.id}] ${t.busy ? '(not responding)' : t.title || '(untitled)'} — ${t.url}${t.owner ? ` (${t.owner})` : ''}`
       ).join('\n');
     }
 

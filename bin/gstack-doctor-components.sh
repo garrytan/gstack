@@ -350,6 +350,10 @@ gstack_result_anchor() {
     PROJECT_FLOOR_UNMET) printf '%s' 'project-floor-unmet' ;;
     PROJECT_NODE_PIN_UNMET) printf '%s' 'project-node-pin-unmet' ;;
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
+    BROWSE_SESSION_INVALID) printf '%s' 'browse-session-invalid' ;;
+    BROWSE_SESSION_ROOT_ONLY) printf '%s' 'browse-session-root-only' ;;
+    BROWSE_SESSION_TAB_RESET) printf '%s' 'browse-session-tab-reset' ;;
+    BROWSE_SESSION_LIMIT) printf '%s' 'browse-session-limit' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
     BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;

@@ -2057,6 +2057,44 @@ command again.
 
 **Fixed in.** The first release after v1.91.101.0 (#3167).
 
+
+<a id="browse-session-invalid"></a>
+### ``browse: the session name is not 1-64 letters, digits, dots, colons, underscores or dashes ("<name>"); fix: pick a name like agent-1 ... (BROWSE_SESSION_INVALID)``
+
+**Meaning.** `BROWSE_SESSION` or `--session` holds a name browse will not use
+as a tab owner.
+
+**Fix.** Use a short name such as `agent-1`. An empty `BROWSE_SESSION=` turns
+sessions off and uses the shared active tab.
+
+<a id="browse-session-root-only"></a>
+### ``browse: only the local root token may name a session ... (BROWSE_SESSION_ROOT_ONLY)``
+
+**Meaning.** A paired or scoped agent sent a session name. Sessions are for
+local agents that share the root token; scoped agents already get their own
+tabs.
+
+**Fix.** Run `newtab` and pass the returned `tabId` on every command.
+
+<a id="browse-session-tab-reset"></a>
+### ``browse: this session's tab was closed ... (session <name>'s tab <id> was closed; it was on <url>); fix: open the page again ... (BROWSE_SESSION_TAB_RESET)``
+
+**Meaning.** The tab this session was working in is gone: someone ran
+`closetab` on it, closed the window, or it sat idle past
+`BROWSE_SESSION_IDLE_MINUTES` (default 120). browse refuses reads instead of
+answering from a blank page.
+
+**Fix.** `browse goto <url>` in the same session opens a new tab for it, then
+`snapshot` again before using `@refs`.
+
+<a id="browse-session-limit"></a>
+### ``browse: every session slot is running a command ... (BROWSE_SESSION_LIMIT)``
+
+**Meaning.** `BROWSE_MAX_SESSIONS` sessions (default 16) are all mid-command,
+so browse could not close an idle one to open a tab for a new session.
+
+**Fix.** Retry in a moment, or raise `BROWSE_MAX_SESSIONS`.
+
 ---
 
 ## Windows

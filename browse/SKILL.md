@@ -465,5 +465,7 @@ else `$B` can do — extraction, tabs, dialogs, uploads, meta/server commands, a
 full snapshot-flag reference — lives in the generated section below. Read it before
 reaching for a `$B` command that is not in the table.
 
+Parallel agents each get their own `$B` tab automatically (one session per agent process). Subagents sharing one process set `BROWSE_SESSION=<name>` to get separate tabs; cookies stay shared.
+
 > **STOP.** Before using any command or snapshot flag beyond the Browser fallback translation table — the full generated reference for every browse command, its argument shape, and every snapshot flag, Read `~/.claude/skills/gstack/browse/sections/command-list.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.

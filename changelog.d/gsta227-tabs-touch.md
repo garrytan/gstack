@@ -1,0 +1,6 @@
+---
+bump: minor
+---
+- **Parallel agents no longer take over each other's browser tab.** When several agents drive gstack's own browser at once, each agent process now gets its own tab on its first command, and its `goto`, `snapshot`, `click` and chain commands stay on that tab (#1961). Name a session yourself with `--session <name>` or `BROWSE_SESSION=<name>` (subagents that share one agent process need this); `BROWSE_SESSION=` turns it off. Sessions isolate tabs, not logins: cookies and storage stay shared. A session idle for 120 minutes is closed (`BROWSE_SESSION_IDLE_MINUTES`, 0 keeps it), at most 16 run at once (`BROWSE_MAX_SESSIONS`), and only the local root token can name one. `tabs` now shows each tab's owner.
+- **`BROWSE_TAB` and `--tab-id` no longer move the active tab for everyone else.** A command pinned to a tab used to switch the daemon's active tab while it ran, so another caller's command during that window landed on the pinned tab, and two overlapping pinned commands could leave the daemon on the wrong tab. Each request now runs on its own tab without touching the shared one.
+- New result codes, each with a troubleshooting entry: `BROWSE_SESSION_INVALID`, `BROWSE_SESSION_ROOT_ONLY`, `BROWSE_SESSION_TAB_RESET`, `BROWSE_SESSION_LIMIT`.
