@@ -1568,8 +1568,8 @@ k sub-shards side by side on the same machine (`scripts/lib/shard-jobs.ts`). Eac
 sub-shard is an ordinary free shard child: one `bun test` process, serial
 inside, with its own sandbox, process-group kill and log. Bun's worker
 `--parallel` mode is still not used (decision V3/D6 in
-`scripts/test-free-shards.ts`). The default is `k = 1`, which runs today's one
-child, so no workflow changes behavior until it passes `--jobs`.
+`scripts/test-free-shards.ts`). Without `--jobs`, a shard runs at the plan's
+per-shard k (below); a shard with no planned k runs one child (`k = 1`).
 
 - Workflows set k in the plan, per shard: `--ci-plan <plan> --shards N
   --shard-jobs k` stores `jobs = min(k, the shard's files that may run in
