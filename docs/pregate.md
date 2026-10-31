@@ -946,7 +946,8 @@ with a timing flake: never raise the bound.
     "answer_markers": ["SEALED ANSWER:"],
     "seed_patterns": ["shuffle_seed=\\d+"],
     "local_paths": true,
-    "case_insensitive": true } }
+    "case_insensitive": true,
+    "label_keys": ["stratum", "decoy_set"] } }
 ```
 
 A repo with a `sealed` key gets a configured local check against accidental
@@ -992,11 +993,48 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   sealed data. Each exempt path is listed on every push (`exempt <rule>
   <file> commit <sha> (sealed.allow_paths <glob>)`) and counted as
   `exempt=<n>` on the `SEALED:` line.
-- **Version skew.** A gstack older than the release whose CHANGELOG adds
-  `sealed.allow_paths` refuses `allow_paths` and `case_insensitive` as
-  unknown keys, so every push and `gstack-pregate run` in the repository
-  fail on that machine. Raise `min_gstack_version` in
-  `.gstack/ship-policy.json` to that release before landing either key.
+- **Label joins.** Off unless `label_keys` names at least one field. Then
+  `sealed.label_join` refuses a published record that puts a label field next
+  to an identifier, the way a panel row with `stratum` beside `head` and
+  `plan_bytes` tells a model under test which unit it is. A record is a JSON
+  object at any depth (its own fields plus one level of nested objects, named
+  like `meta.head`), a JSONL or NDJSON line, a CSV or TSV row, or a row of a
+  Markdown pipe table. Field names and table headers are compared after
+  trimming, lowercasing and turning spaces and hyphens into underscores
+  (`Tree SHA-256` is `tree_sha_256`); this is the rule's own normalization,
+  separate from `case_insensitive`. An identifier is a field whose name
+  matches an `identifier_keys` glob (`*` is the only wildcard; the default
+  is `head`, `head_sha`, `sha`, `commit`, `tree`, `tree_sha*`, `*_sha`,
+  `*_sha256`, `sha256`, `digest`, `*_digest`, `hash`, `*_hash`,
+  `*_bytes`, `bytes`, `size`, `files`, `lines`), or any string value of 7
+  to 64 hex characters with at least one digit and one letter a to f. Numbers
+  count only through the field name. For each supported file a commit adds,
+  modifies, renames or copies, the guard fingerprints every joined record
+  (sha256 over its label and identifier fields and their values, kept in
+  memory) and compares the set with the parent's version of the file (the
+  rename or copy source; every parent for a merge). A fingerprint no parent
+  has is a finding, so unchanged records and formatting-only edits stay clear,
+  and a replaced, added or widened record refuses even when the count stays
+  the same. A supported file over 4 MiB, one that does not parse (one bad
+  JSONL line is enough), one nested deeper than 64 levels, or a blob git
+  cannot read is `sealed.label_join_unchecked`. It refuses too, and the
+  `SEALED:` line counts it as `unchecked=<n>`. Findings print field names
+  (`keys=`, label fields first), never values; `--json` carries them as
+  `keys`. `allow_paths` never exempt either rule; a base-branch waiver does.
+  Both lists are the union of the base branch's and the pushed policy's, each
+  resolved to its default first, so a push can turn the rule on or widen it
+  but never turn it off or narrow it. Without `label_keys` the guard reads no
+  file contents and its output is unchanged. Known limits: joins across files,
+  joins by reference inside a file (a `decoy_set` list naming units described
+  elsewhere), columnar JSON (`columns` plus `rows`), labels encoded in file
+  names, and prose.
+- **Version skew.** A gstack older than the release that adds a `sealed` key
+  refuses it as unknown, so every push and `gstack-pregate run` in the
+  repository fail on that machine. `allow_paths` and `case_insensitive` came
+  with the release whose CHANGELOG adds `sealed.allow_paths`; `label_keys`
+  and `identifier_keys` came with the release whose CHANGELOG adds
+  `sealed.label_join`. Raise `min_gstack_version` in
+  `.gstack/ship-policy.json` to that release before landing the key.
 - **Policy.** The union of the destination base branch's `sealed` and the
   pushed commit's: a push can tighten it, never relax it (`allow_paths` come
   from the base branch alone, and a pushed deny glob cannot override one). The

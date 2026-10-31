@@ -3303,7 +3303,7 @@ base branch's copy or the user-owned file. For the user-owned file, edit it
 directly at the path the message names. A user file inside the repository, or
 reached through a symlink into it, is ignored rather than read (`--explain`
 names it). An unknown `sealed` key that a newer gstack defines (such as
-`allow_paths` or `case_insensitive`) means this machine's gstack is older than
+`allow_paths`, `case_insensitive`, `label_keys` or `identifier_keys`) means this machine's gstack is older than
 the policy: upgrade gstack here, and raise `min_gstack_version` in the
 repository's `.gstack/ship-policy.json` before landing such a key.
 
@@ -3892,7 +3892,10 @@ migration is a code change, so the gate reruns.
 sealed path or transcript (binary, empty and later-deleted files included), or
 adds a line with a sealed-answer marker, a seed or a local home path, and the
 destination is public or its visibility is unknown (a new or unreadable
-repository counts as public). An unreadable or malformed sealed policy refuses
+repository counts as public). With `sealed.label_keys` set, a new record that
+puts a label field next to an identifier (`sealed.label_join`), or a supported
+file the guard could not read (`sealed.label_join_unchecked`), refuses the
+same way. An unreadable or malformed sealed policy refuses
 too. The managed pre-push hook and `gstack-pregate sealed` print one line per
 finding: rule, `file[:line]`, commit. They never print the matched text.
 
@@ -3901,7 +3904,9 @@ reaches the public repository (a later commit that deletes it still publishes
 it). A publishable file kept next to sealed data (a `MANIFEST.json` of hashes
 and counts) can be exempted from the path rules with a `sealed.allow_paths`
 glob in the base branch's `.gstack/pregate.json`; the text rules still read it
-([docs/pregate.md#sealed](pregate.md#sealed)). A reviewed false positive gets
+([docs/pregate.md#sealed](pregate.md#sealed)). For `sealed.label_join`, drop
+the identifier fields (or the labels) from the published file, or move it under
+a sealed path; `allow_paths` never exempt it. A reviewed false positive gets
 one line in the base branch's
 `.gstack/sealed-allow.tsv`: `rule<TAB>path<TAB>sha<TAB>reason`, where `sha` is
 the full commit sha (a shortened one is ignored and named on stderr). A private

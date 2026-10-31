@@ -155,6 +155,7 @@
     { "file": "lib/pregate/checks/timing.ts", "movedFrom": "(new: pre-gate timing-assertion check, field list 2 W4)" },
     { "file": "lib/pregate/runtime.ts", "movedFrom": "(new: the verified launch Bun for repo commands, field wave CD1)" },
     { "file": "lib/sealed-guard.ts", "movedFrom": "(new: the sealed-output guard shared by the pre-push hook and gstack-pregate sealed, field wave CD4)" },
+    { "file": "lib/sealed-join.ts", "movedFrom": "(new: the sealed.label_join rule, label fields published beside identifiers, GST-620)" },
     { "file": "lib/pregate/regate.ts", "movedFrom": "(new: the regate verdict from a fresh tree receipt plus migration collisions, field wave CD3)" },
     { "file": "lib/autoplan-scope.ts", "movedFrom": "(new: UI evidence from rendered surfaces and the plan scope marker, shared by the runner and the snapshot tool, field wave B2c)" },
     { "file": "lib/source-root.ts", "movedFrom": "(new: the source checkout behind an install root, from its recorded .source-path, field wave B2e)" },

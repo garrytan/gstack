@@ -292,8 +292,9 @@ function cmdSealed(root: string, rest: string[], json: boolean): number {
   const blocks = report.status === 'refused' || report.status === 'error';
   if (json) { process.stdout.write(JSON.stringify({ ...report, ok: !blocks }) + '\n'); return blocks ? EXIT.fail : EXIT.ok; }
   process.stderr.write(renderSealed(report, 'gstack-pregate sealed'));
+  const unchecked = report.findings.filter(f => f.rule === 'sealed.label_join_unchecked').length;
   const policy = report.policyLabels.length ? report.policyLabels.join(' + ') : `no sealed key on ${baseRef ?? `${remote}/${base}`} or ${end}`;
-  process.stdout.write(`SEALED: ${report.status} findings=${report.findings.length} commits=${report.commits} visibility=${report.visibility}${report.visibility === 'unknown' ? ' (counted public)' : ''} waived=${report.waived.length} exempt=${report.exempt.length} policy=${policy}\n`);
+  process.stdout.write(`SEALED: ${report.status} findings=${report.findings.length} commits=${report.commits} visibility=${report.visibility}${report.visibility === 'unknown' ? ' (counted public)' : ''} waived=${report.waived.length} exempt=${report.exempt.length}${unchecked ? ` unchecked=${unchecked}` : ''} policy=${policy}\n`);
   return blocks ? EXIT.fail : EXIT.ok;
 }
 
