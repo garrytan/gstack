@@ -154,7 +154,7 @@ describe("provider selection is one fixed order", () => {
     expect(pick()).toBeNull();
     process.env.OPENAI_API_KEY = "sk-env";
     expect(pick()).toBe("openai");
-    process.env.GEMINI_API_KEY = GEMINI_KEY;
+    Object.assign(process.env, { GEMINI_API_KEY: GEMINI_KEY });
     expect(pick()).toBe("openai");
     delete process.env.OPENAI_API_KEY;
     expect(pick()).toBe("gemini");
@@ -162,7 +162,7 @@ describe("provider selection is one fixed order", () => {
 
   test("config files count like env keys, and ~/.gstack/gemini.json wins over GEMINI_API_KEY", () => {
     saveApiKey("AIzaFromConfigFile00000000000000000000", "gemini");
-    process.env.GEMINI_API_KEY = GEMINI_KEY;
+    Object.assign(process.env, { GEMINI_API_KEY: GEMINI_KEY });
     expect(resolveProvider()).toMatchObject({ provider: "gemini", key: "AIzaFromConfigFile00000000000000000000", source: "~/.gstack/gemini.json" });
     expect(fs.statSync(path.join(dir, ".gstack", "gemini.json")).mode & 0o777).toBe(0o600);
     saveApiKey("sk-config");
@@ -171,7 +171,7 @@ describe("provider selection is one fixed order", () => {
 
   test("GSTACK_DESIGN_PROVIDER overrides the order either way", () => {
     process.env.OPENAI_API_KEY = "sk-env";
-    process.env.GEMINI_API_KEY = GEMINI_KEY;
+    Object.assign(process.env, { GEMINI_API_KEY: GEMINI_KEY });
     process.env.GSTACK_DESIGN_PROVIDER = "gemini";
     expect(pick()).toBe("gemini");
     process.env.GSTACK_DESIGN_PROVIDER = "OpenAI";
@@ -179,7 +179,7 @@ describe("provider selection is one fixed order", () => {
   });
 
   test("an override naming a provider with no key, or no provider at all, fails before any request with a Fix line", () => {
-    process.env.GEMINI_API_KEY = GEMINI_KEY;
+    Object.assign(process.env, { GEMINI_API_KEY: GEMINI_KEY });
     process.env.GSTACK_DESIGN_PROVIDER = "openai";
     expect(() => resolveProvider()).toThrow(/GSTACK_DESIGN_PROVIDER=openai but no OpenAI key was found[\s\S]*\nFix: .*#design-provider-no-key/);
     process.env.GSTACK_DESIGN_PROVIDER = "grok";
@@ -262,7 +262,7 @@ describe("Gemini through the call sites", () => {
   });
 
   test("iterate: a Gemini session edits its last image; an OpenAI or legacy session is refused before any request", async () => {
-    process.env.GEMINI_API_KEY = GEMINI_KEY;
+    Object.assign(process.env, { GEMINI_API_KEY: GEMINI_KEY });
     const session = (provider?: string) => {
       const file = path.join(dir, `session-${provider ?? "legacy"}.json`);
       fs.writeFileSync(file, JSON.stringify({ id: `s-${provider ?? "legacy"}`, ...(provider ? { provider } : {}), lastResponseId: "r0", originalBrief: "brief",
@@ -284,3 +284,40 @@ describe("Gemini through the call sites", () => {
     expect(errors.join("\n")).toContain("was made with openai; the current provider is gemini.\nFix: set GSTACK_DESIGN_PROVIDER=openai");
   });
 });
+
+describe("live-gemini-check always tests the defaults", () => {
+  const script = path.join(import.meta.dir, "..", "scripts", "live-gemini-check.ts");
+  const run = (env: Record<string, string>) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "design-live-gemini-"));
+    try {
+      return spawnSync(process.execPath, ["--no-env-file", "run", script], {
+        encoding: "utf8", timeout: 60_000,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, GSTACK_HOME: home, ...env },
+      });
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  };
+  const overrides = { [DESIGN_MODEL_ENV]: "gemini-override-vision", [DESIGN_IMAGE_MODEL_ENV]: "gemini-override-image" };
+  const banner = `testing Gemini defaults: image=${GEMINI_DEFAULT_MODELS.image} vision=${GEMINI_DEFAULT_MODELS.vision}`;
+
+  test("no key: exit 2 with a no-coverage SKIP line", () => {
+    const r = run(overrides);
+    expect(r.status).toBe(2);
+    expect(r.stdout.trim().split("\n")).toEqual([banner, "SKIP: GEMINI_API_KEY is not set; the Gemini defaults were not checked (no coverage)"]);
+  });
+
+  test("with a key, every call uses the defaults, fails locally behind a dead proxy, and never prints the key", () => {
+    const r = run({ ...overrides, GEMINI_API_KEY: GEMINI_KEY, HTTPS_PROXY: "http://127.0.0.1:9", https_proxy: "http://127.0.0.1:9" });
+    expect(r.status).toBe(1);
+    const lines = r.stdout.trim().split("\n");
+    expect(lines[0]).toBe(banner);
+    expect(lines.slice(1).map(l => l.split(" result=")[0])).toEqual([
+      `call=models.get ${GEMINI_DEFAULT_MODELS.image}`, `call=models.get ${GEMINI_DEFAULT_MODELS.vision}`, "call=image", "call=vision",
+    ]);
+    expect(lines.slice(1).every(l => l.includes("result=FAIL"))).toBe(true);
+    expect(r.stdout + r.stderr).not.toContain(GEMINI_KEY);
+    expect(r.stdout).not.toContain("gemini-override");
+  });
+});
+
