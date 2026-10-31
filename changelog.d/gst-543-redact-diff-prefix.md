@@ -1,0 +1,5 @@
+**`gstack-redact` now catches a credential on an added diff line (GST-543).** The env.kv rule matched from the start of the line. On a unified-diff added line, the leading `+` blocked the match, so `git diff | gstack-redact` returned no finding and exit 0 for `+API_TOKEN=<random value>`. A `diff` code block in a PR body had the same blind spot. Pregate's `secrets` check and the pre-push hook were not affected, because both strip the `+` before scanning.
+
+### Fixed
+- **`lib/redact-patterns.ts`:** env.kv accepts one leading `+`, so the line in the example above now reports MEDIUM env.kv and exits 2. The name-shape check and the schema-field exemption accept the same prefix, so `API_TOKEN=changeme`, `cacheKey: …` and `input_key: …` stay clean on an added line, as they are without the prefix.
+- **`test/redact-diff-prefix.test.ts`:** each pattern in `PATTERNS` has a sample. The test requires it to report bare, behind `+`, `-` and a space, and on an added line inside a real hunk. A new pattern without a sample fails the test. The audit found env.kv was the only rule with the leading-`+` blind spot. Every other rule starts at a word boundary or has no anchor.
