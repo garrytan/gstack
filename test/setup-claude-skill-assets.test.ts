@@ -82,6 +82,7 @@ beforeAll(() => {
     '_FOREIGN_SKIPPED_ENTRIES=()',
     '_BACKED_UP_SKILL_MDS=()',
     `_SKILL_BACKUP_ROOT="${os.tmpdir()}/gstack-harness-backups-${process.pid}"`,
+    `. "${path.join(ROOT, 'bin/gstack-skill-name.sh')}"`,
     extractFn('link_claude_skill_dirs'),
     `link_claude_skill_dirs "${ROOT}" "${installDir}"`,
   ].join('\n');

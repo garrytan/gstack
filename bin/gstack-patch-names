@@ -8,13 +8,15 @@ DO_PREFIX="$2"
 
 # Normalize prefix arg
 case "$DO_PREFIX" in true|1) DO_PREFIX=1 ;; *) DO_PREFIX=0 ;; esac
+# Names are read with a bash builtin loop: no process per skill (#2120).
+. "$(dirname "$0")/gstack-skill-name.sh"
 
 PATCHED=0
 for skill_dir in "$GSTACK_DIR"/*/; do
   [ -f "$skill_dir/SKILL.md" ] || continue
-  dir_name="$(basename "$skill_dir")"
+  dir_name=${skill_dir%/}; dir_name=${dir_name##*/}
   [ "$dir_name" = "node_modules" ] && continue
-  cur=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+  gstack_skill_md_name "$skill_dir/SKILL.md"; cur=$GSTACK_SKILL_NAME
   [ -z "$cur" ] && continue
   [ "$cur" = "gstack" ] && continue  # never prefix root skill
   if [ "$DO_PREFIX" -eq 1 ]; then

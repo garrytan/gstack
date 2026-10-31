@@ -297,6 +297,7 @@ SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 . "$SOURCE_GSTACK_DIR/bin/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $SOURCE_GSTACK_DIR/bin/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select; GSTACK_STATE_ROOT="$_gstack_sr_root"
 . "$SOURCE_GSTACK_DIR/bin/gstack-path-spelling.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-path-spelling.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
+. "$SOURCE_GSTACK_DIR/bin/gstack-skill-name.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-skill-name.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-claude-root.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-claude-root.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-install-registry.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-install-registry.sh is missing. fix: reinstall from a fresh clone (docs/ADDING_A_HOST.md)" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-render-claude.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-render-claude.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
@@ -2456,11 +2457,11 @@ link_claude_skill_dirs() {
   local linked=()
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
-      dir_name="$(basename "$skill_dir")"
+      dir_name=${skill_dir%/}; dir_name=${dir_name##*/}
       # Skip node_modules
       [ "$dir_name" = "node_modules" ] && continue
       # Use frontmatter name: if present (e.g., run-tests/ with name: test → symlink as "test")
-      skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+      gstack_skill_md_name "$skill_dir/SKILL.md"; skill_name=$GSTACK_SKILL_NAME
       [ -z "$skill_name" ] && skill_name="$dir_name"
       case "${_DISABLED_SKILLS:- }" in *" $skill_name "*|*" $dir_name "*) continue ;; esac
       # Apply gstack- prefix unless --no-prefix or already prefixed
@@ -2626,7 +2627,7 @@ cleanup_old_claude_symlinks() {
   # literal (empty skills_dir) is rejected by the same guard.
   for old_target in "$skills_dir"/*; do
     [ -e "$old_target" ] || [ -L "$old_target" ] || continue
-    skill_name="$(basename "$old_target")"
+    skill_name=${old_target##*/}
     [ "$skill_name" = "node_modules" ] && continue
     [ "$skill_name" = "gstack" ] && continue
     # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
@@ -2666,7 +2667,7 @@ cleanup_old_claude_symlinks() {
   if [ "${IS_WINDOWS:-0}" -eq 1 ] && [ -d "$gstack_dir" ]; then
     for skill_dir in "$gstack_dir"/*/; do
       if [ -f "$skill_dir/SKILL.md" ]; then
-        skill_name="$(basename "$skill_dir")"
+        skill_name=${skill_dir%/}; skill_name=${skill_name##*/}
         [ "$skill_name" = "node_modules" ] && continue
         case "$skill_name" in gstack-*) continue ;; esac
         old_target="$skills_dir/$skill_name"
@@ -2697,7 +2698,7 @@ cleanup_prefixed_claude_symlinks() {
   local removed=()
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
+      skill_name=${skill_dir%/}; skill_name=${skill_name##*/}
       [ "$skill_name" = "node_modules" ] && continue
       # Only clean up prefixed entries for dirs that AREN'T already prefixed
       # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
@@ -2762,7 +2763,7 @@ link_codex_skill_dirs() {
 
   for skill_dir in "$agents_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
+      skill_name=${skill_dir%/}; skill_name=${skill_name##*/}
       case "${_DISABLED_SKILLS:- }" in *" ${skill_name#gstack-} "*) _remove_disabled_host_entry "$skills_dir/$skill_name"; continue ;; esac
       # Skip the sidecar directory — it contains runtime asset symlinks (bin/,
       # browse/), not a skill. Linking it would overwrite the root gstack
