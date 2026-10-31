@@ -199,6 +199,28 @@ describe('weekly issue', () => {
   });
 });
 
+describe('Saturday workflow template', () => {
+  const file = path.join(ROOT, 'ci-audit/templates/ci-audit-weekly.yml');
+  const doc = Bun.YAML.parse(fs.readFileSync(file, 'utf8')) as any;
+
+  test('runs Saturday morning and on demand, reads Actions, writes only issues', () => {
+    expect(doc.on.schedule).toEqual([{ cron: '0 15 * * 6' }]);
+    expect('workflow_dispatch' in doc.on).toBe(true);
+    expect(doc.permissions).toEqual({ actions: 'read', contents: 'read', issues: 'write' });
+  });
+
+  test('audits within the GITHUB_TOKEN hourly limit and always publishes the outcome', () => {
+    const steps = doc.jobs.audit.steps as { name?: string; run?: string; if?: string }[];
+    const audit = steps.find(s => s.name === 'Audit')!.run!;
+    const max = Number(/--max-calls (\d+)/.exec(audit)?.[1]);
+    expect(max + 500).toBeLessThanOrEqual(1000);
+    expect(audit).toContain('set +e');
+    const pub = steps.find(s => s.name === 'Publish')!;
+    expect(pub.if).toBe('always()');
+    expect(pub.run).toContain('--exit "${{ steps.audit.outputs.code || 5 }}"');
+  });
+});
+
 describe('command line', () => {
   test('usage errors exit 1 with help; a bad slug is refused before any call', async () => {
     expect((await cli(['run', '--bogus'])).code).toBe(EXIT.usage);

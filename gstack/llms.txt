@@ -17,6 +17,7 @@ Conventions:
 - [/canary](canary/SKILL.md): Post-deploy canary monitoring.
 - [/captain](captain/SKILL.md): Run a crew of coding agents from one controller (also /crew): lanes send READY blocks and never merge; the controller merges through trains, keeps the digest, relays approvals, fixes flakes daily.
 - [/careful](careful/SKILL.md): Safety guardrails for destructive commands.
+- [/ci-audit](ci-audit/SKILL.md): Find what makes GitHub Actions CI slow and costly; fixes ranked in minutes and dollars.
 - [/codex](codex/SKILL.md): OpenAI Codex CLI wrapper — three modes.
 - [/context-restore](context-restore/SKILL.md): Restore working context saved earlier by /context-save.
 - [/context-save](context-save/SKILL.md): Save working context.
