@@ -141,8 +141,15 @@ describe('oxlint ratchet', () => {
     const root = path.resolve(import.meta.dir, '..');
     const pin = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).devDependencies.oxlint;
     expect(pin).toMatch(/^\d+\.\d+\.\d+$/);
-    const baseline = readBaseline(path.join(root, BASELINE_FILE));
+    expect(BASELINE_FILE).toBe('scripts/lint-baseline.json');
+    const baseline = readBaseline(path.join(root, 'scripts', 'lint-baseline.json'));
     expect(baseline.oxlint).toBe(pin);
     expect(Object.keys(baseline.findings).length).toBeGreaterThan(0);
+  });
+
+  test('the committed config runs the correctness rules and skips vendored code and test fixtures', () => {
+    const config = JSON.parse(fs.readFileSync(path.join(path.resolve(import.meta.dir, '..'), '.oxlintrc.json'), 'utf8'));
+    expect(config.categories).toEqual({ correctness: 'error' });
+    expect(config.ignorePatterns).toEqual(['design-html/vendor/**', 'test/fixtures/**']);
   });
 });
