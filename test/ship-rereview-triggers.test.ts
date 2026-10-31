@@ -8,6 +8,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
+import { comparePath } from '../lib/ship-patch';
 import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
 import { cleanup, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
@@ -151,6 +152,32 @@ describe('finish route after a base merge (GST-407 #1, GBRA-108 #7739)', () => {
     expect([feature.status, feature.stdout.includes('is not on origin/main')]).toEqual([3, true]);
     const plain = finish(f, reviewed, post);
     expect(lineOf(plain.stdout, 'ROUTE')).toMatch(/ base=unknown context=0$/);
+    f.write({ 'test/b.test.ts': "import { test } from 'bun:test';\ntest('b', () => {});\n" }); f.commit('test: add');
+    const noFlag = finish(f, reviewed, post);
+    expect([noFlag.status, lineOf(noFlag.stdout, 'ROUTE')]).toEqual([3, expect.stringMatching(/ behavior=1 docs=0 metadata=0 tests=0 base=unknown /)]);
+  });
+
+  // Value: protects=a textconv driver the clone configures cannot hide a product line from the comparison; a binary or
+  //   empty file whose patch did not change is same, and one whose bytes changed is not; fails_when=git diff applies
+  //   textconv (an auth flag flips unseen and routes base=), or a hunkless patch always reads changed; seam=lib/ship-patch.ts
+  //   comparePath; no_claim=none
+  test('textconv cannot hide a product line; hunkless patches compare by patch-id', () => {
+    const f = fx({ 'src/auth.ts': 'export const authRequired = true;\nexport const a = 1;\n' }, { 'src/auth.ts': 'export const authRequired = true;\nexport const a = 2;\n', 'pkg/__init__.py': '', 'assets/x.bin': 'a\u0000b\n' });
+    f.write({ '.gitattributes': 'src/*.ts diff=hide\n' }); f.commit('attributes');
+    f.git('config', 'diff.hide.textconv', 'grep -v authRequired');
+    const reviewed = wtree(f);
+    const reviewedBase = mergeBase(f);
+    const reviewedHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const post = snapshot(f);
+    f.advanceBase({ 'lib/z.ts': 'export const z = 1;\n' });
+    mergeMain(f);
+    const sides = () => ({ reviewedBase, reviewed: reviewedHead, currentBase: mergeBase(f), current: f.git('rev-parse', 'HEAD').stdout.trim() });
+    expect(['pkg/__init__.py', 'assets/x.bin'].map(p => comparePath(f.work, sides(), p))).toEqual(['same', 'same']);
+    f.write({ 'assets/x.bin': 'a\u0000c\n' }); f.commit('new bytes');
+    expect(comparePath(f.work, sides(), 'assets/x.bin')).toBe('changed');
+    f.write({ 'assets/x.bin': 'a\u0000b\n', 'src/auth.ts': 'export const authRequired = false;\nexport const a = 2;\n' }); f.commit('flip');
+    const r = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, 'STOP: behavior, tests or build inputs changed since review (src/auth.ts): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)']);
   });
 });
 
@@ -256,14 +283,24 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     const f = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/b.test.ts': spec('b') });
     const reviewed = wtree(f);
     const post = snapshot(f);
-    f.write({ 'test/b.test.ts': spec('b is two') }); f.commit('test: rename');
+    f.write({ 'test/b.test.ts': `${spec('b')}test('b is even', () => expect(2 % 2).toBe(0));\n` }); f.commit('test: add a case');
     const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
     expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=1 /);
     expect(lineOf(r.stdout, 'DOCS')).toContain('fresh');
     expect(r.status).toBe(0);
-    f.write({ 'test/b.test.ts': spec('b is two', 'test.skip') }); f.commit('test: skip');
+    f.write({ 'test/b.test.ts': `${spec('b', 'test.skip')}test('b is even', () => expect(2 % 2).toBe(0));\n` }); f.commit('test: skip');
     const skip = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
     expect([skip.status, skip.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/b.test.ts)')]).toEqual([3, true]);
+
+    const weak = (body: string) => `import { expect, test } from 'bun:test';\ntest('rows', () => {\n${body}});\n`;
+    for (const [name, after] of [['changed expected value', '  expect(2).toBe(3);\n  expect(() => JSON.parse("")).toThrow();\n'], ['deleted assertion', '  expect(2).toBe(2);\n'], ['binary', '  expect(2).toBe(2);\n  expect(() => JSON.parse("")).toThrow();\n  const nul = "\u0000";\n']]) {
+      const w = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/rows.test.ts': weak('  expect(2).toBe(2);\n  expect(() => JSON.parse("")).toThrow();\n') });
+      const rw = wtree(w);
+      const pw = snapshot(w);
+      w.write({ 'test/rows.test.ts': weak(after) }); w.commit(`test: ${name}`);
+      const r = finish(w, rw, pw, ['--reviewed-base', mergeBase(w)]);
+      expect([name, r.status, r.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/rows.test.ts)')]).toEqual([name, 3, true]);
+    }
 
     const helper = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/helpers/h.test.ts': spec('h') });
     const reviewed2 = wtree(helper);
@@ -310,7 +347,7 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
   test('gstack-docs-candidate attempt counts only audits that could run', () => {
     const f = fx();
     const out = (name: string, text: string) => { const p = path.join(f.root, name); fs.writeFileSync(p, text); return p; };
-    const state = path.join(f.root, 'attempts.json');
+    const state = path.join(f.root, 'state-dir', 'attempts.json');
     const attempt = (file: string) => f.run(path.join(BIN, 'gstack-docs-candidate'), ['attempt', file, '--state', state]);
     const refused = out('refused.txt', 'gstack: ok 1.91.354.0 for=review-voice\nINSTALL: fail verdict for=review-voice does not admit document-release; fix: bash install.sh --for document-release\nGSTACK_RESULT: skill=document-release status=refused run=-\n');
     expect(attempt(out('crash.txt', 'Error: child crashed\n')).stdout.trim()).toBe('ATTEMPT: counted');

@@ -185,6 +185,7 @@ function main(argv: string[]): void {
       console.log(`STOP: run the install fix (${install}) and confirm its gstack: ok trailer before another launch`);
       process.exit(3);
     }
+    fs.mkdirSync(path.dirname(path.resolve(state)), { recursive: true });
     fs.writeFileSync(state, JSON.stringify({ not_counted: seen + 1 }) + '\n', { mode: 0o600 });
     console.log(`ATTEMPT: not-counted (install refused: ${install})`);
     return;

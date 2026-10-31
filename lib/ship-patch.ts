@@ -13,7 +13,9 @@
  *   The merge may still have spliced the two (a JSON entry where the branch changed one key and
  *   the base the next), so a context path needs a scoped review of its hunks, never a silent pass;
  * - changed: anything else, including the same lines moved to another place, a file-mode change, and any path whose
- *   patches cannot be read (an empty patch on both sides of a path the branch touches).
+ *   patches cannot be read (an empty patch on both sides of a path the branch touches). A binary, empty or mode-only
+ *   patch has no hunks to place, so it is same when its patch-id matches and changed otherwise.
+ * Diffs skip external drivers and textconv, so a configured filter cannot hide a line.
  * Paths reach git as literal pathspecs from NUL-separated listings, so quoted names and glob
  * characters cannot widen or empty a comparison.
  */
@@ -39,7 +41,7 @@ export function touchedPaths(repoRoot: string, from: string, to: string): Set<st
 }
 
 function pathDiff(repoRoot: string, from: string, to: string, rel: string, context: number): string | null {
-  return git(repoRoot, ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-renames', '--binary', '--full-index', `-U${context}`, from, to, '--', rel]);
+  return git(repoRoot, ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--binary', '--full-index', `-U${context}`, from, to, '--', rel]);
 }
 
 function patchId(repoRoot: string, diff: string): string | null {
@@ -110,7 +112,7 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   if (ids[0] === null || ids[1] === null) return 'changed';
   const r0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 0) ?? '');
   const c0 = zeroHunks(pathDiff(repoRoot, s.currentBase, s.current, rel, 0) ?? '');
-  if (ids[0] === ids[1] && r0 !== null && !r0.length) return 'same';
+  if (ids[0] === ids[1] && r0 === null) return 'same';
   const b0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 0) ?? '');
   if (!r0?.length || !c0 || !b0 || r0.length !== c0.length || r0.some((h, i) => h.body !== c0[i]!.body)) return 'changed';
   const map = mapper(b0);
@@ -143,13 +145,19 @@ export function isTestCode(rel: string): boolean {
   return matchesAny(CARRY_TEST_CODE_GLOBS, rel) && !/(^|\/)(helpers|fixtures|__fixtures__|__snapshots__)\//.test(rel);
 }
 
-/** Test paths whose change from..to carries a gate edit (lib/gate-diff RH tags: a removed or skipped test, a snapshot, a relaxed gate value). */
+/**
+ * Test paths whose change from..to needs review: any removed or changed line (a weakened assertion or a changed
+ * expected value carries no gate tag), a gate edit lib/gate-diff tags (a skipped test, a snapshot, a relaxed gate
+ * value), or a diff the scan cannot read. Only added lines with no tag stay a lanes-only rerun.
+ */
 export function gateEditedPaths(repoRoot: string, from: string, to: string, paths: readonly string[]): Set<string> | null {
   if (!paths.length) return new Set();
-  const diff = git(repoRoot, ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-renames', from, to, '--', ...paths]);
+  const diff = git(repoRoot, ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', from, to, '--', ...paths]);
   if (diff === null) return null;
-  const scan = scanCandidate({ files: parseUnifiedDiff(diff), commits: [], project: EMPTY_PROJECT_CONFIG, specIsTestPath: true, candidate: 'route', artifact: '' });
-  return new Set(scan.hunks.filter(h => h.tags.length > 0).map(h => h.path));
+  const files = parseUnifiedDiff(diff);
+  const scan = scanCandidate({ files, commits: [], project: EMPTY_PROJECT_CONFIG, specIsTestPath: true, candidate: 'route', artifact: '' });
+  const removed = paths.filter(p => (pathDiff(repoRoot, from, to, p, 0) ?? '-').split('\n').some(l => (l.startsWith('-') && !l.startsWith('--- ')) || l.startsWith('Binary files ') || l.startsWith('GIT binary patch')));
+  return new Set([...scan.hunks.filter(h => h.tags.length > 0).map(h => h.path), ...scan.unsupportedPaths.map(u => u.path), ...removed]);
 }
 
 export interface ScopedReview { paths: string[]; reviewer: string; verdict: 'clean'; head?: string; tree?: string }

@@ -179,7 +179,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [] };
   for (const p of [...changedSet].sort()) {
     const verdict = sides ? (touched.has(p) ? comparePath(cwd, sides, p) : 'same') : 'changed';
-    by[verdict === 'same' ? 'base' : release.includes(p) ? 'metadata' : isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
+    by[verdict === 'same' ? 'base' : release.includes(p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
   }
   const gated = gateEditedPaths(cwd, reviewed, now, by.tests) ?? new Set(by.tests);
   by.behavior.push(...by.tests.filter(p => gated.has(p)));
@@ -188,7 +188,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return null; }
   if (by.context.length && sides) {
     if (!opts.contextReviewed) {
-      const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim());
+      const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.md`);
       fs.mkdirSync(path.dirname(packet), { recursive: true });
       fs.writeFileSync(packet, contextPacket(cwd, sides, by.context));
       r.stop(`base context moved next to the reviewed hunks in ${short(by.context)}: one fix-check reviewer reads ${packet}, then rerun with --context-reviewed <record.json> written beside the packet, outside the worktree ({"tree":"${now}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding is a behavior change (stage 2.1)`);
