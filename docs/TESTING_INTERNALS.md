@@ -1031,7 +1031,7 @@ repository content: its setup script and pull destinations must resolve inside
 `--src`, and a name it lists under `pass` is forwarded only when the command
 line grants it (`--pass NAME`, or all of them with `--trust-config`); `--pass`
 never forwards `UBICLOUD_*`. All of this is pinned offline in
-`test/ubicloud-runner.test.ts` against a fake API and a fake `ssh`, including
+`test/ubicloud-runner*.test.ts` against a fake API and a fake `ssh`, including
 a fixture whose fake API creates, so `run` and `verify` execute end to end.
 
 `run` and `verify` start their setup, command and tier phases detached on the
@@ -1047,7 +1047,7 @@ start/pass/fail per tier under `UBI_CHECKPOINT_DIR/<run key>/`, so a resume on
 a fresh VM reruns setup and only the tiers without a pass; `pregate-remote.sh`
 adds its tree and planned-set digest to the key, so a rerun of
 `gstack-pregate --stage tests --remote` reattaches and bills from the original
-`created_at`. The fake VM in `test/ubicloud-runner.test.ts` runs these phases
+`created_at`. The fake VM in `test/helpers/ubi-runner-fake-vm.ts` runs these phases
 for real in a directory.
 
 Under 8 cores (`gstack-doctor`'s `cores` row says so), run the full unit and
