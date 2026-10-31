@@ -16,7 +16,7 @@ export const DX_ERROR_DOC = 'https://github.com/garrytan/gstack/blob/main/docs/a
 export const DX_ERROR_COMPACT =
   `Score every error path against the agent-ready error contract (${DX_ERROR_DOC}): what (operation and actual values), fix (a safe, authorized command or edit on the first or last line, or the precise thing a human must provide), recovery (retry, fix and retry, do X first, or ask a human; side effects none/partial/complete/unknown, reconcile before retrying an unknown outcome, a retry bound), code (stable, with a doc anchor), context (versions, config, env var names, the underlying cause; caller-safe only for remote services), trace (unexpected failures only: a compact trace or its file path locally, a correlation id remotely), redaction (no secret values anywhere), channel (the surface's native failure signal: non-zero exit and stderr for a CLI, status plus RFC 9457 body for an API, a typed error for an SDK, isError for an MCP tool). ` +
   'Usage and validation errors rejected before any work need only what, fix, code, redaction and channel; items apply per surface, N/A needs a reason, an item the plan never specifies for a path it introduces is a gap, and unknown is reserved for existing behavior you could not inspect. ' +
-  'Report a leaked secret, a failure signalled as success, an unsafe fix, or a block on a terminal (a hang, or a no-terminal failure that names no non-interactive alternative such as --yes) as a Critical finding titled "CAP4:<path>:<item>" (caps the Error Messages score at 4/10); report a missing applicable fix, recovery, context or trace as a High finding titled "CAP6:<path>:<item>" (caps it at 6/10).';
+  'Report a leaked secret, a failure signalled as success, an unsafe fix, or a block on a terminal (a hang, or a no-terminal failure that names no non-interactive alternative such as --yes) as a Critical finding titled "CAP4:<path>:<item> <what fails>" (caps the Error Messages score at 4/10); report a missing applicable fix, recovery, context or trace as a High finding titled "CAP6:<path>:<item> <what fails>" (caps it at 6/10).';
 
 export const DX_ERROR_CONTRACT = `#### The agent-ready error contract (${DX_ERROR_RUBRIC})
 
@@ -53,7 +53,7 @@ unknown is reserved for existing behavior you could not inspect. In a live audit
 you never triggered are unknown, not extrapolated.
 
 **Caps.** Name the path and item behind every cap and show the corrected error line.
-- **4/10 (Critical finding, title \`CAP4:<path>:<item>\`):** a path leaks a secret, signals failure as success, gives an unsafe fix, or blocks waiting for a terminal (hangs, or fails for lack of a terminal without naming a non-interactive alternative such as \`--yes\`).
-- **6/10 (High finding, title \`CAP6:<path>:<item>\`):** a path lacks an applicable fix, recovery, context or trace item.
+- **4/10 (Critical finding, title \`CAP4:<path>:<item> <what fails>\`):** a path leaks a secret, signals failure as success, gives an unsafe fix, or blocks waiting for a terminal (hangs, or fails for lack of a terminal without naming a non-interactive alternative such as \`--yes\`).
+- **6/10 (High finding, title \`CAP6:<path>:<item> <what fails>\`):** a path lacks an applicable fix, recovery, context or trace item.
 
 Every mode, DX TRIAGE included, reports every CAP4 finding.`;

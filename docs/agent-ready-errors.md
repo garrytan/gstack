@@ -37,8 +37,8 @@ unknown is reserved for existing behavior you could not inspect. In a live audit
 you never triggered are unknown, not extrapolated.
 
 **Caps.** Name the path and item behind every cap and show the corrected error line.
-- **4/10 (Critical finding, title `CAP4:<path>:<item>`):** a path leaks a secret, signals failure as success, gives an unsafe fix, or blocks waiting for a terminal (hangs, or fails for lack of a terminal without naming a non-interactive alternative such as `--yes`).
-- **6/10 (High finding, title `CAP6:<path>:<item>`):** a path lacks an applicable fix, recovery, context or trace item.
+- **4/10 (Critical finding, title `CAP4:<path>:<item> <what fails>`):** a path leaks a secret, signals failure as success, gives an unsafe fix, or blocks waiting for a terminal (hangs, or fails for lack of a terminal without naming a non-interactive alternative such as `--yes`).
+- **6/10 (High finding, title `CAP6:<path>:<item> <what fails>`):** a path lacks an applicable fix, recovery, context or trace item.
 
 Every mode, DX TRIAGE included, reports every CAP4 finding.
 
