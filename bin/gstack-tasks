@@ -1,24 +1,38 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
- * gstack-tasks — a plan review's task list across reruns (G2, #1791).
+ * gstack-tasks — a plan review's task list, and its reconciliation across reruns (G2, #1791).
  *
- *   gstack-tasks prior --phase <p> --branch <b> --dir <tasks dir> [--json]
- *   gstack-tasks supersede --phase <p> --branch <b> --dir <tasks dir> --keep <new list> [--json]
+ *   gstack-tasks prior --phase <p> [--branch <b>] [--dir <d>] [--json]
+ *   gstack-tasks start --phase <p> [--dir <d>]
+ *   gstack-tasks add --file <list> --run <run id> --id <T1> --priority <P1> --component <c> --title <t>
+ *                    --source <finding> --effort-human <e> --effort-cc <e> --files <json array> [--carried-from <run_id>/<id>]
+ *   gstack-tasks close --phase <p> --prior <run_id>/<id> (--done <commit> | --dropped <reason>) [--branch <b>] [--dir <d>]
+ *   gstack-tasks supersede --phase <p> --keep <list> [--branch <b>] [--dir <d>] [--json]
  *
+ * --dir defaults to <state root>/projects/<gstack-slug SLUG>, --branch to the current git branch.
  * Logic: lib/tasks-prior.ts. Codes: lib/result-codes.ts (TASKS_SUPERSEDE_REFUSED).
  */
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
-import { SupersedeRefused, TASK_PHASES, finishPending, priorSet, readTaskFiles, supersede, type TaskPhase } from '../lib/tasks-prior';
+import { resolveStateRoot } from '../lib/state-root';
+import { SupersedeRefused, TASK_PHASES, closeTask, finishPending, priorSet, readTaskFiles, startList, supersede, taskRow, type TaskPhase } from '../lib/tasks-prior';
 
 const HELP = `gstack-tasks — a plan review's task list across reruns
 
-  prior --phase <p> --branch <b> --dir <d> [--json]               the newest earlier list for this phase and branch
-  supersede --phase <p> --branch <b> --dir <d> --keep <file> [--json]
-                                                                  move the reconciled earlier lists out of the aggregate
+  prior --phase <p> [--branch <b>] [--dir <d>] [--json]     the newest earlier list for this phase and branch, with how to reconcile it
+  start --phase <p> [--dir <d>]                             create this run's empty list; prints TASKS_FILE=… and RUN_ID=… for eval
+  add --file <list> --run <id> --id <T1> --priority <P1> --component <c> --title <t> --source <finding>
+      --effort-human <e> --effort-cc <e> --files '<json array>' [--carried-from <run_id>/<id>]
+                                                            append one task row
+  close --phase <p> --prior <run_id>/<id> (--done <commit> | --dropped <reason>)
+                                                            record an earlier task this run does not carry
+  supersede --phase <p> --keep <list> [--json]              move this branch's reconciled earlier lists out of the aggregate
 
-Phases: ${TASK_PHASES.join(', ')}. --branch is the raw git branch the rows carry; --dir the project's tasks directory.
-prior prints \`PRIOR_TASKS: none\` or \`PRIOR_TASKS: <file> run=<run_id> tasks=<n>\` and then one JSON row per task;
+Phases: ${TASK_PHASES.join(', ')}. --dir defaults to <state root>/projects/<slug>; --branch to the current git branch.
+prior prints \`PRIOR_TASKS: none\` or \`PRIOR_TASKS: <file> run=<run_id> tasks=<n>\`, one JSON row per task, then a RECONCILE: line;
 \`PRIOR_TASKS_MALFORMED: <file>:<line>\` goes to stderr for a line that is not a JSON object (skipped, never edited).
 supersede renames each earlier tasks-<p>-*.jsonl whose rows are all this branch and not newer than --keep to
 superseded-<name> and prints \`SUPERSEDED: <file>\` or \`KEPT: <file> (<reason>)\`; --keep must validate first.
@@ -32,38 +46,67 @@ function usage(message: string): number {
   process.stderr.write(`gstack-tasks: ${message}\n${HELP}\n`);
   return EXIT.usage;
 }
+const git = (...args: string[]) => { const r = spawnSync('git', args, { encoding: 'utf8', timeout: 10_000 }); return r.status === 0 ? r.stdout.trim() : ''; };
+function slug(name: 'SLUG' | 'BRANCH'): string {
+  const r = spawnSync(path.join(import.meta.dir, 'gstack-slug'), ['--get', name], { encoding: 'utf8', timeout: 10_000 });
+  return (r.status === 0 && r.stdout.trim()) || 'unknown';
+}
+const shq = (v: string) => `'${v.replaceAll("'", `'\\''`)}'`;
 
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
-  const phase = flag(rest, '--phase') as TaskPhase | undefined;
-  if (!phase || !TASK_PHASES.includes(phase)) return usage(`--phase must be one of ${TASK_PHASES.join(', ')}`);
-  const branch = flag(rest, '--branch');
-  const dir = flag(rest, '--dir');
-  if (!branch || !dir) return usage('--branch and --dir are required');
-  const json = rest.includes('--json');
-  if (cmd === 'prior') {
-    finishPending(dir, phase);
-    const files = readTaskFiles(dir, phase);
-    for (const f of files) for (const n of f.malformed) process.stderr.write(`PRIOR_TASKS_MALFORMED: ${f.file}:${n}\n`);
-    const prior = priorSet(files, phase, branch);
-    if (json) process.stdout.write(JSON.stringify(prior ?? { file: null, run_id: null, rows: [] }) + '\n');
-    else process.stdout.write([prior ? `PRIOR_TASKS: ${prior.file} run=${prior.run_id} tasks=${prior.rows.length}` : 'PRIOR_TASKS: none', ...(prior?.rows ?? []).map(r => JSON.stringify(r))].join('\n') + '\n');
-    return EXIT.ok;
-  }
-  if (cmd === 'supersede') {
-    const keep = flag(rest, '--keep');
-    if (!keep) return usage('supersede needs --keep <the list this run wrote>');
-    try {
+  try {
+    if (cmd === 'add') {
+      const file = flag(rest, '--file'), runId = flag(rest, '--run');
+      const fields = { id: flag(rest, '--id'), priority: flag(rest, '--priority'), component: flag(rest, '--component'), title: flag(rest, '--title'), source_finding: flag(rest, '--source'), effort_human: flag(rest, '--effort-human'), effort_cc: flag(rest, '--effort-cc') };
+      const missing = Object.entries({ file, runId, files: flag(rest, '--files'), ...fields }).filter(([, v]) => v === undefined).map(([k]) => k);
+      if (missing.length) return usage(`add is missing ${missing.join(', ')}`);
+      let files: unknown;
+      try { files = JSON.parse(flag(rest, '--files')!); } catch { return usage('--files must be a JSON array literal'); }
+      const row = taskRow(file!, { runId: runId!, branch: git('branch', '--show-current') || 'unknown', commit: git('rev-parse', 'HEAD') || 'unknown', files, carriedFrom: flag(rest, '--carried-from'), ...(fields as Record<keyof typeof fields, string>) });
+      fs.appendFileSync(file!, JSON.stringify(row) + '\n');
+      return EXIT.ok;
+    }
+    const phase = flag(rest, '--phase') as TaskPhase | undefined;
+    if (!phase || !TASK_PHASES.includes(phase)) return usage(`--phase must be one of ${TASK_PHASES.join(', ')}`);
+    const dir = flag(rest, '--dir') ?? path.join(resolveStateRoot(), 'projects', slug('SLUG'));
+    const branch = flag(rest, '--branch') ?? (git('branch', '--show-current') || 'unknown');
+    const json = rest.includes('--json');
+    if (cmd === 'start') {
+      const { file, runId } = startList(dir, phase, slug('BRANCH'));
+      process.stdout.write(`TASKS_FILE=${shq(file)}\nRUN_ID=${shq(runId)}\n`);
+      return EXIT.ok;
+    }
+    if (cmd === 'prior') {
+      finishPending(dir, phase);
+      const files = readTaskFiles(dir, phase);
+      for (const f of files) for (const n of f.malformed) process.stderr.write(`PRIOR_TASKS_MALFORMED: ${f.file}:${n}\n`);
+      const prior = priorSet(files, phase, branch);
+      if (json) { process.stdout.write(JSON.stringify(prior ?? { file: null, run_id: null, rows: [] }) + '\n'); return EXIT.ok; }
+      if (!prior) { process.stdout.write('PRIOR_TASKS: none\n'); return EXIT.ok; }
+      process.stdout.write([`PRIOR_TASKS: ${prior.file} run=${prior.run_id} tasks=${prior.rows.length}`, ...prior.rows.map(r => JSON.stringify(r)),
+        `RECONCILE: decide each task above. Still needed: list it again with add --carried-from ${prior.run_id}/<id>. Shipped: gstack-tasks close --phase ${phase} --prior ${prior.run_id}/<id> --done <commit>. Not wanted: the same with --dropped "<reason>". After this run's list is written: gstack-tasks supersede --phase ${phase} --keep "$TASKS_FILE".`].join('\n') + '\n');
+      return EXIT.ok;
+    }
+    if (cmd === 'close') {
+      const prior = flag(rest, '--prior'), done = flag(rest, '--done'), dropped = flag(rest, '--dropped');
+      if (!prior || (done === undefined) === (dropped === undefined)) return usage('close needs --prior <run_id>/<id> and exactly one of --done <commit> or --dropped <reason>');
+      process.stdout.write(`CLOSED: ${prior} ${done !== undefined ? 'done' : 'dropped'} ${closeTask(dir, phase, branch, slug('BRANCH'), prior, done !== undefined ? 'done' : 'dropped', (done ?? dropped)!)}\n`);
+      return EXIT.ok;
+    }
+    if (cmd === 'supersede') {
+      const keep = flag(rest, '--keep');
+      if (!keep) return usage('supersede needs --keep <the list this run wrote>');
       const r = supersede(dir, phase, branch, keep);
       if (json) process.stdout.write(JSON.stringify(r) + '\n');
       else process.stdout.write([...r.moved.map(f => `SUPERSEDED: ${f}`), ...r.skipped.map(s => `KEPT: ${s.file} (${s.reason})`)].join('\n') + (r.moved.length || r.skipped.length ? '\n' : ''));
       return EXIT.ok;
-    } catch (e) {
-      if (!(e instanceof SupersedeRefused)) throw e;
-      process.stderr.write(resultLine('gstack-tasks supersede', 'TASKS_SUPERSEDE_REFUSED', e.message) + '\n');
-      return EXIT.refused;
     }
+  } catch (e) {
+    if (!(e instanceof SupersedeRefused)) throw e;
+    process.stderr.write(resultLine(`gstack-tasks ${cmd}`, 'TASKS_SUPERSEDE_REFUSED', e.message) + '\n');
+    return EXIT.refused;
   }
   return usage(`unknown command ${cmd}`);
 }

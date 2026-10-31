@@ -3245,13 +3245,16 @@ from the command's source or docs in the repository instead.
 <a id="tasks-supersede-refused"></a>
 ### `TASKS_SUPERSEDE_REFUSED`
 
-**Meaning.** A plan review reran on a branch and called `gstack-tasks
-supersede` to retire the earlier task list, but the new list (`--keep`) is
-missing, outside the tasks directory, has a malformed line, or holds a row for
-another phase or branch. Nothing was moved, so both lists stay live.
+**Meaning.** `gstack-tasks` refused a task list. Either `supersede` was asked
+to retire the earlier lists but the new list (`--keep`) is missing, outside the
+tasks directory, has a malformed line, or holds a row for another phase or
+branch, so nothing was moved and both lists stay live; or `add` was pointed at
+a file that is not a `tasks-<phase>-*.jsonl` list, or `--files` was not a JSON
+array of strings, so nothing was written.
 
-**Fix.** Write the new list with one `jq -nc` row per task, each with this
-phase and the raw git branch, and rerun the command with `--keep` naming it.
+**Fix.** Create the list with `gstack-tasks start --phase <phase>`, write one
+`gstack-tasks add` per task into the `TASKS_FILE` it prints, and rerun
+`supersede` with `--keep` naming that file.
 
 <a id="reality-receipt-unresolved"></a>
 ### `REALITY_RECEIPT_UNRESOLVED`

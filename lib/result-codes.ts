@@ -14,6 +14,7 @@ import { RELEASE_RESULT_CODES } from './result-codes-release';
 import { CAPY_RESULT_CODES } from './result-codes-capy';
 import { BUDGET_RESULT_CODES } from './result-codes-budget';
 import { EVAL_RESULT_CODES } from './result-codes-eval';
+import { PLAN_RESULT_CODES } from './result-codes-plan';
 
 export interface ResultCode {
   /** Stable `<a id>` in docs/troubleshooting.md. */
@@ -342,21 +343,6 @@ export const RESULT_CODES = {
     anchor: 'reality-receipt-missing',
     summary: 'a `REALITY:` line names its row but carries no file:line or commit receipt',
     fix: 'cite where the check was made (`path:line`, `path:line-line` or a commit sha); a row without a receipt is a claim, not a row',
-  },
-  OFFICE_HOURS_PROBE_REFUSED: {
-    anchor: 'office-hours-probe-refused',
-    summary: 'the office-hours spec reviewer asked to run `--help` for a command outside the probe allowlist',
-    fix: 'leave the claim unverified and check it from source (Read or Grep in the repository); only gstack bins and the listed read-only CLIs on PATH, outside the repository, can be probed',
-  },
-  TASKS_SUPERSEDE_REFUSED: {
-    anchor: 'tasks-supersede-refused',
-    summary: 'gstack-tasks supersede refused because the new task list did not validate, so no earlier list was moved',
-    fix: 'write the new list with one jq row per task, each carrying this phase and the raw git branch, then rerun supersede with --keep naming it',
-  },
-  REALITY_RECEIPT_UNRESOLVED: {
-    anchor: 'reality-receipt-unresolved',
-    summary: 'a `REALITY:` receipt names a file the checkout does not have, or a line past its end',
-    fix: 'open the cited file and cite the line that holds the evidence; when the evidence lives in another checkout, pass `--root <dir>` for it',
   },
   // C-pregate (plan C4, C6, C8): generated-file registry, issue links, the cheap pre-gate.
   REGEN_REGISTRY_INVALID: {
@@ -778,6 +764,7 @@ export const RESULT_CODES = {
   ...CAPY_RESULT_CODES,
   ...BUDGET_RESULT_CODES,
   ...EVAL_RESULT_CODES,
+  ...PLAN_RESULT_CODES,
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

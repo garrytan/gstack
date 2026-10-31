@@ -124,14 +124,53 @@ describe('gstack-tasks prior and supersede', () => {
   });
 });
 
+describe('gstack-tasks start, add and close', () => {
+  test('a rerun carries one task, closes the other, and the aggregate shows only the reconciled list', () => {
+    const w = world();
+    const R1 = '20261031T100000Z-1';
+    fs.writeFileSync(path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl'), row(R1, 'T1', 'add retry', w.commit) + '\n' + row(R1, 'T2', 'add metrics', w.commit) + '\n');
+    const prior = tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout;
+    expect(prior).toContain('PRIOR_TASKS: ');
+    expect(prior).toMatch(/RECONCILE: .*--carried-from 20261031T100000Z-1\/<id>.*close --phase eng-review --prior 20261031T100000Z-1\/<id> --done <commit>.*supersede --phase eng-review --keep/);
+    const start = tasks(['start', '--phase', 'eng-review', '--dir', w.dir], w.repo);
+    const vars = Object.fromEntries(start.stdout.trim().split('\n').map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 2, -1)]));
+    expect(path.basename(vars.TASKS_FILE!)).toMatch(/^tasks-eng-review-feature-x-\d{8}-\d{6}\.jsonl$/);
+    expect(fs.readFileSync(vars.TASKS_FILE!, 'utf8')).toBe('');
+    const title = 'retry "quoted"\nwith a \\ backslash';
+    const add = tasks(['add', '--file', vars.TASKS_FILE!, '--run', vars.RUN_ID!, '--id', 'T1', '--priority', 'P1', '--component', 'demo', '--title', title, '--source', 'f', '--effort-human', '~1h', '--effort-cc', '~5min', '--files', '["a.ts"]', '--carried-from', `${R1}/T1`], w.repo);
+    expect(add.status).toBe(0);
+    const written = JSON.parse(fs.readFileSync(vars.TASKS_FILE!, 'utf8'));
+    expect(written).toMatchObject({ phase: 'eng-review', run_id: vars.RUN_ID, branch: BRANCH, commit: w.commit, id: 'T1', title, files: ['a.ts'], carried_from: `${R1}/T1` });
+    const close = tasks(['close', '--phase', 'eng-review', '--prior', `${R1}/T2`, '--done', w.commit, '--dir', w.dir], w.repo);
+    expect(close.stdout).toStartWith(`CLOSED: ${R1}/T2 done `);
+    expect(JSON.parse(fs.readFileSync(path.join(w.dir, 'task-dispositions-eng-review-feature-x.jsonl'), 'utf8'))).toMatchObject({ prior: `${R1}/T2`, disposition: 'done', reason: w.commit, branch: BRANCH });
+    expect(tasks(['supersede', '--phase', 'eng-review', '--keep', vars.TASKS_FILE!, '--dir', w.dir], w.repo).stdout).toContain('SUPERSEDED: ');
+    const agg = aggregate(w);
+    expect(agg).toContain('with a');
+    expect(agg).not.toContain('add metrics');
+  });
+
+  test('add refuses a file that is not a phase list and a --files value that is not a string array', () => {
+    const w = world();
+    const base = ['--run', 'R', '--id', 'T1', '--priority', 'P1', '--component', 'c', '--title', 't', '--source', 's', '--effort-human', 'h', '--effort-cc', 'c'];
+    const wrongFile = tasks(['add', '--file', path.join(w.dir, 'notes.jsonl'), ...base, '--files', '[]'], w.repo);
+    expect(wrongFile.status).toBe(3);
+    expect(wrongFile.stderr).toContain('TASKS_SUPERSEDE_REFUSED');
+    expect(tasks(['add', '--file', path.join(w.dir, 'tasks-eng-review-x.jsonl'), ...base, '--files', '[1]'], w.repo).status).toBe(3);
+    expect(tasks(['close', '--phase', 'eng-review', '--prior', 'R1/T2', '--dir', w.dir], w.repo).status).toBe(2);
+    expect(fs.existsSync(path.join(w.dir, 'notes.jsonl'))).toBe(false);
+  });
+});
+
 describe('the rendered emit block', () => {
-  test('every plan review reads the prior list, names files by branch and supersedes after writing', () => {
+  test('every plan review reads the prior list and writes through gstack-tasks', () => {
     for (const [skill, phase] of [['plan-eng-review', 'eng-review'], ['plan-ceo-review', 'ceo-review'], ['plan-design-review', 'design-review'], ['plan-devex-review', 'devex-review']] as const) {
       const out = generateTasksSectionEmit({ skillName: skill } as TemplateContext, [phase]);
       expect(out).toContain(`gstack-tasks prior --phase ${phase}`);
-      expect(out).toContain(`tasks-${phase}-\${BRANCH:-unknown}-`);
-      expect(out).toContain(`gstack-tasks supersede --phase ${phase}`);
-      expect(out).toContain('carried_from');
+      expect(out).toContain(`gstack-tasks start --phase ${phase}`);
+      expect(out).toContain('gstack-tasks add --file "$TASKS_FILE" --run "$RUN_ID"');
+      expect(out).toContain('--carried-from');
+      expect(out).not.toContain('jq -nc');
     }
   });
 });

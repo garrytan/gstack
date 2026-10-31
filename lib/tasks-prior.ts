@@ -67,6 +67,34 @@ export function finishPending(dir: string, phase: TaskPhase): string[] {
 
 export class SupersedeRefused extends Error {}
 
+/** `tasks-<phase>-<branch slug>-<ts>.jsonl`, created empty (an empty list means "ran, no findings"), and a run id that sorts after older ones. */
+export function startList(dir: string, phase: TaskPhase, branchSlug: string, now = new Date()): { file: string; runId: string } {
+  fs.mkdirSync(dir, { recursive: true });
+  const iso = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const local = `${iso.slice(0, 8)}-${iso.slice(9, 15)}`;
+  const file = path.join(dir, `tasks-${phase}-${branchSlug.replace(/[^A-Za-z0-9._-]/g, '-') || 'unknown'}-${local}.jsonl`);
+  fs.appendFileSync(file, '');
+  return { file, runId: `${iso}-${process.pid}` };
+}
+
+export const TASK_FIELDS = ['id', 'priority', 'component', 'title', 'source_finding', 'effort_human', 'effort_cc'] as const;
+
+/** One task row in the schema /autoplan's aggregator reads; the phase comes from the file name. */
+export function taskRow(file: string, o: { runId: string; branch: string; commit: string; files: unknown; carriedFrom?: string } & Record<(typeof TASK_FIELDS)[number], string>): TaskRow {
+  const phase = TASK_PHASES.find(p => path.basename(file).startsWith(`tasks-${p}-`));
+  if (!phase) throw new SupersedeRefused(`${file} is not a tasks-<phase>-*.jsonl list`);
+  if (!Array.isArray(o.files) || o.files.some(f => typeof f !== 'string')) throw new SupersedeRefused('--files must be a JSON array of strings');
+  return { phase, run_id: o.runId, branch: o.branch, commit: o.commit, id: o.id, priority: o.priority, component: o.component, files: o.files, effort_human: o.effort_human, effort_cc: o.effort_cc, title: o.title, source_finding: o.source_finding, ...(o.carriedFrom ? { carried_from: o.carriedFrom } : {}) };
+}
+
+/** A prior task closed without carrying it: done (with the commit) or dropped (with the reason). */
+export function closeTask(dir: string, phase: TaskPhase, branch: string, branchSlug: string, prior: string, disposition: 'done' | 'dropped', reason: string): string {
+  if (!/^[^/\s]+\/[^/\s]+$/.test(prior)) throw new SupersedeRefused('--prior must be <run_id>/<id>');
+  const file = path.join(dir, `task-dispositions-${phase}-${branchSlug.replace(/[^A-Za-z0-9._-]/g, '-') || 'unknown'}.jsonl`);
+  fs.appendFileSync(file, JSON.stringify({ phase, branch, prior, disposition, reason, at: new Date().toISOString() }) + '\n');
+  return file;
+}
+
 export function supersede(dir: string, phase: TaskPhase, branch: string, keep: string): { moved: string[]; skipped: Array<{ file: string; reason: string }> } {
   finishPending(dir, phase);
   const keepPath = path.resolve(keep);

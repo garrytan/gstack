@@ -34,14 +34,7 @@ ${conditionalWrites ? `Always emit the markdown section. Write its JSONL artifac
 
 ### Earlier lists on this branch
 
-A rerun reconciles the last list instead of writing a second one. Before listing tasks, run:
-
-\`\`\`bash
-GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "\${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
-~/.claude/skills/gstack/bin/gstack-tasks prior --phase ${phase} --branch "$(git branch --show-current)" --dir "$GSTACK_STATE_ROOT/projects/$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null || echo unknown)"
-\`\`\`
-
-Reconcile every task it prints: still needed, list it again with \`CARRIED_FROM=<run_id>/<id>\`; shipped, a \`done\` disposition naming the commit; no longer wanted, \`dropped\` with the reason. \`PRIOR_TASKS: none\` means a first run.
+Before listing tasks, run \`~/.claude/skills/gstack/bin/gstack-tasks prior --phase ${phase}\` and reconcile what it prints, so a rerun never leaves two lists.
 
 ### Markdown section (always emit)
 
@@ -65,59 +58,14 @@ Rules:
 
 ### JSONL artifact (${conditionalWrites ? 'write when permitted, including zero tasks' : 'always write, even if zero tasks'})
 
-\`/autoplan\` reads this file to aggregate across phases. Build each line with
-\`jq -nc\` so titles and source findings containing quotes, newlines, or
-backslashes serialize cleanly — never use hand-rolled \`echo\` / \`printf\`.
+\`/autoplan\` reads this file to aggregate across phases. \`start\` creates it (an empty file means "ran, no findings", distinct from "didn't run"); one \`add\` per task serializes quotes, newlines and backslashes safely.
 
 \`\`\`bash
-GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "\${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
-SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
-BRANCH=$(~/.claude/skills/gstack/bin/gstack-slug --get BRANCH 2>/dev/null)
-TASKS_DIR="$GSTACK_STATE_ROOT/projects/\${SLUG:-unknown}"
-mkdir -p "$TASKS_DIR"
-TS=$(date +%Y%m%d-%H%M%S)
-TASKS_FILE="$TASKS_DIR/tasks-${phase}-\${BRANCH:-unknown}-$TS.jsonl"
-DISPOSITIONS_FILE="$TASKS_DIR/task-dispositions-${phase}-\${BRANCH:-unknown}-$TS.jsonl"
-COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
-# The task record keeps the raw git branch; artifact filenames keep gstack-slug's sanitized BRANCH.
-GIT_BRANCH=$(git branch --show-current 2>/dev/null || echo unknown)
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-
-# Repeat ONE jq invocation per task identified during this review.
-# Substitute the placeholders inline with shell variables you set per task:
-#   TASK_ID (T1, T2, ...), PRIORITY (P1/P2/P3), COMPONENT, TITLE,
-#   SOURCE_FINDING, EFFORT_HUMAN, EFFORT_CC, FILES_JSON (a JSON array literal
-#   like '["browse/src/sanitize.ts","browse/src/server.ts"]'), CARRIED_FROM (empty unless carried).
-jq -nc \\
-  --arg phase '${phase}' \\
-  --arg run_id "$RUN_ID" \\
-  --arg branch "$GIT_BRANCH" \\
-  --arg commit "$COMMIT" \\
-  --arg id "$TASK_ID" \\
-  --arg priority "$PRIORITY" \\
-  --arg component "$COMPONENT" \\
-  --arg effort_human "$EFFORT_HUMAN" \\
-  --arg effort_cc "$EFFORT_CC" \\
-  --arg title "$TITLE" \\
-  --arg source_finding "$SOURCE_FINDING" \\
-  --argjson files "$FILES_JSON" \\
-  --arg carried_from "\${CARRIED_FROM:-}" \\
-  '{phase:$phase, run_id:$run_id, branch:$branch, commit:$commit, id:$id, priority:$priority, component:$component, files:$files, effort_human:$effort_human, effort_cc:$effort_cc, title:$title, source_finding:$source_finding, carried_from:(if $carried_from == "" then null else $carried_from end)}' \\
-  >> "$TASKS_FILE"
-
-# One line per prior task closed: DISPOSITION done|dropped, PRIOR_ID <run_id>/<id>, REASON (the commit, or why).
-jq -nc --arg phase '${phase}' --arg run_id "$RUN_ID" --arg branch "$GIT_BRANCH" --arg prior "$PRIOR_ID" --arg disposition "$DISPOSITION" --arg reason "$REASON" \\
-  '{phase:$phase, run_id:$run_id, branch:$branch, prior:$prior, disposition:$disposition, reason:$reason}' >> "$DISPOSITIONS_FILE"
+eval "$(~/.claude/skills/gstack/bin/gstack-tasks start --phase ${phase})"  # sets TASKS_FILE and RUN_ID
+# FILES is a JSON array literal like '["browse/src/server.ts"]'; add --carried-from <run_id>/<id> for a carried task.
+~/.claude/skills/gstack/bin/gstack-tasks add --file "$TASKS_FILE" --run "$RUN_ID" --id T1 --priority P1 --component "<component>" \\
+  --title "<title>" --source "<finding>" --effort-human "~2h" --effort-cc "~15min" --files '[]'
 \`\`\`
-
-If \`jq\` is not installed, fall back to skipping the JSONL write and warn
-the user to install jq for autoplan aggregation. Never hand-roll JSONL.
-
-${conditionalWrites ? 'When writes are permitted and zero tasks were identified, touch the JSONL file' : 'If zero tasks were identified in this review, still touch the JSONL file'}
-(\`: > "$TASKS_FILE"\`) so the aggregator sees that the phase produced output
-this run (an empty file means "ran, no findings" — distinct from "didn't run").
-Last, retire the earlier lists so only this one aggregates:
-\`~/.claude/skills/gstack/bin/gstack-tasks supersede --phase ${phase} --branch "$GIT_BRANCH" --dir "$TASKS_DIR" --keep "$TASKS_FILE"\`.
 `;
 };
 
