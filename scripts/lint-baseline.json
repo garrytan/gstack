@@ -231,7 +231,6 @@
     "lib/review-depth.ts\teslint(no-control-regex)\tUnexpected control character": 1,
     "lib/review-evidence.ts\teslint(no-control-regex)\tUnexpected control characters": 2,
     "lib/review-scope.ts\teslint(no-control-regex)\tUnexpected control characters": 1,
-    "lib/ship-queue-train-land.ts\teslint(no-unused-vars)\tIdentifier 'outOk' is imported but never used.": 1,
     "lib/ship-queue.ts\teslint(no-unused-vars)\tType 'ResultCodeName' is imported but never used.": 1,
     "lib/ship-receipt-depth.ts\teslint(no-control-regex)\tUnexpected control characters": 1,
     "lib/ship-receipt-docs.ts\teslint(no-control-regex)\tUnexpected control characters": 1,

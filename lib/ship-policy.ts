@@ -400,7 +400,7 @@ function commandGateErrors(o: Record<string, unknown>, at: string, out: PolicyEr
   if (!('pass_env' in o)) return;
   const p = o.pass_env;
   if (!Array.isArray(p) || p.length > 16 || new Set(p).size !== p.length || p.some(n => typeof n !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(n))) out.push({ code: 'POLICY_INVALID', path: `${at}.pass_env`, message: 'must be up to 16 distinct variable names' });
-  else if (p.some(n => /^UBICLOUD_/.test(n))) out.push({ code: 'POLICY_CONTAINMENT', path: `${at}.pass_env`, message: 'the runner never forwards its own Ubicloud credentials to a VM' });
+  else if (p.some(n => n.startsWith('UBICLOUD_'))) out.push({ code: 'POLICY_CONTAINMENT', path: `${at}.pass_env`, message: 'the runner never forwards its own Ubicloud credentials to a VM' });
 }
 
 function gateErrors(g: unknown, at: string, out: PolicyError[]): void {

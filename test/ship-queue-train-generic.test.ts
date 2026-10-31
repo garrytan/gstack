@@ -231,7 +231,7 @@ describe('generic trains end to end (fixture repos)', () => {
     expect(t.branch).toBe('train-prefix/' + nonce + '/t2');
     const sent = fx.read().log.filter(l => l.cmd === 'workflow run');
     expect(sent.map(l => l.ref)).toEqual(t.gated.map((p: any) => p.ref));
-    expect(sent.every(l => (l.workflow as string) === 'ci.yml' && /^gate\./.test((l.inputs as any).nonce))).toBe(true);
+    expect(sent.every(l => (l.workflow as string) === 'ci.yml' && String((l.inputs as any).nonce).startsWith('gate.'))).toBe(true);
     expect(fx.read().log.some(l => l.cmd === 'workflow run' && (l.workflow as string) === 'evals.yml')).toBe(false);
     const verdict = queue(fx, ['train', 'verdict', '--train', nonce]);
     expect(verdict.status, verdict.err).toBe(EXIT.ok);
