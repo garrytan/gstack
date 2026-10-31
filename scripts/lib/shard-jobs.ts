@@ -94,10 +94,12 @@ const attributes = (text: string): Record<string, string> =>
  * Per-file counts from bun's JUnit XML. A testcase is a fail when it holds a
  * failure or error, a todo when skipped with message TODO, a skip when
  * skipped otherwise, else a pass; expects sum each testcase's assertions.
- * Printed paths are matched back to planned files (bun prints them relative
- * to the child's real cwd). Files that never ran a test are absent.
+ * Printed paths are matched back to planned files. Bun prints them relative
+ * to the child's real cwd, so a plain relative path must match exactly; an
+ * absolute or ../-prefixed path matches only when what precedes the planned
+ * file is the child's root. Files that never ran a test are absent.
  */
-export function parseJunitCounts(xml: string | null, planned: readonly string[], testsRan: number | null): ShardTestCounts {
+export function parseJunitCounts(xml: string | null, planned: readonly string[], testsRan: number | null, root = process.cwd()): ShardTestCounts {
   const files: Record<string, FileTestCounts> = {};
   const totals = zeroCounts();
   const result = (complete: boolean, problem?: string): ShardTestCounts =>
@@ -105,10 +107,14 @@ export function parseJunitCounts(xml: string | null, planned: readonly string[],
   if (xml === null) return result(false, 'bun wrote no JUnit report');
   const plannedSet = new Set(planned);
   const unknown = new Set<string>();
+  const roots = new Set([root, (() => { try { return fs.realpathSync(root); } catch { return root; } })()].map(normalizeRelativePath));
+  const isRoot = (prefix: string) => [...roots].some(dir => dir === prefix || dir.endsWith(`/${prefix}`));
   const canonical = (printed: string) => {
-    const stripped = normalizeRelativePath(printed).replace(/^(?:\.{1,2}\/)+/, '');
+    const normalized = normalizeRelativePath(printed);
+    const stripped = normalized.replace(/^(?:\.{1,2}\/)+/, '');
     if (plannedSet.has(stripped)) return stripped;
-    const matches = planned.filter(file => stripped.endsWith(`/${file}`) || file.endsWith(`/${stripped}`));
+    if (stripped === normalized && !/^(?:\/|[A-Za-z]:\/)/.test(stripped)) return stripped;
+    const matches = planned.filter(file => stripped.endsWith(`/${file}`) && isRoot(stripped.slice(0, -file.length - 1)));
     return matches.length === 1 ? matches[0] : stripped;
   };
   let current: { file: string; state: 'pass' | 'fail' | 'skip' | 'todo'; expects: number } | null = null;
@@ -316,15 +322,18 @@ const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** The FREE_SUBSHARD_TIMEOUT text: the file, k, runner, a serial reproduce command and the fix. */
 export function subShardTimeoutText(
-  shard: number, jobs: number, record: SubShardRecord, inFlight: string[], wallTimeoutMs: number, context: CiRunContext,
+  shard: number, jobs: number, record: SubShardRecord, inFlight: string[], wallTimeoutMs: number, context: CiRunContext, shardWallMs = wallTimeoutMs,
 ): string[] {
   const suspects = inFlight.filter(file => record.files.includes(file));
   const files = suspects.length ? suspects : record.files;
-  const fix = record.phase === 'serial'
-    ? 'this file already runs alone after the parallel sub-shards; fix or split it, never raise the timeout'
-    : `if it passes serially, add it to SLOW_UNDER_LOAD in scripts/lib/shard-jobs.ts with run id ${context.runId}; never raise the timeout`;
+  const seconds = (ms: number) => Math.round(ms / 1000);
+  const fix = record.phase !== 'serial'
+    ? `if it passes serially, add it to SLOW_UNDER_LOAD in scripts/lib/shard-jobs.ts with run id ${context.runId}; never raise the timeout`
+    : wallTimeoutMs < shardWallMs
+      ? `the parallel sub-shards left this serial sub-shard ${seconds(wallTimeoutMs)}s of the ${seconds(shardWallMs)}s shard wall; if the k=1 command passes, the parallel phase used up the budget and this shard needs a lower --jobs; never raise the timeout`
+      : 'this file already runs alone after the parallel sub-shards; fix or split it, never raise the timeout';
   return [
-    `[test:free] ${FREE_SUBSHARD_TIMEOUT}: CI shard ${shard} sub-shard ${record.id} (${record.files.length} files) hit its ${Math.round(wallTimeoutMs / 1000)}s wall at --jobs ${jobs} on ${context.runner}, run ${context.runId}.`,
+    `[test:free] ${FREE_SUBSHARD_TIMEOUT}: CI shard ${shard} sub-shard ${record.id} (${record.files.length} files) hit its ${seconds(wallTimeoutMs)}s wall at --jobs ${jobs} on ${context.runner}, run ${context.runId}.`,
     `[test:free]   in flight: ${suspects.length ? suspects.join(', ') : 'unknown (no open file chunk; see the sub-shard log)'}`,
     `[test:free]   reproduce serially: printf '%s\\n' ${files.map(quote).join(' ')} > files.txt && GSTACK_FREE_JOBS=1 bun run scripts/test-free-shards.ts --files-from files.txt`,
     `[test:free]   or the whole CI shard at k=1: bun run scripts/test-free-shards.ts --ci-run ${quote(context.planPath)} --shard ${shard} --result shard-${shard}.json --jobs 1`,
@@ -395,7 +404,7 @@ export async function runCiShard(input: CiShardInput, deps: CiShardDeps): Promis
   const merged = mergeSubShardOutcomes(shard, settled, Date.now() - startedAt, phaseProblems);
   for (const problem of merged.problems) console.error(`[test:free] ${FREE_SUBSHARD_REJECTED}: CI shard ${shard.shard}: ${problem}`);
   for (const record of merged.records.filter(entry => entry.status === 'timed-out')) {
-    for (const line of subShardTimeoutText(shard.shard, jobs, record, merged.outcome.inFlight ?? [], walls.get(record.id) ?? wallTimeoutMs, input.context)) console.error(line);
+    for (const line of subShardTimeoutText(shard.shard, jobs, record, merged.outcome.inFlight ?? [], walls.get(record.id) ?? wallTimeoutMs, input.context, wallTimeoutMs)) console.error(line);
   }
   log(`[test:free] CI shard ${shard.shard}: ${merged.outcome.status} across ${total} sub-shards in ${Math.round(merged.outcome.elapsedMs / 1000)}s`);
   const retried = await deps.retry([merged.outcome]);

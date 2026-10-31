@@ -1773,7 +1773,7 @@ export async function runFreeShard(
     shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid, failingFiles, unattributedFailures,
     ...(status === 'passed' ? {} : { failures: report.failures }),
     summary: { testsRan: report.testsRan, filesRan: report.filesRan, sawTerminalSummary: report.sawTerminalSummary },
-    ...(junitPath ? { counts: parseJunitCounts(junitXml, files, report.testsRan) } : {}),
+    ...(junitPath ? { counts: parseJunitCounts(junitXml, files, report.testsRan, rootDir) } : {}),
     ...(status === 'timed-out' && report.inFlight.length ? { inFlight: report.inFlight } : {}),
   };
   log(shardEpilogue(outcome, totalShards));

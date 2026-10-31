@@ -311,6 +311,15 @@ describe('per-file test and expect() counts from bun JUnit', () => {
     expect(counts.problem).toContain('unplanned');
   });
 
+  test('an absolute path is credited to the planned file under the root; an unplanned file never borrows a shorter planned path', () => {
+    const planned = ['test/telemetry.test.ts', 'browse/test/telemetry.test.ts'];
+    expect(Object.keys(parseJunitCounts(xml('/repo/browse/test/telemetry.test.ts'), planned, 4, '/repo').files)).toEqual(['browse/test/telemetry.test.ts']);
+    expect(Object.keys(parseJunitCounts(xml('../../repo/test/telemetry.test.ts'), planned, 4, '/repo').files)).toEqual(['test/telemetry.test.ts']);
+    const borrowed = parseJunitCounts(xml('browse/test/x.test.ts'), ['test/x.test.ts'], 4, '/repo');
+    expect(borrowed).toMatchObject({ complete: false, problem: expect.stringContaining('browse/test/x.test.ts') });
+    expect(parseJunitCounts(xml('/elsewhere/test/x.test.ts'), ['test/x.test.ts'], 4, '/repo').complete).toBe(false);
+  });
+
   test('the report is read only as a bounded regular file, never through a link or a FIFO', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-junit-'));
     try {
@@ -447,5 +456,10 @@ describe('serial lists and the duration seed', () => {
     expect(ciRunContext('p.json', {}).runId).toBe('local');
     expect(subShardTimeoutText(2, 4, { id: 'x:2.1', phase: 'parallel', files: ['test/a.test.ts'], status: 'timed-out', exitCode: null, elapsedMs: 1, failingFiles: [], unattributedFailures: 0 },
       [], 10_000, context)[1]).toContain('in flight: unknown');
+    const serial = { id: 'x:2.5', phase: 'serial' as const, files: ['test/s.test.ts'], status: 'timed-out' as const, exitCode: null, elapsedMs: 1, failingFiles: [], unattributedFailures: 0 };
+    const squeezed = subShardTimeoutText(2, 4, serial, [], 4_000, context, 360_000);
+    expect(squeezed[0]).toContain('hit its 4s wall');
+    expect(squeezed[4]).toContain('left this serial sub-shard 4s of the 360s shard wall');
+    expect(subShardTimeoutText(2, 4, serial, [], 360_000, context, 360_000)[4]).toContain('already runs alone');
   });
 });
