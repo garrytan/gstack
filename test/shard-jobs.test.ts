@@ -15,7 +15,7 @@ import {
 } from '../scripts/test-free-shards';
 import {
   assertSoloSeedSample, assignSubShards, ciRunContext, FREE_JOBS_INVALID, mergeSubShardOutcomes, parseJobsFlag, parseJunitCounts,
-  runCiShard, SLOW_UNDER_LOAD, subShardTimeoutText, validateJobsForShard, type CiShardDeps, type RunShardOptions,
+  readJunitReport, runCiShard, SLOW_UNDER_LOAD, subShardRecordProblems, subShardTimeoutText, validateJobsForShard, type CiShardDeps, type RunShardOptions,
 } from '../scripts/lib/shard-jobs';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -199,6 +199,36 @@ describe('k > 1: merge, rejection and one retry pass per CI shard', () => {
     } finally { errors.mockRestore(); }
   });
 
+  test('a failed sub-shard that ran too few or too many files is rejected, so counts cannot cancel and no retry repairs it', async () => {
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const h = harness(files.slice(0, 4), runFiles => ({ ...failed(runFiles, [runFiles[0]]),
+        summary: { testsRan: 2, filesRan: runFiles.includes(files[0]) ? 1 : 3, sawTerminalSummary: true } }));
+      const { result } = await h.run(2);
+      expect(result.outcome.summary!.filesRan).toBe(4);
+      expect(result.outcome.unattributedFailures).toBeGreaterThanOrEqual(2);
+      expect(eligibleFreeRetryFiles([result.outcome])).toBeNull();
+      const forged: FreeCiResult = { ...result, outcome: { ...result.outcome, unattributedFailures: 0 },
+        retry: { ...passed([files[0], files[1]]), shard: 2 } };
+      expect(() => verifyFreeCiResults({ ...h.plan, revision: 'revision-a' } as never, [forged])).toThrow(/did not run every assigned file|identity/);
+      expect(subShardRecordProblems(forged)).toContain('a sub-shard did not run every assigned file');
+    } finally { errors.mockRestore(); }
+  });
+
+  test('the serial sub-shard gets only what is left of the wall, and none left means it is not launched', async () => {
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const h = harness([...files, EXCLUSIVE], async runFiles => {
+        if (!runFiles.includes(EXCLUSIVE)) await new Promise(resolve => setTimeout(resolve, 60));
+        return passed(runFiles);
+      });
+      const { result } = await runCiShard({ plan: h.plan, shard: h.shard, revision: 'revision-a', jobs: 2, wallTimeoutMs: 50, verbose: false, context }, h.deps);
+      expect(h.calls.some(call => call.files.includes(EXCLUSIVE))).toBe(false);
+      expect(result.subShards!.at(-1)).toMatchObject({ status: 'missing', phase: 'serial' });
+      expect(result.outcome.status).toBe('failed');
+    } finally { errors.mockRestore(); }
+  });
+
   test('a real-home change in the concurrent phase and a cancelled serial phase both fail the shard', async () => {
     const errors = spyOn(console, 'error').mockImplementation(() => {});
     try {
@@ -239,12 +269,19 @@ describe('k > 1: merge, rejection and one retry pass per CI shard', () => {
     const merged = mergeSubShardOutcomes(shard, assignments.map(assignment => ({ assignment, outcome: passed(assignment.files) })), 10);
     const result: FreeCiResult = { planId: plan.id, revision: 'revision-a', outcome: merged.outcome, retry: null, jobs: 2, subShards: merged.records };
     expect(() => verifyFreeCiResults(plan, [result])).not.toThrow();
+    const renamed = structuredClone(result);
+    renamed.subShards![0].id = 'other:1.1';
+    expect(() => verifyFreeCiResults(plan, [renamed])).toThrow(/ids or phases/);
+    const tooMany = structuredClone(result);
+    tooMany.jobs = 1;
+    expect(subShardRecordProblems({ ...tooMany, jobs: 2, subShards: [...tooMany.subShards!, { ...tooMany.subShards![0], id: `${plan.id.slice(0, 12)}:1.3`, files: [] }] }))
+      .toContain('sub-shard ids or phases do not match the plan and --jobs');
     const overlap = structuredClone(result);
     overlap.subShards![1].files = [...overlap.subShards![1].files, overlap.subShards![0].files[0]];
     expect(() => verifyFreeCiResults(plan, [overlap])).toThrow(/sub-shards rejected/);
     const hidden = structuredClone(result);
     hidden.subShards![0].status = 'failed';
-    expect(() => verifyFreeCiResults(plan, [hidden])).toThrow(/failed or incomplete sub-shard/);
+    expect(() => verifyFreeCiResults(plan, [hidden])).toThrow(/a passing shard holds a failed sub-shard/);
     expect(() => verifyFreeCiResults(plan, [{ ...result, jobs: 1 }])).toThrow(/valid --jobs/);
   });
 });
@@ -266,6 +303,27 @@ describe('per-file test and expect() counts from bun JUnit', () => {
     const counts = parseJunitCounts(xml('../../test/a&amp;b.test.ts'), ['test/a&b.test.ts'], 4);
     expect(counts).toEqual({ source: 'bun-junit', complete: true, files: { 'test/a&b.test.ts': { tests: 4, pass: 1, fail: 1, skip: 1, todo: 1, expects: 9 } },
       totals: { tests: 4, pass: 1, fail: 1, skip: 1, todo: 1, expects: 9 } });
+  });
+
+  test('an ambiguous short path is never credited to one of two planned files that share it', () => {
+    const counts = parseJunitCounts(xml('a.test.ts'), ['test/a.test.ts', 'browse/test/a.test.ts'], 4);
+    expect(counts.complete).toBe(false);
+    expect(counts.problem).toContain('unplanned');
+  });
+
+  test('the report is read only as a bounded regular file, never through a link or a FIFO', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-junit-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'real.xml'), '<testsuites/>');
+      expect(readJunitReport(path.join(dir, 'real.xml'))).toBe('<testsuites/>');
+      expect(readJunitReport(path.join(dir, 'absent.xml'))).toBeNull();
+      if (process.platform !== 'win32') {
+        fs.symlinkSync(path.join(dir, 'real.xml'), path.join(dir, 'link.xml'));
+        expect(readJunitReport(path.join(dir, 'link.xml'))).toBeNull();
+        const fifo = Bun.spawnSync(['mkfifo', path.join(dir, 'fifo.xml')], { timeout: 5_000 });
+        if (fifo.exitCode === 0) expect(readJunitReport(path.join(dir, 'fifo.xml'))).toBeNull();
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
   test('a missing report, an unplanned file or a count that disagrees with bun summary is incomplete, never silently complete', () => {
@@ -376,6 +434,7 @@ describe('serial lists and the duration seed', () => {
   test('seeds take only one-file children; sub-shard runs have no path to the seed writer', () => {
     expect(() => assertSoloSeedSample('test/a.test.ts', { files: ['test/a.test.ts'] })).not.toThrow();
     expect(() => assertSoloSeedSample('test/a.test.ts', { files: ['test/a.test.ts', 'test/b.test.ts'] })).toThrow(/one-file serial children/);
+    expect(() => assertSoloSeedSample('test/a.test.ts', { files: ['test/a.test.ts'], summary: { testsRan: 9, filesRan: 2, sawTerminalSummary: true } })).toThrow(/one-file serial children/);
     expect(fs.readFileSync(path.join(ROOT, 'scripts/lib/shard-jobs.ts'), 'utf8')).not.toContain('writeDurationSeed');
     const runner = fs.readFileSync(path.join(ROOT, 'scripts/test-free-shards.ts'), 'utf8');
     const recorder = runner.slice(runner.indexOf('async function recordFreeTestDurations('), runner.indexOf('async function retryFailedFreeFiles('));

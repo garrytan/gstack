@@ -97,7 +97,7 @@ import { attributeFreeHomeWriters, guardFreeHome, sharedFreeHome, type FreeHomeG
 import { appendStepSummary, ciHealthSummary, SEED_REFRESH_COMMAND, unseededWarning, windowsCurationLine } from './lib/free-ci-health';
 import { curateWindowsSafe, type CurationResult } from './lib/windows-curation';
 import {
-  assertSoloSeedSample, ciRunContext, parseJobsFlag, parseJunitCounts, rejectJobsWithoutCiRun, runCiShard, SLOW_UNDER_LOAD, subShardRecordProblems,
+  assertSoloSeedSample, ciRunContext, parseJobsFlag, parseJunitCounts, readJunitReport, rejectJobsWithoutCiRun, runCiShard, SLOW_UNDER_LOAD, subShardRecordProblems,
   validateJobsForShard, type ShardTestCounts, type SubShardRecord,
 } from './lib/shard-jobs';
 export { curateWindowsSafe, detectWindowsFragility, KNOWN_WINDOWS_INCOMPATIBLE, type CurationResult } from './lib/windows-curation';
@@ -1730,9 +1730,7 @@ export async function runFreeShard(
       shardLog.write(diagnostic + '\n');
     }
     await new Promise<void>((resolve) => shardLog.stream.end(() => resolve()));
-    if (junitPath) {
-      try { junitXml = fs.readFileSync(junitPath, 'utf8'); } catch { /* counts record the missing report */ }
-    }
+    if (junitPath) junitXml = readJunitReport(junitPath);
     try {
       if (!cleanupError) fs.rmSync(stateDir, { recursive: true, force: true });
     } catch {

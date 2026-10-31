@@ -26,6 +26,7 @@
  * (the console stream is byte-identical with or without it). Counts are
  * evidence for k > 1 comparisons; they never decide a verdict.
  */
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import type { FreeCiPlan, FreeCiResult, FreeShardOutcome } from '../test-free-shards';
 import { guardFreeHome, sharedFreeHome, type FreeHomeGuard, type FreeHomeGuardFactory } from './free-home-guard';
@@ -107,7 +108,8 @@ export function parseJunitCounts(xml: string | null, planned: readonly string[],
   const canonical = (printed: string) => {
     const stripped = normalizeRelativePath(printed).replace(/^(?:\.{1,2}\/)+/, '');
     if (plannedSet.has(stripped)) return stripped;
-    return planned.find(file => stripped.endsWith(`/${file}`) || file.endsWith(`/${stripped}`)) ?? stripped;
+    const matches = planned.filter(file => stripped.endsWith(`/${file}`) || file.endsWith(`/${stripped}`));
+    return matches.length === 1 ? matches[0] : stripped;
   };
   let current: { file: string; state: 'pass' | 'fail' | 'skip' | 'todo'; expects: number } | null = null;
   const finish = () => {
@@ -137,6 +139,18 @@ export function parseJunitCounts(xml: string | null, planned: readonly string[],
   if (testsRan === null) return result(false, "bun's summary has no test count");
   if (totals.tests !== testsRan) return result(false, `JUnit counted ${totals.tests} tests, bun's summary ${testsRan}`);
   return result(true);
+}
+
+const JUNIT_MAX_BYTES = 64 * 1024 * 1024;
+
+/** The child-written report, only when it is a regular file of bounded size (never a link, FIFO or device). */
+export function readJunitReport(file: string): string | null {
+  let fd: number;
+  try { fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0)); } catch { return null; }
+  try {
+    const stat = fs.fstatSync(fd);
+    return stat.isFile() && stat.size <= JUNIT_MAX_BYTES ? fs.readFileSync(fd, 'utf8') : null;
+  } catch { return null; } finally { fs.closeSync(fd); }
 }
 
 /** One shard's counts from its sub-shards' counts; complete only when every part is and no file repeats. */
@@ -199,7 +213,9 @@ export function subShardProblems(settled: SubShardSettlement): string[] {
   const problems: string[] = [];
   if (JSON.stringify(outcome.files) !== JSON.stringify(assignment.files)) problems.push(`${assignment.id} reported another file set`);
   const summary = outcome.summary;
-  if (outcome.status === 'passed' && (!summary || summary.filesRan !== assignment.files.length || summary.sawTerminalSummary !== true
+  if (!summary || (summary.sawTerminalSummary && summary.filesRan !== assignment.files.length)) {
+    problems.push(`${assignment.id} reported ${summary?.filesRan ?? 'no'} executed file(s) for ${assignment.files.length} assigned`);
+  } else if (outcome.status === 'passed' && (summary.filesRan !== assignment.files.length || summary.sawTerminalSummary !== true
     || outcome.exitCode !== 0 || outcome.failingFiles.length || outcome.unattributedFailures)) {
     problems.push(`${assignment.id} passed without a complete execution summary`);
   }
@@ -275,8 +291,15 @@ export function subShardRecordProblems(result: FreeCiResult): string[] {
   const problems: string[] = [];
   if (new Set(files).size !== files.length || files.length !== result.outcome.files.length
     || !result.outcome.files.every(file => files.includes(file))) problems.push('sub-shard records do not cover the shard exactly once');
-  if (result.outcome.status === 'passed' && records.some(record => record.status !== 'passed' || record.summary?.filesRan !== record.files.length
-    || (record.files.length > 0 && record.summary?.sawTerminalSummary !== true))) problems.push('a passing shard holds a failed or incomplete sub-shard');
+  const prefix = `${result.planId.slice(0, 12)}:${result.outcome.shard}.`;
+  if (records.some((record, index) => record.id !== `${prefix}${index + 1}`)
+    || records.filter(record => record.phase === 'parallel').length > result.jobs!
+    || records.some((record, index) => record.phase === 'serial' ? index !== records.length - 1 : record.phase !== 'parallel')) {
+    problems.push('sub-shard ids or phases do not match the plan and --jobs');
+  }
+  if (records.some(record => record.status === 'missing' || record.summary?.filesRan !== record.files.length
+    || (record.files.length > 0 && record.summary?.sawTerminalSummary !== true))) problems.push('a sub-shard did not run every assigned file');
+  if (result.outcome.status === 'passed' && records.some(record => record.status !== 'passed')) problems.push('a passing shard holds a failed sub-shard');
   return problems;
 }
 
@@ -297,12 +320,15 @@ export function subShardTimeoutText(
 ): string[] {
   const suspects = inFlight.filter(file => record.files.includes(file));
   const files = suspects.length ? suspects : record.files;
+  const fix = record.phase === 'serial'
+    ? 'this file already runs alone after the parallel sub-shards; fix or split it, never raise the timeout'
+    : `if it passes serially, add it to SLOW_UNDER_LOAD in scripts/lib/shard-jobs.ts with run id ${context.runId}; never raise the timeout`;
   return [
     `[test:free] ${FREE_SUBSHARD_TIMEOUT}: CI shard ${shard} sub-shard ${record.id} (${record.files.length} files) hit its ${Math.round(wallTimeoutMs / 1000)}s wall at --jobs ${jobs} on ${context.runner}, run ${context.runId}.`,
     `[test:free]   in flight: ${suspects.length ? suspects.join(', ') : 'unknown (no open file chunk; see the sub-shard log)'}`,
     `[test:free]   reproduce serially: printf '%s\\n' ${files.map(quote).join(' ')} > files.txt && GSTACK_FREE_JOBS=1 bun run scripts/test-free-shards.ts --files-from files.txt`,
     `[test:free]   or the whole CI shard at k=1: bun run scripts/test-free-shards.ts --ci-run ${quote(context.planPath)} --shard ${shard} --result shard-${shard}.json --jobs 1`,
-    `[test:free]   if it passes serially, add it to SLOW_UNDER_LOAD in scripts/lib/shard-jobs.ts with run id ${context.runId}; never raise the timeout. See ${DOCS}`,
+    `[test:free]   ${fix}. See ${DOCS}`,
   ];
 }
 
@@ -344,9 +370,12 @@ export async function runCiShard(input: CiShardInput, deps: CiShardDeps): Promis
   const total = assignments.length;
   log(`[test:free] CI shard ${shard.shard}/${plan.shards.length} at --jobs ${jobs}: ${assignments
     .map(entry => `sub-shard ${entry.id} = runner shard ${entry.index}/${total} (${entry.phase}, ${entry.files.length} files)`).join('; ')}`);
-  const run = (entry: SubShardAssignment, homeGuard?: FreeHomeGuardFactory, wall = wallTimeoutMs): Promise<SubShardSettlement> =>
-    deps.runShard(entry.files, entry.index, total, { wallTimeoutMs: wall, verbose, testCounts: true, ...(homeGuard ? { homeGuard } : {}) })
+  const walls = new Map<string, number>();
+  const run = (entry: SubShardAssignment, homeGuard?: FreeHomeGuardFactory, wall = wallTimeoutMs): Promise<SubShardSettlement> => {
+    walls.set(entry.id, wall);
+    return deps.runShard(entry.files, entry.index, total, { wallTimeoutMs: wall, verbose, testCounts: true, ...(homeGuard ? { homeGuard } : {}) })
       .then(outcome => ({ assignment: entry, outcome }), (error: unknown) => ({ assignment: entry, error: error instanceof Error ? error.message : String(error) }));
+  };
   const parallel = assignments.filter(entry => entry.phase === 'parallel');
   const serial = assignments.filter(entry => entry.phase === 'serial');
   const phaseProblems: string[] = [];
@@ -359,13 +388,14 @@ export async function runCiShard(input: CiShardInput, deps: CiShardDeps): Promis
     if (homeChange) phaseProblems.push(homeChange);
   }
   for (const entry of serial) {
+    const left = startedAt + wallTimeoutMs - Date.now();
     settled.push(deps.terminationRequested() ? { assignment: entry, error: 'cancelled before the serial phase' }
-      : await run(entry, undefined, Math.max(1, startedAt + wallTimeoutMs - Date.now())));
+      : left <= 0 ? { assignment: entry, error: 'no wall left after the parallel phase' } : await run(entry, undefined, left));
   }
   const merged = mergeSubShardOutcomes(shard, settled, Date.now() - startedAt, phaseProblems);
   for (const problem of merged.problems) console.error(`[test:free] ${FREE_SUBSHARD_REJECTED}: CI shard ${shard.shard}: ${problem}`);
   for (const record of merged.records.filter(entry => entry.status === 'timed-out')) {
-    for (const line of subShardTimeoutText(shard.shard, jobs, record, merged.outcome.inFlight ?? [], wallTimeoutMs, input.context)) console.error(line);
+    for (const line of subShardTimeoutText(shard.shard, jobs, record, merged.outcome.inFlight ?? [], walls.get(record.id) ?? wallTimeoutMs, input.context)) console.error(line);
   }
   log(`[test:free] CI shard ${shard.shard}: ${merged.outcome.status} across ${total} sub-shards in ${Math.round(merged.outcome.elapsedMs / 1000)}s`);
   const retried = await deps.retry([merged.outcome]);
@@ -376,8 +406,8 @@ export async function runCiShard(input: CiShardInput, deps: CiShardDeps): Promis
 }
 
 /** The duration seed takes only one-file children's walls, never a sub-shard's or a shard's. */
-export function assertSoloSeedSample(file: string, outcome: Pick<FreeShardOutcome, 'files'>): void {
-  if (outcome.files.length !== 1 || outcome.files[0] !== file) {
+export function assertSoloSeedSample(file: string, outcome: Pick<FreeShardOutcome, 'files' | 'summary'>): void {
+  if (outcome.files.length !== 1 || outcome.files[0] !== file || (outcome.summary?.filesRan ?? 0) > 1) {
     throw new Error(`Duration seed sample for ${file} came from a ${outcome.files.length}-file child; seeds are recorded only from one-file serial children.`);
   }
 }
