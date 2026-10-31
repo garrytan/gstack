@@ -471,12 +471,13 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    label-only heading takes the stronger of the two). A label is dropped only from a closing
    summary, a sentence that as a whole is one of a closed set of templates (GST-435): an optional
    "I found" or "there's", a negator, an optional review subject (finding, fix, change, here,
-   else, "in this diff"), the label words and a short tail, as in "I found three INFORMATIONAL
+   "in this diff"), the label words and a short tail, as in "I found three INFORMATIONAL
    issues and no CRITICAL ones", "Neither fix is CRITICAL" or "No CRITICAL or High findings to
    report". A sentence that names a file:line, holds an exception or contrast word (except,
    besides, but, only), runs over 100 characters or sits in a table row keeps every label, and
    so does any phrasing the templates leave out ("This is not CRITICAL" stays a phantom for lead
-   judgment to fold). A kept finding never takes a weaker label than the strongest one left on its line. A `Severity:` or `Blocks:` line
+   judgment to fold). No template word sets the negation apart from something named earlier, so
+   "Nothing else is CRITICAL" or "No other issue is CRITICAL" after a blocker keeps its label. A kept finding never takes a weaker label than the strongest one left on its line. A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
    second line for the same field starts another: `Severity` raises its label,
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline

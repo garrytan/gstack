@@ -62,9 +62,10 @@ const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /**
  * GST-435 rule (b'): a severity word is dropped only from a closing summary, a sentence that as a whole is one of a closed set of
  * templates: an optional "I found" (or "there's", or "N INFORMATIONAL issues and"), a negator (no, nothing, none, neither, not), an
- * optional review subject (finding, fix, change, here, else, "of these", "in this diff"), an optional is/are, the label words and a
- * short tail ("findings", "to report"). "I found three INFORMATIONAL issues and no CRITICAL ones", "Neither fix is CRITICAL", "Nothing
- * in this diff is CRITICAL". A sentence that names a file:line, holds an exception or contrast word, runs over 100 characters or sits
+ * optional review subject (finding, fix, change, here, "of these", "in this diff"), an optional is/are, the label words and a
+ * short tail ("findings", "to report"): "I found three INFORMATIONAL issues and no CRITICAL ones", "Neither fix is CRITICAL", "Nothing
+ * in this diff is CRITICAL". No template word sets the negation apart from something named earlier (else, other, remaining, left), so
+ * "Nothing else is CRITICAL" after a blocker keeps its label. A sentence that names a file:line, holds an exception or contrast word, runs over 100 characters or sits
  * in a table row keeps every label, and so does any phrasing the templates do not list: a phantom costs a fold, a lost one the gate.
  */
 const QUOTE = '[`*"\'\u201c\u201d\u2018\u2019]*';
@@ -73,8 +74,8 @@ const NOUN = '(?:findings?|issues?|defects?|gaps?|nits?|notes?|items?|problems?|
 const LABEL_LIST = `${QUOTE}(?:${LABELS})${QUOTE}(?:\\s*(?:,|\\bor\\b|\\band\\b)\\s*${QUOTE}(?:${LABELS})${QUOTE})*`;
 const CLOSING = new RegExp(`^(?:so\\s+)?(?:(?:I|we|(?:the|this)\\s+[\\w-]+(?:\\s+[\\w-]+)?\\s+(?:pass|review))\\s+(?:found|find|see|saw|have|has)\\s+|there(?:['\u2019]s|\\s+is|\\s+are|\\s+was|\\s+were)\\s+)?`
   + `(?:${NUM}\\s+${QUOTE}(?:${LABELS})${QUOTE}\\s+${NOUN}(?:,|\\s+and)\\s+)?(?<neg>(?:no|nothing|none|neither|not)`
-  + `(?:\\s+(?:of\\s+(?:these|them|which|the(?:\\s+${NUM})?\\s+(?:findings|issues|fixes|changes))|findings?|issues?|items?|problems?|fix(?:es)?|changes?|blockers?|here|else|other|in\\s+this\\s+(?:diff|pr|change)))?`
-  + `(?:\\s+(?:is|are|was|were|remains?))?(?:\\s+at)?\\s+${LABEL_LIST}(?:\\s+${NOUN})?(?:\\s+(?:found|remaining|left|to\\s+report|in\\s+this\\s+(?:diff|pr|change)))?)`
+  + `(?:\\s+(?:of\\s+(?:these|them|which|the(?:\\s+${NUM})?\\s+(?:findings|issues|fixes|changes))|findings?|issues?|items?|problems?|fix(?:es)?|changes?|blockers?|here|in\\s+this\\s+(?:diff|pr|change)))?`
+  + `(?:\\s+(?:is|are|was|were))?(?:\\s+at)?\\s+${LABEL_LIST}(?:\\s+${NOUN})?(?:\\s+(?:found|to\\s+report|in\\s+this\\s+(?:diff|pr|change)))?)`
   + `(?:,\\s+so\\s+the\\s+(?:fix|fixes|change|changes)\\s+(?:is|are)\\s+sound)?$`, 'di');
 const EXCEPTION = /\b(?:except|besides|apart\s+from|other\s+than|but|however|only|though|although|unless)\b/i;
 const LEAD = /^\s*(?:(?:[-*+]|\d+[.)])\s+)?(?:\**(?:(?:[\w-]+\s+){0,2}(?:pass|review|check)\s+is\s+done|overall|summary|verdict|in\s+short|bottom\s+line):\**\s+)?(?:(?:none|nothing|no|neither)\b[^:;]*?,\s+so\s+)?/i;

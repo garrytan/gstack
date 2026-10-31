@@ -444,7 +444,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(judge(readJsonl<MergedLine>(merged), readJsonl(judged)).ok).toBe(true);
     for (const line of ['There are no CRITICAL findings.', 'There are no `CRITICAL` findings.', 'No CRITICAL or High findings to report.', 'I found nothing CRITICAL.', "So there's nothing at CRITICAL.",
       'Neither finding is CRITICAL.', 'Neither of the two findings is CRITICAL.', 'Nothing here is CRITICAL.', 'None of these is High.', 'Neither fix is CRITICAL.',
-      'Nothing in this diff is CRITICAL.', 'Nothing else is CRITICAL.', 'Overall: no CRITICAL findings.'])
+      'Nothing in this diff is CRITICAL.', 'Overall: no CRITICAL findings.'])
       expect([line, parseFindings('outside-voice', line)]).toEqual([line, []]);
     for (const reader of ['adversarial-native', 'red-team']) expect(parseFindings(reader, 'Nothing here is FIXABLE.')).toEqual([]);
     for (const [line, label] of [['This is not CRITICAL.', 'CRITICAL'], ["This doesn't rise to CRITICAL.", 'CRITICAL'], ['Two nits, none of which is High.', 'High'],
@@ -471,6 +471,9 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       ['Nothing else is CRITICAL except the token leak in log.ts:3.', 'CRITICAL'], ['No other issue is CRITICAL besides the auth bypass in auth.ts:9.', 'CRITICAL'],
       ['None of the other findings are CRITICAL, but the SQL injection in db.ts:12 is.', 'CRITICAL'],
       ['Nothing here is CRITICAL apart from the unescaped query (db.ts:12).', 'CRITICAL'], ['Nothing else is CRITICAL except the token leak.', 'CRITICAL'],
+      ['Fix the token leak in log.ts:3 first; nothing else is CRITICAL.', 'CRITICAL'], ['The token leak in log.ts:3 blocks the merge. Nothing else is CRITICAL.', 'CRITICAL'],
+      ['1. Token leak in log.ts:3 must be fixed before landing.\n\nNothing else is CRITICAL.', 'CRITICAL'], ['The token leak blocks the merge.\nNo other issue is CRITICAL.', 'CRITICAL'],
+      ['The token leak in log.ts:3 blocks the merge. None of the other findings are CRITICAL.', 'CRITICAL'], ['Nothing else is CRITICAL.', 'CRITICAL'],
       ['No input validation is CRITICAL (upload.ts:4)', 'CRITICAL'], ['No CSRF token is a CRITICAL gap at form.ts:12', 'CRITICAL'],
       ['Nothing escaped here is CRITICAL: stored XSS at view.ts:8', 'CRITICAL'], ['No timeout here is High (fetch.ts:3)', 'High']];
     for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
