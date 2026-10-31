@@ -813,10 +813,13 @@ those, each with its scope and its reason:
   prints `allowlist[0] env.kv pattern did not match env.kv (<file>, added
   line N, col C): …; the finding is kept`.
 - In Python and Dart source, a parameter or field annotation
-  (`session: HttpSession,`) and a dict entry or named argument that reads a
-  name (`"password": request.password`) are code, not credentials, as they are
-  in TypeScript (#3630). The same line inside a `"""` docstring is text and
-  still reports; allowlist it by its value.
+  (`session: HttpSession,`) and a dict entry or Dart named argument that reads
+  a name (`"password": request.password`) are code, not credentials, as they
+  are in TypeScript (#3630). Python's keyword form (`password=request.password`)
+  still reports. The same line inside a `"""` docstring is text and still
+  reports; allowlist it by its value. The pre-push hook sees only added lines,
+  so it scans Python and Dart lines without this exemption and may still warn
+  (MEDIUM, non-blocking) on them.
 
 The `secrets` row says `N allowlisted (<ids>)` and lists each allowlisted
 finding with the entry (`allowlisted env.kv (evals/receipts/t1.json, added line
