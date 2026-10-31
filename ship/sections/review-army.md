@@ -407,13 +407,13 @@ Every other specialist, including Testing, reads the full diff with fixtures.
 
 Required fields: severity, confidence, path, category, summary, specialist.
 Optional: line, fix, fingerprint, evidence, test_stub, advisory, evidence_paths, helper_target, cause.
-CRITICAL is the blocking floor: a finding that would fail a test, break production, lose data or secrets, or open a security hole (injection, auth bypass, secret exposure). Everything else is INFORMATIONAL.
+CRITICAL is the blocking floor: a finding that would fail a test, break production, or lose data or secrets, or open a security hole (injection, auth bypass, secret exposure). Everything else is INFORMATIONAL.
 A defect the diff causes but that shows elsewhere (a caller broken by a changed signature, a consumer of a removed export) keeps the victim as `path` and names the changed line in `cause`: {\"cause\":{\"path\":\"file\",\"line\":N}}. Without it the finding reads as pre-existing code.
 
 Leave extraction advice to the core shared-code check; report real defects in duplicated code independently, keep advisory metadata on structural advice, and never call a demonstrated defect advisory because a shared helper could fix it.
 
 For a finding a test could catch, add a minimal `test_stub` skeleton in the detected test
-framework ({TEST_FW}); skip it for architectural or design-only findings.
+framework ({TEST_FW}); none for architectural or design-only findings.
 
 Output nothing else: no preamble, no summary or commentary.
 

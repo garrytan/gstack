@@ -24,7 +24,7 @@ afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 
 describe('one blocking floor in every reviewer prompt', () => {
   test('the floor names security and keeps the 2026-10-26 words', () => {
-    expect(BLOCKING_FLOOR).toContain('would fail a test, break production, lose data or secrets, or open a security hole');
+    expect(BLOCKING_FLOOR).toContain('would fail a test, break production, or lose data or secrets, or open a security hole');
   });
 
   test.each([
@@ -35,7 +35,7 @@ describe('one blocking floor in every reviewer prompt', () => {
   });
 
   test('the ship skeleton Review policy line names the same four outcomes', () => {
-    for (const file of ['ship/SKILL.md.tmpl', 'ship/SKILL.md']) expect(read(file)).toContain('only a finding that would fail a test, break production, lose data or secrets, or open a security hole blocks a pass');
+    for (const file of ['ship/SKILL.md.tmpl', 'ship/SKILL.md']) expect(read(file)).toContain('only a finding that would fail a test, break production, or lose data or secrets, or open a security hole blocks a pass');
   });
 
   test('the fix-check prompt carries it too', () => {
@@ -51,7 +51,7 @@ describe('the checklist sets check order, never severity', () => {
     }
     expect(checklist).toContain('The pass never sets severity.');
     expect(checklist).toContain('A category says what to check and in which order; it never sets severity.');
-    expect(read('review/SKILL.md.tmpl')).toContain('Apply both checklist passes in order with its suppressions; neither sets severity.');
+    expect(read('review/SKILL.md.tmpl')).toContain('Apply both checklist passes in order with suppressions; neither sets severity.');
     expect(read('review/SKILL.md.tmpl')).not.toContain('CRITICAL, then INFORMATIONAL');
   });
 

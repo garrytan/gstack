@@ -985,7 +985,7 @@ construction:
    gives each one a `locus` (`diff`: a hunk the PR changed, with three lines of
    context; `outside`: anything else), a `kind`, `blocking` and a `scope`.
    `blocking` is a CRITICAL defect. CRITICAL is the blocking floor: a finding that
-   would fail a test, break production, lose data or secrets, or open a security hole
+   would fail a test, break production, or lose data or secrets, or open a security hole
    (injection, auth bypass, secret exposure). Everything else is INFORMATIONAL.
    An advisory, an informational item, a test gap or a wording note is below the
    floor. Pass 1 fixes findings in

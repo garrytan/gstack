@@ -457,9 +457,9 @@ Use this host's installation, never the product tree. If missing or unreadable, 
 
 QA's `sections/...` and `templates/...` paths resolve from installed QA SKILL.md, not caller/product.
 
-Apply both checklist passes in order with its suppressions; neither sets severity.
+Apply both checklist passes in order with suppressions; neither sets severity.
 CRITICAL is the blocking floor: a finding that would fail a test, break production,
-lose data or secrets, or open a security hole (injection, auth bypass, secret exposure).
+or lose data or secrets, or open a security hole (injection, auth bypass, secret exposure).
 Everything else is INFORMATIONAL. `NO FINDINGS` is a complete result from any reviewer.
 
 **Sideways sweep (every finding; reads code OUTSIDE the diff).** Grep the finding's pattern at every other ingress, command and call site, Read each match and rate severity on the worst sibling; a new enum value, status, tier or type constant is traced through every consumer the same way (checklist: Sideways sweep). Data loss, a trust-boundary bypass or uncapped spend is forced CRITICAL: no lane, specialist, dedup or saved decision downgrades it. Keep findings anchored to changed code.

@@ -7,7 +7,7 @@ Review the merge-base diff from the caller, including its selected uncommitted a
 **Two-pass review:**
 - **Pass 1 (check first):** Run SQL & Data Safety, Race Conditions, LLM Output Trust Boundary, Shell Injection, Enum Completeness, and Gate Integrity first. These categories hold blocking defects most often.
 - **Pass 2 (check second):** Run remaining categories below. Still actioned.
-- **The pass never sets severity.** Rate every finding from either pass by the blocking floor (Severity Classification below): a Pass 2 finding that would fail a test, break production, lose data or secrets, or open a security hole is CRITICAL, and a Pass 1 finding that would not is INFORMATIONAL.
+- **The pass never sets severity.** Rate every finding from either pass by the blocking floor (Severity Classification below): a Pass 2 finding at the floor is CRITICAL, and a Pass 1 finding below it is INFORMATIONAL.
 - **Specialist categories (handled by parallel subagents, NOT this checklist):** Test Gaps, Dead Code, Magic Numbers, Conditional Side Effects, Performance & Bundle Impact, Crypto & Entropy, Simplification (unrequested structure). See `review/specialists/` for these.
 
 Completeness Gaps and Simplification are orthogonal, not contradictory: Completeness pushes coverage UP (tests, edge cases, error paths), Simplification pushes unrequested structure DOWN (one-implementation abstractions, hand-rolled stdlib, dead flexibility). The same diff can legitimately receive both.
@@ -165,7 +165,7 @@ A finding is a defect class, not a line. Before rating any finding from either p
 ## Severity Classification
 
 CRITICAL is the blocking floor: a finding that would fail a test, break production,
-lose data or secrets, or open a security hole (injection, auth bypass, secret exposure).
+or lose data or secrets, or open a security hole (injection, auth bypass, secret exposure).
 Everything else is INFORMATIONAL.
 
 A category says what to check and in which order; it never sets severity. Rate every

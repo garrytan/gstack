@@ -11,7 +11,7 @@ instead of restating it. A one-line crew rule is enough:
 ## The blocking floor
 
 A finding is **blocking** when it is a CRITICAL defect. CRITICAL is the blocking
-floor: a finding that would fail a test, break production, lose data or secrets, or
+floor: a finding that would fail a test, break production, or lose data or secrets, or
 open a security hole (injection, auth bypass, secret exposure). Everything else is
 INFORMATIONAL. Below the floor are an advisory, an informational item, a test
 finding (category `testing`: a gap, a weak or flaky test), a wording or naming
