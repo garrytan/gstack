@@ -15,7 +15,7 @@ import * as path from 'path';
 import {
   classifyGbrainMcpEntry,
   classifyGbrainMcpListLine,
-  hasLocalGbrainEngine,
+  hasLocalPostgresEngine,
   isLoopbackMcpUrl,
 } from '../lib/gbrain-mcp-locality';
 
@@ -23,6 +23,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const START = path.join(ROOT, 'bin', 'gstack-skill-start');
 
 let home: string;
+
+const PG = { engine: 'postgres', database_url: 'postgresql://u@localhost:5432/brain' };
 
 function writeGbrainConfig(cfg: unknown, dir = home): void {
   fs.mkdirSync(path.join(dir, '.gbrain'), { recursive: true });
@@ -71,54 +73,64 @@ describe('isLoopbackMcpUrl', () => {
   });
 });
 
-describe('hasLocalGbrainEngine', () => {
-  test('pglite engine, or a database_url, with no remote_mcp marker', () => {
+describe('hasLocalPostgresEngine', () => {
+  test('a database_url on a non-PGLite engine, with no remote_mcp marker', () => {
     const env = { HOME: home };
-    expect(hasLocalGbrainEngine(env)).toBe(false); // no config
+    expect(hasLocalPostgresEngine(env)).toBe(false); // no config
+    writeGbrainConfig(PG);
+    expect(hasLocalPostgresEngine(env)).toBe(true);
+    writeGbrainConfig({ database_url: 'postgresql://db.example.com/brain' });
+    expect(hasLocalPostgresEngine(env)).toBe(true);
+    // PGLite (Path 4's split-engine code-search brain) never counts.
     writeGbrainConfig({ engine: 'pglite', database_path: '/x/brain.pglite' });
-    expect(hasLocalGbrainEngine(env)).toBe(true);
-    writeGbrainConfig({ engine: 'postgres', database_url: 'postgresql://u@localhost:5432/brain' });
-    expect(hasLocalGbrainEngine(env)).toBe(true);
-    writeGbrainConfig({ engine: 'pglite', remote_mcp: { mcp_url: 'http://127.0.0.1:3131/mcp' } });
-    expect(hasLocalGbrainEngine(env)).toBe(false);
+    expect(hasLocalPostgresEngine(env)).toBe(false);
+    writeGbrainConfig({ engine: 'pglite', database_url: 'postgresql://u@localhost:5432/brain' });
+    expect(hasLocalPostgresEngine(env)).toBe(false);
+    writeGbrainConfig({ ...PG, remote_mcp: { mcp_url: 'http://127.0.0.1:3131/mcp' } });
+    expect(hasLocalPostgresEngine(env)).toBe(false);
     writeGbrainConfig({ database_url: '  ' });
-    expect(hasLocalGbrainEngine(env)).toBe(false);
+    expect(hasLocalPostgresEngine(env)).toBe(false);
     // gbrain's isThinClient is `!!remote_mcp`: falsy values are not markers.
     for (const remote_mcp of [null, false, 0, '']) {
-      writeGbrainConfig({ engine: 'pglite', remote_mcp });
-      expect(hasLocalGbrainEngine(env)).toBe(true);
+      writeGbrainConfig({ ...PG, remote_mcp });
+      expect(hasLocalPostgresEngine(env)).toBe(true);
     }
     for (const remote_mcp of [{}, [], 'x', 1, true]) {
-      writeGbrainConfig({ engine: 'pglite', remote_mcp });
-      expect(hasLocalGbrainEngine(env)).toBe(false);
+      writeGbrainConfig({ ...PG, remote_mcp });
+      expect(hasLocalPostgresEngine(env)).toBe(false);
     }
   });
 
   test('honors GBRAIN_HOME as the parent of .gbrain, like gbrainConfigDir', () => {
     const gbrainHome = path.join(home, 'elsewhere');
-    writeGbrainConfig({ engine: 'pglite' }, gbrainHome);
-    expect(hasLocalGbrainEngine({ HOME: home })).toBe(false);
-    expect(hasLocalGbrainEngine({ HOME: home, GBRAIN_HOME: gbrainHome })).toBe(true);
+    writeGbrainConfig(PG, gbrainHome);
+    expect(hasLocalPostgresEngine({ HOME: home })).toBe(false);
+    expect(hasLocalPostgresEngine({ HOME: home, GBRAIN_HOME: gbrainHome })).toBe(true);
   });
 });
 
 describe('classifyGbrainMcpEntry', () => {
   const loopback = { type: 'http', url: 'http://127.0.0.1:3131/mcp' };
 
-  test('loopback http entry over a local engine is local', () => {
-    writeGbrainConfig({ engine: 'pglite' });
+  test('loopback http entry over a local Postgres engine is local', () => {
+    writeGbrainConfig(PG);
     expect(classifyGbrainMcpEntry(loopback, { HOME: home })).toBe('local');
     expect(classifyGbrainMcpEntry({ url: 'http://localhost:3131/mcp' }, { HOME: home })).toBe('local');
   });
 
   test('loopback http entry stays remote without a local engine or with remote_mcp', () => {
     expect(classifyGbrainMcpEntry(loopback, { HOME: home })).toBe('remote');
-    writeGbrainConfig({ engine: 'pglite', remote_mcp: { mcp_url: 'http://127.0.0.1:3131/mcp' } });
+    writeGbrainConfig({ ...PG, remote_mcp: { mcp_url: 'http://127.0.0.1:3131/mcp' } });
+    expect(classifyGbrainMcpEntry(loopback, { HOME: home })).toBe('remote');
+  });
+
+  test('loopback http entry over a local PGLite stays remote (Path 4 split-engine through a tunnel)', () => {
+    writeGbrainConfig({ engine: 'pglite', database_path: '/x/brain.pglite' });
     expect(classifyGbrainMcpEntry(loopback, { HOME: home })).toBe('remote');
   });
 
   test('non-loopback http entry stays remote even with a local engine', () => {
-    writeGbrainConfig({ engine: 'pglite' });
+    writeGbrainConfig(PG);
     for (const type of ['http', 'sse', 'url']) {
       expect(classifyGbrainMcpEntry({ type, url: 'https://brain.example.com/mcp' }, { HOME: home })).toBe('remote');
     }
@@ -133,7 +145,7 @@ describe('classifyGbrainMcpEntry', () => {
 });
 
 describe('classifyGbrainMcpListLine (`claude mcp list`, detect tier 2)', () => {
-  beforeEach(() => writeGbrainConfig({ engine: 'pglite' }));
+  beforeEach(() => writeGbrainConfig(PG));
 
   const LINES: Array<[string, 'local' | 'remote']> = [
     ['gbrain: http://127.0.0.1:3131/mcp (HTTP) - ✓ Connected', 'local'],
@@ -269,7 +281,9 @@ describe('gstack-skill-start jq copy vs the TS rule (table-driven parity)', () =
 
   const CONFIGS: unknown[] = [
     { engine: 'pglite' },
+    { engine: 'pglite', database_url: 'postgresql://u@localhost:5432/brain' },
     { database_url: 'postgresql://u@localhost:5432/brain' },
+    { engine: 'postgres', database_url: 'postgresql://u@localhost:5432/brain', remote_mcp: false },
     { engine: 'postgres', database_url: 'postgresql://db.example.com/x' },
     { database_url: '  ' },
     { database_url: '\n\t' },
@@ -295,7 +309,7 @@ describe('gstack-skill-start jq copy vs the TS rule (table-driven parity)', () =
 
   test.each(CONFIGS.map((c) => [c]))('config %j: jq matches TS exactly', (cfg: unknown) => {
     writeGbrainConfig(cfg);
-    const ts = hasLocalGbrainEngine({ HOME: home });
+    const ts = hasLocalPostgresEngine({ HOME: home });
     const jq = jqTrue(JQ_CFG!, fs.readFileSync(path.join(home, '.gbrain', 'config.json'), 'utf-8'));
     expect(jq).toBe(ts);
   });
@@ -303,7 +317,7 @@ describe('gstack-skill-start jq copy vs the TS rule (table-driven parity)', () =
   test('malformed config: both say no local engine', () => {
     fs.mkdirSync(path.join(home, '.gbrain'), { recursive: true });
     fs.writeFileSync(path.join(home, '.gbrain', 'config.json'), '{not json');
-    expect(hasLocalGbrainEngine({ HOME: home })).toBe(false);
+    expect(hasLocalPostgresEngine({ HOME: home })).toBe(false);
     expect(jqTrue(JQ_CFG!, '{not json')).toBe(false);
   });
 });
@@ -333,25 +347,31 @@ describe('gstack-skill-start mirrors the rule', () => {
     return out.split('\n').find((l) => l.startsWith('ARTIFACTS_SYNC:')) ?? '';
   }
 
-  test('loopback http entry over a local engine is not remote-mode', () => {
-    expect(artifactsSyncLine({ type: 'http', url: 'http://127.0.0.1:3131/mcp' }, { engine: 'pglite' })).toBe('ARTIFACTS_SYNC: off');
+  test('loopback http entry over a local Postgres engine is not remote-mode', () => {
+    expect(artifactsSyncLine({ type: 'http', url: 'http://127.0.0.1:3131/mcp' }, PG)).toBe('ARTIFACTS_SYNC: off');
+  });
+
+  test('loopback http entry over a local PGLite stays remote-mode (Path 4 split-engine)', () => {
+    expect(artifactsSyncLine({ type: 'http', url: 'http://127.0.0.1:3131/mcp' }, { engine: 'pglite' })).toMatch(
+      /^ARTIFACTS_SYNC: remote-mode \(managed by brain server 127\.0\.0\.1\)$/,
+    );
   });
 
   test('GBRAIN_HOME locates the local engine config', () => {
     const gbrainHome = path.join(home, 'gb');
     expect(
-      artifactsSyncLine({ type: 'http', url: 'http://localhost:3131/mcp' }, { engine: 'pglite' }, { GBRAIN_HOME: gbrainHome }),
+      artifactsSyncLine({ type: 'http', url: 'http://localhost:3131/mcp' }, PG, { GBRAIN_HOME: gbrainHome }),
     ).toBe('ARTIFACTS_SYNC: off');
   });
 
   test('loopback http entry with remote_mcp in the config stays remote-mode', () => {
     expect(
-      artifactsSyncLine({ type: 'http', url: 'http://127.0.0.1:3131/mcp' }, { engine: 'pglite', remote_mcp: { mcp_url: 'x' } }),
+      artifactsSyncLine({ type: 'http', url: 'http://127.0.0.1:3131/mcp' }, { ...PG, remote_mcp: { mcp_url: 'x' } }),
     ).toMatch(/^ARTIFACTS_SYNC: remote-mode \(managed by brain server 127\.0\.0\.1\)$/);
   });
 
   test('non-loopback http entry stays remote-mode', () => {
-    expect(artifactsSyncLine({ type: 'http', url: 'https://brain.example.com/mcp' }, { engine: 'pglite' })).toMatch(
+    expect(artifactsSyncLine({ type: 'http', url: 'https://brain.example.com/mcp' }, PG)).toMatch(
       /^ARTIFACTS_SYNC: remote-mode \(managed by brain server brain\.example\.com\)$/,
     );
   });

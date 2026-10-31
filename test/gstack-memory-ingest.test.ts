@@ -686,6 +686,7 @@ process.stdout.write(execFileSync(process.execPath, ['-e', 'process.stdout.write
   });
 
   describe("a loopback gbrain serve --http over the local engine is a local brain (#3539)", () => {
+    const PG = { engine: "postgres", database_url: "postgresql://u@localhost:5432/brain" };
     const loopback = { mcpServers: { gbrain: { type: "http", url: "http://127.0.0.1:3131/mcp", headers: { Authorization: "Bearer x" } } } };
     const remote = { mcpServers: { gbrain: { type: "http", url: "http://fixture.invalid/mcp" } } };
     function gbrainConfig(cfg: Record<string, unknown>): void {
@@ -710,7 +711,7 @@ process.stdout.write(execFileSync(process.execPath, ['-e', 'process.stdout.write
 
     it("imports through gbrain instead of staging for a brain admin", () => {
       scanner("clean");
-      gbrainConfig({ engine: "pglite", database_path: join(home, ".gbrain", "brain.pglite") });
+      gbrainConfig(PG);
       claudeJson(loopback);
       const path = attributed(source());
       const r = run([]);
@@ -723,8 +724,19 @@ process.stdout.write(execFileSync(process.execPath, ['-e', 'process.stdout.write
 
     it("keeps staging for a non-loopback URL even with a local engine", () => {
       scanner("clean");
-      gbrainConfig({ engine: "pglite" });
+      gbrainConfig(PG);
       claudeJson(remote);
+      const path = attributed(source());
+      expect(run([]).status).toBe(0);
+      expect(imported()).toEqual([]);
+      expect(outgoing()).toHaveLength(1);
+      expect(sessions()[path]).toMatchObject({ status: "staged", source_id: "remote-http" });
+    });
+
+    it("keeps staging for a loopback URL over a local PGLite (Path 4 split-engine through a tunnel)", () => {
+      scanner("clean");
+      gbrainConfig({ engine: "pglite", database_path: join(home, ".gbrain", "brain.pglite") });
+      claudeJson(loopback);
       const path = attributed(source());
       expect(run([]).status).toBe(0);
       expect(imported()).toEqual([]);
@@ -734,7 +746,7 @@ process.stdout.write(execFileSync(process.execPath, ['-e', 'process.stdout.write
 
     it("keeps staging for a loopback URL when gbrain's config carries remote_mcp", () => {
       scanner("clean");
-      gbrainConfig({ engine: "pglite", remote_mcp: { mcp_url: "http://127.0.0.1:3131/mcp" } });
+      gbrainConfig({ ...PG, remote_mcp: { mcp_url: "http://127.0.0.1:3131/mcp" } });
       claudeJson(loopback);
       const path = attributed(source());
       expect(run([]).status).toBe(0);
@@ -754,7 +766,7 @@ process.stdout.write(execFileSync(process.execPath, ['-e', 'process.stdout.write
         // Still remote: the staged page counts as unchanged, as before.
         expect(run(["--probe"]).stdout).toMatch(/Unchanged:\s+1/);
 
-        gbrainConfig({ engine: "pglite" });
+        gbrainConfig(PG);
         claudeJson(local);
         const probe = run(["--probe"]);
         expect(probe.stdout).toMatch(/New \(never ingested\):\s+1/);

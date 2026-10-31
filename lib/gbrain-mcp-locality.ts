@@ -10,9 +10,13 @@
  * staged pages.
  *
  * Rule: an HTTP entry is LOCAL when its URL is http(s) on a loopback host AND
- * this machine's gbrain config has an engine (`engine: "pglite"` or a
- * `database_url`) and no `remote_mcp` thin-client marker. Every other HTTP
- * entry stays remote, as before. stdio entries are local, as before. Any
+ * this machine's gbrain config names a Postgres engine (a `database_url`,
+ * engine not `pglite`) and no `remote_mcp` thin-client marker. Every other
+ * HTTP entry stays remote, as before. A PGLite config does not count: Path 4's
+ * split-engine setup pairs a remote brain with a local PGLite for code search,
+ * and a remote brain reached through a tunnel on a loopback port must stay
+ * remote there; a PGLite brain held open by a resident serve is engine-locked
+ * for imports anyway. stdio entries are local, as before. Any
  * other URL scheme (ws:, file:) stays remote. The marker test is gbrain's own
  * isThinClient() truthiness (`!!remote_mcp`), so `remote_mcp: 0` or `""` is
  * not a marker.
@@ -64,10 +68,11 @@ export function isLoopbackMcpUrl(url: string | undefined | null): boolean {
 
 /**
  * This machine's gbrain config (gbrainConfigDir()/config.json, honoring
- * GBRAIN_HOME) names a local engine and carries no remote_mcp marker
- * (truthy, as in gbrain's isThinClient).
+ * GBRAIN_HOME) names a Postgres engine (a non-blank database_url, engine not
+ * pglite) and carries no remote_mcp marker (truthy, as in gbrain's
+ * isThinClient).
  */
-export function hasLocalGbrainEngine(env: NodeJS.ProcessEnv = process.env): boolean {
+export function hasLocalPostgresEngine(env: NodeJS.ProcessEnv = process.env): boolean {
   try {
     const cfg = JSON.parse(readFileSync(join(gbrainConfigDir(env), "config.json"), "utf-8")) as {
       engine?: unknown;
@@ -76,16 +81,15 @@ export function hasLocalGbrainEngine(env: NodeJS.ProcessEnv = process.env): bool
     } | null;
     if (!cfg || typeof cfg !== "object") return false;
     if (cfg.remote_mcp) return false;
-    if (cfg.engine === "pglite") return true;
-    return typeof cfg.database_url === "string" && cfg.database_url.trim() !== "";
+    return cfg.engine !== "pglite" && typeof cfg.database_url === "string" && cfg.database_url.trim() !== "";
   } catch {
     return false;
   }
 }
 
-/** An HTTP MCP URL that reaches this machine's own gbrain engine. */
+/** An HTTP MCP URL that reaches this machine's own Postgres gbrain engine. */
 export function isLocalHttpGbrain(url: string | undefined | null, env: NodeJS.ProcessEnv = process.env): boolean {
-  return isLoopbackMcpUrl(url) && hasLocalGbrainEngine(env);
+  return isLoopbackMcpUrl(url) && hasLocalPostgresEngine(env);
 }
 
 /**

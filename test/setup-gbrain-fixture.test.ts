@@ -114,7 +114,7 @@ describe('setup-gbrain owned Path 4 fixture', () => {
           expect(registration.exitCode).toBe(0);
           const after = await command(detectPath, [], env);
           expect(after.exitCode).toBe(0);
-          expect(JSON.parse(after.stdout).gbrain_mcp_mode).toBe('local-stdio');
+          expect(JSON.parse(after.stdout).gbrain_mcp_mode).toBe('remote-http');
           expect(JSON.parse(after.stdout).gbrain_engine).toBe('pglite');
           expect(JSON.parse(after.stdout).gbrain_local_status).toBe('ok');
           expect((await command(path.join(fixture.bin, 'claude'), ['mcp', 'remove', 'gbrain'], env)).exitCode).toBe(0);

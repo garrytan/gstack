@@ -397,9 +397,9 @@ if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ] && grep -q '"gbr
   case "$_GBRAIN_MCP_TYPE" in
     url|http|sse)
       _GBRAIN_MCP_MODE="remote-http"
-      # #3539: a loopback URL whose local gbrain config has an engine and no
-      # remote_mcp marker is this machine's own `gbrain serve --http`, not a
-      # remote brain. A conservative subset of lib/gbrain-mcp-locality.ts, not
+      # #3539: a loopback URL whose local gbrain config names a Postgres
+      # engine (a database_url, engine not pglite) and no remote_mcp marker is
+      # this machine's own `gbrain serve --http`, not a remote brain. A conservative subset of lib/gbrain-mcp-locality.ts, not
       # an exact mirror: the URL test accepts only canonical loopback
       # spellings (localhost, 127.a.b.c with valid decimal octets, [::1], a
       # valid port), so other spellings stay remote here. It lowercases with
@@ -408,11 +408,12 @@ if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ] && grep -q '"gbr
       # regex rejects userinfo. The config test
       # matches the TS one: remote_mcp is a marker when JS-truthy, as in
       # gbrain's isThinClient (null, false, 0 and "" are not), and
-      # database_url counts when non-blank after JS trim(). GBRAIN_HOME is the
+      # database_url counts when non-blank after JS trim() and engine is not
+      # pglite. GBRAIN_HOME is the
       # parent of .gbrain, as in gbrainConfigDir. test/gbrain-mcp-locality.test.ts
       # runs both programs below against the TS rule.
       if printf '%s' "$_GBRAIN_MCP_ENTRY" | jq -e '(.url // "") | ascii_downcase | (contains("${") | not) and test("\\Ahttps?://(localhost|127(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}|\\[::1\\])(:([0-9]{0,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?([/?#]|\\z)")' >/dev/null 2>&1 \
-        && jq -e '((.remote_mcp // false) | . == false or . == 0 or . == "") and (.engine == "pglite" or ((.database_url // "") | (type == "string" and test("[^\\s\\x{feff}]|\\x{0085}"))))' \
+        && jq -e '((.remote_mcp // false) | . == false or . == 0 or . == "") and .engine != "pglite" and ((.database_url // "") | (type == "string" and test("[^\\s\\x{feff}]|\\x{0085}")))' \
           "${GBRAIN_HOME:-$HOME}/.gbrain/config.json" >/dev/null 2>&1; then
         _GBRAIN_MCP_MODE="local-stdio"
       fi

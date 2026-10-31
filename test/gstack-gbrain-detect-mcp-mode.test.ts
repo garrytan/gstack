@@ -273,7 +273,10 @@ describe('gbrain_mcp_mode — loopback serve --http over a local engine (#3539)'
   const LOOPBACK = 'http://127.0.0.1:3131/mcp';
   function localEngine(extra: Record<string, unknown> = {}, dir = tmpHome): void {
     fs.mkdirSync(path.join(dir, '.gbrain'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.gbrain', 'config.json'), JSON.stringify({ engine: 'pglite', ...extra }));
+    fs.writeFileSync(
+      path.join(dir, '.gbrain', 'config.json'),
+      JSON.stringify({ engine: 'postgres', database_url: 'postgresql://u@localhost:5432/brain', ...extra }),
+    );
   }
 
   test('tier 1: loopback http entry + local engine → local-stdio', () => {
@@ -386,28 +389,42 @@ describe('gbrain_mcp_mode — loopback serve --http over a local engine (#3539)'
     expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
   });
 
-  // detect's two fields must agree: a loopback entry over a local engine that
-  // gbrain reports as locked (a live serve holding PGLite) is local-stdio +
-  // engine-locked, never local-stdio + thin-client.
-  test('mcp_mode and local_status agree for a loopback entry over a locked local engine', () => {
-    localEngine({ database_path: '/x/brain.pglite' });
-    fs.writeFileSync(path.join(tmpHome, '.claude.json'), JSON.stringify({ mcpServers: { gbrain: { type: 'http', url: LOOPBACK } } }));
+  // detect's two fields must agree for the same loopback entry: local-stdio
+  // never sits next to thin-client, and remote-http never next to a local
+  // engine's own failure.
+  function fakeGbrainSourcesFails(message: string): void {
     fs.writeFileSync(
       path.join(fakeBinDir, 'gbrain'),
       [
         '#!/bin/bash',
         'case "$1" in',
         '  --version|version) echo "gbrain 0.60.472.0"; exit 0 ;;',
-        '  sources) echo "GBrain\'s local database is already open through `gbrain serve` (MCP, PID 4242). This brain uses PGLite" >&2; exit 1 ;;',
+        `  sources) echo "${message}" >&2; exit 1 ;;`,
         '  *) exit 0 ;;',
         'esac',
         '',
       ].join('\n'),
       { mode: 0o755 },
     );
+  }
+
+  test('a loopback entry over a locked local PGLite reads remote-http + thin-client (Path 4 split-engine)', () => {
+    fs.mkdirSync(path.join(tmpHome, '.gbrain'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, '.gbrain', 'config.json'), JSON.stringify({ engine: 'pglite', database_path: '/x/brain.pglite' }));
+    fs.writeFileSync(path.join(tmpHome, '.claude.json'), JSON.stringify({ mcpServers: { gbrain: { type: 'http', url: LOOPBACK } } }));
+    fakeGbrainSourcesFails("GBrain's local database is already open through gbrain serve (MCP, PID 4242). This brain uses PGLite");
+    const { json } = runDetect();
+    expect(json.gbrain_mcp_mode).toBe('remote-http');
+    expect(json.gbrain_local_status).toBe('thin-client');
+  });
+
+  test('a loopback entry over a failing local Postgres stays local-stdio and keeps its own status', () => {
+    localEngine();
+    fs.writeFileSync(path.join(tmpHome, '.claude.json'), JSON.stringify({ mcpServers: { gbrain: { type: 'http', url: LOOPBACK } } }));
+    fakeGbrainSourcesFails('error: connect ECONNREFUSED 127.0.0.1:5432');
     const { json } = runDetect();
     expect(json.gbrain_mcp_mode).toBe('local-stdio');
-    expect(json.gbrain_local_status).toBe('engine-locked');
+    expect(json.gbrain_local_status).not.toBe('thin-client');
   });
 });
 
