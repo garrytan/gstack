@@ -231,7 +231,7 @@ with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open
 logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--reviewed-numbers <fp>`,
 `--depth-floor <d>` when given), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
 its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4.
-`scoped` is 3 too. Its pass prints the plan's fix-check as `FIX_CHECK:`, outside the manifest: run it as 3.5 beside the pass. A full pass 1 always gets a full pass 2.
+`scoped` is 3 too. A full pass 1 always gets a full pass 2.
 Other scopes apply decisions 2–4 in order.
 
 1. **Dispatched reviewer output missing:** STOP and name each failed specialist or
