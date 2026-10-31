@@ -1,0 +1,71 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-tasks — a plan review's task list across reruns (G2, #1791).
+ *
+ *   gstack-tasks prior --phase <p> --branch <b> --dir <tasks dir> [--json]
+ *   gstack-tasks supersede --phase <p> --branch <b> --dir <tasks dir> --keep <new list> [--json]
+ *
+ * Logic: lib/tasks-prior.ts. Codes: lib/result-codes.ts (TASKS_SUPERSEDE_REFUSED).
+ */
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { resultLine } from '../lib/result-codes';
+import { SupersedeRefused, TASK_PHASES, finishPending, priorSet, readTaskFiles, supersede, type TaskPhase } from '../lib/tasks-prior';
+
+const HELP = `gstack-tasks — a plan review's task list across reruns
+
+  prior --phase <p> --branch <b> --dir <d> [--json]               the newest earlier list for this phase and branch
+  supersede --phase <p> --branch <b> --dir <d> --keep <file> [--json]
+                                                                  move the reconciled earlier lists out of the aggregate
+
+Phases: ${TASK_PHASES.join(', ')}. --branch is the raw git branch the rows carry; --dir the project's tasks directory.
+prior prints \`PRIOR_TASKS: none\` or \`PRIOR_TASKS: <file> run=<run_id> tasks=<n>\` and then one JSON row per task;
+\`PRIOR_TASKS_MALFORMED: <file>:<line>\` goes to stderr for a line that is not a JSON object (skipped, never edited).
+supersede renames each earlier tasks-<p>-*.jsonl whose rows are all this branch and not newer than --keep to
+superseded-<name> and prints \`SUPERSEDED: <file>\` or \`KEPT: <file> (<reason>)\`; --keep must validate first.
+${exitTableHelp()}`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+function usage(message: string): number {
+  process.stderr.write(`gstack-tasks: ${message}\n${HELP}\n`);
+  return EXIT.usage;
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  const phase = flag(rest, '--phase') as TaskPhase | undefined;
+  if (!phase || !TASK_PHASES.includes(phase)) return usage(`--phase must be one of ${TASK_PHASES.join(', ')}`);
+  const branch = flag(rest, '--branch');
+  const dir = flag(rest, '--dir');
+  if (!branch || !dir) return usage('--branch and --dir are required');
+  const json = rest.includes('--json');
+  if (cmd === 'prior') {
+    finishPending(dir, phase);
+    const files = readTaskFiles(dir, phase);
+    for (const f of files) for (const n of f.malformed) process.stderr.write(`PRIOR_TASKS_MALFORMED: ${f.file}:${n}\n`);
+    const prior = priorSet(files, phase, branch);
+    if (json) process.stdout.write(JSON.stringify(prior ?? { file: null, run_id: null, rows: [] }) + '\n');
+    else process.stdout.write([prior ? `PRIOR_TASKS: ${prior.file} run=${prior.run_id} tasks=${prior.rows.length}` : 'PRIOR_TASKS: none', ...(prior?.rows ?? []).map(r => JSON.stringify(r))].join('\n') + '\n');
+    return EXIT.ok;
+  }
+  if (cmd === 'supersede') {
+    const keep = flag(rest, '--keep');
+    if (!keep) return usage('supersede needs --keep <the list this run wrote>');
+    try {
+      const r = supersede(dir, phase, branch, keep);
+      if (json) process.stdout.write(JSON.stringify(r) + '\n');
+      else process.stdout.write([...r.moved.map(f => `SUPERSEDED: ${f}`), ...r.skipped.map(s => `KEPT: ${s.file} (${s.reason})`)].join('\n') + (r.moved.length || r.skipped.length ? '\n' : ''));
+      return EXIT.ok;
+    } catch (e) {
+      if (!(e instanceof SupersedeRefused)) throw e;
+      process.stderr.write(resultLine('gstack-tasks supersede', 'TASKS_SUPERSEDE_REFUSED', e.message) + '\n');
+      return EXIT.refused;
+    }
+  }
+  return usage(`unknown command ${cmd}`);
+}
+
+process.exitCode = main(process.argv.slice(2));

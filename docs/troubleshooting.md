@@ -3242,6 +3242,17 @@ runs a shell, closes stdin and stops after 10 seconds.
 **Fix.** Nothing to repair. The claim stays unverified, not disproved; check it
 from the command's source or docs in the repository instead.
 
+<a id="tasks-supersede-refused"></a>
+### `TASKS_SUPERSEDE_REFUSED`
+
+**Meaning.** A plan review reran on a branch and called `gstack-tasks
+supersede` to retire the earlier task list, but the new list (`--keep`) is
+missing, outside the tasks directory, has a malformed line, or holds a row for
+another phase or branch. Nothing was moved, so both lists stay live.
+
+**Fix.** Write the new list with one `jq -nc` row per task, each with this
+phase and the raw git branch, and rerun the command with `--keep` naming it.
+
 <a id="reality-receipt-unresolved"></a>
 ### `REALITY_RECEIPT_UNRESOLVED`
 

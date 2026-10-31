@@ -32,6 +32,17 @@ empty JSONL files array. Each task needs a concrete verification step.` : `Befor
 build-actionable tasks. Each task derives from a specific finding — no padding.`}
 ${conditionalWrites ? `Always emit the markdown section. Write its JSONL artifact for \`/autoplan\` only when the ${storagePolicy} permits it; otherwise label the complete task output not persisted and do not claim an aggregation artifact exists.` : 'Emit the markdown section AND write a JSONL artifact that `/autoplan` can\naggregate across phases.'}
 
+### Earlier lists on this branch
+
+A rerun reconciles the last list instead of writing a second one. Before listing tasks, run:
+
+\`\`\`bash
+GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "\${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+~/.claude/skills/gstack/bin/gstack-tasks prior --phase ${phase} --branch "$(git branch --show-current)" --dir "$GSTACK_STATE_ROOT/projects/$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null || echo unknown)"
+\`\`\`
+
+Reconcile every task it prints: still needed, list it again with \`CARRIED_FROM=<run_id>/<id>\`; shipped, a \`done\` disposition naming the commit; no longer wanted, \`dropped\` with the reason. \`PRIOR_TASKS: none\` means a first run.
+
 ### Markdown section (always emit)
 
 \`\`\`markdown
@@ -61,9 +72,12 @@ backslashes serialize cleanly — never use hand-rolled \`echo\` / \`printf\`.
 \`\`\`bash
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "\${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
+BRANCH=$(~/.claude/skills/gstack/bin/gstack-slug --get BRANCH 2>/dev/null)
 TASKS_DIR="$GSTACK_STATE_ROOT/projects/\${SLUG:-unknown}"
 mkdir -p "$TASKS_DIR"
-TASKS_FILE="$TASKS_DIR/tasks-${phase}-$(date +%Y%m%d-%H%M%S).jsonl"
+TS=$(date +%Y%m%d-%H%M%S)
+TASKS_FILE="$TASKS_DIR/tasks-${phase}-\${BRANCH:-unknown}-$TS.jsonl"
+DISPOSITIONS_FILE="$TASKS_DIR/task-dispositions-${phase}-\${BRANCH:-unknown}-$TS.jsonl"
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
 # The task record keeps the raw git branch; artifact filenames keep gstack-slug's sanitized BRANCH.
 GIT_BRANCH=$(git branch --show-current 2>/dev/null || echo unknown)
@@ -73,7 +87,7 @@ RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 # Substitute the placeholders inline with shell variables you set per task:
 #   TASK_ID (T1, T2, ...), PRIORITY (P1/P2/P3), COMPONENT, TITLE,
 #   SOURCE_FINDING, EFFORT_HUMAN, EFFORT_CC, FILES_JSON (a JSON array literal
-#   like '["browse/src/sanitize.ts","browse/src/server.ts"]').
+#   like '["browse/src/sanitize.ts","browse/src/server.ts"]'), CARRIED_FROM (empty unless carried).
 jq -nc \\
   --arg phase '${phase}' \\
   --arg run_id "$RUN_ID" \\
@@ -87,8 +101,13 @@ jq -nc \\
   --arg title "$TITLE" \\
   --arg source_finding "$SOURCE_FINDING" \\
   --argjson files "$FILES_JSON" \\
-  '{phase:$phase, run_id:$run_id, branch:$branch, commit:$commit, id:$id, priority:$priority, component:$component, files:$files, effort_human:$effort_human, effort_cc:$effort_cc, title:$title, source_finding:$source_finding}' \\
+  --arg carried_from "\${CARRIED_FROM:-}" \\
+  '{phase:$phase, run_id:$run_id, branch:$branch, commit:$commit, id:$id, priority:$priority, component:$component, files:$files, effort_human:$effort_human, effort_cc:$effort_cc, title:$title, source_finding:$source_finding, carried_from:(if $carried_from == "" then null else $carried_from end)}' \\
   >> "$TASKS_FILE"
+
+# One line per prior task closed: DISPOSITION done|dropped, PRIOR_ID <run_id>/<id>, REASON (the commit, or why).
+jq -nc --arg phase '${phase}' --arg run_id "$RUN_ID" --arg branch "$GIT_BRANCH" --arg prior "$PRIOR_ID" --arg disposition "$DISPOSITION" --arg reason "$REASON" \\
+  '{phase:$phase, run_id:$run_id, branch:$branch, prior:$prior, disposition:$disposition, reason:$reason}' >> "$DISPOSITIONS_FILE"
 \`\`\`
 
 If \`jq\` is not installed, fall back to skipping the JSONL write and warn
@@ -97,6 +116,8 @@ the user to install jq for autoplan aggregation. Never hand-roll JSONL.
 ${conditionalWrites ? 'When writes are permitted and zero tasks were identified, touch the JSONL file' : 'If zero tasks were identified in this review, still touch the JSONL file'}
 (\`: > "$TASKS_FILE"\`) so the aggregator sees that the phase produced output
 this run (an empty file means "ran, no findings" — distinct from "didn't run").
+Last, retire the earlier lists so only this one aggregates:
+\`~/.claude/skills/gstack/bin/gstack-tasks supersede --phase ${phase} --branch "$GIT_BRANCH" --dir "$TASKS_DIR" --keep "$TASKS_FILE"\`.
 `;
 };
 

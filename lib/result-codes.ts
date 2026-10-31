@@ -348,6 +348,11 @@ export const RESULT_CODES = {
     summary: 'the office-hours spec reviewer asked to run `--help` for a command outside the probe allowlist',
     fix: 'leave the claim unverified and check it from source (Read or Grep in the repository); only gstack bins and the listed read-only CLIs on PATH, outside the repository, can be probed',
   },
+  TASKS_SUPERSEDE_REFUSED: {
+    anchor: 'tasks-supersede-refused',
+    summary: 'gstack-tasks supersede refused because the new task list did not validate, so no earlier list was moved',
+    fix: 'write the new list with one jq row per task, each carrying this phase and the raw git branch, then rerun supersede with --keep naming it',
+  },
   REALITY_RECEIPT_UNRESOLVED: {
     anchor: 'reality-receipt-unresolved',
     summary: 'a `REALITY:` receipt names a file the checkout does not have, or a line past its end',
