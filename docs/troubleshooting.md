@@ -3488,8 +3488,9 @@ this obligation; a `test_backend/<backend>` obligation takes a run URL, recorded
 as attested rather than validated.
 
 `gstack-pregate clear --run <id|url>` refusals use this code too: the line
-starts `REUSE: refused reason=<code>`, and the GitHub Actions runs offered
-did not verify against the base branch's `run_profiles`. Each reason code and
+reads `gstack-pregate clear: receipt refused — REUSE: refused reason=<code> —
+…`, and the GitHub Actions runs offered did not verify against the base
+branch's `run_profiles`. Each reason code and
 what it checks is listed in [run evidence](pregate.md#run-evidence).
 
 Another tree is accepted in exactly one case: it differs from `pregate.json`'s

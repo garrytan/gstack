@@ -17,7 +17,7 @@
  *   record, records the tree git computes for the head, and holds well-formed
  *   files (a list of paths) and tests (a non-negative integer); no run of the
  *   same workflow on that head, or on any other head the consumer names, that
- *   started after this run was created failed, was cancelled or is still
+ *   started at or after this run was created failed, was cancelled or is still
  *   running (a red re-run of an older run counts, and re-running this run does
  *   not hide a failure in between); it finished within the profile's
  *   max_age_hours (default 24); its runner OS matches when the profile names
@@ -119,7 +119,7 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
 }
 
 const fail = (reason: RunRefusal, detail: string): RunVerdict => ({ ok: false, reason, detail });
-/** When a run's newest attempt started. A run vetoes the candidate when it started after the candidate was created: a red re-run of an older run counts, and re-running the candidate does not hide a failure in between. */
+/** When a run's newest attempt started. A run vetoes the candidate when it started at or after the second the candidate was created: a red re-run of an older run counts, and re-running the candidate does not hide a failure in between. */
 const started = (r: ApiRun): string => r.run_started_at ?? r.created_at ?? '';
 const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
 

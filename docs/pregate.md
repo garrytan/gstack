@@ -663,9 +663,10 @@ once:
   the run's head commit. `files` is a list of paths and `tests` a
   non-negative integer when present; without `tests` the file count stands in.
 - No run of the same workflow on that head, or on pregate.json's own head,
-  whose newest attempt started after this run was created failed, was
-  cancelled or is still running (`run_started_at`, so a red re-run of an older
-  run counts, and re-running this run does not hide a failure in between).
+  whose newest attempt started at or after the second this run was created
+  failed, was cancelled or is still running (`run_started_at`, so a red re-run
+  of an older run counts, a run started in the same second counts, and
+  re-running this run does not hide a failure in between).
 - The run finished within `max_age_hours` (its jobs' latest `completed_at`,
   else the run's `updated_at`), and on the profile's OS when it names one.
   Re-running only the failed jobs refuses (`artifact_mismatch`) unless the job
