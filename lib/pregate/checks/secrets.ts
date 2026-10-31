@@ -58,7 +58,8 @@ const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
  * untracked files, grouped by file so gstack-redact can use each file's type
  * (#3211). A tracked Dart or Python file is passed whole with `keep`, its
  * added line numbers, so the scanner sees the strings an added line sits in
- * and only findings on those lines count (#3630). External diff and textconv
+ * and only findings on those lines count (#3630); one too large or unreadable
+ * to read whole is scanned under a neutral name, without that exemption. External diff and textconv
  * drivers are off: either can empty or rewrite the diff, and an empty diff
  * reads as clean.
  */
@@ -96,7 +97,7 @@ function run(ctx: PregateContext): CheckResult {
     let medium = false;
     let parsedAll = true;
     for (const [i, part] of parts.entries()) {
-      const file = path.join(tmp, String(i), path.basename(part.file) || 'added.txt');
+      const file = path.join(tmp, String(i), (!part.keep && LEXICAL_CONTEXT_SOURCE.test(part.file) ? '' : path.basename(part.file)) || 'added.txt');
       fs.mkdirSync(path.dirname(file), { mode: 0o700 });
       fs.writeFileSync(file, part.text, { mode: 0o600 });
       const r = runScriptSync(path.join(BIN_DIR, 'gstack-redact'), ['--from-file', file, '--json', '--max-bytes', String(64 * 1024 * 1024)], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: Math.min(ctx.timeoutMs, 300_000), maxBuffer: 64 * 1024 * 1024, env: ctx.env });

@@ -296,6 +296,8 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       ["key={workout.id ?? index}", "src/SessionList.jsx"],
       ["key={item.uuid || item.slug}", "src/List.tsx"],
       ["key={row.ready && row.id}", "src/Grid.tsx"],
+      // Quotes that close before the name leave it code.
+      ["    login('it\\'s', password: request.password);", "lib/a.dart"], ['    "user": "a", "password": request.password,', "app.py"],
       // The triple-quote guard is Dart/Python only: a stray ''' in a TS string leaves #3048 as it was.
       ["const s = \"'''\";\n  session: SessionState,", "src/a.ts"],
     ] as const) expect({ code, file, kv: kv(code, file) }).toEqual({ code, file, kv: false });
@@ -321,6 +323,12 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`  apiToken: AuthToken = "${v}";`, "src/a.ts"], [`  apiToken: AuthToken = '${v}',`, "lib/a.dart"],
       // An escaped delimiter does not close the block.
       [`CONFIG = """\n\\"""\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
+      // A delimiter in a comment or a one-line string opens nothing, so the block after it is still a block.
+      [`# don't use """ here\nCONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
+      [`DELIM = '"""'\nCONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
+      [`// no ''' here\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      // A key and value inside one quoted string are text, not a dict entry.
+      [`    'password: ${vIdent} more',`, "lib/a.dart"], [`    "password: ${vIdent} more",`, "app.py"],
     ] as const) expect({ literal, file, kv: kv(literal, file) }).toEqual({ literal, file, kv: true });
   });
   test("env.kv's source-syntax check stays linear on a match-dense file (#3630)", () => {

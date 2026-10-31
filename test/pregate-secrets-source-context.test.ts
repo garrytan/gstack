@@ -86,6 +86,18 @@ describe('pregate secrets: source context and diff integrity', () => {
     }
   });
 
+  test('a Python file too large to read whole has its added lines scanned without the source exemption (#3630)', () => {
+    const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
+    const base = `CONFIG = """\nhost: db\n"""\n${'# pad\n'.repeat(800_000)}`;
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': base } });
+    try {
+      commit(fx, { 'app.py': base.replace('host: db\n', `host: db\npassword: ${token}\n`) });
+      const r = runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']);
+      const check = JSON.parse(r.out).checks.find((c: { id: string }) => c.id === 'secrets');
+      expect({ status: check.status, kv: (check.lines as string[]).some((l) => l.includes('env.kv') && l.includes('app.py')) }).toEqual({ status: 'fail', kv: true });
+    } finally { cleanup(fx); }
+  });
+
   test('the same assignment in a .env file still fails, naming the file', () => {
     const f = repo({ 'deploy.env': 'API_TOKEN=8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ\n' });
     const r = f.secrets();

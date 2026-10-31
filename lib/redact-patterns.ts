@@ -690,33 +690,47 @@ const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s
  * #3418: a `password:` line in a Dart or Python `'''`/`"""` block is a literal
  * in an embedded config, so the name exemption must not reach it. The open
  * spans of every such block are computed once per input (a scan validates
- * many candidates against the same text), tracking which delimiter opened so
- * a `'''` inside a `"""` block is content, and a backslash escapes the next
- * character so `\"""` does not close a block. pregate hands these files to
- * the scanner whole, so a line added inside an existing block sees its opener.
+ * many candidates against the same text). Outside a block, a one-line string
+ * and a comment (`#` in Python, `//` in Dart) are skipped, so a delimiter
+ * inside one never opens a block; inside a block, only the delimiter that
+ * opened it closes it, and a backslash escapes the next character. The
+ * exemption needs the whole file to see an opener: pregate passes these files
+ * whole, and the pre-push hook, which scans added lines alone, passes them
+ * without their path.
  */
 const TRIPLE_QUOTED_SOURCE = /\.(?:dart|pyi?)$/i;
-let tripleSpansCache: { text: string; spans: Array<[number, number]> } | null = null;
+let tripleSpansCache: { text: string; comment: string; spans: Array<[number, number]> } | null = null;
 
-function tripleQuotedSpans(text: string): Array<[number, number]> {
-  if (tripleSpansCache?.text === text) return tripleSpansCache.spans;
+function tripleQuotedSpans(text: string, comment: string): Array<[number, number]> {
+  if (tripleSpansCache?.text === text && tripleSpansCache.comment === comment) return tripleSpansCache.spans;
   const spans: Array<[number, number]> = [];
   let open: string | null = null;
   let from = 0;
   for (let i = 0; i < text.length; ) {
-    if (open !== null && text[i] === "\\") { i += 2; continue; }
-    const delimiter: string | null = open ?? (text.startsWith('"""', i) ? '"""' : text.startsWith("'''", i) ? "'''" : null);
-    if (delimiter === null || !text.startsWith(delimiter, i)) { i += 1; continue; }
-    if (open === null) { open = delimiter; from = i + 3; } else { spans.push([from, i]); open = null; }
-    i += 3;
+    if (open !== null) {
+      if (text[i] === "\\") { i += 2; continue; }
+      if (text.startsWith(open, i)) { spans.push([from, i]); open = null; i += 3; continue; }
+      i += 1;
+      continue;
+    }
+    if (text.startsWith('"""', i) || text.startsWith("'''", i)) { open = text.slice(i, i + 3); from = i + 3; i += 3; continue; }
+    if (text.startsWith(comment, i)) { const eol = text.indexOf("\n", i); i = eol < 0 ? text.length : eol; continue; }
+    if (text[i] === '"' || text[i] === "'") {
+      const quote = text[i];
+      let j = i + 1;
+      while (j < text.length && text[j] !== quote && text[j] !== "\n") j += text[j] === "\\" ? 2 : 1;
+      i = j + 1;
+      continue;
+    }
+    i += 1;
   }
   if (open !== null) spans.push([from, text.length]);
-  tripleSpansCache = { text, spans };
+  tripleSpansCache = { text, comment, spans };
   return spans;
 }
 
-function insideTripleQuotedString(text: string, offset: number): boolean {
-  const spans = tripleQuotedSpans(text);
+function insideTripleQuotedString(text: string, offset: number, comment: string): boolean {
+  const spans = tripleQuotedSpans(text, comment);
   let lo = 0;
   let hi = spans.length - 1;
   while (lo <= hi) {
@@ -726,6 +740,19 @@ function insideTripleQuotedString(text: string, offset: number): boolean {
     else return true;
   }
   return false;
+}
+
+function insideOneLineString(text: string, offset: number, comment: string): boolean {
+  let open: string | null = null;
+  for (let i = text.lastIndexOf("\n", offset - 1) + 1; i < offset; i += 1) {
+    const c = text[i]!;
+    if (open !== null) {
+      if (c === "\\") i += 1;
+      else if (c === open) open = null;
+    } else if (text.startsWith(comment, i)) return false;
+    else if (c === '"' || c === "'" || c === "`") open = c;
+  }
+  return open !== null;
 }
 
 function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
@@ -739,12 +766,14 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
     if (close < 0 || /["'`]/.test(line.slice(0, close))) return false;
     if (!line.slice(0, close).split(/\+|\?\?|\|\||&&/).every(term => CODE_NAME_CHAIN.test(term.trim()))) return false;
   } else {
-    const separator = match[0].slice(0, match[0].length - span.length).trimEnd().slice(-1);
+    const head = match[0].slice(0, match[0].length - span.length).trimEnd();
+    const separator = head.slice(-1);
     if (separator !== ":" || !CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return false;
+    if (insideOneLineString(match.input, start, /\.pyi?$/i.test(sourcePath) ? "#" : "//")) return false;
     const rest = (span.endsWith("=") ? "=" : "") + match.input.slice(end).split("\n", 1)[0];
     if (/^\s*=/.test(rest) && carriesSecretLiteral(rest)) return false;
   }
-  return !(TRIPLE_QUOTED_SOURCE.test(sourcePath) && insideTripleQuotedString(match.input, start));
+  return !(TRIPLE_QUOTED_SOURCE.test(sourcePath) && insideTripleQuotedString(match.input, start, /\.dart$/i.test(sourcePath) ? "//" : "#"));
 }
 
 export const PATTERNS: RedactPattern[] = [
