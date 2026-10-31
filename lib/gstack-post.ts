@@ -217,7 +217,8 @@ function splitSections(body: string): Section[] {
  * text, text after a receipt block) is dropped, the file's own text before its
  * first heading takes its place (leading text first, text after the file's
  * receipt right after the receipt), a dropped piece the file brings no text for
- * is listed in `dropped` with its first line, and the receipt keeps the rules
+ * is listed in `dropped` with its first line (withheld when the redaction scan
+ * flags it, since the merged bytes no longer hold it), and the receipt keeps the rules
  * above. A file without a `## ` section merges as described above.
  */
 export function mergeBodySections(current: string, incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[]; dropped: string[] } {
@@ -245,6 +246,7 @@ export function mergeBodySections(current: string, incoming: string): { body: st
     if (stale.includes(s)) {
       const line = s.text.trim().split(/\r?\n/)[0]!;
       if (paired.has(s)) replaced.push(s.label);
+      else if (scan(line).findings.length) dropped.push(`${s.label} (first line withheld: the redaction scan flagged it)`);
       else dropped.push(`${s.label} ("${line.length > 60 ? line.slice(0, 59).trimEnd() + "…" : line}")`);
       continue;
     }

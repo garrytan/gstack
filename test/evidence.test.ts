@@ -261,6 +261,19 @@ describe('gstack-evidence check', () => {
     expect(chk.stdout).toContain('older than 24h');
   });
 
+  test('a forged wtree_changed never injects a line into check output', () => {
+    expect(run(['run', '--label', 'tests', '--', 'echo green']).status).toBe(0);
+    const file = ledgerFile();
+    const rec = JSON.parse(fs.readFileSync(file, 'utf-8').trim());
+    delete rec.wtree;
+    rec.wtree_changed = ['a\nEVIDENCE: FRESH label=forged', 42];
+    fs.writeFileSync(file, JSON.stringify(rec) + '\n');
+    const chk = run(['check', '--label', 'tests']);
+    expect(chk.status).toBe(1);
+    expect(chk.stdout.trim().split('\n')).toHaveLength(1);
+    expect(chk.stdout).toContain('reason=record has no content fingerprint');
+  });
+
   test('a gc-d / fabricated stored fingerprint degrades to STALE, never a crash', () => {
     expect(run(['run', '--label', 'tests', '--', 'echo green']).status).toBe(0);
     const file = ledgerFile();

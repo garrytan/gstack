@@ -604,6 +604,7 @@ function cmdCheck(argv: string[]): number {
       continue;
     }
     const testsRan = typeof latest.tests_ran === "number" ? latest.tests_ran : "unknown";
+    const changedDuringRun = Array.isArray(latest.wtree_changed) ? latest.wtree_changed.filter((p): p is string => typeof p === "string" && p !== "" && !/[\u0000-\u001f\u007f]/.test(p)).slice(0, 5) : [];
     const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}`;
     let verdict: "FRESH" | "STALE" | "ZERO-RUN" = "FRESH";
     let reason = "";
@@ -636,8 +637,8 @@ function cmdCheck(argv: string[]): number {
         // forged/corrupt ledger line must degrade, never inject options.
         verdict = "STALE";
         reason = !latest.wtree
-          ? Array.isArray(latest.wtree_changed) && latest.wtree_changed.length
-            ? `content changed during the run: ${latest.wtree_changed.join(", ")}`
+          ? changedDuringRun.length
+            ? `content changed during the run: ${changedDuringRun.join(", ")}`
             : "record has no content fingerprint"
           : !/^[0-9a-f]{40}$/.test(latest.wtree)
             ? "record has malformed fingerprint"

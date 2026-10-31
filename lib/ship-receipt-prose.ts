@@ -35,7 +35,8 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
  * quote the owner's words (`one Step 11 pass`), not this PR's counters (GST-412). A heading inside a code fence is
  * not a heading, with the fence rules of splitSections in lib/gstack-post.ts (a fence closes only on a run of its own
  * character at least as long as the opener with nothing after it), and CRLF reads as LF. A heading not followed by
- * exactly that table and footer, and any text after the footer, stays prose.
+ * exactly that table and footer, a row the renderer would not write (six cells, a date first), and any text after
+ * the footer stay prose. A marker line takes the block's place so the text on either side never joins into a claim.
  */
 function withoutApprovalsBlocks(body: string): string {
   const lines = body.split(/(?<=\n)/);
@@ -44,7 +45,7 @@ function withoutApprovalsBlocks(body: string): string {
   const blockEnd = (heading: number): number | undefined => {
     let i = skipBlank(heading + 1);
     if (bare(i) !== APPROVALS_TABLE_HEADER || !/^\|(?:---\|)+$/.test(bare(i + 1))) return undefined;
-    for (i += 2; bare(i).startsWith('|'); i++);
+    for (i += 2; bare(i).startsWith('|'); i++) if (!/^\| \d{4}-\d{2}-\d{2} \|/.test(bare(i)) || bare(i).split(/(?<!\\)\|/).length !== 8) return undefined;
     i = skipBlank(i);
     return bare(i).startsWith('Source: gstack-approvals record for ') && bare(i).endsWith(APPROVALS_FOOTER_END) ? i : undefined;
   };
@@ -57,7 +58,7 @@ function withoutApprovalsBlocks(body: string): string {
     } else if (FENCE_OPEN.test(line)) fence = FENCE_OPEN.exec(line)![1]!;
     else if (/^ {0,3}## Approvals\s*$/.test(line)) {
       const end = blockEnd(i);
-      if (end !== undefined) { i = end; continue; }
+      if (end !== undefined) { out.push('(gstack-approvals block)\n'); i = end; continue; }
     }
     out.push(lines[i]!);
   }

@@ -469,6 +469,15 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(own.stderr()).toBe("gstack-post: pr-body merged by section: replaced leading text, ship receipt, trailing text, Why; kept none; added none\n");
   });
 
+  // Value: protects=the dropped-piece excerpt on stderr never repeats a secret the merge removed from the body (the scan only reads the merged bytes);
+  // fails_when=a stale intro holding a credential is echoed to stderr while it leaves the PR; why_new=the excerpt is new in GST-412; seam=fake run; no_claim=real gh
+  test("a dropped piece whose first line the redaction scan flags is named without its text", () => {
+    const leak = withBody(`Deploy key ${AWS} for the demo\n\n` + CURRENT, { "/b": RECEIPT("bbbb") + "\n## What changed\n\n- new\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], leak)).toBe(EXIT.posted);
+    expect(leak.stderr()).not.toContain(AWS);
+    expect(leak.stderr()).toContain("dropped leading text (first line withheld: the redaction scan flagged it)");
+  });
+
   test("receipt-only and text-only files keep the older merge; a repost is byte-identical; a callout in the preamble is never doubled", () => {
     const lead = "Human intro\n\n" + CURRENT;
     const receiptOnly = withBody(lead, { "/b": RECEIPT("bbbb") });

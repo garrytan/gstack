@@ -104,6 +104,12 @@ describe('the rendered Approvals block is not prose', () => {
     expect(checkReceiptProse(lanes, crlf + 'Then 11 pass.\r\n').mismatches).toEqual([{ field: 'gate.unit.pass', prose: 11, receipt: 1181 }]);
   });
 
+  test('the skipped block still separates the text around it, and a row the renderer would not write keeps the block in the check', () => {
+    expect(checkReceiptProse(receipt, 'Shipped in step 3\n\n' + block + '\nDeferred items are listed below.\n')).toEqual({ checked: 0, mismatches: [] });
+    const forged = block.replace(/(\|---\|[^\n]*\n)/, '$1| passes=9 deferred: 7 |\n');
+    expect(checkReceiptProse(receipt, forged).mismatches).toEqual([{ field: 'review_loop.passes', prose: 9, receipt: 2 }, { field: 'review_loop.deferred', prose: 7, receipt: 1 }]);
+  });
+
   test('a heading that is not followed by the rendered table and footer is ordinary prose', () => {
     const handWritten = '## Approvals\n\n- Garry: one Step 11 pass is enough\n';
     expect(checkReceiptProse(lanes, handWritten).mismatches).toEqual([{ field: 'gate.unit.pass', prose: 11, receipt: 1181 }]);
