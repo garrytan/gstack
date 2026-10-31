@@ -120,8 +120,8 @@ export function dartRunner(repoRoot: string, root: string, env: NodeJS.ProcessEn
 function pytestMissing(repoRoot: string, env: NodeJS.ProcessEnv): string | null {
   const python = Bun.which('python3', { PATH: env.PATH ?? '' });
   if (!python) return 'python3';
-  const r = spawnSync(python, ['-c', 'import importlib.util, sys; sys.exit(importlib.util.find_spec("pytest") is None)'], { cwd: repoRoot, env, stdio: 'ignore', timeout: 10_000 });
-  return r.status === 1 ? 'pytest' : null;
+  const r = spawnSync(python, ['-c', 'import importlib.util, sys; sys.exit(3 if importlib.util.find_spec("pytest") is None else 0)'], { cwd: repoRoot, env, stdio: 'ignore', timeout: 10_000 });
+  return r.status === 3 ? 'pytest' : null;
 }
 
 /**
@@ -174,8 +174,18 @@ function packageRunner(repoRoot: string, dir: string, env: NodeJS.ProcessEnv): {
   return { runner: `${PM_EXEC[pm]} ${tool} {files}` };
 }
 
-/** A JS/TS test that imports Playwright's runner at the start of a line (a string or a fixture body that mentions it mid-line, or an `import type`, does not count). */
-const PLAYWRIGHT_IMPORT = /^[\t ]*(?:import\b(?![\t ]+type\b)[^'"`\n]*?\bfrom|\}[\t ]*from|import|(?:const|let|var)\b[^=\n]*=[\t ]*require\()[\t ]*['"]@playwright\/test['"]/m;
+/**
+ * Whether a JS/TS test imports a value from Playwright's runner in a statement that starts a line: `import … from '@playwright/test'`
+ * (one line or several), a bare import, or `require`. A type-only import (`import type …`, or every specifier `type X`) and a string or
+ * fixture body that mentions the import mid-line do not count.
+ */
+function importsPlaywright(text: string): boolean {
+  if (/^[\t ]*(?:import[\t ]*|(?:const|let|var)\b[^=\n]*=[\t ]*require\([\t ]*)['"]@playwright\/test['"]/m.test(text)) return true;
+  for (const m of text.matchAll(/^[\t ]*import[\t ]+(type[\t ]+)?([^'"`;]*?)\s*\bfrom[\t ]*['"]@playwright\/test['"]/gm)) {
+    if (!m[1] && m[2]!.replace(/[{}]/g, '').split(',').some(s => s.trim() && !/^type\s/.test(s.trim()))) return true;
+  }
+  return false;
+}
 /** Playwright's own text when its browsers are not installed on this machine. */
 const PLAYWRIGHT_NO_BROWSERS = /^.*(?:Executable doesn't exist at|download new browsers).*$/m;
 
@@ -224,7 +234,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
       continue;
     }
     const pkg = /\.[cm]?[jt]sx?$/.test(f) ? nearestRoot(ctx.repoRoot, f, 'package.json', seenPackage) : null;
-    if (pkg !== null && PLAYWRIGHT_IMPORT.test(readRepoFile(ctx.repoRoot, f) ?? '')) { add(playwright, pkg, under(pkg, f)); continue; }
+    if (pkg !== null && importsPlaywright(readRepoFile(ctx.repoRoot, f) ?? '')) { add(playwright, pkg, under(pkg, f)); continue; }
     if (pkg) {
       if (!pkgRunners.has(pkg)) pkgRunners.set(pkg, packageRunner(ctx.repoRoot, pkg, ctx.env));
       const r = pkgRunners.get(pkg);
@@ -302,10 +312,10 @@ function parseCargo(output: string): RunnerSummary | null {
   return { ran: lines.reduce((n, m) => n + Number(m[1]), 0) + failed, failed };
 }
 
-/** playwright test: its `N failed`, `N interrupted`, `N flaky`, `N passed` and `N skipped` lines, each on its own line with test names between them; skipped tests did not run. */
+/** playwright test: the last `N failed`, `N interrupted`, `N flaky`, `N passed` and `N skipped` lines (its closing summary, with test names between them; a test's own output earlier does not count); skipped tests did not run. */
 function parsePlaywright(output: string): RunnerSummary | null {
   if (!/^\s*\d+ (?:passed|failed|flaky|interrupted|skipped)\b/m.test(output)) return null;
-  const count = (word: string) => Number(new RegExp(`^\\s*(\\d+) ${word}\\b`, 'm').exec(output)?.[1] ?? 0);
+  const count = (word: string) => Number([...output.matchAll(new RegExp(`^\\s*(\\d+) ${word}\\b`, 'gm'))].pop()?.[1] ?? 0);
   const failed = count('failed') + count('interrupted');
   return { ran: count('passed') + count('flaky') + failed, failed };
 }
@@ -334,7 +344,9 @@ interface LocalRun { exit: number | null; outcome: Supervised['outcome']; signal
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 
 async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup, files: string[], log: string, counter: Counter): Promise<LocalRun> {
-  const joined = files.map(quote).join(' ');
+  // playwright test reads each file argument as a case-insensitive regex: escape it and anchor it to a path segment, so `a[1].spec.ts` runs that file, not `a1.spec.ts`.
+  const args = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? files.map(f => `(?:^|/)${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : files;
+  const joined = args.map(quote).join(' ');
   const run = g.runner.replace('{files}', () => joined);
   const command = g.cwd ? `(cd ${quote(g.cwd)} && ${run})` : run;
   const shown = g.cwd ? files.map(f => `${g.cwd}/${f}`) : files;

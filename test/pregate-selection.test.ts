@@ -311,6 +311,8 @@ describe('literals (pure)', () => {
     expect(parseSummary('  137 passed (1.1m)', 'npx playwright test {files}')).toEqual({ ran: 137, failed: 0 });
     expect(parseSummary('  3 failed\n    [e2e] › a.spec.ts:9:1 › one\n  1 interrupted\n  2 did not run', 'npx playwright test {files}')).toEqual({ ran: 4, failed: 4 });
     expect(parseSummary('  5 skipped', 'npx playwright test {files}')).toEqual({ ran: 0, failed: 0 });
+    // A test's own output that looks like a count is not the summary: the last count lines are.
+    expect(parseSummary('  0 passed\n  1 failed\n    [e2e] › a.spec.ts:9:1 › one\n  4 passed (2.0s)', 'npx playwright test {files}')).toEqual({ ran: 5, failed: 1 });
     expect(parseSummary('ok')).toEqual({ ran: null, failed: null });
   });
   test('config: unknown keys, secrets in warn, a runner without {files} and an uncontained glob are PREGATE_CONFIG_INVALID', () => {
@@ -790,7 +792,7 @@ describe('nested JS packages run their own runner from their own directory', () 
     expect(planRuns(ctx, ['app/src/sum.test.ts']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] }]);
   });
 
-  /** `env` with a `python3` first on PATH whose `-c` probe exits `probeExit` (0: pytest importable, 1: not). */
+  /** `env` with a `python3` first on PATH whose `-c` probe exits `probeExit` (0: pytest importable, 3: not). */
   const withPython = (repo: FixtureRepo, env: { PATH: string; BASH_ENV: string }, probeExit: number) => {
     const dir = path.join(repo.root, `py-${probeExit}`);
     fs.mkdirSync(dir, { recursive: true });
@@ -813,7 +815,7 @@ describe('nested JS packages run their own runner from their own directory', () 
     expect(planRuns(ctx, ['scripts/doku-gate.test.mjs', 'test/run.bats'])).toEqual({ groups: [
       { runner: 'node --test {files}', cwd: '', files: ['scripts/doku-gate.test.mjs'] },
     ], unclaimed: ['test/run.bats'], missing: [], noPubspec: [] });
-    expect(planRuns(ctxFor(repo, withPython(repo, pmShim(repo), 1)), mixed)).toEqual({ groups: [
+    expect(planRuns(ctxFor(repo, withPython(repo, pmShim(repo), 3)), mixed)).toEqual({ groups: [
       { runner: 'node --test {files}', cwd: '', files: ['scripts/doku-gate.test.mjs', 'scripts/version-gate.test.mjs'] },
     ], unclaimed: ['scripts/test_assets.py'], missing: ['pytest'], noPubspec: [] });
   });
@@ -846,7 +848,7 @@ describe('nested JS packages run their own runner from their own directory', () 
     write(repo.work, 'package.json', JSON.stringify({ name: 'fixture', devDependencies: { vitest: '^3.2.0', '@playwright/test': '^1.48.0' } }) + '\n');
     write(repo.work, 'tests/e2e/home.spec.ts', "import { expect, test } from '@playwright/test';\ntest('home', async ({ page }) => expect(page).toBeTruthy());\n");
     write(repo.work, 'app/e2e/app.spec.ts', "import {\n  test,\n} from \"@playwright/test\";\ntest('app', () => {});\n");
-    write(repo.work, 'test/util.test.js', "import { test } from 'vitest';\nimport type { Page } from '@playwright/test';\nconst spec = \"import { test } from '@playwright/test';\";\ntest('fixture text and a type import only', () => {});\n");
+    write(repo.work, 'test/util.test.js', "import { test } from 'vitest';\nimport type { Page } from '@playwright/test';\nimport type {\n  Locator,\n} from '@playwright/test';\nimport { type BrowserContext } from '@playwright/test';\nconst spec = \"import { test } from '@playwright/test';\";\ntest('fixture text and type imports only', () => {});\n");
     expect(planRuns(ctx, ['tests/e2e/home.spec.ts', 'test/util.test.js', 'app/src/sum.test.ts', 'app/e2e/app.spec.ts'])).toEqual({ groups: [
       { runner: 'npx vitest run {files}', cwd: '', files: ['test/util.test.js'] },
       { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },

@@ -176,7 +176,7 @@ describe('environment failures are reported apart from diff failures', () => {
 
 describe('a detected pytest runner needs pytest importable by python3', () => {
   const PY_TEST = { 'tests/test_alpha.py': 'import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1 + 1, 2)\n' };
-  /** A directory holding only a `python3` whose `-c` probe exits `probeExit` (0: pytest importable, 1: not). */
+  /** A directory holding only a `python3` whose `-c` probe exits `probeExit` (0: pytest importable, 3: not, anything else: the probe itself failed). */
   const python3Shim = (repo: FixtureRepo, probeExit: number): string => {
     const dir = path.join(repo.root, `py-${probeExit}`);
     fs.mkdirSync(dir, { recursive: true });
@@ -192,7 +192,9 @@ describe('a detected pytest runner needs pytest importable by python3', () => {
     const repo = makeFixtureRepo({ pregate: null, baseFiles: PY_TEST }); repos.push(repo);
     const files = ['tests/test_alpha.py'];
     expect(planRuns(ctxFor(repo, python3Shim(repo, 0)), files)).toEqual({ groups: [{ runner: 'python3 -m pytest {files}', cwd: '', files }], unclaimed: [], missing: [], noPubspec: [] });
-    expect(planRuns(ctxFor(repo, python3Shim(repo, 1)), files)).toEqual({ groups: [], unclaimed: files, missing: ['pytest'], noPubspec: [] });
+    expect(planRuns(ctxFor(repo, python3Shim(repo, 3)), files)).toEqual({ groups: [], unclaimed: files, missing: ['pytest'], noPubspec: [] });
+    // A probe that crashes (a repo-root module shadowing importlib exits 1) is not read as a missing pytest: the run decides.
+    expect(planRuns(ctxFor(repo, python3Shim(repo, 1)), files).groups).toEqual([{ runner: 'python3 -m pytest {files}', cwd: '', files }]);
     expect(planRuns(ctxFor(repo, path.join(repo.root, 'empty-path')), files)).toEqual({ groups: [], unclaimed: files, missing: ['python3'], noPubspec: [] });
   });
 
@@ -202,7 +204,7 @@ describe('a detected pytest runner needs pytest importable by python3', () => {
   test('a machine without pytest is PREGATE_ENVIRONMENT naming pytest, never PREGATE_LANE_FAILED', () => {
     const repo = makeFixtureRepo({ pregate: null, baseFiles: PY_TEST }); repos.push(repo);
     commit(repo, { 'tests/test_alpha.py': `${PY_TEST['tests/test_alpha.py']}# touched\n` });
-    const r = runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--stage', 'tests', '--only', 'lanes'], { PATH: `${python3Shim(repo, 1)}:${process.env.PATH ?? ''}` });
+    const r = runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--stage', 'tests', '--only', 'lanes'], { PATH: `${python3Shim(repo, 3)}:${process.env.PATH ?? ''}` });
     expect(r.err).toContain('(PREGATE_ENVIRONMENT)');
     expect(r.err).not.toContain('PREGATE_LANE_FAILED');
     expect(r.out).not.toContain('unexpected: python3');
@@ -241,7 +243,7 @@ describe('Playwright without its browsers is the machine, not the diff', () => {
     const c = check(repo, 'lanes');
     expect([c.status, c.code, c.cause, c.environment.kind]).toEqual(['incomplete', 'PREGATE_ENVIRONMENT', 'environment', 'missing-binary']);
     expect(c.environment.evidence).toContain('Playwright browsers not installed (npx playwright install)');
-    expect(c.lines.join('\n')).toContain('playwright test --reporter=list');
+    expect(c.lines.join('\n')).toContain("playwright test --reporter=list '(?:^|/)tests/e2e/home\\.spec\\.ts$'");
     runBin(repo, 'gstack-pregate', args, npxShim(repo, ASSERTION));
     const d = check(repo, 'lanes');
     expect([d.status, d.code]).toEqual(['fail', 'PREGATE_LANE_FAILED']);
