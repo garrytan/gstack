@@ -8,9 +8,12 @@
 
 ### Changed
 - **Run profiles may accept `pull_request` runs.** Such a run counts only when its `tree.json` names the head and the merge commit, and the merge commit's tree equals the head's tree, which means the head already held its base. `tree.json` may list every OS its test jobs ran on, and the profile's OS must be one of them.
+- **`free-durations-record.yml` grants its Windows caller job `contents: read` and `actions: read`.** That job calls `windows-free-tests.yml`, whose new `reuse` job asks for `actions: read`, and a called workflow can't hold more than its caller grants. Without the grant, GitHub rejects the scheduled duration run before it starts.
+- **A run whose `tree.json` lists no test files or zero tests never counts** for `--from-run` or main-push reuse (`no_tests`).
 
 ### Tests
 - `test/ci-tree-reuse.test.ts`: candidate discovery with fake GitHub data (pull request found or missing, unmerged, fork head, tree mismatch, reused record, newer red run veto, dispatch and pull_request candidates, the 10-run bound, API errors), the `tree.json` producer, and the CLI refusing every event but a main push.
 - `test/ci-reuse-workflow-wiring.test.ts`: both workflows. It covers the push-only reuse job and its permissions, each suite job's condition evaluated for a skipped, failed and successful reuse, and status functions on every downstream job. It also covers pregate still requiring every test lane, the aggregate's route step run under bash for each input, and the profiles naming real jobs and never a lane.
 - `test/cso-distribution.test.ts`: the `free-tests` aggregate still requires `cso-docker-integration` on its strict path, and only a verified reuse skips that job.
-- `test/pregate-from-run.test.ts` failed on the old code. `test/run-evidence.test.ts` adds the `pull_request` and OS-list cases and `verifyFromRun`.
+- `test/pregate-from-run.test.ts` failed on the old code. `test/run-evidence.test.ts` adds the `pull_request` and OS-list cases and `verifyFromRun`, including the zero-test refusal, which failed on the old code.
+- `test/free-durations-record-workflow.test.ts` pins the Windows caller grant, and `test/ci-reuse-workflow-wiring.test.ts` requires every caller of either workflow to grant `actions: read`; it failed without the grant.

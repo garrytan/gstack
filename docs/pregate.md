@@ -88,7 +88,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
 | `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
-| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)) |
+| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory }`: the run profiles that together clear `pregate.json/remote_gate`, and the command that prints the remote gate's test files, one per line, which their runs must cover (see [run evidence](#run-evidence)) |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
@@ -743,7 +743,7 @@ aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
 runs and reads the `tested-tree` artifact, which both aggregates upload only
 after their strict verification passes. The main-push reuse job and
 `--from-run` read them. No lane has a profile, so every macOS and Windows lane
-still clears by `--run-url` as before: a pull request cut before these
+still clears by `--run-url` as before. A pull request cut before these
 workflows uploaded `tested-tree` has no record a lane profile could verify, so
 lane profiles wait until open pull requests carry the producer (GST-555).
 
@@ -780,8 +780,10 @@ stamp-only substitution). Then:
 - A run that does not verify prints `REUSE: refused reason=<code> — …; every
   selected test runs here` and changes nothing else. The codes are
   verifyRun's, plus `tree_mismatch` (another tree), `no_tests`, `no_profile`
-  (no profile for this OS covers a local lane's workflow) and `profiles_unavailable` (the base config
-  or the GitHub origin could not be read).
+  (no profile for this OS covers a local lane's workflow), `no_verified_run`
+  (more than one profile applied and each refused; the detail lists every
+  refusal) and `profiles_unavailable` (the base config or the GitHub origin
+  could not be read).
 
 `--from-run` applies to the tests stage only, so `--stage preflight` refuses it
 as a usage error. It changes nothing in the preflight stage: with `--stage all`
@@ -814,7 +816,7 @@ needs `reuse` and runs unless it succeeded with `reused=true`; their
 conditions start with `!cancelled()` because GitHub otherwise skips a job whose
 needed job was skipped, and `reuse` is skipped on every pull request and
 dispatch run. The required aggregates (`free-tests`, `windows-free-tests`)
-choose a path in their first step, before any download: a verified reuse writes
+choose a path in their first step, before any download. A verified reuse writes
 the reused run's link to the summary and passes; anything else, a failed or
 skipped `reuse` job included, takes the strict path unchanged. Only the strict
 path records and uploads `tested-tree`, after its verification passes, so a
