@@ -6,7 +6,9 @@ rerun is a **flaky pass**: the job stays green and the flake is recorded on a le
 the daily flaky pass can fix it at the source. A test that fails twice is red.
 This is CREW rule 16 ("run the failed test again and note that it is flaky")
 for any runner that writes JUnit: Playwright, `bun test`, jest, vitest and
-pytest. gstack's own free suite keeps its file-level retry
+pytest. A test that keeps flaking while it is fixed can be
+[quarantined](#quarantine): it still runs, with up to 3 attempts, and never counts
+as a pass. gstack's own free suite keeps its file-level retry
 (`GSTACK_FREE_RETRY_FLAKY`, [Flake ledger](TESTING_INTERNALS.md#flake-ledger)).
 
 ## Get started in GitHub Actions
@@ -74,6 +76,104 @@ It cannot see a coverage threshold configured without console output (for
 example `coverageReporter = ["lcov"]` in `bunfig.toml`), which is why this
 scope is opt-in.
 
+## Quarantine
+
+A test that keeps flaking while someone fixes it can be **quarantined** in
+`.gstack/quarantine.json` at the repository root. Quarantine is a larger
+attempt budget, never a skip: the test still runs on every run, is listed as
+quarantined in the output, and never counts as a pass.
+
+**How a quarantined test is judged.** The verdict rule from
+[Rerun scope](#rerun-scope) does not change: an attempt counts only when the
+runner itself reports a full green run. When every test an attempt failed is a
+live quarantined test, and nothing else is wrong with that attempt (no kill, no
+failure outside the report, no first-run test missing), the whole command may
+run again, up to 3 attempts in total. The run is green only when one of those
+attempts is fully green. A quarantined test that fails all 3 is a **hard
+break**, and the run is red. A test that is not quarantined keeps its one
+rerun. A red attempt never turns green because its only reported failure is a
+quarantined test, because the runner's exit status can come from things the
+report does not show (a coverage threshold, a fail-on-flaky policy, a global
+setup). With `--rerun-scope test` the quarantined test gets the same 3
+attempts on the targeted path, with the same fallback to the whole command.
+When the runner retries on its own (Playwright `retries`), its attempts are
+the budget and nothing is rerun again.
+
+**Missing results.** A quarantined id missing from a run that included its
+file (and, for Playwright, its project) is red. A run that did not include the
+file, such as a shard or a diff selection, is not.
+
+**Read from the base branch.** `run --base <ref>` reads the registry from
+that commit instead of the working tree. Pull-request CI passes its target
+branch, so a change cannot quarantine the test it breaks. `check --base`
+compares against the merge base, so check out full history for it:
+
+```yaml
+- uses: actions/checkout@v4
+  with: { fetch-depth: 0 }
+- name: Quarantine registry
+  run: '"$RUNNER_TEMP/gstack/bin/gstack-flaky" quarantine check --base "origin/${{ github.base_ref }}"'
+- name: E2E
+  run: |
+    "$RUNNER_TEMP/gstack/bin/gstack-flaky" run --base "origin/${{ github.base_ref }}" --junit results/junit.xml -- npx playwright test --reporter=line,junit
+```
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `gstack-flaky quarantine add <id> --owner <who> --ledger <url> --class <class> --reason <text> --evidence <url>… --junit <file> [--days <n>]` | Adds an entry that expires in `--days` (default 7, at most 14). `--junit` counts the suite for the cap and confirms the id exists; `gstack-flaky ids` prints the ids. |
+| `gstack-flaky quarantine renew <id> --owner <who> --evidence <url> [--days <n>]` | One renewal of up to 7 days from the later of now and the current expiry, with evidence not already on the entry and the owner named again. A second renewal is refused. |
+| `gstack-flaky quarantine release <id> --reason <text> --pr <url>` | Moves the entry to `released` with the date, the reason and the PR. |
+| `gstack-flaky quarantine check [--base <ref>] [--junit <file>]` | Validates every entry and the cap; with `--base`, also what this change did since the merge base. Exits 1 with one `QUARANTINE_REFUSED:` line per problem. |
+| `gstack-flaky quarantine report [--ledger <file\|dir>…] [--base <ref>]` | Lists expired entries, then live entries soonest-expiring first with days left. With downloaded ledgers it adds recent outcomes and marks entries with 10 consecutive clean passes `READY_TO_RELEASE`; without `--ledger` it says the exit rule was not checked. |
+
+### Rules
+
+- **Every entry is owned and expires.** An entry holds `owner`, `ledger`
+  (the ledger line or issue tracking the fix), `failureClass`, `reason`,
+  `evidence`, `enteredAt`, `expiresAt`, `renewals` and `suiteTests` (the
+  suite size `add` counted). It lasts 7 days by default and at most 14 from
+  entry, plus one renewal of at most 7 days.
+- **Expired means not quarantined.** An expired entry stops applying without
+  an edit: `run` treats the test as an ordinary test and prints
+  `FLAKY_QUARANTINE_EXPIRED` with the renew and release commands. An entry
+  that breaks a rule (for example one that lasts 30 days) is ignored the same
+  way, with `FLAKY_QUARANTINE_IGNORED`.
+- **Cap.** Live entries are capped at 10% of the suite's tests, at least 1,
+  and 5 for a suite under 50 tests. `add` refuses past the cap; `check`
+  enforces it against `--junit` when given, else against the smallest
+  `suiteTests` on a live entry.
+- **Classes.** `detector`, `harness`, `timing` and `model-latency`.
+  `product` is refused (a product defect is fixed, not quarantined), and so is
+  `infra` (an infrastructure red is rerun or fixed as infrastructure).
+- **`check --base` refuses** an entry added in the same change that edits its
+  test's file, an entry that disappears without a release record, a release
+  record that was removed, and a changed `enteredAt` or rewritten renewal
+  history.
+- **Exit rule.** 10 consecutive clean passes (`quarantined-pass` with no
+  failed attempt) on the ledgers since the entry was added. Release the entry
+  with the fix PR.
+- **Separate from `CASE_QUARANTINE`.** gstack's own paid-eval quarantine
+  (`CASE_QUARANTINE` and `EVAL_POLICY`,
+  [TESTING_INTERNALS.md](TESTING_INTERNALS.md)) is a different registry with
+  its own rules for eval cases. The two share no schema, and `gstack-flaky`
+  neither reads nor writes it.
+
+### The daily flaky pass
+
+Download the ledger artifacts of the last week's runs and read them with
+`report`; fix expired and `EXPIRING` entries first (fix the test, or renew
+once with new evidence), release `READY_TO_RELEASE` entries, then fix the
+worst repeat on the ledger:
+
+```bash
+for id in $(gh run list --workflow e2e.yml --limit 50 --json databaseId -q '.[].databaseId'); do
+  gh run download "$id" --pattern 'flaky-junit-ledger-*' --dir "ledgers/$id" || true
+done
+gstack-flaky quarantine report --ledger ledgers
+```
+
 ## Rules
 
 - **One rerun, small failures only.** A failed test gets one rerun when the
@@ -101,8 +201,9 @@ scope is opt-in.
 - **Ids.** A test is `<file>::<project>::<describe > title>`, with the project
   empty outside Playwright, so a test in two browser projects is two tests.
   `gstack-flaky ids --junit <file>` prints them.
-- **Ledger.** One JSON line per flaky pass (`kind: flaky-pass`) and per test
-  that failed its rerun (`rerun-fail`), with the tree, commit, branch, run URL,
+- **Ledger.** One JSON line per flaky pass (`kind: flaky-pass`), per test
+  that failed its rerun (`rerun-fail`) and per quarantined test on every run
+  (`quarantined-pass`, `quarantined-fail`, `hard-break`), with the tree, commit, branch, run URL,
   attempts, the rerun's scope (`test` or `command`) and the first lines of
   the error. Ids, paths and failure text go through gstack's redaction engine
   first; when the scan cannot run, they are withheld. The path is `--ledger`,
@@ -113,15 +214,17 @@ scope is opt-in.
 
 ## Output and exit codes
 
-One `FLAKY: <flaky-pass|fail|rerun-fail> <id> attempts=<…> (<reason>)` line per
-test that failed at least once, `FLAKY_RERUN: scope=command (<why>)` when the
-rerun repeated the whole command, then
-`FLAKY_RESULT: tests=<n> failed=<n> flaky=<n> reruns=<n> command_exit=<n> verdict=pass|fail ledger=<file|none>`.
+One `FLAKY: <flaky-pass|fail|rerun-fail|quarantined-pass|quarantined-fail|hard-break> <id> attempts=<…> (<reason>)`
+line per test that failed at least once and per quarantined test,
+`FLAKY_RERUN: scope=command (<why>)` when the rerun repeated the whole command, then
+`FLAKY_RESULT: tests=<n> failed=<n> flaky=<n> quarantined=<n> reruns=<n> command_exit=<n> verdict=pass|fail ledger=<file|none>`.
+`failed` counts every outcome but `flaky-pass` and `quarantined-pass`; `quarantined`
+counts the quarantined tests' outcomes, which are never counted as passes.
 
 | Exit | Meaning |
 |---|---|
 | 0 | Every test passed, flaky passes included |
-| 1 | A test failed (after its rerun, or with no rerun), including `FLAKY_UNREPORTED_FAILURES` |
+| 1 | A test failed (after its rerun, or with no rerun), including `FLAKY_UNREPORTED_FAILURES`, a quarantined test's hard break or missing result, and a refused `quarantine` command |
 | 2 | Usage error, including a `--junit` path that is not a `.xml` file, or an existing file there that is not a readable JUnit report |
 | 3 | No usable report, a crash, or a killed runner (a code below on stderr) |
 
@@ -135,3 +238,9 @@ rerun repeated the whole command, then
 | `FLAKY_COMMAND_NOT_STARTED` | 3 | The command could not be started | Check the argv after `--` |
 | `FLAKY_UNREPORTED_FAILURES` | 1 | The runner counted failures or errors its JUnit omits | Fix the load error or the error outside any test: a real red |
 | `FLAKY_LEDGER_WRITE_FAILED` | — | The ledger could not be appended (warning) | Check the path; the verdict stands |
+| `FLAKY_QUARANTINE_INVALID` | 3 | `.gstack/quarantine.json` is not valid JSON or not a schema 1 registry | Fix the file; `quarantine check` names the problem |
+| `FLAKY_QUARANTINE_BASE` | 3 | `--base` does not resolve to a commit (exit 2 for a value starting with `-`), or `check` finds no merge base | Fetch the base branch; `check --base` needs `fetch-depth: 0` |
+| `FLAKY_QUARANTINE_REFUSED` | 1 | `add`, `renew` or `release` broke a rule | Read the reason; [Quarantine](#quarantine) lists the rules |
+| `FLAKY_QUARANTINE_USAGE` | 2 | An unknown `quarantine` command or option, or a missing value | `gstack-flaky quarantine --help` |
+| `FLAKY_QUARANTINE_EXPIRED` | — | Notice: an expired entry no longer applies | Fix the test, renew once, or release; the line prints both commands |
+| `FLAKY_QUARANTINE_IGNORED` | — | Notice: an entry breaks a rule and does not apply | Fix the entry; `quarantine check` names the rule |
