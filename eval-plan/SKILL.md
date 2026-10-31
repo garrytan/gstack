@@ -256,14 +256,12 @@ shared with any concurrent worker. Run each `PILOT_ATTEMPT:` through the project
 eval command, then settle it with the actual cost from the provider's usage field, or
 `unknown` when the call was seat-metered or CLI-metered.
 
-An arm that runs on a subscription with no incremental charge (for example `claude -p` on
-a seat) is declared when the pilot starts: `--seat-metered <arm,...>`, each one also in
-`--arms`. Its attempts reserve $0, settle as `unknown` (a charge that does show up settles as
-its number, and the arm is then projected as a priced arm), and are listed on their own
-`PILOT_SEAT_METERED:` line instead of the projection, so the verdict covers the money arms.
-The first quota or rate-limit error on a seat-metered arm ends the run: never retry it, start
-no new attempt, and release the attempts that never ran. An `unknown` settlement on an
-undeclared arm keeps `verdict=unknown`. Settle each attempt, then report:
+An arm on a subscription with no extra charge (say `claude -p` on a seat) is declared at
+start with `--seat-metered <arm,...>`, each also in `--arms`. Its attempts hold none of the
+cap, settle as `unknown` and get a `PILOT_SEAT_METERED:` line instead of a projection; an
+arm that settles a real charge is projected as priced. The first quota or rate-limit error
+on such an arm ends the run: no retry, no new attempt; release the unstarted ones. Settle
+each attempt, then report:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-eval-plan pilot settle --out <outdir> --attempt <attempt-id> --usd <usd|unknown>
