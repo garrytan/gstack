@@ -206,6 +206,16 @@ describe('Autoplan parent publication guard', () => {
     expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('earlier checkpoint') });
   });
 
+  test('#3651: a rerun checkpoint whose create result carries the cwd-reset footer still retires the old close', () => {
+    const { f, tasks } = completedCycle(), create = checkpointWriter(f);
+    const oldClose = f.events.find(e => e.kind === 'use' && e.toolUseId === 'eng-close')!;
+    create('eng', 'new-generation');
+    (f.events.at(-1) as any).content += '\nShell cwd was reset to /home/user/project';
+    f.read('old-close-replayed', oldClose.input!.file_path as string); f.message('Phase 3 complete.');
+    f.input.tool_input = { file_path: tasks }; f.current();
+    expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('earlier checkpoint') });
+  });
+
   for (const status of ['partial', 'failed', 'pending'] as const)
     test(`a ${status} rerun close cannot borrow the first cycle's completed report`, () => {
       const { f, create, tasks } = completedCycle(), rerun = create('eng', 'rerun');
@@ -1596,3 +1606,33 @@ describe('PAX-3638: symlinked plan directory and superseded failed inits', () =>
     expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('(code mutation_pending,') });
   });
 });
+
+describe('#3651: Claude Code cwd-reset footer on a Bash result', () => {
+  const FOOTER = '\nShell cwd was reset to /home/user/project';
+  function withInitTail(tail: string) {
+    const f = fixture();
+    (f.events.find(e => e.kind === 'result' && e.toolUseId === 'init') as any).content += tail;
+    return f;
+  }
+  const ready = (f: ReturnType<typeof fixture>) => { f.message(); f.current(); f.reorder(); return f.evaluate(); };
+
+  test('an init result carrying the footer still binds', () => {
+    expect(ready(withInitTail(FOOTER))).toEqual({ allow: true });
+  });
+
+  for (const [name, tail] of [['other trailing text', '\nunexpected trailing output'], ['two footers', `${FOOTER}${FOOTER}`], ['a footer that is not the last line', `${FOOTER}\n`]] as const)
+    test(`${name} after an init result is init_failed with the re-run hint, not the generic evidence denial`, () => {
+      const decision = ready(withInitTail(tail)) as any;
+      expect(decision.allow).toBe(false);
+      expect(decision.reason).toContain('(code init_failed,');
+      expect(decision.reason).toContain('re-run');
+    });
+
+  test('a later clean init recovers the session after an init whose output did not parse', () => {
+    const f = withInitTail('\nunexpected trailing output');
+    f.events.splice(2, 0, { ...(structuredClone(f.events[0]!) as any), toolUseId: 'again' },
+      { ...(structuredClone(f.events[1]!) as any), toolUseId: 'again', content: JSON.stringify({ ...f.init, reused: true }) });
+    expect(ready(f)).toEqual({ allow: true });
+  });
+});
+
