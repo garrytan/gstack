@@ -36,6 +36,17 @@ is written, so `gstack-review-log --start` takes no `--reservation`, and `close`
 unreserved dispatch. `close` prints `BUDGET_TIMELINE:`, one entry per note. The admission mode
 below is what `ship/SKILL.md` runs; it is unchanged.
 
+A dotted `--step` such as `9.1` records under its parent step (`9`) with the sub-step as its label,
+unless `--label` is given.
+
+**Counting calls.** `gstack-ship-budget calls --events <file> [--since <iso>] [--until <iso>]` reads
+the host's transcript items (a JSON array, or `{ "items": [...] }` as Capy's `tools.thread.get`
+transcript returns) and prints
+`CALLS: total= decision= keepalive= idle_gaps_over_300s= max_gap_s= first= last= source=`. Every tool
+item is one parent call; a `wait`, or a program that only reads status (plus at most one bash for its
+note), is a keep-alive, and a gap over 300 s between calls outlives the prompt cache
+(`lib/ship-calls.ts`).
+
 **Credits.** Every command that takes `--reading` also takes `--credits <cost.credits>` from the
 same `thread.get`. Tokens count a cached read the same as a fresh one; credits are what the run
 costs, including the full-context re-bill after a gap over five minutes (about 40x a cached call,

@@ -23,13 +23,14 @@
  *   resume  --record <path>|--run <id> [--reading <n>] [--meter <m>] [--session <id>] [--token-cap <n> --approved-by <who> --words <text>]
  *           [--rebuild-from-record]
  *   close   --run|--record [--reading <n>] [--approved-by <who> --words <text>]
+ *   calls   --events <file> [--since <iso>] [--until <iso>]   (the host's transcript items: one CALLS: line, lib/ship-calls.ts)
  *
  * Exit: 0 continue/delegate · 3 stop (the next step does not start) · 2 usage
  * or validation (stderr). Logic: lib/ship-budget.ts, lib/ship-budget-cli.ts,
  * lib/ship-handoff.ts.
  */
 import { BudgetError } from '../lib/ship-budget';
-import { cmdCheck, cmdClose, cmdNote, cmdResume, cmdSettle, cmdStart, type Outcome } from '../lib/ship-budget-cli';
+import { cmdCalls, cmdCheck, cmdClose, cmdNote, cmdResume, cmdSettle, cmdStart, type Outcome } from '../lib/ship-budget-cli';
 import { cmdHandoff, cmdLaunch, cmdReconcile, cmdReturn, cmdVerifyHandoff } from '../lib/ship-handoff';
 
 const [command, ...rest] = process.argv.slice(2);
@@ -37,7 +38,7 @@ const ctx = { env: process.env, cwd: process.cwd() };
 const commands: Record<string, () => Outcome> = {
   start: () => cmdStart(rest, ctx), note: () => cmdNote(rest, ctx), check: () => cmdCheck(rest, ctx), settle: () => cmdSettle(rest, ctx), release: () => cmdSettle(rest, ctx, true),
   handoff: () => cmdHandoff(rest, ctx), launch: () => cmdLaunch(rest, ctx), 'verify-handoff': () => cmdVerifyHandoff(rest, ctx), return: () => cmdReturn(rest, ctx),
-  reconcile: () => cmdReconcile(rest, ctx), resume: () => cmdResume(rest, ctx), close: () => cmdClose(rest, ctx),
+  reconcile: () => cmdReconcile(rest, ctx), resume: () => cmdResume(rest, ctx), close: () => cmdClose(rest, ctx), calls: () => cmdCalls(rest),
 };
 if (!command || command === '--help' || command === '-h' || !commands[command]) {
   const lines = (await Bun.file(import.meta.path).text()).split('\n');

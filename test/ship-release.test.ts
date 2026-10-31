@@ -265,6 +265,18 @@ describe('push (Step 17)', () => {
     expect(lineOf(f.run(RELEASE, ['push', '--branch', 'feat']).stdout, 'PUSH')).toMatch(/^PUSH: ALREADY_PUSHED /);
   });
 
+  // Value: protects=an unattended push defers the one-time guard offer instead of stopping, and leaves the offer open for the next interactive session (no marker, no hook); fails_when=unattended push stops on the offer (replays 8G #34, 8G #36 and 9G each spent calls on it), writes .redact-prepush-prompted, or installs a hook;
+  //   why_new=the offer stopped every unattended run; seam=gstack-config, git push; no_claim=the interactive guard block
+  test('unattended, an unanswered guard offer is deferred: it pushes, writes no marker and installs no hook', () => {
+    const f = fx();
+    const r = f.run(RELEASE, ['push', '--branch', 'feat'], { GSTACK_SESSION_KIND: 'unattended' });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(lineOf(r.stdout, 'REDACT_PREPUSH')).toBe('REDACT_PREPUSH: false prompted=no deferred=unattended');
+    expect(lineOf(r.stdout, 'PUSH')).toMatch(/^PUSH: pushed [0-9a-f]{12} to origin\/feat$/);
+    expect(fs.existsSync(path.join(f.state, '.redact-prepush-prompted'))).toBe(false);
+    expect(fs.existsSync(path.join(f.work, '.git', 'hooks', 'pre-push'))).toBe(false);
+  });
+
   // Value: protects=a rejected push stops with the merge-and-reverify route and never force-pushes; fails_when=the bin retries with force or reports success;
   //   why_new=moved from Step 17's failure rules; seam=git push; no_claim=the merge
   test('a non-fast-forward push stops with the merge route', () => {

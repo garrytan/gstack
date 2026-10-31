@@ -414,6 +414,21 @@ describe('variant G: observe mode, note and credits (GSTA-167)', () => {
     expect(close.out).toContain('BUDGET_TIMELINE: 6 used=200000 credits=50.5; 9:dispatch:specialist,red-team used=2200000 credits=300 readers=2 readers_tokens=2000000 readers_credits=249.5');
   });
 
+  // Value: protects=a note at a sub-step id records under its ship step with the sub-step as its label, so a driven run never loses a program's reading to an id error; fails_when=note refuses 9.1 or 9.2.1 (replay 8G #34 broke 1, 9G broke 3: two notes lost), records under another step, or starts accepting ids with no ship step;
+  //   why_new=sub-step ids were refused; seam=none; no_claim=which sub-steps the driver names
+  test('note --step 9.1 records under step 9 labelled 9.1; an explicit label wins; an id with no ship step is refused', () => {
+    const h = fresh();
+    const s = start(h, ['--mode', 'observe', '--token-cap', '400M', '--reading', '1000000', '--credits', '100']);
+    const sub = h.sb(['note', '--run', s.run, '--step', '9.1', '--reading', '1100000', '--credits', '110']);
+    expect(sub.code, sub.out + sub.err).toBe(0);
+    expect(sub.out).toMatch(/^NOTE: 9:9\.1 used=100000 credits=10$/m);
+    const qa = h.sb(['note', '--run', s.run, '--step', '9.2.1', '--label', 'qa', '--reading', '1200000', '--credits', '120']);
+    expect(qa.out).toMatch(/^NOTE: 9:qa used=200000 credits=20$/m);
+    const bad = h.sb(['note', '--run', s.run, '--step', '99.1', '--reading', '1300000', '--credits', '130']);
+    expect(bad.code).toBe(2);
+    expect(bad.err).toContain('is not a ship step id');
+  });
+
   // Value: protects=the cap stays one hard stop in observe mode: a note past it stops with the resumable block, and a credits reading below the last is refused like a token reading; fails_when=observe never stops, stops below the cap, or accepts a credits regression;
   //   why_new=observe mode is new; seam=none; no_claim=what a stop costs
   test('a note past the cap stops; at the cap it continues; a lower credits reading is refused', () => {
