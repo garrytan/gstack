@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { collectCommit, collectLive, CONSUMER_SCAN_CAP, grepConsumers, loadRegistryAt, scanConsumers } from '../lib/review-collect';
+import { collectCommit, collectLive, CONSUMER_SCAN_CAP, CONSUMER_SCAN_TIMEOUT_MS, grepConsumers, loadRegistryAt, scanConsumers } from '../lib/review-collect';
 import { depthOfCommitInput } from '../lib/review-depth';
 
 const dirs: string[] = [];
@@ -236,7 +236,15 @@ describe('GST-544: the consumer scan reads only files that can match, under one 
     }
     r.git('config', 'grep.lineNumber', 'not-a-bool');
     const failed: Parameters<typeof scanConsumers>[5] = [];
-    expect(scanConsumers(r.dir, ['data/rows.json'], [r.head], false, r.dir, failed)).toBe('all');
-    expect(failed[0]!.detail).toMatch(/^git grep exited \d+: .*\(deadline 300 s\)$/);
+    expect(scanConsumers(r.dir, ['data/rows.json'], [r.head], false, r.dir, failed, CONSUMER_SCAN_TIMEOUT_MS)).toBe('all');
+    expect(failed[0]!.detail).toMatch(new RegExp(`^git grep exited \\d+: .*\\(deadline ${CONSUMER_SCAN_TIMEOUT_MS / 1000} s\\)$`));
+  });
+  // Value: protects=a slow scan ends in its own fail-closed consumer_scan_failed, not in the parent killing gstack-review-plan;
+  //   fails_when=the scan deadline reaches the timeout the dispatch and preflight callers give the whole plan; seam=caller source
+  test('the default scan deadline leaves a minute of the plan timeout its callers set', () => {
+    const callers = ['bin/gstack-review-dispatch', 'lib/ship-preflight.ts'].map(f => fs.readFileSync(path.join(import.meta.dir, '..', f), 'utf8'));
+    const limits = callers.flatMap(src => [...src.matchAll(/gstack-review-plan'[^\n]*?(?:timeout: |\], )(\d[\d_]+)/g)].map(m => Number(m[1]!.replace(/_/g, ''))));
+    expect(limits.length).toBeGreaterThanOrEqual(2);
+    expect(CONSUMER_SCAN_TIMEOUT_MS).toBeLessThanOrEqual(Math.min(...limits) - 60_000);
   });
 });

@@ -104,9 +104,12 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
 export const CONSUMER_SCAN_CAP = 2000;
 /** How many data files deep a chain of data naming data is followed (a manifest naming a data file) before the rest count as consumed. */
 export const CONSUMER_SCAN_DEPTH = 4;
-/** One consumer scan's whole budget, every git grep in it (GSTACK_CONSUMER_SCAN_TIMEOUT_MS overrides it); past it the scan fails closed. */
-export const CONSUMER_SCAN_TIMEOUT_MS = 300_000;
-/** Pathspec bytes per git grep call, so a long list of files to search stays under Windows' 32 KB command line. */
+/**
+ * One consumer scan's whole budget, every git grep in it (GSTACK_CONSUMER_SCAN_TIMEOUT_MS overrides it); past it the scan fails
+ * closed. It stays a minute under the 180 s gstack-review-dispatch and gstack-ship-preflight give all of gstack-review-plan.
+ */
+export const CONSUMER_SCAN_TIMEOUT_MS = 120_000;
+/** Pathspec bytes per git grep call: a long list of files to search splits across calls instead of growing one command line. */
 export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
 
 export function consumerScanTimeoutMs(): number {
