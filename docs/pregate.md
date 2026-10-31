@@ -666,8 +666,13 @@ once:
   whose newest attempt started after this run was created failed, was
   cancelled or is still running (`run_started_at`, so a red re-run of an older
   run counts, and re-running this run does not hide a failure in between).
-- The run finished within `max_age_hours`, and on the profile's OS when it
-  names one.
+- The run finished within `max_age_hours` (its jobs' latest `completed_at`,
+  else the run's `updated_at`), and on the profile's OS when it names one.
+  Re-running only the failed jobs refuses (`artifact_mismatch`) unless the job
+  that uploads `tree.json` re-runs too, because that file must name the
+  newest attempt. The 8 MiB cap is read from the artifact's zipped size before
+  download, so a workflow on the branch itself can still unpack a larger file
+  into the temporary directory.
 
 Then, for the lane:
 
@@ -686,7 +691,10 @@ Then, for the lane:
   the remote gate, every file the `inventory` command prints. The inventory is
   a pin-file command, so it runs only with `--allow-repo-commands`, and only
   while the working tree is pregate.json's tree (checked before and after it
-  runs); an empty or failing inventory refuses.
+  runs); an empty or failing inventory refuses, and it runs under `pipefail`,
+  so a pipeline whose first command fails refuses too.
+- Every run is read once more after the inventory: a run that moved to a new
+  attempt or stopped being a success meanwhile refuses (`run_changed`).
 
 Any API or git error refuses. Each refusal prints `REUSE: refused
 reason=<code> — …` as `PREGATE_RECEIPT_INVALID`, and a run that fails

@@ -31,8 +31,8 @@ import { PREGATE_CONFIG_PATH, explainConfig, isConfigUnavailable, loadConfigFrom
 import { describeDraft, draftConfig } from '../lib/pregate/init-draft';
 import { buildContext, defaultUserConfigPath, describeRefusal, loadedDotenvFiles } from '../lib/pregate/context';
 import { CHECKS, CHECK_IDS, PREGATE_OUT_REL, PREGATE_TIER2, clearDecision, clearObligation, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile, type RunCheck } from '../lib/pregate/index';
-import { ghRunDeps } from '../lib/run-evidence';
-import { runBashSync, wtreeFingerprint } from '../lib/script-invocation';
+import { ghRunDeps, runInventory } from '../lib/run-evidence';
+import { wtreeFingerprint } from '../lib/script-invocation';
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { REMOTE_GATE_LANE } from '../lib/pregate/checks/lanes';
 import { describeSubstitution } from '../lib/pregate/remote-receipt';
@@ -237,7 +237,9 @@ function cmdClear(root: string, rest: string[]): number {
     process.stderr.write(`gstack-pregate clear: receipt refused — ${decision.message}; fix: ${decision.fix ?? RESULT_CODES.PREGATE_RECEIPT_INVALID.fix} ${resultCodeSuffix('PREGATE_RECEIPT_INVALID')}\n`);
     return EXIT.fail;
   }
-  const file = clearObligation(read.file, lane, decision.receipt, `gstack-pregate clear ${new Date().toISOString()}`, decision.substitution);
+  const current = readPregateFile(out).file;
+  if (!current || current.tree !== read.file.tree || current.generated_at !== read.file.generated_at) { process.stderr.write(resultLine('gstack-pregate clear', 'PREGATE_STALE', `${out} changed while ${lane} was being verified; rerun the clear against the new file`) + '\n'); return EXIT.fail; }
+  const file = clearObligation(current, lane, decision.receipt, `gstack-pregate clear ${new Date().toISOString()}`, decision.substitution);
   writePregateFile(root, out, file);
   if (/ runs=\S+ profiles=/.test(decision.receipt)) process.stdout.write(`REUSE: accepted ${lane} ${decision.receipt}\n`);
   if (decision.substitution) process.stdout.write(`PREGATE_RECEIPT_SUBSTITUTED: ${describeSubstitution(decision.substitution)}\n`);
@@ -261,10 +263,9 @@ function runCheck(root: string, lane: string, allowRepoCommands: boolean): RunCh
       if (!allowRepoCommands) return { error: 'the inventory command is a pin-file command; pass --allow-repo-commands' };
       const at = () => { const fp = wtreeFingerprint({ cwd: root }); return 'tree' in fp ? fp.tree : null; };
       if (at() !== tree) return { error: `the working tree is not pregate.json's tree ${tree.slice(0, 12)}; the inventory must list that tree's gate files` };
-      const r = runBashSync(command, { cwd: root, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
-      if (r.status !== 0 || r.error) return { error: `${command} exited ${r.status ?? r.error}: ${(r.stderr ?? '').trim().slice(0, 200)}` };
+      const listed = runInventory(command, root);
       if (at() !== tree) return { error: `the working tree changed while ${command} ran` };
-      return [...new Set(r.stdout.split('\n').map(l => l.trim()).filter(Boolean))];
+      return listed;
     },
   };
 }

@@ -37,6 +37,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { sha256Hex, writeReceipt } from './egress-receipt';
+import { runBashSync } from './script-invocation';
 
 export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string }
 export interface RemoteGateRuns { profiles: string[]; inventory: string }
@@ -45,7 +46,7 @@ export interface ApiRun {
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null;
 }
-export interface ApiJob { name: string; conclusion: string | null }
+export interface ApiJob { name: string; conclusion: string | null; completed_at?: string | null }
 export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; os?: unknown; files?: unknown; tests?: unknown }
 
 /** Everything verifyRun reads, injectable so every refusal has a fixture. */
@@ -140,11 +141,13 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     if (run.status !== 'completed') return fail('run_in_progress', `${at} is ${run.status}`);
     if (run.conclusion !== 'success') return fail('run_not_success', `${at} concluded ${run.conclusion}`);
     if (!SHA.test(run.head_sha)) return fail('api_error', `${at} has no head commit`);
-    const finished = Date.parse(run.updated_at ?? '');
+    const jobs = deps.jobs(id, run.run_attempt);
+    const completed = jobs.map(j => j.completed_at).filter((t): t is string => !!t).sort().pop();
+    const finishedAt = completed ?? run.updated_at;
+    const finished = Date.parse(finishedAt ?? '');
     const maxAge = p.max_age_hours ?? DEFAULT_MAX_AGE_HOURS;
     if (!Number.isFinite(finished)) return fail('api_error', `${at} has no completion time`);
-    if (o.now.getTime() - finished > maxAge * 3600_000) return fail('run_stale', `${at} finished ${run.updated_at}, more than ${maxAge} h before now`);
-    const jobs = deps.jobs(id, run.run_attempt);
+    if (o.now.getTime() - finished > maxAge * 3600_000) return fail('run_stale', `${at} finished ${finishedAt}, more than ${maxAge} h before now`);
     for (const name of p.jobs) {
       const hits = jobs.filter(j => j.name === name);
       if (hits.length === 0) return fail('job_missing', `${at} has no job named ${name}`);
@@ -153,7 +156,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     }
     const heads = [...new Set([run.head_sha, ...(o.vetoHeads ?? []).filter(h => SHA.test(h))])];
     for (const head of heads) {
-      const newer = deps.runsForHead(p.workflow, head).filter(r => !(r.id === id && r.run_attempt === run.run_attempt) && started(r) > (run.created_at ?? '') && !(r.status === 'completed' && r.conclusion === 'success'));
+      const newer = deps.runsForHead(p.workflow, head).filter(r => !(r.id === id && r.run_attempt === run.run_attempt) && started(r) >= (run.created_at ?? '') && !(r.status === 'completed' && r.conclusion === 'success'));
       if (newer.length) return fail('newer_run_vetoes', `newer run ${newer[0]!.id} of ${p.workflow} on ${head.slice(0, 12)} is ${newer[0]!.status === 'completed' ? newer[0]!.conclusion : newer[0]!.status}`);
     }
     let rec: TreeRecord;
@@ -172,12 +175,25 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     if (rec.tests !== undefined && (!Number.isInteger(rec.tests) || (rec.tests as number) < 0)) return fail('artifact_mismatch', `${at}'s ${p.artifact} tests is not a non-negative integer`);
     const files = ((rec.files ?? []) as string[]).map(normalPath);
     const tests = rec.tests === undefined ? null : (rec.tests as number);
-    const again = deps.run(id);
-    if (again.run_attempt !== run.run_attempt || again.status !== 'completed' || again.conclusion !== 'success') return fail('run_changed', `run ${id} moved to attempt ${again.run_attempt} (${again.status === 'completed' ? again.conclusion : again.status}) while it was being verified`);
-    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: run.updated_at!, files, tests } };
+    const changed = runChanged(deps, id, run.run_attempt);
+    if (changed) return fail('run_changed', changed);
+    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests } };
   } catch (e: any) {
     return fail('api_error', `reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`);
   }
+}
+
+/** Why run `id` no longer stands as attempt `attempt`, a success; null while it does. Read again after the evidence, and for every run once a whole clear is assembled. */
+export function runChanged(deps: RunDeps, id: number, attempt: number): string | null {
+  const again = deps.run(id);
+  return again.run_attempt === attempt && again.status === 'completed' && again.conclusion === 'success' ? null : `run ${id} moved to attempt ${again.run_attempt} (${again.status === 'completed' ? again.conclusion : again.status}) while it was being verified`;
+}
+
+/** The remote gate's inventory: `command`'s non-empty output lines under pipefail, so a pipeline whose producer fails refuses instead of listing part of the gate. */
+export function runInventory(command: string, cwd: string): string[] | { error: string } {
+  const r = runBashSync(`set -o pipefail\n${command}`, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+  if (r.status !== 0 || r.error) return { error: `${command} exited ${r.status ?? r.error}: ${(r.stderr ?? '').trim().slice(0, 200)}` };
+  return [...new Set(r.stdout.split('\n').map(l => l.trim()).filter(Boolean))];
 }
 
 /** The files in `inventory` that no verified run's tree.json lists. */

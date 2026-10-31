@@ -209,6 +209,17 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     expect(verifyPregate(repo.work, forged, { tree: file.tree } as any)).toMatchObject({ ok: false, code: 'PREGATE_REMOTE_UNCLEARED' });
   }, 120_000);
 
+  test('every run is read again once the clear is assembled: a run that turns red while another profile or the inventory is read refuses', async () => {
+    const repo = fixture();
+    const head = repo.git('rev-parse', 'HEAD');
+    const file = await pregateAt(repo);
+    const base = check(repo, [{ id: 200, profile: 'test', head, files: ['test/a.test.ts', 'test/util.test.js'] }, { id: 201, profile: 'e2e', head, files: ['test/b.test.ts'] }]);
+    let flipped = false;
+    const evidence: RunCheck = { ...base, deps: { ...base.deps, run: id => flipped && id === 200 ? { ...base.deps.run(id), run_attempt: 2, conclusion: 'failure' } : base.deps.run(id) }, inventory: () => { flipped = true; return ['test/a.test.ts', 'test/b.test.ts']; } };
+    const d = clearDecision(file, LANE, { runs: ['200', '201'], evidence }, repo.work);
+    expect('refused' in d && d.message).toContain('REUSE: refused reason=run_changed — run 200 moved to attempt 2 (failure)');
+  }, 120_000);
+
   test('origin is read before url.insteadOf, so a Capy git.capy.ai proxy still names the GitHub repository', async () => {
     const repo = fixture();
     const file = await pregateAt(repo);

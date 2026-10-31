@@ -27,7 +27,7 @@ import { NON_DOWNGRADABLE, PREGATE_CONFIG_PATH, userPolicyAbsent } from './confi
 import { sha256, withFingerprint } from './context';
 import { baseBranchOf, baseMismatchFix, describeSubstitution, substituteStampOnlyTree } from './remote-receipt';
 import { resolveBaseBranch } from '../ship-policy';
-import { parseRunReceipt, parseRunRef, runReceiptFields, uncoveredFiles, verifyRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
+import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
 
 export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, timingCheck, guardsCheck, lanesCheck];
@@ -328,6 +328,12 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
   }
   const missing = uncoveredFiles([...required], evidence);
   if (missing.length) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=${isGate ? 'inventory_uncovered' : 'tests_uncovered'} — ${missing.length} of the ${required.size} test file(s) ${lane} must cover appear in no run's tree.json (${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}); ${lane} stays uncleared` };
+  for (const e of evidence) {
+    let changed: string | null;
+    try { changed = runChanged(check.deps, e.run_id, e.run_attempt); }
+    catch (err: any) { changed = `reading run ${e.run_id} again failed: ${String(err?.message ?? err).slice(0, 200)}`; }
+    if (changed) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=run_changed — ${changed}; ${lane} stays uncleared` };
+  }
   const tests = evidence.reduce((n, e) => n + (e.tests ?? e.files.length), 0);
   const accepted = sub.substitution ? ` accepted-for=${file.tree.slice(0, 12)} stamp-only=${sub.substitution.files.length}` : '';
   return { receipt: `${isGate ? 'remote-gate' : 'run'} tree=${trees[0]!.slice(0, 12)} tests=${tests}${accepted} ${runReceiptFields(evidence, check.now)}`, attested: false, substitution: sub.substitution };

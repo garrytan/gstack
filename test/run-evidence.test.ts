@@ -3,7 +3,7 @@
  * the dependencies are fakes, so nothing here reaches GitHub.
  */
 import { describe, expect, test } from 'bun:test';
-import { parseRunReceipt, parseRunRef, runProfileErrors, runReceiptFields, uncoveredFiles, verifyRun, type ApiJob, type ApiRun, type RunDeps, type RunProfile, type TreeRecord } from '../lib/run-evidence';
+import { parseRunReceipt, parseRunRef, runInventory, runProfileErrors, runReceiptFields, uncoveredFiles, verifyRun, type ApiJob, type ApiRun, type RunDeps, type RunProfile, type TreeRecord } from '../lib/run-evidence';
 
 const REPO = 'garrytan/gbrain';
 const HEAD = 'a'.repeat(40);
@@ -127,10 +127,32 @@ describe('verifyRun', () => {
     expect(reason(world({ artifact: { ...(w.artifact as TreeRecord), os: 'Linux' } }), { profile: { ...PROFILE, os: 'Linux' } })).toBe('ok');
   });
 
+  test('a failed run created in the same second as the candidate vetoes it: ties count as newer', () => {
+    const w = world();
+    expect(reason(world({ others: [{ ...w.run, id: 101, status: 'completed', conclusion: 'failure' }] }))).toBe('newer_run_vetoes');
+  });
+
+  test('freshness reads the jobs\' latest completed_at when the API gives it, not a later updated_at', () => {
+    const w = world();
+    const jobs: ApiJob[] = [{ name: 'full-suite', conclusion: 'success', completed_at: '2026-10-28T10:00:00Z' }, { name: 'lint', conclusion: 'success', completed_at: '2026-10-28T09:00:00Z' }];
+    expect(reason(world({ jobs }))).toBe('run_stale');
+    const v = check(world({ jobs: jobs.map(j => ({ ...j, completed_at: '2026-10-29T10:10:00Z' })) }));
+    expect(v.ok && v.evidence.finished_at).toBe('2026-10-29T10:10:00Z');
+    expect(w.run.updated_at).toBe('2026-10-29T10:20:00Z');
+  });
+
   test('max_age_hours widens the freshness window', () => {
     const stale = world({ run: { ...world().run, updated_at: '2026-10-28T10:00:00Z' } });
     expect(reason(stale)).toBe('run_stale');
     expect(reason(stale, { profile: { ...PROFILE, max_age_hours: 48 } })).toBe('ok');
+  });
+});
+
+describe('runInventory', () => {
+  test('lists unique non-empty lines, and a pipeline whose producer fails refuses instead of listing part of the gate', () => {
+    const cwd = process.cwd();
+    expect(runInventory("printf 'test/b.test.ts\\n\\ntest/a.test.ts\\ntest/b.test.ts\\n'", cwd)).toEqual(['test/b.test.ts', 'test/a.test.ts']);
+    expect(runInventory("{ printf 'test/a.test.ts\\n'; exit 17; } | sort", cwd)).toMatchObject({ error: expect.stringContaining('exited 17') });
   });
 });
 
