@@ -193,9 +193,10 @@ describe('without a train block nothing changes (the inert proof)', () => {
 });
 
 describe('under a train block (the gate edits, each only on its mode)', () => {
-  test('a PR push starts no paid slice: route, readiness and the free screening summary only', () => {
+  test('a PR push starts no paid slice and waits for nothing: route, the image and the free screening summary only', () => {
     const sim = simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, ...train, mode: 'pr-summary' } } });
-    expect(sim.jobs).toEqual(['build-image', 'readiness', 'route', 'screen-summary']);
+    expect(sim.jobs).toEqual(['build-image', 'route', 'screen-summary']);
+    expect(simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' } } }).jobs).toContain('readiness');
     const summary = evals.jobs['screen-summary']!;
     expect(summary.permissions).toEqual({ contents: 'read' });
     expect(JSON.stringify(summary)).not.toMatch(/secrets\.|restore-deps|bun install/);

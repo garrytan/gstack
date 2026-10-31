@@ -61,6 +61,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
+| `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version. `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
 
 Containment, checked by `validate` and again at write time: paths and globs are
@@ -1041,6 +1042,54 @@ time, and only the three-cycle fix cap stops the loop. `show-effective` prints t
 line, and the codes a refusal ends with are
 [`REVIEW_SCOPE_INPUT`](troubleshooting.md#review-scope-input) and
 [`REVIEW_SCOPE_RANGE`](troubleshooting.md#review-scope-range).
+
+<a id="base-red"></a>
+## `base_red`: pausing /ship on a red base
+
+When the base branch is red for a reason outside the PR (Truther's #815/#818
+pair each failed only on the other's broken cases), /ship's Step 5 used to fail
+or ask the T3 triage question. With a `base_red` block on the base branch it can
+prove the failure is the base's and pause instead:
+
+```json
+"base_red": { "setup": "bun install --frozen-lockfile", "select": "bun test {files}", "timeout_sec": 900 },
+"min_gstack_version": "<the release that introduced base_red>"
+```
+
+`setup` installs dependencies in a scratch checkout (`null` when none are
+needed); `select` is the lane command with a `{files}` slot that receives the
+failing test files, shell-quoted; `timeout_sec` (10–7200) bounds each command.
+`gstack-base-red classify --failures <evidence.json> --base <base> --pause`
+reads the block from `origin/<base>` (a PR cannot declare its own) and calls a
+failure base-red only when all of these hold:
+
+1. The evidence names every failure the lane reported (`total` equals the
+   number of `failures`), else `BASE_RED_UNNAMED`.
+2. No failing test file, and no path of the PR's diff (`git diff --name-only
+   <merge-base>..HEAD`) that a failure's signature names, is changed by the PR.
+3. In scratch worktrees under the state root, `setup` then `select` fails at
+   the base head and at HEAD, each output naming the same test id and the same
+   first error line (digits and whitespace normalized). A setup that fails is
+   `BASE_RED_REPRO_ERROR`.
+
+Anything else is `IN_BRANCH` and /ship continues its usual triage, exactly as
+without the block. A base-red run writes a pause record (`PAUSE: <file>` under
+`$GSTACK_STATE_ROOT/ship/base-red/`, repository and branch hashed, 24-hour
+expiry), finishes every other step, and writes its receipt with `--base-red
+<file>`: the receipt's `base_red` block (`cases`, `files`, `base`, `lane`,
+`expires_at`) makes it **conditional**. `gstack-ship-receipt result` prints
+`SHIP_PAUSED: base-red …` and `status=incomplete`; `ready`, `train build`,
+`verify --train`, `carry` and every other receipt consumer refuse a conditional
+receipt with `QUEUE_RECEIPT_CONDITIONAL`.
+
+To resume, a parent runs `gstack-base-red wait --pause <file>` as a background
+operation. On each new base head (`git ls-remote`) it reruns `setup` and
+`select` on the paused files there and exits 0 (`BASE_GREEN: <sha>`) on the
+first head that passes; a head that still fails keeps it waiting, and it exits 3
+on its timeout (`BASE_RED_WAIT_TIMEOUT`) or the pause's expiry
+(`BASE_RED_PAUSE_EXPIRED`). Then `/ship --resume <record>` reruns Step 5 on HEAD
+merged with the new base in a scratch worktree and, when every lane passes,
+rewrites the receipt without `base_red`.
 
 <a id="receipt-carry"></a>
 ## Carrying a receipt across a base merge or a test-only fix
