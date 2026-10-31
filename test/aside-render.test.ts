@@ -449,7 +449,7 @@ describe.skipIf(!HERMETIC)('aside-render: probeAside classifies a fake CLI the w
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toBe('NEEDS_ASIDE');
-    expect(r.detail).toBe(`Aside is macOS-only (this is ${platform}); using gstack's own browser`);
+    expect(r.detail).toBe(`Aside is macOS-only (this is ${platform})`);
     expect(fs.existsSync(log)).toBe(false);
   });
 

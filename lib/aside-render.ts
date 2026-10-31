@@ -82,7 +82,7 @@ export function probeAside(timeoutMs = 30_000, platform: NodeJS.Platform = proce
     return { ok: false, reason: 'NEEDS_ASIDE', detail: 'GSTACK_SKIP_ASIDE=1 — Aside skipped by request' };
   }
   if (platform !== 'darwin') {
-    return { ok: false, reason: 'NEEDS_ASIDE', detail: `Aside is macOS-only (this is ${platform}); using gstack's own browser` };
+    return { ok: false, reason: 'NEEDS_ASIDE', detail: `Aside is macOS-only (this is ${platform})` };
   }
   const which = spawnSync('aside', ['--version'], { encoding: 'utf8', timeout: 10_000 });
   if (which.error) {
