@@ -474,6 +474,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). A phantom finding costs a fold; a lost one costs the gate.
+   A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
+   line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
+   line for the outside voice, either for the native adversarial voice. Without one (a refusal, an empty reply, a reader
+   that never saw the diff) collect records `review: false`, prints `COLLECT_NOT_REVIEWED` and exits 1.
 4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
@@ -481,8 +485,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 5. `verify --ledger <f>` replays all of it from the run's ledger: rendered against
    dispatched hashes per render (each render is one dispatch of its reader, so a
    two-pass ledger checks pass-1 sends against pass-1 briefs; a later render prints as
-   `<reader>@2`), a collected output for every sent reader (`NOT_COLLECTED`
-   otherwise; a reader that failed is collected from its failure text, where any
+   `<reader>@2`), a collected output that is a review for every sent reader (`NOT_COLLECTED`
+   otherwise, and the output row `NOT_REVIEWED`; the marker is checked again in the output file when it is unchanged, so an
+   older ledger meets the same rule); a reader that failed is collected from its failure text, where any
    label word becomes a finding the judge folds, and its coverage is logged
    `unavailable` in the review-log row). A mismatched send re-sent
    byte-exact before anything was collected is void and counted (`voided=N` on the

@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BriefError, promptHash, renderBrief, sectionTexts } from '../lib/review-brief';
-import { judge, parseFindings, type MergedLine } from '../lib/review-ledger';
+import { collect, judge, parseFindings, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
@@ -324,6 +324,81 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   });
   test('a non-prefix Blocks: yes under a labeled finding raises it to CRITICAL', () => {
     expect(parseFindings('outside-voice', '1. Retry loses writes (queue.ts:78). Severity: Medium\n   Fix: reject the batch. Blocks: yes')).toEqual([{ label: 'CRITICAL', raw: '1. Retry loses writes (queue.ts:78). Severity: Medium | Fix: reject the batch. Blocks: yes' }]);
+  });
+
+  // Value: protects=a reader reply with no finding and no clean marker (a refusal, an empty reply, a reader that never saw the diff) is
+  //   recorded as a non-review: collect exits 1 and verify reports the brief NOT_COLLECTED, never clean; fails_when=collect hashes the
+  //   GSTA-196 refusal ("I'm not returning NO FINDINGS"), an empty file or an "I could not access the diff" reply as findings=0 and verify
+  //   reads MATCH (replay C3-36: the batched specialist found no diff base and its brief read MATCH);
+  //   why_new=collect recorded whatever parseFindings returned and verify counted any output as collected; seam=collect and verify;
+  //   no_claim=that a reply carrying a marker actually reviewed the diff
+  test('a reply with no finding and no clean marker is a non-review: collect exits 1 and verify is NOT_COLLECTED, never clean', () => {
+    const refusal = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-196-refusal.txt'), 'utf8');
+    expect(promptHash(refusal)).toBe('7150c3b9ffe2698f77a988fa422b66d7004e1939d12e81185e8d556a47dff784');
+    const b = tmp();
+    const batched = field(run(['render', '--role', 'specialist-batched', '--checklists', 'testing,security,state-machines', '--out', b, '--diff-base', SHA]).stdout, 'file');
+    const cases = [
+      { reader: 'specialist-batched', dir: b, brief: batched, output: refusal, args: ['--role', 'specialist-batched'] },
+      ...['', 'I could not access the diff: git diff failed with "bad object", so there is nothing here to review.\n'].map(output => {
+        const p = pass();
+        return { reader: 'specialist/testing', dir: p.out, brief: p.file, output, args: ['--role', 'specialist', '--name', 'testing'] };
+      }),
+    ];
+    for (const c of cases) {
+      const ledger = path.join(c.dir, 'review-ledger.jsonl');
+      const merged = path.join(c.dir, 'merged.jsonl');
+      const out = path.join(c.dir, 'reply.out');
+      fs.writeFileSync(out, c.output);
+      expect(run(['sent', '--ledger', ledger, ...c.args, '--sent', c.brief]).status).toBe(0);
+      const col = run(['collect', '--ledger', ledger, ...c.args, '--output', out, '--merged', merged]);
+      expect([col.status, col.stdout.startsWith(`COLLECT_NOT_REVIEWED: reader=${c.reader} findings=0 sha256=${promptHash(c.output)} `)]).toEqual([1, true]);
+      const event = JSON.parse(fs.readFileSync(ledger, 'utf8').trim().split('\n').at(-1)!);
+      expect([event.event, event.ids, event.review]).toEqual(['output', [], false]);
+      fs.writeFileSync(path.join(c.dir, 'judged.jsonl'), '');
+      expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(c.dir, 'judged.jsonl')]).status).toBe(0);
+      const v = run(['verify', '--ledger', ledger]);
+      expect([v.status, v.stdout.includes(`BRIEF ${c.reader} NOT_COLLECTED`), v.stdout.includes(`OUTPUT ${c.reader} NOT_REVIEWED`), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true, true]);
+    }
+  });
+
+  // Value: protects=a clean reply carrying its section's marker and a reply with findings still collect with exit 0 and verify clean under
+  //   the non-review rule; fails_when=the rule makes a real NO FINDINGS specialist or a findings reply dirty or exit 1;
+  //   why_new=the non-review rule above could over-reach; seam=collect and verify; no_claim=other roles (the matrix below covers them)
+  test('a NO FINDINGS reply and a findings reply still collect with exit 0 and verify clean', () => {
+    for (const [output, findings] of [['NO FINDINGS\n', 0], ['{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"off by one","specialist":"testing"}\n', 1]] as const) {
+      const p = pass();
+      run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+      const col = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('reply.out', output), '--merged', p.merged]);
+      expect([col.status, col.stdout.startsWith(`COLLECT: reader=specialist/testing findings=${findings} `)]).toEqual([0, true]);
+      expect(JSON.parse(fs.readFileSync(p.ledger, 'utf8').trim().split('\n').at(-1)!).review).toBe(true);
+      const judged = p.w('judged.jsonl', findings ? JSON.stringify({ id: 'specialist/testing#1', severity: 'CRITICAL' }) + '\n' : '');
+      expect(run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged]).status).toBe(0);
+      const v = run(['verify', '--ledger', p.ledger]);
+      expect([v.status, v.stdout.includes(`OUTPUT specialist/testing MATCH sha=${promptHash(output).slice(0, 12)} findings=${findings}`), v.stdout.includes('VERIFY: clean briefs=1 outputs=1')]).toEqual([0, true, true]);
+    }
+  });
+
+  // Value: protects=each role's zero-finding reply counts as a review only with the marker its own section prescribes (NO FINDINGS for
+  //   specialists, the batched specialist, Red Team, fix-check and targeted; the Recommendation: line for the outside voice; either for the
+  //   native adversarial voice); fails_when=a marker named inside a sentence, another role's marker or an empty reply reads as clean, or a
+  //   prescribed marker reads as a non-review; why_new=no marker check existed; seam=collect; no_claim=that the marker's reason is true
+  test('each role takes only the clean marker its section prescribes', () => {
+    const d = tmp();
+    const outsideClean = 'No actionable findings in the supplied diff. Static review only.\n\nRecommendation: approve because the diff introduces no demonstrated bypass.\n';
+    const cases: Array<[string, string, boolean]> = [
+      ['specialist/testing', 'NO FINDINGS\n', true], ['specialist-batched', '`NO FINDINGS`\n', true], ['targeted', 'NO FINDINGS\n', true], ['fix-check', 'NO FINDINGS\n', true],
+      ['red-team', 'Fixtures were reviewed in summary mode only.\n\nNO FINDINGS\n', true],
+      ['adversarial-native', 'Fixtures were reviewed in summary mode.\n\nRecommendation: Ship as-is because no finding survived tracing\n', true], ['adversarial-native', 'NO FINDINGS\n', true],
+      ['outside-voice', outsideClean, true], ['outside-voice', 'NO FINDINGS\n', false],
+      ['specialist/testing', 'Recommendation: ship because it is clean\n', false], ['specialist/testing', "I'm not returning NO FINDINGS, because I never saw the diff.\n", false],
+      ['red-team', '', false], ['fix-check', 'The fixes look fine to me.\n', false], ['adversarial-native', 'I could not read the diff.\n', false],
+    ];
+    for (const [i, [reader, output, review]] of cases.entries()) {
+      const ledger = path.join(d, `l${i}.jsonl`);
+      const r = collect(ledger, reader, output, path.join(d, `m${i}.jsonl`));
+      expect([reader, output, r.lines.length, r.review]).toEqual([reader, output, 0, review]);
+      expect(JSON.parse(fs.readFileSync(ledger, 'utf8').trim()).review).toBe(review);
+    }
   });
 
   test('verify on a ledger that kept no prompts says so and exits 3', () => {

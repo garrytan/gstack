@@ -4,7 +4,7 @@
  *
  *   rendered  a brief gstack-review-dispatch render wrote (role, name, file, sha256)
  *   sent      the prompt a dispatch program actually passed, by hash; a mismatch fails the pass
- *   output    a reader's raw output (sha256) and the merged.jsonl ids collect wrote from it
+ *   output    a reader's raw output (sha256), the merged.jsonl ids collect wrote from it, and whether it was a review at all
  *   judgment  each lead-judgment change: an added or promoted finding, with its reason
  *   judge     the verdict on the parent's judged set (ok, or the dropped and downgraded ids)
  *
@@ -133,14 +133,32 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   return out.map(({ label, raw }) => ({ label, raw }));
 }
 
-/** collect: hash the raw output, append its findings to merged.jsonl and record both. */
-export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string): { sha: string; lines: MergedLine[] } {
+/**
+ * The clean marker each reader's own brief prescribes for a review that found nothing: `NO FINDINGS` alone on a line for the
+ * specialists, the batched specialist and the targeted reader (ship/sections/review-army.md, the specialist brief; review/specialists/*.md),
+ * the Red Team (its brief in ship/sections/review-army.md) and fix-check (scripts/resolvers/fix-check.ts); the `Recommendation:` line
+ * for the outside voice (ship/sections/adversarial.md, the outside prompt); either for the native adversarial voice, whose brief asks
+ * for both. A reply with no finding and no marker (a refusal, an empty reply, a reader that never saw the diff) is not a review.
+ */
+const NO_FINDINGS: [string, RegExp] = ['NO FINDINGS', /^[`*]*NO FINDINGS\.?[`*]*$/];
+const RECOMMENDATION: [string, RegExp] = ['Recommendation:', /^[`*]*Recommendation:/i];
+const CLEAN_MARKERS: Record<string, Array<[string, RegExp]>> = {
+  specialist: [NO_FINDINGS], 'specialist-batched': [NO_FINDINGS], targeted: [NO_FINDINGS], 'red-team': [NO_FINDINGS], 'fix-check': [NO_FINDINGS],
+  'adversarial-native': [NO_FINDINGS, RECOMMENDATION], 'outside-voice': [RECOMMENDATION],
+};
+/** The markers a reader's zero-finding reply may carry; a role outside the brief roles takes either. */
+export const cleanMarkers = (reader: string) => CLEAN_MARKERS[reader.split('/')[0]!] ?? [NO_FINDINGS, RECOMMENDATION];
+const hasCleanMarker = (reader: string, output: string) => output.replace(/\r\n/g, '\n').split('\n').some(l => cleanMarkers(reader).some(([, re]) => re.test(l.trim())));
+
+/** collect: hash the raw output, append its findings to merged.jsonl and record both; a reply with no finding and no clean marker records review: false. */
+export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string): { sha: string; lines: MergedLine[]; review: boolean } {
   const sha = promptHash(output);
   const prior = readLedger(ledger).filter(e => e.event === 'output' && e.reader === reader).length;
   const lines = parseFindings(reader, output).map((f, i) => ({ id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, raw: f.raw, output_sha256: sha }));
+  const review = lines.length > 0 || hasCleanMarker(reader, output);
   fs.appendFileSync(mergedFile, lines.map(l => JSON.stringify(l) + '\n').join(''), { mode: 0o600 });
-  appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id) });
-  return { sha, lines };
+  appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id), review });
+  return { sha, lines, review };
 }
 
 export function readJsonl<T>(file: string): T[] {
@@ -190,6 +208,17 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
   return res;
 }
 
+/**
+ * Whether a recorded output was a review: it has findings, or its file (unchanged since collect) carries the reader's clean marker, so
+ * a ledger written before collect recorded the field is judged by the same rule; with no readable file, collect's own review field.
+ */
+function reviewed(o: LedgerEvent): boolean {
+  if (Array.isArray(o.ids) && o.ids.length) return true;
+  let text: string | undefined;
+  try { text = typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined; } catch { /* unreadable */ }
+  return text !== undefined && promptHash(text) === o.sha256 ? hasCleanMarker(String(o.reader), text) : o.review === true;
+}
+
 /** Every id collect recorded, in order. */
 const collectedIds = (events: LedgerEvent[]) => events.filter(e => e.event === 'output').flatMap(e => (Array.isArray(e.ids) ? (e.ids as string[]) : []));
 
@@ -225,10 +254,11 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     }
     voided += epVoided;
     const lastMatch = [...sent].reverse().find(({ e }) => e.sha256 === r.sha256);
-    const collected = !!lastMatch && inside.some(({ e, i }) => e.event === 'output' && i > lastMatch.i);
+    const outputs = lastMatch ? inside.filter(({ e, i }) => e.event === 'output' && i > lastMatch.i) : [];
+    const collected = outputs.some(({ e }) => reviewed(e));
     const status = !sent.length ? 'NOT_SENT' : mismatched ? 'MISMATCH' : collected ? 'MATCH' : 'NOT_COLLECTED';
     const tampered = fileNow && fileNow !== r.sha256 ? ' file_changed_since_render' : '';
-    rows.push({ kind: 'BRIEF', reader: p.label, status: tampered ? 'MISMATCH' : status, detail: `rendered=${short(r.sha256)} sent=${sent.map(({ e }) => short(e.sha256)).join(',') || '-'}${epVoided ? ` voided=${epVoided}` : ''}${tampered}` });
+    rows.push({ kind: 'BRIEF', reader: p.label, status: tampered ? 'MISMATCH' : status, detail: `rendered=${short(r.sha256)} sent=${sent.map(({ e }) => short(e.sha256)).join(',') || '-'}${epVoided ? ` voided=${epVoided}` : ''}${outputs.length && !collected ? ' not_reviewed' : ''}${tampered}` });
   }
   for (const [i, o] of events.entries()) {
     if (o.event !== 'output') continue;
@@ -245,6 +275,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     try { lines = typeof o.merged === 'string' ? readJsonl<MergedLine>(o.merged).filter(l => ids.includes(l.id)) : []; } catch { notes.push('merged_unreadable'); status = 'MISMATCH'; }
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
+    if (status === 'MATCH' && !reviewed(o)) { status = 'NOT_REVIEWED'; notes.push('no_finding_no_clean_marker'); }
     rows.push({ kind: 'OUTPUT', reader: p?.label ?? reader, status, detail: `sha=${short(o.sha256)} findings=${ids.length}${notes.length ? ' ' + notes.join(' ') : ''}` });
   }
   const lastJudge = events.map(e => e.event).lastIndexOf('judge');
