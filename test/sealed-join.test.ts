@@ -84,6 +84,9 @@ describe('formats and matching', () => {
       'g.json': '[{"stratum":"decoy"},{"head":"5b7db3aa"}]\n',
       'h.md': '| head | size |\n|---|---|\n| 5b7db3a | 3 |\n',
       'i.txt': '{"stratum":"decoy","head":"5b7db3a"}\n',
+      'j.json': `{"units":{"${HEAD_A}":{"stratum":"decoy","tags":["t"]}}}\n`,
+      'k.jsonl': `{"${HEAD_B}":{"stratum":"seeded"}}\n`,
+      'l.json': '{"units":{"unit-one":{"stratum":"decoy"}}}\n',
     });
     expect(found(s).sort((a, b) => a.file.localeCompare(b.file))).toEqual([
       { rule: 'sealed.label_join', file: 'a.jsonl', commit: sha, keys: ['stratum', 'meta.head'] },
@@ -91,6 +94,8 @@ describe('formats and matching', () => {
       { rule: 'sealed.label_join', file: 'c.tsv', commit: sha, keys: ['stratum', 'tree_sha256'] },
       { rule: 'sealed.label_join', file: 'd.md', commit: sha, keys: ['stratum', 'head', 'tree_sha_256'] },
       { rule: 'sealed.label_join', file: 'e.json', commit: sha, keys: ['tags', 'id'] },
+      { rule: 'sealed.label_join', file: 'j.json', commit: sha, keys: ['stratum', 'tags', '(key)'] },
+      { rule: 'sealed.label_join', file: 'k.jsonl', commit: sha, keys: ['stratum', '(key)'] },
     ]);
   });
 
@@ -98,11 +103,12 @@ describe('formats and matching', () => {
     expect(joinFindings(os.tmpdir(), ['0'.repeat(40)], { label_keys: [], identifier_keys: DEFAULT_IDENTIFIER_KEYS })).toEqual([]);
   });
 
-  test('label_keys must be plain field names and identifier_keys allow only *; both must be string arrays', () => {
+  test('label_keys must be bare field names and identifier_keys allow only *; neither takes a dotted path; both must be string arrays', () => {
     expect(sealedErrors({ label_keys: ['stratum'], identifier_keys: ['*_sha', 'head'] })).toEqual([]);
     expect(sealedErrors({ label_keys: ['strat*'] }).map(e => e.path)).toEqual(['sealed.label_keys[0]']);
     expect(sealedErrors({ identifier_keys: ['he?d', ''] }).map(e => e.path)).toEqual(['sealed.identifier_keys[0]', 'sealed.identifier_keys[1]']);
     expect(sealedErrors({ label_keys: 'stratum' })).toEqual([{ path: 'sealed.label_keys', message: 'must be an array of strings' }]);
+    expect(sealedErrors({ label_keys: ['meta.stratum'], identifier_keys: ['meta.head'] }).map(e => e.path)).toEqual(['sealed.label_keys[0]', 'sealed.identifier_keys[0]']);
   });
 });
 

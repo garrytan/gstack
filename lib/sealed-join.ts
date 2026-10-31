@@ -34,10 +34,10 @@ type Joins = Map<string, { labels: string[]; ids: string[] }>;
 export const normalizeKey = (k: string) => k.trim().toLowerCase().replace(/[ -]/g, '_');
 
 export function labelKeyError(s: string): string | null {
-  return s.trim() && s.length <= MAX_KEY && !/[*?[\]{}]/.test(s) ? null : `must be a field name of 1-${MAX_KEY} characters with no wildcard`;
+  return s.trim() && s.length <= MAX_KEY && !/[*?[\]{}.]/.test(s) ? null : `must be a bare field name of 1-${MAX_KEY} characters with no wildcard or dot (meta.stratum matches as stratum)`;
 }
 export function identifierKeyError(s: string): string | null {
-  return s.trim() && s.length <= MAX_KEY && !/[?[\]{}]/.test(s) ? null : `must be a field name of 1-${MAX_KEY} characters; * is the only wildcard`;
+  return s.trim() && s.length <= MAX_KEY && !/[?[\]{}.]/.test(s) ? null : `must be a bare field name of 1-${MAX_KEY} characters with no dot; * is the only wildcard`;
 }
 
 const present = (v: unknown) => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '') || (Array.isArray(v) && v.length > 0);
@@ -59,21 +59,21 @@ function classifier(p: JoinPolicy): (fields: Field[]) => { fp: string; labels: s
   };
 }
 
-/** Every JSON object at any depth as one record: its own fields plus one level of nested object fields (`meta.head`); false past the depth cap. */
+/** Every JSON object at any depth as one record: its own fields plus one level of nested object fields (`meta.head`), and the hex key that holds it as `(key)`; false past the depth cap. */
 function jsonRecords(root: unknown, out: Field[][]): boolean {
   const field = (name: string, value: unknown, key: string): Field => ({ name, key: normalizeKey(key), value });
-  const stack: Array<[unknown, number]> = [[root, 0]];
+  const stack: Array<[unknown, number, string?]> = [[root, 0]];
   while (stack.length) {
-    const [v, depth] = stack.pop()!;
+    const [v, depth, heldBy] = stack.pop()!;
     if (!v || typeof v !== 'object') continue;
     if (depth > MAX_DEPTH) return false;
     if (Array.isArray(v)) { for (const e of v) stack.push([e, depth + 1]); continue; }
-    const fields: Field[] = [];
+    const fields: Field[] = heldBy && HEX_ID.test(heldBy) ? [field('(key)', heldBy, '(key)')] : [];
     for (const [k, val] of Object.entries(v)) {
       const name = normalizeKey(k);
       fields.push(field(name, val, k));
       if (val && typeof val === 'object' && !Array.isArray(val)) for (const [k2, v2] of Object.entries(val)) fields.push(field(`${name}.${normalizeKey(k2)}`, v2, k2));
-      stack.push([val, depth + 1]);
+      stack.push([val, depth + 1, k]);
     }
     out.push(fields);
   }

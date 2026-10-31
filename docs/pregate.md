@@ -1007,8 +1007,11 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   is `head`, `head_sha`, `sha`, `commit`, `tree`, `tree_sha*`, `*_sha`,
   `*_sha256`, `sha256`, `digest`, `*_digest`, `hash`, `*_hash`,
   `*_bytes`, `bytes`, `size`, `files`, `lines`), or any string value of 7
-  to 64 hex characters with at least one digit and one letter a to f. Numbers
-  count only through the field name. For each supported file a commit adds,
+  to 64 hex characters with at least one digit and one letter a to f. An
+  object key of that shape counts as an identifier of the object it holds
+  (shown as `(key)`), so a map keyed by sha joins too. Numbers count only
+  through the field name. Both lists take bare field names: a nested field
+  matches by its own name (`stratum`, never `meta.stratum`). For each supported file a commit adds,
   modifies, renames or copies, the guard fingerprints every joined record
   (sha256 over its label and identifier fields and their values, kept in
   memory) and compares the set with the parent's version of the file (the
@@ -1026,8 +1029,9 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   but never turn it off or narrow it. Without `label_keys` the guard reads no
   file contents and its output is unchanged. Known limits: joins across files,
   joins by reference inside a file (a `decoy_set` list naming units described
-  elsewhere), columnar JSON (`columns` plus `rows`), labels encoded in file
-  names, and prose.
+  elsewhere), a map from an identifier straight to a label value with no
+  label field name, columnar JSON (`columns` plus `rows`), labels encoded in
+  file names, and prose.
 - **Version skew.** A gstack older than the release that adds a `sealed` key
   refuses it as unknown, so every push and `gstack-pregate run` in the
   repository fail on that machine. `allow_paths` and `case_insensitive` came
