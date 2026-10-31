@@ -1716,6 +1716,14 @@ run locally on a machine that has the CLI or device.
 **Re-entry:** the device or Aside is available to a CI runner. Remove each
 file's exclude entry when its prerequisite exists.
 
+**Model panel (GSTA-173):** `skill-e2e-model-panel` is excluded too: it needs
+`OPENROUTER_API_KEY`, which no CI workflow carries, and it is a research
+instrument run on demand. Before its next preregistered run, fix three harness
+gaps the October 2026 review found: score a timed-out cell's working tree
+instead of calling it INFRA (`classifyCell`), summarize only the current run's
+rows (`afterAll` reads every row in the output directory), and drain the worker
+pool on the first error so no cell starts after a failure (`pool`).
+
 **Review by:** 2026-12-28. **Effort:** S per file. **Priority:** P3.
 
 ### ✅ DONE (2026-10-02, parallel-waves fix wave): Install the Codex CLI in the CI image
