@@ -109,7 +109,9 @@ function classify(o: { repoRoot: string; baseRef: string; head: string; author?:
 
   const npmVersion = (rev: string) => { const text = show(rev, 'package.json'); try { return JSON.parse(text ?? '{}').version ?? null; } catch { return null; } };
   if (policy.bump === 'never') return show(mergeBase, 'VERSION') === show(o.head, 'VERSION') && npmVersion(mergeBase) === npmVersion(o.head) ? { kind: 'unstamped', entry: 'kept' } : { kind: 'off' };
-  const changed = (git(o.repoRoot, ['diff', '--name-only', mergeBase, o.head]) ?? '').split('\n').filter(Boolean);
+  const diff = git(o.repoRoot, ['diff', '--no-renames', '--name-only', mergeBase, o.head]);
+  if (diff === null) return { kind: 'invalid', reason: `cannot list the files ${o.head} changes since its merge base ${mergeBase.slice(0, 12)}. Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)` };
+  const changed = diff.split('\n').filter(Boolean);
   const releaseOutputs: string[] = Array.isArray(policy.release_outputs) ? policy.release_outputs : [];
   // touched: what marks the head as stamped (the labels only feed the length check below)
   const touched: string[] = changed.filter(f => f === 'VERSION');

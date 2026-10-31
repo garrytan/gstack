@@ -108,6 +108,10 @@ describe('history-read.sh and lib/history-read.ts on a blobless clone', () => {
     expect(r.stderr).toBe('');
     expect([r.status, r.stdout]).toEqual([0, '1.0.0.1\n']);
     expect(readHistoryFile(fx.clone, fx.one, 'VERSION')).toBe('1.0.0.0\n');
+    const sub = path.join(fx.clone, 'sub');
+    fs.mkdirSync(sub);
+    expect(helper(sub, fx.one, POLICY)).toMatchObject({ status: 0, stdout: JSON.stringify({ bump: 'patch' }) });
+    expect(readHistoryFile(sub, fx.one, POLICY)).toBe(JSON.stringify({ bump: 'patch' }));
   });
 
   test('a path the tree does not list is absent even with the remote gone', () => {

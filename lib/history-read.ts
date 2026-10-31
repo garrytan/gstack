@@ -25,7 +25,7 @@ export function readHistoryFile(repoRoot: string, ref: string, file: string): st
     return new HistoryReadError(`cannot read ${file} at ${ref}. ${cause} (${version}). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)`);
   };
   const firstLine = (r: ReturnType<typeof git>) => (r.stderr ?? '').split('\n')[0] || r.error?.message || `exit ${r.status}`;
-  const listed = git(['ls-tree', ref, '--', file]);
+  const listed = git(['ls-tree', '--full-tree', ref, '--', file]);
   if (listed.status !== 0) throw fail(`git ls-tree failed: ${firstLine(listed)}`);
   if (!listed.stdout.trim()) return null;
   const promisors = (git(['config', '--get-regexp', '^(remote\\..+\\.promisor|extensions\\.partialclone)$']).stdout ?? '').split('\n');

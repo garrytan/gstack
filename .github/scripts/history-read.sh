@@ -6,7 +6,7 @@
 #
 # Usage: history-read.sh <ref> <path> [--absent <text>]
 #
-# Existence comes from the ref's tree (`git ls-tree`, local data only). A path
+# Existence comes from the ref's tree (`git ls-tree --full-tree`, local data only). A path
 # the tree does not list is absent: prints <text> (default: nothing), exits 0.
 # A listed path is read with `git show`, tried 3 times in a partial clone
 # (only a fetch can recover) and once otherwise, waiting
@@ -30,7 +30,7 @@ fail() {
   exit 1
 }
 
-listed=$(git ls-tree "$ref" -- "$file" 2>"$err") || fail "git ls-tree failed: $(head -n 1 "$err")"
+listed=$(git ls-tree --full-tree "$ref" -- "$file" 2>"$err") || fail "git ls-tree failed: $(head -n 1 "$err")"
 if [ -z "$listed" ]; then
   printf '%s' "$absent"
   exit 0
