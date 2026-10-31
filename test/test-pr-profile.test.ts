@@ -6,6 +6,7 @@ import {
   PR_PROFILE_CASE_IDS, PR_PROFILE_FILES, PR_PROFILE_MAPS, caseNameAddressable, formatPrCoverageSummary, packageChangeOnlyVersion, selectPrProfile, validatePrProfileInventory,
   type PrProfileMaps,
 } from '../scripts/test-pr-profile';
+import { selectTests } from './helpers/touchfiles';
 
 const maps: PrProfileMaps = {
   e2eTouchfiles: {
@@ -68,8 +69,11 @@ describe('fast PR coverage policy', () => {
     expect([fragment.mode, fragment.unknownFiles, fragment.e2e, fragment.needsFullValidation]).toEqual(['pr', [], [], false]);
     const real = selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles: ['changelog.d/gst-400.md'] });
     expect([real.mode, real.unknownFiles]).toEqual(['pr', []]);
-    const named = select({ maps: { ...maps, e2eTouchfiles: { ...maps.e2eTouchfiles, 'ceo-smoke': ['plan-ceo-review/**', 'changelog.d/ceo.md'] } }, selectedE2E: ['ceo-smoke'], selectedJudges: [], changedFiles: ['changelog.d/ceo.md'], derived: null });
-    expect(named.e2e).toEqual(['ceo-smoke']);
+    const table = { ...maps.e2eTouchfiles, 'ceo-smoke': ['plan-ceo-review/**', 'changelog.d/ceo.md'] };
+    const picked = selectTests(['changelog.d/ceo.md'], table, []).selected;
+    expect(picked).toEqual(['ceo-smoke']);
+    const named = select({ maps: { ...maps, e2eTouchfiles: table }, selectedE2E: picked, selectedJudges: [], changedFiles: ['changelog.d/ceo.md'], derived: null });
+    expect([named.e2e, named.needsFullValidation]).toEqual([['ceo-smoke'], false]);
   });
 
   test('does not add unrelated short probes or drop selected quality judges', () => {
