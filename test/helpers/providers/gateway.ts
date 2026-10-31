@@ -1,6 +1,6 @@
 import { ClaudeAdapter, claudeExecEnvironment } from './claude';
-import type { AvailabilityCheck, ProviderAdapter, RunOpts, RunResult } from './types';
-import { estimateCostUsd } from '../pricing';
+import type { AvailabilityCheck, ProviderAdapter, RunOpts, RunResult, TokenUsage } from './types';
+import { estimateCostUsd, pricingRow } from '../pricing';
 import { resolveClaudeCommand } from '../../../lib/claude-bin';
 
 /**
@@ -93,7 +93,10 @@ export class GatewayAdapter implements ProviderAdapter {
     return result;
   }
 
-  estimateCost(tokens: { input: number; output: number; cached?: number }, model?: string): number {
-    return estimateCostUsd(tokens, model ?? this.model);
+  /** Cache writes are billed at the input rate: the gateway's providers publish no separate write price (as the model panel prices them). */
+  estimateCost(tokens: TokenUsage, model?: string): number {
+    const id = model ?? this.model;
+    const writeRate = pricingRow(id)?.input_per_mtok ?? 0;
+    return +(estimateCostUsd(tokens, id) + (tokens.cacheWrite ?? 0) * writeRate / 1_000_000).toFixed(6);
   }
 }

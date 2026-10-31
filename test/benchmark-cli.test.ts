@@ -61,6 +61,13 @@ describe('gstack-model-benchmark --dry-run', () => {
     expect(r.stdout).not.toContain('gpt-42-fake');
   });
 
+  test('a --models list with no valid provider is an error, never a claude run', () => {
+    const r = run(['--prompt', 'hi', '--models', 'Particle', '--dry-run']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("No valid provider in --models 'Particle'");
+    expect(r.stdout).not.toContain('providers:  claude');
+  });
+
   test('empty --models list falls back to claude default', () => {
     const r = run(['--prompt', 'hi', '--models', '', '--dry-run']);
     expect(r.status).toBe(0);

@@ -203,6 +203,8 @@ Show the dry-run output. The "Adapter availability" section tells the user which
 
 If every provider shows NOT READY: stop with a clear message — benchmark can't run without at least one authed provider. Suggest `claude login`, `codex login`, `gemini login` / `export GOOGLE_API_KEY`, or `export OPENROUTER_API_KEY` for particle and deepseek (they run in Claude Code, so they also need the `claude` CLI).
 
+particle and deepseek send the prompt, the working directory's files the model reads, and the user's Claude Code context (CLAUDE.md, MCP servers, settings) to OpenRouter and the model vendor, and run with the user's environment minus Anthropic credentials. Say so before including them.
+
 If at least one is OK: AskUserQuestion:
 - **Simplify:** "Which models should we include? The dry-run above showed which are authed. Unauthed ones will be skipped cleanly — they won't abort the batch."
 - **RECOMMENDATION:** A (all authed providers) because running as many as possible gives the richest comparison.

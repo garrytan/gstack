@@ -78,7 +78,11 @@ function parseProviders(s: string | undefined): ProviderName[] {
       console.error(`WARN: unknown provider '${p}' — skipping. Valid: ${PROVIDER_NAMES.join(', ')}.`);
     }
   }
-  return seen.size ? Array.from(seen) : ['claude'];
+  if (!seen.size) {
+    console.error(`No valid provider in --models '${s}'. Valid: ${PROVIDER_NAMES.join(', ')}.`);
+    process.exit(1);
+  }
+  return Array.from(seen);
 }
 
 function parsePositiveIntegerFlag(name: string, def: string): number {

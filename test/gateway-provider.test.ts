@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { GatewayAdapter, GATEWAY_MODELS, gatewayEnvironment, foreignModels } from './helpers/providers/gateway';
 import { PROVIDER_NAMES, isProviderName } from './helpers/providers/registry';
+import { PANEL_ARMS, cellCostUsd } from './helpers/model-panel-harness';
 import { familyConflict, modelFamily } from '../lib/outside-voice-runner';
 import { estimateCostUsd, hasPricing } from '../lib/pricing';
 
@@ -23,6 +24,7 @@ function fakeClaude(): string {
   fs.writeFileSync(script, [
     "const fs = require('fs');",
     "fs.writeFileSync(process.env.FAKE_ENV_OUT, Object.entries(process.env).map(([k, v]) => k + '=' + v).join('\\n') + '\\n');",
+    "if (process.env.FAKE_ERROR) { process.stdout.write(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '' })); process.exit(0); }",
     "const modelUsage = JSON.parse('{' + (process.env.FAKE_MODELS || '') + '}');",
     "process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', num_turns: 2, usage: { input_tokens: 1000, output_tokens: 10, cache_read_input_tokens: 50, cache_creation_input_tokens: 7 }, modelUsage }));",
   ].join('\n') + '\n');
@@ -56,7 +58,9 @@ describe('gateway provider', () => {
     const childEnv = fs.readFileSync(envOut, 'utf-8');
     expect(childEnv).not.toContain('sk-ant-real');
     expect(childEnv).toContain('ANTHROPIC_AUTH_TOKEN=sk-or');
-    expect(adapter.estimateCost(result.tokens, result.modelUsed)).toBe(+((1000 * 0.25 + 10 * 1.0 + 50 * 0.03) / 1e6).toFixed(6));
+    expect(adapter.estimateCost(result.tokens, result.modelUsed)).toBeCloseTo((1000 * 0.25 + 10 * 1.0 + 50 * 0.03 + 7 * 0.25) / 1e6, 5);
+    const particleArm = PANEL_ARMS.find(a => a.id === 'particle')!;
+    expect(adapter.estimateCost(result.tokens, result.modelUsed)).toBe(cellCostUsd(particleArm, { input: 1000, output: 10, cached: 50, cacheWrite: 7, modelsBilled: [], isError: false, apiErrorStatus: null, turns: 2 }));
   });
 
   test('a run that billed another model is a MODEL_MIX error, not a result', async () => {
@@ -65,6 +69,13 @@ describe('gateway provider', () => {
     const result = await adapter.run({ prompt: 'hi', workdir: tmp, timeoutMs: 10_000 });
     expect(result.error?.reason).toBe('MODEL_MIX: the run also billed claude-haiku-5-5');
     expect(foreignModels('particle-ai/particle-1', ['particle-1', 'PARTICLE-AI/particle-1'])).toEqual([]);
+  });
+
+  test('an error envelope from the gateway is an error, not a benchmark result', async () => {
+    process.env.GSTACK_CLAUDE_BIN = fakeClaude();
+    const adapter = new GatewayAdapter('particle', { PATH: process.env.PATH, HOME: tmp, OPENROUTER_API_KEY: 'sk-or', FAKE_ENV_OUT: path.join(tmp, 'env-err.txt'), FAKE_ERROR: '1' });
+    const result = await adapter.run({ prompt: 'hi', workdir: tmp, timeoutMs: 10_000 });
+    expect(result.error?.reason).toMatch(/empty or invalid output/);
   });
 
   test('available() names the missing key with a fix', async () => {

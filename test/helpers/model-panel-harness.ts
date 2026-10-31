@@ -185,8 +185,9 @@ export type CellVerdict = 'pass' | 'fail' | 'infra';
  * INFRA cells are excluded from pass rates, reported, and never rerun to
  * change a verdict: no result event, a CLI or API error before the model
  * produced a turn, a 402/429/5xx from the API, a startup timeout, or a run
- * that billed any model besides the arm's (MODEL_MIX). Everything else is
- * scored by the hidden check, including a run that timed out after working.
+ * that billed any model besides the arm's (MODEL_MIX). A CLI killed at the
+ * timeout writes no result event, so it is INFRA too. Everything else is
+ * scored by the hidden check.
  */
 export function classifyCell(arm: PanelArm, exitReason: string, usage: CellUsage | null): { verdict: 'infra'; reason: string } | { verdict: 'scored' } {
   if (exitReason === 'timeout_startup') return { verdict: 'infra', reason: 'startup timeout' };
