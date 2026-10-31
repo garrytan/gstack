@@ -45,11 +45,16 @@ export function issueBody(r: AuditReport, runUrl?: string): string {
   return head + (md.length > MAX_BODY ? md.slice(0, MAX_BODY) + '\n\n(truncated; the full report is the run artifact)' : md);
 }
 
-/** The open issue this audit owns: its title and marker, so a person's issue with the same title is left alone. */
+export const ISSUE_AUTHOR = 'github-actions[bot]';
+
+/**
+ * The open issue this audit owns: opened by the workflow's own token, with its title and marker.
+ * Anyone can copy the title and marker, so an issue another account opened is never touched.
+ */
 export async function findIssue(client: ApiClient, repo: string): Promise<Existing | null> {
-  const res = await client.get(`/repos/${repo}/issues?state=open&per_page=100&sort=created&direction=asc`);
+  const res = await client.get(`/repos/${repo}/issues?state=open&creator=${encodeURIComponent(ISSUE_AUTHOR)}&per_page=100&sort=created&direction=desc`);
   if (res.status !== 200) throw new AuditError('ci_audit_api_failed', `issues list returned HTTP ${res.status}`, 'now');
-  const hit = ((res.json as any[]) ?? []).find(i => !i.pull_request && i.title === ISSUE_TITLE && String(i.body ?? '').includes(ISSUE_MARKER));
+  const hit = ((res.json as any[]) ?? []).find(i => !i.pull_request && i.user?.login === ISSUE_AUTHOR && i.title === ISSUE_TITLE && String(i.body ?? '').includes(ISSUE_MARKER));
   return hit ? { number: Number(hit.number), body: String(hit.body) } : null;
 }
 

@@ -7,7 +7,7 @@ import type { Run } from '../lib/ci-audit/collect';
 import { concurrencyFlag, lessonRunners } from '../lib/ci-audit/lessons';
 import { cohort, measure, phases } from '../lib/ci-audit/measure';
 import { priceRunner } from '../lib/ci-audit/prices';
-import { ISSUE_MARKER, planIssue } from '../lib/ci-audit/publish';
+import { ISSUE_MARKER, ISSUE_TITLE, findIssue, planIssue } from '../lib/ci-audit/publish';
 import type { AuditReport } from '../lib/ci-audit/report';
 import { CI_SHAPING, MIN_COHORT, comparable, judgeHead, staticChecks } from '../lib/ci-audit/ship-check';
 import { parseWorkflow, readStatic } from '../lib/ci-audit/static';
@@ -262,6 +262,20 @@ describe('weekly issue', () => {
     }
     expect(planIssue({ exit: 3, report: null, error: 'CI_AUDIT: unavailable x (ci_audit_deadline)' }, null).action).toBe('none');
     expect(planIssue({ exit: 4, report: { ...withFixes, partial: ['x'] } as AuditReport }, null).action).toBe('create');
+  });
+
+  test('finds only the workflow bot\'s own issue, past 100 open issues and an outsider\'s copy', async () => {
+    const issue = (number: number, login: string, title = 'other', body = '') => ({ number, title, body, user: { login } });
+    const open = [issue(1, 'outsider', ISSUE_TITLE, `${ISSUE_MARKER}\nfake findings`),
+      ...Array.from({ length: 150 }, (_, i) => issue(i + 2, 'person')),
+      issue(152, 'github-actions[bot]', ISSUE_TITLE, `${ISSUE_MARKER}\nreal findings`)];
+    const client = { text: async () => null, get: async (apiPath: string) => {
+      const q = new URL(apiPath, 'https://api.github.com').searchParams;
+      const rows = open.filter(i => !q.get('creator') || i.user.login === q.get('creator'));
+      if (q.get('direction') !== 'asc') rows.reverse();
+      return { status: 200, json: rows.slice(0, Number(q.get('per_page') ?? 30)), headers: {} };
+    } };
+    expect(await findIssue(client as never, 'o/n')).toEqual({ number: 152, body: `${ISSUE_MARKER}\nreal findings` });
   });
 });
 
