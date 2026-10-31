@@ -616,6 +616,32 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     expect(JSON.parse(fs.readFileSync(launchFile.replace(/\.env$/, '.json'), 'utf8'))).toMatchObject({ ok: true });
   });
 
+  // protects (GST-401): a profile run that keeps a fuller ok verdict borrows that install's launch
+  // file (announced, never rewritten) and a failing profile check removes only the profile's own
+  // <verdict>.profile/ directory. fails_when: the kept profile run writes the launch file again, or
+  // the failure cleanup leaves the profile directory behind or touches the lane's files.
+  test('a kept profile run borrows the fuller install\'s launch file without rewriting it; a later failing profile check removes only <verdict>.profile/', () => {
+    const f = fixture();
+    const first = run(f, ['--for', 'autoplan']);
+    expect(first.status, first.stdout + first.stderr).toBe(0);
+    const launchFile = first.stdout.match(/^GSTACK_LAUNCH_FILE: (.+)$/m)?.[1] ?? '';
+    fs.appendFileSync(launchFile, '# lane sentinel\n');
+    const before = fs.readFileSync(launchFile, 'utf8');
+    const ok = run(f, ['--for', 'review-voice']);
+    expect(ok.status, ok.stdout + ok.stderr).toBe(0);
+    expect(ok.stdout).toContain('gstack-capy-install: kept the install verdict for=autoplan');
+    expect(ok.stdout).toContain(`GSTACK_LAUNCH_FILE: ${launchFile}\n`);
+    expect(fs.readFileSync(launchFile, 'utf8')).toBe(before);
+    const profileDir = launchFile.replace(/\.env$/, '.profile');
+    expect(fs.existsSync(path.join(profileDir, 'review-voice.env'))).toBe(false);
+    fs.mkdirSync(path.join(profileDir, 'review-voice.launch'), { recursive: true });
+    const failed = run(f, ['--check', '--for', 'review-voice'], { STUB_DOCTOR_FAIL: '1' });
+    expect(failed.status, failed.stdout + failed.stderr).toBe(1);
+    expect(fs.existsSync(profileDir)).toBe(false);
+    expect(fs.readFileSync(launchFile, 'utf8')).toBe(before);
+    expect(JSON.parse(fs.readFileSync(launchFile.replace(/\.env$/, '.json'), 'utf8'))).toMatchObject({ ok: true, for: 'autoplan' });
+  });
+
   // protects: when the launch file's temp file IS created and the final mv fails, write_launch_file
   // removes its own temp file and nothing else (a sibling temp file from a concurrent run survives),
   // the run fails with the launch-file trailer, prints no GSTACK_LAUNCH_FILE line, removes the
