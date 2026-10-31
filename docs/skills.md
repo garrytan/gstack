@@ -968,6 +968,9 @@ shows. An arm on a subscription with no extra charge is declared with
 `pilot start --seat-metered <arm,...>`: it reserves $0, settles as `unknown`, and
 stays out of the projection until one of its attempts settles a real charge.
 A run stops at the first quota or rate-limit error on such an arm.
+`results --check <prereg> <results.md>` refuses a finished results file unless one
+table holds a filled row for every arm, each `<model>#no-gstack` row beside its
+variants (`EVAL_REPORT_NO_GSTACK_ROW`); no number leaves the run before it passes.
 The skill's closing section lists the tier-3 items (instrument audit, steady
 state, sealed paths, off-machine persistence, memory preflight, power tables, QA
 soak) as `tier 3, after P7`; none of them run yet.

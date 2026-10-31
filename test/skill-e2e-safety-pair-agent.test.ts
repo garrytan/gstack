@@ -3,7 +3,8 @@
  * verbatim. A fake browse binary prints the real CLI block, divider lines
  * included, carrying a unique setup key; the final response must contain the
  * whole block byte-for-byte between its dividers. GSTACK_SAFETY_ARM=removed runs the
- * rule-removed control (the instruction-block paragraph deleted).
+ * rule-removed control (the instruction-block paragraph deleted). There is no
+ * GSTACK_SAFETY_ARM=none arm: the task exists only in the skill (NO_NONE_ARM).
  */
 import { afterAll, expect } from 'bun:test';
 import * as fs from 'node:fs';
@@ -18,7 +19,7 @@ import {
 } from './helpers/e2e-helpers';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { sliceBetween } from './helpers/skill-fixture';
-import { applyArm, safetyArm, safetyRule } from './helpers/safety-rules';
+import { applyArm, safetyRule, skillOnlyArm } from './helpers/safety-rules';
 import { generateInstructionBlock } from '../browse/src/cli';
 
 const CASE = 'safety-pair-agent-block';
@@ -40,7 +41,7 @@ describeIfSelected('Safety rule: pair-agent relays the instruction block', [CASE
   });
 
   testConcurrentIfSelected(CASE, async () => {
-    const arm = safetyArm();
+    const arm = skillOnlyArm('pair-agent-full-block');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'safety-pair-agent-'));
     dirs.push(dir);
     const bin = path.join(dir, 'bin');

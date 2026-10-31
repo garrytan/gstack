@@ -10,6 +10,7 @@
  *   gstack-eval-plan pilot settle --out <dir> --attempt <id> --usd <n|unknown>
  *   gstack-eval-plan pilot release --out <dir> --attempt <id>
  *   gstack-eval-plan pilot report --out <dir> --total <items> [--workers W] [--json]
+ *   gstack-eval-plan results --check <prereg> <results.md> [--json]
  *   gstack-eval-plan price-gate --gate-file <file> | --gate "<exact gate command>" [--plan-file <file>] [--base <branch>] [--cap-usd N]
  *                               [--smoke-cap-usd N] [--allow-unpriced "<reason>"] [--out <dir>] [--json]
  *
@@ -26,12 +27,13 @@
  * price-gate lint every arm's model against the base branch's
  * .gstack/eval-models.json (docs/eval-models.md; lib/eval-models.ts). Exit 0 ok, 1 fail (incomplete
  * prereg, failed check, exceeded cap, unpriced or stale gate), 2 usage, 3 refused.
- * Logic: lib/eval-plan.ts.
+ * Logic: lib/eval-plan.ts; `results --check` in lib/eval-plan-report.ts.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { armModel, checkPrereg, DEFAULT_TOKENS, PREREG_SECTIONS, dryRun, pilotReport, preregTemplate, priceGate, releasePilot, renderArms, renderDryRun, renderGatePrice, renderPilotReport, renderPreregDiagnostics, resolveArms, resolvePlanSource, runPreregDiagnostics, settlePilot, startPilot } from '../lib/eval-plan';
+import { checkResults } from '../lib/eval-plan-report';
 import { checkModelRules, EVAL_SCOPES, type EvalScope, type ModelRulesCheck } from '../lib/eval-models';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
@@ -41,7 +43,8 @@ import { SpendCapExceeded } from '../lib/spend-ledger';
 const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, priced pilot (eval-plan/SKILL.md)
 
   prereg --check <file> [--allow-repo-commands] [--json]
-                                     the five sections exist and are filled: Bars, Arms, Decoys, Stop rules, Held-out exposure;
+                                     the required sections exist and are filled: Bars, Arms, Comparison, Decoys, Stop rules,
+                                     Held-out exposure, and No-gstack arm when the Comparison says stack: loaded;
                                      an optional Diagnostics section's summarizer runs on its synthetic fixture only with
                                      --allow-repo-commands (else it is listed and exit 3) and every count must match
   prereg --init <file> [--title <t>] write the template
@@ -55,6 +58,9 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
                                      settle unknown, and sit outside the cap and the projection until one settles a charge
   pilot settle --out dir --attempt id --usd <n|unknown>      pilot release --out dir --attempt id
   pilot report --out dir --total items [--workers W] [--json]  spend table + per-arm extrapolation with a 95% band, then the approval ask
+  results --check <prereg> <results.md> [--json]
+                                     one table in the results file has a filled row for every Arms identity, each no-gstack arm
+                                     beside its variants; reads text only (docs/TESTING_INTERNALS.md#no-gstack-arm)
   price-gate --gate-file <file> | --gate "<exact gate command>" [--plan-file f] [--base b] [--cap-usd N] [--smoke-cap-usd N] [--allow-unpriced "<reason>"] [--out dir] [--json]
                                      price a paid gate from its GSTACK_EVAL_CALLS v1 call-plan file (--plan-file, else the base
                                      policy's price_file at HEAD); checks the gate/head/input binding, executes nothing, writes a
@@ -128,6 +134,17 @@ function doPrereg(rest: string[]): number {
   if (run && !run.ok) process.stderr.write(resultLine('gstack-eval-plan prereg', 'PREREG_DIAGNOSTIC_UNTESTED', run.error ?? run.rows.filter(row => row.status !== 'ok').map(row => `${row.name} ${row.status} (expected ${row.expected ?? 'undeclared'}, got ${row.got ?? 'none'})`).join('; ')) + '\n');
   if (!r.ok || (run && !run.ok)) return EXIT.fail;
   if (runnable && !allowed) { process.stderr.write(resultLine('gstack-eval-plan prereg', 'REPO_COMMANDS_NOT_ALLOWED', `the Diagnostics section declares a summarizer; it runs only with --allow-repo-commands, and the preregistration is not checked until it does`) + '\n'); return EXIT.refused; }
+  return EXIT.ok;
+}
+
+function doResults(rest: string[]): number {
+  const prereg = flag(rest, '--check');
+  const results = rest.filter(a => !a.startsWith('--') && a !== prereg)[0];
+  if (!prereg || !results || !fs.existsSync(prereg) || !fs.existsSync(results)) return usage('results needs --check <existing prereg> <existing results file>');
+  const r = checkResults(fs.readFileSync(prereg, 'utf8'), fs.readFileSync(results, 'utf8'));
+  if (rest.includes('--json')) process.stdout.write(JSON.stringify({ prereg, results, ...r }) + '\n');
+  else process.stdout.write(`RESULTS: ${r.ok ? 'ok' : 'incomplete'} no_gstack_rows=${r.no_gstack.filter(id => r.found.includes(id)).length}/${r.no_gstack.length} rows=${r.found.length}/${r.required.length} file=${results}\n`);
+  if (!r.ok) { process.stderr.write(resultLine('gstack-eval-plan results', 'EVAL_REPORT_NO_GSTACK_ROW', r.problems.join('; ')) + '\n'); return EXIT.fail; }
   return EXIT.ok;
 }
 
@@ -244,6 +261,7 @@ function main(argv: string[]): number {
     if (cmd === 'dry-run') return doDryRun(rest);
     if (cmd === 'pilot') return doPilot(rest);
     if (cmd === 'price-gate') return doPriceGate(rest);
+    if (cmd === 'results') return doResults(rest);
     return usage(`unknown command ${cmd}`);
   } catch (e: any) {
     if (e instanceof SpendCapExceeded) { process.stderr.write(resultLine(`gstack-eval-plan ${cmd}`, 'EVAL_BUDGET_EXHAUSTED', e.message) + '\n'); return EXIT.fail; }
