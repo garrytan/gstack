@@ -6,7 +6,7 @@
 
 ### Changed
 - **A head policy may only add test lanes** (`PREGATE_HEAD_POLICY_LOOSENS`). It may add a `dependencies` glob with at least one test, or add tests to a glob the trusted policy already maps. Anything else that differs from the trusted policy refuses the run and names each difference. The trusted policy is the base copy, or the user-owned file when the base has none. A branch behind its base is measured from the copy at its merge base and runs the base tip's policy plus its additions. A head file with no trusted policy anywhere is still a bootstrap.
-- **`--remote` works with `--policy-from head`** once that check passes, so a lane on a machine with under 8 cores can clear its obligation. It still runs the trusted copy's `remote_gate`.
+- **`--remote` works with `--policy-from head`** once that check passes, so a lane on a machine with under 8 cores can clear its obligation. It still runs the trusted copy's `remote_gate`. With no trusted policy at all, `--remote` under head is refused, because a bootstrap head file's own `remote_gate` would be clearing its own obligation.
 - **Under `--policy-from head`, an invalid user-owned policy now refuses** (`PREGATE_CONFIG_INVALID`) instead of being ignored, because it is the policy the head file is compared with.
 - **A `[]` declaration added only on the branch is refused under `--policy-from head`**, the Dart device-test workaround included: declare `"**/integration_test/**": []` on the base branch first. The `PREGATE_NO_LANE` fix line and docs say so.
 

@@ -334,9 +334,9 @@ Two stages with separate clocks, both printed:
   the project's `engines.bun` (the row prints `runtime: bun <v> from <dir>`),
   so a Capy host's older image Bun cannot flip the verdict.
 - Every test-tier command (the lanes runner, each guard, the `--remote` gate)
-  runs supervised: see [supervision](#supervision). `--timeout` bounds each
-  runner process (the unit-file group, each serial file, each guard without
-  its own `timeout_s`), not their total; the stall timeout catches a hung or
+  runs supervised: see [supervision](#supervision). `--timeout` (else the
+  policy's `timeout_s`, else 600 s) bounds each runner process (the unit-file
+  group, each serial file, each guard without its own `timeout_s`), not their total; the stall timeout catches a hung or
   silent one sooner.
 - Under 8 cores, a `remote_gate` in the active policy or a remote `test_backend`
   (`gstack-config set test_backend ubicloud`) records the local test tier as a
@@ -412,9 +412,10 @@ test-tier command:
   (`--stall-timeout <s>`, else `stall_timeout_s`, else 300; `0` disables): the
   check is `incomplete` with `PREGATE_STALLED` and names the last file
   started; the next serial file still runs;
-- is killed as **timed out** when that runner process reaches `--timeout`
-  (per runner process, so many serial files that each fit still pass); the
-  check is `incomplete` and the next serial file still runs.
+- is killed as **timed out** when that runner process reaches its timeout
+  (`--timeout <s>`, else `timeout_s`, else 600; per runner process, so many
+  serial files that each fit still pass): the check is `incomplete`, its detail
+  names which of the three set the timeout, and the next serial file still runs.
 
 A kill is SIGTERM to the group, then SIGKILL after 5 s (a group that ignores
 SIGTERM still dies). SIGINT or SIGTERM to `gstack-pregate` itself SIGKILLs every
@@ -445,8 +446,9 @@ the supervision above. Close the obligation one of two ways:
   which runs the declared `remote_gate` now (under `--policy-from head`, still the trusted copy's gate;
   a `test_backend` without `remote_gate` cannot be run this way). The gate runs
   in the repository root with `PREGATE_TREE` (the working-tree fingerprint
-  being tested), `PREGATE_FILES_FILE` (the selected files, one per line) and
-  `PREGATE_SPEND_CAP_USD`, and must print
+  being tested), `PREGATE_FILES_FILE` (the selected files, one per line),
+  `PREGATE_SPEND_CAP_USD` and `PREGATE_TIMEOUT_S` (this run's per-process
+  timeout in whole seconds), and must print
   `PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n> [spent=<usd>]`, reporting the
   tree it actually tested. The obligation clears only when that tree is
   `PREGATE_TREE`, `tests` > 0, `failed` = 0 and the gate exits 0; anything else
