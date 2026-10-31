@@ -360,6 +360,8 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(await runPass(h, { ...base, stage: 'voices', laneModel: 'openai/gpt-6.1-sol' })).toContain(none);
     expect(await runPass(h, { ...base, stage: 'voices', laneModel: undefined, models: { 'outside-voice': { model_id: 'openai/gpt-6.1-sol', reasoning_mode: 'medium' } } }))
       .toContain('STOP: the outside voice openai/gpt-6.1-sol cannot be checked against another family: neither input.laneModel nor a native voice model was given');
+    expect(await runPass(h, { ...base, stage: 'voices', models: { 'outside-voice': { model_id: 'claude-sonnet-5-5' } } }))
+      .toContain('STOP: the outside voice claude-sonnet-5-5 has no provider prefix, so its family cannot be checked');
     expect(h.creates.some(c => /^ship x16p1 (adversarial-native|outside-voice)$/.test(c.title))).toBe(false);
   }, 240_000);
 
