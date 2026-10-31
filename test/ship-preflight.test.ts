@@ -104,7 +104,7 @@ describe('gstack-ship-preflight', () => {
   // Value: protects=a diff far larger than the PR's own (a stale or wrong base: HARN-15 reviewed 17,000 files of main's history)
   //   stops before any reader runs, naming the PR's base; fails_when=preflight never compares the diff with the PR's changed
   //   files; seam=gh pr view (changedFiles, headRefOid, baseRefName); no_claim=GitHub's own count
-  test('a diff far beyond the PR\'s changed files stops at the pushed head; another head or a matching size goes on', () => {
+  test('a diff far beyond or short of the PR\'s changed files stops at the pushed head; another head or a matching size goes on', () => {
     const files = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`src/f${i}.ts`, `export const f${i} = ${i};\n`]));
     const f = fx({}, files);
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
@@ -115,11 +115,15 @@ describe('gstack-ship-preflight', () => {
     expect(r.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 3 (its base is release): origin/main is not the PR\'s base; rerun with --base release after git fetch origin +refs/heads/release:refs/remotes/origin/release');
     stub(3, head, 'main');
     const fork = f.run(PREFLIGHT, ['--base', 'main']);
-    expect(fork.stdout).toContain('(its base is main): origin is not the PR\'s base repository or its main lags it (a fork)');
+    expect(fork.stdout).toContain('(its base is main): origin is not the PR\'s base repository (a fork) or its main has moved');
     expect(fork.stdout).not.toContain('rerun with --base');
     stub(3, head, 'x;rm');
     expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).toContain("rerun with --base 'x;rm' after git fetch origin +refs/heads/'x;rm':refs/remotes/origin/'x;rm'");
-    for (const [changed, prHead] of [[3, 'f'.repeat(40)], [60, head], [0, head]] as const) {
+    stub(61, head, 'main');
+    const fewer = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fewer.status).toBe(3);
+    expect(fewer.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 61 (its base is main): origin is not the PR\'s base repository (a fork) or its main has moved');
+    for (const [changed, prHead] of [[3, 'f'.repeat(40)], [61, 'f'.repeat(40)], [60, head], [0, head]] as const) {
       stub(changed, prHead);
       const go = f.run(PREFLIGHT, ['--base', 'main']);
       expect(go.stdout).not.toContain('lists 60 files');

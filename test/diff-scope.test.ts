@@ -94,6 +94,9 @@ describe('gstack-diff-scope', () => {
     git('tag', '-d', 'origin/main');
     git('update-ref', 'refs/remotes/origin/origin/main', 'HEAD');
     expect(scopeOf(['origin/main'])).toContain('SCOPE_DOCS=true');
+    git('tag', 'origin/main', 'HEAD');
+    expect(scopeOf(['origin/main'])).toContain('SCOPE_DOCS=true');
+    git('tag', '-d', 'origin/main');
     const pinned = git('rev-parse', 'origin/main').stdout.toString().trim();
     git('update-ref', `refs/remotes/origin/${pinned}`, 'HEAD');
     expect(scopeOf([pinned])).toContain('SCOPE_DOCS=true');
@@ -102,6 +105,25 @@ describe('gstack-diff-scope', () => {
     git('update-ref', 'refs/remotes/origin/main', git('commit-tree', git('rev-parse', 'HEAD^{tree}').stdout.toString().trim(), '-m', 'unrelated').stdout.toString().trim());
     const unrelated = spawnSync(SCRIPT, ['main'], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
     expect(unrelated).toContain('SCOPE_BACKEND=true');
+  });
+
+  // Value: protects=diff-scope reads the base gstack-review-plan's path list reads (origin/<base>), so a test file a local
+  //   main carries but origin lacks counts when the branch includes it; fails_when=a related local main ahead of origin/main
+  //   stays the base (fix-check, pass 2: SCOPE_TESTS=false beside a path list naming the test); seam=a tracking ref set with
+  //   update-ref; no_claim=remotes other than origin
+  test('a local main ahead of origin/main yields to it, so its unpushed test file is in scope', () => {
+    const dir = createRepo([]);
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, stdio: 'pipe', timeout: 5000 });
+    git('checkout', '-q', 'main');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    mkdirSync(join(dir, 'test'), { recursive: true });
+    writeFileSync(join(dir, 'test', 'a.test.ts'), "test.skip('b', () => {});\n");
+    git('add', '.'); git('commit', '-qm', 'unpushed test');
+    git('checkout', '-q', '-b', 'topic', 'main');
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(join(dir, 'docs', 'x.md'), '# x\n');
+    git('add', '.'); git('commit', '-qm', 'docs');
+    expect(spawnSync(SCRIPT, ['main'], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString()).toContain('SCOPE_TESTS=true');
   });
 
   test('detects frontend files', () => {
