@@ -144,7 +144,7 @@ function main(): number {
   let reviewedBefore: boolean | null;
   try {
     const rows = fs.readFileSync(reviewPaths(root, process.env).reviewLog, 'utf8').split('\n').filter(Boolean);
-    reviewedBefore = rows.some(l => { try { return DIFF_REVIEWS.has(JSON.parse(l)?.skill); } catch { return false; } });
+    reviewedBefore = rows.some(l => { try { return DIFF_REVIEWS.has(JSON.parse(l)?.skill); } catch { return true; } });
   } catch (e: any) { reviewedBefore = e?.code === 'ENOENT' ? false : null; }
   const targeted = targetedClasses({ ...collected, scope, gateTagged });
   const patch = collected.mergeBase ? targetedPatchId(process.cwd(), collected.mergeBase) : 'none';

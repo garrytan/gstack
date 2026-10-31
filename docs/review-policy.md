@@ -229,7 +229,7 @@ review log is the `<branch>-reviews.jsonl` file that `gstack-review-log` writes 
 `review-fix-check`, `adversarial-review`, `codex-review`, `design-review-lite` or
 `ship` skills. So a new `/ship` after a stop, on a branch an earlier run already
 reviewed, runs the Red Team on its first full pass, as it did before this rule.
-When the log can't be read, the plan keeps the Red Team too. `gstack-review-plan
+When the log can't be read, or holds a line that isn't valid JSON, the plan keeps the Red Team too. `gstack-review-plan
 --json` reports the lookup as `reviewed_before`: true, false, or null when the log
 was unreadable. `RED_TEAM_FIRST_PASS` (false) records the rule in
 `DEPTH_RULES`.

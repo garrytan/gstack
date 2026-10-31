@@ -290,3 +290,26 @@ describe('the first-pass Red Team cut reads the branch review log (GSTA-167 opti
     expect(JSON.parse(run(u, ['--json']).stdout).reviewed_before).toBe(null);
   }, 60_000);
 });
+
+describe('a review log of only malformed rows keeps the Red Team (GSTA-167 fail closed)', () => {
+  const LOG = path.join(import.meta.dir, '..', 'bin', 'gstack-review-log');
+  const NOTE = 'SKIP: red-team (first full pass; Round 7 no-loss)';
+  const RT = /^DISPATCH: red-team red-team effort=full$/m;
+  // Value: protects=a readable review log whose rows do not parse counts as unreadable, so the first full pass keeps the Red Team,
+  //   while an empty log still takes the cut; fails_when=a malformed row is skipped as absent; why_new=GSTA-167 Captain ruling
+  //   (fail closed on malformed rows); seam=bin/gstack-review-plan's review-log lookup
+  test('a log holding only malformed rows plans the Red Team; an empty log still takes the cut', () => {
+    const r = repo({ 'src/a.ts': Array.from({ length: 210 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n' });
+    const logged = spawnSync(LOG, ['{"skill":"review","timestamp":"2026-10-31T00:00:00Z","status":"clean","via":"ship","pass":1}'], { cwd: r.dir, encoding: 'utf8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: r.state } });
+    expect(logged.status, logged.stderr).toBe(0);
+    const projects = path.join(r.state, 'projects');
+    const file = path.join(projects, fs.readdirSync(projects)[0]!, 'feat-reviews.jsonl');
+    expect(fs.existsSync(file)).toBe(true);
+    fs.writeFileSync(file, '');
+    expect(run(r, []).stdout).toContain(NOTE);
+    fs.writeFileSync(file, '{"skill":"review","timestamp":\nnot json at all\n');
+    const torn = run(r, []);
+    expect(torn.stdout).toMatch(RT);
+    expect(torn.stdout).not.toContain(NOTE);
+  }, 60_000);
+});
