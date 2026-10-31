@@ -1,5 +1,3 @@
-bump: minor
----
 **New /ci-audit skill: measure where a repo's GitHub Actions time goes and get fixes ranked in minutes and dollars (GSTA-204).** Agents push, wait for CI and push again, so CI wall time limits the loop. Spotting why took a hand-written script each time. `/ci-audit` runs one program, `gstack-ci-audit`, that splits every sampled job into waiting for a machine, setup and running, measures push to all checks green per PR head, checks the nine lessons from Owen Gretzinger's 40-minutes-to-2 write-up, and prices the minutes from dated rows. It changes nothing unless you approve a fix, and `compare` prints before and after once the fix's CI has run. On gstack it reproduces GSTA-203's hand audit on the same 150 Free Tests runs: every job's wait p50/p90 matches, and job p50 is within 1 s.
 
 ### Added
