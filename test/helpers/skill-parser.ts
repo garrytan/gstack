@@ -41,6 +41,13 @@ export function externalHostPathLeaks(content: string): string[] {
     .filter(line => line.includes('.claude/skills'));
 }
 
+/** Parse a rendered SKILL.md's YAML frontmatter into an object. */
+export function parseFrontmatter(content: string): Record<string, unknown> {
+  const frontmatterStart = 4; // after the leading '---\n'
+  const fmEnd = content.indexOf('\n---', frontmatterStart);
+  return Bun.YAML.parse(content.slice(frontmatterStart, fmEnd)) as Record<string, unknown>;
+}
+
 /**
  * Extract all $B invocations from bash code blocks in a SKILL.md file.
  */

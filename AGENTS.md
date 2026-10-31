@@ -66,6 +66,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/context-restore` | Resume from a saved context, even across Conductor workspaces. |
 | `/learn` | Manage what gstack learned across sessions. |
 | `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |
+| `/factory-insights` | Read-only Insight Report: which skills caused the most friction recently. |
 | `/health` | Code quality dashboard (type checker, linter, tests, dead code). |
 | `/captain` | Run a crew from one controller: READY contract, merge trains, digest, approvals shapes, daily flaky pass. Also `/crew`. Templates in `captain/templates/`, team guide in `docs/captain.md`. |
 | `/benchmark` | Performance regression detection (page load, Core Web Vitals). |
