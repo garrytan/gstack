@@ -68,6 +68,7 @@ export function budgetHarness(): Harness {
   const run = (bin: string, args: string[], extraEnv: NodeJS.ProcessEnv = {}): Run => {
     const argv = bin === REVIEW_LOG_BIN ? ['bash', bin] : [process.execPath, ...bunIsolationArgs(), bin];
     const started = Date.now();
+    abnormal = '';
     const r = spawnSync(argv[0], [...argv.slice(1), ...args], { cwd: repo, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 60_000 });
     const result = { code: r.status ?? -1, out: r.stdout ?? '', err: r.stderr ?? '' };
     if (r.status !== null) return result;
@@ -79,6 +80,7 @@ export function budgetHarness(): Harness {
       abnormal += `; children of ${r.pid}: ${children.stdout?.trim() || (children.error ? `unavailable (${children.error.message})` : 'none')}`;
     }
     result.err += `\n[harness] ${abnormal}`;
+    process.stderr.write(`[harness] ${abnormal}\n`);
     return result;
   };
   let records = 0;

@@ -1282,5 +1282,10 @@ describe('coverage audit native evidence: an escaped grep over two literal files
     expect(reads(capture.call.command, capture.call.output.replace(nonce, nonce.slice(1) + '0'))).toMatchObject({ sourceRead: false });
     expect(reads(capture.call.command.replace('cat -n test/billing.test.ts', 'cat -n test/other.test.ts'))).toMatchObject({ testsRead: false });
   });
+
+  test('a quoted grep operand with a space stays one literal file operand', () => {
+    expect(reads(capture.call.command.replace('review/SKILL.md review/sections/review-army.md', 'review/SKILL.md "docs/design notes.md"'))).toEqual(both);
+    expect(reads(capture.call.command.replace('review/SKILL.md review/sections/review-army.md', '"docs/design notes.md" -f/tmp/foreign'))).toEqual(neither);
+  });
 });
 
