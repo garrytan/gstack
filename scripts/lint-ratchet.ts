@@ -23,12 +23,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
-import { compareDiagnostics, type DiagnosticCounts } from './typecheck-test';
 
 export const BASELINE_FILE = 'scripts/lint-baseline.json';
 export const CONFIG_FILE = '.oxlintrc.json';
 const ROOT = path.resolve(import.meta.dir, '..');
 
+export type DiagnosticCounts = Record<string, number>;
 export interface LintBaseline { oxlint: string; findings: DiagnosticCounts }
 export interface Findings { counts: DiagnosticCounts; lines: Record<string, number[]> }
 export interface OxlintRun { status: number | null; signal?: string | null; error?: Error; stdout: string; stderr: string }
@@ -106,6 +106,17 @@ export function runOxlint(root: string): OxlintRun {
   }
 }
 
+/** The same comparison as scripts/typecheck-test.ts, copied rather than imported: lib/pregate/checks/guards.ts names `bun run lint`, so an import would put the test-typecheck script in every paid case's derived closure. */
+function compareFindings(baseline: DiagnosticCounts, current: DiagnosticCounts) {
+  const added: Array<{ identity: string; baseline: number; current: number }> = [], fixed: typeof added = [];
+  for (const identity of new Set([...Object.keys(baseline), ...Object.keys(current)])) {
+    const before = baseline[identity] ?? 0, now = current[identity] ?? 0;
+    if (now > before) added.push({ identity, baseline: before, current: now });
+    else if (now < before) fixed.push({ identity, baseline: before, current: now });
+  }
+  return { added, fixed };
+}
+
 function writeBaseline(file: string, oxlint: string, findings: DiagnosticCounts): void {
   fs.writeFileSync(file, JSON.stringify({ version: 1, oxlint, findings: sorted(findings) }, null, 2) + '\n');
 }
@@ -162,7 +173,7 @@ export function runLint(options: { write?: boolean; upgrade?: boolean; root?: st
     out.push(`lint ratchet: rewrote ${BASELINE_FILE} for oxlint ${pin} (was ${baseline.oxlint}; ${total} findings, ${Object.keys(current.counts).length} identities). Review the growth in the diff.`);
     return done(0);
   }
-  const { added, fixed } = compareDiagnostics(baseline.findings, current.counts);
+  const { added, fixed } = compareFindings(baseline.findings, current.counts);
   if (added.length) {
     err.push(`LINT_RATCHET_NEW: ${added.length} new or more frequent oxlint finding(s). Fix them; do not add them to the baseline.`);
     for (const d of added) err.push(`  + ${describe(d.identity, current.lines[d.identity])} (${d.baseline} → ${d.current})`);
