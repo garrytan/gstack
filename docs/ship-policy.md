@@ -39,7 +39,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 
 | Key | Values | Default | Meaning |
 |---|---|---|---|
-| `bump` | `patch` \| `ask` | `ask` | `patch` skips the MINOR/MAJOR prompt in `/ship` Step 12 and `gstack-restamp --next` bumps PATCH; `ask` keeps the prompt. |
+| `bump` | `patch` \| `ask` \| `never` | `ask` | `patch` skips the MINOR/MAJOR prompt in `/ship` Step 12 and `gstack-restamp --next` bumps PATCH; `ask` keeps the prompt, and in a session no person answers any version Step 12 would write (`--bump` on a fresh branch, `--version <v>` on a bumped one) stops with `BUMP_ANSWER_REQUIRED` until `--answer "<the owner's words>"`; `never` is for a repo whose unit PRs never change VERSION: Step 12 keeps it with no question, refuses `--bump`, and `gstack-restamp --next` needs an explicit `--bump` or `--version` (the release process bumps). CI's Version Gate passes a head that keeps VERSION; a release PR that moves it takes the ordinary bump and collision rules. `never` needs `min_gstack_version` at its introducing release and cannot be combined with `queue_mode: stamp-at-merge`, `train` or `changelog_fragments`, which stamp a version at every merge. |
 | `queue_mode` | `claim-at-open` \| `stamp-at-merge` | `claim-at-open` | See [stamp-at-merge](#stamp-at-merge). `claim-at-open` is today's queue (`gstack-next-version` claims a slot when the PR opens). |
 | `release_tool` | command or `null` | `null` | The repo's own release command (`bun run release:restamp`). Runs in an isolated staging worktree under the [release-tool contract](#release-tool-contract). |
 | `release_outputs` | globs | `[]` | Paths the release tool may write beyond the version files, lockfiles, CHANGELOG and `stamp_paths`. Anything else is `RESTAMP_OUTPUT_OUTSIDE_ALLOWED`. |
@@ -866,6 +866,8 @@ which carry the workflow consequences the skill prose would otherwise spell out:
 | `ship: shared merge queue: …` | in a coordinator-run queue, `gstack-ship-queue ready`, `gate-ahead` and `stamp` replace the restamp calls; see [Run a shared merge queue](#run-a-shared-merge-queue) |
 | `ship: gate-ahead: …` | with `.gstack/tmp/gate-ahead.json` present, Step 16 reuses only the lanes `gstack-tree-receipt … --json > .gstack/tmp/tree-receipt.json` marks reusable; stamp-sensitive and not-eligible lanes run live; `--force-gate <reason>` is the coordinator's call |
 | `ship: bump patch: …` | Step 12 never asks for MINOR or MAJOR; PATCH or MICRO by size |
+| `ship: bump never: …` | Step 12 prints `VERSION: <v> kept (policy: bump never; no write)`, asks nothing and refuses `--bump`; a branch that moved VERSION stops until it is put back |
+| `ship: bump ask: …` | Step 12 asks for MINOR and MAJOR; on FRESH, `--keep-current` (or `--version <current>`) keeps VERSION, and in a session no person answers any version Step 12 would write waits for `--answer` |
 | `ship: preregistration: …` | `gstack-evidence ancestor --from-policy --base <base>` must print only `ANCESTOR: ok` before push |
 | `ship: release_tool: …` | the command runs only inside `gstack-restamp` (staging worktree, outputs confined to `release_outputs`) |
 | `ship: review_scope …` | Step 9.4 item 0 runs `gstack-review-scope classify` on each pass's findings; see [review_scope](#review-scope) |

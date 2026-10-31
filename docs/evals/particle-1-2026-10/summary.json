@@ -1,0 +1,67 @@
+{
+  "rows": 60,
+  "summaries": [
+    {
+      "arm": "opus",
+      "label": "Opus 5.5",
+      "passes": 15,
+      "completed": 15,
+      "infra": 0,
+      "cells": 15,
+      "passRate": 1,
+      "low": 0.7961107336956521,
+      "high": 1,
+      "costPerTaskUsd": 0.0875512
+    },
+    {
+      "arm": "sonnet",
+      "label": "Sonnet 5.5",
+      "passes": 15,
+      "completed": 15,
+      "infra": 0,
+      "cells": 15,
+      "passRate": 1,
+      "low": 0.7961107336956521,
+      "high": 1,
+      "costPerTaskUsd": 0.037294866666666676
+    },
+    {
+      "arm": "particle",
+      "label": "particle-1",
+      "passes": 15,
+      "completed": 15,
+      "infra": 0,
+      "cells": 15,
+      "passRate": 1,
+      "low": 0.7961107336956521,
+      "high": 1,
+      "costPerTaskUsd": 0.006973866666666665
+    },
+    {
+      "arm": "deepseek",
+      "label": "DeepSeek V4.1 Flash",
+      "passes": 13,
+      "completed": 14,
+      "infra": 1,
+      "cells": 15,
+      "passRate": 0.9285714285714286,
+      "low": 0.6853073044604219,
+      "high": 0.9872781138877085,
+      "costPerTaskUsd": 0.0078097857142857136
+    }
+  ],
+  "suggestion": {
+    "line": "particle-1 passed 15/15 tasks on gstack's model panel (Sonnet 5.5 15/15, Opus 5.5 15/15, DeepSeek V4.1 Flash 13/14) at $0.007 per task vs $0.037 for Sonnet 5.5, the cheapest of the four models measured (no measured difference from Sonnet 5.5 on this panel; measured 2026-10-30 in Claude Code via OpenRouter). Worth trying for low-stakes steps; keep blocking reviewers on your main model.",
+    "reason": "ok"
+  },
+  "spend": {
+    "cap_usd": 15,
+    "spent_usd": 2.086636,
+    "reserved_usd": 0,
+    "unknown_usd": 0.15,
+    "unknown_count": 1,
+    "worst_case_usd": 2.236636,
+    "headroom_usd": 12.763364,
+    "open_attempts": []
+  }
+}

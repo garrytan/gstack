@@ -222,7 +222,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/ship-queue/gbrain-stamp-pair.json': ['test/helpers/ship-queue-fixture.ts', 'test/tree-receipt-gbrain-pair.test.ts'],
   'test/fixtures/ship-triage/**': ['test/ship-triage-labels.test.ts'],
   'test/fixtures/skill-bin-drift-allowlist.json': ['test/skill-bin-drift.test.ts'],
-  'test/fixtures/skill-evals/**': ['test/skill-eval-tasks.test.ts'],
+  'test/fixtures/skill-evals/**': ['test/skill-eval-checks.test.ts', 'test/skill-eval-tasks.test.ts'],
   'test/fixtures/skill-md-size-allowlist.json': ['test/skill-md-size-guard.test.ts'],
   'test/fixtures/state-matrix-6792/**': ['test/state-matrix.test.ts'],
   'test/fixtures/pregate-timing/**': ['test/pregate-timing.test.ts'],

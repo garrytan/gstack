@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.91.354.0] - 2026-10-31
+
+**On Claude Code, `/land-and-deploy` loads about 15 KB less skill text per session.** Step 7's canary instructions (the canary script, third-party dashboard actions, Aside setup and the browser fallback) moved out of `land-and-deploy/SKILL.md` into an on-demand `sections/canary.md`, which the skill reads only when it reaches the canary step or a browser or third-party site action. `SKILL.md` drops from 51,992 to 32,216 bytes. Codex and Factory renders inline every section, so they stay about the same size. In a paid before/after run (Opus 5.5, 10 tasks, 3 trials per arm; GSTA-161), mean loaded skill bytes fell from 109,334 to 93,828 (-14%), the pass rate held (after 97%, before 80%, a second before panel 87%), and mean cost per session stayed flat. Pass rates are graded on the transcript. These numbers are exploratory, from one eval suite.
+
+### Changed
+- **`land-and-deploy/sections/canary.md`** holds the post-deploy canary procedure; the routing paragraph stays in `SKILL.md`. Shared resolvers are unchanged.
+
+### Tests
+- `test/fixtures/skill-evals/land-and-deploy/` adds a 10-task eval suite (happy path, CI-red override, conflicts, already merged, dirty checkout, first run, deploy success and failure, canary without a browser, Render hook) with a `gh` stub and a state check per task.
+- Size, parity and section-loading guards re-pinned for the smaller skeleton and the new section.
+
+## [1.91.353.0] - 2026-10-31
+
+**`/ship` Step 12 now has a way through for repos whose unit PRs never change VERSION, and an unattended `/ship` no longer writes a version bump nobody approved.** On gstack-evals (no policy file, so `bump: ask`), `--keep-current`, `--version 0.0.1` and `--accept-incomplete` all stopped with `BUMP_LEVEL needed` (gstack-evals#85), and on gstack-evals#89 an unattended run took the recommended level and wrote 0.0.2 before anyone was asked (GST-380).
+
+### Added
+- **`"bump": "never"` in `.gstack/ship-policy.json`** for a repo whose unit PRs never version. Step 12 prints `VERSION: <v> kept (policy: bump never; no write)`, asks nothing and refuses `--bump`; a branch that moved VERSION stops until it is put back. `gstack-restamp --next` then needs an explicit `--bump` or `--version`. The value needs `min_gstack_version` at its introducing release and cannot be combined with `queue_mode: stamp-at-merge`, `train` or `changelog_fragments`, which stamp a version at every merge.
+
+### Fixed
+- **`gstack-ship-release version`**: on a branch whose VERSION still equals the base, `--keep-current` and `--version <current>` print `VERSION: <v> kept`, write nothing and read no queue. Passing `--bump` with either stops and names the conflict. The `BUMP_LEVEL needed` stop now names `--keep-current` too.
+- **No version write before the owner answers.** Under `bump: ask`, when `gstack-session-kind` reports anything but `interactive` (unattended, spawned, OpenClaw, headless or CI), a Step 12 call that would write a version stops with `BUMP_ANSWER_REQUIRED` and writes nothing until it is rerun with `--answer "<the owner's words>"` (one line, at most 200 characters). This covers a FRESH `--bump` and a `--version` rewrite of an already bumped branch. `bump: patch` is a standing answer and needs no `--answer`. `ship/DRIVER.md` lists the stop as an approval, so a brief's "take the recommended option" no longer answers it.
+
+## [1.91.352.0] - 2026-10-31
+
+**gstack now knows particle-1 and has measured it on its own tasks.** particle-1 (Particle AI, October 28, 2026) passed 15/15 cells on a preregistered five-task panel, the same as Sonnet 5.5 and Opus 5.5, at $0.007 per task against Sonnet 5.5's $0.037 (run `2026-10-30-0105`, Claude Code through OpenRouter). The panel is easy, so it shows no measured difference between the models, not that they are equal. Results and every cell are in [docs/evals/particle-1-2026-10.md](docs/evals/particle-1-2026-10.md).
+
+### Added
+- **particle-1 and DeepSeek V4.1 Flash in the price table.** `lib/pricing.ts` prices `particle-1` ($0.25 input, $0.03 cached, $1.00 output per million tokens) and `deepseek-v4.1-flash-1017`; provider-prefixed ids such as `particle-ai/particle-1` resolve to them.
+- **`gstack-model-benchmark --models particle,deepseek`** runs those models in Claude Code through OpenRouter (`OPENROUTER_API_KEY`). The child process gets no Anthropic credential, every Claude Code model alias is pinned to the arm's model, and a run that billed any other model is an error. `/benchmark-models` lists both and says what they send to OpenRouter.
+- **A preregistered model panel** (`test/skill-e2e-model-panel.test.ts`): five gstack-shaped tasks, four models, three trials, each cell scored by a hidden check and priced from its own tokens. It runs on demand, not in the weekly eval run, because CI has no OpenRouter key.
+
+### Changed
+- **particle-1 counts as the DeepSeek family** for outside-voice independence, because Particle built it on DeepSeek V4.1 Flash. A particle-1 voice is never treated as independent of a DeepSeek one.
+- **One provider registry** feeds the benchmark CLI, its dry run and the runner.
+
+### Fixed
+- **`--models` with no valid provider now exits 1** instead of quietly running claude.
+
+## [1.91.351.0] - 2026-10-31
+
+**Four skill-eval check commands that gstack-evals' Lane A vendors as graders no longer pass runs that break their rule.** gstack-evals' grader audit (GST-374) showed that one agent-written `.gitignore` could hide new code from the /office-hours no-code check, and that three smaller gaps let other checks pass on the wrong files.
+
+### Fixed
+- **office-hours/no-code-session** lists untracked files with `--exclude-from=.git/info/exclude` instead of `--exclude-standard`, so a `.gitignore` the agent writes no longer hides anything. Only the seed's own exclude entry (`.gstack-home/`) still applies.
+- **learn/no-code-change** also fails on a new untracked file under `app/`. Before, `git diff --quiet HEAD -- app` saw only tracked files.
+- **learn/add, prune-stale and prune-conflict** read the seeded project's `learnings.jsonl` (the slug `seed.sh` derives from the work dir) instead of `projects/*`, so an extra project folder can no longer satisfy them.
+- **The eight office-hours design-doc checks and backend-skips-visual** first require `.gstack-home` to be a real directory and not a symlink. `find` does not descend into a symlinked start point, so a swapped state root used to hide every design doc and mockup.
+
+### Gate integrity
+- These are grader edits that only tighten. Each check now fails runs it passed before, and no threshold, trial count or task was removed. The new `test/skill-eval-checks.test.ts` seeds each task with its own `seed.sh`, then runs the committed check after an honest action (it must pass) and after each hole (it must fail). On the old checks, all 15 hole cases passed the check and all 15 honest cases passed too. gstack-evals relocks its vendored copies from this commit.
+- `test/skill-eval-checks.test.ts` joins the `BASELINE` in `test/test-of-test-ratchet.test.ts`. It imports no product module because no gstack module runs these check commands; the commands themselves are what it tests.
+
 ## [1.91.350.0] - 2026-10-31
 
 **`/ship` review costs less and catches more: one batched specialist, a blocking floor in both prose voices, and data files that no code reads review as docs (GSTA-167 variant G).** The no-loss replay certified the stack before merge. Round 5 replayed 14 PRs with 29 known blockers, and the new reviewers found 24 against the control's 21, non-inferior at p=0.035. Round 6 pooled 41 blockers (the 29 plus 12 confirmed units from GSTA-2): 33 against 27, non-inferior at p=0.0055. The free re-score for the classifier and state-matrix change lost 0 blockers.

@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { BUMP_NEVER_KEY_VERSION } from '../lib/ship-policy';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);
@@ -57,6 +58,92 @@ describe('version (Step 12)', () => {
     expect(read(stamp, 'VERSION')).toBe('1.0.0.0\n');
     const low = fx();
     expect(low.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--version', '0.9.0.0']).stdout).toContain('STOP: 0.9.0.0 is not above the base version 1.0.0.0');
+  });
+});
+
+describe('version (Step 12): keeping VERSION and waiting for the bump answer (GST-380)', () => {
+  const UNATTENDED = { GSTACK_SESSION_KIND: 'unattended' };
+  const untouched = (f: ShipFx) => {
+    expect(read(f, 'VERSION')).toBe('1.0.0.0\n');
+    expect(JSON.parse(read(f, 'package.json')).version).toBe('1.0.0');
+    expect(read(f, 'CHANGELOG.md')).toContain('## [Unreleased]');
+    expect(f.git('status', '--porcelain').stdout).toBe('');
+  };
+
+  // Value: protects=a repo whose unit PRs never change VERSION can pass Step 12 with --keep-current or --version <current> on a FRESH branch, and nothing is written or claimed; fails_when=FRESH demands a level before it reads those flags (gstack-evals#85: BUMP_LEVEL needed for all three flags);
+  //   why_new=GST-380; seam=gstack-version-bump classify; no_claim=the queue's live host read
+  test('FRESH under bump ask: --keep-current and --version <current> keep VERSION with no write', () => {
+    for (const args of [['--keep-current'], ['--version', '1.0.0.0']]) {
+      const f = fx();
+      const r = f.run(RELEASE, ['version', '--base', 'main', ...args]);
+      expect([r.status, lineOf(r.stdout, 'VERSION')]).toEqual([0, expect.stringMatching(/^VERSION: 1\.0\.0\.0 kept \(FRESH, /)]);
+      expect(r.stdout).toContain('NEXT: Step 13');
+      untouched(f);
+    }
+    const g = fx();
+    const incomplete = g.run(RELEASE, ['version', '--base', 'main', '--accept-incomplete']);
+    expect([incomplete.status, incomplete.stdout.includes('--keep-current')]).toEqual([3, true]);
+    untouched(g);
+  });
+
+  // Value: protects=in a session no person answers (unattended, spawned, OpenClaw, headless) a bump under bump ask waits for the owner's words before anything is written; fails_when=the bin writes VERSION on a --bump the agent took as the recommended option (gstack-evals#89 wrote 0.0.2 before anyone was asked);
+  //   why_new=GST-380; seam=gstack-session-kind's classification, gstack-version-bump write; no_claim=that the words came from the owner
+  test('an unattended --bump under bump ask stops with BUMP_ANSWER_REQUIRED and writes nothing until --answer', () => {
+    const sessions: Record<string, string>[] = [UNATTENDED, { GSTACK_SESSION_KIND: 'spawned' }, { OPENCLAW_SESSION: '1' }, { GSTACK_HEADLESS: '1' }];
+    for (const env of sessions) {
+      const f = fx();
+      const r = f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--why', 'small'], env);
+      expect([r.status, /^STOP: BUMP_ANSWER_REQUIRED/m.test(r.stdout), r.stdout.includes('--keep-current')]).toEqual([3, true, true]);
+      untouched(f);
+    }
+    const f = fx();
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--answer', '--why', 'x'], UNATTENDED).status).toBe(2);
+    for (const bad of [' ', 'a\nb', 'x'.repeat(201)]) expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--answer', bad], UNATTENDED).status).toBe(2);
+    untouched(f);
+    const ok = f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--answer', 'micro is fine'], UNATTENDED);
+    expect([ok.status, read(f, 'VERSION')]).toEqual([0, '1.0.0.1\n']);
+    const rebump = f.run(RELEASE, ['version', '--base', 'main', '--version', '2.0.0.0'], UNATTENDED);
+    expect([rebump.status, rebump.stdout.includes('BUMP_ANSWER_REQUIRED'), rebump.stdout.includes('Ask: --version 2.0.0.0 (recommended), keep 1.0.0.1'), read(f, 'VERSION')]).toEqual([3, true, true, '1.0.0.1\n']);
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--version', '1.0.0.0'], UNATTENDED).stdout).toContain('STOP: 1.0.0.0 is not above the base version 1.0.0.0');
+    const rewritten = f.run(RELEASE, ['version', '--base', 'main', '--version', '2.0.0.0', '--answer', 'go to 2.0.0.0'], UNATTENDED);
+    expect([rewritten.status, read(f, 'VERSION')]).toEqual([0, '2.0.0.0\n']);
+    const both = fx().run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--version', '1.0.0.5'], UNATTENDED);
+    expect([both.status, both.stdout.includes('Ask: --bump micro --version 1.0.0.5 (recommended)')]).toEqual([3, true]);
+    const patch = fx({ '.gstack/ship-policy.json': '{"bump":"patch"}\n' });
+    expect([patch.run(RELEASE, ['version', '--base', 'main'], UNATTENDED).status, read(patch, 'VERSION')]).toEqual([0, '1.0.1.0\n']);
+  });
+
+  // Value: protects=bump never keeps VERSION with no flag and no question, refuses a bump or a different --version, and stops on a branch that moved VERSION; fails_when=a never repo gets a write, a question, or a silently kept bump;
+  //   why_new=GST-380 added bump never; seam=gstack-ship-policy show-effective, gstack-version-bump classify; no_claim=the release process's own bump
+  test('bump never keeps VERSION with no flag, refuses a bump, and stops on a bumped branch', () => {
+    const policy = { '.gstack/ship-policy.json': JSON.stringify({ bump: 'never', min_gstack_version: BUMP_NEVER_KEY_VERSION }) + '\n' };
+    const f = fx(policy);
+    const kept = f.run(RELEASE, ['version', '--base', 'main'], UNATTENDED);
+    expect([kept.status, lineOf(kept.stdout, 'VERSION')]).toEqual([0, 'VERSION: 1.0.0.0 kept (policy: bump never; no write)']);
+    for (const args of [['--bump', 'micro', '--answer', 'yes'], ['--version', '1.0.0.1']]) {
+      const r = f.run(RELEASE, ['version', '--base', 'main', ...args]);
+      expect([r.status, r.stdout.includes('STOP: policy bump never: unit PRs keep VERSION at 1.0.0.0')]).toEqual([3, true]);
+    }
+    untouched(f);
+    const bumped = fx(policy, { VERSION: '1.0.0.1\n' });
+    const moved = bumped.run(RELEASE, ['version', '--base', 'main']);
+    expect([moved.status, moved.stdout.includes('STOP: VERSION moved from 1.0.0.0 to 1.0.0.1 but the policy says bump never')]).toEqual([3, true]);
+    const stale = fx(policy, { VERSION: '1.0.0.1\n', 'package.json': '{"name":"fx","version":"0.9.0"}\n' });
+    const drift = stale.run(RELEASE, ['version', '--base', 'main']);
+    expect([drift.status, drift.stdout.includes('but the policy says bump never'), drift.stdout.includes('REPAIR:')]).toEqual([3, true, false]);
+  });
+
+  // Value: protects=a --bump beside --keep-current or --version <current> is a contradiction the bin names instead of picking one; fails_when=it silently keeps or silently bumps;
+  //   why_new=GST-380 review F8 (flag precedence); seam=none; no_claim=-
+  test('--bump or --version <other> with --keep-current or --version <current> stops and writes nothing', () => {
+    const f = fx();
+    for (const args of [['--keep-current'], ['--version', '1.0.0.0']]) {
+      const r = f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', ...args]);
+      expect([r.status, r.stdout.includes('STOP: --bump micro moves VERSION and')]).toEqual([3, true]);
+    }
+    const keepAndMove = f.run(RELEASE, ['version', '--base', 'main', '--keep-current', '--version', '1.0.0.5']);
+    expect([keepAndMove.status, keepAndMove.stdout.includes('STOP: --version 1.0.0.5 moves VERSION and --keep-current keeps it')]).toEqual([3, true]);
+    untouched(f);
   });
 });
 
