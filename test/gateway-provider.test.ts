@@ -23,6 +23,7 @@ function fakeClaude(): string {
   const script = path.join(tmp, 'fake-claude.js');
   fs.writeFileSync(script, [
     "const fs = require('fs');",
+    "if (process.env.FAKE_ARGS_OUT) fs.writeFileSync(process.env.FAKE_ARGS_OUT, JSON.stringify(process.argv.slice(2)));",
     "fs.writeFileSync(process.env.FAKE_ENV_OUT, Object.entries(process.env).map(([k, v]) => k + '=' + v).join('\\n') + '\\n');",
     "if (process.env.FAKE_ERROR) { process.stdout.write(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '' })); process.exit(0); }",
     "const modelUsage = JSON.parse('{' + (process.env.FAKE_MODELS || '') + '}');",
@@ -69,6 +70,16 @@ describe('gateway provider', () => {
     const result = await adapter.run({ prompt: 'hi', workdir: tmp, timeoutMs: 10_000 });
     expect(result.error?.reason).toBe('MODEL_MIX: the run also billed claude-haiku-5-5');
     expect(foreignModels('particle-ai/particle-1', ['particle-1', 'PARTICLE-AI/particle-1'])).toEqual([]);
+  });
+
+  test('gateway runs load no Claude Code settings, so a settings.json key never reaches the gateway', async () => {
+    process.env.GSTACK_CLAUDE_BIN = fakeClaude();
+    const argsOut = path.join(tmp, 'args.json');
+    await new GatewayAdapter('particle', { PATH: process.env.PATH, HOME: tmp, OPENROUTER_API_KEY: 'sk-or', FAKE_ENV_OUT: path.join(tmp, 'env-args.txt'), FAKE_ARGS_OUT: argsOut, FAKE_MODELS: '"particle-ai/particle-1":{}' }).run({ prompt: 'hi', workdir: tmp, timeoutMs: 10_000 });
+    const argv: string[] = JSON.parse(fs.readFileSync(argsOut, 'utf-8'));
+    const at = argv.indexOf('--setting-sources');
+    expect(at).toBeGreaterThan(-1);
+    expect(argv[at + 1]).toBe('');
   });
 
   test('an error envelope from the gateway is an error, not a benchmark result', async () => {

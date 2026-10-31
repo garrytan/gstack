@@ -85,7 +85,7 @@ export class GatewayAdapter implements ProviderAdapter {
     if (opts.csoProducer) {
       return { output: '', tokens: { input: 0, output: 0 }, durationMs: 0, toolCalls: 0, modelUsed: this.model, error: { code: 'unknown', reason: 'gateway providers do not run CSO producers' } };
     }
-    const result = await this.harness.run({ ...opts, model: this.model });
+    const result = await this.harness.run({ ...opts, model: this.model, extraArgs: [...(opts.extraArgs ?? []), '--setting-sources', ''] });
     const foreign = foreignModels(this.model, result.modelsBilled);
     if (!result.error && foreign.length) {
       return { ...result, error: { code: 'unknown', reason: `MODEL_MIX: the run also billed ${foreign.join(', ')}` } };
