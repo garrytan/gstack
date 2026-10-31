@@ -264,6 +264,33 @@ describe.skipIf(process.platform === 'win32')('gstack-ff-update: moving the tree
     expect(git(fx.install, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', ref)).toBe('gstack rescue <gstack@localhost>|gstack rescue <gstack@localhost>');
   });
 
+  // Value: protects=the one move every upgrade path shares refuses (exit 6, nothing changed) when an enclosing project tracks the install or
+  //   VERSION was put back behind HEAD, even with nothing to move (#1022); fails_when=the preflight is skipped, runs after "already", or counts a gitlink;
+  //   why_new=no case had an enclosing project; seam=none
+  test('preflight: a tracking project or a reverted VERSION refuses with exit 6 and changes nothing; a gitlink and --preflight on a clean install pass', () => {
+    const fx = makeFixture();
+    const old = git(fx.install, 'rev-parse', 'HEAD');
+    expect(spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 }).status).toBe(0);
+    git(fx.base, 'init', '-q', '-b', 'main');
+    git(fx.base, 'update-index', '--add', '--cacheinfo', `160000,${old},install`);
+    expect(spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 }).status).toBe(0);
+    git(fx.base, 'update-index', '--force-remove', 'install');
+    git(fx.base, 'update-index', '--add', '--', 'install/VERSION', 'install/notes.txt');
+    release(fx, { 'notes.txt': 'top UPSTREAM\nmiddle\nbottom\n' });
+    const tracked = ff(fx);
+    expect(tracked.status, tracked.stdout + tracked.stderr).toBe(6);
+    expect(tracked.stdout).toStartWith(`tracked-by-project: ${fx.base} tracks 2 files of the gstack install at install,`);
+    expect(tracked.stdout.trim().split('\n')).toHaveLength(1);
+    expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(old);
+    fs.rmSync(path.join(fx.base, '.git'), { recursive: true, force: true });
+    expect(ff(fx).status).toBe(0);
+    write(fx, 'VERSION', '1.0.0\n');
+    const reverted = ff(fx);
+    expect(reverted.status).toBe(6);
+    expect(reverted.stdout).toStartWith('version-reverted: VERSION says 1.0.0 but the checkout is at 1.1.0');
+    expect(read(fx, 'VERSION')).toBe('1.0.0\n');
+  });
+
   test('refusals: not a fast-forward, an unresolvable target, and a missing checkout', () => {
     const fx = makeFixture();
     write(fx, 'VERSION', 'local\n');

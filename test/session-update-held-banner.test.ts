@@ -166,10 +166,44 @@ describe.skipIf(process.platform === 'win32')('gstack-session-update: held-updat
     expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(target);
   });
 
+  // Value: protects=the auto-updater holds, instead of rescuing and re-updating forever, an install whose enclosing project tracks its files (#1022);
+  //   fails_when=gstack-ff-update's exit 6 is not a hold, or the banner's command does not print the full fix; why_new=no case had an enclosing project; seam=none
+  test('tracked-by-project: the update holds with HEAD unchanged; the banner names the preflight, which prints the full fix', async () => {
+    const fx = makeFixture();
+    const old = git(fx.install, 'rev-parse', 'HEAD');
+    release(fx, 'top UPSTREAM\nmiddle\nbottom\n');
+    git(fx.base, 'init', '-q', '-b', 'main');
+    git(fx.base, 'update-index', '--add', '--', ...git(fx.install, 'ls-files').split('\n').map((f) => `it's an install/${f}`));
+    spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: env(fx), timeout: 20_000 });
+    await waitFor(fx, /Z HELD tracked-by-project: /);
+    expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(old);
+    expect(git(fx.install, 'for-each-ref', 'refs/gstack/rescue')).toBe('');
+    const lines = banner(fx).trim().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toStartWith(`gstack auto-update: update held (tracked-by-project: ${fx.base} tracks`);
+    expect(lines[0]).toContain('troubleshooting.md#auto-update-tracked-by-project');
+    const cmd = lines[0].match(/The full fix: (bash .*?)\. https:/)![1];
+    const r = run(fx, cmd);
+    expect(r.status).toBe(6);
+    expect(r.stdout).toContain(`git -C ${quoted(fx.base)} rm -r -q --cached -- ${quoted("it's an install")}`);
+  });
+
+  // Value: protects=a project holding the install as a submodule gitlink keeps auto-updating; fails_when=the #1022 check counts a gitlink;
+  //   why_new=negative control for the case above; seam=none
+  test('a gitlink in the enclosing project is not a hold: the update lands', async () => {
+    const fx = makeFixture();
+    const target = release(fx, 'top UPSTREAM\nmiddle\nbottom\n');
+    git(fx.base, 'init', '-q', '-b', 'main');
+    git(fx.base, 'update-index', '--add', '--cacheinfo', `160000,${git(fx.install, 'rev-parse', 'HEAD')},it's an install`);
+    spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: env(fx), timeout: 20_000 });
+    await waitFor(fx, /Z UPDATED /);
+    expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(target);
+  });
+
   test('every anchor the lines link to exists', () => {
     const src = fs.readFileSync(SCRIPT, 'utf8');
     const anchors = [...src.matchAll(/troubleshooting\.md#([a-z0-9-]+)/g)].map((m) => m[1]!);
-    for (const a of ['auto-update-unmerged-files', 'auto-update-autostash-unrecoverable', 'auto-update-rescued-edits']) expect(anchors).toContain(a);
+    for (const a of ['auto-update-unmerged-files', 'auto-update-autostash-unrecoverable', 'auto-update-rescued-edits', 'auto-update-tracked-by-project']) expect(anchors).toContain(a);
     for (const a of anchors) expect(DOC, a).toContain(`<a id="${a}"></a>`);
   });
 });
