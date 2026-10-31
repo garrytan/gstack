@@ -98,9 +98,10 @@ export function version(argv: readonly string[], cwd: string): Report {
     return r.stop(`BUMP_LEVEL needed (FRESH, ${stat || 'no diff'}): MICRO under 50 lines, PATCH 50+ with no feature signal, MINOR/MAJOR ask first (Step 12.2); rerun with --bump <level>, or with --keep-current to leave VERSION at ${j.baseVersion}`);
   }
   const answer = flag('--answer');
-  if (fresh && asked && policy?.bump !== 'patch' && !answer) {
+  if ((fresh ? asked : explicit) && policy?.bump !== 'patch' && !answer) {
     const kind = bin(cwd, 'gstack-session-kind', [], 30_000).stdout.trim() || 'unknown';
-    if (kind !== 'interactive') return r.stop(`BUMP_ANSWER_REQUIRED (${kind} session, bump ask): Step 12's level is the owner's approval, and a brief's "take the recommended option" is not an answer. Ask: ${asked} (recommended), keep ${j.baseVersion} (--keep-current), or stop; then rerun with --bump ${asked} --answer "<their words>". A repo whose unit PRs never bump sets bump never; one that always takes PATCH sets bump patch`);
+    const pick = fresh ? `--bump ${asked}` : `--version ${explicit}`;
+    if (kind !== 'interactive') return r.stop(`BUMP_ANSWER_REQUIRED (${kind} session, bump ask): a version Step 12 writes is the owner's approval, and a brief's "take the recommended option" is not an answer. Ask: ${pick} (recommended), keep ${fresh ? j.baseVersion : j.currentVersion} (--keep-current), or stop; then rerun with ${pick} --answer "<their words>". A repo whose unit PRs never bump sets bump never; one that always takes PATCH sets bump patch`);
   }
   let q = queue(cwd, base, level, j.baseVersion);
   if (q.json?.complete === false) q = queue(cwd, base, level, j.baseVersion);
