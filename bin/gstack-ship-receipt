@@ -610,8 +610,12 @@ function cmdCarry(rest: string[], json: boolean): number {
       if (!record) {
         const gitPath = git(['rev-parse', '--git-path', `gstack/scoped-review-${head.slice(0, 12)}.md`], repoRoot);
         const packet = path.resolve(repoRoot, gitPath ?? `.git/gstack/scoped-review-${head.slice(0, 12)}.md`);
-        fs.mkdirSync(path.dirname(packet), { recursive: true });
-        fs.writeFileSync(packet, contextPacket(repoRoot, { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head }, contextPaths));
+        try {
+          fs.mkdirSync(path.dirname(packet), { recursive: true });
+          fs.writeFileSync(packet, contextPacket(repoRoot, { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head }, contextPaths));
+        } catch (e) {
+          return refused('RECEIPT_CARRY_REFUSED', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}, but the scoped-review packet ${packet} cannot be written (${(e as Error).message.split('\n')[0]}); make its directory writable, then rerun carry`);
+        }
         return refused('RECEIPT_CARRY_SCOPED_REVIEW', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /ship on ${head.slice(0, 12)}`);
       }
       const review = readScopedReview(record, { head }, contextPaths);

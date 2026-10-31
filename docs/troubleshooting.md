@@ -5071,7 +5071,10 @@ carry reason records the reviewer and the paths. A blocking finding means /ship
 on the new head. `gstack-ship-release finish` stops the same way with
 `context=N` and takes `--context-reviewed <record.json>` bound to the tree;
 write that record beside the packet, outside the worktree, so it does not change
-the tree it is bound to.
+the tree it is bound to. Finish also stops this way for test code changed since
+review with no gate edit (`tests=N`): the packet holds those test hunks, and the
+reviewer checks that each test still tests what it did. A packet that cannot be
+written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the path.
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`

@@ -263,6 +263,10 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     spawnMerge(repo, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
     const head = repo.git('rev-parse', 'HEAD');
     const carry = (extra: string[] = []) => runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main', ...extra]);
+    fs.writeFileSync(path.join(repo.work, '.git', 'gstack'), 'not a directory');
+    const blocked = carry();
+    expect([blocked.status, blocked.out.includes('RECEIPT_CARRY_REFUSED'), blocked.err.includes('cannot be written')]).toEqual([EXIT.refused, true, true]);
+    fs.rmSync(path.join(repo.work, '.git', 'gstack'));
     const ask = carry();
     expect(ask.status).toBe(EXIT.refused);
     expect(ask.out.trim()).toBe('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)\nGSTACK_RESULT: skill=ship status=refused run=-');
@@ -305,10 +309,36 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     const reviewed = wtree(f);
     const post = snapshot(f);
     f.write({ 'test/b.test.ts': `${spec('b')}test('b is even', () => expect(2 % 2).toBe(0));\n` }); f.commit('test: add a case');
-    const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
-    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=1 /);
+    const ask = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+    expect(lineOf(ask.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=1 /);
+    expect([ask.status, lineOf(ask.stdout, 'STOP')]).toEqual([3, expect.stringContaining('STOP: test code changed since review in test/b.test.ts: one fix-check reviewer reads ')]);
+    const packet = /reads (\S+\.md), then/.exec(ask.stdout)![1]!;
+    expect(fs.readFileSync(packet, 'utf8')).toContain("test('b is even'");
+    const record = path.join(f.root, 'tests-reviewed.json');
+    fs.writeFileSync(record, JSON.stringify({ tree: wtree(f), paths: ['test/b.test.ts'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
+    const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f), '--context-reviewed', record]);
+    expect(lineOf(r.stdout, 'SCOPED_REVIEW')).toBe('SCOPED_REVIEW: clean by anthropic/claude-opus-5-5 (test/b.test.ts)');
     expect(lineOf(r.stdout, 'DOCS')).toContain('fresh');
     expect(r.status).toBe(0);
+
+    const table = (extra: string) => `import { expect, test } from 'bun:test';\nconst EXEMPT = [\n  'bin/a',\n${extra}];\ntest('exempt', () => {\n  expect(EXEMPT.length).toBeLessThan(5);\n});\n`;
+    const early = (ret: string) => `import { expect, test } from 'bun:test';\ntest('rows', () => {\n${ret}  expect(JSON.parse('[1]')).toEqual([1]);\n});\n`;
+    for (const [name, before, after] of [['exemption-table entry', table(''), table("  'bin/b',\n")], ['return before an expect', early(''), early('  return;\n')]]) {
+      const w = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/gate.test.ts': before });
+      const rw = wtree(w);
+      const pw = snapshot(w);
+      w.write({ 'test/gate.test.ts': after }); w.commit(`test: ${name}`);
+      const out = finish(w, rw, pw, ['--reviewed-base', mergeBase(w)]);
+      expect([name, out.status, lineOf(out.stdout, 'STOP')]).toEqual([name, 3, expect.stringContaining('STOP: test code changed since review in test/gate.test.ts: one fix-check reviewer reads ')]);
+    }
+
+    const locked = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/b.test.ts': spec('b') });
+    const rl = wtree(locked);
+    const pl = snapshot(locked);
+    locked.write({ 'test/b.test.ts': `${spec('b')}test('b again', () => expect(1).toBe(1));\n` }); locked.commit('test: add');
+    fs.writeFileSync(path.join(locked.work, '.git', 'gstack'), 'not a directory');
+    const blocked = finish(locked, rl, pl, ['--reviewed-base', mergeBase(locked)]);
+    expect([blocked.status, lineOf(blocked.stdout, 'STOP')]).toEqual([3, expect.stringMatching(/^STOP: test code changed since review in test\/b\.test\.ts, but the scoped-review packet \S+ cannot be written \(/)]);
     f.write({ 'test/b.test.ts': `${spec('b', 'test.skip')}test('b is even', () => expect(2 % 2).toBe(0));\n` }); f.commit('test: skip');
     const skip = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
     expect([skip.status, skip.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/b.test.ts)')]).toEqual([3, true]);
@@ -387,6 +417,10 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     expect(second.status).toBe(3);
     expect(second.stdout).toContain('ATTEMPT: counted (a second install refusal in this invocation)');
     expect(second.stdout).toContain('STOP: run the install fix');
+    const raced = path.join(f.root, 'raced.json');
+    fs.writeFileSync(raced, JSON.stringify({ not_counted: 0 }));
+    const race = f.run(path.join(BIN, 'gstack-docs-candidate'), ['attempt', refused, '--state', raced]);
+    expect([race.status, race.stdout.includes('ATTEMPT: counted (another launch in this invocation already used the allowance)')]).toEqual([3, true]);
     const corrupt = path.join(f.root, 'corrupt.json');
     fs.writeFileSync(corrupt, '{not json');
     const reset = f.run(path.join(BIN, 'gstack-docs-candidate'), ['attempt', refused, '--state', corrupt]);

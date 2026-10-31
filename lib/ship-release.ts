@@ -186,17 +186,24 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   by.tests = by.tests.filter(p => !gated.has(p));
   r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}`);
   if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return null; }
-  if (by.context.length && sides) {
+  const scoped = [...by.context, ...by.tests].sort();
+  if (scoped.length && sides) {
     if (!opts.contextReviewed) {
       const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.md`);
-      fs.mkdirSync(path.dirname(packet), { recursive: true });
-      fs.writeFileSync(packet, contextPacket(cwd, sides, by.context));
-      r.stop(`base context moved next to the reviewed hunks in ${short(by.context)}: one fix-check reviewer reads ${packet}, then rerun with --context-reviewed <record.json> written beside the packet, outside the worktree ({"tree":"${now}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding is a behavior change (stage 2.1)`);
+      const why = [by.context.length ? `base context moved next to the reviewed hunks in ${short(by.context)}` : '', by.tests.length ? `test code changed since review in ${short(by.tests)}` : ''].filter(Boolean).join('; ');
+      try {
+        fs.mkdirSync(path.dirname(packet), { recursive: true });
+        fs.writeFileSync(packet, contextPacket(cwd, sides, by.context, by.tests));
+      } catch (e) {
+        r.stop(`${why}, but the scoped-review packet ${packet} cannot be written (${firstLine((e as Error).message)}): make its directory writable, then rerun finish (stage 2.1)`);
+        return null;
+      }
+      r.stop(`${why}: one fix-check reviewer reads ${packet}, then rerun with --context-reviewed <record.json> written beside the packet, outside the worktree ({"tree":"${now}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding is a behavior change (stage 2.1)`);
       return null;
     }
-    const review = readScopedReview(opts.contextReviewed, { tree: now }, by.context);
+    const review = readScopedReview(opts.contextReviewed, { tree: now }, scoped);
     if (!review.ok) { r.stop(`--context-reviewed: ${review.message}`); return null; }
-    r.add(`SCOPED_REVIEW: clean by ${review.review.reviewer} (${short(by.context)})`);
+    r.add(`SCOPED_REVIEW: clean by ${review.review.reviewer} (${short(scoped)})`);
   }
   if (by.docs.length && !opts.docsRechecked) { r.stop(`authored docs changed since review (${short(by.docs)}): recheck the plan items they touch (stage 2.2), then rerun with --docs-rechecked`); return null; }
   return by;

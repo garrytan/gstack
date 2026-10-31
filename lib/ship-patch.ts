@@ -125,13 +125,14 @@ function hunkTexts(diff: string): string[] {
 }
 
 /** The scoped-review packet: per context path, the hunks that differ between the two branch patches and the base's own change. */
-export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[]): string {
+export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = []): string {
   const fence = (label: string, body: string) => {
     const all = body.split('\n');
     return `${label}${all.length > 200 ? ` (first 200 of ${all.length} lines; read the rest with git diff)` : ''}\n\`\`\`diff\n${all.slice(0, 200).join('\n').trimEnd()}\n\`\`\`\n`;
   };
   const parts = [`# Scoped review: base context moved next to the reviewed hunks\n\nreviewed ${s.reviewed.slice(0, 12)} against ${s.reviewedBase.slice(0, 12)}; current ${s.current.slice(0, 12)} against ${s.currentBase.slice(0, 12)}. The branch's +/- lines are unchanged; read whether the merge kept their meaning next to the base's edit. Report clean, or findings at the blocking floor.\n`];
-  for (const rel of paths) {
+  if (tests.length) parts.push(`Test code changed since review in ${tests.join(', ')}: read whether each test still checks what it did (no weakened or bypassed assertion, early return, new exemption, skip or mock). Report clean, or findings at the blocking floor.\n`);
+  for (const rel of [...paths, ...tests]) {
     const r = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3) ?? '');
     const c = hunkTexts(pathDiff(repoRoot, s.currentBase, s.current, rel, 3) ?? '');
     parts.push(`## ${rel}\n`, fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join('')),
@@ -148,7 +149,7 @@ export function isTestCode(rel: string): boolean {
 /**
  * Test paths whose change from..to needs review: any removed or changed line (a weakened assertion or a changed
  * expected value carries no gate tag), a gate edit lib/gate-diff tags (a skipped test, a snapshot, a relaxed gate
- * value), or a diff the scan cannot read. Only added lines with no tag stay a lanes-only rerun.
+ * value), or a diff the scan cannot read. The rest still get the scoped fix-check of their test hunks (lib/ship-release.ts route).
  */
 export function gateEditedPaths(repoRoot: string, from: string, to: string, paths: readonly string[]): Set<string> | null {
   if (!paths.length) return new Set();
