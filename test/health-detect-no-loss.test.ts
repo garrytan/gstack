@@ -123,6 +123,25 @@ describe('/health detection: no check lost (GST-116 PR 2)', () => {
     expect(d.missing).toEqual([{ dimension: 'lint', reason: 'not in the CLAUDE.md Health Stack section' }, { dimension: 'gbrain', reason: 'not in the CLAUDE.md Health Stack section' }]);
   });
 
+  // Value: protects=a 'tests' row and repeated keys count as present, so Step 2 never skips a category it runs;
+  //   fails_when=the -N suffix or tests→test normalization regresses and a listed category also prints none; why_new=new; seam=none
+  test('a tests row and repeated keys are not reported missing', () => {
+    const dir = repo('health-stack-dupes', { 'CLAUDE.md': '## Health Stack\n\n- tests: bun test\n- lint: eslint .\n- lint: biome check .\n' });
+    const d = healthDimensions(dir, { PATH: '', HOME: bareHome });
+    expect(d.checks.map(c => c.dimension)).toEqual(['tests', 'lint', 'lint-2']);
+    expect(d.missing.map(m => m.dimension)).toEqual(['typecheck', 'deadcode', 'shell', 'gbrain']);
+  });
+
+  // Value: protects=--for is accepted only as detect --for health; fails_when=run --for health falls through into the run
+  //   path, or a missing or unknown mode is accepted; why_new=new flag; seam=the bin
+  test('--for is refused outside detect --for health', () => {
+    for (const args of [['run', '--for', 'health'], ['detect', '--for'], ['detect', '--for', 'verify']]) {
+      const r = runScriptSync(BIN('gstack-checks'), args, { cwd: tmp, encoding: 'utf8', timeout: 30_000 });
+      expect(r.status).toBe(64);
+      expect(r.stderr ?? '').toContain('Usage: gstack-checks');
+    }
+  });
+
   // Value: protects=an unavailable category says why, so Step 2 records SKIPPED with a reason; fails_when=a none line
   //   loses its reason or shellcheck's two causes collapse; why_new=new output; seam=none
   test('none lines name the reason', () => {
