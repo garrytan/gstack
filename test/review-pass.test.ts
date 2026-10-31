@@ -166,7 +166,7 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
         if (mode === 'after') throw new Error('create result lost');
         return { tasks: [{ index, title: t.title }], ...(rejected ? { rejected: [{ index, error: 'cap' }] } : {}) };
       },
-      start: async ({ indices }: { indices: number[] }) => { starts.push(indices); for (const i of indices) subs.get(String(i))!.status = 'working'; return { started: indices.map(index => ({ index })), rejected: [] }; },
+      start: async ({ indices, model }: { indices: number[]; model?: unknown }) => { starts.push(indices); for (const i of indices) { const s = subs.get(String(i))!; s.status = 'working'; if (model) s.model = model; } return { started: indices.map(index => ({ index })), rejected: [] }; },
       list: async () => { advance(); return { tasks: [...subs].map(([p, s]) => ({ path: p, title: s.title, status: s.status })), total: subs.size }; },
       get: async ({ path: p }: { path: string }) => ({ path: p, status: subs.get(p)!.status, summary: subs.get(p)!.summary }),
     },
@@ -344,8 +344,31 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(await runPass(h2, base2)).toContain('NEXT: judge (Phase 4)');
     expect(await runPass(h2, { ...base2, stage: 'voices', budgetMs: 1 })).toMatch(/DISPATCHED: outside-voice path=\d+ queued/);
     const starts = h2.starts.length;
+    const recorded = path.join(base2.out, 'voice-models.json');
+    const kept = fs.readFileSync(recorded, 'utf8');
+    fs.rmSync(recorded);
     expect(await runPass(h2, { ...base2, stage: 'voices', models: same })).toMatch(refused);
     expect(h2.starts.length).toBe(starts);
+    fs.writeFileSync(recorded, kept);
+    const resumed = await runPass(h2, { ...base2, stage: 'voices', models: same });
+    expect(resumed).toContain('OUTSIDE_VOICE: openai/gpt-6.1-sol reasoning=medium as dispatched, started from the queue (certified configuration)');
+    expect(h2.creates.find(c => c.title === 'ship x18p1 outside-voice')!.model).toEqual({ model_id: 'openai/gpt-6.1-sol', reasoning_mode: 'medium' });
+  }, 300_000);
+
+  // Value: protects=a queued outside voice resumes on the models recorded when the voices were dispatched, so changed rerun inputs cannot pair it with a native voice of its own family; fails_when=the rerun's input decides the queued voice's model and the native family (outside-voice finding on #3698: two OpenAI voices started);
+  //   why_new=/ship Step 11 review of #3698; seam=none; no_claim=inputs that change between reruns on purpose
+  test('a queued outside voice resumes on its dispatched model, checked against the dispatched native family', async () => {
+    const { dir, env } = repo();
+    const h = host(dir, env, { reject: t => t.endsWith('outside-voice') });
+    const base = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x19p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    const first = { 'adversarial-native': { model_id: 'openai/gpt-6-astra', reasoning_mode: 'high' }, 'outside-voice': { model_id: 'google/gemini-4-argon', reasoning_mode: 'medium' } };
+    expect(await runPass(h, { ...base, stage: 'voices', models: first, budgetMs: 1 })).toMatch(/DISPATCHED: outside-voice path=\d+ queued/);
+    const res = await runPass(h, { ...base, stage: 'voices' });
+    expect(res).not.toContain('STOP:');
+    expect(res).toContain('OUTSIDE_VOICE: google/gemini-4-argon reasoning=medium as dispatched, started from the queue; outside the certified configuration');
+    expect(h.creates.find(c => c.title === 'ship x19p1 outside-voice')!.model).toEqual(first['outside-voice']);
+    expect(h.creates.find(c => c.title === 'ship x19p1 adversarial-native')!.model).toEqual(first['adversarial-native']);
   }, 300_000);
 
   // Value: protects=a lane whose family is unknown or not Anthropic gets no default outside voice, and an explicit one cannot skip the family check; fails_when=the pin applies to a lane it was not certified for, or an outside voice runs with nothing to compare its family to;
@@ -362,6 +385,10 @@ describe('Capy pass program (fake host, real bins)', () => {
       .toContain('STOP: the outside voice openai/gpt-6.1-sol cannot be checked against another family: neither input.laneModel nor a native voice model was given');
     expect(await runPass(h, { ...base, stage: 'voices', models: { 'outside-voice': { model_id: 'claude-sonnet-5-5' } } }))
       .toContain('STOP: the outside voice claude-sonnet-5-5 has no provider prefix, so its family cannot be checked');
+    expect(await runPass(h, { ...base, stage: 'voices', models: { 'outside-voice': { model_id: 'Anthropic/claude-sonnet-5-5' } } }))
+      .toContain('STOP: the outside voice Anthropic/claude-sonnet-5-5 is the anthropic family, the same as the lane model');
+    expect(await runPass(h, { ...base, stage: 'voices', laneModel: 'claude-opus-5-5', models: { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' } } }))
+      .toContain('STOP: the outside voice openai/gpt-6.1-sol cannot be checked against another family: the lane model claude-opus-5-5 has no provider prefix and no native voice model was given');
     expect(h.creates.some(c => /^ship x16p1 (adversarial-native|outside-voice)$/.test(c.title))).toBe(false);
   }, 240_000);
 
