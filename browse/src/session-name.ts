@@ -87,7 +87,7 @@ export function systemProcLookup(): ProcLookup {
   return (pid) => {
     if (!table) {
       table = new Map();
-      const ps = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,comm='], { encoding: 'utf8', timeout: 2000 });
+      const ps = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,comm='], { encoding: 'utf8', timeout: 2000, windowsHide: true });
       for (const line of (ps.stdout ?? '').split('\n')) {
         const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
         if (m) table.set(Number(m[1]), { ppid: Number(m[2]), comm: basename(m[3]!) });
