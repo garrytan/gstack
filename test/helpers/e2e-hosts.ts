@@ -97,7 +97,7 @@ const CLAUDE_ONLY: Readonly<Record<ClaudeOnlyReason, readonly string[]>> = {
     'shared-libs-review-index-flags', 'shared-libs-review-lifecycle', 'shared-libs-review-path-eligibility',
     'shared-libs-review-prior-coverage', 'shared-libs-review-revalidation', 'ship-frozen-scope-convergence', 'ship-local-hook-preservation',
     'ship-managed-hook-refresh', 'ship-skipped-queued-finding', 'ship-unmanaged-hook-consent'],
-  subagents: ['docsync-spawned', 'review-army-perf-n-plus-one'],
+  subagents: ['autoplan-ceo-only', 'docsync-spawned', 'review-army-perf-n-plus-one'],
   'skill-tool': ['router-failure-contradicted-cause', 'router-failure-triage-resolves', 'router-failure-triage-unclear',
     'router-failure-verified-cause', 'skillify-approval-reject', 'skillify-happy-path', 'skillify-provenance-refusal'],
   hermetic: ['hermetic-canary', 'hermetic-sentinel'],
