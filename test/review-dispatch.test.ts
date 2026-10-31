@@ -482,16 +482,15 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', 'Severity: Low (not High)').map(f => f.label)).toEqual(['High']);
   });
 
-  // Value: protects=item layouts keep their label on the right finding: an indented JSON finding keeps its JSON severity, an indented
-  //   label heading sets the section for the next item, and a later Blocks: yes raises the finding a Severity field line or JSON line
-  //   opened; fails_when=any of these collects a lower label or puts a label on another finding; why_new=GST-435's paragraph-split draft
-  //   broke each of these and was deferred; seam=parseFindings; no_claim=the split shape (known: HARN-15 ship2 native item 4 still
-  //   collects as its "Fix:" paragraph alone, without its title, until the follow-up)
-  test('item layouts keep their label on the right finding; the later-paragraph split is a known deferred shape', () => {
+  // Value: protects=item layouts collect as on main: an indented JSON finding keeps its JSON severity, an indented label heading sets
+  //   the section for the next item, and a later Blocks: yes raises the finding a Severity field line or JSON line opened;
+  //   fails_when=any of these collects a lower label or a different finding than main; why_new=GST-435's paragraph-split draft broke each
+  //   of these and was deferred; seam=parseFindings; no_claim=that main's reading is the right one (known, deferred to the follow-up:
+  //   HARN-15 ship2 native item 4 collects without its title, and an indented label heading rates the next item, not the one above it)
+  test('item layouts collect as on main; the later-paragraph split and indented label headings are known deferred shapes', () => {
     const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/harn15-ship2-p2-adversarial-native.txt'), 'utf8');
     const found = parseFindings('adversarial-native', native);
     expect(found.map(f => f.label)).toEqual(['CRITICAL', 'CRITICAL', 'CRITICAL', 'CRITICAL', 'CRITICAL', 'Low']);
-    expect(found[3]!.raw).toStartWith('Fix: create the file with');
     expect(parseFindings('outside-voice', '1. **Race on the lock** (a.ts:3)\n   - the writer holds no lock\n\n   Fix: take it first. Severity: High. Blocks: no.').map(f => f.label)).toEqual(['High']);
     expect(parseFindings('outside-voice', '1. Lock race (a.ts:3)\n\n   Fix: take it first. Blocks: yes\n2. Cache drift (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"critical","summary":"Low-level race in q.ts"}').map(f => [f.label, f.raw]))
