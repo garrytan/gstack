@@ -27,7 +27,7 @@ function manifest(dispatches: Dispatch[], o: Partial<Parameters<typeof buildMani
 const collectAll = (m: Manifest, stage: string) => { for (const r of m.readers.filter(x => x.stage === stage)) { markReader(m, r.reader, 'intent'); markReader(m, r.reader, 'created', { path: '9' }); markReader(m, r.reader, 'collected'); } };
 
 describe('pass manifest', () => {
-  test('stages follow the plan: specialists, Red Team, voices; batched light depth keeps its checklists and exclusions; fix-check is refused', () => {
+  test('stages follow the plan: specialists, Red Team, voices; batched light depth keeps its checklists and exclusions; a fix-check needs its files', () => {
     const m = manifest([spec('testing'), { role: 'red-team', name: 'red-team', effort: 'full', exclude: [] }, { role: 'adversarial-native', name: 'adversarial', effort: 'full', exclude: [] }, { role: 'outside-voice', name: 'outside-voice', effort: 'host', exclude: [] }]);
     expect(m.readers.map(r => [r.reader, r.stage, r.title])).toEqual([
       ['specialist/testing', 'specialists', 'ship p1 specialist/testing'], ['red-team', 'red-team', 'ship p1 red-team'],
@@ -36,7 +36,7 @@ describe('pass manifest', () => {
     expect(m.test_fw).toBe('unknown');
     const light = manifest([{ role: 'specialist', name: 'batched', effort: 'full', exclude: [':(exclude)docs/a.md'], checklists: ['testing', 'red-team'] }]);
     expect(light.readers[0]).toMatchObject({ reader: 'specialist-batched', role: 'specialist-batched', exclude: "-- . ':(exclude)docs/a.md'", checklists: ['testing', 'red-team'] });
-    expect(() => manifest([{ role: 'fix-check', name: 'fix-check', effort: 'full', exclude: [] }])).toThrow(/fix-check runs on its own/);
+    expect(() => manifest([{ role: 'fix-check', name: 'fix-check', effort: 'full', exclude: [] }])).toThrow(/the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests/);
     // PR #3665 review: the batched reviewer reads each checklist by path, as the render CLI is given them, never by bare name.
     renderStage(light, 'specialists', texts, () => '');
     expect(fs.readFileSync(light.readers[0]!.file!, 'utf8')).toContain(`Read each checklist at ${path.join(ROOT, 'review/specialists/testing.md')}, ${path.join(ROOT, 'review/specialists/red-team.md')} (tag each finding`);
@@ -394,6 +394,41 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).not.toContain('NEXT: judge');
   }, 240_000);
 
+  test('Step 14.5 runs as an audit-only pass: its docs reader alone, verbatim, with no reviewer plan', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/docs');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'docs.prompt.md'), 'Run Step 14.5 as written.\n');
+    const extras = [{ name: 'docs', prompt_file: path.join(out, 'docs.prompt.md'), first: true }];
+    const h = host(dir, env, { output: t => (t.endsWith('audit/docs') ? 'DOCS: README updated' : 'NO FINDINGS') });
+    const res = await runPass(h, { base: 'main', out, pass: 'x16docs', step: '14.5', extras });
+    expect(h.creates.map(c => c.title)).toEqual(['ship x16docs audit/docs']);
+    expect(h.creates[0]!.prompt).toBe('Run Step 14.5 as written.\n');
+    expect(res).toContain('DOCS: README updated');
+    expect(res).toContain('NEXT: apply the docs audit (Step 14.5)');
+    expect(bin(dir, env, ['pass', '--base', 'main', '--out', path.join(dir, '.state/run/d2'), '--pass', 'x16b', '--audit-only']).status).not.toBe(0);
+  }, 240_000);
+
+  test('Step 11 notes its own growth from its first dispatch, not from the pass\'s starting reading', async () => {
+    const { dir, env } = repo();
+    const rec = path.join(dir, '.state/rec.md');
+    fs.mkdirSync(path.dirname(rec), { recursive: true });
+    expect(spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --reading 1000 --credits 1', '_', rec], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    const h = host(dir, env, { pollsToFinish: 3 });
+    const get = h.tools.thread.get;
+    let last = 0;
+    h.tools.thread.get = async () => { const r = await get(); last = r.cost.tokens; return r; };
+    const out = path.join(dir, '.state/run/p1');
+    const base = { base: 'main', out, pass: 'x17p1', planFlags: ['--depth-floor', 'full'], record: rec, jam: 'jam_test' };
+    expect(await runPass(h, { ...base, step: '9' })).toContain('NEXT: judge (Phase 4)');
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
+    const res = await runPass(h, { ...base, step: '11', stage: 'voices', models });
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(m.before_voices.tokens).toBeGreaterThan(m.before.tokens);
+    const note = res.split('\n').find(l => l.startsWith('NOTE: '))!;
+    expect(Number(note.match(/readers_tokens=(\d+)/)![1])).toBe(last - m.before_voices.tokens);
+  }, 240_000);
+
   test('effort=medium readers run the lane model at medium reasoning; without laneModel or models the pass stops before creating any', async () => {
     const { dir, env } = repo();
     const h = host(dir, env);
@@ -409,21 +444,154 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(m.readers.some(r => r.effort === 'medium')).toBe(true);
   }, 180_000);
 
+  // Value: protects=once Phase 2 starts the run's parts, the pass program carries the next phase's section parts in the room its own return leaves, so Phase 4 needs no read call of its own, and it never adds them to a run that did not start them; fails_when=the pass returns parts without a started run, overruns 32 KB, puts them after its NEXT line, or repeats a part a poll return already carried;
+  //   why_new=GSTA-167 calls plan C5 in code; seam=none; no_claim=how much room real reader outputs leave
+  test('a started run gets the next parts inside each poll and the finished pass, once each and before NEXT', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { pollsToFinish: 30 });
+    const input = { base: 'main', out, pass: 'x12p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, input)).not.toContain('PART: ');
+    fs.mkdirSync(path.join(dir, '.state/run/parts'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.state/run/parts/state.json'), JSON.stringify({ returned: ['review-9', 'review-9.1', 'review-red-team', 'review-9.2.1'] }));
+    const ids: string[] = [];
+    let res = '';
+    for (let i = 0; i < 8 && !res.includes('NEXT: judge'); i++) {
+      res = await runPass(h, input);
+      expect(res.length).toBeLessThanOrEqual(32000);
+      const got = [...res.matchAll(/^PART: (\S+) /gm)].map(m => m[1]!);
+      if (got.length) expect(res.lastIndexOf('PART_END: ')).toBeLessThan(res.lastIndexOf('\nNEXT: '));
+      ids.push(...got);
+    }
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids[0]).toBe('plan-8.1-8.2');
+  }, 240_000);
+
   // Value: protects=the loader's input is filled as SKILL.md reads it: extras as JSON, the checkout named by cwd, and a reader whose summary lands a tick after its done status is collected, not stopped; fails_when=extras must be a file path (replay C2-34: BRIEF_RENDER_FAILED [object Object]), the bins run in the jam's directory instead of the checkout (C2-34: a wrapper launch file), or a done reader without its summary yet stops the pass (C2-34: "finished with no output", one extra call);
   //   why_new=replay C2-34 (GSTA-193) on PR 2; seam=none; no_claim=the host's status timing beyond one late summary
   test('extras as JSON, the checkout as cwd, and a late summary all run through without a STOP', async () => {
     const { dir, env } = repo();
-    const elsewhere = tmp('rp-cwd-');
     const out = path.join(dir, '.state/run/p1');
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(path.join(out, 'qa.prompt.md'), 'QA brief');
-    const h = host(elsewhere, env, { lateSummary: true });
-    const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir, planFlags: ['--depth-floor', 'full'],
+    const h = host(dir, env, { lateSummary: true });
+    const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir + '/src/..', planFlags: ['--depth-floor', 'full'],
       extras: [{ name: 'qa', prompt_file: path.join(out, 'qa.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
     expect(res).not.toContain('STOP:');
     expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.find(c => c.title === 'ship x13p1 audit/qa')!.prompt).toBe('QA brief');
   }, 180_000);
+
+  test('a cwd other than the directory readers start in stops the pass before anything is planned or dispatched', async () => {
+    const { dir, env } = repo();
+    const elsewhere = tmp('rp-cwd-');
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(elsewhere, env);
+    const res = await runPass(h, { base: 'main', out, pass: 'x18p1', cwd: dir, planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain(`STOP: readers start in ${fs.realpathSync(elsewhere)}, not ${dir}: run /ship from the workspace checkout`);
+    expect(h.creates).toEqual([]);
+    expect(fs.existsSync(path.join(out, 'pass-manifest.json'))).toBe(false);
+  }, 120_000);
+
+
+  test('decision 3.5 runs in the program: one fix-check reader whose prompt is the render CLI brief byte for byte, sent and collected', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/fc');
+    const files = path.join(dir, '.state/fc');
+    fs.mkdirSync(files, { recursive: true });
+    const fc: Record<string, string> = {};
+    for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n'], ['callers', 'none\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
+    const planFlags = ['--pass', '2', '--last', 'full', '--fixed-blocking'];
+    const missing = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fc0'), pass: 'x19fc0', planFlags });
+    expect(missing).toContain('STOP: gstack-review-dispatch pass exited');
+    expect(missing).toContain('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests');
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out, pass: 'x19fc', planFlags, fixCheck: fc, logStart: ['review-fix-check'] });
+    expect(res).toMatch(/REVIEW_LOG_START: review-fix-check token=\S+/);
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(h.creates.map(c => c.title)).toEqual(['ship x19fc fix-check']);
+    const cli = bin(dir, env, ['render', '--role', 'fix-check', '--out', path.join(dir, '.state/cli'), '--fix-list', fc.fix_list!, '--hunks', fc.hunks!, '--tests', fc.tests!, '--callers', fc.callers!]);
+    expect(cli.status).toBe(0);
+    expect(h.creates[0]!.prompt).toBe(fs.readFileSync(path.join(dir, '.state/cli/fix-check.prompt.md'), 'utf8'));
+    expect(h.creates[0]!.prompt).toContain('You are the fix-check reviewer');
+    const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout;
+    expect(v).toMatch(/^BRIEF fix-check MATCH rendered=(\w+) sent=\1$/m);
+    expect(v).toMatch(/^OUTPUT fix-check MATCH /m);
+  }, 240_000);
+
+  test('Step 11 records one start per row it logs, even when two rows share a skill (native and outside adversarial-review)', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env);
+    const base = { base: 'main', out, pass: 'x20p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
+    const res = await runPass(h, { ...base, stage: 'voices', models, logStart: ['adversarial-review', 'adversarial-review'] });
+    const starts = res.split('\n').filter(l => l.startsWith('REVIEW_LOG_START: adversarial-review'));
+    expect(starts.length).toBe(2);
+    expect(new Set(starts.map(l => l.split('token=')[1])).size).toBe(2);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(Object.keys(m.log_starts).sort()).toEqual(['voices:adversarial-review', 'voices:adversarial-review#2']);
+    const again = await runPass(h, { ...base, stage: 'voices', models, logStart: ['adversarial-review', 'adversarial-review'] });
+    expect(again).not.toContain('REVIEW_LOG_START:');
+  }, 240_000);
+
+  test('a repeat pass reads the range: diffBase reaches the specialists and the Red Team, byte for byte the render CLI at that base', async () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+    const rangeBase = sh('git rev-parse HEAD').stdout.trim();
+    expect(sh('echo "export const fix = 1;" >> src/a.ts && git commit -qam fix').status).toBe(0);
+    const out = path.join(dir, '.state/run/p2');
+    const h = host(dir, env);
+    expect(await runPass(h, { base: 'main', out, pass: 'x21p2', diffBase: rangeBase, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(m.diff_base).toBe(rangeBase);
+    const spec = m.readers.find((r: { role?: string }) => r.role === 'specialist-batched');
+    const cli = bin(dir, env, ['render', '--role', 'specialist-batched', '--out', path.join(dir, '.state/cli'), '--diff-base', rangeBase, '--checklists', spec.checklists.join(','), '--stack', m.stack, '--test-fw', m.test_fw]);
+    expect(cli.status, cli.stderr).toBe(0);
+    expect(h.creates.find(c => c.title === 'ship x21p2 specialist-batched')!.prompt).toBe(fs.readFileSync(path.join(dir, '.state/cli/specialist-batched.prompt.md'), 'utf8'));
+    expect(h.creates.find(c => c.title === 'ship x21p2 red-team')!.prompt).toContain('DIFF_BASE=' + rangeBase);
+  }, 240_000);
+
+  // Value: protects=a scoped repeat runs its fix-check reader from decision 3.5's files and, without them, stops naming what is missing; fails_when=the program drops fixCheck on a scoped plan or a scoped plan without files dispatches a reader;
+  //   why_new=#3670 Step 11 (adversarial 1, red team 1): the scoped path was never exercised; seam=none; no_claim=the parent writing the files
+  test('a scoped repeat runs with fixCheck files and stops naming them without', async () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+    const rangeBase = sh('git rev-parse HEAD').stdout.trim();
+    expect(sh('echo "export const fix = 1;" >> src/a.ts && git commit -qam fix').status).toBe(0);
+    const planFlags = ['--pass', '1', '--last', 'full', '--fixed-blocking', '--pass1-depth', 'standard', '--range-base', rangeBase];
+    const files = path.join(dir, '.state/fc');
+    fs.mkdirSync(files, { recursive: true });
+    const fc: Record<string, string> = {};
+    for (const [k, v] of [['fix_list', '1. src/a.ts: fix\n'], ['hunks', sh('git diff ' + rangeBase).stdout], ['tests', 'bun test: 1 pass, 0 fail\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
+    const none = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/s0'), pass: 'x22s0', diffBase: rangeBase, planFlags });
+    expect(none).toContain('STOP: gstack-review-dispatch pass exited');
+    expect(none).toContain('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests');
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/s1'), pass: 'x22s1', diffBase: rangeBase, planFlags, fixCheck: fc });
+    expect(res).toContain('next=scoped');
+    expect(res).not.toContain('STOP:');
+    expect(h.creates.map(c => c.title)).toContain('ship x22s1 fix-check');
+  }, 240_000);
+
+  // Value: protects=the program's final NEXT line survives a return that its reader outputs push to the 32 KB cap, and a pass whose out is not <run dir>/<pass dir> says it skipped the parts; fails_when=finish() cuts the tail line, the room ignores the parts trailer, or parts are skipped without a line;
+  //   why_new=#3670 Step 11 (outside voice 2, adversarial 2 and 6); seam=none; no_claim=what the parent does with a capped return
+  test('a near-cap return still ends with its NEXT line, and an odd out prints PARTS: skipped', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    fs.mkdirSync(path.join(dir, '.state/run/parts'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.state/run/parts/state.json'), JSON.stringify({ returned: [] }));
+    const big = host(dir, env, { output: () => 'x'.repeat(15_900) + '\nNO FINDINGS' });
+    const res = await runPass(big, { base: 'main', out, pass: 'x23p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res.length).toBeLessThanOrEqual(32000);
+    expect(res.trimEnd().split('\n').at(-1)).toBe('NEXT: judge (Phase 4)');
+    const odd = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/deep/p1'), pass: 'x23p2', planFlags: ['--depth-floor', 'full'] });
+    expect(odd).toMatch(/^PARTS: skipped \(/m);
+    expect(odd.trimEnd().split('\n').at(-1)).toBe('NEXT: judge (Phase 4)');
+  }, 240_000);
 
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();
@@ -431,6 +599,35 @@ describe('Capy pass program (fake host, real bins)', () => {
     const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p2'), pass: 'x9p2', planFlags: ['--pass', '1', '--last', 'full'] });
     expect(res).toContain('PASS: none next=');
     expect(h.creates).toHaveLength(0);
+  }, 120_000);
+});
+
+describe('the pass resolves --base the way preflight does', () => {
+  function withOrigin(stale: boolean) {
+    const { dir, env } = repo();
+    const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(c + ': ' + r.stderr); return r.stdout.trim(); };
+    const origin = tmp('rp-origin-');
+    sh('git init -q --bare "$0" && git remote add origin "$0"'.split('$0').join(origin));
+    if (stale) {
+      sh('git checkout -q main && echo "# base" > BASE.md && git add BASE.md && git commit -qm m2 && git push -q origin main && git reset -q --hard HEAD~1 && git checkout -q feat && git merge -q --no-edit origin/main');
+    } else {
+      sh('git push -q origin main && git fetch -q origin && git branch -D main');
+    }
+    return { dir, env, originMain: sh('git rev-parse origin/main') };
+  }
+  // Value: protects=a checkout whose local main is missing or behind origin/main reviews the same fork point preflight merged, not a stale one or none; fails_when=pass resolves --base against the local branch only (replay C5-36: BRIEF_RENDER_FAILED: no merge base between main and HEAD);
+  //   why_new=identity checks ran with local main equal to origin/main; seam=gstack-review-dispatch pass; no_claim=hosts whose remote is not named origin
+  test.each([['no local main', false], ['a local main behind origin/main', true]])('%s: diff base is the fork point with origin/main, briefs byte for byte the render CLI there', (_, stale) => {
+    const { dir, env, originMain } = withOrigin(stale as boolean);
+    const out = path.join(dir, '.state/run/p1');
+    const r = bin(dir, env, ['pass', '--base', 'main', '--out', out, '--pass', 'x22p1', '--', '--depth-floor', 'full']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(m.diff_base).toBe(originMain);
+    const spec = m.readers.find((x: { role?: string }) => x.role === 'specialist-batched');
+    const cli = bin(dir, env, ['render', '--role', 'specialist-batched', '--out', path.join(dir, '.state/cli'), '--diff-base', originMain, '--checklists', spec.checklists.join(','), '--stack', m.stack, '--test-fw', m.test_fw]);
+    expect(cli.status, cli.stderr).toBe(0);
+    expect(fs.readFileSync(spec.file, 'utf8')).toBe(fs.readFileSync(path.join(dir, '.state/cli/specialist-batched.prompt.md'), 'utf8'));
   }, 120_000);
 });
 

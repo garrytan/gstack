@@ -194,7 +194,7 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
   test('returns stay at or under 32 KB, a fix is one gated program, Step 7 settles first, and unattended push defers the pre-push offer', () => {
     const f = flat(doc);
     for (const s of ['Returns: ≤32 KB per program; split longer reads at headings, each byte once, before first use',
-      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', 'Step 7 may write tests, so it settles first',
+      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', 'RANGE_BASE; `fixCheck` for a planned fix-check', 'Step 7 may write tests, so it settles first',
       'Unattended, push defers the pre-push offer; else its STOP runs Step 17\'s guard block', 'plus a keep-alive per 200 s waited']) expect(f).toContain(s);
     expect(flat(doc.slice(doc.indexOf('**Budget: observe.**')))).toContain('--reading R --credits C --record <rec>');
   });
