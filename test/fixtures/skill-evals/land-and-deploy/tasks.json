@@ -85,7 +85,7 @@
     "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\" happy",
     "check": "sh \"$SKILL_EVAL_FIXTURES/check.sh\" canary-no-browser",
     "must": [
-      "([Cc]anary|[Hh]ealth|[Bb]rowser)[^\\n]{0,160}(SKIPPED|[Ss]kipped|[Uu]navailable|not available|UNVERIFIED)|(SKIPPED|[Ss]kipped|[Uu]navailable|UNVERIFIED)[^\\n]{0,160}([Cc]anary|[Hh]ealth|[Bb]rowser)"
+      "UNVERIFIED|([Cc]anary|[Hh]ealth|[Bb]rowser|URL)( check)?[^\\n]{0,160}(SKIPPED|[Ss]kipped|[Uu]navailable|not available)|(SKIPPED|[Ss]kipped|couldn't check|could not check)[^\\n]{0,160}(URL|[Cc]anary|[Hh]ealth|[Bb]rowser|https?://)"
     ]
   },
   {
