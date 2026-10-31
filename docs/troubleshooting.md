@@ -5046,8 +5046,9 @@ retargeted stacked PR the parent branch and the base.
 **Fix.** Run /ship on the new head. The receipt carries only across a
 conflict-only base merge, a test-only change, release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
-the recorded product diff, or a stacked PR's retarget once its parent fully
-landed on the base, which the
+the recorded product diff, a stacked PR's retarget once its parent fully
+landed on the base, or base context next to unchanged hunks after a clean
+scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 

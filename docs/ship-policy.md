@@ -1123,7 +1123,10 @@ skill=ship status=complete` line, and its summary line ends with
 
 A changed product path, or a product patch-id that differs, is
 [`RECEIPT_CARRY_PRODUCT_CHANGED`](troubleshooting.md#receipt-carry-product-changed)
-(exit 3; the refusal names the paths), and a working tree with uncommitted
+(exit 3; the refusal names the paths), except when the only difference is
+base context next to the branch's unchanged hunks, which is
+[`RECEIPT_CARRY_SCOPED_REVIEW`](troubleshooting.md#receipt-carry-scoped-review)
+until one fix-check reviewer clears the packet; a working tree with uncommitted
 changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
 
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
