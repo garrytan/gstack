@@ -133,7 +133,14 @@ export function lessonSetup(c: LessonContext): Lesson {
     if (over.size) { findings.push(`${over.size} job(s) run more parallel tasks than twice their cores`); evidence.push(...[...over].slice(0, 3)); }
   }
   if (!findings.length) return mk(6, 'pass', 'setup is a small share of each job and caches are seeded from the default branch', { evidence });
-  return mk(6, 'finding', findings.join('; '), { evidence, fix: 'seed the dependency cache from the default branch, cache installed dependencies, use filter: blob:none instead of shallow or full clones, and match task concurrency to cores' });
+  const has = (re: RegExp) => findings.some(f => re.test(f));
+  const fix = [
+    has(/cache/) && `seed the dependency cache from ${c.data.defaultBranch} (a push or nightly run there that saves it), since PRs can read only their own and the default branch's caches`,
+    has(/setup/) && 'cache installed dependencies, not only the download cache',
+    has(/full-history/) && 'add filter: blob:none to full-history checkouts',
+    has(/parallel tasks/) && 'match task concurrency to the runner\'s cores',
+  ].filter(Boolean).join('; ');
+  return mk(6, 'finding', findings.join('; '), { evidence, fix });
 }
 
 export function lessonParallel(c: LessonContext): Lesson {
@@ -144,7 +151,10 @@ export function lessonParallel(c: LessonContext): Lesson {
   const gap = percentile(gaps, 0.5) ?? 0;
   const evidence = [`push to all green p50 ${fmt(c.m.cohort.total.p50)}, p90 ${fmt(c.m.cohort.total.p90)} (n=${heads.length})`, ...c.m.cohort.bottlenecks.slice(0, 3).map(b => `${b.workflow} finished last on ${Math.round(b.share * 100)}% of heads`), `when ${top.workflow} finished last, the next check finished ${fmt(gap)} earlier (median)`];
   if (top.share < 0.5 || gap < 120) return mk(7, 'pass', 'no single check holds every PR back by two minutes or more', { evidence });
-  return mk(7, 'finding', `${top.workflow} finishes last on ${Math.round(top.share * 100)}% of PR heads, a median ${fmt(gap)} after everything else`, { evidence, fix: `run everything in parallel and split ${top.workflow}'s slowest job (move unrelated steps into their own job)`, saving: { prMinutes: +((gap / 60) * top.share).toFixed(1), jobMinutesPerWeek: null, usdPerMonth: null, measured: true, note: 'upper bound per PR: the slowest check can finish no earlier than the next one' } });
+  const slowest = c.m.groups.filter(g => g.workflow === top.workflow).sort((a, b) => (b.wait.p50 ?? 0) + (b.setup.p50 ?? 0) + (b.run.p50 ?? 0) - ((a.wait.p50 ?? 0) + (a.setup.p50 ?? 0) + (a.run.p50 ?? 0)))[0];
+  const waiting = slowest && (slowest.wait.p50 ?? 0) > (slowest.setup.p50 ?? 0) + (slowest.run.p50 ?? 0);
+  const late = `${top.workflow} finishes last on ${Math.round(top.share * 100)}% of PR heads, a median ${fmt(gap)} after everything else`;
+  return mk(7, 'finding', waiting ? `${late}, mostly waiting for a machine (${slowest!.key}: wait p50 ${fmt(slowest!.wait.p50)} for ${fmt((slowest!.setup.p50 ?? 0) + (slowest!.run.p50 ?? 0))} of work)` : late, { evidence, fix: waiting ? `move ${top.workflow}'s jobs to the same fast runner pool as the rest (lesson 1); splitting a job that mostly waits would not help` : `run everything in parallel and split ${top.workflow}'s slowest job (move unrelated steps into their own job)`, saving: { prMinutes: +((gap / 60) * top.share).toFixed(1), jobMinutesPerWeek: null, usdPerMonth: null, measured: true, note: 'upper bound per PR: the slowest check can finish no earlier than the next one' } });
 }
 
 /** A test-runner concurrency flag in a run line (bun --max-concurrency, jest --maxWorkers, vitest --maxConcurrency, make -j). */

@@ -74,8 +74,20 @@ function num(f: Flags, k: string, d: number, max = Infinity): number {
   return n;
 }
 
+const fixtureDir = (f: Flags) => str(f, 'fixture') ?? (process.env.GSTACK_CI_AUDIT_FIXTURE || undefined);
+
+/** A replay uses the clock its recording saved, so a now-relative window asks for the same responses. */
+function clock(f: Flags): number {
+  const rec = str(f, 'record');
+  const now = Date.now();
+  if (rec) { fs.mkdirSync(rec, { recursive: true }); fs.writeFileSync(path.join(rec, 'clock.json'), JSON.stringify({ now }) + '\n'); return now; }
+  const fx = fixtureDir(f);
+  const saved = fx && fs.existsSync(path.join(fx, 'clock.json')) ? Number(JSON.parse(fs.readFileSync(path.join(fx, 'clock.json'), 'utf8')).now) : NaN;
+  return Number.isFinite(saved) ? saved : now;
+}
+
 function client(f: Flags, budget: Budget): ApiClient {
-  const fx = str(f, 'fixture');
+  const fx = fixtureDir(f);
   const base = fx ? fixtureClient(fx, budget) : ghClient(budget);
   const rec = str(f, 'record');
   return rec ? recordingClient(base, rec) : base;
@@ -100,9 +112,10 @@ async function runAudit(f: Flags, out: (s: string) => void): Promise<{ report: A
   const since = str(f, 'since');
   const until = str(f, 'until');
   if ([since, until].some(v => v != null && !Number.isFinite(Date.parse(v)))) throw new UsageError('--since and --until take an ISO time like 2026-10-31T03:00:00Z');
-  const end = until ? Date.parse(until) : Date.now();
+  const now = clock(f);
+  const end = until ? Date.parse(until) : now;
   const sinceDays = since ? Math.max(1 / 24, (end - Date.parse(since)) / 86400_000) : num(f, 'since-days', 7, 90);
-  const data = await collect(api, budget, { repo, sinceDays, until: until && new Date(end).toISOString().replace(/\.\d{3}Z$/, 'Z'), runsPerWorkflow: num(f, 'runs-per-workflow', 30, 300), workflows: str(f, 'workflows')?.split(',') });
+  const data = await collect(api, budget, { repo, sinceDays, now, until: until && new Date(end).toISOString().replace(/\.\d{3}Z$/, 'Z'), runsPerWorkflow: num(f, 'runs-per-workflow', 30, 300), workflows: str(f, 'workflows')?.split(',') });
   if (!data.runs.length) throw new AuditError('ci_audit_no_runs', `no GitHub Actions runs for ${repo} since ${data.since}`);
   const logsN = num(f, 'logs', 0, 20);
   const logs = logsN ? await sampleLogs(api, data, logsN) : undefined;

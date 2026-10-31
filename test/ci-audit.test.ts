@@ -11,6 +11,7 @@ import { ISSUE_MARKER, planIssue } from '../lib/ci-audit/publish';
 import type { AuditReport } from '../lib/ci-audit/report';
 import { CI_SHAPING, MIN_COHORT, comparable, judgeHead, staticChecks } from '../lib/ci-audit/ship-check';
 import { parseWorkflow, readStatic } from '../lib/ci-audit/static';
+import { scoreReply, writePlantedRepo } from './helpers/ci-audit-planted';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const FX = path.join(ROOT, 'test/fixtures/ci-audit/gstack');
@@ -70,6 +71,52 @@ describe('recorded gstack window (2026-10-31, replayed offline)', () => {
     const judged = heads.map(h => judgeHead(h.seconds, comparable(heads, h).map(x => x.seconds), 120)).filter(j => j.state !== 'unknown');
     expect(judged.length).toBeGreaterThan(30);
     expect(judged.filter(j => j.state === 'slower').length / judged.length).toBeLessThanOrEqual(0.1);
+  });
+});
+
+describe('planted repo (three problems, two decoys)', () => {
+  test('the default run finds all three with numbers and flags neither decoy', async () => {
+    const d = tmp();
+    await writePlantedRepo(path.join(d, 'repo'), path.join(d, 'fx'));
+    const prev = process.env.GSTACK_CI_AUDIT_FIXTURE;
+    process.env.GSTACK_CI_AUDIT_FIXTURE = path.join(d, 'fx');
+    try {
+      const res = await cli(['run', '--logs', '10', '--root', path.join(d, 'repo'), '--json']);
+      expect(res.code).toBe(EXIT.ok);
+      const r = JSON.parse(res.out) as AuditReport;
+      const lesson = (id: number) => r.lessons.find(l => l.id === id)!;
+      expect(lesson(6).state).toBe('finding');
+      expect(lesson(6).summary).toContain('no cache is saved from main');
+      expect(lesson(6).summary).toContain('100% of sampled cache restores missed');
+      expect(lesson(7).summary).toMatch(/lint\.yml finishes last on 100% of PR heads, a median 3\.\d min after everything else, mostly waiting for a machine/);
+      expect(lesson(7).fix).toContain('fast runner pool');
+      expect(lesson(1).evidence.join(' ')).toMatch(/lint on ubuntu-24\.04: wait p50 8\.0 min/);
+      expect(lesson(8).summary).toContain('no test exercises the skip logic');
+      const all = JSON.stringify(r.lessons);
+      expect(all).not.toMatch(/full-history|blob:none/);
+      expect(lesson(1).evidence.join(' ')).not.toContain('windows');
+      expect(r.fixes.map(f => f.lesson).sort()).toEqual([1, 6, 7, 8]);
+      const md = await cli(['run', '--logs', '10', '--root', path.join(d, 'repo')]);
+      expect(scoreReply(md.out)).toEqual({ found: ['unseeded-cache', 'lint-waits-last', 'untested-path-filter'], decoys: [] });
+    } finally { if (prev == null) delete process.env.GSTACK_CI_AUDIT_FIXTURE; else process.env.GSTACK_CI_AUDIT_FIXTURE = prev; }
+  });
+});
+
+describe('planted-repo reply scorer', () => {
+  test('a generic CI checklist finds nothing, and recommending a decoy is caught', () => {
+    expect(scoreReply('Consider caching dependencies, using faster runners and parallelizing tests.')).toEqual({ found: [], decoys: [] });
+    expect(scoreReply('The release-notes job clones full history; add filter: blob:none or use a shallow clone.').decoys).toEqual(['blob-none-checkout']);
+    expect(scoreReply('windows.yml waits 86 s in the queue; move it to a faster runner.').decoys).toEqual(['windows-queue']);
+  });
+
+  test('the three problems in plain words count, the lint one only with a number', () => {
+    const reply = [
+      '1. lint.yml finishes last: the lint job waits about 8 minutes for a runner to do 5 s of work.',
+      '2. No cache is saved from main, so every PR starts cold and the npm cache misses.',
+      "3. e2e.yml skips PRs by path filter, and no test checks that skip logic.",
+    ].join('\n');
+    expect(scoreReply(reply)).toEqual({ found: ['unseeded-cache', 'lint-waits-last', 'untested-path-filter'], decoys: [] });
+    expect(scoreReply('The lint job waits for a runner a lot.').found).toEqual([]);
   });
 });
 

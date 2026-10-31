@@ -31,7 +31,7 @@ export const PR_PROFILE_CASE_IDS = [
   'skillify-provenance-refusal', 'diagram-triplet', 'learnings-show',
   'gstack-upgrade-happy-path',
   'investigate-owned-completion', 'investigate-owned-abort', 'investigate-owned-ending-error',
-  'ship-coverage-value', 'review-test-value', 'test-audit-report-only',
+  'ship-coverage-value', 'review-test-value', 'test-audit-report-only', 'ci-audit-planted',
   'office-hours-auto-mode', 'plan-ceo-review-plan-mode',
 ] as const;
 
@@ -51,6 +51,7 @@ export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
   'test/skill-e2e-gate-integrity.test.ts': ['review-gate-integrity'],
   'test/skill-e2e-coverage-audit.test.ts': ['review-coverage-audit', 'plan-eng-coverage-audit'],
   'test/skill-e2e-test-value.test.ts': ['ship-coverage-value', 'review-test-value', 'test-audit-report-only'],
+  'test/skill-e2e-ci-audit.test.ts': ['ci-audit-planted'],
   'test/skill-e2e-plan.test.ts': ['plan-review-report'],
   'test/skill-e2e-ask-user-question-format-compliance.test.ts': ['auq-format-gate'],
   'test/skill-e2e-design.test.ts': ['plan-design-review-no-ui-scope'],

@@ -64,7 +64,7 @@ fix; the codes are in [troubleshooting](troubleshooting.md#gstack-ci-audit).
 `--root` (default: the current directory) is read for workflow files, package scripts and
 hooks only when its `origin` is the audited repo on github.com; otherwise those lessons
 are unknown. `--record <dir>` saves the GitHub responses (allowlisted fields only) and
-`--fixture <dir>` replays them offline.
+`--fixture <dir>` (or `GSTACK_CI_AUDIT_FIXTURE=<dir>`) replays them offline, using the clock the recording saved in `clock.json`, so a window measured from now asks for the same responses.
 
 ## The /ship check
 
