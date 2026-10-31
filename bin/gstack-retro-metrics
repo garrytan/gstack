@@ -389,6 +389,8 @@ _FR_SLUG=$("$_BIN/gstack-slug" --get SLUG 2>/dev/null || true)
 _FR_SINCE=$(git rev-parse "--since=$SINCE" 2>/dev/null | sed -n 's/^--max-age=//p' | head -1)
 _FR_UNTIL=""
 [ -n "$UNTIL" ] && _FR_UNTIL=$(git rev-parse "--until=$UNTIL" 2>/dev/null | sed -n 's/^--min-age=//p' | head -1)
+_FR_QLOG=""
+[ "$("$_BIN/gstack-config" get question_tuning 2>/dev/null)" = "true" ] && _FR_QLOG="$_GH/projects/$_FR_SLUG/question-log.jsonl"
 _FR_LIB="$_SCRIPT_DIR/../lib/retro-friction.ts"
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && _FR_LIB="$(cygpath -m "$_FR_LIB")" ;;
@@ -402,7 +404,7 @@ elif ! command -v bun >/dev/null 2>&1; then
 else
   _FR_OUT=$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$_FR_LIB" \
     --timeline "$_GH/projects/$_FR_SLUG/timeline.jsonl" \
-    --questions "$_GH/projects/$_FR_SLUG/question-log.jsonl" \
+    --questions "$_FR_QLOG" \
     --since-epoch "$_FR_SINCE" --until-epoch "$_FR_UNTIL" 2>/dev/null) || _FR_OUT=""
   case "$_FR_OUT" in
     *FRICTION:*) printf '%s\n' "$_FR_OUT" ;;

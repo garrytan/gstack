@@ -288,6 +288,12 @@ describe('gstack-retro-metrics behavior', () => {
       line({ skill: 'qa', event: 'completed', outcome: 'error', ts: '2026-03-10T12:00:00Z' }),
     );
     try {
+      const untracked = runMetrics(['--base', 'main', '--since', '2026-03-09T00:00:00']);
+      expect(untracked).toMatch(/^FRICTION_SOURCES: timeline=present questions=absent$/m);
+      expect(untracked).toMatch(/^FRICTION: \/ship score=1 runs=1 questions=0 typed=0 errors=0 aborts=1$/m);
+      execFileSync(path.join(ROOT, 'bin', 'gstack-config'), ['set', 'question_tuning', 'true'], {
+        encoding: 'utf-8', cwd: repoDir, env: hermeticEnv(), timeout: 10_000,
+      });
       const out = runMetrics(['--base', 'main', '--since', '2026-03-09T00:00:00']);
       expect(out).toMatch(/^FRICTION_SOURCES: timeline=present questions=present$/m);
       expect(out).toMatch(/^FRICTION: \/ship score=2 runs=1 questions=1 typed=0 errors=0 aborts=1$/m);
@@ -297,6 +303,7 @@ describe('gstack-retro-metrics behavior', () => {
       expect(prior).toMatch(/^FRICTION: none$/m);
     } finally {
       fs.rmSync(projects, { recursive: true, force: true });
+      fs.rmSync(path.join(tmpGstackHome, 'config.yaml'), { force: true });
     }
   });
 

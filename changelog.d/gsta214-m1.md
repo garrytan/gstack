@@ -2,7 +2,7 @@
 
 ### Added
 - **`gstack-retro-metrics` prints `FRICTION:` lines** (top three skills, with runs, questions, typed answers, errors and aborts) plus a `FRICTION_SOURCES:` line, computed by `lib/retro-friction.ts` for the exact retro window. Runs and outcomes come from this project's `timeline.jsonl`, which is written on every run whether or not telemetry is on, unattended sessions included. Questions come from this project's question log when question tuning is on; when it is off, the row says questions are not tracked instead of showing zero. Only outcomes actually recorded as error or abort count, machine-made answers are not counted as questions, and questions the Claude Code hook logs without knowing which skill asked are left out, so no question counts twice and no `/unknown` row appears. Another project's logs never count. If Bun is missing or the helper fails, the script prints `FRICTION: unavailable` and the rest of the metrics are unchanged.
-- **/retro shows a "Friction by skill" row** when any skill had friction in the window, for example `/ship 7 of 12 runs (4 questions, 3 aborts)`.
+- **/retro shows a "Friction by skill" row** when any skill had friction in the window, for example `/ship 7 in 12 runs (4 questions, 3 aborts)`.
 
 ### Changed
 - **/retro's optional-input notes are shorter**: each one says "Read the path it prints" instead of repeating the path, which keeps /retro's always-loaded prompt under its size cap with the new row.

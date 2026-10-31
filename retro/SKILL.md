@@ -364,7 +364,7 @@ Conditional rows (skip each when its input is absent or empty in the window):
 ```
 | Backlog Health | N open (X P0/P1, Y P2) · Z completed this period |
 | Skill Usage | /ship(12) /qa(8) /review(5) · 3 safety hook fires |
-| Friction by skill | /ship 7 of 12 runs (4 questions, 3 aborts) · /qa 5 of 6 (5 questions) |
+| Friction by skill | /ship 7 in 12 runs (4 questions, 3 aborts) · /qa 5 in 6 (5 questions) |
 | Eureka Moments | 2 this period |
 ```
 
