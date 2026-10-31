@@ -136,7 +136,7 @@ export function fileRecords(file: string, text: string): Field[][] | null {
 
 /** Joined-record fingerprints of one file's text; null when it cannot be checked. */
 export function fileJoins(file: string, text: string, p: JoinPolicy): Joins | null {
-  const folded = normalizeKey(text);
+  const folded = normalizeKey(text.replace(/"/g, ''));
   if (!text.includes('\\u') && !p.label_keys.some(k => folded.includes(normalizeKey(k)))) return new Map();
   const records = fileRecords(file, text);
   if (!records) return null;

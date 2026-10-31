@@ -88,6 +88,7 @@ describe('formats and matching', () => {
       'k.jsonl': `{"${HEAD_B}":{"stratum":"seeded"}}\n`,
       'l.json': '{"units":{"unit-one":{"stratum":"decoy"}}}\n',
       'm.tsv': '"Stratum"\t"head"\n"decoy"\t"5b7db3a"\n',
+      'n.csv': '"Strat"um,head\ndecoy,5b7db3a\n',
       'tsconfig.json': '{\n  // a comment, so not strict JSON\n  "compilerOptions": { "strict": true }\n}\n',
     });
     expect(found(s).sort((a, b) => a.file.localeCompare(b.file))).toEqual([
@@ -99,6 +100,7 @@ describe('formats and matching', () => {
       { rule: 'sealed.label_join', file: 'j.json', commit: sha, keys: ['stratum', 'tags', '(key)'] },
       { rule: 'sealed.label_join', file: 'k.jsonl', commit: sha, keys: ['stratum', '(key)'] },
       { rule: 'sealed.label_join', file: 'm.tsv', commit: sha, keys: ['stratum', 'head'] },
+      { rule: 'sealed.label_join', file: 'n.csv', commit: sha, keys: ['stratum', 'head'] },
     ]);
   });
 
