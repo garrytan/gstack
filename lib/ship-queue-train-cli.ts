@@ -67,7 +67,7 @@ export const TRAIN_HELP = `  train build --prs <n>@<sha>[,...] [--order <n>,...]
                                            (train policy) the merge check against a green train record
   verify --pr <n> --screen                 (train policy) the PR head's screen verdict read from its run: SCREEN_VERDICT and
                                            FLAKY lines, recorded in the READY receipt
-  verify --post-merge <sha> [--timeout <s>] after a merge: wait for every check run at the merged commit to settle;
+  verify --post-merge <sha> [--timeout <s>] [--checks <a,b>] after a merge: wait for every check run at the merged commit to settle;
                                            POST_MERGE: green|red|pending plus one CHECK: line per workflow (resumable)
   Merge trains need a "train" block in the base revision's ship policy (docs/ship-policy.md#run-a-merge-train).`;
 
@@ -128,8 +128,8 @@ export async function trainMain(ctx: QueueContext, args: string[]): Promise<numb
   }
   if (sub === 'init') {
     const timeoutSec = positive(flag(rest, '--timeout'), 1800);
-    const spendCap = positive(flag(rest, '--spend-cap'), 2);
-    if (Number.isNaN(timeoutSec) || Number.isNaN(spendCap)) return usage('--timeout needs seconds and --spend-cap dollars');
+    const spendCap = flag(rest, '--spend-cap') === undefined ? undefined : positive(flag(rest, '--spend-cap'), NaN);
+    if (Number.isNaN(timeoutSec) || (spendCap !== undefined && Number.isNaN(spendCap))) return usage('--timeout needs seconds and --spend-cap dollars');
     const command = flag(rest, '--command');
     if (rest.includes('--command') && !command?.trim()) return usage('--command needs the test command a command gate runs');
     return guarded('train init', async () => (await import('./ship-queue-train-init')).trainInit(ctx, { command, timeoutSec, spendCap }));
@@ -194,7 +194,8 @@ export async function postMergeMain(ctx: QueueContext, args: string[]): Promise<
   if (!sha || !/^[0-9a-f]{40}$/.test(sha)) return usage('verify --post-merge needs the merged commit\'s full 40-hex SHA');
   const timeoutSec = positive(flag(args, '--timeout'), 2700);
   if (!Number.isFinite(timeoutSec)) return usage('--timeout needs a positive number of seconds');
-  return guarded('verify', () => verifyPostMerge(ctx, { sha, timeoutSec, pollMs: Number(process.env.GSTACK_SHIP_QUEUE_POLL_MS) || 30_000 }));
+  const checks = flag(args, '--checks')?.split(',').map(s => s.trim()).filter(Boolean);
+  return guarded('verify', () => verifyPostMerge(ctx, { sha, timeoutSec, pollMs: Number(process.env.GSTACK_SHIP_QUEUE_POLL_MS) || 30_000, checks }));
 }
 
 export async function verifyMain(ctx: QueueContext, args: string[], pr: string): Promise<number> {

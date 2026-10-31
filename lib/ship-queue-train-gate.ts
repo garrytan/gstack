@@ -20,6 +20,7 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { awaitNonceRun, listDispatchRuns, makeNonce, runForNonce } from '../scripts/eval-bg';
@@ -31,7 +32,7 @@ import type { CommandGate, TrainGate, WorkflowsGate } from './ship-policy';
 import { git, type QueueFailure } from './ship-queue-gate';
 import { execFor, repoSlug } from './ship-queue-train-github';
 import {
-  attemptsOf, listTrains, nowIso, queueRoot, trainDir, trainFile,
+  attemptsOf, listTrains, loadTrain, nowIso, queueRoot, trainDir, trainFile,
   type AttemptRecord, type GateOutcome, type GatedPrefix, type GenericVerdict, type TrainPrefix, type TrainRecord, type TrainSlot,
 } from './ship-queue-train-record';
 import { effect, outFailed, outOk, outPending, outRefused, prsArgs, save, type TrainEnv, type TrainOut } from './ship-queue-train';
@@ -91,7 +92,7 @@ export function baseRedAdmission(slots: TrainSlot[], generic: boolean, explicit:
   for (const s of conditional) {
     if (s === fixer) return { code: 'QUEUE_TRAIN_BASE_RED', message: `#${s.pr} is conditional and declares FIXES_BASE_RED; a fixer's own head must be green` };
     if (!fixer || s.base_red!.fixer !== fixer.pr) return { code: 'QUEUE_TRAIN_BASE_RED', message: `#${s.pr} is conditional on fixer #${s.base_red!.fixer}, which is not in this train at slot 1 with FIXES_BASE_RED` };
-    if (Date.parse(s.base_red!.expires_at) < Date.parse(nowIso())) return { code: 'QUEUE_TRAIN_BASE_RED', message: `#${s.pr}'s base-red condition expired at ${s.base_red!.expires_at}; its lane classifies again` };
+    if (!(Date.parse(s.base_red!.expires_at) >= Date.parse(nowIso()))) return { code: 'QUEUE_TRAIN_BASE_RED', message: `#${s.pr}'s base-red condition expired at ${s.base_red!.expires_at}; its lane classifies again` };
   }
   return { slots: order, lines: [`BASE_RED: fixer #${fixer!.pr} at slot 1 (FIXES_BASE_RED: ${fixer!.fixes_base_red!.join(', ')}); conditional ${conditional.map(s => '#' + s.pr).join(', ') || '(none)'}; every prefix is gated with nothing excluded`] };
 }
@@ -172,7 +173,7 @@ export function parseTestRecord(files: Array<{ name: string; text: string }>): R
   return read ? { executed, failed: failed.sort() } : null;
 }
 
-/** Whether a workflow's concurrency groups key on the ref or the nonce; a global group serializes the prefix dispatches. */
+/** Whether a workflow's concurrency groups key on the ref, the run or the nonce; a global group (or one keyed only on github.head_ref, empty on a dispatch) serializes the prefix dispatches. */
 export function concurrencyKeyed(yaml: string): boolean {
   const groups = [...yaml.matchAll(/^\s*concurrency:[ \t]*(.*)$/gm)].map(m => {
     const inline = m[1]!.trim();
@@ -180,7 +181,7 @@ export function concurrencyKeyed(yaml: string): boolean {
     const after = yaml.slice(m.index! + m[0].length).split('\n').slice(1, 4).join('\n');
     return /^\s*group:\s*(.+)$/m.exec(after)?.[1] ?? '';
   });
-  return groups.every(g => /github\.(ref|head_ref|run_id)|inputs\.nonce/.test(g));
+  return groups.every(g => /github\.(ref|run_id)\b|inputs\.nonce/.test(g));
 }
 
 const json = <T>(r: { ok: boolean; out: string }): T | null => { if (!r.ok) return null; try { return JSON.parse(r.out) as T; } catch { return null; } };
@@ -244,8 +245,8 @@ function pushPrefixes(env: TrainEnv, t: TrainRecord): string | null {
   return null;
 }
 
-/** Dispatch every workflow unit that has no live attempt on a prefix; a workflow with a global concurrency group gets one prefix at a time. */
-async function dispatchWorkflows(env: TrainEnv, slug: string, t: TrainRecord, units: GateUnit[], lines: string[]): Promise<void> {
+/** Dispatch every workflow unit that has no live attempt on a prefix; a workflow with a global concurrency group gets one prefix at a time. A unit is sent at most twice per prefix: two sends no run adopted refuse. */
+async function dispatchWorkflows(env: TrainEnv, slug: string, t: TrainRecord, units: GateUnit[], lines: string[]): Promise<QueueFailure | null> {
   const exec = execFor(env.ctx);
   for (const u of units.filter(x => x.workflow !== 'command')) {
     const yaml = git(env.ctx.repoRoot, ['show', `${env.remote}/${env.ctx.base}:.github/workflows/${u.workflow}`]);
@@ -255,6 +256,7 @@ async function dispatchWorkflows(env: TrainEnv, slug: string, t: TrainRecord, un
       const all = attemptsOf(t);
       const prior = unitAttempt(all, u, p.index);
       if (prior && prior.state !== 'absent') continue;
+      if (all.filter(a => a.gate === u.gate && a.workflow === u.workflow && a.prefixes[0] === p.index && a.state === 'absent').length >= 2) return { code: 'QUEUE_TRAIN_DISPATCH_UNKNOWN', message: `${u.workflow} on T${p.index} was sent twice under nonce ${prior!.nonce} and no run carrying it appeared; it is not sent a third time (check that its run-name names the nonce: train doctor)` };
       if (serial && t.gated!.some(q => { const a = unitAttempt(all, u, q.index); return !!a && a.state !== 'absent' && a.state !== 'completed'; })) break;
       const reuse = p.index === 0 ? reusedT0(env, t, u, env.train.gates![u.gate]!) : null;
       const nonce = prior?.nonce ?? makeNonce('gate', p.commit, t.base.sha, randomBytes(3).toString('hex'), { purpose: 'train' });
@@ -272,11 +274,43 @@ async function dispatchWorkflows(env: TrainEnv, slug: string, t: TrainRecord, un
       if (serial) break;
     }
   }
+  return null;
 }
 
-/** Dollars reserved by every command run of this train (an interrupted run stays counted). */
-function commandSpend(t: TrainRecord): number {
-  return Math.round(attemptsOf(t).filter(a => a.workflow === 'command' && !a.reused).reduce((s, a) => s + (a.spend_usd ?? 0), 0) * 100) / 100;
+/** Dollars reserved by one command gate's runs in this train (an interrupted run stays counted); each gate has its own cap. */
+function commandSpend(t: TrainRecord, gate: number): number {
+  return Math.round(attemptsOf(t).filter(a => a.workflow === 'command' && a.gate === gate && !a.reused).reduce((s, a) => s + (a.spend_usd ?? 0), 0) * 100) / 100;
+}
+
+const pidAlive = (pid: unknown): boolean => {
+  if (typeof pid !== 'number') return false;
+  try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
+};
+
+/** Whether a command attempt's process may still be running: its owner is alive on this host, or on another host within the run's time. */
+function commandLive(a: AttemptRecord, g: TrainGate | undefined): boolean {
+  if (a.workflow !== 'command' || a.state !== 'dispatching' || !a.owner) return false;
+  if (a.owner.host !== os.hostname()) return g?.kind === 'command' && Date.now() - Date.parse(a.updated_at) < (g.timeout_sec + COMMAND_OVERHEAD_MIN * 60) * 2000;
+  return pidAlive(a.owner.pid);
+}
+
+/** One build or verdict at a time writes a generic train's attempts: a lock file naming its owner, taken over once that owner is gone (another host's after six hours). */
+function trainLease(t: TrainRecord): { release: () => void } | QueueFailure {
+  const file = path.join(trainDir(t.nonce), 'gate.lock');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  for (let i = 0; i < 2; i++) {
+    try {
+      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, host: os.hostname() }), { flag: 'wx' });
+      return { release: () => fs.rmSync(file, { force: true }) };
+    } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
+    let o: { pid?: unknown; host?: unknown } | null = null;
+    try { o = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { o = null; }
+    const age = Date.now() - (fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0);
+    const held = !o ? age < 10_000 : o.host === os.hostname() ? pidAlive(o.pid) : age < 6 * 3600_000;
+    if (held) return { code: 'QUEUE_TRAIN_PENDING', message: `another train build or verdict (process ${String(o?.pid ?? '?')} on ${String(o?.host ?? '?')}) holds ${file}; nothing read or sent` };
+    fs.rmSync(file, { force: true });
+  }
+  return { code: 'QUEUE_TRAIN_PENDING', message: `${file} changed hands twice while this process waited; nothing read or sent` };
 }
 
 /** Run one command gate on a prefix through ubi-runner; resolves with the outcome. */
@@ -294,15 +328,15 @@ async function runCommand(env: TrainEnv, t: TrainRecord, a: AttemptRecord, g: Co
     const childEnv = { ...process.env, UBI_SIZE: COMMAND_SIZE, UBI_RUN_TIMEOUT: String(g.timeout_sec), UBI_TTL_HOURS: String(Math.ceil(g.timeout_sec / 3600) + 1) };
     const child = spawn(inv.cmd, inv.argv, { cwd: wt, env: childEnv, timeout: (g.timeout_sec + COMMAND_OVERHEAD_MIN * 60) * 1000 });
     let out = '';
-    const keep = (b: Buffer) => { out = (out + b.toString('utf8')).slice(-1_000_000); };
+    let tree = null as string | null;
+    const keep = (b: Buffer) => { const all = out + b.toString('utf8'); tree ??= /^GSTACK_GATE_TREE=([0-9a-f]{40,64})$/m.exec(all)?.[1] ?? null; out = all.slice(-1_000_000); };
     child.stdout.on('data', keep);
     child.stderr.on('data', keep);
     const code = await new Promise<number | null>(resolve => { child.on('close', c => resolve(c)); child.on('error', () => resolve(null)); });
     const log = path.join(trainDir(t.nonce), 'attempts', `${a.id}.log`);
     fs.mkdirSync(path.dirname(log), { recursive: true });
     fs.writeFileSync(log, out, { mode: 0o600 });
-    const tree = /^GSTACK_GATE_TREE=([0-9a-f]{40,64})$/m.exec(out)?.[1] ?? null;
-    const left = /UBICLOUD: left=(\S+)/.exec(out)?.[1];
+    const left = [...out.matchAll(/UBICLOUD: left=(\S+)/g)].at(-1)?.[1];
     if (!tree) return { outcome: 'INCOMPLETE', detail: `the VM reported no tree (exit ${code ?? 'none'}; log ${log})`, tree };
     if (tree !== p.tree) return { outcome: 'INCOMPLETE', detail: `the VM tested tree ${tree.slice(0, 12)}, not the prefix tree ${p.tree.slice(0, 12)}`, tree };
     if (left !== undefined && left !== '0') return { outcome: 'INCOMPLETE', detail: `ubi-runner reports left=${left}; the run is not counted`, tree };
@@ -319,7 +353,7 @@ async function runCommand(env: TrainEnv, t: TrainRecord, a: AttemptRecord, g: Co
 async function settleCommand(env: TrainEnv, t: TrainRecord, a: AttemptRecord, g: CommandGate, p: GatedPrefix, lines: string[]): Promise<void> {
   const price = commandReservation(g);
   let r = await runCommand(env, t, a, g, p);
-  if (r.outcome === 'RED' && commandSpend(t) + price <= g.spend_cap_usd) {
+  if (r.outcome === 'RED' && commandSpend(t, a.gate!) + price <= g.spend_cap_usd) {
     a.spend_usd = (a.spend_usd ?? 0) + price;
     save(env, t, a);
     const again = await runCommand(env, t, a, g, p);
@@ -345,12 +379,13 @@ async function runCommands(env: TrainEnv, t: TrainRecord, units: GateUnit[], lin
       if (unitAttempt(attemptsOf(t), u, p.index)?.state === 'completed') continue;
       const reuse = p.index === 0 ? reusedT0(env, t, u, g) : null;
       if (reuse) { t.attempts.push(reuse.id); save(env, t, reuse); lines.push(`REUSED: T0 command ${reuse.detail}`); continue; }
-      if (commandSpend(t) + price > g.spend_cap_usd) {
+      if (commandSpend(t, u.gate) + price > g.spend_cap_usd) {
         await Promise.all(jobs);
-        return { code: 'QUEUE_TRAIN_SPEND_CAP', message: `gate ${u.gate}'s run on T${p.index} reserves $${price.toFixed(2)}; with $${commandSpend(t).toFixed(2)} reserved, this train would pass the cap $${g.spend_cap_usd.toFixed(2)}` };
+        return { code: 'QUEUE_TRAIN_SPEND_CAP', message: `gate ${u.gate}'s run on T${p.index} reserves $${price.toFixed(2)}; with $${commandSpend(t, u.gate).toFixed(2)} reserved, this train would pass the gate's cap $${g.spend_cap_usd.toFixed(2)}` };
       }
       const a = newAttempt(t, u, p, makeNonce('gate', p.commit, t.base.sha, randomBytes(3).toString('hex'), { purpose: 'train' }), { command: g.command });
       a.spend_usd = price;
+      a.owner = { pid: process.pid, host: os.hostname() };
       t.attempts.push(a.id);
       save(env, t, a);
       jobs.push(settleCommand(env, t, a, g, p, lines));
@@ -365,23 +400,35 @@ export async function advanceGeneric(env: TrainEnv, t: TrainRecord, lines: strin
   const run = trainFile(t.nonce);
   const slug = repoSlug(env.ctx);
   if (!slug) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: 'gh repo view could not name the repository' }, lines, `${Q} train build --train ${t.nonce}`, run);
-  const pushed = pushPrefixes(env, t);
-  if (pushed) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: pushed }, lines, `${Q} train build --train ${t.nonce}`, run);
-  const units = gateUnits(env.train.gates!);
-  reconcile(env, slug, t);
-  await dispatchWorkflows(env, slug, t, units, lines);
-  const capped = await runCommands(env, t, units, lines);
-  t.state = 'gate-pending';
-  save(env, t);
-  if (capped) return outRefused(capped, [...lines, ...describe(t)], `raise the gate's spend_cap_usd on the base branch or lower its timeout_sec, then ${Q} train build --train ${t.nonce}`, run);
-  return outOk([...lines, ...describe(t), `GATES: ${units.length} unit(s) on ${t.gated!.length} prefix(es); record: ${run}`], `${Q} train verdict --train ${t.nonce}`, run);
+  const lease = trainLease(t);
+  if ('code' in lease) return outPending(lease, lines, `${Q} train build --train ${t.nonce} (once that process finishes)`, run);
+  try {
+    Object.assign(t, loadTrain(t.nonce) ?? {});
+    const pushed = pushPrefixes(env, t);
+    if (pushed) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: pushed }, lines, `${Q} train build --train ${t.nonce}`, run);
+    const units = gateUnits(env.train.gates!);
+    if (t.verdict) return outOk([...lines, ...describe(t), `VERDICT: ${t.verdict.kind.toUpperCase()} (settled; nothing dispatched)`], genericNext(t), run);
+    const live = attemptsOf(t).find(a => commandLive(a, env.train.gates![a.gate ?? -1]));
+    if (live) return outPending({ code: 'QUEUE_TRAIN_PENDING', message: `command run ${live.id} is still running under process ${live.owner!.pid} on ${live.owner!.host}` }, lines, `${Q} train verdict --train ${t.nonce} (once that run finishes)`, run);
+    reconcile(env, slug, t);
+    const unsent = await dispatchWorkflows(env, slug, t, units, lines);
+    const capped = unsent ? null : await runCommands(env, t, units, lines);
+    t.state = 'gate-pending';
+    save(env, t);
+    if (unsent) return outRefused(unsent, [...lines, ...describe(t)], `run ${Q} train doctor and fix the workflow on the base branch, then build a new train on the new main: ${Q} train build ${prsArgs(t.slots, t.explicit_order)}`, run);
+    if (capped) return outRefused(capped, [...lines, ...describe(t)], `raise the gate's spend_cap_usd (or lower its timeout_sec) on the base branch, then build a new train on the new main: ${Q} train build ${prsArgs(t.slots, t.explicit_order)}`, run);
+    return outOk([...lines, ...describe(t), `GATES: ${units.length} unit(s) on ${t.gated!.length} prefix(es); record: ${run}`], `${Q} train verdict --train ${t.nonce}`, run);
+  } finally { lease.release(); }
 }
 
 /** Settle unconfirmed workflow dispatches by nonce (found, or absent so the next build re-sends the same nonce); an interrupted command run is absent. */
 function reconcile(env: TrainEnv, slug: string, t: TrainRecord): void {
   for (const a of attemptsOf(t)) {
     if (a.state !== 'dispatching' && a.state !== 'unknown') continue;
-    if (a.workflow === 'command') { a.state = 'absent'; effect(t, `command run ${a.id} was interrupted; it runs again`); save(env, t, a); continue; }
+    if (a.workflow === 'command') {
+      if (commandLive(a, env.train.gates?.[a.gate ?? -1])) continue;
+      a.state = 'absent'; effect(t, `command run ${a.id} was interrupted; it runs again`); save(env, t, a); continue;
+    }
     const runs = listDispatchRuns(a.workflow, execFor(env.ctx), slug, 100);
     if (!runs) continue;
     const hit = runForNonce(runs, a.nonce);
@@ -459,16 +506,25 @@ export function genericVerdict(env: TrainEnv, t: TrainRecord): TrainOut {
   const slug = repoSlug(env.ctx);
   if (!slug) return outPending({ code: 'QUEUE_PROOF_MISSING', message: 'gh repo view could not name the repository' }, [], `${Q} train verdict --train ${t.nonce}`, run);
   if (!t.verdict) {
-    reconcile(env, slug, t);
-    for (const a of attemptsOf(t)) {
-      if (a.workflow === 'command' || a.state !== 'dispatched' || !a.run) continue;
-      readWorkflowAttempt(env, slug, t, a);
-      save(env, t, a);
-    }
-    aggregate(env, t);
-    const c = classifyPrefixes(t.gated!, t.slots);
-    if (c.kind !== 'pending') { t.verdict = { ...c, at: nowIso() }; t.state = VERDICT_STATE[c.kind]; effect(t, `verdict: ${c.kind}${c.culprit ? ` (culprit #${c.culprit})` : ''}`); }
-    save(env, t);
+    const lease = trainLease(t);
+    if ('code' in lease) return outPending(lease, [], `${Q} train verdict --train ${t.nonce} (once that process finishes)`, run);
+    try {
+      Object.assign(t, loadTrain(t.nonce) ?? {});
+      const live = t.verdict ? null : attemptsOf(t).find(a => commandLive(a, env.train.gates![a.gate ?? -1]));
+      if (live) return outPending({ code: 'QUEUE_TRAIN_PENDING', message: `command run ${live.id} is still running under process ${live.owner!.pid} on ${live.owner!.host}; nothing read or saved` }, [], `${Q} train verdict --train ${t.nonce} (once that run finishes)`, run);
+      if (!t.verdict) {
+        reconcile(env, slug, t);
+        for (const a of attemptsOf(t)) {
+          if (a.workflow === 'command' || a.state !== 'dispatched' || !a.run) continue;
+          readWorkflowAttempt(env, slug, t, a);
+          save(env, t, a);
+        }
+        aggregate(env, t);
+        const c = classifyPrefixes(t.gated!, t.slots);
+        if (c.kind !== 'pending') { t.verdict = { ...c, at: nowIso() }; t.state = VERDICT_STATE[c.kind]; effect(t, `verdict: ${c.kind}${c.culprit ? ` (culprit #${c.culprit})` : ''}`); }
+        save(env, t);
+      }
+    } finally { lease.release(); }
   }
   const lines = [
     ...t.gated!.map(p => `PREFIX: T${p.index} ${p.outcome ?? 'PENDING'} ${p.commit.slice(0, 12)} ${p.ref}${p.red.length ? ` red=${p.red.join(',')}` : ''}${p.detail ? ` (${p.detail})` : ''}`),

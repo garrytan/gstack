@@ -443,7 +443,7 @@ function trainErrors(value: unknown, obj: Record<string, unknown>, out: PolicyEr
   }
   if ('land' in t) landErrors(t.land, obj, out);
   const method = (t.land as { merge_method?: unknown } | undefined)?.merge_method ?? 'squash';
-  if (obj.history === 'merge-only' && method !== 'merge') out.push({ code: 'POLICY_INVALID', path: 'train.land.merge_method', message: `history merge-only allows only the merge method; train land would use ${String(method)}` });
+  if ('land' in t && obj.history === 'merge-only' && method !== 'merge') out.push({ code: 'POLICY_INVALID', path: 'train.land.merge_method', message: `history merge-only allows only the merge method; train land would use ${String(method)}` });
 }
 
 /**

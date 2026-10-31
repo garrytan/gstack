@@ -145,12 +145,12 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_TRAIN_SPEND_CAP: {
     anchor: 'queue-train-spend-cap',
     summary: 'a command gate\'s next Ubicloud run would pass the one spend cap that covers every run of the train, or UBI_OWNER is not set, so nothing more ran',
-    fix: 'set UBI_OWNER to your thread code, or raise the gate\'s spend_cap_usd (or lower its timeout_sec) on the base branch, then train build --train <nonce> runs what is left',
+    fix: 'set UBI_OWNER to your thread code and train build --train <nonce> runs what is left; for the cap, raise the gate\'s spend_cap_usd (or lower its timeout_sec) on the base branch, then build a new train on the new main (the policy commit moves main past T0)',
   },
   QUEUE_TRAIN_LAND_METHOD: {
     anchor: 'queue-train-land-method',
     summary: 'train land must publish this slot through a tool-made update commit (a stamped train, strict branch protection, a conditional PR, or a merge that resolved release files), and the policy\'s merge method is rebase, which would replay commits instead of landing the gated tree',
-    fix: 'set train.land.merge_method to squash or merge on the base branch (history merge-only allows merge only), then land again',
+    fix: 'set train.land.merge_method to squash or merge on the base branch (history merge-only allows merge only), then build a new train on the new main (the policy commit moves main off this train\'s prefixes)',
   },
   QUEUE_TRAIN_INIT_REFUSED: {
     anchor: 'queue-train-init-refused',

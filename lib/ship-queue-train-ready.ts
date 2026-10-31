@@ -192,7 +192,7 @@ function conditionalReady(env: TrainEnv, o: ReadyOptions, lines: string[]): Trai
   const again = `gstack-base-red classify on the current base, /ship, then ${Q} ready --pr ${o.pr} --no-screen --base-red --fixer ${o.baseRed!.fixer}`;
   if (!red) return outRefused({ code: 'SHIP_BASE_RED_FIXER', message: `#${o.pr}'s receipt carries no base_red condition; ready --base-red is only for a paused /ship` }, lines, `${Q} ready --pr ${o.pr} --no-screen`, 'none');
   if (red.base !== baseSha) return outRefused({ code: 'SHIP_BASE_RED_FIXER', message: `the condition was classified at ${red.base.slice(0, 12)} and ${ctx.base} is now ${baseSha.slice(0, 12)}; a base move reclassifies, never trusts` }, lines, again, 'none');
-  if (Date.parse(red.expires_at) < Date.parse(nowIso())) return outRefused({ code: 'BASE_RED_PAUSE_EXPIRED', message: `the condition expired at ${red.expires_at}` }, lines, again, 'none');
+  if (!(Date.parse(red.expires_at) >= Date.parse(nowIso()))) return outRefused({ code: 'BASE_RED_PAUSE_EXPIRED', message: `the condition expired at ${red.expires_at}` }, lines, again, 'none');
   const shipped = bindTrainReceipt(ctx.repoRoot, `refs/remotes/${env.remote}/${ctx.base}`, info.body, o.pr, [head], true);
   lines.push(shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : []));
   if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, lines, `run /ship on ${head.slice(0, 12)}, then ready again`, 'none');

@@ -49,10 +49,13 @@ function missingChecks(ci: ReturnType<typeof ciAtHead>, required: string[]): str
   });
 }
 
+/** GitHub's answers that mean no required-checks protection; a bare 404 or 403 (a token that cannot read protection) is unreadable, never unprotected. */
+export const UNPROTECTED = /Branch not protected|Required status checks not enabled/i;
+
 /** Branch protection's "require branches to be up to date": true, false (unprotected or not strict), or null when unreadable. */
 function strictProtection(ctx: QueueContext): boolean | null {
   const r = ctx.gh(['api', `repos/{owner}/{repo}/branches/${ctx.base}/protection/required_status_checks`]);
-  if (!r.ok) return /not protected|required status checks not enabled|HTTP 404/i.test(`${r.err ?? ''} ${r.out}`) ? false : null;
+  if (!r.ok) return UNPROTECTED.test(`${r.err ?? ''} ${r.out}`) ? false : null;
   try { return (JSON.parse(r.out) as { strict?: unknown }).strict === true; } catch { return null; }
 }
 
@@ -105,6 +108,7 @@ function recordLanding(s: Slot, mode: LandingRecord['mode'], update: string | nu
 function chooseMode(ctx: QueueContext, s: Slot, mainSha: string, conditional: boolean): { mode: 'direct' | 'update' | 'wait'; why: string } {
   if (s.t.stamped) return { mode: 'update', why: `the slot publishes the stamped ${label(s)}` };
   if (conditional) return { mode: 'update', why: 'a conditional (base-red) PR lands only through a commit whose own checks run on the gated tree' };
+  if ((s.env.train.land?.merge_method ?? 'squash') === 'rebase') return { mode: 'update', why: 'a rebase replays the pin\'s commits, and the replayed tree is not the one the train gated' };
   const strict = strictProtection(ctx);
   if (strict !== false) return { mode: 'update', why: strict ? 'branch protection requires branches to be up to date' : 'branch protection could not be read, so the up-to-date path is taken' };
   const m = git(ctx.repoRoot, ['merge-tree', '--write-tree', mainSha, s.pin]);
@@ -123,6 +127,9 @@ async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): 
   let main = mainNow(ctx, s.env);
   if ('error' in main) return outPending({ code: 'QUEUE_PROOF_MISSING', message: main.error }, s.lines, s.rerun, s.run);
   if (main.sha !== base) return stopped(s.env, s.t, 'QUEUE_TRAIN_TREE_MISMATCH', `main moved to ${main.sha.slice(0, 12)} before the merge (the slot was prepared on ${base.slice(0, 12)})`, main.sha, s.lines, true);
+  const target = prInfo(ctx, pr);
+  if ('error' in target) return outPending({ code: 'QUEUE_PROOF_MISSING', message: target.error }, s.lines, s.rerun, s.run);
+  if (target.baseRefName && target.baseRefName !== ctx.base) return retargeted(s, target.baseRefName, ctx.base);
   const m = ctx.gh(['pr', 'merge', pr, `--${method}`, '--match-head-commit', head]);
   if (!m.ok) return outFailed({ code: 'QUEUE_NOT_READY', message: `gh pr merge refused: ${(m.err ?? m.out).trim().slice(0, 200)}` }, s.lines, s.rerun, s.run);
   main = mainNow(ctx, s.env);
@@ -132,12 +139,15 @@ async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): 
   return confirmed(s, main.sha, `MERGED: #${pr} as ${main.sha} (${method}); main's tree is ${label(s)} exactly`);
 }
 
-/** confirmMerged, with the post-merge checks a workflows gate declares named in the NEXT. */
+/** The check names every workflows gate asks to see green on main after each land. */
+export const postMergeChecks = (env: TrainEnv): string[] => (env.train.gates ?? []).flatMap(g => (g.kind === 'workflows' ? g.post_merge_checks ?? [] : []));
+
+/** confirmMerged, with the post-merge checks a workflows gate declares in the NEXT: the next slot lands only once they are green. */
 function confirmed(s: Slot, mainSha: string, line: string): TrainOut {
   const out = confirmMerged(s.env, s.t, s.t.slots[s.i]!.pr, mainSha, s.target.index, [...s.lines, line]);
-  const post = (s.env.train.gates ?? []).flatMap(g => (g.kind === 'workflows' ? g.post_merge_checks ?? [] : []));
+  const post = postMergeChecks(s.env);
   if (!post.length || out.exit !== 0) return out;
-  return { ...out, lines: [...out.lines, `POST_MERGE_CHECKS: ${post.join(', ')} at ${mainSha.slice(0, 12)}`], next: `${Q} verify --post-merge ${mainSha} && ${out.next}` };
+  return { ...out, lines: [...out.lines, `POST_MERGE_CHECKS: ${post.join(', ')} at ${mainSha.slice(0, 12)}`], next: `${Q} verify --post-merge ${mainSha} --checks ${JSON.stringify(post.join(','))} && ${out.next}` };
 }
 
 /** `direct`: merge the pin itself once its required checks are green there. */

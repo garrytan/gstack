@@ -13,11 +13,13 @@ import { loadPolicyFromBase, isUnavailable, TRAIN_GATES_KEY_VERSION, globToRegEx
 import type { QueueContext } from './ship-queue';
 import { git } from './ship-queue-gate';
 import { versionAtRef } from './restamp';
-import { concurrencyKeyed } from './ship-queue-train-gate';
+import { commandReservation, concurrencyKeyed } from './ship-queue-train-gate';
 import { repoSlug } from './ship-queue-train-github';
+import { UNPROTECTED } from './ship-queue-train-land';
 import { fetchBase, outFailed, outOk, outRefused, type TrainOut } from './ship-queue-train';
 
 const Q = 'gstack-ship-queue';
+const MAX_SIZE = 5;
 const unquote = (s: string) => s.trim().replace(/\s+#.*$/, '').replace(/^(['"])(.*)\1$/, '$2');
 
 export interface WorkflowFacts {
@@ -118,7 +120,7 @@ function readRepo(ctx: QueueContext): Repo | TrainOut {
       strict = p.strict === true;
       required = [...new Set([...(p.contexts ?? []), ...(p.checks ?? []).map(c => c.context ?? '')].filter(Boolean))];
     } catch { strict = null; }
-  } else if (/not protected|required status checks not enabled|HTTP 404/i.test(`${prot.err ?? ''} ${prot.out}`)) strict = false;
+  } else if (UNPROTECTED.test(`${prot.err ?? ''} ${prot.out}`)) strict = false;
   return { ctx, policy: loaded.policy, base: ctx.base, slug: repoSlug(ctx), workflows, strict, required };
 }
 
@@ -175,11 +177,14 @@ export function trainInit(ctx: QueueContext, o: { command?: string; timeoutSec?:
   for (const m of mapped.filter(x => x.w)) byWorkflow.set(m.w!.file, [...(byWorkflow.get(m.w!.file) ?? []), `${m.w!.file}/${m.check}`]);
   const gates: unknown[] = [];
   if (byWorkflow.size) gates.push({ kind: 'workflows', workflows: [...byWorkflow.keys()], required_jobs: [...byWorkflow.values()].flat() });
-  if (o.command) gates.push({ kind: 'command', command: o.command, timeout_sec: o.timeoutSec ?? 1800, spend_cap_usd: o.spendCap ?? 2 });
+  const command = { kind: 'command' as const, command: o.command ?? '', timeout_sec: o.timeoutSec ?? 1800, spend_cap_usd: 0 };
+  command.spend_cap_usd = o.spendCap ?? Math.min(100, Math.ceil((MAX_SIZE + 2) * commandReservation(command)));
+  if (o.command) gates.push(command);
   if (!gates.length) lines.push(`GATES: no required check maps to a workflow job; name the gate yourself (--command "<test command>", or a workflows gate listing <workflow>/<job>)`);
   const method = r.policy.history === 'merge-only' ? 'merge' : 'squash';
   const land = { merge_method: method, ...(!r.policy.changelog_fragments && r.required.length ? { required_checks: r.required } : {}) };
-  const block = { train: { gates, land, max_size: 5, fill_hours: 3 }, min_gstack_version: TRAIN_GATES_KEY_VERSION };
+  const block = { train: { gates, land, max_size: MAX_SIZE, fill_hours: 3 }, min_gstack_version: TRAIN_GATES_KEY_VERSION };
+  if (o.command && o.spendCap !== undefined && o.spendCap < (MAX_SIZE + 2) * commandReservation(command)) lines.push(`WARN: --spend-cap $${o.spendCap} is below $${((MAX_SIZE + 2) * commandReservation(command)).toFixed(2)}, what ${MAX_SIZE + 1} prefixes and one rerun reserve; a full train would stop at QUEUE_TRAIN_SPEND_CAP`);
   lines.push('POLICY: add to .gstack/ship-policy.json on the base branch (merge with the keys it has):', ...JSON.stringify(block, null, 2).split('\n'));
   for (const file of byWorkflow.keys()) {
     lines.push(`WORKFLOW: ${file} needs, beside its own triggers:`, ...NONCE_SNIPPET.split('\n').map(l => '  ' + l));
@@ -203,7 +208,12 @@ export function trainDoctor(ctx: QueueContext): TrainOut {
   if (refused) return refused;
   const findings: string[] = [];
   for (const g of train.gates) {
-    if (g.kind !== 'workflows') { lines.push(`GATE: command ${JSON.stringify(g.command)} timeout ${g.timeout_sec}s cap $${g.spend_cap_usd}`); continue; }
+    if (g.kind !== 'workflows') {
+      lines.push(`GATE: command ${JSON.stringify(g.command)} timeout ${g.timeout_sec}s cap $${g.spend_cap_usd}`);
+      const full = (train.max_size + 1) * commandReservation(g);
+      if (g.spend_cap_usd < full) findings.push(`command gate cap $${g.spend_cap_usd} is below $${full.toFixed(2)}, what ${train.max_size + 1} prefixes reserve at timeout ${g.timeout_sec}s; a full train stops at QUEUE_TRAIN_SPEND_CAP`);
+      continue;
+    }
     for (const file of g.workflows) {
       const w = r.workflows.find(x => x.file === file);
       if (!w) { findings.push(`${file}: not in .github/workflows on ${r.base}`); continue; }

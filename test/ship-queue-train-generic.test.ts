@@ -7,7 +7,9 @@
  * UBI_REAP=0, so nothing here reaches a cloud API.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { TRAIN_GATES_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
@@ -15,7 +17,7 @@ import { baseRedAdmission, classifyPrefixes, classifyWorkflowRun, commandReserva
 import { pushMatchesPrefix, workflowFacts } from '../lib/ship-queue-train-init';
 import type { TrainSlot } from '../lib/ship-queue-train-record';
 import { BASE_POLICY, cleanup } from './helpers/restamp-fixture';
-import { line, nonceOf, openPr, queue, readyReceipt, repoKey, shippedBody, trainFixture, trainJson, type TrainFixture } from './helpers/ship-queue-train-fixture';
+import { line, nonceOf, openPr, queue, readyReceipt, repoKey, shippedBody, trainFixture, trainJson, TRAIN_POLICY, type TrainFixture } from './helpers/ship-queue-train-fixture';
 import { runBin } from './helpers/restamp-fixture';
 
 const WORKFLOWS_GATE = { kind: 'workflows', workflows: ['ci.yml'], required_jobs: ['ci.yml/test', 'ci.yml/lint'] };
@@ -44,7 +46,7 @@ function wrap(fx: TrainFixture): void {
     "if(a[0]==='api'&&jobs){const r=d.runs.find(x=>String(x.databaseId)===jobs[1]);const n=Number(jobs[2]);const names=d.jobNames||['test','lint'];",
     "  const list=names.map(name=>({name,conclusion:name==='test'&&red(r,n)?'failure':'success'}));out({total_count:list.length,jobs:n>1?list.filter(j=>j.name==='test'):list})}",
     "if(a[0]==='run'&&a[1]==='rerun'){const r=d.runs.find(x=>String(x.databaseId)===a[2]);r.run_attempt=(r.run_attempt||1)+1;d.log.push({cmd:'run rerun',args:a});save();process.exit(0)}",
-    "if(a[0]==='api'&&/branches\\/main\\/protection\\/required_status_checks/.test(a[1]||'')){d.log.push({cmd:'api protection',args:a});save();if(!d.protection){console.error('gh: Branch not protected (HTTP 404)');process.exit(1)}console.log(JSON.stringify(d.protection));process.exit(0)}",
+    "if(a[0]==='api'&&/branches\\/main\\/protection\\/required_status_checks/.test(a[1]||'')){d.log.push({cmd:'api protection',args:a});save();if(!d.protection||d.protection==='404'){console.error(d.protection==='404'?'gh: Not Found (HTTP 404)':'gh: Branch not protected (HTTP 404)');process.exit(1)}console.log(JSON.stringify(d.protection));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='list'){out(Object.entries(d.prs).filter(([,p])=>p.state==='OPEN').map(([n,p])=>({number:Number(n),headRefOid:p.headRefOid})))}",
     "if(a[0]==='api'&&/^repos\\/[^/{]+\\/[^/{]+$/.test(a[1]||'')){out(d.repoSettings||{allow_squash_merge:true,allow_merge_commit:true,allow_rebase_merge:false})}",
     "if(a[0]==='pr'&&a[1]==='view'&&d.prs[a[2]]){const p=d.prs[a[2]];const h=rev('refs/heads/'+p.headRefName);if(h)p.headRefOid=h;out(p)}",
@@ -102,6 +104,10 @@ describe('generic train policy', () => {
     expect(validatePolicy(own)).toEqual([]);
     expect(own.train.gate_workflow).toBe('evals.yml');
     expect(own.train.gates).toBeUndefined();
+  });
+  test('history merge-only constrains only a train that declares land: a gstack-evals train without it still validates', () => {
+    expect(validatePolicy({ ...TRAIN_POLICY, history: 'merge-only' })).toEqual([]);
+    expect(errs(policyWith({ ...GENERIC, land: { merge_method: 'squash' } }, { history: 'merge-only' })).join('\n')).toContain('history merge-only allows only the merge method');
   });
   test('a train with gates validates, and needs min_gstack_version at the gates key version', () => {
     expect(errs(policyWith(GENERIC))).toEqual([]);
@@ -183,6 +189,7 @@ describe('base-red admission', () => {
     expect(code(baseRedAdmission([slot('1'), slot('5', cond('7'))], true, false))).toMatch(/conditional on fixer #7, which is not in this train/);
     expect(code(baseRedAdmission([slot('7', { fixes_base_red: ['x'], ...cond('7') })], true, false))).toMatch(/a fixer's own head must be green/);
     expect(code(baseRedAdmission([slot('7', { fixes_base_red: ['x'] }), slot('5', cond('7', '2026-01-01T00:00:00Z'))], true, false))).toMatch(/expired/);
+    expect(code(baseRedAdmission([slot('7', { fixes_base_red: ['x'] }), slot('5', cond('7', 'not a date'))], true, false))).toMatch(/expired/);
     expect(code(baseRedAdmission([slot('1'), slot('2')], false, false))).toBe('admitted');
   });
 });
@@ -197,6 +204,8 @@ describe('train init: workflow facts', () => {
     expect(pushMatchesPrefix('on:\n  pull_request:\n  workflow_dispatch:\n')).toBe(false);
     expect(concurrencyKeyed('concurrency:\n  group: ci-${{ github.ref }}\n')).toBe(true);
     expect(concurrencyKeyed('concurrency: ci\n')).toBe(false);
+    expect(concurrencyKeyed('concurrency:\n  group: ci-${{ github.head_ref }}\n')).toBe(false);
+    expect(concurrencyKeyed('concurrency:\n  group: ci-${{ github.head_ref || github.run_id }}\n')).toBe(true);
   });
   test('jobs (with matrix names), nonce input and run-name', () => {
     const yaml = [
@@ -255,6 +264,13 @@ describe('generic trains end to end (fixture repos)', () => {
     expect(merged.status, merged.err + merged.out).toBe(EXIT.ok);
     expect(fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', 'main^{tree}')).toBe(rec.gated[1].tree);
 
+    const hidden = genericTrain();
+    hidden.fx.write(d => { (d as any).protection = '404'; });
+    const n4 = nonceOf(queue(hidden.fx, ['train', 'build', '--prs', hidden.pins]).out);
+    queue(hidden.fx, ['train', 'verdict', '--train', n4]);
+    const unreadable = queue(hidden.fx, ['train', 'land', '--train', n4, '--pr', '1', '--no-wait']);
+    expect(unreadable.out, unreadable.err).toMatch(/^MODE: update \(branch protection could not be read/m);
+
     const rebase = genericTrain({ ...GENERIC, land: { merge_method: 'rebase', required_checks: ['test'] } });
     rebase.fx.write(d => { (d as any).protection = { strict: true, contexts: ['test'] }; });
     const n2 = nonceOf(queue(rebase.fx, ['train', 'build', '--prs', rebase.pins]).out);
@@ -262,6 +278,13 @@ describe('generic trains end to end (fixture repos)', () => {
     const refused = queue(rebase.fx, ['train', 'land', '--train', n2, '--pr', '1', '--no-wait']);
     expect(refused.err).toContain('(QUEUE_TRAIN_LAND_METHOD)');
     expect(rebase.fx.read().log.some(l => l.cmd === 'pr merge')).toBe(false);
+    const loose = genericTrain({ ...GENERIC, land: { merge_method: 'rebase', required_checks: ['test'] } });
+    const n5 = nonceOf(queue(loose.fx, ['train', 'build', '--prs', loose.pins]).out);
+    queue(loose.fx, ['train', 'verdict', '--train', n5]);
+    const replay = queue(loose.fx, ['train', 'land', '--train', n5, '--pr', '1', '--no-wait']);
+    expect(replay.err, replay.out).toContain('(QUEUE_TRAIN_LAND_METHOD)');
+    expect(replay.err).toContain('a rebase replays the pin');
+    expect(loose.fx.read().log.some(l => l.cmd === 'pr merge')).toBe(false);
 
     const fork = genericTrain();
     const n3 = nonceOf(queue(fork.fx, ['train', 'build', '--prs', fork.pins]).out);
@@ -282,6 +305,8 @@ describe('generic trains end to end (fixture repos)', () => {
     expect(v.err).toContain('(QUEUE_TRAIN_RED)');
     expect(line(v.out, 'VERDICT:')).toBe('VERDICT: ATTRIBUTED train ' + nonce + ' landable=1/2 culprit=#2');
     expect(line(v.out, 'PREFIX: T2')).toContain('red=ci.yml/test');
+    expect(queue(fx, ['train', 'prune', '--train', nonce]).out).toContain('#1 landable, not merged');
+    expect(fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', '--verify', '--quiet', 'refs/heads/' + trainJson(fx, nonce).branch)).toMatch(/^[0-9a-f]{40}$/);
     expect(queue(fx, ['train', 'land', '--train', nonce, '--pr', '2', '--no-wait']).err).toContain('(QUEUE_GATE_MISSING)');
     expect(queue(fx, ['train', 'land', '--train', nonce, '--pr', '1', '--no-wait']).status).toBe(EXIT.ok);
     expect(queue(fx, ['train', 'bisect', '--train', nonce, '--spend-cap', '5']).err).toContain('(QUEUE_TRAIN_REBUILD_REFUSED)');
@@ -437,6 +462,17 @@ describe('train init and doctor', () => {
     expect(line(queue(fx, ['train', 'init']).out, 'LAND_MODE:')).toMatch(/^LAND_MODE: update for every slot \(branch protection requires/);
   }, 300_000);
 
+  test('init prices a command gate for a full train and one rerun; doctor flags a cap below a full train', () => {
+    const fx = initFixture(PLAIN, CI());
+    const r = queue(fx, ['train', 'init', '--command', 'bun test']);
+    expect(r.status, r.err + r.out).toBe(EXIT.ok);
+    expect(r.out).toContain('"spend_cap_usd": 3');
+    expect(r.out).not.toContain('WARN: --spend-cap');
+    expect(queue(fx, ['train', 'init', '--command', 'bun test', '--spend-cap', '1']).out).toContain('WARN: --spend-cap $1 is below $2.38');
+    const low = initFixture(policyWith({ ...GENERIC, gates: [{ kind: 'command', command: 'bun test', timeout_sec: 1800, spend_cap_usd: 1 }] }), CI());
+    expect(queue(low, ['train', 'doctor']).out).toContain('command gate cap $1 is below $2.04');
+  }, 300_000);
+
   test('init refuses version-bumping PRs without changelog_fragments or stamp-at-merge, and recommends fragments either way', () => {
     const fx = initFixture(PLAIN, CI());
     openPr(fx, '2', { file: 'VERSION', text: '1.2.4.0\n', changelog: false });
@@ -511,6 +547,85 @@ describe('a workflows gate and a command gate together (round-2 High 3)', () => 
     expect(line(v.out, 'VERDICT:')).toBe('VERDICT: INCOMPLETE train ' + nonce + ' landable=0/2');
     expect(line(v.out, 'PREFIX: T0')).toMatch(/^PREFIX: T0 INCOMPLETE .*command: the command timed out/);
     expect(queue(fx, ['train', 'land', '--train', nonce, '--pr', '1', '--no-wait']).err).toContain('(QUEUE_GATE_MISSING)');
+    const again = queue(fx, ['train', 'build', '--prs', trainJson(fx, nonce).slots.map((s: any) => s.pr + '@' + s.head).join(',')]);
+    expect(nonceOf(again.out), again.err + again.out).not.toBe('');
+    expect(nonceOf(again.out)).not.toBe(nonce);
+  }, 300_000);
+});
+
+describe('review pass 1 voices: dispatch bound, lease, output tail, post-merge checks', () => {
+  test('a workflow dispatch no run ever adopts is sent twice per prefix, then watch stops on QUEUE_TRAIN_DISPATCH_UNKNOWN', () => {
+    const { fx, pins } = genericTrain();
+    fx.write(d => { d.rules['ci.yml'] = { silent: true } as never; });
+    const nonce = nonceOf(queue(fx, ['train', 'build', '--prs', pins]).out);
+    const watched = queue(fx, ['train', 'watch', '--train', nonce, '--timeout', '120']);
+    expect(watched.err, watched.out).toContain('(QUEUE_TRAIN_DISPATCH_UNKNOWN)');
+    expect(watched.err).toContain('was sent twice under nonce');
+    const sent = fx.read().log.filter(l => l.cmd === 'workflow run').map(l => (l.inputs as any).nonce);
+    expect(sent.length).toBeLessThanOrEqual(6);
+    for (const n of new Set(sent)) expect(sent.filter(x => x === n).length).toBeLessThanOrEqual(2);
+  }, 300_000);
+
+  test('a held lease refuses build and verdict with nothing sent; a dead holder\'s lease is taken over', () => {
+    const { fx, pins } = genericTrain();
+    const nonce = nonceOf(queue(fx, ['train', 'build', '--prs', pins]).out);
+    const lock = path.join(fx.state, 'ship-queue', 'trains', nonce, 'gate.lock');
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, host: os.hostname() }));
+    const before = fx.read().log.length;
+    for (const args of [['train', 'verdict', '--train', nonce], ['train', 'build', '--train', nonce]]) {
+      const held = queue(fx, args);
+      expect(held.err, held.out).toContain('(QUEUE_TRAIN_PENDING)');
+      expect(held.err).toContain('holds ' + lock);
+    }
+    expect(fx.read().log.slice(before).some(l => l.cmd === 'workflow run' || l.cmd === 'run rerun')).toBe(false);
+    fs.writeFileSync(lock, JSON.stringify({ pid: spawnSync('true').pid, host: os.hostname() }));
+    const v = queue(fx, ['train', 'verdict', '--train', nonce]);
+    expect(v.status, v.err + v.out).toBe(EXIT.ok);
+    expect(fs.existsSync(lock)).toBe(false);
+  }, 300_000);
+
+  test('a command that prints more than the 1 MB log tail keeps its tree line and is GREEN', () => {
+    const gate = { kind: 'command', command: "yes x | head -c 1200000; echo; echo 'UBICLOUD: left=3'", timeout_sec: 60, spend_cap_usd: 1 };
+    const { fx, pins } = genericTrain({ ...GENERIC, gates: [gate] });
+    fakeUbi(fx);
+    const nonce = nonceOf(queue(fx, ['train', 'build', '--prs', pins]).out);
+    const v = queue(fx, ['train', 'verdict', '--train', nonce]);
+    expect(line(v.out, 'VERDICT:'), v.err + v.out).toBe('VERDICT: GREEN train ' + nonce + ' landable=2/2');
+  }, 300_000);
+
+  test('post_merge_checks: verify --post-merge --checks waits for each named check; watch --land stops after the slot whose named check never ran', () => {
+    const { fx, pins } = genericTrain({ ...GENERIC, gates: [{ ...WORKFLOWS_GATE, post_merge_checks: ['deploy'] }] });
+    const sha = fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', 'main');
+    const missing = queue(fx, ['verify', '--post-merge', sha, '--checks', 'deploy', '--timeout', '1']);
+    expect(missing.err, missing.out).toContain('the post-merge checks the train gate names never ran');
+    expect(queue(fx, ['verify', '--post-merge', sha, '--checks', 'test', '--timeout', '1']).status).toBe(EXIT.ok);
+    const nonce = nonceOf(queue(fx, ['train', 'build', '--prs', pins]).out);
+    const watched = queue(fx, ['train', 'watch', '--train', nonce, '--land', '--timeout', '20']);
+    expect(watched.out, watched.err).toMatch(/^WATCH: verify --post-merge [0-9a-f]{40} \(QUEUE_TRAIN_PENDING\)/m);
+    expect(fx.read().log.filter(l => l.cmd === 'pr merge')).toHaveLength(1);
+    expect(trainJson(fx, nonce).merged.map((m: any) => m.pr)).toEqual(['1']);
+  }, 300_000);
+});
+
+describe('a command run another process still owns (red-team #4)', () => {
+  test('verdict and build wait while the owner is alive and read nothing; a dead owner\'s run is reconciled as interrupted', () => {
+    const { fx, pins } = genericTrain({ ...GENERIC, gates: [{ kind: 'command', command: 'true', timeout_sec: 60, spend_cap_usd: 1 }] });
+    fakeUbi(fx);
+    const nonce = nonceOf(queue(fx, ['train', 'build', '--prs', pins]).out);
+    const file = path.join(fx.state, 'ship-queue', 'trains', nonce, 'attempts', trainJson(fx, nonce).attempts[0] + '.json');
+    const own = (pid: number) => fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), state: 'dispatching', owner: { pid, host: os.hostname() } }));
+    own(process.pid);
+    for (const args of [['train', 'verdict', '--train', nonce], ['train', 'build', '--train', nonce]]) {
+      const held = queue(fx, args);
+      expect(held.err, held.out).toContain('(QUEUE_TRAIN_PENDING)');
+      expect(held.err).toContain('still running under process ' + process.pid);
+    }
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).state).toBe('dispatching');
+    own(spawnSync('true').pid!);
+    const freed = queue(fx, ['train', 'verdict', '--train', nonce]);
+    expect(freed.err + freed.out).not.toContain('still running under process');
+    expect(line(freed.out, 'PREFIX: T0')).toContain('not dispatched');
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).state).not.toBe('dispatching');
   }, 300_000);
 });
 

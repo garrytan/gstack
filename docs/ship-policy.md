@@ -451,7 +451,7 @@ prefix, not just its tip, so a red train names its culprit without a bisect:
 "train": {
   "gates": [
     { "kind": "workflows", "workflows": ["ci.yml"], "required_jobs": ["ci.yml/test", "ci.yml/lint"] },
-    { "kind": "command", "command": "bun test", "timeout_sec": 1800, "spend_cap_usd": 2 }
+    { "kind": "command", "command": "bun test", "timeout_sec": 1800, "spend_cap_usd": 3 }
   ],
   "land": { "merge_method": "squash", "required_checks": ["test", "lint"] },
   "max_size": 5, "fill_hours": 3
@@ -477,8 +477,9 @@ prefixes.
   JSON file reporting at least one executed test, and failed test ids become
   the red cases. A red run gets one `gh run rerun --failed`: green on the
   rerun is GREEN with a `FLAKY:` line, red again is real, and both attempts'
-  jobs stay in the record. `post_merge_checks` names checks to wait for on
-  main after each land (`verify --post-merge`). A workflow whose concurrency
+  jobs stay in the record. `post_merge_checks` names checks that must succeed
+  on main after each land before the next slot lands (`verify --post-merge
+  <sha> --checks <names>`; `train watch --land` runs it between slots). A workflow whose concurrency
   group is not keyed by `github.ref` (or the nonce) gets one prefix at a
   time.
 - **`command` gates.** Each prefix is checked out clean and detached and runs
@@ -487,8 +488,10 @@ prefixes.
   the prefix tree, and exit 0 is GREEN. Only names in `pass_env` reach the VM
   (`UBICLOUD_*` never). Each run reserves its timeout plus 10 minutes at the
   list price, and one `spend_cap_usd` covers every run of the train, reruns
-  included; the next run past the cap refuses (`QUEUE_TRAIN_SPEND_CAP`) and
-  `train build --train <nonce>` resumes once the cap is raised.
+  included (3 dollars covers six prefixes and one rerun at 1800 s; `train init`
+  prints that default and `train doctor` flags a cap below a full train). The
+  next run past the cap refuses (`QUEUE_TRAIN_SPEND_CAP`); raising the cap is a
+  policy commit that moves main, so it is followed by a new train.
 
 **The verdict.** T0 red is red on main (`QUEUE_TRAIN_RED_ON_MAIN`, fix
 forward). Otherwise the first non-green prefix decides: incomplete stops the
@@ -522,7 +525,8 @@ commit when there is one, before its first remote effect:
    lease, its checks waited for, then merged at that commit. It is forced for
    a stamped train, strict or unreadable protection, a conditional PR, a merge
    that resolved release files, and a pin whose checks are red. `rebase`
-   refuses here (`QUEUE_TRAIN_LAND_METHOD`), since it would replay commits.
+   always refuses (`QUEUE_TRAIN_LAND_METHOD`): it would replay commits, and
+   the replayed tree is not the gated one.
 
 Required checks are `changelog_fragments.required_checks`, else
 `train.land.required_checks`. Fork heads refuse. Either way main's tree must

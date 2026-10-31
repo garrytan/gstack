@@ -79,6 +79,8 @@ export interface AttemptRecord {
   /** Generic trains: the policy gate index, the run attempt read, both attempts' jobs, the rerun and its FLAKY cases, a reused T0 run. */
   gate?: number; run_attempt?: number; rerun?: 'requested' | 'refused'; jobs?: Array<{ attempt: number; name: string; conclusion: string | null }>;
   flaky?: string[]; reused?: string; tree?: string | null; spend_usd?: number;
+  /** A command gate's running process: reconcile marks the attempt absent only once this owner is gone. */
+  owner?: { pid: number; host: string };
 }
 export type PrefixResult = 'red' | 'green';
 export interface BisectRecord {

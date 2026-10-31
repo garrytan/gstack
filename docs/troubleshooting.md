@@ -4529,6 +4529,12 @@ GitHub accepted the dispatch). It is never dispatched again blindly.
 run carrying the nonce, or marks the dispatch absent; only then does
 `train build --train <nonce>` dispatch it again, under the same nonce.
 
+On a train with `gates`, a workflow is sent at most twice per prefix. When
+neither send shows a run carrying the nonce, `train build` (and `train watch`)
+refuses with this code instead of sending a third: run `train doctor` (a
+run-name without the nonce is the usual cause), fix the workflow on the base
+branch, then build a new train.
+
 <a id="queue-train-waiting"></a>
 ### `QUEUE_TRAIN_WAITING`
 
@@ -4685,8 +4691,10 @@ again by its lane ([ship-policy.md](ship-policy.md#train-gates)).
 spend cap, or `UBI_OWNER` is not set. Nothing more ran; finished runs keep
 their outcomes.
 
-**Fix.** Set `UBI_OWNER` to your thread code, or raise `spend_cap_usd` (or
-lower `timeout_sec`) on the base branch, then `train build --train <nonce>`.
+**Fix.** Set `UBI_OWNER` to your thread code and rerun `train build --train
+<nonce>`. For the cap, raise `spend_cap_usd` (or lower `timeout_sec`) on the
+base branch, then build a new train on the new main: the policy commit moves
+main past T0.
 
 <a id="queue-train-land-method"></a>
 ### `QUEUE_TRAIN_LAND_METHOD`
@@ -4697,7 +4705,8 @@ strict protection, conditional PR, or release-file resolution), and
 landing the gated tree.
 
 **Fix.** Set `merge_method` to `squash` or `merge` on the base branch, then
-land again.
+build a new train on the new main: the policy commit moves main off this
+train's prefixes.
 
 <a id="queue-train-init-refused"></a>
 ### `QUEUE_TRAIN_INIT_REFUSED`

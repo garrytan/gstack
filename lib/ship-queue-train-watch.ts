@@ -19,6 +19,7 @@ import { repoSlug, runView } from './ship-queue-train-github';
 import { attemptsOf, trainFile, type TrainRecord } from './ship-queue-train-record';
 import type { TrainEnv } from './ship-queue-train';
 import { trainVerdict } from './ship-queue-train-verdict';
+import { verifyPostMerge } from './ship-queue-post-merge';
 
 const Q = 'gstack-ship-queue';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -74,7 +75,8 @@ async function watchGeneric(ctx: QueueContext, env: TrainEnv, start: TrainRecord
   verdict ??= trainVerdict(ctx, { train: t.nonce });
   lines.push(...verdict.lines);
   if (!o.land || !t.verdict.landable) return { ...verdict, lines };
-  const { trainLand } = await import('./ship-queue-train-land');
+  const { postMergeChecks, trainLand } = await import('./ship-queue-train-land');
+  const post = postMergeChecks(env);
   for (const s of t.slots.slice(0, t.verdict.landable)) {
     if (t.merged.some(m => m.pr === s.pr)) continue;
     const remaining = Math.max(1, Math.floor((deadline - Date.now()) / 60_000));
@@ -82,6 +84,11 @@ async function watchGeneric(ctx: QueueContext, env: TrainEnv, start: TrainRecord
     lines.push(`WATCH: train land --train ${t.nonce} --pr ${s.pr} (${landed.failure?.code ?? landed.status})`, ...landed.lines);
     if (landed.status !== 'complete') return { ...landed, lines };
     reload();
+    const sha = t.merged.find(m => m.pr === s.pr)?.sha;
+    if (!post.length || !sha) continue;
+    const checked = await verifyPostMerge(ctx, { sha, checks: post, timeoutSec: Math.max(1, Math.floor((deadline - Date.now()) / 1000)), pollMs: o.pollMs });
+    lines.push(`WATCH: verify --post-merge ${sha} (${checked.failure?.code ?? checked.status})`, ...checked.lines);
+    if (checked.status !== 'complete') return { ...checked, lines, next: `${checked.next === 'none' ? '' : `${checked.next} && `}${Q} train watch --train ${t.nonce} --land` };
   }
   return outOk(lines, nextFor(t), run);
 }

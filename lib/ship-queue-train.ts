@@ -427,7 +427,7 @@ async function newTrain(env: TrainEnv, o: BuildOptions): Promise<{ t: TrainRecor
   lines.push(`MERGE_CHECK: T1..T${order.train.length} merge clean onto ${env.ctx.base}@${baseSha.slice(0, 12)} (dry run in object storage; nothing pushed)`);
   const due = fillDue(order.train, env.train, nowIso(), o.urgent || o.repair);
   if (due && !o.dryRun) return outPending({ code: 'QUEUE_TRAIN_WAITING', message: `${order.train.length} of ${env.train.max_size} PRs; the oldest READY dispatches at ${due}` }, lines, `${Q} train build ${prsArgs(order.train, !!explicit)} (after ${due}, or with more PRs, or --urgent for one)`, 'none');
-  const live = listTrains(env.repo.keys).find(t => t.key === key && !TERMINAL_STATES.includes(t.state) && t.state !== 'red' && t.state !== 'unattributed');
+  const live = listTrains(env.repo.keys).find(t => t.key === key && !TERMINAL_STATES.includes(t.state) && t.state !== 'red' && t.state !== 'unattributed' && !(t.gated && t.state === 'incomplete'));
   if (live) return { t: Object.assign(live, { held: order.held.map(s => s.pr) }), lines };
   const policy = env.policy.policy;
   const stamps = !!policy.changelog_fragments || (!!env.train.gates && policy.queue_mode === 'stamp-at-merge');
@@ -683,6 +683,8 @@ export function pruneTrains(ctx: QueueContext, o: { dryRun: boolean; train?: str
       continue;
     }
     if (!TERMINAL_STATES.includes(t.state)) { lines.push(`KEEP: ${t.branch} (${t.state})`); continue; }
+    const waiting = t.gated && t.verdict ? t.slots.slice(0, t.verdict.landable).filter(s => !t.merged.some(m => m.pr === s.pr)) : [];
+    if (waiting.length) { lines.push(`KEEP: ${t.branch} (${t.state}; ${waiting.map(s => '#' + s.pr).join(', ')} landable, not merged)`); continue; }
     for (const p of (t.gated ?? []).filter(g => g.ref !== t.branch)) remove(p.ref, t.state);
     remove(t.branch, t.state, () => { effect(t, `branch deleted: ${t.branch}`); save(env, t); });
   }
