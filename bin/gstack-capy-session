@@ -130,7 +130,7 @@ elif [ "${GSTACK_CAPY_SELF_UPGRADED:-}" != 1 ]; then
   elif [ -z "${GSTACK_CAPY_REMOTE_MIN:-}" ] || [ "$GSTACK_CAPY_REMOTE_MIN" = unknown ]; then echo "SELF_UPGRADE: none (remote minimum unknown)"
   elif ! behind; then echo "SELF_UPGRADE: none (current)"
   elif gstack_doctor_install_profile "$SKILL"; then
-    REASON="$SKILL never self-upgrades a shared checkout; fix: $ROOT/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED)"
+    REASON="$SKILL never self-upgrades a shared checkout; fix: GSTACK_UPGRADE_FORCE=1 $ROOT/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED)"
     echo "SELF_UPGRADE: skipped ($REASON)"
     report_behind "$ROOT/bin/gstack-upgrade"
     export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"
@@ -144,7 +144,7 @@ elif [ "${GSTACK_CAPY_SELF_UPGRADED:-}" != 1 ]; then
     while read -r _pid _age; do HOLDERS="$HOLDERS${HOLDERS:+, }pid $_pid ($_age)"; done <<EOF_OWN
 $OWN
 EOF_OWN
-    REASON="a gstack run in this session holds a workflow lease on this installation: $HOLDERS, so the upgrade waits until the lease is 120 minutes old; fix: $ROOT/bin/gstack-upgrade once the run ends (UPGRADE_BUSY)"
+    REASON="a gstack run in this session holds a workflow lease on this installation: $HOLDERS, so the upgrade waits until the lease is 120 minutes old; fix: $ROOT/bin/gstack-upgrade once the lease is 120 minutes old, or GSTACK_UPGRADE_FORCE=1 $ROOT/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_BUSY)"
     echo "SELF_UPGRADE: skipped ($REASON)"
     report_behind "$ROOT/bin/gstack-upgrade"
     export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"

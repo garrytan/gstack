@@ -1,5 +1,6 @@
 {
   "newModules": [
+    { "file": "lib/checks.ts", "movedFrom": "(new: gstack-checks detection, consent, run and status behind /verify, GST-116)" },
     { "file": "scripts/modules.ts", "movedFrom": "(new: module loadouts catalog and selection, GSTA-140)" },
     { "file": "scripts/modules-render.ts", "movedFrom": "(new: module loadout render and lock, GSTA-140)" },
     { "file": "scripts/modules-cli.ts", "movedFrom": "(new: bin/gstack-modules CLI, GSTA-140)" },
