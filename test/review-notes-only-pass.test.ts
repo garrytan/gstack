@@ -91,6 +91,9 @@ describe('a notes-only /ship review pass (GST-430)', () => {
     expect(reviewFreshness(row([note(1, 'deferred', { severity: 'CRITICAL', issue: null })]), w)?.status).toBe('UNVERIFIED');
     expect(reviewFreshness(row([note(1, 'deferred', { blocking: true })]), w)?.status).toBe('UNVERIFIED');
     expect(reviewFreshness(row([note(1, 'open', { gate: 'RH1' })]), w)?.status).toBe('UNVERIFIED');
+    expect([note(1, 'skipped', { severity: 'CRITICAL' }), { fingerprint: 'lib/a.ts:2:x', severity: 'CRITICAL' }, note(1, 'mystery', { severity: 'CRITICAL' })]
+      .map(f => reviewFreshness(row([f]), w)?.status)).toEqual(['UNVERIFIED', 'UNVERIFIED', 'UNVERIFIED']);
+    expect(reviewFreshness(row([note(1, 'kept', { gate: 'RH1', reason: 'r', actor: 'interactive', severity: 'CRITICAL' })]), w)?.status).toBe('CURRENT');
     const gate = (action: string) => note(1, action, { gate: 'RH1', reason: 'r', actor: 'interactive' });
     expect([gate('kept'), gate('restored'), note(1, 'skipped'), note(1, 'deferred', { blocking: undefined }), note(1, 'noted')]
       .map(f => reviewFreshness(row([f]), w)?.status)).toEqual(['CURRENT', 'CURRENT', 'CURRENT', 'CURRENT', 'CURRENT']);
