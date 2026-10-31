@@ -482,27 +482,25 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', 'Severity: Low (not High)').map(f => f.label)).toEqual(['High']);
   });
 
-  // Value: protects=a list item whose label first appears in an indented later paragraph ("Fix: ... FIXABLE. Severity: Low.") collects as
-  //   that item, title included (HARN-15 ship2 native item 4 "The host lock is not atomic" collected as a finding that began "Fix: create
-  //   the file", so judge could not tell which finding it was); fails_when=the item's finding loses its first line or the reply collects
-  //   more or fewer than 6; why_new=#3677's detail merge covered margin bullets only, not an item's later paragraphs; seam=parseFindings;
-  //   no_claim=a labeled item's labeled later paragraph (it stays its own finding, as above)
-  test('an indented later paragraph that first labels a list item collects as that item, title included', () => {
+  // Value: protects=item layouts keep their label on the right finding: an indented JSON finding keeps its JSON severity, an indented
+  //   label heading sets the section for the next item, and a later Blocks: yes raises the finding a Severity field line or JSON line
+  //   opened; fails_when=any of these collects a lower label or puts a label on another finding; why_new=GST-435's paragraph-split draft
+  //   broke each of these and was deferred; seam=parseFindings; no_claim=the split shape (known: HARN-15 ship2 native item 4 still
+  //   collects as its "Fix:" paragraph alone, without its title, until the follow-up)
+  test('item layouts keep their label on the right finding; the later-paragraph split is a known deferred shape', () => {
     const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/harn15-ship2-p2-adversarial-native.txt'), 'utf8');
     const found = parseFindings('adversarial-native', native);
-    expect(found.map(f => [f.label, f.raw.slice(0, 3)])).toEqual([['CRITICAL', '1. '], ['CRITICAL', '2. '], ['CRITICAL', '3. '], ['CRITICAL', '4. '], ['CRITICAL', '5. '], ['Low', '6. ']]);
-    expect(found[3]!.raw).toStartWith('4. **The host lock is not atomic** (`qm-stack.ts:66-76`).');
-    expect(found[3]!.raw).toContain(' | Fix: create the file with `writeFileSync(path, pid, { flag: \'wx\' })`.');
-    expect(parseFindings('outside-voice', '1. **Race on the lock** (a.ts:3)\n   - the writer holds no lock\n\n   Fix: take it first. Severity: High. Blocks: no.').map(f => [f.label, f.raw]))
-      .toEqual([['High', '1. **Race on the lock** (a.ts:3) | Fix: take it first. Severity: High. Blocks: no.']]);
+    expect(found.map(f => f.label)).toEqual(['CRITICAL', 'CRITICAL', 'CRITICAL', 'CRITICAL', 'CRITICAL', 'Low']);
+    expect(found[3]!.raw).toStartWith('Fix: create the file with');
+    expect(parseFindings('outside-voice', '1. **Race on the lock** (a.ts:3)\n   - the writer holds no lock\n\n   Fix: take it first. Severity: High. Blocks: no.').map(f => f.label)).toEqual(['High']);
     expect(parseFindings('outside-voice', '1. Lock race (a.ts:3)\n\n   Fix: take it first. Blocks: yes\n2. Cache drift (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"critical","summary":"Low-level race in q.ts"}').map(f => [f.label, f.raw]))
       .toEqual([['critical', '{"severity":"critical","summary":"Low-level race in q.ts"}']]);
     expect(parseFindings('red-team', '1. Unescaped query\n   **Critical**\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['Critical', '2. Token leak in the logger']]);
     expect(parseFindings('red-team', '1. Unescaped query\n   ## High\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['High', '2. Token leak in the logger']]);
-    // Known: a Severity field line under an unlabeled item opens its own finding, so a later indented Blocks: yes line becomes a second
-    // finding (main merged them into one CRITICAL). No label is lost; the Low one is a phantom the lead folds.
-    expect(parseFindings('red-team', '1. Race in queue\n- Severity: Low\n   this one blocks. Blocks: yes').map(f => f.label)).toEqual(['Low', 'CRITICAL']);
+    expect(parseFindings('red-team', '1. Race in queue\n- Severity: Low\n   this one blocks. Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"low","summary":"race"}\n   this blocks the merge. Blocks: yes').map(f => [f.label, f.raw]))
+      .toEqual([['CRITICAL', '{"severity":"low","summary":"race"} | this blocks the merge. Blocks: yes']]);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside

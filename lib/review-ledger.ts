@@ -73,8 +73,7 @@ export interface MergedLine { id: string; reader: string; label: string; raw: st
  * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
  * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
- * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An indented later
- * paragraph that first labels an unlabeled list item collects as that item, its first line included (GST-435). An inline
+ * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An inline
  * `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
  */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
@@ -84,8 +83,6 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let current: Finding | null = null;
   let head = '';
   let gap = false;
-  let item: string | null = null;
-  let itemFinding: Finding | null = null;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
@@ -113,10 +110,8 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
       else current = null;
       continue;
     }
-    if (!indented && !LIST_ITEM.test(t)) { item = null; itemFinding = null; }
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = named(heading[1]!); current = null; head = ''; continue; }
-    if (indented && item && !itemFinding && !LIST_ITEM.test(t) && !t.startsWith('{') && (label || blocks)) { current = itemFinding = push(blocks ? 'CRITICAL' : label!, `${item} | ${t}`); continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
       try {
@@ -126,16 +121,14 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
-    if (listItem && !detail) { item = t; itemFinding = null; }
     const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
     if (fresh) { current = null; head = t; }
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
-    if (found) { current = push(blocks ? 'CRITICAL' : found, t); if (!indented) head = t; if (item === t) itemFinding = current; continue; }
+    if (found) { current = push(blocks ? 'CRITICAL' : found, t); if (!indented) head = t; continue; }
     if (blocks && !t.startsWith('{')) {
       if (current) { current.label = 'CRITICAL'; current.raw += ` | ${t}`; continue; }
       current = push('CRITICAL', head && head !== t ? `${head} | ${t}` : t);
-      if (item === t) itemFinding = current;
       continue;
     }
     if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
