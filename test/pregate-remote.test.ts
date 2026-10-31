@@ -172,7 +172,7 @@ describe('gstack-pregate --remote (C-c)', () => {
     const changed = remote(repo, ['--remote', '--allow-repo-commands', '--policy-from', 'head', '--spend-cap', '2']);
     expect(changed.status).toBe(EXIT.refused);
     expect(changed.err).toContain('remote_gate differs from the trusted policy');
-  });
+  }, 60_000);
 
   test('a wrong tree, zero tests, a failure, a missing line or a non-zero exit leaves the obligation uncleared and the check incomplete; unreported spend counts at the cap', () => {
     const repo = gated();

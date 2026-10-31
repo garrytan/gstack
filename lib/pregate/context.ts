@@ -220,7 +220,7 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
     const user = rejected ? null : loadConfigFromUser(o.userConfigPath, o.knownChecks);
     if (user) configLoad = user;
     else explain.push(`user policy: ${o.userConfigPath} ${rejected ? `ignored (${rejected})` : '(absent)'}`);
-    if (!user && !rejected && o.policyFrom === 'base') absentUserPolicy = o.userConfigPath;
+    if (!user && !rejected) absentUserPolicy = o.userConfigPath;
   }
   if (isConfigUnavailable(configLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: configLoad.detail } };
   if (o.policyFrom === 'head' && !configLoad.errors.length) {
@@ -246,7 +246,7 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   return {
     ctx: {
       repoRoot: o.repoRoot, base, baseRef, baseSha: baseSha.out, mergeBase, head, wtree, touched: touchedFiles(o.repoRoot, mergeBase),
-      config, configLabel: configLoad.label, configKind: configLoad.kind, scratch, configFile: configLoad.kind === 'user' && o.userConfigPath ? o.userConfigPath : PREGATE_CONFIG_PATH, ...(configLoad.kind === 'user' && configLoad.digest ? { configDigest: configLoad.digest } : {}), ...(absentUserPolicy ? { absentUserPolicy } : {}), registry: registryLoad.registry as Registry, registryLabel: registryLoad.source.label,
+      config, configLabel: configLoad.label, configKind: configLoad.kind, scratch, configFile: configLoad.kind === 'user' && o.userConfigPath ? o.userConfigPath : PREGATE_CONFIG_PATH, ...(configLoad.digest ? { configDigest: configLoad.digest } : {}), ...(absentUserPolicy ? { absentUserPolicy } : {}), registry: registryLoad.registry as Registry, registryLabel: registryLoad.source.label,
       lanes, platform, allowRepoCommands: o.allowRepoCommands, timeoutMs: o.timeoutMs ?? (config.timeout_s ?? 600) * 1000, timeoutSource: o.timeoutMs !== undefined ? '--timeout' : config.timeout_s ? `timeout_s from ${configLoad.label}` : 'the 600 s default',
       stallTimeoutMs: o.stallTimeoutMs ?? (config.stall_timeout_s ?? DEFAULT_STALL_TIMEOUT_S) * 1000,
       progress: o.progress ?? (line => process.stderr.write(`${line}\n`)),

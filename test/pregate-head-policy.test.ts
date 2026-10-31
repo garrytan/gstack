@@ -99,6 +99,12 @@ describe('gstack-pregate --policy-from head: additive only (GST-419)', () => {
     expect(dropped.err).toContain('guards');
     commit(repo, { '.gstack/pregate.json': JSON.stringify({ ...user, dependencies: NEW_LANE }) });
     expect(pregate(repo, ['--policy-from', 'head']).status).toBe(EXIT.ok);
+    const verify = () => runBin(repo, 'gstack-pregate', ['verify'], { GSTACK_PROJECT_SLUG: SLUG });
+    expect(verify().status).toBe(EXIT.ok);
+    fs.writeFileSync(userPolicy, JSON.stringify({ ...user, guards: [] }));
+    const stale = verify();
+    expect(stale.status).not.toBe(EXIT.ok);
+    expect(stale.err + stale.out).toContain('changed after pregate.json was recorded');
   }, 60_000);
 
   // Value: protects=a PR that introduces the first policy still bootstraps under head; fails_when=the bootstrap path is refused; why_new=rule scope; seam=none; no_claim=none
