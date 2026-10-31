@@ -23,6 +23,7 @@ import * as path from 'node:path';
 import { ciAtHead, type QueueContext } from './ship-queue';
 import { git, writeJsonAtomic } from './ship-queue-gate';
 import { waitChecks } from './ship-queue-land';
+import { verifyPostMerge } from './ship-queue-post-merge';
 import { bindTrainReceipt } from './ship-queue-train-gate';
 import { checkRun, prInfo, type PrInfo } from './ship-queue-train-github';
 import { activeFreeze, attemptsOf, nowIso, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
@@ -142,7 +143,7 @@ async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): 
 /** The check names every workflows gate asks to see green on main after each land. */
 export const postMergeChecks = (env: TrainEnv): string[] => (env.train.gates ?? []).flatMap(g => (g.kind === 'workflows' ? g.post_merge_checks ?? [] : []));
 
-/** confirmMerged, with the post-merge checks a workflows gate declares in the NEXT: the next slot lands only once they are green. */
+/** confirmMerged, with the post-merge checks a workflows gate declares in the NEXT: train land refuses the next slot until they are green. */
 function confirmed(s: Slot, mainSha: string, line: string): TrainOut {
   const out = confirmMerged(s.env, s.t, s.t.slots[s.i]!.pr, mainSha, s.target.index, [...s.lines, line]);
   const post = postMergeChecks(s.env);
@@ -254,6 +255,13 @@ export async function trainLand(ctx: QueueContext, o: { train: string; pr: strin
   if ('error' in info) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: info.error }, s.lines, rerun, run);
   if (info.isCrossRepository) return outRefused({ code: 'QUEUE_TRAIN_UNTRUSTED', message: `#${o.pr} is a fork head; train land pushes and merges only crew branches` }, s.lines, 'none', run);
   if (info.baseRefName && info.baseRefName !== ctx.base) return retargeted(s, info.baseRefName, ctx.base);
+  const post = postMergeChecks(env);
+  const prev = i > 0 ? t.merged.find(m => m.pr === t.slots[i - 1]!.pr) : undefined;
+  if (post.length && prev) {
+    const checked = await verifyPostMerge(ctx, { sha: prev.sha, checks: post, timeoutSec: 0, pollMs: 0 });
+    s.lines.push(`POST_MERGE_CHECKS: #${t.slots[i - 1]!.pr} at ${prev.sha.slice(0, 12)} (${checked.failure?.code ?? 'green'})`, ...checked.lines);
+    if (checked.status !== 'complete') return { ...checked, lines: s.lines, next: checked.failure?.code === 'QUEUE_TRAIN_PENDING' ? `${checked.next} && ${rerun}` : checked.next, run };
+  }
   const landing = t.landing?.[o.pr];
   const conditional = !!t.slots[i]!.base_red;
   let mode = landing?.mode === 'update' || fs.existsSync(path.join(path.dirname(run), `land-${o.pr}.json`)) ? { mode: 'update' as const, why: 'resuming the recorded update' } : chooseMode(ctx, s, main.sha, conditional);

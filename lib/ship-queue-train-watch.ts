@@ -88,7 +88,7 @@ async function watchGeneric(ctx: QueueContext, env: TrainEnv, start: TrainRecord
     if (!post.length || !sha) continue;
     const checked = await verifyPostMerge(ctx, { sha, checks: post, timeoutSec: Math.max(1, Math.floor((deadline - Date.now()) / 1000)), pollMs: o.pollMs });
     lines.push(`WATCH: verify --post-merge ${sha} (${checked.failure?.code ?? checked.status})`, ...checked.lines);
-    if (checked.status !== 'complete') return { ...checked, lines, next: `${checked.next === 'none' ? '' : `${checked.next} && `}${Q} train watch --train ${t.nonce} --land` };
+    if (checked.status !== 'complete') return { ...checked, lines, next: checked.failure?.code === 'QUEUE_TRAIN_PENDING' ? `${checked.next} && ${Q} train watch --train ${t.nonce} --land` : checked.next };
   }
   return outOk(lines, nextFor(t), run);
 }

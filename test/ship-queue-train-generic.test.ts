@@ -578,7 +578,7 @@ describe('review pass 1 voices: dispatch bound, lease, output tail, post-merge c
       expect(held.err).toContain('holds ' + lock);
     }
     expect(fx.read().log.slice(before).some(l => l.cmd === 'workflow run' || l.cmd === 'run rerun')).toBe(false);
-    fs.writeFileSync(lock, JSON.stringify({ pid: spawnSync('true').pid, host: os.hostname() }));
+    fs.writeFileSync(lock, JSON.stringify({ pid: spawnSync('true', { timeout: 5000 }).pid, host: os.hostname() }));
     const v = queue(fx, ['train', 'verdict', '--train', nonce]);
     expect(v.status, v.err + v.out).toBe(EXIT.ok);
     expect(fs.existsSync(lock)).toBe(false);
@@ -603,7 +603,17 @@ describe('review pass 1 voices: dispatch bound, lease, output tail, post-merge c
     const watched = queue(fx, ['train', 'watch', '--train', nonce, '--land', '--timeout', '20']);
     expect(watched.out, watched.err).toMatch(/^WATCH: verify --post-merge [0-9a-f]{40} \(QUEUE_TRAIN_PENDING\)/m);
     expect(fx.read().log.filter(l => l.cmd === 'pr merge')).toHaveLength(1);
-    expect(trainJson(fx, nonce).merged.map((m: any) => m.pr)).toEqual(['1']);
+    const merged = trainJson(fx, nonce).merged;
+    expect(merged.map((m: any) => m.pr)).toEqual(['1']);
+    const pending = queue(fx, ['train', 'land', '--train', nonce, '--pr', '2', '--no-wait']);
+    expect(pending.err, pending.out).toContain('(QUEUE_TRAIN_PENDING)');
+    expect(line(pending.out, 'NEXT:')).toContain('--checks "deploy" && gstack-ship-queue train land --train ' + nonce + ' --pr 2');
+    fx.write(d => { d.ci[merged[0].sha] = [{ name: 'test', status: 'completed', conclusion: 'success', id: 1, completed_at: '2026-10-26T00:00:00Z' }, { name: 'deploy', status: 'completed', conclusion: 'failure', id: 2, completed_at: '2026-10-26T00:00:00Z' }]; });
+    for (const args of [['train', 'land', '--train', nonce, '--pr', '2', '--no-wait'], ['train', 'watch', '--train', nonce, '--land', '--timeout', '20']]) {
+      const red = queue(fx, args);
+      expect(red.err, red.out).toContain('(QUEUE_POST_MERGE_RED)');
+    }
+    expect(fx.read().log.filter(l => l.cmd === 'pr merge')).toHaveLength(1);
   }, 300_000);
 });
 
@@ -621,7 +631,7 @@ describe('a command run another process still owns (red-team #4)', () => {
       expect(held.err).toContain('still running under process ' + process.pid);
     }
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).state).toBe('dispatching');
-    own(spawnSync('true').pid!);
+    own(spawnSync('true', { timeout: 5000 }).pid!);
     const freed = queue(fx, ['train', 'verdict', '--train', nonce]);
     expect(freed.err + freed.out).not.toContain('still running under process');
     expect(line(freed.out, 'PREFIX: T0')).toContain('not dispatched');
