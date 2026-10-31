@@ -755,11 +755,13 @@ function insideString(text: string, offset: number, sourcePath: string): boolean
   return false;
 }
 
-/** The rest of a name's expression on its line, up to the comma, semicolon or bracket that ends it; null when it continues on the next line. */
-function expressionTail(rest: string): string | null {
+/** The rest of a name's expression on its line, up to the comma, semicolon, bracket or comment that ends it; null when it continues on the next line. */
+function expressionTail(line: string, comment: string): string | null {
+  let rest = line;
   let depth = 0;
   for (let i = 0; i < rest.length; i += 1) {
     const c = rest[i]!;
+    if (rest.startsWith(comment, i)) { rest = rest.slice(0, i); break; }
     if (c === '"' || c === "'" || c === "`") {
       const close = rest.indexOf(c, i + 1);
       if (close < 0) return null;
@@ -787,7 +789,7 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
     if (separator !== ":" || !CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return false;
     const rest = (span.endsWith("=") ? "=" : "") + match.input.slice(end).split("\n", 1)[0];
     if (!/[,;]$/.test(span)) {
-      const tail = expressionTail(rest);
+      const tail = expressionTail(rest, /\.pyi?$/i.test(sourcePath) ? "#" : "//");
       if (tail === null || carriesSecretLiteral(tail)) return false;
     }
   }

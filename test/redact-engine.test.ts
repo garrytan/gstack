@@ -296,6 +296,9 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       ["key={workout.id ?? index}", "src/SessionList.jsx"],
       ["key={item.uuid || item.slug}", "src/List.tsx"],
       ["key={row.ready && row.id}", "src/Grid.tsx"],
+      // A trailing comment is not part of the expression.
+      ["  password: req.body.password // don't log it (see docs", "src/a.ts"], ["    password: pydantic.SecretStr  # the user's password, or", "app/models.py"],
+      ["    'password': request.password // don't log", "lib/a.dart"],
       // A quote inside a comment opens nothing.
       ["# it's a session\ndef f(\n    session: HttpSession,\n): pass", "app.py"], ["/* it's a session */\n  password: request.password,", "lib/a.dart"],
       // A literal in the next pair on the line belongs to that pair.
