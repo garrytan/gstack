@@ -1104,7 +1104,7 @@ no reviewer needs to read. `review_exclude_paths` lists git glob pathspecs
 whose content files `/ship`'s reviewers leave out:
 
 ```json
-{ "review_exclude_paths": ["receipts/**"], "min_gstack_version": "1.92.0.0" }
+{ "review_exclude_paths": ["receipts/**"], "min_gstack_version": "<the release that introduced review_exclude_paths>" }
 ```
 
 **Read from the base only.** `gstack-review-plan` reads the policy committed on
@@ -1146,6 +1146,7 @@ Everything else stays in every reader's diff with one reason code:
 | `secret-line` | an added line reads a credential (the targeted pass's secret rule) |
 | `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
 | `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept |
+| `gate-scan-unavailable` | the gate scan failed or did not run at the head, so no hunk's tag is known and every candidate is kept |
 
 Only a full path counts as a name. A basename such as `result.json` would keep
 every receipt in the tree, and a directory reference such as `receipts/` (the

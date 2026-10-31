@@ -8,7 +8,8 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { KEEP_ARG_MAX_BYTES, readSelection, tooLargeLine, unreadableLine } from '../lib/review-exclude';
+import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude, tooLargeLine, unreadableLine } from '../lib/review-exclude';
+import { collectCommit } from '../lib/review-collect';
 import { extractReceipt } from '../lib/ship-receipt';
 import { bindShippedReceipt } from '../lib/ship-receipt-depth';
 import { REVIEW_EXCLUDE_KEY_VERSION, isUnavailable, loadPolicyAt } from '../lib/ship-policy';
@@ -307,6 +308,21 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect(p.review_exclude.kept_files).toEqual([{ path: 'assets/loader.js', reason: 'code' }]);
     expect(p.review_exclude.content).toMatchObject({ binary: 1 });
     expect(p).toMatchObject({ depth: 'full', errors: expect.arrayContaining([expect.objectContaining({ code: 'binary_code_path', input: 'assets/loader.js' })]) });
+  }, 120_000);
+
+  test('an unavailable gate scan keeps every candidate instead of excluding it', () => {
+    const repo = census();
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const at = (gateTagged: ReadonlySet<string> | null) => reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged, context: 'test' });
+    const scanned = at(new Set());
+    expect(scanned.state === 'active' && [...scanned.excluded].sort()).toEqual([...EXCLUDED].sort());
+    const blind = at(null);
+    expect(blind.state).toBe('active');
+    if (blind.state !== 'active') return;
+    expect(blind.excluded.size).toBe(0);
+    expect(blind.kept.filter(k => k.reason === 'gate-scan-unavailable').map(k => k.path).sort()).toEqual([...EXCLUDED, 'receipts/b/result.json', 'receipts/d/fixture.json'].sort());
   }, 120_000);
 });
 

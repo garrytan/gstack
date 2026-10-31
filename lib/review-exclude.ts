@@ -35,7 +35,7 @@ export const KEEP_ARG_MAX_BYTES = 24_000;
 /** How long one reader's `git diff` may run. */
 export const REVIEW_DIFF_TIMEOUT_MS = 120_000;
 const MAX_BUFFER = 256 * 1024 * 1024;
-export const KEPT_REASONS = ['policy-dir', 'gate-path', 'executable', 'agent-prose', 'config', 'gate-tagged', 'code', 'secret-line', 'named-by-code', 'consumer-scan-unavailable', 'link'] as const;
+export const KEPT_REASONS = ['policy-dir', 'gate-path', 'executable', 'agent-prose', 'config', 'gate-tagged', 'code', 'secret-line', 'named-by-code', 'consumer-scan-unavailable', 'gate-scan-unavailable', 'link'] as const;
 export type KeptReason = (typeof KEPT_REASONS)[number];
 
 /** What the receipt records and the queue and carry compare (by `digest`, never by `source`). */
@@ -218,7 +218,7 @@ function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: Read
  * nothing); `head-only` when only the head does (a notice, never applied); `refused` when the base policy cannot be read or
  * does not validate, or git cannot list the matches; `active` otherwise. Named-by-code keeps a file only when a kept code
  * file names its full repository path (never its basename: receipt trees reuse result.json thousands of times); a git grep
- * failure keeps every candidate (consumer-scan-unavailable).
+ * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable).
  */
 export function reviewExclude(i: ExcludeInput): Exclusion {
   const load = loadPolicyAt(i.root, i.baseSha, i.ref);
@@ -238,7 +238,8 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
   const named = grepFixed(i, [...candidates].filter(p => !p.includes('\n')), candidates, [i.mergeBase]);
   for (const p of candidates) {
-    if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
+    if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
+    else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
     else if (named.has(p)) reasons.set(p, 'named-by-code');
   }
   const applied: string[] = [];
