@@ -231,4 +231,9 @@ describe('touch input', () => {
     expect(await run('touch')).toContain('none');
     expect(await page().evaluate(() => (window as any).__log.at(-1).type)).toBe('touchcancel');
   });
+
+  test('touch cancel with no finger held is a no-op, not a protocol error', async () => {
+    await freshTouchTab();
+    expect(await run('touch', ['cancel'])).toContain('nothing to cancel');
+  });
 });

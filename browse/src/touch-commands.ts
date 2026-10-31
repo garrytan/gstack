@@ -150,6 +150,7 @@ async function touch(session: TabSession, args: string[]): Promise<string> {
   const [sub, rawFinger, rawX, rawY] = args;
   if (!sub) return listFingers(held);
   if (sub === 'cancel') {
+    if (held.size === 0) return 'No fingers held; nothing to cancel';
     const cdp = await tabCdpSession(session.getPage());
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
     held.clear();
