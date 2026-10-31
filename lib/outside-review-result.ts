@@ -195,20 +195,25 @@ function plainReview(text: string): string {
  * Code quotes text, so a severity inside a fence or an inline code span is not
  * a label. An inline span holding only a severity token in label position
  * (`- \`P1\`: x`, `Severity: \`High\``, a table cell) is formatting and stays.
+ * A fence that never closes is not code: the reply after its opening line is read
+ * (GST-436), so an unclosed fence cannot hide a later `[P1]` or `Verdict: not ready`.
  */
 const CODE_LABEL_BEFORE = /^[\t ]*(?:>[\t ]*)?(?:#{1,6}[\t ]+|[-+*][\t ]+|\(?\d{1,3}[.)][\t ]+)?(?:\*\*|__)?$|\b(?:severity|priority)[\t ]*[:=][\t ]*(?:\*\*|__)?$|\|[\t ]*(?:\*\*)?$/i;
 function withoutCode(text: string): string {
-  let fence: string | undefined;
-  return text.split(/\r?\n/).map(line => {
+  const lines = text.split(/\r?\n/);
+  let fence: string | undefined, opened = -1;
+  const out = lines.map((line, i) => {
     const marker = /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
       if (marker && marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
       return '';
     }
-    if (marker) { fence = marker; return ''; }
+    if (marker) { fence = marker; opened = i; return ''; }
     return line.replace(/`([^`]+)`/g, (span, inner: string, at: number) =>
       inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
-  }).join('\n');
+  });
+  if (!fence) return out.join('\n');
+  return [...out.slice(0, opened + 1), withoutCode(lines.slice(opened + 1).join('\n'))].join('\n');
 }
 
 /**
