@@ -58,6 +58,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `gate_command` | command or `null` | `null` | The repo's full pre-merge gate. `gstack-ship-queue gate-ahead` and `ready` print it for the caller to run (in the background or in CI); gstack never executes it. Needs `min_gstack_version`. |
 | `full_e2e` | `true` \| `false` | `false` | `true`: every merge needs a passing full-gate result bound to a tree equal to the merging one modulo stamps; `gstack-ship-queue ready`, `stamp` and `verify` refuse without one (`QUEUE_GATE_MISSING`): a gate-ahead record, or the lane's `--gate-exit 0 --gate-log <file>` from its run on the gated head. Needs `min_gstack_version`. |
 | `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, files blocking findings in unchanged code as issues, and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of filing it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
+| `review_exclude_paths` | git glob pathspecs | `[]` | Content files (data, docs, binary, `.log`) `/ship`'s reviewers leave out; read from the base only, with code, gate, config, executable and named-by-code files kept. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
@@ -1093,6 +1094,127 @@ words, not this PR's numbers, so it is skipped: "one Step 11 pass" in that table
 is not a `pass` claim. Text you write under the heading after that block, and
 a `## Approvals` example inside a code fence, are still checked. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
+
+<a id="review-exclude-paths"></a>
+## `review_exclude_paths`: what reviewers leave out
+
+Since the release that added it (`REVIEW_EXCLUDE_KEY_VERSION` in
+`lib/ship-policy.ts`). A results PR can carry thousands of receipt files that
+no reviewer needs to read. `review_exclude_paths` lists git glob pathspecs
+whose content files `/ship`'s reviewers leave out:
+
+```json
+{ "review_exclude_paths": ["receipts/**"], "min_gstack_version": "1.92.0.0" }
+```
+
+**Read from the base only.** `gstack-review-plan` reads the policy committed on
+the base commit it already resolved (`origin/<base>`, or `<base>`), never
+the branch's copy, so a branch cannot exclude its own files. A branch that adds
+the key gets `REVIEW_EXCLUDE: none (head sets review_exclude_paths; it applies
+after it lands on <base>)` and a normal review. A base policy that does not
+validate stops the plan (`POLICY_INVALID`), and a base git cannot read stops it
+(`POLICY_SOURCE_UNAVAILABLE`); neither turns exclusion off quietly.
+
+**Git's glob dialect.** Each pattern is a `:(top,glob)` pathspec: root-anchored
+and case-sensitive. The matched set comes from git itself (`git diff --raw -z`,
+plus `git ls-files --others -z` for untracked files), so the plan, the receipt
+and what readers see are one set.
+
+| Pattern | gitignore would match | `review_exclude_paths` matches |
+|---|---|---|
+| `receipts/**` | everything under `receipts/` at any depth | everything under the top-level `receipts/` |
+| `receipts/*` | files directly in `receipts/` | files directly in `receipts/` only (`*` never crosses `/`) |
+| `data/` | any `data/` directory at any depth | nothing: write `data/**` (and `**/data/**` for any depth) |
+
+A pattern that matches no changed file is listed as `unmatched=` on the plan line.
+
+**What is excluded, and what is kept.** A matched file is excluded only when it
+is content: a data file (JSON, JSONL, CSV, TSV, images), a docs-class file, a
+`.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers
+would only see `Binary files differ`). A binary file is content even under
+`config/` or in a skill directory; only the first four reasons below keep it.
+Everything else stays in every reader's diff with one reason code:
+
+| Reason | Kept because |
+|---|---|
+| `policy-dir` | it is under `.gstack/` or `.github/` |
+| `gate-path` | it is a gate path (lib/review-depth.ts) |
+| `executable` | its old or new mode is executable |
+| `agent-prose` | it is a skill, section, resolver, template or rule file |
+| `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles) |
+| `gate-tagged` | the gate scan tagged one of its hunks |
+| `code` | it is code or a test, not content |
+| `secret-line` | an added line reads a credential (the targeted pass's secret rule) |
+| `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
+| `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept |
+
+Only a full path counts as a name. A basename such as `result.json` would keep
+every receipt in the tree, and a directory reference such as `receipts/` (the
+harness that writes the receipts names it) keeps nothing: the plan prints an
+informational `REVIEW_EXCLUDE_REFERENCE:` line naming the code that reads the
+folder. A data file never keeps another file: a results manifest such as
+`docs/receipts-manifest.json` lists every receipt by full path, and it is
+content, not a program that reads them. The name scan is one uncapped `git grep -F -f` over the candidates'
+paths, not the collector's capped consumer scan.
+
+**What readers run.** Every reader's `DIFF_CMD:` gains one
+`':(top,exclude,glob)<pattern>'` item per applied pattern, and the fixture
+command the security specialist, the Red Team and the native adversarial pass
+read through gets the same items. A git exclude beats any positive pathspec, so
+kept files under an applied pattern come back through a second command,
+`DIFF_KEEP: <reader> git diff <diff-base> -- ':(top,literal)<path>' …`, which every
+brief names. That command is bounded by its argument bytes (24,000 across all
+patterns, under Windows' command-line limit): a pattern whose kept files would
+pass the bound is not applied, and the plan line says so as
+`skipped=<pattern>:kept=<n>:bytes=<b>`. Every brief also gets one line:
+`Excluded by base policy <ref>@<sha12> (selection <digest>): <n> files, <bytes> bytes
+on this branch matching <patterns>. They are not in your diff; do not report on
+their absence.`
+
+**Depth, numbers and the targeted pass.** Excluded paths count as docs for the
+review depth everywhere it is computed (`gstack-review-plan`, the receipt
+writer, carry and the queue), and their lines never trigger the numeric-claim
+scan or the targeted money, gate, auth and secret classes. Defects inside a
+correctly excluded data file are coverage the owner gives up by policy.
+
+**The plan line.** `REVIEW_EXCLUDE: patterns=<applied>/<declared> excluded=<files>
+bytes=<b> kept=<k> content=<kind>:<n>,… source=<ref>@<sha12> digest=<sha256>`
+(`content=` counts the excluded files by kind: `binary`, `data`, `docs`, `log`), then up to 20
+`REVIEW_EXCLUDE_KEPT: <reason> <path>` lines (`--json` lists every one). A
+repository with no key anywhere prints none of these lines, and its plan, briefs
+and diff commands are byte for byte what they were.
+
+**The receipt, carry and the queue.** Each rendered brief records the digest it
+names in the review ledger, and `gstack-review-dispatch verify` prints
+`REVIEW_EXCLUDE_RECORD: digest=<d>` when every reader's newest brief names the
+same one (a mixed set makes it `VERIFY: dirty`). `gstack-ship-receipt write
+--review-exclude <d>`, with that digest, records `review_exclude` (source, patterns, counts, the gate-tagged kept
+paths and three hashes). The `digest` hashes the declared patterns and the
+excluded and kept lists; `source` is provenance only. Write, carry and the queue
+each recompute the digest at the current base and compare it, so a base merge
+or a moved base that leaves the patterns and the lists unchanged still carries
+and binds. A different digest means the reviewers read another selection:
+write refuses with `RECEIPT_INVALID field=review_exclude`, carry with
+`RECEIPT_CARRY_REFUSED review_exclude changed`, and the queue with
+`RECEIPT_INVALID field=review_exclude expected=<digest> recorded=<digest>`. The
+fix is to rerun the review, never a receipt write alone.
+
+**Adopting it.** (1) Open a PR on the base that adds the patterns and
+`min_gstack_version` at least `REVIEW_EXCLUDE_KEY_VERSION`, and ship it like any
+policy change. (2) Once it merges, bring the base into the results branch (a
+crew needs its coordinator's word for that merge) and rerun `/ship`; the plan
+prints `REVIEW_EXCLUDE:`. (3) Check the kept list: a file you expected to be
+excluded names its reason.
+
+<a id="review-diff-ceiling"></a>
+**The review ceiling.** Independently of the key, `gstack-review-dispatch` reads
+each reviewer's diff once before it writes a manifest or a brief (`pass`, `stage`
+and `render`). A diff over 2,000,000 bytes (about 500K tokens) stops with
+[`REVIEW_DIFF_TOO_LARGE`](troubleshooting.md#review-diff-too-large), exit 3, and a
+fix chosen by where the policy stands; a `git diff` that fails or runs past
+120 seconds stops with
+[`REVIEW_DIFF_UNREADABLE`](troubleshooting.md#review-diff-unreadable), exit 1.
+There is no override flag: the recovery is a policy PR on the base, or a split.
 
 <a id="review-scope"></a>
 ## `review_scope`: how the review loop converges
