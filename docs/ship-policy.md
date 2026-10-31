@@ -878,7 +878,9 @@ under #3526's version without it). verify prints `STAMP_VERSION:` from the head
 itself. A post-merge confirmation needs GitHub to report the PR MERGED: an open
 PR whose stamp-only diff already matches main (a release-only PR, #3530) takes
 the pre-merge path, and any other open or unreadable PR refuses
-`QUEUE_PROOF_MISSING` without freezing. Anything else is
+`QUEUE_PROOF_MISSING` without freezing, as does a verify that could not read
+the PR's current head (`--no-fetch` or a failed fetch) instead of judging the
+unstamped pin. Anything else is
 `QUEUE_TRAIN_TREE_MISMATCH` (or `QUEUE_TRAIN_MOVED`). When nothing of the train
 has merged, that is a plain refusal, and a new train is built on current main. When
 earlier slots already merged, main holds a prefix no gate covered on its own,
