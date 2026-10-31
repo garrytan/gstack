@@ -29,6 +29,7 @@ import type { ModuleFilter } from './resolvers/types';
 import { insertRuntimePreludes } from './resolvers/runtime-root';
 import { generateSharedPreambleFile, hoistsPreamble, SHARED_PREAMBLE_FILE } from './resolvers/preamble-hoist';
 import { extractVoiceTriggers } from './resolvers/voice-triggers';
+import { frontmatterList, withTriggerLead } from '../lib/skill-triggers';
 import { ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
 import type { HostConfig } from './host-config';
 
@@ -510,7 +511,8 @@ function transformFrontmatter(content: string, host: Host): string {
   if (fmEnd === -1) return content;
   const frontmatter = content.slice(fmStart + 4, fmEnd);
   const body = content.slice(fmEnd + 4);
-  const { name, description } = extractNameAndDescription(content);
+  const { name, description: fullDescription } = extractNameAndDescription(content);
+  const description = fm.descriptionLead ? withTriggerLead(fullDescription, frontmatterList(content, 'triggers'), fm.descriptionLead) : fullDescription;
 
   // Description limit enforcement
   if (fm.descriptionLimit) {
@@ -899,6 +901,15 @@ export function renderAutoplanDriver(options: RenderOptions): string {
   return GENERATED_HEADER.replace('{{SOURCE}}', `${AUTOPLAN_DRIVER_RELPATH}.tmpl`) + resolvePlaceholders(tmpl, ctx, getHostConfig('claude'), `${AUTOPLAN_DRIVER_RELPATH}.tmpl`, options);
 }
 
+/** ship/DRIVER.md (GSTA-167 PR 5): the compact /ship entry for a parent agent, rendered the same way. */
+export const SHIP_DRIVER_RELPATH = 'ship/DRIVER.md';
+export function renderShipDriver(options: RenderOptions): string {
+  const tmplPath = path.join(ROOT, `${SHIP_DRIVER_RELPATH}.tmpl`);
+  const tmpl = fs.readFileSync(tmplPath, 'utf-8');
+  const ctx = buildContext(tmpl, tmplPath, 'claude', options, 'ship');
+  return GENERATED_HEADER.replace('{{SOURCE}}', `${SHIP_DRIVER_RELPATH}.tmpl`) + resolvePlaceholders(tmpl, ctx, getHostConfig('claude'), `${SHIP_DRIVER_RELPATH}.tmpl`, options);
+}
+
 /**
  * Generate one on-demand section file (`<skill>/sections/<name>.md.tmpl` →
  * `<name>.md`). Sections are BODY FRAGMENTS — no frontmatter, no catalog trim,
@@ -1089,6 +1100,9 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
       }
       if (host === 'claude' && includesSkill(hostConfig, 'autoplan') && templates.some(t => t.tmpl === 'autoplan/SKILL.md.tmpl')) {
         emit(path.join(options.outputRoot, AUTOPLAN_DRIVER_RELPATH), renderAutoplanDriver(options), 'asset', host);
+      }
+      if (host === 'claude' && includesSkill(hostConfig, 'ship') && templates.some(t => t.tmpl === 'ship/SKILL.md.tmpl')) {
+        emit(path.join(options.outputRoot, SHIP_DRIVER_RELPATH), renderShipDriver(options), 'asset', host);
       }
 
       if (host === 'openclaw') {

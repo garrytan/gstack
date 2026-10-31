@@ -42,7 +42,14 @@ export interface GateItem {
 }
 export interface GateList { schema_version: 1; run: string; gate_rev: number; items: GateItem[]; title?: string;
   /** Bumped by every `recommend`, so a `rec` relayed before it no longer matches `recHash`. */
-  rec_rev?: number }
+  rec_rev?: number;
+  /** The plan's plain-language ask, read from the reviewed plan (lib/captain-brief.ts `buildEli5`); printed first. */
+  eli5?: GateEli5;
+  /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
+  carry_check?: { attempt: string; model: string; verdict: 'passed' | 'failed' | 'unavailable'; max_severity: string; findings: number; at: string } }
+/** The captain approvals shape (docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */
+export interface GateEli5 { summary: string; before_after: string; why: string; cause: string; decisions: string; plan_file_sha256: string }
+export const ELI5_FIELDS = [['before_after', 'Before → after'], ['why', 'Why it matters'], ['cause', 'What caused this work'], ['decisions', 'Big decisions']] as const;
 
 export interface GateChoice { id: string; chosen: string; kind: 'auto' | 'approval'; how: 'recommended' | 'override' | 'auto_default'; prior?: boolean }
 export interface ParsedReply {
@@ -64,6 +71,10 @@ export function validateGateList(list: unknown): string[] {
   if (g.schema_version !== 1) problems.push('schema_version must be 1');
   if (typeof g.run !== 'string' || !g.run) problems.push('run is required');
   if (!Number.isInteger(g.gate_rev) || (g.gate_rev as number) < 1) problems.push('gate_rev must be an integer >= 1');
+  if (g.eli5 !== undefined) {
+    if (!g.eli5 || typeof g.eli5 !== 'object') problems.push('eli5 must be an object');
+    else for (const k of ['summary', 'before_after', 'why', 'cause', 'decisions', 'plan_file_sha256'] as const) if (typeof g.eli5[k] !== 'string') problems.push(`eli5.${k} must be a string`);
+  }
   if (!Array.isArray(g.items) || g.items.length === 0) return [...problems, 'items must be a non-empty array'];
   const seen = new Set<string>();
   g.items.forEach((item, i) => {
@@ -103,6 +114,8 @@ export function renderGate(list: GateList, page = 1, pageSize = PAGE_SIZE): stri
   const lines: string[] = [];
   lines.push(`GATE: run=${list.run} gate_rev=${list.gate_rev} items=${list.items.length} page=${current}/${pages}${list.title ? ` — ${list.title}` : ''}`);
   lines.push('');
+  if (list.eli5 && current === 1) lines.push(...renderEli5(list.eli5), '');
+  if (list.carry_check) lines.push(`Carry check ${list.carry_check.attempt}: ${list.carry_check.verdict} (${list.carry_check.model}; ${list.carry_check.findings} finding(s), highest ${list.carry_check.max_severity}).`, '');
   list.items.slice(start, start + pageSize).forEach((item, i) => {
     const n = start + i + 1;
     lines.push(`${n}. [${item.id}] ${item.title} (${item.kind}; recommended: ${item.recommended}${item.recommended_basis ? ` (${item.recommended_basis}${item.recommended_by ? `; set by ${item.recommended_by}` : ''})` : ''}${item.phase ? `; from ${item.phase}` : ''})`);
@@ -119,6 +132,13 @@ export function renderGate(list: GateList, page = 1, pageSize = PAGE_SIZE): stri
   const rec = parseReply('rec', list);
   lines.push(`Reply binds to gate_rev=${list.gate_rev} rec_hash=${recHash(list)}. \`rec\` resolves to: ${JSON.stringify({ gate_rev: list.gate_rev, rec_hash: recHash(list), choices: Object.fromEntries(rec.choices.map(c => [c.id, c.chosen])) })}`);
   return lines.join('\n') + '\n';
+}
+
+/** The ELI5 block: the summary, then each approvals-shape section under its title. An empty summary says so (CAPTAIN_BRIEF_INCOMPLETE). */
+export function renderEli5(e: GateEli5): string[] {
+  const lines = e.summary.trim() ? ['ELI5', e.summary.trim()] : [];
+  for (const [key, title] of ELI5_FIELDS) if (e[key].trim()) lines.push(...(lines.length ? [''] : []), `${title}:`, e[key].trim());
+  return lines;
 }
 
 function exampleTokens(list: GateList): string {

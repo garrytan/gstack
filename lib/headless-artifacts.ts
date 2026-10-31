@@ -41,6 +41,8 @@ export interface DecisionRow {
   recommended_basis?: string; changes?: string; origin?: string; carried_from?: string; chosen_text?: string;
   /** An agent-relayed answer: the owner's verbatim words, and whether they parsed under the gate grammar. */
   owner_reply?: string; owner_reply_parsed?: boolean; recommended_by?: string;
+  /** A whole-gate carry (lib/autoplan-carry.ts): the earlier p1 decision whose owner words this answer reuses, its gate_rev, why, who relayed them, items taken under "do it", and the delta check attempt. */
+  carried_gate_from?: string; carried_gate_rev?: number; carry_reason?: string; carried_answered_by?: string; carried_under?: string; carry_check?: string;
 }
 export interface TaskRow {
   schema_version: 2; run: string; id: string; title: string; status: TaskStatus; depends_on: string[];
@@ -109,6 +111,8 @@ export interface ShipReceipt {
   review_depth?: { depth: 'light' | 'standard' | 'full'; class: 'docs' | 'tests' | 'code' | 'gate'; runtime_lines: number; rules: string; base: string; registry: string | null; gate_scan: { tagged: number | null; head: string }; reasons: string[] };
   /** The owner's acceptance of a stop after a fix-check edit under frozen scope (#3559); the PR body repeats it word for word. */
   review_loop_exception?: { accepted_by: string; date: string; via: string; reason: string; fix_check: { head: string; findings: number; files?: string[] } };
+  /** The targeted pass on money, gate, auth and secret code (lib/review-targeted.ts), bound to the receipt's product_patch_id; `done` only with its output collected. */
+  review_targeted?: { classes: string[]; rules: string; brief_sha: string; product_patch_id: string; status: 'done' | 'failed' | 'not-run'; findings: number; raised_by: string };
 }
 
 export const RESULT_STATUSES: readonly ResultStatus[] = ['complete', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused'];
@@ -170,6 +174,7 @@ export const ARTIFACT_SCHEMAS = {
       default_if_unanswered: nullableStr, gate_rev: { type: 'integer', minimum: 1 }, phase: str, chosen: nullableStr,
       answered_at: str, reply: str, source: str, cost: str,
       recommended_basis: str, changes: str, origin: str, carried_from: str, chosen_text: str,
+      carried_gate_from: str, carried_gate_rev: { type: 'integer', minimum: 1 }, carry_reason: str, carried_answered_by: str, carried_under: str, carry_check: str,
     },
   },
   tasks: {
@@ -231,6 +236,7 @@ export const ARTIFACT_SCHEMAS = {
       carry: { type: 'object', required: ['from', 'reason', 'product_patch_id'], properties: { from: str, reason: str, product_patch_id: str, changed_paths: strList, merge_commits: { type: 'integer', minimum: 0 }, range_diff: str, covers: strList, reruns: strList, trees: strList, ancestry: { enum: ['linear', 'rewritten'] } } },
       head_tree: str, product_patch_id: str, gstack_version: str,
       review_depth: { type: 'object', required: ['depth', 'class', 'runtime_lines', 'rules', 'base', 'gate_scan'], properties: { depth: { enum: ['light', 'standard', 'full'] }, class: { enum: ['docs', 'tests', 'code', 'gate'] }, runtime_lines: { type: 'integer', minimum: 0 }, rules: str, base: str, registry: nullableStr, gate_scan: { type: 'object', required: ['tagged', 'head'], properties: { tagged: { type: ['integer', 'null'], minimum: 0 }, head: str } }, reasons: strList } },
+      review_targeted: { type: 'object', required: ['classes', 'rules', 'brief_sha', 'product_patch_id', 'status', 'findings', 'raised_by'], properties: { classes: { type: 'array', items: { enum: ['money', 'gate', 'auth', 'secret'] } }, rules: str, brief_sha: str, product_patch_id: str, status: { enum: ['done', 'failed', 'not-run'] }, findings: { type: 'integer', minimum: 0 }, raised_by: str } },
       review_loop_exception: { type: 'object', required: ['accepted_by', 'date', 'via', 'reason', 'fix_check'], properties: { accepted_by: str, date: str, via: str, reason: str, fix_check: { type: 'object', required: ['head', 'findings'], properties: { head: str, findings: { type: 'integer', minimum: 0 }, files: strList } } } },
       issues: { type: 'object', properties: { fixes: { type: 'array', items: { type: 'integer' } }, refs: { type: 'array', items: { type: 'integer' } }, flakes: { type: 'array', items: { type: 'object', required: ['issue', 'run'], properties: { issue: { type: 'integer' }, run: str } } }, related: { type: 'array', items: { type: 'object', required: ['pr', 'author', 'closes'], properties: { pr: { type: 'integer' }, repo: str, author: str, closes: { type: 'array', items: { type: 'integer' } }, supersedes: { type: 'boolean' }, credit: { type: 'boolean' } } } } } },
     },

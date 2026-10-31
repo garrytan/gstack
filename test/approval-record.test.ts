@@ -196,3 +196,43 @@ describe('Capy mirror', () => {
     expect(read.state).toBe('present');
   });
 });
+
+describe('import --autoplan --stack', () => {
+  function stackRepo(): string {
+    const d = repo('feature/one');
+    const g = (args: string[]) => expect(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: d, timeout: 30_000 }).status).toBe(0);
+    g(['commit', '-q', '--allow-empty', '-m', 'seed']);
+    g(['branch', 'feature/two']);
+    return d;
+  }
+
+  test('writes the same rows to every branch, each in its own record; a retry adds nothing', () => {
+    const run = tmp('appr-run-');
+    autoplanRun(run, [{ by: 'agent:GSTA-36', words: 'Garry: Do it', at: '2026-10-29T03:40:00.000Z', p1: 'a' }]);
+    const cwd = stackRepo(); const state = tmp('appr-state-');
+    const env = { GSTACK_STATE_ROOT: state };
+    const r = bin(['import', '--autoplan', run, '--by', 'Garry', '--stack', 'feature/one,feature/two'], { cwd, env });
+    expect(r.status, r.err).toBe(0);
+    expect(r.out).toMatch(/^APPROVAL_IMPORTED: branch=feature\/one n=1 skipped=0 /m);
+    expect(r.out).toMatch(/^APPROVAL_IMPORTED: branch=feature\/two n=1 skipped=0 /m);
+    expect(r.out).toMatch(/^APPROVAL_IMPORTED_STACK: branches=2 added=2$/m);
+    for (const b of ['feature/one', 'feature/two']) expect(bin(['render', '--branch', b], { cwd, env }).out).toContain('Garry: Do it');
+    expect(bin(['import', '--autoplan', run, '--by', 'Garry', '--stack', 'feature/one,feature/two'], { cwd, env }).out).toMatch(/^APPROVAL_IMPORTED_STACK: branches=2 added=0$/m);
+  });
+
+  test('one unknown branch writes nothing to any branch', () => {
+    const run = tmp('appr-run-');
+    autoplanRun(run, [{ by: 'agent:GSTA-36', words: 'rec', at: '2026-10-29T03:40:00.000Z', p1: 'a' }]);
+    const cwd = stackRepo(); const state = tmp('appr-state-');
+    const r = bin(['import', '--autoplan', run, '--stack', 'feature/one,feature/nope'], { cwd, env: { GSTACK_STATE_ROOT: state } });
+    expect(r.status).toBe(3);
+    expect(r.err).toContain('feature/nope');
+    expect(r.err).toContain('(APPROVAL_RECORD_NO_BRANCH)');
+    expect(bin(['render', '--branch', 'feature/one'], { cwd, env: { GSTACK_STATE_ROOT: state } }).out).not.toContain('Approve the plan');
+  });
+
+  test('--stack goes with import --autoplan and without --branch', () => {
+    const cwd = stackRepo();
+    expect(bin(['import', '--autoplan', tmp('appr-run-'), '--branch', 'feature/one', '--stack', 'feature/one'], { cwd }).status).toBe(2);
+  });
+});

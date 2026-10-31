@@ -44,7 +44,7 @@ import {
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
-import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, receiptDepthAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
+import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptDepthAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
@@ -89,6 +89,9 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   "Review-loop exception: …" line verbatim; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
   review_depth: the depth HEAD needs, recomputed from the committed range (--head must be HEAD; a dirty checkout or an
   unreadable input records full).
+  --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by}: gstack-review-dispatch verify
+  --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id. Without it the receipt has no
+  review_targeted, which the queue reports as legacy.
   --approval-run <autoplan run dir> (repeatable; resolves plan-sha citations) (W2: a class declared in origin/<base>'s
   .gstack/approval-classes.json with hits needs a citation that resolves and binds to its effects: APPROVAL_CITATION_MISSING)
   --out <file> --body <pr-body.md>. Defaults: head=HEAD, base=origin/HEAD's branch, version=the
@@ -207,6 +210,12 @@ function cmdWrite(rest: string[], json: boolean): number {
     if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
   }
   const reviewDepth = receiptDepthAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), headSha ?? head);
+  const product = reviewedProduct(repoRoot, base, head, pregateFile);
+  let targeted: ReturnType<typeof parseReviewTargeted> | undefined;
+  if (flag(rest, '--review-targeted') !== undefined) {
+    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none'); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
+  }
+  if (targeted && !targeted.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targeted.message}; nothing written`) + '\n'); return EXIT.fail; }
   const approval = approvalForReceipt({ repoRoot, base, head, citationText: [bodyText, ...flags(rest, '--approval')].join('\n'), runDirs: flags(rest, '--approval-run') });
   if (approval.kind === 'invalid') {
     for (const line of approval.lines) process.stderr.write(resultLine('gstack-ship-receipt write', 'APPROVAL_CLASSES_INVALID', line) + '\n');
@@ -236,8 +245,8 @@ function cmdWrite(rest: string[], json: boolean): number {
       session_kind: sessionKind, artifacts_consumed: flag(rest, '--artifacts-consumed'), run: flag(rest, '--run'), thread: flag(rest, '--thread'),
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
-      review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...reviewedProduct(repoRoot, base, head, pregateFile),
-      gstack_version: runningGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined,
+      review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...product,
+      gstack_version: runningGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
     };
   } catch (e: any) { process.stderr.write(`gstack-ship-receipt write: ${e.message}\n`); return EXIT.usage; }
   if (input.pr !== undefined && !Number.isInteger(input.pr)) { process.stderr.write('gstack-ship-receipt write: --pr must be an integer\n'); return EXIT.usage; }
@@ -428,12 +437,13 @@ function verifiedOutputs(repoRoot: string, base: string, pregateFile: string | u
   return regen.proven.filter(p => !/[*?[\]\\]/.test(p) && matchesAny(owned, p));
 }
 
-interface ProductRules { extra: { metadata: string[]; outputs: readonly string[] }; metadata: string[]; templates: readonly string[] }
+interface ProductRules { extra: { metadata: string[]; outputs: readonly string[]; fragments?: string }; metadata: string[]; templates: readonly string[] }
 function productRules(repoRoot: string, base: string, outputs: readonly string[]): ProductRules {
   const load = loadPolicyFromBase(repoRoot, base);
   const policy: ShipPolicy | null = isUnavailable(load) ? null : load.policy;
-  const extra = { metadata: [...(policy?.stamp_files ?? []), ...(policy?.stamp_paths ?? []), ...(policy?.release_outputs ?? []), ...(policy?.changelog ? [policy.changelog] : [])], outputs };
-  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...outputs], templates: policy?.stamp_patterns ?? [] };
+  const fragments = policy?.changelog_fragments?.dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '');
+  const extra = { metadata: [...(policy?.stamp_files ?? []), ...(policy?.stamp_paths ?? []), ...(policy?.release_outputs ?? []), ...(policy?.changelog ? [policy.changelog] : [])], outputs, fragments };
+  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...(fragments ? [`${fragments}/*.md`] : []), ...outputs], templates: policy?.stamp_patterns ?? [] };
 }
 
 /**
@@ -547,6 +557,8 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (!headTree) return refused('RECEIPT_CARRY_REFUSED', `git could not read the tree of HEAD ${head.slice(0, 12)}`);
   const headPatch = productPatchAgainstBase(repoRoot, rules, baseRef, head);
   if (typeof headPatch !== 'string') return refused('RECEIPT_CARRY_REFUSED', `git could not compute HEAD's product patch-id: ${headPatch.error}`);
+  const reviewedBase = receipt.base.replace(/^origin\//, '');
+  const retarget = reviewedBase !== base.replace(/^origin\//, '');
   let plan: ReturnType<typeof planCarry>;
   if (!ancestor) {
     // Rewritten history: the receipt follows only onto a tree it already covers, with the product diff it recorded.
@@ -565,11 +577,25 @@ function cmdCarry(rest: string[], json: boolean): number {
     const testFrom = asId(patchId(repoRoot, fromBase, from, spec.tests));
     const testHead = asId(patchId(repoRoot, headBase, head, spec.tests));
     for (const r of [productFrom, productHead]) if (typeof r !== 'string') return refused('RECEIPT_CARRY_REFUSED', `git could not compute the product patch-id at one of the heads: ${r.error}`);
-    // planCarry names at most CARRY_NAMED_PATHS differing paths, so the per-path comparison (two patch-ids each) stops there,
-    // and it walks only the paths the branch itself touched against the base at either head: a base merge brings in every
-    // path the base changed, none of which can differ between the two base diffs.
+    // A stacked child whose parent landed on the base (#3570): the receipt reviewed the child's own range against the
+    // parent branch, and the PR now targets the base. That reviewed range (the recorded product patch-id, else the one
+    // against origin/<receipt base> when it still resolves) must be HEAD's whole product diff against the base, computed
+    // the way write records it (headPatch): the parent fully landed and the child is unchanged. Anything else fails closed.
+    let reviewed = productFrom;
+    if (retarget) {
+      const parentRef = `origin/${reviewedBase}`;
+      const recorded = receipt.product_patch_id !== undefined ? (receipt.product_patch_id === 'none' ? '' : receipt.product_patch_id)
+        : git(['rev-parse', '--verify', '--quiet', `${parentRef}^{commit}`], repoRoot) ? productPatchAgainstBase(repoRoot, rules, parentRef, from) : { error: `the receipt records no product patch-id and ${parentRef} no longer resolves` };
+      if (typeof recorded !== 'string') return refused('RECEIPT_CARRY_REFUSED', `the receipt was reviewed against ${reviewedBase}, not ${base}, and its reviewed product diff is unavailable: ${recorded.error}; run /ship on ${head.slice(0, 12)}`);
+      reviewed = recorded;
+    }
+    const current = retarget ? headPatch : productHead;
     const changedProduct: string[] = [];
-    if (productFrom !== productHead) {
+    if (retarget && reviewed !== current) changedProduct.push(`HEAD's product diff against ${base} is not the one reviewed against ${reviewedBase} (the parent has not fully landed on ${base}, or the branch changed since)`);
+    else if (productFrom !== productHead && !retarget) {
+      // planCarry names at most CARRY_NAMED_PATHS differing paths, so the per-path comparison (two patch-ids each) stops there,
+      // and it walks only the paths the branch itself touched against the base at either head: a base merge brings in every
+      // path the base changed, none of which can differ between the two base diffs.
       const touched = new Set([...(git(['diff', '--name-only', fromBase, from], repoRoot) ?? '').split('\n'), ...(git(['diff', '--name-only', headBase, head], repoRoot) ?? '').split('\n')].filter(Boolean));
       for (const p of [...touched].sort()) {
         if (changedProduct.length >= CARRY_NAMED_PATHS) break;
@@ -583,7 +609,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
     const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${fromBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
     const rangeDiff = rangeRaw.status === 0 ? (rangeRaw.stdout.trim().split('\n').slice(0, 20).join('\n') || '(empty: identical ranges)') : `unavailable: ${(rangeRaw.stderr ?? '').trim().split('\n')[0] || (rangeRaw.signal ? `range-diff killed by ${rangeRaw.signal} after 15 s` : 'range-diff failed')}`;
-    plan = planCarry({ from, head, changed, productPatchId: { from: productFrom, head: productHead }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff });
+    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}) });
   }
   if (!plan.ok) return refused(plan.code, plan.message);
   // Eligibility is not publication: a receipt that recorded a pregate is rebound only with a pregate current for HEAD,
@@ -611,7 +637,9 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (depthBelow(receipt.review_depth.depth, now.depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} needs ${now.depth} review depth (${now.reasons.join(', ')}), above the receipt's ${receipt.review_depth.depth}; run /ship on ${head.slice(0, 12)}`);
     depthField = { review_depth: { ...now, depth: deeper(receipt.review_depth.depth, now.depth) } };
   }
-  const carried = carryReceipt({ ...receipt, ...pregateField, ...depthField }, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
+  // The rebound product_patch_id is HEAD's diff against the carry's base, so a retargeted receipt names that base from now on.
+  const rebound = { ...receipt, ...(retarget ? { base: base.replace(/^origin\//, '') } : {}), ...(pregateField ?? {}), ...depthField };
+  const carried = carryReceipt(rebound, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
   const errors = validateReceipt(carried);
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
   const newBody = placeReceiptFirst(body, carried);

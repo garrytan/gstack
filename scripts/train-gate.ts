@@ -49,7 +49,7 @@ export const MAX_BISECT_CASES = 40;
 /** A full gate's recorded cost (MEASUREMENT.md: $90.93 to $94.70; lib/gate-cost.ts uses the same scale). */
 export const FULL_GATE_USD = 93.14;
 /** T1's prefix commits: `train T<i>: merge #<pr> at <sha12>` (lib/ship-queue-train.ts buildChain). */
-const PREFIX_SUBJECT = /^train T(\d+): merge #(\d+) at [0-9a-f]{12}$/;
+const PREFIX_SUBJECT = /^train (?:T(\d+): merge #(\d+) at [0-9a-f]{12}|S(\d+): merge #(\d+) at [0-9a-f]{12} v[0-9.]+)$/;
 
 export type Git = (args: string[]) => { ok: boolean; out: string };
 export const gitIn = (cwd: string): Git => (args) => {
@@ -185,9 +185,10 @@ export function stampFreeTree(git: Git, commit: string, repoRoot: string, policy
   return createHash('sha256').update(lines.sort().join('\n')).digest('hex');
 }
 
-export interface TrainPrefixTree { index: number; commit: string; tree: string; stamp_free_tree: string }
+/** `exact`: a stamped prefix S_i (changelog_fragments trains), which covers only its exact tree. */
+export interface TrainPrefixTree { index: number; commit: string; tree: string; stamp_free_tree: string; exact?: true }
 
-/** T1..Tk from the train head, walking first parents over T1's prefix commits. */
+/** T1..Tk (or stamped S1..Sk, never mixed) from the train head, walking first parents over the prefix commits. */
 export function trainPrefixes(git: Git, head: string, repoRoot: string, policy: ShipPolicy): TrainPrefixTree[] | { error: string } {
   const log = git(['log', '--first-parent', `--max-count=${MAX_PREFIXES}`, '--format=%H%x00%P%x00%s', head]);
   if (!log.ok) return { error: `cannot walk ${head.slice(0, 12)}'s first parents (${log.out.split('\n')[0]})` };
@@ -196,11 +197,13 @@ export function trainPrefixes(git: Git, head: string, repoRoot: string, policy: 
     const [commit, parents, subject] = line.split('\0') as [string, string, string];
     const m = PREFIX_SUBJECT.exec(subject ?? '');
     if (!m || parents.split(' ').length !== 2) break;
-    const index = Number(m[1]);
+    const index = Number(m[1] ?? m[3]);
+    const exact = m[3] !== undefined;
+    if (found.length && exact !== !!found[0]!.exact) return { error: `${commit.slice(0, 12)} mixes stamped and plain prefixes` };
     if (found.length && index !== found.at(-1)!.index - 1) return { error: `prefix T${index} follows T${found.at(-1)!.index} at ${commit.slice(0, 12)}` };
     const digest = stampFreeTree(git, commit, repoRoot, policy);
     if (typeof digest !== 'string') return digest;
-    found.push({ index, commit, tree: git(['rev-parse', `${commit}^{tree}`]).out, stamp_free_tree: digest });
+    found.push({ index, commit, tree: git(['rev-parse', `${commit}^{tree}`]).out, stamp_free_tree: digest, ...(exact ? { exact: true as const } : {}) });
   }
   if (!found.length || found.at(-1)!.index !== 1) return { error: `${head.slice(0, 12)} is not a train head (no T1..Tk prefix chain)` };
   return found.reverse();
