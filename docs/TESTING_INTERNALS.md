@@ -199,7 +199,7 @@ one duration-packed `--ci-plan`, 20 ordinary `--ci-run` shards plus a separate
 exclusive-fixture shard, and a `--ci-verify` aggregate. CI shards still run on
 independent machines without ordering unrelated jobs. Two workflow-level
 constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
-(`ubicloud-standard-2`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
+(`ubicloud-standard-4`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
 resolves into the shards' runner and shard count. A `workflow_dispatch` run may
 override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`) and
 `free_shards` (1–40) for runner-sizing experiments only; its job summary says
@@ -1540,7 +1540,7 @@ refresh to a maintainer.
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
   `windows-free-tests.yml`'s `record_durations` path. The recorder stays on
   `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
-  (`ubicloud-standard-2`); both are Ubicloud standard runners. When either recording adds
+  (`ubicloud-standard-4`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
   dispatches Free Tests, Windows Free Tests and Quality gate on it. Those
