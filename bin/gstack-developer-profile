@@ -44,7 +44,7 @@ GSTACK_HOME="$_gstack_sr_root"
 # A relative state root is anchored to the starting directory once, here:
 # do_derive changes directory, and the profile lock must name the same path
 # when it is taken and when it is released.
-case "$GSTACK_HOME" in /*) ;; *) GSTACK_HOME="$PWD/$GSTACK_HOME" ;; esac
+case "$GSTACK_HOME" in /*|[A-Za-z]:[\\/]*) ;; *) GSTACK_HOME="$PWD/$GSTACK_HOME" ;; esac
 # Windows git-bash: GSTACK_HOME resolves to an MSYS path (/c/Users/...), which
 # Bun on Windows cannot open as a filesystem path (bites --derive). Normalize
 # once, here, before PROFILE_FILE/LEGACY_FILE are derived from it below —
@@ -72,6 +72,8 @@ shift || true
 # cannot get the lock within the give-up window writes nothing and exits 5.
 # Same shape as bin/gstack-settings-hook's mutation lock, with its accepted
 # tradeoff: two waiters that take over the same stale lock at once can race.
+# Writers outside this binary (gstack-distill-apply, /plan-tune's declared
+# edits) do not take the lock yet.
 # -----------------------------------------------------------------------
 LOCK_DIR="$PROFILE_FILE.lock"
 LOCK_TOKEN=""
