@@ -901,8 +901,15 @@ quota_preflight() {
   remaining=$QUOTA_WAIT
   while :; do
     if ! used=$(cmd_usage 2>/dev/null | awk '$1=="total" {print $3}') || ! [[ "$used" =~ ^[0-9]+$ ]]; then
-      log "quota preflight: could not read the project's vCPU usage; the API's own answer decides"
-      return 0
+      if [ "$remaining" -le 0 ]; then
+        log "quota preflight: could not read the project's vCPU usage; the API's own answer decides"
+        return 0
+      fi
+      log "quota: could not read the project's vCPU usage; retrying, up to ${remaining}s more"
+      step=$(( remaining < 30 ? remaining : 30 ))
+      sleep "$step"
+      remaining=$(( remaining - step ))
+      continue
     fi
     [ $(( used + need )) -gt "$max" ] || return 0
     if [ "$remaining" -le 0 ]; then

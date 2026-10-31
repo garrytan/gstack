@@ -777,10 +777,16 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       const up = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '16' });
       expect(up.stderr.toString()).toContain("quota preflight: could not read the project's vCPU usage; the API's own answer decides");
       expect(f.calls()).toContain('"create"');
+      // With a wait budget, an unreadable usage is retried until the budget is spent, as a full project is.
+      const waited = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '16', UBI_QUOTA_WAIT: '2' });
+      expect(waited.stderr.toString()).toContain("quota: could not read the project's vCPU usage; retrying, up to 2s more");
+      expect(waited.stderr.toString()).toContain("quota preflight: could not read the project's vCPU usage; the API's own answer decides");
+      const waitedName = waited.stdout.toString().trim();
       rmSync(`${listed}.list-fails`);
-      const name = up.stdout.toString().trim();
-      expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3$/);
-      expect(run(f, ['down', name]).exitCode).toBe(0);
+      for (const name of [up.stdout.toString().trim(), waitedName]) {
+        expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3$/);
+        expect(run(f, ['down', name]).exitCode).toBe(0);
+      }
 
       writeFileSync(`${listed}.show-fails`, '');
       const noShow = run(f, ['usage']);
