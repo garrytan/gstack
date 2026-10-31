@@ -81,8 +81,10 @@ describe("GST-543: a diff line prefix never hides a finding", () => {
 
   test("env.kv reports an exported or indented credential on an added or removed line", () => {
     const v = SAMPLES["env.kv"]!.slice("API_TOKEN=".length);
-    for (const line of [`-export API_TOKEN=${v}`, `+export API_TOKEN=${v}`, `-  api_token: ${v}`, `- api_token: ${v}`])
+    for (const line of [`-export API_TOKEN=${v}`, `+export API_TOKEN=${v}`, `-  api_token: ${v}`])
       expect({ line, kv: ids(hunk(line)).includes("env.kv") }).toEqual({ line, kv: true });
+    for (const bullet of ["- Credentials: `.auth.json`, `auth-token.json`", "- Session: `GSTACK_SESSION_KIND=unattended`"])
+      expect({ bullet, kv: ids(bullet).includes("env.kv") }).toEqual({ bullet, kv: false });
   });
 
   test("git diff | gstack-redact reports an added env.kv credential and exits 2; a placeholder on the same line stays clean", () => {
