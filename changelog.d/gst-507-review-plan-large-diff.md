@@ -1,0 +1,1 @@
+- `gstack-review-dispatch pass` no longer dies on a large diff. `gstack-review-plan` exited before its stdout pipe drained, so a plan JSON past about 128 KB (1.39 MB on a 4,000-file results PR) reached `pass` cut short and failed to parse. Both bins now set the exit code and let their output drain, and a 4,000-file test keeps it that way (GST-507).
