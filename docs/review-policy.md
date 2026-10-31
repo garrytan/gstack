@@ -230,7 +230,7 @@ and lockfiles stay runtime. To adopt it, commit an entry like this on the base b
 
 **Gate paths for the machinery itself.** An edit to `lib/review-depth.ts`,
 `lib/review-collect.ts`, `bin/gstack-review-plan`, `lib/review-scope.ts`,
-`lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
+`lib/review-targeted.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
 `ship/sections/review-army.md.tmpl`, `ship/sections/adversarial.md.tmpl` or
 `scripts/resolvers/review-army.ts` is gate class: changing how much review runs gets
 the most review. `rules=` (`DEPTH_RULES`) hashes the deciding constants and patterns,

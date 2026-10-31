@@ -263,6 +263,7 @@ describe('the targeted role end to end on a fixture repository', () => {
     expect(brief).toContain(`DIFF_BASE=${base} && git diff "$DIFF_BASE"`);
     expect(brief).toContain('Read the targeted brief above (');
     expect(runBin(repo, 'gstack-review-dispatch', ['render', '--role', 'targeted', '--classes', 'cost', '--diff-base', base, '--out', path.join(repo.root, 'bad')]).err).toContain('BRIEF_RENDER_FAILED: slot classes must list');
+    expect(runBin(repo, 'gstack-review-dispatch', ['render', '--role', 'targeted', '--classes', 'money', '--base', 'main', '--diff-base', base.slice(0, 12), '--out', path.join(repo.root, 'short')]).status).toBe(0);
     expect(runBin(repo, 'gstack-review-dispatch', ['render', '--role', 'targeted', '--classes', 'money', '--diff-base', head, '--out', path.join(repo.root, 'range')]).err).toContain(`the targeted reader reads the whole diff on every pass: --diff-base must be the merge base with main (${base})`);
     expect(runBin(repo, 'gstack-review-dispatch', ['sent', '--ledger', ledger, '--role', 'targeted', '--sent', file]).out).toContain('BRIEF_SENT: reader=targeted');
     const output = path.join(repo.root, 'targeted.out');

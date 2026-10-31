@@ -66,7 +66,8 @@ function render(): number {
   if (role === 'targeted') {
     const base = resolveBaseBranch(process.cwd(), flag('--base'));
     const mb = [`origin/${base}`, base].map(ref => spawnSync('git', ['merge-base', ref, 'HEAD'], { encoding: 'utf8', timeout: 30_000 })).find(r => r.status === 0)?.stdout.trim();
-    if (!diffBase || diffBase !== mb) throw new BriefError(`the targeted reader reads the whole diff on every pass: --diff-base must be the merge base with ${base} (${mb ?? 'unresolved'}), got ${diffBase ?? 'none'}`);
+    const full = diffBase ? spawnSync('git', ['rev-parse', '--verify', '--quiet', `${diffBase}^{commit}`], { encoding: 'utf8', timeout: 30_000 }).stdout?.trim() : undefined;
+    if (!full || full !== mb) throw new BriefError(`the targeted reader reads the whole diff on every pass: --diff-base must be the merge base with ${base} (${mb ?? 'unresolved'}), got ${diffBase ?? 'none'}`);
   }
   const checklists = flag('--checklists')?.split(',').map(s => s.trim()).filter(Boolean).map(c => (c.includes('/') ? c : path.join(ROOT, 'review/specialists', `${c}.md`)));
   for (const c of checklists ?? []) if (!fs.existsSync(c)) throw new BriefError(`checklist not found: ${c}`);

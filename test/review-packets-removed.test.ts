@@ -60,7 +60,7 @@ const NO_LOSS_REPLAYS = {
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'ship/sections/review-army.md': { sha: 'b7ca291a1cc63750bfb9710a4c12fd971523b9598da2a32ef80fb258eb0eceab', replay: 'L' },
-    'ship/sections/adversarial.md': { sha: 'dd3e4a4393e18e848ec55e2705be56de773894b2be6d5ec0485479b1f07f16db', replay: 'GST-257' },
+    'ship/sections/adversarial.md': { sha: 'd776ee5bc6e0c13930f8f4de05bad2f1ed9e52bc9fc5df80ae3ba7680455b2bb', replay: 'GST-257' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
     'review/checklist.md': { sha: '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699', replay: '#3638' },
