@@ -46,7 +46,7 @@
 # bin/gstack-modules install picks its loadout, publishes a non-full one beside
 # the full Claude install and prints LOADOUT and SKILL_ROOT lines before the
 # launch lines; a non-full loadout gets its own launch file, keyed by loadout
-# name and digest, that adds GSTACK_SKILL_ROOT. The verdict, its key and its
+# name and digest, that adds GSTACK_LOADOUT_SKILL_ROOT. The verdict, its key and its
 # launch file are unchanged, and any failure serves full.
 # Exit: 0 ok, 1 a component failed, 2 usage, 3 preflight stopped before ./setup.
 set -u
@@ -731,7 +731,7 @@ if [ "$RC" -eq 0 ] && [ -n "$MODEL" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_F
   if [ -n "$_lo_name" ] && [ "$_lo_name" != full ]; then
     _lo_file="${VERDICT%.json}.loadout-$_lo_name-$_lo_digest.env"
     _lo_tmp=$(umask 077 && mktemp "$_lo_file.tmp.XXXXXX") \
-      && { cat "$LAUNCH_FILE" && echo "export GSTACK_SKILL_ROOT=$(shq "$_lo_root")"; } > "$_lo_tmp" \
+      && { cat "$LAUNCH_FILE" && echo "export GSTACK_LOADOUT_SKILL_ROOT=$(shq "$_lo_root")"; } > "$_lo_tmp" \
       && chmod 0600 "$_lo_tmp" && mv -f "$_lo_tmp" "$_lo_file" \
       && [ -n "$_lo_digest" ] && [ -d "$_lo_root" ] && LAUNCH_FILE=$_lo_file \
       || { rm -f "${_lo_tmp:-}" 2>/dev/null; _lo_notes="${_lo_notes:+$_lo_notes

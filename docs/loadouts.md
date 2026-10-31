@@ -59,7 +59,7 @@ LOADOUT: lite model=claude-opus-5-5 source=model-flag digest=3f2a9c01d4e7 reused
 SKILL_ROOT: /home/user/.gstack/loadouts/lite-3f2a9c01d4e7
 ```
 
-Read skills from `SKILL_ROOT` (`<root>/gstack/SKILL.md` routes, `<root>/<skill>/SKILL.md` runs) and source the printed `GSTACK_LAUNCH_FILE`, which adds `GSTACK_SKILL_ROOT`. For `full`, `SKILL_ROOT` is `~/.claude/skills` and the launch file is the install verdict's own.
+Read skills from `SKILL_ROOT` (`<root>/gstack/SKILL.md` routes, `<root>/<skill>/SKILL.md` runs) and source the printed `GSTACK_LAUNCH_FILE`, which adds `GSTACK_LOADOUT_SKILL_ROOT`. For `full`, `SKILL_ROOT` is `~/.claude/skills` and the launch file is the install verdict's own.
 
 The lite tree is published by `bin/gstack-modules install` under `<state root>/loadouts/<loadout>-<digest12>/`, beside the full install; the checkout and its committed SKILL.md files stay the full render. The digest covers the selection, the bound model, the full root, host, overlay, plan mode and the source tree (the git HEAD tree plus any uncommitted change), so an upgrade or a different model gets a new folder and an unchanged one is reused after its files are re-hashed against `loadout.lock.json`. Each folder is a complete skill tree: the rendered SKILL.md and section files plus every tracked runtime asset of each skill (templates, references, scripts). A published folder is never replaced; the newest three per loadout are kept. Two Capy threads with different models on one machine share one install verdict and get one launch file each (`<verdict>.loadout-<name>-<digest>.env` for lite). Any failure serves `full` and prints `LOADOUT_FALLBACK`.
 

@@ -55,4 +55,12 @@ describe.skipIf(process.platform === 'win32')('./setup --loadout', () => {
     expect(served(skills)).toBe(committed);
     expect(readFileSync(join(src, 'SKILL.md'), 'utf8')).toBe(readFileSync(join(ROOT, 'SKILL.md'), 'utf8'));
   }, 300_000);
+
+  test('gstack-config refuses a claude_loadout that is not a loadout name and stores full', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.home, '.claude/skills/gstack'));
+    const bad = config(f, src, 'set', 'claude_loadout', 'Bad Name');
+    expect(bad.stderr).toContain('claude_loadout must be a loadout name');
+    expect(config(f, src, 'get', 'claude_loadout').stdout.trim()).toBe('full');
+  });
 });

@@ -547,8 +547,8 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     const lite = launchOf(opus.stdout);
     expect(lite).toBe(verdict.replace(/\.json$/, '.loadout-lite-0123456789ab.env'));
     expect(fs.statSync(lite).mode & 0o777).toBe(0o600);
-    expect(fs.readFileSync(lite, 'utf8')).toBe(fs.readFileSync(base, 'utf8') + `export GSTACK_SKILL_ROOT='${f.home}/lite-0123456789ab'\n`);
-    expect(fs.readFileSync(base, 'utf8')).not.toContain('GSTACK_SKILL_ROOT');
+    expect(fs.readFileSync(lite, 'utf8')).toBe(fs.readFileSync(base, 'utf8') + `export GSTACK_LOADOUT_SKILL_ROOT='${f.home}/lite-0123456789ab'\n`);
+    expect(fs.readFileSync(base, 'utf8')).not.toContain('GSTACK_LOADOUT_SKILL_ROOT');
     expect(lastLine(opus.stdout)).toMatch(/^gstack: ok 1\.2\.3 /);
 
     const sonnet = run(f, ['--for', 'ship', '--model', 'claude-sonnet-5-5']);

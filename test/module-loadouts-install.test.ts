@@ -88,6 +88,20 @@ describe('gstack-modules install', () => {
     await expect(installLoadout({ selection: lite, boundModel: 'claude-opus-5-5', fullRoot: FULL_ROOT, store })).rejects.toThrow(/RENDER_DEST_NOT_OWNED/);
   }, 240_000);
 
+  test('pruning keeps the three most recently used folders of a loadout: a reused folder counts as used', async () => {
+    const store = path.join(tmp, 'prune');
+    const install = (fullRoot: string) => installLoadout({ selection: lite, boundModel: 'claude-opus-5-5', fullRoot, store });
+    const inUse = await install('/r/0');
+    const oldest = await install('/r/1');
+    await install('/r/2');
+    expect((await install('/r/0')).reused).toBe(true);
+    const newest = await install('/r/3');
+    expect(fs.existsSync(inUse.root)).toBe(true);
+    expect(fs.existsSync(newest.root)).toBe(true);
+    expect(fs.existsSync(oldest.root)).toBe(false);
+    expect(fs.readdirSync(store).filter(n => n.startsWith('lite-'))).toHaveLength(3);
+  }, 300_000);
+
   test('the source tree identity changes with a commit and with uncommitted edits', () => {
     const repo = path.join(tmp, 'repo');
     fs.mkdirSync(repo);

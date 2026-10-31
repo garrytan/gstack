@@ -151,7 +151,11 @@ export async function installLoadout(request: InstallRequest): Promise<InstallRe
   const final = path.join(store, `${selection.name}-${identitySha.slice(0, 12)}`);
   fs.mkdirSync(store, { recursive: true });
   const existing = intact(final, identitySha);
-  if (existing) return { root: final, lock: existing, reused: true };
+  if (existing) {
+    const used = new Date();
+    fs.utimesSync(final, used, used);
+    return { root: final, lock: existing, reused: true };
+  }
   if (fs.existsSync(final)) {
     throw new ModuleError('RENDER_DEST_NOT_OWNED', `${final} exists but its ${LOCK_FILE} does not match this render`, `remove ${final} and rerun; nothing else was changed`);
   }
