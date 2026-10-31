@@ -224,6 +224,7 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   }
   if (isConfigUnavailable(configLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: configLoad.detail } };
   if (o.policyFrom === 'head' && !configLoad.errors.length) {
+    if (o.remote && configLoad.kind === 'none') return { refused: { code: 'PREGATE_HEAD_POLICY_LOOSENS', message: '--remote under --policy-from head needs a trusted policy (the base copy or the user-owned file); with none, the head file is a bootstrap and its remote_gate cannot clear its own obligation' } };
     const head = headPolicy(o.repoRoot, configLoad, mergeBase, base, o.knownChecks ?? []);
     if ('loosens' in head) return { refused: { code: 'PREGATE_HEAD_POLICY_LOOSENS', message: head.loosens.join('; ') } };
     configLoad = head.load;

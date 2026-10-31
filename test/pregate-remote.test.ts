@@ -174,6 +174,19 @@ describe('gstack-pregate --remote (C-c)', () => {
     expect(changed.err).toContain('remote_gate differs from the trusted policy');
   }, 60_000);
 
+  // Value: protects=a bootstrap head policy (no base copy, no user-owned file) cannot run its own remote_gate to clear its obligation;
+  //   fails_when=--remote under head runs a branch-authored gate and verify passes with no test run; why_new=--remote now runs under
+  //   head once the additive check passes, and a bootstrap has nothing to check against; seam=fake gate; no_claim=none
+  test('--remote under --policy-from head with no trusted policy is refused before any gate runs', () => {
+    const repo = makeFixtureRepo({ pregate: null });
+    repos.push(repo);
+    commit(repo, { 'scripts/remote-gate.js': GATE_SCRIPT, '.gstack/pregate.json': JSON.stringify({ ...BASE_PREGATE, remote_gate: GATE }) + '\n', 'lib/util.js': "exports.add = (a, b) => a + b + 0;\n" });
+    const r = remote(repo, ['--remote', '--allow-repo-commands', '--policy-from', 'head', '--spend-cap', '2'], { GSTACK_PROJECT_SLUG: 'remote-bootstrap' });
+    expect(r.status).toBe(EXIT.refused);
+    expect(r.err).toContain('the head file is a bootstrap and its remote_gate cannot clear its own obligation');
+    expect(fs.existsSync(path.join(repo.root, 'gate-env.json'))).toBe(false);
+  }, 60_000);
+
   test('a wrong tree, zero tests, a failure, a missing line or a non-zero exit leaves the obligation uncleared and the check incomplete; unreported spend counts at the cap', () => {
     const repo = gated();
     const cases: Array<[Record<string, string>, string]> = [
