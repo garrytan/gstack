@@ -5,7 +5,7 @@
 # Usage:
 #   gstack-capy-install [--for <skill> | --only <skill> | --require <id,id>] [--with-browser]
 #                       [--revision <ref>] [--project <path>] [--root <dir>]
-#                       [--check] [--min-revision <v>|unknown]
+#                       [--check] [--min-revision <v>|unknown] [--model <id>]
 #
 # Steps: clone or reuse the checkout under a lock (never reset, never pulled
 # here; the Capy skill bootstrapper fast-forwards below-minimum checkouts and
@@ -42,6 +42,12 @@
 # mode-0600 file beside the verdict; callers and their children `. <file>` it,
 # never re-type it) and the doctor's trailer (`gstack: ok ...` or `gstack: fail ...`;
 # grep that, never pipe through tail).
+# --model <id> (GSTA-161, docs/loadouts.md) names the model this session runs:
+# bin/gstack-modules install picks its loadout, publishes a non-full one beside
+# the full Claude install and prints LOADOUT and SKILL_ROOT lines before the
+# launch lines; a non-full loadout gets its own launch file, keyed by loadout
+# name and digest, that adds GSTACK_SKILL_ROOT. The verdict, its key and its
+# launch file are unchanged, and any failure serves full.
 # Exit: 0 ok, 1 a component failed, 2 usage, 3 preflight stopped before ./setup.
 set -u
 BASH_COMPAT=50
@@ -50,7 +56,7 @@ SELF="$(cd "$(dirname "$0")/.." && pwd -P)"
 ROOT="${GSTACK_CAPY_ROOT:-$SELF}"
 REPO="${GSTACK_CAPY_REPO:-https://github.com/garrytan/gstack.git}"
 DOCS="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md"
-FOR="" REQUIRE="" WITH_BROWSER=0 REVISION="" PROJECT="" CHECK_ONLY=0 MIN_REVISION="${GSTACK_CAPY_REMOTE_MIN:-}"
+MODEL="" FOR="" REQUIRE="" WITH_BROWSER=0 REVISION="" PROJECT="" CHECK_ONLY=0 MIN_REVISION="${GSTACK_CAPY_REMOTE_MIN:-}"
 usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
 need() { [ -n "${2:-}" ] || { echo "gstack-capy-install: $1 needs a value" >&2; usage >&2; exit 2; }; }
 while [ $# -gt 0 ]; do
@@ -63,6 +69,7 @@ while [ $# -gt 0 ]; do
     --root) need "$1" "${2:-}"; ROOT="$2"; shift ;;
     --check) CHECK_ONLY=1 ;;
     --min-revision) need "$1" "${2:-}"; MIN_REVISION="$2"; shift ;;
+    --model) need "$1" "${2:-}"; MODEL="$2"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "gstack-capy-install: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -712,9 +719,35 @@ fi
 # leaves that verdict's file in place.
 [ "$RC" -eq 0 ] || { [ "$PROFILE" -eq 1 ] && rm -rf "${VERDICT%.json}.profile" 2>/dev/null; verdict_kept || rm -f "$LAUNCH_FILE" 2>/dev/null; LAUNCH_FILE=""; }
 record_verdict "$TRAILER" "$([ "$RC" -eq 0 ] && echo 1 || echo 0)"
+LOADOUT_LINES=""
+if [ "$RC" -eq 0 ] && [ -n "$MODEL" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_FILE" ]; then
+  _lo_full="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
+  _lo_out=$(cd "$ROOT" && bin/gstack-modules install --model "$MODEL" --full-root "$_lo_full" 2>&1)
+  _lo_line=$(printf '%s\n' "$_lo_out" | grep -m1 '^LOADOUT: ')
+  _lo_root=$(printf '%s\n' "$_lo_out" | sed -n 's/^SKILL_ROOT: //p' | head -1)
+  _lo_notes=$(printf '%s\n' "$_lo_out" | grep -E '^(LOADOUT_INVALID_MODEL|LOADOUT_FALLBACK): ')
+  _lo_name=$(printf '%s' "$_lo_line" | sed -n 's/^LOADOUT: \([a-z0-9-]*\) .*/\1/p')
+  _lo_digest=$(printf '%s' "$_lo_line" | sed -n 's/.* digest=\([0-9a-f]\{12\}\) .*/\1/p')
+  if [ -n "$_lo_name" ] && [ "$_lo_name" != full ]; then
+    _lo_file="${VERDICT%.json}.loadout-$_lo_name-$_lo_digest.env"
+    _lo_tmp=$(umask 077 && mktemp "$_lo_file.tmp.XXXXXX") \
+      && { cat "$LAUNCH_FILE" && echo "export GSTACK_SKILL_ROOT=$(shq "$_lo_root")"; } > "$_lo_tmp" \
+      && chmod 0600 "$_lo_tmp" && mv -f "$_lo_tmp" "$_lo_file" \
+      && [ -n "$_lo_digest" ] && [ -d "$_lo_root" ] && LAUNCH_FILE=$_lo_file \
+      || { rm -f "${_lo_tmp:-}" 2>/dev/null; _lo_notes="${_lo_notes:+$_lo_notes
+}LOADOUT_FALLBACK: could not publish the $_lo_name launch file; serving full (docs/troubleshooting.md#loadout-fallback)"; _lo_name=""; }
+  fi
+  if [ -z "$_lo_name" ] || [ -z "$_lo_root" ]; then
+    _lo_line="LOADOUT: full model=none source=model-flag reason=render-failed" _lo_root=$_lo_full
+  fi
+  LOADOUT_LINES="${_lo_notes:+$_lo_notes
+}$_lo_line
+SKILL_ROOT: $_lo_root"
+fi
 [ "$CHECK_ONLY" -eq 1 ] || [ "$PROFILE" -eq 1 ] || write_shim
 printf '%s\n' "$OUT" | grep -v '^gstack: '
 say "total: $(( $(now) - T0 ))s"
+[ -n "$LOADOUT_LINES" ] && printf '%s\n' "$LOADOUT_LINES"
 echo "GSTACK_LAUNCH: ${LAUNCH_DIR:+PATH=$LAUNCH_DIR:\$PATH }GSTACK_SESSION_KIND=unattended GSTACK_STATE_ROOT=$GSTACK_STATE_ROOT GSTACK_EPHEMERAL=${GSTACK_EPHEMERAL:-1} GSTACK_CAPY=1 GSTACK_INSTALL_VERDICT=$VERDICT"
 [ -n "$LAUNCH_DIR" ] && echo "GSTACK_LAUNCH_PATH: $LAUNCH_DIR"
 [ -n "$LAUNCH_FILE" ] && echo "GSTACK_LAUNCH_FILE: $LAUNCH_FILE"

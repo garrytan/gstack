@@ -39,6 +39,9 @@ export interface LoadoutLock {
   model: string | null;
   install_root: string | null;
   plan_mode: boolean;
+  /** The model a --bind-model render bakes into its start lines, and the full root it names. */
+  loadout_model: string | null;
+  full_root: string | null;
   gstack_version: string;
   excluded: string[];
   total_bytes: number;
@@ -152,6 +155,8 @@ export async function renderLoadout(request: RenderRequest): Promise<LoadoutLock
       model: request.model ?? getHostConfig(request.host).defaultModel ?? null,
       install_root: request.installRoot ?? null,
       plan_mode: request.planMode ?? true,
+      loadout_model: request.selection?.boundModel ?? null,
+      full_root: request.selection?.fullRoot ?? null,
       gstack_version: fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf-8').trim(),
       excluded: [...(request.selection?.excluded ?? [])].sort(),
       total_bytes: files.reduce((sum, f) => sum + f.bytes, 0),
