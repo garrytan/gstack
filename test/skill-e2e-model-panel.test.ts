@@ -50,9 +50,9 @@ function consulted(result: Awaited<ReturnType<typeof runSkillTest>>): boolean {
 
 async function runCell(task: PanelTask, arm: PanelArm, trial: number): Promise<PanelRow | null> {
   if (stopped) return null;
-  const { attempt, testName } = cellKeys(task, arm, trial, CAMPAIGN.runId);
+  const cell = cellKeys(task, arm, trial, CAMPAIGN.runId);
   try {
-    reserve(SPEND, attempt, arm.reserveUsd, { cap: PANEL_SPEND_CAP_USD, label: arm.model });
+    reserve(SPEND, cell.attempt, arm.reserveUsd, { cap: PANEL_SPEND_CAP_USD, label: arm.model });
   } catch (err) {
     if (!(err instanceof SpendCapExceeded)) throw err;
     stopped = err.message;
@@ -69,14 +69,14 @@ async function runCell(task: PanelTask, arm: PanelArm, trial: number): Promise<P
       maxTurns: PANEL_MAX_TURNS,
       allowedTools: PANEL_ALLOWED_TOOLS,
       timeout: PANEL_TIMEOUT_MS,
-      testName,
+      testName: cell.testName,
       runId,
       model: arm.model,
       env: armEnv(arm),
     });
     const usage = usageFromTranscript(result.transcript);
     const costUsd = usage ? cellCostUsd(arm, usage) : null;
-    settle(SPEND, attempt, costUsd ?? 'unknown');
+    settle(SPEND, cell.attempt, costUsd ?? 'unknown');
     settled = true;
     const cls = classifyCell(arm, result.exitReason, usage);
     const scored = cls.verdict === 'scored' ? runCheck(task, dirs.dir) : null;
@@ -90,7 +90,7 @@ async function runCell(task: PanelTask, arm: PanelArm, trial: number): Promise<P
     console.log('[model-panel] ' + task.id + ' ' + arm.identity + ' t' + trial + ' ' + row.verdict + ' $' + (costUsd ?? 0).toFixed(4) + ' turns=' + (usage?.turns ?? 0) + ' ' + row.reason);
     return row;
   } finally {
-    if (!settled) settle(SPEND, attempt, 'unknown');
+    if (!settled) settle(SPEND, cell.attempt, 'unknown');
     fs.rmSync(dirs.dir, { recursive: true, force: true });
   }
 }

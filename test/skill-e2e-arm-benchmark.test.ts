@@ -129,7 +129,7 @@ async function runArmCell(task: ArmTask, arm: Arm, trial: number): Promise<CellR
     const opts = armRunOptions(task, arm, dirs.dir, trial);
     const attempt = `${opts.testName}:${runId}`;
     const result = await metered(SPEND, attempt, ARM_CELL_RESERVE_USD, ARM_MODEL, async () => {
-      const r = await runSkillTest({ ...opts, runId });
+      const r = await runSkillTest({ ...opts, testName: opts.testName, runId });
       return { value: r, costUsd: r.costEstimate.estimatedCost > 0 ? r.costEstimate.estimatedCost : null };
     });
     logCost(`arm-benchmark ${task.fixture} ${arm} t${trial}`, result);
