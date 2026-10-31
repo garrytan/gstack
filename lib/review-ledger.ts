@@ -58,23 +58,21 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
-const SEVERITY_FIELD = new RegExp(`[Ss]everity\\**\\s*:\\**\\s*(${LABELS})(?![A-Za-z0-9])`);
-/** A line's explicit `Severity:` label, else the most severe label on it, so a stray `Low-level` or `[P2]` never decides it. */
-const strongest = (t: string) => SEVERITY_FIELD.exec(t)?.[1] ?? [...t.matchAll(ALL_LABELS)].map(m => m[1]!).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
-/** A line that only continues the finding above it: its `Severity:` or `Blocks:` field. */
-const META = /^(?:[-*+]\s+)?\**\s*(Severity|Blocks)\**\s*:/i;
+/** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
+const LOCUS = /[\w./-]+\.\w+:\d+/;
+/** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
+const META = new RegExp(`^(?:[-*+]\\s+)?\\**\\s*(Severity|Blocks)\\**\\s*(?::|\\s+\\**(?:${LABELS}|yes|no)(?![A-Za-z0-9]))`, 'i');
 
 export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
 
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
  * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
- * of the two labels; an explicit `Severity:` label wins on its line). A `Severity:` or `Blocks:` line that is not itself a top-level
- * list item continues the finding above it until a list item, heading, bold or post-blank paragraph, prose after one of these fields,
- * or a second line for the same field starts another: `Severity` raises its
- * label, `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it. With no finding above, such a line is its own finding
- * carrying the paragraph's first line. The native voice's FIXABLE collects as CRITICAL, since a Severity line must not bury it;
- * other labels stay as written for lead judgment.
+ * of the two labels). A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` raises its label,
+ * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
+ * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
+ * starts the next finding. An inline `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels
+ * stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
  */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
   type Finding = { label: string; raw: string; fields: Set<string> };
@@ -84,7 +82,8 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let head = '';
   let gap = false;
   const role = reader.split('/')[0];
-  const named = (l: string | undefined) => (role === 'adversarial-native' && l?.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
+  const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
+  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
   const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
@@ -93,10 +92,11 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     gap = false;
     if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
     const indented = line !== line.trimStart();
-    const label = named(strongest(t));
+    const label = strongest(t);
     const blocks = BLOCKS_YES.test(t);
     const listItem = !indented && LIST_ITEM.test(t);
-    const meta = listItem ? null : META.exec(t);
+    const locus = LOCUS.test(t);
+    const meta = listItem && locus ? null : META.exec(t);
     if (meta) {
       const field = meta[1]!.toLowerCase();
       if (current && !current.fields.has(field)) {
@@ -109,7 +109,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
       continue;
     }
     const heading = LABEL_HEADING.exec(t);
-    if (heading) { section = named(heading[1])!; current = null; head = ''; continue; }
+    if (heading) { section = named(heading[1]!); current = null; head = ''; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
       try {
@@ -117,17 +117,17 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
         if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
+    const fresh = listItem || (!indented && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
+    if (fresh) { current = null; head = t; }
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
     if (found) { current = push(blocks ? 'CRITICAL' : found, t); if (!indented) head = t; continue; }
     if (blocks && !t.startsWith('{')) {
-      if (current && !listItem) { current.label = 'CRITICAL'; current.raw += ` | ${t}`; continue; }
-      current = push('CRITICAL', !listItem && head ? `${head} | ${t}` : t);
-      if (listItem) head = t;
+      if (current) { current.label = 'CRITICAL'; current.raw += ` | ${t}`; continue; }
+      current = push('CRITICAL', head && head !== t ? `${head} | ${t}` : t);
       continue;
     }
-    if (listItem || (!indented && (t.startsWith('**') || afterGap)) || current?.fields.size) { current = null; head = t; }
-    else if (!indented || (!current && !LIST_ITEM.test(head))) head = t;
+    if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
   }
   return out.map(({ label, raw }) => ({ label, raw }));
 }

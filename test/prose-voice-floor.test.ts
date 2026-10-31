@@ -53,6 +53,9 @@ describe('normalizer v2 as collected: Blocks: yes is CRITICAL, Blocks: no never 
     ['FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no', 'CRITICAL'],
     ['INVESTIGATE: odd lock in b.ts:9\nSeverity: Low\nBlocks: yes', 'CRITICAL'],
     ['INVESTIGATE: odd lock in b.ts:9\nBlocks: no', 'INVESTIGATE'],
+    ['FIXABLE: race in a.ts:3. Severity: Medium. Blocks: no', 'CRITICAL'],
+    ['1. FIXABLE: race in a.ts:3 — Severity: Low, Blocks: no', 'CRITICAL'],
+    ['- FIXABLE: race in a.ts:3\n- Severity: Medium\n- Blocks: no', 'CRITICAL'],
   ] as const)('native %j -> %s', (output, want) => expect(parseFindings('adversarial-native', output).map(g => g.label)).toEqual([want]));
   test.each([
     ['1. Drops the last row (q.ts:7). Severity: Critical. Blocks: no', 'Critical'],

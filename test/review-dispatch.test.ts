@@ -303,8 +303,19 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(raws('A in a.ts:1.\nSeverity: Low\n\nB in b.ts:2.\nBlocks: yes')).toEqual(two);
     expect(raws('A in a.ts:1.\nSeverity: Low\nB in b.ts:2.\nBlocks: yes')).toEqual(two);
     expect(raws('Findings:\n  A in a.ts:1.\n  Severity: Low\n  B in b.ts:2.\n  Blocks: yes')).toEqual(two);
-    expect(raws('Retry loop in queue.ts:4 is fine. Severity: Low (not High)\nBlocks: no')).toEqual([['Low', 'Retry loop in queue.ts:4 is fine. Severity: Low (not High) | Blocks: no']]);
   });
+  // Value: protects=the fix-check's shapes (#3660): a blocker keeps its own id and its subject, field bullets stay on their finding,
+  //   and no Severity label buries a stronger label on its line; fails_when=any of these collects below CRITICAL, merges a later
+  //   blocker into an earlier finding, or loses the finding's file:line; seam=parseFindings
+  test.each([
+    ['A in a.ts:1.\nSeverity: Low\nB in b.ts:2 drops rows. Blocks: yes', [['Low', 'A in a.ts:1. | Severity: Low'], ['CRITICAL', 'B in b.ts:2 drops rows. Blocks: yes']]],
+    ['**Finding 1.** a.ts:3 races. Severity: Low\n**Finding 2.** b.ts:4 leaks. Blocks: yes', [['Low', '**Finding 1.** a.ts:3 races. Severity: Low'], ['CRITICAL', '**Finding 2.** b.ts:4 leaks. Blocks: yes']]],
+    ['FIXABLE: race in a.ts:3\nSeverity: Medium\nWhy: the writer races\nBlocks: yes', [['CRITICAL', 'FIXABLE: race in a.ts:3 | Severity: Medium | Blocks: yes']]],
+    ['- Unlabeled thing in a.ts:3\n- Severity: Medium\n- Blocks: yes', [['CRITICAL', '- Unlabeled thing in a.ts:3 | - Severity: Medium | - Blocks: yes']]],
+    ['1. Token never expires (auth.ts:9)\nFix: check exp\nBlocks: yes', [['CRITICAL', '1. Token never expires (auth.ts:9) | Blocks: yes']]],
+    ['1. Retry storm (r.ts:2)\nSeverity High', [['High', '1. Retry storm (r.ts:2) | Severity High']]],
+    ['CRITICAL: x.ts:4 drops rows (pass 1 had Severity: Low)', [['CRITICAL', 'CRITICAL: x.ts:4 drops rows (pass 1 had Severity: Low)']]],
+  ])('fix-check shape %j', (output, want) => expect(parseFindings('outside-voice', output).map(f => [f.label, f.raw])).toEqual(want));
   test('the native voice\'s FIXABLE collects as CRITICAL under its role with or without a dispatch name', () => {
     for (const reader of ['adversarial-native', 'adversarial-native/adversarial']) expect(parseFindings(reader, 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('outside-voice', 'FIXABLE: race in a.ts:3\nSeverity: Medium').map(f => f.label)).toEqual(['Medium']);
