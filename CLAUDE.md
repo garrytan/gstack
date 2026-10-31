@@ -7,6 +7,7 @@ bun install          # install dependencies
 bun run dev <cmd>    # run CLI in dev mode, e.g. bun run dev goto https://example.com
 bun run typecheck    # strict tsc over product code (zero errors required)
 bun run typecheck:test  # test-code type-debt ratchet
+bun run lint         # oxlint correctness ratchet
 bun run build        # gen docs + compile binaries
 bun run gen:skill-docs  # regenerate SKILL.md files from templates
 bun run skill:check  # health dashboard for all skills

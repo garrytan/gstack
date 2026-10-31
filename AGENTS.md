@@ -262,6 +262,7 @@ When fixing failures or preparing `/ship`, follow this order:
 bun install              # install dependencies
 bun run typecheck        # strict tsc over product code; must report zero errors
 bun run typecheck:test   # test-code type-debt ratchet (new diagnostics fail; --write-baseline locks in fixes)
+bun run lint             # oxlint correctness ratchet (new findings fail; --write-baseline only shrinks)
 bun run format:cso       # format lib/cso/*.ts (format:cso:check is the CI gate)
 bun run test:quick       # fast measured free subset for edit feedback (not acceptance)
 bun run test             # complete free suite via the strict shard runner (no API spend)
