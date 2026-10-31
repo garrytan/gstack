@@ -391,9 +391,10 @@ function writeRunRecord(a: { receipt: ShipReceipt; head: string; pr: string | un
  */
 function patchId(repoRoot: string, from: string, to: string, pathspec: string[]): string | { error: string } {
   const firstLine = (s: string | null | undefined, fallback: string) => (s ?? '').trim().split('\n')[0]?.slice(0, 200) || fallback;
-  sweepStalePatchDirs();
+  const root = path.resolve(repoRoot, git(['rev-parse', '--git-path', 'gstack-patch-id'], repoRoot)?.trim() || '.git/gstack-patch-id');
+  sweepStalePatchDirs(root);
   let dir: string;
-  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-patch-id-')); } catch (e) { return { error: `cannot create a temp file under ${os.tmpdir()} (${firstLine((e as Error).message, 'mkdtemp failed')}); set TMPDIR to a writable directory` }; }
+  try { fs.mkdirSync(root, { recursive: true }); dir = fs.mkdtempSync(path.join(root, 'run-')); } catch (e) { return { error: `cannot create a temp file under ${root} (${firstLine((e as Error).message, 'mkdtemp failed')}); make that directory writable` }; }
   const file = path.join(dir, 'diff.patch');
   let fd: number | undefined;
   try {
@@ -411,14 +412,14 @@ function patchId(repoRoot: string, from: string, to: string, pathspec: string[])
 
 /** A carry killed mid patch-id (preflight's timeout) skips patchId's `finally`; its product diff is removed by the next run once an hour old. */
 let swept = false;
-function sweepStalePatchDirs(): void {
+function sweepStalePatchDirs(root: string): void {
   if (swept) return;
   swept = true;
   const cutoff = Date.now() - 60 * 60 * 1000;
   let names: string[] = [];
-  try { names = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('gstack-patch-id-')); } catch { return; }
+  try { names = fs.readdirSync(root).filter(n => n.startsWith('run-')); } catch { return; }
   for (const n of names) {
-    const p = path.join(os.tmpdir(), n);
+    const p = path.join(root, n);
     try { if (fs.statSync(p).mtimeMs < cutoff) fs.rmSync(p, { recursive: true, force: true }); } catch { /* another run removed it */ }
   }
 }
@@ -586,6 +587,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   const reviewedBase = receipt.base.replace(/^origin\//, '');
   const retarget = reviewedBase !== base.replace(/^origin\//, '');
   let plan: ReturnType<typeof planCarry>;
+  let scopedDryRun: string | undefined;
   if (!ancestor) {
     // Rewritten history: the receipt follows only onto a tree it already covers, with the product diff it recorded.
     const recorded = receipt.product_patch_id !== undefined ? (receipt.product_patch_id === 'none' ? '' : receipt.product_patch_id) : fromKnown ? productPatchAgainstBase(repoRoot, rules, baseRef, from) : { error: 'the receipt records no product patch-id and its head is not in this clone' };
@@ -651,8 +653,10 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (packetBody?.over.length) changedProduct.push(...packetBody.over.map(p => `${p} (too large for the scoped review: over ${PACKET_SECTION_CAP} lines in a section)`));
     if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
-      if (!record && rest.includes('--dry-run')) return refused('RECEIPT_CARRY_SCOPED_REVIEW', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one fix-check reviewer, then carry --scoped-review <record.json>; nothing written`);
-      if (!record) {
+      if (!record && rest.includes('--dry-run')) {
+        scopedDryRun = `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one fix-check reviewer, then carry --scoped-review <record.json>; nothing written`;
+        scopedReview = `base context moved (scoped review pending: ${contextPaths.join(', ')})`;
+      } else if (!record) {
         const gitPath = git(['rev-parse', '--git-path', `gstack/scoped-review-${head.slice(0, 12)}.md`], repoRoot);
         const packet = path.resolve(repoRoot, gitPath ?? `.git/gstack/scoped-review-${head.slice(0, 12)}.md`);
         try {
@@ -663,9 +667,11 @@ function cmdCarry(rest: string[], json: boolean): number {
         }
         return refused('RECEIPT_CARRY_SCOPED_REVIEW', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /ship on ${head.slice(0, 12)}`);
       }
-      const review = readScopedReview(record, { head }, contextPaths);
-      if (!review.ok) return refused('RECEIPT_CARRY_REFUSED', `--scoped-review: ${review.message}`);
-      scopedReview = `base context moved (scoped review by ${review.review.reviewer}: ${contextPaths.join(', ')})`;
+      if (record) {
+        const review = readScopedReview(record, { head }, contextPaths);
+        if (!review.ok) return refused('RECEIPT_CARRY_REFUSED', `--scoped-review: ${review.message}`);
+        scopedReview = `base context moved (scoped review by ${review.review.reviewer}: ${contextPaths.join(', ')})`;
+      }
     }
     const mergeCommits = (git(['rev-list', '--merges', '--count', `${from}..${head}`], repoRoot) ?? '0').trim();
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
@@ -706,6 +712,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
   const newBody = placeReceiptFirst(body, carried);
   const line = receiptSummaryLine(carried);
+  if (scopedDryRun) return refused('RECEIPT_CARRY_SCOPED_REVIEW', scopedDryRun);
   if (rest.includes('--dry-run')) {
     process.stderr.write(line + '\n');
     process.stdout.write(json ? JSON.stringify({ skill: 'ship', status: 'dry-run', head, carry: plan.carry }) + '\n' : `CARRY: would carry from ${from.slice(0, 12)} to ${head.slice(0, 12)} (${plan.carry.reason}); nothing written\n`);

@@ -51,9 +51,10 @@ describe('carry with a large product diff (GST-448)', () => {
     expect([out.status, out.out.split('\n').find(l => l.startsWith('CARRY:'))]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)']);
   });
 
-  // Value: protects=an unwritable TMPDIR is a named refusal with its repair, never a stack trace that preflight reads as
-  //   'CARRY: check failed'; fails_when=patchId creates its temp file outside its error handling; seam=TMPDIR; no_claim=none
-  test('an unwritable TMPDIR refuses the carry by name', () => {
+  // Value: protects=the patch-id diff lives under the git dir (on disk, not a tmpfs TMPDIR), and a spot it cannot write is a
+  //   named refusal, never a stack trace preflight reads as 'CARRY: check failed'; fails_when=patchId writes to TMPDIR or
+  //   creates its directory outside its error handling; seam=TMPDIR, a file where the directory goes; no_claim=none
+  test('patch-id diffs go under the git dir: an unwritable TMPDIR still carries, an unwritable git-dir spot refuses by name', () => {
     const repo = makeFixtureRepo(); repos.push(repo);
     commit(repo, receipts(3, 'base'), 'results: 3 run receipts');
     const body = path.join(repo.root, 'body.md');
@@ -63,9 +64,13 @@ describe('carry with a large product diff (GST-448)', () => {
     repo.git('add', '-A'); repo.git('commit', '-qm', 'main moves on'); repo.git('push', '-q', 'origin', 'main');
     repo.git('checkout', '-q', 'feature');
     repo.git('merge', '-q', '--no-edit', 'origin/main');
-    const out = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main'], { TMPDIR: path.join(repo.root, 'no-such-dir') });
+    const dry = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main', '--dry-run'], { TMPDIR: path.join(repo.root, 'no-such-dir') });
+    expect([dry.status, dry.out.split('\n').find(l => l.startsWith('CARRY:'))]).toEqual([EXIT.ok, expect.stringMatching(/^CARRY: would carry/)]);
+    fs.rmSync(path.join(repo.work, '.git', 'gstack-patch-id'), { recursive: true, force: true });
+    fs.writeFileSync(path.join(repo.work, '.git', 'gstack-patch-id'), 'not a directory\n');
+    const out = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main', '--dry-run']);
     expect([out.status, out.out.split('\n').find(l => l.startsWith('CARRY:'))]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_REFUSED)']);
-    expect(out.err).toContain('set TMPDIR to a writable directory');
+    expect(out.err).toContain('cannot create a temp file under');
   });
 
   // Value: protects=a carry killed mid patch-id (preflight's 120 s timeout) does not leave product diffs in TMPDIR for good;
@@ -73,12 +78,12 @@ describe('carry with a large product diff (GST-448)', () => {
   test('a stale patch-id directory a killed run left is swept; a fresh one is kept', () => {
     const repo = makeFixtureRepo(); repos.push(repo);
     commit(repo, receipts(3, 'base'), 'results: 3 run receipts');
-    const tmp = path.join(repo.root, 'tmp'); fs.mkdirSync(tmp);
-    const stale = path.join(tmp, 'gstack-patch-id-stale'); const fresh = path.join(tmp, 'gstack-patch-id-fresh');
+    const tmp = path.join(repo.work, '.git', 'gstack-patch-id'); fs.mkdirSync(tmp, { recursive: true });
+    const stale = path.join(tmp, 'run-stale'); const fresh = path.join(tmp, 'run-fresh');
     for (const d of [stale, fresh]) { fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'diff.patch'), 'diff\n'); }
     const old = new Date(Date.now() - 2 * 60 * 60 * 1000); fs.utimesSync(stale, old, old);
     const body = path.join(repo.root, 'body.md');
-    expect(runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '9', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body], { TMPDIR: tmp }).status).toBe(EXIT.ok);
+    expect(runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '9', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]).status).toBe(EXIT.ok);
     expect([fs.existsSync(stale), fs.existsSync(fresh)]).toEqual([false, true]);
   });
 });

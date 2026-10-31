@@ -506,5 +506,22 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     const wrote = f.run(path.join(BIN, 'gstack-ship-receipt'), ['carry', '--pr', '9', '--base', 'main']);
     expect([wrote.status, fs.existsSync(path.join(f.work, '.git', 'gstack', `scoped-review-${head.slice(0, 12)}.md`))]).toEqual([EXIT.refused, true]);
   });
+
+  // Value: protects=the dry run offers the scoped route only when nothing else would refuse the carry, so preflight never sends
+  //   the agent through a commit, packet, reviewer and pregate that end in another refusal (adversarial-native#5, Step 11
+  //   round 2); fails_when=the dry run returns the scoped refusal before the receipt's other carry checks; seam=gh; no_claim=none
+  test('a dry run that the receipt would refuse anyway names that refusal, not the scoped route', () => {
+    const src = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => edit[i + 1] ?? `exports.v${i + 1} = ${i + 1};`).join('\n') + '\n';
+    const f = fx({ 'lib/rows.js': src() }, { 'lib/rows.js': src({ 6: 'exports.v6 = 600;' }) });
+    const reviewed = f.git('rev-parse', 'HEAD').stdout.trim();
+    f.advanceBase({ 'lib/rows.js': src({ 5: 'exports.v5 = "five";' }) });
+    mergeMain(f, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const view = path.join(f.root, 'view.json');
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge', gstack_version: '1.0.0' } as any), headRefOid: head }));
+    f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
+    const r = f.run(path.join(BIN, 'gstack-ship-receipt'), ['carry', '--pr', '9', '--base', 'main', '--dry-run']);
+    expect([r.status, lineOf(r.stdout, 'CARRY')]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_REFUSED)']);
+  });
 });
 
