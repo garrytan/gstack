@@ -7,7 +7,7 @@ bump: minor
 - **`gstack-ci-audit ship-check`**: a few-second, report-only check for /ship. It checks CI-shaping files in the diff against the lessons, and with `--pr` compares the PR's previous settled push with up to 40 comparable all-green PR heads. "Slower" means above their p95 and at least `ci_audit_slower_min_s` (default 120) over their median; under 8 comparable heads it prints `unknown thin baseline`. About 6 GitHub calls, 10 s deadline. `gstack-config set ci_audit_ship off` turns it off. (The /ship step that calls it lands separately.)
 - **Saturday audit**: `lib/ci-audit/templates/ci-audit-weekly.yml` runs the report every Saturday at 15:00 UTC and `gstack-ci-audit publish` keeps one "Weekly CI audit" issue current. Only a complete audit replaces the issue or closes it; a partial or failed one comments and keeps the last findings.
 - **`--record` / `--fixture`** (or `GSTACK_CI_AUDIT_FIXTURE`) save and replay GitHub responses with allowlisted fields only, plus the recording's clock; `test/fixtures/ci-audit/gstack` is a recorded gstack window.
-- **Paid case `ci-audit-planted`** (gate, behavior) runs /ci-audit on a synthetic repo with three planted problems and two decoys; `ci-audit-planted-no-gstack` (marathon lane) gives the same task and data with no skill text.
+- **Paid case `ci-audit-planted`** (gate, behavior) runs /ci-audit on a synthetic repo with three planted problems and two decoys; `ci-audit-planted-no-gstack` (periodic) gives the same task and data with no skill text.
 - **docs/ci-audit.md**, catalog rows, and the doctor's `ci-audit` row.
 
 ### Changed
