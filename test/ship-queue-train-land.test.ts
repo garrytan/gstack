@@ -156,9 +156,14 @@ describe('stamped trains: build and land', () => {
   }, 300_000);
 
   test('a failed stamp push with the branch still at the pin fails retryably instead of reporting a move', () => {
-    const { fx, nonce } = stampedTrain();
+    const { fx, h1, nonce } = stampedTrain();
     expect(queue(fx, ['train', 'verdict', '--train', nonce]).status).toBe(EXIT.ok);
     const hook = path.join(fx.repo.origin, 'hooks', 'pre-receive');
+    fs.writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const refused = land(fx, nonce, '1');
+    expect(refused.err).toMatch(/the land lock push to origin failed and the lock there is unchanged; nothing was pushed.*\(QUEUE_NOT_READY\)/);
+    expect(refused.err).not.toContain('another lander');
+    expect(fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', 'refs/heads/pr-1')).toBe(h1);
     fs.writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do [ "$ref" = refs/heads/pr-1 ] && exit 1; done\nexit 0\n', { mode: 0o755 });
     const failed = land(fx, nonce, '1');
     expect(failed.err).toMatch(/the stamp push failed and pr-1 still reads.*\(QUEUE_NOT_READY\)/);

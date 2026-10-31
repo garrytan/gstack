@@ -34,7 +34,7 @@ import { waitChecks } from './ship-queue-land';
 import { verifyPostMerge } from './ship-queue-post-merge';
 import { bindTrainReceipt } from './ship-queue-train-gate';
 import { checkRun, prInfo, type PrInfo } from './ship-queue-train-github';
-import { TERMINAL_STATES, activeFreeze, attemptsOf, nowIso, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
+import { TERMINAL_STATES, activeFreeze, attemptsOf, nowIso, rebuildFromNotes, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
 import { fetchBase, fetchTrainBranch, findTrain, frozenLines, nextFor, outFailed, outPending, outRefused, save, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { confirmMerged, stopped } from './ship-queue-train-verify';
 
@@ -248,6 +248,7 @@ interface TrainLandOptions { train: string; pr: string; noWait?: boolean; timeou
 function trainTakeover(env: TrainEnv, t: TrainRecord, i: number, lock: LandLock): string | null {
   if (lock.train === t.nonce && lock.phase === 'between') return `LOCK: train ${t.nonce} slot ${i + 1} takes over its train's between-slots lock (from slot ${lock.slot})`;
   if (lock.phase === 'freeze') {
+    rebuildFromNotes(env.ctx.repoRoot, env.remote);
     const freeze = activeFreeze(env.repo.keys);
     if (freeze?.repair?.train === t.nonce) return `LOCK: repair train ${t.nonce} takes over the freeze lock of ${lockLabel(lock)}`;
     return freeze ? null : `LOCK: train ${t.nonce} takes over ${lockLabel(lock)}'s freeze lock; that freeze is cleared`;
@@ -258,9 +259,9 @@ function trainTakeover(env: TrainEnv, t: TrainRecord, i: number, lock: LandLock)
 }
 
 /**
- * The one release point: a freeze keeps the lock in `freeze`; a merged slot with landable slots left, or a pending
- * wait between slots, keeps it `between`; a failure after a remote effect keeps its phase for the resume; anything
- * else releases it.
+ * The one release point: a freeze keeps the lock in `freeze`; once a slot merged, a train still merging keeps it
+ * `between` (a merged slot, a pending wait or a refusal before this slot's push); a failure after a remote effect
+ * keeps its phase for the resume; anything else releases it.
  */
 function settleLock(s: Slot, out: TrainOut): TrainOut {
   const held = s.lock.held!;
@@ -268,7 +269,7 @@ function settleLock(s: Slot, out: TrainOut): TrainOut {
   const keep = (phase: LandLockPhase, line: string) => (held.set(phase) ? `LOCK: ${phase} could not be written (another lander took the lock)` : line);
   let line: string;
   if (activeFreeze(s.env.repo.keys)) line = keep('freeze', 'LOCK: freeze (kept for the repair train the freeze admits; --break-lock never breaks it)');
-  else if (midway && (out.exit === 0 || (out.status === 'incomplete' && !s.lock.effect))) line = keep('between', `LOCK: between (train ${s.t.nonce} keeps the land lock for its next slot)`);
+  else if (midway && (out.exit === 0 || !s.lock.effect)) line = keep('between', `LOCK: between (train ${s.t.nonce} keeps the land lock for its next slot)`);
   else if (out.exit !== 0 && s.lock.effect) line = `LOCK: kept in phase ${held.lock.phase}; ${s.rerun} resumes it`;
   else line = held.release() ? 'LOCK: released' : 'LOCK: release push failed (the next lander takes it over)';
   return { ...out, lines: [...out.lines, line] };

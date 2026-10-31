@@ -215,6 +215,23 @@ describe('land and train land share the lock', () => {
     void heads;
   }, 300_000);
 
+  // fails_when=settleLock releases the lock on a refusal partway through a train, so one transient gh or fetch failure on slot 2 lets a standalone land publish onto S1 and the rerun freezes the queue (red team, PR #3737 pass 1); why_new=the test above refuses slot 1 only, before anything merged; seam=the fixture's gh pr view; no_claim=the freeze itself
+  test('a refusal partway through a train (slot 1 merged, slot 2 cannot read its PR) keeps the lock between slots, so a standalone land still refuses', () => {
+    const { fx, nonce } = stampedTrain();
+    fragmentPr(fx, '3');
+    trainLand(fx, nonce, '1');
+    expect(trainLand(fx, nonce, '1').status).toBe(EXIT.ok);
+    const row = fx.read().prs['2'];
+    fx.write(d => { delete d.prs['2']; });
+    const refused = trainLand(fx, nonce, '2');
+    expect(refused.err).toContain('(QUEUE_PROOF_MISSING)');
+    expect(refused.out).toMatch(/^LOCK: between /m);
+    expect(originLock(fx)).toMatchObject({ train: nonce, phase: 'between' });
+    expect(land(fx, '3').err).toMatch(/holds the land lock .*phase between.*\(QUEUE_LAND_LOCKED\)/);
+    fx.write(d => { d.prs['2'] = row; });
+    expect(trainLand(fx, nonce, '2').out).toMatch(/^PUSHED: [0-9a-f]{40}/m);
+  }, 300_000);
+
   test('a standalone land holding the lock refuses train land; a refusal before any push releases the train\'s lock', () => {
     const { fx, heads, nonce } = stampedTrain();
     fragmentPr(fx, '3');

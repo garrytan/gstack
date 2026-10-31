@@ -53,7 +53,7 @@ export interface HeldLandLock {
   readonly lock: LandLock;
   /** This owner's lock as it was before this run took it back (a resume), else null. */
   readonly resumed: LandLock | null;
-  /** Move to a phase under the exact lease; a failure means another lander took the lock. */
+  /** Move to a phase under the exact lease; a failure is another lander's lock (QUEUE_LAND_LOCKED) or a refused push (QUEUE_NOT_READY). */
   set(phase: LandLockPhase, extra?: Partial<LandLock>): QueueFailure | null;
   release(): boolean;
 }
@@ -113,7 +113,11 @@ export function acquireLandLock(o: AcquireOptions): { held: HeldLandLock; lines:
   const set = (phase: LandLockPhase, extra: Partial<LandLock> = {}): QueueFailure | null => {
     const next: LandLock = { pr: o.owner.pr, ...(o.owner.train ? { train: o.owner.train, slot: o.owner.slot } : {}), holder: o.holder, started_at: startedAt, phase, journal: o.journal, phase_at: o.now().toISOString(), ...always, ...extra };
     const w = writeLock(o.root, sha, next, remote);
-    if (!w.ok) return { code: 'QUEUE_LAND_LOCKED', message: 'the land lock moved under this run (another lander took it)' };
+    if (!w.ok) {
+      return readLock(o.root, remote).sha === sha
+        ? { code: 'QUEUE_NOT_READY', message: `the land lock push to ${remote} failed and the lock there is unchanged; nothing was pushed` }
+        : { code: 'QUEUE_LAND_LOCKED', message: 'the land lock moved under this run (another lander took it)' };
+    }
     sha = w.sha; current = next;
     return null;
   };

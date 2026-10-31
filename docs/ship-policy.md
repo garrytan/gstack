@@ -403,18 +403,23 @@ tree the last merge publishes.
 [`land`](#land), `refs/notes/gstack-land`, as `train <nonce> slot <i> (#<pr>)`,
 before its first read of main, so a standalone land and a train slot never
 both publish onto one main: whichever starts second refuses with
-`QUEUE_LAND_LOCKED`, naming the holder. After a slot merges with landable slots
-left, the train keeps the lock in phase `between`, which only the same train's
-next slot takes over; it is released after the last landable slot, and on a
-refusal before any push. After a push, a failure keeps the lock in its phase
-and a rerun of the same slot takes it back. A stop that freezes the queue
+`QUEUE_LAND_LOCKED`, naming the holder. Once a slot has merged, the train keeps
+the lock in phase `between`, which only the same train's next slot takes over,
+until its last landable slot lands; a refusal before a later slot's push (a
+failed `gh` or `git fetch` read, say) keeps it too, so no standalone land slips
+in while the train waits on a rerun. Before any slot merged, a refusal before
+the push releases it. After a push, a failure keeps the lock in its phase and a
+rerun of the same slot takes it back. A stop that freezes the queue
 leaves the lock in phase `freeze`, which `--break-lock` never breaks: only the
 repair train the freeze admits takes it over, and it is released when that
 train clears the freeze. `--break-lock` prints the holder (`LOCK_HOLDER:`),
 keeps land's staleness, mid-push and drift rules, refuses a `between` lock
 younger than 10 minutes, and refuses a live train run's lock unless
 `--break-train-lock` is also given. `train watch --land` goes through `train
-land`, so it stops with `NEXT:` on `QUEUE_LAND_LOCKED` like any refusal.
+land`, so it stops with `NEXT:` on `QUEUE_LAND_LOCKED` like any refusal. A train
+`train land` refuses (one built without stamped prefixes or a gate) still merges
+through `verify --train` and `gh pr merge`, which neither take nor check this
+lock.
 
 Slots merge with `train land --train <nonce> --pr <n>`, never a slot call:
 
