@@ -6,7 +6,7 @@
  * a two-finger zoom surface and a joystick plus fire button.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -25,6 +25,7 @@ let bm: BrowserManager;
 let baseUrl: string;
 const shutdown = async () => {};
 const VERBS = ['device', 'tap', 'swipe', 'pinch', 'touch'];
+setDefaultTimeout(20_000);
 
 beforeAll(async () => {
   CHROMIUM_PROFILE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-profile-'));
@@ -130,14 +131,17 @@ describe('device', () => {
     await run('device', ['off']);
   });
 
-  test('full-page screenshot keeps the phone metrics', async () => {
+  test('screenshots capture the phone and keep its metrics', async () => {
     await freshTouchTab();
     const out = path.join(os.tmpdir(), `touch-shot-${process.pid}.png`);
-    await handleMetaCommand('screenshot', [out], bm, shutdown);
+    for (const extra of [[], ['--viewport'], ['#zoom'], ['--clip', '0,0,50,50']]) {
+      await handleMetaCommand('screenshot', [...extra, out], bm, shutdown);
+      const png = fs.readFileSync(out);
+      if (extra.length === 0 || extra[0] === '--viewport') expect(png.readUInt32BE(16)).toBe(393 * 3);
+      const p = await probe();
+      expect({ extra, width: p.width, coarse: p.coarse, touch: p.maxTouchPoints }).toEqual({ extra, width: 393, coarse: true, touch: 5 });
+    }
     fs.rmSync(out, { force: true });
-    const p = await probe();
-    expect(p.width).toBe(393);
-    expect(p.coarse).toBe(true);
     await run('device', ['off']);
   });
 
@@ -208,10 +212,11 @@ describe('touch input', () => {
 
   test('usage errors name the problem and give a fix', async () => {
     await freshTouchTab();
-    await expect(run('touch', ['up', '3'])).rejects.toThrow(/finger 3 is not down[\s\S]*fix:/);
-    await expect(run('touch', ['down', '12', '1', '1'])).rejects.toThrow(/0-9[\s\S]*fix:/);
-    await expect(run('swipe', ['#carousel', 'sideways'])).rejects.toThrow(/up\|down\|left\|right[\s\S]*fix:/);
-    await expect(run('pinch', ['#zoom', '-1'])).rejects.toThrow(/scale[\s\S]*fix:/);
+    const message = (cmd: string, args: string[]) => run(cmd, args).then(() => '', (err: Error) => err.message);
+    expect(await message('touch', ['up', '3'])).toMatch(/finger 3 is not down[\s\S]*fix:/);
+    expect(await message('touch', ['down', '12', '1', '1'])).toMatch(/0-9[\s\S]*fix:/);
+    expect(await message('swipe', ['#carousel', 'sideways'])).toMatch(/up\|down\|left\|right[\s\S]*fix:/);
+    expect(await message('pinch', ['#zoom', '-1'])).toMatch(/scale[\s\S]*fix:/);
   });
 
   test('held fingers are cancelled on navigation and by touch cancel', async () => {

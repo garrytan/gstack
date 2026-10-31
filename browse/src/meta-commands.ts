@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { TEMP_DIR } from './platform';
+import { reassertDevice, refuseWhileDevice, screenshotTab } from './device-emulation';
 import { resolveConfig } from './config';
 import { filterSessionCookies } from './session-persist';
 import type { Frame } from 'playwright';
@@ -511,10 +512,11 @@ export async function handleMetaCommand(
           const resolved = await bm.resolveRef(targetSelector);
           const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
           buffer = await locator.screenshot({ timeout: 5000 });
+          await reassertDevice(bm.getActiveSession());
         } else if (clipRect) {
-          buffer = await page.screenshot({ clip: clipRect });
+          buffer = await screenshotTab(bm.getActiveSession(), { clip: clipRect });
         } else {
-          buffer = await page.screenshot({ fullPage: !viewportOnly });
+          buffer = await screenshotTab(bm.getActiveSession(), { fullPage: !viewportOnly });
           // Guard the most common API-bricking case (fullPage). Element /
           // clip captures usually stay within the cap; we still guard the
           // path-mode below for fullPage writes.
@@ -530,15 +532,16 @@ export async function handleMetaCommand(
         const resolved = await bm.resolveRef(targetSelector);
         const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
         await locator.screenshot({ path: outputPath, timeout: 5000 });
+        await reassertDevice(bm.getActiveSession());
         return `Screenshot saved (element): ${outputPath}`;
       }
 
       if (clipRect) {
-        await page.screenshot({ path: outputPath, clip: clipRect });
+        await screenshotTab(bm.getActiveSession(), { path: outputPath, clip: clipRect });
         return `Screenshot saved (clip ${clipRect.x},${clipRect.y},${clipRect.width},${clipRect.height}): ${outputPath}`;
       }
 
-      await page.screenshot({ path: outputPath, fullPage: !viewportOnly });
+      await screenshotTab(bm.getActiveSession(), { path: outputPath, fullPage: !viewportOnly });
       if (!viewportOnly) await guardScreenshotPath(outputPath);
       return `Screenshot saved${viewportOnly ? ' (viewport)' : ''}: ${outputPath}`;
     }
@@ -574,6 +577,7 @@ export async function handleMetaCommand(
     }
 
     case 'responsive': {
+      refuseWhileDevice(bm.getActiveSession(), 'responsive');
       const page = bm.getPage();
       const prefix = args[0] || `${TEMP_DIR}/browse-responsive`;
       validateOutputPath(prefix);

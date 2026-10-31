@@ -21,6 +21,8 @@ import { TEMP_DIR } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
 import { withCdpSession } from './cdp-bridge';
+import { handleDeviceCommand, refuseWhileDevice } from './device-emulation';
+import { TOUCH_COMMANDS, handleTouchCommand } from './touch-commands';
 
 /**
  * Aggressive page cleanup selectors and heuristics.
@@ -141,6 +143,8 @@ export async function handleWriteCommand(
   // Frame-aware target for locator-based operations (click, fill, etc.)
   const target = session.getActiveFrameOrPage();
   const inFrame = session.getFrame() !== null;
+  if (command === 'device') return handleDeviceCommand(args, session);
+  if (TOUCH_COMMANDS.has(command)) return handleTouchCommand(command, args, session);
 
   switch (command) {
     case 'goto': {
@@ -526,6 +530,7 @@ export async function handleWriteCommand(
     }
 
     case 'viewport': {
+      refuseWhileDevice(session, 'viewport');
       // Parse args: [<WxH>] [--scale <n>]. Either may be omitted, but NOT both.
       let sizeArg: string | undefined;
       let scaleArg: number | undefined;

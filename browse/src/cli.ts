@@ -1856,6 +1856,10 @@ Inspection:     js <expr> | eval <file> | css <sel> <prop> | attrs <sel>
                 is <prop> <sel> (visible|hidden|enabled|disabled|checked|editable|focused)
 Visual:         screenshot [--viewport] [--clip x,y,w,h] [@ref|sel] [path]
                 pdf [path] | responsive [prefix]
+Touch:          device ["<phone>" [--landscape] | off | --list]  (this tab only)
+                tap <@ref|sel|x y> [--hold <ms>] | pinch <@ref|sel|x y> <scale>
+                swipe <@ref|sel|x y> <up|down|left|right> [--distance <px>] [--ms <n>]
+                touch [down|move <finger 0-9> <x> <y> | up <finger> | cancel]
 Snapshot:       snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o path] [-C]
                 -D/--diff: diff against previous snapshot
                 -a/--annotate: annotated screenshot with ref labels
