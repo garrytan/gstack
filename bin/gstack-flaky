@@ -58,7 +58,7 @@ const FIX: Record<string, string> = {
   FLAKY_COMMAND_NOT_STARTED: 'check the command after -- (it runs without a shell; wrap it as bash -c \'<script> "$@"\' _ when it needs one)',
   FLAKY_UNREPORTED_FAILURES: 'the runner counted failures its JUnit omits (a test file that failed to load, an error outside any test); fix that first, it is a real red',
   FLAKY_QUARANTINE_INVALID: 'fix .gstack/quarantine.json: it must be {"schema":1,"entries":{...},"released":[...]} (gstack-flaky quarantine check names the problem)',
-  FLAKY_QUARANTINE_BASE: 'fetch the base branch before the run (git fetch origin <branch>, or actions/checkout fetch-depth: 0) and pass it as --base origin/<branch>',
+  FLAKY_QUARANTINE_BASE: 'the base branch is not in this clone: fetch it before the run (in Actions, actions/checkout with fetch-depth: 0) and pass it as --base origin/<branch>',
   FLAKY_QUARANTINE_REFUSED: 'read the reason above; docs/flaky.md#quarantine lists the rules',
   FLAKY_QUARANTINE_USAGE: 'gstack-flaky quarantine --help',
 };
