@@ -236,8 +236,9 @@ now names HEAD with a `carry` object holding the `git range-diff` evidence, and
 counters are kept, because the reviewed product diff is unchanged or its only
 difference passed a scoped review. `CARRY: current` means nothing moved.
 `CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)` means the base edited context
-next to reviewed hunks: one fix-check reviewer reads the packet the refusal
-names, and a clean record reruns carry with `--scoped-review <record.json>`
+next to reviewed hunks. Carry without `--dry-run` writes the packet the
+refusal names (a dry run writes none), one fix-check reviewer reads it, and a
+clean record reruns carry with `--scoped-review <record.json>`
 ([troubleshooting](troubleshooting.md#receipt-carry-scoped-review)). `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`,
 `(RECEIPT_CARRY_TREE_MISMATCH)` or `(RECEIPT_CARRY_REFUSED)` with the refused
 result line means the product diff changed, or history was rewritten onto a
