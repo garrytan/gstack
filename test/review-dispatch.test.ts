@@ -418,7 +418,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     fs.writeFileSync(judged, r.lines.map(l => JSON.stringify({ id: l.id, severity: 'INFORMATIONAL' })).join('\n') + '\n');
     expect(judge(readJsonl<MergedLine>(merged), readJsonl(judged)).ok).toBe(true);
     for (const word of ['Neither finding is CRITICAL.', 'This is not CRITICAL.', 'There are no CRITICAL findings.', 'None of these is High.', 'The race sits below CRITICAL on the floor.',
-      'It ranks lower than High.', "Pass 1 rated it 'High'; the fix closes it.", 'I used the `CRITICAL` label for none of them.', 'Severity vocabulary: Critical|High|Medium|Low'])
+      'It ranks lower than High.', "Pass 1 rated it 'High'; the fix closes it.", 'The brief\'s word "CRITICAL" fits none of them.', 'Severity vocabulary: Critical|High|Medium|Low',
+      "This doesn't rise to CRITICAL.", 'It cannot be CRITICAL.', 'Nothing here is CRITICAL.', 'This is not really CRITICAL.'])
       expect([word, parseFindings('outside-voice', word)]).toEqual([word, []]);
     expect(parseFindings('outside-voice', '1. **High**: retry loop never backs off (q.ts:78)\n\nOverall: one High finding, nothing CRITICAL.').map(f => f.label)).toEqual(['High']);
     expect(parseFindings('outside-voice', 'Severity: Low (not High)\n').map(f => f.label)).toEqual(['Low']);
@@ -426,8 +427,16 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       ['| High | race in queue.ts:4 |', 'High'], ['| `High` | race in queue.ts:4 |', 'High'], ['The retry drops writes, a CRITICAL defect (q.ts:78).', 'CRITICAL'], ['[P1] token not expired', 'P1'],
       ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ['Summary: CRITICAL auth bypass at a.ts:3', 'CRITICAL'], ["The lock isn't released on error (pool.ts:12): High", 'High'],
       ['1. Without auth this is CRITICAL (a.ts:3)', 'CRITICAL'], ['- Input is never sanitized CRITICAL', 'CRITICAL'], ['1. Requests with no token pass High (a.ts:4)', 'High'],
-      ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'], ['|auth.ts:9|token never expires|CRITICAL|', 'CRITICAL']];
+      ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'], ['|auth.ts:9|token never expires|CRITICAL|', 'CRITICAL'],
+      ['None of the inputs are sanitized so this is CRITICAL (a.ts:3)', 'CRITICAL'], ['Neither path checks auth so this is CRITICAL (a.ts:3)', 'CRITICAL'],
+      ['No defects in parsing but the upload handler is CRITICAL.', 'CRITICAL'], ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'],
+      ['|1|FIXABLE|High|race in queue.ts:78|', 'High'], ['**Token leak in log.ts:3**\nSeverity: `Critical`', 'Critical']];
     for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
+    // Pre-landing review (#3677 Step 11): a summary-led line with a locus or Blocks: yes, or a stronger label than any finding so far,
+    // still collects; a backticked native classification still collects as CRITICAL.
+    expect(parseFindings('outside-voice', '1. **High**: race in a.ts:1\nSummary endpoint in summary.ts:9 leaks tokens. Severity: High. Blocks: yes').map(f => f.label)).toEqual(['High', 'CRITICAL']);
+    expect(parseFindings('outside-voice', '1. **Low**: noisy log in a.ts:1\n\nOverall: the upload handler is CRITICAL.').map(f => f.label)).toEqual(['Low', 'CRITICAL']);
+    expect(parseFindings('adversarial-native', '**1. Race in a.ts:3 (`FIXABLE`).**\nSeverity: Low. Blocks: no').map(f => f.label)).toEqual(['CRITICAL']);
   });
 
   // Value: protects=the mirror of GST-435: a refusal whose prose names severity words ("no CRITICAL or High findings to report") is
@@ -452,6 +461,45 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       .toEqual([['High', '**1. A PR in', true], ['CRITICAL', '**2. A case ', true], ['CRITICAL', '**3. Local `', true], ['Low', '**4. No trai', true]]);
     expect(parseFindings('outside-voice', '1. FIXABLE: race in a.ts:3\n- Unlabeled sibling at b.ts:9\nSeverity: Medium').map(f => f.label)).toEqual(['FIXABLE', 'Medium']);
     expect(parseFindings('outside-voice', '**Retry storm in r.ts:2 (INVESTIGATE).**\n- detail\n- High: a second defect in s.ts:4\nSeverity: Medium').map(f => f.label)).toEqual(['INVESTIGATE', 'High']);
+    expect(parseFindings('outside-voice', 'Low: cache TTL mismatch (cache.ts:4)\n\n2. Token never expires (auth.ts:9)\nSeverity: High\nBlocks: yes').map(f => [f.label, f.raw]))
+      .toEqual([['Low', 'Low: cache TTL mismatch (cache.ts:4)'], ['CRITICAL', '2. Token never expires (auth.ts:9) | Severity: High | Blocks: yes']]);
+    expect(parseFindings('outside-voice', '**Race in a.ts:3 (High).**\n- the writer holds no lock\nSeverity: Medium').map(f => f.raw)).toEqual(['**Race in a.ts:3 (High).** | - the writer holds no lock | Severity: Medium']);
+  });
+
+  // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
+  //   voice recorded with --unavailable reads UNAVAILABLE (missing coverage, never a review) without blocking, while --unavailable is
+  //   refused for any other reader; fails_when=one outside-voice timeout or one refusal makes VERIFY dirty for good, or --unavailable
+  //   lets a specialist skip coverage; why_new=#3677 Step 11 adversarial voice; seam=collect and verify; no_claim=the review-log row
+  test('a refusal replaced by a review is voided; an outside voice failure is UNAVAILABLE; --unavailable is the outside voice only', () => {
+    const p = pass();
+    const send = () => run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    const take = (f: string) => run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', f, '--merged', p.merged]);
+    send();
+    expect(take(p.w('refusal.out', 'I could not access the diff.\n')).status).toBe(1);
+    expect(run(['verify', '--ledger', p.ledger]).stdout).toContain('VERIFY: dirty');
+    send();
+    expect(take(p.w('clean.out', 'NO FINDINGS\n')).status).toBe(0);
+    fs.writeFileSync(path.join(p.out, 'judged.jsonl'), '');
+    run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', path.join(p.out, 'judged.jsonl')]);
+    const v = run(['verify', '--ledger', p.ledger]);
+    expect([v.status, v.stdout.includes('replaced_by_a_review'), v.stdout.includes('VERIFY: clean briefs=1 outputs=2 voided=1')]).toEqual([0, true, true]);
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const o = tmp();
+    const ov = field(run(['render', '--role', 'outside-voice', '--out', o, '--diff-base', head]).stdout, 'file');
+    const ledger = path.join(o, 'review-ledger.jsonl'), merged = path.join(o, 'merged.jsonl');
+    run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', ov]);
+    const fail = path.join(o, 'timeout.out');
+    fs.writeFileSync(fail, 'Codex timed out after 9 minutes and was terminated; this pass produced NO findings.\n');
+    const c = run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', fail, '--merged', merged, '--unavailable', 'timeout']);
+    expect([c.status, c.stdout.startsWith('COLLECT_UNAVAILABLE: reader=outside-voice ')]).toEqual([0, true]);
+    fs.writeFileSync(path.join(o, 'judged.jsonl'), '');
+    run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(o, 'judged.jsonl')]);
+    const w = run(['verify', '--ledger', ledger]);
+    expect([w.status, w.stdout.includes('BRIEF outside-voice UNAVAILABLE'), w.stdout.includes('OUTPUT outside-voice UNAVAILABLE'), w.stdout.includes(' unavailable=1\n')]).toEqual([0, true, true, true]);
+    const q = pass();
+    run(['sent', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--sent', q.file]);
+    const refused = run(['collect', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--output', q.w('t.out', 'timed out\n'), '--merged', q.merged, '--unavailable', 'timeout']);
+    expect([refused.status, refused.stderr.includes('--unavailable is for the outside voice only')]).toEqual([2, true]);
   });
 
   test('verify on a ledger that kept no prompts says so and exits 3', () => {
