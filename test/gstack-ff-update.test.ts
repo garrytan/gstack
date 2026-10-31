@@ -323,9 +323,9 @@ describe.skipIf(process.platform === 'win32')('gstack-ff-update: moving the tree
     const fx = makeFixture(`gstack*${'x'.repeat(150)}`);
     const name = path.basename(fx.install);
     git(fx.base, 'init', '-q', '-b', 'main');
-    fs.mkdirSync(path.join(fx.base, 'gstack-data'));
-    fs.writeFileSync(path.join(fx.base, 'gstack-data', 'important'), 'keep\n');
-    git(fx.base, 'add', '--', 'gstack-data/important');
+    const decoy = `gstack-data${'x'.repeat(150)}`;
+    fs.writeFileSync(path.join(fx.base, decoy), 'keep\n');
+    git(fx.base, 'add', '--', decoy);
     git(fx.base, 'update-index', '--add', '--', `${name}/VERSION`);
     const r = spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 });
     expect(r.status, r.stdout + r.stderr).toBe(6);
@@ -334,7 +334,7 @@ describe.skipIf(process.platform === 'win32')('gstack-ff-update: moving the tree
     const rm = r.stdout.match(/fix: (git -C .*? rm -r -q --cached -- '[^']*')/)?.[1];
     expect(rm).toContain('--literal-pathspecs');
     expect(spawnSync('bash', ['-c', rm!], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
-    expect(git(fx.base, 'ls-files').split('\n')).toEqual(['gstack-data/important']);
+    expect(git(fx.base, 'ls-files').split('\n')).toEqual([decoy]);
   });
 
   // Value: protects=a dirty VERSION beside an unmerged file still takes the rescue (stash cannot run there); a VERSION that differs only in mode is no
