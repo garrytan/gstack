@@ -15,8 +15,9 @@ const openclaw = defineHost({
   suppressedResolvers: [...CROSS_MODEL_RESOLVERS, ...GBRAIN_RESOLVERS],
 
   // ./setup --host openclaw (and setup run inside OpenClaw) registers through
-  // gstack-harness: one gstack router skill in $OPENCLAW_STATE_DIR/skills, or
-  // every skill with --skills all. OpenClaw's ACP route (docs/OPENCLAW.md) stays.
+  // gstack-harness: the task skills plus one gstack router skill for the rest in
+  // $OPENCLAW_STATE_DIR/skills (hybrid), or --skills router|all. OpenClaw's ACP
+  // route (docs/OPENCLAW.md) stays.
   install: {
     linkingStrategy: 'symlink-generated',
     registration: 'harness',

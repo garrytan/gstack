@@ -48,6 +48,7 @@ gstack-approvals add --ask "Spend up to \$40 on a paid eval rerun for the ship c
 gstack-approvals add --outcome standing --ask "Merge #3330 when green" \
   --words "yes merge when green" --by "Garry, 2026-10-16 (Captain rule)" --scope "every crew PR, through a train"
 gstack-approvals import --autoplan <run dir> --by Garry   # after gstack-autoplan answer; idempotent
+gstack-approvals import --autoplan <run dir> --by Garry --stack b1,b2   # a stacked PR set: every branch, or none
 gstack-approvals render                                    # the ## Approvals section
 ```
 
@@ -86,23 +87,24 @@ project can follow it:
 3. **What caused this work.** The trigger: an issue or PR link, a failed run, a user report, or the
    person's request, quoted.
 4. **Big decisions.** For each: the options considered, the pick and why, and what would flip it.
-5. **What we need from you.** One decision, the options and their costs, the pick, and the one-word reply.
-   The recommended reply is the default (`rec` for an autoplan gate). Never offer "the plan as first
-   written" as the default.
-6. **"do it".** Every ask ends with a "do it" reply: take every recommendation at full scope, the follow-ons
-   the plan names (docs, trains, cleanups) included, and carry them through to done with no further ask.
-   Say in one line what it covers. For an autoplan gate, "do it" answers as `rec`; record the words.
+5. **What we need from you.** The ask format (`docs/captain.md`, The ask format): the Captain's name, then one
+   lettered line per decision, letters unique across the list: "A: <code> hit problem p, which happens when h.
+   We could fix it in these ways: 1) x; 2) y; 3) z. Recommendation: x because why. A1 to take recommendation."
+   The recommendation is option 1. Never offer "the plan as first written" as the default.
+6. **"do it".** Every ask ends with "do it": take every recommendation in the list at full scope, the follow-ons
+   the plan names (docs, trains, cleanups) included, and carry them through to done with no further ask. A named
+   option ("A2") takes that option instead. For an autoplan gate, "do it" answers as `rec`; record the words.
 
-For an autoplan run, write parts 1 to 4 as `## Before → after`, `## Why it matters`,
-`## What caused this work` and `## Big decisions` sections in the plan. Then, at the gate:
+For an autoplan run, open the plan with `## ELI5` (5-10 plain sentences), then write parts 1 to 4 as
+`## Before → after`, `## Why it matters`, `## What caused this work` and `## Big decisions` sections. Then, at the gate:
 
 ```bash
-gstack-owner-brief render --captain --out <run dir>
+gstack-owner-brief render --captain --out <run dir> --captain-name "<Captain name>"
 ```
 
-It prints a header line ("Decision needed … Reply **rec** …"), the four plan sections (each capped, with a
-pointer to the plan for the rest), and "What we need from you", which lists every choice `rec` takes, in
-words, and closes with the "do it" reply, then a `### Cost` section (spent so far, worst case, and the estimate for
+It prints a header line ("Decision needed … Reply **do it** …"), the `### ELI5` summary (on a run whose gate
+carries `eli5`), the four plan sections (each capped, with a pointer to the plan for the rest), and "What we need from you", one lettered
+line per choice in the ask format, closed by "do it", then a `### Cost` section (spent so far, worst case, and the estimate for
 the phases `rec` can reopen). The last line, "For the relaying agent", carries the run, `gate_rev`, `rec_hash` and the exact
 `gstack-autoplan answer` command. Relay everything above that line. When the reply comes back:
 
@@ -112,8 +114,14 @@ gstack-autoplan answer --out <run dir> --gate-rev <n> --reply rec --rec-hash <h>
 gstack-approvals import --autoplan <run dir> --by <name>
 ```
 
+A later gate that asks nothing new is answered for you with the words you recorded (`CARRIED:`, then `APPROVED:`);
+the brief says "Nothing pending. Carried forward", so import and build without a second ask. `CARRY_CHECK:` means
+one reviewer from another model family reads the unreviewed delta first (`gstack-autoplan check`). Anything
+else prints `CARRY: no (<why>)` and goes to the person as today (`docs/unattended.md#carry-forward`).
+
 If the person answers in words ("split it into two PRs"), map the words to tokens, answer, and confirm in one
-line what you recorded ("Recorded: split into two PRs; everything else as recommended"). A plan missing a
+line what you recorded ("Recorded: split into two PRs; everything else as recommended"). A named option ("B2")
+answers as `--reply "rec except <token>"`, with the token from the last line's letter map. A plan missing a
 section renders "Not ready for approval" with no reply invitation, and exits 1 (`CAPTAIN_BRIEF_INCOMPLETE`):
 add the sections, run `gstack-autoplan revise --plan <file>`, and render again. For a decision that is not an
 autoplan gate, write the same five parts by hand.
@@ -142,3 +150,8 @@ Every PR you send READY on, and the READY report itself, has:
 
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
 /ship does all of this when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
+
+A token cap in a brief goes to /ship as `--token-cap <n>`. When /ship stops on it (`STOP:
+reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
+owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
+`--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.

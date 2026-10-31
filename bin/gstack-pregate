@@ -42,7 +42,7 @@ import { DEFAULT_STALL_TIMEOUT_S } from '../lib/pregate/context';
 import { cancelActive } from '../lib/pregate/supervise';
 import { defaultGh, evaluateRegate, renderRegate } from '../lib/pregate/regate';
 import { GATE_AHEAD_REL } from '../lib/restamp';
-import { evaluateSealed, publishedCommits, rangeCommits, renderSealed } from '../lib/sealed-guard';
+import { evaluateSealed, publishedCommits, rangeCommits, renderSealed, sealedErrorReport } from '../lib/sealed-guard';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import { fromGateAhead } from '../lib/tree-receipt';
 
@@ -63,7 +63,8 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
   validate | init the working-tree ${PREGATE_CONFIG_PATH}
   sealed [--range <a..b>] [--remote <name>] [--base <branch>]
                   the sealed-output guard (docs/pregate.md#sealed) over the commits <remote> lacks, or the range:
-                  run it before any push or PR creation in a repo with a \`sealed\` config; exit 1 refuses (SEALED_OUTPUT_REFUSED)
+                  run it before any push or PR creation in a repo with a \`sealed\` config; exit 1 refuses (SEALED_OUTPUT_REFUSED);
+                  it never pushes: policy=<base> + commit <sha> names where the policy was read
   regate --against <gated-head> --bundle <file> [--require <lanes>] [--pr <n>] [--predecessor-pr <n> | --predecessor-ref <ref>]
                   a fresh tree receipt, each lane's reuse verdict, migration collisions (base branch and open PRs), then
                   REGATE: needed|not-needed (docs/pregate.md#regate); \`gstack-pregate --against <head>\` is the same verb; exit 1 = needed
@@ -72,15 +73,17 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
   --only <check,...>            restrict to these checks (${CHECK_IDS.join(', ')}; tier 2 later: ${PREGATE_TIER2.join(', ')})
   --base <branch>               a branch on origin, not a commit (default: origin/HEAD's branch, else main)
   --allow-repo-commands         run pin-file commands and the test runner (what /ship passes); without it those checks are incomplete
-  --policy-from base|head       base (default, reviewed) or head (unreviewed; needs --allow-repo-commands)
+  --policy-from base|head       base (default, reviewed) or head (unreviewed; needs --allow-repo-commands; the head file may
+                                only add test lanes over the base copy, else PREGATE_HEAD_POLICY_LOOSENS)
   --out <file>                  pregate.json path (default ${PREGATE_OUT_REL})
-  --timeout <s>                 timeout for each runner process (default 600): the unit-file group, each serial file, each guard
-                                without timeout_s; the stall timeout catches a silent one sooner
+  --timeout <s>                 timeout for each runner process (default timeout_s from the base .gstack/pregate.json, else 600):
+                                the unit-file group, each serial file, each guard without timeout_s, the remote gate; the stall
+                                timeout catches a silent one sooner
   --stall-timeout <s>           kill a test command's process group after this long with no output and record the check
                                 incomplete (PREGATE_STALLED); default stall_timeout_s from the base .gstack/pregate.json,
                                 else ${DEFAULT_STALL_TIMEOUT_S}; 0 disables
-  --remote                      run the base branch's remote_gate now instead of local tests (needs --allow-repo-commands and
-                                --policy-from base); it clears the requires-remote obligation only on its
+  --remote                      run the base branch's remote_gate now instead of local tests (needs --allow-repo-commands;
+                                under --policy-from head the gate is still the base copy's); it clears the requires-remote obligation only on its
                                 PREGATE_REMOTE: tree=<tested tree> tests=<n> failed=0 line with n > 0
   --spend-cap <usd>             the cap --remote passes to the gate (default \$GSTACK_SPEND_CAP_USD); spend is reported as
                                 spent, reserved and unknown
@@ -144,14 +147,15 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
   if (!['base', 'head'].includes(policyFrom)) { process.stderr.write('gstack-pregate: --policy-from needs base|head\n'); return EXIT.usage; }
   const allow = rest.includes('--allow-repo-commands');
   if (policyFrom === 'head' && !allow) { process.stderr.write('gstack-pregate: --policy-from head needs --allow-repo-commands (the working-tree pin files are unreviewed)\n'); return EXIT.refused; }
-  const timeoutMs = Number(flag(rest, '--timeout') ?? 600) * 1000;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) { process.stderr.write('gstack-pregate: --timeout needs a positive number of seconds\n'); return EXIT.usage; }
+  const timeoutFlag = flag(rest, '--timeout');
+  const timeoutMs = timeoutFlag === undefined ? undefined : Number(timeoutFlag) * 1000;
+  if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) { process.stderr.write('gstack-pregate: --timeout needs a positive number of seconds\n'); return EXIT.usage; }
   const stallFlag = flag(rest, '--stall-timeout');
   const stallTimeoutMs = stallFlag === undefined ? undefined : Number(stallFlag) * 1000;
   if (stallTimeoutMs !== undefined && (!Number.isFinite(stallTimeoutMs) || stallTimeoutMs < 0)) { process.stderr.write('gstack-pregate: --stall-timeout needs a number of seconds (0 disables)\n'); return EXIT.usage; }
   let remote: { spendCapUsd: number } | null = null;
   if (rest.includes('--remote')) {
-    if (!allow || policyFrom === 'head') { process.stderr.write('gstack-pregate: --remote runs the active policy\'s remote_gate (the base branch\'s copy, or the user-owned file when the base carries none) and needs --allow-repo-commands with --policy-from base\n'); return EXIT.refused; }
+    if (!allow) { process.stderr.write('gstack-pregate: --remote runs the trusted policy\'s remote_gate (the base branch\'s copy, or the user-owned file when the base carries none; a head policy may not change it) and needs --allow-repo-commands\n'); return EXIT.refused; }
     const cap = Number(flag(rest, '--spend-cap') ?? process.env.GSTACK_SPEND_CAP_USD ?? NaN);
     if (!Number.isFinite(cap) || cap <= 0) { process.stderr.write('gstack-pregate: --remote spends money; pass --spend-cap <usd> (or set GSTACK_SPEND_CAP_USD)\n'); return EXIT.usage; }
     remote = { spendCapUsd: cap };
@@ -281,13 +285,13 @@ function cmdSealed(root: string, rest: string[], json: boolean): number {
   const baseRef = gitOut(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${base}^{commit}`]) ? `refs/remotes/${remote}/${base}` : null;
   const remoteUrl = gitOut(root, ['remote', 'get-url', remote]);
   const report = 'error' in listed
-    ? { status: 'error' as const, error: listed.error, policyLabels: [], commits: 0, findings: [], waived: [], visibility: 'unknown' as const, visibilitySource: '', target: remoteUrl ?? remote }
+    ? sealedErrorReport(listed.error, remoteUrl ?? remote)
     : evaluateSealed({ repoRoot: root, targets: [{ commits: listed.commits, pushedSha }], baseRef, baseLabel: `${remote}/${base}`, remoteUrl, target: remoteUrl ?? remote });
   const blocks = report.status === 'refused' || report.status === 'error';
   if (json) { process.stdout.write(JSON.stringify({ ...report, ok: !blocks }) + '\n'); return blocks ? EXIT.fail : EXIT.ok; }
   process.stderr.write(renderSealed(report, 'gstack-pregate sealed'));
   const policy = report.policyLabels.length ? report.policyLabels.join(' + ') : `no sealed key on ${baseRef ?? `${remote}/${base}`} or ${end}`;
-  process.stdout.write(`SEALED: ${report.status} findings=${report.findings.length} commits=${report.commits} visibility=${report.visibility}${report.visibility === 'unknown' ? ' (counted public)' : ''} waived=${report.waived.length} policy=${policy}\n`);
+  process.stdout.write(`SEALED: ${report.status} findings=${report.findings.length} commits=${report.commits} visibility=${report.visibility}${report.visibility === 'unknown' ? ' (counted public)' : ''} waived=${report.waived.length} exempt=${report.exempt.length} policy=${policy}\n`);
   return blocks ? EXIT.fail : EXIT.ok;
 }
 

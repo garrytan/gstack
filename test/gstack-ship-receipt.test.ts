@@ -44,12 +44,14 @@ describe('gstack-ship-receipt write', () => {
       '--session-kind', 'unattended', '--artifacts-consumed', '2/3', '--run', 'run-1', '--thread', 'jam_1', '--queue-mode', 'stamp-at-merge',
       '--preregistration', 'none (no preregistration_shas)', '--history', 'squash-ok', '--body', body, '--out', path.join(repo.root, 'receipt.md')]);
     expect(ok.status).toBe(EXIT.ok);
-    expect(ok.err.trim()).toBe(`SHIP_RECEIPT: pr=42 head=${head.slice(0, 12)} version=1.2.4.0 base=main gated_tree=${repo.git('rev-parse', 'HEAD^{tree}').slice(0, 12)} tree=same-modulo-stamps gate-reuse=eligible (reusable: tests; rerun: -) predecessor=${'b'.repeat(12)} session_kind=unattended artifacts_consumed=2/3`);
+    expect(ok.err.trim()).toBe(`SHIP_RECEIPT: pr=42 head=${head.slice(0, 12)} version=1.2.4.0 base=main gated_tree=${repo.git('rev-parse', 'HEAD^{tree}').slice(0, 12)} tree=same-modulo-stamps gate-reuse=eligible (reusable: tests; rerun: -) predecessor=${'b'.repeat(12)} session_kind=unattended artifacts_consumed=2/3 depth=light`);
     const parsed = extractReceipt(ok.out);
     expect(parsed.found).toBe(true);
     expect(parsed.errors).toEqual([]);
-    expect(Object.keys(parsed.receipt!)).toEqual(['schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd', 'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history']);
+    expect(Object.keys(parsed.receipt!)).toEqual(['schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd', 'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history', 'head_tree', 'product_patch_id', 'gstack_version', 'review_depth']);
     expect(parsed.receipt).toMatchObject({ schema_version: 1, pr: 42, head, version: '1.2.4.0', base: 'main', tree: 'same-modulo-stamps', spend_usd: 0.42, ci: { checks: { pass: 3 } } });
+    expect(parsed.receipt!.head_tree).toBe(repo.git('rev-parse', 'HEAD^{tree}'));
+    expect(parsed.receipt!.product_patch_id).toMatch(/^([0-9a-f]{40}|none)$/);
     expect(parsed.receipt!.policy).toMatch(/^origin\/main@[0-9a-f]{12}:\.gstack\/ship-policy\.json$/);
     const written = fs.readFileSync(body, 'utf8');
     expect(written.startsWith('```gstack-ship-receipt\n{\n  "schema_version": 1,\n  "pr": 42,\n  "head": "' + head + '"')).toBe(true);
@@ -503,6 +505,59 @@ describe('gstack-ship-receipt carry (harness lane E row 3: receipt follows a hea
     expect(refusedRun.err).not.toContain('VERSION');
     expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.head).toBe(head);
   });
+
+  // GST-343 (found on #3648): after #3654 a base merge moves a PR's entry from CHANGELOG.md's [Unreleased] into changelog.d/.
+  // Value: protects=a PR that moves its entry into a changelog_fragments fragment keeps its receipt, as a CHANGELOG edit does;
+  // fails_when=carry counts <dir>/<slug>.md as product (RECEIPT_CARRY_PRODUCT_CHANGED), or counts the fragment directory's
+  // README, a nested path or a fragment under a policy without changelog_fragments as metadata; why_new=carry had no
+  // fragments rule; seam=none; no_claim=gh pr edit (--body stands in)
+  test('a merge-only head that moves the entry into a changelog_fragments fragment carries; the README, a nested path and a fragment with no fragments policy are product', () => {
+    const frag = { metadata: [], fragments: 'changelog.d' };
+    expect(classifyCarryPath('changelog.d/feat.md', frag)).toBe('metadata');
+    expect(classifyCarryPath('changelog.d/README.md', frag)).toBe('product');
+    expect(classifyCarryPath('changelog.d/sub/feat.md', frag)).toBe('product');
+    expect(classifyCarryPath('changelog.d/feat.sh', frag)).toBe('product');
+    expect(classifyCarryPath('changelog.d/feat.md')).toBe('product');
+    const policy = (fragments: boolean) => JSON.stringify({ bump: 'patch', changelog: 'CHANGELOG.md', ...(fragments ? { changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' } : {}) }) + '\n';
+    const run = (fragments: boolean, extra: Record<string, string> = {}) => {
+      const repo = makeFixtureRepo({ policy: null, prefix: 'ship-receipt-frag-' }); repos.push(repo);
+      const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(repo.work, rel)), { recursive: true }); fs.writeFileSync(path.join(repo.work, rel), text); };
+      const released = fs.readFileSync(path.join(repo.work, 'CHANGELOG.md'), 'utf8');
+      put('src/app.ts', 'export const a = 1;\n');
+      put('changelog.d/README.md', '# fragments\n');
+      repo.git('add', '-A'); repo.git('commit', '-qm', 'seed app'); repo.git('push', '-q', 'origin', 'main');
+      repo.git('checkout', '-qb', 'feat');
+      put('src/app.ts', 'export const a = 2;\n');
+      put('CHANGELOG.md', released.replace('# Changelog\n', '# Changelog\n\n## [Unreleased]\n\n- a=2\n'));
+      repo.git('add', '-A'); repo.git('commit', '-qm', 'feat: a=2');
+      const reviewed = repo.git('rev-parse', 'HEAD');
+      // main turns on fragments (or only adds a policy without them); the merge moves the entry into changelog.d/feat.md
+      repo.git('checkout', '-q', 'main');
+      put('.gstack/ship-policy.json', policy(fragments));
+      repo.git('add', '-A'); repo.git('commit', '-qm', 'policy'); repo.git('push', '-q', 'origin', 'main');
+      repo.git('checkout', '-q', 'feat');
+      repo.git('merge', '-q', '--no-commit', 'origin/main');
+      put('CHANGELOG.md', released);
+      put('changelog.d/feat.md', '- a=2\n');
+      for (const [rel, text] of Object.entries(extra)) put(rel, text);
+      repo.git('add', '-A'); repo.git('commit', '-qm', 'merge main; entry into a fragment');
+      const body = path.join(repo.root, 'body.md');
+      fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 6, head: reviewed, base: 'main', version: '1.2.3.0' } as any));
+      const env = { GSTACK_STATE_ROOT: path.join(repo.root, 'state'), GSTACK_SESSION_KIND: 'unattended' };
+      return { reviewed, head: repo.git('rev-parse', 'HEAD'), out: runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--dry-run'], env) };
+    };
+    const moved = run(true);
+    expect(moved.out.status).toBe(EXIT.ok);
+    expect(moved.out.out).toContain(`CARRY: would carry from ${moved.reviewed.slice(0, 12)} to ${moved.head.slice(0, 12)} (base merge + release metadata)`);
+    const readme = run(true, { 'changelog.d/README.md': '# fragments\nRun rm -rf on merge.\n' });
+    expect(readme.out.status).toBe(EXIT.refused);
+    expect(readme.out.err).toContain('(RECEIPT_CARRY_PRODUCT_CHANGED;');
+    expect(readme.out.err).toContain('changelog.d/README.md');
+    const off = run(false);
+    expect(off.out.status).toBe(EXIT.refused);
+    expect(off.out.err).toContain('(RECEIPT_CARRY_PRODUCT_CHANGED;');
+    expect(off.out.err).toContain('changelog.d/feat.md');
+  }, 30_000);
 
   // /ship Step 9 pass 1 (security specialist, reproduced in the QA smoke): the carry's proof was patch-id --stable, which strips whitespace.
   // Value: protects=a product edit that only moves whitespace in a reviewed line (semantics in shell, YAML, Python) refuses to carry,

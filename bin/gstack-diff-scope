@@ -2,6 +2,9 @@
 # gstack-diff-scope — categorize what changed in the diff against a base branch
 # Usage: source <(gstack-diff-scope main)  → sets SCOPE_FRONTEND=true SCOPE_BACKEND=false ...
 # Or:    gstack-diff-scope main           → prints SCOPE_*=... lines
+# Or:    gstack-diff-scope <base> --head <sha> → the committed range <base>...<sha> only
+#        (no working tree, no untracked files): what a receipt writer and the
+#        merge queue compute for one commit, from any checkout (GSTA-147).
 #
 # Output contract (#2526 — all-false must be distinguishable from "we could
 # not look" and from "nothing matched"):
@@ -31,6 +34,8 @@ _default_base() {
   echo "main"
 }
 BASE="${1:-$(_default_base)}"
+HEAD_REF=""
+if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
 
 FRONTEND=false
 BACKEND=false
@@ -79,6 +84,21 @@ _collect() {
     [ -n "$f" ] && FILES_LIST+=("$f")
   done
 }
+if [ -n "$HEAD_REF" ] || [ "${2:-}" = "--head" ]; then
+  if ! git rev-parse --verify -q "${HEAD_REF}^{commit}" >/dev/null 2>&1; then
+    _print_flags
+    echo "SCOPE_ERROR=no_head"
+    echo "# --head '${HEAD_REF}' is not a commit in this repository"
+    exit 2
+  fi
+  if ! git merge-base "${BASE}" "${HEAD_REF}" >/dev/null 2>&1; then
+    _print_flags
+    echo "SCOPE_ERROR=no_merge_base"
+    echo "# '${BASE}' and '${HEAD_REF}' share no merge base"
+    exit 2
+  fi
+  _collect < <(git diff -z "${BASE}...${HEAD_REF}" --name-only 2>/dev/null)
+else
 # Committed diff vs base (merge-base form; two-dot fallback when no merge base).
 _collect < <(git diff -z "${BASE}...HEAD" --name-only 2>/dev/null || git diff -z "${BASE}" --name-only 2>/dev/null || true)
 # Working-tree changes (staged + unstaged). `git diff HEAD` fails on a repo
@@ -87,6 +107,7 @@ _collect < <(git diff -z HEAD --name-only 2>/dev/null || true)
 # Untracked files: a brand-new component/migration/test is exactly what a
 # reviewer should see, and /ship commits it in Step 15 regardless.
 _collect < <(git ls-files -z --others --exclude-standard 2>/dev/null || true)
+fi
 
 if [ "${#FILES_LIST[@]}" -eq 0 ]; then
   _print_flags

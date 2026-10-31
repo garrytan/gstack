@@ -8,7 +8,10 @@
  *
  * Usage:
  *   gstack-harness detect [--json]
- *   gstack-harness register <target> [--skills router|all] [--skills-dir <dir>] [--context <file>] [--print] [--yes] [--no-registry]
+ *   gstack-harness register <target> [--skills router|hybrid|all] [--skills-dir <dir>] [--context <file>] [--print] [--yes] [--no-registry]
+ *     --context <file> writes gstack's marked routing block into that file only
+ *     (opt-in: setup, upgrades and refresh never add one, and a block you
+ *     delete stays deleted); it prints the file and its scope before writing
  *   gstack-harness unregister <target|registration id> [--remote]
  *   gstack-harness status [--json] [--no-check]
  *   gstack-harness refresh
@@ -20,7 +23,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveStateRoot } from '../lib/state-root';
 import {
-  HarnessError, TARGETS, detect, getTarget, harnessSees, listLedgers, printPayload, refresh, register, sourceSkills, status, unregister,
+  HarnessError, TARGETS, contextScope, detect, getTarget, harnessSees, listLedgers, printPayload, refresh, register, sourceSkills, status, unregister,
   type RegisterResult, type SkillsMode, type TargetName,
 } from '../lib/harness-register';
 import { registerQm, removeQmPack } from '../lib/harness-qm';
@@ -38,9 +41,10 @@ const self = path.join(checkout, 'bin', 'gstack-harness');
 
 function receiptLines(r: RegisterResult): string[] {
   const t = TARGETS[r.target];
+  const how = { router: 'reachable through one router skill', hybrid: 'registered, the task skills listed directly and the rest through one router skill', all: 'registered' }[r.mode];
   return [
-    'gstack-harness: ' + t.displayName + ': ' + r.skills + ' gstack skills ' + (r.mode === 'router' ? 'reachable through one router skill' : 'registered') + ' at ' + r.dest + ' (' + r.status + (r.written ? ', ' + r.written + ' files written' : '') + ')',
-    ...(r.router ? ['  router: ' + r.router + (r.mode === 'router' ? ' (register with --skills all to list every skill natively)' : '')] : []),
+    'gstack-harness: ' + t.displayName + ': ' + r.skills + ' gstack skills ' + how + ' at ' + r.dest + ' (' + r.status + (r.written ? ', ' + r.written + ' files written' : '') + ')',
+    ...(r.router ? ['  router: ' + r.router + ' (register with --skills all to list every skill natively)'] : []),
     ...r.kept.map(k => '  kept your edit: ' + k),
     '  ledger: ' + r.ledger,
     '  remove: ' + self + ' unregister ' + r.id,
@@ -83,6 +87,7 @@ async function main(): Promise<number> {
         console.log('gstack-harness: ' + t.displayName + ': unverified (' + (seen.checked ? seen.checked + ' did not list gstack' : t.name + ' is not on PATH') + '). Install gstack for Claude Code (./setup), or paste the block from: ' + self + ' register generic --print');
         return 3;
       }
+      if (context) (json ? console.error : console.log)('gstack-harness: context block: ' + path.resolve(context) + ' (' + contextScope(t, context, env, home) + ' scope)');
       const r = register({ ...base, target: t, mode, skillsDir, context, registry: !noRegistry });
       if (json) console.log(JSON.stringify({ ...r, receipt: receiptLines(r).map(l => l.trim()).join('; ') }));
       else receipt(r);

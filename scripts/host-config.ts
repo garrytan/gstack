@@ -81,6 +81,12 @@ export interface HostConfig {
     descriptionLimit?: number | null;
     /** What to do when description exceeds limit. Default: 'error'. */
     descriptionLimitBehavior?: 'error' | 'truncate' | 'warn';
+    /**
+     * Put a trigger-first lead of at most this many chars on the first line of
+     * the description (lib/skill-triggers.ts withTriggerLead), for hosts whose
+     * skills index shows only the start of a description.
+     */
+    descriptionLead?: number;
     /** Additional frontmatter fields to inject (host-wide). */
     extraFields?: Record<string, unknown>;
     /**

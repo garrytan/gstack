@@ -18,7 +18,8 @@ import { resolveStateRoot } from '../state-root';
 import { RESULT_CODES, TROUBLESHOOTING_DOC, resultLine } from '../result-codes';
 import { runScriptSync, wtreeFingerprint, type InvocationOptions, type WtreeResult } from '../script-invocation';
 import { policyUnavailableLine, resolveBaseBranch } from '../ship-policy';
-import { PREGATE_CONFIG_PATH, isConfigUnavailable, loadConfigFromBase, loadConfigFromHead, loadConfigFromUser, type ConfigError, type ConfigLoad, type PregateConfig } from './config';
+import { headPolicy } from './head-policy';
+import { PREGATE_CONFIG_PATH, isConfigUnavailable, loadConfigFromBase, loadConfigFromUser, type ConfigError, type ConfigLoad, type PregateConfig } from './config';
 import type { CheckResult, PregateContext, TouchedFile } from './types';
 import { discoverLanes } from './workflows';
 import { createScratch, scratchRunId } from './run-scratch';
@@ -47,7 +48,7 @@ export function readTestBackend(env: NodeJS.ProcessEnv, invocation?: InvocationO
   return (r.status === 0 && (r.stdout ?? '').trim()) || 'local';
 }
 export interface ContextRefusal {
-  code: 'POLICY_SOURCE_UNAVAILABLE' | 'PREGATE_CONFIG_INVALID' | 'REGEN_REGISTRY_INVALID' | 'WTREE_UNAVAILABLE';
+  code: 'POLICY_SOURCE_UNAVAILABLE' | 'PREGATE_CONFIG_INVALID' | 'PREGATE_HEAD_POLICY_LOOSENS' | 'REGEN_REGISTRY_INVALID' | 'WTREE_UNAVAILABLE';
   message: string;
   /** A cause-specific fix that replaces the code's own (a gstack-wtree exit names its repair; so does a `--base` that is no origin branch). */
   fix?: string;
@@ -211,10 +212,10 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   if (!baseSha.ok || !baseSha.out) return { refused: notAnOriginBranch(o.repoRoot, base) ?? { code: 'POLICY_SOURCE_UNAVAILABLE', message: `${baseRef} is not a resolvable commit` } };
   const head = git(o.repoRoot, ['rev-parse', 'HEAD']).out;
   const mergeBase = git(o.repoRoot, ['merge-base', baseSha.out, 'HEAD']).out || baseSha.out;
-  let configLoad: ConfigLoad = o.policyFrom === 'head' ? loadConfigFromHead(o.repoRoot, o.knownChecks) : loadConfigFromBase(o.repoRoot, base, o.knownChecks);
+  let configLoad: ConfigLoad = loadConfigFromBase(o.repoRoot, base, o.knownChecks);
   const explain: string[] = [];
   let absentUserPolicy: string | undefined;
-  if (o.policyFrom === 'base' && o.userConfigPath && !isConfigUnavailable(configLoad) && configLoad.kind === 'none') {
+  if (o.userConfigPath && !isConfigUnavailable(configLoad) && configLoad.kind === 'none') {
     const rejected = userConfigRejection(o.repoRoot, o.userConfigPath);
     const user = rejected ? null : loadConfigFromUser(o.userConfigPath, o.knownChecks);
     if (user) configLoad = user;
@@ -222,6 +223,13 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
     if (!user && !rejected) absentUserPolicy = o.userConfigPath;
   }
   if (isConfigUnavailable(configLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: configLoad.detail } };
+  if (o.policyFrom === 'head' && !configLoad.errors.length) {
+    if (o.remote && configLoad.kind === 'none') return { refused: { code: 'PREGATE_HEAD_POLICY_LOOSENS', message: '--remote under --policy-from head needs a trusted policy (the base copy or the user-owned file); with none, the head file is a bootstrap and its remote_gate cannot clear its own obligation' } };
+    const head = headPolicy(o.repoRoot, configLoad, mergeBase, base, o.knownChecks ?? []);
+    if ('loosens' in head) return { refused: { code: 'PREGATE_HEAD_POLICY_LOOSENS', message: head.loosens.join('; ') } };
+    configLoad = head.load;
+    explain.push(...head.explain);
+  }
   if (configLoad.errors.length) return { refused: { code: 'PREGATE_CONFIG_INVALID', message: `${configLoad.label}: ${configLoad.errors.map(e => `${e.message} at ${e.path}`).join('; ')}`, errors: configLoad.errors, ...(configLoad.kind === 'user' ? { fix: `edit ${o.userConfigPath} directly at each path the message names, then rerun gstack-pregate; it lives outside the repository, so a base-branch change does not reach it` } : {}) } };
   const registryLoad = o.policyFrom === 'head' ? loadRegistryFromHead(o.repoRoot) : loadRegistryFromBase(o.repoRoot, base);
   if (isRegistryUnavailable(registryLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: registryLoad.detail } };
@@ -239,8 +247,8 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   return {
     ctx: {
       repoRoot: o.repoRoot, base, baseRef, baseSha: baseSha.out, mergeBase, head, wtree, touched: touchedFiles(o.repoRoot, mergeBase),
-      config, configLabel: configLoad.label, configKind: configLoad.kind, scratch, configFile: configLoad.kind === 'user' && o.userConfigPath ? o.userConfigPath : PREGATE_CONFIG_PATH, ...(configLoad.kind === 'user' && configLoad.digest ? { configDigest: configLoad.digest } : {}), ...(absentUserPolicy ? { absentUserPolicy } : {}), registry: registryLoad.registry as Registry, registryLabel: registryLoad.source.label,
-      lanes, platform, allowRepoCommands: o.allowRepoCommands, timeoutMs: o.timeoutMs ?? 600_000,
+      config, configLabel: configLoad.label, configKind: configLoad.kind, scratch, configFile: configLoad.kind === 'user' && o.userConfigPath ? o.userConfigPath : PREGATE_CONFIG_PATH, ...(configLoad.digest ? { configDigest: configLoad.digest } : {}), ...(absentUserPolicy ? { absentUserPolicy } : {}), registry: registryLoad.registry as Registry, registryLabel: registryLoad.source.label,
+      lanes, platform, allowRepoCommands: o.allowRepoCommands, timeoutMs: o.timeoutMs ?? (config.timeout_s ?? 600) * 1000, timeoutSource: o.timeoutMs !== undefined ? '--timeout' : config.timeout_s ? `timeout_s from ${configLoad.label}` : 'the 600 s default',
       stallTimeoutMs: o.stallTimeoutMs ?? (config.stall_timeout_s ?? DEFAULT_STALL_TIMEOUT_S) * 1000,
       progress: o.progress ?? (line => process.stderr.write(`${line}\n`)),
       cores: o.cores ?? os.availableParallelism(), testBackend: o.testBackend ?? readTestBackend(env, o.invocation), policyFrom: o.policyFrom, remote: o.remote ?? null,

@@ -17,10 +17,12 @@
  * written and `revise_intent` journaled before anything moves; `resume`
  * (recoverRevise) completes an interrupted revise from the stage.
  */
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exportRun } from './autoplan-export';
 import { applyRenames, approve, closeDraftDirections, finishGate, planReopen } from './autoplan-gate';
+import { carryLines, voidPendingCheck } from './autoplan-carry';
 import { atCap, escalateLine, pendingDeltas, roundCap, roundOf } from './autoplan-budget';
 import { diffStat, lineDiff } from './autoplan-confirm';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
@@ -109,8 +111,10 @@ export function decisionSeverity(state: RunState, decision: string): string {
 function approveOrRegate(state: RunState, at: string): string[] {
   if (pendingDeltas(state).length) {
     finishGate(state);
+    const carried = carryLines(state);
+    if (state.status !== 'gate_pending') return carried;
     const escalate = escalateLine(state);
-    return [`GATE: gate_rev=${state.gate_rev} (a plan change after a round cap needs the owner) render with: gstack-gate render ${path.join(state.out, 'gate.json')}`, ...(escalate ? [escalate] : [])];
+    return [...carried, `GATE: gate_rev=${state.gate_rev} (a plan change after a round cap needs the owner) render with: gstack-gate render ${path.join(state.out, 'gate.json')}`, ...(escalate ? [escalate] : [])];
   }
   return [...approve(state, at), `APPROVED: gate_rev=${state.gate_rev} (every accepted change is in the plan or settled)`];
 }
@@ -176,6 +180,7 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   const delta = capped.length || quiet ? diffStat(lineDiff(fs.readFileSync(state.active_plan, 'utf8'), fs.readFileSync(path.join(staging, FILES.active), 'utf8'))) : { added: 0, removed: 0 };
   const atGate = state.status === 'gate_pending' ? state.gate_rev : undefined;
   journal(out, { event: 'revise_intent', k, staging: path.relative(out, staging), plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, at_gate_rev: atGate ?? null, incorporates, withdraw, settle });
+  voidPendingCheck(state, 'the plan was revised');
 
   const renames = reopen.length ? planReopen(state, reopen, state.gate_rev ?? 0, `revise v${k}`) : [];
   for (const phase of capped) {
@@ -199,7 +204,7 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   if (amending) state.status = pendingAmendments(state).length ? 'amend_pending' : state.phase_order.some(p => !state.phases[p]?.closed_at) ? 'running' : pendingDeltas(state).length ? 'gate_pending' : 'complete';
   // A quiet revise that ends at gate_pending still has an earlier capped delta waiting: the owner gets a new gate for it.
   const regate = (capped.length > 0 || quiet) && state.status === 'gate_pending';
-  const committed = { event: 'plan_revised', k, plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, reopened: reopen, added, at_gate_rev: atGate ?? null };
+  const committed = { event: 'plan_revised', k, plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, source_file_sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'), reopened: reopen, added, at_gate_rev: atGate ?? null };
   fs.writeFileSync(path.join(staging, FILES.run), JSON.stringify({ state, renames, committed, settled }, null, 2) + '\n');
   publish(state, staging, renames, committed, settled);
   const lines = [`REVISED: plan=${newHash.slice(0, 12)} reopened=${reopen.join(',') || 'none'}${added.length ? ` added=${added.join(',')}` : ''}${capped.length ? ` capped=${capped.join(',')}` : ''}`,

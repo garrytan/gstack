@@ -70,6 +70,8 @@ export interface RunState extends RunManifest {
   stop?: RunStop; stops?: RunStop[]; capped_deltas?: CappedDelta[];
   /** Written by export from attempts.jsonl; est_input_tokens is dispatched prompt bytes / 4, a relative estimate only. Absent on older runs. */
   dispatches?: DispatchCounts; est_input_tokens?: number;
+  /** Carry-forward (lib/autoplan-carry.ts): false with --no-carry-forward; the per-gate cap on the delta check; the latest carry decision. */
+  carry_forward?: boolean; carry_check_cap_usd?: number; carry?: import('./autoplan-carry').CarryRecord;
 }
 
 export const TERMINAL_VOICE_STATUSES = ['completed', 'disabled', 'unavailable', 'failed', 'skipped'] as const;

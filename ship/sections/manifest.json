@@ -93,6 +93,12 @@
       "file": "handoff.md",
       "title": "Handoff without a PR (automation lanes)",
       "trigger": "handing the branch to a coordinator instead of opening a PR (--no-pr or an automation lane; Step 18)"
+    },
+    {
+      "id": "budget-handoff",
+      "file": "budget-handoff.md",
+      "title": "Token budget and fresh-context handoff",
+      "trigger": "a token cap is set or verdict=delegate printed (Step 1 on)"
     }
   ]
 }

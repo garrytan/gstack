@@ -20,6 +20,29 @@ import { stampFileKind, versionStampOnly } from './stamp-only';
 import type { PregateContext, RemoteObligation } from './types';
 import type { Lane } from './workflows';
 
+/** Whole-tree tests every selection that runs a test must include (GST-98). Kept out of pregate.json so older readers, which reject unknown keys, keep working. */
+export const ALWAYS_RUN_PATH = '.gstack/always-run.json';
+
+/** The tracked test files the `tests` globs in `.gstack/always-run.json` name, and the globs that name none. No file: none. */
+export function alwaysRunTests(repoRoot: string, testFiles: Iterable<string>): { tests: string[]; unmatched: string[] } {
+  const file = path.join(repoRoot, ALWAYS_RUN_PATH);
+  if (!fs.existsSync(file)) return { tests: [], unmatched: [] };
+  let parsed: unknown;
+  try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch (error) { throw new Error(`${ALWAYS_RUN_PATH}: not valid JSON (${(error as Error).message})`); }
+  const globs = (parsed as { tests?: unknown } | null)?.tests;
+  if (!Array.isArray(globs) || globs.some(g => typeof g !== 'string' || !g)) throw new Error(`${ALWAYS_RUN_PATH}: "tests" must be a list of non-empty glob strings`);
+  const all = [...testFiles];
+  const tests = new Set<string>();
+  const unmatched: string[] = [];
+  for (const glob of globs as string[]) {
+    const hits = all.filter(t => matchesAny([glob], t));
+    if (!hits.length) unmatched.push(glob);
+    for (const t of hits) tests.add(t);
+  }
+  return { tests: [...tests].sort(), unmatched };
+}
+
 /** A path the branch removed (deleted, or a rename's old name) that owes no lane, with why (`note`) and the files that lost their last test. */
 export interface Removed { file: string; note: string; lostCoverage: string[] }
 
@@ -210,7 +233,7 @@ export function selectLanes(ctx: PregateContext): Selection {
     const generator = ctx.registry.entries.find(e => e.command && matchesAny(e.inputs, file));
     if (generator) { provenance.push(`${file}: covered by regen ${generator.id} (registry input)`); continue; }
     // The pin files are validated by pregate itself (validateConfig / validateRegistry) on every run.
-    if (file === PREGATE_CONFIG_PATH || file === GENERATED_PATH) { provenance.push(`${file}: pin file validated by pregate`); continue; }
+    if (file === PREGATE_CONFIG_PATH || file === GENERATED_PATH || file === ALWAYS_RUN_PATH) { provenance.push(`${file}: pin file validated by pregate`); continue; }
     // Reached only when testsFor mapped nothing, so a Markdown file a test reads never lands here.
     if (isDocsEmptyLane(file, ctx.config.empty_lanes ?? [])) {
       emptyLane.push(file);
@@ -245,6 +268,11 @@ export function selectLanes(ctx: PregateContext): Selection {
       provenance.push(`${file}: ${r.refused}; no lane until declared`);
     }
     noLane.push(file);
+  }
+  if (tests.size || noLane.length || seeds.has(ALWAYS_RUN_PATH)) {
+    const always = alwaysRunTests(ctx.repoRoot, [...graph.tests].filter(t => !goneSet.has(t)));
+    for (const t of always.tests) if (!tests.has(t)) { tests.add(t); provenance.push(`${t} (always_run, ${ALWAYS_RUN_PATH})`); }
+    for (const glob of always.unmatched) provenance.push(`${ALWAYS_RUN_PATH}: ${glob} matches no test file`);
   }
   const laneSets: Record<string, string[] | '?'> = {};
   const local = new Set<string>();
