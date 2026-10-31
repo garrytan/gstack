@@ -56,6 +56,18 @@ describe('gstack-ship-preflight', () => {
     expect(r.status).toBe(0);
   });
 
+  // Value: protects=when the remote's HEAD names no branch, a local origin/HEAD naming the feature branch still is not the default branch (GST-511); fails_when=the fallback reads the local origin/HEAD;
+  //   why_new=the case above reads the remote's HEAD; seam=a bare origin with a detached HEAD, so ls-remote --symref prints no ref line; no_claim=a remote whose default really is the feature branch
+  test('with no symbolic remote HEAD, a local origin/HEAD naming the feature branch is not the default branch', () => {
+    const f = fx();
+    f.git('--git-dir', f.origin, 'update-ref', '--no-deref', 'HEAD', 'refs/heads/main');
+    f.git('update-ref', 'refs/remotes/origin/feat', 'HEAD');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.stdout).not.toContain('STOP: on the base branch');
+    expect(r.status).toBe(0);
+  });
+
   // Value: protects=Step 3 merges the base and a conflict stops with the files named, leaving the merge for the agent to resolve; fails_when=the bin resolves a conflict itself, aborts the merge, or continues to tests;
   //   why_new=moved from the Step 3 prose; seam=git merge; no_claim=which side is right
   test('a merged base is reported; a conflict stops with the conflicted files and the merge left in place', () => {

@@ -26,14 +26,30 @@
 set -euo pipefail
 
 # Detect the repo's default branch when no arg is given (#703-class
-# platform-agnostic rule): origin/HEAD -> origin/main -> origin/master -> main.
+# platform-agnostic rule, lib/default-base.ts in bash): origin/HEAD unless it
+# names the checked-out branch (a PR flow's clone can point it at the PR
+# branch, GST-511) -> the PR's base (gh, bounded; skipped without a timeout
+# binary) -> origin/main -> origin/master -> main. An origin/HEAD skipped that
+# way leaves BASE empty when nothing past it resolves, and that fails closed.
+SKIPPED_HEAD=""
 _default_base() {
-  git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' && return
-  git rev-parse --verify -q origin/main >/dev/null 2>&1 && { echo "main"; return; }
-  git rev-parse --verify -q origin/master >/dev/null 2>&1 && { echo "master"; return; }
-  echo "main"
+  local cur head pr to
+  cur=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  head=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)
+  head="${head#refs/remotes/origin/}"
+  if [ -n "$head" ] && [ "$head" != "$cur" ]; then BASE="$head"; return; fi
+  SKIPPED_HEAD="$head"
+  to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+  if [ -n "$cur" ] && [ -n "$to" ]; then
+    pr=$(GH_PROMPT_DISABLED=1 "$to" 5 gh pr view --json baseRefName -q .baseRefName </dev/null 2>/dev/null | head -n 1 || true)
+    if [ -n "$pr" ]; then BASE="$pr"; return; fi
+  fi
+  git rev-parse --verify -q origin/main >/dev/null 2>&1 && { BASE="main"; return; }
+  git rev-parse --verify -q origin/master >/dev/null 2>&1 && { BASE="master"; return; }
+  if [ -z "$SKIPPED_HEAD" ]; then BASE="main"; fi
 }
-BASE="${1:-$(_default_base)}"
+BASE="${1:-}"
+[ -n "$BASE" ] || _default_base
 HEAD_REF=""
 if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
 _twin=""
@@ -73,6 +89,13 @@ _print_flags() {
   echo "SCOPE_API=$API"
   echo "SCOPE_AUTH=$AUTH"
 }
+
+if [ -z "$BASE" ]; then
+  _print_flags
+  echo "SCOPE_ERROR=no_base"
+  echo "# origin/HEAD names the checked-out branch ${SKIPPED_HEAD}, and no PR base, origin/main or origin/master resolves; pass the base (gstack-diff-scope <base>) or run git remote set-head origin <base>"
+  exit 2
+fi
 
 # Base reachability (#2526): a shallow CI checkout or an unfetched ref makes
 # `git diff` return an empty list — all-false with exit 0, a green that means

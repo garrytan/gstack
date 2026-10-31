@@ -19,7 +19,9 @@
  * /review's review_binding and make /ship loop).
  *
  * Exit: 0 with or without hunks. 2 only when the base is unresolvable
- * (`GATE_ERROR=no_base ref=<ref> fix=<git command>` as the only stdout line)
+ * (`GATE_ERROR=no_base ref=<ref> fix=<git command>` as the only stdout line;
+ * `ref=<remote>/HEAD target=<remote>/<branch>` when no base is given, that
+ * remote's HEAD names the checked-out branch and no other default resolves)
  * or the tool itself failed (`GATE_ERROR=internal …`). Unmatched paths are
  * counted, never an exit 2.
  */
@@ -31,6 +33,7 @@ import {
   commitInfo, commitsInRange, defaultBase, diffCommit, diffWorkingTree, firstParent, headSha, mergeBase, noBaseFix, readClaudeMd, repoRoot,
   resolveBase, resolvesToCommit, treePaths, untrackedAsAdded,
 } from '../lib/gate-diff/git';
+import { noDefaultBaseLine } from '../lib/default-base';
 import { renderDiagnostics, renderJsonl, renderJsonlBody, renderTable } from '../lib/gate-diff/render';
 import { resolveStateRoot } from '../lib/state-root';
 import { runScriptSync, wtreeFingerprint } from '../lib/script-invocation';
@@ -141,7 +144,14 @@ function main(argv: string[]): number {
     candidate = sha.slice(0, 12);
     specIsTestPath = specDirectoryHoldsSpecs(treePaths(root, sha));
   } else {
-    const baseRef = parsed.base ?? defaultBase(root);
+    const found = parsed.base !== undefined ? { ref: parsed.base } : defaultBase(root);
+    if ('skipped' in found) {
+      const { remote, branch } = found.skipped;
+      console.error(`gstack-gate-diff: ${noDefaultBaseLine(found.skipped)}`);
+      process.stdout.write(`GATE_ERROR=no_base ref=${remote}/HEAD target=${remote}/${branch} fix=git remote set-head ${remote} <base>\n`);
+      return 2;
+    }
+    const baseRef = found.ref;
     const head = headSha(root);
     const base = resolveBase(baseRef, root, head ?? undefined);
     if (!base || !head) {

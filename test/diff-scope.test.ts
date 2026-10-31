@@ -9,6 +9,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'fs'
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
+import { makeGhShimPath } from './helpers/scratch-repo';
 
 const SCRIPT = join(import.meta.dir, '..', 'bin', 'gstack-diff-scope');
 
@@ -446,6 +447,33 @@ describe('uncommitted work is visible (#2299)', () => {
     const unknown = scope(['--head', 'f'.repeat(40)]);
     expect(unknown.status).toBe(2);
     expect(unknown.stdout.toString()).toContain('SCOPE_ERROR=no_head');
+  });
+
+  // Value: protects=a clone whose origin/HEAD names the checked-out PR branch scopes the PR against origin/main, and with no
+  //   other base fails closed naming origin/HEAD (GST-511); fails_when=the default base takes origin/HEAD's branch when it is the
+  //   checked-out one (every SCOPE_*=false, exit 0); why_new=no test pointed origin/HEAD at the feature branch; seam=a gh stub on
+  //   PATH; no_claim=remotes other than origin.
+  test('origin/HEAD naming the checked-out branch is skipped: the PR base, then origin/main, and none fails closed', () => {
+    const dir = createRepo(['lib/server.ts']);
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, stdio: 'pipe', timeout: 5000 });
+    git('update-ref', 'refs/remotes/origin/main', 'main');
+    git('update-ref', 'refs/remotes/origin/feature/test', 'HEAD');
+    git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feature/test');
+    const scope = (mode: 'fail' | 'json', payload?: string) => {
+      const { pathEnv, shimDir } = makeGhShimPath(mode, payload);
+      dirs.push(shimDir);
+      const r = spawnSync(SCRIPT, [], { cwd: dir, stdio: 'pipe', timeout: 15000, env: { ...process.env, PATH: pathEnv } });
+      return { status: r.status, out: r.stdout.toString() };
+    };
+    const found = scope('fail');
+    expect(found.status).toBe(0);
+    expect(found.out).toContain('SCOPE_BACKEND=true');
+    expect(scope('json', 'no-such-base').out).toContain('SCOPE_ERROR=no_base');
+    git('update-ref', '-d', 'refs/remotes/origin/main');
+    const none = scope('fail');
+    expect(none.status).toBe(2);
+    expect(none.out).toContain('SCOPE_ERROR=no_base');
+    expect(none.out).toContain('# origin/HEAD names the checked-out branch feature/test');
   });
 
   test('non-ASCII path still matches extension globs (NUL-safe file listing, #2526)', () => {

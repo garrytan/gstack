@@ -15,6 +15,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { cmpVersion, parseVersion } from './version-source';
 
@@ -519,12 +520,17 @@ function git(repoRoot: string, args: string[]): { ok: boolean; out: string; err:
   return { ok: r.status === 0, out: (r.stdout ?? '').trim(), err: (r.stderr ?? '').trim() };
 }
 
-/** `--base` when given, else origin/HEAD's branch, else `main`. */
+/**
+ * `--base` when given, else the default base (lib/default-base.ts): origin/HEAD's
+ * branch unless it is the checked-out one, the PR's base, origin/main, origin/master.
+ * When none resolves it stays `main`, which origin then lacks, so every reader of
+ * origin/<base> refuses; when origin/HEAD named the checked-out branch, stderr says why.
+ */
 export function resolveBaseBranch(repoRoot: string, explicit?: string): string {
   if (explicit && explicit.trim()) return explicit.trim().replace(/^origin\//, '');
-  const r = git(repoRoot, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
-  if (r.ok && r.out) return r.out.replace(/^origin\//, '');
-  return 'main';
+  const found = defaultBaseBranch(repoRoot);
+  if (!found.branch && found.skipped) process.stderr.write(`gstack: ${noDefaultBaseLine(found.skipped)}\n`);
+  return found.branch ?? 'main';
 }
 
 function finish(rawText: string | null, source: PolicySource): LoadedPolicy {
