@@ -53,7 +53,7 @@ const CONFIG_BASENAMES = new Set([
   'karma.conf.js', 'playwright.config.ts', 'playwright.config.js', 'cypress.config.ts', 'cypress.config.js', 'phpunit.xml', 'phpunit.xml.dist',
   '.pre-commit-config.yaml', 'lefthook.yml', '.lefthook.yml', 'mypy.ini', '.flake8', 'ruff.toml', '.ruff.toml', 'biome.json', '.prettierrc',
 ]);
-const CONFIG_BASENAME_PREFIXES = ['vitest.config', 'jest.config', '.eslintrc', 'eslint.config', 'tsconfig', 'golangci', '.golangci'];
+const CONFIG_BASENAME_PREFIXES = ['vitest.config', 'jest.config', '.eslintrc', 'eslint.config', '.oxlintrc', 'oxlint.config', 'tsconfig', 'golangci', '.golangci'];
 /** Files whose hunks are config only inside a tool section (checked per hunk by `hunkTouchesToolSection`). */
 const SECTIONED_CONFIG = new Set(['package.json', 'pyproject.toml']);
 

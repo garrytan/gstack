@@ -37,7 +37,10 @@ or repeated finding fails with `LINT_RATCHET_NEW` and its file, line and rule, a
 with `LINT_RATCHET_FIXED` until `bun run lint --write-baseline` locks it in (that flag only
 shrinks the baseline). The baseline records the oxlint version, which must match `package.json`'s
 exact pin; after bumping oxlint, run `bun run lint --write-baseline --oxlint-upgrade` in the same
-change. Editing `lib/cso/*.ts`? Run `bun run format:cso` before committing; CI runs
+change. Findings are keyed by file, so renaming or splitting a file moves its findings and they count as
+new: fix them, or mark an intended one with `// oxlint-disable-next-line <rule> -- <reason>`. oxlint
+picks files by extension, so the extensionless Bun scripts in `bin/` are not linted yet. Editing
+`lib/cso/*.ts`? Run `bun run format:cso` before committing; CI runs
 `format:cso:check`. All four run in the required `free-tests` check.
 
 Now edit any `SKILL.md`, invoke it in Claude Code (e.g. `/review`), and see your changes live. When you're done developing:

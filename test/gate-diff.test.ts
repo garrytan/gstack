@@ -302,7 +302,7 @@ describe('gate-diff classify: floor matcher and CLAUDE.md block', () => {
     expect(classifyPath('.github/workflows/ci.yml', ctx)).toBe('ci');
     expect(classifyPath('.gitlab-ci.yml', ctx)).toBe('ci');
     expect(classifyPath('Jenkinsfile', ctx)).toBe('ci');
-    for (const p of ['vitest.config.mts', 'jest.config.js', 'pytest.ini', 'setup.cfg', 'tox.ini', 'bunfig.toml', '.eslintrc.json', 'eslint.config.js', 'tsconfig.build.json', '.rubocop.yml', '.golangci.yml']) {
+    for (const p of ['vitest.config.mts', 'jest.config.js', 'pytest.ini', 'setup.cfg', 'tox.ini', 'bunfig.toml', '.eslintrc.json', 'eslint.config.js', '.oxlintrc.json', 'oxlint.config.ts', 'tsconfig.build.json', '.rubocop.yml', '.golangci.yml']) {
       expect([p, classifyPath(p, ctx)]).toEqual([p, 'config']);
     }
     expect(classifyPath('x/__snapshots__/a.snap', ctx)).toBe('snapshot');
