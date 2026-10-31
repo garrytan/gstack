@@ -100,7 +100,9 @@ export function manifestChecks(root: string): Check[] {
     if (/\bruff\b/.test(pyproject)) checks.push({ name: 'lint', command: 'ruff check .', source: 'pyproject.toml' });
     if (/\bmypy\b/.test(pyproject)) checks.push({ name: 'typecheck', command: 'mypy .', source: 'pyproject.toml' });
   }
-  if (fs.existsSync(path.join(root, 'Cargo.toml'))) checks.push({ name: 'build', command: 'cargo check --all-targets', source: 'Cargo.toml' }, { name: 'lint', command: 'cargo clippy --all-targets', source: 'Cargo.toml' });
+  const cargo = read(path.join(root, 'Cargo.toml'));
+  if (cargo !== null) checks.push({ name: 'build', command: 'cargo check --all-targets', source: 'Cargo.toml' });
+  if (cargo !== null && (/^\[(workspace\.)?lints\.clippy\]/m.test(cargo) || ['clippy.toml', '.clippy.toml'].some(f => fs.existsSync(path.join(root, f))))) checks.push({ name: 'lint', command: 'cargo clippy --all-targets', source: 'Cargo.toml' });
   if (fs.existsSync(path.join(root, 'go.mod'))) checks.push({ name: 'vet', command: 'go vet ./...', source: 'go.mod' }, { name: 'build', command: 'go build ./...', source: 'go.mod' });
   const seen = new Set<string>();
   return checks.filter(c => (seen.has(c.name) ? false : (seen.add(c.name), true)));

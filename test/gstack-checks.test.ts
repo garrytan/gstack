@@ -69,6 +69,13 @@ describe('detection', () => {
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { lint: 'eslint .' }, devDependencies: { typescript: '5' } }));
     fs.writeFileSync(path.join(dir, 'go.mod'), 'module x\n');
     expect(manifestChecks(dir).map(c => c.command)).toEqual(['bunx tsc --noEmit', 'bun run lint', 'go vet ./...', 'go build ./...']);
+    // Clippy is a rustup component Cargo.toml does not declare: it runs only when the repo opts in.
+    const rs = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-checks-rs-'));
+    dirs.push(rs);
+    fs.writeFileSync(path.join(rs, 'Cargo.toml'), '[package]\nname = "x"\n');
+    expect(manifestChecks(rs).map(c => c.command)).toEqual(['cargo check --all-targets']);
+    fs.writeFileSync(path.join(rs, 'Cargo.toml'), '[package]\nname = "x"\n[lints.clippy]\npedantic = "warn"\n');
+    expect(manifestChecks(rs).map(c => c.command)).toEqual(['cargo check --all-targets', 'cargo clippy --all-targets']);
     const py = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-checks-py-'));
     dirs.push(py);
     expect(manifestChecks(py)).toEqual([]);

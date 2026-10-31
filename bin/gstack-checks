@@ -54,7 +54,7 @@ async function main(argv: string[]): Promise<number> {
   if (nothingToRun(l) && (verb === 'run' || verb === 'detect')) { process.stdout.write(NONE); return verb === 'run' ? 3 : 0; }
   if (verb === 'detect') {
     for (const c of l.checks) process.stdout.write(`CHECK ${c.name} ${c.command}${c.body ? ` (runs: ${c.body})` : ''}  (${c.source})\n`);
-    if (!l.checks.length) process.stdout.write('CHECKS: none detected besides tests (no gstack:verify: line, Health Stack section or manifest check)\n');
+    if (!l.checks.length) process.stdout.write('CHECKS: tests only (no gstack:verify: line, Health Stack section or manifest check)\n');
     const selection = Object.values(l.ctx.config.selection ?? {});
     process.stdout.write(`TESTS pregate selection against ${l.ctx.baseRef} (policy ${l.ctx.configLabel}; runner ${l.ctx.config.runner ?? 'detected per file'}${selection.length ? `; selection commands: ${selection.join(' | ')}` : ''})\n`);
     process.stdout.write(`TRUST ${trusted ? 'trusted' : 'untrusted (run gstack-checks trust after the user agrees, or pass --allow-repo-commands)'}\n`);
