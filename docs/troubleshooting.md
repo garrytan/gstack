@@ -4666,6 +4666,79 @@ ran with `--no-fetch`, verify freezes as before (`QUEUE_TRAIN_FROZEN`). A queue
 another machine already froze stays frozen; the refusal prints its freeze
 lines.
 
+<a id="queue-train-base-red"></a>
+### `QUEUE_TRAIN_BASE_RED`
+
+**Meaning.** A conditional (base-red) PR or its fixer cannot ride this train.
+The train's policy has no `gates`, the fixer is missing or not at slot 1, two
+PRs declare `FIXES_BASE_RED`, the condition expired, or the fixer's own prefix
+T1 is red.
+
+**Fix.** Seat the fixer at slot 1 of a train with gates and build again. A red
+fixer prefix is the fixer lane's to repair; an expired condition is classified
+again by its lane ([ship-policy.md](ship-policy.md#train-gates)).
+
+<a id="queue-train-spend-cap"></a>
+### `QUEUE_TRAIN_SPEND_CAP`
+
+**Meaning.** A command gate's next Ubicloud run would pass the train's one
+spend cap, or `UBI_OWNER` is not set. Nothing more ran; finished runs keep
+their outcomes.
+
+**Fix.** Set `UBI_OWNER` to your thread code, or raise `spend_cap_usd` (or
+lower `timeout_sec`) on the base branch, then `train build --train <nonce>`.
+
+<a id="queue-train-land-method"></a>
+### `QUEUE_TRAIN_LAND_METHOD`
+
+**Meaning.** This slot must land through an update commit (stamped train,
+strict protection, conditional PR, or release-file resolution), and
+`train.land.merge_method` is `rebase`, which would replay commits instead of
+landing the gated tree.
+
+**Fix.** Set `merge_method` to `squash` or `merge` on the base branch, then
+land again.
+
+<a id="queue-train-init-refused"></a>
+### `QUEUE_TRAIN_INIT_REFUSED`
+
+**Meaning.** Open PRs bump the version and the policy neither declares
+`changelog_fragments` nor stamps at merge, so every train merge would conflict
+on the version. The `VERSION_PRS:` line names them.
+
+**Fix.** Adopt `changelog_fragments` (recommended) or `queue_mode:
+stamp-at-merge` on the base branch, then run `train init` again.
+
+<a id="queue-train-doctor-findings"></a>
+### `QUEUE_TRAIN_DOCTOR_FINDINGS`
+
+**Meaning.** The live train block and the repository disagree. Each
+`FINDING:` line names one problem: a gate workflow missing, without the
+`nonce` input or run-name, a required job it does not define, a global
+concurrency group, a push trigger on `train-prefix/` refs, a workflow never
+green on the base, or a merge method GitHub refuses.
+
+**Fix.** Fix each finding on the base branch (`train init` prints the
+snippet), then run `train doctor` again.
+
+<a id="queue-base-red-no-train"></a>
+### `QUEUE_BASE_RED_NO_TRAIN`
+
+**Meaning.** `ready --base-red` or `--fixes-base-red` needs a train that gates
+every prefix, and the base policy has no train block with `gates`.
+
+**Fix.** Wait for the base to pass the cases and run `/ship --resume`, or turn
+on a train with gates on the base branch.
+
+<a id="ship-base-red-fixer"></a>
+### `SHIP_BASE_RED_FIXER`
+
+**Meaning.** `ready --base-red` names no fixer, the receipt carries no
+`base_red` block, or the condition was classified on an older base.
+
+**Fix.** Pass `--fixer <pr>` naming the PR whose merge fixes the cases; after
+a base move, run `gstack-base-red classify` and /ship again first.
+
 <a id="queue-train-frozen"></a>
 ### `QUEUE_TRAIN_FROZEN`
 

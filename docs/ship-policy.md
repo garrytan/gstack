@@ -345,7 +345,8 @@ The surface is off unless the base revision's `.gstack/ship-policy.json`
 declares a `train` block. Without one, `train …` and `verify --train` refuse
 with `QUEUE_TRAIN_OFF`, and `ready --pr <n>` prints exactly the per-PR READY
 block above (`--screen`, `--no-screen` and `--broad` are ignored with a
-warning on stderr). A block for gstack itself would read:
+warning on stderr). A repository without gstack's eval workflow declares
+[`gates`](#train-gates) instead. A block for gstack itself would read:
 
 ```json
 "train": {
@@ -438,6 +439,110 @@ Slots merge with `train land --train <nonce> --pr <n>`, never a slot call:
 covers main only when its exact tree is some S_i of a green record (plain
 T_i records still cover modulo stamps). A dropped slot changes every later
 version, so the train is rebuilt, as today.
+
+<a id="train-gates"></a>
+### Trains for any repository: `gates`
+
+A repository without gstack's eval workflow declares its own gates instead of
+`gate_workflow` and the other gstack-evals keys. Such a train gates every
+prefix, not just its tip, so a red train names its culprit without a bisect:
+
+```json
+"train": {
+  "gates": [
+    { "kind": "workflows", "workflows": ["ci.yml"], "required_jobs": ["ci.yml/test", "ci.yml/lint"] },
+    { "kind": "command", "command": "bun test", "timeout_sec": 1800, "spend_cap_usd": 2 }
+  ],
+  "land": { "merge_method": "squash", "required_checks": ["test", "lint"] },
+  "max_size": 5, "fill_hours": 3
+},
+"min_gstack_version": "1.92.0.0"
+```
+
+A block with `gates` holds exactly these four keys; a gstack-evals key beside
+them is refused, and a block without `gates` is the gstack-evals kind and
+behaves exactly as above. `min_gstack_version` must be at least
+`TRAIN_GATES_KEY_VERSION` (lib/ship-policy.ts), so an older gstack refuses the
+policy by name. `max_size` is at most 5, because each gate runs on k+1
+prefixes.
+
+- **`workflows` gates.** Each workflow is dispatched on a pushed
+  `train-prefix/<nonce>/t<i>` ref with a `nonce` input; the train records the
+  nonce before it sends the dispatch and adopts only the workflow_dispatch run
+  whose run-name carries `[eval-bg <nonce>]`, never a run found by commit.
+  A prefix is GREEN only when that run tested the prefix head exactly, every
+  `required_jobs` entry (`<workflow file>/<job name as GitHub reports it>`)
+  concluded success and the run concluded success. With `record` set (an
+  artifact name), the run must also upload a JUnit XML or `{ "tests": [...] }`
+  JSON file reporting at least one executed test, and failed test ids become
+  the red cases. A red run gets one `gh run rerun --failed`: green on the
+  rerun is GREEN with a `FLAKY:` line, red again is real, and both attempts'
+  jobs stay in the record. `post_merge_checks` names checks to wait for on
+  main after each land (`verify --post-merge`). A workflow whose concurrency
+  group is not keyed by `github.ref` (or the nonce) gets one prefix at a
+  time.
+- **`command` gates.** Each prefix is checked out clean and detached and runs
+  `command` on a Ubicloud VM through scripts/ubicloud/ubi-runner.sh
+  (standard-16, `UBI_OWNER` required). The VM's `git write-tree` must equal
+  the prefix tree, and exit 0 is GREEN. Only names in `pass_env` reach the VM
+  (`UBICLOUD_*` never). Each run reserves its timeout plus 10 minutes at the
+  list price, and one `spend_cap_usd` covers every run of the train, reruns
+  included; the next run past the cap refuses (`QUEUE_TRAIN_SPEND_CAP`) and
+  `train build --train <nonce>` resumes once the cap is raised.
+
+**The verdict.** T0 red is red on main (`QUEUE_TRAIN_RED_ON_MAIN`, fix
+forward). Otherwise the first non-green prefix decides: incomplete stops the
+train, red with a later prefix green is unattributed (repair or a new order,
+never an unchanged rebuild), and red with every later prefix red names its
+slot as the culprit (`QUEUE_TRAIN_RED`); the slots before it may land.
+`train bisect` and `train rebuild` refuse such trains, since every prefix
+already has its verdict. A green T0 run of the same gate at main's exact
+commit in another train is reused instead of run again.
+
+**Base-red PRs.** A lane whose /ship paused on a red base (its receipt carries
+`base_red`) READYs with `ready --pr <n> --no-screen --base-red --fixer <pr>`:
+the condition must have been classified on today's base and not have expired.
+The fixer READYs with `--fixes-base-red <case,...>`. The fixer rides at slot 1
+(moved there unless `--order` says otherwise, which then refuses), T0 may be
+red on exactly the fixer's cases and nothing else, and every conditional PR
+behind it is gated on its own prefix with nothing excluded. A conditional PR
+without its fixer at slot 1, or on a gstack-evals train, refuses
+(`QUEUE_TRAIN_BASE_RED`, `QUEUE_BASE_RED_NO_TRAIN`).
+
+**Landing.** `train land` publishes T_i, or S_i when the train stamps
+(`changelog_fragments`, or `gates` with `queue_mode: stamp-at-merge`), with
+main's tree equal to the prefix before it. It records the mode, and the update
+commit when there is one, before its first remote effect:
+
+1. `direct`: `gh pr merge --<merge_method> --match-head-commit <pin>`, used
+   only when branch protection is readable and not strict, the pin merges onto
+   main as the gated tree exactly, and the pin's own checks (every
+   `required_checks` name) are green.
+2. `update`: the gated tree committed on [pin, main], pushed under the pin's
+   lease, its checks waited for, then merged at that commit. It is forced for
+   a stamped train, strict or unreadable protection, a conditional PR, a merge
+   that resolved release files, and a pin whose checks are red. `rebase`
+   refuses here (`QUEUE_TRAIN_LAND_METHOD`), since it would replay commits.
+
+Required checks are `changelog_fragments.required_checks`, else
+`train.land.required_checks`. Fork heads refuse. Either way main's tree must
+be the prefix afterwards, or the queue freezes as above; the backstop
+dispatches each gate workflow on main by nonce. `train watch --train <nonce>
+--land` runs build, verdict and every landable slot's land in order, and stops
+at the first refusal.
+
+**Setting one up.** `train init [--command "<test command>"]` reads branch
+protection, the base's workflows and the open PRs, and prints a block mapping
+each required check to its workflow job, the `nonce` input, run-name and
+concurrency snippet each gate workflow needs, and the land mode slots will
+use. It recommends `changelog_fragments` when open PRs bump the version, and
+refuses (`QUEUE_TRAIN_INIT_REFUSED`) only when they do and the policy neither
+declares fragments nor stamps at merge. After the block lands on the base,
+`train doctor` re-checks it: a missing workflow, nonce input or run-name, a
+required job no workflow defines, a concurrency group not keyed by ref, a push
+trigger that matches `train-prefix/` refs, a workflow never green on the base,
+and a merge method GitHub has turned off (`QUEUE_TRAIN_DOCTOR_FINDINGS`).
+Neither command writes anything.
 
 <a id="ship-before-ready"></a>
 **0. Lane: /ship before READY.** Every READY follows a /ship run on the branch
