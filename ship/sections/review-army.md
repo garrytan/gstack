@@ -4,10 +4,10 @@
 
 Set CYCLES to 0 on first entry only, with PASS set to 1,
 `REVIEW_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` saved and the `ship: review_scope`
-policy line (Step 3) kept. Every entry saves `PASS_HEAD=$(git rev-parse HEAD)` and runs
+policy line (Step 3) kept. Every entry saves `PASS_HEAD=$(git rev-parse HEAD)`; from pass 2 on,
+`RANGE_BASE` is the previous pass's PASS_HEAD. Every entry also runs
 `mkdir -p .gstack/tmp && rm -f .gstack/tmp/targeted.json && _EX=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || printf '\n/.gstack/tmp/\n' >> "$_EX"; }`
-(a pass without the targeted reader leaves no record, and the record never reads as an uncommitted edit); from pass 2 on,
-`RANGE_BASE` is the previous pass's PASS_HEAD. Keep existing approvals; changed
+(a pass without the targeted reader leaves no record, and the record never reads as an uncommitted edit). Keep existing approvals; changed
 finding scope needs a new decision. Order: checklist/design, specialists (9.1),
 Red Team (9.2), QA (9.2.1), dedup (9.3), scope, fixes and logging (9.4).
 Gated/unsupported specialists skip only their dispatch, never QA or Step 11.
