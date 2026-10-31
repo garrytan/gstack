@@ -741,11 +741,11 @@ export function buildCrossSkillConsistencyJudgePrompt(collected: string): string
   return `You are evaluating whether multiple skill configuration files implement the same data architecture consistently.
 
 INTENDED ARCHITECTURE:
-- greptile-history has TWO paths: per-project (~/.gstack/projects/{slug}/greptile-history.md) and global (~/.gstack/greptile-history.md)
+- review-bot-history.md has TWO paths: per-project (~/.gstack/projects/{slug}/review-bot-history.md) and global (~/.gstack/review-bot-history.md); each row names its bot, and rows in the older greptile-history.md files count as Greptile's
 - /review and /ship WRITE to BOTH paths (per-project for suppressions, global for retro aggregation)
-- /review and /ship delegate write mechanics to greptile-triage.md
-- /retro READS from the GLOBAL path only (it aggregates across all projects)
-- REMOTE_SLUG derivation should be consistent across files that use it
+- /review and /ship delegate write mechanics to greptile-triage.md (its History File Writes, through the gstack-review-bots record helper)
+- /retro READS the GLOBAL history only (it aggregates across all projects, per bot)
+- Greptile-only behavior (escalation tiers, severity re-rank) is labeled Greptile-only wherever it appears
 
 Below are greptile-related lines extracted from each skill file:
 

@@ -48,12 +48,6 @@ const SCANNER_EXEMPT: { file: string; pattern: string; reason: string }[] = [
       'F1 plan binding: only the first `Plan: <path>` token survives (one whitespace-free path, CR and backticks stripped); the body never reaches model context, and the path is then read as a file the parent confirms',
   },
   {
-    file: 'review/greptile-triage.md',
-    pattern: 'gh comment-body api read',
-    reason:
-      'raw fetch lands in /tmp json FILES (metadata/body split); body text is read into context only via the gstack-issue-guard --stdin pipes documented in the same file',
-  },
-  {
     file: 'document-release/sections/release-body.md.tmpl',
     pattern: 'gh pr body read',
     reason:
