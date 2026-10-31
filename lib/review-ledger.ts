@@ -56,45 +56,55 @@ const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
+const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
+/** The most severe label on a line, so an explicit `Severity: High` outranks a stray `Low-level` or `[P2]` before it. */
+const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => m[1]!).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
+/** A line that only continues the finding above it: its `Severity:` or `Blocks:` field. */
+const META = /^(?:[-*+]\s+)?\**\s*(?:Severity|Blocks)\b/i;
 
 export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
 
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
- * FIXABLE/INVESTIGATE label, and each top-level list item under a label-only heading (the stronger of the two labels). A
- * `Blocks: yes` makes its own line CRITICAL, or the finding on the line just before it; with no finding there it is one.
+ * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
+ * of the two labels). A `Severity:` or `Blocks:` line continues the finding above it in the same list item: `Severity` raises its
+ * label, `Blocks: yes` makes it CRITICAL (normalizer v2), `Blocks: no` never lowers it. With no finding above, such a line is its
+ * own finding carrying the item's first line.
  */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
   const out: Array<{ label: string; raw: string }> = [];
   let section: string | null = null;
-  let previous: { label: string; raw: string } | null = null;
-  let previousText = '';
+  let current: { label: string; raw: string } | null = null;
+  let head = '';
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
     if (!t) continue;
-    const before: { label: string; raw: string } | null = previous;
-    const beforeText = previousText;
-    previous = null;
-    previousText = t;
-    if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) continue;
-    if (BLOCKS_YES.test(t) && !ANY_LABEL.test(t) && !t.startsWith('{')) {
-      if (before) { before.label = 'CRITICAL'; before.raw += ` | ${t}`; previous = before; }
-      else out.push(previous = { label: 'CRITICAL', raw: beforeText ? `${beforeText} | ${t}` : t });
+    if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
+    const indented = line !== line.trimStart();
+    const label = strongest(t);
+    const blocks = BLOCKS_YES.test(t);
+    if (META.test(t)) {
+      if (current) {
+        if (blocks) current.label = 'CRITICAL';
+        else if (label) current.label = stronger(current.label, label);
+        current.raw += ` | ${t}`;
+      } else if (blocks || label) out.push(current = { label: blocks ? 'CRITICAL' : label!, raw: head ? `${head} | ${t}` : t });
       continue;
     }
     const heading = LABEL_HEADING.exec(t);
-    if (heading) { section = heading[1]!; continue; }
-    if (line === line.trimStart() && HEADING.test(t)) section = null;
+    if (heading) { section = heading[1]!; current = null; head = ''; continue; }
+    if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
       try {
         const o = JSON.parse(t) as Record<string, unknown>;
-        if (typeof o.severity === 'string') { out.push(previous = { label: o.severity, raw: t }); continue; }
+        if (typeof o.severity === 'string') { out.push(current = { label: o.severity, raw: t }); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    const inline = ANY_LABEL.exec(t)?.[1];
-    const inherited = section && line === line.trimStart() && LIST_ITEM.test(t) ? section : undefined;
-    const label = inline && inherited ? stronger(inherited, inline) : inline ?? inherited;
-    if (label) out.push(previous = { label: BLOCKS_YES.test(t) ? 'CRITICAL' : label, raw: t });
+    const listItem = !indented && LIST_ITEM.test(t);
+    const inherited = section && listItem ? section : undefined;
+    const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
+    if (found) { out.push(current = { label: blocks ? 'CRITICAL' : found, raw: t }); if (!indented) head = t; continue; }
+    if (listItem) { current = null; head = t; }
   }
   return out;
 }

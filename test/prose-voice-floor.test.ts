@@ -6,7 +6,8 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BLOCKING_FLOOR, proseVoiceSeverity } from '../lib/review-scope';
+import { parseFindings, rank } from '../lib/review-ledger';
+import { BLOCKING_FLOOR } from '../lib/review-scope';
 import { generateAdversarialStep } from '../scripts/resolvers/outside-voice-steps';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
@@ -45,18 +46,21 @@ describe('prose voices carry the blocking floor (GSTA-167 part 1)', () => {
   });
 });
 
-describe('normalizer v2: CRITICAL is the label rule or Blocks: yes', () => {
+describe('normalizer v2 as collected: Blocks: yes is CRITICAL, Blocks: no never lowers a label', () => {
+  // Value: protects=the rule round 5's G1 was scored under, on the path production runs (gstack-review-dispatch collect);
+  //   fails_when=Blocks: yes collects below CRITICAL or Blocks: no lowers a label; seam=parseFindings
   test.each([
-    ['adversarial-native', { label: 'FIXABLE', blocks: 'no' }, 'CRITICAL'],
-    ['adversarial-native', { label: 'INVESTIGATE', blocks: 'yes' }, 'CRITICAL'],
-    ['adversarial-native', { label: 'INVESTIGATE', blocks: 'no' }, 'INFORMATIONAL'],
-    ['adversarial-native', { label: 'INVESTIGATE' }, 'INFORMATIONAL'],
-    ['outside-voice', { severity: 'Critical', blocks: 'no' }, 'CRITICAL'],
-    ['outside-voice', { severity: 'High' }, 'CRITICAL'],
-    ['outside-voice', { severity: 'P1' }, 'CRITICAL'],
-    ['outside-voice', { severity: 'Medium', blocks: 'yes' }, 'CRITICAL'],
-    ['outside-voice', { severity: 'Low', blocks: 'Yes, it loses the row' }, 'CRITICAL'],
-    ['outside-voice', { severity: 'Medium', blocks: 'no' }, 'INFORMATIONAL'],
-    ['outside-voice', { severity: 'Low' }, 'INFORMATIONAL'],
-  ] as const)('%s %j -> %s', (voice, f, want) => expect(proseVoiceSeverity(voice, f)).toBe(want));
+    ['FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no', 'Medium'],
+    ['INVESTIGATE: odd lock in b.ts:9\nSeverity: Low\nBlocks: yes', 'CRITICAL'],
+    ['INVESTIGATE: odd lock in b.ts:9\nBlocks: no', 'INVESTIGATE'],
+    ['1. Drops the last row (q.ts:7). Severity: Critical. Blocks: no', 'Critical'],
+    ['1. Cache evicts sessions (c.ts:4)\n   Severity: High', 'High'],
+    ['1. Retry storm (r.ts:2)\n   Severity: Medium\n   Blocks: yes', 'CRITICAL'],
+    ['1. Index drift (i.ts:5). Severity: Low. Blocks: Yes, it loses the row', 'CRITICAL'],
+    ['1. Naming (n.ts:1)\n   Severity: Low\n   Blocks: no', 'Low'],
+  ] as const)('%j -> %s', (output, want) => {
+    const got = parseFindings('outside-voice', output);
+    expect(got.map(g => g.label)).toEqual([want]);
+    expect(rank(got[0]!.label)).not.toBeNull();
+  });
 });

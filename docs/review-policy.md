@@ -197,8 +197,9 @@ State-machines, Data-migration, API-contract and Design when scope asks (a
 forced checklist always joins). Maintainability, Performance and Simplification
 are read only when forced (`SKIP:` names them). The Red Team reads the batched
 reader's merged findings. A free re-score of saved C and D findings lost 0 of
-the 29 blockers (handoffs/GSTA-167/lean-ensemble-rescore.md); live Arm L must pass
-before this merges.
+the 29 blockers (handoffs/GSTA-167/lean-ensemble-rescore.md); the live round 5
+replay passed (L∘G1 found 24 of 29 blockers against the control's 21,
+handoffs/GSTA-167/noloss5-results.md).
 
 A fixed blocking finding, a CRITICAL or an open blocker raises a light diff to
 standard for the next step (`step=standard`): its specialists read at least 50 lines
@@ -258,7 +259,7 @@ batched specialist, which carries the Red Team prompt and stays `full`. The
 outside voice and the native adversarial pass carry the floor sentence and end
 each finding with `Severity:` and `Blocks: yes|no`; a finding is CRITICAL when
 its label rule says so (native FIXABLE, outside Critical or High) or it says
-`Blocks: yes`, and `Blocks: no` never lowers one (`proseVoiceSeverity`). Work that cannot block (the Step 7 coverage audit, the Step 8
+`Blocks: yes`, and `Blocks: no` never lowers one (`gstack-review-dispatch collect`). Work that cannot block (the Step 7 coverage audit, the Step 8
 plan-completion audit, the Step 14.5 docs audit, decision-trail reviewers,
 watchers) runs at `light`: the same model at a lower reasoning effort, never a
 cheaper model family. The outside voice keeps its own provider and effort

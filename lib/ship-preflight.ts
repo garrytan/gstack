@@ -9,7 +9,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyDiff } from './review-depth';
 import { audit } from './ship-audit';
-import { matchesAny } from './ship-policy';
 import { bin, firstLine, flagReader, gh, git, hostedOrigin, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)

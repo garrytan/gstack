@@ -114,10 +114,12 @@ export function scanConsumers(root: string, paths: readonly string[], revs: read
     const runs = [...revs.map(rev => ({ at: rev, args: [rev, '--'] })), ...(live ? [{ at: '', args: ['--untracked', '--'] }] : [])];
     const next = new Set<string>();
     for (const run of runs) {
-      const r = git(root, ['grep', '-I', '-F', '-o', '--null', ...patterns, ...run.args]);
+      const r = git(root, ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', ...patterns, ...run.args]);
       if (r.status !== 0 && r.status !== 1) { errors.push({ code: 'consumer_scan_failed', detail: oneLine(r.err || `git grep exited ${r.status}`), input: `git grep -F <data basenames> ${run.at || '--untracked'}`, repair: 'run the git grep by hand and fix what git reports' }); return 'all'; }
       for (const line of r.out.split('\n')) {
-        const [where, match] = line.split('\0');
+        const parts = line.split('\0');
+        const where = parts[0];
+        const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
         if (!where || !match) continue;
         const file = run.at ? where.slice(run.at.length + 1) : where;
         if (scratch(file) || classifyPath(file, classRoot) === 'docs') continue;

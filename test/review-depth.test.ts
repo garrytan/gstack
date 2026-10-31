@@ -95,7 +95,11 @@ describe('planReview', () => {
     expect(batch(p)).toEqual(['testing', 'security', 'state-machines']);
   });
   test('code class honours hit-rate gating and small-diff skip', () => {
-    expect(roles(planReview(base({ gated: ['simplification'] })))).not.toContain('specialist:simplification:medium');
+    const sm = { SCOPE_BACKEND: 'true', SCOPE_STATE_MACHINE: 'true' };
+    expect(batch(planReview(base({ scope: sm })))).toContain('state-machines');
+    const gated = planReview(base({ scope: sm, gated: ['state-machines'] }));
+    expect(batch(gated)).not.toContain('state-machines');
+    expect(gated.skipped).toContain('state-machines (gated by hit rate)');
     expect(planReview(base({ diffLines: 20 })).dispatches.filter(d => d.role === 'specialist').map(d => d.name)).toEqual(['batched']);
   });
   test('pass 2 reruns the army on the range but not the adversarial or outside voice once Step 11 ran', () => {

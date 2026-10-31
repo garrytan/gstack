@@ -151,6 +151,24 @@ describe('GSTA-167 part 4a: which data files code names (scanConsumers)', () => 
     r.write({ 'src/new.ts': "read('post/data.json')\n" });
     expect(collectLive(r.dir, 'main').consumed).toEqual(['data/rows.json', 'wiki/post/data.json']);
   });
+  // Value: protects=the scan reads git grep the same way under any user grep config, and a failed grep keeps every data file
+  //   code; fails_when=grep.lineNumber/grep.column shift the NUL fields so no consumer matches, or a grep failure drops data to
+  //   docs silently; seam=git grep output and exit status
+  test('grep.lineNumber and grep.column in git config do not hide a consumer', () => {
+    const r = repo({ 'src/load.ts': "export const rows = () => require('./data/rows.json');\n" });
+    r.git('config', 'grep.lineNumber', 'true'); r.git('config', 'grep.column', 'true');
+    const head = r.commit({ 'data/rows.json': rows });
+    expect([collectCommit(r.dir, r.baseSha, head).consumed, collectLive(r.dir, 'main').consumed]).toEqual([['data/rows.json'], ['data/rows.json']]);
+  });
+  test('a git grep failure keeps every data file code and records consumer_scan_failed', () => {
+    const r = repo({ 'src/load.ts': "read('rows.json')\n" });
+    const head = r.commit({ 'data/rows.json': rows });
+    r.git('config', 'grep.lineNumber', 'not-a-bool');
+    const c = collectCommit(r.dir, r.baseSha, head);
+    expect(c.consumed).toBe('all');
+    expect(c.errors.map(e => e.code)).toEqual(['consumer_scan_failed']);
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('code');
+  });
   test('past CONSUMER_SCAN_CAP data paths every one stays code', () => {
     const r = repo({});
     const head = r.commit(Object.fromEntries(Array.from({ length: CONSUMER_SCAN_CAP + 1 }, (_, i) => [`d/${i}.json`, '{}\n'])));
