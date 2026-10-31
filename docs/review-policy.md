@@ -474,8 +474,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). A label word used as a word is not a label: negated
-   within three words in its clause ("not CRITICAL", "Neither finding is CRITICAL", "no High findings"), a yardstick ("below
-   CRITICAL", "worse than High"), quoted, or listed as vocabulary ("Critical|High"); a label the line opens with always counts, and a
+   by the word right before it ("not CRITICAL", "no High findings"), said of a negated subject ("Neither finding is CRITICAL",
+   "None of these is High"), a yardstick ("below CRITICAL", "worse than High"), quoted, or listed as vocabulary ("Critical|High").
+   A negation that describes the defect ("Without auth this is CRITICAL") leaves the label standing; a label the line opens with always counts, and a
    closing "Overall:", "Summary:" or "Verdict:" line after the findings starts none (GST-435). An unlabeled bullet under a paragraph
    finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it lands on the finding.
    A phantom finding costs a fold; a lost one costs the gate.

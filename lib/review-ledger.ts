@@ -62,21 +62,27 @@ const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /** The label the line opens with, after a list marker, heading mark, table bar, bracket, bold or quote: always a label. */
 const OPENS = /^(?:[-*+>]\s+|\d+[.)]\s+|#{1,6}\s*)?[\s[(*_`"'“‘|]*$/;
 /**
- * A label word used as a word, not as a label (GST-435): negated within three words in its clause ("not CRITICAL", "Neither finding is
- * CRITICAL", "no High findings"), used as a yardstick ("below CRITICAL", "worse than High"), quoted ("'High'", `CRITICAL`) or listed as
- * vocabulary ("Critical|High"). The clause runs back to the last sentence, colon, comma, dash or bracket.
+ * A label word used as a word, not as a label (GST-435): negated by the word right before it ("not CRITICAL", "no High findings",
+ * "isn't a CRITICAL", "no CRITICAL or High"), stated of a negated subject through a copula ("Neither finding is CRITICAL", "None of these is High", "No
+ * finding here is CRITICAL"), used as a yardstick ("below CRITICAL", "worse than High"), quoted ("'High'", `CRITICAL`) or listed as
+ * vocabulary ("Critical|High"). A negation that describes the defect ("Without auth this is CRITICAL") leaves the label standing. The
+ * clause runs back to the last sentence, colon, comma, dash or bracket.
  */
-const NEGATED = /\b(?:not|no|neither|nor|none|never|nothing|without|zero|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|cannot|can't)\b(?:\s+[\w'’-]+){0,3}?\s+[*_`"'“‘]*$/i;
-const YARDSTICK = /\b(?:below|under|than|short of|instead of|up to|at most)\s+[*_`"'“‘]*$/i;
+const QUOTE_MARKS = '*_`"\'“‘';
+const NEGATED = new RegExp(`\\b(?:not|no|never|nothing|without|zero|nor|isn't|aren't|wasn't|weren't)\\s+(?:(?:a|an|any|rated|at)\\s+)?(?:(?:${LABELS})\\s*(?:or|nor|and|/)\\s*)*[${QUOTE_MARKS}]*$`, 'i');
+const NEGATED_SUBJECT = new RegExp(`^\\s*(?:neither|none|no\\s+(?:[\\w-]+\\s+)?(?:findings?|issues?|items?|defects?|problems?))\\b.*\\b(?:is|are|was|were|rises?\\s+to|reach(?:es)?|counts?\\s+as|rated)\\s+(?:(?:a|an)\\s+)?[${QUOTE_MARKS}]*$`, 'i');
+const YARDSTICK = new RegExp(`\\b(?:below|under|than|short of|instead of|up to|at most)\\s+[${QUOTE_MARKS}]*$`, 'i');
 const QUOTES: Record<string, string> = { '"': '"', "'": "'", '`': '`', '“': '”', '‘': '’' };
+const VOCAB_AFTER = new RegExp(`^\\|(?:${LABELS})(?![A-Za-z0-9])`);
+const VOCAB_BEFORE = new RegExp(`(?<![A-Za-z0-9])(?:${LABELS})\\|$`);
 function aWord(t: string, at: number, len: number): boolean {
   const before = t.slice(0, at);
   if (OPENS.test(before)) return false;
   const after = t.slice(at + len);
   if (QUOTES[before.slice(-1)] !== undefined && after.startsWith(QUOTES[before.slice(-1)]!)) return true;
-  if (/^\|[A-Za-z]/.test(after) || /[A-Za-z0-9]\|$/.test(before)) return true;
-  const clause = before.slice(Math.max(...['.', ';', ':', '!', '?', ',', '—', '–', '(', ')'].map(c => before.lastIndexOf(c))) + 1);
-  return NEGATED.test(' ' + clause) || YARDSTICK.test(' ' + clause);
+  if (VOCAB_AFTER.test(after) || VOCAB_BEFORE.test(before)) return true;
+  const clause = ' ' + before.slice(Math.max(...['.', ';', ':', '!', '?', ',', '—', '–', '(', ')'].map(c => before.lastIndexOf(c))) + 1);
+  return NEGATED.test(clause) || NEGATED_SUBJECT.test(clause) || YARDSTICK.test(clause);
 }
 /** A closing summary line ("Overall: …", "In summary, …", "Verdict: …") after the findings restates them; it starts no finding. */
 const SUMMARY = /^(?:\*\*)?(?:in\s+)?(?:summary|overall|verdict|conclusion|bottom line)\b/i;

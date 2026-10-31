@@ -357,7 +357,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       fs.writeFileSync(path.join(c.dir, 'judged.jsonl'), '');
       expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(c.dir, 'judged.jsonl')]).status).toBe(0);
       const v = run(['verify', '--ledger', ledger]);
-      expect([v.status, v.stdout.includes(`BRIEF ${c.reader} NOT_COLLECTED`), v.stdout.includes(`OUTPUT ${c.reader} NOT_REVIEWED`), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true, true]);
+      expect([v.status, v.stdout.includes(`BRIEF ${c.reader} NOT_COLLECTED rendered=`), v.stdout.includes(`OUTPUT ${c.reader} NOT_REVIEWED`), v.stdout.includes(' not_reviewed\n'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true, true, true]);
     }
   });
 
@@ -424,7 +424,9 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', 'Severity: Low (not High)\n').map(f => f.label)).toEqual(['Low']);
     const kept: Array<[string, string]> = [['CRITICAL: x.ts:4 drops rows', 'CRITICAL'], ['1. The token is never checked (auth.ts:9) — High', 'High'], ['- **High**: leak in log.ts:3', 'High'],
       ['| High | race in queue.ts:4 |', 'High'], ['| `High` | race in queue.ts:4 |', 'High'], ['The retry drops writes, a CRITICAL defect (q.ts:78).', 'CRITICAL'], ['[P1] token not expired', 'P1'],
-      ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ['Summary: CRITICAL auth bypass at a.ts:3', 'CRITICAL'], ["The lock isn't released on error (pool.ts:12): High", 'High']];
+      ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ['Summary: CRITICAL auth bypass at a.ts:3', 'CRITICAL'], ["The lock isn't released on error (pool.ts:12): High", 'High'],
+      ['1. Without auth this is CRITICAL (a.ts:3)', 'CRITICAL'], ['- Input is never sanitized CRITICAL', 'CRITICAL'], ['1. Requests with no token pass High (a.ts:4)', 'High'],
+      ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'], ['|auth.ts:9|token never expires|CRITICAL|', 'CRITICAL']];
     for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
   });
 
