@@ -162,7 +162,7 @@ describe('safe classification (A1-2)', () => {
   });
 
   test('repository config read only by free lanes or GitHub stays in the PR profile', () => {
-    const files = ['.github/dependabot.yml', '.osv-scanner.toml', 'setup.ps1', '.gitlab-ci.yml', '.github/ISSUE_TEMPLATE/bug_report.md', '.gstack/ship-policy.example.json'];
+    const files = ['.github/dependabot.yml', '.osv-scanner.toml', 'setup.ps1', '.gitlab-ci.yml', '.github/ISSUE_TEMPLATE/bug_report.md', '.gstack/ship-policy.example.json', 'test/bunfig.toml'];
     for (const file of files) expect(real.tracked.has(file), file).toBe(true);
     const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: files, packageVersionOnly: true });
     expect(result.coverage?.mode).toBe('pr');

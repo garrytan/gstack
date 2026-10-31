@@ -1,0 +1,4 @@
+# Bun reads bunfig.toml from the current directory only, so `cd test && bun test x.test.ts`
+# would skip the root preload and its env guards (state root, live brain URL, PATH restore).
+[test]
+preload = ["../test-setup.ts"]

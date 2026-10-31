@@ -246,6 +246,7 @@ export const FREE_ONLY_PR_FILES = [
   'capy/skill/**', // The vendored Capy skill (Drive bootstrapper): run by Capy agents, read by no paid case; test/capy-skill-wrapper.test.ts covers it.
   'captain/templates/**', // The /captain crew templates (CREW.md, merge-ask.md, slot-call.md, …): copied into a Captain's drive by people and Captains, read by no paid case; free test/captain-skill.test.ts covers them (#3499).
   'tsconfig.test.json', // Read only by `tsc -p tsconfig.test.json` (typecheck:test); Bun's runtime reads tsconfig.json.
+  'test/bunfig.toml', // Bun reads bunfig.toml from the cwd only; this one serves direct runs from test/, and paid shards run from the repo root.
   '.gitignore', // Changes which untracked files git reports, never tracked content a case reads.
   '.gstack/generated.json', // gstack's own regen registry: gstack-regen/gstack-pregate read it from origin/<base> of the repo they run in; paid cases run in fixture repos.
   '.gstack/pregate.json', // gstack's own pre-gate policy: same trust boundary, same reason.
