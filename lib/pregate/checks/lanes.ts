@@ -428,7 +428,8 @@ async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult)
   ctx.progress(`PREGATE_REMOTE_SPEND: ${spend.slice('spend: '.length)}`);
   const runLines = [...lines, `remote gate: ${obligation.command}`, `log: ${log}`, spend, ...output.trim().split('\n').slice(-15).map(l => `  ${l}`)];
   const inputs = { ...base.inputs, command: sha256(obligation.command!) };
-  const why = r.outcome !== 'exited' ? `the remote gate did not finish (${r.outcome})`
+  const why = r.outcome === 'timeout' ? `the remote gate did not finish (timed out after ${ctx.timeoutMs / 1000} s, ${ctx.timeoutSource})`
+    : r.outcome !== 'exited' ? `the remote gate did not finish (${r.outcome})`
     : !reported ? `the remote gate exited ${r.exit} without a PREGATE_REMOTE: line`
     : remoteReportProblem(reported, ctx.wtree) ?? (r.exit !== 0 ? `the remote gate exited ${r.exit}` : null);
   // A gate that printed no report and names a quota, network or missing-tool error in its preamble never ran the tests: the environment, not the diff.

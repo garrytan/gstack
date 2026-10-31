@@ -186,7 +186,11 @@ export function supervise(o: SuperviseOptions): Promise<Supervised> {
       if (now >= o.deadline) { stop('timeout'); return; }
       if (o.stallMs > 0 && now - lastGrowth >= o.stallMs) { stop('stalled'); return; }
       if (now - lastProgress < heartbeatMs) return;
-      const last = o.lastLine ? readRange(o.log, start, size, 4096).split('\n').map(l => l.trim()).filter(Boolean).at(-1) : undefined;
+      let last: string | undefined;
+      if (o.lastLine) {
+        try { last = readRange(o.log, start, size, 4096).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').split(/\r\n?|\n/).map(l => l.replace(/[\x00-\x1f\x7f]/g, '').trim()).filter(Boolean).at(-1); }
+        catch { /* log removed */ }
+      }
       emit(`PREGATE_HEARTBEAT: ${o.label} running ${Math.round((now - started) / 1000)}s; last file ${lastFile ?? 'none reported'}; log ${size - start} bytes, last growth ${Math.round((now - lastGrowth) / 1000)}s ago (${o.log})${last ? `; last output: ${last.slice(0, 160)}` : ''}`);
     }, pollMs);
     if (child.pid) ACTIVE.add(child.pid);

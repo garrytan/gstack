@@ -200,7 +200,7 @@ describe('gstack-pregate --remote (C-c)', () => {
     const late = remote(repo, ['--remote', '--allow-repo-commands', '--spend-cap', '2', '--timeout', '2'], { GATE_QUIET_MS: '8000' });
     expect(late.status).toBe(EXIT.fail);
     expect(lanes(repo)).toMatchObject({ status: 'incomplete', code: 'PREGATE_INCOMPLETE' });
-    expect(lanes(repo).detail).toContain('the remote gate did not finish (timeout)');
+    expect(lanes(repo).detail).toContain('the remote gate did not finish (timed out after 2 s, --timeout)');
     expect(pregateFile(repo).requires_remote[0].receipt).toBeNull();
   }, 60_000);
 
