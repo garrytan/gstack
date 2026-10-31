@@ -1,0 +1,389 @@
+/**
+ * Sub-shards inside one CI job (`--ci-run … --jobs k`, scripts/lib/shard-jobs.ts):
+ * the k = 1 golden path, identity-bound assignment, rejection of missing,
+ * duplicate and incomplete sub-shard results, one retry pass per CI shard,
+ * serial TREE_MUTATING and SLOW_UNDER_LOAD files, the timeout text, and per-file
+ * test and expect() counts from real bun children at k = 1 and k > 1.
+ */
+import { describe, expect, spyOn, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import {
+  collectFreeTestFiles, createFreeCiPlan, eligibleFreeRetryFiles, parseCliOptions, runFreeShard, TREE_MUTATING, verifyFreeCiResults,
+  type FreeCiResult, type FreeShardOutcome,
+} from '../scripts/test-free-shards';
+import {
+  assertSoloSeedSample, assignSubShards, ciRunContext, FREE_JOBS_INVALID, mergeSubShardOutcomes, parseJobsFlag, parseJunitCounts,
+  runCiShard, SLOW_UNDER_LOAD, subShardTimeoutText, validateJobsForShard, type CiShardDeps, type RunShardOptions,
+} from '../scripts/lib/shard-jobs';
+
+const ROOT = path.resolve(import.meta.dir, '..');
+const EXCLUSIVE = Object.keys(TREE_MUTATING)[0];
+const files = Array.from({ length: 7 }, (_, i) => `test/sample-${i}.test.ts`);
+const durations = Object.fromEntries(files.map((file, i) => [file, (i + 1) * 1_000]));
+const context = { planPath: 'plan.json', runId: '123/attempt 2', runner: 'runner-7 (linux, 8 CPUs)' };
+
+const passed = (shardFiles: string[], shard = 1): FreeShardOutcome => ({
+  shard, files: shardFiles, status: 'passed', exitCode: 0, elapsedMs: 5, groupPid: null, failingFiles: [], unattributedFailures: 0,
+  summary: { testsRan: shardFiles.length * 2, filesRan: shardFiles.length, sawTerminalSummary: true },
+});
+const failed = (shardFiles: string[], failing: string[], shard = 1): FreeShardOutcome => ({
+  ...passed(shardFiles, shard), status: 'failed', exitCode: 1, failingFiles: failing,
+});
+
+function harness(shardFiles: string[], respond: (files: string[]) => FreeShardOutcome | Promise<FreeShardOutcome> = passed) {
+  const calls: Array<{ files: string[]; shardNumber: number; totalShards: number; options: RunShardOptions; startedAt: number; endedAt?: number }> = [];
+  const retries: FreeShardOutcome[][] = [];
+  const guards: Array<{ files: string[]; shards: number }> = [];
+  let homeChange: string | null = null;
+  let terminate = false;
+  const deps: CiShardDeps = {
+    async runShard(runFiles, shardNumber, totalShards, options) {
+      const call: (typeof calls)[number] = { files: runFiles, shardNumber, totalShards, options, startedAt: performance.now() };
+      calls.push(call);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      try { return await respond(runFiles); } finally { call.endedAt = performance.now(); }
+    },
+    async retry(outcomes) {
+      retries.push(outcomes);
+      return { exitCode: outcomes.every(outcome => outcome.status === 'passed') ? 0 : 1, retry: null };
+    },
+    pack: (packFiles, count) => Array.from({ length: count }, (_, i) => packFiles.filter((_, j) => j % count === i)),
+    isSerial: file => file in TREE_MUTATING || file in SLOW_UNDER_LOAD,
+    terminationRequested: () => terminate,
+    phaseGuard: (guarded, shards) => { guards.push({ files: guarded, shards }); return { verify: () => homeChange }; },
+    log: () => {},
+  };
+  const plan = { version: 1 as const, revision: 'revision-a', id: '0123456789abcdef', shards: [{ shard: 1, files: shardFiles, predictedMs: 0 }] };
+  const shard = plan.shards[0];
+  const run = (jobs: number) => runCiShard({ plan, shard, revision: 'revision-a', jobs, wallTimeoutMs: 360_000, verbose: false, context }, deps);
+  return { calls, retries, guards, deps, plan, shard, run, setHomeChange: (value: string) => { homeChange = value; }, cancel: () => { terminate = true; } };
+}
+
+describe('--jobs validation (FREE_JOBS_INVALID)', () => {
+  test('accepts positive whole numbers and rejects everything else with the code and the precedence note', () => {
+    expect(parseJobsFlag('1')).toBe(1);
+    expect(parseJobsFlag('4')).toBe(4);
+    for (const raw of ['0', '-1', '2.5', 'abc', '', ' 2', undefined]) {
+      expect(() => parseJobsFlag(raw)).toThrow(FREE_JOBS_INVALID);
+      expect(() => parseJobsFlag(raw)).toThrow(/GSTACK_FREE_JOBS sets the local full-suite process count and never changes --ci-run/);
+    }
+  });
+
+  test('--jobs belongs to --ci-run only, and an absent --jobs leaves the parsed options unchanged', () => {
+    const base = ['--ci-run', 'plan.json', '--shard', '1', '--result', 'r.json'];
+    expect(parseCliOptions([...base, '--jobs', '4']).jobs).toBe(4);
+    expect('jobs' in parseCliOptions(base)).toBe(false);
+    expect(() => parseCliOptions([...base, '--jobs', '0'])).toThrow(FREE_JOBS_INVALID);
+    expect(() => parseCliOptions([...base, '--jobs'])).toThrow(FREE_JOBS_INVALID);
+    expect(() => parseCliOptions(['--jobs', '2'])).toThrow(`${FREE_JOBS_INVALID}: --jobs needs --ci-run`);
+    expect(() => parseCliOptions(['--ci-plan', 'p.json', '--jobs', '2'])).toThrow(FREE_JOBS_INVALID);
+  });
+
+  test('k may not exceed the shard file count; an empty shard still takes 1', () => {
+    expect(() => validateJobsForShard(4, 4, 3)).not.toThrow();
+    expect(() => validateJobsForShard(1, 0, 21)).not.toThrow();
+    expect(() => validateJobsForShard(5, 4, 3)).toThrow(`${FREE_JOBS_INVALID}: --jobs 5 is more than CI shard 3's 4 file(s); use 1 to 4.`);
+    expect(() => validateJobsForShard(2, 0, 21)).toThrow(FREE_JOBS_INVALID);
+  });
+});
+
+describe('k = 1 golden: PR 2 changes nothing in CI', () => {
+  test('one child over the whole planned shard with the same wall, one retry pass, and the same result keys', async () => {
+    const h = harness(files);
+    const { result, exitCode } = await h.run(1);
+    expect(h.calls.map(({ files: f, shardNumber, totalShards, options }) => ({ f, shardNumber, totalShards, options }))).toEqual([
+      { f: h.shard.files, shardNumber: 1, totalShards: 1, options: { wallTimeoutMs: 360_000, verbose: false, testCounts: true } },
+    ]);
+    expect(h.guards).toEqual([]);
+    expect(h.retries).toEqual([[passed(h.shard.files)]]);
+    expect(h.calls[0].options.wallTimeoutMs).toBe(360_000);
+    expect(Object.keys(result)).toEqual(['planId', 'revision', 'outcome', 'retry']);
+    expect(result).toEqual({ planId: h.plan.id, revision: 'revision-a', outcome: passed(h.shard.files), retry: null });
+    expect(exitCode).toBe(0);
+  });
+
+  test('a k = 1 failure reaches the retry pass as the child reported it', async () => {
+    const h = harness(files, runFiles => failed(runFiles, [runFiles[0]]));
+    const { result, exitCode } = await h.run(1);
+    expect(h.retries).toEqual([[failed(h.shard.files, [h.shard.files[0]])]]);
+    expect(result.outcome).toBe(h.retries[0][0]);
+    expect(exitCode).toBe(1);
+  });
+});
+
+describe('sub-shard assignment', () => {
+  const pack = (packFiles: string[], count: number) => Array.from({ length: count }, (_, i) => packFiles.filter((_, j) => j % count === i));
+
+  test('disjoint, identity-bound, covering the shard once, with exclusive files in one trailing serial sub-shard', () => {
+    const shardFiles = [...files, EXCLUSIVE];
+    const assignments = assignSubShards('0123456789abcdef', { shard: 4, files: shardFiles }, 3, file => file in TREE_MUTATING, pack);
+    expect(assignments.map(entry => [entry.id, entry.phase, entry.files.length])).toEqual([
+      ['0123456789ab:4.1', 'parallel', 3], ['0123456789ab:4.2', 'parallel', 2], ['0123456789ab:4.3', 'parallel', 2], ['0123456789ab:4.4', 'serial', 1],
+    ]);
+    expect(assignments.at(-1)!.files).toEqual([EXCLUSIVE]);
+    expect(assignments.flatMap(entry => entry.files).sort()).toEqual([...shardFiles].sort());
+  });
+
+  test('k is clamped to the parallel file count and a shard of only exclusive files stays one serial child', () => {
+    expect(assignSubShards('p', { shard: 1, files: files.slice(0, 2) }, 4, () => false, pack).length).toBe(2);
+    expect(assignSubShards('p', { shard: 1, files: [EXCLUSIVE] }, 1, file => file in TREE_MUTATING, pack)
+      .map(entry => entry.phase)).toEqual(['serial']);
+  });
+
+  test('a packer that drops or repeats a file is rejected before any child starts', () => {
+    expect(() => assignSubShards('p', { shard: 2, files }, 2, () => false, packFiles => [packFiles, [packFiles[0]]])).toThrow(/FREE_SUBSHARD_REJECTED/);
+    expect(() => assignSubShards('p', { shard: 2, files }, 2, () => false, packFiles => [packFiles.slice(1)])).toThrow(/exactly once/);
+  });
+});
+
+describe('k > 1: merge, rejection and one retry pass per CI shard', () => {
+  test('parallel sub-shards share the concurrent home guard, then exclusive files run alone after they settle', async () => {
+    const h = harness([...files, EXCLUSIVE]);
+    const { result, exitCode } = await h.run(3);
+    expect(exitCode).toBe(0);
+    const parallel = h.calls.filter(call => !call.files.includes(EXCLUSIVE));
+    const serial = h.calls.find(call => call.files.includes(EXCLUSIVE))!;
+    expect(parallel).toHaveLength(3);
+    expect(parallel.every(call => typeof call.options.homeGuard === 'function')).toBe(true);
+    expect(serial.options.homeGuard).toBeUndefined();
+    expect(serial.files).toEqual([EXCLUSIVE]);
+    expect(serial.startedAt).toBeGreaterThanOrEqual(Math.max(...parallel.map(call => call.endedAt!)));
+    expect(h.guards).toEqual([{ files: parallel.flatMap(call => call.files), shards: 3 }]);
+    expect(h.calls.every(call => call.options.wallTimeoutMs === 360_000 && call.totalShards === 4)).toBe(true);
+    expect(result.jobs).toBe(3);
+    expect(result.outcome).toMatchObject({ shard: 1, files: h.shard.files, status: 'passed', exitCode: 0, failingFiles: [], unattributedFailures: 0,
+      summary: { testsRan: 16, filesRan: 8, sawTerminalSummary: true } });
+    expect(result.subShards!.map(record => record.status)).toEqual(['passed', 'passed', 'passed', 'passed']);
+    expect(h.retries).toHaveLength(1);
+    expect(() => verifyFreeCiResults(h.plan, [result])).not.toThrow();
+  });
+
+  test('failures from every sub-shard are collected first, so k never multiplies the five-file retry cap', async () => {
+    const h = harness(files, runFiles => failed(runFiles, runFiles.slice(0, 2)));
+    const { result, exitCode } = await h.run(3);
+    expect(h.retries).toHaveLength(1);
+    expect(h.retries[0]).toHaveLength(1);
+    expect(result.outcome.failingFiles).toHaveLength(6);
+    expect(eligibleFreeRetryFiles(h.retries[0])).toBeNull();
+    expect(exitCode).toBe(1);
+    const spread = harness(files, runFiles => failed(runFiles, runFiles.slice(0, 1)));
+    await spread.run(3);
+    expect(eligibleFreeRetryFiles(spread.retries[0])!.sort()).toEqual(spread.calls.map(call => call.files[0]).sort());
+  });
+
+  test('a missing, duplicate or incomplete sub-shard result fails the CI shard and vetoes the retry', async () => {
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const cases: Array<(runFiles: string[]) => FreeShardOutcome | Promise<FreeShardOutcome>> = [
+        runFiles => runFiles.includes(files[0]) ? Promise.reject(new Error('spawn failed')) : passed(runFiles),
+        runFiles => passed(runFiles.includes(files[0]) ? [...runFiles, files[1]] : runFiles),
+        runFiles => runFiles.includes(files[0]) ? { ...passed(runFiles), summary: { testsRan: 1, filesRan: runFiles.length - 1, sawTerminalSummary: true } } : passed(runFiles),
+        runFiles => runFiles.includes(files[0]) ? { ...passed(runFiles), summary: undefined } : passed(runFiles),
+      ];
+      for (const respond of cases) {
+        errors.mockClear();
+        const h = harness(files, respond);
+        const { result, exitCode } = await h.run(3);
+        expect(h.calls).toHaveLength(3);
+        expect(result.outcome.status).toBe('failed');
+        expect(result.outcome.unattributedFailures).toBeGreaterThan(0);
+        expect(eligibleFreeRetryFiles([result.outcome])).toBeNull();
+        expect(exitCode).toBe(1);
+        expect(errors.mock.calls.map(call => String(call[0])).some(line => line.startsWith('[test:free] FREE_SUBSHARD_REJECTED: CI shard 1: 0123456789ab:1.'))).toBe(true);
+      }
+    } finally { errors.mockRestore(); }
+  });
+
+  test('a real-home change in the concurrent phase and a cancelled serial phase both fail the shard', async () => {
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const home = harness(files);
+      home.setHomeChange('real home changed while 3 shards ran concurrently');
+      expect((await home.run(3)).result.outcome.status).toBe('failed');
+      const cancelled = harness([...files, EXCLUSIVE]);
+      cancelled.cancel();
+      const { result } = await cancelled.run(2);
+      expect(cancelled.calls.some(call => call.files.includes(EXCLUSIVE))).toBe(false);
+      expect(result.subShards!.at(-1)).toMatchObject({ status: 'missing', files: [EXCLUSIVE] });
+      expect(result.outcome.status).toBe('failed');
+    } finally { errors.mockRestore(); }
+  });
+
+  test('a sub-shard timeout prints FREE_SUBSHARD_TIMEOUT with the file, k, runner, run id and a serial reproduce', async () => {
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const h = harness(files, runFiles => runFiles.includes(files[3])
+        ? { ...failed(runFiles, []), status: 'timed-out', exitCode: null, inFlight: [files[3]] } : passed(runFiles));
+      const { result, exitCode } = await h.run(3);
+      expect(result.outcome.status).toBe('timed-out');
+      expect(exitCode).toBe(1);
+      const text = errors.mock.calls.map(call => String(call[0])).join('\n');
+      expect(text).toContain('FREE_SUBSHARD_TIMEOUT: CI shard 1 sub-shard 0123456789ab:1.1 (3 files)');
+      expect(text).toContain('hit its 360s wall at --jobs 3 on runner-7 (linux, 8 CPUs), run 123/attempt 2.');
+      expect(text).toContain(`in flight: ${files[3]}`);
+      expect(text).toContain(`printf '%s\\n' '${files[3]}' > files.txt && GSTACK_FREE_JOBS=1 bun run scripts/test-free-shards.ts --files-from files.txt`);
+      expect(text).toContain("--ci-run 'plan.json' --shard 1 --result shard-1.json --jobs 1");
+      expect(text).toContain('add it to SLOW_UNDER_LOAD in scripts/lib/shard-jobs.ts with run id 123/attempt 2; never raise the timeout.');
+    } finally { errors.mockRestore(); }
+  });
+
+  test('--ci-verify rejects tampered sub-shard records', () => {
+    const plan = createFreeCiPlan(files, 1, durations, 'revision-a');
+    const shard = plan.shards[0];
+    const assignments = assignSubShards(plan.id, shard, 2, () => false, packFiles => [packFiles.slice(0, 3), packFiles.slice(3)]);
+    const merged = mergeSubShardOutcomes(shard, assignments.map(assignment => ({ assignment, outcome: passed(assignment.files) })), 10);
+    const result: FreeCiResult = { planId: plan.id, revision: 'revision-a', outcome: merged.outcome, retry: null, jobs: 2, subShards: merged.records };
+    expect(() => verifyFreeCiResults(plan, [result])).not.toThrow();
+    const overlap = structuredClone(result);
+    overlap.subShards![1].files = [...overlap.subShards![1].files, overlap.subShards![0].files[0]];
+    expect(() => verifyFreeCiResults(plan, [overlap])).toThrow(/sub-shards rejected/);
+    const hidden = structuredClone(result);
+    hidden.subShards![0].status = 'failed';
+    expect(() => verifyFreeCiResults(plan, [hidden])).toThrow(/failed or incomplete sub-shard/);
+    expect(() => verifyFreeCiResults(plan, [{ ...result, jobs: 1 }])).toThrow(/valid --jobs/);
+  });
+});
+
+describe('per-file test and expect() counts from bun JUnit', () => {
+  const xml = (file: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="6" assertions="9" failures="1" skipped="2">
+  <testsuite name="${file}" file="${file}" tests="3" assertions="9" failures="1" skipped="2">
+    <testsuite name="grp" file="${file}" tests="1" assertions="5">
+      <testcase name="x &gt; y &quot;q&quot;" classname="grp" file="${file}" line="2" assertions="5" />
+    </testsuite>
+    <testcase name="todo" classname="" file="${file}" line="3" assertions="0"><skipped message="TODO" /></testcase>
+    <testcase name="skip" classname="" file="${file}" line="4" assertions="0"><skipped /></testcase>
+    <testcase name="fails" classname="" file="${file}" line="5" assertions="4"><failure type="AssertionError" message="a &lt;b&gt;">x</failure></testcase>
+  </testsuite>
+</testsuites>`;
+
+  test('classifies every testcase and sums assertions per file; matches cwd-relative paths back to planned files', () => {
+    const counts = parseJunitCounts(xml('../../test/a&amp;b.test.ts'), ['test/a&b.test.ts'], 4);
+    expect(counts).toEqual({ source: 'bun-junit', complete: true, files: { 'test/a&b.test.ts': { tests: 4, pass: 1, fail: 1, skip: 1, todo: 1, expects: 9 } },
+      totals: { tests: 4, pass: 1, fail: 1, skip: 1, todo: 1, expects: 9 } });
+  });
+
+  test('a missing report, an unplanned file or a count that disagrees with bun summary is incomplete, never silently complete', () => {
+    expect(parseJunitCounts(null, ['test/a.test.ts'], 4)).toMatchObject({ complete: false, problem: 'bun wrote no JUnit report' });
+    expect(parseJunitCounts(xml('test/z.test.ts'), ['test/a.test.ts'], 4)).toMatchObject({ complete: false, problem: expect.stringContaining('unplanned') });
+    expect(parseJunitCounts(xml('test/a.test.ts'), ['test/a.test.ts'], 5)).toMatchObject({ complete: false, problem: "JUnit counted 4 tests, bun's summary 5" });
+    expect(parseJunitCounts(xml('test/a.test.ts'), ['test/a.test.ts'], null).complete).toBe(false);
+  });
+
+  test('real bun children: counts are identical per file at k = 1 and k = 2, add up to bun summary, and leave the stream unchanged', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-shard-jobs-')));
+    try {
+      const fixtures: Record<string, string> = {
+        't/a.test.ts': "import { test, expect } from 'bun:test';\ntest('a1', () => { expect(1).toBe(1); expect(2).toBe(2); });\ntest('a2', () => { expect(3).toBe(3); });\ntest.skip('a3', () => {});\n",
+        't/b.test.ts': "import { test, expect, describe } from 'bun:test';\ndescribe('g', () => { test('b1', () => { for (let i = 0; i < 5; i++) expect(i).toBe(i); }); });\ntest.todo('b2');\n",
+        't/c.test.ts': "import { test, expect } from 'bun:test';\ntest('c1', () => { expect([1]).toEqual([1]); });\n",
+        't/d.test.ts': "import { test, expect } from 'bun:test';\ntest.each([1, 2, 3])('d%p', n => { expect(n).toBeGreaterThan(0); expect(n).toBeLessThan(4); });\n",
+      };
+      for (const [file, body] of Object.entries(fixtures)) {
+        fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        fs.writeFileSync(path.join(root, file), body);
+      }
+      const planned = Object.keys(fixtures);
+      const plan = createFreeCiPlan(planned, 1, {}, 'rev');
+      const pids: number[] = [];
+      const deps = (logs: string[]): CiShardDeps => ({
+        runShard: async (runFiles, n, total, options) => {
+          const logFilePath = path.join(root, `stream-${logs.length}-${runFiles.length}-${n}-${total}.log`);
+          logs.push(logFilePath);
+          const outcome = await runFreeShard(runFiles, n, total, { ...options, rootDir: root, quiet: true, log: () => {}, logFilePath });
+          if (outcome.groupPid) pids.push(outcome.groupPid);
+          return outcome;
+        },
+        retry: async outcomes => ({ exitCode: outcomes[0].status === 'passed' ? 0 : 1, retry: null }),
+        pack: (packFiles, count) => Array.from({ length: count }, (_, i) => packFiles.filter((_, j) => j % count === i)),
+        isSerial: () => false,
+        terminationRequested: () => false,
+        log: () => {},
+      });
+      const input = { plan, shard: plan.shards[0], revision: 'rev', wallTimeoutMs: 60_000, verbose: false, context };
+      const serialLogs: string[] = [];
+      const one = await runCiShard({ ...input, jobs: 1 }, deps(serialLogs));
+      const two = await runCiShard({ ...input, jobs: 2 }, deps([]));
+      expect([one.exitCode, two.exitCode]).toEqual([0, 0]);
+      const expected = {
+        't/a.test.ts': { tests: 3, pass: 2, fail: 0, skip: 1, todo: 0, expects: 3 },
+        't/b.test.ts': { tests: 2, pass: 1, fail: 0, skip: 0, todo: 1, expects: 5 },
+        't/c.test.ts': { tests: 1, pass: 1, fail: 0, skip: 0, todo: 0, expects: 1 },
+        't/d.test.ts': { tests: 3, pass: 3, fail: 0, skip: 0, todo: 0, expects: 6 },
+      };
+      expect(one.result.outcome.counts).toMatchObject({ complete: true, files: expected, totals: { tests: 9, expects: 15 } });
+      expect(two.result.outcome.counts).toEqual(one.result.outcome.counts);
+      expect(two.result.subShards).toHaveLength(2);
+      expect(one.result.outcome.summary).toEqual(two.result.outcome.summary);
+      const bare = await runFreeShard(planned, 1, 1, { rootDir: root, quiet: true, log: () => {}, logFilePath: path.join(root, 'bare.log') });
+      expect(bare.counts).toBeUndefined();
+      const stream = (file: string) => fs.readFileSync(file, 'utf8').replace(/ \[[\d.]+m?s\]/g, '').split('\n').filter(line => !line.startsWith('[test:free]'));
+      expect(stream(serialLogs[0])).toEqual(stream(path.join(root, 'bare.log')));
+      for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }, 60_000);
+
+  test('a hung sub-shard is killed at its wall while its sibling finishes, and no child outlives the parent', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-shard-jobs-')));
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const planned = ['t/ok.test.ts', 't/hang.test.ts'];
+      for (const file of planned) {
+        fs.mkdirSync(path.join(root, 't'), { recursive: true });
+        fs.writeFileSync(path.join(root, file), "import { test, expect } from 'bun:test';\ntest('ok', () => { expect(1).toBe(1); });\n");
+      }
+      const plan = createFreeCiPlan(planned, 1, {}, 'rev');
+      const outcomes: FreeShardOutcome[] = [];
+      const startedAt = performance.now();
+      const { result } = await runCiShard({ plan, shard: plan.shards[0], revision: 'rev', jobs: 2, wallTimeoutMs: 2_000, verbose: false, context }, {
+        runShard: async (runFiles, n, total, options) => {
+          const outcome = await runFreeShard(runFiles, n, total, { ...options, rootDir: root, quiet: true, log: () => {},
+            ...(runFiles.includes('t/hang.test.ts') ? { commandFor: () => ({ command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'] }) } : {}) });
+          outcomes.push(outcome);
+          return outcome;
+        },
+        retry: async () => ({ exitCode: 1, retry: null }),
+        pack: packFiles => packFiles.map(file => [file]),
+        isSerial: () => false,
+        terminationRequested: () => false,
+        log: () => {},
+      });
+      expect(performance.now() - startedAt).toBeLessThan(20_000);
+      expect(result.outcome.status).toBe('timed-out');
+      expect(result.subShards!.map(record => [record.files[0], record.status]).sort()).toEqual([['t/hang.test.ts', 'timed-out'], ['t/ok.test.ts', 'passed']]);
+      for (const outcome of outcomes) expect(() => process.kill(outcome.groupPid!, 0)).toThrow();
+      expect(errors.mock.calls.some(call => String(call[0]).includes('FREE_SUBSHARD_TIMEOUT'))).toBe(true);
+    } finally { errors.mockRestore(); fs.rmSync(root, { recursive: true, force: true }); }
+  }, 60_000);
+});
+
+describe('serial lists and the duration seed', () => {
+  test('SLOW_UNDER_LOAD entries name live free files, a reason and a CI run id, and never overlap TREE_MUTATING', () => {
+    const census = new Set(collectFreeTestFiles());
+    for (const [file, entry] of Object.entries(SLOW_UNDER_LOAD)) {
+      expect(census.has(file), `SLOW_UNDER_LOAD names ${file}, which is not a free test file`).toBe(true);
+      expect(file in TREE_MUTATING).toBe(false);
+      expect(entry.reason.trim()).not.toBe('');
+      expect(entry.runId).toMatch(/^\d+(\/attempt \d+)?$/);
+    }
+  });
+
+  test('seeds take only one-file children; sub-shard runs have no path to the seed writer', () => {
+    expect(() => assertSoloSeedSample('test/a.test.ts', { files: ['test/a.test.ts'] })).not.toThrow();
+    expect(() => assertSoloSeedSample('test/a.test.ts', { files: ['test/a.test.ts', 'test/b.test.ts'] })).toThrow(/one-file serial children/);
+    expect(fs.readFileSync(path.join(ROOT, 'scripts/lib/shard-jobs.ts'), 'utf8')).not.toContain('writeDurationSeed');
+    const runner = fs.readFileSync(path.join(ROOT, 'scripts/test-free-shards.ts'), 'utf8');
+    const recorder = runner.slice(runner.indexOf('async function recordFreeTestDurations('), runner.indexOf('async function retryFailedFreeFiles('));
+    expect(runner.split('writeDurationSeed(').length - 1).toBe(recorder.split('writeDurationSeed(').length - 1);
+    expect(recorder).toContain('assertSoloSeedSample(file, outcome)');
+  });
+
+  test('the run context names the CI run and attempt, else local', () => {
+    expect(ciRunContext('p.json', { GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '3', RUNNER_NAME: 'ubi-1' })).toMatchObject({ runId: '42/attempt 3', runner: expect.stringMatching(/^ubi-1 \(/) });
+    expect(ciRunContext('p.json', {}).runId).toBe('local');
+    expect(subShardTimeoutText(2, 4, { id: 'x:2.1', phase: 'parallel', files: ['test/a.test.ts'], status: 'timed-out', exitCode: null, elapsedMs: 1, failingFiles: [], unattributedFailures: 0 },
+      [], 10_000, context)[1]).toContain('in flight: unknown');
+  });
+});

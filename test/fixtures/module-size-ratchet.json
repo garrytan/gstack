@@ -57,6 +57,7 @@
     { "file": "scripts/eval-bg.ts", "movedFrom": "(new: eval:bg dispatch/local backend, W5d)" },
     { "file": "test/helpers/module-size.ts", "movedFrom": "(new: ratchet (c) counter)" },
     { "file": "scripts/lib/free-home-guard.ts", "movedFrom": "(new: free-lane home-write tripwire, kept out of scripts/test-free-shards.ts)" },
+    { "file": "scripts/lib/shard-jobs.ts", "movedFrom": "(new: --ci-run --jobs sub-shards and per-file JUnit counts, kept out of scripts/test-free-shards.ts and scripts/lib/shard-engine.ts, GSTA-203)" },
     { "file": "browse/src/routes/activity.ts", "movedFrom": "browse/src/server.ts" },
     { "file": "browse/src/routes/commands.ts", "movedFrom": "browse/src/server.ts" },
     { "file": "browse/src/routes/core.ts", "movedFrom": "browse/src/server.ts" },

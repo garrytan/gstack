@@ -1555,6 +1555,52 @@ refresh to a maintainer.
   besides the bot's one refresh commit, later runs leave it alone. Only runs on
   `main` push the branch; a dispatch from another ref reports only.
 
+### Sub-shards inside one CI job
+
+`--ci-run <plan> --shard i --result <file> --jobs k` runs one planned CI shard as
+k sub-shards side by side on the same machine (`scripts/lib/shard-jobs.ts`). Each
+sub-shard is an ordinary free shard child: one `bun test` process, serial
+inside, with its own sandbox, process-group kill and log. Bun's worker
+`--parallel` mode is still not used (decision V3/D6 in
+`scripts/test-free-shards.ts`). The default is `k = 1`, which runs today's one
+child, so no workflow changes behavior until it passes `--jobs`.
+
+- `--jobs` applies only to `--ci-run`. It takes a positive whole number up to the
+  shard's file count (an empty shard takes 1); anything else stops with
+  `FREE_JOBS_INVALID`. `GSTACK_FREE_JOBS` sets the local full-suite process count
+  and never changes `--ci-run`. The exclusive host-state shard has one file, so
+  a workflow passes it `--jobs 1` or no `--jobs`.
+- Files are split into disjoint sub-shards packed by the duration seed. Each
+  sub-shard has an id (`<plan id prefix>:<shard>.<n>`) bound to its file list.
+  Files in `TREE_MUTATING` or `SLOW_UNDER_LOAD` run after the parallel
+  sub-shards settle, serially, in one trailing sub-shard.
+- The parallel phase uses the concurrent-phase real-home guard, the same one
+  full-suite mode uses; the serial sub-shard guards itself and names its files.
+- Every sub-shard gets the CI shard's own wall deadline, so k never moves a
+  deadline, and the parent waits for every child to settle.
+- The parent merges every sub-shard result into the shard's one `outcome`
+  before the single flaky-retry pass, so the five-file retry cap stays per CI
+  shard. A missing, duplicate or incomplete sub-shard result fails the shard
+  with `FREE_SUBSHARD_REJECTED` and vetoes the retry. `--ci-verify` re-checks
+  the `jobs` and `subShards` records a `k > 1` result carries.
+- Sub-shard runs never write `scripts/free-test-durations.json`; only
+  `--record-durations` does, and only from one-file children.
+
+`FREE_SUBSHARD_TIMEOUT` means a sub-shard hit its wall at `k > 1`. The message
+names the file in flight, k, the runner and the CI run id, and prints a serial
+reproduce command. If the file passes serially, add it to `SLOW_UNDER_LOAD` in
+`scripts/lib/shard-jobs.ts` with that run id and a reason. Never raise the
+timeout. `SLOW_UNDER_LOAD` is empty today.
+
+Every `--ci-run` result, at any k, records per-file test and `expect()` counts
+in `outcome.counts` (`tests`, `pass`, `fail`, `skip`, `todo`, `expects` per
+file, plus shard totals). They come from bun's JUnit reporter, which the runner
+writes into the shard sandbox; on the pinned Bun 1.4.2 it attributes both counts
+per file inside a multi-file child and leaves the console stream unchanged.
+`complete: false` (with a `problem`) means the report was missing or did not add
+up to bun's own test count. Counts are evidence for comparing k values; they
+never decide a verdict.
+
 ### Windows free lane
 
 `windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6`),

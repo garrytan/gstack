@@ -237,6 +237,7 @@ export const PAID_WORKFLOW_FILES = [
 export const FREE_ONLY_PR_FILES = [
   'scripts/test-free-shards.ts',
   'scripts/lib/free-home-guard.ts', // Imported only by the free shard runner.
+  'scripts/lib/shard-jobs.ts', // Imported only by the free shard runner (--ci-run --jobs sub-shards).
   'test/helpers/auq-parallel-worker.ts',
   'test/helpers/stored-zip.ts', // Read only by the free test-health report tests.
   'scripts/free-test-durations.json',
