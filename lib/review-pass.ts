@@ -130,7 +130,8 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       continue;
     }
     const role = r.role!;
-    const slots: Slots = { name: r.name, diff_base: m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined, checklists: r.checklists?.join(',') };
+    const slots: Slots = { name: r.name, diff_base: m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
+      checklists: r.checklists?.map(n => path.join(m.checklist_root, 'review/specialists', `${n}.md`)).join(',') };
     if (role === 'specialist') slots.checklist = path.join(m.checklist_root, 'review/specialists', `${r.name}.md`);
     let findingsSha: string | undefined;
     if (role === 'red-team') {

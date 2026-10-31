@@ -37,6 +37,9 @@ describe('pass manifest', () => {
     const light = manifest([{ role: 'specialist', name: 'batched', effort: 'full', exclude: [':(exclude)docs/a.md'], checklists: ['testing', 'red-team'] }]);
     expect(light.readers[0]).toMatchObject({ reader: 'specialist-batched', role: 'specialist-batched', exclude: "-- . ':(exclude)docs/a.md'", checklists: ['testing', 'red-team'] });
     expect(() => manifest([{ role: 'fix-check', name: 'fix-check', effort: 'full', exclude: [] }])).toThrow(/fix-check runs on its own/);
+    // PR #3665 review: the batched reviewer reads each checklist by path, as the render CLI is given them, never by bare name.
+    renderStage(light, 'specialists', texts, () => '');
+    expect(fs.readFileSync(light.readers[0]!.file!, 'utf8')).toContain(`Read each checklist at ${path.join(ROOT, 'review/specialists/testing.md')}, ${path.join(ROOT, 'review/specialists/red-team.md')} (tag each finding`);
   });
 
   test('a manifest render is byte for byte the render CLI\'s brief for the same slots', () => {
