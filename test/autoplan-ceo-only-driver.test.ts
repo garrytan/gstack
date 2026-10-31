@@ -245,15 +245,37 @@ describe('the CEO-only finish records no answer nobody gave and writes only its 
     expect(fs.readFileSync(report, 'utf8')).toBe(SMALL_PLAN);
   });
 
-  test('a plan that became the report file after init (a hard link) refuses at the finish and stays intact', () => {
-    const out = startSmallRun(dir('hardlink'), ['--ceo-only']);
-    const plan = path.join(dir('hardlink'), 'plan.md');
-    fs.linkSync(plan, path.join(out, 'ceo-review.md'));
+  test('a run whose plan entry is the report file refuses at the finish and leaves it intact', () => {
+    const out = startSmallRun(dir('same-entry'), ['--ceo-only']);
+    const report = path.join(out, 'ceo-review.md');
+    fs.writeFileSync(report, SMALL_PLAN);
+    const run = readRun(out);
+    fs.writeFileSync(path.join(out, 'run.json'), JSON.stringify({ ...run, plan_input: report }, null, 2) + '\n');
     const submit = runPhase(out, 'ceo').outside;
     expect(submit.status).toBe(3);
     expect(submit.stderr).toContain('(CEO_ONLY_CONFLICT)');
-    expect(fs.readFileSync(plan, 'utf8')).toBe(SMALL_PLAN);
+    expect(fs.readFileSync(report, 'utf8')).toBe(SMALL_PLAN);
     expect(readRun(out).status).not.toBe('reviewed');
+  });
+
+  test('a plan hard-linked to the report path finishes: the rename replaces the link, never the plan', () => {
+    const out = startSmallRun(dir('hardlink'), ['--ceo-only']);
+    const plan = path.join(dir('hardlink'), 'plan.md');
+    fs.linkSync(plan, path.join(out, 'ceo-review.md'));
+    runPhase(out, 'ceo');
+    expect(readRun(out).status).toBe('reviewed');
+    expect(fs.readFileSync(plan, 'utf8')).toBe(SMALL_PLAN);
+  });
+
+  test('a --plan given as a symlink at the report path refuses', () => {
+    const out = path.join(dir('report-link'), 'run');
+    fs.mkdirSync(out, { recursive: true });
+    const plan = path.join(dir('report-link'), 'plan.md');
+    fs.writeFileSync(plan, SMALL_PLAN);
+    fs.symlinkSync(plan, path.join(out, 'ceo-review.md'));
+    const r = autoplan(['next', '--out', out, '--plan', path.join(out, 'ceo-review.md'), '--no-ui', '--ceo-only']);
+    expect(r.status).toBe(3);
+    expect(r.stderr).toContain('(CEO_ONLY_CONFLICT)');
   });
 
   test('a symlink at the report path is replaced, never written through', () => {

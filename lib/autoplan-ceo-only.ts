@@ -43,7 +43,7 @@ export function checkCeoOnlyFlags(args: readonly string[], plan: string | undefi
   const conflicts = CEO_ONLY_CONFLICTS.filter(f => args.includes(f) || tokens.includes(f));
   if (conflicts.length) throw new RunError('CEO_ONLY_CONFLICT', `${CEO_ONLY_FLAG} with ${conflicts.join(', ')}`, 3);
   const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-  if (plan && out && real(plan) === path.join(real(out), CEO_ONLY_REPORT)) throw new RunError('CEO_ONLY_CONFLICT', `the plan ${plan} is the report path`, 3);
+  if (plan && out && (path.resolve(plan) === path.resolve(out, CEO_ONLY_REPORT) || real(plan) === path.join(real(out), CEO_ONLY_REPORT))) throw new RunError('CEO_ONLY_CONFLICT', `the plan ${plan} is the report path`, 3);
   if (existing && !existing.ceo_only) throw new RunError('CEO_ONLY_AFTER_INIT', `${existing.out} holds full run ${existing.run} (status ${existing.status})`, 3);
   return true;
 }
@@ -57,8 +57,9 @@ export function refuseCeoOnly(state: RunState, verb: string): void {
 export function finishRun(state: RunState): string[] {
   if (!state.ceo_only) { finishGate(state); return carryLines(state); }
   const report = path.join(state.out, CEO_ONLY_REPORT);
-  const at = fs.existsSync(report) && !fs.lstatSync(report).isSymbolicLink() ? fs.statSync(report) : undefined;
-  const plan = [state.plan_source, state.plan_input, state.active_plan].find(p => p && at && fs.existsSync(p) && fs.statSync(p).ino === at.ino && fs.statSync(p).dev === at.dev);
+  const id = (p: string) => fs.statSync(p, { bigint: true });
+  const at = fs.existsSync(report) && !fs.lstatSync(report).isSymbolicLink() ? id(report) : undefined;
+  const plan = at?.nlink === 1n ? [state.plan_source, state.plan_input, state.active_plan].find(p => p && fs.existsSync(p) && id(p).ino === at.ino && id(p).dev === at.dev) : undefined;
   if (plan) throw new RunError('CEO_ONLY_CONFLICT', `the plan ${plan} is the report path ${report}`, 3);
   const list = buildGate(state, 1);
   const items = list.items.filter(i => i.id !== 'p1');
