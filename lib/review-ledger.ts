@@ -59,47 +59,6 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
-/** The label the line opens with, after a list marker, heading mark, table bar, bracket, bold or quote: always a label. */
-const OPENS = /^(?:[-*+>]\s+|\d+[.)]\s+|#{1,6}\s*)?[\s[(*_`"'“‘|]*$/;
-/**
- * A label word used as a word, not as a label (GST-435): negated by the words right before it ("not CRITICAL", "no High findings",
- * "isn't a CRITICAL", "doesn't rise to CRITICAL", "no CRITICAL or High"), said of a negated subject through a copula with no
- * conjunction between ("Neither finding is CRITICAL", "None of these is High", "Nothing here is CRITICAL"), used as a yardstick
- * ("below CRITICAL", "worse than High"), quoted or code-formatted inside a sentence, with words after it ("rated it 'High'; the fix
- * closes it", "maps `FIXABLE` to `CRITICAL` in a comment") or listed as vocabulary ("Critical|High"); bold or code marks between the
- * negation and the label change nothing. A negation that describes the defect ("Without auth this is CRITICAL", "None of the inputs
- * are sanitized so this is CRITICAL") leaves the label standing. A quoted label at the end of its line or before only a file:line ("— `CRITICAL`", "(`FIXABLE`)"), on a Severity or Blocks
- * field line counts, and table cells are never vocabulary for each other. The clause runs back to the last sentence, colon,
- * comma, dash, bracket or table bar. parseFindings never lets these rules empty a line naming a file:line or a table row.
- */
-const NEGATOR = "not|no|never|nothing|without|zero|nor|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|cannot|can't|won't";
-const FILLER = '(?:a|an|any|rated|at|be|really|quite|even|rises?\\s+to|reach(?:es)?|counts?\\s+as)';
-const MARKS = "[*_`\"'“‘]*";
-const NEGATED = new RegExp(`\\b(?:${NEGATOR})\\s+(?:${FILLER}\\s+)*(?:${MARKS}(?:${LABELS})${MARKS}\\s*(?:or|nor|and|/)\\s*)*${MARKS}$`, 'i');
-/** A new clause after a negated subject: a subordinating conjunction, or "and"/"or" that opens a clause with its own subject. */
-const CLAUSE_BREAK = '\\b(?:so|but|yet|because|since|while|whereas|although|though|if|when)\\b|(?<!\\bof\\s+)\\bwhich\\b|\\b(?:and|or)\\s+(?:the|this|that|these|those|it|its|there|a|an|we|i|you|they)\\b';
-const NEGATED_SUBJECT = new RegExp(`^\\s*(?:neither|none|nothing|no\\s+(?:[\\w-]+\\s+)?(?:findings?|issues?|items?|defects?|problems?))\\b(?:(?!${CLAUSE_BREAK}).)*\\b(?:is|are|was|were|rises?\\s+to|reach(?:es)?|counts?\\s+as|rated)\\s+(?:(?:a|an)\\s+)?${MARKS}$`, 'i');
-const YARDSTICK = new RegExp(`\\b(?:below|under|than|short of|instead of)\\s+${MARKS}$`, 'i');
-const QUOTES: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘': '’', '`': '`' };
-const VOCAB_AFTER = new RegExp(`^\\|(?:${LABELS})(?![A-Za-z0-9])`);
-const VOCAB_BEFORE = new RegExp(`(?<![A-Za-z0-9])(?:${LABELS})\\|$`);
-function aWord(t: string, at: number, len: number): boolean {
-  const before = t.slice(0, at);
-  if (OPENS.test(before)) return false;
-  const after = t.slice(at + len);
-  const table = t.startsWith('|');
-  const quote = QUOTES[before.slice(-1)];
-  const mid = quote !== undefined && after.startsWith(quote) && /[A-Za-z]/.test(after.slice(1).replace(new RegExp(LOCUS.source, 'g'), ''));
-  if (mid && !META.test(t)) return true;
-  if (!table && (VOCAB_AFTER.test(after) || VOCAB_BEFORE.test(before))) return true;
-  const clause = ' ' + before.slice(Math.max(...['.', ';', ':', '!', '?', ',', '—', '–', '(', ')', '|'].map(c => before.lastIndexOf(c))) + 1);
-  return NEGATED.test(clause) || NEGATED_SUBJECT.test(clause) || YARDSTICK.test(clause);
-}
-/**
- * A closing summary line ("Overall: …", "In summary, …", "Verdict: …") after the findings restates them: it starts no finding unless
- * it names a file:line, says `Blocks: yes` or carries a label stronger than every finding before it.
- */
-const SUMMARY = /^(?:\*\*)?(?:in\s+summary\b|(?:summary|overall|verdict|conclusion|bottom\s+line)\**\s*[:,—–])/i;
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
@@ -114,10 +73,8 @@ export interface MergedLine { id: string; reader: string; label: string; raw: st
  * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
  * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
- * come yet, which is its detail and joins its text.
- * An inline `Blocks: yes` is CRITICAL too. A label word used as a word (negated, a yardstick, quoted or listed as vocabulary) is
- * not a label, and a closing summary line after the findings starts none (GST-435). The native voice's FIXABLE collects as CRITICAL;
- * other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
+ * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An inline
+ * `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
  */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
   type Finding = { label: string; raw: string; fields: Set<string>; list: boolean };
@@ -128,12 +85,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let gap = false;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
-  const strongest = (t: string) => {
-    const all = [...t.matchAll(ALL_LABELS)];
-    const labels = all.filter(m => !aWord(t, m.index!, m[1]!.length));
-    // A line naming a file:line or a table row is finding-shaped: the word rules may pick its label, never leave it with none.
-    return (labels.length || !(LOCUS.test(t) || t.startsWith('|') || /\s\|\s/.test(t)) ? labels : all).map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
-  };
+  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
   const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
@@ -141,7 +93,6 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     const afterGap = gap;
     gap = false;
     if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
-    if (out.length && SUMMARY.test(t) && !BLOCKS_YES.test(t) && !LOCUS.test(t) && (rank(strongest(t)) ?? -1) <= Math.max(...out.map(o => rank(o.label) ?? 0))) { current = null; continue; }
     const indented = line !== line.trimStart();
     const label = strongest(t);
     const blocks = BLOCKS_YES.test(t);
@@ -168,10 +119,9 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
         if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    // An unlabeled, unnumbered bullet under a paragraph finding whose fields have not come yet is its detail (GSTA-196 native voice).
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
-    const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
+    const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
     if (fresh) { current = null; head = t; }
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
