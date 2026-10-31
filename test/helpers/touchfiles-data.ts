@@ -914,8 +914,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'scripts/resolvers/design-doc-discovery.ts', 'bin/gstack-design-doc-find', 'bin/gstack-ceo-plan-find', 'plan-ceo-review/**', 'ETHOS.md', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/testing.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts',  'scripts/resolvers/tasks-section.ts', 'test/helpers/autoplan-phase-observer.ts', 'scripts/resolve-codex-generation-model.ts', 'scripts/resolvers/constants.ts'],
 
   // /autoplan --ceo-only: zero questions through the CEO phase (GST-537)
-  'autoplan-ceo-only': ['autoplan/SKILL.md.tmpl', 'autoplan/sections/ceo-only.md.tmpl', 'autoplan/sections/ceo-phase.md.tmpl',
-    'autoplan/sections/manifest.json', 'bin/gstack-ceo-mode-handoff', 'test/helpers/autoplan-ceo-only-evidence.ts',
+  'autoplan-ceo-only': ['autoplan/**', 'plan-ceo-review/**', 'ETHOS.md', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble-hoist.ts',
+    'scripts/resolvers/preamble/generate-ask-user-format.ts', 'bin/gstack-state-root.sh', 'lib/state-root.ts',
+    'lib/headless-artifacts.ts', 'bin/gstack-ceo-mode-handoff', 'test/helpers/autoplan-ceo-only-evidence.ts', 'test/helpers/hermetic-env.ts',
     'test/skill-e2e-autoplan-ceo-only.test.ts', 'test/fixtures/forcing-finding-seeds.ts'],
 
   // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
