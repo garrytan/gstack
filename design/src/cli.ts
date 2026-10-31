@@ -104,9 +104,9 @@ async function readStdinKey(): Promise<string> {
 
 /**
  * Store a key (prompted, or piped with --key-stdin) and smoke-test the
- * provider it belongs to. --provider stores that provider's key even when
- * another provider's key already resolves; without it, an existing key is
- * smoke-tested as before.
+ * provider it belongs to. --provider or --key-stdin stores the new key even
+ * when another provider's key already resolves; with neither, an existing key
+ * is smoke-tested as before.
  */
 async function runSetup(flags: Record<string, string | boolean>): Promise<void> {
   const requested = flags.provider;
