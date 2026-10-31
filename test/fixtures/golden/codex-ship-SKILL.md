@@ -457,7 +457,7 @@ not web services already deployed.
 
 The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `skipped` under stamp-at-merge).
 
-**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous ones, **STOP**: show the choices, ask with AskUserQuestion and wait for the answer before editing or continuing; then commit and rerun the preflight.
+**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**: show the choices, ask via AskUserQuestion, wait for the answer before editing or continuing; then commit and rerun the preflight.
 
 **Ship policy:** `POLICY:` is `gstack-ship-policy show-effective --base <base>`
 (docs/ship-policy.md); its `ship:` lines bind Steps 12-16 and history. `RUNTIME_LINES:` goes
