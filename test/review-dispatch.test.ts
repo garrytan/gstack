@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BriefError, promptHash, renderBrief, sectionTexts, workspaceParagraph } from '../lib/review-brief';
+import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph } from '../lib/review-brief';
 import { collect, judge, parseFindings, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -533,5 +533,42 @@ describe('the workspace paragraph (GST-482)', () => {
     fs.writeFileSync(reply, 'NO FINDINGS\n');
     const old = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--output', reply, '--merged', path.join(legacy, 'm.jsonl')], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
     expect(old.stdout).toStartWith('COLLECT: reader=specialist/testing findings=0 ');
+  });
+});
+
+describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
+  const top = fs.realpathSync(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim());
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+  const expected = `${tree} ${top}`;
+  test('Markdown around the line, label, sha or whole path is read; the path keeps its own characters; the first line wins', () => {
+    for (const line of [`REVIEWED_TREE: ${tree} ${top}`, `**REVIEWED_TREE:** ${tree} ${top}`, `REVIEWED_TREE: \`${tree}\` \`${top}\``, `## REVIEWED_TREE: ${tree} ${top}`, `- **REVIEWED_TREE: ${tree} ${top}**`])
+      expect(checkReviewedTree(line + '\nNO FINDINGS', expected).ok, line).toBe(true);
+    expect(checkReviewedTree(`REVIEWED_TREE: ${tree} ${top}*`, expected).ok).toBe(false);
+    expect(checkReviewedTree(`REVIEWED_TREE: ${tree} ${top}\n\`\`\`\nREVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\n\`\`\``, expected).ok).toBe(true);
+    expect(checkReviewedTree(`REVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\nREVIEWED_TREE: ${tree} ${top}`, expected)).toMatchObject({ ok: false, reported: `${'b'.repeat(40)} /elsewhere` });
+  });
+
+  test('an outside voice with findings and no tree line is refused, never turned into unavailable coverage that drops them', () => {
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const merged = path.join(out, 'merged.jsonl');
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+    run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', file]);
+    const reply = path.join(out, 'r.out');
+    fs.writeFileSync(reply, '1. **CRITICAL**: auth bypass in a.ts:3\nBlocks: yes\n\nRecommendation: request changes\n');
+    const c = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', reply, '--merged', merged], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    expect([c.status, c.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice reported="none"')]).toEqual([1, true]);
+    expect(run(['verify', '--ledger', ledger]).stdout).not.toContain('VERIFY: clean');
+    fs.writeFileSync(reply, 'Codex timed out before it reviewed anything.\n');
+    const u = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', reply, '--merged', merged], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    expect([u.status, u.stdout.startsWith('COLLECT_UNAVAILABLE: reader=outside-voice')]).toEqual([0, true]);
+  });
+
+  test('render outside a readable checkout refuses instead of recording a fingerprint no reply can match', () => {
+    const dir = tmp();
+    const r = run(['render', '--role', 'adversarial-native', '--out', path.join(dir, 'o'), '--diff-base', SHA], dir);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('BRIEF_RENDER_FAILED: cannot read HEAD^{tree} and the toplevel of');
   });
 });

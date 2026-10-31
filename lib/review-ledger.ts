@@ -83,6 +83,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let current: Finding | null = null;
   let head = '';
   let gap = false;
+  let treeSeen = false;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
@@ -90,7 +91,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
     if (!t) { gap = true; continue; }
-    if (isReviewedTreeLine(t)) continue;
+    if (!treeSeen && isReviewedTreeLine(t)) { treeSeen = true; continue; }
     const afterGap = gap;
     gap = false;
     if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }

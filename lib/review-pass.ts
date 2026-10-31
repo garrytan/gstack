@@ -130,6 +130,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
   const done: PassReader[] = [];
   const workdir = checkoutRoot();
   const tree = checkoutTree(workdir);
+  if (!tree) throw new BriefError(`cannot read HEAD^{tree} and the toplevel of ${workdir}; a brief names the checkout its reply must prove`);
   for (const r of m.readers.filter(x => x.stage === stage && x.state === 'planned')) {
     if (r.prompt_file) {
       let text: string;

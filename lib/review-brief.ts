@@ -151,18 +151,22 @@ export function checkoutRoot(): string {
   return realDir(r.status === 0 ? r.stdout.trim() : process.cwd());
 }
 
-const REVIEWED_TREE = /^\s*(?:[-*>]\s*|\d+[.)]\s*)?[`*]*REVIEWED_TREE:\s*([0-9a-f]{40,64})\s+(.+?)[`*\s]*$/;
-export const isReviewedTreeLine = (line: string) => REVIEWED_TREE.test(line);
-const realDir = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-/** The checkout a reply says it reviewed; null when it names none, '' when its lines disagree. */
-function reportedTree(output: string): string | null {
-  const seen = new Set<string>();
-  for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
-    const m = REVIEWED_TREE.exec(line);
-    if (m) seen.add(`${m[1]} ${realDir(m[2]!)}`);
-  }
-  return seen.size === 0 ? null : seen.size === 1 ? [...seen][0]! : '';
+/**
+ * One REVIEWED_TREE line as "<tree> <toplevel>", or null. A list marker or heading mark may lead it, and a whole-line `**…**` or
+ * backtick wrapper, a bold label and backticks around the sha or the whole path are removed; the path's own characters are kept.
+ */
+function parseTreeLine(line: string): string | null {
+  let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '');
+  for (const w of ['**', '`']) if (t.length > 2 * w.length && t.startsWith(w) && t.endsWith(w)) t = t.slice(w.length, -w.length).trim();
+  const m = /^(?:\*\*REVIEWED_TREE:\*\*|REVIEWED_TREE:)\s+`?([0-9a-f]{40,64})`?\s+(.+)$/.exec(t);
+  if (!m) return null;
+  const p = m[2]!.length > 2 && m[2]!.startsWith('`') && m[2]!.endsWith('`') ? m[2]!.slice(1, -1) : m[2]!;
+  return `${m[1]} ${realDir(p)}`;
 }
+export const isReviewedTreeLine = (line: string) => parseTreeLine(line) !== null;
+const realDir = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+/** The checkout a reply says it reviewed: its first REVIEWED_TREE line (a later one may be quoted inside a finding); null with none. */
+const reportedTree = (output: string): string | null => output.replace(/\r\n/g, '\n').split('\n').map(parseTreeLine).find(t => t !== null) ?? null;
 /** The fingerprint a reply must report, read from the checkout itself when its brief is rendered: "<HEAD^{tree}> <toplevel>". */
 export function checkoutTree(dir: string): string | null {
   const git = (a: string[]) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8', timeout: 30_000 });
@@ -177,7 +181,7 @@ export function checkReviewedTree(output: string, expected: string | null): Tree
   const ok = expected !== null && reported === expected;
   const top = (t: string) => t.slice(t.indexOf(' ') + 1);
   return { ok, moved: !ok && !!reported && expected !== null && top(reported) === top(expected),
-    expected: expected ?? 'none (the checkout was unreadable at render)', reported: reported === null ? 'none' : reported || 'conflicting lines' };
+    expected: expected ?? 'none (the checkout was unreadable at render)', reported: reported ?? 'none' };
 }
 
 /** The file a rendered brief is written to under the run's briefs directory. */
