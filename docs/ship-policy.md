@@ -986,8 +986,9 @@ construction:
    context; `outside`: anything else), a `kind`, `blocking` and a `scope`.
    `blocking` is a CRITICAL defect. CRITICAL is the blocking floor: a finding that
    would fail a test, break production, lose data or secrets, or open a security hole
-   (injection, auth bypass, secret exposure). Everything else is INFORMATIONAL. Everything else (an advisory, an informational
-   item, a test gap, a wording note) is below the floor. Pass 1 fixes findings in
+   (injection, auth bypass, secret exposure). Everything else is INFORMATIONAL.
+   An advisory, an informational item, a test gap or a wording note is below the
+   floor. Pass 1 fixes findings in
    the diff (`scope: fix`). A blocking finding in code the PR did not change is
    `scope: defer`: `gstack-review-scope defer` files it as a GitHub issue (reusing
    an open issue that carries the same `<!-- gstack-deferred-finding: <fingerprint> -->`
