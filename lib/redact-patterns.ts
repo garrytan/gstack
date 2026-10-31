@@ -121,7 +121,7 @@ export function shannonEntropy(s: string): number {
 //         (apiKey, authToken, clientSecret, stripeApiKey) — cacheKey/sortKey/
 //         monkey have no credential prefix and are rejected.
 const ENV_KV_NAME =
-  /^[ \t]*(?:export[ \t]+)?["']?([A-Za-z0-9_.-]*?(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE))["']?[ \t]*[:=]/i;
+  /^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*(?:export[ \t]+)?["']?([A-Za-z0-9_.-]*?(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE))["']?[ \t]*[:=]/i;
 const ENV_KV_SUFFIX =
   /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)$/i;
 const ENV_KV_CRED_PREFIX =
@@ -656,7 +656,7 @@ const CALL_SHAPED_VALUE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\(/;
  * A random key is mixed-case or one unbroken run, so it never takes this shape.
  */
 const SCHEMA_FIELD_NAME =
-  /^[ \t]*["']?(?:input|output|field|column|lookup|cache|sort|partition|range|index|row|group|join|property|metric|catalog|schema|translation|idempotency|dedup)[_.-]key["']?[ \t]*[:=]/;
+  /^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*["']?(?:input|output|field|column|lookup|cache|sort|partition|range|index|row|group|join|property|metric|catalog|schema|translation|idempotency|dedup)[_.-]key["']?[ \t]*[:=]/;
 const SCHEMA_FIELD_VALUE = /^[a-z][a-z0-9]*(?:[_.-][a-z][a-z0-9]*)+$/;
 function isSchemaFieldIdentifier(span: string, match: RegExpExecArray): boolean {
   return SCHEMA_FIELD_NAME.test(match[0]) && SCHEMA_FIELD_VALUE.test(span);
@@ -962,7 +962,16 @@ export const PATTERNS: RedactPattern[] = [
     // (cacheKey:, sortKey:, monkey:) fires a MEDIUM confirm on entropic
     // values. The value must stay capture group 1 (the engine masks group 1),
     // so name-shape checking lives in validate, not in a second group.
-    regex: /^[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,})["']?/i,
+    // GST-543: an optional leading `+` or `-` is a unified-diff line marker
+    // (`git diff | gstack-redact`, a diff fence in a PR body), and one more
+    // column before it (`++`, ` +`, `+-`) is a combined (merge) diff. Without
+    // them the line anchor stopped at the marker, so an added or removed credential
+    // went unreported (`-` alone matched only as a name character, never
+    // before indentation or `export`). A `-` followed by exactly one space
+    // and text is a Markdown bullet or YAML list item, not a marker, so those
+    // read as they did before. ENV_KV_NAME and SCHEMA_FIELD_NAME take the same
+    // marker so the name-shape and schema exemptions hold on a diff line.
+    regex: /^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,})["']?/i,
     // Only fire on credential-shaped names with high-entropy values — kills
     // `FOO_KEY=changeme` and `cacheKey: <entropic-id>` FPs. #2912: a value
     // that is exactly an environment read (`os.environ["X"]`,

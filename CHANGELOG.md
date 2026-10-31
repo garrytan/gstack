@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.92.3.0] - 2026-10-31
+
+**`gstack-redact` now catches a credential on a diff line (GST-543).** The env.kv rule matched from the start of the line, so the leading `+` or `-` of a diff line stopped the match. `git diff | gstack-redact` returned no finding and exit 0 for `+API_TOKEN=<random value>`. It did the same for a removed line that was indented or used `export`, and for a merge diff's two-column markers (`++`, ` +`). A `diff` code block in a PR body had the same blind spot. Pregate's `secrets` check and the pre-push hook were not affected, because both strip the `+` before scanning.
+
+### Fixed
+- **`lib/redact-patterns.ts`:** env.kv accepts a diff marker before the name: `+` or `-`, optionally after one more column of a space, `+` or `-`. So the line in the example above now reports MEDIUM env.kv and exits 2. A `-` followed by one space and text still reads as a Markdown bullet or YAML list item, as before. The name-shape check and the schema-field exemption accept the same marker, so `API_TOKEN=changeme`, `cacheKey: …` and `input_key: …` stay clean on a diff line. Scanning every tracked file in the repo gives the same env.kv results as before.
+- **`test/redact-diff-prefix.test.ts`:** every pattern in `PATTERNS` has a sample. The test requires each sample to report bare, behind each diff marker, and on an added or removed line inside a real hunk, indented or not. A new pattern without a sample fails the test. The check found that env.kv was the only rule with this blind spot. Every other rule starts at a word boundary or has no line anchor.
+
 ## [1.92.2.0] - 2026-10-31
 
 - The model panel adds a `<model>#no-gstack` arm beside each model's skill arm (Garry's rule that every head-to-head eval also tests no gstack), with its rows keyed by arm identity and the candidate's folders named after a project. arm-benchmark runs three with/without pairs per task under a spend ledger and a pinned model. A paired judge scores both orders and must pass calibration before it decides; the per-diff judge is reported beside it. The safety-rule and router cases gain a descriptive `none` arm where the task exists without the skill text. `gstack-eval-plan results --check <prereg> <results.md>` refuses a results file unless one table holds a filled row for every arm, so each no-gstack row sits beside its variants (`EVAL_REPORT_NO_GSTACK_ROW`).
