@@ -37,7 +37,7 @@ on:
 # push runs never see workflow_dispatch inputs, so free-plan resolves these
 # (or a dispatch override) into outputs that free-suite reads.
 env:
-  FREE_SUITE_RUNNER: ubicloud-standard-2
+  FREE_SUITE_RUNNER: ubicloud-standard-4
   FREE_SUITE_SHARDS: '20'
 
 # Keyed on the PR number, not head_ref: a bare branch name carries no fork
