@@ -1367,7 +1367,7 @@ cmd_run() {
     trap 'exit 130' INT TERM QUIT
     trap on_hup HUP
     if [[ "$name" =~ -t([0-9]+)$ ]]; then
-      log "$name carries a ${BASH_REMATCH[1]}h TTL (any later run of this script reaps it); if this process dies first: $0 down $name"
+      log "$name carries a ${BASH_REMATCH[1]}h TTL (this owner's next up or reap destroys it once it expires); if this process dies first: $0 down $name"
     elif [[ "$name" =~ ^$PREFIX-$OWNER-[0-9]{10}- ]]; then
       log "$name has no TTL (reap destroys it once it is ${LEGACY_HOURS}h old); if this process dies before its teardown line, destroy it with: $0 down $name"
     else
