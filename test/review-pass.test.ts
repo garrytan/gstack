@@ -470,6 +470,30 @@ describe('the Capy skill loader', () => {
 });
 
 
+describe('a scoped pass after a blocker fix (GST-619)', () => {
+  // Value: protects=the pass command accepts the scoped plan gstack-review-plan writes after a blocking fix: the Red Team and voices go in the manifest, the fix-check is named outside it for Step 3.5, and a resumed pass names it again; fails_when=pass refuses the scoped plan, drops the fix-check silently, or puts it in the manifest;
+  //   why_new=GEVA-82 on 1.91.379.0 hit BRIEF_RENDER_FAILED on every scoped pass and rendered briefs by hand; seam=none; no_claim=the fix-check's own brief
+  test('pass stages the scoped plan and names its fix-check outside the manifest', () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
+    const rangeBase = sh('git rev-parse HEAD');
+    sh('for i in $(seq 1 24); do echo "export const f$i = $i;" >> src/fix.ts; done && git add -A && git commit -qm "fix: pre-landing review fixes"');
+    const out = path.join(dir, '.state/run/p2');
+    const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--', '--pass', '1', '--last', 'full', '--fixed-blocking', '--adversarial-ran', '--pass1-depth', 'standard', '--range-base', rangeBase];
+    const p = bin(dir, env, args);
+    expect(p.status, p.stdout + p.stderr).toBe(0);
+    expect(p.stdout).toMatch(/^NEXT: scoped /m);
+    expect(p.stdout).toMatch(/^FIX_CHECK: planned effort=full \(Step 3\.5 runs it on its own; not in this manifest\)$/m);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    expect(m.next).toBe('scoped');
+    expect(m.readers.map(r => [r.reader, r.stage])).toEqual([['red-team', 'red-team'], ['adversarial-native', 'voices']]);
+    const again = bin(dir, env, args);
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    expect(again.stdout).toMatch(/^FIX_CHECK: planned effort=full /m);
+    expect(again.stdout).toContain('readers=2 resumed');
+  }, 120_000);
+});
+
 describe('readers on a shared machine review the checkout the pass ships (GST-482)', () => {
   /** The primary checkout on feat, and a worktree of it on another branch with one more commit: the GBRA-218 layout. */
   function worktree() {
