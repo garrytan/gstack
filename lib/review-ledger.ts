@@ -289,7 +289,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
     // Each merged row must be the finding collect parses at that id's index from the unchanged output, label and raw text byte for byte.
-    if (text === undefined && ids.length) {
+    if (text === undefined && (ids.length || typeof o.file === 'string')) {
       status = 'MISMATCH';
       notes.push(typeof o.file === 'string' ? 'output_file_missing' : 'output_file_unrecorded');
       differs.push(...ids);

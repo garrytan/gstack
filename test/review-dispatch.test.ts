@@ -516,6 +516,15 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(run(['judge', '--ledger', copy.ledger, '--merged', forgedCopy, '--judged', copy.w('judged.jsonl', readJsonl<MergedLine>(copy.merged).map(m => JSON.stringify({ id: m.id, severity: 'INFORMATIONAL' })).join('\n') + '\n')]).status).toBe(0);
     const viaCopy = run(['verify', '--ledger', copy.ledger]);
     expect([viaCopy.status, viaCopy.stdout]).toEqual([1, expect.stringMatching(/^JUDGE - MISMATCH .*judge_merged_not_collected/m)]);
+    const quiet = pass();
+    run(['sent', '--ledger', quiet.ledger, '--role', 'specialist', '--name', 'testing', '--sent', quiet.file]);
+    const none = quiet.w('none.out', 'NO FINDINGS\n');
+    expect(run(['collect', '--ledger', quiet.ledger, '--role', 'specialist', '--name', 'testing', '--output', none, '--merged', quiet.merged]).status).toBe(0);
+    fs.writeFileSync(quiet.merged, '');
+    expect(run(['judge', '--ledger', quiet.ledger, '--merged', quiet.merged, '--judged', quiet.w('judged.jsonl', '')]).status).toBe(0);
+    fs.rmSync(none);
+    const noneGone = run(['verify', '--ledger', quiet.ledger]);
+    expect([noneGone.status, noneGone.stdout.includes('output_file_missing')]).toEqual([1, true]);
     const extra = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; rows.push({ ...rows[1]!, id: 'specialist/testing#9' }); });
     expect([extra.status, extra.stdout.includes('merged_rows_not_collected=["specialist/testing#9"]')]).toEqual([1, true]);
   });
