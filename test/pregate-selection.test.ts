@@ -677,6 +677,22 @@ describe('nested JS packages run their own runner from their own directory', () 
     expect(planRuns(ctx, ['app/src/sum.test.ts']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] }]);
   });
 
+  // Value: protects=root-owned tests in two languages each get their language's runner instead of the whole lane going incomplete;
+  //   fails_when=detection again needs one language across every root file (the reported `.mjs` + `.py` selection was
+  //   PREGATE_INCOMPLETE with the advice to declare one `runner` for both); why_new=only single-language root selections were tested;
+  //   seam=none; no_claim=the runners themselves (plan only)
+  test('root tests in two languages plan one group per language; a file no runner claims stays unclaimed', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const ctx = ctxFor(repo, pmShim(repo));
+    expect(planRuns(ctx, ['scripts/doku-gate.test.mjs', 'scripts/test_assets.py', 'scripts/version-gate.test.mjs'])).toEqual({ groups: [
+      { runner: 'node --test {files}', cwd: '', files: ['scripts/doku-gate.test.mjs', 'scripts/version-gate.test.mjs'] },
+      { runner: 'python3 -m pytest {files}', cwd: '', files: ['scripts/test_assets.py'] },
+    ], unclaimed: [], missing: [], noPubspec: [] });
+    expect(planRuns(ctx, ['scripts/doku-gate.test.mjs', 'test/run.bats'])).toEqual({ groups: [
+      { runner: 'node --test {files}', cwd: '', files: ['scripts/doku-gate.test.mjs'] },
+    ], unclaimed: ['test/run.bats'], missing: [], noPubspec: [] });
+  });
+
   // Value: protects=repos where root detection works today are unchanged: a nested package that declares no test runner stays with the
   //   root runner from the root, a root vitest stays `npx vitest run` from the root, and a declared runner takes every file;
   //   fails_when=every nested package.json splits a group or the root command changes; why_new=negative controls for the new
