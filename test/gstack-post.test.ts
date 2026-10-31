@@ -457,16 +457,27 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(sent(stale).input).toBe(RECEIPT("bbbb") + "\n## What changed\n\n- new\n\n## Why\n\nBecause.\n\n## Approvals\n\n- owner: do it\n");
     expect(stale.stderr()).toBe("gstack-post: pr-body merged by section: replaced ship receipt, What changed; kept Why, Approvals; added none; dropped leading text (\"Draft intro from gh pr create, long enough to need truncati…\")\n");
 
-    const between = withBody(RECEIPT("aaaa") + "Old note under the receipt\n\n## What changed\n\n- old\n", { "/b": "## What changed\n\n- new\n" });
+    const between = withBody(RECEIPT("aaaa") + "Old note under the receipt\n\n## What changed\n\n- old\n", { "/b": RECEIPT("bbbb") + "## What changed\n\n- new\n" });
     expect(run(["pr-body", "5", "--body-file", "/b"], between)).toBe(EXIT.posted);
-    expect(sent(between).input).toBe(RECEIPT("aaaa") + "\n## What changed\n\n- new\n");
-    expect(between.stderr()).toBe("gstack-post: pr-body merged by section: replaced What changed; kept ship receipt; added none; dropped trailing text (\"Old note under the receipt\")\n");
+    expect(sent(between).input).toBe(RECEIPT("bbbb") + "\n## What changed\n\n- new\n");
+    expect(between.stderr()).toBe("gstack-post: pr-body merged by section: replaced ship receipt, What changed; kept none; added none; dropped trailing text (\"Old note under the receipt\")\n");
 
     const own = withBody("Stale intro\n\n" + RECEIPT("aaaa") + "Stale note\n\n## Why\n\nold\n", { "/b": "Fresh intro\n\n" + RECEIPT("bbbb") + "Fresh note\n\n## Why\n\nnew\n" });
     expect(run(["pr-body", "5", "--body-file", "/b"], own)).toBe(EXIT.posted);
     expect(sent(own).input).toBe("Fresh intro\n\n" + RECEIPT("bbbb") + "\nFresh note\n\n## Why\n\nnew\n");
     expect(mergeBodySections(sent(own).input!, "Fresh intro\n\n" + RECEIPT("bbbb") + "Fresh note\n\n## Why\n\nnew\n").body).toBe(sent(own).input!);
     expect(own.stderr()).toBe("gstack-post: pr-body merged by section: replaced leading text, ship receipt, trailing text, Why; kept none; added none\n");
+  });
+
+  // Value: protects=a partial post (`## ` sections only, no receipt and no text of its own above its first heading) keeps the human intro and
+  //   the note under the receipt, the same as a full post that brings no replacement for them; fails_when=a lane posting only `## Screenshots`
+  //   deletes the intro or a Review-loop exception line; why_new=GST-412 made any file with a section own the preamble (GstackMinder,
+  //   2026-10-31: "a partial pr-body post must keep the human intro"); seam=fake run; no_claim=real gh
+  test("a partial post keeps the current intro and the note under the receipt", () => {
+    const partial = withBody("Human intro\n\n" + RECEIPT("aaaa") + "Review-loop exception: accepted by owner\n\n## What changed\n\n- old\n", { "/b": "## Screenshots\n\n![shot](u)\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], partial)).toBe(EXIT.posted);
+    expect(sent(partial).input).toBe("Human intro\n\n" + RECEIPT("aaaa") + "Review-loop exception: accepted by owner\n\n## What changed\n\n- old\n\n## Screenshots\n\n![shot](u)\n");
+    expect(partial.stderr()).toBe("gstack-post: pr-body merged by section: replaced none; kept leading text, ship receipt, trailing text, What changed; added Screenshots\n");
   });
 
   // Value: protects=the dropped-piece excerpt on stderr never repeats a secret the merge removed from the body (the scan only reads the merged bytes);
@@ -515,10 +526,10 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(replaced.stderr()).toBe("");
     expect(replaced.calls.some(c => c.cmd === "gh" && c.args[1] === "view")).toBe(false);
 
-    const plain = withBody("Just a paragraph.\nAnother line.", { "/b": "## Tests\n\n- one\n" });
+    const plain = withBody("Just a paragraph.\nAnother line.", { "/b": RECEIPT("bbbb") + "\n## Tests\n\n- one\n" });
     expect(run(["pr-body", "5", "--body-file", "/b"], plain)).toBe(EXIT.posted);
-    expect(sent(plain).input).toBe("## Tests\n\n- one\n");
-    expect(plain.stderr()).toBe("gstack-post: pr-body merged by section: replaced none; kept none; added Tests; dropped leading text (\"Just a paragraph.\")\n");
+    expect(sent(plain).input).toBe(RECEIPT("bbbb") + "\n## Tests\n\n- one\n");
+    expect(plain.stderr()).toBe("gstack-post: pr-body merged by section: replaced none; kept none; added ship receipt, Tests; dropped leading text (\"Just a paragraph.\")\n");
     const plainText = withBody("Just a paragraph.\nAnother line.", { "/b": RECEIPT("bbbb") });
     expect(run(["pr-body", "5", "--body-file", "/b"], plainText)).toBe(EXIT.posted);
     expect(sent(plainText).input).toBe(RECEIPT("bbbb") + "\nJust a paragraph.\nAnother line.");
