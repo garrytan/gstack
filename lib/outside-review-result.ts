@@ -7,6 +7,10 @@
  * the highest finding severity, and the verdict. validateOutsideReview() is the
  * older text-only shape, kept for direct importers and stale rendered skills.
  */
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { GATE_OUTCOMES, gateOutcomeLine, type GateReason } from './gate-outcomes';
 
 export type OutsideGate = 'review' | 'structured' | 'spec' | 'execution' | 'proposal';
@@ -290,12 +294,38 @@ export function validateOutsideReview(text: string, gate: OutsideGate): { comple
   return { completed: true };
 }
 
+/**
+ * `codex review --base` takes no prompt, and its built-in reviewer ends a clean
+ * review in untagged prose, which stays unverified above (#3294). The id it prints
+ * on stderr names that exact session; never `--last`, which can pick a concurrent one.
+ */
+export const RESTATE_PROMPT = 'Restate the conclusion of the code review you just completed, changing nothing about it. If it reported no findings, reply with exactly one line: NO_FINDINGS. Otherwise list each finding on its own line, tagged [P0], [P1], [P2] or [P3], with file:line.';
+export function codexSessionId(stderr: string): string | undefined {
+  return stderr.match(/^session id: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*$/im)?.[1];
+}
+/** Seconds one restatement may take; it runs only while that much of the caller's budget is left. */
+const RESTATE_SECS = 60;
+
+/** Ask the review's own session, read-only and on the same model, to restate its conclusion in tags. */
+function restate(session: string, model: string): { text: string; stderr: string; exit: number } {
+  const dir = mkdtempSync(join(tmpdir(), 'gstack-restate-'));
+  try {
+    const out = join(dir, 'text');
+    const r = spawnSync(join(import.meta.dir, '..', 'bin', 'gstack-codex-probe'), ['run-with-timeout', String(RESTATE_SECS), 'codex', 'exec', 'resume', session, '-',
+      '-c', 'sandbox_mode="read-only"', '-c', `model="${model}"`, '-c', 'skills.include_instructions=false', '-o', out],
+      { input: `${RESTATE_PROMPT}\n`, encoding: 'utf8', stdio: ['pipe', 'ignore', 'pipe'], timeout: (RESTATE_SECS + 30) * 1000 });
+    return { text: existsSync(out) ? readFileSync(out, 'utf8') : '', stderr: r.stderr ?? '', exit: r.status ?? 1 };
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 const VERDICT_EXIT: Record<OutsideVerdict, number> = { clean: 0, findings: 3, unverified: 4, unavailable: 1 };
 const GATES = ['review', 'structured', 'spec', 'execution', 'proposal'];
 const USAGE = `Usage: outside-review-result.ts <gate> <response-file>
-       outside-review-result.ts --verdict [--stderr <file>] [--exit <code>] [--events <file>] [--label <name>] <gate> <response-file>
+       outside-review-result.ts --verdict [--stderr <file>] [--exit <code>] [--events <file>] [--label <name>] [--restate <model> --left <secs>] <gate> <response-file>
 Gates: ${GATES.join('|')}. Two-argument form exits 0 completed, 1 unavailable, 2 usage.
-Verdict form prints VERDICT: clean|findings|unverified|unavailable and exits 0, 3, 4 or 1.`;
+Verdict form prints VERDICT: clean|findings|unverified|unavailable and exits 0, 3, 4 or 1.
+--restate: an untagged structured review is restated by its Codex session (id from --stderr)
+when --left seconds of budget remain; only a tagged restatement replaces the verdict.`;
 
 async function readOptional(file: string | undefined): Promise<string> {
   if (!file) return '';
@@ -310,7 +340,7 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--verdict') verdictMode = true;
-    else if (['--stderr', '--exit', '--events', '--label'].includes(arg) && i + 1 < args.length) { flags[arg] = args[++i]!; verdictMode ||= arg !== '--label'; }
+    else if (['--stderr', '--exit', '--events', '--label', '--restate', '--left'].includes(arg) && i + 1 < args.length) { flags[arg] = args[++i]!; verdictMode ||= arg !== '--label'; }
     else if (arg.startsWith('--')) { console.error(USAGE); process.exit(2); }
     else positional.push(arg);
   }
@@ -328,9 +358,17 @@ if (import.meta.main) {
     if (!result.completed) { console.error(`Outside review unavailable: ${result.reason}; missing coverage.`); process.exit(1); }
     process.exit(0);
   }
-  const checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit,
-    stderr: await readOptional(flags['--stderr']), events: await readOptional(flags['--events']) });
+  const stderr = await readOptional(flags['--stderr']);
+  let checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit, stderr, events: await readOptional(flags['--events']) });
   const label = flags['--label'] ?? 'Outside review';
+  const session = codexSessionId(stderr);
+  if (flags['--restate'] && gate === 'structured' && checked.reason === 'untagged_review' && session && Number(flags['--left']) >= RESTATE_SECS) {
+    const again = restate(session, flags['--restate']);
+    console.log(`Restated conclusion (same Codex session):\n${again.text.trimEnd()}`);
+    const restated = classifyOutsideReview({ ...again, gate: gate as OutsideGate });
+    if (restated.verdict === 'clean' || restated.verdict === 'findings') checked = restated;
+    else console.log('The restatement did not verify; the first verdict stands.');
+  }
   console.log(`VERDICT: ${checked.verdict}`);
   console.log(`FINDINGS: ${checked.findings.highest ?? (checked.verdict === 'findings' ? 'unspecified' : 'none')}`);
   if (checked.unparsed) console.log(`UNPARSED: ${checked.unparsed}`);

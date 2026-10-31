@@ -6,7 +6,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { outsideVoiceCommand, outsideVoiceInvocation, type OutsideCommandOptions } from '../scripts/resolvers/outside-voice';
 import { type TemplateContext, HOST_PATHS } from '../scripts/resolvers/types';
-import { validateOutsideReview } from '../lib/outside-review-result';
+import { RESTATE_PROMPT, validateOutsideReview } from '../lib/outside-review-result';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-invocation-'));
@@ -27,8 +27,12 @@ const args = process.argv.slice(2);
 // The free sandbox preflight (\`codex sandbox ... true\`) succeeds unless a test plants its failure.
 if (args[0] === 'sandbox') { if (process.env.FAKE_SANDBOX_STDERR) { console.error(process.env.FAKE_SANDBOX_STDERR); process.exit(1); } process.exit(0); }
 const claude = process.env.FAKE_PROVIDER === 'claude-code';
-const prompt = claude || (args[0] === 'exec' && args[1] === '-') ? await Bun.stdin.text() : args[0] === 'exec' ? args[1] : '';
-writeFileSync(process.env.CAPTURE!, JSON.stringify({args,prompt,cwd:process.cwd()}));
+const resume = args[0] === 'exec' && args[1] === 'resume';
+const prompt = claude || (args[0] === 'exec' && (args[1] === '-' || resume && args[3] === '-')) ? await Bun.stdin.text() : args[0] === 'exec' ? args[1] : '';
+writeFileSync(process.env.CAPTURE! + (resume ? '.resume' : ''), JSON.stringify({args,prompt,cwd:process.cwd()}));
+// codex review prints its session id on stderr; codex exec resume answers in that session.
+if (args[0] === 'review' && process.env.FAKE_SESSION_ID) console.error('session id: ' + process.env.FAKE_SESSION_ID);
+if (resume) { writeFileSync(args[args.indexOf('-o') + 1], process.env.FAKE_RESUME_RESPONSE ?? ''); process.exit(Number(process.env.FAKE_RESUME_EXIT ?? 0)); }
 if (process.env.FAKE_NOTICE_ACK) {
   const deadline = Date.now() + 1500;
   while (!existsSync(process.env.FAKE_NOTICE_ACK)) {
@@ -86,6 +90,7 @@ afterAll(() => fs.rmSync(TMP,{recursive:true,force:true}));
 
 function invoke(host: 'codex' | 'claude', options: Partial<OutsideCommandOptions> = {}, env: NodeJS.ProcessEnv = {}) {
   fs.rmSync(CAPTURE,{force:true});
+  fs.rmSync(`${CAPTURE}.resume`,{force:true});
   // Env-var roots exercise installed runtime paths as well as the host choice.
   const ctx: TemplateContext = {skillName:'review',tmplPath:'review/SKILL.md.tmpl',host,paths:HOST_PATHS.codex};
   const command = outsideVoiceCommand(ctx,{promptFile:PROMPT,timeoutMs:3000,...options});
@@ -264,6 +269,82 @@ describe('generated outside-review dispatch', () => {
       expect(untagged.stdout).not.toContain('OUTSIDE_STATUS: completed');
       expect(untagged.stderr).toContain('ran, verdict unverified');
     }
+  });
+
+  describe('Codex structured review: an untagged clean reply is restated by its own session', () => {
+    const SESSION = '019a5c3e-7b21-7d40-9f3a-2c6e1b8d4f10';
+    // Real gpt-6-astra replies from 2026-10-30 that the structured gate reads as untagged_review.
+    const REPLY_1 = 'No actionable defects found. Existing TypeScript changes are formatting and documentation only; the new documentation checker appears consistent with repository conventions. Formatting, typecheck, and documentation checks passed; runtime and Electron tests were not run.';
+    const REPLY_2 = 'The change only adds an accurate documentation comment to the addition function and does not alter behavior.';
+    const structured = { structuredBase: 'main', gate: 'structured' as const, timeoutMs: 120000 };
+    const resumed = () => fs.existsSync(`${CAPTURE}.resume`) ? JSON.parse(fs.readFileSync(`${CAPTURE}.resume`, 'utf8')) : undefined;
+
+    test('a NO_FINDINGS restatement verifies the review as clean; both replies are shown', () => {
+      for (const reply of [REPLY_1, REPLY_2]) {
+        const result = invoke('claude', structured, { FAKE_RESPONSE: reply, FAKE_SESSION_ID: SESSION, FAKE_RESUME_RESPONSE: 'NO_FINDINGS' });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain(`${reply}\n`);
+        expect(result.stdout).toContain('Restated conclusion (same Codex session):\nNO_FINDINGS\n');
+        expect(result.stdout).toContain('VERDICT: clean\nFINDINGS: none\n');
+        expect(result.stdout).not.toContain('VERDICT: unverified');
+        expect(result.stdout).toContain('OUTSIDE_STATUS: completed');
+        const call = resumed();
+        // The exact session the review printed, prompt on stdin, same model, no skill catalog, pinned sandbox.
+        expect(call.args.slice(0, 4)).toEqual(['exec', 'resume', SESSION, '-']);
+        expect(call.args).not.toContain('--last');
+        expect(call.args).toContain('model="gpt-6-astra"');
+        expect(call.args).toContain('skills.include_instructions=false');
+        expect(call.args).toContain('sandbox_mode="read-only"');
+        expect(call.prompt).toBe(`${RESTATE_PROMPT}\n`);
+      }
+    });
+
+    test('a tagged restatement reports its findings', () => {
+      const result = invoke('claude', structured, { FAKE_RESPONSE: REPLY_2, FAKE_SESSION_ID: SESSION, FAKE_RESUME_RESPONSE: '[P1] src/add.ts:3 drops the carry' });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('VERDICT: findings\nFINDINGS: P1\n');
+    });
+
+    test('no session id, a failed resume or an untagged restatement keeps the first verdict unverified', () => {
+      const none = invoke('claude', structured, { FAKE_RESPONSE: REPLY_2, FAKE_RESUME_RESPONSE: 'NO_FINDINGS' });
+      expect(resumed()).toBeUndefined();
+      // Under 60 s of the review's budget left: no restatement is attempted.
+      const late = invoke('claude', { ...structured, timeoutMs: 3000 }, { FAKE_RESPONSE: REPLY_2, FAKE_SESSION_ID: SESSION, FAKE_RESUME_RESPONSE: 'NO_FINDINGS' });
+      expect(resumed()).toBeUndefined();
+      for (const [result, ran] of [
+        [none, false],
+        [late, false],
+        [invoke('claude', structured, { FAKE_RESPONSE: REPLY_2, FAKE_SESSION_ID: SESSION, FAKE_RESUME_RESPONSE: 'NO_FINDINGS', FAKE_RESUME_EXIT: '1' }), true],
+        [invoke('claude', structured, { FAKE_RESPONSE: REPLY_2, FAKE_SESSION_ID: SESSION, FAKE_RESUME_RESPONSE: 'It still looks fine to me.' }), true],
+        [invoke('claude', structured, { FAKE_RESPONSE: REPLY_2, FAKE_SESSION_ID: SESSION, FAKE_RESUME_RESPONSE: '' }), true],
+      ] as const) {
+        expect(result.status).toBe(4);
+        expect(result.stdout).toContain('VERDICT: unverified\nFINDINGS: none\nREASON: untagged_review\n');
+        expect(result.stdout).toContain('OUTSIDE_STATUS: unverified');
+        expect(result.stdout).not.toContain('OUTSIDE_STATUS: completed');
+        expect(result.stdout.includes('The restatement did not verify; the first verdict stands.')).toBe(ran);
+      }
+    });
+
+    test('a review that already verified is never restated', () => {
+      for (const reply of ['NO_FINDINGS', '[P2] naming nit']) {
+        expect(invoke('claude', structured, { FAKE_RESPONSE: reply, FAKE_SESSION_ID: SESSION, FAKE_RESUME_RESPONSE: '[P0] x' }).status).toBe(0);
+        expect(resumed()).toBeUndefined();
+      }
+    });
+
+    test('every rendered structured review asks the validator to restate on the selected model, never --last', () => {
+      for (const file of ['review/sections/adversarial.md', 'ship/sections/adversarial.md', 'codex/sections/review-mode.md']) {
+        const rendered = fs.readFileSync(path.join(ROOT, file), 'utf8');
+        expect(rendered, file).toMatch(/outside-review-result\.ts[^\n]* --restate "\$_CODEX_SEL" --left \$\(\(\d+-SECONDS\)\) structured /);
+        for (const fence of rendered.match(/```bash\n[\s\S]*?```/g) ?? []) expect(fence, file).not.toContain('--last');
+      }
+      // The validator resumes the exact session the review printed (argv, never --last), prompt on stdin.
+      const lib = fs.readFileSync(path.join(ROOT, 'lib', 'outside-review-result.ts'), 'utf8');
+      const argv = lib.match(/\['run-with-timeout'[^\]]*\]/)?.[0];
+      expect(argv).toContain("'codex', 'exec', 'resume', session, '-'");
+      expect(argv).not.toContain('--last');
+    });
   });
 
   describe('B1: Codex sandbox failures are missing coverage, never a pass', () => {
