@@ -3229,6 +3229,20 @@ makes the row a check rather than a claim.
 `REALITY: already-done pass 0 hits since 2026-10-09 for bin/gstack-doctor 91bbd9e`
 or `REALITY: surface-check finding bun upgrade --version absent on 1.3.14 bin/gstack-capy-install:52`.
 
+<a id="reality-receipt-unresolved"></a>
+### `REALITY_RECEIPT_UNRESOLVED`
+
+**Meaning.** `gstack-plan-reality check` opened a receipt and it is false in
+the checkout: the file is missing, it is a directory, or the cited line is past
+its end. The `RECEIPT_UNRESOLVED: <row> <receipt> <reason>` line names each
+one. A receipt the checkout cannot judge (a path outside every root, a bare
+file name no root has, a sha a shallow clone lacks) prints
+`RECEIPT_UNVERIFIABLE:` instead and never blocks.
+
+**Fix.** Open the file and cite the line that holds the evidence. When the
+evidence lives in another checkout, run `check` with `--root <dir>` for it
+(repeatable; the default is the git top level of the working directory).
+
 ## Pre-gate: generated-file registry, gstack-pregate, issue links
 
 Both tools read their pin file (`.gstack/generated.json`, `.gstack/pregate.json`)
