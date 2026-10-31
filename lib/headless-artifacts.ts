@@ -20,7 +20,7 @@ export type Severity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
 export type Disposition = 'open' | 'accepted' | 'partially_accepted' | 'rejected' | 'deferred' | 'fixed';
 export type Voice = 'native' | 'outside';
 export type DecisionKind = 'auto' | 'approval' | 'user_challenge';
-export type DecisionStatus = 'pending' | 'approved' | 'overridden' | 'rejected';
+export type DecisionStatus = 'pending' | 'approved' | 'overridden' | 'rejected' | 'auto_kept';
 export type TaskStatus = 'pending' | 'ready' | 'blocked_on_dependency' | 'blocked_on_decision' | 'in_progress' | 'done';
 export type VoiceStatus = 'completed' | 'unavailable' | 'disabled' | 'skipped' | 'failed' | 'pending' | 'running';
 export type ResultStatus = 'complete' | 'reviewed' | 'gate_pending' | 'amend_pending' | 'incomplete' | 'interrupted' | 'refused';
@@ -118,7 +118,7 @@ export interface ShipReceipt {
 }
 
 export const RESULT_STATUSES: readonly ResultStatus[] = ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused'];
-const TERMINAL_RUN: readonly string[] = ['complete', 'gate_pending', 'amend_pending', 'refused', 'incomplete'];
+const TERMINAL_RUN: readonly string[] = ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'refused', 'incomplete'];
 const TERMINAL_VOICE: readonly string[] = ['completed', 'unavailable', 'disabled', 'skipped', 'failed'];
 const RESOLVED: readonly string[] = ['accepted', 'partially_accepted', 'rejected', 'deferred', 'fixed'];
 
@@ -172,7 +172,7 @@ export const ARTIFACT_SCHEMAS = {
     required: ['schema_version', 'run', 'id', 'title', 'options', 'recommended', 'kind', 'status', 'gate_rev'],
     properties: {
       schema_version: { const: 1 }, run: str, id: str, label: str, title: str, options: strList, recommended: nullableStr,
-      kind: { enum: ['auto', 'approval', 'user_challenge'] }, status: { enum: ['pending', 'approved', 'overridden', 'rejected'] },
+      kind: { enum: ['auto', 'approval', 'user_challenge'] }, status: { enum: ['pending', 'approved', 'overridden', 'rejected', 'auto_kept'] },
       default_if_unanswered: nullableStr, gate_rev: { type: 'integer', minimum: 1 }, phase: str, chosen: nullableStr,
       answered_at: str, reply: str, source: str, cost: str,
       recommended_basis: str, changes: str, origin: str, carried_from: str, chosen_text: str,
@@ -203,7 +203,7 @@ export const ARTIFACT_SCHEMAS = {
     required: ['schema_version', 'run', 'status', 'required_phases', 'phases', 'artifacts'],
     properties: {
       schema_version: { const: 1 }, run: str,
-      status: { enum: ['complete', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused', 'awaiting_result', 'running'] },
+      status: { enum: ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused', 'awaiting_result', 'running'] },
       base: str, host: str, session_kind: str, required_phases: strList,
       phases: { type: 'object', description: 'phase id → { snapshot, native, outside }', properties: {} },
       counts: { type: 'object', description: 'decisions, decisions_pending, findings, tasks: each must equal the rows in its file' },

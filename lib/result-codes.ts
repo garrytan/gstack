@@ -14,6 +14,7 @@ import { RELEASE_RESULT_CODES } from './result-codes-release';
 import { CAPY_RESULT_CODES } from './result-codes-capy';
 import { BUDGET_RESULT_CODES } from './result-codes-budget';
 import { EVAL_RESULT_CODES } from './result-codes-eval';
+import { AUTOPLAN_RESULT_CODES } from './result-codes-autoplan';
 
 export interface ResultCode {
   /** Stable `<a id>` in docs/troubleshooting.md. */
@@ -763,6 +764,7 @@ export const RESULT_CODES = {
   ...CAPY_RESULT_CODES,
   ...BUDGET_RESULT_CODES,
   ...EVAL_RESULT_CODES,
+  ...AUTOPLAN_RESULT_CODES,
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

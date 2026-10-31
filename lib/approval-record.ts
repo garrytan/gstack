@@ -254,7 +254,12 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     if (!line.trim()) continue;
     try { rows.push(JSON.parse(line)); } catch { return { code: 'ARTIFACT_MALFORMED_JSONL', message: `decisions.jsonl has a line that is not JSON` }; }
   }
-  const run = (() => { try { return JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8')); } catch { return {}; } })();
+  const runFile = path.join(runDir, 'run.json');
+  let run: Record<string, any> = {};
+  if (fs.existsSync(runFile)) {
+    try { run = JSON.parse(fs.readFileSync(runFile, 'utf8')); } catch (e: any) { return { code: 'ARTIFACT_INVALID_JSON', message: `run.json in ${runDir} is unreadable (${e?.message ?? e}); an approval names the run it came from` }; }
+  }
+  if (run.ceo_only || run.status === 'reviewed') return { code: 'CEO_ONLY_NO_GATE', message: `${runDir} is a CEO-only run (status ${run.status}): it has no gate and was never approved` };
   const plan = reviewedPlan(runDir, run);
   const planTitle = firstTitle(plan.text) ?? 'the plan';
   const planSha = plan.sha;

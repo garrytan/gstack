@@ -560,12 +560,12 @@ without being shown to the owner.
 ## CEO-only runs
 
 `/autoplan --ceo-only` runs the CEO review by itself and asks nothing. It runs
-in the session that invokes the skill; `gstack-autoplan`, the driver a parent
-agent uses, has no CEO-only mode yet, and `run.json` does not accept the
-`reviewed` status. It needs Claude Code: other hosts inline autoplan's sections
-and do not carry this one yet. It is for a harness or a crew that wants the strategy pass
-without the full gauntlet, such as an eval comparing gstack's CEO review with a
-plain prompt.
+in the session that invokes the skill and needs Claude Code: other hosts inline
+autoplan's sections and do not carry this one yet. A parent agent on any host
+gets the same run from the driver with `gstack-autoplan next --ceo-only` (see
+below). It is for a harness or a crew that wants the strategy pass without the
+full gauntlet, such as an eval comparing gstack's CEO review with a plain
+prompt.
 
 - **What runs:** Phase 0, the outside-reviewer preflight and the CEO phase.
   Design, DX, Eng and the final gate do not run.
@@ -590,6 +590,24 @@ plain prompt.
 
 `test/skill-e2e-autoplan-ceo-only.test.ts` runs it on a plan that makes the
 interactive CEO review ask a question and fails if this mode asks anything.
+
+**From the driver.** `gstack-autoplan next --out <dir> --plan <file>
+--ceo-only` opens only the CEO phase; the parent dispatches and submits its
+voices as usual. When CEO closes, the run prints `REVIEWED:` and ends
+`GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>`, with
+`<dir>/ceo-review.md` in the same sections, hashed in `run.json`. Each item a
+gate would have asked becomes a `decisions.jsonl` row of kind `auto` and status
+`auto_kept` (the plan's direction kept, nobody answered), and tasks are blocked
+on no decision. The driver never edits the plan, writes no `gate.json` and never
+approves, so `gstack-artifact validate` accepts the run as it stands.
+
+- The flag goes on the first `next` only. It refuses beside `--ui`,
+  `--developer-tool` or `--agent-primary`, and in a plan's scope marker
+  (`CEO_ONLY_CONFLICT`); a directory that holds a full run refuses it
+  (`CEO_ONLY_AFTER_INIT`).
+- `answer`, `recommend`, `revise`, `close` and `budget` refuse a CEO-only run,
+  and so does `gstack-approvals import` (`CEO_ONLY_NO_GATE`): there is no gate to
+  answer and nothing was approved.
 
 ## Owner brief
 

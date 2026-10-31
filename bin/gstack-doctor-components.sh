@@ -354,6 +354,9 @@ gstack_result_anchor() {
     PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
+    CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
+    CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
+    CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;
     *) return 1 ;;
   esac
 }
