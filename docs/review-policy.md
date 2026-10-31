@@ -208,15 +208,19 @@ next step is a scoped pass, the raise applies to the scoped set only. A fix-chec
 is the same at every depth.
 
 <a id="first-pass-red-team"></a>
-**The first full pass has no standalone Red Team (GSTA-167 Round 7).** When a
-change's first full pass (`fullPasses` 0) is gate class or has more than
+**The first full pass has no standalone Red Team (GSTA-167 Round 7).** When an
+invocation's first full pass (`fullPasses` 0) is gate class or has more than
 `RED_TEAM_LINES` (200) runtime lines, the plan skips the Red Team and says why:
 `SKIP: red-team (first full pass; Round 7 no-loss)`. A full plan reached through a
-classifier error (`DEPTH_ERROR`) runs as gate class, so the same rule covers it;
+classifier error (`DEPTH_ERROR`) or `--depth-floor full` runs as gate class, so the same rule covers it;
 Round 7 unit 3540 (an unmatched `gstack-diff-scope` path) is that case. The Red Team
-still runs on a first pass with a CRITICAL (`--critical-found`) and on a small diff
-raised to standard, on every post-fix full pass, and on the scoped pass. A
-fix-check never had one. `RED_TEAM_FIRST_PASS` (false) records the rule in
+still runs on a small diff raised to standard, on every post-fix full pass and on
+the scoped pass, and the plan adds it whenever `--critical-found` is given. In
+`/ship` that flag reaches only the repeat plan, so a first pass that logs a
+CRITICAL gets the Red Team on its post-fix pass, not on pass 1. `fullPasses`
+counts passes in one `/ship` invocation, so a new `/ship` after a stop (a fix made
+by hand between runs) starts at 0 and its first full pass has no Red Team either.
+A fix-check never had one. `RED_TEAM_FIRST_PASS` (false) records the rule in
 `DEPTH_RULES`.
 
 The evidence is the preregistered no-loss replay
@@ -296,7 +300,7 @@ the specialists, audits and watchers at the host default too
 
 ### Behavior changes
 
-- A change's first full pass at gate class (a depth error included) or past 200
+- An invocation's first full pass at gate class (a depth error included) or past 200
   runtime lines no longer dispatches the standalone Red Team
   ([first full pass](#first-pass-red-team), GSTA-167 Round 7). This is a gate
   edit: the `DEPTH_RULES` hash moves, so receipts written before it carry the old
