@@ -248,7 +248,8 @@ a push included. The sequence that works unattended on Capy:
    ([base_red](ship-policy.md#base-red)): the lane is waiting, not failed. It
    registers `gstack-base-red wait --pause <file>` as a background operation,
    tells the controller which cases hold it, and on `BASE_GREEN` runs
-   `/ship --resume <record>`; no READY goes out on the conditional receipt.
+   `/ship --resume <record>`; no READY goes out on the conditional receipt,
+   except on a train with `gates` ([Merge trains for other repos](#merge-trains-for-other-repos)).
 9. READY: `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen|--no-screen`;
    send the printed block.
 10. After the slot call, the stamp commit keeps the pin's receipt; re-READY with the same
@@ -338,7 +339,7 @@ the verdict and lands each landable slot in order. Lanes READY with
 `ready --pr <n> --no-screen`; there is no screen and no slot call. A lane whose
 /ship paused on a red base READYs with `--base-red --fixer <pr>`, its fixer with
 `--fixes-base-red <cases>`, and the train seats the fixer at slot 1. The `update` commit `train land` pushes to a PR
-branch (the gated tree on [pin, main]) is the one exception to CREW rule 19's "never merge
+branch (the gated tree on [pin, main]) is the one exception to CREW rule 14's "never merge
 the base into a PR": it is tool-made, recorded before the push, and pushed under the pin's
 lease, like a stamped train's stamp commit. A peer crew
 adopting this starts from

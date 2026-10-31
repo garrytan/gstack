@@ -4555,9 +4555,12 @@ one-PR train.
 **Meaning.** The train's run (free tests, the full gate or the bisect) has
 not finished, so there is no verdict yet. The same code covers a `train watch`
 that reached its timeout, `verify --pr <n> --screen` on a screen run still
-going, `verify --post-merge` on checks that have not settled, and a
-`ready --dispatch-ci` workflow run still going at its `--timeout`; each prints
-the command to rerun as `NEXT:`.
+going, `verify --post-merge` on checks that have not settled, a
+`ready --dispatch-ci` workflow run still going at its `--timeout`, a `train
+build` or `train verdict` while another process holds the train's lease or
+runs one of its command gates, and a `train land` whose previous slot's
+post-merge checks have not settled; each prints the command to rerun as
+`NEXT:`.
 
 **Fix.** Rerun the printed `NEXT:` command later. Nothing is dispatched again
 while a run is pending.
@@ -4574,6 +4577,10 @@ record. An incomplete gate is never green.
 one re-dispatch EVAL_POLICY.infraRedispatch allows (`train rebuild --train
 <nonce> --infra`) and report both runs. Otherwise diagnose the run.
 
+On a train with `gates` it means a prefix gate is incomplete (a required job
+that was skipped or never ran, for example); the `PREFIX:` line names the
+run. `train rebuild` refuses, so diagnose that run and build a new train.
+
 <a id="queue-train-red"></a>
 ### `QUEUE_TRAIN_RED`
 
@@ -4584,6 +4591,11 @@ verdict.
 **Fix.** Bisect the red cases (`train bisect --train <nonce> --spend-cap
 <usd>`). After a rebuild's second red, route the cases to a repair lane.
 
+On a train with `gates` there is no bisect: T<i> is the first red prefix after
+a green one and every later prefix is red, so slot i is the culprit. The slots
+before it land (`train land`, or `train watch --land`), the culprit goes back
+to its lane, and `NEXT:` builds the rest into a new train.
+
 <a id="queue-train-red-on-main"></a>
 ### `QUEUE_TRAIN_RED_ON_MAIN`
 
@@ -4592,6 +4604,9 @@ included: main is broken, not the train's PRs.
 
 **Fix.** Fix forward on main first (a one-PR train), then rebuild this train
 unchanged.
+
+On a train with `gates`, no bisect runs: T0 (main) is red on its own gate run,
+or red on anything other than exactly slot 1's `FIXES_BASE_RED` cases.
 
 <a id="queue-train-unattributed"></a>
 ### `QUEUE_TRAIN_UNATTRIBUTED`
@@ -4602,6 +4617,10 @@ monotone. One trial per prefix cannot tell a flake from a break.
 **Fix.** All green: the one preregistered rebuild (`train rebuild --train
 <nonce>`), reporting both runs. Any other pattern: a repair lane, then a
 changed train once the repair merges.
+
+On a train with `gates` it means a red prefix is followed by a green one.
+Repair the red cases or seat the PRs in another order (`--order`); `train
+rebuild` refuses, so this train never runs again unchanged.
 
 <a id="queue-train-bisect-capped"></a>
 ### `QUEUE_TRAIN_BISECT_CAPPED`
@@ -4687,8 +4706,8 @@ again by its lane ([ship-policy.md](ship-policy.md#train-gates)).
 <a id="queue-train-spend-cap"></a>
 ### `QUEUE_TRAIN_SPEND_CAP`
 
-**Meaning.** A command gate's next Ubicloud run would pass the train's one
-spend cap, or `UBI_OWNER` is not set. Nothing more ran; finished runs keep
+**Meaning.** A command gate's next Ubicloud run would pass that gate's spend
+cap for the train, or `UBI_OWNER` is not set. Nothing more ran; finished runs keep
 their outcomes.
 
 **Fix.** Set `UBI_OWNER` to your thread code and rerun `train build --train
@@ -4725,7 +4744,8 @@ stamp-at-merge` on the base branch, then run `train init` again.
 `FINDING:` line names one problem: a gate workflow missing, without the
 `nonce` input or run-name, a required job it does not define, a global
 concurrency group, a push trigger on `train-prefix/` refs, a workflow never
-green on the base, or a merge method GitHub refuses.
+green on the base, a command gate cap below what a full train reserves, a
+merge method GitHub refuses, or `rebase` as the merge method.
 
 **Fix.** Fix each finding on the base branch (`train init` prints the
 snippet), then run `train doctor` again.
@@ -4813,7 +4833,9 @@ to fix this: the stamp comes only when the slot is called.
 **Meaning.** The PR body's ship receipt carries a `base_red` block: /ship's
 Step 5 failed on cases `gstack-base-red` proved are the base branch's own, so
 /ship paused before READY ([base_red](ship-policy.md#base-red)). Nothing
-READYs, trains, carries or merges on it.
+READYs, trains, carries or merges on it, except on a train with `gates`, where
+`ready --base-red --fixer <pr>` READYs it to ride behind its fixer at slot 1
+([base-red PRs](ship-policy.md#train-gates)).
 
 **Fix.** Wait for the base to pass those cases (`gstack-base-red wait --pause
 <file>`), then run `/ship --resume <record>`, which reruns Step 5 and rewrites
@@ -5005,7 +5027,10 @@ or `--timeout` (default 2700 s) passes, prints `POST_MERGE: <sha12>
 green|red|pending|none (passed= failed= pending= skipped=)` and one
 `CHECK: <name> <conclusion|status>` line per check, and a timeout is
 `QUEUE_TRAIN_PENDING` with the same command as `NEXT:`, so rerunning it after
-an interruption continues the watch.
+an interruption continues the watch. With `--checks <a,b>` (a workflows
+gate's `post_merge_checks`, which `train land` and `train watch --land` pass),
+each named check must also succeed; one that never ran is `QUEUE_TRAIN_PENDING`
+at the timeout.
 
 **Fix.** Read the red run named on its `CHECK:` line. Repair on a new PR or
 roll back the merge; `gstack-ship-queue train status` names the freeze if the
