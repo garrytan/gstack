@@ -18,7 +18,7 @@ export type DiffClass = 'docs' | 'tests' | 'code' | 'gate';
 export type PathClass = 'docs' | 'tests' | 'code';
 export type Depth = 'light' | 'standard' | 'full';
 export type Effort = 'light' | 'medium' | 'full' | 'host';
-export type Role = 'specialist' | 'red-team' | 'adversarial-native' | 'outside-voice' | 'fix-check';
+export type Role = 'specialist' | 'red-team' | 'adversarial-native' | 'outside-voice' | 'fix-check' | 'targeted';
 export type Step = 'full' | 'scoped' | 'fix-check' | 'done' | 'stop';
 
 export const SPECIALISTS = ['testing', 'maintainability', 'security', 'performance', 'data-migration', 'api-contract', 'design', 'simplification', 'state-machines'] as const;
@@ -38,7 +38,7 @@ export const BATCH_SCOPED: readonly Specialist[] = ['data-migration', 'api-contr
  * them; the Red Team, the native adversarial pass and the fix-check at full (the lane's reasoning); the outside voice at
  * its own provider's. Light's batched specialist carries the Red Team prompt, so it stays full.
  */
-export const ROLE_EFFORT = { specialist: 'medium', 'red-team': 'full', 'adversarial-native': 'full', 'fix-check': 'full', 'outside-voice': 'host' } as const satisfies Record<Role, Effort>;
+export const ROLE_EFFORT = { specialist: 'medium', 'red-team': 'full', 'adversarial-native': 'full', 'fix-check': 'full', 'outside-voice': 'host', targeted: 'full' } as const satisfies Record<Role, Effort>;
 /** Why light with runtime above 0 keeps the native adversarial pass as its own dispatch. */
 export const LIGHT_ADVERSARIAL_REASON = 'backtest inconclusive (GSTA-147 D5)';
 const CLASS_RANK: Record<DiffClass, number> = { docs: 0, tests: 1, code: 2, gate: 3 };
@@ -53,7 +53,7 @@ const RELEASE_METADATA = [/^CHANGELOG\.md$/, /^VERSION$/, /^agents-digest\//];
 /** Gate paths, the review-depth machinery included: an edit to how much review runs gets the most review. */
 const GATE_PATH = [
   /(^|\/)\.github\/workflows\//, /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i, /state-root/, /(^|\/)(pregate|gate|ship-receipt|ship-policy)[^/]*\.(ts|sh|json)$/, /(^|\/)bin\/gstack-(pregate|gate|ship-receipt|verify-gate|ci-gate)$/,
-  /^lib\/review-(depth|collect|scope)\.ts$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
+  /^lib\/review-(depth|collect|scope|targeted)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
 /** Data files: JSON, CSV, TSV and raster images. YAML, TOML and SVG are never data here: deploy configs, API specs and executable SVG stay code. */
@@ -291,6 +291,8 @@ export interface PlanInput extends ClassInput {
   floor?: Depth;
   /** false under --no-tiers or review_effort_tiers off: specialists run at the host's default effort. */
   tiers?: boolean;
+  /** The targeted classes (lib/review-targeted.ts) and whether the targeted reader already read this product patch. */
+  targeted?: { classes: readonly string[]; ran?: boolean };
 }
 /** One reviewer. `exclude` holds git pathspec argv items the reviewer's diff leaves out; `checklists` names what the batched specialist reads. */
 export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string }
@@ -431,6 +433,10 @@ export function planReview(i: PlanInput): ReviewPlan {
   } else if (next.step === 'fix-check') {
     add('fix-check', 'fix-check', 'full');
     if (numbersChanged) add('outside-voice', 'outside-voice (numbers changed)', 'host');
+  }
+  if (i.targeted?.classes.length && ['full', 'scoped', 'fix-check'].includes(next.step)) {
+    if (i.targeted.ran) skipped.push('targeted (already read this product patch)');
+    else add('targeted', 'targeted', ROLE_EFFORT.targeted);
   }
   return { ...depth, stepDepth, depthReasons, reasons: c.reasons, next, numbers: i.numbers, dispatches, skipped };
 }

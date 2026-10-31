@@ -14,7 +14,7 @@
  * `run` is a TRANSPARENT wrapper: it streams the child's output through
  * unchanged, tees it to a 0600 log (2MB cap with a truncation marker), and
  * appends {ts, label, command, cmd_sha256, exit, duration_s, commit, tree,
- * dirty, wtree, log_path, tests_ran} to ~/.gstack/projects/<slug>/<branch>-evidence.jsonl.
+ * dirty, wtree or wtree_changed, log_path, tests_ran} to ~/.gstack/projects/<slug>/<branch>-evidence.jsonl.
  *
  * `tests_ran` (zero-run green, W3 of docs/designs/HONEST_WORK_GATE_INTEGRITY.md)
  * is parsed from a bounded tail of the streamed output for the supported
@@ -89,6 +89,8 @@ interface EvidenceRecord {
   tree?: string;
   dirty?: boolean;
   wtree?: string;
+  /** Up to five paths whose content changed between the before-run and after-run fingerprints (set instead of wtree). */
+  wtree_changed?: string[];
   log_path?: string;
   redacted?: boolean;
   /** The runner's own test count (executed for bun/jest/vitest/pytest/rspec; ran with skips included for gstack's shard runner and the remote gate), 0 for ZERO-RUN, or "unknown" when no supported summary was seen. */
@@ -524,7 +526,10 @@ function record(
       if (wtreeBefore && wtreeAfter && wtreeBefore === wtreeAfter) {
         rec.wtree = wtreeAfter;
       } else if (wtreeBefore || wtreeAfter) {
-        warn("working-tree content changed during the run — evidence recorded without a content fingerprint (will grade STALE)");
+        const changed = wtreeBefore && wtreeAfter ? (git(["diff", "--name-only", wtreeBefore, wtreeAfter]) ?? "").split("\n").map((s) => s.trim()).filter(Boolean) : [];
+        if (changed.length) rec.wtree_changed = changed.slice(0, 5);
+        const named = changed.length ? `: ${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ", ..." : ""}` : "";
+        warn(`working-tree content changed during the run${named} — evidence recorded without a content fingerprint (will grade STALE)`);
       }
     }
     if (logPath) rec.log_path = logPath;
@@ -599,6 +604,7 @@ function cmdCheck(argv: string[]): number {
       continue;
     }
     const testsRan = typeof latest.tests_ran === "number" ? latest.tests_ran : "unknown";
+    const changedDuringRun = Array.isArray(latest.wtree_changed) ? latest.wtree_changed.filter((p): p is string => typeof p === "string" && p !== "" && !/[\u0000-\u001f\u007f]/.test(p)).slice(0, 5) : [];
     const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}`;
     let verdict: "FRESH" | "STALE" | "ZERO-RUN" = "FRESH";
     let reason = "";
@@ -631,7 +637,9 @@ function cmdCheck(argv: string[]): number {
         // forged/corrupt ledger line must degrade, never inject options.
         verdict = "STALE";
         reason = !latest.wtree
-          ? "record has no content fingerprint"
+          ? changedDuringRun.length
+            ? `content changed during the run: ${changedDuringRun.join(", ")}`
+            : "record has no content fingerprint"
           : !/^[0-9a-f]{40}$/.test(latest.wtree)
             ? "record has malformed fingerprint"
             : "current fingerprint unavailable";

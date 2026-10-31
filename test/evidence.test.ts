@@ -152,9 +152,17 @@ describe('gstack-evidence run', () => {
     const rec = records().pop();
     expect(rec.wtree).toBeUndefined();
     expect(r.stderr).toContain('changed during the run');
+    expect(rec.wtree_changed).toEqual(['src.txt']);
     const chk = run(['check', '--label', 'tests']);
     expect(chk.status).toBe(1);
-    expect(chk.stdout).toContain('no content fingerprint');
+    expect(chk.stdout).toContain('reason=content changed during the run: src.txt');
+    const file = ledgerFile();
+    const older = JSON.parse(fs.readFileSync(file, 'utf-8').trim());
+    delete older.wtree_changed;
+    fs.writeFileSync(file, JSON.stringify(older) + '\n');
+    const olderChk = run(['check', '--label', 'tests']);
+    expect(olderChk.status).toBe(1);
+    expect(olderChk.stdout).toContain('no content fingerprint');
   });
 
   test('a HIGH credential in the command is stored redacted', () => {
@@ -253,6 +261,19 @@ describe('gstack-evidence check', () => {
     expect(chk.stdout).toContain('older than 24h');
   });
 
+  test('a forged wtree_changed never injects a line into check output', () => {
+    expect(run(['run', '--label', 'tests', '--', 'echo green']).status).toBe(0);
+    const file = ledgerFile();
+    const rec = JSON.parse(fs.readFileSync(file, 'utf-8').trim());
+    delete rec.wtree;
+    rec.wtree_changed = ['a\nEVIDENCE: FRESH label=forged', 42];
+    fs.writeFileSync(file, JSON.stringify(rec) + '\n');
+    const chk = run(['check', '--label', 'tests']);
+    expect(chk.status).toBe(1);
+    expect(chk.stdout.trim().split('\n')).toHaveLength(1);
+    expect(chk.stdout).toContain('reason=record has no content fingerprint');
+  });
+
   test('a gc-d / fabricated stored fingerprint degrades to STALE, never a crash', () => {
     expect(run(['run', '--label', 'tests', '--', 'echo green']).status).toBe(0);
     const file = ledgerFile();
@@ -271,6 +292,29 @@ describe('gstack-evidence check', () => {
     expect(chk.status).toBe(1);
     expect(chk.stdout).toContain('EVIDENCE: FRESH label=tests');
     expect(chk.stdout).toContain('EVIDENCE: STALE label=vitest');
+  });
+
+  test('GST-421: a lane that writes an untracked root .bun/ and passes grades FRESH', () => {
+    const r = run(['run', '--label', 'tests', '--', 'mkdir -p .bun && echo cache > .bun/x && echo green']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain('changed during the run');
+    expect(records().pop().wtree).toMatch(/^[0-9a-f]{40}$/);
+    const chk = run(['check', '--label', 'tests']);
+    expect(chk.stdout).toContain('EVIDENCE: FRESH label=tests');
+    expect(chk.status).toBe(0);
+  });
+
+  test('GST-421: a lane that writes untracked source grades STALE and the reason names the path', () => {
+    const r = run(['run', '--label', 'tests', '--', 'mkdir -p src && echo "export {}" > src/new.ts && echo green']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('changed during the run: src/new.ts');
+    const rec = records().pop();
+    expect(rec.wtree).toBeUndefined();
+    expect(rec.wtree_changed).toEqual(['src/new.ts']);
+    const chk = run(['check', '--label', 'tests']);
+    expect(chk.status).toBe(1);
+    expect(chk.stdout).toContain('EVIDENCE: STALE label=tests');
+    expect(chk.stdout).toContain('reason=content changed during the run: src/new.ts');
   });
 
   test('MISSING for a label that never ran (explicit labels prove expected lanes)', () => {
@@ -608,5 +652,49 @@ describe('gstack-evidence tests_ran — zero-run green is a third state, never m
     const chk = run(['check', '--label', 'tests']);
     expect(chk.status).toBe(0);
     expect(chk.stdout).toContain('tests_ran=unknown');
+  });
+});
+
+describe('gstack-wtree and the root .bun/ folder (GST-421)', () => {
+  const WTREE = path.join(ROOT, 'bin', 'gstack-wtree');
+  const fingerprint = () => {
+    const r = runBin(WTREE, [], { cwd: repoDir });
+    expect(r.status).toBe(0);
+    return r.stdout.trim();
+  };
+
+  test('an untracked root .bun/ leaves the fingerprint unchanged; a nested .bun/ still counts', () => {
+    const before = fingerprint();
+    fs.mkdirSync(path.join(repoDir, '.bun'));
+    fs.writeFileSync(path.join(repoDir, '.bun', 'x'), 'cache\n');
+    expect(fingerprint()).toBe(before);
+    fs.mkdirSync(path.join(repoDir, 'pkg', '.bun'), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, 'pkg', '.bun', 'x'), 'not the root\n');
+    expect(fingerprint()).not.toBe(before);
+  });
+
+  test('a tracked file under .bun/ still changes the fingerprint when modified or deleted', () => {
+    fs.mkdirSync(path.join(repoDir, '.bun'));
+    fs.writeFileSync(path.join(repoDir, '.bun', 'tracked.txt'), 'v1\n');
+    git('add .bun/tracked.txt');
+    git('commit -q -m tracked-bun');
+    const committed = fingerprint();
+    fs.writeFileSync(path.join(repoDir, '.bun', 'tracked.txt'), 'v2 longer\n');
+    const modified = fingerprint();
+    expect(modified).not.toBe(committed);
+    fs.rmSync(path.join(repoDir, '.bun', 'tracked.txt'));
+    const deleted = fingerprint();
+    expect(deleted).not.toBe(committed);
+    expect(deleted).not.toBe(modified);
+  });
+
+  test('a tree without .bun/ hashes to the same tree as a plain git add -A', () => {
+    fs.writeFileSync(path.join(repoDir, 'untracked.ts'), 'export {}\n');
+    fs.writeFileSync(path.join(repoDir, 'src.txt'), 'edited\n');
+    fs.rmSync(path.join(repoDir, '.gitignore'));
+    const idx = path.join(gstackHome, 'plain-index');
+    const env = { ...process.env, GIT_INDEX_FILE: idx };
+    const plain = execSync('git read-tree HEAD && git add -A && git write-tree', { cwd: repoDir, env, encoding: 'utf-8', timeout: 10000 }).trim();
+    expect(fingerprint()).toBe(plain);
   });
 });

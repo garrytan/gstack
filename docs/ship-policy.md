@@ -970,7 +970,12 @@ not a claim; a number that is the value of a `key=` or `key:` pair is that
 key's claim alone, so `passes=2 blocking_found=1` is two claims, never a
 `2 blocking_found` one, #3513). A body that quotes a different number is
 `RECEIPT_PROSE_MISMATCH` (exit 1) and the `PROSE:` line names each field with
-both values; prose that quotes no counter is not a claim. Data PRs (evals,
+both values; prose that quotes no counter is not a claim. The `## Approvals`
+block `gstack-approvals` renders (its heading, the Date | Asked | Exact words
+table and the `Source: gstack-approvals record` line) quotes the owner's
+words, not this PR's numbers, so it is skipped: "one Step 11 pass" in that table
+is not a `pass` claim. Text you write under the heading after that block, and
+a `## Approvals` example inside a code fence, are still checked. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
 
 <a id="review-scope"></a>

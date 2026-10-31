@@ -230,7 +230,7 @@ and lockfiles stay runtime. To adopt it, commit an entry like this on the base b
 
 **Gate paths for the machinery itself.** An edit to `lib/review-depth.ts`,
 `lib/review-collect.ts`, `bin/gstack-review-plan`, `lib/review-scope.ts`,
-`lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
+`lib/review-targeted.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
 `ship/sections/review-army.md.tmpl`, `ship/sections/adversarial.md.tmpl` or
 `scripts/resolvers/review-army.ts` is gate class: changing how much review runs gets
 the most review. `rules=` (`DEPTH_RULES`) hashes the deciding constants and patterns,
@@ -285,6 +285,59 @@ the specialists, audits and watchers at the host default too
   part 4a). A binary image no code names is no longer a `binary_code_path` error
   that forces full depth; one that code names still is.
 
+## Targeted pass on money, gate, auth and secret code
+
+Some code is costly to get wrong: code that spends money, code that decides
+whether a check passes, code that decides who gets in, and code that handles
+secrets. When a diff touches one of these, `gstack-review-plan` dispatches one
+more reader, `targeted`, at every depth, light included. It reads the whole
+diff, fixtures and tests included, with the blocks of
+`review/specialists/targeted.md` for the classes that hit, and it runs in Step
+11 beside the native adversarial pass and the outside voice (GST-257).
+
+`lib/review-targeted.ts` decides the classes from added and deleted lines, so
+removing a cap, a check or a redaction counts. Docs and tests paths never count,
+and matching is token-bounded: `costume` never reads as cost.
+
+| Class | Signal |
+|---|---|
+| money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid provider `lib/pricing.ts` prices |
+| gate | a hunk the gate scan tagged: a relaxed threshold, a skipped test, a loosened check |
+| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name |
+| secret | a secrets, credentials, keychain or token path, or a changed line that reads a key-named environment variable (`OPENAI_API_KEY`, `GH_TOKEN`) or a credential store |
+
+An input the classifier cannot read (the diff, `gstack-diff-scope`, the gate
+scan) fails closed to all four classes. `TARGETED_RULES` hashes the patterns.
+The classifier and the brief are gate paths, so an edit that weakens them gets
+full review.
+
+The plan prints `TARGETED: classes=<money,gate,auth,secret|none> rules=<hash>
+brief=<sha256 of the brief> targeted_patch_id=<id>` and, when a class hit,
+`DISPATCH: targeted targeted effort=full`. The targeted reader always reads the whole diff: `render --role targeted`
+refuses a `--diff-base` other than the merge base, so on pass 2 and later it
+gets the merge base, not `RANGE_BASE`. After a fix, pass
+`--targeted-ran <targeted_patch_id>` from the line the reader ran on: the same
+committed patch skips the reader, and a changed one, uncommitted edits or
+`none` dispatch it again. `targeted_patch_id` is the patch-id of the whole
+committed diff, tests included, so a test-only fix that adds a gate hunk
+dispatches it again; it is not the receipt's `product_patch_id`.
+
+The brief states the blocking floor in one sentence, and its money block cites
+the checklist's Forced-CRITICAL rule on uncapped spend, so a money finding can
+block without new floor words. The reader is read-only, and `NO FINDINGS` is a
+result. `gstack-review-dispatch render --role targeted --classes <classes>`
+renders its brief; `verify --targeted-out <file>` writes the record that
+`gstack-ship-receipt write --review-targeted @<file>` puts in the receipt.
+`gstack-ship-queue ready` and `train build` print
+`REVIEW_TARGETED: required=<classes|none> receipt=<classes|none|legacy>
+verdict=ok|missing` and refuse nothing yet; enforcement comes in a later
+release.
+
+Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
+21, gate 18, auth 3 and secret 8. The gate class first used the gate paths,
+which hit 43 of 100; those paths already get full depth, so the gate class was
+narrowed to the gate scan's tagged hunks.
+
 ## What the receipt records
 
 `gstack-review-scope summary --since <REVIEW_SINCE>` reads this invocation's
@@ -300,8 +353,9 @@ puts in the receipt:
 | `review_loop.fixed` | findings fixed in this PR |
 | `review_loop.scope` | the `review_scope` the loop ran under |
 | `review_loop.fix_checks` | fix-checks this ship ran (never passes) |
-| `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check` |
+| `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
+| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its output collected and the committed diff it was rendered on still the one at verify, else `failed`; absent when write got no record, which the queue reports as `legacy`), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
 diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,
@@ -437,10 +491,23 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    against the merged lines they produced, and the judgment rerun against the
    recorded judged set, covering every collected id. A ledger from a run that kept no
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
+6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
+   staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
+   the specialists with QA and the other audits, then the Red Team, then Step 11's
+   voices. Each reviewer keeps its plan entry and is rendered by the same code as
+   `render`, once its inputs exist; the Red Team's findings file is the specialists'
+   `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
+   most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
+   host's line or output cap cannot cut one. Each reader's intent is recorded before its
+   subagent is created and its path right after (`mark`), so a resumed pass finds a
+   create whose result was lost by its title and never starts a reader twice; a
+   missing or doubled title stops the pass. On Capy the pass runs as one call to the
+   checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
+   unchanged by the gstack Capy skill.
 
 ## Where this is enforced
 
-- `lib/review-brief.ts`, `lib/review-ledger.ts`, `bin/gstack-review-dispatch`: [verbatim dispatch](#verbatim-dispatch) (`test/review-dispatch.test.ts`).
+- `lib/review-brief.ts`, `lib/review-ledger.ts`, `lib/review-pass.ts`, `lib/capy-review-pass.js`, `bin/gstack-review-dispatch`: [verbatim dispatch](#verbatim-dispatch) (`test/review-dispatch.test.ts`, `test/review-pass.test.ts`).
 
 - `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
