@@ -13,6 +13,11 @@
  *   outside-voice       diff_base, diff (the branch diff, which the bin reads from git)
  *   fix-check           fix_list, hunks, tests, callers (scripts/resolvers/fix-check.ts)
  *   targeted            classes, brief (review/specialists/targeted.md's text), checklist (its path), diff_base, stack, test_fw, learnings
+ *
+ * With the base policy's review_exclude_paths active (lib/review-exclude.ts) every role but fix-check also takes
+ * policy_exclude (the `:(top,exclude,glob)` items, which the fixture-handling command of the security specialist, the
+ * Red Team and the native adversarial pass gets), keep (the kept files' `:(top,literal)` items) and disclosure (the one
+ * line naming what was left out). Unset, every brief renders byte for byte as before.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -81,11 +86,13 @@ function fill(text: string, pairs: Array<[string, string]>, what: string): strin
 }
 const SPECIALIST_DIFF = 'run\n`DIFF_BASE=<diff-base> && git diff "$DIFF_BASE" <exclude>` to get the diff';
 
-const PLACEHOLDERS = ['<diff-base>', '<exclude>', '<base>', '{checklist path}', '{STACK}', '{TEST_FW}', '{merged findings summary}', '{red-team checklist path}', '{learnings'];
+const PLACEHOLDERS = ['<diff-base>', '<exclude>', '<list-exclude>', '<base>', '{checklist path}', '{STACK}', '{TEST_FW}', '{merged findings summary}', '{red-team checklist path}', '{learnings'];
 
 /** Render one reader's brief. Throws BriefError on a missing slot, a section that no longer carries an anchor or placeholder, or a placeholder left unfilled. */
 export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): string {
-  const text = renderRole(role, slots, t);
+  const rendered = renderRole(role, slots, t);
+  const keep = slots.keep ? ` Read the files kept despite a match as well: \`git diff ${slots.diff_base} -- ${slots.keep}\`.` : '';
+  const text = slots.disclosure && role !== 'fix-check' && role !== 'outside-voice' ? `${rendered}\n\n${slots.disclosure}${keep}` : rendered;
   const left = role === 'fix-check' || role === 'outside-voice' ? [] : PLACEHOLDERS.filter(p => text.includes(p));
   if (left.length) throw new BriefError(`${role}: unfilled placeholder ${left.join(', ')}`);
   return text;
@@ -94,6 +101,8 @@ export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): str
 function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
   const diffBase = role === 'fix-check' ? '' : need(slots, 'diff_base');
   if (diffBase && !SHA.test(diffBase)) throw new BriefError(`slot diff_base must be a literal commit sha, got ${JSON.stringify(diffBase)}`);
+  const fixtures = (text: string) => text.split(' <exclude>`').join(slots.policy_exclude ? ` ${slots.policy_exclude}\`` : '`')
+    .split('<list-exclude>`').join(slots.policy_exclude ? ` -- . ${slots.policy_exclude}\`` : '`');
   const common = (body: string, checklist: string) => fill(body, [
     ...(checklist ? [['{checklist path}', checklist] as [string, string]] : []), ['<diff-base>', diffBase],
     ['{TEST_FW}', slots.test_fw || 'unknown'], ['{STACK}', slots.stack || 'unknown'], ['{learnings or \'none\'}', slots.learnings?.trim() || 'none'],
@@ -103,7 +112,7 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
       const name = need(slots, 'name');
       const checklist = need(slots, 'checklist');
       if (name !== 'security') return common(t.specialist, checklist);
-      const body = fill(t.specialist, [[SPECIALIST_DIFF, 'set `DIFF_BASE=<diff-base>` first. ' + t.fixtures + ' Then read the diff that way']], role);
+      const body = fill(t.specialist, [[SPECIALIST_DIFF, 'set `DIFF_BASE=<diff-base>` first. ' + fixtures(t.fixtures) + ' Then read the diff that way']], role);
       return `${t.framing}\n\n${common(body, checklist)}`;
     }
     case 'specialist-batched': {
@@ -114,13 +123,14 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
     case 'red-team': {
       const body = fill(t.redTeam, [['{merged findings summary}', (slots.findings ?? '').trim() || '(none)'], ['by N specialists', `by ${need(slots, 'specialists')} specialists`],
         ['{red-team checklist path}', need(slots, 'checklist')], ['<diff-base>', diffBase]], role);
-      return `${t.framing}\n\n${t.fixtures}\n\n${body}`;
+      return fixtures(`${t.framing}\n\n${t.fixtures}\n\n${body}`);
     }
     case 'adversarial-native':
-      return fill(t.native, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
+      return fixtures(fill(t.native, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role));
     case 'outside-voice': {
-      const body = fill(t.outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
-      return [body, '', `## Branch diff (git diff ${diffBase})`, FENCE + 'diff', (slots.diff ?? '').trim(), FENCE].join('\n');
+      const filled = fill(t.outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
+      const body = slots.policy_exclude ? filled.split('git diff "$DIFF_BASE".').join(`git diff "$DIFF_BASE" -- . ${slots.policy_exclude}${slots.keep ? ` and git diff "$DIFF_BASE" -- ${slots.keep}` : ''}.`) : filled;
+      return [body, '', ...(slots.disclosure ? [slots.disclosure, ''] : []), `## Branch diff (git diff ${diffBase})`, FENCE + 'diff', (slots.diff ?? '').trim(), FENCE].join('\n');
     }
     case 'targeted': {
       const classes = parseClassList(need(slots, 'classes'));

@@ -24,7 +24,9 @@ import { spawnSync } from 'node:child_process';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { runScriptSync } from '../lib/script-invocation';
 import { collectCommit, collectLive } from '../lib/review-collect';
-import { classifyDiff, diffCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
+import { excludeLines, reviewExclude, type Exclusion } from '../lib/review-exclude';
+import { loadPolicyAt, isUnavailable } from '../lib/ship-policy';
+import { classifyDiff, diffCommand, keepCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
 import { classList, targetedBriefSha, targetedClasses, targetedPatchId } from '../lib/review-targeted';
 import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
 
@@ -110,14 +112,31 @@ function main(): number {
     if (run.status !== 0 && !s.SCOPE_ERROR) s.SCOPE_ERROR = `exit ${run.status}`;
     return s;
   };
-  const gateTagsOf = (args: string[]): number | null => {
-    const g = runScriptSync(path.join(binDir, 'gstack-gate-diff'), args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
-    const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
-    return g.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
+  const runGateDiff = (args: string[]) => runScriptSync(path.join(binDir, 'gstack-gate-diff'), args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const tagCount = (stdout: string | undefined, status: number | null): number | null => {
+    const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(stdout ?? '');
+    return status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
   };
+  const gateTagsOf = (args: string[]): number | null => { const g = runGateDiff(args); return tagCount(g.stdout, g.status); };
   const scope = scopeOf([base]);
-  let gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([base]);
+  const ref = git(['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]) !== null ? `origin/${base}` : base;
+  const baseSha = collected.registry.sha ?? git(['rev-parse', '--verify', '-q', `${ref}^{commit}`])?.trim() ?? '';
+  const policy = baseSha ? loadPolicyAt(root, baseSha, ref) : null;
+  const declares = !!policy && !isUnavailable(policy) && policy.policy.review_exclude_paths.length > 0;
+  let tagged: Set<string> | null = null;
+  let gateTagged: number | null;
+  if (declares) {
+    const g = runGateDiff([base, '--format', 'jsonl']);
+    gateTagged = tagCount(g.stdout, g.status);
+    tagged = gateTagged === null ? null : new Set((g.stdout ?? '').split('\n').slice(1).flatMap(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return h.path && h.tags?.length ? [h.path] : []; } catch { return []; } }));
+    if (flag('--gate-tagged') !== undefined) gateTagged = Number(flag('--gate-tagged'));
+  } else gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([base]);
   if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
+  const exclusion: Exclusion = !baseSha || !collected.mergeBase ? { state: 'none' } : reviewExclude({ root, baseSha, ref, mergeBase: collected.mergeBase, perPath: collected.perPath, added: collected.added, classRoot: root, gateTagged: tagged, context: 'gstack-review-plan' });
+  if (exclusion.state === 'refused') { for (const l of exclusion.lines) process.stderr.write(l + '\n'); return exclusion.code === 'REVIEW_DIFF_UNREADABLE' ? EXIT.fail : EXIT.refused; }
+  const active = exclusion.state === 'active' ? exclusion : null;
+  const kept = <T,>(rec: Record<string, T>) => (active ? Object.fromEntries(Object.entries(rec).filter(([p]) => !active.excluded.has(p))) : rec);
+  const exclusionInput = active ? { excluded: active.excluded, exclusion: { specs: active.specs, keep: active.keep } } : {};
   const force = flag('--force') === 'all' ? 'all' as const : list('--force');
   const tiersSetting = runScriptSync(path.join(binDir, 'gstack-config'), ['get', 'review_effort_tiers'], { encoding: 'utf8', timeout: 15_000 });
   const auditEffort = has('--no-tiers') || (tiersSetting.stdout ?? '').trim() === 'off' ? 'host' : 'light';
@@ -131,28 +150,30 @@ function main(): number {
     else if (git(['diff', '--quiet', 'HEAD', '--']) === null || collected.untracked.length) fixRange = unread('uncommitted or untracked edits: commit the fixes first');
     else {
       const commit = collectCommit(root, resolved, 'HEAD');
-      const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', 'HEAD']), gateTagged: gateTagsOf([resolved]) });
+      const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', 'HEAD']), gateTagged: gateTagsOf([resolved]), ...(active ? { excluded: active.excluded } : {}) });
       fixRange = range.errors.length ? unread(range.errors.map(e => `${e.code} ${e.input}`).join('; '))
         : !commit.paths.length ? unread('the fix range is empty: commit the fix after the range base')
         : { base: rangeBase, runtime_lines: range.runtimeLines, ...(range.class === 'gate' ? { touched_gate: true as const } : {}) };
     }
   }
-  const targeted = targetedClasses({ ...collected, scope, gateTagged });
+  const targeted = targetedClasses({ ...collected, ...(active ? { paths: paths.filter(p => !active.excluded.has(p)), added: kept(added), removed: kept(collected.removed) } : {}), scope, gateTagged });
   const patch = collected.mergeBase ? targetedPatchId(process.cwd(), collected.mergeBase) : 'none';
   const brief = targetedBriefSha();
   const plan = planReview({
-    ...collected, scope, gateTagged, targeted: { classes: targeted.classes, ran: !['uncommitted', 'none'].includes(patch) && flag('--targeted-ran') === patch }, numbers: scanNumbers(added), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
+    ...collected, ...exclusionInput, scope, gateTagged, targeted: { classes: targeted.classes, ran: !['uncommitted', 'none'].includes(patch) && flag('--targeted-ran') === patch }, numbers: scanNumbers(kept(added)), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
     history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below') && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines },
   });
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
-    process.stdout.write(JSON.stringify({ ...rest, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed }) + '\n');
+    process.stdout.write(JSON.stringify({ ...rest, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed,
+      ...(exclusion.state === 'head-only' ? { review_exclude: exclusion } : active ? { review_exclude: { state: 'active', ...active.record, specs: active.specs, keep: active.keep, kept_files: active.kept, content: active.content, references: active.references } } : {}) }) + '\n');
     return EXIT.ok;
   }
   const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`,
     `TARGETED: classes=${classList(targeted.classes)} rules=${targeted.rules} brief=${brief} targeted_patch_id=${patch}${targeted.reasons.length ? ` reasons=${targeted.reasons.join('; ')}` : ''}`];
+  out.push(...excludeLines(exclusion, base));
   if (fixRange) out.push(`FIX_RANGE: ${fixRange.runtime_lines === null ? `unread (${fixRange.error})` : `runtime_lines=${fixRange.runtime_lines}`} base=${fixRange.base}`);
   out.push(reviewPlanLine(plan, pass + (plan.next.step === 'full' || plan.next.step === 'scoped' ? 1 : 0)), `NEXT: ${plan.next.step} (${plan.next.reason})`);
   for (const e of plan.errors) out.push(`DEPTH_ERROR: ${e.code} input=${e.input} detail=${e.detail}; fix: ${e.repair}${e.result ? ` (${e.result})` : ''}`);
@@ -160,6 +181,8 @@ function main(): number {
     const key = d.name.split(' ')[0];
     out.push(`DISPATCH: ${d.role} ${d.name} effort=${d.effort}${d.checklists ? ` checklists=${d.checklists.join(',')}` : ''}${d.reason ? ` reason=${d.reason}` : ''}`, `DIFF_CMD: ${key} ${diffCommand(d)}`);
     if (!d.exclude.length) out.push(`DIFF_EXCLUDE: ${key} none`);
+    const keepCmd = keepCommand(d);
+    if (keepCmd) out.push(`DIFF_KEEP: ${key} ${keepCmd}`);
   }
   for (const s of plan.skipped) out.push(`SKIP: ${s}`);
   out.push(`AUDIT_EFFORT: ${auditEffort} (coverage, plan-completion and docs audits, decision-trail reviewers, watchers; reviewers above run at their effort=)`);
