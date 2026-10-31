@@ -103,7 +103,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
     let extended: boolean | undefined;
     const skip = (i: number) => {
       const line = lines[i]!;
-      if (!oldRowRe.test(line) || !tableHasNew[table[i]!] || valueRe.test(line.replace(oldRowRe, '['))) return false;
+      if (!oldRowRe.test(line) || !tableHasNew[table[i]!] || valueRe.test(line.slice(line.indexOf(']') + 1))) return false;
       if (extended === undefined) { const base = baseText?.(rel); extended = base === null || (base !== undefined && !newRowRe.test(base)); }
       return extended;
     };
