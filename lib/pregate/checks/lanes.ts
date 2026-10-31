@@ -265,12 +265,12 @@ function parseCargo(output: string): RunnerSummary | null {
 
 /**
  * swift test / xcodebuild test: Swift Testing's last `Test run with N tests … passed|failed` and
- * XCTest's last `Executed N tests, with M failures`, summed (a SwiftPM run prints both, one often
+ * XCTest's last `Executed N tests, with [K tests skipped and ]M failures`, summed (a SwiftPM run prints both, one often
  * zero). Swift Testing names no failed-test count, so each `✘ Test … failed after` line is one.
  */
 function parseSwift(output: string): RunnerSummary | null {
   const testing = [...output.matchAll(/Test run with (\d+) tests? (?:in \d+ suites? )?(passed|failed)/g)].pop();
-  const xctest = [...output.matchAll(/Executed (\d+) tests?, with (\d+) failures?/g)].pop();
+  const xctest = [...output.matchAll(/Executed (\d+) tests?, with (?:\d+ tests? skipped and )?(\d+) failures?/g)].pop();
   if (!testing && !xctest) return null;
   const testingFailed = testing?.[2] === 'failed'
     ? Math.max(1, (output.match(/^✘ Test (?!run with)[^\n]* failed after/gm) ?? []).length) : 0;

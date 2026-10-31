@@ -94,6 +94,12 @@ describe('Swift summaries', () => {
       '✘ Test run with 7 tests in 2 suites failed after 0.567 seconds with 6 issues.',
     ].join('\n'))).toEqual({ ran: 7, failed: 2 });
     expect(parseSummary("Test Suite 'All tests' failed.\n\t Executed 12 tests, with 3 failures (0 unexpected) in 1.2 (1.3) seconds")).toEqual({ ran: 12, failed: 3 });
+    // Value: protects=an XCTest run with skipped tests still reports its count and failures; fails_when=the skip form
+    //   `with K tests skipped and M failures` goes unparsed and a failing run reads as `count unavailable`; why_new=only the
+    //   no-skip form was parsed; seam=none; no_claim=Swift Testing's skip lines (its run summary has no skip count)
+    expect(parseSummary("Test Suite 'All tests' failed.\n\t Executed 12 tests, with 2 tests skipped and 3 failures (0 unexpected) in 1.2 (1.3) seconds"))
+      .toEqual({ ran: 12, failed: 3 });
+    expect(parseSummary("\t Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.001 (0.002) seconds")).toEqual({ ran: 1, failed: 0 });
     // Value: protects=a filter that matches nothing is ZERO-RUN, not a pass; fails_when=a zero count reads as unknown;
     //   why_new=Swift output was never parsed; seam=none; no_claim=none
     expect(parseSummary('✔ Test run with 0 tests passed after 0.001 seconds.\n\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds'))
