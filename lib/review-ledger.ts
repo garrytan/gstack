@@ -247,6 +247,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     return { at, next, reader, label: nth > 1 ? `${reader}@${nth}` : reader };
   });
   let voided = 0;
+  const differs: string[] = [];
   for (const p of episodes) {
     const r = events[p.at]!;
     const inside = events.map((e, i) => ({ e, i })).filter(({ e, i }) => i > p.at && i < p.next && e.reader === p.reader);
@@ -279,12 +280,19 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const lastSent = p ? events.slice(p.at + 1, i).filter(e => e.event === 'sent' && e.reader === reader).at(-1) : undefined;
     if (!p) { status = 'MISMATCH'; notes.push('brief_not_rendered'); }
     else if (!lastSent || lastSent.sha256 !== events[p.at]!.sha256) { status = 'MISMATCH'; notes.push('brief_not_sent_verbatim'); }
-    if (typeof o.file === 'string' && fs.existsSync(o.file) && promptHash(fs.readFileSync(o.file, 'utf8')) !== o.sha256) { status = 'MISMATCH'; notes.push('output_file_changed'); }
+    const text = typeof o.file === 'string' && fs.existsSync(o.file) ? fs.readFileSync(o.file, 'utf8') : undefined;
+    if (text !== undefined && promptHash(text) !== o.sha256) { status = 'MISMATCH'; notes.push('output_file_changed'); }
     const ids = Array.isArray(o.ids) ? (o.ids as string[]) : [];
     let lines: MergedLine[] = [];
     try { lines = typeof o.merged === 'string' ? readJsonl<MergedLine>(o.merged).filter(l => ids.includes(l.id)) : []; } catch { notes.push('merged_unreadable'); status = 'MISMATCH'; }
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
+    // Each merged row must be the finding collect parses at that id's index from the unchanged output, label and raw text byte for byte.
+    if (text !== undefined && promptHash(text) === o.sha256 && !unavailableOutput(o)) {
+      const parsed = parseFindings(reader, text);
+      const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw; });
+      if (off.length || parsed.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_line_differs=${JSON.stringify(off)}`); differs.push(...off); }
+    }
     if (status === 'MATCH' && !reviewed(o)) {
       // A non-review the same dispatch later replaced with a review (the brief re-sent verbatim, then answered) is void, counted like a voided send.
       const later = p ? events.slice(i + 1, p.next) : [];
@@ -312,6 +320,8 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
       rerun = judge(readJsonl<MergedLine>(String(v.merged)), readJsonl<JudgedLine>(String(v.judged)));
     } catch { notes.push('judged_or_merged_unreadable'); }
     if (rerun && !rerun.ok) notes.push(`rerun_rejects dropped=${JSON.stringify(rerun.dropped)} downgraded=${JSON.stringify(rerun.downgraded)}`);
+    const forged = differs.filter(id => judgedIds.has(id));
+    if (forged.length) notes.push(`merged_line_differs=${JSON.stringify(forged)}`);
     const status = !v.ok ? 'REJECTED' : notes.length ? 'MISMATCH' : 'OK';
     rows.push({ kind: 'JUDGE', reader: '-', status, detail: `dropped=${JSON.stringify(v.dropped)} downgraded=${JSON.stringify(v.downgraded)} added=${v.added} promoted=${v.promoted} folded=${v.folded}${notes.length ? ' ' + notes.join(' ') : ''}` });
   } else if (events.some(e => e.event === 'output')) rows.push({ kind: 'JUDGE', reader: '-', status: 'MISSING', detail: 'outputs were collected but no judged set was checked' });

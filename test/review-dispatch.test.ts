@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BriefError, promptHash, renderBrief, sectionTexts } from '../lib/review-brief';
-import { collect, judge, parseFindings, type MergedLine } from '../lib/review-ledger';
+import { collect, judge, parseFindings, readJsonl, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
@@ -474,5 +474,38 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     fs.writeFileSync(ledger, '{"event":"note","step":"9"}\n');
     const v = run(['verify', '--ledger', ledger]);
     expect([v.status, v.stdout.trim()]).toEqual([3, "VERIFY: no brief records (this run's ledger kept no prompts; dispatched-vs-rendered cannot be checked)"]);
+  });
+
+  // Value: protects=verify re-derives every merged row from the reader's unchanged output by its index, so a merged.jsonl edited
+  //   after collect cannot lower a finding or swap a blocker's text for a summary and still verify clean; fails_when=a forged label
+  //   or a copied raw line on a real blocker's id verifies clean (GST-541: both did at main c830c9b); why_new=verify compared only
+  //   output hashes and line counts; seam=verify; no_claim=that an output collected without a recorded file can be re-derived
+  test('verify re-derives each merged row by index: a forged label or a summary copied onto a blocker id is dirty', () => {
+    const blocker = '{"severity":"CRITICAL","path":"log.ts","line":3,"category":"security","summary":"bearer token written to a public log","specialist":"testing"}';
+    const summary = '{"severity":"INFORMATIONAL","path":"a.ts","line":9,"category":"style","summary":"I found nothing CRITICAL.","specialist":"testing"}';
+    const setup = () => {
+      const p = pass();
+      run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+      const out = p.w('spec.out', blocker + '\n' + summary + '\n');
+      expect(run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', out, '--merged', p.merged]).status).toBe(0);
+      return p;
+    };
+    const judgeAll = (p: ReturnType<typeof pass>, severity: string) => run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', p.w('judged.jsonl',
+      readJsonl<MergedLine>(p.merged).map(m => JSON.stringify({ id: m.id, severity: m.id.endsWith('#1') ? severity : 'INFORMATIONAL' })).join('\n') + '\n')]);
+    const clean = setup();
+    expect(judgeAll(clean, 'CRITICAL').status).toBe(0);
+    expect(run(['verify', '--ledger', clean.ledger]).stdout).toContain('VERIFY: clean');
+    const forge = (p: ReturnType<typeof pass>, edit: (rows: MergedLine[]) => void) => {
+      const rows = readJsonl<MergedLine>(p.merged);
+      edit(rows);
+      fs.writeFileSync(p.merged, rows.map(r => JSON.stringify(r)).join('\n') + '\n');
+      expect(judgeAll(p, 'INFORMATIONAL').stdout.trim()).toBe('JUDGMENT: ok added=0 promoted=0 folded=0');
+      return run(['verify', '--ledger', p.ledger]);
+    };
+    const label = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; });
+    expect([label.status, label.stdout]).toEqual([1, expect.stringContaining('merged_line_differs=["specialist/testing#1"]')]);
+    const copied = forge(setup(), rows => { rows[0]!.label = rows[1]!.label; rows[0]!.raw = rows[1]!.raw; });
+    expect([copied.status, copied.stdout]).toEqual([1, expect.stringContaining('merged_line_differs=["specialist/testing#1"]')]);
+    expect(copied.stdout).toMatch(/^JUDGE - MISMATCH .*merged_line_differs/m);
   });
 });
