@@ -264,14 +264,18 @@ describe('the budget section states both contracts', () => {
   test('a review pass is one execute program: plan, review-log --start, BEFORE, create, poll, note with the pair, collect (Capy, observe mode); the admission-mode section keeps check and settle', () => {
     const capy = fs.readFileSync(path.join(import.meta.dir, '..', 'capy', 'skill', 'gstack', 'SKILL.md'), 'utf8');
     const pass = capy.slice(capy.indexOf('/ship on Capy is about a dozen calls'), capy.indexOf('## Plan, approve, ship'));
-    expect(pass).toMatch(/A review pass, Step 11 and the Step 14\.5 audit each run inside one program/);
+    expect(pass).toContain('Each review pass and Step 11 is one call to the checked-in pass program');
+    expect(pass).toContain('gstack-review-dispatch program');
     expect(pass).not.toMatch(/one execute program per batch/);
-    expect(pass).toContain('its brief copied verbatim from the section that dispatches it');
-    expect(pass).toContain('never walks the dispatch steps call by call');
-    const order = ['gstack-review-plan --base <base>', 'gstack-review-log --start', '`BEFORE`', 'tools.subagent.create', 'tools.subagent.get', 'gstack-ship-budget note', '--dispatched-at <BEFORE>', 'return only each reader\'s final output'];
+    expect(pass).toContain('prompts verbatim from their sections');
+    expect(fs.readFileSync(path.join(import.meta.dir, '..', 'ship', 'DRIVER.md'), 'utf8').replace(/\s+/g, ' ')).toContain('never walks the dispatch steps call by call');
+    // GSTA-167 calls PR 2: the order now lives in the program the loader runs unchanged.
+    const program = fs.readFileSync(path.join(import.meta.dir, '..', 'lib', 'capy-review-pass.js'), 'utf8');
+    for (const s of ['tools.subagent.list', 'tools.subagent.get']) expect(program).toContain(s);
+    const order = ["bin, 'pass'", 'gstack-review-log --start', "' sent --ledger '", "' --before '", "mark(r.reader, 'intent'", 'tools.subagent.create', 'gstack-ship-budget note', '--dispatched-at', "'OUTPUT: '"];
     const block = tmpl.slice(tmpl.indexOf('**One program per review pass.**'));
     const tmplOrder = ['gstack-review-plan', 'check --step <n> --next dispatch:<roles>', 'gstack-review-log --start', 'BEFORE', 'AFTER', 'gstack-ship-budget settle', 'the collect'];
-    for (const [text, want] of [[pass, order], [block, tmplOrder]] as const) {
+    for (const [text, want] of [[program, order], [block, tmplOrder]] as const) {
       const at = want.map(o => text.indexOf(o));
       expect(at.every(i => i >= 0), want.filter((_, k) => at[k]! < 0).join(',')).toBe(true);
       expect([...at].sort((a, b) => a - b)).toEqual(at);

@@ -511,10 +511,23 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    against the merged lines they produced, and the judgment rerun against the
    recorded judged set, covering every collected id. A ledger from a run that kept no
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
+6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
+   staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
+   the specialists with QA and the other audits, then the Red Team, then Step 11's
+   voices. Each reviewer keeps its plan entry and is rendered by the same code as
+   `render`, once its inputs exist; the Red Team's findings file is the specialists'
+   `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
+   most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
+   host's line or output cap cannot cut one. Each reader's intent is recorded before its
+   subagent is created and its path right after (`mark`), so a resumed pass finds a
+   create whose result was lost by its title and never starts a reader twice; a
+   missing or doubled title stops the pass. On Capy the pass runs as one call to the
+   checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
+   unchanged by the gstack Capy skill.
 
 ## Where this is enforced
 
-- `lib/review-brief.ts`, `lib/review-ledger.ts`, `bin/gstack-review-dispatch`: [verbatim dispatch](#verbatim-dispatch) (`test/review-dispatch.test.ts`).
+- `lib/review-brief.ts`, `lib/review-ledger.ts`, `lib/review-pass.ts`, `lib/capy-review-pass.js`, `bin/gstack-review-dispatch`: [verbatim dispatch](#verbatim-dispatch) (`test/review-dispatch.test.ts`, `test/review-pass.test.ts`).
 
 - `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.

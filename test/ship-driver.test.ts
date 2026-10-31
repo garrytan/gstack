@@ -130,8 +130,8 @@ describe('one program per pass (GSTA-167 variant E)', () => {
   test('the shared program lists its acts in order and the review pass, Step 11 and Step 14.5 run through it', () => {
     const block = flat(doc.slice(doc.indexOf('**One program per pass.**'), doc.indexOf('\n## ', doc.indexOf('**One program per pass.**'))));
     expect(block).toContain('Each review pass, Step 11 and the Step 14.5 audit is one program, and the parent makes no other call while it runs');
-    const order = ['gstack-review-plan --base <base>', 'gstack-review-log --start <skill>` once per row the step logs', '(3) `BEFORE`',
-      '(4) one subagent per reader', '(5) a poll until every reader settles', '(6) `note` with the reading pair',
+    const order = ['`gstack-review-dispatch pass`', 'gstack-review-plan --base <base>', 'then its staged manifest', 'gstack-review-log --start <skill>` once per row the step logs', '(3) `BEFORE`',
+      '(4) `sent` (`BRIEF_MISMATCH` voids it), then one subagent per reader', '(5) a poll until every reader settles', '(6) `note` with the reading pair',
       'a later batch (the Red Team', '(7) the collect: return only each reader\'s final output', 'it never walks the dispatch steps call by call'];
     const at = order.map(o => block.indexOf(o));
     expect(order.filter((_, k) => at[k]! < 0)).toEqual([]);
@@ -222,7 +222,7 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
   test('briefs go out as rendered and findings come back unchanged: render, sent, collect, judge, verify', () => {
     const f = flat(doc);
     for (const s of ["A blocking reader's prompt is its `gstack-review-dispatch render` file, unchanged", 'only via `collect`', '`judge` refuses a drop or downgrade',
-      '(4) one subagent per reader on its rendered file, then `sent` (`BRIEF_MISMATCH` voids it)', 'final output and status, via `collect`', '`JUDGMENT: ok` before any fix',
+      '(4) `sent` (`BRIEF_MISMATCH` voids it), then one subagent per reader on its rendered file', 'final output and status, via `collect`', '`JUDGMENT: ok` before any fix',
       '`gstack-review-dispatch verify` (`VERIFY: clean`)']) expect(f).toContain(s);
     expect(f.indexOf('gstack-review-dispatch verify')).toBeLessThan(f.indexOf('`gstack-review-read`'));
   });

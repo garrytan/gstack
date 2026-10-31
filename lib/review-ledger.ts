@@ -18,7 +18,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { promptHash } from './review-brief';
 
-export interface LedgerEvent { event: 'rendered' | 'sent' | 'output' | 'judgment' | 'judge'; [k: string]: unknown }
+export interface LedgerEvent { event: 'rendered' | 'sent' | 'output' | 'judgment' | 'judge' | 'program'; [k: string]: unknown }
 export const readerKey = (role: string, name?: string) => (name ? `${role}/${name}` : role);
 
 export function appendEvent(ledger: string, e: LedgerEvent): void {

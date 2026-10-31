@@ -34,6 +34,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. Available outside the Codex harness. |
 | `/claude-code` | Second opinion via Claude Code. Review, challenge, or consult modes. Available outside the Claude Code harness. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
+| `/verify` | Build-and-verify loop while you code: the repo's checks plus the tests pregate selects, fix, repeat, then hand off to `/ship`. Never green on an unmapped change. |
 | `/design-review` | Live-site visual audit + fix loop with atomic commits. |
 | `/design-shotgun` | Generate multiple AI design variants, comparison board, iterate. |
 | `/design-html` | Generate production-quality Pretext-native HTML/CSS. |

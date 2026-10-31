@@ -23,7 +23,7 @@ version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (
 
 **Reviewers are the sections' own.** Every audit, specialist, Red Team, QA, fix-check, adversarial,
 outside-voice and documentation brief, its severity and confidence rules and its gates come from its
-section verbatim, with only its placeholders filled. This file restates none of them and
+section verbatim, with only its placeholders filled; this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
 file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 9.2.1, 14.5) cannot block, so each runs on a
 small model at low effort; their findings go to the PR body.
@@ -44,10 +44,10 @@ readers run (each wakes it). A small waiting child saves nothing. Past 100 minut
 ≤32 KB per program; split longer reads at headings, each byte once, before first use.
 
 **One program per pass.** Each review pass, Step 11 and the Step 14.5 audit is one program, and the
-parent makes no other call while it runs: (1) `gstack-review-plan --base <base>` with the pass's
-flags (its `DISPATCH:` lines; Step 14.5 has one reader, `docs`); (2) `gstack-review-log --start
-<skill>` once per row the step logs (Step 14.5 takes none); (3) `BEFORE`; (4) one subagent per reader on its rendered file, then
-`sent` (`BRIEF_MISMATCH` voids it);
+parent makes no other call while it runs: (1) `gstack-review-dispatch pass`: `gstack-review-plan --base <base>`
+with the pass's flags, then its staged manifest (Step 14.5 has one reader, `docs`); (2) `gstack-review-log --start
+<skill>` once per row the step logs (Step 14.5 takes none); (3) `BEFORE`; (4) `sent` (`BRIEF_MISMATCH` voids it), then one
+subagent per reader on its rendered file;
 (5) a poll until every reader settles (status `done` or `failed`, or a final summary; a fresh `idle`
 has not run); (6) `note` with the reading pair; a later batch (the Red Team,
 given the specialists' collected lines) repeats (3)-(6); (7) the collect: return only each reader's
