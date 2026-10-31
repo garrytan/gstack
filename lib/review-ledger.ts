@@ -299,7 +299,8 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
       if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
       else if (!unavailableOutput(o)) {
         if (off.length) { status = 'MISMATCH'; notes.push(`merged_line_differs=${JSON.stringify(off)}`); differs.push(...off); }
-        if (parsed.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_count_differs=${parsed.length}/${ids.length}`); }
+        // A reply collect refused as no review (a wrong-tree reader, GST-482) records no ids whatever it holds; verify reports it NOT_REVIEWED.
+        if (parsed.length !== ids.length && !(o.review === false && !ids.length)) { status = 'MISMATCH'; notes.push(`merged_count_differs=${parsed.length}/${ids.length}`); }
       }
     }
     if (status === 'MATCH' && !reviewed(o)) {
