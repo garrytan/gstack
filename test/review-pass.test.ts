@@ -540,11 +540,12 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(path.join(out, 'coverage.prompt.md'), 'Run Step 7 as written.\n');
     const h = host(dir, env);
-    const res = await runPass(h, { base: 'main', out, pass: 'w3p1', cwd: wt, planFlags: ['--depth-floor', 'full'],
+    const res = await runPass(h, { base: 'main', out, pass: 'w3p1', cwd: wt, planFlags: ['--depth-floor', 'full', '--critical-found'],
       extras: [{ name: 'coverage', prompt_file: path.join(out, 'coverage.prompt.md'), first: true }] });
     expect(res).not.toContain('STOP:');
     expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.length).toBeGreaterThan(2);
+    expect(h.creates.map(c => c.title)).toEqual(['ship w3p1 audit/coverage', 'ship w3p1 specialist-batched', 'ship w3p1 red-team']);
     for (const c of h.creates) expect(c.prompt.endsWith('\n\n' + withWorkspaceTail(wt)), c.title).toBe(true);
     expect(bin(wt, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout).not.toContain('wrong_tree');
   }, 240_000);
