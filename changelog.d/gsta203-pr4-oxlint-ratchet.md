@@ -7,3 +7,5 @@
 ### Changed
 - **`browse/test/commands.test.ts`**: the duplicate `import * as os` is gone; the test asserts the same things. `scripts/typecheck-test-baseline.json` drops the matching TS2300 entry.
 - **Dependabot skips oxlint**, because a bump needs the baseline rebuilt by a maintainer.
+- **`lib/run-evidence.ts`**: `NAME`'s character class drops a needless `\/` escape that landed on main before the ratchet (the same strings match).
+- **`docs/ship-policy.md`** (A lint finding that appears only in the train): when a stamp commit's lint step reports `LINT_RATCHET_NEW`, the slot owner fixes the finding on the PR branch as a new pin and the train is rebuilt, or the controller drops that slot. The baseline never grows.

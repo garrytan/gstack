@@ -439,6 +439,23 @@ covers main only when its exact tree is some S_i of a green record (plain
 T_i records still cover modulo stamps). A dropped slot changes every later
 version, so the train is rebuilt, as today.
 
+<a id="lint-ratchet-in-a-train"></a>
+**A lint finding that appears only in the train.** `bun run lint` (the typecheck
+job in `free-tests`) holds oxlint findings to `scripts/lint-baseline.json`, which
+only shrinks. Each pin passes it against its own base, but merging a train-mate
+can still add a finding at a stamp commit or the train head. That happens when a
+pin predates the ratchet, or when two pins interact (one drops the last use of
+something the other imports). The stamp commit's typecheck job then fails with
+`LINT_RATCHET_NEW` and names the file, line and rule. There are two ways out,
+and neither grows the baseline. (1) The owner of the slot whose files the finding
+sits in fixes it with a commit on that PR's branch. That is a new pin, so the PR
+reruns /ship and re-READYs, and the controller rebuilds the train from that
+slot. A stamp commit is never edited in place, because `train land` checks
+main's tree against S_i. (2) The controller drops that slot and rebuilds the
+train without it. `LINT_RATCHET_FIXED` at a stamp commit (two pins that together
+remove a finding) is handled the same way, with `bun run lint --write-baseline`
+on the slot's branch.
+
 <a id="ship-before-ready"></a>
 **0. Lane: /ship before READY.** Every READY follows a /ship run on the branch
 at the head being READY'd, including a re-READY after a push (Garry,
