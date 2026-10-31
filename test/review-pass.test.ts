@@ -371,6 +371,31 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(m.readers.some(r => r.effort === 'medium')).toBe(true);
   }, 180_000);
 
+  // Value: protects=once Phase 2 starts the run's parts, the pass program carries the next phase's section parts in the room its own return leaves, so Phase 4 needs no read call of its own, and it never adds them to a run that did not start them; fails_when=the pass returns parts without a started run, overruns 32 KB, puts them after its NEXT line, or repeats a part a poll return already carried;
+  //   why_new=GSTA-167 calls plan C5 in code; seam=none; no_claim=how much room real reader outputs leave
+  test('a started run gets the next parts inside each poll and the finished pass, once each and before NEXT', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { pollsToFinish: 30 });
+    const input = { base: 'main', out, pass: 'x12p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, input)).not.toContain('PART: ');
+    fs.mkdirSync(path.join(dir, '.state/run/parts'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.state/run/parts/state.json'), JSON.stringify({ returned: ['review-9', 'review-9.1', 'review-red-team', 'review-9.2.1'] }));
+    const ids: string[] = [];
+    let res = '';
+    for (let i = 0; i < 8 && !res.includes('NEXT: judge'); i++) {
+      res = await runPass(h, input);
+      expect(res.length).toBeLessThanOrEqual(32000);
+      const got = [...res.matchAll(/^PART: (\S+) /gm)].map(m => m[1]!);
+      if (got.length) expect(res.lastIndexOf('PART_END: ')).toBeLessThan(res.lastIndexOf('\nNEXT: '));
+      ids.push(...got);
+    }
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids[0]).toBe('plan-8.1-8.2');
+  }, 240_000);
+
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();
     const h = host(dir, env);
