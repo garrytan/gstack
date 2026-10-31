@@ -1,5 +1,89 @@
 # Changelog
 
+## [1.91.379.0] - 2026-10-31
+
+**/ship's review readers now review the checkout /ship ships, even when it runs from a worktree on a shared machine.** Readers start as subagents on `machine: "shared"`, so each one opens in the machine's working directory. Their briefs never named a folder, so a /ship run from a worktree had its readers review whatever branch the primary checkout held. GBrain's crew saw a specialist return four findings in files outside the PR (GBRA-218, GST-482). A clean review of the wrong tree would have looked the same as a clean review of the right one.
+
+### Fixed
+- **Every reader's brief ends with a workspace paragraph** naming the checkout under review (the toplevel of the directory the bins run in). It tells the reader to start each command with `cd <checkout> && `, to give every file tool an absolute path under the checkout, and to make the first line of its final reply `REVIEWED_TREE: <HEAD^{tree}> <toplevel>`, measured there. The paragraph comes after the section text, so the rest of the brief is the same bytes as before. It covers the specialists, the batched specialist, the Red Team, the targeted reader, fix-check, Step 11's native and outside voices, and audit readers passed as extras (Steps 7, 8 and 14.5, and Step 9.2.1's QA reader). An audit reader's brief is now written to `briefs/` as its prompt file plus the paragraph, and its prompt file is not changed.
+- **`gstack-review-dispatch collect` checks that line against the fingerprint recorded when the brief was rendered.** A missing line, or one naming another checkout, prints `COLLECT_WRONG_TREE`; a line from the right checkout at a later commit prints `COLLECT_TREE_MOVED`. Either way it exits 1, merges nothing, and `verify` reports the brief `NOT_COLLECTED`. With `--manifest`, the reader becomes `failed`, so a rerun stops on it instead of collecting the same reply again. An outside voice whose reply fails the check and holds no finding is recorded as unavailable coverage, never clean; one with findings is refused like any other reader, so none is lost. An audit reader gets the same check when the pass marks it collected, and that now needs `--output`.
+- **Unavailable outside-voice output never counts as a review in `verify`**, even when its text carries a `Recommendation:` line.
+
+### Tests
+- `test/review-pass.test.ts`: a primary checkout and a worktree on another branch, with readers starting in the primary checkout. A reader that reviews the primary checkout, or names none, is refused and nothing it said is merged. One that follows its brief passes, and every brief names the worktree. An audit reader from the wrong checkout is refused. A rerun stops on the failed reader with one output event. A worktree at the same commit is told apart by its toplevel. A commit between render and reply is `COLLECT_TREE_MOVED`. A wrong-tree outside voice with no finding is `UNAVAILABLE`. All eight fail on the previous dispatch code.
+- `test/review-dispatch.test.ts`: every role's brief is the old render byte for byte, followed by the paragraph. A list-item, heading, bold or backticked `REVIEWED_TREE` line counts, the path keeps its own characters, and the first line wins over one quoted later. An outside voice with findings and no line is refused. A render outside a readable checkout refuses, and a ledger rendered before this change collects as before.
+
+## [1.91.378.0] - 2026-10-31
+
+**The CSO runtime image workflow passes again after Docker moved its `scout-sbom-indexer:1` tag.** All 10 `validate-native` jobs in Stage CSO Runtime Images were failing with `SOURCE_TAG_MOVED: docker.io/docker/scout-sbom-indexer:1` on every PR that touched CSO paths. Docker pushed release 1.29.0 to the floating `:1` tag on 2026-10-29. The reviewed index `sha256:4b67f29e…` is Docker's 1.24.0 release, and the `1.24.0` tag still points at it. So the SBOM generator source now names `:1.24.0`. The pinned digests and the build-inputs revision are byte-identical, no requalification trigger changes, and the 10 qualified runtimes stay current.
+
+### Changed
+- **`lib/cso/images/build-inputs.json`**: `sbomGenerator.source` is `docker.io/docker/scout-sbom-indexer:1.24.0` instead of `:1`.
+- **`scripts/cso-image-matrix.ts`**: every pinned family (SBOM generator, base images, uv) must name an exact release in its source tag: `<major>.<minor>.<patch>`, or `<major>.<minor>` for the PostgreSQL base, whose releases have two parts. A floating major or minor tag (`:1`, `:1.24`, `python:3.13-slim`), `latest` or another alias fails with `FLOATING_<FAMILY>_SOURCE` before any build. An exact tag can still be re-pushed upstream (Docker's official images rebuild them when their Debian base changes), and `SOURCE_TAG_MOVED` still reports that. Moving the generator to 1.29.0 is a separate change that needs a new build-inputs revision and a requalified catalog.
+
+### Tests
+- `test/cso-distribution.test.ts`: `:1`, `:1.24`, `:1.24-slim`, `:latest` and `:stable` are refused for the SBOM generator and for a base image; PostgreSQL accepts `17.2` but not `17`, Python refuses `3.13-slim-bookworm`; and the committed inputs build all 10 rows with the `1.24.0` source.
+
+## [1.91.377.0] - 2026-10-31
+
+**A passed GitHub Actions run can now clear the remote test gate for the same tree, so a repository stops running its full suite twice per slot.** gbrain paid a 30–45 minute Ubicloud gate and then an 18–20 minute full-ci dispatch on the same tree in every serial slot (GBRA-108: #7872's slot took 5.6 h). `gstack-pregate clear --remote pregate.json/remote_gate --run <id> --run <id>` accepts one verified run per profile the base branch declares. gstack checks each run against the runner's own record, never against a pasted claim. It reads the GitHub API's run and jobs, the tree git computes for the run's head, and the `tree.json` the run uploaded. Nothing is skipped: the tests still run once, in CI. A repository that declares no profiles is unchanged.
+
+### Added
+- **`gstack-pregate clear --run <id|url>`** (repeatable; `lib/run-evidence.ts`, docs/pregate.md#run-evidence). A run is accepted only when it belongs to this repository, ran a `push` or `workflow_dispatch` event of the profile's workflow, and its newest attempt succeeded with every named job passing exactly once. Its `tree.json` must name the run, attempt, event and head and record the head's tree, and it must be fresh (`max_age_hours`, default 24) and on the profile's OS. It is refused if any run of that workflow on the head that started at or after it failed, was cancelled or is still running, or if the run changed attempts while being checked. All runs must be on one tree: pregate.json's, or a stamp-only predecessor under the existing tree-receipt rule. Their `files` must cover the obligation's selected tests plus every file the declared `inventory` command lists for that tree. Refusals print `REUSE: refused reason=<code>`; an accepted clear prints `REUSE: accepted`, and the receipt records `runs=<id>/<attempt> profiles= heads= verified=`.
+- **`run_profiles` and `remote_gate_runs`** in `.gstack/pregate.json`, read only from `origin/<base>`. A user-owned policy that sets them is refused, because nothing would read them there. `gstack-pregate clear` clears a lane named by a profile only through verified runs, so its `--run-url` is verified the same way, and `--bundle-lane` is refused. `gstack-ship-queue ready --dispatch-ci` still records a plain run URL for such a lane, and `verify` does not yet re-check it (docs/pregate.md#run-evidence). When the base config cannot be read, any lane's `--run-url` or `--bundle-lane` clear refuses, since the base may profile it. When the GitHub origin cannot be read, a profiled lane refuses rather than fall back to an unverified record.
+
+### Changed
+- **`gstack-pregate verify`** stays offline. It also refuses a run receipt recorded for another tree unless its stamp-only substitution is recorded.
+
+### Tests
+- `test/run-evidence.test.ts`: every refusal reason, including the re-run cases (a red re-run of an older run vetoes; re-running the candidate does not hide a failure in between), a run that changes attempts while being checked, malformed counts and paths, and profile validation.
+- `test/pregate-clear-runs.test.ts`: on a fixture repository, clear on the same tree, verify offline, and bind the ship receipt. Also covers a stamp-only predecessor, a non-stamp difference, uncovered files, runs on different trees, base mismatch, repeated runs, the profile-to-run assignment, the profiled-lane matrix (`--run-url`, `--bundle-lane`, `--run`), a non-GitHub origin failing closed, an origin that `url.insteadOf` rewrites to a proxy (Capy's git.capy.ai) still read as the GitHub repository, and an unreadable base config refusing `--run-url` on every lane. The `--run-url` fallback test failed before the fix.
+
+## [1.91.376.0] - 2026-10-31
+
+bump: minor
+---
+**A remote verify now survives a dead local runner, and a long verify can resume from the tiers that already passed (GSTA-158 P3).** Before, a Capy machine that went to sleep or a runner that got killed lost the whole remote run, and the paid VM ran on until its TTL. Now `ubi-runner run` and `verify` run each phase detached on the VM, and running the same command again reattaches to the live VM. A verify can be split into tiers, and a rerun skips the tiers that passed.
+
+### Added
+- **Reattach by run key.** The key covers the checkout's content, the command, setup, env, a hash of each `--pass` value, size, image, origin/HEAD and the runner itself. A rerun prints `ubi-runner: reattached to <vm> created_at=<epoch> key=<k12>`, replays what the phase already printed and follows it from there. A finished setup is not rerun. `UBI_ATTACH_BUSY` means another live runner owns the VM. Exit 125 `UBI_ATTACH_LOST` means the remote session died without an exit status.
+- **Reattach only while the TTL lasts.** A reattach needs the VM's remaining TTL to cover the run still to do (each unfinished phase's `UBI_RUN_TIMEOUT` bound) plus `UBI_REATTACH_MARGIN` (900 s). Otherwise the runner prints `UBI_REATTACH_TTL_SHORT` with the numbers, destroys the old VM and starts a fresh one. Tier checkpoints carry over to it.
+- **Verify tiers.** `.gstack/ubicloud.json` can list `tiers: [{name, command}]` in place of `command`. Each tier writes a start, pass or fail checkpoint under `UBI_CHECKPOINT_DIR`. A rerun prints `UBI_VERIFY_RESUME:` per tier and reuses passes younger than `UBI_CHECKPOINT_MAX_AGE` whose logs still hash. It reruns a recorded fail only with `--rerun-failed`. The last line is `UBI_VERIFY: …`.
+- **`attach NAME`, `run --probe` and `--key-input`.**
+
+### Changed
+- **HUP once a phase is live detaches** (`UBI_DETACHED`, exit 129, `UBICLOUD: left=1 … detached=1`): the VM keeps running under its TTL. INT and TERM still tear it down.
+- **`gstack-pregate --stage tests --remote` reattaches** to the VM a killed run left. It bills `spent=` from the original create time, and a cap that is already spent refuses with `PREGATE_REMOTE_CAP_SPENT`. The `PREGATE_REMOTE:` receipt is unchanged.
+
+## [1.91.375.0] - 2026-10-31
+
+**A /ship subagent now stops once its READY is sent, so CI and review callbacks on a frozen head stop waking it.** Finished /ship subagents kept getting woken by checks and reviews on a PR they had already READY'd. Each wake cost tokens, and some acted on a head that was supposed to be frozen. The parent now subscribes to the PR first, so red checks and human review still reach an owner, and then stops the subagent.
+
+### Changed
+- **`capy/skill/gstack/SKILL.md`** (Plan, approve, ship): the parent subscribes to the PR when the /ship subagent opens it and keeps that subscription until the PR merges or closes. It stops the subagent at READY and owns the PR from then on. A stopped /ship subagent woken by a check, review or merge notice reports one line (what woke it, its pin, the PR head) and ends the turn, while a message from its parent is an instruction it carries out.
+- **`docs/captain.md`** (the lane's /ship sequence): the host-neutral rule (the parent owns red checks, review, the slot stamp, re-READY and receipt carry after READY), with a pointer to the Capy mechanics. **`captain/templates/brief.md`**: one pointer line.
+- **`test/fixtures/context-budget.json`**: the Capy skill's eager ceiling moves from 5136 to 5312 for the 176 tokens it grew (5136 to 5312, measured with `lib/context-bill`), set at the captured value as main's last raise was, rather than a fresh 10% headroom.
+
+## [1.91.374.0] - 2026-10-31
+
+**/ship pauses on a red base instead of failing.** When main is red for a reason outside a PR, /ship's Step 5 used to fail or ask the fix/TODO/blame/skip question, and unattended lanes either burned runs or held by hand. Truther's two main-red fixes (#815 and the cover-contract branch) each failed only on the other's broken cases, so neither could pass /ship alone until a Captain folded them into #818 by hand (GSTA-157, from the 2026-10-29 speed feedback).
+
+### Added
+- **`gstack-base-red classify`** (bin/gstack-base-red, lib/base-red.ts): reads a new `base_red: { setup, select, timeout_sec }` block from the base branch's ship policy, then calls a failure base-red only when every failure the lane reported is named, the PR touches neither the failing test file nor any path its signature names, and `setup` then `select {files}` fails with the same test id and first error line at the base head and at HEAD in scratch worktrees under the state root. Anything else stays in-branch and /ship triages exactly as before. `--pause` writes a pause record (repository and branch hashed, 24-hour expiry).
+- **`gstack-base-red wait --pause <file>`**: on each new base head it reruns the paused files there and exits 0 (`BASE_GREEN`) on the first head that passes; a head that still fails keeps it waiting. Exits 3 on `BASE_RED_WAIT_TIMEOUT` or `BASE_RED_PAUSE_EXPIRED`.
+- **Conditional receipts**: `gstack-ship-receipt write --base-red <pause file>` adds a `base_red` block; `result` then prints `SHIP_PAUSED: base-red …` with `status=incomplete`. `bindReceipt` refuses a conditional receipt by default (`QUEUE_RECEIPT_CONDITIONAL`), so `ready`, `train build`, `verify --train` and `carry` never accept one.
+- **Policy key `base_red`** (`BASE_RED_KEY_VERSION`) with validation: `select` needs a `{files}` slot, commands are one line under 512 characters, `timeout_sec` is 10–7200.
+
+### Changed
+- **/ship Step 5** (ship/sections/tests.md.tmpl) runs `classify` before the T3 question when T1 calls every failure pre-existing, carries base-red cases as that run's only waived failures into Step 16, and documents `/ship --resume <record>` after `BASE_GREEN` (Step 5 reruns on HEAD merged with the new base in a scratch worktree; a green run rewrites the receipt without `base_red`). docs/captain.md names the paused state.
+
+### Tests
+- `test/base-red.test.ts`: base-red on a real fixture with a bare origin and no leftover worktree; in-branch without running anything when the PR touches the test or a path its signature names; in-branch when the test passes on the base or fails there differently; unconfigured, unnamed and failing-setup cases; the hashed pause path; conditional receipts refused by default; `result` reports `SHIP_PAUSED` and `status=incomplete`; `carry` refuses; `wait` skips a still-red base move and returns on the first green head, and expires or times out; policy validation.
+
+## [1.91.373.0] - 2026-10-31
+
+- **No-gstack arm in every head-to-head eval.** `/eval-plan` preregistrations now say in a required `## Comparison` section whether any arm loads gstack or another skill stack (`stack: loaded`) or none does (`stack: none` with a `why:` line). A loaded comparison must add a `## No-gstack arm` section and one `<model>#no-gstack` arm per model. That arm uses the same model and inputs, a plain prompt with no skill text, and the same panel and judge, and its result is reported beside the variants. `gstack-eval-plan prereg --check` refuses a loaded comparison without it (`PREREG_NO_GSTACK_ARM`). Arms are now identities `<model>[#<loadout>]`, priced by the model, so the pilot reserves a variant and its no-gstack arm on the same model separately; a repeated identity is refused (`EVAL_ARM_DUPLICATE`). The rule is written up in `docs/TESTING_INTERNALS.md`.
+
 ## [1.91.372.0] - 2026-10-31
 
 **A test that fails once in CI and passes when run again no longer turns the job red, and every such flake is recorded for the daily flaky-fix pass.** `gstack-flaky run` wraps any test command that writes a JUnit report (Playwright, `bun test`, jest, vitest, pytest). When a few tests fail, it runs the command once more. A test that failed and then passes is a flaky pass, so the job stays green, an Actions `::warning` and a step-summary row name it, and one line goes on a ledger. A rerun counts only when the runner itself reports a full green run, so a real failure, a coverage threshold, a test the first run never reached, a crash or a cancelled job stays red. Before this, each one-off flake meant rerunning the whole CI job by hand (five times in Truther's last evidence window, three of them for one test).

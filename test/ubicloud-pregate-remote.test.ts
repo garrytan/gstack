@@ -37,12 +37,22 @@ const UBI_RUNNER_STUB = `#!/usr/bin/env bash
 # VM directory, runs setup and the command there, and prints ubi-runner's log
 # lines. STUB_FAIL picks a failure: create, quota, quota-once, ssh. STUB_HANG
 # sleeps before the command; TERM tears down as ubi-runner's trap does.
-# Every teardown is appended to $STUB_CALLS.down.
+# Every teardown is appended to $STUB_CALLS.down. STUB_REATTACH=<vm>:<created_at>
+# plays a live run record for this key: --probe reports it (busy per
+# STUB_REATTACH_BUSY) and run prints ubi-runner's reattached line instead of
+# creating a VM.
 set -uo pipefail
 [ "$1" != owner ] || { echo stub; exit 0; }
 left() { [ "\${STUB_LEFT:-0}" = none ] || echo "UBICLOUD: left=\${STUB_LEFT:-0} owner=stub vm=$name others=0" | tee -a "\${UBI_LEFT_FILE:-/dev/null}" >&2; }
 [ "$1" = run ] || exit 2
 shift
+case " $* " in
+  *" --probe "*)
+    printf '%s\\n' "$*" >>"$STUB_CALLS.probe"
+    if [ -n "\${STUB_REATTACH:-}" ]; then echo "UBI_ATTACH_INFO: vm=\${STUB_REATTACH%%:*} created_at=\${STUB_REATTACH#*:} key=0123456789ab busy=\${STUB_REATTACH_BUSY:-0}"
+    else echo "UBI_ATTACH_INFO: none key=0123456789ab"; fi
+    exit 0 ;;
+esac
 printf '%s\\n' "$*" >>"$STUB_CALLS"
 src=. setup="" size="" name=unnamed envs=()
 while [ $# -gt 0 ]; do
@@ -52,16 +62,20 @@ while [ $# -gt 0 ]; do
     --src) src=$2; shift 2 ;;
     --setup) setup=$2; shift 2 ;;
     --env) envs+=("$2"); shift 2 ;;
-    --pull) shift 2 ;;
+    --pull|--key-input) shift 2 ;;
     --) shift; break ;;
     *) echo "stub: unknown option $1" >&2; exit 2 ;;
   esac
 done
 cmd=$*
 log() { echo "ubi-runner: $*" >&2; }
-log "creating eu-central-h1/$name ($size)"
 calls=$(wc -l <"$STUB_CALLS")
 fail=\${STUB_FAIL:-}
+if [ -n "\${STUB_REATTACH:-}" ]; then
+  name=\${STUB_REATTACH%%:*}
+  log "reattached to $name created_at=\${STUB_REATTACH#*:} key=0123456789ab"
+else
+log "creating eu-central-h1/$name ($size)"
 if [ "$fail" = quota ] || { [ "$fail" = quota-once ] && [ "$calls" -eq 1 ]; }; then
   log "quota refused eu-central-h1/$name ($size): it needs 16 vCPUs and the project already uses 64 of 64"
   log "create failed: vCPU quota exhausted; wait for running VMs to finish, or use fewer or smaller VMs (ci:ubicloud --vms N)"
@@ -77,6 +91,7 @@ if [ "$fail" = create ]; then
   exit 1
 fi
 log "ready: $name (192.0.2.1)"
+fi
 trap 'log "destroyed eu-central-h1/$name"; left; echo "term $name" >>"$STUB_CALLS.down"; exit 130' TERM
 vm=$STUB_VM_HOME
 dest="$vm/work/$(basename "$src")"
@@ -280,6 +295,36 @@ describe('pregate-remote.sh keyed path (stub ubi-runner)', () => {
     expect(twice.exit, twice.out).toBe(4);
     expect(twice.calls).toHaveLength(2);
     expect(twice.out).toContain('create failed: vCPU quota exhausted');
+  }, 90_000);
+
+  test('a rerun for the same tree and planned set reattaches: the receipt still parses, spent= bills from the original created_at, and a used-up wall budget refuses', () => {
+    const created = Math.floor(Date.now() / 1000) - 5 * 60 - 10;
+    const f = fixture();
+    const r = gate(f, ['test/alpha.test.ts'], { ...KEY, STUB_REATTACH: `ubirun-stub-old:${created}` });
+    expect(r.exit, r.out).toBe(0);
+    expect(r.out).toContain('reattaching to VM ubirun-stub-old, created 6 min ago by an earlier run of this gate for the same tree and planned set');
+    expect(r.out).toContain("the VM is told to stop after 2160s (the cap's 45 min wall minus 3 min for teardown and 6 min already billed since ubirun-stub-old was created)");
+    expect(r.out).not.toContain('if this run is killed before its teardown line');
+    expect(r.out.trim().split('\n').at(-1)).toMatch(/^PREGATE_REMOTE: /);
+    expect(r.report).toMatchObject({ tree: f.tree, tests: 1, failed: 0 });
+    // Billed from created_at (5 min 10 s before the gate started), not from the reattach: 6 min at $0.00831.
+    expect(r.report!.spent).toBe('0.05');
+    expect(remoteReportProblem(r.report!, f.tree)).toBeNull();
+    const plan = new RegExp(`--key-input pregate-remote tree=${f.tree} plan=[0-9a-f]{64}`);
+    expect(r.calls[0]).toMatch(plan);
+    expect(fs.readFileSync(f.calls + '.probe', 'utf8')).toMatch(plan);
+
+    const spent = gate(fixture(), ['test/alpha.test.ts'], { ...KEY, STUB_REATTACH: `ubirun-stub-old:${created - 40 * 60}` });
+    expect(spent.exit, spent.out).toBe(5);
+    expect(spent.out).toContain("PREGATE_REMOTE_CAP_SPENT: VM ubirun-stub-old, created 46 min ago for this tree and planned set, has already used the cap's 45 min wall ($0.39 of $2)");
+    expect(spent.out).toContain('nothing reattached; destroy it: bash scripts/ubicloud/ubi-runner.sh down ubirun-stub-old');
+    expect(spent.report).toBeNull();
+    expect(spent.calls).toEqual([]);
+
+    const busy = gate(fixture(), ['test/alpha.test.ts'], { ...KEY, STUB_REATTACH: `ubirun-stub-old:${created}`, STUB_REATTACH_BUSY: '1' });
+    expect(busy.exit, busy.out).toBe(4);
+    expect(busy.out).toContain('PREGATE_REMOTE_ATTACH_BUSY: another gate on this machine still runs VM ubirun-stub-old');
+    expect(busy.calls).toEqual([]);
   }, 90_000);
 
   test('the VM refuses a tree that differs after unpack, a planned set that differs from the list, and a tree that moved during the run', () => {
