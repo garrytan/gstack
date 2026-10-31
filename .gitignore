@@ -42,6 +42,7 @@ lib/cso/images/gstack-cso-preparation
 .cursor/
 .copilot/
 .agy/
+.gemini-cli/
 .openclaw/
 .hermes/
 .gbrain/

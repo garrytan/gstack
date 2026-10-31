@@ -137,6 +137,14 @@ Antigravity only when `agy` is on `PATH` or `~/.gemini/antigravity-cli` exists,
 never for a Gemini-CLI-only `~/.gemini`. The Antigravity 2.0 app and IDE read
 `~/.gemini/config/skills`, which this host does not install.
 
+Gemini CLI loads gstack skills itself when a task matches (`activate_skill`,
+after you approve); ask for `gstack-office-hours`, or list them with
+`/skills list`. Setup writes only `~/.gemini/skills/gstack*` and never
+`~/.agents/skills`, and `--host auto` selects Gemini CLI only when `gemini` is on
+`PATH`. Inside a repo with a project-local Codex install, Gemini CLI uses the
+Codex skills in `.agents/skills` (the workspace tier wins), and workspace skills
+load only in trusted folders (`/trust`).
+
 Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
 `/claude` has been renamed to `/claude-code`. Re-run `./setup --host <name>` to migrate managed installations, including other harnesses sharing the checkout. Setup preserves the previous installation if replacement generation or installation fails and prints repair instructions.
