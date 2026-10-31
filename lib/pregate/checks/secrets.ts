@@ -58,7 +58,8 @@ const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
  * untracked files, grouped by file so gstack-redact can use each file's type
  * (#3211). A tracked Dart or Python file is passed whole with `keep`, its
  * added line numbers, so the scanner sees the strings an added line sits in
- * and only findings on those lines count (#3630); one too large or unreadable
+ * and only findings on those lines count (#3630); an untracked one keeps every
+ * line. One too large or unreadable
  * to read whole is scanned under a neutral name, without that exemption. External diff and textconv
  * drivers are off: either can empty or rewrite the diff, and an empty diff
  * reads as clean.
@@ -76,7 +77,13 @@ export function addedLines(ctx: PregateContext): Array<{ file: string; text: str
     if (!t.uncommitted || t.status === 'D') continue;
     const tracked = spawnSync('git', ['ls-files', '--error-unmatch', '--', t.path], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 15_000 }).status === 0;
     if (tracked) continue;
-    try { const st = fs.statSync(path.join(ctx.repoRoot, t.path)); if (st.isFile() && st.size <= 4 * 1024 * 1024) files.set(t.path, [...(files.get(t.path) ?? []), ...fs.readFileSync(path.join(ctx.repoRoot, t.path), 'utf8').split('\n')]); } catch { /* unreadable: skipped */ }
+    try {
+      const st = fs.statSync(path.join(ctx.repoRoot, t.path));
+      if (!st.isFile() || st.size > WHOLE_FILE_MAX_BYTES) continue;
+      const lines = fs.readFileSync(path.join(ctx.repoRoot, t.path), 'utf8').split('\n');
+      if (LEXICAL_CONTEXT_SOURCE.test(t.path) && !files.has(t.path)) whole.set(t.path, { text: lines.join('\n'), keep: lines.map((_, n) => n + 1) });
+      files.set(t.path, [...(files.get(t.path) ?? []), ...lines]);
+    } catch { /* unreadable: skipped */ }
   }
   return [...files].map(([file, lines]) => whole.get(file) ? { file, ...whole.get(file)! } : { file, text: lines.join('\n') }).filter(p => p.text.trim());
 }

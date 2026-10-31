@@ -97,6 +97,11 @@ describe('allowlist: the secrets check', () => {
     commit(value, { 'config.yaml': line });
     expect(secrets(value).status).toBe(EXIT.ok);
     expect(row(value).detail).toContain('1 allowlisted (env.kv)');
+    const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
+    const py = fixture({ ...BASE_PREGATE, allowlist: [{ finding: 'env.kv', paths: ['app.py'], pattern: token, reason: 'a fixture' }] });
+    commit(py, { 'app.py': `x = 1\nCONFIG = """\npassword: ${token}\n"""\n` });
+    expect(secrets(py).status).toBe(EXIT.ok);
+    expect(row(py).lines.join('\n')).toContain('allowlisted env.kv (app.py, line 3) by allowlist[0] env.kv: a fixture');
   });
 
   // Value: protects=a category entry covers an advisory pii hit (a run id after a generic word, which the engine's run-word exemption does not cover, read as a phone number) and the WARN count drops;

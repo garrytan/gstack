@@ -17,6 +17,8 @@ export interface AllowlistFinding {
   id: string; category: string; severity: string; file: string; line?: number; col?: number;
   /** The added line the finding sits on (for `pattern`); absent when the scanner gave no position. */
   lineText?: string;
+  /** `line` numbers the whole file (a Dart or Python file scanned whole, #3630), not the added lines. */
+  fileLine?: boolean;
 }
 export interface Allowlisted<F extends AllowlistFinding = AllowlistFinding> { finding: F; index: number; entry: AllowlistEntry }
 
@@ -73,11 +75,11 @@ export function describeUntested(a: Allowlisted): string {
 
 /** One table line per finding a pattern entry named but did not match: the pattern is tested from where the flagged value starts, never the name before it. */
 export function describeMissed(a: Allowlisted): string {
-  return `allowlist[${a.index}] ${a.entry.finding} pattern did not match ${a.finding.id} (${a.finding.file}${a.finding.line ? `, added line ${a.finding.line}` : ''}, col ${a.finding.col}): a pattern is matched from where the flagged value starts, not from the name; the finding is kept`;
+  return `allowlist[${a.index}] ${a.entry.finding} pattern did not match ${a.finding.id} (${a.finding.file}${a.finding.line ? `, ${a.finding.fileLine ? 'line' : 'added line'} ${a.finding.line}` : ''}, col ${a.finding.col}): a pattern is matched from where the flagged value starts, not from the name; the finding is kept`;
 }
 
 /** One table line per allowlisted finding: what, where, and which entry (with its reason) covered it. */
 export function describeAllowlisted(a: Allowlisted): string {
-  const where = a.finding.line ? ` (${a.finding.file}, added line ${a.finding.line})` : ` (${a.finding.file})`;
+  const where = a.finding.line ? ` (${a.finding.file}, ${a.finding.fileLine ? 'line' : 'added line'} ${a.finding.line})` : ` (${a.finding.file})`;
   return `allowlisted ${a.finding.id}${where} by allowlist[${a.index}] ${a.entry.finding}: ${a.entry.reason}`;
 }

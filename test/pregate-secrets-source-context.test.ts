@@ -86,6 +86,19 @@ describe('pregate secrets: source context and diff integrity', () => {
     }
   });
 
+  test('an untracked Python file reads annotations as code and still fails a literal, naming its line (#3630)', () => {
+    const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'README.md': 'x\n' } });
+    try {
+      const secrets = () => JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
+      fs.writeFileSync(path.join(fx.work, 'app.py'), 'def f(\n    session: HttpSession,\n) -> None:\n    pass\n');
+      expect(secrets().status).toBe('pass');
+      fs.writeFileSync(path.join(fx.work, 'app.py'), `def f(\n    session: HttpSession,\n) -> None:\n    pass\n\nCONFIG = """\npassword: ${token}\n"""\n`);
+      const check = secrets();
+      expect({ status: check.status, rows: (check.lines as string[]).filter((l) => l.includes('env.kv')) }).toEqual({ status: 'fail', rows: [expect.stringContaining('app.py, line 7)')] });
+    } finally { cleanup(fx); }
+  });
+
   test('a Python file too large to read whole has its added lines scanned without the source exemption (#3630)', () => {
     const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
     const base = `CONFIG = """\nhost: db\n"""\n${'# pad\n'.repeat(800_000)}`;
