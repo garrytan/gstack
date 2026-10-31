@@ -676,16 +676,70 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
  * brace holding only names and property reads (`key={turn.requestId + turn.role}`)
  * is an expression. Decided by file context, not by how the value looks:
  * `API_KEY=VelvetRiverOrbitSunset;` in a .env or YAML file is still a literal.
- * Without a known TS/JSX path nothing is exempt.
+ * Without a known source path nothing is exempt.
  */
-const TS_SOURCE = /\.(?:[cm]?tsx?|jsx)$/i;
+/*
+ * Dart belongs here for the same reason TS does, and the reason is a property
+ * of the language rather than a judgement about the repo: Dart has no unquoted
+ * string literal, so a bare name chain after `:` or `=` CANNOT be a value. It
+ * is a variable read. `'password': request.password` in a `requireFields` map
+ * and `password: request.password` as a named argument are the two shapes this
+ * fires on in practice; both name a secret without holding one, exactly like
+ * #2912's environment reads. Quoted literals are unaffected, because the
+ * `before` check below rejects any span a quote opens.
+ */
+const CODE_SOURCE = /\.(?:[cm]?tsx?|jsx|dart)$/i;
 const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s<>[\]|]*>)?(?:\[\])*$/;
 
+/**
+ * Is `text` left open by a triple-quoted string?
+ *
+ * The `before` check in isSourceExpression reads the one character preceding
+ * the span, so it catches `password: "<token>"` and cannot see a string that
+ * opened three lines earlier. `withFlags` forces `m`, so a `password:` line
+ * inside a Dart `'''` block or a Python """ block is matched on its own — and
+ * there the value after the colon really is a literal, sitting in a config
+ * block that happens to live in a source file (a test fixture, an inline
+ * manifest). The name-chain exemption must not reach it: on `main` those lines
+ * report, and widening the file gate without this would quietly stop them.
+ *
+ * Scanned left to right tracking which delimiter opened, rather than counting
+ * delimiters — a `'''` inside a """ block is ordinary content, so a combined
+ * parity count reads three and calls the text open when it is closed.
+ *
+ * Two honest limits. The engine is often handed ONE DIFF HUNK
+ * (lib/pregate/checks/secrets.ts), so a hunk starting mid-string shows no
+ * opener and that line stays exempt; the miss survives there, which is the side
+ * that keeps #3048 working. And a stray `'''` inside a single-line string reads
+ * as an opener, which costs an exemption rather than a report. Both fail toward
+ * the behaviour that already shipped.
+ *
+ * Triple quotes only. TS/JSX template literals have the same hole and have had
+ * it since #3048; closing that changes behaviour no language added here is
+ * responsible for, so it is left for its own change.
+ */
+function insideTripleQuotedString(text: string): boolean {
+  let open: string | null = null;
+  for (let i = 0; i < text.length; ) {
+    if (open !== null) {
+      if (text.startsWith(open, i)) { open = null; i += 3; continue; }
+      i += 1;
+      continue;
+    }
+    const opener = text.startsWith('"""', i) ? '"""' : text.startsWith("'''", i) ? "'''" : null;
+    if (opener !== null) { open = opener; i += 3; continue; }
+    i += 1;
+  }
+  return open !== null;
+}
+
+
 function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
-  if (!sourcePath || !TS_SOURCE.test(sourcePath)) return false;
+  if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
   const { start } = spanBounds(match);
   const before = match.input[start - 1];
   if (before === '"' || before === "'" || before === "`") return false;
+  if (insideTripleQuotedString(match.input.slice(0, start))) return false;
   if (span.startsWith("{")) {
     const line = match.input.slice(start + 1).split("\n", 1)[0];
     const close = line.indexOf("}");
@@ -971,7 +1025,7 @@ export const PATTERNS: RedactPattern[] = [
     // literal (`os.getenv("X", "<secret>")`). A literal appended to the read
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
     // #2899: a function call assigned to the name is code, not a value (see
-    // isCallExpression). #3048: so is a TS/JSX type or expression (isSourceExpression).
+    // isCallExpression). #3048: so is a TS/JSX/Dart type or expression (isSourceExpression).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     validate: (span, match, opts) =>
       isCredentialShapedEnvName(match[0]) &&
