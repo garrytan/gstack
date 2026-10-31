@@ -260,6 +260,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 | [Browser](BROWSER.md) | How gstack drives Aside first (the contract, the cookbook, rendering, research), when the fallback engine kicks in, and the fallback's full `$B` command reference |
 | [Contributing](CONTRIBUTING.md) | Dev setup, testing, contributor mode, and dev mode |
 | [Memorable recall bridge](docs/memorable-workflow-memory.md) | Opt-in third-party workflow memory through gstack: two consents, what gstack hands over and can attest, removal, troubleshooting |
+| [MuscleMemory with gstack](docs/musclememory.md) | Optional verified procedural memory through MuscleMemory’s native Claude Code hooks |
 | [Troubleshooting](docs/troubleshooting.md) | Every `not run` / `unavailable` message, what it means, and the fix |
 | [Running a Captain crew](docs/captain.md) | One controller, many lanes on Capy: the drive layout, CREW.md, the READY contract, merge trains, approvals, the digest and the daily flaky pass, with templates |
 | [Changelog](CHANGELOG.md) | What's new in every version |
@@ -267,6 +268,15 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 ## Privacy & Telemetry
 
 gstack sends nothing about how you use it unless you opt in. Telemetry is off by default and asked about once; the update check (two or three GitHub requests: a `git ls-remote`, a fetch of `VERSION` and, when that version equals yours but `main` has moved, a compare-API call; with telemetry on it also reports your gstack version and OS; on by default) turns off with `gstack-config set update_check false`; outside reviews (on by default; the first one prints a notice) send code to Codex or Claude Code under your own login and turn off with `gstack-config set codex_reviews disabled`. Every off-machine send writes a receipt you can audit with `gstack-egress list`. The full account, including the exact fields telemetry carries and the local state that is not telemetry: [docs/privacy.md](docs/privacy.md).
+
+**Optional MuscleMemory hooks are separate and off by default.** Connect them by
+running `musclememory connect claude` inside a project. The native hooks cover
+all Claude Code prompts and mapped tool calls in that project, not only gstack
+skills. By default they send data to MuscleMemory's local service; if you
+configure a remote service, it receives the captured data. These requests are
+made by MuscleMemory, so gstack's egress ledger does not record them. See the
+[MuscleMemory integration guide](docs/musclememory.md) for setup, data flow,
+and removal.
 
 ## Troubleshooting
 
