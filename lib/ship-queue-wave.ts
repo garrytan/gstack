@@ -121,9 +121,10 @@ export interface WaveChain { integrator: string[]; merges: string[]; stamp: stri
  * Walk the wave branch's first parents from tip back to the recorded base. Every constituent
  * must appear, in order and exactly once, as the second parent of a two-parent commit; a
  * one-parent commit is an integrator commit; any other merge (main merged in, an unknown head)
- * is refused. With allowStamp the tip may be train land's stamp commit (parents [pin, main]).
+ * is refused. With stampBase the tip may be train land's stamp commit: parents [wave head, a
+ * commit already on stampBase], after every constituent.
  */
-export function waveChain(repoRoot: string, w: WaveRecord, tip: string, allowStamp = false): WaveChain | { error: string } {
+export function waveChain(repoRoot: string, w: WaveRecord, tip: string, stampBase: string | null = null): WaveChain | { error: string } {
   const r = git(repoRoot, ['rev-list', '--first-parent', '--parents', `${w.base.sha}..${tip}`]);
   if (!r.ok) return { error: `cannot walk ${short(tip)} back to the wave base ${short(w.base.sha)} (${r.err.slice(0, 120)})` };
   const rows = r.out.split('\n').filter(Boolean).map(l => l.split(' ')).reverse();
@@ -134,7 +135,7 @@ export function waveChain(repoRoot: string, w: WaveRecord, tip: string, allowSta
     if (!second) { out.integrator.push(commit!); continue; }
     const want = w.constituents[next];
     if (!more.length && want && second === want.head) { out.merges.push(commit!); next++; continue; }
-    if (!more.length && allowStamp && i === rows.length - 1 && next === w.constituents.length) { out.stamp = commit!; continue; }
+    if (!more.length && stampBase && i === rows.length - 1 && next === w.constituents.length && git(repoRoot, ['merge-base', '--is-ancestor', second, stampBase]).ok) { out.stamp = commit!; continue; }
     const expected = want ? `#${want.pr}'s pin ${short(want.head)}` : 'a constituent';
     return { error: `${short(commit!)} merges ${short(second)}, which is not ${expected} (only constituent merges and integrator commits belong on a wave branch)` };
   }
@@ -163,16 +164,20 @@ function constituentProblem(ctx: QueueContext, pr: string, pin: string): { failu
 /**
  * ready and train build: a PR whose head branch is wave/<nonce> must have a readable wave
  * record (refused QUEUE_WAVE_UNKNOWN otherwise, never skipped), a branch chain that merges every
- * pin unchanged, and constituents still open at their pins. Null for any other PR.
+ * pin unchanged, and constituents still open at their pins. Any other PR is null, unless a live
+ * wave lists it as a constituent: then it is refused QUEUE_WAVE_DUPLICATE so it cannot land twice.
  */
 export function checkWavePin(env: TrainEnv, pr: string, info: PrInfo): { wave: WaveRecord; lines: string[] } | { failure: QueueFailure } | null {
-  if (!info.headRefName.startsWith('wave/')) return null;
+  if (!info.headRefName.startsWith('wave/')) {
+    const holder = listWaves(env.repo.keys).find(x => LIVE.has(x.state) && x.constituents.some(c => c.pr === pr));
+    return holder ? { failure: fail('QUEUE_WAVE_DUPLICATE', `#${pr} is a constituent of live wave ${holder.nonce}; it lands through the wave PR, not on its own`) } : null;
+  }
   let w = waveByBranch(env, info.headRefName);
   if (!w) { rebuildFromNotes(env.ctx.repoRoot, env.remote); w = waveByBranch(env, info.headRefName); }
   if (!w) return { failure: fail('QUEUE_WAVE_UNKNOWN', `#${pr}'s branch ${info.headRefName} has no wave record in local state or refs/notes/gstack-trains`) };
   if (w.state === 'superseded') return { failure: fail('QUEUE_WAVE_MOVED', `wave ${w.nonce} was rebuilt as ${w.superseded_by}; READY the new wave PR`) };
   if (!ensureCommit(env, info.headRefOid, pr)) return { failure: fail('QUEUE_PROOF_MISSING', `cannot fetch #${pr}'s head ${short(info.headRefOid)}`) };
-  const chain = waveChain(env.ctx.repoRoot, w, info.headRefOid);
+  const chain = waveChain(env.ctx.repoRoot, w, info.headRefOid, `${env.remote}/${env.ctx.base}`);
   if ('error' in chain) return { failure: fail('QUEUE_WAVE_MOVED', `wave ${w.nonce}: ${chain.error}`) };
   for (const c of w.constituents) {
     const p = constituentProblem(env.ctx, c.pr, c.head);
@@ -401,6 +406,7 @@ function continueWave(env: TrainEnv, w: WaveRecord, dryRun: boolean): TrainOut {
   const problem = w.constituents.map(x => constituentProblem(env.ctx, x.pr, x.head)).find(Boolean);
   if (problem) return outRefused(problem.failure, [], `${Q} wave build --wave ${w.nonce} --drop <pr>`, wavePath(w.nonce));
   c.merge_commit = parents[0]!;
+  c.resolved = w.conflict.files;
   const lines = [`RESOLVED: #${pr} -> ${short(parents[0]!)} (integrator resolution of ${w.conflict.files.join(', ')})`];
   if (!dryRun) { git(env.ctx.repoRoot, ['worktree', 'remove', '--force', worktree]); w.conflict = null; }
   return chainFrom(env, w, idx + 1, parents[0]!, lines, dryRun, null);
@@ -413,7 +419,7 @@ function dropFrom(env: TrainEnv, w: WaveRecord, o: WaveBuildOptions): TrainOut {
   const rest = w.constituents.filter(c => c !== dropped);
   const carrier = rest.find(c => git(env.ctx.repoRoot, ['merge-base', '--is-ancestor', dropped.head, c.head]).ok);
   if (carrier) return outRefused(fail('QUEUE_WAVE_DEPENDENT', `#${carrier.pr}'s pin contains #${dropped.pr}'s pin, so dropping #${dropped.pr} would still land its code`), [], `drop #${carrier.pr} too, or keep #${dropped.pr}`, wavePath(w.nonce));
-  const out = newWave(env, { ...o, area: w.area }, o.dryRun ? null : w, rest.map(c => ({ pr: c.pr, sha: c.head })));
+  const out = newWave(env, { ...o, area: w.area }, w, rest.map(c => ({ pr: c.pr, sha: c.head })));
   out.lines.unshift(`DROP: #${dropped.pr} from ${w.nonce}; the rebuilt wave gets a new branch and PR, and the integrator closes ${w.branch}'s PR`);
   return out;
 }
@@ -466,7 +472,7 @@ export function waveSettle(ctx: QueueContext, o: { wave: string; dryRun: boolean
   if (git(repo, ['rev-parse', `${mergeSha}^{tree}`]).out !== git(repo, ['rev-parse', `${merged.headRefOid}^{tree}`]).out) {
     return outRefused(fail('QUEUE_WAVE_NOT_MERGED', `main's merge ${short(mergeSha)} does not carry #${merged.number}'s head tree; what landed is not the wave`), [], 'none', wavePath(w.nonce));
   }
-  const chain = waveChain(repo, w, merged.headRefOid, true);
+  const chain = waveChain(repo, w, merged.headRefOid, mergeSha);
   if ('error' in chain) return outRefused(fail('QUEUE_WAVE_MOVED', `the merged head ${short(merged.headRefOid)}: ${chain.error}`), [], 'none', wavePath(w.nonce));
   const at = versionAtRef(repo, mergeSha);
   const version = 'version' in at ? `v${at.version}` : 'its version';
@@ -478,18 +484,24 @@ export function waveSettle(ctx: QueueContext, o: { wave: string; dryRun: boolean
     if ('error' in info) { incomplete++; lines.push(`SETTLED: #${c.pr} unreadable (${info.error}); rerun settle`); continue; }
     if (info.state !== 'OPEN') { lines.push(`SETTLED: #${c.pr} skipped (${info.state.toLowerCase()})`); continue; }
     const own = new Set(changed(env, c.head)?.files ?? []);
-    const touched = chain.integrator.filter(x => integratorFiles.get(x)!.some(f => own.has(f))).map(short);
+    const touched = [
+      ...w.constituents.flatMap((x, i) => {
+        const why = chain.merges[i] !== x.merge_commit ? 'not the recorded merge' : x.resolved ? `resolved by hand: ${x.resolved.join(', ')}` : null;
+        return why && (x === c || x.resolved?.some(f => own.has(f))) ? [`${short(chain.merges[i]!)} (merge of #${x.pr}, ${why})`] : [];
+      }),
+      ...chain.integrator.filter(x => integratorFiles.get(x)!.some(f => own.has(f))).map(short),
+    ];
     const moved = info.headRefOid !== c.head;
     const body = moved
       ? `Wave #${merged.number} landed this PR's pin ${short(c.head)} as ${version} (${short(mergeSha)}). The head moved to ${short(info.headRefOid)} after the wave froze, so that newer work did not land. Left open for its owner.`
-      : `Landed in wave #${merged.number} as ${version} (${short(mergeSha)}), merged at this PR's pin ${short(c.head)}. Integrator commits touching this PR's files: ${touched.length ? touched.join(', ') : 'none'}.`;
+      : `Landed in wave #${merged.number} as ${version} (${short(mergeSha)}), merged from this PR's pin ${short(c.head)}. Integrator changes touching this PR's files: ${touched.length ? touched.join(', ') : 'none'}.`;
     if (o.dryRun) { lines.push(`SETTLED: #${c.pr} would be ${moved ? 'commented, left open' : 'commented and closed'} (dry run)`); continue; }
     const posted = commentOnce(ctx, c.pr, marker(w.nonce, moved ? 'moved' : 'landed'), body);
     const closed = posted !== 'failed' && !moved ? ctx.gh(['pr', 'close', c.pr]).ok : false;
     const outcome = posted === 'failed' || (!moved && !closed) ? 'incomplete' : moved ? 'moved-left-open' : 'landed-closed';
     if (outcome === 'incomplete') incomplete++;
     lines.push(`SETTLED: #${c.pr} ${outcome} (comment ${posted})`);
-    w.settled.push({ pr: c.pr, outcome, at: nowIso() });
+    w.settled = [...w.settled.filter(s => s.pr !== c.pr), { pr: c.pr, outcome, at: nowIso() }];
   }
   if (o.dryRun) return outOk([...lines, 'DRY-RUN: nothing commented or closed'], `${Q} wave settle --wave ${w.nonce}`, wavePath(w.nonce));
   if (!incomplete) w.state = 'settled';

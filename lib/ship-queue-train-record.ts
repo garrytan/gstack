@@ -75,7 +75,11 @@ export interface FreezeRecord {
   repair: { pr: string; head: string; train: string | null } | null; created_at: string; cleared_at: string | null; cleared_by: string | null; updated_at: string;
 }
 /** A constituent of a wave PR (lib/ship-queue-wave.ts): the PR, its pinned head and the wave-branch merge commit whose second parent is that head. */
-export interface WaveConstituent { pr: string; head: string; merge_commit: string | null }
+export interface WaveConstituent {
+  pr: string; head: string; merge_commit: string | null;
+  /** Files the integrator resolved by hand in this constituent's merge (wave build --continue); absent for a clean merge. */
+  resolved?: string[];
+}
 export type WaveState = 'conflict' | 'built' | 'pushed' | 'superseded' | 'settled';
 export interface WaveRecord {
   schema: 1; kind: 'wave'; nonce: string; repo_key: string; area: string; base: { ref: string; sha: string }; branch: string;

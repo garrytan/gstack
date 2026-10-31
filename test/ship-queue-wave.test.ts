@@ -29,8 +29,8 @@ function threePrs(fx: TrainFixture) {
 }
 
 /** A wave PR #10 whose head branch is the wave branch, with a /ship receipt and a READY receipt at its head. */
-function waveAsPr(fx: TrainFixture, nonce: string, pr = '10'): string {
-  const head = fx.repo.git('ls-remote', 'origin', `refs/heads/wave/${nonce}`).split(/\s/)[0]!;
+function waveAsPr(fx: TrainFixture, nonce: string, pr = '10', tip?: string): string {
+  const head = tip ?? fx.repo.git('ls-remote', 'origin', `refs/heads/wave/${nonce}`).split(/\s/)[0]!;
   fx.repo.git('push', '-q', '-f', 'origin', `${head}:refs/pull/${pr}/head`);
   fx.write(d => { d.prs[pr] = { headRefOid: head, isCrossRepository: false, state: 'OPEN', headRefName: `wave/${nonce}`, url: `https://github.com/fixture/repo/pull/${pr}`, body: shippedBody(pr, head) }; });
   readyReceipt(fx, pr, head);
@@ -125,7 +125,16 @@ describe('wave build', () => {
     const status = queue(fx, ['wave', 'status', '--wave', nonce]);
     expect(line(status.out, 'CHAIN:')).toContain('ok at');
     expect(line(status.out, 'CHAIN:')).toContain('3 constituent merges');
-  }, 120_000);
+    const head = waveAsPr(fx, nonce);
+    const merge = fx.repo.git('commit-tree', `${head}^{tree}`, '-p', 'origin/main', '-m', 'wave (#10)');
+    fx.repo.git('push', '-q', 'origin', `${merge}:refs/heads/main`);
+    fx.write(d => { Object.assign(d.prs['10'] as any, { state: 'MERGED', mergeCommit: { oid: merge } }); });
+    expect(queue(fx, ['wave', 'settle', '--wave', nonce]).status).toBe(EXIT.ok);
+    const prs = fx.read().prs as Record<string, any>;
+    expect(prs['3'].comments.at(-1).body).toContain('(merge of #3, resolved by hand: lib/ship-shared.ts)');
+    expect(prs['2'].comments.at(-1).body).toContain('(merge of #3, resolved by hand: lib/ship-shared.ts)');
+    expect(prs['1'].comments.at(-1).body).toContain("Integrator changes touching this PR's files: none.");
+  }, 180_000);
 
   test('--drop builds a new wave on a new branch and supersedes the old one; a dropped pin another pin contains is refused', () => {
     const fx = make();
@@ -134,6 +143,9 @@ describe('wave build', () => {
     const first = queue(fx, ['wave', 'build', '--prs', [...heads, h5].map((h, i) => `${i + 1}@${h}`).join(',')]);
     expect(first.status).toBe(EXIT.ok);
     const old = nonceOf(first.out);
+    const dry = queue(fx, ['wave', 'build', '--wave', old, '--drop', '5', '--dry-run']);
+    expect([dry.status, dry.out]).toEqual([EXIT.ok, expect.stringContaining('DRY-RUN: no record written')]);
+    expect(waveJson(fx, old).state).toBe('pushed');
     const dependent = queue(fx, ['wave', 'build', '--wave', old, '--drop', '4']);
     expect([dependent.status, dependent.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_DEPENDENT')]);
     const dropped = queue(fx, ['wave', 'build', '--wave', old, '--drop', '5']);
@@ -160,6 +172,15 @@ describe('ready and train build read the wave', () => {
     readyReceipt(fx, '1', heads[0]!);
     const dup = queue(fx, ['train', 'build', '--prs', `10@${head},1@${heads[0]}`, '--dry-run']);
     expect([dup.status, dup.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_DUPLICATE')]);
+    const alone = queue(fx, ['train', 'build', '--prs', `1@${heads[0]}`, '--dry-run']);
+    expect([alone.status, alone.err]).toEqual([EXIT.refused, expect.stringContaining(`#1 is a constituent of live wave ${nonce}`)]);
+    const stamp = fx.repo.git('commit-tree', `${head}^{tree}`, '-p', head, '-p', 'origin/main', '-m', 'stamp');
+    const stamped = queue(fx, ['train', 'build', '--prs', `10@${waveAsPr(fx, nonce, '10', stamp)}`, '--dry-run']);
+    expect([stamped.status, line(stamped.out, 'WAVE:')]).toEqual([EXIT.ok, expect.stringContaining(`WAVE: ${nonce}`)]);
+    const offBase = fx.repo.git('commit-tree', `${head}^{tree}`, '-p', head, '-p', heads[0]!, '-m', 'not a stamp');
+    const foreign = queue(fx, ['train', 'build', '--prs', `10@${waveAsPr(fx, nonce, '10', offBase)}`, '--dry-run']);
+    expect([foreign.status, foreign.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_MOVED')]);
+    waveAsPr(fx, nonce);
     fx.write(d => { (d.prs['2'] as any).headRefOid = heads[0]; });
     const moved = queue(fx, ['train', 'build', '--prs', `10@${head}`, '--dry-run']);
     expect([moved.status, moved.err]).toEqual([EXIT.refused, expect.stringContaining('#2 moved')]);
@@ -233,6 +254,7 @@ describe('wave settle', () => {
     expect(again.out).toContain('SETTLED: #1 skipped (closed)');
     expect((fx.read().prs as any)['2'].comments.length).toBe(count);
     expect(waveJson(fx, nonce).state).toBe('settled');
+    expect(waveJson(fx, nonce).settled.map((s: any) => s.pr).sort()).toEqual(['1', '2', '3']);
   }, 180_000);
 });
 

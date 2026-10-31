@@ -194,7 +194,8 @@ export async function trainReady(ctx: QueueContext, o: ReadyOptions): Promise<Tr
   const kind = classifyTrainHead({ repoRoot: ctx.repoRoot, baseRef: ctx.base, head });
   if (kind.kind === 'invalid') return outRefused({ code: 'QUEUE_NOT_READY', message: `the Version Gate refuses ${head.slice(0, 12)}: ${kind.reason}` }, base.lines, `fix the head, push, then ${Q} ready --pr ${o.pr} --screen|--no-screen`, 'none');
   const info = prInfo(ctx, o.pr);
-  const wave = 'error' in info ? null : checkWavePin(env, o.pr, info);
+  if ('error' in info) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: info.error }, base.lines, `${Q} ready --pr ${o.pr} --screen|--no-screen once gh can read the PR`, 'none');
+  const wave = checkWavePin(env, o.pr, info);
   if (wave && 'failure' in wave) return outRefused(wave.failure, base.lines, `${Q} wave status (rebuild the wave without a moved constituent: ${Q} wave build --wave <nonce> --drop <pr>)`, 'none');
   const sel = await screenSelection(env, head, baseSha);
   const lines = [...base.lines, ...(wave ? wave.lines : []), ...sel.lines];
