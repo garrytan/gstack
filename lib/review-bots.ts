@@ -96,14 +96,14 @@ function readOr(file: string): string {
   try { return fs.readFileSync(file, "utf8"); } catch { return ""; }
 }
 
-/** All pages of one REST list, or the reason it could not be read whole. */
+/** All pages of one REST list, one item per line (no --slurp: gh before 2.48 lacks it), or the reason it could not be read whole. */
 function pages(env: ReviewBotsEnv, endpoint: string): GhItem[] | string {
-  const r = env.run("gh", ["api", "--paginate", "--slurp", `${endpoint}?per_page=100`]);
+  const r = env.run("gh", ["api", "--paginate", `${endpoint}?per_page=100`, "--jq", ".[]"]);
   if (r.status !== 0) return `${endpoint}: ${firstLine(r.stderr)}`;
   try {
-    const parsed: unknown = JSON.parse(r.stdout);
-    if (!Array.isArray(parsed) || !parsed.every(Array.isArray)) return `${endpoint}: not a list of pages`;
-    return (parsed as GhItem[][]).flat();
+    const items: unknown[] = r.stdout.split("\n").filter(l => l.trim()).map(l => JSON.parse(l));
+    if (!items.every(i => i !== null && typeof i === "object" && !Array.isArray(i))) return `${endpoint}: not a list of objects`;
+    return items as GhItem[];
   } catch { return `${endpoint}: invalid JSON`; }
 }
 

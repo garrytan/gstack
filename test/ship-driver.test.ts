@@ -228,6 +228,14 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
   });
 });
 
+describe('review bots (#3122)', () => {
+  test('only Step 6.5 waits on Greptile detection; Step 10 routes to the bot triage section for any configured bot', () => {
+    expect(doc).toContain('Step 6.5 runs only if `gstack-greptile-early detect` finds');
+    expect(doc).not.toContain('Steps 6.5 and 10 run only if');
+    expect(doc).toContain('- Step 10 with a PR: `sections/greptile.md#step-10-address-review-bot-comments-if-pr-exists`');
+  });
+});
+
 describe('STOP anchors', () => {
   test('every STOP row is rendered and its anchor names a heading that exists', () => {
     for (const s of SHIP_DRIVER_STOPS) {

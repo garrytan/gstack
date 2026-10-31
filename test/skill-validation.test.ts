@@ -430,7 +430,7 @@ describe('Update check preamble', () => {
 // --- Part 7: Cross-skill path consistency (A1) ---
 
 describe('Cross-skill path consistency', () => {
-  test('REMOTE_SLUG derivation pattern is identical across files that still use it', () => {
+  test('no qa or review skill file hand-rolls a REMOTE_SLUG derivation (gstack-slug and gstack-review-bots own it)', () => {
     const patterns = extractRemoteSlugPatterns(ROOT, ['qa', 'review']);
     const allPatterns: string[] = [];
 
@@ -438,17 +438,8 @@ describe('Cross-skill path consistency', () => {
       allPatterns.push(...filePatterns);
     }
 
-    // review-bot triage, its last prose copy, resolves the repo in gstack-review-bots (#3122)
-
-    // All occurrences must be character-for-character identical
-    const unique = new Set(allPatterns);
-    if (unique.size > 1) {
-      const variants = Array.from(unique);
-      throw new Error(
-        `REMOTE_SLUG pattern differs across files:\n` +
-        variants.map((v, i) => `  ${i + 1}: ${v}`).join('\n')
-      );
-    }
+    // review/greptile-triage.md held the last prose copy until #3122 moved it into lib/review-bots.ts.
+    expect(allPatterns).toEqual([]);
   });
 
   test('every review-bot history write goes through the one writer (project and global rows: test/review-bots.test.ts)', () => {

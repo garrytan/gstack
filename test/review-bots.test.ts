@@ -23,6 +23,10 @@ interface Fixture {
   reviews?: unknown[][] | string;
   history?: Record<string, string>;
   prView?: { status: number; stdout?: string; stderr?: string };
+  authFails?: boolean;
+  /** Raw stdout for the reviews call, as gh would print it. */
+  rawReviews?: string;
+  repoFails?: boolean;
 }
 
 function run(opts: Fixture, ...argv: string[]) {
@@ -35,7 +39,7 @@ function run(opts: Fixture, ...argv: string[]) {
   const out: string[] = [];
   const calls: string[][] = [];
   const ok = (stdout: string) => ({ status: 0, stdout, stderr: "" });
-  const page = (p: unknown[][] | string | undefined) => typeof p === "string" ? { status: 1, stdout: "", stderr: p + "\n" } : ok(JSON.stringify(p ?? [[]]));
+  const page = (p: unknown[][] | string | undefined) => typeof p === "string" ? { status: 1, stdout: "", stderr: p + "\n" } : ok((p ?? [[]]).flat().map(i => JSON.stringify(i) + "\n").join(""));
   const env: ReviewBotsEnv = {
     vars: { GSTACK_HOME: state },
     binDir: "/opt/gstack/bin",
@@ -47,12 +51,15 @@ function run(opts: Fixture, ...argv: string[]) {
       calls.push([cmd, ...args]);
       const joined = args.join(" ");
       if (cmd.endsWith("gstack-slug")) return ok("acme-widget\n");
+      if (cmd === "gh" && args.includes("--slurp")) return { status: 1, stdout: "", stderr: "unknown flag: --slurp (gh 2.45)\n" };
+      if (cmd === "gh" && args[0] === "auth" && opts.authFails) return { status: 1, stdout: "", stderr: "not logged in\n" };
+      if (cmd === "gh" && args[0] === "repo" && opts.repoFails) return { status: 1, stdout: "", stderr: "no git remotes found\n" };
       if (cmd === "gh" && (args[0] === "--version" || args[0] === "auth")) return ok("");
       if (cmd === "gh" && args[0] === "repo") return ok("acme/widget\n");
       if (cmd === "gh" && args[0] === "pr") return { stdout: "", stderr: "", ...(opts.prView ?? { status: 0, stdout: "12\n" }) };
       if (cmd === "gh" && joined.includes("/pulls/12/comments")) return page(opts.line);
       if (cmd === "gh" && joined.includes("/issues/12/comments")) return page(opts.top);
-      if (cmd === "gh" && joined.includes("/pulls/12/reviews")) return page(opts.reviews);
+      if (cmd === "gh" && joined.includes("/pulls/12/reviews")) return opts.rawReviews !== undefined ? ok(opts.rawReviews) : page(opts.reviews);
       return { status: 1, stdout: "", stderr: `unexpected ${cmd} ${joined}` };
     },
   };
@@ -95,7 +102,7 @@ describe("fetch", () => {
     expect(r.code).toBe(0);
     expect(r.records.map(c => [c.id, c.bot, c.source])).toEqual([[1, "greptile", "line"], [2, "coderabbit", "line"], [5, "greptile", "top"], [8, "coderabbit", "review"]]);
     expect(r.text).toContain("REVIEW_BOTS_COUNTS: greptile=2 macroscope=0 coderabbit=2\n");
-    expect(r.calls.filter(c => c[0] === "gh" && c[1] === "api").every(c => c.includes("--paginate") && c.includes("--slurp"))).toBe(true);
+    expect(r.calls.filter(c => c[0] === "gh" && c[1] === "api").every(c => c.includes("--paginate") && !c.includes("--slurp"))).toBe(true);
   });
 
   test("humans named like a bot and deleted accounts are never triaged", () => {
@@ -121,8 +128,24 @@ describe("fetch", () => {
     const failed = run({ top: "HTTP 502: Bad Gateway (page 2)" }, "fetch");
     expect(failed.text).toBe("REVIEW_BOTS: error (repos/acme/widget/issues/12/comments: HTTP 502: Bad Gateway (page 2))\n");
     expect(failed.records).toEqual([]);
-    const garbled = run({ reviews: [{ id: 1 }] as unknown as unknown[][] }, "fetch");
-    expect(garbled.text).toContain("REVIEW_BOTS: error (repos/acme/widget/pulls/12/reviews: not a list of pages)");
+    expect(run({ rawReviews: "{\"id\":1}\nnot json\n" }, "fetch").text).toBe("REVIEW_BOTS: error (repos/acme/widget/pulls/12/reviews: invalid JSON)\n");
+    expect(run({ rawReviews: "[1,2]\n" }, "fetch").text).toBe("REVIEW_BOTS: error (repos/acme/widget/pulls/12/reviews: not a list of objects)\n");
+  });
+
+  test("pages are read without --slurp, so gh before 2.48 still fetches", () => {
+    const r = run({ line: [[{ id: 1, user: bot("coderabbitai[bot]"), path: "a.ts", line: 1, position: 1, body: "x" }]] }, "fetch");
+    expect(r.records.map(c => c.id)).toEqual([1]);
+    const apiCalls = r.calls.filter(c => c[1] === "api");
+    expect(apiCalls).toHaveLength(3);
+    for (const c of apiCalls) expect(c).toEqual(["gh", "api", "--paginate", expect.stringMatching(/\?per_page=100$/), "--jq", ".[]"]);
+  });
+
+  test("gh not logged in or no GitHub remote skips; a non-numeric --pr is an error", () => {
+    expect(run({ authFails: true }, "fetch").text).toBe("REVIEW_BOTS: skip (gh not logged in)\n");
+    expect(run({ repoFails: true }, "fetch").text).toBe("REVIEW_BOTS: skip (not a GitHub remote: no git remotes found)\n");
+    const bad = run({}, "fetch", "--pr", "12;rm");
+    expect(bad.text).toBe("REVIEW_BOTS: error ('12;rm' is not a PR number)\n");
+    expect(bad.calls.some(c => c[1] === "api")).toBe(false);
   });
 
   test("an empty PR is a complete fetch with zero counts", () => {
@@ -161,6 +184,10 @@ describe("record and history", () => {
   test("record refuses unknown types and values that would break a row", () => {
     expect(run({}, "record", "--bot", "greptile", "--type", "maybe", "--file", "a", "--category", "c").code).toBe(64);
     expect(run({}, "record", "--bot", "greptile", "--type", "fp", "--file", "a | b", "--category", "c").code).toBe(64);
+    expect(run({}, "record", "--bot", "greptile", "--type", "fp").code).toBe(64);
+    const noRepo = run({ repoFails: true }, "record", "--bot", "greptile", "--type", "fp", "--file", "a", "--category", "c");
+    expect(noRepo.code).toBe(1);
+    expect(fs.existsSync(path.join(noRepo.state, "review-bot-history.md"))).toBe(false);
   });
 
   test("patterns: exact, * within a directory, ** across", () => {
