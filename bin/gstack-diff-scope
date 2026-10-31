@@ -28,7 +28,8 @@ set -euo pipefail
 # Detect the repo's default branch when no arg is given (#703-class
 # platform-agnostic rule, lib/default-base.ts in bash): origin/HEAD unless it
 # names the checked-out branch (a PR flow's clone can point it at the PR
-# branch, GST-511) -> the PR's base (gh, killed after 5 s) -> origin/main ->
+# branch, GST-511) -> the PR's base (gh, killed after 5 s; none for a PR from
+# another repository) -> origin/main ->
 # origin/master -> main. An origin/HEAD skipped that way leaves BASE empty when
 # nothing past it resolves, and that fails closed.
 SKIPPED_HEAD=""
@@ -41,8 +42,8 @@ _default_base() {
   if [ -n "$head" ] && [ "$head" != "$cur" ]; then BASE="$head"; return; fi
   SKIPPED_HEAD="$head"
   if [ -n "$cur" ] && command -v gh >/dev/null 2>&1 && out=$(mktemp "${TMPDIR:-/tmp}/gstack-diff-scope.XXXXXX" 2>/dev/null); then
-    GH_PROMPT_DISABLED=1 gh pr view --json baseRefName -q .baseRefName </dev/null >"$out" 2>/dev/null & g=$!
-    { sleep 5; kill "$g"; } >/dev/null 2>&1 & w=$!
+    GH_PROMPT_DISABLED=1 gh pr view --json baseRefName,isCrossRepository -q 'if .isCrossRepository then "" else .baseRefName end' </dev/null >"$out" 2>/dev/null & g=$!
+    ( trap 'kill "$s"' TERM; sleep 5 & s=$!; wait "$s" && kill "$g" ) >/dev/null 2>&1 & w=$!
     wait "$g" 2>/dev/null || true
     kill "$w" 2>/dev/null || true
     pr=$(head -n 1 "$out" 2>/dev/null || true)
@@ -98,7 +99,7 @@ _print_flags() {
 if [ -z "$BASE" ]; then
   _print_flags
   echo "SCOPE_ERROR=no_base"
-  echo "# origin/HEAD names the checked-out branch ${SKIPPED_HEAD}, and no PR base, origin/main or origin/master resolves; pass the base (gstack-diff-scope <base>) or run git remote set-head origin <base>"
+  echo "# origin/HEAD names the checked-out branch ${SKIPPED_HEAD}, and no PR base, origin/main or origin/master resolves; pass the base explicitly or run git remote set-head origin <base>"
   exit 2
 fi
 

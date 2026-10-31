@@ -29,13 +29,15 @@ const DIST = /(^|\/)(cmd\/[^/]+\/main\.go|bin\/[^/]+|Cargo\.toml|setup\.py|packa
 
 function integrate(cwd: string, base: string, r: Report): boolean {
   const branch = git(cwd, ['branch', '--show-current']).stdout.trim();
-  const head = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(git(cwd, ['ls-remote', '--symref', 'origin', 'HEAD'], 60_000).stdout)?.[1];
   r.add(`BRANCH: ${branch || '(detached)'} base=${base}`);
-  if (!branch || branch === base || branch === head) { r.stop(`on the base branch (${branch || 'detached HEAD'}): ship from a feature branch`); return false; }
+  if (!branch || branch === base) { r.stop(`on the base branch (${branch || 'detached HEAD'}): ship from a feature branch`); return false; }
   const status = git(cwd, ['status', '--porcelain']).stdout.split('\n').filter(Boolean);
   r.add(`STATUS: modified=${status.filter(l => !l.startsWith('??')).length} untracked=${status.filter(l => l.startsWith('??')).length} (uncommitted changes ship with this run)`);
   const fetch = git(cwd, ['fetch', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`], 300_000);
   if (fetch.status !== 0) { r.stop(`git fetch origin ${base} failed: ${firstLine(fetch.stderr)}; restore access first`); return false; }
+  const remoteHead = git(cwd, ['ls-remote', '--symref', 'origin', 'HEAD'], 60_000);
+  if (remoteHead.status !== 0) { r.stop(`git ls-remote origin HEAD failed: ${firstLine(remoteHead.stderr)}; restore access first`); return false; }
+  if (branch === /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(remoteHead.stdout)?.[1]) { r.stop(`on the base branch (${branch}): ship from a feature branch`); return false; }
   const stat = git(cwd, ['diff', forkPoint(cwd, base), '--shortstat']).stdout.trim();
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
   const commits = git(cwd, ['rev-list', '--count', `origin/${base}..HEAD`]).stdout.trim();

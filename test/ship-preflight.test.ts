@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { lineOf, PREFLIGHT, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);
@@ -66,6 +67,21 @@ describe('gstack-ship-preflight', () => {
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(r.stdout).not.toContain('STOP: on the base branch');
     expect(r.status).toBe(0);
+  });
+
+  // Value: protects=a failed lookup of the remote's HEAD stops before merging instead of skipping the default-branch abort; fails_when=on the remote's default
+  //   branch with another --base, a failed ls-remote reads as "no default" and the base is merged in; why_new=GST-511 removed the local fallback; seam=a git
+  //   wrapper on PATH that fails ls-remote only; no_claim=which access failure it was
+  test('a failed remote HEAD lookup stops before merging, even when the fetch works', () => {
+    const f = fx();
+    f.git('push', '-q', 'origin', 'main:release');
+    f.git('checkout', '-q', 'main');
+    const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 5_000 }).stdout.trim();
+    fs.writeFileSync(path.join(f.root, 'stub', 'git'), `#!/bin/sh\n[ "$1" = ls-remote ] && { echo "ls-remote: unreachable" >&2; exit 128; }\nexec ${real} "$@"\n`, { mode: 0o755 });
+    const r = f.run(PREFLIGHT, ['--base', 'release']);
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain('STOP: git ls-remote origin HEAD failed: ls-remote: unreachable; restore access first');
+    expect(r.stdout).not.toContain('MERGE:');
   });
 
   // Value: protects=Step 3 merges the base and a conflict stops with the files named, leaving the merge for the agent to resolve; fails_when=the bin resolves a conflict itself, aborts the merge, or continues to tests;

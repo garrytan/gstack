@@ -342,7 +342,7 @@ describe('resolveBaseBranch: origin/HEAD naming the checked-out branch (GST-511)
       git('update-ref', '-d', 'refs/remotes/origin/main');
       const none = base('fail');
       expect(none.out).toBe('main');
-      expect(none.err).toContain('origin/HEAD names the checked-out branch feat, and no PR base, origin/main or origin/master resolves; pass --base <base> or run git remote set-head origin <base>');
+      expect(none.err).toContain('origin/HEAD names the checked-out branch feat, and no PR base, origin/main or origin/master resolves; pass the base explicitly or run git remote set-head origin <base>');
       git('checkout', '-q', '--detach');
       expect(base('fail')).toEqual({ out: 'feat', err: '' });
     } finally {

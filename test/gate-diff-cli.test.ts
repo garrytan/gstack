@@ -500,7 +500,7 @@ describe('gstack-gate-diff candidate model and output', () => {
     const none = runNoBase();
     expect(none.status).toBe(2);
     expect(none.stdout.trim()).toBe('GATE_ERROR=no_base ref=origin/HEAD target=origin/feature fix=git remote set-head origin <base>');
-    expect(none.stderr).toContain('gstack-gate-diff: origin/HEAD names the checked-out branch feature, and no PR base, origin/main or origin/master resolves; pass --base <base> or run git remote set-head origin <base>');
+    expect(none.stderr).toContain('gstack-gate-diff: origin/HEAD names the checked-out branch feature, and no PR base, origin/main or origin/master resolves; pass the base explicitly or run git remote set-head origin <base>');
   });
 
   test('base defaults to main when no ref is given and no origin/HEAD exists', () => {
