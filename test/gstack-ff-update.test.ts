@@ -74,6 +74,8 @@ function ff(fx: Fx, rev = 'origin/main', extra: Record<string, string> = {}, bin
 }
 const read = (fx: Fx, f: string) => fs.readFileSync(path.join(fx.install, f), 'utf8');
 const write = (fx: Fx, f: string, body: string) => fs.writeFileSync(path.join(fx.install, f), body);
+/** Moves mtimes 10 s back so no entry is racily clean against the index (a same-second edit can trip the barrier's recapture). */
+const backdate = (fx: Fx, ...files: string[]) => { const s = Date.now() / 1000 - 10; for (const f of files) fs.utimesSync(path.join(fx.install, f), s, s); };
 const rescueRef = (out: string) => out.match(/^rescued [0-9a-f]+ [0-9a-f]+ (refs\/gstack\/rescue\/[0-9a-f]{40}) unmerged=([01])$/m);
 function makeUnmerged(fx: Fx, file: string) {
   const blob = (body: string) => execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: fx.install, input: body, encoding: 'utf8', timeout: 30_000 }).trim();
@@ -344,6 +346,7 @@ describe.skipIf(process.platform === 'win32')('gstack-ff-update: moving the tree
     const fx = makeFixture();
     makeUnmerged(fx, 'notes.txt');
     write(fx, 'VERSION', '0.9.0\n');
+    backdate(fx, 'VERSION', 'notes.txt');
     const mixed = ff(fx, release(fx, { 'other.txt': 'x\n' }));
     expect(mixed.status, mixed.stdout + mixed.stderr).toBe(0);
     expect(mixed.stdout).toMatch(/^rescued .* unmerged=1/);
@@ -365,6 +368,20 @@ describe.skipIf(process.platform === 'win32')('gstack-ff-update: moving the tree
     } finally {
       holder.kill();
     }
+  });
+
+  // Value: protects=a move interrupted after the tree was written but before HEAD moved still finishes on the next run, not held as
+  //   version-reverted; fails_when=the in-lock check ignores the target's VERSION; why_new=review pass 2; seam=none
+  test('an interrupted move (tree at the target, HEAD old) finishes instead of holding', () => {
+    const fx = makeFixture();
+    const target = release(fx, { 'notes.txt': 'top UPSTREAM\nmiddle\nbottom\n' });
+    execFileSync('bash', ['-c', `git archive ${target} | tar -x`], { cwd: fx.install, timeout: 30_000 });
+    expect(read(fx, 'VERSION')).toBe('1.1.0\n');
+    backdate(fx, 'VERSION', 'notes.txt');
+    const r = ff(fx, target);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(target);
+    expect(spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 }).status).toBe(0);
   });
 
   test('refusals: not a fast-forward, an unresolvable target, and a missing checkout', () => {

@@ -200,6 +200,24 @@ describe.skipIf(process.platform === 'win32')('gstack-session-update: held-updat
     expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(target);
   });
 
+  // Value: protects=a VERSION behind HEAD with no enclosing project holds (not rescued) and its preflight prints the stash fix;
+  //   fails_when=session-update's exit-6 arm drops version-reverted; why_new=review pass 2; seam=none
+  test('version-reverted: the update holds with HEAD unchanged; the preflight prints the stash fix', async () => {
+    const fx = makeFixture();
+    const old = git(fx.install, 'rev-parse', 'HEAD');
+    release(fx, 'top UPSTREAM\nmiddle\nbottom\n');
+    fs.writeFileSync(path.join(fx.install, 'VERSION'), '0.0.1\n');
+    spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: env(fx), timeout: 20_000 });
+    await waitFor(fx, /Z HELD version-reverted: /);
+    expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(old);
+    expect(git(fx.install, 'for-each-ref', 'refs/gstack/rescue')).toBe('');
+    const line = banner(fx).trim();
+    expect(line).toStartWith('gstack auto-update: update held (version-reverted: VERSION says 0.0.1 but the checkout is at 1.0.0');
+    const r = run(fx, line.match(/The full fix: (bash .*?)\. https:/)![1]);
+    expect(r.status).toBe(6);
+    expect(r.stdout).toContain(`git -C ${quoted(fx.install)} stash push`);
+  });
+
   test('every anchor the lines link to exists', () => {
     const src = fs.readFileSync(SCRIPT, 'utf8');
     const anchors = [...src.matchAll(/troubleshooting\.md#([a-z0-9-]+)/g)].map((m) => m[1]!);

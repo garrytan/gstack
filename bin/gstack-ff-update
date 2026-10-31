@@ -90,11 +90,13 @@ if [ -n "$_PF" ]; then
   refuse 6 tracked-by-project "$_top tracks $_n files of the gstack install at $_rel, so every checkout there puts old gstack files back (VERSION frozen, #1022); nothing was changed; fix: git -C $(ff_quote "$_top") --literal-pathspecs rm -r -q --cached -- $(ff_quote "$_rel"), add /$_ign/ to $(ff_quote "$_top/.gitignore") and commit both on every branch you check out (or vendor gstack as a git submodule), then git -C $(ff_quote "$DIR") stash push -m 'files reverted by the project' (keeps every edit) and re-run" 4000
 fi
 # A VERSION whose first line differs from HEAD's. Any unmerged file is left to
-# the rescue below; the full update runs this inside the lock.
+# the rescue below; the full update runs this inside the lock, where a VERSION
+# already at the target's (an interrupted move) is finished, not held.
 version_check() {
   g cat-file -e HEAD:VERSION 2>/dev/null && [ -z "$(g ls-files -u 2>/dev/null)" ] || return 0
   _have=$(head -1 VERSION 2>/dev/null | tr -d '\r') _want=$(g show HEAD:VERSION 2>/dev/null | head -1 | tr -d '\r')
   [ "$_have" = "$_want" ] && return 0
+  [ -n "$1" ] && [ "$_have" = "$(g show "$1:VERSION" 2>/dev/null | head -1 | tr -d '\r')" ] && return 0
   refuse 6 version-reverted "VERSION says ${_have:-nothing} but the checkout is at $_want: files changed outside git (an enclosing project's checkout puts old ones back, #1022, or a hand edit); nothing was changed; fix: git -C $(ff_quote "$DIR") stash push -m 'files reverted by the project' (keeps every edit), then re-run" 4000
 }
 [ "$PREFLIGHT" -eq 1 ] && { version_check; exit 0; }
@@ -169,7 +171,7 @@ case "$_beat" in ''|*[!0-9]*|0) _beat=300 ;; esac
 HB_PID=$!
 
 # ── Inside the lock ──
-version_check
+version_check "$TARGET"
 HEAD_OID=$(g rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null) || refuse 2 not-a-checkout "$DIR has no HEAD commit"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-ff-XXXXXX" 2>/dev/null) || refuse 3 autostash-unrecoverable "cannot create a temp directory under ${TMPDIR:-/tmp}; nothing was changed"
 g ls-files -u -z > "$TMP/unmerged.raw" 2>"$TMP/err" || refuse 5 index-unreadable "cannot read the index of $DIR ($(head -c 200 "$TMP/err")); nothing was changed"
