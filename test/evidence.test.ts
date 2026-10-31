@@ -327,6 +327,48 @@ describe('gstack-evidence check', () => {
     }
   });
 
+  // Value: protects=a repository that ignores .bun/ while still tracking a file under it gets a fingerprint (GST-449 review): the
+  //   index-aware check-ignore called .bun not ignored, so the exclude pathspec came back and `git add -A` exited 1; fails_when=gstack-wtree
+  //   exits non-zero, or its tree differs from a plain `git add -A`, or an edit or delete of the tracked file leaves it unchanged;
+  //   why_new=the pattern loop above starts from an untracked .bun/ only; seam=none; no_claim=Windows git
+  test('GST-449: an ignored .bun/ that still tracks a file fingerprints like a plain git add -A, and edits to the tracked file count', () => {
+    fs.mkdirSync(path.join(repoDir, '.bun'), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, '.bun', 'tracked'), 'v1\n');
+    git('add -f .bun/tracked');
+    git('commit -q -m "track .bun/tracked"');
+    fs.writeFileSync(path.join(repoDir, '.gitignore'), '.bun/\n');
+    git('add .gitignore');
+    git('commit -q -m "ignore .bun/"');
+    fs.writeFileSync(path.join(repoDir, '.bun', 'cache'), 'cache\n');
+    const wtree = () => {
+      const wt = runBin(path.join(ROOT, 'bin', 'gstack-wtree'), [], { cwd: repoDir });
+      expect(wt.stderr).toBe('');
+      expect(wt.status).toBe(0);
+      return wt.stdout.trim();
+    };
+    const plain = () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-wtree-idx-'));
+      try {
+        const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') };
+        spawnSync('git', ['read-tree', 'HEAD'], { cwd: repoDir, env, timeout: 10_000 });
+        spawnSync('git', ['add', '-A'], { cwd: repoDir, env, timeout: 10_000 });
+        return spawnSync('git', ['write-tree'], { cwd: repoDir, env, encoding: 'utf-8', timeout: 10_000 }).stdout.trim();
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const clean = wtree();
+    expect(clean).toBe(plain());
+    fs.writeFileSync(path.join(repoDir, '.bun', 'tracked'), 'v2\n');
+    const edited = wtree();
+    expect(edited).not.toBe(clean);
+    expect(edited).toBe(plain());
+    fs.rmSync(path.join(repoDir, '.bun', 'tracked'));
+    const deleted = wtree();
+    expect(deleted).not.toBe(clean);
+    expect(deleted).toBe(plain());
+  });
+
   test('GST-421: a lane that writes untracked source grades STALE and the reason names the path', () => {
     const r = run(['run', '--label', 'tests', '--', 'mkdir -p src && echo "export {}" > src/new.ts && echo green']);
     expect(r.status).toBe(0);
