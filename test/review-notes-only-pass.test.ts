@@ -82,13 +82,18 @@ describe('a notes-only /ship review pass (GST-430)', () => {
 
   // Value: protects=a claimed clean row reads open findings by the same rule the rewrite uses; catches=a CRITICAL
   //   deferral or a skipped finding under a claimed clean status reading CURRENT (adversarial-native#3, Step 11).
-  test('a claimed clean row with a CRITICAL deferral or a skipped finding is not CURRENT', () => {
+  // Kept and restored interactive gates, skipped advisories and an INFORMATIONAL deferral stay CURRENT, as before this PR
+  //   (fix-check and adversarial-native, Step 11 round 2).
+  test('a claimed clean row with a CRITICAL deferral is not CURRENT; resolved gate, skipped and below-floor actions are', () => {
     const w = 'c'.repeat(40);
     const row = (findings: unknown[]) => ({ skill: 'review', status: 'clean', issues_found: 0, critical: 0, completed: true, converged: true, wtree: w,
       review_binding: { state: 'verified', start_wtree: w, end_wtree: w }, findings, status_source: 'claimed' });
     expect(reviewFreshness(row([note(1, 'deferred', { severity: 'CRITICAL', issue: null })]), w)?.status).toBe('UNVERIFIED');
-    expect(reviewFreshness(row([note(1, 'skipped')]), w)?.status).toBe('UNVERIFIED');
-    expect(reviewFreshness(row([note(1, 'noted')]), w)?.status).toBe('CURRENT');
+    expect(reviewFreshness(row([note(1, 'deferred', { blocking: true })]), w)?.status).toBe('UNVERIFIED');
+    expect(reviewFreshness(row([note(1, 'open', { gate: 'RH1' })]), w)?.status).toBe('UNVERIFIED');
+    const gate = (action: string) => note(1, action, { gate: 'RH1', reason: 'r', actor: 'interactive' });
+    expect([gate('kept'), gate('restored'), note(1, 'skipped'), note(1, 'deferred', { blocking: undefined }), note(1, 'noted')]
+      .map(f => reviewFreshness(row([f]), w)?.status)).toEqual(['CURRENT', 'CURRENT', 'CURRENT', 'CURRENT', 'CURRENT']);
   });
 
   // Value: protects=a findings file cannot dispose of a gate finding the unattended logger must force open; catches=gate rows
@@ -101,6 +106,18 @@ describe('a notes-only /ship review pass (GST-430)', () => {
     const row = lastRow();
     expect([row.findings_open, row.status === 'clean']).toEqual([1, false]);
     expect(reviewFreshness(row, row.wtree)?.status).not.toBe('CURRENT');
+  });
+
+  // Value: protects=the forced-open stamp wins over a findings file's own status or disposition; catches=a gate row marked
+  //   status resolved deriving clean after it was stamped open (outside-voice#1, Step 11 round 2).
+  test('a --findings gate row stamped open stays open whatever its status or disposition says', () => {
+    for (const extra of [{ status: 'resolved' }, { disposition: 'fixed' }]) {
+      const file = path.join(home, 'findings.jsonl');
+      fs.writeFileSync(file, JSON.stringify({ schema_version: 1, run: 'r', phase: 'review', voice: 'native', title: 't', fingerprint: 'lib/a.ts:1:x', severity: 'CRITICAL', action: 'auto-fixed', gate: 'RH1', gate_id: 'g', ...extra }) + '\n');
+      const token = run(['--start', 'review']).out.trim();
+      run([JSON.stringify({ skill: 'review', via: 'ship', timestamp: '2026-10-31T00:00:00Z', completed: true, converged: true }), '--findings', file, '--finish', token]);
+      expect([JSON.stringify(extra), lastRow().findings_open]).toEqual([JSON.stringify(extra), 1]);
+    }
   });
 
   test('isOpenFinding: fixed and auto-fixed are not open; noted and deferred only below the floor; skipped and missing actions are', () => {

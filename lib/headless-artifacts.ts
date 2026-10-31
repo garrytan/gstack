@@ -546,6 +546,7 @@ export interface DerivedReviewStatus {
   findings_total: number; findings_open: number; findings_resolved: number;
 }
 export function isOpenFinding(row: Record<string, unknown>): boolean {
+  if (row.action === 'open') return true;
   if (typeof row.disposition === 'string') return !RESOLVED.includes(row.disposition);
   if (typeof row.status === 'string') return !['resolved', 'fixed', 'closed'].includes(row.status);
   return isOpenByAction(row);

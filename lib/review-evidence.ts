@@ -354,7 +354,8 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string):
   const open = typeof rec.findings_open === 'number' ? rec.findings_open : rec.issues_found;
   if (rec.status !== 'clean' || open > 0 || rec.critical > 0 ||
       (rec.skill === 'codex-review' && rec.findings > (rec.findings_fixed ?? 0)) ||
-      (Array.isArray(rec.findings) && rec.findings.some(f => record(f) && typeof f.action === 'string' && isOpenByAction(f)))) {
+      (Array.isArray(rec.findings) && rec.findings.some(f => record(f) && (f.action === 'open' ||
+        ((f.action === 'deferred' || f.action === 'noted') && (f.blocking === true || isCriticalFinding(f))))))) {
     return { status: 'UNVERIFIED', reason: 'review has unresolved findings or did not finish clean' };
   }
   return { status: 'CURRENT', reason: 'completed clean pass on unchanged content' };
