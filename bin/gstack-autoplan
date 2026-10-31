@@ -59,7 +59,7 @@ DRIVER: ${driverFile()}
           [--no-outside] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
           --max-rounds (first next): review rounds per phase (default 2 unattended); at the cap a phase closes accepted-with-findings
           --docs-only (first next; also detected when every Implementation-plan path is docs-class): CEO (native voice only) + Eng
-          --estimate-usd: reserved per new attempt; unattended Capy runs reserve a default for host attempts so --spend-cap binds
+          --estimate-usd: reserved per new attempt, kept for the rest of the run; with --spend-cap (or on Capy) unattended runs reserve a default so the cap binds
           --scaffold (first next): a plan missing one of its two sections is reviewed from <out>/plan-source.md with the heading added
           --light loads each phase's checklist plus the sections its scope needs (the unattended default); interactive kinds load everything
           --no-carry-forward (first next): every later gate revision goes to the owner, even one that asks nothing new

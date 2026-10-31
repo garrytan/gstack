@@ -219,6 +219,7 @@ export function nextStep(o: NextOptions): NextResult {
   if (ps.outside?.reason === 'docs_only') lines.push(`OUTSIDE: ${phase} not_run reason=docs_only (native voice only)`);
   if (ps.sections) lines.push(`Skipped sections: ${ps.sections.skipped.length ? ps.sections.skipped.join(',') : 'none'} (scope: ui=${state.scope.ui ? 'yes' : 'no'},dx=${state.scope.dx ? 'yes' : 'no'},source=${scopeSourceLabel(state.scope)}; checklist=${ps.sections.checklist ? 'loaded' : 'none'})`);
   const prompts = ps.prompts!;
+  if (o.estimateUsd !== undefined) state.estimate_usd = o.estimateUsd;
   const estimate = attemptEstimate(state, o.estimateUsd, process.env);
   if (estimate.line) lines.push(estimate.line);
   if (first) lines.push(reviewEstimateLine(state, estimate.usd));

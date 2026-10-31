@@ -441,7 +441,10 @@ Concurrency and recovery: every state write is a locked read-modify-write
 (`test/autoplan-run-recovery.test.ts`, `test/autoplan-run-concurrency.test.ts`,
 `test/autoplan-answer-invalidation.test.ts`). `--spend-cap` admits each attempt
 through `spend.json` (`SPEND_CAP_EXCEEDED` refuses, exit 3); host-subagent
-spend is `unknown` and counted in `worst_case`. `--deadline <min>` makes the
+spend is `unknown` and counted in `worst_case`. Under a cap (or on Capy) each
+unattended attempt reserves the default per voice unless `next --estimate-usd
+<n>` sets the reservation, which the run keeps for later phases; `submit
+--usage-usd <n>` settles an attempt at its real cost. `--deadline <min>` makes the
 `run` subcommand cancel the children it started and marks the run
 `interrupted`.
 
