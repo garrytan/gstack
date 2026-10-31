@@ -12,3 +12,5 @@
 ### Fixed
 - **`gstack-ship-budget note --step 9.1`** records under step 9 with the sub-step as its label. Before, it was refused, and replays lost two notes to that error.
 - **`gstack-review-scope render`** accepts `{"deferred": [...]}` as well as the bare array.
+- **`gstack-review-dispatch judge`** treats a judged line with no severity, or `"severity": null`, as invalid and prints `JUDGMENT_REJECTED`. Before, it crashed with a TypeError, and a replay spent three calls recovering.
+- **The Capy skill passes a rendered brief as bash `cat` prints it.** A file read cut the long lines of a 231,589-byte outside-voice brief, so `sent` reported `BRIEF_MISMATCH` and the reader had to be sent again.
