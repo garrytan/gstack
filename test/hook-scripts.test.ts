@@ -1546,6 +1546,17 @@ describe('check-freeze.sh', () => {
       });
     });
 
+    // The walk is quadratic in path length, and a PreToolUse hook that times
+    // out does not block the edit; an over-long path must deny fast.
+    test('a path longer than PATH_MAX denies quickly instead of stalling the hook', () => {
+      withTree(({ base, home, src }) => {
+        const started = Date.now();
+        expect(decide(src, src + '/a/..'.repeat(20000) + '/../outside/x.ts', home, base)).toBe('deny');
+        expect(Date.now() - started).toBeLessThan(4000);
+        expect(decide(src, src + '/a/..'.repeat(500) + '/x.ts', home, base)).toBe('allow');
+      });
+    });
+
     test('Windows separators: a C:\\ dotdot escape through a missing directory denies, a new C:\\ subdirectory allows', () => {
       withTree(({ base, home }) => {
         expect(decide('C:\\dev\\proj\\src', 'C:\\dev\\proj\\src\\..\\..\\other\\new\\x.ts', home, base)).toBe('deny');

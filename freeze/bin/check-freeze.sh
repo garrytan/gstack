@@ -168,6 +168,12 @@ _FREEZE_CR=$'\r'
 case "$FILE_PATH" in
   *"$_FREEZE_NL"*|*"$_FREEZE_CR"*) _freeze_unresolved "$TOOL_LABEL $FILE_PATH" "a line break in the path" ;;
 esac
+# The walk below costs time quadratic in the path length, and a hook that
+# outlives the host's timeout lets the edit through. No real path is longer
+# than PATH_MAX (4096 on Linux), so bound the work before it starts.
+if [ "${#FILE_PATH}" -gt 4096 ]; then
+  _freeze_unresolved "$TOOL_LABEL path of ${#FILE_PATH} characters" "longer than 4096 characters"
+fi
 
 # A leading ~ is the home directory to the host's file tools, never a
 # directory named '~' under cwd: joined onto cwd, '~/.zshrc' passed whenever
@@ -227,7 +233,8 @@ esac
 #      POSIX file name. On a POSIX host a Windows path names no local file,
 #      so it is resolved as text and no local symlink is followed.
 # Returns 1 for a symlink loop, a chain over 40 links, an unreadable or
-# line-broken link, or an unplaceable Windows name; the caller fails closed.
+# line-broken link, links that grow the path past 8192 characters, or an
+# unplaceable Windows name; the caller fails closed.
 _resolve_path() {
   local _rem="$1" _win="${3:-0}" _lead="" _cur="" _n=0 _min=0 _reroot=1
   local _part _tgt _p _tail="" _hops=0 _probe=1
@@ -283,6 +290,7 @@ _resolve_path() {
     fi
     case "$_tgt" in /*) _reroot=1 ;; esac
     _rem="${_tgt%/}${_rem:+/$_rem}"
+    [ "${#_rem}" -le 8192 ] || return 1
   done
   _p="$_lead$_cur"
   if [ "${2:-}" != lexical ] && [ "$_probe" = 1 ]; then
