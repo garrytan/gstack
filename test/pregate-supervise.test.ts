@@ -91,6 +91,15 @@ describe('supervise: process group, log file, stall and deadline', () => {
     expect(r.lines.filter(l => l.startsWith('PREGATE_HEARTBEAT: fixture running ')).length).toBeGreaterThanOrEqual(2);
     expect(r.lines.some(l => l.startsWith('PREGATE_TEST:'))).toBe(false);
   });
+
+  // Value: protects=a remote gate's heartbeat says what the gate last printed (GST-431); fails_when=the heartbeat for a gate that
+  //   reports its CI wait shows only "last file none reported"; why_new=a CI-waiting gate looked dead on qm (CAPY-1); seam=none; no_claim=none
+  test('with lastLine, a heartbeat names the command\'s last output line', async () => {
+    const dir = scratch();
+    const r = await run(dir, 'echo "waiting on run 7 (in_progress)"; sleep 1.2; echo done', { heartbeatMs: 300, lastLine: true });
+    expect(r.outcome).toBe('exited');
+    expect(r.lines.some(l => l.startsWith('PREGATE_HEARTBEAT: fixture running ') && l.includes('last output: waiting on run 7 (in_progress)'))).toBe(true);
+  });
 });
 
 describe('supervise: per-file progress adapters', () => {
