@@ -1130,7 +1130,7 @@ A pattern that matches no changed file is listed as `unmatched=` on the plan lin
 **What is excluded, and what is kept.** A matched file is excluded only when it
 is content: a data file (JSON, JSONL, CSV, TSV, images), a docs-class file, a
 `.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers would only see `Binary files differ`) whose bytes hold a NUL in their first 8,000, so a branch's `.gitattributes` cannot make a text file binary content. A binary file is content even under
-`config/` or in a skill directory; only the first five reasons below, or a source or script extension (`code`), keep it.
+`config/` or in a skill directory; only `policy-dir`, `gate-path`, `executable`, `link`, `gate-tagged`, or a source or script extension (`code`) keep it.
 Everything else stays in every reader's diff with one reason code:
 
 | Reason | Kept because |
