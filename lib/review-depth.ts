@@ -28,9 +28,9 @@ export const SMALL_DIFF_LINES = 50;
 export const RED_TEAM_LINES = 200;
 export const LARGE_DIFF_LINES = 100;
 /**
- * Whether a change's first full pass dispatches the standalone Red Team for gate class (a depth error included) or more than
- * RED_TEAM_LINES runtime lines. Off since the Round 7 no-loss replay (handoffs/GSTA-167/noloss7-results.md); a CRITICAL, a
- * raised small diff, post-fix full passes and the scoped pass keep it.
+ * Whether an invocation's first full pass (no earlier step) dispatches the standalone Red Team for gate class (a depth error
+ * included) or more than RED_TEAM_LINES runtime lines. Off since the Round 7 no-loss replay (handoffs/GSTA-167/noloss7-results.md);
+ * criticalFound, a raised small diff, post-fix full passes and the scoped pass keep it.
  */
 export const RED_TEAM_FIRST_PASS = false;
 /** The largest fix range, in runtime lines, a pass 2 after a blocking fix reviews as a scoped pass (GSTA-152 D6); a starting value. */
@@ -413,7 +413,7 @@ export function planReview(i: PlanInput): ReviewPlan {
     if (checklists.length) add('specialist', 'batched', specialist, full ? [] : docsAndOutputs, { checklists });
     const codeLike = dcls === 'code' || dcls === 'gate';
     const sized = dcls === 'gate' || (dcls === 'code' && lines > RED_TEAM_LINES);
-    const firstPassCut = sized && h.fullPasses === 0 && !RED_TEAM_FIRST_PASS;
+    const firstPassCut = sized && h.fullPasses === 0 && h.last === 'none' && !RED_TEAM_FIRST_PASS;
     if (codeLike && (!!i.criticalFound || raised || (sized && !firstPassCut))) add('red-team', 'red-team', 'full');
     else if (firstPassCut) skipped.push('red-team (first full pass; Round 7 no-loss)');
     else skipped.push(`red-team (${dcls} class${dcls === 'code' ? `, ${lines} runtime lines, no critical` : ''})`);

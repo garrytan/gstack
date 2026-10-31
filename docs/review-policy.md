@@ -188,8 +188,8 @@ in a data file still schedules the outside voice.
 |---|---|---|
 | **light**, runtime 0 | docs and tests only, or only registered outputs | the core checklist only; the outside voice when the diff publishes numbers |
 | **light**, runtime 1–50 | `SMALL_DIFF_LINES` or fewer runtime lines | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
-| **standard** | more than 50 runtime lines | one batched specialist at `medium`; the Red Team on a CRITICAL or a raised small diff, and past 200 runtime lines only after a fix ([first full pass](#first-pass-red-team)); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
-| **full** | gate class, or any classifier error | one batched specialist on the whole diff, no hit-rate gating; the Red Team on every post-fix full pass and on a CRITICAL, never on the first full pass otherwise ([first full pass](#first-pass-red-team)) |
+| **standard** | more than 50 runtime lines | one batched specialist at `medium`; the Red Team on a small diff raised to standard, never past 200 runtime lines on pass 1 ([first full pass](#first-pass-red-team)); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
+| **full** | gate class, or any classifier error | one batched specialist on the whole diff, no hit-rate gating; no Red Team on pass 1 ([first full pass](#first-pass-red-team)) |
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus
@@ -209,7 +209,8 @@ is the same at every depth.
 
 <a id="first-pass-red-team"></a>
 **The first full pass has no standalone Red Team (GSTA-167 Round 7).** When an
-invocation's first full pass (`fullPasses` 0) is gate class or has more than
+invocation's first full pass (`fullPasses` 0 and no earlier step, so a repeat
+plan that leaves out `--pass` still counts as post-fix) is gate class or has more than
 `RED_TEAM_LINES` (200) runtime lines, the plan skips the Red Team and says why:
 `SKIP: red-team (first full pass; Round 7 no-loss)`. A full plan reached through a
 classifier error (`DEPTH_ERROR`) or `--depth-floor full` runs as gate class, so the same rule covers it;
@@ -217,7 +218,9 @@ Round 7 unit 3540 (an unmatched `gstack-diff-scope` path) is that case. The Red 
 still runs on a small diff raised to standard, on every post-fix full pass and on
 the scoped pass, and the plan adds it whenever `--critical-found` is given. In
 `/ship` that flag reaches only the repeat plan, so a first pass that logs a
-CRITICAL gets the Red Team on its post-fix pass, not on pass 1. `fullPasses`
+CRITICAL gets the Red Team only if a post-fix full or scoped pass follows. When
+that CRITICAL is deferred or noted (`done`), fixed below the floor (a fix-check)
+or left open (a stop), no Red Team reads the change. `fullPasses`
 counts passes in one `/ship` invocation, so a new `/ship` after a stop (a fix made
 by hand between runs) starts at 0 and its first full pass has no Red Team either.
 A fix-check never had one. `RED_TEAM_FIRST_PASS` (false) records the rule in

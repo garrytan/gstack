@@ -552,6 +552,10 @@ describe('the first full pass drops the standalone Red Team (GSTA-167 Round 7 no
     const touched = planReview(base({ diffLines: 20, gateTagged: 1, history: { fullPasses: 1, last: 'full', fixedBelow: true, touchedGate: true } }));
     expect([touched.next.step, rt(touched)]).toEqual(['full', true]);
   });
+  test('a repeat plan that leaves out the pass count still keeps the Red Team (the step history decides pass 1)', () => {
+    const p = planReview(base({ diffLines: 20, gateTagged: 1, history: { fullPasses: 0, last: 'full', fixedBlocking: true } }));
+    expect([p.next.step, rt(p)]).toEqual(['full', true]);
+  });
   test('a scoped pass keeps the Red Team; a fix-check never had one', () => {
     const scoped = planReview(base({ diffLines: 201, history: { ...postFix, rangeRuntimeLines: 24, pass1Depth: 'standard' }, adversarialRan: true }));
     expect([scoped.next.step, rt(scoped)]).toEqual(['scoped', true]);
