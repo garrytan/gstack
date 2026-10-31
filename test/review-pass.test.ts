@@ -67,6 +67,11 @@ describe('pass manifest', () => {
     expect(rt.findings_sha256).toBe(promptHash(findings));
     const brief = fs.readFileSync(rt.file!, 'utf8');
     expect(brief).toContain('reviewed by 2 specialists');
+    const batched = manifest([{ role: 'specialist', name: 'batched', effort: 'medium', exclude: [], checklists: ['testing', 'security', 'state-machines'] }, { role: 'red-team', name: 'red-team', effort: 'full', exclude: [] }]);
+    renderStage(batched, 'specialists', texts, () => '');
+    collectAll(batched, 'specialists');
+    renderStage(batched, 'red-team', texts, () => '');
+    expect(fs.readFileSync(batched.readers[1]!.file!, 'utf8')).toContain('reviewed by 3 specialists');
     expect(brief).toContain(findings.trim());
   });
 
@@ -170,7 +175,7 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
 const PROGRAM = fs.readFileSync(path.join(ROOT, 'lib/capy-review-pass.js'), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...a: string[]) => (...v: unknown[]) => Promise<string>;
 async function runPass(h: ReturnType<typeof host>, input: Record<string, unknown>): Promise<string> {
-  return new AsyncFunction('tools', 'sleep', 'now', 'input', PROGRAM)(h.tools, h.sleep, h.now, { startedAt: await h.now(), ...input });
+  return new AsyncFunction('tools', 'sleep', 'now', 'input', PROGRAM)(h.tools, h.sleep, h.now, { startedAt: await h.now(), laneModel: 'anthropic/claude-opus-5-5', ...input });
 }
 const bin = (dir: string, env: NodeJS.ProcessEnv, a: string[]) => spawnSync(path.join(BIN, 'gstack-review-dispatch'), a, { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
 
@@ -185,7 +190,7 @@ describe('Capy pass program (fake host, real bins)', () => {
   test('one pass: specialists, then the Red Team on their collected lines; every prompt is the rendered brief; the ledger verifies clean', async () => {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/p1');
-    const h = host(dir, env, { output: t => (t.endsWith('specialist/testing') ? 'High: src/a.ts:3 the export is untested' : 'NO FINDINGS') });
+    const h = host(dir, env, { output: t => (t.endsWith('specialist-batched') ? 'High: src/a.ts:3 the export is untested' : 'NO FINDINGS') });
     const medium = { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'medium' };
     const res = await runPass(h, { base: 'main', out, pass: 'x1p1', planFlags: ['--depth-floor', 'full'], models: { specialist: medium, 'red-team': medium } });
     expect(h.creates.every(c => JSON.stringify(c.model) === JSON.stringify(medium))).toBe(true);
@@ -211,7 +216,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const first = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
     expect(first).toContain('NEXT: poll');
     expect(first).toMatch(/REVIEW_LOG_START: review token=\S+/);
-    expect(first).toMatch(/RUNNING: specialist\/testing state=created path=1/);
+    expect(first).toMatch(/RUNNING: specialist-batched state=created path=1/);
     const created = h.creates.length;
     let res = '';
     for (let i = 0; i < 6 && !res.includes('NEXT: judge'); i++) res = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
@@ -225,31 +230,31 @@ describe('Capy pass program (fake host, real bins)', () => {
   test('a create whose result was lost is reconciled by title on resume; a create that never ran stops the pass as ambiguous', async () => {
     const { dir, env } = repo();
     let lost = true;
-    const h = host(dir, env, { createThrows: t => (t.endsWith('specialist/testing') && lost ? (lost = false, 'after') : undefined) });
+    const h = host(dir, env, { createThrows: t => (t.endsWith('specialist-batched') && lost ? (lost = false, 'after') : undefined) });
     const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x3p1', planFlags: ['--depth-floor', 'full'] };
     expect(await runPass(h, input)).toContain('STOP: pass program error: create result lost');
     expect(await runPass(h, input)).toContain('NEXT: judge');
-    expect(h.creates.filter(c => c.title === 'ship x3p1 specialist/testing')).toHaveLength(1);
+    expect(h.creates.filter(c => c.title === 'ship x3p1 specialist-batched')).toHaveLength(1);
 
     const b = repo();
-    const h2 = host(b.dir, b.env, { createThrows: t => (t.endsWith('specialist/testing') ? 'before' : undefined) });
+    const h2 = host(b.dir, b.env, { createThrows: t => (t.endsWith('specialist-batched') ? 'before' : undefined) });
     const input2 = { ...input, out: path.join(b.dir, '.state/run/p1'), pass: 'x4p1' };
     expect(await runPass(h2, input2)).toContain('create lost before it ran');
     const again = await runPass(h2, input2);
-    expect(again).toContain('STOP: specialist/testing was being created when the last program ended and 0 subagents carry its title');
+    expect(again).toContain('STOP: specialist-batched was being created when the last program ended and 0 subagents carry its title');
   }, 240_000);
 
   test('a failed reader stops the pass before the Red Team; a reader refused at the cap is queued and started later', async () => {
     const { dir, env } = repo();
-    const h = host(dir, env, { fail: t => t.endsWith('specialist/performance') });
+    const h = host(dir, env, { fail: t => t.endsWith('specialist-batched') });
     const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x5p1', planFlags: ['--depth-floor', 'full'] });
-    expect(res).toMatch(/STOP: specialist\/performance \(subagent \d+\) failed/);
+    expect(res).toMatch(/STOP: specialist-batched \(subagent \d+\) failed/);
     expect(h.creates.some(c => c.title.endsWith('red-team'))).toBe(false);
 
     const b = repo();
-    const h2 = host(b.dir, b.env, { reject: t => t.endsWith('specialist/testing') });
+    const h2 = host(b.dir, b.env, { reject: t => t.endsWith('specialist-batched') });
     const res2 = await runPass(h2, { base: 'main', out: path.join(b.dir, '.state/run/p1'), pass: 'x6p1', planFlags: ['--depth-floor', 'full'] });
-    expect(res2).toContain('DISPATCHED: specialist/testing path=1 queued');
+    expect(res2).toContain('DISPATCHED: specialist-batched path=1 queued');
     expect(res2).toContain('NEXT: judge');
     expect(h2.starts).toEqual([[1]]);
   }, 240_000);
@@ -300,11 +305,11 @@ describe('Capy pass program (fake host, real bins)', () => {
 
   test('a rerun after a failed reader stops again instead of polling forever', async () => {
     const { dir, env } = repo();
-    const h = host(dir, env, { fail: t => t.endsWith('specialist/performance') });
+    const h = host(dir, env, { fail: t => t.endsWith('specialist-batched') });
     const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x12p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, input)).toMatch(/STOP: specialist\/performance \(subagent \d+\) failed/);
+    expect(await runPass(h, input)).toMatch(/STOP: specialist-batched \(subagent \d+\) failed/);
     const again = await runPass(h, input);
-    expect(again).toMatch(/STOP: specialist\/performance \(subagent \d+\) failed; .*new --pass and --out/);
+    expect(again).toMatch(/STOP: specialist-batched \(subagent \d+\) failed; .*new --pass and --out/);
     expect(again).not.toContain('NEXT: poll');
     expect(h.creates.some(c => c.title.endsWith('red-team'))).toBe(false);
   }, 240_000);
@@ -322,7 +327,7 @@ describe('Capy pass program (fake host, real bins)', () => {
 
   test('a queued reader whose start result was lost is reconciled from the subagent list on the rerun', async () => {
     const { dir, env } = repo();
-    const h = host(dir, env, { reject: t => t.endsWith('specialist/testing') });
+    const h = host(dir, env, { reject: t => t.endsWith('specialist-batched') });
     const realStart = h.tools.subagent.start;
     let lose = true;
     h.tools.subagent.start = (async ({ indices }: { indices: number[] }) => {
@@ -335,7 +340,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(await runPass(h, input)).toContain('STOP: pass program error: start result lost');
     const res = await runPass(h, input);
     expect(res).toContain('NEXT: judge');
-    expect(h.creates.filter(c => c.title === 'ship x14p1 specialist/testing')).toHaveLength(1);
+    expect(h.creates.filter(c => c.title === 'ship x14p1 specialist-batched')).toHaveLength(1);
   }, 240_000);
 
   test('a budget note that stops the run stops the pass instead of ending on NEXT: judge', async () => {
@@ -350,6 +355,21 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).toMatch(/STOP:.*budget/);
     expect(res).not.toContain('NEXT: judge');
   }, 240_000);
+
+  test('effort=medium readers run the lane model at medium reasoning; without laneModel or models the pass stops before creating any', async () => {
+    const { dir, env } = repo();
+    const h = host(dir, env);
+    const base = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x11p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, { ...base, laneModel: undefined })).toMatch(/STOP: specialist\S* runs at effort=medium, which needs input.laneModel/);
+    expect(h.creates).toHaveLength(0);
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    const m = JSON.parse(fs.readFileSync(path.join(base.out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    for (const r of m.readers.filter(x => x.stage !== 'voices')) {
+      const want = r.effort === 'medium' ? { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'medium' } : undefined;
+      expect(h.creates.find(c => c.title === r.title)!.model).toEqual(want);
+    }
+    expect(m.readers.some(r => r.effort === 'medium')).toBe(true);
+  }, 180_000);
 
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();
@@ -374,7 +394,7 @@ describe('the Capy skill loader', () => {
     fs.writeFileSync(launch, '');
     expect(spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --reading 1000 --credits 1', '_', rec], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
     const filled = code.split('<launch file>').join(launch).split('<base>').join('main').split('<run dir>/p<n>').join(path.join(dir, '.state/run/p1'))
-      .split('<run>-p<n>').join('x10p1').split('<jam id>').join('jam_test').split('<rec>').join(rec);
+      .split('<run>-p<n>').join('x10p1').split('<jam id>').join('jam_test').split('<rec>').join(rec).split('<your model id>').join('anthropic/claude-opus-5-5');
     expect(filled).not.toMatch(/<[a-z ]+>/);
     const h = host(dir, env);
     const res = await new AsyncFunction('tools', 'sleep', 'now', filled)(h.tools, h.sleep, h.now);

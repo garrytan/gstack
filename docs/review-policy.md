@@ -58,7 +58,7 @@ whatever class it resembles.
 | **bounded repeat work** | A re-dispatch on every call, a redundant screen after main moves, an orphaned scratch branch, a refusal that could come one step earlier in the sequence, a settle that could wait one more check. | The operation completes, nothing is lost, and the cost is one more bounded run; uncapped spend is the sideways sweep's CRITICAL, not this class. |
 | **conservative refusal** | Stale state scoped wider than its cause: a RED verdict that keeps refusing a head after main moved, a pending result that keeps refusing after it settled. | A refusal costs a rerun and never passes something wrong; a wrong pass would be the floor. |
 | **artifact presentation** | A string from an artifact printed verbatim into a parsed line (whitespace, control characters); a classifier that reads a non-zero exit code beside a non-RED verdict as RED. | Display and classification of the repository's own output; it forges no parsed field. |
-| **test gap** | A state-matrix cell without a test, a coverage percentage, a weak or flaky test, a fixture that shares the coordinator's environment. | Category `testing`, below the floor by definition above; a gap is work for the test audit, not a defect in the diff. |
+| **test gap** | A state-matrix cell without a test, a coverage percentage, a weak or flaky test, a fixture that shares the coordinator's environment. | Category `testing`, below the floor by definition above; a gap is work for the test audit, not a defect in the diff. Precedence for state machines: the specialist still reports each untested cell CRITICAL so `gstack-state-matrix check` proves the matrix complete, and `gstack-state-matrix findings` maps it to INFORMATIONAL per matrix cell before the merge; a wrong row or collapsed kinds stays CRITICAL, and a cell with a second finding keeps both. |
 
 A reviewer that wants a class promoted argues it against the floor with a
 reaching input, in the finding, and the owner rules; the table records the
@@ -168,12 +168,38 @@ or test path, CI workflows, credential, state-root and the paths below).
 commit's `.gstack/generated.json` registers. Docs, tests and release metadata are never
 runtime; a `.tmpl` edit plus its regenerated `SKILL.md` counts the template once.
 
+**Data files no code names are docs.** A changed or deleted JSON, JSONL, NDJSON, CSV,
+TSV or raster image (PNG, JPEG, GIF, WebP, BMP, ICO, AVIF) counts as docs when no
+non-docs file names its basename at the head, at the merge base or, for live /ship, in
+the working tree with untracked files; a data file named only by another data file
+follows that file, four files deep. Precedence: agent prose (`.gstack/**`), a test or
+fixture path, a gate path, a config file (`.github/**`, anything under a `config/`
+directory, dotfiles, `*.config.*`, `package.json`, lockfiles, `tsconfig*.json`,
+`manifest.json` and the other tool manifests `lib/review-depth.ts` lists) and a named
+consumer each keep the path code, and YAML, TOML and SVG are always code. More than
+2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
+and fails the depth closed. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
+finds the consumers, `gstack-ship-preflight`'s `RUNTIME_LINES` reads the same
+function); every path-only caller (the receipt's gate-scan decision, the Step 16
+post-review route, /autoplan's docs-only scope) keeps data files code. A numeric claim
+in a data file still schedules the outside voice.
+
 | Depth | When | Pass 1 dispatches |
 |---|---|---|
 | **light**, runtime 0 | docs and tests only, or only registered outputs | the core checklist only; the outside voice when the diff publishes numbers |
-| **light**, runtime 1–50 | `SMALL_DIFF_LINES` or fewer runtime lines | core, one **batched** specialist (testing, maintainability and security checklists, the specialists scope selects and the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
-| **standard** | more than 50 runtime lines | the code set with every threshold (specialists at 50, simplification at 100, Red Team at 200) read on runtime lines; specialists leave docs and registered outputs out of their diff, and every specialist but Testing leaves tests out too; adversarial and outside voice read everything |
-| **full** | gate class, or any classifier error | the gate set, unchanged: every reviewer on the whole diff, the Red Team always, no hit-rate gating |
+| **light**, runtime 1–50 | `SMALL_DIFF_LINES` or fewer runtime lines | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
+| **standard** | more than 50 runtime lines | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
+| **full** | gate class, or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
+
+**Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
+subagent reads Testing and Security on every code or gate diff, plus
+State-machines, Data-migration, API-contract and Design when scope asks (a
+forced checklist always joins). Maintainability, Performance and Simplification
+are read only when forced (`SKIP:` names them). The Red Team reads the batched
+reader's merged findings. A free re-score of saved C and D findings lost 0 of
+the 29 blockers (handoffs/GSTA-167/lean-ensemble-rescore.md); the live round 5
+replay passed (L∘G1 found 24 of 29 blockers against the control's 21,
+handoffs/GSTA-167/noloss5-results.md).
 
 A fixed blocking finding, a CRITICAL or an open blocker raises a light diff to
 standard for the next step (`step=standard`): its specialists read at least 50 lines
@@ -226,15 +252,20 @@ passes `--adversarial-ran` so a repeat lists them no more. Later full passes rer
 specialists on the range only. Step 11.5 binds a planned skip through the Step 9
 record's `CURRENT` freshness instead of a native record.
 
-**Effort.** Every reviewer that can block a ship (the core checklist,
-specialists, the Red Team, the native adversarial pass, fix-checks) runs at
-`full` effort. Work that cannot block (the Step 7 coverage audit, the Step 8
+**Effort.** The core checklist, the Red Team, the native adversarial pass and
+fix-checks run at `full` effort (the lane's reasoning); specialists run at
+`medium` (GSTA-167 part 3: the no-loss controls ran them there), except light's
+batched specialist, which carries the Red Team prompt and stays `full`. The
+outside voice and the native adversarial pass carry the floor sentence and end
+each finding with `Severity:` and `Blocks: yes|no`; a finding is CRITICAL when
+its label rule says so (native FIXABLE, outside Critical or High) or it says
+`Blocks: yes`, and `Blocks: no` never lowers one (`gstack-review-dispatch collect`). Work that cannot block (the Step 7 coverage audit, the Step 8
 plan-completion audit, the Step 14.5 docs audit, decision-trail reviewers,
 watchers) runs at `light`: the same model at a lower reasoning effort, never a
 cheaper model family. The outside voice keeps its own provider and effort
 (`codex_effort`). A host that cannot set a subagent's effort runs it at its
 default. `gstack-config set review_effort_tiers off` (or `--no-tiers`) runs
-the audits and watchers at the host default too
+the specialists, audits and watchers at the host default too
 ([model-policy.md](model-policy.md#reasoning-effort)).
 
 ### Behavior changes
@@ -244,10 +275,15 @@ the audits and watchers at the host default too
   Team and the native adversarial pass on the range instead of the specialist army.
 - A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
   core checklist and the gate scan review it.
+- Every depth dispatches one batched specialist instead of one reader per
+  checklist; Maintainability, Performance and Simplification run only when forced.
 - Light no longer runs a separate Red Team: the batched specialist carries its
   prompt. At runtime 0 light runs no adversarial pass either.
 - Standard reads thresholds on runtime lines, not the whole diff, so a test-heavy
   diff with few runtime lines dispatches fewer specialists.
+- A JSON, CSV, TSV or raster data file no code names is docs, not runtime (GSTA-167
+  part 4a). A binary image no code names is no longer a `binary_code_path` error
+  that forces full depth; one that code names still is.
 
 ## What the receipt records
 
@@ -375,10 +411,15 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    prompt and runs `sent` on what it passed: a hash that differs from the rendered
    one is `BRIEF_MISMATCH`, and that reader's review does not count.
 3. `collect` hashes each reader's raw output and appends its findings to
-   `merged.jsonl` with the label exactly as written (a JSON line's `severity`, or a
-   prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE wherever it
-   stands, headings and table rows included; a top-level list item under a label-only
-   heading takes that label). A phantom finding costs a fold; a lost one costs the gate.
+   `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
+   severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
+   wherever they stand, headings and table rows included; a top-level list item under a
+   label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
+   continues the finding above it until a list item, heading, bold paragraph opener or a
+   second line for the same field starts another: `Severity` raises its label,
+   `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
+   `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
+   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). A phantom finding costs a fold; a lost one costs the gate.
 4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id

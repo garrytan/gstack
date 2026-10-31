@@ -138,7 +138,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       const findings = specialistFindings(m.merged);
       fs.writeFileSync(path.join(briefs, 'specialist-findings.jsonl'), findings, { mode: 0o600 });
       findingsSha = promptHash(findings);
-      const specialists = m.readers.filter(x => x.role === 'specialist' || x.role === 'specialist-batched').length;
+      const specialists = m.readers.reduce((n, x) => n + (x.role === 'specialist' ? 1 : x.role === 'specialist-batched' ? (x.checklists ?? []).filter(c => c !== 'red-team').length : 0), 0);
       Object.assign(slots, { checklist: path.join(m.checklist_root, 'review/specialists/red-team.md'), findings, specialists: String(specialists) });
     }
     if (role === 'outside-voice') slots.diff = diffFor(m.diff_base);
