@@ -171,6 +171,7 @@
     { "file": "lib/ship-queue-train-verify.ts", "movedFrom": "(new: verify --train, the queue freeze and its backstop, plan GSTA-49 T1)" },
     { "file": "lib/ship-queue-train-ready.ts", "movedFrom": "(new: ready --screen|--no-screen and the READY receipt, plan GSTA-49 T1)" },
     { "file": "lib/ship-queue-train-cli.ts", "movedFrom": "(new: merge-train argument parsing and output, plan GSTA-49 T1)" },
+    { "file": "lib/ship-queue-land-lock.ts", "movedFrom": "lib/ship-queue-land.ts (the land lock, shared with train land, #3599)" },
     { "file": "lib/gate-cost.ts", "movedFrom": "(new: paid gate cost by model and token class, per-case costs, selection replays and the merge-train model, GSTA-49 T0)" },
     { "file": "scripts/gate-cost-replay.ts", "movedFrom": "(new: CLI behind lib/gate-cost.ts: cached report artifacts, merged-PR replay and the train model table, GSTA-49 T0)" },
     { "file": "lib/gate-cost-history.ts", "movedFrom": "(new: red attribution, red-head screen replay, READY times and the READY-arrival train replay, GSTA-49 T0b)" },

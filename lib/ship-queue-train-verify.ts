@@ -6,8 +6,9 @@
  * head, or at a head whose tree is the slot's prefix after it modulo stamps
  * (from slot 2 on, the lane merges main into its pin so GitHub can merge it),
  * with main's tree equal to the prefix before the PR (pre-merge:
- * MERGE_CONDITION) or after it (post-merge confirmation), modulo stamps
- * (lib/tree-receipt.ts). When a train stops partway (a mismatch or a moved
+ * MERGE_CONDITION, once the head carries its own stamp above main's version,
+ * #3531) or after it (post-merge confirmation, once GitHub reports the PR
+ * MERGED), modulo stamps (lib/tree-receipt.ts). When a train stops partway (a mismatch or a moved
  * head after earlier slots merged) the queue freezes: the freeze is written
  * locally and to the notes ref first, then the backstop gate is dispatched on
  * main's published prefix at once. One repair train is admitted under the
@@ -25,6 +26,9 @@ import {
 } from './ship-queue-train';
 import { mergeChangelogs, ownEntryAboveMain, parseChangelog } from './changelog-check';
 import { buildReceipt } from './tree-receipt';
+import { versionAtRef } from './restamp';
+import { cmpVersion, parseVersion } from './version-source';
+import { readLock, writeLock } from './ship-queue-land-lock';
 import { genericBackstop } from './ship-queue-train-gate';
 
 const Q = 'gstack-ship-queue';
@@ -108,6 +112,31 @@ function published(env: TrainEnv, t: TrainRecord, i: number, main: string): { sa
   const why = changelogIsMainPlusOwn(env, t, i, main, parent);
   if (why) return { same: false, detail: `${post.detail}, which is not main ${parent.slice(0, 12)}'s plus #${t.slots[i]!.pr}'s own entry: ${why}` };
   return { same: true, detail: `same modulo stamps (${r.files.filter(f => f.verdict === 'stamp').length} stamp file(s)) except ${cl}, main ${parent.slice(0, 12)}'s ${cl} plus #${t.slots[i]!.pr}'s own entry` };
+}
+
+/**
+ * The slot stamp a hand-stamped head must carry before it may merge (#3531, train 33 shipped #3527 under #3526's
+ * version): its VERSION above main's and, with a CHANGELOG, its top section headed with that version directly above
+ * main's top release, with no [Unreleased] section when main has none. The failing rule is named.
+ */
+function stampProof(env: TrainEnv, head: string, main: string): { version: string } | { rule: string; detail: string } {
+  const root = env.ctx.repoRoot;
+  const hv = versionAtRef(root, head);
+  const mv = versionAtRef(root, main);
+  if ('error' in hv) return { rule: 'version', detail: `the head's version cannot be read (${hv.error})` };
+  if ('error' in mv) return { rule: 'version', detail: `main's version cannot be read (${mv.error})` };
+  const [h, m] = [parseVersion(hv.version), parseVersion(mv.version)];
+  if (!h || !m || cmpVersion(h, m) <= 0) return { rule: 'version', detail: `the head's ${hv.rel} ${hv.version} is not above main's ${mv.version}` };
+  const cl = env.policy.policy.changelog;
+  if (!cl) return { version: hv.version };
+  const sections = (rev: string) => parseChangelog(git(root, ['show', `${rev}:${cl}`]).out).sections;
+  const [ours, theirs] = [sections(head), sections(main)];
+  const mainTop = theirs.find(s => !s.unreleased)?.version ?? null;
+  if (ours[0]?.version !== hv.version) return { rule: 'changelog', detail: `${cl}'s top section at the head is [${ours[0] ? ours[0].version ?? 'Unreleased' : 'none'}], not [${hv.version}]` };
+  const below = ours.slice(1).find(s => !s.unreleased)?.version ?? null;
+  if (below !== mainTop) return { rule: 'changelog', detail: `${cl}'s release below [${hv.version}] at the head is [${below ?? 'none'}], not main's top release [${mainTop ?? 'none'}]` };
+  if (!theirs.some(s => s.unreleased) && ours.some(s => s.unreleased)) return { rule: 'changelog', detail: `${cl} at the head keeps an [Unreleased] section that main does not have` };
+  return { version: hv.version };
 }
 
 /**
@@ -225,8 +254,13 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   const before = t.prefixes[i]!;
   const post = published(env, t, i, main);
   const lines = [`TRAIN: ${t.nonce} slot ${i + 1}/${t.slots.length} #${o.pr} pinned ${t.slots[i]!.head}`];
-  if (post.same) return confirmMerged(env, t, o.pr, main, after.index, [...lines, `main: ${main} = T${after.index} (${post.detail})`]);
   const pre = sameModuloStamps(env, before.commit, main);
+  if (post.same) {
+    const state = prState(ctx, o.pr);
+    if (state === 'MERGED') return confirmMerged(env, t, o.pr, main, after.index, [...lines, `main: ${main} = T${after.index} (${post.detail})`]);
+    if (state !== 'OPEN' || !pre.same) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `main ${main.slice(0, 12)} is T${after.index} modulo stamps (${post.detail}), but GitHub reports #${o.pr} as ${state}, not MERGED; nothing is confirmed and the queue is not frozen` }, lines, `gh pr view ${o.pr} --json state,mergeCommit; rerun once GitHub reports #${o.pr} MERGED: ${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
+    lines.push(`main: also T${after.index} modulo stamps, but #${o.pr} is OPEN, so this is the pre-merge check (a stamp-only PR)`);
+  }
   if (!pre.same) {
     return stopped(env, t, 'QUEUE_TRAIN_TREE_MISMATCH', `main ${main.slice(0, 12)} is neither T${before.index} nor T${after.index} modulo stamps (vs T${after.index}: ${post.detail})`, main, lines, !o.noFetch);
   }
@@ -239,7 +273,9 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   if ('error' in info) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: info.error }, lines, `${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
   const shipped = bindReceipt(info.body, o.pr, [t.slots[i]!.head, head]);
   if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, [...lines, shipped.line], `#${o.pr}'s lane runs /ship and READYs again; then ${Q} train build --prs <pins>`, run);
-  return outOk([...lines, `main: ${main} = T${before.index} (${pre.detail})`, `head: ${head} (${stampOnly.detail})`, `${shipped.line} (binds ${shipped.head === t.slots[i]!.head ? 'the pinned head' : 'the current head'})`,
+  const stamp = stampProof(env, head, main);
+  if ('rule' in stamp) return outRefused({ code: 'QUEUE_TRAIN_UNSTAMPED', message: `#${o.pr}'s head ${head.slice(0, 12)} is not stamped above main: ${stamp.rule}: ${stamp.detail}` }, lines, `#${o.pr}'s lane runs gstack-restamp --next on its head, commits what restamp staged, pushes, then ${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
+  return outOk([...lines, `main: ${main} = T${before.index} (${pre.detail})`, `head: ${head} (${stampOnly.detail})`, `${shipped.line} (binds ${shipped.head === t.slots[i]!.head ? 'the pinned head' : 'the current head'})`, `STAMP_VERSION: ${stamp.version}`,
     `VERIFY_TRAIN: #${o.pr} may merge as slot ${i + 1} of train ${t.nonce} (green run ${gate.run?.id ?? '-'}, ${env.train.full_gate_check} success)`, `MERGE_CONDITION: sha=${head}`],
   `merge #${o.pr} with expected head ${head.slice(0, 12)} (gstack-restamp stamps at merge), then ${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
 }
@@ -262,6 +298,8 @@ export function confirmMerged(env: TrainEnv, t: TrainRecord, pr: string, main: s
     freeze.updated_at = freeze.cleared_at;
     persist(env.ctx.repoRoot, [freeze], { remote: env.remote });
     lines.push(`FREEZE: cleared (${freeze.cleared_by})`);
+    const held = readLock(env.ctx.repoRoot, env.remote);
+    if (held.state === 'held' && held.lock.phase === 'freeze' && writeLock(env.ctx.repoRoot, held.sha, { released: true, by: `verify #${pr} via train ${t.nonce}`, at: nowIso() }, env.remote).ok) lines.push('LOCK: released the freeze lock');
     const rebuild = freeze.unmerged.length ? `${Q} train build --prs ${pinList(freeze.unmerged)}` : '';
     const unread = freeze.unreadable ?? [];
     const check = unread.length ? `${unread.map(u => `gh pr view ${u.pr} --json state,headRefOid`).join(' && ')} (unreadable at the freeze: ${unread.map(u => `#${u.pr}@${u.head.slice(0, 12)}`).join(', ')}); seat each that is OPEN in a train` : '';

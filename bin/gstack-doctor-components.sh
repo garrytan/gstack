@@ -329,6 +329,9 @@ gstack_result_anchor() {
     RECEIPT_GIT_TOO_OLD) printf '%s' 'receipt-git-too-old' ;;
     CHANGELOG_FRAGMENT_INVALID) printf '%s' 'changelog-fragment-invalid' ;;
     QUEUE_LAND_LOCKED) printf '%s' 'queue-land-locked' ;;
+    QUEUE_TRAIN_UNSTAMPED) printf '%s' 'queue-train-unstamped' ;;
+    RESTAMP_NOT_STAGED) printf '%s' 'restamp-not-staged' ;;
+    RESTAMP_UNSTAGED_EDITS) printf '%s' 'restamp-unstaged-edits' ;;
     QUEUE_LAND_CONFLICT) printf '%s' 'queue-land-conflict' ;;
     QUEUE_LAND_DRIFT) printf '%s' 'queue-land-drift' ;;
     QUEUE_LAND_BASE_BUSY) printf '%s' 'queue-land-base-busy' ;;

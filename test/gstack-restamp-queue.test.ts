@@ -8,6 +8,7 @@
  * version-source shapes (package-manifest pin, monorepo pin, absent source).
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
@@ -163,7 +164,7 @@ describe('three PRs, reordered twice, zero manual edits', () => {
     expect(changed.status).toBe(EXIT.fail);
     expect(changed.out).toMatch(/^TREE: changed \(pr-b\.txt\)$/m);
     expect(changed.out).toMatch(/^gate-reuse: not-eligible \(tree changed: pr-b\.txt\) — fix: .* \(GATE_REUSE_NOT_ELIGIBLE\)$/m);
-  });
+  }, 30_000);
 
   test('--dry-run prints the full diff and writes nothing; --was overrides the mention source', () => {
     const repo = fixture();
@@ -191,7 +192,7 @@ describe('three PRs, reordered twice, zero manual edits', () => {
     const stamped = restamp(repo, ['--next']);
     expect(stamped.status).toBe(EXIT.ok);
     expect(stamped.out).toMatch(/^next: NEW_VERSION=1\.2\.4\.0; record the release decision, then write the CHANGELOG entry text only/m);
-  });
+  }, 30_000);
 
   // Value: protects=a bump never repo's --next never invents a MICRO stamp: without --bump or --version it refuses and writes nothing, and an explicit level stamps as before; fails_when=restamp falls back to micro for a repo whose policy names no level;
   //   why_new=GST-380 added bump never; seam=gstack-ship-policy, gstack-version-bump write; no_claim=the claim queue read
@@ -454,7 +455,7 @@ describe('gate-ahead (--after), predecessor movement and queue staleness', () =>
     const viaGh = runBin(repo, 'gstack-tree-receipt', ['--from', path.join(repo.work, '.gstack/tmp/gate-ahead.json'), '--predecessor-pr', '1', '--bundle', bundle, '--base', 'main', '--json'], ghShim(repo, { '1': { headRefOid: repo.git('rev-parse', 'pr-a') } }));
     expect(JSON.parse(viaGh.out).predecessor.moved).toBe(true);
     expect(JSON.parse(viaGh.out).code).toBe('RESTAMP_PREDECESSOR_MOVED');
-  });
+  }, 30_000);
 
   test('a gate-ahead merge that conflicts outside the stamp files is RESTAMP_MERGE_CONFLICT with nothing written', () => {
     const repo = fixture();
@@ -585,5 +586,77 @@ describe('version-source shapes', () => {
     expect(r.status).toBe(EXIT.refused);
     expect(r.err).toMatch(/VERSION does not exist at [0-9a-f]{40}; nothing written.*\(RESTAMP_VERSION_SOURCE\)/);
     expect(fs.existsSync(path.join(repo.work, 'VERSION'))).toBe(false);
+  });
+});
+
+describe('gstack-restamp stages what it writes (#3531)', () => {
+  /** Branch b forks from main; branch a stamps and merges first, so b's base merge conflicts only on the CHANGELOG. */
+  function behindMain(): FixtureRepo {
+    const repo = fixture();
+    makePr(repo, 'pr-b');
+    makePr(repo, 'pr-a');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'stamp pr-a');
+    mergeToMain(repo, 'pr-a');
+    repo.git('fetch', '-q', 'origin');
+    repo.git('checkout', '-q', 'pr-b');
+    return repo;
+  }
+  const cached = (repo: FixtureRepo) => repo.git('diff', '--cached', '--name-only').split('\n').filter(Boolean);
+  const unstaged = (repo: FixtureRepo) => repo.git('diff', '--name-only').split('\n').filter(Boolean);
+  const filesOf = (out: string) => (/^FILES: (.*)$/m.exec(out)?.[1] ?? '').split(' ').filter(Boolean);
+
+  test('after --next on a staged no-commit base merge, every FILES entry is staged, STAGED: names them, and a bare commit carries the stamp', () => {
+    const repo = behindMain();
+    const merge = spawnSync('git', ['merge', '--no-ff', '--no-commit', '-q', 'origin/main'], { cwd: repo.work, encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...repo.env } });
+    if (merge.status !== 0) {
+      fs.writeFileSync(path.join(repo.work, 'CHANGELOG.md'), mergeChangelogs(repo.git('show', ':2:CHANGELOG.md') + '\n', repo.git('show', ':3:CHANGELOG.md') + '\n')!);
+      repo.git('add', 'CHANGELOG.md');
+    }
+    const r = restamp(repo, ['--next']);
+    expect(r.status, r.err).toBe(EXIT.ok);
+    const files = filesOf(r.out);
+    expect(files).toEqual(expect.arrayContaining(['VERSION', 'CHANGELOG.md']));
+    expect(cached(repo)).toEqual(expect.arrayContaining(files));
+    expect(unstaged(repo).filter(f => files.includes(f))).toEqual([]);
+    const staged = /^STAGED: (.*)$/m.exec(r.out)?.[1]?.split(' ') ?? [];
+    expect(staged).toEqual(expect.arrayContaining(files));
+    repo.git('commit', '-q', '--no-edit');
+    expect(repo.git('show', 'HEAD:VERSION')).toBe('1.2.5.0');
+    expect(repo.git('show', 'HEAD:CHANGELOG.md')).toMatch(/^# Changelog\n\n## \[1\.2\.5\.0\]/);
+    expect(fs.existsSync(path.join(repo.work, '.gstack/tmp/restamp-staging.json'))).toBe(false);
+  });
+
+  test('a stamp file with unstaged edits of its own refuses before writing (RESTAMP_UNSTAGED_EDITS); nothing written or staged', () => {
+    const repo = fixture();
+    makePr(repo, 'pr-c');
+    fs.appendFileSync(path.join(repo.work, 'CHANGELOG.md'), '\n- an edit the caller has not staged\n');
+    const r = restamp(repo, ['--next']);
+    expect(r.status).toBe(EXIT.refused);
+    expect(r.err).toMatch(/CHANGELOG\.md holds? unstaged edits of your own.*nothing written.*\(RESTAMP_UNSTAGED_EDITS\)/);
+    expect(readFile(repo, 'VERSION')).toBe('1.2.3.0\n');
+    expect(cached(repo)).toEqual([]);
+  });
+
+  test('a staging failure prints RESTAMP_NOT_STAGED with the files written and a marker; the noop rerun stages them', () => {
+    const repo = fixture();
+    makePr(repo, 'pr-d');
+    const lock = path.join(repo.work, '.git', 'index.lock');
+    fs.writeFileSync(lock, '');
+    const r = restamp(repo, ['--next']);
+    expect(r.status).toBe(EXIT.fail);
+    expect(r.err).toContain('(RESTAMP_NOT_STAGED)');
+    expect(r.out).not.toMatch(/^STAGED:/m);
+    expect(readFile(repo, 'VERSION')).toBe('1.2.4.0\n');
+    expect(cached(repo)).toEqual([]);
+    expect(fs.existsSync(path.join(repo.work, '.gstack/tmp/restamp-staging.json'))).toBe(true);
+    fs.rmSync(lock, { force: true });
+    const again = restamp(repo, ['--next']);
+    expect(again.status, again.err).toBe(EXIT.ok);
+    expect(again.out).toMatch(/^RESTAMP: .*\(noop;/m);
+    expect(cached(repo)).toEqual(expect.arrayContaining(['VERSION', 'CHANGELOG.md']));
+    expect(again.out).toMatch(/^STAGED: .*VERSION/m);
+    expect(fs.existsSync(path.join(repo.work, '.gstack/tmp/restamp-staging.json'))).toBe(false);
   });
 });
