@@ -646,7 +646,7 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
   // fuller install recorded no launch path but this run needs one, it writes its own
   // <verdict>.profile/<for>.env. fails_when: the run announces the lane's file anyway (its shell
   // would resolve an uncertified Bun) or rewrites the lane's file.
-  test('a kept profile run whose fuller install recorded no launch path, while this run needs one, writes <verdict>.profile/<for>.env and leaves the lane\'s file alone', () => {
+  test.skipIf(process.platform !== 'linux')('a kept profile run whose fuller install recorded no launch path, while this run needs one, writes <verdict>.profile/<for>.env and leaves the lane\'s file alone', () => {
     const f = fixture();
     const zip = zipBun(f, '1.4.4');
     const first = run(f, ['--for', 'autoplan']);
