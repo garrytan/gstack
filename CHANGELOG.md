@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.91.377.0] - 2026-10-31
+
+**A passed GitHub Actions run can now clear the remote test gate for the same tree, so a repository stops running its full suite twice per slot.** gbrain paid a 30–45 minute Ubicloud gate and then an 18–20 minute full-ci dispatch on the same tree in every serial slot (GBRA-108: #7872's slot took 5.6 h). `gstack-pregate clear --remote pregate.json/remote_gate --run <id> --run <id>` accepts one verified run per profile the base branch declares. gstack checks each run against the runner's own record, never against a pasted claim. It reads the GitHub API's run and jobs, the tree git computes for the run's head, and the `tree.json` the run uploaded. Nothing is skipped: the tests still run once, in CI. A repository that declares no profiles is unchanged.
+
+### Added
+- **`gstack-pregate clear --run <id|url>`** (repeatable; `lib/run-evidence.ts`, docs/pregate.md#run-evidence). A run is accepted only when it belongs to this repository, ran a `push` or `workflow_dispatch` event of the profile's workflow, and its newest attempt succeeded with every named job passing exactly once. Its `tree.json` must name the run, attempt, event and head and record the head's tree, and it must be fresh (`max_age_hours`, default 24) and on the profile's OS. It is refused if any run of that workflow on the head that started at or after it failed, was cancelled or is still running, or if the run changed attempts while being checked. All runs must be on one tree: pregate.json's, or a stamp-only predecessor under the existing tree-receipt rule. Their `files` must cover the obligation's selected tests plus every file the declared `inventory` command lists for that tree. Refusals print `REUSE: refused reason=<code>`; an accepted clear prints `REUSE: accepted`, and the receipt records `runs=<id>/<attempt> profiles= heads= verified=`.
+- **`run_profiles` and `remote_gate_runs`** in `.gstack/pregate.json`, read only from `origin/<base>`. A user-owned policy that sets them is refused, because nothing would read them there. `gstack-pregate clear` clears a lane named by a profile only through verified runs, so its `--run-url` is verified the same way, and `--bundle-lane` is refused. `gstack-ship-queue ready --dispatch-ci` still records a plain run URL for such a lane, and `verify` does not yet re-check it (docs/pregate.md#run-evidence). When the base config cannot be read, any lane's `--run-url` or `--bundle-lane` clear refuses, since the base may profile it. When the GitHub origin cannot be read, a profiled lane refuses rather than fall back to an unverified record.
+
+### Changed
+- **`gstack-pregate verify`** stays offline. It also refuses a run receipt recorded for another tree unless its stamp-only substitution is recorded.
+
+### Tests
+- `test/run-evidence.test.ts`: every refusal reason, including the re-run cases (a red re-run of an older run vetoes; re-running the candidate does not hide a failure in between), a run that changes attempts while being checked, malformed counts and paths, and profile validation.
+- `test/pregate-clear-runs.test.ts`: on a fixture repository, clear on the same tree, verify offline, and bind the ship receipt. Also covers a stamp-only predecessor, a non-stamp difference, uncovered files, runs on different trees, base mismatch, repeated runs, the profile-to-run assignment, the profiled-lane matrix (`--run-url`, `--bundle-lane`, `--run`), a non-GitHub origin failing closed, an origin that `url.insteadOf` rewrites to a proxy (Capy's git.capy.ai) still read as the GitHub repository, and an unreadable base config refusing `--run-url` on every lane. The `--run-url` fallback test failed before the fix.
+
 ## [1.91.376.0] - 2026-10-31
 
 bump: minor
