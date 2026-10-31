@@ -8,7 +8,7 @@ import { Budget } from '../lib/ci-audit/github';
 import { concurrencyFlag, lessonRunners } from '../lib/ci-audit/lessons';
 import { cohort, measure, phases } from '../lib/ci-audit/measure';
 import { priceRunner } from '../lib/ci-audit/prices';
-import { ISSUE_MARKER, ISSUE_TITLE, findIssue, planIssue } from '../lib/ci-audit/publish';
+import { ISSUE_MARKER, ISSUE_TITLE, applyIssue, findIssue, planIssue } from '../lib/ci-audit/publish';
 import type { AuditReport } from '../lib/ci-audit/report';
 import { CI_SHAPING, MIN_COHORT, comparable, judgeHead, staticChecks } from '../lib/ci-audit/ship-check';
 import { parseWorkflow, readStatic } from '../lib/ci-audit/static';
@@ -225,6 +225,23 @@ describe('cost accounting inputs', () => {
   });
 });
 
+describe('pre-push hook in a fresh checkout', () => {
+  const repo = (files: Record<string, string>) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-audit-hook-'));
+    for (const [f, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), text); }
+    for (const args of [['init', '-q'], ['add', '-A']]) Bun.spawnSync(['git', ...args], { cwd: dir });
+    return dir;
+  };
+  test('a tracked hook directory, every lefthook spelling, simple-git-hooks and pre-commit count without local git config', () => {
+    expect(readStatic(repo({ '.githooks/pre-push': 'bun run lint && bun run typecheck', 'package.json': '{"scripts":{"prepare":"git config core.hooksPath .githooks"}}' }), 'main').hook).toMatchObject({ file: '.githooks/pre-push', runs: ['lint', 'typecheck'] });
+    expect(readStatic(repo({ 'lefthook.yaml': 'pre-push:\n  commands:\n    lint: { run: eslint }' }), 'main').hook?.manager).toBe('lefthook');
+    expect(readStatic(repo({ '.lefthook.yml': 'pre-push:\n  commands:\n    tc: { run: tsc }' }), 'main').hook?.runs).toEqual(['typecheck']);
+    expect(readStatic(repo({ 'package.json': '{"simple-git-hooks":{"pre-push":"npm run lint"}}' }), 'main').hook).toMatchObject({ manager: 'simple-git-hooks', runs: ['lint'] });
+    expect(readStatic(repo({ '.pre-commit-config.yaml': 'repos:\n- repo: local\n  hooks:\n  - id: lint\n    entry: ruff\n    stages: [pre-push]' }), 'main').hook?.manager).toBe('pre-commit');
+    expect(readStatic(repo({ 'README.md': 'x' }), 'main').hook).toBeNull();
+  });
+});
+
 describe('ship-check static rules', () => {
   test('CI-shaping files include workflows, package.json, hook managers and linter configs, not ordinary source', () => {
     for (const f of ['.github/workflows/ci.yml', 'package.json', 'web/package.json', 'bunfig.toml', 'tsconfig.json', '.husky/pre-push', 'lefthook.yml', 'biome.json', 'vitest.config.ts', '.gstack/pregate.json']) expect(CI_SHAPING.test(f)).toBe(true);
@@ -288,6 +305,20 @@ describe('weekly issue', () => {
     }
     expect(planIssue({ exit: 3, report: null, error: 'CI_AUDIT: unavailable x (ci_audit_deadline)' }, null).action).toBe('none');
     expect(planIssue({ exit: 4, report: { ...withFixes, partial: ['x'] } as AuditReport }, null).action).toBe('create');
+  });
+
+  test('each issue action writes to the right issue in order, and a refused write throws', async () => {
+    const calls: string[] = [];
+    const write = async (m: string, p: string, b: Record<string, unknown>) => { calls.push(m + ' ' + p + ' ' + Object.keys(b).join(',')); return 201; };
+    const ex = { number: 7, body: '' };
+    expect(await applyIssue(write, 'o/r', { action: 'create', body: 'b' }, null)).toBe('CI_AUDIT_ISSUE: created');
+    expect(await applyIssue(write, 'o/r', { action: 'update', body: 'b' }, ex)).toBe('CI_AUDIT_ISSUE: updated #7');
+    expect(await applyIssue(write, 'o/r', { action: 'keep', comment: 'c' }, ex)).toBe('CI_AUDIT_ISSUE: kept #7 open');
+    expect(await applyIssue(write, 'o/r', { action: 'close', comment: 'c' }, ex)).toBe('CI_AUDIT_ISSUE: closed #7');
+    expect(await applyIssue(write, 'o/r', { action: 'none', reason: 'r' }, null)).toBe('CI_AUDIT_ISSUE: none (r)');
+    expect(calls).toEqual(['POST /repos/o/r/issues title,body', 'PATCH /repos/o/r/issues/7 body', 'POST /repos/o/r/issues/7/comments body',
+      'POST /repos/o/r/issues/7/comments body', 'PATCH /repos/o/r/issues/7 state,state_reason']);
+    await expect(applyIssue(async () => 422, 'o/r', { action: 'create', body: 'b' }, null)).rejects.toThrow('ci_audit_api_failed');
   });
 
   test('job names from a fork PR cannot break the tables or mention anyone', () => {

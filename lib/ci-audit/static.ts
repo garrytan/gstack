@@ -71,21 +71,29 @@ export function parseWorkflow(file: string, text: string, defaultBranch: string)
   };
 }
 
-function readHook(root: string): HookInfo | null {
+const hookRuns = (text: string) => ['lint', 'typecheck', 'format', 'test'].filter(k => new RegExp(k === 'typecheck' ? 'typecheck|tsc|tsgo|type-check' : k, 'i').test(text));
+
+/** The pre-push hook: local git config first, then tracked sources a fresh CI checkout also has. */
+function readHook(root: string, files: string[], pkg: any): HookInfo | null {
   const hooksPath = git(root, ['config', '--get', 'core.hooksPath']);
+  const hooksDir = git(root, ['rev-parse', '--git-path', 'hooks']);
   const candidates: [string, string][] = [
-    ...(hooksPath ? [[ 'core.hooksPath', path.join(root, hooksPath, 'pre-push') ] as [string, string]] : []),
+    ...(hooksPath ? [['core.hooksPath', path.join(root, hooksPath, 'pre-push')] as [string, string]] : []),
     ['husky', path.join(root, '.husky', 'pre-push')],
-    ['lefthook', path.join(root, 'lefthook.yml')],
-    ['git', path.join(git(root, ['rev-parse', '--git-path', 'hooks']) ? path.resolve(root, git(root, ['rev-parse', '--git-path', 'hooks'])!) : path.join(root, '.git', 'hooks'), 'pre-push')],
+    ...['lefthook.yml', 'lefthook.yaml', '.lefthook.yml', '.lefthook.yaml'].map(f => ['lefthook', path.join(root, f)] as [string, string]),
+    ['pre-commit', path.join(root, '.pre-commit-config.yaml')],
+    ['git', path.join(hooksDir ? path.resolve(root, hooksDir) : path.join(root, '.git', 'hooks'), 'pre-push')],
+    ...files.filter(f => path.basename(f) === 'pre-push').map(f => ['tracked', path.join(root, f)] as [string, string]),
   ];
   for (const [manager, file] of candidates) {
     if (!fs.existsSync(file)) continue;
     const text = fs.readFileSync(file, 'utf8');
     if (manager === 'lefthook' && !/pre-push:/.test(text)) continue;
-    const runs = ['lint', 'typecheck', 'format', 'test'].filter(k => new RegExp(k === 'typecheck' ? 'typecheck|tsc|tsgo|type-check' : k, 'i').test(text));
-    return { manager, file: path.relative(root, file), runs };
+    if (manager === 'pre-commit' && !/pre-push/.test(text)) continue;
+    return { manager, file: path.relative(root, file), runs: hookRuns(text) };
   }
+  const simple = pkg?.['simple-git-hooks']?.['pre-push'];
+  if (typeof simple === 'string') return { manager: 'simple-git-hooks', file: 'package.json', runs: hookRuns(simple) };
   return null;
 }
 
@@ -99,7 +107,7 @@ export function readStatic(root: string, defaultBranch: string): StaticView {
   return {
     root, head: git(root, ['rev-parse', 'HEAD']) ?? 'unknown', dirty: Boolean(git(root, ['status', '--porcelain'])),
     workflows, packageScripts: pkg.scripts ?? {}, deps: Object.keys({ ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) }),
-    files, hook: readHook(root),
+    files, hook: readHook(root, files, pkg),
     testFilesMentioning: (pattern: RegExp) => testFiles.filter(f => { try { return pattern.test(fs.readFileSync(path.join(root, f), 'utf8')); } catch { return false; } }),
   };
 }
