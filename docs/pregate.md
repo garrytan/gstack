@@ -114,9 +114,10 @@ the caller's environment, never the checkout's `.env`: the bin's shebang passes
 `--no-env-file`, and a bare `bun gstack-pregate` launched beside any `.env` file
 refuses (`POLICY_SOURCE_UNAVAILABLE`). `verify` reads both paths from the
 record, not from its own environment.
-It covers `gstack-pregate run` only: `sealed` and `price_file` are read from the
-base branch's copy, so the user file refuses them (`PREGATE_CONFIG_INVALID`)
-rather than holding a policy nothing reads. A user file that exists but cannot
+It covers `gstack-pregate run` only: `sealed`, `price_file`, `run_profiles` and
+`remote_gate_runs` are read from the base branch's copy, so the user file refuses
+them (`PREGATE_CONFIG_INVALID`; an empty `run_profiles` is accepted) rather than
+holding a policy nothing reads. A user file that exists but cannot
 be read, or a symlink on its path that points nowhere, refuses the same way
 instead of falling back to defaults. A base copy git cannot read (and
 `git ls-tree` cannot confirm is absent) refuses with `POLICY_SOURCE_UNAVAILABLE`
@@ -435,7 +436,7 @@ the selected local files as a `requires-remote` obligation with the command to
 run, `pregate.json/remote_gate` (the declared command) or
 `test_backend/<backend>` (gstack's `scripts/ubicloud/ubi-runner.sh run --src
 <repo> -- '<runner> <files>'`). Without either, the tier runs locally under
-the supervision above. Close the obligation one of two ways:
+the supervision above. Close the obligation one of three ways:
 
 - after running it, `gstack-pregate clear --remote pregate.json/remote_gate
   --receipt <file>` with the gate's output, validated as `--remote` validates it
