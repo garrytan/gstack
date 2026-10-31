@@ -64,6 +64,7 @@ export function budgetHarness(): Harness {
   // with empty output and no cause. A run that ends without an exit code now names its command, how it ended, its
   // elapsed time and, on Windows, the children it left (bash, git or a nested bin), so the next red names the stuck stage.
   let abnormal = '';
+  const childListMs = 10_000;
   const run = (bin: string, args: string[], extraEnv: NodeJS.ProcessEnv = {}): Run => {
     const argv = bin === REVIEW_LOG_BIN ? ['bash', bin] : [process.execPath, ...bunIsolationArgs(), bin];
     const started = Date.now();
@@ -74,7 +75,7 @@ export function budgetHarness(): Harness {
     if (process.platform === 'win32' && r.pid) {
       const children = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
         `Get-CimInstance Win32_Process -Filter 'ParentProcessId=${r.pid}' | ForEach-Object { '{0} {1}' -f $_.ProcessId, $_.CommandLine }`,
-      ], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+      ], { encoding: 'utf8', timeout: childListMs, windowsHide: true });
       abnormal += `; children of ${r.pid}: ${children.stdout?.trim() || (children.error ? `unavailable (${children.error.message})` : 'none')}`;
     }
     result.err += `\n[harness] ${abnormal}`;
