@@ -1124,6 +1124,11 @@ _render_install() {
     && [ "$got" = "$(cd "$(dirname "$default")" 2>/dev/null && pwd -P)" ] && return 0
   render="$(gstack_install_render_dir "$host" "$root")"
   named="$root"
+  # A drive-form root (C:/x) gets the /c/x spelling the renderer writes, so the
+  # guard below and both post-render checks agree with the render (#3498).
+  if [ "$IS_WINDOWS" -eq 1 ] && command -v cygpath >/dev/null 2>&1; then
+    named="$(cygpath -u "$root" 2>/dev/null)" || named="$root"
+  fi
   if ! printf '%s' "$named" | grep -Eq '^/[A-Za-z0-9_.@+/-]*$'; then
     named="$render.root"
     if [ "$IS_WINDOWS" -eq 1 ] || ! printf '%s' "$named" | grep -Eq '^/[A-Za-z0-9_.@+/-]*$'; then

@@ -1131,6 +1131,14 @@ describe('gstack-doctor: rescue refs, CLAUDE.md skill lists, Windows bash', () =
     expect(override.row('windows bash').detail).toBe('D:/tools/bash.exe (chosen by GSTACK_GIT_BASH)');
   });
 
+  test('windows bash: an exported MSYS_NO_PATHCONV warns that Bun commands cannot start (#3468)', () => {
+    const f = makeFixture();
+    const r = doctor(f, [], { GSTACK_DOCTOR_PLATFORM: 'windows', MSYS_NO_PATHCONV: '1', GSTACK_DOCTOR_BASH_PROBE: probe(f, { exists: [GIT_BASH], gitExecPath: 'C:/Program Files/Git/mingw64/libexec/git-core' }) });
+    expect(r.row('windows bash').state, r.out).toBe('warn');
+    expect(r.row('windows bash').detail).toContain('MSYS_NO_PATHCONV is set');
+    expect(r.row('windows bash').fix).toContain('#msys-no-pathconv');
+  });
+
   test('windows bash: GSTACK_GIT_BASH and a different deprecated GSTACK_BASH warn naming both', () => {
     const f = makeFixture();
     const differ = doctor(f, [], { GSTACK_DOCTOR_PLATFORM: 'windows', GSTACK_GIT_BASH: 'D:/a/bash.exe', GSTACK_BASH: 'D:/b/bash.exe', GSTACK_DOCTOR_BASH_PROBE: probe(f, { exists: ['D:/a/bash.exe', 'D:/b/bash.exe'] }) });

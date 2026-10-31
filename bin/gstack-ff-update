@@ -130,6 +130,9 @@ HB_PID=$!
 # ── Inside the lock ──
 HEAD_OID=$(g rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null) || refuse 2 not-a-checkout "$DIR has no HEAD commit"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-ff-XXXXXX" 2>/dev/null) || refuse 3 autostash-unrecoverable "cannot create a temp directory under ${TMPDIR:-/tmp}; nothing was changed"
+# Its index files go to Git for Windows, which cannot open /tmp/... with MSYS
+# path conversion off (#3468): use the native spelling where cygpath exists.
+if command -v cygpath >/dev/null 2>&1 && _ff_native=$(cygpath -am "$TMP" 2>/dev/null) && [ -n "$_ff_native" ]; then TMP=$_ff_native; fi
 g ls-files -u -z > "$TMP/unmerged.raw" 2>"$TMP/err" || refuse 5 index-unreadable "cannot read the index of $DIR ($(head -c 200 "$TMP/err")); nothing was changed"
 UNMERGED=$(tr '\0' '\n' < "$TMP/unmerged.raw")
 # Nothing to move: an up-to-date install keeps its edits and staged state as they are.

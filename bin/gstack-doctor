@@ -531,6 +531,8 @@ check_windows_bash() {
     row fail "windows bash" "$refused" "set GSTACK_GIT_BASH to Git Bash's bash.exe for good (PowerShell user variable or the env block of ~/.claude/settings.json), then restart Claude Code ($DOCS#bash-unavailable)"
   elif [ -z "$bash" ]; then
     row warn "windows bash" "not checked: gstack-windows-bash exited $rc ($(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | head -1 | cut -c1-200))" "cd $SRC && ./setup"
+  elif [ -n "${MSYS_NO_PATHCONV:-}" ]; then
+    row warn "windows bash" "$bash (chosen by $source); MSYS_NO_PATHCONV is set, so gstack's Bun commands cannot read --config=/dev/null and fail before they start (#3468)" "unset MSYS_NO_PATHCONV and set it only on the command that needs it, such as MSYS_NO_PATHCONV=1 docker ... ($DOCS#msys-no-pathconv)"
   elif [ -n "$warning" ]; then
     row warn "windows bash" "$bash (chosen by $source); $warning" "unset GSTACK_BASH, or set it to the same path"
   else

@@ -63,6 +63,14 @@ test('a linked worktree with a private object directory gets its fingerprint (#3
   expectFingerprintOfHead();
 });
 
+// #3468: with MSYS path conversion off (MSYS_NO_PATHCONV=1, common for docker
+// calls), Git for Windows received the raw /tmp/... temp index path and could
+// not open it.
+test('the temp index reaches git with MSYS path conversion off (#3468)', () => {
+  env = { ...env, MSYS_NO_PATHCONV: '1' };
+  expectFingerprintOfHead();
+});
+
 // Linux and macOS reproduce Git for Windows: `--git-path` answers in drive-letter
 // form, and GIT_ALTERNATE_OBJECT_DIRECTORIES is one ;-separated list in which C:/…
 // is absolute. Linux git splits on ':', so the shim hands that list over as one

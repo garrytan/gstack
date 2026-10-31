@@ -131,9 +131,12 @@ hook_report() {
 hook_incoming_hold() {
   _hc_dir=$(mktemp -d "${TMPDIR:-/tmp}/gstack-session-hooks-XXXXXX" 2>/dev/null) \
     || { echo "hook-check-unavailable: cannot create a temp directory under ${TMPDIR:-/tmp}"; return 0; }
+  # With MSYS path conversion off, Git for Windows cannot open /tmp/... (#3468).
+  _hc_git=$_hc_dir
+  [ -z "${MSYS_NO_PATHCONV:-}" ] || _hc_git=$(gstack_path_native "$_hc_dir")
   _hc_out="" _hc_why=""
-  if ! ( export GIT_INDEX_FILE="$_hc_dir.index"
-         git -C "$GSTACK_DIR" read-tree "$1" && git -C "$GSTACK_DIR" -c core.symlinks=false checkout-index -a --prefix="$_hc_dir/" ) 2>"$_hc_dir.err"; then
+  if ! ( export GIT_INDEX_FILE="$_hc_git.index"
+         git -C "$GSTACK_DIR" read-tree "$1" && git -C "$GSTACK_DIR" -c core.symlinks=false checkout-index -a --prefix="$_hc_git/" ) 2>"$_hc_dir.err"; then
     _hc_why="cannot extract the incoming revision: $(ff_flatten "$(head -c 200 "$_hc_dir.err" 2>/dev/null)" 200)"
   elif [ -f "$_hc_dir/bin/gstack-hook-check" ] && hook_report "$_hc_dir/bin/gstack-hook-check" "$_hc_dir"; then
     _hc_out=$_hr_out

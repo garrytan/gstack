@@ -2155,6 +2155,23 @@ or in Windows PowerShell:
 
 ---
 
+<a id="msys-no-pathconv"></a>
+### `gstack-doctor`: `windows bash ... MSYS_NO_PATHCONV is set`, or a gstack command fails with `EINVAL ... while reading config "/dev/null"`
+
+**Meaning.** gstack's Bun commands start with `bun --config=/dev/null` so a
+`bunfig.toml` in your project cannot change them. Git Bash normally turns
+`/dev/null` and `/tmp/...` into paths native Windows programs can open. With
+`MSYS_NO_PATHCONV=1` exported, it passes them through unchanged: native Bun
+cannot open `/dev/null`, so every Bun-based gstack command fails before it
+starts. `gstack-wtree`, `gstack-ff-update` and the session updater hand Git
+their temp files in Windows form, so they work either way (#3468).
+
+**Fix.** Don't export `MSYS_NO_PATHCONV`. Set it only on the command that needs
+it, for example `MSYS_NO_PATHCONV=1 docker run -v /c/src:/src ...`, or remove
+the export from `~/.bashrc` and open a new shell.
+
+---
+
 <a id="bash-unavailable"></a>
 ### `gstack: no Git Bash found to run gstack's bash scripts on Windows (tried ...); fix: ... (BASH_UNAVAILABLE)`
 

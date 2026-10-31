@@ -30,6 +30,7 @@ import { insertRuntimePreludes } from './resolvers/runtime-root';
 import { generateSharedPreambleFile, hoistsPreamble, SHARED_PREAMBLE_FILE } from './resolvers/preamble-hoist';
 import { extractVoiceTriggers } from './resolvers/voice-triggers';
 import { frontmatterList, withTriggerLead } from '../lib/skill-triggers';
+import { toMsysPath } from '../lib/bin-context';
 import { ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
 import type { HostConfig } from './host-config';
 
@@ -154,9 +155,11 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   if (modules && (outDir === undefined || path.resolve(outDir) === ROOT)) {
     throw new ModuleError('MODULE_SPEC_INVALID', `--${value('--modules') === undefined ? 'loadout' : 'modules'} with exclusions needs an --out-dir outside the checkout root; the committed tree is always the full render`, 'bin/gstack-modules render --host <host> --modules <spec> --out-dir <dir>');
   }
-  const installRoot = value('--install-root');
+  // Git Bash hands native Bun its /c/... root as C:/... (#3498): render the spelling setup checked.
+  const givenInstallRoot = value('--install-root');
+  const installRoot = givenInstallRoot !== undefined && /^[A-Za-z]:[\\/]/.test(givenInstallRoot) ? toMsysPath(givenInstallRoot) : givenInstallRoot;
   if (installRoot !== undefined && !INSTALL_ROOT_PATTERN.test(installRoot)) {
-    throw new Error(`--install-root must be an absolute path of letters, digits and . _ - + @ / (got ${JSON.stringify(installRoot)})`);
+    throw new Error(`--install-root must be an absolute path (/x, or C:/x on Windows) of letters, digits and . _ - + @ / (got ${JSON.stringify(givenInstallRoot)})`);
   }
   // Swap-in callers use --link-root for the FINAL serving path (#2692).
   // Direct --out-dir callers retain their existing links into the render.
