@@ -1682,18 +1682,131 @@ bun_cmd() {
   "$BUN_CMD" "$@"
 }
 
+# Who is a contributor is explicit (#3447): `git config gstack.contributor true`
+# in the checkout (bin/dev-setup writes it) or GSTACK_CONTRIBUTOR=1. A git error
+# (safe.directory, permissions) is "unknown", never "user", so it never prunes.
+# CI keeps whatever its own `bun install` put there.
+_deps_role() {
+  [ "${GSTACK_CONTRIBUTOR:-}" = "1" ] && { echo contributor; return; }
+  local value rc=0
+  value="$(git -C "$PWD" config --bool --get gstack.contributor 2>/dev/null)" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    [ "$value" = "true" ] && echo contributor || echo user
+    return
+  fi
+  [ "$rc" -ne 1 ] && { echo unknown; return; }
+  [ -n "${CI:-}" ] && { echo ci; return; }
+  echo user
+}
+
+_deps_has_dev() {
+  [ -d node_modules/typescript ] || [ -d node_modules/@anthropic-ai/claude-agent-sdk ]
+}
+
+# Every package.json "dependencies" entry resolves in node_modules.
+_deps_verified() {
+  [ -d node_modules ] || return 1
+  local name
+  for name in $(awk '/^  "dependencies": \{/{f=1;next} f&&/^  \}/{exit} f{gsub(/[",:]/," ");print $1}' package.json); do
+    [ -f "node_modules/$name/package.json" ] || return 1
+  done
+}
+
+# Checkout-local migration lock: a live holder means skip; a dead or missing
+# holder (killed setup) is reclaimed.
+_deps_lock() {
+  local lock="node_modules.gstack-migrate.lock" holder
+  if ! mkdir "$lock" 2>/dev/null; then
+    holder="$(cat "$lock/pid" 2>/dev/null || true)"
+    case "$holder" in
+      ''|*[!0-9]*|0) [ -z "$(find "$lock" -maxdepth 0 -mmin +5 2>/dev/null)" ] && [ -z "$holder" ] && return 1 ;;
+      *) kill -0 "$holder" 2>/dev/null && return 1 ;;
+    esac
+    rm -rf "$lock"
+    mkdir "$lock" 2>/dev/null || return 1
+  fi
+  echo "$$" > "$lock/pid"
+}
+
+_deps_unlock() { rm -rf node_modules.gstack-migrate.lock; }
+
+# A backup left by an interrupted migration: keep whichever copy is usable.
+_deps_recover() {
+  [ -d node_modules.gstack-migrate ] || return 0
+  if _deps_verified; then
+    rm -rf node_modules.gstack-migrate
+  else
+    rm -rf node_modules && mv node_modules.gstack-migrate node_modules
+  fi
+}
+
+# Installs made before v1.91.231.0 carry the dev toolchain. Locks, recovers, and
+# moves node_modules aside; succeeds only when it moved, so the caller installs
+# production-only and calls _deps_migration_finish.
+_deps_migration_start() {
+  [ -d node_modules.gstack-migrate ] || _deps_has_dev || return 1
+  _deps_lock || return 1
+  _deps_recover
+  if _deps_has_dev; then
+    _DEPS_BEFORE_KB="$(du -sk node_modules 2>/dev/null | cut -f1)"
+    mv node_modules node_modules.gstack-migrate && return 0
+  fi
+  _deps_unlock
+  return 1
+}
+
+# Bun hardlinks node_modules into its shared cache, so removing node_modules
+# frees nothing until the cache entries go. Remove only the bun.lock-pinned Agent
+# SDK entries no other project links to; prints the MB removed.
+_deps_prune_sdk_cache() {
+  local version cache entry kb freed=0
+  version="$(sed -n 's/^    "@anthropic-ai\/claude-agent-sdk": \["@anthropic-ai\/claude-agent-sdk@\([^"]*\)".*/\1/p' bun.lock 2>/dev/null | head -1)"
+  cache="$(bun_cmd pm cache 2>/dev/null)" || cache=""
+  if [ -n "$version" ] && [ -d "$cache/@anthropic-ai" ]; then
+    for entry in "$cache"/@anthropic-ai/claude-agent-sdk*@"$version"@@@*; do
+      [ -d "$entry" ] || continue
+      [ -n "$(find "$entry" -type f -links +1 -print -quit 2>/dev/null)" ] && continue
+      kb="$(du -sk "$entry" 2>/dev/null | cut -f1)"
+      rm -rf "$entry" && freed=$((freed + ${kb:-0}))
+    done
+  fi
+  echo $((freed / 1024))
+}
+
+_deps_migration_finish() {
+  local rc="$1" out="$2" after freed
+  if [ "$rc" -eq 0 ]; then
+    rm -rf node_modules.gstack-migrate
+    after="$(du -sk node_modules 2>/dev/null | cut -f1)"
+    freed="$(_deps_prune_sdk_cache)"
+    _deps_unlock
+    echo "gstack: moved this install to production dependencies: node_modules $(( ${_DEPS_BEFORE_KB:-0} / 1024 )) MB -> $(( ${after:-0} / 1024 )) MB, and removed ${freed} MB of Agent SDK cache no other project uses. Developing gstack in this checkout? Run: git config gstack.contributor true, then ./setup again."
+    return 0
+  fi
+  rm -rf node_modules
+  mv node_modules.gstack-migrate node_modules
+  _deps_unlock
+  echo "gstack: WARN kept the full dependency install (SETUP_DEPS_MIGRATE_FAILED; https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#setup-deps-migrate-failed): $(printf '%s\n' "$out" | tail -1 | cut -c1-200). Nothing was removed; the next ./setup tries again." >&2
+  return 1
+}
+
 # Users get production dependencies only. devDependencies are the test and eval
 # toolchain (the Claude Agent SDK's native binaries alone are ~440 MB on Linux), and
 # nothing setup, the build or an installed skill runs needs them. Bun never
-# prunes packages that are already installed, so a contributor's full
-# `bun install` (CONTRIBUTING.md, bin/dev-setup, CI) survives a later ./setup.
+# prunes packages that are already installed, so a user install that predates
+# v1.91.231.0 migrates once (_deps_migration_start), while a contributor (or a
+# checkout of unknown role, or CI) that has the dev toolchain gets the full
+# install, which keeps its dev packages at bun.lock's versions.
 # Bun's --production implies a frozen lockfile, so when bun.lock is out of date
 # (a fork or a local edit) refresh it first, then install production-only again.
-# A checkout that already has the dev toolchain (node_modules/typescript) is a
-# contributor's: a production install would leave its dev packages at old
-# versions after bun.lock moves, so it gets the full install instead.
 install_runtime_deps() {
-  if [ -d node_modules/typescript ]; then
+  local role out rc=0
+  role="$(_deps_role)"
+  if [ "$role" = "user" ] && _deps_migration_start; then
+    out="$( { bun_cmd install --production --frozen-lockfile || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }; } 2>&1 )" && _deps_verified || rc=$?
+    _deps_migration_finish "$rc" "$out" && return 0
+  fi
+  if [ "$role" = "contributor" ] || _deps_has_dev; then
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
     return
   fi

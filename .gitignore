@@ -1,5 +1,7 @@
 .env
 node_modules/
+node_modules.gstack-migrate/
+node_modules.gstack-migrate.lock/
 dist/
 browse/dist/
 design/dist/
