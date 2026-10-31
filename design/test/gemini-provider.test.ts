@@ -371,3 +371,35 @@ describe("Gemini iterate fallbacks", () => {
     expect(calls[0].body.contents[0].parts.some((p: any) => p.inlineData)).toBe(false);
   });
 });
+
+describe("Gemini image answers and iterate uploads", () => {
+  test("a thinking answer saves the final image, not an interim draft", () => {
+    const draft = Buffer.from("draft").toString("base64");
+    const final = Buffer.from("final").toString("base64");
+    const answer = { candidates: [{ content: { parts: [
+      { inlineData: { mimeType: "image/png", data: draft }, thought: true },
+      { text: "thinking" },
+      { inlineData: { mimeType: "image/png", data: final } },
+    ] } }] };
+    expect(readImage({ provider: "gemini", key: GEMINI_KEY, source: "test" }, answer)?.imageData).toBe(final);
+  });
+
+  test("iterate never uploads a last output that is not a PNG or not an absolute path", async () => {
+    Object.assign(process.env, { GEMINI_API_KEY: GEMINI_KEY });
+    const secret = path.join(dir, "secret.txt");
+    fs.writeFileSync(secret, "api_key=not-an-image");
+    for (const [name, last] of [["text", secret], ["relative", "shot.png"]] as const) {
+      fs.writeFileSync(path.join(dir, "shot.png"), Buffer.from(TINY_PNG, "base64"));
+      const file = path.join(dir, `session-${name}.json`);
+      fs.writeFileSync(file, JSON.stringify({ id: `s-${name}`, provider: "gemini", lastResponseId: "r0", originalBrief: "brief",
+        feedbackHistory: [], outputPaths: [last], createdAt: "", updatedAt: "" }));
+      calls = [];
+      stubFetch(() => json(geminiImage()));
+      expect(await iterate({ session: file, feedback: "x", output: path.join(dir, `${name}-out.png`) })).toBe(0);
+      expect(calls.length).toBe(1);
+      expect(calls[0].body.contents[0].parts.some((p: any) => p.inlineData)).toBe(false);
+    }
+    expect(errors.join("\n")).toContain("(not a PNG); regenerating");
+    expect(errors.join("\n")).toContain("(relative path); regenerating");
+  });
+});

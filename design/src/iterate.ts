@@ -8,6 +8,7 @@
  */
 
 import fs from "fs";
+import path from "path";
 import { requireProvider, type ProviderKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { modelRejectionHint } from "./models";
@@ -16,6 +17,8 @@ import { readSession, updateSession, type DesignSession } from "./session";
 import { emitResult, exitCodeFor, newAccounting, persistImage, recordOutcome, type ExitCode } from "./persist";
 
 const SIZE = { size: "1536x1024", quality: "high" };
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const MAX_EDIT_IMAGE_BYTES = 15 * 1024 * 1024;
 
 export interface IterateOptions {
   session: string;   // Path to session JSON file
@@ -157,7 +160,13 @@ async function iterateOnGemini(provider: ProviderKey, session: DesignSession, fe
   let lastImage: string | null = null;
   let readError = "";
   try {
-    if (last) lastImage = fs.readFileSync(last).toString("base64");
+    if (last && !path.isAbsolute(last)) readError = " (relative path)";
+    else if (last && fs.statSync(last).size > MAX_EDIT_IMAGE_BYTES) readError = " (over 15 MB)";
+    else if (last) {
+      const bytes = fs.readFileSync(last);
+      if (bytes.subarray(0, 8).equals(PNG_SIGNATURE)) lastImage = bytes.toString("base64");
+      else readError = " (not a PNG)";
+    }
   } catch (err) {
     readError = ` (${(err as NodeJS.ErrnoException).code ?? (err as Error).message})`;
   }

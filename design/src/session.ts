@@ -50,7 +50,7 @@ export function createSession(
     lastResponseId: responseId,
     originalBrief: brief,
     feedbackHistory: [],
-    outputPaths: [outputPath],
+    outputPaths: [path.resolve(outputPath)],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -78,7 +78,7 @@ export function updateSession(
 ): void {
   session.lastResponseId = responseId;
   session.feedbackHistory.push(feedback);
-  session.outputPaths.push(outputPath);
+  session.outputPaths.push(path.resolve(outputPath));
   session.updatedAt = new Date().toISOString();
 
   fs.writeFileSync(sessionPath(session.id), JSON.stringify(session, null, 2));

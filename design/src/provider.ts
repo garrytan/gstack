@@ -116,10 +116,11 @@ export function readImage(auth: DesignAuth, data: any): { responseId: string; im
   if (blocked) throw new DesignImageError(`Gemini blocked this brief (${blocked}). Fix: rephrase the brief.`, false);
   const candidate = data?.candidates?.[0];
   const parts: any[] = candidate?.content?.parts ?? [];
-  const image = parts.find(part => {
+  const images = parts.filter(part => {
     const inline = part?.inlineData ?? part?.inline_data;
     return typeof inline?.data === "string" && /^image\//.test(inline.mimeType ?? inline.mime_type ?? "");
   });
+  const image = images.findLast(part => part?.thought !== true) ?? images.at(-1);
   if (image) {
     const inline = image.inlineData ?? image.inline_data;
     const mime = inline.mimeType ?? inline.mime_type;
