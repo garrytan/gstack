@@ -8,7 +8,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt } from '../lib/ship-receipt';
-import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
+import { cleanup, commit, makeFixtureRepo as makeRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
+const makeFixtureRepo = (): FixtureRepo => { const r = makeRepo(); r.git('config', 'core.longpaths', 'true'); return r; };
 
 setDefaultTimeout(120_000);
 const repos: FixtureRepo[] = [];
