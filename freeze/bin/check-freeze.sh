@@ -361,10 +361,12 @@ else
   # Log hook fire event (shared helper respects GSTACK_HOME)
   gstack_hook_log_fire freeze boundary_deny
   if _freeze_inside "$FILE_PATH"; then FILE_PATH="$FILE_PATH_LEXICAL"; fi
+  _FREEZE_SHOWN="$FILE_PATH_RAW"
+  if [ "$FILE_PATH" != "$FILE_PATH_RAW" ]; then _FREEZE_SHOWN="$FILE_PATH_RAW (lands at $FILE_PATH)"; fi
 
   # The reason is JSON-encoded by the shared helper. Never interpolate paths
   # into hand-built JSON: a path containing a quote or newline produced
   # malformed JSON here, and the deny silently no-oped.
-  gstack_hook_decision deny "[freeze] Blocked: $TOOL_LABEL $FILE_PATH is outside the freeze boundary ($FREEZE_DIR). Only edits within the frozen directory are allowed; run /unfreeze to remove the boundary."
+  gstack_hook_decision deny "[freeze] Blocked: $TOOL_LABEL $_FREEZE_SHOWN is outside the freeze boundary ($FREEZE_DIR). Only edits within the frozen directory are allowed; run /unfreeze to remove the boundary."
   _FREEZE_DECIDED=1
 fi
