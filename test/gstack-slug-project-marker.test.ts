@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 function env(extra: Record<string, string> = {}): Record<string, string | undefined> {
-  const { GSTACK_PROJECT_SLUG: _drop, ...ambient } = process.env;
+  const { GSTACK_PROJECT_SLUG: _p, GSTACK_STATE_ROOT: _r, GSTACK_STATE_DIR: _d, CLAUDE_PLUGIN_DATA: _c, ...ambient } = process.env;
   return { ...ambient, HOME: home, GSTACK_HOME: state, ...extra };
 }
 function run(script: string, cwd: string, args: string[] = [], extra: Record<string, string> = {}) {
