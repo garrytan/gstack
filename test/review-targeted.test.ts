@@ -334,7 +334,8 @@ describe('the /ship commands carry the targeted record to the receipt (GST-464)'
     expect(optional?.slice(1)).toEqual([recordPath!, `--review-targeted @${recordPath}`]);
     expect(section('handoff')).toContain(`When Step 11 saved \`${recordPath}\`, add \`--review-targeted @${recordPath}\` to that write.`);
     expect(fs.readFileSync(path.join(ROOT, 'ship', 'DRIVER.md'), 'utf8')).toContain(`[--review-targeted @${recordPath}]`);
-    expect(section('review-army')).toContain(`\`${recordPath}\` removed`);
+    const entry = /Every entry saves `PASS_HEAD=\$\(git rev-parse HEAD\)` and runs\n`([^`]+)`/.exec(section('review-army'))?.[1];
+    expect(entry).toContain(`rm -f ${recordPath}`);
 
     const repo = makeFixtureRepo({ prefix: 'targeted-wire-' });
     repos.push(repo);
@@ -345,9 +346,15 @@ describe('the /ship commands carry the targeted record to the receipt (GST-464)'
     const expand = () => spawnSync('bash', ['-c', `printf '%s\\n' ${optional![0]}`], { cwd: repo.work, encoding: 'utf8', timeout: 10_000 }).stdout.split('\n').filter(Boolean);
     expect(expand()).toEqual([]);
     fs.mkdirSync(path.join(repo.work, '.gstack', 'tmp'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, recordPath!), '{}\n');
+    expect(spawnSync('bash', ['-c', entry!], { cwd: repo.work, encoding: 'utf8', timeout: 10_000 }).status).toBe(0);
+    expect(fs.existsSync(path.join(repo.work, recordPath!))).toBe(false);
+    fs.rmSync(path.join(repo.work, '.gstack'), { recursive: true });
+    expect(spawnSync('bash', ['-c', entry!], { cwd: repo.work, encoding: 'utf8', timeout: 10_000 }).status).toBe(0);
     fs.writeFileSync(path.join(repo.work, recordPath!), JSON.stringify({ classes: ['money'], rules: TARGETED_RULES, brief_sha: targetedBriefSha(), status: 'done', findings: 0, raised_by: 'targeted' }) + '\n');
     const args = expand();
     expect(args).toEqual(['--review-targeted', `@${recordPath}`]);
+    expect(repo.git('ls-files', '--others', '--exclude-standard')).toBe('');
     const write = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', ...args, '--json']);
     expect(write.status, write.err).toBe(0);
     const receipt = JSON.parse(write.out) as ShipReceipt;

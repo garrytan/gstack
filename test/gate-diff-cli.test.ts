@@ -153,7 +153,7 @@ describe('gstack-gate-diff arguments and exit contract', () => {
   //   commits the base already has (merged into the branch from origin) do not count as the branch's change (GST-462,
   //   GBRA-218); fails_when=resolveBase returns the local ref whenever it resolves and shares history with HEAD; seam=a
   //   tracking ref moved with update-ref, as a fetch would; no_claim=nothing about remotes other than origin.
-  test('a local main related to HEAD but behind, ahead of or diverged from origin/main yields to origin/main and says which', () => {
+  test('a local main behind origin/main yields to it and says so; ahead, diverged or beside an unrelated origin/main it stays the base', () => {
     const src = repo({ fixture: 'rh1-skip', commit: true });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-behind-'));
     repos.push(dir);
@@ -180,9 +180,31 @@ describe('gstack-gate-diff arguments and exit contract', () => {
       gitIn(dir, ['update-ref', ref, sha]);
     };
     commitOn('refs/heads/main', 'unpushed');
-    expect(run(dir, ['main']).stderr).toContain('gstack-gate-diff: local main is ahead of origin/main; base is origin/main');
+    expect(run(dir, ['main']).stderr).not.toContain('base is origin/main');
     commitOn('refs/remotes/origin/main', 'upstream moved');
-    expect(run(dir, ['main']).stderr).toContain('gstack-gate-diff: local main has diverged from origin/main; base is origin/main');
+    expect(run(dir, ['main']).stderr).not.toContain('base is origin/main');
+    const orphan = gitIn(dir, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', gitIn(dir, ['rev-parse', 'HEAD^{tree}']).trim(), '-m', 'unrelated']).trim();
+    gitIn(dir, ['update-ref', 'refs/remotes/origin/main', orphan]);
+    expect(run(dir, ['main']).stderr).not.toContain('base is origin/main');
+  });
+
+  // Value: protects=the base cannot be redirected to the candidate by a ref the contributor controls: a tag named
+  //   origin/main, or a fetched branch named origin/main (refs/remotes/origin/origin/main), never replaces origin's tracking
+  //   branch, and an explicit origin/main is never re-qualified; fails_when=resolveBase resolves the twin by its short name or
+  //   tries a twin for a remote-qualified ref (outside voice, pass 2: both emptied the gate scan of a test.skip); seam=refs a
+  //   fetch would create; no_claim=a tag shadowing a local branch name, which predates this change
+  test('a tag or a fetched branch named origin/main cannot empty the gate scan', () => {
+    const src = repo({ fixture: 'rh1-skip', commit: true });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-shadow-'));
+    repos.push(dir);
+    gitIn(dir, ['clone', '-q', `file://${src}`, '.']);
+    gitIn(dir, ['checkout', '-q', '-b', 'topic', 'origin/feature']);
+    expect(gitIn(dir, ['branch', '--list', 'main']).trim()).toBe('');
+    gitIn(dir, ['tag', 'origin/main', 'HEAD']);
+    expect(summary(run(dir, ['main']).stdout).tagged).toBe('RH-1:1');
+    gitIn(dir, ['tag', '-d', 'origin/main']);
+    gitIn(dir, ['update-ref', 'refs/remotes/origin/origin/main', 'HEAD']);
+    expect(summary(run(dir, ['origin/main']).stdout).tagged).toBe('RH-1:1');
   });
 
   // Value: protects=a clone whose only remote is not called origin resolves the base through that remote and the fix line

@@ -1,4 +1,4 @@
 {
-  "bytes": 270,
-  "why": "GST-464: Step 11 saves the targeted record and the Step 19 and handoff receipt writes pass it; Step 9 clears it"
+  "bytes": 527,
+  "why": "GST-464: Step 9 creates .gstack/tmp, excludes it and clears the targeted record on every entry"
 }

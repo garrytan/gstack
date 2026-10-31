@@ -69,10 +69,13 @@ function integrate(cwd: string, base: string, r: Report): boolean {
 function prSized(cwd: string, base: string, n: string, r: Report): boolean {
   const view = gh(cwd, ['pr', 'view', n, '--json', 'changedFiles,headRefOid,baseRefName', '--jq', '"\\(.changedFiles) \\(.headRefOid) \\(.baseRefName)"']);
   const [pr, prHead, prBase] = view.status === 0 ? view.stdout.trim().split(' ') : [];
-  if (!pr || !/^\d+$/.test(pr) || prHead !== git(cwd, ['rev-parse', 'HEAD']).stdout.trim()) return true;
+  if (!pr || !/^[1-9]\d*$/.test(pr) || prHead !== git(cwd, ['rev-parse', 'HEAD']).stdout.trim()) return true;
   const local = git(cwd, ['diff', '--name-only', forkPoint(cwd, base), 'HEAD']).stdout.split('\n').filter(Boolean).length;
   if (local <= 2 * Number(pr) + 50) return true;
-  r.stop(`the diff against origin/${base} lists ${local} files but PR #${n} changes ${pr} (its base is ${prBase}): origin/${base} is stale or not the PR's base; rerun with --base ${prBase} after git fetch origin +refs/heads/${prBase}:refs/remotes/origin/${prBase}`);
+  const word = /^[A-Za-z0-9._\/-]+$/.test(prBase ?? '') ? prBase! : `'${(prBase ?? '').replace(/'/g, "'\\''")}'`;
+  r.stop(`the diff against origin/${base} lists ${local} files but PR #${n} changes ${pr} (its base is ${word}): ${prBase === base
+    ? `origin is not the PR's base repository or its ${base} lags it (a fork); fetch the PR's base repository's ${base} into origin/${base}, then rerun`
+    : `origin/${base} is not the PR's base; rerun with --base ${word} after git fetch origin +refs/heads/${word}:refs/remotes/origin/${word}`}`);
   return false;
 }
 

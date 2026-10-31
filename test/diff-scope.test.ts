@@ -70,7 +70,7 @@ describe('gstack-diff-scope', () => {
   //   origin/main is docs, not the backend change origin/main already has (GST-462, GBRA-218); fails_when=the script
   //   diffs against the local branch whenever it resolves (with the name given, or the default it detects); seam=a
   //   tracking ref moved with update-ref, as a fetch would; no_claim=nothing about remotes other than origin.
-  test('a stale local main yields to origin/main, named or defaulted', () => {
+  test('a stale local main yields to origin/main, named or defaulted; a tag, a qualified ref or a pinned sha is never redirected', () => {
     const dir = createRepo([]);
     const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, stdio: 'pipe', timeout: 5000 });
     git('checkout', '-q', 'main');
@@ -88,6 +88,15 @@ describe('gstack-diff-scope', () => {
       expect(out).toContain('SCOPE_DOCS=true');
       expect(out).toContain('SCOPE_BACKEND=false');
     }
+    const scopeOf = (args: string[]) => spawnSync(SCRIPT, args, { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    git('tag', 'origin/main', 'HEAD');
+    expect(scopeOf(['main'])).toContain('SCOPE_DOCS=true');
+    git('tag', '-d', 'origin/main');
+    git('update-ref', 'refs/remotes/origin/origin/main', 'HEAD');
+    expect(scopeOf(['origin/main'])).toContain('SCOPE_DOCS=true');
+    const pinned = git('rev-parse', 'origin/main').stdout.toString().trim();
+    git('update-ref', `refs/remotes/origin/${pinned}`, 'HEAD');
+    expect(scopeOf([pinned])).toContain('SCOPE_DOCS=true');
     git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
     expect(spawnSync(SCRIPT, ['HEAD'], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString()).toContain('SCOPE_DOCS=false');
     git('update-ref', 'refs/remotes/origin/main', git('commit-tree', git('rev-parse', 'HEAD^{tree}').stdout.toString().trim(), '-m', 'unrelated').stdout.toString().trim());

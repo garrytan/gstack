@@ -108,15 +108,23 @@ describe('gstack-ship-preflight', () => {
     const files = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`src/f${i}.ts`, `export const f${i} = ${i};\n`]));
     const f = fx({}, files);
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
-    const stub = (changed: number, prHead: string) => f.gh(`case "$*" in *"pr list"*) echo 7 ;; *changedFiles*) echo "${changed} ${prHead} release" ;; esac`);
+    const stub = (changed: number, prHead: string, prBase = 'release') => f.gh(`case "$*" in *"pr list"*) echo 7 ;; *changedFiles*) echo "${changed} ${prHead} ${prBase}" ;; esac`);
     stub(3, head);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(r.status).toBe(3);
-    expect(r.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 3 (its base is release): origin/main is stale or not the PR\'s base; rerun with --base release');
-    stub(3, 'f'.repeat(40));
-    expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).not.toContain('lists 60 files');
-    stub(60, head);
-    expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).not.toContain('lists 60 files');
+    expect(r.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 3 (its base is release): origin/main is not the PR\'s base; rerun with --base release after git fetch origin +refs/heads/release:refs/remotes/origin/release');
+    stub(3, head, 'main');
+    const fork = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fork.stdout).toContain('(its base is main): origin is not the PR\'s base repository or its main lags it (a fork)');
+    expect(fork.stdout).not.toContain('rerun with --base');
+    stub(3, head, 'x;rm');
+    expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).toContain("rerun with --base 'x;rm' after git fetch origin +refs/heads/'x;rm':refs/remotes/origin/'x;rm'");
+    for (const [changed, prHead] of [[3, 'f'.repeat(40)], [60, head], [0, head]] as const) {
+      stub(changed, prHead);
+      const go = f.run(PREFLIGHT, ['--base', 'main']);
+      expect(go.stdout).not.toContain('lists 60 files');
+      expect(lineOf(go.stdout, 'PR')).toBe('PR: #7');
+    }
   });
 
   // Value: protects=Step 1's scope check reads the fetched origin/<base>, so a clone without a local base branch still sees frontend files; fails_when=the preflight reports frontend=false because gstack-diff-scope could not resolve a local <base>;
