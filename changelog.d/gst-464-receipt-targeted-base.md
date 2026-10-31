@@ -1,0 +1,11 @@
+**The /ship receipt now carries the targeted reader's record.** When the review plan asked for the targeted reader on money, gate, auth or secret code and the reader ran, `gstack-ship-queue ready` still printed `REVIEW_TARGETED: … receipt=legacy verdict=missing` (gstack-evals#95, #3682, #3612), because nothing passed the record from Step 11 to the receipt. Enforcement stays report-only (GST-464).
+
+**A stale local base branch no longer stands in for the base (GST-462).** `gstack-review-plan --base main` read a local `main` that was behind `origin/main`, so commits the base already had counted as the branch's own change. #3597 was labeled gate code at full depth until it passed `--base origin/main`. gbrain hit the same problem with a stale local `master` (GBRA-218).
+
+### Fixed
+- **Step 11** saves the targeted record to `.gstack/tmp/targeted.json` (`gstack-review-dispatch verify --targeted-out`), and the Step 19 and handoff `gstack-ship-receipt write` commands pass it as `--review-targeted` whenever that file exists. A run without the reader passes nothing, so its receipt stays legacy. Step 9 deletes the file on first entry, so a record from an earlier run can't carry over.
+- **`gstack-gate-diff`** prefers a base branch's remote-tracking twin whenever the twin shares history with HEAD. It says so when the local branch is behind or has diverged (`local main is behind origin/main; base is origin/main`). **`gstack-diff-scope`** diffs against `origin/<base>` whenever that ref exists, whether you name the base or let it detect the default. `gstack-review-plan` reads both, so its gate scan and scope now match the merge base it already took from `origin/<base>`.
+
+### Tests
+- `test/review-targeted.test.ts`: the generated sections' own commands carry the record from Step 11's verify to `gstack-ship-receipt write`, and ready's line reads `verdict=ok`. A run without the reader passes no flag, and Step 9 clears the file.
+- `test/review-plan-cli.test.ts`, `test/gate-diff-cli.test.ts`, `test/diff-scope.test.ts`: a local `main` that is behind `origin/main` yields to `origin/main`. The review plan of a docs-only branch that merged the newer `origin/main` stays docs; before the fix, the gate scan counted origin's skipped test.
