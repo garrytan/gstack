@@ -2,6 +2,11 @@
 
 ## NEXT PRIORITY
 
+### P2/P3: Gemini design provider follow-ups (filed 2026-10-31, from the #990 build)
+
+- **Run the live Gemini check once a key exists** — every Gemini request and response shape in `design/src/provider.ts` follows Google's docs and stubbed fixtures; nobody has sent one to the live API. `GEMINI_API_KEY=... bun run design/scripts/live-gemini-check.ts` (about $0.04) settles the image body, the thinking-image pick and the OpenAI-compatible vision endpoint. A JPEG answer is refused today. **Effort:** S. **Priority:** P2.
+- **`$D check` reports a failed vision call as `pass: true, status: "skipped"`** — kept as on main for both providers (DX review F2 wanted a non-zero exit and `pass: null`). That changes OpenAI users' behavior too, so it needs its own decision. **Effort:** S. **Priority:** P3.
+
 ### P3: GST-421 and GST-412 follow-ups (filed 2026-10-31, from the PR B /ship review)
 
 - **Check the Approvals table's own cells.** `--check-prose` skips the whole rendered Approvals block, including the Asked, Covers and Still pending cells the lane types. Narrow the skip to the Exact words column. **Priority:** P3.
