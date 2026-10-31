@@ -14,7 +14,7 @@ import { acquireLandLock, LAND_LOCK_REF, readLock, writeLock, type LandLock, typ
 import { BASE_POLICY, cleanup, makeFixtureRepo, type FixtureRepo } from './helpers/restamp-fixture';
 import { coordinatorClone } from './helpers/ship-queue-fixture';
 import {
-  GREEN_GATE, TRAIN_POLICY, fragmentPr, nonceOf, queue, trainFixture, trainJson, wrapLand, type TrainFixture,
+  GREEN_GATE, TRAIN_POLICY, fragmentPr, nonceOf, queue, repoKey, trainFixture, trainJson, wrapLand, type TrainFixture,
 } from './helpers/ship-queue-train-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -230,6 +230,54 @@ describe('land and train land share the lock', () => {
     expect(land(fx, '3').err).toMatch(/holds the land lock .*phase between.*\(QUEUE_LAND_LOCKED\)/);
     fx.write(d => { d.prs['2'] = row; });
     expect(trainLand(fx, nonce, '2').out).toMatch(/^PUSHED: [0-9a-f]{40}/m);
+  }, 300_000);
+
+  /** Another train's lock, written to origin as that train's run would have left it. */
+  function seedLock(fx: TrainFixture, lock: Partial<LandLock> & { train: string; phase: LandLock['phase'] }): void {
+    withRepoEnv(fx.repo, () => {
+      const cur = readLock(fx.repo.work);
+      expect(writeLock(fx.repo.work, cur.sha, { pr: '9', slot: 1, holder: 'old:1', started_at: '2026-10-31T12:00:00.000Z', phase_at: '2026-10-31T12:00:00.000Z', journal: `train/${lock.train}/slot-1`, ...lock } as LandLock).ok).toBe(true);
+    });
+  }
+
+  // fails_when=trainTakeover reads "no active freeze record here" as "the freeze is cleared", so a train whose notes fetch failed, or whose freezer never pushed the record, takes the freeze lock and lands onto a frozen main (red team, PR #3737 pass 2); why_new=the freeze test above only exercises the admitted repair train's takeover; seam=a lock and a freeze record written straight to origin and the state root; no_claim=how the record went missing
+  test('another train\'s freeze lock is taken over only on a freeze record cleared after the lock: no record, or one cleared before it, refuses', () => {
+    const { fx, nonce } = stampedTrain(['1']);
+    const old = 'gate.train-old';
+    seedLock(fx, { train: old, phase: 'freeze' });
+    const noRecord = trainLand(fx, nonce, '1');
+    expect(noRecord.status).toBe(EXIT.refused);
+    expect(noRecord.err).toMatch(/train gate\.train-old slot 1 \(#9\) holds the land lock .*phase freeze.*\(QUEUE_LAND_LOCKED\)/);
+    expect(noRecord.out).not.toMatch(/^PUSHED:/m);
+    expect(originLock(fx)).toMatchObject({ train: old, phase: 'freeze' });
+
+    const file = path.join(freezeFile(fx), `${repoKey(fx)}.json`);
+    const record = (cleared: string) => ({ schema: 1, kind: 'freeze', repo_key: repoKey(fx), train: old, merged: ['9'], unmerged: [], main: { sha: '0'.repeat(40), tree: '0'.repeat(40) }, reason: 'test', backstop: null, repair: null, created_at: '2026-10-31T11:00:00.000Z', cleared_at: cleared, cleared_by: 'test', updated_at: cleared });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(record('2026-10-31T11:30:00.000Z')));
+    expect(trainLand(fx, nonce, '1').err).toContain('(QUEUE_LAND_LOCKED)');
+    fs.writeFileSync(file, JSON.stringify(record('2026-10-31T12:30:00.000Z')));
+    const taken = trainLand(fx, nonce, '1');
+    expect(taken.out, taken.err).toContain(`LOCK: train ${nonce} takes over train ${old} slot 1 (#9)'s freeze lock; that freeze was cleared at 2026-10-31T12:30:00.000Z`);
+    expect(taken.out).toMatch(/^PUSHED: [0-9a-f]{40}/m);
+  }, 300_000);
+
+  // fails_when=trainTakeover treats a live train as terminal (two landers publish onto one main) or never takes over a finished train's lock (a stale lock blocks every later train); why_new=no other test seats a foreign train's lock; seam=a second train record written into the state root; no_claim=how that train ended
+  test('another train\'s lock is taken over once that train\'s record is terminal, and refused while it is still merging', () => {
+    const { fx, nonce } = stampedTrain(['1']);
+    const other = `${nonce}-other`;
+    const put = (state: string) => {
+      const dir = path.join(fx.state, 'ship-queue', 'trains', other);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'train.json'), JSON.stringify({ ...trainJson(fx, nonce), nonce: other, state }));
+    };
+    put('merging');
+    seedLock(fx, { train: other, phase: 'waiting' });
+    expect(trainLand(fx, nonce, '1').err).toMatch(/holds the land lock .*phase waiting.*\(QUEUE_LAND_LOCKED\)/);
+    put('merged');
+    const taken = trainLand(fx, nonce, '1');
+    expect(taken.out, taken.err).toContain(`takes over train ${other} slot 1 (#9)'s lock; that train is merged`);
+    expect(taken.out).toMatch(/^PUSHED: [0-9a-f]{40}/m);
   }, 300_000);
 
   test('a standalone land holding the lock refuses train land; a refusal before any push releases the train\'s lock', () => {

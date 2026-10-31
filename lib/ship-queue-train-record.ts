@@ -294,13 +294,13 @@ export function forgetNotes(repoRoot: string, names: string[], remote = 'origin'
 }
 
 /** Rebuild local records from the notes ref: a note whose record is missing locally, or newer than the local copy, is written. */
-export function rebuildFromNotes(repoRoot: string, remote = 'origin'): { restored: number; read: number; detail: string } {
+export function rebuildFromNotes(repoRoot: string, remote = 'origin'): { restored: number; read: number; detail: string; fetched: boolean } {
   const f = fetchNotes(repoRoot, remote);
   const list = git(repoRoot, ['notes', `--ref=${NOTES_REF}`, 'list']);
-  if (!list.ok || !list.out.trim()) return { restored: 0, read: 0, detail: f.detail };
+  if (!list.ok || !list.out.trim()) return { restored: 0, read: 0, detail: f.detail, fetched: f.ok };
   const records = list.out.split('\n').map(l => l.split(' ')[0]!).filter(Boolean)
     .map(blob => parseNote(git(repoRoot, ['cat-file', 'blob', blob]).out)).filter((r): r is AnyRecord => !!r);
   const fresh = records.filter(newerOrMissing);
   for (const r of fresh) writeJsonAtomic(recordPath(r), r);
-  return { restored: fresh.length, read: records.length, detail: f.detail };
+  return { restored: fresh.length, read: records.length, detail: f.detail, fetched: f.ok };
 }
