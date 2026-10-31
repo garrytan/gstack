@@ -12,7 +12,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
-import { comparePath, contextPacket, gateEditedPaths, isTestCode, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
+import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
 import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
@@ -184,6 +184,13 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   const gated = gateEditedPaths(cwd, reviewed, now, by.tests) ?? new Set(by.tests);
   by.behavior.push(...by.tests.filter(p => gated.has(p)));
   by.tests = by.tests.filter(p => !gated.has(p));
+  const packetBody = sides && (by.context.length || by.tests.length) ? contextPacket(cwd, sides, by.context, by.tests) : null;
+  if (packetBody?.over.length) {
+    r.add(`SCOPED_REVIEW: too large for the scoped review (over ${PACKET_SECTION_CAP} lines in a section): ${short(packetBody.over)}`);
+    by.behavior.push(...packetBody.over);
+    by.context = by.context.filter(p => !packetBody.over.includes(p));
+    by.tests = by.tests.filter(p => !packetBody.over.includes(p));
+  }
   r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}`);
   if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return null; }
   const scoped = [...by.context, ...by.tests].sort();
@@ -193,7 +200,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
       const why = [by.context.length ? `base context moved next to the reviewed hunks in ${short(by.context)}` : '', by.tests.length ? `test code changed since review in ${short(by.tests)}` : ''].filter(Boolean).join('; ');
       try {
         fs.mkdirSync(path.dirname(packet), { recursive: true });
-        fs.writeFileSync(packet, contextPacket(cwd, sides, by.context, by.tests));
+        fs.writeFileSync(packet, contextPacket(cwd, sides, by.context, by.tests).text);
       } catch (e) {
         r.stop(`${why}, but the scoped-review packet ${packet} cannot be written (${firstLine((e as Error).message)}): make its directory writable, then rerun finish (stage 2.1)`);
         return null;
@@ -230,7 +237,7 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
   for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q))) {
     const asked = [...(Array.isArray(audit?.blockers) ? audit.blockers : []), ...(Array.isArray(audit?.decisions) ? audit.decisions : [])].filter((s: unknown) => typeof s === 'string');
-    const token = new RegExp(`(^|[\\s\`'"(\\[])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s\`'"),.:;\\]])`);
+    const token = new RegExp(`(^|[\\s\`'"(\\[])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s\`'")\\]]|[,.:;](?:$|\\s))`);
     const stat = git(cwd, ['diff', '--numstat', '--no-renames', record.head, '--', `:(literal)${p}`]).stdout.trim().split(/\s+/);
     const lines = Number(stat[0]) + Number(stat[1]);
     const why = !audit ? 'needs --docs-result <the audit\'s saved result JSON>'

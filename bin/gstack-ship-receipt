@@ -44,7 +44,7 @@ import {
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
-import { comparePath, contextPacket, readScopedReview, touchedPaths } from '../lib/ship-patch';
+import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
 import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, receiptDepthAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
@@ -611,14 +611,16 @@ function cmdCarry(rest: string[], json: boolean): number {
       }
     }
     let scopedReview: string | undefined;
-    if (!changedProduct.length && contextPaths.length) {
+    const packetBody = !changedProduct.length && contextPaths.length ? contextPacket(repoRoot, { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head }, contextPaths) : null;
+    if (packetBody?.over.length) changedProduct.push(...packetBody.over.map(p => `${p} (too large for the scoped review: over ${PACKET_SECTION_CAP} lines in a section)`));
+    if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
       if (!record) {
         const gitPath = git(['rev-parse', '--git-path', `gstack/scoped-review-${head.slice(0, 12)}.md`], repoRoot);
         const packet = path.resolve(repoRoot, gitPath ?? `.git/gstack/scoped-review-${head.slice(0, 12)}.md`);
         try {
           fs.mkdirSync(path.dirname(packet), { recursive: true });
-          fs.writeFileSync(packet, contextPacket(repoRoot, { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head }, contextPaths));
+          fs.writeFileSync(packet, packetBody.text);
         } catch (e) {
           return refused('RECEIPT_CARRY_REFUSED', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}, but the scoped-review packet ${packet} cannot be written (${(e as Error).message.split('\n')[0]}); make its directory writable, then rerun carry`);
         }

@@ -124,26 +124,41 @@ function hunkTexts(diff: string): string[] {
   return diff.split(/^(?=@@ )/m).slice(1).map(h => h.replace(/^@@ [^@]*@@/, '@@'));
 }
 
-/** The scoped-review packet: per context path, the hunks that differ between the two branch patches and the base's own change. */
-export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = []): string {
+/** The most lines one packet section may hold; a path with a longer section takes the full loop instead. */
+export const PACKET_SECTION_CAP = 200;
+
+/**
+ * The scoped-review packet: per context path, the hunks that differ between the two branch patches and the base's own
+ * change; per test path, its test hunks. `over` names every path with a section past PACKET_SECTION_CAP: one reviewer
+ * cannot be shown all of it, so the caller sends it to the full loop.
+ */
+export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = []): { text: string; over: string[] } {
+  const over = new Set<string>();
+  let current = '';
   const fence = (label: string, body: string) => {
-    const all = body.split('\n');
-    return `${label}${all.length > 200 ? ` (first 200 of ${all.length} lines; read the rest with git diff)` : ''}\n\`\`\`diff\n${all.slice(0, 200).join('\n').trimEnd()}\n\`\`\`\n`;
+    if (body.split('\n').length > PACKET_SECTION_CAP) over.add(current);
+    return `${label}\n\`\`\`diff\n${body.trimEnd()}\n\`\`\`\n`;
   };
   const parts = [`# Scoped review: base context moved next to the reviewed hunks\n\nreviewed ${s.reviewed.slice(0, 12)} against ${s.reviewedBase.slice(0, 12)}; current ${s.current.slice(0, 12)} against ${s.currentBase.slice(0, 12)}. The branch's +/- lines are unchanged; read whether the merge kept their meaning next to the base's edit. Report clean, or findings at the blocking floor.\n`];
   if (tests.length) parts.push(`Test code changed since review in ${tests.join(', ')}: read whether each test still checks what it did (no weakened or bypassed assertion, early return, new exemption, skip or mock). Report clean, or findings at the blocking floor.\n`);
   for (const rel of [...paths, ...tests]) {
+    current = rel;
     const r = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3) ?? '');
     const c = hunkTexts(pathDiff(repoRoot, s.currentBase, s.current, rel, 3) ?? '');
     parts.push(`## ${rel}\n`, fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join('')),
       fence("The base's change", hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 3) ?? '').join('')));
   }
-  return parts.join('\n');
+  return { text: parts.join('\n'), over: [...over] };
 }
 
-/** A test code file (`*.test.*`, `*_test.go`, …) outside shared helpers and fixtures: a change to it reruns tests, not the review loop. */
+/**
+ * A test code file outside shared helpers and fixtures: `*.test.*`, `*.spec.*` and `*_test.go` anywhere, and the
+ * name-only conventions (`test_*.py`, `*Test.java`, `*Tests.swift`, …) only under a test directory, since product
+ * files can carry those names (`src/main/java/ABTest.java`). A change to one gets the scoped review, not the full loop.
+ */
 export function isTestCode(rel: string): boolean {
-  return matchesAny(CARRY_TEST_CODE_GLOBS, rel) && !/(^|\/)(helpers|fixtures|__fixtures__|__snapshots__)\//.test(rel);
+  if (!matchesAny(CARRY_TEST_CODE_GLOBS, rel) || /(^|\/)(helpers|fixtures|__fixtures__|__snapshots__)\//.test(rel)) return false;
+  return /\.(test|spec)\.[^/]+$|_test\.go$/.test(rel) || /(^|\/)(test|tests|spec|__tests__|src\/test|[^/]+Tests)\//.test(rel);
 }
 
 /**

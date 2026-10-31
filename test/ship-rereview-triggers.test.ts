@@ -318,6 +318,15 @@ describe('carry with a context path and a gap elsewhere (GST-407 cycle 5)', () =
     spawnMerge(repo, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
     const gap = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
     expect([gap.status, gap.out.trim().split('\n')[0]]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)']);
+    write(repo.work, 'plugin/b.json', json('b')); write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) + Array.from({ length: 220 }, (_, i) => `exports.w${i} = ${i};\n`).join(''));
+    repo.git('commit', '-qam', 'feat: many rows');
+    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    repo.git('checkout', '-q', 'main');
+    write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "5";' })); repo.git('commit', '-qam', 'main: v5 again'); repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', 'feature');
+    spawnMerge(repo, { 'lib/rows.js': src({ 5: 'exports.v5 = "5";', 6: 'exports.v6 = 600;' }) + Array.from({ length: 220 }, (_, i) => `exports.w${i} = ${i};\n`).join('') });
+    const big = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+    expect([big.status, big.out.trim().split('\n')[0], big.err.includes('too large for the scoped review')]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)', true]);
   });
 });
 
@@ -358,6 +367,22 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
       w.write({ 'test/gate.test.ts': after }); w.commit(`test: ${name}`);
       const out = finish(w, rw, pw, ['--reviewed-base', mergeBase(w)]);
       expect([name, out.status, lineOf(out.stdout, 'STOP')]).toEqual([name, 3, expect.stringContaining('STOP: test code changed since review in test/gate.test.ts: one fix-check reviewer reads ')]);
+    }
+
+    const long = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/b.test.ts': spec('b') });
+    const rlong = wtree(long);
+    const plong = snapshot(long);
+    long.write({ 'test/b.test.ts': spec('b') + Array.from({ length: 250 }, (_, i) => `test('case ${i}', () => expect(${i}).toBe(${i}));\n`).join('') }); long.commit('test: 250 cases');
+    const tooLong = finish(long, rlong, plong, ['--reviewed-base', mergeBase(long)]);
+    expect([tooLong.status, lineOf(tooLong.stdout, 'STOP')]).toEqual([3, 'STOP: behavior, tests or build inputs changed since review (test/b.test.ts): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)']);
+    expect(tooLong.stdout).toContain('too large for the scoped review (over 200 lines in a section): test/b.test.ts');
+
+    for (const [rel, route] of [['src/main/java/ABTest.java', 'behavior=1 docs=0 metadata=0 tests=0'], ['app/test_mode.py', 'behavior=1 docs=0 metadata=0 tests=0'], ['tests/test_mode.py', 'behavior=0 docs=0 metadata=0 tests=1']] as const) {
+      const g = fx({}, { 'src/b.ts': 'export const b = 2;\n', [rel]: 'x = 1\n' });
+      const rg = wtree(g);
+      const pg = snapshot(g);
+      g.write({ [rel]: 'x = 1\ny = 2\n' }); g.commit('add a line');
+      expect([rel, lineOf(finish(g, rg, pg, ['--reviewed-base', mergeBase(g)]).stdout, 'ROUTE')]).toEqual([rel, expect.stringContaining(route)]);
     }
 
     const locked = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/b.test.ts': spec('b') });
@@ -416,6 +441,9 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     const other = path.join(f.root, 'a0-result.json');
     fs.writeFileSync(other, fs.readFileSync(result, 'utf8').replace('"audit_id":"a1"', '"audit_id":"a0"'));
     expect(finish(f, reviewed, post, [...base, '--docs-requested', 'docs/KEY_FILES.md', '--docs-result', other]).stdout).toContain('STOP: --docs-requested docs/KEY_FILES.md is backed by the result of audit a0, not a1');
+    const near = path.join(f.root, 'a1-near.json');
+    fs.writeFileSync(near, fs.readFileSync(result, 'utf8').replace('docs/KEY_FILES.md is missing', 'docs/KEY_FILES.md.tmpl is missing'));
+    expect(finish(f, reviewed, post, [...base, '--docs-requested', 'docs/KEY_FILES.md', '--docs-result', near]).stdout).toContain("STOP: --docs-requested docs/KEY_FILES.md is not named in the audit result's blockers or decisions");
     const ok = finish(f, reviewed, post, [...base, '--docs-requested', 'docs/KEY_FILES.md', '--docs-result', result]);
     expect(lineOf(ok.stdout, 'DOCS')).toContain('fresh');
     expect(lineOf(ok.stdout, 'DOCS')).toContain('requested=1');
