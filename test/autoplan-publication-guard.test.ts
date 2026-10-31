@@ -211,7 +211,7 @@ describe('Autoplan parent publication guard', () => {
     const oldClose = f.events.find(e => e.kind === 'use' && e.toolUseId === 'eng-close')!;
     create('eng', 'new-generation');
     (f.events.at(-1) as any).content += '\nShell cwd was reset to /home/user/project';
-    f.read('old-close-replayed', oldClose.input!.file_path as string); f.message('Phase 3 complete.');
+    f.read('old-close-replayed', (oldClose as any).input.file_path as string); f.message('Phase 3 complete.');
     f.input.tool_input = { file_path: tasks }; f.current();
     expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('earlier checkpoint') });
   });
@@ -1637,7 +1637,7 @@ describe('#3651: Claude Code cwd-reset footer on a Bash result', () => {
       f.current();
       const { rows, record } = f.journal();
       const at = rows.findIndex(r => Array.isArray(r.message.content) && r.message.content.some((b: any) => b.type === 'tool_use' && ['bad-init', 're-init'].includes(b.id)));
-      rows[at - 1]!.message.stop_reason = 'end_turn';
+      (rows[at - 1]!.message as any).stop_reason = 'end_turn';
       rows.splice(at, 0, record('user', 'Looks good, keep going.', { origin: { kind: 'human' }, promptSource: 'typed', promptId: randomUUID() }));
       rows.forEach((r, i) => { r.parentUuid = i ? rows[i - 1]!.uuid : null; });
       fs.writeFileSync(f.input.transcript_path, rows.map(x => JSON.stringify(x)).join('\n') + '\n');
