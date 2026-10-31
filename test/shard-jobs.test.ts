@@ -151,7 +151,10 @@ describe('k > 1: merge, rejection and one retry pass per CI shard', () => {
     expect(serial.files).toEqual([EXCLUSIVE]);
     expect(serial.startedAt).toBeGreaterThanOrEqual(Math.max(...parallel.map(call => call.endedAt!)));
     expect(h.guards).toEqual([{ files: parallel.flatMap(call => call.files), shards: 3 }]);
-    expect(h.calls.every(call => call.options.wallTimeoutMs === 360_000 && call.totalShards === 4)).toBe(true);
+    expect(h.calls.every(call => call.totalShards === 4)).toBe(true);
+    expect(parallel.every(call => call.options.wallTimeoutMs === 360_000)).toBe(true);
+    expect(serial.options.wallTimeoutMs).toBeLessThan(360_000);
+    expect(serial.options.wallTimeoutMs).toBeGreaterThan(350_000);
     expect(result.jobs).toBe(3);
     expect(result.outcome).toMatchObject({ shard: 1, files: h.shard.files, status: 'passed', exitCode: 0, failingFiles: [], unattributedFailures: 0,
       summary: { testsRan: 16, filesRan: 8, sawTerminalSummary: true } });

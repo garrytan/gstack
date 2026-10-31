@@ -1576,8 +1576,9 @@ child, so no workflow changes behavior until it passes `--jobs`.
   sub-shards settle, serially, in one trailing sub-shard.
 - The parallel phase uses the concurrent-phase real-home guard, the same one
   full-suite mode uses; the serial sub-shard guards itself and names its files.
-- Every sub-shard gets the CI shard's own wall deadline, so k never moves a
-  deadline, and the parent waits for every child to settle.
+- The CI shard keeps its k = 1 wall deadline: the parallel sub-shards get it,
+  and the serial sub-shard gets whatever is left of it, so k never extends a
+  deadline. The parent waits for every child to settle.
 - The parent merges every sub-shard result into the shard's one `outcome`
   before the single flaky-retry pass, so the five-file retry cap stays per CI
   shard. A missing, duplicate or incomplete sub-shard result fails the shard

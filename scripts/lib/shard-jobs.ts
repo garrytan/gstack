@@ -12,8 +12,9 @@
  *     sub-shards settle, serially, in one trailing sub-shard.
  *   - The parallel phase uses the concurrent-phase home guard; every child
  *     uses the shared guard inside it, exactly as full-suite mode does.
- *   - Every sub-shard gets the CI shard's own wall deadline, so k never moves
- *     a deadline, and every launched child settles before the parent goes on.
+ *   - The whole CI shard keeps its k = 1 wall: the parallel sub-shards get it,
+ *     and the serial sub-shard gets what is left of it, so k never extends a
+ *     deadline; every launched child settles before the parent goes on.
  *   - The parent merges every sub-shard result before the single retry pass,
  *     so the five-file retry cap stays per CI shard; a missing, duplicate or
  *     incomplete sub-shard result fails the shard.
@@ -343,8 +344,8 @@ export async function runCiShard(input: CiShardInput, deps: CiShardDeps): Promis
   const total = assignments.length;
   log(`[test:free] CI shard ${shard.shard}/${plan.shards.length} at --jobs ${jobs}: ${assignments
     .map(entry => `sub-shard ${entry.id} = runner shard ${entry.index}/${total} (${entry.phase}, ${entry.files.length} files)`).join('; ')}`);
-  const run = (entry: SubShardAssignment, homeGuard?: FreeHomeGuardFactory): Promise<SubShardSettlement> =>
-    deps.runShard(entry.files, entry.index, total, { wallTimeoutMs, verbose, testCounts: true, ...(homeGuard ? { homeGuard } : {}) })
+  const run = (entry: SubShardAssignment, homeGuard?: FreeHomeGuardFactory, wall = wallTimeoutMs): Promise<SubShardSettlement> =>
+    deps.runShard(entry.files, entry.index, total, { wallTimeoutMs: wall, verbose, testCounts: true, ...(homeGuard ? { homeGuard } : {}) })
       .then(outcome => ({ assignment: entry, outcome }), (error: unknown) => ({ assignment: entry, error: error instanceof Error ? error.message : String(error) }));
   const parallel = assignments.filter(entry => entry.phase === 'parallel');
   const serial = assignments.filter(entry => entry.phase === 'serial');
@@ -358,7 +359,8 @@ export async function runCiShard(input: CiShardInput, deps: CiShardDeps): Promis
     if (homeChange) phaseProblems.push(homeChange);
   }
   for (const entry of serial) {
-    settled.push(deps.terminationRequested() ? { assignment: entry, error: 'cancelled before the serial phase' } : await run(entry));
+    settled.push(deps.terminationRequested() ? { assignment: entry, error: 'cancelled before the serial phase' }
+      : await run(entry, undefined, Math.max(1, startedAt + wallTimeoutMs - Date.now())));
   }
   const merged = mergeSubShardOutcomes(shard, settled, Date.now() - startedAt, phaseProblems);
   for (const problem of merged.problems) console.error(`[test:free] ${FREE_SUBSHARD_REJECTED}: CI shard ${shard.shard}: ${problem}`);
