@@ -43,14 +43,27 @@ describe('resolveProbe', () => {
     expect(resolveProbe('rg', { pathEnv: bin, gstackBin })).toEqual({ refused: 'rg is not on PATH' });
   });
 
+  test('fixed-name subcommands are allowed only for subcommand CLIs, as plain lowercase words', () => {
+    expect(resolveProbe('git', { pathEnv: bin, gstackBin, repoRoot: repo }, ['log'])).toEqual({ exe: path.join(bin, 'git') });
+    tool(bin, 'node', 'echo node');
+    for (const [command, words] of [['node', ['script']], ['gstack-thing', ['prior']], ['git', ['-c']], ['git', ['../x']], ['git', ['Log']], ['git', ['a', 'b', 'c']]] as const) {
+      expect('refused' in resolveProbe(command, { pathEnv: bin, gstackBin, repoRoot: repo }, words)).toBe(true);
+    }
+  });
+
   test('runProbe passes only --help, closes stdin and stops a hanging command', () => {
-    const echo = tool(bin, 'args', 'echo "args=$*"; read x && echo "stdin=$x"');
-    expect(runProbe(echo).output).toBe('args=--help\n');
+    const echo = tool(bin, 'args', 'echo "usage: args=$*"; read x && echo "stdin=$x"');
+    expect(runProbe(echo).output).toBe('usage: args=--help\n');
     const hang = tool(bin, 'hang', 'sleep 30');
     const t0 = Date.now();
     expect(runProbe(hang).timedOut).toBe(true);
     expect(Date.now() - t0).toBeLessThan(PROBE_TIMEOUT_MS + 5_000);
   }, 20_000);
+
+  test('subcommands come before --help, help without a usage line falls back to -h, and the probe runs in an empty directory', () => {
+    const sub = tool(bin, 'sub', '[ "$2" = --help ] && exit 1; echo "args=$* files=$(ls -A | wc -l) pager=$PAGER"');
+    expect(runProbe(sub, ['log']).output.trim()).toBe('args=log -h files=0 pager=cat');
+  });
 });
 
 describe('gstack-office-hours-review probe', () => {
@@ -60,6 +73,8 @@ describe('gstack-office-hours-review probe', () => {
     expect(refused.stderr).toContain('(OFFICE_HOURS_PROBE_REFUSED)');
     const git = spawnSync('bun', [BIN, 'probe', '--help', 'git'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 });
     expect(git.stdout).toMatch(/^PROBE: git exit=\d+/);
+    expect(spawnSync('bun', [BIN, 'probe', '--help', 'git', 'log'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout).toMatch(/^PROBE: git log exit=\d+/);
+    expect(spawnSync('bun', [BIN, 'probe', '--help', 'node', 'script'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).status).toBe(3);
     expect(spawnSync('bun', [BIN, 'probe', 'git'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).status).toBe(1);
   });
 });

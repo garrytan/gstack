@@ -12,16 +12,17 @@ const shellQuote = value => `'${value.replaceAll("'", `'\\''`)}'`;
 
 // The reviewer's one execution right: --help for a gstack bin or a listed read-only CLI (lib/office-hours-probe.ts).
 function probe(args) {
-  if (args.length !== 2 || args[0] !== '--help') throw new Error('usage: gstack-office-hours-review probe --help <command>');
+  if (args.length < 2 || args.length > 4 || args[0] !== '--help') throw new Error('usage: gstack-office-hours-review probe --help <command> [<subcommand> [<subcommand>]]');
+  const named = args.slice(1).join(' ');
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 10_000 });
-  const target = resolveProbe(args[1], { pathEnv: process.env.PATH ?? '', gstackBin: path.dirname(fs.realpathSync(process.argv[1])), repoRoot: top.status === 0 ? top.stdout.trim() : undefined });
+  const target = resolveProbe(args[1], { pathEnv: process.env.PATH ?? '', gstackBin: path.dirname(fs.realpathSync(process.argv[1])), repoRoot: top.status === 0 ? top.stdout.trim() : undefined }, args.slice(2));
   if ('refused' in target) {
-    console.error(resultLine('gstack-office-hours-review probe', 'OFFICE_HOURS_PROBE_REFUSED', `${args[1]}: ${target.refused}`));
+    console.error(resultLine('gstack-office-hours-review probe', 'OFFICE_HOURS_PROBE_REFUSED', `${named}: ${target.refused}`));
     process.exitCode = 3;
     return;
   }
-  const r = runProbe(target.exe);
-  console.log(`PROBE: ${args[1]} ${r.timedOut ? 'timeout' : `exit=${r.status}`}`);
+  const r = runProbe(target.exe, args.slice(2));
+  console.log(`PROBE: ${named} ${r.timedOut ? 'timeout' : `exit=${r.status}`}`);
   if (r.output) console.log(r.output);
   if (r.timedOut) process.exitCode = 1;
 }
@@ -29,7 +30,7 @@ function probe(args) {
 function main(args) {
   const command = args.shift();
   if (command === 'probe') return probe(args);
-  if (!['check', 'prepare', 'seal', 'finalize'].includes(command)) throw new Error('usage: gstack-office-hours-review probe --help <command> | check --receipt <reviewer response> <round.json...> | prepare --design <doc> --out-dir <reviewdir> [round.json...] | seal --design <doc> --verdict <round-N.json> [preceding round.json...] | finalize --design <doc> [--report <report>] [--unreviewed <reason>] [--fixes <fixes.json>] <round.json...> (each also takes --max-rounds 1|2|3, default 3)');
+  if (!['check', 'prepare', 'seal', 'finalize'].includes(command)) throw new Error('usage: gstack-office-hours-review probe --help <command> [<subcommand>] | check --receipt <reviewer response> <round.json...> | prepare --design <doc> --out-dir <reviewdir> [round.json...] | seal --design <doc> --verdict <round-N.json> [preceding round.json...] | finalize --design <doc> [--report <report>] [--unreviewed <reason>] [--fixes <fixes.json>] <round.json...> (each also takes --max-rounds 1|2|3, default 3)');
   const options = {};
   const files = [];
   while (args.length) {
@@ -102,7 +103,7 @@ function main(args) {
     if (!captured) atomicWriteSync(snapshotPath, design, { mode: 0o600 });
     if (!existing) atomicWriteSync(promptPath, prompt, { mode: 0o600 });
     const seal = [shellQuote(fs.realpathSync(process.argv[1])), 'seal', ...(maxRounds === 3 ? [] : [`--max-rounds ${maxRounds}`]), '--design', shellQuote(designPath), '--verdict', shellQuote(verdictPath), ...files.map(file => shellQuote(fs.realpathSync(file)))].join(' ');
-    const dispatch = `Read ${JSON.stringify(promptPath)} and execute the independent spec review as instructed.\nDocument: ${designPath}\nPrompt: ${promptPath}\nVerdict: ${verdictPath}\nProbe: ${shellQuote(fs.realpathSync(process.argv[1]))} probe --help <command>\nSeal: ${seal}`;
+    const dispatch = `Read ${JSON.stringify(promptPath)} and execute the independent spec review as instructed.\nDocument: ${designPath}\nPrompt: ${promptPath}\nVerdict: ${verdictPath}\nProbe: ${shellQuote(fs.realpathSync(process.argv[1]))} probe --help <command> [<subcommand>]\nSeal: ${seal}`;
     console.log(JSON.stringify({ round, promptPath, verdictPath, dispatch }));
     return;
   }

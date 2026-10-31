@@ -91,7 +91,7 @@ describeIfSelected('Planning wave (GSTA-228)', ['planning-wave-planted-facts', '
       const { renderOfficeHoursReviewerPrompt } = await import(path.join(root, 'lib', 'office-hours-review.ts'));
       const promptPath = path.join(tmp, 'round-1.prompt.md');
       fs.writeFileSync(promptPath, renderOfficeHoursReviewerPrompt({ document: doc, verdictPath: verdict, maxRounds: 3 }));
-      const probe = arm === 'branch' ? `\nProbe: ${path.join(root, 'bin', 'gstack-office-hours-review')} probe --help <command>` : '';
+      const probe = arm === 'branch' ? `\nProbe: ${path.join(root, 'bin', 'gstack-office-hours-review')} probe --help <command> [<subcommand>]` : '';
       prompt = `Read ${JSON.stringify(promptPath)} and execute the independent spec review as instructed.\nDocument: ${doc}\nPrompt: ${promptPath}\nVerdict: ${verdict}${probe}\nSeal: wave-eval`;
     }
     const result = await runSkillTest({
