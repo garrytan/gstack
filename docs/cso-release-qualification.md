@@ -146,7 +146,7 @@ Image publication starts with the committed
 [`build-inputs.json`](../lib/cso/images/build-inputs.json). Its reviewed revision
 pins distinct native manifests for every stack and the SBOM generator. Each
 profile records the inspected source tag and immutable index for provenance.
-The source tag must name an exact release (`<major>.<minor>.<patch>`, or
+Every source tag (each base, Python's uv and the SBOM generator) must name an exact release (`<major>.<minor>.<patch>`, or
 `<major>.<minor>` for PostgreSQL); a floating major or minor tag, `latest` or
 another alias fails matrix generation with `FLOATING_<FAMILY>_SOURCE`. Each profile then records
 `baseImages` keyed by `linux/amd64` and `linux/arm64`; Python additionally
