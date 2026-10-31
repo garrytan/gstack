@@ -128,13 +128,13 @@ describe('per-case host metadata', () => {
     for (const id of Object.keys(E2E_HOSTS)) expect(Object.hasOwn(E2E_TOUCHFILES, id), id).toBe(true);
   });
 
-  test('classifies 52 adapter-only, 35 Claude-specific, 26 rework and 1 host-neutral case', () => {
+  test('classifies 52 adapter-only, 34 Claude-specific, 26 rework and 1 host-neutral case', () => {
     const counts: Record<string, number> = {};
     for (const support of Object.values(E2E_HOSTS)) counts[support] = (counts[support] ?? 0) + 1;
     expect(counts.both).toBe(52);
     expect(counts.rework).toBe(26);
     expect(counts['host-neutral']).toBe(1);
-    expect(['pty', 'sdk', 'subagents', 'skill-tool', 'hermetic', 'self-host'].reduce((sum, reason) => sum + (counts[reason] ?? 0), 0)).toBe(35);
+    expect(['pty', 'sdk', 'subagents', 'skill-tool', 'hermetic', 'self-host'].reduce((sum, reason) => sum + (counts[reason] ?? 0), 0)).toBe(34);
   });
 });
 

@@ -1574,7 +1574,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
 
   // Autoplan — periodic (not yet implemented)
   'autoplan-dual-voice': 'periodic',
-  'autoplan-ceo-only': 'gate',
+  'autoplan-ceo-only': 'marathon',  // Full /autoplan --ceo-only CEO review (349–984 s over 6 runs, GST-537); the gate (I5) and periodic lanes are at their caps
 
   // Multi-provider benchmark — periodic (requires external CLIs + auth, paid)
   'benchmark-providers-live': 'periodic',
