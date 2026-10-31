@@ -58,6 +58,8 @@ describe('detection', () => {
   test('Health Stack rows and manifest checks', () => {
     expect(healthStack('# x\n## Health Stack\n\n- typecheck: tsc --noEmit\n- test: bun test\n- shell: shellcheck *.sh\n## Next\n- lint: nope\n').map(c => [c.name, c.command]))
       .toEqual([['typecheck', 'tsc --noEmit'], ['shell', 'shellcheck *.sh']]);
+    // A repeated key keeps both checks under their own names, and a tests row is pregate's, so status never reads one verdict for two checks.
+    expect(healthStack('## Health Stack\n- lint: eslint .\n- lint: stylelint "**/*.css"\n- tests: npm test\n').map(c => c.name)).toEqual(['lint', 'lint-2']);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-checks-manifest-'));
     dirs.push(dir);
     fs.writeFileSync(path.join(dir, 'tsconfig.json'), '{}');
@@ -66,7 +68,7 @@ describe('detection', () => {
     fs.writeFileSync(path.join(dir, 'bun.lock'), '');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { lint: 'eslint .' }, devDependencies: { typescript: '5' } }));
     fs.writeFileSync(path.join(dir, 'go.mod'), 'module x\n');
-    expect(manifestChecks(dir).map(c => c.command)).toEqual(['bunx tsc --noEmit', 'bun run lint', 'go vet ./...']);
+    expect(manifestChecks(dir).map(c => c.command)).toEqual(['bunx tsc --noEmit', 'bun run lint', 'go vet ./...', 'go build ./...']);
     const py = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-checks-py-'));
     dirs.push(py);
     expect(manifestChecks(py)).toEqual([]);
@@ -113,6 +115,7 @@ describe('gstack-checks on a fixture repo', () => {
     // A changed check command needs consent again.
     write(s.repo.work, 'package.json', JSON.stringify({ name: 'fixture', scripts: { typecheck: 'node scripts/typecheck.js --strict' } }) + '\n');
     expect(run(s).status).toBe(3);
+    expect(s.checks(['status']).out).toStartWith('NOT_READY');
     s.repo.git('checkout', '-q', '--', 'package.json');
     // A selection manifest command changed on the base needs consent before anything executes.
     s.repo.git('checkout', '-q', 'main');
@@ -152,6 +155,28 @@ describe('gstack-checks on a fixture repo', () => {
     expect(s.checks(['status']).status).toBe(0);
     write(s.repo.work, 'README.md', '# changed after the run\n');
     expect(s.checks(['status']).out).toContain('the last run was at');
+  }, 60_000);
+
+  // Value: protects=two --only runs at one tree add up to READY, and a tree that changes during a run is never green; bad arguments
+  //   run nothing; fails_when=a partial rerun drops the other verdicts, a run that edited the tree reads PASS, or an unknown --only name
+  //   is ignored; why_new=the ledger merge and tree re-check are new; seam=a declared check that writes a file; no_claim=signals
+  test('partial runs, a tree moved mid-run and argument errors', () => {
+    const s = setup();
+    expect(s.checks(['trust']).status).toBe(0);
+    commit(s.repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });
+    expect(run(s, '--only', 'typecheck').status).toBe(0);
+    expect(s.checks(['status']).out).toContain('tests=not run');
+    expect(run(s, '--only', 'tests').status).toBe(0);
+    expect(s.checks(['status']).out).toStartWith('READY_FOR_SHIP');
+    expect(run(s, '--only', 'nope').status).toBe(64);
+    expect(run(s, '--timeout', '0').status).toBe(64);
+    expect(s.checks(['--base']).status).toBe(64);
+    write(s.repo.work, 'CLAUDE.md', 'gstack:verify: node -e "require(\'fs\').writeFileSync(\'touched.txt\', \'x\')"\n');
+    commit(s.repo, {});
+    expect(s.checks(['trust']).status).toBe(0);
+    const moved = run(s, '--only', 'verify');
+    expect(moved.out).toContain('CHECK verify INCOMPLETE');
+    expect(moved.status).toBe(1);
   }, 60_000);
 
   // Value: protects=a selection that runs zero tests is not green; fails_when=exit 0 with no test counted reads PASS; why_new=the

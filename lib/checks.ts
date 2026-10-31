@@ -32,7 +32,8 @@ import { resolveBaseBranch } from './ship-policy';
 export interface Check { name: string; command: string; source: string; body?: string }
 export type Verdict = 'PASS' | 'FAIL' | 'ZERO_RUN' | 'UNMAPPED' | 'TOO_BROAD' | 'ENV' | 'TIMEOUT' | 'INCOMPLETE';
 export interface Outcome { name: string; verdict: Verdict; ms: number; detail: string; lines: string[]; log?: string; notCovered?: string[] }
-export interface Ledger { tree: string; set: string; at: string; results: Array<Pick<Outcome, 'name' | 'verdict'>>; notCovered: string[] }
+/** basis: the base commit and policy the selection was made against, so a moved base or changed policy is not READY. */
+export interface Ledger { tree: string; set: string; basis: string; at: string; results: Array<Pick<Outcome, 'name' | 'verdict'>>; notCovered: string[] }
 
 export const TESTS = 'tests';
 export const MAX_LOCAL_TESTS = 300;
@@ -52,7 +53,7 @@ export function declaredVerify(claudeMd: string): string | null {
   return null;
 }
 
-/** The '## Health Stack' section (/health's own format): '- key: command' rows. 'test' is left to pregate. */
+/** The '## Health Stack' section (/health's own format): '- key: command' rows. 'test' and 'tests' are left to pregate; a repeated key gets -2, -3 so every check has its own name. */
 export function healthStack(claudeMd: string): Check[] {
   const lines = claudeMd.split('\n');
   const start = lines.findIndex(l => /^##\s+Health Stack\s*$/.test(l));
@@ -61,7 +62,11 @@ export function healthStack(claudeMd: string): Check[] {
   for (const line of lines.slice(start + 1)) {
     if (/^#{1,6}\s/.test(line)) break;
     const m = /^\s*[-*]\s*([A-Za-z0-9_-]+):\s*(.+?)\s*$/.exec(line);
-    if (m && m[1].toLowerCase() !== 'test') checks.push({ name: m[1].toLowerCase(), command: m[2].replace(/`/g, ''), source: 'CLAUDE.md Health Stack' });
+    if (!m || ['test', TESTS].includes(m[1].toLowerCase())) continue;
+    const key = m[1].toLowerCase();
+    let name = key;
+    for (let n = 2; checks.some(c => c.name === name); n++) name = `${key}-${n}`;
+    checks.push({ name, command: m[2].replace(/`/g, ''), source: 'CLAUDE.md Health Stack' });
   }
   return checks;
 }
@@ -95,8 +100,8 @@ export function manifestChecks(root: string): Check[] {
     if (/\bruff\b/.test(pyproject)) checks.push({ name: 'lint', command: 'ruff check .', source: 'pyproject.toml' });
     if (/\bmypy\b/.test(pyproject)) checks.push({ name: 'typecheck', command: 'mypy .', source: 'pyproject.toml' });
   }
-  if (fs.existsSync(path.join(root, 'Cargo.toml'))) checks.push({ name: 'build', command: 'cargo check --all-targets', source: 'Cargo.toml' });
-  if (fs.existsSync(path.join(root, 'go.mod'))) checks.push({ name: 'build', command: 'go vet ./...', source: 'go.mod' });
+  if (fs.existsSync(path.join(root, 'Cargo.toml'))) checks.push({ name: 'build', command: 'cargo check --all-targets', source: 'Cargo.toml' }, { name: 'lint', command: 'cargo clippy --all-targets', source: 'Cargo.toml' });
+  if (fs.existsSync(path.join(root, 'go.mod'))) checks.push({ name: 'vet', command: 'go vet ./...', source: 'go.mod' }, { name: 'build', command: 'go build ./...', source: 'go.mod' });
   const seen = new Set<string>();
   return checks.filter(c => (seen.has(c.name) ? false : (seen.add(c.name), true)));
 }
@@ -105,14 +110,28 @@ export function manifestChecks(root: string): Check[] {
 export function detectChecks(root: string): Check[] {
   const claude = read(path.join(root, 'CLAUDE.md')) ?? '';
   const declared = declaredVerify(claude);
-  if (declared) return [{ name: 'verify', command: declared, source: 'CLAUDE.md gstack:verify:' }];
   const stack = healthStack(claude);
-  return stack.length ? stack : manifestChecks(root);
+  const checks = declared ? [{ name: 'verify', command: declared, source: 'CLAUDE.md gstack:verify:' }] : stack.length ? stack : manifestChecks(root);
+  let scripts: Record<string, string> = {};
+  try { scripts = JSON.parse(read(path.join(root, 'package.json')) ?? '{}').scripts ?? {}; } catch { /* no scripts */ }
+  return checks.map(c => {
+    const script = /^(?:npm|pnpm|yarn|bun)\s+run\s+([\w:.-]+)/.exec(c.command)?.[1];
+    return c.body === undefined && script && scripts[script] ? { ...c, body: scripts[script] } : c;
+  });
 }
 
 /** Every command a run could execute, read without executing any: the checks, the pregate runner and each selection manifest command. */
-export function commandSet(checks: readonly Check[], config: Pick<PregateConfig, 'runner' | 'selection'>): string {
-  return sha256(JSON.stringify({ checks: checks.map(c => [c.name, c.command, c.body ?? '']), runner: config.runner ?? 'detected', selection: Object.entries(config.selection ?? {}).sort(([a], [b]) => a.localeCompare(b)) }));
+export function commandSet(root: string, checks: readonly Check[], config: Pick<PregateConfig, 'runner' | 'selection'>): string {
+  return sha256(JSON.stringify({ checks: checks.map(c => [c.name, c.command, c.body ?? '']), runner: config.runner ?? detectedRunnerInputs(root), selection: Object.entries(config.selection ?? {}).sort(([a], [b]) => a.localeCompare(b)) }));
+}
+
+/** With no declared runner pregate picks one from lockfiles, test dependencies and the test script, so those are what trust covers. */
+function detectedRunnerInputs(root: string): string[] {
+  let pkg: { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> } = {};
+  try { pkg = JSON.parse(read(path.join(root, 'package.json')) ?? '{}'); } catch { /* none */ }
+  const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).filter(d => /^(vitest|jest|mocha|ava|@playwright\/test|pytest)$/.test(d)).sort();
+  const locks = ['bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'yarn.lock', 'package-lock.json'].filter(f => fs.existsSync(path.join(root, f)));
+  return ['detected', ...locks, ...deps, pkg.scripts?.test ?? ''];
 }
 
 const realRoot = (root: string) => { try { return fs.realpathSync(root); } catch { return path.resolve(root); } };
@@ -144,7 +163,7 @@ export function recordTrust(root: string, set: string, checks: readonly Check[],
 
 export function ledgerPath(root: string, env: NodeJS.ProcessEnv = process.env): string {
   const state = resolveStateRoot(env);
-  return path.join(state, 'projects', slugFromEnvironment(state, root), 'verify', 'last-run.json');
+  return path.join(state, 'projects', slugFromEnvironment(state, root), 'verify', sha256(realRoot(root)).slice(0, 12), 'last-run.json');
 }
 
 export function readLedger(file: string): Ledger | null {
@@ -168,6 +187,7 @@ export function testVerdict(r: CheckResult): Pick<Outcome, 'verdict' | 'detail' 
 
 export interface RunOptions { root: string; only?: string[]; timeoutMs: number; env?: NodeJS.ProcessEnv }
 export interface Loaded { ctx: PregateContext; checks: Check[]; set: string }
+const basisOf = (ctx: PregateContext) => sha256(JSON.stringify([ctx.baseRef, ctx.baseSha, ctx.configLabel, ctx.configDigest ?? '']));
 
 /** The pregate context /verify runs under: the base policy, tests local whatever the core count, no remote gate, quiet progress. */
 export function load(root: string, base: string | undefined, timeoutMs: number, env: NodeJS.ProcessEnv = process.env): Loaded | { refused: string } {
@@ -175,7 +195,7 @@ export function load(root: string, base: string | undefined, timeoutMs: number, 
   const loaded = buildContext({ repoRoot: root, base: b, policyFrom: 'base', allowRepoCommands: true, timeoutMs, cores: Number.MAX_SAFE_INTEGER, testBackend: 'local', remote: null, userConfigPath: defaultUserConfigPath(root), env, progress: () => {} });
   if ('refused' in loaded) return { refused: describeRefusal(loaded.refused, b, 'gstack-checks').line };
   const checks = detectChecks(root);
-  return { ctx: loaded.ctx, checks, set: commandSet(checks, loaded.ctx.config) };
+  return { ctx: loaded.ctx, checks, set: commandSet(root, checks, loaded.ctx.config) };
 }
 
 async function runCommand(ctx: PregateContext, check: Check, dir: string, timeoutMs: number): Promise<Outcome> {
@@ -218,11 +238,14 @@ export async function runChecks(l: Loaded, o: RunOptions): Promise<{ outcomes: O
   const moved = 'error' in after || after.tree !== l.ctx.wtree;
   const final = moved ? outcomes.map(x => (x.verdict === 'PASS' ? { ...x, verdict: 'INCOMPLETE' as Verdict, detail: 'the working tree changed during the run; rerun' } : x)) : outcomes;
   const prior = readLedger(file);
-  const same = !!prior && prior.tree === l.ctx.wtree && prior.set === l.set;
+  const basis = basisOf(l.ctx);
+  const same = !!prior && prior.tree === l.ctx.wtree && prior.set === l.set && prior.basis === basis;
   const keep = same ? prior!.results.filter(p => !final.some(f => f.name === p.name)) : [];
   const tests = final.find(f => f.name === TESTS);
-  const ledger: Ledger = { tree: l.ctx.wtree, set: l.set, at: new Date().toISOString(), results: [...keep, ...final.map(f => ({ name: f.name, verdict: f.verdict }))], notCovered: tests ? tests.notCovered ?? [] : same ? prior!.notCovered : [] };
-  fs.writeFileSync(file, JSON.stringify(ledger, null, 2) + '\n', { mode: 0o600 });
+  const ledger: Ledger = { tree: l.ctx.wtree, set: l.set, basis, at: new Date().toISOString(), results: [...keep, ...final.map(f => ({ name: f.name, verdict: f.verdict }))], notCovered: tests ? tests.notCovered ?? [] : same ? prior!.notCovered : [] };
+  const tmp = `${file}.tmp.${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(ledger, null, 2) + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, file);
   return { outcomes: final, ledger };
 }
 
@@ -233,8 +256,9 @@ export function status(l: Loaded, ledger: Ledger | null): { ready: boolean; line
   if (!ledger) return notReady('no gstack-checks run recorded; run gstack-checks run');
   if (ledger.tree !== l.ctx.wtree) return notReady(`the last run was at ${ledger.tree.slice(0, 12)}; run gstack-checks run`);
   if (ledger.set !== l.set) return notReady('the check set changed since the last run; run gstack-checks run');
+  if (ledger.basis !== basisOf(l.ctx)) return notReady(`the base or pregate policy changed since the last run (now ${l.ctx.configLabel}); run gstack-checks run`);
   const needed = [...l.checks.map(c => c.name), TESTS];
-  const gaps = needed.map(n => [n, ledger.results.find(r => r.name === n)?.verdict ?? 'not run'] as const).filter(([, v]) => v !== 'PASS');
+  const gaps = needed.map(n => [n, ledger.results.filter(r => r.name === n).map(r => r.verdict).find(v => v !== 'PASS') ?? (ledger.results.some(r => r.name === n) ? 'PASS' : 'not run')] as const).filter(([, v]) => v !== 'PASS');
   if (gaps.length) return notReady(gaps.map(([n, v]) => `${n}=${v}`).join(' '));
   return { ready: true, line: `READY_FOR_SHIP tree=${tree} checks=${needed.join(',')} not_covered=${ledger.notCovered.join(',') || 'none'}` };
 }

@@ -154,14 +154,15 @@ reviews, bumps a version, edits CHANGELOG, pushes, or opens a PR: that is /ship.
 
 ## 1. See what will run
 
+Each Bash call is a fresh shell, so every block sets `C` again.
+
 ```bash
-C="$HOME/.claude/skills/gstack/bin/gstack-checks"
-"$C" detect
+C="$HOME/.claude/skills/gstack/bin/gstack-checks"; "$C" detect
 ```
 
 `detect` reads files only. It lists each check with its source, the pregate
-test selection, and `TRUST trusted|untrusted`. `CHECKS: none detected` with
-no pregate policy means there is nothing to run: say so and stop. Never invent a
+test selection, and `TRUST trusted|untrusted`. `CHECKS: none` means the repo declares no check,
+pregate policy or test file: there is nothing to run, so say so and stop. Never invent a
 command the repo does not declare.
 
 When `untrusted`: in an interactive session, show the user the listed commands
@@ -171,7 +172,7 @@ and ask before `"$C" trust`. In a session launched to run repo commands, pass
 ## 2. Loop: run, fix, run
 
 ```bash
-"$C" run
+C="$HOME/.claude/skills/gstack/bin/gstack-checks"; "$C" run
 ```
 
 One line per check: `CHECK <name> <VERDICT> <secs>`, at most 40 failing lines
@@ -201,7 +202,7 @@ change goes to /investigate.
 ## 3. Hand off
 
 ```bash
-"$C" status
+C="$HOME/.claude/skills/gstack/bin/gstack-checks"; "$C" status
 ```
 
 `status` reruns nothing. Only `READY_FOR_SHIP tree=<tree> ... not_covered=<lanes>`
