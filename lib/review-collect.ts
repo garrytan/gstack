@@ -39,7 +39,8 @@ function gitUntil(root: string, args: string[], deadline: number): { status: num
   const left = deadline - Date.now();
   if (left <= 0) return { status: null, out: '', err: '', timedOut: true };
   const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, encoding: 'utf8', timeout: left, maxBuffer: 256 * 1024 * 1024 });
-  return { status: r.status, out: r.stdout ?? '', err: (r.stderr ?? '').trim() || ((r.error as NodeJS.ErrnoException | undefined)?.code ?? ''), timedOut: r.status === null && Date.now() >= deadline };
+  const status = r.status ?? null;
+  return { status, out: r.stdout ?? '', err: (r.stderr ?? '').trim() || ((r.error as NodeJS.ErrnoException | undefined)?.code ?? ''), timedOut: status === null && Date.now() >= deadline };
 }
 const scratch = (p: string) => p.startsWith('.gstack/tmp/');
 const oneLine = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').trim().slice(0, 200);
