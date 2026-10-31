@@ -80,7 +80,8 @@ function stagePieces(stage: string[], scope: ShellScope, alone: boolean): Piece[
   if (!name || (discarded && name === 'echo')) return undefined;
   // Backslashes are data only in these closed grep/awk display patterns.
   const grepRange = /^grep\s+-n(?:\s+-i)?(?:\s+-B\d{1,4})?(?:\s+-A\d{1,4})?\s+(?:"(?:[^"\\$`]|\\[|.])*"|'(?:[^'\\$`]|\\[|.])*')\s+(.+)$/.exec(text);
-  const displayGrep = Boolean(grepRange && literal(grepRange[1]!) && !literal(grepRange[1]!)!.startsWith('-'));
+  // One or more literal file operands, none of them an option.
+  const displayGrep = Boolean(grepRange?.[1]!.split(' ').every(operand => literal(operand) !== undefined && !literal(operand)!.startsWith('-')));
   const awkRange = /^awk\s+'\/(?:[^/\\]|\\[./|])*\/,\/(?:[^/\\]|\\[./|])*\/'\s+(.+)$/.exec(text)
     ?? /^awk\s+'\/(?:[^/\\]|\\[./|])*\/\{f=1\} f&&\/(?:[^/\\]|\\[./|])*\/\{exit\} f'\s+(.+)$/.exec(text);
   const displayAwk = Boolean(awkRange && literal(awkRange[1]!) && !literal(awkRange[1]!)!.startsWith('-'));

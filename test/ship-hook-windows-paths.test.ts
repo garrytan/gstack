@@ -26,15 +26,24 @@ const guard = block
   .replaceAll(`${installed}gstack-redact`, '"$GSTACK_TEST_BUN" "$GSTACK_TEST_HELPERS/gstack-redact"');
 
 let root = '', main = '', worktree = '', env: NodeJS.ProcessEnv = {};
-const run = (command: string, args: string[], cwd: string) =>
-  spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 30_000 });
+// Windows Free Tests 41190552162: the file's first setup passed the 30 s hook budget (the next took 5 s, the retry
+// 0.4 s), and a killed child reads only as status null, so each failure names how long every setup spawn took.
+let spawns: string[] = [];
+const run = (command: string, args: string[], cwd: string) => {
+  const started = performance.now();
+  const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 30_000 });
+  spawns.push(`${command}: ${Math.round(performance.now() - started)} ms`);
+  return result;
+};
+const spawnLog = (result: { stderr: string }) => `${result.stderr}\nspawns: ${spawns.join(', ')}`;
 const git = (cwd: string, ...args: string[]) => {
   const result = run('git', args, cwd);
-  expect(result.status, result.stderr).toBe(0);
+  expect(result.status, spawnLog(result)).toBe(0);
   return result.stdout.trim();
 };
 
 beforeEach(() => {
+  spawns = [];
   root = realpathSync(mkdtempSync(join(tmpdir(), 'ship-hook-paths-')));
   main = join(root, 'main');
   worktree = join(root, 'linked worktree');
@@ -51,7 +60,7 @@ beforeEach(() => {
   git(main, '-c', 'user.email=fixture@example.test', '-c', 'user.name=Fixture', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'fixture');
   git(main, 'worktree', 'add', '-q', '--detach', worktree);
   const opted = run('bash', [join(HELPERS, 'gstack-config'), 'set', 'redact_prepush_hook', 'true'], main);
-  expect(opted.status, opted.stderr).toBe(0);
+  expect(opted.status, spawnLog(opted)).toBe(0);
 });
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
