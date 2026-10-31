@@ -1120,6 +1120,8 @@ HEAD while updates seem to succeed (#1022). `version-reverted` is the same
 symptom seen from the install: its VERSION disagrees with HEAD. Neither
 `gstack-upgrade`, `/gstack-upgrade` nor the auto-updater moves the install
 until it is fixed. A project that holds gstack as a git submodule is fine.
+`version-reverted` with no enclosing project means VERSION was edited by
+hand; only the `stash push` step below applies.
 
 **Fix.** Print the exact commands with
 `bash <install>/bin/gstack-ff-update --preflight <install>`. They do three
