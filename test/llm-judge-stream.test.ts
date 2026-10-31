@@ -259,6 +259,7 @@ test('pings after the last SDK event show a live connection; a silent socket sho
     const event = JSON.parse(diagnostics.mock.calls[0]![0]);
     expect(event).toMatchObject({ type: 'llm-judge-aborted', httpStatuses: [200], block: 'thinking', thinkingChars: 0, textChars: 0,
       messageId: 'msg_quiet', bytesReceived: opened + pings * ping.byteLength });
-    expect(event.lastByteMs).toBeGreaterThanOrEqual(event.lastEventMs); // gstack-timing-ok: ordering of two recorded offsets, not an elapsed-time bound
+    if (pings) expect(event.lastByteMs).toBeGreaterThanOrEqual(event.lastEventMs); // gstack-timing-ok: ordering of two recorded offsets, not an elapsed-time bound
+    else expect(event.lastByteMs).toBeLessThanOrEqual(event.lastEventMs); // gstack-timing-ok: the last byte is counted before the SDK parses it
   }
 });
