@@ -113,8 +113,8 @@ case "${1:-}" in
   "") ;;
   --identity) MODE=identity ;;
   --get) MODE=get; MODE_ARG="${2:-}"
-    case "$MODE_ARG" in SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|PROJECT_MARKER|LEGACY_SLUG|FORMER_SLUGS) ;;
-      *) echo "usage: gstack-slug --get SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|PROJECT_MARKER|LEGACY_SLUG|FORMER_SLUGS" >&2; exit 2 ;;
+    case "$MODE_ARG" in SLUG|REPO_SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|PROJECT_MARKER|LEGACY_SLUG|FORMER_SLUGS) ;;
+      *) echo "usage: gstack-slug --get SLUG|REPO_SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|PROJECT_MARKER|LEGACY_SLUG|FORMER_SLUGS" >&2; exit 2 ;;
     esac ;;
   --stamp-checkpoint) MODE=stamp; MODE_ARG="${2:-}"
     [[ -n "$MODE_ARG" ]] || { echo "usage: gstack-slug --stamp-checkpoint <file>" >&2; exit 2; } ;;
@@ -146,6 +146,8 @@ gstack-slug — print SLUG=<project slug> and BRANCH=<branch> for the current di
   eval "$(gstack-slug)"                 set SLUG and BRANCH
   SLUG=$(gstack-slug --get SLUG)        print one raw value (SLUG, BRANCH, or an --identity
                                         field); no eval needed
+  gstack-slug --get REPO_SLUG           the slug ignoring every .gstack-project marker, for records
+                                        that belong to one repository (policy, approvals, consent)
   gstack-slug --identity                also print PROJECT_REMOTE (canonical, credential-free),
                                         PROJECT_ROOT and LEGACY_SLUG (pre-#3003 bucket, if different)
   gstack-slug --stamp-checkpoint FILE   write remote:/project_root:/head: into FILE's frontmatter
@@ -370,17 +372,18 @@ _is_home_or_above() {
   return 1
 }
 # Prints why the marker in folder $1 does not count; nothing when it counts.
+# $2 overrides whether the walk stops at $HOME (default: the cwd is under it).
 _marker_reason() {
-  local m="$1/.gstack-project" d parent depth=0
+  local m="$1/.gstack-project" d parent depth=0 under="${2:-$_UNDER_HOME}"
   if [[ -L "$m" ]]; then echo "a symbolic link"; return 0; fi
   if [[ -d "$m" ]]; then echo "a directory, not a file: rmdir '$m' && touch '$m'"; return 0; fi
   [[ -f "$m" ]] || { echo "not a regular file"; return 0; }
   [[ -O "$m" ]] || { echo "owned by another user"; return 0; }
-  if [[ "$_UNDER_HOME" -eq 1 ]] && _is_home_or_above "$1"; then echo "at or above \$HOME"; return 0; fi
+  if [[ "$under" -eq 1 ]] && _is_home_or_above "$1"; then echo "at or above \$HOME"; return 0; fi
   [[ ! -e "$1/.git" ]] || return 0
   d=$(dirname "$1")
   while [[ $depth -lt 64 ]]; do
-    if [[ "$_UNDER_HOME" -eq 1 ]] && _is_home_or_above "$d"; then break; fi
+    if [[ "$under" -eq 1 ]] && _is_home_or_above "$d"; then break; fi
     if [[ -e "$d/.git" ]]; then echo "inside the git work tree at $d; a marker counts only at a repository's top folder"; return 0; fi
     parent=$(dirname "$d"); [[ "$parent" == "$d" ]] && break
     d="$parent"; depth=$((depth + 1))
@@ -406,12 +409,16 @@ _find_project_marker() {
 # main checkout is under that folder and the marker still counts.
 MARKER_BINDING=""
 [[ "$(basename "${GIT_COMMON_DIR:-x}")" != .git ]] || MARKER_BINDING="$CACHE_DIR/marker-binding/$(printf '%s' "$GIT_COMMON_DIR" | tr '/' '_')"
-if [[ -z "$SLUG" ]]; then
+if [[ -z "$SLUG" && ! ( "$MODE" == get && "$MODE_ARG" == REPO_SLUG ) ]]; then
   _find_project_marker "$PROJECT_DIR"
   if [[ -z "$MARKER_ROOT" && -n "$MARKER_BINDING" && -f "$MARKER_BINDING" ]]; then
     _bound=$(head -1 "$MARKER_BINDING" 2>/dev/null || true)
     _main=$(dirname "$GIT_COMMON_DIR")
-    if [[ -n "$_bound" && ( "$_main" == "$_bound" || "$_main" == "$_bound"/* ) && -z "$(_marker_reason "$_bound")" ]]; then
+    _bound_under=0
+    for _h in "$_HOME_LOG" "$_HOME_PHYS"; do
+      [[ -n "$_h" && "$_h" != / && "$_bound" == "$_h"/* ]] && _bound_under=1
+    done
+    if [[ -n "$_bound" && ( "$_main" == "$_bound" || "$_main" == "$_bound"/* ) && -z "$(_marker_reason "$_bound" "$_bound_under")" ]]; then
       MARKER_ROOT="$_bound"
     else
       rm -f "$MARKER_BINDING" 2>/dev/null || true
@@ -620,8 +627,8 @@ RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || RAW_BRANCH=""
 BRANCH=$(printf '%s' "${RAW_BRANCH:-}" | tr '/' '-' | tr -cd 'a-zA-Z0-9._-')
 BRANCH="${BRANCH:-unknown}"
 
-if [[ "$MODE" == "get" && ( "$MODE_ARG" == SLUG || "$MODE_ARG" == BRANCH ) ]]; then
-  if [[ "$MODE_ARG" == SLUG ]]; then printf '%s\n' "$SLUG"; else printf '%s\n' "$BRANCH"; fi
+if [[ "$MODE" == "get" && ( "$MODE_ARG" == SLUG || "$MODE_ARG" == REPO_SLUG || "$MODE_ARG" == BRANCH ) ]]; then
+  if [[ "$MODE_ARG" == BRANCH ]]; then printf '%s\n' "$BRANCH"; else printf '%s\n' "$SLUG"; fi
   exit 0
 fi
 FORMER_FILE="$GSTACK_STATE_ROOT/projects/$SLUG/.former-slugs"

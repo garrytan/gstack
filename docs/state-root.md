@@ -164,9 +164,12 @@ ignored, so a repository you clone can't choose another project's memory. Commit
 it in a nested repo you share, if you like; it changes nothing for someone who
 clones that repo on its own.
 
-Under an umbrella, records that belong to one repository stay with that
-repository: pregate policy and run scratch, approvals, and `/verify` results.
-Checkpoints, learnings, decisions, the timeline and design docs follow the marker.
+Checkpoints, learnings, decisions, the timeline and design docs follow the
+marker. Records that belong to one repository never do: pregate policy and run
+scratch, approvals, `/verify` results and the Greptile early-push answer stay
+under the slug the repository has without a marker (`gstack-slug --get
+REPO_SLUG`), so a branch that commits a marker can't change which policy
+applies.
 
 | To | Use | Lasts |
 |---|---|---|

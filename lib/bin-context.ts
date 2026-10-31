@@ -126,7 +126,7 @@ export function outermostRemoteRepo(startDir: string): { root: string; url: stri
  *   0m. A counted .gstack-project marker (see projectMarkerRoot): the marked
  *      folder's own remote slug, else its basename, cached in its own entry so
  *      removing the marker leaves the repo's entry as it was. Scope
- *      "repository" ignores umbrella markers above the repository.
+ *      "repository" ignores every marker.
  *   1. Walk UP to the OUTERMOST project root (see outermostProjectRoot). Without
  *      the walk, a nested/vendored repo derived its slug from the INNERMOST
  *      `git remote get-url origin`, splitting the store the bash side keeps whole.
@@ -319,32 +319,12 @@ function markerBindingFile(stateRoot: string, commonDir: string): string {
   return join(stateRoot, "slug-cache", "marker-binding", toMsysPath(commonDir).replace(/\//g, "_"));
 }
 
-/** Nearest folder holding a `.git` entry (physical), or "". */
-function gitToplevel(cwd: string): string {
-  let dir = cwd;
-  for (let depth = 0; dir && depth < 64; depth++) {
-    if (existsSync(join(dir, ".git"))) {
-      try {
-        return realpathSync(dir);
-      } catch {
-        return dir;
-      }
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return "";
-}
-
 /**
  * The marked folder that sets this cwd's identity, or "". A linked worktree
  * outside the marked folder follows its main checkout through the binding
- * gstack-slug keys on the git common dir. Scope "repository" (per-repository
- * records: pregate policy and scratch, approvals, /verify) honors only a marker
- * at this repository's own top folder, never an umbrella above it.
+ * gstack-slug keys on the git common dir.
  */
-export function projectMarkerRoot(stateRoot: string, cwd: string, scope: "memory" | "repository" = "memory"): string {
+export function projectMarkerRoot(stateRoot: string, cwd: string): string {
   let root = findProjectMarker(cwd).root;
   const common = gitCommonDir(cwd);
   const main = common && basename(common) === ".git" ? dirname(common) : "";
@@ -359,10 +339,6 @@ export function projectMarkerRoot(stateRoot: string, cwd: string, scope: "memory
     if (bound && (main === bound || isUnder(main, bound)) && !markerIgnoredReason(bound, homes.some((h) => isUnder(bound, h)), homes)) {
       root = bound;
     }
-  }
-  if (root && scope === "repository") {
-    const top = gitToplevel(cwd);
-    if (!existsSync(join(root, ".git")) || (root !== top && root !== main)) return "";
   }
   return root;
 }
@@ -453,7 +429,10 @@ export function slugFromEnvironment(
   if (envSlug && envSlug !== "." && envSlug !== "..") return envSlug;
 
   // 0m. project marker (#2649) — its own cache entry; the repo's entry below is never touched.
-  const markerRoot = projectMarkerRoot(home, cwd, opts.scope);
+  //     Scope "repository" (pregate policy and scratch, approvals, /verify) ignores
+  //     every marker, so a branch that commits one can't move those records
+  //     (twin of gstack-slug --get REPO_SLUG).
+  const markerRoot = opts.scope === "repository" ? "" : projectMarkerRoot(home, cwd);
   if (markerRoot) {
     const slug = markerSlug(home, cwd, markerRoot);
     if (slug) return slug;

@@ -6,8 +6,8 @@
 
 ### Changed
 - **Marker results have their own cache entries** (`slug-cache/marker/`), so deleting the marker restores the folder's earlier slug byte for byte. A linked worktree outside an umbrella follows it through a binding on the git common dir, valid only while the marker still counts.
-- **`browse/bin/remote-slug` follows a counted marker**, so the design-doc lookups in /plan-ceo-review, /plan-devex-review, /autoplan and the spec review find docs where /office-hours saved them.
-- **Per-repository records ignore an umbrella marker**: pregate policy and run scratch, approvals and `/verify` results stay keyed by the repository (`slugFromEnvironment(..., { scope: 'repository' })`).
+- **`browse/bin/remote-slug` follows a counted marker**, linked worktrees included, so the design-doc lookups in /plan-ceo-review, /plan-devex-review, /autoplan and the spec review find docs where /office-hours saved them.
+- **Records that belong to one repository ignore every marker**: pregate policy and run scratch, approvals, `/verify` results and the Greptile early-push answer stay under the repository's own slug (`gstack-slug --get REPO_SLUG`, `slugFromEnvironment(..., { scope: 'repository' })`), so a branch that commits a marker can't change which policy applies.
 
 ### Tests
 - `test/gstack-slug-project-marker.test.ts`: 16 cases for the bash resolver, its TS twin and remote-slug (nested repo, umbrella, innermost wins, env wins, cache restored on removal, ignored subfolder, link, directory and `$HOME` markers, hostile origin, worktree outside the umbrella, scoped checkpoint recovery, hook reader, cross-writer entries, repository scope). Ten of the twelve bash cases fail on the previous code.
