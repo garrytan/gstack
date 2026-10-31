@@ -138,7 +138,8 @@ describe('gstack-skill-start PROACTIVE status line', () => {
       '- Code review/diff check → invoke /review',
       '- Ship/deploy/PR → invoke /ship',
     ]);
-    expect(core).toContain('Other gstack skills run only when the user types their slash command (`gstack-config set proactive all` routes every skill).');
+    expect(core).toContain('Do not suggest or auto-invoke other gstack skills: they run when the user types them, or when a running skill hands off to them (`gstack-config set proactive all` routes every skill).');
+    expect(core.split('\n').filter(line => line.includes('→'))).toEqual(rulesOf(core));
     expect(core.startsWith(shipped.instruction)).toBe(true);
     for (const config of ['update_check: false\nproactive: all\n', 'update_check: false\nproactive: true\n']) {
       expect(offered(config), config).toBe(shipped.section);

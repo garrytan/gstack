@@ -617,7 +617,7 @@ _CORE_ROUTING_RULES=$(cat <<'EOR'
 - Code review/diff check → invoke /review
 - Ship/deploy/PR → invoke /ship
 
-Other gstack skills run only when the user types their slash command (`gstack-config set proactive all` routes every skill).
+Do not suggest or auto-invoke other gstack skills: they run when the user types them, or when a running skill hands off to them (`gstack-config set proactive all` routes every skill).
 EOR
 )
 _routing_offer() {

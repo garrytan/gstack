@@ -36,7 +36,8 @@ value gstack does not know (a hand-edited `proactive: maybe`) reads as `core`.
 
 The `## Skill routing` section gstack offers to append to your project's
 CLAUDE.md follows the setting too. Under `core` it lists only the four core
-rules and says the other skills run when you type them; under `all` it lists
+rules and says the other skills run when you type them or a running skill
+hands off to them; under `all` it lists
 every routing rule; under `off` it is not offered, because those rules are the
 auto-invocation you turned off. gstack offers the section once per project and
 never edits it afterwards. So a section you accepted earlier, or under another
