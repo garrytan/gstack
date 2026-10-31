@@ -91,6 +91,14 @@ describe('plan reviews name a file without a line (GBRA-223 claim 1)', () => {
     expect(reconcile([native], [row('outside', 1, { severity: 'High', title: 'CAP6:src/cli.ts:fix', file: 'src/cli.ts' })]).rows[0]!.disposition).toBe('new');
   });
 
+  test('a title twin is placed before the same-file fallback, so an unrelated finding cannot take its native', () => {
+    const n1 = row('native', 1, { severity: 'High', title: 'token refresh race drops the session', file: 'plan.md' });
+    const o1 = row('outside', 1, { severity: 'High', title: 'migration lacks rollback', file: 'plan.md' });
+    const o2 = row('outside', 2, { severity: 'High', title: 'token refresh race drops the session', file: 'plan.md' });
+    const { rows } = reconcile([n1], [o1, o2]);
+    expect(rows.map(r => [r.outside_id, r.native_id, r.basis])).toEqual([[o1.id, null, 'none'], [o2.id, n1.id, 'title']]);
+  });
+
   test('control: the same CAP item and wording on two different files never pairs by title', () => {
     const a = row('native', 1, { severity: 'High', title: 'CAP6:bin/gstack-upgrade:recovery no retry bound on network failure', file: 'bin/gstack-upgrade' });
     const b = row('outside', 1, { severity: 'High', title: 'CAP6:lib/telemetry-sync.ts:recovery no retry bound on network failure', file: 'lib/telemetry-sync.ts' });

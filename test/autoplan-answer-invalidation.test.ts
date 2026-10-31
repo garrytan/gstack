@@ -87,13 +87,13 @@ describe('answer', () => {
     expect(fs.readFileSync(path.join(out, 'run.json'), 'utf8')).toBe(before.run);
     expect(fs.readFileSync(path.join(out, 'decisions.jsonl'), 'utf8')).toBe(before.decisions);
     expect(journal(out).length).toBe(before.journal);
-    // partial: only the auto item answered; approval items stay pending; nothing reviewed changes
+    // partial: only the auto item answered; approval items, and finding items whose default waits on p1 (p1b applies them), stay pending
     const partial = autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', 'd1a', '--json']);
     expect(partial.status, partial.stderr).toBe(0);
     expect(JSON.parse(partial.stdout)).toMatchObject({ status: 'gate_pending', outcome: 'gate_pending', pending: ['uc1', 'uc2', 'p1'] });
     const rows = decisions(out);
     expect(rows.find((r: any) => r.label === 'D1')).toMatchObject({ status: 'approved', chosen: 'a' });
-    expect(rows.filter((r: any) => r.status === 'pending').map((r: any) => r.label)).toEqual(['UC1', 'UC2', 'P1']);
+    expect(rows.filter((r: any) => r.status === 'pending').map((r: any) => r.label)).toEqual(['UC1', 'D2', 'UC2', 'D3', 'D4', 'P1']);
   }, 30_000);
 
   test('`all` carrying the open findings finalizes without another paid phase: status complete, decisions answered, no phase reopened', () => {

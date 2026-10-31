@@ -351,6 +351,22 @@ describe('open Critical and High findings reach the gate (GBRA-223 claim 3)', ()
     expect(settledIds({ out: g.out } as any).has(item.finding[0])).toBe(true);
   });
 
+  test('a partial reply records no auto default, so a later p1b still applies the finding fix', () => {
+    const g = gated({ native: [...AGREE.native, ...KILL.native.map(f => ({ ...f, id: 'F9' }))], outside: AGREE.outside }, NONE);
+    const item = gate(g.out).items.find((i: any) => i.finding);
+    const uc = gate(g.out).items.find((i: any) => i.id.startsWith('uc'));
+    expect(answer(g.out, 1, `${uc.id}a`).stdout).toMatch(/GATE_PENDING: p1/);
+    expect(decisions(g.out).find(d => d.label === item.id.toUpperCase())?.chosen ?? null).toBeNull();
+    answer(g.out, 1, 'p1b');
+    expect(decisions(g.out).find(d => d.label === item.id.toUpperCase())).toMatchObject({ chosen: 'a' });
+  });
+
+  test('a same-file association never merges an unrelated Critical into a user challenge', () => {
+    const g = gated({ native: [{ id: 'F1', severity: 'Medium', title: 'Split the backoff into its own PR', file: 'lib/worker.ts', user_challenge: true, changes: 'packaging', fix: 'land it separately' }],
+      outside: [{ id: 'O1', severity: 'Critical', title: 'SQL injection in the lookup query', file: 'lib/worker.ts', fix: 'parameterize the query' }] }, NONE);
+    expect(gate(g.out).items.some((i: any) => i.finding && /^Critical: SQL injection/.test(i.title))).toBe(true);
+  });
+
   test('at the round cap, an outside Critical paired by file with an unrelated native Medium still counts as open', () => {
     const dir = path.join(r.host.base, `gj${++n}`);
     const out = path.join(dir, 'run');

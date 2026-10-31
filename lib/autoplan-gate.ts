@@ -207,13 +207,13 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     const origin = (ids: string, options: GateOption[]) => [phase, ids, ps.closed_at, ps.snapshot, optionHash(options)].join('|');
     const push = (item: GateItem, ids: string, tag?: string) => items.push({ ...item, origin: [origin(ids, item.options), ...(tag ? [tag] : [])].join('|') });
     const challenged = new Set<string>();
-    const twins = new Map(consensus.rows.filter(r => r.native_id && (r.disposition === 'confirmed' || r.disposition === 'unverified')).map(r => [r.native_id!, r.outside_id]));
+    const twins = new Map(consensus.rows.filter(r => r.native_id && r.basis !== 'file' && (r.disposition === 'confirmed' || r.disposition === 'unverified')).map(r => [r.native_id!, r.outside_id]));
     for (const row of consensus.rows) {
       const o = byId.get(row.outside_id)! as FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string };
       if (o.settled_by) continue;
       const n = (row.native_id ? byId.get(row.native_id) : undefined) as (FindingRow & { user_challenge?: boolean; changes?: string }) | undefined;
       const ids = `${row.native_id}+${row.outside_id}`;
-      if (o.user_challenge && n?.user_challenge && row.disposition !== 'new') {
+      if (o.user_challenge && n?.user_challenge && row.disposition !== 'new' && row.basis !== 'file') {
         challenged.add(o.id); challenged.add(n.id);
         const title = `${n.title} [${row.native_id} + ${row.outside_id}]`;
         if (reran && !n.changes && !o.changes) { push(agentDecision(`d${++d}`, title, phase, 'both voices recommend changing your stated direction'), ids); continue; }
@@ -421,13 +421,13 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   const plan = parsed.choices.find(c => c.id === 'p1');
   const lines: string[] = o.carry ? [] : voidPendingCheck(state, `the owner answered gate_rev ${gateRev}`);
   const answeredAt = now();
-  const record = () => writeDecisions(state.out, applyReply(rows, parsed, answeredAt, answeredBy, provenance).map(r => {
+  const record = (answered = parsed) => writeDecisions(state.out, applyReply(rows, answered, answeredAt, answeredBy, provenance).map(r => {
     const c = r.gate_rev === list.gate_rev && r.chosen && !r.chosen_text ? itemOf((r.label ?? '').toLowerCase())?.options.find(o => o.key === r.chosen) : undefined;
     return c ? { ...r, chosen_text: c.text } : r;
   }));
   if (!plan || parsed.pending.length) {
-    // Approvals unanswered: record what was answered, keep the gate pending; nothing reviewed changes.
-    record();
+    // Approvals unanswered: record what was answered, but not an auto default that p1b would change (the final answer decides it).
+    record({ ...parsed, choices: parsed.choices.filter(c => c.how !== 'auto_default' || c.chosen === itemOf(c.id).recommended) });
     const pending = parsed.pending.length ? parsed.pending : ['p1'];
     state.gate = { ...(state.gate ?? {}), last_reply: reply, pending };
     lines.push(`GATE_PENDING: ${pending.join(', ')} unanswered (${pendingHint(list, pending)})`);

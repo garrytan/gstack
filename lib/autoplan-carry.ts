@@ -12,7 +12,7 @@
  * changes, and the reviewed plan equal to it; no open urgent finding; and every new item already
  * carried. An answer given item by item (tokens, not `rec`) carries only that: every item on
  * N+1 already carried by origin, its p1 choice replayed and its tokens recorded verbatim as the
- * basis; any new or changed item goes to the owner. After `rec` or "do it", two kinds of new
+ * basis; any other new or changed item goes to the owner (an unreviewed capped delta, below, is the one exception). After `rec` or "do it", two kinds of new
  * item do not block: items a "do it" covers (the owner's words are "do it": an auto item that changes no scope, cost or direction and is no round grant), and a
  * capped-delta item recommending "accept", which first gets one reviewer on just the delta
  * (`CARRY_CHECK:`, answered with `gstack-autoplan check`); a High or Critical finding there

@@ -35,7 +35,7 @@ export const atCap = (state: RunState, phase: string): boolean => { const cap = 
 /** The phase is about to open past its cap (a rerun-all reply reopened it). */
 export const overCap = (state: RunState, phase: string): boolean => { const cap = roundCap(state, phase); return cap !== null && roundOf(state, phase) > cap; };
 
-/** Open High or Critical findings of a closed phase: the deferred counts, else bound rows not settled or answered, an outside row paired with a High or Critical native one counted once. */
+/** Open High or Critical findings of a closed phase: the deferred counts, else bound rows not settled or answered, an outside row paired (by title or line) with a High or Critical native one counted once. */
 function openHigh(state: RunState, phase: string): number {
   const ps = state.phases[phase];
   if (ps?.deferred) return (ps.deferred.counts.High ?? 0) + (ps.deferred.counts.Critical ?? 0);
@@ -45,7 +45,7 @@ function openHigh(state: RunState, phase: string): number {
   const high = (s: string | undefined) => s === 'High' || s === 'Critical';
   const native = voiceRows(state, phase, 'native');
   const nativeHigh = new Set(native.filter(r => high(r.severity)).map(r => r.id));
-  const paired = new Set(rows.filter(r => r.native_id && nativeHigh.has(r.native_id)).map(r => r.outside_id));
+  const paired = new Set(rows.filter(r => r.native_id && r.basis !== 'file' && nativeHigh.has(r.native_id)).map(r => r.outside_id));
   const answered = settledIds(state);
   return [...native, ...voiceRows(state, phase, 'outside')]
     .filter(r => !paired.has(r.id) && !(r as { settled_by?: string }).settled_by && !answered.has(r.id) && high(r.severity)).length;
@@ -64,13 +64,13 @@ export function roundsLine(state: RunState): string {
 
 /**
  * The estimate one new attempt reserves: the flag, else the run's persisted `--estimate-usd`, else the unattended
- * default for a host-subagent attempt when the run has a spend cap or runs on Capy, else 0 (spend unknown, not admitted;
- * `run` executes its attempts through api or codex-cli runners, never host subagents).
+ * default when the run has a spend cap or runs on Capy, else 0 (host spend unknown, not admitted). `run` prices its
+ * api attempts from the price table instead (NextOptions.price).
  */
-export function attemptEstimate(state: RunState, flag: number | undefined, env: NodeJS.ProcessEnv, hostSubagent = true): { usd: number; line?: string } {
+export function attemptEstimate(state: RunState, flag: number | undefined, env: NodeJS.ProcessEnv): { usd: number; line?: string } {
   const set = flag ?? state.estimate_usd;
   if (set !== undefined) return { usd: set };
-  if (!hostSubagent || state.session_kind !== 'unattended' || (env.GSTACK_CAPY !== '1' && state.spend_cap_usd === null)) return { usd: 0 };
+  if (state.session_kind !== 'unattended' || (env.GSTACK_CAPY !== '1' && state.spend_cap_usd === null)) return { usd: 0 };
   return { usd: DEFAULT_HOST_ESTIMATE_USD, line: `ESTIMATE: ${DEFAULT_HOST_ESTIMATE_USD.toFixed(2)} per voice reserved for each host-subagent attempt (unattended default under a spend cap or on Capy; --estimate-usd <n> sets it for the rest of the run); actual host spend stays unknown` };
 }
 

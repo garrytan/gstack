@@ -253,6 +253,8 @@ export function reconcile(native: FindingRow[], outside: FindingRow[], overrides
   }
   const used = new Set<string>();
   const rows: ReconciliationRow[] = [];
+  const later: Array<[number, FindingRow]> = [];
+  const unmatched = (o: FindingRow): ReconciliationRow => ({ outside_id: o.id, native_id: null, disposition: 'new', resolution: 'not raised by the native voice', basis: 'none', severity: { outside: o.severity, native: null } });
   for (const o of outside) {
     const override = byOutside.get(o.id);
     if (override) {
@@ -273,19 +275,9 @@ export function reconcile(native: FindingRow[], outside: FindingRow[], overrides
     }
     const titled = !!match;
     match ??= native.find(n => !used.has(n.id) && near(n));
-    let fileOnly = false;
-    if (!match && o.file) {
-      // Plan reviews name a file without a line: same file, a line missing on either side.
-      const sameFile = native.filter(n => !used.has(n.id) && n.file === o.file && (o.line === undefined || n.line === undefined));
-      match = sameFile.reduce<FindingRow | undefined>((b, n) => (!b || jaccard(ot, tokens(n.title)) > jaccard(ot, tokens(b.title)) ? n : b), undefined);
-      fileOnly = !!match;
-    }
-    if (!match) { rows.push({ outside_id: o.id, native_id: null, disposition: 'new', resolution: 'not raised by the native voice', basis: 'none', severity: { outside: o.severity, native: null } }); continue; }
+    if (!match && o.file) { later.push([rows.length, o]); rows.push(unmatched(o)); continue; }
+    if (!match) { rows.push(unmatched(o)); continue; }
     used.add(match.id);
-    if (fileOnly) {
-      rows.push({ outside_id: o.id, native_id: match.id, disposition: 'unverified', resolution: `same file, agreement unverified (${o.file}): ${match.title}`, basis: 'file', severity: { outside: o.severity, native: match.severity } });
-      continue;
-    }
     const basis: ReconciliationRow['basis'] = near(match) ? 'file_line' : 'title';
     const where = near(match) ? `${o.file}:${o.line}` : 'same title';
     if (!titled) {
@@ -299,6 +291,15 @@ export function reconcile(native: FindingRow[], outside: FindingRow[], overrides
     if (contradictory(match.resolution, o.resolution)) { pair('disagree', `remedies conflict (${where}): native "${match.resolution}", outside "${o.resolution}"`); continue; }
     if (remedyKey(match.resolution) !== remedyKey(o.resolution)) { pair('unverified', `same title, remedies differ (${where}): ${match.title}`); continue; }
     pair('confirmed', `both voices, same remedy (${where}): ${match.title}`);
+  }
+  // Plan reviews name a file without a line: same file, a line missing on either side, once every title and line match is placed.
+  for (const [i, o] of later) {
+    const ot = tokens(o.title);
+    const match = native.filter(n => !used.has(n.id) && n.file === o.file && (o.line === undefined || n.line === undefined))
+      .reduce<FindingRow | undefined>((b, n) => (!b || jaccard(ot, tokens(n.title)) > jaccard(ot, tokens(b.title)) ? n : b), undefined);
+    if (!match) continue;
+    used.add(match.id);
+    rows[i] = { outside_id: o.id, native_id: match.id, disposition: 'unverified', resolution: `same file, agreement unverified (${o.file}): ${match.title}`, basis: 'file', severity: { outside: o.severity, native: match.severity } };
   }
   return { rows, native_only: native.filter(n => !used.has(n.id)).map(n => n.id), errors };
 }
