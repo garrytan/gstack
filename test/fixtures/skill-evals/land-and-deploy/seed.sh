@@ -119,6 +119,7 @@ EOF
 
 case "$V" in
   deploy-ok|deploy-fail)
+    sed -i '/"private": true,/d' package.json
     cat > .deploy-config <<'EOF'
 ## Deploy Configuration
 
