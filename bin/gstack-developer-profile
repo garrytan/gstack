@@ -41,6 +41,10 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$(dirname "$0")/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $(dirname "$0")/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select
 GSTACK_HOME="$_gstack_sr_root"
+# A relative state root is anchored to the starting directory once, here:
+# do_derive changes directory, and the profile lock must name the same path
+# when it is taken and when it is released.
+case "$GSTACK_HOME" in /*) ;; *) GSTACK_HOME="$PWD/$GSTACK_HOME" ;; esac
 # Windows git-bash: GSTACK_HOME resolves to an MSYS path (/c/Users/...), which
 # Bun on Windows cannot open as a filesystem path (bites --derive). Normalize
 # once, here, before PROFILE_FILE/LEGACY_FILE are derived from it below —
@@ -66,7 +70,8 @@ shift || true
 # their rename, and write a unique temp file. A lock older than 30 s belongs
 # to a crashed writer and is taken over by atomic rename. A writer that
 # cannot get the lock within the give-up window writes nothing and exits 5.
-# Same shape as bin/gstack-settings-hook's mutation lock.
+# Same shape as bin/gstack-settings-hook's mutation lock, with its accepted
+# tradeoff: two waiters that take over the same stale lock at once can race.
 # -----------------------------------------------------------------------
 LOCK_DIR="$PROFILE_FILE.lock"
 LOCK_TOKEN=""
@@ -87,13 +92,13 @@ acquire_lock() {
   mkdir -p "$GSTACK_HOME"
   # GSTACK_PROFILE_LOCK_TIMEOUT_MS: test-only override for the give-up.
   local give_up_ms="${GSTACK_PROFILE_LOCK_TIMEOUT_MS:-10000}" waited_ms=0 mtime stale
-  local token="$-$RANDOM$RANDOM"
+  local token="$$-$RANDOM$RANDOM"
   while ! mkdir "$LOCK_DIR" 2>/dev/null; do
     # GNU stat first: BSD-style stat -f on Linux prints a filesystem block.
     mtime=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo "")
     case "$mtime" in *[!0-9]*) mtime="" ;; esac
     if [ -n "$mtime" ] && [ $(( $(date +%s) - mtime )) -gt 30 ]; then
-      stale="$LOCK_DIR.stale.$-$RANDOM"
+      stale="$LOCK_DIR.stale.$$-$RANDOM"
       if mv "$LOCK_DIR" "$stale" 2>/dev/null; then rm -rf "$stale"; fi
       continue
     fi

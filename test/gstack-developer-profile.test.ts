@@ -813,6 +813,19 @@ describe('gstack-developer-profile concurrent writers (#3437)', () => {
     expect(fs.existsSync(lockDir())).toBe(false);
   });
 
+  test('a relative state root does not leave the lock behind', () => {
+    const env = { ...process.env, GSTACK_HOME: 'state' };
+    for (const args of [['--derive'], ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' })]]) {
+      const res = spawnSync(BIN_DEV, args, { env, encoding: 'utf-8', cwd: tmpHome, timeout: 30_000 });
+      expect(res.stderr).toBe('');
+      expect(res.status).toBe(0);
+    }
+    const p = JSON.parse(fs.readFileSync(path.join(tmpHome, 'state', 'developer-profile.json'), 'utf-8'));
+    expect(p.sessions.length).toBe(1);
+    expect(typeof p.derived_at).toBe('string');
+    expect(fs.existsSync(path.join(tmpHome, 'state', 'developer-profile.json.lock'))).toBe(false);
+  });
+
   test('overlapping derives and log-sessions keep every session and leave valid JSON', async () => {
     for (let i = 0; i < 5; i++) {
       logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-mode', question_summary: 'mode', user_choice: 'expand', session_id: 's' + i });
