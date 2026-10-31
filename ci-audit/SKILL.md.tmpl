@@ -49,10 +49,11 @@ GitHub Actions only.
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 {{SLUG_SETUP}}
 OUT="$GSTACK_STATE_ROOT"/projects/$SLUG/ci-audit-$(date +%Y%m%d-%H%M%S)
-~/.claude/skills/gstack/bin/gstack-ci-audit run --logs 10 --out "$OUT.json" <user flags> > "$OUT.md"
+~/.claude/skills/gstack/bin/gstack-ci-audit run --logs 10 --out "$OUT.json" > "$OUT.md"
 echo "EXIT: $?"; echo "REPORT: $OUT.md"
 ```
 
+Add the user's `--repo`, `--since-days` or `--workflows` flags to the run line.
 Exit 0 is complete. Exit 4 is partial: the report says what was cut; label every
 number from it partial. Exit 3 printed `CI_AUDIT: unavailable … (<code>)` and a
 `fix:` line: relay both and stop. Exit 1 is a usage error: fix the flags once.
@@ -99,7 +100,7 @@ It prints before and after for push to green, per-job phases and dollars.
 ## Saturday audit
 
 When the user wants this every week, offer (A/B) to copy
-`~/.claude/skills/gstack/ci-audit/templates/ci-audit-weekly.yml` to
+`~/.claude/skills/gstack/lib/ci-audit/templates/ci-audit-weekly.yml` to
 `.github/workflows/ci-audit-weekly.yml`. It runs the same report every Saturday
 morning, report-only, and keeps one "Weekly CI audit" issue current: a complete run
 replaces or closes it, and a partial or failed run leaves the last findings and says

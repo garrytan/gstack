@@ -266,7 +266,7 @@ describe('weekly issue', () => {
 });
 
 describe('Saturday workflow template', () => {
-  const file = path.join(ROOT, 'ci-audit/templates/ci-audit-weekly.yml');
+  const file = path.join(ROOT, 'lib/ci-audit/templates/ci-audit-weekly.yml');
   const doc = Bun.YAML.parse(fs.readFileSync(file, 'utf8')) as any;
 
   test('runs Saturday morning and on demand, reads Actions, writes only issues', () => {

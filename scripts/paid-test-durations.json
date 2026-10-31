@@ -105,7 +105,8 @@
       "test/skill-e2e-triage.test.ts": 64816,
       "test/skill-e2e-workflow.test.ts": 265175,
       "test/skill-llm-eval.test.ts": 354000,
-      "test/skill-routing-e2e.test.ts": 1000
+      "test/skill-routing-e2e.test.ts": 1000,
+      "test/skill-e2e-ci-audit.test.ts#ci-audit-planted": 38100
     },
     "periodic": {
       "test/carve-section-loading.test.ts#carve-section-loading-browse": 92911,
@@ -216,7 +217,8 @@
       "test/skill-e2e-triage.test.ts": 1000,
       "test/skill-e2e-workflow.test.ts": 121594,
       "test/skill-llm-eval.test.ts": 339704,
-      "test/skill-routing-e2e.test.ts": 81360
+      "test/skill-routing-e2e.test.ts": 81360,
+      "test/skill-e2e-ci-audit.test.ts#ci-audit-planted-no-gstack": 92730
     }
   }
 }

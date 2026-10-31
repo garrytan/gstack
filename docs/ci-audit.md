@@ -79,7 +79,7 @@ Turn it off with `gstack-config set ci_audit_ship off`.
 
 ## The Saturday audit
 
-`ci-audit/templates/ci-audit-weekly.yml` runs the full report every Saturday at 15:00 UTC
+`lib/ci-audit/templates/ci-audit-weekly.yml` runs the full report every Saturday at 15:00 UTC
 and keeps one open "Weekly CI audit" issue current. A complete audit creates or replaces
 the issue, or closes it when nothing is left to fix. A partial or failed audit comments
 on the issue and keeps the last complete findings. The issue is matched by its title and
