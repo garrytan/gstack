@@ -10,7 +10,7 @@ Shared reference for fetching, filtering and classifying the comments AI review 
 ~/.claude/skills/gstack/bin/gstack-review-bots fetch
 ```
 
-- `REVIEW_BOTS: skip (<reason>)`: no PR, no `gh`, or both lists `none`. Skip triage silently; the workflow works without it.
+- `REVIEW_BOTS: skip (<reason>)`: no PR, `gh` missing or not logged in, no GitHub remote, or both lists `none`. Skip triage silently; the workflow works without it.
 - `REVIEW_BOTS: error (<reason>)`: a lookup or read failed. Triage is unavailable: report the reason, never claim zero comments.
 - `REVIEW_BOTS_DIR: <dir>` and `REVIEW_BOTS_COUNTS: <bot>=<n> …`: a complete fetch, zeros included. Later blocks run in fresh shells: substitute the printed directory for `<bot-dir>`.
 
@@ -188,10 +188,10 @@ When classifying Greptile's comments, also assess whether its implied severity m
 
 ## History File Writes
 
-Record each triage outcome by the comment's raw numeric `id` (`<type>` is `fix`, `fp` or `already-fixed`; `<category>` one of the fixed set above). The helper reads the bot and path from comments.jsonl, so a contributor-named file never reaches the command line:
+Record each triage outcome by the comment's raw numeric `id`, its type (`fix`, `fp` or `already-fixed`) and a `<category>` from the fixed set above. The helper reads the bot and path from comments.jsonl, so a contributor-named file never reaches the command line:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-bots record --dir <bot-dir> --id <id> --type <type> --category <category>
+~/.claude/skills/gstack/bin/gstack-review-bots record --dir <bot-dir> --id <comment-id> --type <fix|fp|already-fixed> --category <category>
 ```
 
 It appends one row to the project's `review-bot-history.md` (suppressions) and the global one (retro):
