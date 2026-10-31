@@ -389,18 +389,23 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
   /**
    * Fake Ubicloud API that can create: create adds the name to the listed file
    * (or answers the quota refusal in refuse with HTTP 400), show is running at
-   * 192.0.2.1 while listed, destroy unlists. The fake ssh records every remote
-   * command in ssh.log and plays the role the command asks for: it stores
-   * ~/.ubirun-env and ~/.ubirun-setup.sh under the fixture root, drains tar
-   * uploads, runs the setup phase per setup-mode (ok or hang) and echoes the
-   * command phase. No network, no VM.
+   * 192.0.2.1 while listed, destroy unlists. The fake VM is the directory vm/:
+   * the fake ssh records every remote command in ssh.log, keeps copies of
+   * ~/.ubirun-env and ~/.ubirun-setup.sh under the fixture root, serves pulls
+   * from remote-fs/, and runs every other command there for real (HOME=vm/,
+   * vmbin/ first on PATH), so uploads unpack, detached phases write their pid,
+   * output and exit files, tail --pid follows them and pkill ends them. The stub
+   * make in vmbin/ echoes `ran: make ARGS`, or runs command-mode or
+   * make-<target>.sh from the fixture root. No network, no VM.
    */
   function fakeVm(opts: { listed?: string; refuse?: string } = {}) {
     const root = mkdtempSync(join(tmpdir(), 'ubi-run-'));
     const bin = join(root, 'bin'), state = join(root, 'state'), log = join(root, 'calls.log'), sshLog = join(root, 'ssh.log'), record = join(root, 'vms.tsv');
+    const vm = join(root, 'vm'), vmbin = join(root, 'vmbin'), srcDir = join(root, 'src'), checkpoints = join(root, 'checkpoints');
+    mkdirSync(vm); mkdirSync(vmbin); mkdirSync(srcDir);
+    writeFileSync(join(srcDir, 'README'), 'fixture checkout\n');
     mkdirSync(bin); mkdirSync(state, { recursive: true });
     writeFileSync(join(root, 'listed'), opts.listed ?? '');
-    writeFileSync(join(root, 'setup-mode'), 'ok');
     writeFileSync(join(bin, 'curl'), '#!/usr/bin/env bash\n' +
       'out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n' +
       'body=$(cat); echo "$body" >> ' + JSON.stringify(log) + '\n' +
@@ -415,26 +420,33 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       '  *) : > "$out"; printf 200 ;;\n' +
       'esac\n');
     writeFileSync(join(bin, 'ssh'), '#!/usr/bin/env bash\n' +
-      'root=' + JSON.stringify(root) + '\n' +
+      'root=' + JSON.stringify(root) + '; vm="$root/vm"\n' +
       'cmd=${*: -1}\n' +
       'printf \'%s\\n\' "$cmd" >> "$root/ssh.log"\n' +
+      'export HOME="$vm" PATH="$root/vmbin:$PATH"\n' +
+      'cd "$vm" || exit 255\n' +
       'case "$cmd" in\n' +
-      '  *pkill*) echo "$cmd" >> "$root/cancel.log" ;;\n' +
+      '  *pkill*) echo "$cmd" >> "$root/cancel.log"; exec bash -c "$cmd" ;;\n' +
       '  *captured*) cat > "$root/captured" ;;\n' +
-      '  *"cat > ~/.ubirun-env"*) cat > "$root/ubirun-env" ;;\n' +
-      '  *"cat > ~/.ubirun-setup.sh"*) cat > "$root/ubirun-setup.sh" ;;\n' +
-      '  *"tar -xzf -"*) cat > /dev/null ;;\n' +
+      '  *"cat > ~/.ubirun-env"*) tee "$root/ubirun-env" > "$vm/.ubirun-env" ;;\n' +
+      '  *"cat > ~/.ubirun-setup.sh"*) tee "$root/ubirun-setup.sh" > "$vm/.ubirun-setup.sh" ;;\n' +
       '  *"tar -czf -"*) base=${cmd##* }; tar -czf - -C "$root/remote-fs" "$base" ;;\n' +
-      '  *"bash -l ~/.ubirun-setup.sh"*) echo "setup start"; if [ "$(cat "$root/setup-mode")" = hang ]; then sleep 20; fi; echo "setup done" ;;\n' +
-      '  *"bash -lc "*) if [ -f "$root/command-mode" ]; then bash -c "$(cat "$root/command-mode")"; else echo "ran: $cmd"; fi ;;\n' +
-      '  *) : ;;\n' +
+      '  *"ls -d -- "*) : ;;\n' +
+      '  *) exec bash -c "$cmd" ;;\n' +
       'esac\n');
-    chmodSync(join(bin, 'curl'), 0o755); chmodSync(join(bin, 'ssh'), 0o755);
-    const env: Record<string, string> = { ...(process.env as Record<string, string>), PATH: `${bin}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: state, UBI_POLL_SECONDS: '1', UBI_VM_RECORD: record, UBI_OWNER: 'thrd1', UBI_HEARTBEAT: '0' };
+    writeFileSync(join(vmbin, 'make'), '#!/usr/bin/env bash\n' +
+      'root=' + JSON.stringify(root) + '\n' +
+      'if [ -f "$root/command-mode" ]; then exec bash -c "$(cat "$root/command-mode")"; fi\n' +
+      'echo "ran: make $*"\n' +
+      '[ ! -f "$root/make-$1.sh" ] || exec bash "$root/make-$1.sh"\n');
+    chmodSync(join(bin, 'curl'), 0o755); chmodSync(join(bin, 'ssh'), 0o755); chmodSync(join(vmbin, 'make'), 0o755);
+    const env: Record<string, string> = { ...(process.env as Record<string, string>), PATH: `${bin}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: state, UBI_POLL_SECONDS: '1', UBI_VM_RECORD: record, UBI_OWNER: 'thrd1', UBI_HEARTBEAT: '0', UBI_CHECKPOINT_DIR: checkpoints };
     const run = (args: string[], extra: Record<string, string> = {}, stdin?: string) =>
       Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), ...args], { env: { ...env, ...extra }, stdin: stdin === undefined ? undefined : Buffer.from(stdin), timeout: 90_000 });
+    const spawn = (args: string[], extra: Record<string, string> = {}) =>
+      Bun.spawn(['bash', join(DIR, 'ubi-runner.sh'), ...args], { env: { ...env, ...extra }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', timeout: 120_000 });
     return {
-      root, state, record, run,
+      root, state, record, run, spawn, vm, src: srcDir, checkpoints,
       calls: () => (existsSync(log) ? readFileSync(log, 'utf8') : ''),
       ssh: () => (existsSync(sshLog) ? readFileSync(sshLog, 'utf8') : ''),
       listed: () => readFileSync(join(root, 'listed'), 'utf8'),
@@ -455,17 +467,18 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
   test('run: a hung setup is killed by the watchdog, exits 124, never reaches the command, and the VM is destroyed', () => {
     const f = fakeVm();
     try {
-      writeFileSync(join(f.root, 'setup-mode'), 'hang');
-      const setup = join(f.root, 'setup.sh'); writeFileSync(setup, 'echo hi\n');
-      const r = run(f, ['run', '--src', f.root, '--setup', setup, '--', 'make test'], { UBI_IDLE_TIMEOUT: '2' });
+      const setup = join(f.root, 'setup.sh'); writeFileSync(setup, 'echo "setup start"; sleep 20\n');
+      const r = run(f, ['run', '--src', f.src, '--setup', setup, '--', 'make test'], { UBI_IDLE_TIMEOUT: '2' });
       const err = r.stderr.toString();
       expect(r.exitCode, err).toBe(124);
       expect(err).toMatch(/watchdog: setup printed nothing for \d+s \(UBI_IDLE_TIMEOUT=2\)/);
       expect(err).toContain('setup failed (exit 124)');
       expect(f.ssh()).not.toContain('bash -lc');
-      expect(readFileSync(join(f.root, 'cancel.log'), 'utf8')).toMatch(/cat ~\/\.ubirun-setup-\d+\.sid/);
-      expect(f.ssh()).toMatch(/setsid -w bash -c 'printf %s \$\$ >~\/\.ubirun-setup-\d+\.sid; cd work\/[^ ]+ && \. ~\/\.ubirun-env && bash -l ~\/\.ubirun-setup\.sh'; else bash -c '[^']*'; fi$/m);
-      expect(readFileSync(join(f.root, 'cancel.log'), 'utf8')).toMatch(/rm -f ~\/\.ubirun-setup-\d+\.sid; \[ -z "\$sid" \] \|\| \{ pkill -TERM -s "\$sid"; sleep 2; pkill -KILL -s "\$sid"; \}/);
+      expect(err).toContain('setup start');
+      // The setup runs detached in its own session: its leader's pid, both streams and the exit status are files on the VM.
+      expect(f.ssh()).toMatch(/setsid -f bash -c 'echo \$\$ >~\/\.ubirun-setup\.pid\.tmp && mv ~\/\.ubirun-setup\.pid\.tmp ~\/\.ubirun-setup\.pid; \( cd work\/[^ ]+ && \. ~\/\.ubirun-env && bash -l ~\/\.ubirun-setup\.sh \) >~\/\.ubirun-setup\.out 2>~\/\.ubirun-setup\.err <\/dev\/null; echo \$\? >~\/\.ubirun-setup\.exit\.tmp && mv ~\/\.ubirun-setup\.exit\.tmp ~\/\.ubirun-setup\.exit' <\/dev\/null/m);
+      expect(readFileSync(join(f.root, 'cancel.log'), 'utf8')).toMatch(/sid=\$\(cat ~\/\.ubirun-setup\.pid 2>\/dev\/null\); rm -f ~\/\.ubirun-setup\.pid; \[ -z "\$sid" \] \|\| \{ pkill -TERM -s "\$sid"; sleep 2; pkill -KILL -s "\$sid"; \}/);
+      expect(existsSync(join(f.vm, '.ubirun-setup.exit'))).toBe(false);
       expect(f.calls()).toContain('destroy');
       expect(err).toMatch(/destroyed eu-central-h1\/ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3/);
       expect(f.listed()).toBe('');
@@ -477,7 +490,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
     const f = fakeVm();
     try {
       writeFileSync(join(f.root, 'command-mode'), 'for i in 1 2 3 4 5 6 7 8 9 10; do echo "tick $i"; sleep 1; done');
-      const r = run(f, ['run', '--src', f.root, '--', 'make test'], { UBI_RUN_TIMEOUT: '3' });
+      const r = run(f, ['run', '--src', f.src, '--', 'make test'], { UBI_RUN_TIMEOUT: '3' });
       expect(r.exitCode).toBe(124);
       expect(r.stderr.toString()).toMatch(/watchdog: command ran \d+s \(UBI_RUN_TIMEOUT=3\); killing it/);
       expect(r.stderr.toString()).toContain('command exited 124 after');
@@ -489,7 +502,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
     const f = fakeVm({ listed: 'eu-central-h1 ubirun-thrd1-9999999999-sib1-t3\n' });
     try {
       const leftFile = join(f.root, 'left');
-      const r = f.run(['run', '--src', f.root, '--', 'true'], { UBI_REAP: '0', UBI_LEFT_FILE: leftFile });
+      const r = f.run(['run', '--src', f.src, '--', 'true'], { UBI_REAP: '0', UBI_LEFT_FILE: leftFile });
       const err = r.stderr.toString();
       expect(r.exitCode, err).toBe(0);
       expect(err).toMatch(/UBICLOUD: left=0 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n/);
@@ -499,7 +512,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       const parser = read('scripts/ubicloud/pregate-remote.sh').match(/left=\$\(sed -n '([^']+)' "\$log\.left"/)![1];
       expect(Bun.spawnSync(['sed', '-n', parser, leftFile], { timeout: 30_000 }).stdout.toString()).toBe('0\n');
       // Value: protects=run --keep reports its live VM as UBICLOUD: left=1 ... kept=1 and never a clean left=0; fails_when=the kept line is dropped or --keep still prints the teardown line; why_new=no test runs run --keep; seam=none; no_claim=real VM lifetime (fake API and ssh)
-      const kept = f.run(['run', '--src', f.root, '--keep', '--', 'true'], { UBI_REAP: '0' });
+      const kept = f.run(['run', '--src', f.src, '--keep', '--', 'true'], { UBI_REAP: '0' });
       const keptErr = kept.stderr.toString();
       expect(kept.exitCode, keptErr).toBe(0);
       expect(keptErr).toMatch(/UBICLOUD: left=1 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 kept=1\n/);
@@ -512,14 +525,14 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
     const f = fakeVm();
     try {
       writeFileSync(join(f.root, 'listed.destroy-fails'), '');
-      const leaked = f.run(['run', '--src', f.root, '--', 'true'], { UBI_REAP: '0', UBI_DOWN_TIMEOUT: '3' });
+      const leaked = f.run(['run', '--src', f.src, '--', 'true'], { UBI_REAP: '0', UBI_DOWN_TIMEOUT: '3' });
       const err = leaked.stderr.toString();
       expect(leaked.exitCode, err).toBe(1);
       expect(err).toMatch(/UBICLOUD: left=1 owner=thrd1 vm=(ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3) others=0\n[^]*VM cleanup not confirmed for \1 \(left=1\); destroy it with: \S+ down \1/);
       expect(f.listed()).toContain('ubirun-thrd1-');
       // Value: protects=a failing command whose VM also leaks keeps its own exit status, not 1; fails_when=run_teardown exits 1 whenever left is not 0; why_new=the leak case above only runs a passing command; seam=none; no_claim=real destroy failure modes (fake API returns 500)
       writeFileSync(join(f.root, 'command-mode'), 'exit 7');
-      const failedLeak = f.run(['run', '--src', f.root, '--', 'false'], { UBI_REAP: '0', UBI_DOWN_TIMEOUT: '3' });
+      const failedLeak = f.run(['run', '--src', f.src, '--', 'make test'], { UBI_REAP: '0', UBI_DOWN_TIMEOUT: '3' });
       expect(failedLeak.exitCode, failedLeak.stderr.toString()).toBe(7);
       expect(failedLeak.stderr.toString()).toMatch(/UBICLOUD: left=1 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n/);
       const blind = fakeVm();
@@ -529,7 +542,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
         writeFileSync(join(blind.root, 'bin/curl'), '#!/usr/bin/env bash\nif [ -f ' + JSON.stringify(join(blind.root, 'armed')) + ' ]; then touch ' + JSON.stringify(join(blind.root, 'listed.list-fails')) + '; fi\nexec ' + JSON.stringify(join(blind.root, 'bin/curl.real')) + ' "$@"\n');
         chmodSync(join(blind.root, 'bin/curl'), 0o755);
         writeFileSync(join(blind.root, 'command-mode'), 'touch ' + JSON.stringify(join(blind.root, 'armed')));
-        const r = blind.run(['run', '--src', blind.root, '--', 'true'], { UBI_REAP: '0' });
+        const r = blind.run(['run', '--src', blind.src, '--', 'make test'], { UBI_REAP: '0' });
         expect(r.exitCode, r.stderr.toString()).toBe(1);
         expect(r.stderr.toString()).toMatch(/UBICLOUD: left=unknown owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=unknown\n/);
       } finally { rmSync(blind.root, { recursive: true, force: true }); }
@@ -551,7 +564,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
   test('run: --pass forwards a named local variable only; UBICLOUD_* and non-names are refused before any API call', () => {
     const f = fakeVm();
     try {
-      const ok = run(f, ['run', '--src', f.root, '--pass', 'UBI_TEST_TOKEN', '--env', 'CI=1', '--', 'make test'], { UBI_TEST_TOKEN: 'sekret value' });
+      const ok = run(f, ['run', '--src', f.src, '--pass', 'UBI_TEST_TOKEN', '--env', 'CI=1', '--', 'make test'], { UBI_TEST_TOKEN: 'sekret value' });
       expect(ok.exitCode).toBe(0);
       expect(ok.stderr.toString()).toContain('command exited 0 after');
       const envFile = readFileSync(join(f.root, 'ubirun-env'), 'utf8');
@@ -561,7 +574,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(ok.stdout.toString() + ok.stderr.toString()).not.toContain('sekret');
       for (const bad of ['UBICLOUD_API_KEY', 'UBICLOUD_API_TOKEN', 'X;Y', 'HOME/..']) {
         const before = f.calls();
-        const r = run(f, ['run', '--src', f.root, '--pass', bad, '--', 'true']);
+        const r = run(f, ['run', '--src', f.src, '--pass', bad, '--', 'true']);
         expect(r.exitCode).toBe(1);
         expect(r.stderr.toString()).toMatch(bad.startsWith('UBICLOUD_') ? /never forwards its own Ubicloud credentials/ : /not a variable name/);
         expect(f.calls()).toBe(before);
@@ -753,4 +766,351 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       }
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 30_000);
+
+  // GSTA-158 P3: detached phases, reattach and tier checkpoints.
+  const until = async (cond: () => boolean, ms: number) => {
+    const deadline = Date.now() + ms;
+    while (!cond()) { if (Date.now() > deadline) throw new Error('condition not met in time'); await Bun.sleep(100); }
+  };
+  const vmDirs = (f: ReturnType<typeof fakeVm>) => (existsSync(f.state) ? readdirSync(f.state).filter(d => d.startsWith('ubirun-')) : []);
+  const phaseStarted = (f: ReturnType<typeof fakeVm>, phase: string) => vmDirs(f).some(d => existsSync(join(f.state, d, 'phase.' + phase + '.start')));
+  const creates = (f: ReturnType<typeof fakeVm>) => f.calls().split('\n').filter(l => l.includes('"create"')).length;
+  const killSession = async (f: ReturnType<typeof fakeVm>, phase: string) => {
+    const pidFile = join(f.vm, '.ubirun-' + phase + '.pid');
+    await until(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').trim() !== '', 10_000);
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ }
+    await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 10_000);
+  };
+  const gitSrc = (f: ReturnType<typeof fakeVm>, cfg?: unknown) => {
+    const dir = cfg === undefined ? join(f.root, 'repo') : src(f, cfg);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'README'), 'fixture repo\n');
+    for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-qm', 'fixture']]) {
+      const r = Bun.spawnSync(['git', '-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir, timeout: 30_000 });
+      if (r.exitCode !== 0) throw new Error('git ' + args.join(' ') + ': ' + r.stderr.toString());
+    }
+    return dir;
+  };
+  const TIERS = { setup: 'scripts/boot.sh', tiers: [{ name: 't1', command: 'make t1' }, { name: 't2', command: 'make t2' }, { name: 't3', command: 'make t3' }] };
+  const bootCounts = (f: ReturnType<typeof fakeVm>, dir: string) => writeFileSync(join(dir, 'scripts/boot.sh'), 'echo boot >> ~/setup-count\n');
+  const verifyLine = (out: string) => out.split('\n').find(l => l.startsWith('UBI_VERIFY: ')) ?? '';
+
+  test('run: a SIGKILLed runner leaves its VM; the same command reattaches, skips the finished setup and reports the command\'s exit', async () => {
+    const f = fakeVm();
+    try {
+      const repo = gitSrc(f);
+      const setup = join(f.root, 'setup.sh'); writeFileSync(setup, 'echo setup >> ~/setup-count\n');
+      writeFileSync(join(f.root, 'make-test.sh'), 'echo begin; sleep 4; echo end; exit 3\n');
+      const args = ['run', '--src', repo, '--setup', setup, '--', 'make test'];
+      const a = f.spawn(args);
+      await until(() => vmDirs(f).some(d => existsSync(join(f.state, d, 'command.out')) && readFileSync(join(f.state, d, 'command.out'), 'utf8').includes('begin')), 30_000);
+      process.kill(a.pid, 'SIGKILL');
+      await a.exited;
+      const name = vmDirs(f)[0]!;
+      expect(f.listed()).toContain(name);
+      const b = f.run(args);
+      const err = b.stderr.toString();
+      expect(b.exitCode, err).toBe(3);
+      expect(err).toMatch(new RegExp('ubi-runner: reattached to ' + name + ' created_at=\\d{10} key=[0-9a-f]{12}\n'));
+      expect(b.stdout.toString().split('\n').filter(l => l === 'begin' || l === 'end')).toEqual(['begin', 'end']);
+      expect(err).toMatch(/command exited 3 after \d+s/);
+      expect(creates(f)).toBe(1);
+      expect(readFileSync(join(f.vm, 'setup-count'), 'utf8')).toBe('setup\n');
+      expect(f.listed()).toBe('');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('run: a second live runner of the same command refuses with UBI_ATTACH_BUSY and creates nothing', async () => {
+    const f = fakeVm();
+    try {
+      const repo = gitSrc(f);
+      writeFileSync(join(f.root, 'make-test.sh'), 'sleep 4; echo done\n');
+      const args = ['run', '--src', repo, '--', 'make test'];
+      const a = f.spawn(args);
+      await until(() => phaseStarted(f, 'command'), 30_000);
+      const b = f.run(args);
+      expect(b.exitCode).toBe(1);
+      expect(b.stderr.toString()).toMatch(new RegExp('UBI_ATTACH_BUSY: vm=' + vmDirs(f)[0] + ' key=[0-9a-f]{12}: runner pid ' + a.pid + ' '));
+      expect(await a.exited).toBe(0);
+      expect(await new Response(a.stdout).text()).toContain('done');
+      expect(creates(f)).toBe(1);
+      expect(f.listed()).toBe('');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('run: HUP once the command is live detaches (UBI_DETACHED, exit 129, VM kept, no pass value on disk); a rerun reattaches and finishes', async () => {
+    const f = fakeVm();
+    try {
+      const repo = gitSrc(f);
+      writeFileSync(join(f.root, 'make-test.sh'), 'sleep 3; echo finished\n');
+      const args = ['run', '--src', repo, '--pass', 'UBI_TEST_TOKEN', '--', 'make test'];
+      const a = f.spawn(args, { UBI_TEST_TOKEN: 'hup-secret-value' });
+      await until(() => phaseStarted(f, 'command'), 30_000);
+      await Bun.sleep(500);
+      process.kill(a.pid, 'SIGHUP');
+      expect(await a.exited).toBe(129);
+      const name = vmDirs(f)[0]!;
+      const err = await new Response(a.stderr).text();
+      expect(err).toMatch(new RegExp('UBI_DETACHED: vm=' + name + ' key=[0-9a-f]{12} reattach: rerun the same command'));
+      expect(f.listed()).toContain(name);
+      expect(f.calls()).not.toContain('destroy');
+      for (const file of readdirSync(join(f.state, name))) {
+        const p = join(f.state, name, file);
+        if (lstatSync(p).isFile()) expect(readFileSync(p, 'utf8')).not.toContain('hup-secret-value');
+      }
+      const b = f.run(args, { UBI_TEST_TOKEN: 'hup-secret-value' });
+      expect(b.exitCode, b.stderr.toString()).toBe(0);
+      expect(b.stderr.toString()).toContain('reattached to ' + name);
+      expect(b.stdout.toString()).toContain('finished');
+      expect(creates(f)).toBe(1);
+      expect(f.listed()).toBe('');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('run: INT and TERM during a live command still tear the VM down', async () => {
+    for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+      const f = fakeVm();
+      try {
+        const repo = gitSrc(f);
+        writeFileSync(join(f.root, 'make-test.sh'), 'sleep 3\n');
+        const a = f.spawn(['run', '--src', repo, '--', 'make test']);
+        await until(() => phaseStarted(f, 'command'), 30_000);
+        await Bun.sleep(500);
+        process.kill(a.pid, sig);
+        expect(await a.exited).toBe(130);
+        expect(await new Response(a.stderr).text()).toMatch(/destroyed eu-central-h1\/ubirun-thrd1-/);
+        expect(f.listed()).toBe('');
+      } finally { rmSync(f.root, { recursive: true, force: true }); }
+    }
+  }, 90_000);
+
+  test('run: a remote session gone without an exit status exits 125 with UBI_ATTACH_LOST and the VM name', async () => {
+    const f = fakeVm();
+    try {
+      const repo = gitSrc(f);
+      writeFileSync(join(f.root, 'make-test.sh'), 'sleep 30\n');
+      const args = ['run', '--src', repo, '--', 'make test'];
+      const a = f.spawn(args);
+      await until(() => existsSync(join(f.vm, '.ubirun-command.pid')) && readFileSync(join(f.vm, '.ubirun-command.pid'), 'utf8').trim() !== '', 30_000);
+      process.kill(a.pid, 'SIGKILL');
+      await a.exited;
+      await killSession(f, 'command');
+      const name = vmDirs(f)[0]!;
+      const b = f.run(args);
+      expect(b.exitCode).toBe(125);
+      expect(b.stderr.toString()).toContain('UBI_ATTACH_LOST: vm=' + name + ' phase=command');
+      expect(f.listed()).toBe('');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('run: the run key covers tree, command, setup content, env, pass value, image, origin/HEAD and the runner itself; a pass value never appears in it', () => {
+    const f = fakeVm();
+    try {
+      const repo = gitSrc(f);
+      const setup = join(f.root, 'setup.sh'); writeFileSync(setup, 'echo one\n');
+      const runner = join(f.root, 'runner-copy.sh'); writeFileSync(runner, readFileSync(join(DIR, 'ubi-runner.sh'), 'utf8'));
+      const key = (opts: { args?: string[]; env?: Record<string, string>; cmd?: string; script?: string } = {}) => {
+        const r = Bun.spawnSync(['bash', opts.script ?? join(DIR, 'ubi-runner.sh'), 'run', '--probe', '--src', repo, '--setup', setup, '--env', 'MODE=a', '--pass', 'UBI_TEST_TOKEN', ...(opts.args ?? []), '--', opts.cmd ?? 'make test'],
+          { env: { ...process.env, PATH: join(f.root, 'bin') + ':' + process.env.PATH, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: f.state, UBI_OWNER: 'thrd1', UBI_TEST_TOKEN: 'v1', ...(opts.env ?? {}) }, timeout: 30_000 });
+        const out = r.stdout.toString() + r.stderr.toString();
+        expect(out).not.toContain('v1');
+        const m = /^UBI_ATTACH_INFO: none key=([0-9a-f]{12})$/m.exec(out);
+        if (!m) throw new Error(out);
+        return m[1]!;
+      };
+      const base = key();
+      expect(key()).toBe(base);
+      const variants: Record<string, string> = {};
+      variants.command = key({ cmd: 'make check' });
+      variants.env = key({ args: ['--env', 'MODE=b'] });
+      variants.pass = key({ env: { UBI_TEST_TOKEN: 'v2' } });
+      variants.image = key({ args: ['-b', 'ubuntu-jammy'] });
+      variants.size = key({ args: ['-s', 'standard-8'] });
+      writeFileSync(runner, readFileSync(runner, 'utf8') + '# edited\n');
+      variants.runner = key({ script: runner });
+      writeFileSync(setup, 'echo two\n');
+      variants.setup = key();
+      writeFileSync(setup, 'echo one\n');
+      expect(key()).toBe(base);
+      Bun.spawnSync(['git', 'update-ref', 'refs/remotes/origin/HEAD', 'HEAD'], { cwd: repo, timeout: 10_000 });
+      variants.base = key();
+      writeFileSync(join(repo, 'new-file.txt'), 'untracked source\n');
+      variants.tree = key();
+      for (const [what, k] of Object.entries(variants)) expect({ what, same: k === base }).toEqual({ what, same: false });
+      expect(new Set(Object.values(variants)).size).toBe(Object.keys(variants).length);
+      expect(f.calls()).not.toContain('"create"');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 60_000);
+
+  test('verify tiers: config refuses command with tiers, bad and duplicate tier names, before any API call', () => {
+    const f = fakeVm();
+    try {
+      const cases: Array<[unknown, RegExp]> = [
+        [{ command: 'make', tiers: [{ name: 'a', command: 'x' }] }, /UBI_CONFIG_TIERS_AND_COMMAND/],
+        [{ tiers: [{ name: 'Unit', command: 'x' }] }, /UBI_CONFIG_TIER_NAME: tier name 'Unit' must match/],
+        [{ tiers: [{ name: '-x', command: 'x' }] }, /UBI_CONFIG_TIER_NAME: tier name '-x'/],
+        [{ tiers: [{ name: 'a'.repeat(33), command: 'x' }] }, /UBI_CONFIG_TIER_NAME/],
+        [{ tiers: [{ name: 'a.b', command: 'x' }] }, /UBI_CONFIG_TIER_NAME/],
+        [{ tiers: [{ name: 'a', command: 'x' }, { name: 'a', command: 'y' }] }, /UBI_CONFIG_TIER_NAME: tier name 'a' appears twice/],
+        [{ tiers: [{ name: 'a' }] }, /UBI_CONFIG_TIER_NAME: tier 'a' needs a command/],
+        [{ tiers: [] }, /UBI_CONFIG_TIER_NAME: tiers must be a non-empty list/],
+      ];
+      for (const [cfg, want] of cases) {
+        const dir = src(f, cfg);
+        const r = run(f, ['verify', '--src', dir]);
+        expect(r.exitCode).toBe(1);
+        expect(r.stderr.toString()).toMatch(want);
+      }
+      expect(f.calls()).toBe('');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 30_000);
+
+  test('verify tiers: a run killed during tier 3 with its VM gone resumes on a new VM: setup reruns, t1 and t2 are reused, t3 reruns', async () => {
+    const f = fakeVm();
+    try {
+      const dir = gitSrc(f, TIERS);
+      bootCounts(f, dir);
+      Bun.spawnSync(['git', '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qam', 'boot'], { cwd: dir, timeout: 10_000 });
+      writeFileSync(join(f.root, 'make-t3.sh'), 'touch ' + JSON.stringify(join(f.root, 't3-started')) + '; sleep 30\n');
+      const a = f.spawn(['verify', '--src', dir]);
+      await until(() => existsSync(join(f.root, 't3-started')), 60_000);
+      process.kill(a.pid, 'SIGKILL');
+      await a.exited;
+      await killSession(f, 'tier-t3');
+      const first = vmDirs(f)[0]!;
+      writeFileSync(join(f.root, 'listed'), '');
+      writeFileSync(join(f.root, 'make-t3.sh'), 'echo t3 ok\n');
+      const b = f.run(['verify', '--src', dir]);
+      const err = b.stderr.toString(), out = b.stdout.toString();
+      expect(b.exitCode, err).toBe(0);
+      expect(err).toMatch(/UBI_VERIFY_RESUME: tier=t1 reuse t1\.\d{10}\.\d+\.json \(\d+s\)\n/);
+      expect(err).toMatch(/UBI_VERIFY_RESUME: tier=t2 reuse t2\.\d{10}\.\d+\.json \(\d+s\)\n/);
+      expect(err).toMatch(/UBI_VERIFY_RESUME: tier=t3 run: interrupted \(only a start record, t3\.\d{10}\.\d+\.json\)\n/);
+      expect(err).toContain('run record for ' + first + ': the VM is gone; starting a new one');
+      expect(err).not.toContain('reattached to');
+      expect(creates(f)).toBe(2);
+      expect(readFileSync(join(f.vm, 'setup-count'), 'utf8')).toBe('boot\nboot\n');
+      expect(out).not.toContain('ran: make t1');
+      expect(out).toContain('t3 ok');
+      expect(verifyLine(out)).toMatch(/^UBI_VERIFY: tree=[0-9a-f]{12} key=[0-9a-f]{12} tiers=3 passed=3 reused=t1,t2 failed=none prior_failures=none saved_s=\d+$/);
+      expect(f.listed()).toBe('');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 120_000);
+
+  test('verify tiers: a fail record blocks a rerun until --rerun-failed (then prior_failures); passes are reused unless stale, tampered, --no-resume or the tree changed', () => {
+    const f = fakeVm();
+    try {
+      const dir = gitSrc(f, TIERS);
+      writeFileSync(join(f.root, 'make-t2.sh'), 'echo t2 broke; exit 7\n');
+      const first = run(f, ['verify', '--src', dir]);
+      expect(first.exitCode, first.stderr.toString()).toBe(7);
+      expect(first.stdout.toString()).not.toContain('ran: make t3');
+      expect(verifyLine(first.stdout.toString())).toMatch(/ tiers=3 passed=1 reused=none failed=t2 prior_failures=none saved_s=0$/);
+      expect(creates(f)).toBe(1);
+
+      const blocked = run(f, ['verify', '--src', dir]);
+      expect(blocked.exitCode).toBe(7);
+      expect(blocked.stderr.toString()).toMatch(/UBI_VERIFY_RESUME: tier=t2 fail t2\.\d{10}\.\d+\.json \(\d+s, exit 7\): not rerun without --rerun-failed/);
+      expect(verifyLine(blocked.stdout.toString())).toMatch(/ failed=t2 prior_failures=none /);
+      expect(creates(f)).toBe(1);
+
+      writeFileSync(join(f.root, 'make-t2.sh'), 'echo t2 fixed\n');
+      const rerun = run(f, ['verify', '--src', dir, '--rerun-failed']);
+      expect(rerun.exitCode, rerun.stderr.toString()).toBe(0);
+      expect(rerun.stderr.toString()).toMatch(/UBI_VERIFY_RESUME: tier=t1 reuse /);
+      expect(rerun.stderr.toString()).toMatch(/UBI_VERIFY_RESUME: tier=t2 run: prior fail t2\.\d{10}\.\d+\.json \(exit 7; --rerun-failed\)/);
+      expect(verifyLine(rerun.stdout.toString())).toMatch(/ tiers=3 passed=3 reused=t1 failed=none prior_failures=t2:7 saved_s=\d+$/);
+      expect(creates(f)).toBe(2);
+
+      const all = run(f, ['verify', '--src', dir]);
+      expect(all.exitCode).toBe(0);
+      expect(verifyLine(all.stdout.toString())).toMatch(/ passed=3 reused=t1,t2,t3 failed=none prior_failures=none saved_s=\d+$/);
+      expect(all.stderr.toString()).toContain('every tier passed under this key; no VM needed');
+      expect(creates(f)).toBe(2);
+
+      const probe = (args: string[] = [], extra: Record<string, string> = {}) => run(f, ['verify', '--src', dir, '--probe', ...args], extra).stderr.toString();
+      expect(probe(['--no-resume'])).toMatch(/tier=t1 run: --no-resume\n[^]*tier=t2 run: --no-resume\n[^]*tier=t3 run: --no-resume\n/);
+      expect(probe([], { UBI_CHECKPOINT_MAX_AGE: '0' })).toMatch(/tier=t1 run: pass t1\.\d{10}\.\d+\.json is \d+s old \(UBI_CHECKPOINT_MAX_AGE=0\)/);
+      const keyDir = join(f.checkpoints, readdirSync(f.checkpoints)[0]!);
+      const t1Log = readdirSync(keyDir).filter(n => n.startsWith('t1.') && n.endsWith('.log')).sort().at(-1)!;
+      writeFileSync(join(keyDir, t1Log), 'tampered\n');
+      const tampered = probe();
+      expect(tampered).toMatch(/tier=t1 run: pass t1\.\d{10}\.\d+\.json: its log does not re-hash/);
+      expect(tampered).toMatch(/tier=t2 reuse /);
+      writeFileSync(join(dir, 'new-source.ts'), 'export {}\n');
+      const moved = probe();
+      for (const t of ['t1', 't2', 't3']) expect(moved).toContain('UBI_VERIFY_RESUME: tier=' + t + ' run: no record');
+      expect(creates(f)).toBe(2);
+      // Records are write-once JSON; every one carries its generation.
+      const gens = readdirSync(keyDir).filter(n => n.endsWith('.json')).map(n => JSON.parse(readFileSync(join(keyDir, n), 'utf8')).generation as number).sort((x, y) => x - y);
+      expect(gens).toEqual(gens.map((_, i) => i + 1));
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 120_000);
+
+  test('verify tiers: a reattach whose VM TTL no longer covers the run left plus UBI_REATTACH_MARGIN starts a fresh VM, destroys the old one and reuses the passed tiers', async () => {
+    const f = fakeVm();
+    try {
+      const dir = gitSrc(f, TIERS);
+      bootCounts(f, dir);
+      Bun.spawnSync(['git', '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qam', 'boot'], { cwd: dir, timeout: 10_000 });
+      writeFileSync(join(f.root, 'make-t3.sh'), 'touch ' + JSON.stringify(join(f.root, 't3-started')) + '; sleep 30\n');
+      const env = { UBI_REAP: '0', UBI_TTL_HOURS: '1' };
+      const a = f.spawn(['verify', '--src', dir], env);
+      await until(() => existsSync(join(f.root, 't3-started')), 60_000);
+      process.kill(a.pid, 'SIGKILL');
+      await a.exited;
+      const first = vmDirs(f)[0]!;
+      expect(first).toMatch(/-t1$/);
+      const probe = (extra: Record<string, string>) => run(f, ['verify', '--src', dir, '--probe'], { ...env, ...extra }).stdout.toString();
+      expect(probe({})).toMatch(new RegExp('UBI_ATTACH_INFO: vm=' + first + ' created_at=\\d{10} '));
+      // A 1 h TTL leaves about 3600 s: t3's 1200 s run timeout plus a 2700 s margin does not fit.
+      const short = { UBI_RUN_TIMEOUT: '1200', UBI_REATTACH_MARGIN: '2700' };
+      expect(probe(short)).toMatch(new RegExp('UBI_ATTACH_INFO: none key=[0-9a-f]{12} ttl_short vm=' + first + ' ttl_left=\\d+s needs=\\d+s \\(run still to do \\d+s \\+ UBI_REATTACH_MARGIN=2700s\\)'));
+      expect(creates(f)).toBe(1);
+      writeFileSync(join(f.root, 'make-t3.sh'), 'echo t3 ok\n');
+      const b = run(f, ['verify', '--src', dir], { ...env, ...short });
+      const err = b.stderr.toString();
+      expect(b.exitCode, err).toBe(0);
+      expect(err).toMatch(new RegExp('UBI_REATTACH_TTL_SHORT: vm=' + first + ' key=[0-9a-f]{12} ttl_left=\\d+s needs=\\d+s \\(run still to do \\d+s \\+ UBI_REATTACH_MARGIN=2700s\\): starting a fresh VM \\(tier checkpoints carry over\\) and destroying ' + first));
+      expect(err).not.toContain('reattached to');
+      expect(err).toMatch(/UBI_VERIFY_RESUME: tier=t1 reuse /);
+      expect(err).toMatch(/UBI_VERIFY_RESUME: tier=t2 reuse /);
+      expect(verifyLine(b.stdout.toString())).toMatch(/ tiers=3 passed=3 reused=t1,t2 failed=none /);
+      expect(creates(f)).toBe(2);
+      expect(f.listed()).toBe('');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 120_000);
+
+  test('verify tiers: a writer whose start record is no longer the newest publishes nothing (stale writer)', () => {
+    const py = /\nCKPT_PY='\n([^']*)'\n/.exec(readFileSync(join(DIR, 'ubi-runner.sh'), 'utf8'))![1]!;
+    const root = mkdtempSync(join(tmpdir(), 'ubi-ckpt-'));
+    try {
+      const d = join(root, 'key');
+      const log = join(root, 'tier.log'); writeFileSync(log, 'ok\n');
+      const publish = (status: string, startgen: string, pid: string) => Bun.spawnSync(['python3', '-c', py, 'publish', d, 't1', status, 'vm', '100', '200', '0', status === 'start' ? '' : log, startgen, 'k', 'tree', pid], { timeout: 30_000 });
+      expect(publish('start', '0', '1').stdout.toString().trim()).toBe('1');
+      expect(publish('start', '0', '2').stdout.toString().trim()).toBe('2');
+      const stale = publish('pass', '1', '1');
+      expect(stale.exitCode).toBe(2);
+      expect(stale.stderr.toString()).toContain('stale writer: its start record is generation 1, the newest for t1 is 2');
+      expect(readdirSync(d).filter(n => n.endsWith('.json')).length).toBe(2);
+      expect(publish('pass', '2', '2').stdout.toString().trim()).toBe('3');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('verify tiers: a tier that edits the source gets no pass record (UBI_VERIFY_TREE_MOVED) and reruns next time', () => {
+    const f = fakeVm();
+    try {
+      const dir = gitSrc(f, { tiers: [{ name: 'mover', command: 'make mover' }, { name: 'clean', command: 'make clean' }] });
+      writeFileSync(join(f.root, 'make-mover.sh'), 'echo edited > moved.txt\n');
+      const r = run(f, ['verify', '--src', dir]);
+      expect(r.exitCode, r.stderr.toString()).toBe(0);
+      expect(r.stderr.toString()).toMatch(/UBI_VERIFY_TREE_MOVED: tier=mover before=[0-9a-f]{12} after=[0-9a-f]{12}: a tier must leave the source tree as it found it; no pass record/);
+      expect(verifyLine(r.stdout.toString())).toMatch(/ tiers=2 passed=2 reused=none failed=none /);
+      const next = run(f, ['verify', '--src', dir, '--probe']).stderr.toString();
+      expect(next).toMatch(/tier=mover run: interrupted \(only a start record/);
+      expect(next).toMatch(/tier=clean reuse /);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
 });

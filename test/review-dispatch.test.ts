@@ -3,15 +3,27 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BriefError, promptHash, renderBrief, sectionTexts } from '../lib/review-brief';
-import { judge, parseFindings, type MergedLine } from '../lib/review-ledger';
+import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph } from '../lib/review-brief';
+import { collect, judge, parseFindings, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-')); dirs.push(d); return d; };
-const run = (args: string[], cwd = ROOT) => spawnSync(BIN, args, { cwd, encoding: 'utf8', timeout: 60_000 });
+/** A reader that follows its brief's workspace paragraph starts its reply with the REVIEWED_TREE line of that checkout (GST-482). */
+function treeLineOf(cwd: string): string {
+  const git = (a: string[]) => spawnSync('git', ['-C', cwd, ...a], { encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+  return `REVIEWED_TREE: ${git(['rev-parse', 'HEAD^{tree}'])} ${git(['rev-parse', '--show-toplevel'])}\n`;
+}
+function followBrief(output: string, cwd: string) {
+  const text = fs.readFileSync(output, 'utf8');
+  if (!text.includes('REVIEWED_TREE:')) fs.writeFileSync(output, treeLineOf(cwd) + text);
+}
+const run = (args: string[], cwd = ROOT) => {
+  if (args[0] === 'collect' && !args.includes('--unavailable') && args.includes('--output')) followBrief(args[args.indexOf('--output') + 1]!, cwd);
+  return spawnSync(BIN, args, { cwd, encoding: 'utf8', timeout: 60_000 });
+};
 const SHA = 'a'.repeat(40);
 const section = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const field = (out: string, k: string) => new RegExp(`${k}=(\\S+)`).exec(out)?.[1] ?? '';
@@ -326,11 +338,237 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '1. Retry loses writes (queue.ts:78). Severity: Medium\n   Fix: reject the batch. Blocks: yes')).toEqual([{ label: 'CRITICAL', raw: '1. Retry loses writes (queue.ts:78). Severity: Medium | Fix: reject the batch. Blocks: yes' }]);
   });
 
+  // Value: protects=a reader reply with no finding and no clean marker (a refusal, an empty reply, a reader that never saw the diff) is
+  //   recorded as a non-review: collect exits 1 and verify reports the brief NOT_COLLECTED, never clean; fails_when=collect hashes the
+  //   GSTA-196 refusal ("I'm not returning NO FINDINGS"), an empty file or an "I could not access the diff" reply as findings=0 and verify
+  //   reads MATCH (replay C3-36: the batched specialist found no diff base and its brief read MATCH);
+  //   why_new=collect recorded whatever parseFindings returned and verify counted any output as collected; seam=collect and verify;
+  //   no_claim=that a reply carrying a marker actually reviewed the diff
+  test('a reply with no finding and no clean marker is a non-review: collect exits 1 and verify is NOT_COLLECTED, never clean', () => {
+    const refusal = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-196-refusal.txt'), 'utf8');
+    expect(promptHash(refusal)).toBe('7150c3b9ffe2698f77a988fa422b66d7004e1939d12e81185e8d556a47dff784');
+    const b = tmp();
+    const batched = field(run(['render', '--role', 'specialist-batched', '--checklists', 'testing,security,state-machines', '--out', b, '--diff-base', SHA]).stdout, 'file');
+    const cases = [
+      { reader: 'specialist-batched', dir: b, brief: batched, output: treeLineOf(ROOT) + refusal, args: ['--role', 'specialist-batched'] },
+      ...['', 'I could not access the diff: git diff failed with "bad object", so there is nothing here to review.\n'].map(output => {
+        const p = pass();
+        return { reader: 'specialist/testing', dir: p.out, brief: p.file, output: treeLineOf(ROOT) + output, args: ['--role', 'specialist', '--name', 'testing'] };
+      }),
+    ];
+    for (const c of cases) {
+      const ledger = path.join(c.dir, 'review-ledger.jsonl');
+      const merged = path.join(c.dir, 'merged.jsonl');
+      const out = path.join(c.dir, 'reply.out');
+      fs.writeFileSync(out, c.output);
+      expect(run(['sent', '--ledger', ledger, ...c.args, '--sent', c.brief]).status).toBe(0);
+      const col = run(['collect', '--ledger', ledger, ...c.args, '--output', out, '--merged', merged]);
+      expect([col.status, col.stdout.startsWith(`COLLECT_NOT_REVIEWED: reader=${c.reader} findings=0 sha256=${promptHash(c.output)} `)]).toEqual([1, true]);
+      const event = JSON.parse(fs.readFileSync(ledger, 'utf8').trim().split('\n').at(-1)!);
+      expect([event.event, event.ids, event.review]).toEqual(['output', [], false]);
+      fs.writeFileSync(path.join(c.dir, 'judged.jsonl'), '');
+      expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(c.dir, 'judged.jsonl')]).status).toBe(0);
+      const v = run(['verify', '--ledger', ledger]);
+      expect([v.status, v.stdout.includes(`BRIEF ${c.reader} NOT_COLLECTED rendered=`), v.stdout.includes(`OUTPUT ${c.reader} NOT_REVIEWED`), v.stdout.includes(' not_reviewed\n'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true, true, true]);
+    }
+  });
+
+  // Value: protects=a clean reply carrying its section's marker and a reply with findings still collect with exit 0 and verify clean under
+  //   the non-review rule; fails_when=the rule makes a real NO FINDINGS specialist or a findings reply dirty or exit 1;
+  //   why_new=the non-review rule above could over-reach; seam=collect and verify; no_claim=other roles (the matrix below covers them)
+  test('a NO FINDINGS reply and a findings reply still collect with exit 0 and verify clean', () => {
+    for (const [output, findings] of [[treeLineOf(ROOT) + 'NO FINDINGS\n', 0], [treeLineOf(ROOT) + '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"off by one","specialist":"testing"}\n', 1]] as const) {
+      const p = pass();
+      run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+      const col = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('reply.out', output), '--merged', p.merged]);
+      expect([col.status, col.stdout.startsWith(`COLLECT: reader=specialist/testing findings=${findings} `)]).toEqual([0, true]);
+      expect(JSON.parse(fs.readFileSync(p.ledger, 'utf8').trim().split('\n').at(-1)!).review).toBe(true);
+      const judged = p.w('judged.jsonl', findings ? JSON.stringify({ id: 'specialist/testing#1', severity: 'CRITICAL' }) + '\n' : '');
+      expect(run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged]).status).toBe(0);
+      const v = run(['verify', '--ledger', p.ledger]);
+      expect([v.status, v.stdout.includes(`OUTPUT specialist/testing MATCH sha=${promptHash(output).slice(0, 12)} findings=${findings}`), v.stdout.includes('VERIFY: clean briefs=1 outputs=1')]).toEqual([0, true, true]);
+    }
+  });
+
+  // Value: protects=each role's zero-finding reply counts as a review only with the marker its own section prescribes (NO FINDINGS for
+  //   specialists, the batched specialist, Red Team, fix-check and targeted; the Recommendation: line for the outside voice; either for the
+  //   native adversarial voice); fails_when=a marker named inside a sentence, another role's marker or an empty reply reads as clean, or a
+  //   prescribed marker reads as a non-review; why_new=no marker check existed; seam=collect; no_claim=that the marker's reason is true
+  test('each role takes only the clean marker its section prescribes', () => {
+    const d = tmp();
+    const outsideClean = 'No actionable findings in the supplied diff. Static review only.\n\nRecommendation: approve because the diff introduces no demonstrated bypass.\n';
+    const cases: Array<[string, string, boolean]> = [
+      ['specialist/testing', 'NO FINDINGS\n', true], ['specialist-batched', '`NO FINDINGS`\n', true], ['targeted', 'NO FINDINGS\n', true], ['fix-check', 'NO FINDINGS\n', true],
+      ['red-team', 'Fixtures were reviewed in summary mode only.\n\nNO FINDINGS\n', true],
+      ['adversarial-native', 'Fixtures were reviewed in summary mode.\n\nRecommendation: Ship as-is because no finding survived tracing\n', true], ['adversarial-native', 'NO FINDINGS\n', true],
+      ['outside-voice', outsideClean, true], ['outside-voice', 'NO FINDINGS\n', false],
+      ['specialist/testing', 'Recommendation: ship because it is clean\n', false], ['specialist/testing', "I'm not returning NO FINDINGS, because I never saw the diff.\n", false],
+      ['red-team', '', false], ['fix-check', 'The fixes look fine to me.\n', false], ['adversarial-native', 'I could not read the diff.\n', false],
+    ];
+    for (const [i, [reader, output, review]] of cases.entries()) {
+      const ledger = path.join(d, `l${i}.jsonl`);
+      const r = collect(ledger, reader, output, path.join(d, `m${i}.jsonl`));
+      expect([reader, output, r.lines.length, r.review]).toEqual([reader, output, 0, review]);
+      expect(JSON.parse(fs.readFileSync(ledger, 'utf8').trim()).review).toBe(review);
+    }
+  });
+
+  // Value: protects=a paragraph finding's unlabeled detail bullets and the Severity/Blocks line after them stay one finding (GSTA-196
+  //   native voice: 4 findings collected as 8, the closing Severity lines opening phantoms judge had to fold); a list item's sibling and
+  //   a labeled bullet still start their own findings; fails_when=the sample collects more or fewer than 4, or a labeled bullet merges
+  //   away; why_new=every margin list item closed the open finding; seam=parseFindings; no_claim=indented detail lists (already attached)
+  test('unlabeled detail bullets and the Severity line after them stay on the open paragraph finding', () => {
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-196-native.txt'), 'utf8');
+    expect(parseFindings('adversarial-native', native).map(f => [f.label, f.raw.slice(0, 12), f.raw.endsWith('| Severity: ' + (f.label === 'High' ? 'High' : 'Low') + '. Blocks: no.')]))
+      .toEqual([['High', '**1. A PR in', true], ['CRITICAL', '**2. A case ', true], ['CRITICAL', '**3. Local `', true], ['Low', '**4. No trai', true]]);
+    expect(parseFindings('outside-voice', '1. FIXABLE: race in a.ts:3\n- Unlabeled sibling at b.ts:9\nSeverity: Medium').map(f => f.label)).toEqual(['FIXABLE', 'Medium']);
+    expect(parseFindings('outside-voice', '**Retry storm in r.ts:2 (INVESTIGATE).**\n- detail\n- High: a second defect in s.ts:4\nSeverity: Medium').map(f => f.label)).toEqual(['INVESTIGATE', 'High']);
+    expect(parseFindings('outside-voice', 'Low: cache TTL mismatch (cache.ts:4)\n\n2. Token never expires (auth.ts:9)\nSeverity: High\nBlocks: yes').map(f => [f.label, f.raw]))
+      .toEqual([['Low', 'Low: cache TTL mismatch (cache.ts:4)'], ['CRITICAL', '2. Token never expires (auth.ts:9) | Severity: High | Blocks: yes']]);
+    expect(parseFindings('outside-voice', '**Race in a.ts:3 (High).**\n- the writer holds no lock\nSeverity: Medium').map(f => f.raw)).toEqual(['**Race in a.ts:3 (High).** | - the writer holds no lock | Severity: Medium']);
+    expect(parseFindings('outside-voice', '**Race in a.ts:3 (Medium).**\n\n- the writer holds no lock\n\nSeverity: Medium. Blocks: yes').map(f => [f.label, f.raw]))
+      .toEqual([['CRITICAL', '**Race in a.ts:3 (Medium).** | - the writer holds no lock | Severity: Medium. Blocks: yes']]);
+  });
+
+  // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
+  //   voice recorded with --unavailable reads UNAVAILABLE (missing coverage, never a review) without blocking, while --unavailable is
+  //   refused for any other reader; fails_when=one outside-voice timeout or one refusal makes VERIFY dirty for good, or --unavailable
+  //   lets a specialist skip coverage; why_new=#3677 Step 11 adversarial voice; seam=collect and verify; no_claim=the review-log row
+  test('a refusal replaced by a review is voided; an outside voice failure is UNAVAILABLE; --unavailable is the outside voice only', () => {
+    const p = pass();
+    const send = () => run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    const take = (f: string) => run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', f, '--merged', p.merged]);
+    send();
+    expect(take(p.w('refusal.out', 'I could not access the diff.\n')).status).toBe(1);
+    expect(run(['verify', '--ledger', p.ledger]).stdout).toContain('VERIFY: dirty');
+    send();
+    expect(take(p.w('clean.out', 'NO FINDINGS\n')).status).toBe(0);
+    fs.writeFileSync(path.join(p.out, 'judged.jsonl'), '');
+    run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', path.join(p.out, 'judged.jsonl')]);
+    const v = run(['verify', '--ledger', p.ledger]);
+    expect([v.status, v.stdout.includes('replaced_by_a_review'), v.stdout.includes('VERIFY: clean briefs=1 outputs=2 voided=1')]).toEqual([0, true, true]);
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const o = tmp();
+    const ov = field(run(['render', '--role', 'outside-voice', '--out', o, '--diff-base', head]).stdout, 'file');
+    const ledger = path.join(o, 'review-ledger.jsonl'), merged = path.join(o, 'merged.jsonl');
+    run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', ov]);
+    const fail = path.join(o, 'timeout.out');
+    fs.writeFileSync(fail, 'Codex timed out after 9 minutes and was terminated; this pass produced NO findings.\n');
+    const c = run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', fail, '--merged', merged, '--unavailable', 'timeout']);
+    expect([c.status, c.stdout.startsWith('COLLECT_UNAVAILABLE: reader=outside-voice ')]).toEqual([0, true]);
+    fs.writeFileSync(path.join(o, 'judged.jsonl'), '');
+    run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(o, 'judged.jsonl')]);
+    const w = run(['verify', '--ledger', ledger]);
+    expect([w.status, w.stdout.includes('BRIEF outside-voice UNAVAILABLE'), w.stdout.includes('OUTPUT outside-voice UNAVAILABLE'), w.stdout.includes(' unavailable=1\n')]).toEqual([0, true, true, true]);
+    const q = pass();
+    run(['sent', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--sent', q.file]);
+    const refused = run(['collect', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--output', q.w('t.out', 'timed out\n'), '--merged', q.merged, '--unavailable', 'timeout']);
+    expect([refused.status, refused.stderr.includes('--unavailable is for the outside voice only')]).toEqual([2, true]);
+    const partial = path.join(o, 'partial.out');
+    fs.writeFileSync(partial, '1. **CRITICAL**: token leak in a.ts:3\nCodex then timed out.\n');
+    const kept = run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', partial, '--merged', merged, '--unavailable', 'timeout']);
+    expect([kept.status, kept.stderr.includes('holds findings; collect it without --unavailable')]).toEqual([2, true]);
+    expect(run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', fail, '--merged', merged, '--unavailable', ' ']).status).toBe(2);
+    const n = pass();
+    const takeN = (f: string) => run(['collect', '--ledger', n.ledger, '--role', 'specialist', '--name', 'testing', '--output', f, '--merged', n.merged]);
+    run(['sent', '--ledger', n.ledger, '--role', 'specialist', '--name', 'testing', '--sent', n.file]);
+    takeN(n.w('refusal.out', 'I could not access the diff.\n'));
+    takeN(n.w('clean.out', 'NO FINDINGS\n'));
+    fs.writeFileSync(path.join(n.out, 'judged.jsonl'), '');
+    run(['judge', '--ledger', n.ledger, '--merged', n.merged, '--judged', path.join(n.out, 'judged.jsonl')]);
+    const unsent = run(['verify', '--ledger', n.ledger]);
+    expect([unsent.status, unsent.stdout.includes(' NOT_REVIEWED '), unsent.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+  });
+
   test('verify on a ledger that kept no prompts says so and exits 3', () => {
     const d = tmp();
     const ledger = path.join(d, 'ledger.jsonl');
     fs.writeFileSync(ledger, '{"event":"note","step":"9"}\n');
     const v = run(['verify', '--ledger', ledger]);
     expect([v.status, v.stdout.trim()]).toEqual([3, "VERIFY: no brief records (this run's ledger kept no prompts; dispatched-vs-rendered cannot be checked)"]);
+  });
+});
+
+describe('the workspace paragraph (GST-482)', () => {
+  // Value: protects=GSTA-167's no-loss pin: every role's brief is renderBrief's bytes unchanged, then only the workspace paragraph naming the checkout; fails_when=the paragraph is inserted, a section byte moves, or the CLI names another folder than the checkout it ran in;
+  //   why_new=GST-482 appends a paragraph to every brief; seam=gstack-review-dispatch render; no_claim=that the reader obeys it
+  test('every role renders main\'s brief byte for byte, then the paragraph naming the checkout the CLI ran in', () => {
+    const t = sectionTexts(ROOT);
+    const top = fs.realpathSync(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim());
+    const w = (n: string, s: string) => { const f = path.join(tmp(), n); fs.writeFileSync(f, s); return f; };
+    const cases: Array<[string, string[], Record<string, string>]> = [
+      ['specialist', ['--name', 'testing'], { name: 'testing', checklist: path.join(ROOT, 'review/specialists/testing.md') }],
+      ['specialist', ['--name', 'security'], { name: 'security', checklist: path.join(ROOT, 'review/specialists/security.md') }],
+      ['specialist-batched', ['--checklists', 'testing,security'], { checklists: ['testing', 'security'].map(c => path.join(ROOT, 'review/specialists', c + '.md')).join(',') }],
+      ['red-team', ['--findings-file', w('f.jsonl', 'x\n'), '--specialists', '2'], { checklist: path.join(ROOT, 'review/specialists/red-team.md'), findings: 'x\n', specialists: '2' }],
+      ['adversarial-native', [], {}],
+      ['fix-check', ['--fix-list', w('fl', 'a'), '--hunks', w('h', 'b'), '--tests', w('t', 'c')], { fix_list: 'a', hunks: 'b', tests: 'c' }],
+    ];
+    for (const [role, args, slots] of cases) {
+      const out = tmp();
+      const r = run(['render', '--role', role, '--out', out, ...(role === 'fix-check' ? [] : ['--diff-base', SHA]), ...args]);
+      expect(r.status, role + ': ' + r.stderr).toBe(0);
+      const main = renderBrief(role as Parameters<typeof renderBrief>[0], { diff_base: role === 'fix-check' ? undefined : SHA, ...slots }, t);
+      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(main + '\n\n' + workspaceParagraph(top));
+    }
+    expect(workspaceParagraph(top)).toContain(`begin each command with \`cd '${top}' && \``);
+    expect(workspaceParagraph(top)).toContain(`absolute path under ${top}`);
+  });
+
+  test('a list-item or bold REVIEWED_TREE line counts; a ledger rendered before the paragraph existed is collected as before', () => {
+    const out = tmp();
+    const p = { ledger: path.join(out, 'review-ledger.jsonl'), merged: path.join(out, 'merged.jsonl'), file: field(run(['render', '--role', 'specialist', '--name', 'testing', '--out', out, '--diff-base', SHA]).stdout, 'file'),
+      w: (n: string, t: string) => { const f = path.join(out, n); fs.writeFileSync(f, t); return f; } };
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    const line = treeLineOf(ROOT).trim();
+    const col = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('reply.out', '- **' + line + '**\nNO FINDINGS\n'), '--merged', p.merged]);
+    expect(col.stdout).toStartWith('COLLECT: reader=specialist/testing findings=0 ');
+    const legacy = tmp();
+    const ledger = path.join(legacy, 'review-ledger.jsonl');
+    const brief = path.join(legacy, 'b.md');
+    fs.writeFileSync(brief, 'old brief');
+    fs.writeFileSync(ledger, JSON.stringify({ event: 'rendered', reader: 'specialist/testing', role: 'specialist', name: 'testing', file: brief, sha256: promptHash('old brief'), bytes: 9 }) + '\n');
+    run(['sent', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--sent', brief]);
+    const reply = path.join(legacy, 'r.out');
+    fs.writeFileSync(reply, 'NO FINDINGS\n');
+    const old = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--output', reply, '--merged', path.join(legacy, 'm.jsonl')], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    expect(old.stdout).toStartWith('COLLECT: reader=specialist/testing findings=0 ');
+  });
+});
+
+describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
+  const top = fs.realpathSync(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim());
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+  const expected = `${tree} ${top}`;
+  test('Markdown around the line, label, sha or whole path is read; the path keeps its own characters; the first line wins', () => {
+    for (const line of [`REVIEWED_TREE: ${tree} ${top}`, `**REVIEWED_TREE:** ${tree} ${top}`, `REVIEWED_TREE: \`${tree}\` \`${top}\``, `## REVIEWED_TREE: ${tree} ${top}`, `- **REVIEWED_TREE: ${tree} ${top}**`])
+      expect(checkReviewedTree(line + '\nNO FINDINGS', expected).ok, line).toBe(true);
+    expect(checkReviewedTree(`REVIEWED_TREE: ${tree} ${top}*`, expected).ok).toBe(false);
+    expect(checkReviewedTree(`REVIEWED_TREE: ${tree} ${top}\n\`\`\`\nREVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\n\`\`\``, expected).ok).toBe(true);
+    expect(checkReviewedTree(`REVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\nREVIEWED_TREE: ${tree} ${top}`, expected)).toMatchObject({ ok: false, reported: `${'b'.repeat(40)} /elsewhere` });
+  });
+
+  test('an outside voice with findings and no tree line is refused, never turned into unavailable coverage that drops them', () => {
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const merged = path.join(out, 'merged.jsonl');
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+    run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', file]);
+    const reply = path.join(out, 'r.out');
+    fs.writeFileSync(reply, '1. **CRITICAL**: auth bypass in a.ts:3\nBlocks: yes\n\nRecommendation: request changes\n');
+    const c = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', reply, '--merged', merged], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    expect([c.status, c.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice reported="none"')]).toEqual([1, true]);
+    expect(run(['verify', '--ledger', ledger]).stdout).not.toContain('VERIFY: clean');
+    fs.writeFileSync(reply, 'Codex timed out before it reviewed anything.\n');
+    const u = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', reply, '--merged', merged], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    expect([u.status, u.stdout.startsWith('COLLECT_UNAVAILABLE: reader=outside-voice')]).toEqual([0, true]);
+  });
+
+  test('render outside a readable checkout refuses instead of recording a fingerprint no reply can match', () => {
+    const dir = tmp();
+    const r = run(['render', '--role', 'adversarial-native', '--out', path.join(dir, 'o'), '--diff-base', SHA], dir);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('BRIEF_RENDER_FAILED: cannot read HEAD^{tree} and the toplevel of');
   });
 });

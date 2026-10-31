@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { promptHash, sectionTexts } from '../lib/review-brief';
+import { promptHash, sectionTexts, withWorkspace } from '../lib/review-brief';
 import { CHUNK_CHARS, PARENT_ONLY_QA, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 
@@ -135,19 +135,29 @@ function repo(): { dir: string; env: NodeJS.ProcessEnv } {
 
 interface Sub { title: string; prompt: string; status: string; polls: number; model?: unknown; summary?: string; late?: boolean }
 /** A fake Capy host: the shell is real (the repository's bins), subagents are scripted. */
-function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean } = {}) {
+const cleanReply = (title: string) => (title.endsWith('outside-voice') ? 'Recommendation: ship as-is because no finding survived' : 'NO FINDINGS');
+/** The REVIEWED_TREE line a reader prints from dir (its brief's checkout when it follows the workspace paragraph); '' outside a checkout. */
+function treeLine(dir: string): string {
+  if (!dir) return '';
+  const git = (a: string[]) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8', timeout: 30_000 });
+  const tree = git(['rev-parse', 'HEAD^{tree}']), top = git(['rev-parse', '--show-toplevel']);
+  return tree.status === 0 && top.status === 0 ? `REVIEWED_TREE: ${tree.stdout.trim()} ${top.stdout.trim()}\n` : '';
+}
+const briefDir = (prompt: string) => /Workspace: the checkout under review is (.+?)\. Your shell and file tools/.exec(prompt)?.[1] ?? '';
+function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; reportFrom?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean } = {}) {
   let clock = 0;
   const subs = new Map<string, Sub>();
   const creates: Sub[] = [];
   const starts: number[][] = [];
+  const reply = (s: Sub) => treeLine(o.reportFrom?.(s.title) ?? briefDir(s.prompt)) + (o.output?.(s.title) ?? cleanReply(s.title));
   const advance = () => {
     for (const s of subs.values()) {
-      if (s.late && !s.summary) { s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; continue; }
+      if (s.late && !s.summary) { s.summary = reply(s); continue; }
       if (s.status !== 'working') continue;
       if (++s.polls < (o.pollsToFinish ?? 1)) continue;
       if (o.fail?.(s.title)) s.status = 'failed';
       else if (o.lateSummary && !s.late) { s.status = 'done'; s.late = true; }
-      else { s.status = 'done'; s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; }
+      else { s.status = 'done'; s.summary = reply(s); }
     }
   };
   const tools = {
@@ -326,7 +336,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const h = host(dir, env, { output: t => (t.endsWith('audit/coverage') ? 'Coverage: 80% (one test added)' : 'NO FINDINGS') });
     const res = await runPass(h, { base: 'main', out, pass: 'x8p1', planFlags: ['--depth-floor', 'full'], extras: path.join(out, 'extras.json') });
     expect(h.creates[0]!.title).toBe('ship x8p1 audit/coverage');
-    expect(h.creates[0]!.prompt).toBe('Run Step 7 as written.\n');
+    expect(h.creates[0]!.prompt).toBe(withWorkspace('Run Step 7 as written.\n', fs.realpathSync(dir)));
     expect(res).toContain('Coverage: 80% (one test added)');
     expect(fs.readFileSync(path.join(out, 'merged.jsonl'), 'utf8')).not.toContain('Coverage');
   }, 240_000);
@@ -428,7 +438,7 @@ describe('Capy pass program (fake host, real bins)', () => {
       extras: [{ name: 'plan', prompt_file: path.join(out, 'plan.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
     expect(res).not.toContain('STOP:');
     expect(res).toContain('NEXT: judge (Phase 4)');
-    expect(h.creates.find(c => c.title === 'ship x13p1 audit/plan')!.prompt).toBe('Plan completion brief');
+    expect(h.creates.find(c => c.title === 'ship x13p1 audit/plan')!.prompt).toBe(withWorkspace('Plan completion brief', fs.realpathSync(dir)));
   }, 180_000);
 
   // Value: protects=Step 9.2.1's probes stay the parent's, as its section says, so QA coverage is never a subagent's refusal; fails_when=the
@@ -485,3 +495,122 @@ describe('the Capy skill loader', () => {
   }, 180_000);
 });
 
+
+describe('readers on a shared machine review the checkout the pass ships (GST-482)', () => {
+  /** The primary checkout on feat, and a worktree of it on another branch with one more commit: the GBRA-218 layout. */
+  function worktree() {
+    const { dir, env } = repo();
+    const wt = path.join(tmp('rp-wt-'), 'wt');
+    const sh = (c: string, cwd = dir) => { const r = spawnSync('bash', ['-c', c], { cwd, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(c + ': ' + r.stderr); return r.stdout.trim(); };
+    sh(`git worktree add -q -b allow ${JSON.stringify(wt)} feat`);
+    sh('for i in $(seq 1 20); do echo "export const w$i = $i;" >> src/a.ts; done && git commit -qam allow', wt);
+    return { dir, env, wt: fs.realpathSync(wt) };
+  }
+  // Value: protects=a reader that never left the machine's default checkout cannot hand /ship a review of another tree; fails_when=collect merges a reply whose REVIEWED_TREE names the primary checkout while the pass ships a worktree, or a reply with no such line;
+  //   why_new=GBRA-218: pass 1's specialist reviewed /workspace/gbrain while /ship shipped ~/.capy/work/wt-allow; seam=gstack-review-dispatch collect; no_claim=a reader that fingerprints the right checkout but reads another
+  test('a reader that reviews the primary checkout instead of the worktree is refused and nothing it said is merged', async () => {
+    const { dir, env, wt } = worktree();
+    const out = path.join(wt, '.state/run/p1');
+    const h = host(dir, env, { reportFrom: () => dir, output: t => (t.includes('specialist') ? '[CRITICAL] (confidence: 9/10) src/other.ts:3 a file outside this PR' : cleanReply(t)) });
+    const res = await runPass(h, { base: 'main', out, pass: 'w1p1', cwd: wt, planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain('COLLECT_WRONG_TREE: reader=');
+    expect(res).toContain(`reported="${treeLine(dir).slice(15).trim()}"`);
+    expect(res).toMatch(/STOP: collect \S+ exited 1/);
+    expect(res).not.toContain('NEXT: judge');
+    expect(fs.existsSync(path.join(out, 'merged.jsonl')) ? fs.readFileSync(path.join(out, 'merged.jsonl'), 'utf8') : '').toBe('');
+    const v = bin(wt, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout;
+    expect(v).toMatch(/^OUTPUT \S+ NOT_REVIEWED .*wrong_tree/m);
+    expect(v).toContain('VERIFY: dirty');
+  }, 240_000);
+
+  test('a reply that names no checkout is refused the same way', async () => {
+    const { dir, env, wt } = worktree();
+    const out = path.join(wt, '.state/run/p1');
+    const res = await runPass(host(dir, env, { reportFrom: () => '' }), { base: 'main', out, pass: 'w2p1', cwd: wt, planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain('COLLECT_WRONG_TREE: reader=');
+    expect(res).toContain('reported="none"');
+    expect(res).not.toContain('NEXT: judge');
+  }, 240_000);
+
+  // Value: protects=/ship from a worktree on a shared machine works when readers follow their brief, though they start in another checkout; fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
+  //   why_new=GBRA-218 (no brief named a directory); seam=lib/review-pass.ts renderStage and the Capy pass program; no_claim=model compliance with the paragraph
+  test('a reader that works in the checkout its brief names passes, and every brief names the worktree', async () => {
+    const { dir, env, wt } = worktree();
+    const out = path.join(wt, '.state/run/p1');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'coverage.prompt.md'), 'Run Step 7 as written.\n');
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out, pass: 'w3p1', cwd: wt, planFlags: ['--depth-floor', 'full'],
+      extras: [{ name: 'coverage', prompt_file: path.join(out, 'coverage.prompt.md'), first: true }] });
+    expect(res).not.toContain('STOP:');
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(h.creates.length).toBeGreaterThan(2);
+    for (const c of h.creates) expect(c.prompt.endsWith('\n\n' + withWorkspaceTail(wt)), c.title).toBe(true);
+    expect(bin(wt, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout).not.toContain('wrong_tree');
+  }, 240_000);
+
+  test('an audit reader that worked in the primary checkout is refused when it is collected', async () => {
+    const { dir, env, wt } = worktree();
+    const out = path.join(wt, '.state/run/p1');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'docs.prompt.md'), 'Run the Step 14.5 audit as written.\n');
+    const h = host(dir, env, { reportFrom: t => (t.endsWith('audit/docs') ? dir : briefDirOf(h, t)) });
+    const res = await runPass(h, { base: 'main', out, pass: 'w4p1', cwd: wt, planFlags: ['--depth-floor', 'full'],
+      extras: [{ name: 'docs', prompt_file: path.join(out, 'docs.prompt.md'), first: true }] });
+    expect(res).toContain('COLLECT_WRONG_TREE: reader=audit/docs');
+    expect(res).not.toContain('NEXT: judge');
+    expect(h.creates.map(c => c.title)).toEqual(['ship w4p1 audit/docs']);
+  }, 240_000);
+
+  test('a rerun after a wrong-tree STOP stops on the failed reader and never collects its reply twice', async () => {
+    const { dir, env, wt } = worktree();
+    const out = path.join(wt, '.state/run/p1');
+    const h = host(dir, env, { reportFrom: () => dir });
+    const input = { base: 'main', out, pass: 'w5p1', cwd: wt, planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, input)).toContain('COLLECT_WRONG_TREE: reader=');
+    const again = await runPass(h, input);
+    expect(again).toMatch(/STOP: \S+ \(subagent \d+\) reviewed another tree: [0-9a-f]{40} /);
+    const outputs = fs.readFileSync(path.join(out, 'review-ledger.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(e => e.event === 'output');
+    expect(outputs.length).toBe(1);
+  }, 240_000);
+
+  test('a worktree at the same commit as the primary checkout is still told apart by its toplevel', async () => {
+    const { dir, env } = repo();
+    const wt = path.join(tmp('rp-wt-'), 'same');
+    expect(spawnSync('git', ['worktree', 'add', '-q', '--detach', wt, 'feat'], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    const out = path.join(wt, '.state/run/p1');
+    const res = await runPass(host(dir, env, { reportFrom: () => dir }), { base: 'main', out, pass: 'w6p1', cwd: fs.realpathSync(wt), planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain('COLLECT_WRONG_TREE: reader=');
+    expect(res).not.toContain('COLLECT_TREE_MOVED');
+  }, 240_000);
+
+  test('a commit between render and reply is COLLECT_TREE_MOVED, not a pass', async () => {
+    const { dir, env, wt } = worktree();
+    const out = path.join(wt, '.state/run/p1');
+    let moved = false;
+    const h = host(dir, env, { reportFrom: t => {
+      if (!moved) { moved = true; spawnSync('bash', ['-c', 'echo "export const late = 1;" >> src/a.ts && git commit -qam late'], { cwd: wt, env, encoding: 'utf8', timeout: 60_000 }); }
+      return briefDirOf(h, t);
+    } });
+    const res = await runPass(h, { base: 'main', out, pass: 'w7p1', cwd: wt, planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain('COLLECT_TREE_MOVED: reader=');
+    expect(res).not.toContain('NEXT: judge');
+  }, 240_000);
+
+  test('an outside voice that reviewed another tree is recorded as unavailable coverage, never clean, and the voices still finish', async () => {
+    const { dir, env, wt } = worktree();
+    const out = path.join(wt, '.state/run/p1');
+    const h = host(dir, env, { reportFrom: t => (t.endsWith('outside-voice') ? dir : briefDirOf(h, t)) });
+    const base = { base: 'main', out, pass: 'w8p1', cwd: wt, planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
+    const res = await runPass(h, { ...base, stage: 'voices', models });
+    expect(res).toContain('COLLECT_UNAVAILABLE: reader=outside-voice');
+    expect(res).toContain('reviewed another tree');
+    expect(res).toContain('NEXT: judge the voices');
+    const v = bin(wt, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout;
+    expect(v).toMatch(/^BRIEF outside-voice UNAVAILABLE /m);
+  }, 240_000);
+});
+const withWorkspaceTail = (dir: string) => withWorkspace('', dir).slice(2);
+const briefDirOf = (h: ReturnType<typeof host>, title: string) => briefDir(h.creates.find(c => c.title === title)?.prompt ?? '');

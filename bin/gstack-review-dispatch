@@ -19,8 +19,8 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import { BRIEF_ROLES, BriefError, briefFile, promptHash, renderBrief, sectionTexts, type BriefRole, type Slots } from '../lib/review-brief';
-import { collect, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
+import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
+import { cleanMarkers, collect, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 import { runScriptSync } from '../lib/script-invocation';
@@ -37,12 +37,20 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
              --fix-list <f> --hunks <f> --tests <f> [--callers <f>] (fix-check)
              --classes <money,gate,auth,secret> (targeted: the plan's TARGETED classes; the brief is review/specialists/targeted.md;
              --diff-base must be the merge base with --base, default origin/HEAD's branch, on every pass)
-      writes <out>/<role>[-<name>].prompt.md, records it in the ledger (default <out>/review-ledger.jsonl) and prints
+      writes <out>/<role>[-<name>].prompt.md, the brief followed by the workspace paragraph naming the toplevel of the
+      checkout it runs in (the one its diff and merge base come from), records it in the ledger (default <out>/review-ledger.jsonl) and prints
       BRIEF: reader=<role/name> sha256=<h> bytes=<n> file=<path>. Pass that file's content as the reader's prompt, unchanged.
   sent --ledger <f> --role <role> [--name <n>] --sent <file>
       the exact prompt a dispatch passed: BRIEF_SENT: … match, or BRIEF_MISMATCH: … (exit 1; the pass is not reviewed)
-  collect --ledger <f> --role <role> [--name <n>] --output <file> --merged <merged.jsonl>
-      the reader's raw output: hashes it and appends each finding to merged.jsonl with its label as written
+  collect --ledger <f> --role <role> [--name <n>] --output <file> --merged <merged.jsonl> [--manifest <f>]
+      the reader's raw output: hashes it and appends each finding to merged.jsonl with its label as written. A reply with
+      no finding must carry its brief's clean marker (NO FINDINGS; the Recommendation: line for the voices); without one it is
+      COLLECT_NOT_REVIEWED (exit 1): a refusal, an empty reply or a reader that never saw the diff, and verify reports NOT_COLLECTED
+      until the brief is re-sent and answered with a review, which voids it. A reply whose REVIEWED_TREE line is missing or names
+      another checkout or tree than its brief was rendered on is COLLECT_WRONG_TREE (COLLECT_TREE_MOVED when only the tree
+      moved; exit 1, nothing merged, verify reports NOT_COLLECTED, and with --manifest <f> the reader becomes failed); the
+      outside voice's, when it holds no finding, is recorded as unavailable coverage instead --unavailable '<reason>' (the outside voice only; refused when the
+      output holds findings) records its failure text as missing coverage: COLLECT_UNAVAILABLE, and verify prints UNAVAILABLE and unavailable=N, never a review
   judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl>
       judged lines {"id","severity","reason"?,"duplicate_of"?}: every merged id kept at its severity or above (a
       duplicate folds into one at least as severe); added and promoted findings need a reason. JUDGMENT: ok …, or
@@ -64,6 +72,7 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
   chunk --manifest <f> --reader <r> --index <i>
       BRIEF_CHUNK: reader=… index=i of=n sha256=…, then one JSON string line of at most 65,536 brief characters
   mark --manifest <f> --reader <r> --state <intent|created|queued|collected|failed> [--path <p>] [--output <f>] [--error <e>]
+      an audit reader is collected with --output, whose REVIEWED_TREE line must match its render (else failed, COLLECT_WRONG_TREE)
   mark --manifest <f> --before <tokens>,<credits>
   mark --manifest <f> --log-start <key> --token <t>   records a review-log start token once, so a rerun starts only what is missing
       reader states move forward only; intent is recorded before the subagent is created, its path right after
@@ -109,17 +118,22 @@ function render(): number {
     classes: flag('--classes'), brief,
     fix_list: readFile(flag('--fix-list'), 'fix list'), hunks: readFile(flag('--hunks'), 'hunks'), tests: readFile(flag('--tests'), 'tests'), callers: readFile(flag('--callers'), 'callers'),
   };
-  const text = renderBrief(role, slots, sectionTexts(ROOT));
+  const workdir = checkoutRoot();
+  const tree = checkoutTree(workdir);
+  if (!tree) throw new BriefError(`cannot read HEAD^{tree} and the toplevel of ${workdir}; a brief names the checkout its reply must prove`);
+  const text = withWorkspace(renderBrief(role, slots, sectionTexts(ROOT)), workdir);
   fs.mkdirSync(out, { recursive: true, mode: 0o700 });
   const file = path.join(path.resolve(out), briefFile(role, name));
   fs.writeFileSync(file, text, { mode: 0o600 });
   const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
   const sha = promptHash(text);
   const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: diffBase ?? null, patch_id: diffBase ? targetedPatchId(process.cwd(), diffBase) : 'none' };
-  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), ...targeted });
+  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted });
   process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
   return EXIT.ok;
 }
+
+const wrongTree = (reader: string, t: TreeCheck) => `${t.moved ? 'COLLECT_TREE_MOVED' : 'COLLECT_WRONG_TREE'}: reader=${reader} reported=${JSON.stringify(t.reported)} expected=${JSON.stringify(t.expected)} (${t.moved ? 'the checkout moved after this brief was rendered' : 'the reply did not review the checkout its brief named'}; nothing merged; restore it with a fresh pass under a new --pass and --out)\n`;
 
 const PROGRAM_FILE = path.join(ROOT, 'lib', 'capy-review-pass.js');
 const PROGRAM_VERSION = 1;
@@ -211,6 +225,17 @@ function passStep(cmd: string): number {
       process.stdout.write(`BEFORE: tokens=${m.before.tokens} credits=${m.before.credits}\n`);
       return EXIT.ok;
     }
+    const audit = m.readers.find(x => x.reader === flag('--reader'));
+    if (flag('--state') === 'collected' && audit?.prompt_file && audit.tree !== undefined) {
+      if (!flag('--output')) { process.stderr.write(`gstack-review-dispatch mark: ${audit.reader} is collected with --output <its reply>, which must prove the checkout it reviewed\n`); return EXIT.usage; }
+      const tree = checkReviewedTree(readFile(flag('--output'), 'reader output')!, audit.tree);
+      if (!tree.ok) {
+        markReader(m, audit.reader, 'failed', { output: flag('--output'), error: `reviewed another tree: ${tree.reported}` });
+        writeManifest(file, m);
+        process.stdout.write(wrongTree(audit.reader, tree));
+        return EXIT.fail;
+      }
+    }
     const r = markReader(m, flag('--reader') ?? '', flag('--state') as ReaderState, { path: flag('--path'), output: flag('--output'), error: flag('--error') });
     writeManifest(file, m);
     process.stdout.write(readerLine(m, r) + '\n');
@@ -268,7 +293,30 @@ function main(): number {
     const output = readFile(outFile, 'reader output');
     const merged = flag('--merged');
     if (!reader || output === undefined || !merged) { process.stderr.write('gstack-review-dispatch collect: needs --role, --output <file> and --merged <file>\n'); return EXIT.usage; }
-    const r = collect(ledger, reader, output, merged, path.resolve(outFile!));
+    const unavailable = flag('--unavailable');
+    if (unavailable !== undefined && !mayBeUnavailable(reader)) { process.stderr.write(`gstack-review-dispatch collect: --unavailable is for the outside voice only; ${reader}'s missing coverage leaves the review incomplete, never clean\n`); return EXIT.usage; }
+    if (unavailable !== undefined && !unavailable.trim()) { process.stderr.write('gstack-review-dispatch collect: --unavailable needs a reason\n'); return EXIT.usage; }
+    if (unavailable !== undefined && parseFindings(reader, output).length) { process.stderr.write(`gstack-review-dispatch collect: ${reader}'s output holds findings; collect it without --unavailable so none is lost\n`); return EXIT.usage; }
+    const rendered = readLedger(ledger).filter(e => e.event === 'rendered' && e.reader === reader).at(-1);
+    const tree = unavailable === undefined && rendered && 'tree' in rendered ? checkReviewedTree(output, typeof rendered.tree === 'string' ? rendered.tree : null) : undefined;
+    if (tree && !tree.ok && mayBeUnavailable(reader) && !parseFindings(reader, output).length) {
+      const why = `reviewed another tree: reported ${tree.reported}, expected ${tree.expected}`;
+      const r = collect(ledger, reader, output, merged, path.resolve(outFile!), why);
+      process.stdout.write(`COLLECT_UNAVAILABLE: reader=${reader} sha256=${r.sha} reason=${JSON.stringify(why)} (missing outside coverage: unavailable, never clean)\n`);
+      return EXIT.ok;
+    }
+    const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable, tree);
+    if (tree && !tree.ok) {
+      const mf = flag('--manifest');
+      if (mf) { const m = readManifest(mf); markReader(m, reader, 'failed', { output: outFile, error: `reviewed another tree: ${tree.reported}` }); writeManifest(mf, m); }
+      process.stdout.write(wrongTree(reader, tree));
+      return EXIT.fail;
+    }
+    if (unavailable !== undefined) { process.stdout.write(`COLLECT_UNAVAILABLE: reader=${reader} sha256=${r.sha} reason=${JSON.stringify(unavailable)} (missing outside coverage: unavailable, never clean)\n`); return EXIT.ok; }
+    if (!r.review) {
+      process.stdout.write(`COLLECT_NOT_REVIEWED: reader=${reader} findings=0 sha256=${r.sha} (no finding and no ${cleanMarkers(reader).map(([m]) => m).join(' or ')} line: a refusal, an empty reply or a reader that never saw the diff is not a review; verify reports this brief NOT_COLLECTED)\n`);
+      return EXIT.fail;
+    }
     process.stdout.write(`COLLECT: reader=${reader} findings=${r.lines.length} sha256=${r.sha} merged=${merged}\n`);
     return EXIT.ok;
   }
@@ -290,7 +338,7 @@ function main(): number {
       process.stdout.write(`TARGETED_RECORD: classes=${record.classes.join(',')} status=${record.status} findings=${record.findings} brief=${record.brief_sha.slice(0, 12)} rules=${record.rules}\n`);
       if (flag('--targeted-out')) fs.writeFileSync(flag('--targeted-out')!, JSON.stringify(record) + '\n');
     }
-    process.stdout.write(`VERIFY: ${v.clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}\n`);
+    process.stdout.write(`VERIFY: ${v.clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}${v.unavailable ? ` unavailable=${v.unavailable}` : ''}\n`);
     return v.clean ? EXIT.ok : EXIT.fail;
   }
   process.stderr.write(`gstack-review-dispatch: unknown command ${cmd}\n${HELP}\n`);
