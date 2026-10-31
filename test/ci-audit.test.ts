@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT, main } from '../lib/ci-audit/cli';
 import type { Run } from '../lib/ci-audit/collect';
-import { concurrencyFlag } from '../lib/ci-audit/lessons';
+import { concurrencyFlag, lessonRunners } from '../lib/ci-audit/lessons';
 import { cohort, measure, phases } from '../lib/ci-audit/measure';
 import { priceRunner } from '../lib/ci-audit/prices';
 import { ISSUE_MARKER, planIssue } from '../lib/ci-audit/publish';
@@ -89,7 +89,8 @@ describe('planted repo (three problems, two decoys)', () => {
       expect(lesson(6).summary).toContain('no cache is saved from main');
       expect(lesson(6).summary).toContain('100% of sampled cache restores missed');
       expect(lesson(7).summary).toMatch(/lint\.yml finishes last on 100% of PR heads, a median 3\.\d min after everything else, mostly waiting for a machine/);
-      expect(lesson(7).fix).toContain('fast runner pool');
+      expect(lesson(7).fix).toContain('fix the wait');
+      expect(lesson(1).fix).toContain('same fast runner pool');
       expect(lesson(1).evidence.join(' ')).toMatch(/lint on ubuntu-24\.04: wait p50 8\.0 min/);
       expect(lesson(8).summary).toContain('no test exercises the skip logic');
       const all = JSON.stringify(r.lessons);
@@ -167,6 +168,24 @@ describe('job phases', () => {
     const job = (id: number, runId: number, label: string) => ({ id, run_id: runId, name: 'suite', status: 'completed', conclusion: 'success', created_at: '2026-10-31T00:00:00Z', started_at: '2026-10-31T00:00:10Z', completed_at: '2026-10-31T00:03:00Z', labels: [label], steps: [] as any[] });
     const m = measure({ repo: 'o/n', defaultBranch: 'main', isPrivate: false, since: '2026-10-30T00:00:00Z', until: '2026-10-31T01:00:00Z', runs: [r1, r2], jobs: { [r1.id]: [job(1, r1.id, 'ubicloud-standard-8')], [r2.id]: [job(2, r2.id, 'ubicloud-standard-2')] }, caches: null, partial: [], notes: [], calls: 0, sampledPerWorkflow: 2 });
     expect(m.groups.map(g => g.key).sort()).toEqual(['.github/workflows/ci.yml / suite (ubicloud-standard-2)', '.github/workflows/ci.yml / suite (ubicloud-standard-8)']);
+  });
+});
+
+describe('lesson 1', () => {
+  const group = (key: string, labels: string, waitP90: number, runP50: number) => ({ key, workflow: key, job: key, labels, n: 10, wait: { n: 10, p50: waitP90 / 2, p90: waitP90 }, setup: { n: 10, p50: 5, p90: 5 }, run: { n: 10, p50: runP50, p90: runP50 }, longWaits: waitP90 > 60 ? Array.from({ length: 10 }, (_, i) => `2026-10-${10 + i}T0${i % 10}:00:00Z`) : [], jobMinutes: 1, billedMinutes: 10 });
+  const ctx = (groups: any[]) => ({ data: { isPrivate: false }, m: { groups, windowDays: 7, sampledRuns: 10 }, st: null } as any);
+
+  test('a GitHub-hosted job that waits while the rest run on a faster pool: move it', () => {
+    const l = lessonRunners(ctx([group('lint', 'ubuntu-24.04', 500, 5), group('test', 'ubicloud-standard-2', 20, 180)]));
+    expect(l.state).toBe('finding');
+    expect(l.fix).toContain('same fast runner pool');
+  });
+
+  test('a job that waits while another job on the same label starts at once: a faster runner would not help', () => {
+    const l = lessonRunners(ctx([group('lint', 'ubuntu-24.04', 500, 5), group('test', 'ubuntu-24.04', 8, 180)]));
+    expect(l.state).toBe('finding');
+    expect(l.summary).toContain('on the same runner label starts in seconds');
+    expect(l.fix).toContain('a faster runner would not help');
   });
 });
 
@@ -254,6 +273,7 @@ describe('Saturday workflow template', () => {
     expect(doc.on.schedule).toEqual([{ cron: '0 15 * * 6' }]);
     expect('workflow_dispatch' in doc.on).toBe(true);
     expect(doc.permissions).toEqual({ actions: 'read', contents: 'read', issues: 'write' });
+    expect(doc.jobs.audit.if).toBe('github.ref_name == github.event.repository.default_branch');
   });
 
   test('audits within the GITHUB_TOKEN hourly limit and always publishes the outcome', () => {

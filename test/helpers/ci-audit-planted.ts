@@ -1,7 +1,8 @@
 /**
  * A synthetic GitHub repo for /ci-audit with three planted problems and two decoys.
  *   planted: no cache saved from main (every PR restore misses); a GitHub-hosted
- *            5-second lint job that waits ~8 min for a machine and finishes last;
+ *            5-second lint job that waits ~8 min for a machine and finishes last
+ *            while every other PR job runs on Ubicloud and starts in ~15 s;
  *            a path-filtered e2e workflow that no test exercises.
  *   decoys:  a full-history checkout that already uses filter: blob:none; a
  *            windows job on main that waits over a minute but runs for ten.
@@ -25,7 +26,7 @@ on:
   pull_request:
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,12 +36,12 @@ jobs:
       - run: npm ci
       - run: npm test
   typecheck:
-    runs-on: ubuntu-24.04
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v4
       - run: npx tsc --noEmit
   release-notes:
-    runs-on: ubuntu-24.04
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,7 +65,7 @@ on:
     paths: ['src/**']
 jobs:
   e2e:
-    runs-on: ubuntu-24.04
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v4
       - run: npm ci
@@ -111,17 +112,17 @@ function synth(): Data {
     const sha = `${(0xa000 + i).toString(16)}${'0'.repeat(36)}`;
     const pr = 100 + i;
     const ci = run('ci.yml', 'pull_request', sha, T, pr);
-    const test = job(ci.id, 'test', 'ubuntu-24.04', T + 3000, 5 + (i % 4), [['Set up job', 2], ['Run actions/checkout@v4', 3], ['Run actions/setup-node@v4', 25], ['Run npm ci', 40 + (i % 5)], ['Run npm test', 150 + (i * 7) % 50], ['Complete job', 1]]);
+    const test = job(ci.id, 'test', 'ubicloud-standard-2', T + 3000, 15 + (i % 4), [['Set up job', 2], ['Run actions/checkout@v4', 3], ['Run actions/setup-node@v4', 25], ['Run npm ci', 40 + (i % 5)], ['Run npm test', 150 + (i * 7) % 50], ['Complete job', 1]]);
     logs[test.j.id] = [`${iso(T)} Cache not found for input keys: node-cache-Linux-x64-npm-${i}`, `${iso(T)} npm ci finished`].join('\n');
-    const tc = job(ci.id, 'typecheck', 'ubuntu-24.04', T + 3000, 4 + (i % 3), [['Set up job', 2], ['Run actions/checkout@v4', 3], ['Run npx tsc --noEmit', 12], ['Complete job', 1]]);
-    const rn = job(ci.id, 'release-notes', 'ubuntu-24.04', T + 3000, 4, [['Set up job', 2], ['Run actions/checkout@v4', 4], ['Run git log --oneline -20', 1], ['Complete job', 1]]);
+    const tc = job(ci.id, 'typecheck', 'ubicloud-standard-2', T + 3000, 14 + (i % 3), [['Set up job', 2], ['Run actions/checkout@v4', 3], ['Run npx tsc --noEmit', 12], ['Complete job', 1]]);
+    const rn = job(ci.id, 'release-notes', 'ubicloud-standard-2', T + 3000, 14, [['Set up job', 2], ['Run actions/checkout@v4', 4], ['Run git log --oneline -20', 1], ['Complete job', 1]]);
     setOnly(ci, Math.max(test.end, tc.end, rn.end));
     const lint = run('lint.yml', 'pull_request', sha, T, pr);
     const lj = job(lint.id, 'lint', 'ubuntu-24.04', T + 2000, 420 + (i * 37) % 120, [['Set up job', 1], ['Run actions/checkout@v4', 2], ['Run npx oxlint', 5], ['Complete job', 1]]);
     setOnly(lint, lj.end);
     if (i % 2 === 0) {
       const e2e = run('e2e.yml', 'pull_request', sha, T, pr);
-      const ej = job(e2e.id, 'e2e', 'ubuntu-24.04', T + 2000, 6, [['Set up job', 2], ['Run actions/checkout@v4', 3], ['Run npm ci', 40], ['Run npm run e2e', 120], ['Complete job', 1]]);
+      const ej = job(e2e.id, 'e2e', 'ubicloud-standard-2', T + 2000, 16, [['Set up job', 2], ['Run actions/checkout@v4', 3], ['Run npm ci', 40], ['Run npm run e2e', 120], ['Complete job', 1]]);
       setOnly(e2e, ej.end);
     }
     if (i % 12 === 5) {
@@ -202,7 +203,7 @@ const near = (a: string, b: string, gap = 240) => new RegExp(`(${a})[^\\n]{0,${g
 export const PLANTED = [
   { id: 'unseeded-cache', re: near('cache', 'main\\b|default branch|miss|not found|cold|seed') },
   { id: 'lint-waits-last', re: near('lint', '(wait|queue|machine|runner)[^\\n]{0,160}\\d+(\\.\\d+)?\\s*(min|minutes|m\\b|s\\b|sec)') },
-  { id: 'untested-path-filter', re: near('e2e|path[- ]?filter|paths:|skip logic|skips? (PRs|runs)', 'no test|untested|not tested|nothing tests|without (a |any )?test|no .{0,20}test (covers|exercises)') },
+  { id: 'untested-path-filter', re: near('e2e|path[- ]?filter|paths:|skip logic|skips? (PRs|runs)', 'no test|untested|not tested|nothing (tests|checks|verifies)|without (a |any )?test|no .{0,20}(test|check) (covers|exercises|checks)') },
 ] as const;
 
 /** Decoys a reply must not present as something to fix. */

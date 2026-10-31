@@ -36,8 +36,14 @@ export function lessonRunners(c: LessonContext): Lesson {
   const slow = priced.filter(({ g }) => (g.wait.p90 ?? 0) > 60 && (g.wait.p90 ?? 0) > (g.run.p50 ?? 0));
   if (!slow.length) return mk(1, 'pass', `every job's p90 wait is under a minute or below its own running time`, { evidence: groups.slice(0, 3).map(g => `${g.key}: wait p50 ${fmt(g.wait.p50)}, p90 ${fmt(g.wait.p90)} (n=${g.n})`) });
   const burst = isBurst(slow.flatMap(({ g }) => g.longWaits));
+  const fastSibling = (g: typeof groups[number]) => groups.find(o => o !== g && o.labels === g.labels && (o.wait.p90 ?? 0) <= 60);
+  const pinned = slow.filter(({ g }) => fastSibling(g));
   const hosted = slow.filter(({ p }) => p.kind === 'github-hosted');
   const evidence = slow.slice(0, 5).map(({ g, p }) => `${g.key} on ${p.label}: wait p50 ${fmt(g.wait.p50)}, p90 ${fmt(g.wait.p90)} for ${fmt(g.run.p50)} of work; ${g.longWaits.length} of ${g.n} waited over a minute`);
+  if (pinned.length === slow.length && !burst) {
+    const { g } = pinned[0]!;
+    return mk(1, 'finding', `${g.key} waits for a machine (p90 ${fmt(g.wait.p90)}) while ${fastSibling(g)!.key} on the same runner label starts in seconds`, { evidence, fix: `look for what holds only this job back: a concurrency group, a required or reusable workflow, or a runner-group limit on ${g.labels}; a faster runner would not help` });
+  }
   if (burst) return mk(1, 'finding', 'long waits cluster in a few hours: the repo starts more jobs at once than its runner pool takes', { evidence, fix: 'cap concurrency (concurrency groups with cancel-in-progress, fewer parallel jobs during bursts) before changing runners' });
   const weekly = hosted.reduce((a, { g }) => a + (g.jobMinutes / Math.max(1, c.m.windowDays)) * 7, 0);
   const caution = !c.data.isPrivate && hosted.length ? 'a third-party runner executes fork PR code on its machines: review that before moving pull_request jobs' : undefined;
@@ -154,7 +160,7 @@ export function lessonParallel(c: LessonContext): Lesson {
   const slowest = c.m.groups.filter(g => g.workflow === top.workflow).sort((a, b) => (b.wait.p50 ?? 0) + (b.setup.p50 ?? 0) + (b.run.p50 ?? 0) - ((a.wait.p50 ?? 0) + (a.setup.p50 ?? 0) + (a.run.p50 ?? 0)))[0];
   const waiting = slowest && (slowest.wait.p50 ?? 0) > (slowest.setup.p50 ?? 0) + (slowest.run.p50 ?? 0);
   const late = `${top.workflow} finishes last on ${Math.round(top.share * 100)}% of PR heads, a median ${fmt(gap)} after everything else`;
-  return mk(7, 'finding', waiting ? `${late}, mostly waiting for a machine (${slowest!.key}: wait p50 ${fmt(slowest!.wait.p50)} for ${fmt((slowest!.setup.p50 ?? 0) + (slowest!.run.p50 ?? 0))} of work)` : late, { evidence, fix: waiting ? `move ${top.workflow}'s jobs to the same fast runner pool as the rest (lesson 1); splitting a job that mostly waits would not help` : `run everything in parallel and split ${top.workflow}'s slowest job (move unrelated steps into their own job)`, saving: { prMinutes: +((gap / 60) * top.share).toFixed(1), jobMinutesPerWeek: null, usdPerMonth: null, measured: true, note: 'upper bound per PR: the slowest check can finish no earlier than the next one' } });
+  return mk(7, 'finding', waiting ? `${late}, mostly waiting for a machine (${slowest!.key}: wait p50 ${fmt(slowest!.wait.p50)} for ${fmt((slowest!.setup.p50 ?? 0) + (slowest!.run.p50 ?? 0))} of work)` : late, { evidence, fix: waiting ? `fix the wait (lesson 1 says where it comes from); splitting a job that mostly waits would not help` : `run everything in parallel and split ${top.workflow}'s slowest job (move unrelated steps into their own job)`, saving: { prMinutes: +((gap / 60) * top.share).toFixed(1), jobMinutesPerWeek: null, usdPerMonth: null, measured: true, note: 'upper bound per PR: the slowest check can finish no earlier than the next one' } });
 }
 
 /** A test-runner concurrency flag in a run line (bun --max-concurrency, jest --maxWorkers, vitest --maxConcurrency, make -j). */
