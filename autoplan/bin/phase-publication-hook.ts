@@ -10,7 +10,7 @@ import { extractImplementationPlan, checkPhaseImplementation, acceptedBlocks, ca
 import { autoplanPhaseCompletions } from '../../lib/autoplan-phase-publication';
 import { nativePathSpelling, ownedNativePath, sameNativePath, type ClaudeParentPublicEvent } from '../../lib/claude-journal-records';
 import { ownedRecordLimit, ownedRetainedLimit, type JournalPrefix, type OwnedRead, type OwnedReadMeasure } from '../../lib/claude-owned-journal';
-import { readGuardJournal, textResult, DEDUP_REPLY } from './guard-journal';
+import { bashJson, readGuardJournal, textResult, DEDUP_REPLY } from './guard-journal';
 import { REASONS, reasonCode, reasonText, type Detail, type ReasonCode } from './guard-reasons';
 import { logGuardDecision } from './guard-log';
 import { approveOwnedRead, renderSectionBase, userRenderRoot } from './owned-read';
@@ -220,11 +220,6 @@ export function boundAutoplanPhaseConsumption(events: Event[], use: Use, cwd: st
   return consumption(use, cwd, root, invocation(events.filter(e => e.order < use.order), root));
 }
 
-/** Claude Code appends exactly this one line to a Bash result when the command's `cd` left the session cwd (#3651). */
-const SHELL_CWD_RESET = /\nShell cwd was reset to [^\n]+$/;
-/** A Bash result's JSON, without that one host footer; anything else must still be strict JSON. */
-function bashJson(text: string): any { return JSON.parse(text.replace(SHELL_CWD_RESET, '')); }
-
 /** Authenticate the existing direct-create result; this does not prove its shell command's origin. */
 function checkpointResult(result: Event, tools: Tools, init: Invocation): { phase: Phase; path: string } | undefined {
   if (result.kind !== 'result') return;
@@ -286,7 +281,7 @@ function invocation(events: Event[], root: string): Invocation {
     // An errored init published nothing; a later correct init may still bind.
     if (results[0]!.isError === true) { lastFailure = INIT_FAILED_CAUSE; continue; }
     const text = textResult(results[0]!);
-    if (text === undefined) fail('init_failed');
+    if (text === undefined) { lastFailure = INIT_FAILED_CAUSE; continue; }
     let result: any;
     // Output that is not the init's JSON bound nothing; a later correct init may still bind.
     try { result = bashJson(text); } catch { lastFailure = INIT_UNPARSEABLE_CAUSE; continue; }
