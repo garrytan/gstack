@@ -194,6 +194,9 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # Optional pins: model_frontier_claude, model_frontier_openai,
 # model_smart_claude and model_smart_openai. Leave pins absent for catalog defaults;
 # empty pins are invalid. gstack-models list prints copyable set/unset commands.
+# agent_model: the model for gstack agents (lanes, subagents, reviewers): host,
+# a family (opus, fable, sonnet, haiku, astra, sol, luna, terra) or <provider>/<model>.
+# Absent = host. A preference, not a policy: gstack-models resolve --role agent.
 # Invalid writes are rejected and preserve the stored value.
 # codex_effort:             # Codex reasoning effort for outside reviews and /codex:
 #                           #   minimal | low | medium | high | xhigh | max | ultra.
@@ -362,6 +365,7 @@ lookup_default() {
     plan_review_tier) echo "frontier" ;; # frontier | smart | host — lib/model-policy.ts reads it strictly
     implementation_tier) echo "smart" ;; # frontier | smart
     model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai) echo "" ;; # empty = shipped catalog ID (gstack-models list)
+    agent_model) echo "" ;; # empty = host (agents keep their own model); gstack-models resolve --role agent
     codex_effort) echo "" ;; # empty = each gate's own effort; /codex --effort, then GSTACK_CODEX_EFFORT, win (gstack-codex-probe run-with-timeout --effort)
     review_effort_tiers) echo "on" ;; # on | off — gstack-review-plan effort tiers (docs/model-policy.md#reasoning-effort)
     ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
@@ -836,6 +840,16 @@ $_gstack_legacy_root"
            exit 1 ;;
       esac
     fi
+    if [ "$KEY" = "agent_model" ]; then
+      VALUE="${VALUE#"${VALUE%%[![:space:]]*}"}"
+      VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
+      case "$(printf '%s' "$VALUE" | LC_ALL=C tr 'A-Z' 'a-z')" in
+        host|opus|fable|sonnet|haiku|astra|sol|luna|terra) ;;
+        *) printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[a-z][a-z0-9-]{0,31}/[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$' || {
+             echo "Error: agent_model '$VALUE' not recognized. Use host, a family (opus, fable, sonnet, haiku, astra, sol, luna, terra) or <provider>/<model> such as anthropic/claude-opus-5-5. Existing value left unchanged. fix: gstack-config unset agent_model returns to host (https://github.com/garrytan/gstack/blob/main/docs/model-policy.md#your-model-preference)" >&2
+             exit 1; } ;;
+      esac
+    fi
     case "$KEY" in
       plan_review_tier|implementation_tier|model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai)
         _mp_doc="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#model-policy-config"
@@ -1086,7 +1100,7 @@ $_gstack_legacy_root"
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
-               model_smart_claude model_smart_openai codex_effort review_effort_tiers; do
+               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -1111,7 +1125,7 @@ $_gstack_legacy_root"
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
-               model_smart_claude model_smart_openai codex_effort review_effort_tiers; do
+               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

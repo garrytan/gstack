@@ -1,12 +1,10 @@
 name: Version Gate
 
+# Every PR: under changelog_fragments a PR that touches no release file must
+# still prove it carries a fragment (docs/ship-policy.md#changelog-fragments).
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'VERSION'
-      - 'CHANGELOG.md'
-      - 'package.json'
 
 concurrency:
   group: version-gate-${{ github.event.pull_request.number }}

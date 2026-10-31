@@ -197,7 +197,15 @@ shards get duration-aware walls (`max(base, predicted × 3, files × 5s)`). The
 legacy `--shards N --shard i` path keeps stable hash indices. Required CI uses
 one duration-packed `--ci-plan`, 20 ordinary `--ci-run` shards plus a separate
 exclusive-fixture shard, and a `--ci-verify` aggregate. CI shards still run on
-independent machines without ordering unrelated jobs. The public
+independent machines without ordering unrelated jobs. Two workflow-level
+constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
+(`ubicloud-standard-2`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
+resolves into the shards' runner and shard count. A `workflow_dispatch` run may
+override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`) and
+`free_shards` (1–40) for runner-sizing experiments only; its job summary says
+so, and it is never cited as a PR or train Free Tests result. Each shard prints
+`RESOURCES: peak_used_mib=… min_free_disk_mib=… samples=…` from a memory and
+disk sample every 2 seconds, even when the suite fails. The public
 `TREE_MUTATING` map now classifies exclusive host-state fixtures; its sole
 entry is `test/bootstrap-retention.test.ts`, whose same-UID nondumpable actors
 affect host-wide procfs permission checks. Locally, this file runs only after
@@ -979,28 +987,34 @@ namespaces Chromium's sandbox needs, and `python3-venv` is absent (required by
 the Python runner tests).
 
 VMs are named `ubirun-<owner>-<epoch>-<hex>`, plus a `-t<hours>` TTL suffix
-(below); `<owner>` is `UBI_OWNER` (set it to the thread id on a Capy machine;
-lowercase letters and digits, at most 12), else a stable per-machine id. Every exit
+(below); `<owner>` is `UBI_OWNER` (the thread id on a Capy machine; lowercase
+letters and digits, at most 12), which `up`, `run` and `verify` require. Every exit
 path destroys the client's own VM (`trap` on EXIT, INT, TERM, HUP and QUIT), and
 `down` fails loudly (`FAILED to destroy <location>/<name> (HTTP <code>)`) unless
 the VM is confirmed gone. `list --mine` shows this owner's VMs, `usage` the
 project's, and `records` the VM-id scratch file (`UBI_VM_RECORD`, default
 `~/.capy/work/ubi-runner/vms.tsv`, else `<state root>/vms.tsv`): every VM is
 recorded there before the create call and forgotten only after a confirmed
-destroy, so a killed runner leaves a name to clean up. No age-based sweep runs
-by default, because the project quota is shared with other agents' runners (the
-TTL reaper below destroys only a VM whose own `-t<hours>` TTL has ended); set
+destroy, so a killed runner leaves a name to clean up. `run` and `verify` end
+with `UBICLOUD: left=<0|1|unknown> owner=<o> vm=<name> others=<n>`, checked
+against the project's VM list after teardown; anything but `left=0` turns a
+passing command into exit 1. pregate-remote.sh reads that line from the file
+named by `UBI_LEFT_FILE`, never from the command's output. No owner-age sweep runs by default (the TTL reaper
+below covers every owner); set
 `UBI_GC_HOURS` to a positive number (or run `gc HOURS`; `gc 0` is a no-op) to
 sweep only this owner's VMs older than that. For other commands, use the runner
 directly: `scripts/ubicloud/ubi-runner.sh run --setup <script> -- '<command>'`,
 or its `up` / `ssh` / `sync` / `pull` / `down` steps (`--help` lists them).
 
 The runner is also the `/ubicloud` skill's engine (`bin/gstack-ubi` execs it).
-A generated name ends in `-t<hours>` (`UBI_TTL_HOURS`, default 4; 0 omits it),
-the creator's own statement of how long the VM may live: `reap` destroys every
-VM in the project whose TTL ended more than ten minutes ago, whichever owner
-made it, and every `up` runs it first (`UBI_REAP=0` skips it); names without a
-TTL, such as the ones pregate-remote.sh builds itself, are never reaped. The
+A generated name ends in `-t<hours>` (`UBI_TTL_HOURS`, 1-999, default 3; pregate-remote.sh
+uses its stop deadline plus 15 minutes, rounded up: `-t1` today), the creator's own statement of how long the VM may live: `reap`
+destroys every VM in the project whose TTL ended more than ten minutes ago,
+whichever owner made it, and the caller's own `ubirun-<UBI_OWNER>-*` names
+without a TTL (older runner copies) once they are `UBI_LEGACY_HOURS` old
+(default 4). Another owner's TTL-less VM and an untagged one are never reaped,
+because only a TTL lets reap judge another lane's VM. Every `up` runs it
+first (`UBI_REAP=0` skips it). Names outside the `ubirun-` prefix are never reaped. The
 quota preflight adds the size's vCPUs to the project's running VMs and refuses
 before the create request when that exceeds the known ceiling
 (`UBI_QUOTA_VCPUS`, or the maximum the last refusal printed, remembered in the
@@ -1036,7 +1050,7 @@ machine swap, in this order:
    one side local and the other remote.
 4. Profiling very large imports (a whole-repo ingest, the full free suite under
    a profiler) is warned about before it starts: it holds the VM for hours, and
-   any other lane's `up` reaps it once its TTL (`UBI_TTL_HOURS`, default 4)
+   any other lane's `up` reaps it once its TTL (`UBI_TTL_HOURS`, default 3)
    plus ten minutes has passed, so set `UBI_TTL_HOURS` above the expected
    duration and name that duration in the thread before launching.
 
@@ -1132,6 +1146,15 @@ list each unmapped file that caused a fallback with one of these labels:
 - **real unknown dependency**: a file outside the derivable directories that no
   list classifies (for example `ETHOS.md`); map it, exempt it, or derive its
   directory.
+
+Narrow screens (`gstack-ship-queue ready --screen` without `--broad`) and
+`eval:bg:pr` (`test:pr` defaults `EVALS_SCREEN_POLICY=narrow`) leave out a
+derived file whose closure reaches every gate case; the plan lists it as left to
+the train gate's full census, and that census runs those cases.
+`pull_request` runs, broad screens, `EVALS_SCREEN_POLICY=broad` and
+`--profile full` keep every derived dependent. Full-gate inputs and unknown files
+still restore the full gate on a narrow screen. The policy is in
+[ship-policy.md](ship-policy.md#run-a-merge-train).
 
 The fallback rate is a label, not the bill: a dependents run whose derived
 closure reaches every gate case costs about what a full-fallback run does.
@@ -1259,7 +1282,10 @@ re-run keeps the creation time, so it does not wait out the window again). A
 head that is no longer the PR's head reports "superseded by <sha>" and plans
 nothing. Selection, trials and verdict rules do not change. Version Gate is not
 an input, so a stamp push waits only for its own Free Tests and always gets a
-gate. Dispatches (`eval:bg`, the census) never wait.
+gate. Dispatches (`eval:bg`, the census) never wait. Neither does a
+`pr-summary` run (a repository whose policy declares a train): it plans no paid
+slices, so `readiness` is skipped, the run ends with the screening summary, and
+a red Free Tests shows on Free Tests alone.
 
 **Verdict reuse (R2a restamp-only, R2 main moved; a gate edit).** A PR head
 reuses the verdict of the newest executed gate of the same PR instead of
@@ -1489,7 +1515,9 @@ refresh to a maintainer.
 - `free-durations-record.yml` (Mondays 04:00 UTC, before test-health, and on
   dispatch) records the Linux seed on `ubicloud-standard-8` with
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
-  `windows-free-tests.yml`'s `record_durations` path. When either recording adds
+  `windows-free-tests.yml`'s `record_durations` path. The recorder stays on
+  `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
+  (`ubicloud-standard-2`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
   dispatches Free Tests, Windows Free Tests and Quality gate on it. Those

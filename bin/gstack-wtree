@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # gstack-wtree — print a working-tree CONTENT fingerprint (a git tree hash).
 #
-# Builds a temp index, stages the full working tree into it (`git add -A`, so
-# .gitignore'd scratch stays out and UNTRACKED source is included), and prints
-# `git write-tree` of that index. Properties that make this the right
-# staleness fingerprint, vs `git rev-parse HEAD^{tree}`:
+# Builds a temp index, stages the full working tree into it (`git add -u` for
+# every tracked file, then `git add -A` for the rest, so .gitignore'd scratch
+# stays out and UNTRACKED source is included), and prints `git write-tree` of
+# that index. An untracked `.bun/` folder at the repository root (Bun's install
+# cache, which a test run can create) is left out so a passing run does not
+# look like a mid-run edit (GST-421); tracked files under it still count, and a
+# tree without that folder (or with it gitignored) hashes exactly as a plain
+# `git add -A` would.
+# Properties that make this the right staleness fingerprint, vs
+# `git rev-parse HEAD^{tree}`:
 #
 #   - Committing identical content does NOT change the fingerprint, so a
 #     record made on a dirty tree stays valid after the exact same content is
@@ -15,7 +21,7 @@
 #
 # Performance: the temp index is seeded by COPYING the real index (git writes
 # it atomically via rename, so the copy is a consistent snapshot). That
-# preserves the stat cache, so `git add -A` only re-hashes files whose stat
+# preserves the stat cache, so staging only re-hashes files whose stat
 # changed — measured 40x faster than a `read-tree HEAD` seed, which zeroes
 # stat data and forces a full re-hash of every tracked file. Both seeds
 # produce the identical write-tree hash. Fallback: `read-tree HEAD` when the
@@ -82,7 +88,14 @@ if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ] && cp "$REAL_INDEX" "$TMPIDX" 2>
 else
   git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
 fi
-if ! ERR=$(git -C "$TOP" add -A 2>&1 >/dev/null); then
+# The exclude is added only when the root .bun/ exists and is not ignored: an
+# exclude pathspec naming an ignored path makes `git add -A` exit 1 (GST-449),
+# and an ignored .bun/ stays out of a plain `git add -A` anyway. --no-index
+# asks the ignore rules alone; without it a tracked file under .bun/ makes git
+# call .bun not ignored.
+EXCLUDE_BUN=""
+if [ -e "$TOP/.bun" ] && ! git -C "$TOP" check-ignore --no-index -q .bun 2>/dev/null; then EXCLUDE_BUN=':(exclude,top).bun'; fi
+if ! ERR=$(git -C "$TOP" add -u 2>&1 >/dev/null) || ! ERR=$(git -C "$TOP" add -A -- . ${EXCLUDE_BUN:+"$EXCLUDE_BUN"} 2>&1 >/dev/null); then
   echo "gstack-wtree: cannot stage the working tree: $(printf '%s' "$ERR" | head -1)" >&2
   exit 1
 fi
