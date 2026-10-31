@@ -84,6 +84,21 @@ describe('allowlist: the secrets check', () => {
     expect(secrets(shape).status).toBe(EXIT.fail);
   });
 
+  // Value: protects=a pattern entry scoped to the finding that misses it says so, naming the column the pattern is tested from
+  //   (#3630: `session: HttpSession` as a pattern never matched, and the row was silent); fails_when=the miss is silent again or
+  //   the finding is dropped; why_new=the row is new; seam=none; no_claim=none
+  test('a pattern entry that names the finding but misses its value prints a row and keeps the finding', () => {
+    const line = 'session: HttpSessionStore\n';
+    const missed = fixture({ ...BASE_PREGATE, allowlist: [{ finding: 'env.kv', paths: ['config.yaml'], pattern: 'session: HttpSessionStore', reason: 'a type name' }] });
+    commit(missed, { 'config.yaml': line });
+    expect(secrets(missed).status).toBe(EXIT.fail);
+    expect(row(missed).lines.join('\n')).toContain('allowlist[0] env.kv pattern did not match env.kv (config.yaml, added line 1, col 10): a pattern is matched from where the flagged value starts, not from the name; the finding is kept');
+    const value = fixture({ ...BASE_PREGATE, allowlist: [{ finding: 'env.kv', paths: ['config.yaml'], pattern: 'HttpSessionStore', reason: 'a type name' }] });
+    commit(value, { 'config.yaml': line });
+    expect(secrets(value).status).toBe(EXIT.ok);
+    expect(row(value).detail).toContain('1 allowlisted (env.kv)');
+  });
+
   // Value: protects=a category entry covers an advisory pii hit (a run id after a generic word, which the engine's run-word exemption does not cover, read as a phone number) and the WARN count drops;
   //   fails_when=category matching is id-only; why_new=new; seam=none; no_claim=none
   test('a category entry silences the advisory pii finding for a run id', () => {

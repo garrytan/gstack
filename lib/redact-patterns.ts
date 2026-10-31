@@ -673,28 +673,78 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
 /**
  * #3048: in a TypeScript/JSX file, an unquoted value after `:` is a type or an
  * expression, never a string literal (`session: SessionState,`), and a JSX
- * brace holding only names and property reads (`key={turn.requestId + turn.role}`)
- * is an expression. Decided by file context, not by how the value looks:
+ * brace holding only names and property reads joined by + ?? || or &&
+ * (`key={turn.requestId + turn.role}`, `key={item.id ?? index}`, #3605) is an
+ * expression. Decided by file context, not by how the value looks:
  * `API_KEY=VelvetRiverOrbitSunset;` in a .env or YAML file is still a literal.
- * Without a known TS/JSX path nothing is exempt.
+ * #3630 (#3418, #3419): Dart and Python (.py, .pyi) qualify on the same grammar
+ * fact, no unquoted string literal, so `'password': request.password` and
+ * `session: HttpSession,` are names. Python's `=` forms
+ * (`password=request.password`) still fire: the separator must be `:`.
+ * Without a known source path nothing is exempt.
  */
-const TS_SOURCE = /\.(?:[cm]?tsx?|jsx)$/i;
+const CODE_SOURCE = /\.(?:[cm]?tsx?|jsx|dart|pyi?)$/i;
 const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s<>[\]|]*>)?(?:\[\])*$/;
 
+/**
+ * #3418: a `password:` line in a Dart or Python `'''`/`"""` block is a literal
+ * in an embedded config, so the name exemption must not reach it. The open
+ * spans of every such block are computed once per input (a scan validates
+ * many candidates against the same text), tracking which delimiter opened so
+ * a `'''` inside a `"""` block is content, and a backslash escapes the next
+ * character so `\"""` does not close a block. pregate hands these files to
+ * the scanner whole, so a line added inside an existing block sees its opener.
+ */
+const TRIPLE_QUOTED_SOURCE = /\.(?:dart|pyi?)$/i;
+let tripleSpansCache: { text: string; spans: Array<[number, number]> } | null = null;
+
+function tripleQuotedSpans(text: string): Array<[number, number]> {
+  if (tripleSpansCache?.text === text) return tripleSpansCache.spans;
+  const spans: Array<[number, number]> = [];
+  let open: string | null = null;
+  let from = 0;
+  for (let i = 0; i < text.length; ) {
+    if (open !== null && text[i] === "\\") { i += 2; continue; }
+    const delimiter: string | null = open ?? (text.startsWith('"""', i) ? '"""' : text.startsWith("'''", i) ? "'''" : null);
+    if (delimiter === null || !text.startsWith(delimiter, i)) { i += 1; continue; }
+    if (open === null) { open = delimiter; from = i + 3; } else { spans.push([from, i]); open = null; }
+    i += 3;
+  }
+  if (open !== null) spans.push([from, text.length]);
+  tripleSpansCache = { text, spans };
+  return spans;
+}
+
+function insideTripleQuotedString(text: string, offset: number): boolean {
+  const spans = tripleQuotedSpans(text);
+  let lo = 0;
+  let hi = spans.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (offset < spans[mid]![0]) hi = mid - 1;
+    else if (offset >= spans[mid]![1]) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+
 function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
-  if (!sourcePath || !TS_SOURCE.test(sourcePath)) return false;
-  const { start } = spanBounds(match);
+  if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
+  const { start, end } = spanBounds(match);
   const before = match.input[start - 1];
   if (before === '"' || before === "'" || before === "`") return false;
   if (span.startsWith("{")) {
     const line = match.input.slice(start + 1).split("\n", 1)[0];
     const close = line.indexOf("}");
     if (close < 0 || /["'`]/.test(line.slice(0, close))) return false;
-    return line.slice(0, close).split("+").every(term => CODE_NAME_CHAIN.test(term.trim()));
+    if (!line.slice(0, close).split(/\+|\?\?|\|\||&&/).every(term => CODE_NAME_CHAIN.test(term.trim()))) return false;
+  } else {
+    const separator = match[0].slice(0, match[0].length - span.length).trimEnd().slice(-1);
+    if (separator !== ":" || !CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return false;
+    const rest = (span.endsWith("=") ? "=" : "") + match.input.slice(end).split("\n", 1)[0];
+    if (/^\s*=/.test(rest) && carriesSecretLiteral(rest)) return false;
   }
-  const separator = match[0].slice(0, match[0].length - span.length).trimEnd().slice(-1);
-  if (separator !== ":") return false;
-  return CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""));
+  return !(TRIPLE_QUOTED_SOURCE.test(sourcePath) && insideTripleQuotedString(match.input, start));
 }
 
 export const PATTERNS: RedactPattern[] = [
@@ -971,7 +1021,7 @@ export const PATTERNS: RedactPattern[] = [
     // literal (`os.getenv("X", "<secret>")`). A literal appended to the read
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
     // #2899: a function call assigned to the name is code, not a value (see
-    // isCallExpression). #3048: so is a TS/JSX type or expression (isSourceExpression).
+    // isCallExpression). #3048, #3630: so is a TS/JSX/Dart/Python type or expression (isSourceExpression).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     validate: (span, match, opts) =>
       isCredentialShapedEnvName(match[0]) &&
