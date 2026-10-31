@@ -591,7 +591,9 @@ function cmdCarry(rest: string[], json: boolean): number {
       // which can differ between the two base diffs. A path whose only difference is base context next to unchanged hunks
       // (lib/ship-patch.ts) needs a scoped review instead of the loop.
       const sides = { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head };
-      const touched = new Set([...(touchedPaths(repoRoot, fromBase, from) ?? []), ...(touchedPaths(repoRoot, headBase, head) ?? [])]);
+      const listed = [touchedPaths(repoRoot, fromBase, from), touchedPaths(repoRoot, headBase, head)];
+      if (!listed[0] || !listed[1]) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
+      const touched = new Set([...listed[0], ...listed[1]]);
       for (const p of [...touched].sort()) {
         if (changedProduct.length >= CARRY_NAMED_PATHS) break;
         const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra);

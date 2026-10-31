@@ -181,6 +181,27 @@ describe('finish route after a base merge (GST-407 #1, GBRA-108 #7739)', () => {
   });
 });
 
+describe('a version stamp after review (GBRA-251, gbrain #8095)', () => {
+  // Value: protects=a stamp_files path whose edit is only the version swap (a plugin.json "version" line, a stamp comment
+  //   in a doc) routes as release metadata; a stamp_files path with any other edit still stops; fails_when=releasePaths
+  //   ignores stamp_files/stamp_patterns (ROUTE: behavior=8 docs=5 on gbrain #8095) or waves through a non-stamp edit;
+  //   seam=lib/ship-bin-common.ts stampedFiles; no_claim=the restamp writer
+  test('stamp_files paths with a version-only edit are metadata; any other edit stops', () => {
+    const policy = JSON.stringify({ stamp_files: ['VERSION', 'plugin.json', 'docs/*.md'], stamp_patterns: ['"version": "{version}"', '<!-- fx-stamp {version} -->'] });
+    const plugin = (v: string, name = 'p') => `{\n  "name": "${name}",\n  "version": "${v}"\n}\n`;
+    const guide = (v: string) => `# Guide\n\n<!-- fx-stamp ${v} -->\n`;
+    for (const [name, pluginAfter, stops] of [['stamp only', plugin('1.0.1.0'), false], ['stamp plus a name change', plugin('1.0.1.0', 'q'), true]] as const) {
+      const f = fx({ '.gstack/ship-policy.json': policy, VERSION: '1.0.0.0\n', 'plugin.json': plugin('1.0.0.0'), 'docs/guide.md': guide('1.0.0.0') });
+      const reviewed = wtree(f);
+      const post = snapshot(f);
+      f.write({ VERSION: '1.0.1.0\n', 'plugin.json': pluginAfter, 'docs/guide.md': guide('1.0.1.0') }); f.commit('stamp');
+      const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+      if (stops) expect([name, r.status, lineOf(r.stdout, 'STOP')]).toEqual([name, 3, 'STOP: behavior, tests or build inputs changed since review (plugin.json): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)']);
+      else expect([name, lineOf(r.stdout, 'ROUTE')]).toEqual([name, expect.stringMatching(/ behavior=0 docs=0 metadata=3 tests=0 /)]);
+    }
+  });
+});
+
 describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
   // Value: protects=a base edit next to the branch's unchanged hunk asks for a scoped review of only those hunks (finish
   //   context=N, carry RECEIPT_CARRY_SCOPED_REVIEW), and a clean scoped review lets it through; fails_when=it forces the
@@ -302,6 +323,14 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
       expect([name, r.status, r.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/rows.test.ts)')]).toEqual([name, 3, true]);
     }
 
+    const sql = (header: string) => `import { expect, test } from 'bun:test';\nconst text = \`\n${header}\n\`;\ntest('sql', () => expect(text).toContain('header'));\n`;
+    const dash = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/sql.test.ts': sql('-- header') });
+    const rd = wtree(dash);
+    const pd = snapshot(dash);
+    dash.write({ 'test/sql.test.ts': sql('-- header changed') }); dash.commit('test: a line starting with --');
+    const d = finish(dash, rd, pd, ['--reviewed-base', mergeBase(dash)]);
+    expect([d.status, d.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/sql.test.ts)')]).toEqual([3, true]);
+
     const helper = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/helpers/h.test.ts': spec('h') });
     const reviewed2 = wtree(helper);
     const post2 = snapshot(helper);
@@ -358,5 +387,9 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     expect(second.status).toBe(3);
     expect(second.stdout).toContain('ATTEMPT: counted (a second install refusal in this invocation)');
     expect(second.stdout).toContain('STOP: run the install fix');
+    const corrupt = path.join(f.root, 'corrupt.json');
+    fs.writeFileSync(corrupt, '{not json');
+    const reset = f.run(path.join(BIN, 'gstack-docs-candidate'), ['attempt', refused, '--state', corrupt]);
+    expect([reset.status, reset.stdout.includes('ATTEMPT: counted (a second install refusal in this invocation)')]).toEqual([3, true]);
   });
 });

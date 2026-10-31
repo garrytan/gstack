@@ -179,7 +179,7 @@ function main(argv: string[]): void {
     const audited = lines.some(l => { try { const v = JSON.parse(l); return !!v && typeof v === 'object' && 'schema_version' in v; } catch { return false; } });
     if (!last || !/^GSTACK_RESULT: skill=document-release status=refused\b/.test(last) || !install || audited) { console.log('ATTEMPT: counted'); return; }
     let seen = 0;
-    try { seen = Number(JSON.parse(fs.readFileSync(state, 'utf8')).not_counted) || 0; } catch { seen = 0; }
+    try { seen = Number(JSON.parse(fs.readFileSync(state, 'utf8')).not_counted) || 0; } catch { seen = fs.existsSync(state) ? 1 : 0; }
     if (seen >= 1) {
       console.log('ATTEMPT: counted (a second install refusal in this invocation)');
       console.log(`STOP: run the install fix (${install}) and confirm its gstack: ok trailer before another launch`);

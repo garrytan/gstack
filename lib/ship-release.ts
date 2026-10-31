@@ -15,7 +15,7 @@ import { classifyPath } from './review-depth';
 import { comparePath, contextPacket, gateEditedPaths, isTestCode, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
-import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short } from './ship-bin-common';
+import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
@@ -213,8 +213,11 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   const nul = (out: string) => out.split('\0').filter(Boolean);
   const auditBase = git(cwd, ['merge-base', baseRef, record.head]).stdout.trim();
   const nowBase = git(cwd, ['merge-base', baseRef, 'HEAD']).stdout.trim();
-  const branchAtAudit = new Set([...(auditBase ? touchedPaths(cwd, auditBase, record.head) ?? [] : []), ...record.staged, ...record.unstaged, ...record.untracked]);
-  const branchNow = new Set([...(nowBase ? nul(git(cwd, ['diff', '-z', '--name-only', '--no-renames', nowBase]).stdout) : []), ...nul(git(cwd, ['ls-files', '-z', '--others', '--exclude-standard']).stdout)]);
+  const atAudit = auditBase ? touchedPaths(cwd, auditBase, record.head) : new Set<string>();
+  const nowDiff = nowBase ? git(cwd, ['diff', '-z', '--name-only', '--no-renames', nowBase]) : null;
+  if (!atAudit || (nowDiff && nowDiff.status !== 0)) { r.stop(`git could not list the paths the branch touched against ${baseRef}; documentation freshness is unknown (stage 3)`); return false; }
+  const branchAtAudit = new Set([...atAudit, ...record.staged, ...record.unstaged, ...record.untracked]);
+  const branchNow = new Set([...(nowDiff ? nul(nowDiff.stdout) : []), ...nul(git(cwd, ['ls-files', '-z', '--others', '--exclude-standard']).stdout)]);
   const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[] };
   let audit: any = null;
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
@@ -256,7 +259,7 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   const release = releasePaths(policy, cwd, flag('--reviewed-tree')!);
   const routed = route(cwd, base, flag('--reviewed-tree')!, flag('--reviewed-base'), release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed') }, r);
   if (!routed) return r;
-  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context], all('--docs-requested'), flag('--docs-result'), r)) return r;
+  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!)], all('--docs-requested'), flag('--docs-result'), r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
   const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;

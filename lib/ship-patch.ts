@@ -156,7 +156,12 @@ export function gateEditedPaths(repoRoot: string, from: string, to: string, path
   if (diff === null) return null;
   const files = parseUnifiedDiff(diff);
   const scan = scanCandidate({ files, commits: [], project: EMPTY_PROJECT_CONFIG, specIsTestPath: true, candidate: 'route', artifact: '' });
-  const removed = paths.filter(p => (pathDiff(repoRoot, from, to, p, 0) ?? '-').split('\n').some(l => (l.startsWith('-') && !l.startsWith('--- ')) || l.startsWith('Binary files ') || l.startsWith('GIT binary patch')));
+  const removed = paths.filter(p => {
+    const d = pathDiff(repoRoot, from, to, p, 0);
+    if (d === null || /^(Binary files |GIT binary patch)/m.test(d)) return true;
+    const at = d.search(/^@@ /m);
+    return at >= 0 && d.slice(at).split('\n').some(l => l.startsWith('-'));
+  });
   return new Set([...scan.hunks.filter(h => h.tags.length > 0).map(h => h.path), ...scan.unsupportedPaths.map(u => u.path), ...removed]);
 }
 
