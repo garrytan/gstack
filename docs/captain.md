@@ -298,8 +298,9 @@ stamp on the bare pin leaves the PR conflicting on the CHANGELOG. The lane merge
 into its pin first (expect a CHANGELOG-only conflict; resolve it with `mergeChangelogs`
 from `lib/changelog-check.ts`, the `bun -e` one-liner in
 [ship-policy.md](ship-policy.md#run-a-merge-train), never by hand, and grep for conflict
-markers before stamping), then restamps, then commits only the merge and the stamp
-files. In practice slot 1 needs the same merge whenever the base moved after the pin was
+markers before stamping), then restamps (the restamp stages the stamp files it wrote,
+so a plain `git commit` after a `--no-commit` merge keeps them), then commits only the
+merge and the stamp files. In practice slot 1 needs the same merge whenever the base moved after the pin was
 taken. A stamp commit with one extra byte freezes the queue for every
 lane behind it.
 
