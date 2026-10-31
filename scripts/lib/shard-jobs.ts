@@ -45,14 +45,37 @@ export const FREE_JOBS_INVALID = 'FREE_JOBS_INVALID';
 export const FREE_SUBSHARD_TIMEOUT = 'FREE_SUBSHARD_TIMEOUT';
 export const FREE_SUBSHARD_REJECTED = 'FREE_SUBSHARD_REJECTED';
 const DOCS = 'docs/TESTING_INTERNALS.md#sub-shards-inside-one-ci-job';
-const JOBS_FIX = `--jobs applies only to --ci-run and defaults to 1; GSTACK_FREE_JOBS sets the local full-suite process count and never changes --ci-run. See ${DOCS}`;
+const JOBS_FIX = `--jobs applies only to --ci-run and defaults to the plan's per-shard k (1 when the plan has none); --shard-jobs applies only to --ci-plan; GSTACK_FREE_JOBS sets the local full-suite process count and never changes --ci-run. See ${DOCS}`;
 
-/** `--jobs <k>` at parse time: digits only, at least 1. */
-export function parseJobsFlag(raw: string | undefined): number {
+/** `--jobs <k>` or `--shard-jobs <k>` at parse time: digits only, at least 1. */
+export function parseJobsFlag(raw: string | undefined, flag = '--jobs'): number {
   if (raw === undefined || !/^\d+$/.test(raw) || Number(raw) < 1) {
-    throw new Error(`${FREE_JOBS_INVALID}: --jobs needs a positive whole number; got ${JSON.stringify(raw ?? '')}. ${JOBS_FIX}`);
+    throw new Error(`${FREE_JOBS_INVALID}: ${flag} needs a positive whole number; got ${JSON.stringify(raw ?? '')}. ${JOBS_FIX}`);
   }
   return Number(raw);
+}
+
+export function rejectShardJobsWithoutCiPlan(): never {
+  throw new Error(`${FREE_JOBS_INVALID}: --shard-jobs needs --ci-plan. ${JOBS_FIX}`);
+}
+
+/**
+ * One planned shard's k under `--ci-plan --shard-jobs k`: at most one parallel
+ * sub-shard per file that may run in parallel, so a shard of only serial files
+ * (the exclusive TREE_MUTATING shard) keeps k = 1. Undefined means k = 1, and
+ * the plan then carries no `jobs` key, so its id matches a plan without k.
+ */
+export function plannedShardJobs(files: readonly string[], shardJobs: number, isSerial: (file: string) => boolean): number | undefined {
+  const jobs = Math.min(shardJobs, files.filter(file => !isSerial(file)).length);
+  return jobs > 1 ? jobs : undefined;
+}
+
+/** Why a plan's per-shard k cannot stand; null when absent or valid. */
+export function plannedShardJobsProblem(shard: { shard: number; files: readonly string[]; jobs?: unknown }, isSerial: (file: string) => boolean): string | null {
+  if (shard.jobs === undefined) return null;
+  const parallel = shard.files.filter(file => !isSerial(file)).length;
+  return Number.isInteger(shard.jobs) && (shard.jobs as number) >= 2 && (shard.jobs as number) <= parallel ? null
+    : `CI shard ${shard.shard} plans --jobs ${JSON.stringify(shard.jobs)} for ${parallel} parallel file(s)`;
 }
 
 export function rejectJobsWithoutCiRun(): never {

@@ -4,7 +4,9 @@
  * that moved out of it.
  */
 import { expect, test } from 'bun:test';
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { collectFreeTestFiles, createFreeCiPlan, curateWindowsSafe, parseCliOptions, validateFreeCiPlan } from '../scripts/test-free-shards';
 import { windowsCurationLine } from '../scripts/lib/free-ci-health';
@@ -25,7 +27,7 @@ const WINDOWS_CURATED_FLOOR = 638;
 test('the Windows lane plans, runs one strict shard per job and verifies every result', () => {
   expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'push', 'workflow_call', 'workflow_dispatch']);
   expect(windows.on.push).toEqual({ branches: ['main'] });
-  expect(Object.keys(windows.on.workflow_dispatch.inputs)).toEqual(['record_durations']);
+  expect(Object.keys(windows.on.workflow_dispatch.inputs)).toEqual(['record_durations', 'windows_jobs']);
   expect(Object.keys(windows.on.workflow_call.inputs)).toEqual(['record_durations']);
   const plan = windows.jobs['windows-plan'];
   expect(plan['runs-on']).toBe('ubuntu-24.04');
@@ -45,6 +47,36 @@ test('the Windows lane plans, runs one strict shard per job and verifies every r
   expect(plan.if).toBe('${{ !inputs.record_durations }}');
   expect(aggregate.needs).toEqual(['windows-plan', 'windows-free-shard']);
   expect(aggregate.steps.at(-1).run).toContain('--windows-only --ci-verify "$RUNNER_TEMP/windows-plan.json" --results ');
+});
+
+test.skipIf(!Bun.which('bash'))('windows-plan passes the one sub-shard constant, or a validated dispatch override, to --shard-jobs', () => {
+  const planStep = windows.jobs['windows-plan'].steps.find((step: any) => step.id === 'plan');
+  expect(windows.env.WINDOWS_FREE_JOBS).toMatch(/^[1-4]$/);
+  expect(planStep.env.JOBS_OVERRIDE).toBe('${{ inputs.windows_jobs }}');
+  expect(planStep.run).not.toContain('${{');
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'windows plan '));
+  const bin = path.join(directory, 'bin');
+  mkdirSync(bin);
+  writeFileSync(path.join(bin, 'bun'), '#!/bin/sh\nprintf "%s\\n" "$*" > "$RUNNER_TEMP/bun-args"\necho \'{"shard":[1]}\'\n', { mode: 0o755 });
+  const toShell = (p: string) => p.split(path.sep).join('/');
+  const resolve = (override: string) => {
+    rmSync(path.join(directory, 'bun-args'), { force: true });
+    const result = spawnSync('bash', ['-c', planStep.run], {
+      env: { ...process.env, ...windows.env, JOBS_OVERRIDE: override, PATH: `${toShell(bin)}:${process.env.PATH}`, RUNNER_TEMP: toShell(directory),
+        GITHUB_OUTPUT: toShell(path.join(directory, 'output')), GITHUB_STEP_SUMMARY: toShell(path.join(directory, 'summary')) },
+      encoding: 'utf8', timeout: 5000,
+    });
+    return { status: result.status, args: existsSync(path.join(directory, 'bun-args')) ? readFileSync(path.join(directory, 'bun-args'), 'utf8') : '' };
+  };
+  try {
+    expect(resolve('')).toEqual({ status: 0, args: expect.stringContaining(`--shards 6 --shard-jobs ${windows.env.WINDOWS_FREE_JOBS}`) });
+    expect(resolve('2')).toEqual({ status: 0, args: expect.stringContaining('--shards 6 --shard-jobs 2') });
+    for (const bad of ['0', '5', '2; true', 'x']) {
+      const refused = resolve(bad);
+      expect(refused.status, bad).not.toBe(0);
+      expect(refused.args, bad).toBe('');
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('a Windows CI plan binds the curated file set, so it never verifies as the full Linux suite', () => {

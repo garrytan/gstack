@@ -34,12 +34,21 @@ on:
         description: Record per-file Windows durations (artifact) instead of running the lane
         type: boolean
         default: false
+      windows_jobs:
+        description: 'Sub-shard experiments only: sub-shards per Windows shard (--shard-jobs), 1-4 (empty keeps WINDOWS_FREE_JOBS). Never cite such a run as a PR result.'
+        type: string
+        default: ''
   # free-durations-record.yml calls the recording path weekly.
   workflow_call:
     inputs:
       record_durations:
         type: boolean
         default: false
+
+# k in `--ci-plan --shard-jobs k`: each Windows shard runs min(k, its parallel
+# files) sandboxed sub-shards side by side (scripts/lib/shard-jobs.ts).
+env:
+  WINDOWS_FREE_JOBS: '1'
 
 concurrency:
   group: windows-free-${{ github.event.pull_request.number || github.run_id }}
@@ -69,8 +78,18 @@ jobs:
         # 4-vCPU Windows runner, so the lane lands near 4 min with setup.
         env:
           GSTACK_FREE_TEST_DURATIONS: scripts/free-test-durations-windows.json
+          JOBS_OVERRIDE: ${{ inputs.windows_jobs }}
         run: |
-          matrix=$(bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6)
+          set -euo pipefail
+          jobs="${JOBS_OVERRIDE:-$WINDOWS_FREE_JOBS}"
+          case "$jobs" in
+            ''|*[!0-9]*) echo "::error::windows_jobs '$jobs' is not a whole number"; exit 1 ;;
+          esac
+          if [ "$jobs" -lt 1 ] || [ "$jobs" -gt 4 ]; then echo "::error::windows_jobs $jobs is outside 1-4"; exit 1; fi
+          if [ "$jobs" != "$WINDOWS_FREE_JOBS" ]; then
+            echo "- Sub-shard experiment: $jobs sub-shards per Windows shard (default $WINDOWS_FREE_JOBS); not a PR Windows Free Tests result" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          matrix=$(bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6 --shard-jobs "$jobs")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

@@ -32,13 +32,21 @@ on:
         description: 'Runner-sizing experiments only: shard count, 1-40 (empty keeps FREE_SUITE_SHARDS)'
         type: string
         default: ''
+      free_jobs:
+        description: 'Runner-sizing experiments only: sub-shards per CI shard (--shard-jobs), 1-8 (empty keeps FREE_SUITE_JOBS)'
+        type: string
+        default: ''
 
-# The one source of the free-suite runner and shard count. pull_request and
-# push runs never see workflow_dispatch inputs, so free-plan resolves these
-# (or a dispatch override) into outputs that free-suite reads.
+# The one source of the free-suite runner, shard count and sub-shards per
+# shard. pull_request and push runs never see workflow_dispatch inputs, so
+# free-plan resolves these (or a dispatch override) into outputs and the plan
+# that free-suite reads. FREE_SUITE_JOBS is k in `--ci-plan --shard-jobs k`:
+# each shard runs min(k, its parallel files) sandboxed sub-shards side by side
+# (scripts/lib/shard-jobs.ts); the exclusive host-state shard stays one child.
 env:
   FREE_SUITE_RUNNER: ubicloud-standard-2
   FREE_SUITE_SHARDS: '20'
+  FREE_SUITE_JOBS: '1'
 
 # Keyed on the PR number, not head_ref: a bare branch name carries no fork
 # prefix, so same-name branches from two forks would share one group and a
@@ -76,10 +84,12 @@ jobs:
         env:
           RUNNER_OVERRIDE: ${{ inputs.free_runner }}
           SHARDS_OVERRIDE: ${{ inputs.free_shards }}
+          JOBS_OVERRIDE: ${{ inputs.free_jobs }}
         run: |
           set -euo pipefail
           runner="${RUNNER_OVERRIDE:-$FREE_SUITE_RUNNER}"
           shards="${SHARDS_OVERRIDE:-$FREE_SUITE_SHARDS}"
+          jobs="${JOBS_OVERRIDE:-$FREE_SUITE_JOBS}"
           case "$runner" in
             ubicloud-standard-2|ubicloud-standard-4|ubicloud-standard-8) ;;
             *) echo "::error::free_runner '$runner' is not ubicloud-standard-2, -4 or -8"; exit 1 ;;
@@ -88,10 +98,14 @@ jobs:
             ''|*[!0-9]*) echo "::error::free_shards '$shards' is not a whole number"; exit 1 ;;
           esac
           if [ "$shards" -lt 1 ] || [ "$shards" -gt 40 ]; then echo "::error::free_shards $shards is outside 1-40"; exit 1; fi
-          if [ "$runner" != "$FREE_SUITE_RUNNER" ] || [ "$shards" != "$FREE_SUITE_SHARDS" ]; then
-            echo "- Runner-sizing experiment: $shards shards on $runner (defaults $FREE_SUITE_SHARDS on $FREE_SUITE_RUNNER); not a PR or train Free Tests result" >> "$GITHUB_STEP_SUMMARY"
+          case "$jobs" in
+            ''|*[!0-9]*) echo "::error::free_jobs '$jobs' is not a whole number"; exit 1 ;;
+          esac
+          if [ "$jobs" -lt 1 ] || [ "$jobs" -gt 8 ]; then echo "::error::free_jobs $jobs is outside 1-8"; exit 1; fi
+          if [ "$runner" != "$FREE_SUITE_RUNNER" ] || [ "$shards" != "$FREE_SUITE_SHARDS" ] || [ "$jobs" != "$FREE_SUITE_JOBS" ]; then
+            echo "- Runner-sizing experiment: $shards shards on $runner at $jobs sub-shards each (defaults $FREE_SUITE_SHARDS on $FREE_SUITE_RUNNER at $FREE_SUITE_JOBS); not a PR or train Free Tests result" >> "$GITHUB_STEP_SUMMARY"
           fi
-          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards")
+          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards" --shard-jobs "$jobs")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "runner=$runner" >> "$GITHUB_OUTPUT"
       - name: Seed growth ratchet (60 s ceiling, shrink-only allowlist)
