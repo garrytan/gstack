@@ -522,8 +522,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    section's render, which stays byte for byte. `collect` and `mark --state collected`
    compare that line with the fingerprint recorded at render: a missing or foreign line is
    `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
-   is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. The
-   outside voice's tree failure is recorded `unavailable`. The line catches a reader that
+   is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
+   outside voice's tree failure is recorded `unavailable` only when its reply holds no finding. The line catches a reader that
    worked elsewhere by accident; it is not proof of reading, since diff text can predict it.
 
 ## Where this is enforced
