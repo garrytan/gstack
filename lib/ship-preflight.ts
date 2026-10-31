@@ -51,7 +51,7 @@ function integrate(cwd: string, base: string, r: Report): boolean {
       return false;
     }
     if (line === 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)') {
-      r.next(`carry route (Step 1.4): the base edited context next to reviewed hunks: gstack-ship-receipt carry --pr ${n} --base ${base} writes the packet; one fix-check reviewer reads it; fix what the base merge broke, gstack-pregate --allow-repo-commands, then carry again with --scoped-review <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
+      r.next(`carry route (Step 1.4): the base edited context next to reviewed hunks: fix what the base merge broke (CHANGELOG, size caps), commit and push; then gstack-ship-receipt carry --pr ${n} --base ${base} writes the packet for that head; one fix-check reviewer reads it; gstack-pregate --allow-repo-commands, then carry again with --scoped-review <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
       return false;
     }
   } else r.add('PR: none open');

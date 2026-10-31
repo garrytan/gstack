@@ -57,6 +57,10 @@ describe('a notes-only /ship review pass (GST-430)', () => {
       ['gate open', pass([note(1, 'noted'), note(2, 'kept', { gate: 'RH1', gate_id: 'g', reason: 'r' })])],
       ['no action', pass([note(1, 'noted'), { fingerprint: 'lib/a.ts:9:testing', severity: 'CRITICAL' }])],
       ['incomplete', pass([note(1, 'noted')], { completed: false })],
+      ['caller status over a stamped-open gate', pass([note(1, 'noted'), note(2, 'kept', { gate: 'RH1', gate_id: 'g', reason: 'r', severity: 'CRITICAL', status: 'resolved' })])],
+      ['critical noted', pass([note(1, 'noted'), note(2, 'noted', { severity: 'CRITICAL' })])],
+      ['blocking deferred', pass([note(1, 'noted'), note(2, 'deferred', { blocking: true, issue: null })])],
+      ['counts beyond the findings', pass([note(1, 'noted')], { issues_found: 2, critical: 1 })],
     ];
     for (const [name, row] of cases) {
       expect(run([row]).code).toBe(0);

@@ -548,7 +548,13 @@ export interface DerivedReviewStatus {
 export function isOpenFinding(row: Record<string, unknown>): boolean {
   if (typeof row.disposition === 'string') return !RESOLVED.includes(row.disposition);
   if (typeof row.status === 'string') return !['resolved', 'fixed', 'closed'].includes(row.status);
-  return !['fixed', 'auto-fixed', 'deferred', 'noted'].includes(row.action as string);
+  return isOpenByAction(row);
+}
+/** A finding's `action` alone: fixed and auto-fixed resolve it; deferred and noted resolve only a non-blocking, non-CRITICAL one (review policy's floor). */
+export function isOpenByAction(row: Record<string, unknown>): boolean {
+  if (row.action === 'fixed' || row.action === 'auto-fixed') return false;
+  if (row.action === 'deferred' || row.action === 'noted') return row.blocking === true || isCriticalFinding(row);
+  return true;
 }
 export function isCriticalFinding(row: Record<string, unknown>): boolean {
   return typeof row.severity === 'string' && row.severity.toLowerCase() === 'critical';

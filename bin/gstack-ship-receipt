@@ -391,7 +391,8 @@ function writeRunRecord(a: { receipt: ShipReceipt; head: string; pr: string | un
  */
 function patchId(repoRoot: string, from: string, to: string, pathspec: string[]): string | { error: string } {
   const firstLine = (s: string | null | undefined, fallback: string) => (s ?? '').trim().split('\n')[0]?.slice(0, 200) || fallback;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-patch-id-'));
+  let dir: string;
+  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-patch-id-')); } catch (e) { return { error: `cannot create a temp file under ${os.tmpdir()} (${firstLine((e as Error).message, 'mkdtemp failed')}); set TMPDIR to a writable directory` }; }
   const file = path.join(dir, 'diff.patch');
   let fd: number | undefined;
   try {

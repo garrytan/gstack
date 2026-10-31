@@ -721,7 +721,7 @@ audit or risk decision never qualifies.
 
 Report changed inputs, blockers and attempts used:
 
-- **A fix the audit's result named:** rerun finish with `--docs-requested`.
+- **A fix the audit's result named:** rerun finish with `--docs-requested <path> --docs-result <json>`.
 - **An attempt remains, with changed inputs or an available repair:** insert
   `14.5 → 15 → 16` before Step 17. Use Blocked recovery with the existing count.
   Validate the outcome before Step 15, then restart Step 16 stage 1.

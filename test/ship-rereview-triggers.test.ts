@@ -501,7 +501,7 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(lineOf(r.stdout, 'CARRY')).toBe('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)');
-    expect(r.stdout).toMatch(/^NEXT: carry route \(Step 1\.4\): .*one fix-check reviewer.*--scoped-review <record\.json>/m);
+    expect(r.stdout).toMatch(/^NEXT: carry route \(Step 1\.4\): .*fix what the base merge broke.*commit and push.*writes the packet.*one fix-check reviewer.*--scoped-review <record\.json>/m);
     expect(fs.existsSync(path.join(f.work, '.git', 'gstack', `scoped-review-${head.slice(0, 12)}.md`))).toBe(false);
     const wrote = f.run(path.join(BIN, 'gstack-ship-receipt'), ['carry', '--pr', '9', '--base', 'main']);
     expect([wrote.status, fs.existsSync(path.join(f.work, '.git', 'gstack', `scoped-review-${head.slice(0, 12)}.md`))]).toEqual([EXIT.refused, true]);

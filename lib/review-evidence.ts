@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { deriveReviewStatus, isOpenFinding, readJsonl } from './headless-artifacts';
+import { deriveReviewStatus, isCriticalFinding, isOpenByAction, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
 
 const DIFF_REVIEWS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
@@ -271,10 +271,13 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
   if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
   stampGateFindings(rec.findings, env.GSTACK_STAMP_SESSION_KIND);
-  // A /ship pass whose findings were all fixed, deferred or noted left no open defect (review-army item 6), so a
-  // claimed issues_found is recorded clean with zero counts and Step 11.5 can bind it (GST-430).
+  // A /ship pass whose findings were all fixed, or deferred or noted below the floor, left no open defect (review-army
+  // item 6), so a claimed issues_found is recorded clean with zero counts and Step 11.5 can bind it (GST-430). Only the
+  // logger-stamped action counts (never a caller's status), and the findings must account for every claimed issue.
   if (!findingsPath && (rec.skill === 'review' || rec.skill === 'review-fix-check') && rec.status === 'issues_found' && rec.completed === true &&
-      Array.isArray(rec.findings) && rec.findings.length > 0 && rec.findings.every(f => record(f) && typeof f.action === 'string' && !isOpenFinding(f))) {
+      Array.isArray(rec.findings) && rec.findings.length > 0 && rec.findings.length >= Number(rec.issues_found ?? 0) &&
+      rec.findings.filter(f => record(f) && isCriticalFinding(f)).length >= Number(rec.critical ?? 0) &&
+      rec.findings.every(f => record(f) && typeof f.action === 'string' && !isOpenByAction(f))) {
     Object.assign(rec, { status: 'clean', issues_found: 0, critical: 0, informational: 0 });
   }
   if (!DIFF_REVIEWS.has(rec.skill)) {
