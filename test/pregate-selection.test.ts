@@ -847,12 +847,14 @@ describe('nested JS packages run their own runner from their own directory', () 
     const ctx = ctxFor(repo, pmShim(repo));
     write(repo.work, 'package.json', JSON.stringify({ name: 'fixture', devDependencies: { vitest: '^3.2.0', '@playwright/test': '^1.48.0' } }) + '\n');
     write(repo.work, 'tests/e2e/home.spec.ts', "import { expect, test } from '@playwright/test';\ntest('home', async ({ page }) => expect(page).toBeTruthy());\n");
-    write(repo.work, 'app/e2e/app.spec.ts', "import {\n  test,\n} from \"@playwright/test\";\ntest('app', () => {});\n");
+    write(repo.work, 'app/e2e/app.spec.ts', "import {\n  test, // the runner's fixture\n  /* it's */ expect,\n} from \"@playwright/test\";\ntest('app', () => {});\n");
+    write(repo.work, 'tests/e2e/tight.spec.ts', "import{test}from'@playwright/test';\ntest('tight', () => {});\n");
+    write(repo.work, 'test/pad.test.js', 'import' + ' '.repeat(5_000) + '\n');
     write(repo.work, 'test/util.test.js', "import { test } from 'vitest';\nimport type { Page } from '@playwright/test';\nimport type {\n  Locator,\n} from '@playwright/test';\nimport { type BrowserContext } from '@playwright/test';\nconst spec = \"import { test } from '@playwright/test';\";\ntest('fixture text and type imports only', () => {});\n");
-    expect(planRuns(ctx, ['tests/e2e/home.spec.ts', 'test/util.test.js', 'app/src/sum.test.ts', 'app/e2e/app.spec.ts'])).toEqual({ groups: [
-      { runner: 'npx vitest run {files}', cwd: '', files: ['test/util.test.js'] },
+    expect(planRuns(ctx, ['tests/e2e/home.spec.ts', 'tests/e2e/tight.spec.ts', 'test/util.test.js', 'test/pad.test.js', 'app/src/sum.test.ts', 'app/e2e/app.spec.ts'])).toEqual({ groups: [
+      { runner: 'npx vitest run {files}', cwd: '', files: ['test/util.test.js', 'test/pad.test.js'] },
       { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },
-      { runner: 'npx playwright test --reporter=list {files}', cwd: '', files: ['tests/e2e/home.spec.ts'] },
+      { runner: 'npx playwright test --reporter=list {files}', cwd: '', files: ['tests/e2e/home.spec.ts', 'tests/e2e/tight.spec.ts'] },
       { runner: 'pnpm exec playwright test --reporter=list {files}', cwd: 'app', files: ['e2e/app.spec.ts'] },
     ], unclaimed: [], missing: [], noPubspec: [] });
     // A declared runner still takes every file, Playwright specs included.

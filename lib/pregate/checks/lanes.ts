@@ -180,9 +180,11 @@ function packageRunner(repoRoot: string, dir: string, env: NodeJS.ProcessEnv): {
  * fixture body that mentions the import mid-line do not count.
  */
 function importsPlaywright(text: string): boolean {
-  if (/^[\t ]*(?:import[\t ]*|(?:const|let|var)\b[^=\n]*=[\t ]*require\([\t ]*)['"]@playwright\/test['"]/m.test(text)) return true;
-  for (const m of text.matchAll(/^[\t ]*import[\t ]+(type[\t ]+)?([^'"`;]*?)\s*\bfrom[\t ]*['"]@playwright\/test['"]/gm)) {
-    if (!m[1] && m[2]!.replace(/[{}]/g, '').split(',').some(s => s.trim() && !/^type\s/.test(s.trim()))) return true;
+  const code = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+  if (/^[\t ]*(?:import[\t ]*|(?:const|let|var)\b[^=\n]*=[\t ]*require\([\t ]*)['"]@playwright\/test['"]/m.test(code)) return true;
+  for (const m of code.matchAll(/^[\t ]*import(?=[\s{*])([^'"`;]*?)\bfrom[\t ]*['"]@playwright\/test['"]/gm)) {
+    const spec = m[1]!.trim();
+    if (!/^type(?=[\s{*])/.test(spec) && spec.replace(/[{}]/g, '').split(',').some(s => s.trim() && !/^type\s/.test(s.trim()))) return true;
   }
   return false;
 }
