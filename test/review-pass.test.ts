@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { promptHash, sectionTexts } from '../lib/review-brief';
-import { CHUNK_CHARS, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
+import { CHUNK_CHARS, PARENT_ONLY_QA, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -415,14 +415,33 @@ describe('Capy pass program (fake host, real bins)', () => {
     const elsewhere = tmp('rp-cwd-');
     const out = path.join(dir, '.state/run/p1');
     fs.mkdirSync(out, { recursive: true });
-    fs.writeFileSync(path.join(out, 'qa.prompt.md'), 'QA brief');
+    fs.writeFileSync(path.join(out, 'plan.prompt.md'), 'Plan completion brief');
     const h = host(elsewhere, env, { lateSummary: true });
     const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir, planFlags: ['--depth-floor', 'full'],
-      extras: [{ name: 'qa', prompt_file: path.join(out, 'qa.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
+      extras: [{ name: 'plan', prompt_file: path.join(out, 'plan.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
     expect(res).not.toContain('STOP:');
     expect(res).toContain('NEXT: judge (Phase 4)');
-    expect(h.creates.find(c => c.title === 'ship x13p1 audit/qa')!.prompt).toBe('QA brief');
+    expect(h.creates.find(c => c.title === 'ship x13p1 audit/plan')!.prompt).toBe('Plan completion brief');
   }, 180_000);
+
+  // Value: protects=Step 9.2.1's probes stay the parent's, as its section says, so QA coverage is never a subagent's refusal; fails_when=the
+  //   pass program dispatches a QA extra (C4-36, C5-36: the QA reader refused both passes, "parent-only", and QA coverage was empty);
+  //   why_new=extras took any prompt (GST-450); seam=the pass program; no_claim=the parent's probes themselves (DRIVER Phase 4)
+  test('a QA extra, by name or by its section\'s parent-only brief, stops the pass before any reader is created', async () => {
+    const section = fs.readFileSync(path.join(ROOT, 'ship/sections/review-army.md'), 'utf8');
+    expect(section).toContain(PARENT_ONLY_QA);
+    const brief = section.slice(section.indexOf('### Step 9.2.1'), section.indexOf('### Step 9.3'));
+    for (const [name, text] of [['qa', 'QA brief'], ['exploratory', brief]] as const) {
+      const { dir, env } = repo();
+      const out = path.join(dir, '.state/run/p1');
+      fs.mkdirSync(out, { recursive: true });
+      fs.writeFileSync(path.join(out, name + '.prompt.md'), text);
+      const h = host(dir, env);
+      const res = await runPass(h, { base: 'main', out, pass: 'x14p1', planFlags: ['--depth-floor', 'full'],
+        extras: [{ name, prompt_file: path.join(out, name + '.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
+      expect([name, res.includes('STOP:'), res.includes("Step 9.2.1 is the parent's report-only discovery"), h.creates.length]).toEqual([name, true, true, 0]);
+    }
+  }, 240_000);
 
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();

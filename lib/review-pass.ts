@@ -40,6 +40,8 @@ export interface Manifest {
   log_starts?: Record<string, string>;
 }
 export interface Extra { name: string; prompt_file: string; first?: boolean; model?: PassModel }
+/** Step 9.2.1's own first line: its probes are the parent's, so a QA subagent only refuses (C4-36, C5-36: "parent-only"). */
+export const PARENT_ONLY_QA = 'Only the parent runs report-only discovery.';
 
 /** Brief characters per transport chunk: even with every character escaped, one chunk line stays far under 1 MiB. */
 export const CHUNK_CHARS = 65_536;
@@ -87,6 +89,7 @@ export function buildManifest(o: {
   }
   for (const e of o.extras ?? []) {
     if (!/^[a-z0-9-]+$/.test(e.name)) throw new BriefError(`an audit reader's name is lowercase letters, digits and dashes: ${e.name}`);
+    if (/(^|-)qa(-|$)/.test(e.name) || (fs.existsSync(e.prompt_file) && fs.readFileSync(e.prompt_file, 'utf8').includes(PARENT_ONLY_QA))) throw new BriefError(`Step 9.2.1 is the parent's report-only discovery (ship/sections/review-army.md: "${PARENT_ONLY_QA}"), never an audit reader: ${e.name}`);
     readers.push({ reader: `audit/${e.name}`, stage: e.first ? 'first' : 'specialists', title: `ship ${o.pass} audit/${e.name}`, state: 'planned', prompt_file: path.resolve(e.prompt_file), model: e.model });
   }
   if (new Set(readers.map(r => r.reader)).size !== readers.length) throw new BriefError('two readers share a key in this pass');
