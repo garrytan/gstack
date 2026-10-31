@@ -3,3 +3,8 @@
 ### Added
 - **`gstack-ship-parts next --run <run dir> --phase <n> --room <bytes>`** returns the section parts the next phase uses, in run order, each byte once per run. A part due before that phase that did not fit is named, with `NEXT: parts` and the one call that fetches it. review-army.md, adversarial.md, documentation.md and review/checklist.md are covered whole, and Steps 8.1-8.2 of plan-completion.md exactly. A renamed split heading stops the run with the heading and file named.
 - **The Capy pass program** adds those parts to each poll and finished-pass return once Phase 2 has started them, so Phase 4's judgment and Step 11's synthesis need no read call of their own.
+
+### Fixed
+- **Step 14.5 runs through the pass program.** `gstack-review-dispatch pass --audit-only` makes the docs reader the whole pass, with no reviewer plan, and the program uses it when `step` is `14.5`. Before, the driver named a one-reader program the bin could not build (GSTA-196 replay of PR #36).
+- **Readers are told which checkout they review.** With `cwd` set, the pass program messages each reader the checkout path right after it starts. The brief bytes are unchanged; before, only the program's own commands ran there, so readers started in the thread's working directory and found no diff base.
+- **Step 11's budget note counts only Step 11.** The voices stage keeps its own starting reading (`mark --before … --voices`). Before, it reused the pass's reading, so the GSTA-196 replay's Step 11 note showed 16.64M tokens against 4.17M of real growth.

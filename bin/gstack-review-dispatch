@@ -51,12 +51,13 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       BRIEF, OUTPUT and JUDGE rows from the ledger alone, then VERIFY: clean (exit 0), VERIFY: dirty (exit 1) or
       VERIFY: no brief records (exit 3: this run's ledger kept no prompts). A ledger with a targeted brief also prints
       TARGETED_RECORD: and --targeted-out writes it as the JSON gstack-ship-receipt write --review-targeted reads
-  pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>]
+  pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>] [--audit-only]
        [--checklist-root <dir>] [-- <gstack-review-plan flags>]
       runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
       specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
       the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full or scoped prints PASS: none.
       An existing manifest for the same --pass is reused (resumed). --extras: [{"name","prompt_file","first"?,"model"?}]
+      --audit-only skips the plan: the --extras readers are the whole pass (Step 14.5's docs audit)
   show --manifest <f>                         MANIFEST_JSON: <the manifest on one line>
   stage --manifest <f> --stage <first|specialists|red-team|voices>
       renders a stage; the Red Team only after every earlier reader is collected, its findings file being the
@@ -64,7 +65,7 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
   chunk --manifest <f> --reader <r> --index <i>
       BRIEF_CHUNK: reader=… index=i of=n sha256=…, then one JSON string line of at most 65,536 brief characters
   mark --manifest <f> --reader <r> --state <intent|created|queued|collected|failed> [--path <p>] [--output <f>] [--error <e>]
-  mark --manifest <f> --before <tokens>,<credits>
+  mark --manifest <f> --before <tokens>,<credits> [--voices]   the pass's reading at its first dispatch; --voices keeps Step 11's own
   mark --manifest <f> --log-start <key> --token <t>   records a review-log start token once, so a rerun starts only what is missing
       reader states move forward only; intent is recorded before the subagent is created, its path right after
   program [--ledger <f>]
@@ -142,6 +143,20 @@ function pass(): number {
     return EXIT.ok;
   }
   const planArgs = args.includes('--') ? args.slice(args.indexOf('--') + 1) : [];
+  if (args.includes('--audit-only')) {
+    const extrasFile = flag('--extras');
+    if (!extrasFile) { process.stderr.write('gstack-review-dispatch pass --audit-only: needs --extras (the audit readers, e.g. Step 14.5\'s docs reader)\n'); return EXIT.usage; }
+    const extras = JSON.parse(readFile(extrasFile, 'extras')!) as Extra[];
+    const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase: git(['merge-base', base, 'HEAD'])?.trim() ?? 'HEAD', root: git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd(),
+      checklistRoot: flag('--checklist-root') ?? ROOT, dispatches: [], next: 'audit', planLines: ['PASS: audit-only (no reviewer plan; its extras run as one batch)'], extras });
+    fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
+    const t = sectionTexts(ROOT);
+    renderStage(m, 'first', t, branchDiff);
+    renderStage(m, 'specialists', t, branchDiff);
+    writeManifest(file, m);
+    process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${id} readers=${m.readers.length} audit-only`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
+    return EXIT.ok;
+  }
   const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: 180_000, maxBuffer: 64 * 1024 * 1024 });
   const text = plan(false);
   if (text.status !== 0) { process.stdout.write(text.stdout ?? ''); process.stderr.write(text.stderr ?? ''); return EXIT.fail; }
@@ -205,10 +220,11 @@ function passStep(cmd: string): number {
     const before = flag('--before');
     if (before) {
       const [tokens, credits] = before.split(',').map(Number);
-      if (!Number.isFinite(tokens) || !Number.isFinite(credits)) { process.stderr.write('gstack-review-dispatch mark: --before <tokens>,<credits>\n'); return EXIT.usage; }
-      m.before ??= { tokens: tokens!, credits: credits! };
+      if (!Number.isFinite(tokens) || !Number.isFinite(credits)) { process.stderr.write('gstack-review-dispatch mark: --before <tokens>,<credits> [--voices]\n'); return EXIT.usage; }
+      const key = args.includes('--voices') ? 'before_voices' : 'before';
+      m[key] ??= { tokens: tokens!, credits: credits! };
       writeManifest(file, m);
-      process.stdout.write(`BEFORE: tokens=${m.before.tokens} credits=${m.before.credits}\n`);
+      process.stdout.write(`BEFORE: ${key === 'before_voices' ? 'stage=voices ' : ''}tokens=${m[key]!.tokens} credits=${m[key]!.credits}\n`);
       return EXIT.ok;
     }
     const r = markReader(m, flag('--reader') ?? '', flag('--state') as ReaderState, { path: flag('--path'), output: flag('--output'), error: flag('--error') });

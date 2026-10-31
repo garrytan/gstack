@@ -133,6 +133,7 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
   const subs = new Map<string, Sub>();
   const creates: Sub[] = [];
   const starts: number[][] = [];
+  const notes: Array<{ to: string; text: string }> = [];
   const advance = () => {
     for (const s of subs.values()) {
       if (s.late && !s.summary) { s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; continue; }
@@ -170,8 +171,9 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
       get: async ({ path: p }: { path: string }) => ({ path: p, status: subs.get(p)!.status, summary: subs.get(p)!.summary }),
     },
     thread: { get: async () => ({ cost: { tokens: 1000 + clock, credits: 1 + clock / 1000 } }) },
+    message: { agent: async ({ to, text }: { to: string; text: string }) => { notes.push({ to, text }); return { delivered: true }; } },
   };
-  return { tools, subs, creates, starts, sleep: async (ms: number) => { clock += ms; }, now: async () => 1_000_000 + clock };
+  return { tools, subs, creates, starts, notes, sleep: async (ms: number) => { clock += ms; }, now: async () => 1_000_000 + clock };
 }
 
 const PROGRAM = fs.readFileSync(path.join(ROOT, 'lib/capy-review-pass.js'), 'utf8');
@@ -393,6 +395,41 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).not.toContain('NEXT: judge');
   }, 240_000);
 
+  test('Step 14.5 runs as an audit-only pass: its docs reader alone, verbatim, with no reviewer plan', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/docs');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'docs.prompt.md'), 'Run Step 14.5 as written.\n');
+    const extras = [{ name: 'docs', prompt_file: path.join(out, 'docs.prompt.md'), first: true }];
+    const h = host(dir, env, { output: t => (t.endsWith('audit/docs') ? 'DOCS: README updated' : 'NO FINDINGS') });
+    const res = await runPass(h, { base: 'main', out, pass: 'x16docs', step: '14.5', extras });
+    expect(h.creates.map(c => c.title)).toEqual(['ship x16docs audit/docs']);
+    expect(h.creates[0]!.prompt).toBe('Run Step 14.5 as written.\n');
+    expect(res).toContain('DOCS: README updated');
+    expect(res).toContain('NEXT: apply the docs audit (Step 14.5)');
+    expect(bin(dir, env, ['pass', '--base', 'main', '--out', path.join(dir, '.state/run/d2'), '--pass', 'x16b', '--audit-only']).status).not.toBe(0);
+  }, 240_000);
+
+  test('Step 11 notes its own growth from its first dispatch, not from the pass\'s starting reading', async () => {
+    const { dir, env } = repo();
+    const rec = path.join(dir, '.state/rec.md');
+    fs.mkdirSync(path.dirname(rec), { recursive: true });
+    expect(spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --reading 1000 --credits 1', '_', rec], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    const h = host(dir, env, { pollsToFinish: 3 });
+    const get = h.tools.thread.get;
+    let last = 0;
+    h.tools.thread.get = async () => { const r = await get(); last = r.cost.tokens; return r; };
+    const out = path.join(dir, '.state/run/p1');
+    const base = { base: 'main', out, pass: 'x17p1', planFlags: ['--depth-floor', 'full'], record: rec, jam: 'jam_test' };
+    expect(await runPass(h, { ...base, step: '9' })).toContain('NEXT: judge (Phase 4)');
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
+    const res = await runPass(h, { ...base, step: '11', stage: 'voices', models });
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(m.before_voices.tokens).toBeGreaterThan(m.before.tokens);
+    const note = res.split('\n').find(l => l.startsWith('NOTE: '))!;
+    expect(Number(note.match(/readers_tokens=(\d+)/)![1])).toBe(last - m.before_voices.tokens);
+  }, 240_000);
+
   test('effort=medium readers run the lane model at medium reasoning; without laneModel or models the pass stops before creating any', async () => {
     const { dir, env } = repo();
     const h = host(dir, env);
@@ -448,6 +485,22 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.find(c => c.title === 'ship x13p1 audit/qa')!.prompt).toBe('QA brief');
   }, 180_000);
+
+  test('with cwd every reader, a queued one included, is told the checkout beside its unchanged brief', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const plain = host(dir, env);
+    expect(await runPass(plain, { base: 'main', out: path.join(dir, '.state/run/p0'), pass: 'x18p0', planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    expect(plain.notes).toEqual([]);
+    const h = host(tmp('rp-cwd-'), env, { reject: t => t.endsWith('red-team') });
+    expect(await runPass(h, { base: 'main', out, pass: 'x18p1', cwd: dir, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    const paths = [...h.subs.keys()];
+    expect(h.notes.map(n => n.to).sort()).toEqual(paths.sort());
+    for (const n of h.notes) expect(n.text).toContain(`The checkout under review is ${dir}`);
+    expect(h.starts.length).toBe(1);
+    const titles = plain.creates.map(c => c.title.replace('x18p0', 'x18p1'));
+    for (const c of h.creates) expect(c.prompt.split('x18p1').join('')).toBe(plain.creates[titles.indexOf(c.title)]!.prompt.split('x18p0').join(''));
+  }, 240_000);
 
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();

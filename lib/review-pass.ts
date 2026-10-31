@@ -37,6 +37,8 @@ export interface Manifest {
   version: 1; pass: string; out: string; ledger: string; merged: string; base: string; diff_base: string;
   stack: string; test_fw: string; learnings: string | null; checklist_root: string;
   next: string; plan_lines: string[]; readers: PassReader[]; before?: { tokens: number; credits: number };
+  /** Step 11's own reading at its first dispatch, so its note never counts the pass's readers again. */
+  before_voices?: { tokens: number; credits: number };
   log_starts?: Record<string, string>;
 }
 export interface Extra { name: string; prompt_file: string; first?: boolean; model?: PassModel }
