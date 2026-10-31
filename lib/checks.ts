@@ -71,7 +71,7 @@ export function healthStack(claudeMd: string, keepTests = false): Check[] {
     while (taken.has(name)) name = `${key}-${++n + 1}`;
     seen.set(key, n);
     taken.add(name);
-    checks.push({ name, command: m[2].replace(/`/g, ''), source: 'CLAUDE.md Health Stack' });
+    checks.push({ name, command: m[2].replace(/^`([^`]+)`$/, '$1'), source: 'CLAUDE.md Health Stack' });
   }
   return checks;
 }
@@ -131,14 +131,15 @@ export const HEALTH_DIMENSIONS = ['typecheck', 'lint', 'test', 'deadcode', 'shel
 export interface HealthDimensions { checks: Array<{ dimension: string; command: string; source: string }>; missing: Array<{ dimension: string; reason: string }> }
 
 /**
- * /health Step 1: a Health Stack section row for row (test rows kept, no auto-detection), else /health's own presence rules,
+ * /health Step 1, in the directory /health runs from: a Health Stack section row for row (test rows kept; a section with no
+ * rows still turns auto-detection off), else /health's own presence rules,
  * which may use a tool found on PATH (unlike /verify's declared-only manifestChecks). Reads files and PATH; runs nothing.
  * test/health-detect-no-loss.test.ts holds these rules to the shell block they replaced.
  */
 export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.env): HealthDimensions {
   const claude = read(path.join(root, 'CLAUDE.md')) ?? '';
   const stack = healthStack(claude, true);
-  if (stack.length) {
+  if (/^##\s+Health Stack\s*$/m.test(claude)) {
     const keys = new Set(stack.map(c => c.name.replace(/-\d+$/, '').replace(/^tests$/, 'test')));
     return { checks: stack.map(c => ({ dimension: c.name, command: c.command, source: c.source })), missing: HEALTH_DIMENSIONS.filter(d => !keys.has(d)).map(dimension => ({ dimension, reason: 'not in the CLAUDE.md Health Stack section' })) };
   }
@@ -148,11 +149,12 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
   const pyproject = read(path.join(root, 'pyproject.toml'));
   let testScript: unknown;
   try { testScript = pkgText?.includes('"test"') ? JSON.parse(pkgText).scripts?.test : undefined; } catch { /* an unreadable package.json declares nothing */ }
-  const shellFiles = ['.', 'scripts', 'bin'].some(dir => { try { return fs.readdirSync(path.join(root, dir)).some(f => f.endsWith('.sh')); } catch { return false; } });
+  const listDir = (dir: string) => { try { return fs.readdirSync(dir); } catch { return []; } };
+  const shellFiles = ['.', 'scripts', 'bin'].some(dir => listDir(path.join(root, dir)).some(f => f.endsWith('.sh')));
   const found: Array<[string, string, string] | false> = [
     has('tsconfig.json') && ['typecheck', 'tsc --noEmit', 'tsconfig.json'],
     (has('biome.json') || has('biome.jsonc')) && ['lint', 'biome check .', 'biome.json'],
-    fs.readdirSync(root).some(f => /^(eslint\.config\..+|\.eslintrc(\..+)?)$/.test(f)) && ['lint', 'eslint .', 'eslint config'],
+    listDir(root).some(f => /^(eslint\.config\..+|\.eslintrc(\..+)?)$/.test(f)) && ['lint', 'eslint .', 'eslint config'],
     !!pyproject && /pylint|ruff/.test(pyproject) && ['lint', 'ruff check .', 'pyproject.toml'],
     typeof testScript === 'string' && testScript !== '' && ['test', testScript, 'package.json'],
     !!pyproject && pyproject.includes('pytest') && ['test', 'pytest', 'pyproject.toml'],
@@ -161,7 +163,7 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
     which('knip') && ['deadcode', 'knip', 'PATH'],
     !!pkgText?.includes('"knip"') && ['deadcode', 'npx knip', 'package.json'],
     which('shellcheck') && shellFiles && ['shell', 'shellcheck', 'PATH, *.sh in the root, scripts/ or bin/'],
-    which('gbrain') && fs.existsSync(path.join(env.HOME ?? '', '.gbrain', 'config.json')) && ['gbrain', 'timeout 5s gbrain doctor --json', 'PATH, ~/.gbrain/config.json'],
+    which('gbrain') && !!env.HOME && fs.existsSync(path.join(env.HOME, '.gbrain', 'config.json')) && ['gbrain', 'timeout 5s gbrain doctor --json', 'PATH, ~/.gbrain/config.json'],
   ];
   const checks = found.filter((c): c is [string, string, string] => !!c).map(([dimension, command, source]) => ({ dimension, command, source }));
   const reasons: Record<string, string> = {

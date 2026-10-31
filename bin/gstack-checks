@@ -48,7 +48,7 @@ async function main(argv: string[]): Promise<number> {
   const mode = flag(args, '--for');
   if (args.includes('--for')) {
     if (verb !== 'detect' || mode !== 'health') { process.stderr.write(USAGE); return 64; }
-    const d = healthDimensions(repoRoot() ?? process.cwd());
+    const d = healthDimensions(process.cwd());
     for (const c of d.checks) process.stdout.write(`DIMENSION ${c.dimension} ${c.command}  (${c.source})\n`);
     for (const m of d.missing) process.stdout.write(`DIMENSION ${m.dimension} none  (${m.reason})\n`);
     return 0;

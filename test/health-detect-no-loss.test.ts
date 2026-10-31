@@ -142,6 +142,27 @@ describe('/health detection: no check lost (GST-116 PR 2)', () => {
     }
   });
 
+  // Value: protects=a Health Stack keeps shell syntax, an empty section still turns auto-detection off, and detection runs
+  //   where /health runs (a monorepo package); fails_when=backticks inside a command are stripped (a failing checker becomes
+  //   a lookup), a section with no rows falls through to auto-detection, or the bin detects from the git top-level;
+  //   why_new=review pass 1 outside voice; seam=the bin from a subdirectory
+  test('Health Stack bytes, an empty section, and the working directory', () => {
+    const tick = String.fromCharCode(96);
+    const subst = healthDimensions(repo('hs-subst', { 'CLAUDE.md': `## Health Stack\n\n- test: test "$(${tick}command -v false${tick})" = x\n- lint: ${tick}eslint .${tick}\n` }), { PATH: '', HOME: bareHome });
+    expect(subst.checks.map(c => c.command)).toEqual([`test "$(${tick}command -v false${tick})" = x`, 'eslint .']);
+    const empty = healthDimensions(repo('hs-empty', { 'tsconfig.json': '{}', 'CLAUDE.md': '## Health Stack\n\nNo health tools are configured.\n' }), { PATH: stubs, HOME: gbrainHome });
+    expect(empty.checks).toEqual([]);
+    expect(empty.missing.map(m => m.dimension)).toEqual([...HEALTH_DIMENSIONS]);
+    const mono = repo('monorepo', { 'tsconfig.json': '{}', 'packages/app/package.json': JSON.stringify({ scripts: { test: 'vitest run' } }) });
+    expect(spawnSync('git', ['init', '-q'], { cwd: mono, timeout: 30_000 }).status).toBe(0);
+    const env = { ...process.env, PATH: process.env.PATH, HOME: bareHome };
+    const pkg = detector(path.join(mono, 'packages', 'app'), env);
+    expect(pkg.found).toContain('test: vitest run');
+    expect(pkg.none).toContain('typecheck');
+    const noHome = repo('no-home', { '.gbrain/config.json': '{}' });
+    expect(healthDimensions(noHome, { PATH: stubs, HOME: '' }).checks.map(c => c.dimension)).not.toContain('gbrain');
+  });
+
   // Value: protects=an unavailable category says why, so Step 2 records SKIPPED with a reason; fails_when=a none line
   //   loses its reason or shellcheck's two causes collapse; why_new=new output; seam=none
   test('none lines name the reason', () => {
