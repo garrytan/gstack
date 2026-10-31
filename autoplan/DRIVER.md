@@ -71,8 +71,8 @@ line yourself; gstack never writes the plan.
   bind a canonical result (the RESULT FORMAT below); `--usage-usd` settles the attempt at what the reviewer actually cost (else it stays priced unknown at its reservation); on the submit that closes the phase, `--reconcile` takes your own pairing of findings both voices raised, one `{"outside_id","native_id","disposition","resolution"}` row each, over the structural one.
 - `gstack-autoplan submit --out <dir> --phase <p> --voice outside --unavailable|--failed "<reason>"`
   close the phase native-only when no outside voice can run.
-- `gstack-autoplan answer --out <dir> --gate-rev <n> --reply "<reply>" --by human|agent:<id> [--owner-reply <text>|-] [--rec-hash <h>]`
-  answer the gate with the reply grammar below; an agent answer stores the owner's words verbatim.
+- `gstack-autoplan answer --out <dir> --gate-rev <n> --reply "<reply>" --by human|agent:<id> [--owner-reply <text>|-] [--words-by agent:<id>] [--rec-hash <h>]`
+  answer the gate with the reply grammar below; an agent answer stores the owner's words verbatim, and passes --words-by agent:<id> whenever the words are its own (the default is owner).
 - `gstack-autoplan recommend --out <dir> --gate-rev <n> --item <id> --option <k> --basis "<why>"`
   change one recommendation before relay; then render and relay again (a `rec` needs the new `--rec-hash`).
 - `gstack-autoplan revise --out <dir> --plan <plan v2> --incorporates <decision ids>`

@@ -387,7 +387,13 @@ the plan.
    means an agent relayed them, and then `--owner-reply` (or `-` for stdin,
    `--owner-reply-file <path>`) stores the owner's words verbatim
    (`OWNER_REPLY_REQUIRED`); owner words that parse to different choices are
-   refused (`GATE_OWNER_REPLY_MISMATCH`). An unattended run refuses an answer
+   refused (`GATE_OWNER_REPLY_MISMATCH`). The words default to the owner's: an
+   agent that answers in its own words (a Captain deciding on its own
+   authority) must pass `--words-by agent:<id>` with its own `--by` id. They
+   are then recorded as `answer_words` with `words_by`, never as
+   `owner_reply`; a later gate never carries them (`CARRY: no`), and
+   `gstack-approvals import` lists that row under the agent, not the owner.
+   An unattended run refuses an answer
    without `--by` (`ANSWER_BY_REQUIRED`, exit 3) and records the value as
    `answered_by` on every decision row and in the review record's gate line,
    so a gate an agent closed is distinguishable from one the owner closed.

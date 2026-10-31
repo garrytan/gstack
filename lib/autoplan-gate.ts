@@ -360,6 +360,8 @@ export interface AnswerOptions {
   recHash?: string;
   /** The owner's verbatim words; required for every `--by agent:<id>` answer. */
   ownerReply?: string;
+  /** `agent:<id>` when those words are the answering agent's own: recorded as `answer_words`/`words_by`, never as `owner_reply`, and never carried. */
+  wordsBy?: string;
   /** A whole-gate carry (lib/autoplan-carry.ts): the earlier p1 decision and the owner's words it reuses. Replaces ownerReply and its re-parse. */
   carry?: { from: string; gate_rev: number; words: string; by?: string; reason: string };
 }
@@ -415,6 +417,7 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   if (parsed.mode === 'rec' && (list.rec_rev ?? 0) > 0 && o.recHash === undefined) throw new RunError('GATE_REC_STALE', `recommend changed this gate (rec_rev=${list.rec_rev}); pass --rec-hash from the render the owner saw (current rec_hash=${currentHash})`, 3);
   const ownerParsed = o.ownerReply !== undefined && !o.carry ? checkOwnerReply(list, gateRev, prior, parsed, o.ownerReply) : undefined;
   const provenance = o.carry ? { owner_reply: o.carry.words, carried_gate_from: o.carry.from, carried_gate_rev: o.carry.gate_rev, carry_reason: o.carry.reason, ...(o.carry.by ? { carried_answered_by: o.carry.by } : {}) }
+    : o.ownerReply !== undefined && o.wordsBy ? { answer_words: o.ownerReply, answer_words_parsed: ownerParsed, words_by: o.wordsBy }
     : o.ownerReply !== undefined ? { owner_reply: o.ownerReply, owner_reply_parsed: ownerParsed } : {};
   const itemOf = (id: string) => list.items.find(i => i.id === id)!;
   const optionOf = (c: GateChoice) => itemOf(c.id).options.find(o => o.key === c.chosen)!;

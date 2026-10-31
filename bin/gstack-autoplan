@@ -10,7 +10,7 @@
  *   gstack-autoplan revise  --out <dir> --plan <file> [--incorporates <id,...>] [--withdraw <id>] [--settle <id>] [--json]   review a revised plan in this run
  *   gstack-autoplan run     --out <dir> --plan <file> --native-model <id> --outside-model <id> [--runner codex-cli|api] [--native-runner api]
  *                           [--deadline <min>] [--spend-cap <usd>] [--estimate-usd <n>] [--max-tokens <n>] [--json]      next in a loop; needs runners for both voices
- *   gstack-autoplan answer  --out <dir> --gate-rev <rev> --reply "<grammar>" --by <human|agent:<id>> [--owner-reply <text>|-] [--rec-hash <h>] [--json]
+ *   gstack-autoplan answer  --out <dir> --gate-rev <rev> --reply "<grammar>" --by <human|agent:<id>> [--owner-reply <text>|-] [--words-by owner|agent:<id>] [--rec-hash <h>] [--json]
  *   gstack-autoplan recommend --out <dir> --gate-rev <n> --item <id> --option <k> --basis "<why>" [--by <who>]
  *   gstack-autoplan resume  --out <dir> [--from <checkpoint>] [--json]   take ownership; intent without a terminal record becomes EXECUTION_UNKNOWN
  *   gstack-autoplan status  --out <dir> [--json]        query: the manifest, no GSTACK_RESULT line
@@ -87,6 +87,7 @@ DRIVER: ${driverFile()}
           response cut off at that limit is reported truncated; submit's result checks judge every completed response
   answer  --out <dir> --gate-rev <rev> --reply "<rec | rec except d3a | d3b uc1a | as-is>" --by <human|agent:<id>> [--json]
           --by agent:<id> needs --owner-reply "<owner's words>" (- reads stdin; --owner-reply-file <path>), stored verbatim;
+          --words-by agent:<id> (the same agent) when those words are its own: recorded as its words, never the owner's, never carried;
           --rec-hash <h> binds a rec to the render the owner saw (required once recommend ran); accepted changes leave amend_pending
   recommend --out <dir> --gate-rev <n> --item <id> --option <k> --basis "<why>" [--by <who>]
           set one item's recommendation before relay (provenance recorded, p1 follows); re-render and relay afterwards
@@ -405,10 +406,12 @@ async function main(argv: string[]): Promise<number> {
       if (rev === undefined) { const s = readState(out); process.stderr.write(resultLine('gstack-autoplan answer', 'GATE_REV_STALE', `no --gate-rev given; current gate_rev=${s.gate_rev ?? 0}`) + '\n'); return EXIT.refused; }
       const replyFile = flag(rest, '--owner-reply-file'); const ownerFlag = flag(rest, '--owner-reply');
       if (replyFile !== undefined && ownerFlag !== undefined) return usage('--owner-reply and --owner-reply-file are exclusive');
+      const wordsBy = flag(rest, '--words-by') ?? 'owner';
+      if (wordsBy !== 'owner' && (wordsBy !== by || !by.startsWith('agent:'))) return usage(`--words-by must be owner or the answering agent (--by ${by ?? '<unset>'}), got ${wordsBy}`);
       const ownerReply = replyFile !== undefined ? fs.readFileSync(replyFile, 'utf8') : ownerFlag === '-' ? fs.readFileSync(0, 'utf8') : ownerFlag;
       return mutating(out, json, () => {
         const state = readState(out);
-        const r = answerGate(state, Number(rev), reply, by, { recHash: flag(rest, '--rec-hash'), ownerReply });
+        const r = answerGate(state, Number(rev), reply, by, { recHash: flag(rest, '--rec-hash'), ownerReply, ...(wordsBy === 'owner' ? {} : { wordsBy }) });
         writeState(state);
         const lines = [...r.lines];
         if (r.outcome === 'reopened' || r.outcome === 'amend_pending') lines.push(nextLine(state, out));

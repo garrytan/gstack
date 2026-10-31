@@ -31,7 +31,7 @@ const decisions = (out: string) => readJsonl(path.join(out, 'decisions.jsonl'));
 const journal = (out: string) => readJsonl(path.join(out, 'attempts.jsonl'));
 
 /** Gate 1 with one recommended plan change (uc1b), answered with the owner's words, then revised to take it. */
-function answeredAndRevised(args: string[] = [], words = 'Garry: Do it', ceo: { native?: unknown[]; outside?: unknown[] } = AGREE) {
+function answeredAndRevised(args: string[] = [], words = 'Garry: Do it', ceo: { native?: unknown[]; outside?: unknown[] } = AGREE, answerArgs: string[] = []) {
   const dir = path.join(r.host.base, `carry${++n}`);
   const plan = writePlan(dir);
   const out = path.join(dir, 'run');
@@ -39,7 +39,7 @@ function answeredAndRevised(args: string[] = [], words = 'Garry: Do it', ceo: { 
   phaseVia(r, out, 'ceo', ceo);
   expect(phaseVia(r, out, 'eng', NONE).outside.stdout).toContain('status=gate_pending');
   const run = readRunJson(out).run;
-  const ans = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'rec', '--rec-hash', recHashOf(out), '--by', 'agent:gstack-minder', '--owner-reply', words]);
+  const ans = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'rec', '--rec-hash', recHashOf(out), '--by', 'agent:gstack-minder', '--owner-reply', words, ...answerArgs]);
   expect(ans.status, ans.stderr).toBe(0);
   expect(ans.stdout).toMatch(/^APPLY: /m);
   const v2 = path.join(dir, 'plan-v2.md');
@@ -49,6 +49,39 @@ function answeredAndRevised(args: string[] = [], words = 'Garry: Do it', ceo: { 
   return { dir, out, run, v2, rev };
 }
 const recHashOf = (out: string) => recHash(gateOf(out));
+
+describe('whose words answered the gate (GEVA-2, P7)', () => {
+  test("an agent's own words are recorded as its own, never as the owner's, never carried, and imported under the agent", () => {
+    const s = answeredAndRevised([], 'Accepted on the standing approval', AGREE, ['--words-by', 'agent:gstack-minder']);
+    const p1 = decisions(s.out).find(d => d.gate_rev === 1 && d.label === 'P1');
+    expect(p1).toMatchObject({ answer_words: 'Accepted on the standing approval', words_by: 'agent:gstack-minder' });
+    expect(p1.owner_reply).toBeUndefined();
+    phaseVia(r, s.out, 'ceo', NONE);
+    const eng = phaseVia(r, s.out, 'eng', NONE).outside;
+    expect(eng.stdout).toMatch(/^CARRY: no \(gate_rev 1 was answered in agent:gstack-minder's own words, not the owner's\)$/m);
+    expect(eng.stdout).toContain('status=gate_pending');
+    const rows = importAutoplan(s.out, 'feature/x', 'Garry');
+    if ('code' in rows) throw new Error(rows.message);
+    expect(rows[0]).toMatchObject({ by: "agent:gstack-minder, its own decision (not the owner's words)", words: 'Accepted on the standing approval' });
+    expect(r.ap(['export', '--out', s.out]).status).toBe(0);
+    expect(r.validate(s.out).status).toBe(0);
+  });
+
+  test('--words-by names the owner or the answering agent; anything else is refused', () => {
+    const dir = path.join(r.host.base, `carry${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui']).status).toBe(0);
+    phaseVia(r, out, 'ceo', AGREE);
+    phaseVia(r, out, 'eng', NONE);
+    const base = ['answer', '--out', out, '--gate-rev', '1', '--reply', 'rec', '--rec-hash', recHashOf(out), '--owner-reply', 'ok'];
+    for (const bad of [['--by', 'agent:gstack-minder', '--words-by', 'agent:someone-else'], ['--by', 'human', '--words-by', 'agent:gstack-minder'], ['--by', 'agent:gstack-minder', '--words-by', 'Garry']]) {
+      const res = r.ap([...base, ...bad]);
+      expect(res.status, res.stdout).not.toBe(0);
+      expect(res.stderr).toContain('--words-by must be owner or the answering agent');
+    }
+    expect(decisions(out).every(d => d.status === 'pending')).toBe(true);
+  });
+});
 
 describe('carry-forward', () => {
   test('a second gate with nothing new carries the owner\'s words: CARRIED, APPROVED, the record names its source', () => {
