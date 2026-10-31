@@ -65,17 +65,20 @@ shift || true
 # changes and renames the whole file, and gstack-question-log starts a
 # background --derive after every append, so writers overlap: a shared temp
 # name made renames fail and an unlocked rewrite dropped a concurrent
-# --log-session. Writers hold a mkdir lock (<profile>.lock/ with an owner
-# token; release is ownership-checked) from before their read until after
-# their rename, and write a unique temp file. A lock older than 30 s belongs
-# to a crashed writer and is taken over by atomic rename. A writer that
-# cannot get the lock within the give-up window writes nothing and exits 5.
-# Same shape as bin/gstack-settings-hook's mutation lock, with its accepted
-# tradeoff: two waiters that take over the same stale lock at once can race.
-# Writers outside this binary (gstack-distill-apply, /plan-tune's declared
-# edits) do not take the lock yet.
+# --log-session. Writers hold a mkdir lock (<profile>.lock/, whose owner file
+# names the holder's pid and a random token; release is ownership-checked)
+# from before their read until after their rename, and write a unique temp
+# file. A lock whose holder process is gone is taken over at once, and a live
+# holder is never evicted. Takeovers are serialized by a second mkdir lock
+# (<profile>.lock.takeover/) and re-read the owner under it, so two waiters
+# cannot both take over or remove a lock a third writer just took. A lock or
+# takeover directory older than 30 s with no owner belongs to a writer that
+# died before writing one. A writer that cannot get the lock within the
+# give-up window writes nothing and exits 5. Writers outside this binary
+# (gstack-distill-apply, /plan-tune's declared edits) do not take it yet.
 # -----------------------------------------------------------------------
 LOCK_DIR="$PROFILE_FILE.lock"
+TAKEOVER_DIR="$LOCK_DIR.takeover"
 LOCK_TOKEN=""
 PROFILE_TMP=""
 
@@ -89,23 +92,49 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+dir_age_s() {
+  local mtime
+  # GNU stat first: BSD-style stat -f on Linux prints a filesystem block.
+  mtime=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo "")
+  case "$mtime" in ""|*[!0-9]*) echo 0 ;; *) echo $(( $(date +%s) - mtime )) ;; esac
+}
+
+lock_abandoned() {
+  if [ -n "$1" ]; then
+    ! kill -0 "${1%%-*}" 2>/dev/null
+  else
+    [ "$(dir_age_s "$LOCK_DIR")" -gt 30 ]
+  fi
+}
+
 acquire_lock() {
   if [ -n "$LOCK_TOKEN" ]; then return 0; fi
   mkdir -p "$GSTACK_HOME"
   # GSTACK_PROFILE_LOCK_TIMEOUT_MS: test-only override for the give-up.
-  local give_up_ms="${GSTACK_PROFILE_LOCK_TIMEOUT_MS:-10000}" waited_ms=0 mtime stale
+  local give_up_ms="${GSTACK_PROFILE_LOCK_TIMEOUT_MS:-10000}" waited_ms=0 started=$SECONDS vanished=0 owner
   local token="$$-$RANDOM$RANDOM"
-  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-    # GNU stat first: BSD-style stat -f on Linux prints a filesystem block.
-    mtime=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo "")
-    case "$mtime" in *[!0-9]*) mtime="" ;; esac
-    if [ -n "$mtime" ] && [ $(( $(date +%s) - mtime )) -gt 30 ]; then
-      stale="$LOCK_DIR.stale.$$-$RANDOM"
-      if mv "$LOCK_DIR" "$stale" 2>/dev/null; then rm -rf "$stale"; fi
-      continue
+  until mkdir "$LOCK_DIR" 2>/dev/null; do
+    # mkdir failed with no lock to wait for: retry once in case a holder just
+    # released it, then report the directory instead of waiting out the window.
+    if [ ! -e "$LOCK_DIR" ]; then
+      if [ "$vanished" -eq 0 ]; then vanished=1; continue; fi
+      echo "gstack-developer-profile: cannot create $LOCK_DIR (is $GSTACK_HOME writable?), so nothing was written (exit 5)." >&2
+      exit 5
     fi
-    if [ "$waited_ms" -ge "$give_up_ms" ]; then
-      echo "gstack-developer-profile: another writer held $LOCK_DIR for ${give_up_ms} ms, so nothing was written (exit 5). A lock left by a crashed writer is taken over once it is 30 s old." >&2
+    vanished=0
+    owner=$(cat "$LOCK_DIR/owner" 2>/dev/null || true)
+    if [ -d "$LOCK_DIR" ] && lock_abandoned "$owner"; then
+      if [ -d "$TAKEOVER_DIR" ] && [ "$(dir_age_s "$TAKEOVER_DIR")" -gt 30 ]; then rmdir "$TAKEOVER_DIR" 2>/dev/null || true; fi
+      if mkdir "$TAKEOVER_DIR" 2>/dev/null; then
+        if [ "$(cat "$LOCK_DIR/owner" 2>/dev/null || true)" = "$owner" ] && lock_abandoned "$owner"; then
+          rm -rf "$LOCK_DIR" 2>/dev/null || true
+        fi
+        rmdir "$TAKEOVER_DIR" 2>/dev/null || true
+        if [ ! -e "$LOCK_DIR" ]; then continue; fi
+      fi
+    fi
+    if [ "$waited_ms" -ge "$give_up_ms" ] || [ $(( SECONDS - started )) -gt $(( give_up_ms / 1000 )) ]; then
+      echo "gstack-developer-profile: another writer held $LOCK_DIR for ${give_up_ms} ms, so nothing was written (exit 5)." >&2
       exit 5
     fi
     sleep 0.05

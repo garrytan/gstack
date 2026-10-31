@@ -792,7 +792,7 @@ describe('gstack-developer-profile concurrent writers (#3437)', () => {
     expect(runDev('--derive').status).toBe(0);
     const before = fs.readFileSync(path.join(tmpHome, 'developer-profile.json'), 'utf-8');
     fs.mkdirSync(lockDir());
-    fs.writeFileSync(path.join(lockDir(), 'owner'), 'another-writer\n');
+    fs.writeFileSync(path.join(lockDir(), 'owner'), process.pid + '-held\n');
     const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
     for (const args of [['--derive'], ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder' })]]) {
       const res = spawnSync(BIN_DEV, args, { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
@@ -800,7 +800,7 @@ describe('gstack-developer-profile concurrent writers (#3437)', () => {
       expect(res.stderr).toContain('developer-profile.json.lock');
     }
     expect(fs.readFileSync(path.join(tmpHome, 'developer-profile.json'), 'utf-8')).toBe(before);
-    expect(fs.readFileSync(path.join(lockDir(), 'owner'), 'utf-8')).toBe('another-writer\n');
+    expect(fs.readFileSync(path.join(lockDir(), 'owner'), 'utf-8')).toBe(process.pid + '-held\n');
   });
 
   test('a stale lock left by a crashed writer is taken over', () => {
@@ -812,6 +812,45 @@ describe('gstack-developer-profile concurrent writers (#3437)', () => {
     expect((readProfile() as { sessions: unknown[] }).sessions.length).toBe(1);
     expect(fs.existsSync(lockDir())).toBe(false);
   });
+
+  test('a lock whose holder process is gone is taken over at once', () => {
+    const gone = spawnSync('true', [], { timeout: 10_000 }).pid;
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), gone + '-crashed\n');
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    const res = spawnSync(BIN_DEV, ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' })], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+    expect(res.stderr).toBe('');
+    expect(res.status).toBe(0);
+    expect((readProfile() as { sessions: unknown[] }).sessions.length).toBe(1);
+    expect(fs.existsSync(lockDir())).toBe(false);
+  });
+
+  test('a takeover already in progress is not repeated', () => {
+    const gone = spawnSync('true', [], { timeout: 10_000 }).pid;
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), gone + '-crashed\n');
+    fs.mkdirSync(lockDir() + '.takeover');
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    const res = spawnSync(BIN_DEV, ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder' })], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+    expect(res.status).toBe(5);
+    expect(fs.readFileSync(path.join(lockDir(), 'owner'), 'utf-8')).toBe(gone + '-crashed\n');
+  });
+
+  test('a takeover that cannot remove the lock still gives up', () => {
+    expect(runDev('--derive').status).toBe(0);
+    fs.mkdirSync(lockDir());
+    const old = new Date(Date.now() - 120_000);
+    fs.utimesSync(lockDir(), old, old);
+    fs.chmodSync(tmpHome, 0o555);
+    try {
+      const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+      const res = spawnSync(BIN_DEV, ['--derive'], { env, encoding: 'utf-8', cwd: ROOT, timeout: 10_000 });
+      expect(res.signal).toBeNull();
+      expect([0, 5]).toContain(res.status);
+    } finally {
+      fs.chmodSync(tmpHome, 0o755);
+    }
+  }, 20_000);
 
   test('a relative state root does not leave the lock behind', () => {
     const env = { ...process.env, GSTACK_HOME: 'state' };
