@@ -451,8 +451,9 @@ describe('uncommitted work is visible (#2299)', () => {
 
   // Value: protects=a clone whose origin/HEAD names the checked-out PR branch scopes the PR against origin/main, and with no
   //   other base fails closed naming origin/HEAD (GST-511); fails_when=the default base takes origin/HEAD's branch when it is the
-  //   checked-out one (every SCOPE_*=false, exit 0); why_new=no test pointed origin/HEAD at the feature branch; seam=a gh stub on
-  //   PATH; no_claim=remotes other than origin.
+  //   checked-out one (every SCOPE_*=false, exit 0), including when a tag shares the branch's name, or the default branch's own
+  //   uncommitted work stops being scoped; why_new=no test pointed origin/HEAD at the feature branch; seam=a gh stub on PATH;
+  //   no_claim=remotes other than origin.
   test('origin/HEAD naming the checked-out branch is skipped: the PR base, then origin/main, and none fails closed', () => {
     const dir = createRepo(['lib/server.ts']);
     const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, stdio: 'pipe', timeout: 5000 });
@@ -469,6 +470,17 @@ describe('uncommitted work is visible (#2299)', () => {
     expect(found.status).toBe(0);
     expect(found.out).toContain('SCOPE_BACKEND=true');
     expect(scope('json', 'no-such-base').out).toContain('SCOPE_ERROR=no_base');
+    git('tag', 'feature/test');
+    expect(scope('fail').out).toContain('SCOPE_BACKEND=true');
+    git('tag', '-d', 'feature/test');
+    git('checkout', '-q', 'main');
+    git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    writeFileSync(join(dir, 'lib', 'local.ts'), 'export const local = 1;\n');
+    expect(scope('fail').out).toContain('SCOPE_BACKEND=true');
+    rmSync(join(dir, 'lib', 'local.ts'));
+    git('checkout', '-q', 'feature/test');
+    git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feature/test');
     git('update-ref', '-d', 'refs/remotes/origin/main');
     const none = scope('fail');
     expect(none.status).toBe(2);

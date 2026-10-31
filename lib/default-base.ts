@@ -27,7 +27,7 @@ function read(cmd: string, args: string[], cwd: string, timeout: number): string
 }
 
 export function defaultBaseBranch(cwd: string, remotes: readonly string[] = ['origin']): DefaultBase {
-  const current = read('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], cwd, 30_000);
+  const current = read('git', ['symbolic-ref', '--quiet', 'HEAD'], cwd, 30_000).replace(/^refs\/heads\//, '');
   let skipped: DefaultBase['skipped'];
   for (const remote of remotes) {
     const prefix = `refs/remotes/${remote}/`;

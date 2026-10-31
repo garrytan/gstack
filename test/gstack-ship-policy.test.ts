@@ -335,6 +335,9 @@ describe('resolveBaseBranch: origin/HEAD naming the checked-out branch (GST-511)
         return { out: r.stdout ?? '', err: r.stderr ?? '' };
       };
       expect(base('fail')).toEqual({ out: 'main', err: '' });
+      git('tag', 'feat');
+      expect(base('fail')).toEqual({ out: 'main', err: '' });
+      git('tag', '-d', 'feat');
       expect(base('json', 'release').out).toBe('release');
       git('update-ref', '-d', 'refs/remotes/origin/main');
       const none = base('fail');
