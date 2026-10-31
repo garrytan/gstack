@@ -62,6 +62,21 @@ describe('import graph: route-group / dynamic-segment paths and tsconfig path al
     expect(testsFor(g, '.github/workflows/ci.yml').tests).toEqual(['test/joined.test.ts']);
   });
 
+  test('a dot-led literal keeps the edges the base found: no swallowed quote, fixture dotfiles still map', () => {
+    const repo = fixture();
+    commit(repo, {
+      'test/fixtures/x.md': 'x\n',
+      '.github/workflows/ci.yml': 'on: push\n',
+      'test/.github/workflows/ci.yml': 'on: push\n',
+      'test/method.test.ts': "const d = 'a';\nexport const hit = `${d}`.includes('test/fixtures/x.md');\n",
+      'test/config.test.ts': "import { join } from 'node:path';\nimport { readFileSync } from 'node:fs';\nreadFileSync(join(__dirname, '.github', 'workflows', 'ci.yml'), 'utf8');\n",
+    });
+    const g = buildGraph(repo.work);
+    expect(testsFor(g, 'test/fixtures/x.md').tests).toEqual(['test/method.test.ts']);
+    expect(testsFor(g, 'test/.github/workflows/ci.yml').tests).toEqual(['test/config.test.ts']);
+    expect(testsFor(g, '.github/workflows/ci.yml').tests).toEqual(['test/config.test.ts']);
+  });
+
   test('a dot-led literal that names no repo file adds no edge (extensions, missing dotfiles)', () => {
     const repo = fixture();
     commit(repo, {
