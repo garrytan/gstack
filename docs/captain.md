@@ -243,7 +243,12 @@ a push included. The sequence that works unattended on Capy:
 7. Body and receipt: compose the PR body (What changed, Why, Blast radius, Approvals first on Capy),
    write the ship receipt into it, post body and title.
 8. Terminal line: `gstack-ship-receipt result --pr <n>` prints
-   `GSTACK_RESULT: skill=ship status=complete`.
+   `GSTACK_RESULT: skill=ship status=complete`. `SHIP_PAUSED: base-red …` with
+   `status=incomplete` means Step 5 proved its failures are the base's own
+   ([base_red](ship-policy.md#base-red)): the lane is waiting, not failed. It
+   registers `gstack-base-red wait --pause <file>` as a background operation,
+   tells the controller which cases hold it, and on `BASE_GREEN` runs
+   `/ship --resume <record>`; no READY goes out on the conditional receipt.
 9. READY: `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen|--no-screen`;
    send the printed block.
 10. After the slot call, the stamp commit keeps the pin's receipt; re-READY with the same

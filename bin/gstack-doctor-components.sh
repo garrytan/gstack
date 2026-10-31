@@ -194,7 +194,6 @@ gstack_result_anchor() {
     ISSUE_UNREADABLE) printf '%s' 'issue-unreadable' ;;
     ISSUE_LOOKUP_FAILED) printf '%s' 'issue-lookup-failed' ;;
     ISSUE_LINKS_MISSING) printf '%s' 'issue-links-missing' ;;
-    PREREG_INCOMPLETE) printf '%s' 'prereg-incomplete' ;;
     EVAL_PRICE_MISSING) printf '%s' 'eval-price-missing' ;;
     EVAL_DRY_RUN_FAILED) printf '%s' 'eval-dry-run-failed' ;;
     EVAL_ARMS_UNRESOLVED) printf '%s' 'eval-arms-unresolved' ;;
@@ -240,7 +239,6 @@ gstack_result_anchor() {
     OUTSIDE_VOICE_UNAVAILABLE) printf '%s' 'outside-voice-unavailable' ;;
     ARTIFACT_MACHINE_PATH) printf '%s' 'artifact-machine-path' ;;
     ARTIFACT_PUBLIC_TARGET_EXISTS) printf '%s' 'artifact-public-target-exists' ;;
-    PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
     EVAL_MODELS_INVALID) printf '%s' 'eval-models-invalid' ;;
     EVAL_MODEL_DENIED) printf '%s' 'eval-model-denied' ;;
     EVAL_MODEL_OLD_GENERATION) printf '%s' 'eval-model-old-generation' ;;
@@ -287,6 +285,12 @@ gstack_result_anchor() {
     QUEUE_TRAIN_FROZEN) printf '%s' 'queue-train-frozen' ;;
     QUEUE_RECEIPT_MISSING) printf '%s' 'queue-receipt-missing' ;;
     QUEUE_RECEIPT_STALE) printf '%s' 'queue-receipt-stale' ;;
+    QUEUE_RECEIPT_CONDITIONAL) printf '%s' 'queue-receipt-conditional' ;;
+    BASE_RED_UNCONFIGURED) printf '%s' 'base-red-unconfigured' ;;
+    BASE_RED_UNNAMED) printf '%s' 'base-red-unnamed' ;;
+    BASE_RED_REPRO_ERROR) printf '%s' 'base-red-repro-error' ;;
+    BASE_RED_PAUSE_EXPIRED) printf '%s' 'base-red-pause-expired' ;;
+    BASE_RED_WAIT_TIMEOUT) printf '%s' 'base-red-wait-timeout' ;;
     QUEUE_RECEIPT_DEPTH_RAISED) printf '%s' 'queue-receipt-depth-raised' ;;
     QUEUE_RECEIPT_EXCEPTION_INVALID) printf '%s' 'queue-receipt-exception-invalid' ;;
     QUEUE_SCREEN_STALE_REF) printf '%s' 'queue-screen-stale-ref' ;;
@@ -324,6 +328,7 @@ gstack_result_anchor() {
     QUEUE_LAND_BASE_BUSY) printf '%s' 'queue-land-base-busy' ;;
     PR_WAIT_BLOCKED) printf '%s' 'pr-wait-blocked' ;;
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
+    PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;
     APPROVAL_RECORD_INVALID) printf '%s' 'approval-record-invalid' ;;
     APPROVAL_RECORD_SECRET) printf '%s' 'approval-record-secret' ;;
     APPROVAL_RECORD_NO_BRANCH) printf '%s' 'approval-record-no-branch' ;;
@@ -346,6 +351,10 @@ gstack_result_anchor() {
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
     BUDGET_CHECK_SKIPPED) printf '%s' 'budget-check-skipped' ;;
     HANDOFF_PIN_MOVED) printf '%s' 'handoff-pin-moved' ;;
+    PREREG_INCOMPLETE) printf '%s' 'prereg-incomplete' ;;
+    PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
+    PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
+    EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
     *) return 1 ;;
   esac
 }

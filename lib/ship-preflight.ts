@@ -15,11 +15,14 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
 
   gstack-ship-preflight --base <base> [--lane <label>=<command>]...   Steps 1-3; with lanes also Step 5
   gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...   Step 5 only (after a repair)
+      --policy-from head   Step 5's pregate reads the branch's .gstack/pregate.json, which may only add test lanes
+                           (a branch that adds the lane for a file it touches); anything else is PREGATE_HEAD_POLICY_LOOSENS
   gstack-ship-preflight --audit --base <base> --out <dir>   the single reads and Steps 7-8's deterministic audits
       (CONTEXT, TODOS, COVERAGE_MAP, Coverage, PLAN_*, READER: coverage=needed|none plan=needed|none)
 
 Prints at most 30 lines: BRANCH, STATUS, DIFF, PR/CARRY, APPLE, SCOPE, MERGE, DISTRIBUTION, POLICY,
-RUNTIME_LINES, PREGATE, one LANE line per lane, then NEXT: lines. STOP: names what the agent must
+RUNTIME_LINES, PREGATE (with up to three PREGATE_DETAIL lines when it does not pass), one LANE line per lane,
+then NEXT: lines. STOP: names what the agent must
 decide or repair; nothing after it ran. Exit codes: 0 ok · 2 usage · 3 STOP`;
 
 const DIST = /(^|\/)(cmd\/[^/]+\/main\.go|bin\/[^/]+|Cargo\.toml|setup\.py|package\.json)$/;
@@ -119,11 +122,16 @@ function merge(cwd: string, base: string, r: Report): boolean {
   return true;
 }
 
-async function tests(cwd: string, base: string, list: { label: string; command: string }[], r: Report): Promise<void> {
-  const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base], 3_600_000);
-  const verdict = /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
+async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, r: Report): Promise<void> {
+  const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--policy-from', policyFrom], 3_600_000);
+  const refusal = pg.status === 3 ? /\((PREGATE_[A-Z_]+|POLICY_[A-Z_]+)[;)]/.exec(pg.stderr)?.[1] : undefined;
+  const verdict = refusal ? `refused (${refusal})` : /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
   r.add(`PREGATE: ${verdict}`);
-  if (/^(fail|incomplete|unreadable)/.test(verdict)) { r.stop(`pregate ${verdict}: fix the failing checks it lists (gstack-pregate --allow-repo-commands), then rerun --tests-only`); return; }
+  if (/^(fail|incomplete|unreadable|refused)/.test(verdict)) {
+    for (const line of pg.stderr.split('\n').filter(l => l.startsWith('gstack-pregate: ')).slice(0, 3)) r.add(`PREGATE_DETAIL: ${line.length > 300 ? `${line.slice(0, 220)} … ${line.slice(-80)}` : line}`);
+    r.stop(`pregate ${verdict}: fix what PREGATE_DETAIL names (gstack-pregate --allow-repo-commands${policyFrom === 'head' ? ' --policy-from head' : ''}), then rerun --tests-only`);
+    return;
+  }
   if (/uncleared/.test(verdict)) r.next('pregate requires-remote: gstack-pregate clear, or --remote --spend-cap <usd> under a user cap, before Step 18');
   const results = (await runLanes(cwd, list)).map(laneLine);
   for (const l of results) r.add(l.line);
@@ -142,11 +150,13 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
     if (!base || !out) return { text: 'gstack-ship-preflight: --audit needs --base <base> --out <dir>\n', exit: 2 };
     return { text: audit(cwd, base, out).render(), exit: 0 };
   }
+  const policyFrom = flag('--policy-from') ?? 'base';
+  if (!['base', 'head'].includes(policyFrom)) return { text: 'gstack-ship-preflight: --policy-from needs base|head\n', exit: 2 };
   if (!base || typeof list === 'string') return { text: `gstack-ship-preflight: ${typeof list === 'string' ? list : '--base <base> is required'}\n`, exit: 2 };
   if (has('--tests-only') && !list.length) return { text: 'gstack-ship-preflight: --tests-only needs at least one --lane <label>=<command>\n', exit: 2 };
   const r = new Report();
   if (has('--tests-only') || integrate(cwd, base, r)) {
-    if (list.length) await tests(cwd, base, list, r);
+    if (list.length) await tests(cwd, base, list, policyFrom, r);
     else if (r.exit === 0) r.next('Step 4: confirm the test framework, then rerun with --tests-only --lane <label>=<command> per suite (Step 5)');
   }
   return { text: r.render(), exit: r.exit };
