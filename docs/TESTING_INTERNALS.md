@@ -1645,9 +1645,11 @@ word list: `test/fixtures/arm-benchmark/` and its four children, `browse-judge/`
 names under `paid-report-census/` and the `test/` subdirectories of
 `state-matrix-6792/`. All of these are runner-side: no candidate's working
 directory is one of them. Candidate-visible gaps are in the temporary roots
-the harnesses create: `test/helpers/arm-benchmark-harness.ts` copies each fixture
-into `os.tmpdir()/arm-<fixture>-<arm>-*`, so the candidate's working directory is
-named after the arm rather than after a project; `test/skill-e2e-deploy.test.ts`
+the harnesses create: `test/helpers/arm-benchmark-harness.ts` copied each fixture
+into `os.tmpdir()/arm-<fixture>-<arm>-*`, so the candidate's working directory was
+named after the arm rather than after a project (since GST-469 it is named after
+the task's project: `hike-booking-*`, `notes-api-*`, `receipts-*`);
+`test/skill-e2e-deploy.test.ts`
 runs the /benchmark case in `skill-e2e-benchmark-*`, a root that carries a listed
 word; `test/skill-e2e-test-value.test.ts` creates `skill-e2e-<id>-*` roots as the
 candidate's working directory, and two of its ids (`review-test-value`,
