@@ -6,9 +6,12 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import type { ProviderName } from "./auth";
 
 export interface DesignSession {
   id: string;
+  /** The provider that made the images; absent in sessions written before Gemini support, meaning openai. */
+  provider?: ProviderName;
   lastResponseId: string;
   originalBrief: string;
   feedbackHistory: string[];
@@ -38,10 +41,12 @@ export function createSession(
   responseId: string,
   brief: string,
   outputPath: string,
+  provider: ProviderName = "openai",
 ): DesignSession {
   const id = createSessionId();
   const session: DesignSession = {
     id,
+    provider,
     lastResponseId: responseId,
     originalBrief: brief,
     feedbackHistory: [],

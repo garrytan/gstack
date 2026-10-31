@@ -6,9 +6,20 @@
  */
 
 import fs from "fs";
-import { openaiUrl, requireApiKey } from "./auth";
+import { requireProvider, type ProviderKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
-import { imageRequestBody, modelRejectionHint, visionRequestBody } from "./models";
+import { modelRejectionHint } from "./models";
+import {
+  asProvider,
+  geminiFailure,
+  geminiSwitchFix,
+  imageRequest,
+  isOpenAiVerificationError,
+  readImage,
+  visionErrorHint,
+  visionRequest,
+  type DesignAuth,
+} from "./provider";
 import { emitResult, exitCodeFor, newAccounting, persistImage, recordOutcome, type ExitCode } from "./persist";
 
 export interface EvolveOptions {
@@ -27,7 +38,7 @@ export async function evolve(options: EvolveOptions): Promise<ExitCode> {
   let outputPath: string | null = null;
 
   try {
-    const apiKey = requireApiKey();
+    const provider = requireProvider();
     const screenshotData = fs.readFileSync(options.screenshot).toString("base64");
 
     console.error(`Evolving ${options.screenshot} with: "${options.brief}"`);
@@ -39,13 +50,13 @@ export async function evolve(options: EvolveOptions): Promise<ExitCode> {
     // we describe the current state in detail first via vision, then generate.
 
     // Step 1: Analyze current screenshot
-    const analysis = await analyzeScreenshot(apiKey, screenshotData);
+    const analysis = await analyzeScreenshot(provider, screenshotData);
     console.error(`  Analyzed current design: ${analysis.slice(0, 100)}...`);
 
     // Step 2: Generate evolved version using analysis + brief
     const evolvedPrompt = evolvePrompt(analysis, options.brief);
 
-    const imageData = await requestEvolvedImage(apiKey, evolvedPrompt);
+    const imageData = await requestEvolvedImage(provider, evolvedPrompt);
     const outcome = persistImage(imageData, options.output);
     outputPath = recordOutcome(acct, outcome);
     if (outcome.ok) {
@@ -71,40 +82,33 @@ export async function evolve(options: EvolveOptions): Promise<ExitCode> {
   }, exitCodeFor(outputPath !== null, acct.saved.length));
 }
 
-async function requestEvolvedImage(apiKey: string, evolvedPrompt: string): Promise<string> {
+async function requestEvolvedImage(provider: ProviderKey, evolvedPrompt: string): Promise<string> {
+  const request = imageRequest(provider, { prompt: evolvedPrompt, size: "1536x1024", quality: "high" });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
-    const response = await receiptedFetch("evolve-image-request", openaiUrl("responses"), {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: imageRequestBody(evolvedPrompt, { size: "1536x1024", quality: "high" }),
-      signal: controller.signal,
-    });
+    const response = await receiptedFetch("evolve-image-request", request.url, { ...request.init, signal: controller.signal }, globalThis.fetch, request.receipt);
 
     if (!response.ok) {
       const error = await response.text();
-      if (response.status === 403 && error.includes("organization must be verified")) {
+      if (provider.provider === "gemini") throw new Error(geminiFailure(provider, response.status, error, "image").message);
+      if (isOpenAiVerificationError(response.status, error)) {
         throw new Error(
           "OpenAI organization verification required.\n"
           + "Go to https://platform.openai.com/settings/organization to verify.\n"
-          + "After verification, wait up to 15 minutes for access to propagate.",
+          + "After verification, wait up to 15 minutes for access to propagate.\n"
+          + geminiSwitchFix(),
         );
       }
       throw new Error(`API error (${response.status}): ${error.slice(0, 300)}${modelRejectionHint(response.status, error, "image")}`);
     }
 
-    const data = await response.json() as any;
-    const imageItem = data.output?.find((item: any) => item.type === "image_generation_call");
-
-    if (!imageItem?.result) {
+    const image = readImage(provider, await response.json());
+    if (!image) {
       throw new Error("No image data in response");
     }
-    return imageItem.result;
+    return image.imageData;
   } finally {
     clearTimeout(timeout);
   }
@@ -131,7 +135,7 @@ export function evolvePrompt(analysis: string, brief: string): string {
  * Analyze a screenshot to produce a detailed description for re-generation.
  */
 export async function analyzeScreenshot(
-  apiKey: string,
+  auth: DesignAuth,
   imageBase64: string,
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
   batchSignal?: AbortSignal,
@@ -140,14 +144,9 @@ export async function analyzeScreenshot(
   const timeout = setTimeout(() => controller.abort(), 30_000);
   const signal = batchSignal ? AbortSignal.any([controller.signal, batchSignal]) : controller.signal;
 
+  const provider = asProvider(auth);
   try {
-    const response = await receiptedFetch("evolve-screenshot-analysis-request", openaiUrl("chat/completions"), {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: visionRequestBody([{
+    const request = visionRequest(provider, [{
         role: "user",
         content: [
           {
@@ -159,13 +158,12 @@ export async function analyzeScreenshot(
             text: `Describe this UI in detail for re-creation. Include: overall layout structure, color scheme (hex values), typography (sizes, weights), specific text content visible, spacing between elements, alignment patterns, and any decorative elements. Be precise enough that someone could recreate this UI from your description alone. 200 words max.`,
           },
         ],
-      }], 400),
-      signal,
-    }, fetchFn);
+      }], 400);
+    const response = await receiptedFetch("evolve-screenshot-analysis-request", request.url, { ...request.init, signal }, fetchFn, request.receipt);
 
     if (!response.ok) {
       const error = await response.text();
-      console.error(`  Screenshot analysis failed (${response.status}): ${error.slice(0, 200)}${modelRejectionHint(response.status, error, "vision")}`);
+      console.error(`  Screenshot analysis failed (${response.status}): ${error.slice(0, 200)}${visionErrorHint(provider, response.status, error)}`);
       return "Unable to analyze screenshot";
     }
 
