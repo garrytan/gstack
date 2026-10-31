@@ -107,8 +107,8 @@ exec ${quote(Bun.which('cat')!)} "$@"
 
   const findings = (id: string) => `${id}: current findings\nNo issues found.\nRecommendation: fix ${id} because this is the current finding.\n`;
   // INV-1: the verdict-form validator prints its verdict before the completed status.
-  const unavailable = (id: string) => `${findings(id)}VERDICT: unavailable\nFINDINGS: none\nREASON: execution_failed\n`;
-  const completed = (id: string) => `${findings(id)}VERDICT: clean\nFINDINGS: none\nOUTSIDE_STATUS: completed provider=codex host=claude\n`;
+  const unavailable = (id: string) => `${findings(id)}VERDICT: unavailable\nFINDINGS: none\nOUTSIDE_USAGE: unknown\nREASON: execution_failed\n`;
+  const completed = (id: string) => `${findings(id)}VERDICT: clean\nFINDINGS: none\nOUTSIDE_USAGE: unknown\nOUTSIDE_STATUS: completed provider=codex host=claude\n`;
 
   test('fresh shells retain the current stderr and clean its exact temporary file', () => {
     const f = fixture();
