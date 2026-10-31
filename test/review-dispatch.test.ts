@@ -454,10 +454,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   });
 
   // Value: protects=a reader's own closing summary is a known phantom that keeps its label (HARN-15's Red Team and fix-check replies,
-  //   GEVA-77's "Neither finding is CRITICAL.", "found nothing CRITICAL"): it collects, judge refuses to drop it and the lead folds it; the
+  //   GEVA-77's "Neither finding is CRITICAL.", "found nothing CRITICAL"): it collects, and judge refuses to drop or lower it; the
   //   follow-up tags such lines summary_candidate so judge may dismiss a tagged one on record; fails_when=a summary line collects nothing
   //   or a weaker label, which would mean a drop path is back; why_new=GST-435 removed the drop after it lost blockers in three review
-  //   rounds; seam=parseFindings, collect and judge; no_claim=that a phantom is free (it costs a fold)
+  //   rounds; seam=parseFindings, collect and judge; no_claim=that a phantom is free (it stays CRITICAL in the judged set)
   test('known phantoms: closing summaries keep their label until the summary_candidate follow-up', () => {
     const fixture = (name: string) => fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger', name), 'utf8');
     const replies: Array<[string, string, number]> = [['red-team', 'harn15-ship2-red-team.txt', 3], ['red-team', 'harn15-ship2-p2-red-team.txt', 3],
