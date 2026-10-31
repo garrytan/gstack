@@ -685,6 +685,89 @@ process.stdout.write(execFileSync(process.execPath, ['-e', 'process.stdout.write
     expect(staged[0]).not.toContain("_unattributed");
   });
 
+  describe("a loopback gbrain serve --http over the local engine is a local brain (#3539)", () => {
+    const loopback = { mcpServers: { gbrain: { type: "http", url: "http://127.0.0.1:3131/mcp", headers: { Authorization: "Bearer x" } } } };
+    const remote = { mcpServers: { gbrain: { type: "http", url: "http://fixture.invalid/mcp" } } };
+    function gbrainConfig(cfg: Record<string, unknown>): void {
+      mkdirSync(join(home, ".gbrain"), { recursive: true });
+      writeFileSync(join(home, ".gbrain", "config.json"), JSON.stringify(cfg));
+    }
+    function claudeJson(cfg: unknown): void {
+      writeFileSync(join(home, ".claude.json"), JSON.stringify(cfg));
+    }
+    function outgoing(): string[] {
+      const root = join(env.GSTACK_HOME, "transcripts");
+      return existsSync(root) ? readdirSync(root, { recursive: true }).map(String).filter((f: string) => f.endsWith(".md")) : [];
+    }
+    // The fixture gbrain answers `import` but not the landing lookup, so an
+    // imported page stops at imported_unverified; either way it went through
+    // `gbrain import` into a per-repository transcript source, not the
+    // remote-http staging.
+    const importedEntry = {
+      status: expect.stringMatching(/^(ingested|imported_unverified)$/),
+      source_id: expect.stringMatching(/^gstack-transcripts-/),
+    };
+
+    it("imports through gbrain instead of staging for a brain admin", () => {
+      scanner("clean");
+      gbrainConfig({ engine: "pglite", database_path: join(home, ".gbrain", "brain.pglite") });
+      claudeJson(loopback);
+      const path = attributed(source());
+      const r = run([]);
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stderr).not.toContain("remote-http mode");
+      expect(imported()).toHaveLength(1);
+      expect(outgoing()).toEqual([]);
+      expect(sessions()[path]).toMatchObject(importedEntry);
+    });
+
+    it("keeps staging for a non-loopback URL even with a local engine", () => {
+      scanner("clean");
+      gbrainConfig({ engine: "pglite" });
+      claudeJson(remote);
+      const path = attributed(source());
+      expect(run([]).status).toBe(0);
+      expect(imported()).toEqual([]);
+      expect(outgoing()).toHaveLength(1);
+      expect(sessions()[path]).toMatchObject({ status: "staged", source_id: "remote-http" });
+    });
+
+    it("keeps staging for a loopback URL when gbrain's config carries remote_mcp", () => {
+      scanner("clean");
+      gbrainConfig({ engine: "pglite", remote_mcp: { mcp_url: "http://127.0.0.1:3131/mcp" } });
+      claudeJson(loopback);
+      const path = attributed(source());
+      expect(run([]).status).toBe(0);
+      expect(imported()).toEqual([]);
+      expect(outgoing()).toHaveLength(1);
+      expect(sessions()[path]).toMatchObject({ status: "staged", source_id: "remote-http" });
+    });
+
+    const stdio = { mcpServers: { gbrain: { type: "stdio", command: "gbrain", args: ["serve"] } } };
+    for (const [label, local] of [["loopback http", loopback], ["stdio", stdio]] as const) {
+      it(`re-imports pages left staged by an earlier remote-http run once the brain is local (${label})`, () => {
+        scanner("clean");
+        claudeJson(remote);
+        const path = attributed(source());
+        expect(run([]).status).toBe(0);
+        expect(sessions()[path]).toMatchObject({ status: "staged", source_id: "remote-http" });
+        // Still remote: the staged page counts as unchanged, as before.
+        expect(run(["--probe"]).stdout).toMatch(/Unchanged:\s+1/);
+
+        gbrainConfig({ engine: "pglite" });
+        claudeJson(local);
+        const probe = run(["--probe"]);
+        expect(probe.stdout).toMatch(/New \(never ingested\):\s+1/);
+        expect(probe.stdout).toMatch(/Unchanged:\s+0/);
+        const r = run(["--incremental"]);
+        expect(r.status, r.stderr).toBe(0);
+        expect(imported()).toHaveLength(1);
+        expect(sessions()[path]).toMatchObject(importedEntry);
+        expect(run(["--probe"]).stdout).toMatch(/Unchanged:\s+1/);
+      });
+    }
+  });
+
   it("scans remote-http pages before persistent staging", () => {
     scanner("clean");
     writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { gbrain: { type: "http", url: "http://fixture.invalid/mcp" } } }));
