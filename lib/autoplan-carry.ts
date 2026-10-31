@@ -7,11 +7,13 @@
  * carried answer is the owner's own earlier words, and every refusal says which condition failed.
  *
  * A carry needs all of: carry not turned off (`--no-carry-forward`); gate_rev N approved (p1 a or b)
- * with the owner's words recorded, and not itself a carry; every change accepted at N
+ * with the owner's words recorded, and not itself a carry; nothing left pending there; every change accepted at N
  * incorporated or settled; the plan file unchanged since the gate or the revise that took those
  * changes, and the reviewed plan equal to it; no open urgent finding; and every new item already
- * carried. Two kinds of new item do not block: items a "do it" covers (the owner's words are
- * "do it": an auto item that changes no scope, cost or direction and is no round grant), and a
+ * carried. An answer given item by item (tokens, not `rec`) carries only that: every item on
+ * N+1 already carried by origin, its p1 choice replayed and its tokens recorded verbatim as the
+ * basis; any new or changed item goes to the owner. After `rec` or "do it", two kinds of new
+ * item do not block: items a "do it" covers (the owner's words are "do it": an auto item that changes no scope, cost or direction and is no round grant), and a
  * capped-delta item recommending "accept", which first gets one reviewer on just the delta
  * (`CARRY_CHECK:`, answered with `gstack-autoplan check`); a High or Critical finding there
  * means no carry, and the gate goes to the owner as before.
@@ -92,7 +94,8 @@ function deltaSince(state: RunState, rev: number): { diff: string; sha: string }
   return { diff, sha: sha256(diff) };
 }
 
-interface Source { id: string; gate_rev: number; words: string; by?: string }
+/** `p1`: an item-token answer's own p1 choice, replayed as given. */
+interface Source { id: string; gate_rev: number; words: string; by?: string; p1?: string }
 type Plan = { source: Source; doIt: GateItem[]; deltas: GateItem[] } | { reason: string; from?: number };
 
 /** Every condition but the delta check; returns why not, or what the carry takes. */
@@ -105,7 +108,7 @@ function assess(state: RunState, prev: GateList, list: GateList): Plan {
   if (unanswered) return { reason: `gate_rev ${from} left ${unanswered.label ?? unanswered.id} unanswered`, from };
   if (p1.chosen !== 'a' && p1.chosen !== 'b') return { reason: `gate_rev ${from} answer was p1${p1.chosen}, not an approval`, from };
   if (p1.carried_gate_from) return { reason: `gate_rev ${from} was itself carried; the owner answers this one`, from };
-  if (parseReply(p1.reply ?? '', prev).mode !== 'rec') return { reason: `gate_rev ${from} was answered with item tokens, not rec or "do it"`, from };
+  const tokens = parseReply(p1.reply ?? '', prev).mode !== 'rec';
   const words = p1.owner_reply ?? (p1.answered_by === 'human' ? p1.reply : undefined);
   if (!words?.trim()) return { reason: `no owner words recorded at gate_rev ${from}`, from };
   const amendments = (state.amendments ?? []).filter(a => a.gate_rev === from);
@@ -125,10 +128,10 @@ function assess(state: RunState, prev: GateList, list: GateList): Plan {
     if (item.id === 'p1' || item.carried) continue;
     const option = item.options.find(o => o.key === item.recommended);
     if (item.cap?.kind === 'delta' && !option?.changes_plan && item.recommended === 'a') { deltas.push(item); continue; }
-    if (isDoIt(words) && item.kind === 'auto' && !item.cap && !option?.changes_plan && !['scope', 'cost', 'direction'].includes(item.changes ?? '')) { doIt.push(item); continue; }
+    if (!tokens && isDoIt(words) && item.kind === 'auto' && !item.cap && !option?.changes_plan && !['scope', 'cost', 'direction'].includes(item.changes ?? '')) { doIt.push(item); continue; }
     return { reason: `new item ${item.id}: ${item.title}`, from };
   }
-  return { source: { id: p1.id, gate_rev: from, words, by: p1.answered_by }, doIt, deltas };
+  return { source: { id: p1.id, gate_rev: from, words, by: p1.answered_by, ...(tokens ? { p1: p1.chosen } : {}) }, doIt, deltas };
 }
 
 /** Called by finishGate once gate_rev N+1 is written (status gate_pending): carry, set up the delta check, or say why not. */
@@ -178,7 +181,7 @@ function dispatchCheck(state: RunState, prev: GateList, list: GateList, plan: Ex
 function carry(state: RunState, list: GateList, source: Source, doIt: GateItem[], deltas: GateItem[], check?: CarryCheck): CarryRecord {
   const rev = list.gate_rev;
   const p1 = list.items.find(i => i.id === 'p1')!;
-  const reply = list.items.map(i => `${i.id}${i.id === 'p1' ? p1.recommended : i.carried?.chosen ?? i.recommended}`).join(' ');
+  const reply = list.items.map(i => `${i.id}${i.id === 'p1' ? source.p1 ?? p1.recommended : i.carried?.chosen ?? i.recommended}`).join(' ');
   const reason = [doIt.length || deltas.length ? '' : 'no new choice', doIt.length ? `"do it" covers ${doIt.map(i => i.id).join(',')}` : '', deltas.length ? `delta check passed on ${deltas.map(i => i.id).join(',')}` : '',
     'plan unchanged since the accepted changes'].filter(Boolean).join('; ');
   const answered = answerGate(state, rev, reply, 'agent:gstack-autoplan', { carry: { from: source.id, gate_rev: source.gate_rev, words: source.words, by: source.by, reason } });

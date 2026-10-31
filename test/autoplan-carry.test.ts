@@ -123,20 +123,36 @@ describe('carry-forward', () => {
     expect(phaseVia(r, rec.out, 'eng', PKG).outside.stdout).toMatch(/^CARRY: no \(new item \w+: Split the backoff/m);
   });
 
-test('an earlier answer in item tokens, or one that left an item unanswered, is not carried', () => {
+  /** Gate 1 answered item by item (every item's recommendation as tokens) by the owner, then revised to take uc1. */
+  function tokensAndRevised() {
     const dir = path.join(r.host.base, `carry${++n}`);
     const out = path.join(dir, 'run');
     expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui']).status).toBe(0);
     phaseVia(r, out, 'ceo', AGREE);
     phaseVia(r, out, 'eng', NONE);
-    const g = gateOf(out);
-    const tokens = g.items.map((i: any) => `${i.id}${i.recommended}`).join(' ');
+    const tokens = gateOf(out).items.map((i: any) => `${i.id}${i.recommended}`).join(' ');
     expect(r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', tokens, '--by', 'human']).status).toBe(0);
     const v2 = path.join(dir, 'plan-v2.md');
     fs.writeFileSync(v2, V2);
     expect(r.ap(['revise', '--out', out, '--plan', v2, '--incorporates', 'uc1']).status).toBe(0);
     phaseVia(r, out, 'ceo', NONE);
-    expect(phaseVia(r, out, 'eng', NONE).outside.stdout).toMatch(/^CARRY: no \(gate_rev 1 was answered with item tokens, not rec or "do it"\)$/m);
+    return { out, tokens, p1: decisions(out).find(x => x.gate_rev === 1 && x.label === 'P1') };
+  }
+
+  test('an item-token answer carries when the later gate asks nothing new: the owner\'s p1 choice and verbatim tokens are the basis', () => {
+    const s = tokensAndRevised();
+    const eng = phaseVia(r, s.out, 'eng', NONE).outside;
+    expect(eng.status, eng.stderr).toBe(0);
+    expect(eng.stdout).toContain(`CARRIED: gate_rev=2 <- gate_rev=1 words=${JSON.stringify(s.tokens)} by=human reason=no new choice; plan unchanged since the accepted changes`);
+    expect(eng.stdout).toMatch(/^APPROVED: gate_rev=2/m);
+    expect(decisions(s.out).find(x => x.gate_rev === 2 && x.label === 'P1')).toMatchObject({ chosen: s.p1.chosen, carried_gate_from: s.p1.id });
+  });
+
+  test('an item-token answer is not carried past a new item', () => {
+    const s = tokensAndRevised();
+    const PKG = { native: [{ id: 'F7', severity: 'Medium', title: 'Split the backoff into its own PR', user_challenge: true, changes: 'packaging', fix: 'own PR' }], outside: [] };
+    expect(phaseVia(r, s.out, 'eng', PKG).outside.stdout).toMatch(/^CARRY: no \(new item \w+: Split the backoff/m);
+    expect(readRunJson(s.out).status).toBe('gate_pending');
   });
 
   test('an answer that left an approval item pending is not carried', () => {

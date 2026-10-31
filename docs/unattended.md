@@ -524,9 +524,8 @@ A gate revision after the first (`gate_rev` 2 and later, written after a
 it when nothing new needs their decision. `gstack-autoplan` prints
 `CARRIED: gate_rev=<n> <- gate_rev=<m> words="<their words>" by=<relayer> reason=<why>`,
 then the usual `APPROVED:` lines, and journals `gate_carried`. The carry needs
-all of: the earlier gate approved (`p1a` or `p1b`) with `rec` or "do it"
-(not item tokens), no item there left pending, and the owner's words
-recorded; that gate was not itself carried; every accepted change incorporated
+all of: the earlier gate approved (`p1a` or `p1b`), no item there left
+pending, and the owner's words recorded; that gate was not itself carried; every accepted change incorporated
 or settled; the plan file's bytes equal those recorded at the gate or at the
 `revise` that took the changes (any later edit refuses, an ELI5-only one
 included); no urgent or
@@ -534,6 +533,13 @@ outside-plan finding open; and every new gate item one of the cases below.
 Anything else prints `CARRY: no (<why>)` (journal `carry_refused`) and the gate
 goes to the owner as before. `--no-carry-forward` on the first `next` turns it
 off for the run.
+
+An earlier answer given item by item (`<id><option>` tokens, not `rec` or "do
+it") carries only what the owner already answered: every item on the new gate
+must be carried by origin (the same proposal, so the same choice), and only an
+unreviewed post-cap delta (below) may be new. The carry replays the owner's own
+`p1` choice and records their tokens verbatim as its basis; any new or changed
+item, "do it" cases included, goes to the owner.
 
 - **"do it".** When the owner's words were "do it" (their words, not a
   `captain:` relay of them), a new `auto` item that changes no scope, cost or
