@@ -550,10 +550,10 @@ export function isOpenFinding(row: Record<string, unknown>): boolean {
   if (typeof row.status === 'string') return !['resolved', 'fixed', 'closed'].includes(row.status);
   return isOpenByAction(row);
 }
-/** A finding's `action` alone: fixed and auto-fixed resolve it; deferred and noted resolve only a non-blocking, non-CRITICAL one (review policy's floor). */
+/** A finding's `action` alone: fixed and auto-fixed resolve it; deferred and noted resolve only one marked `blocking: false` that is not CRITICAL (review policy's floor). */
 export function isOpenByAction(row: Record<string, unknown>): boolean {
   if (row.action === 'fixed' || row.action === 'auto-fixed') return false;
-  if (row.action === 'deferred' || row.action === 'noted') return row.blocking === true || isCriticalFinding(row);
+  if (row.action === 'deferred' || row.action === 'noted') return row.blocking !== false || isCriticalFinding(row);
   return true;
 }
 export function isCriticalFinding(row: Record<string, unknown>): boolean {

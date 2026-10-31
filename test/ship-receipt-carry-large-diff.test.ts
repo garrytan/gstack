@@ -67,4 +67,18 @@ describe('carry with a large product diff (GST-448)', () => {
     expect([out.status, out.out.split('\n').find(l => l.startsWith('CARRY:'))]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_REFUSED)']);
     expect(out.err).toContain('set TMPDIR to a writable directory');
   });
+
+  // Value: protects=a carry killed mid patch-id (preflight's 120 s timeout) does not leave product diffs in TMPDIR for good;
+  //   fails_when=nothing removes a gstack-patch-id-* directory a killed run left; seam=TMPDIR, an aged directory; no_claim=none
+  test('a stale patch-id directory a killed run left is swept; a fresh one is kept', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    commit(repo, receipts(3, 'base'), 'results: 3 run receipts');
+    const tmp = path.join(repo.root, 'tmp'); fs.mkdirSync(tmp);
+    const stale = path.join(tmp, 'gstack-patch-id-stale'); const fresh = path.join(tmp, 'gstack-patch-id-fresh');
+    for (const d of [stale, fresh]) { fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'diff.patch'), 'diff\n'); }
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000); fs.utimesSync(stale, old, old);
+    const body = path.join(repo.root, 'body.md');
+    expect(runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '9', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body], { TMPDIR: tmp }).status).toBe(EXIT.ok);
+    expect([fs.existsSync(stale), fs.existsSync(fresh)]).toEqual([false, true]);
+  });
 });

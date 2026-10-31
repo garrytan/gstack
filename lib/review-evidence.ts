@@ -248,11 +248,12 @@ const DERIVED_KEYS = ['status', 'unresolved', 'issues_found', 'critical_gaps'] a
  * severity + disposition/action). A claimed value that disagrees rejects the
  * row with REVIEW_STATUS_MISMATCH; the file is the record, never the claim.
  */
-export function deriveFromFindings(rec: Record<string, any>, findingsPath: string): Record<string, any> {
+export function deriveFromFindings(rec: Record<string, any>, findingsPath: string, sessionKind?: string): Record<string, any> {
   let read;
   try { read = readJsonl(findingsPath); }
   catch (e: any) { throw new ReviewLogError('ARTIFACT_MISSING', resultLine('review-log', 'ARTIFACT_MISSING', `${findingsPath}: ${e.message}`)); }
   if (read.errors.length) throw new ReviewLogError('ARTIFACT_MALFORMED_JSONL', resultLine('review-log', 'ARTIFACT_MALFORMED_JSONL', `${read.errors[0]!.path}: ${read.errors[0]!.message}`));
+  stampGateFindings(read.rows, sessionKind);
   const derived = deriveReviewStatus(read.rows);
   const mismatches = DERIVED_KEYS.filter(key => rec[key] !== undefined && rec[key] !== derived[key])
     .map(key => `claimed ${key} ${JSON.stringify(rec[key])}, findings file has ${JSON.stringify(derived[key])}`);
@@ -266,7 +267,7 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   for (const key of ['commit_full', 'tree', 'wtree', 'dirty', 'review_binding', 'review_freshness', 'shared_libs_coverage_version', 'status_source', 'findings_total', 'findings_open', 'findings_resolved', 'findings_file', 'scope', 'fix_base']) delete rec[key];
   // The findings file is validated BEFORE the start token is consumed below:
   // a rejected row must leave the token for the retry.
-  rec = findingsPath ? deriveFromFindings(rec, findingsPath) : { ...rec, status_source: 'claimed' };
+  rec = findingsPath ? deriveFromFindings(rec, findingsPath, env.GSTACK_STAMP_SESSION_KIND) : { ...rec, status_source: 'claimed' };
   if (env.GSTACK_STAMP_COMMIT_FULL) rec.commit_full = env.GSTACK_STAMP_COMMIT_FULL;
   if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
   if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
@@ -353,7 +354,7 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string):
   const open = typeof rec.findings_open === 'number' ? rec.findings_open : rec.issues_found;
   if (rec.status !== 'clean' || open > 0 || rec.critical > 0 ||
       (rec.skill === 'codex-review' && rec.findings > (rec.findings_fixed ?? 0)) ||
-      (Array.isArray(rec.findings) && rec.findings.some(f => record(f) && f.action === 'open'))) {
+      (Array.isArray(rec.findings) && rec.findings.some(f => record(f) && typeof f.action === 'string' && isOpenByAction(f)))) {
     return { status: 'UNVERIFIED', reason: 'review has unresolved findings or did not finish clean' };
   }
   return { status: 'CURRENT', reason: 'completed clean pass on unchanged content' };
