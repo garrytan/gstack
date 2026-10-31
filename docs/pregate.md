@@ -730,22 +730,22 @@ the same way; for such a lane `--run-url` is verified as `--run` is, and
 recording. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
 shows the lane has no profile; then the lane is recorded as before, with a
-warning naming the cause. `gstack-ship-queue ready --dispatch-ci` clears each
-lane through this same decision with its dispatched run's URL, so a profiled
-lane's run is verified: a run on another tree, a run whose newest attempt is
-red, or a run with a newer red sibling clears nothing, and the command refuses
-(`QUEUE_NOT_READY`) naming the `REUSE: refused` reason. A lane with no profile
-still records the URL (`PREGATE_UNVERIFIED:` names a lane recorded that way
-because the GitHub origin could not be read).
+warning naming the cause. `gstack-ship-queue ready --dispatch-ci` still
+records its dispatched runs by URL; routing it through the verifier is a
+follow-up (GST-555), so a repository that declares lane profiles clears those
+lanes with `gstack-pregate clear --run`.
 
-**gstack's own profiles.** gstack's `.gstack/pregate.json` declares
-`free-tests.yml/free-suite` (the complete Free Tests run: every non-matrix job
-and the `free-tests` aggregate, `os` Linux), the macOS and Windows platform
-lanes of that workflow (`macos-named-regressions`, `cso-macos-launcher`,
-`cso-windows-launcher`) and `windows-free-tests.yml/windows-free-shard`. Each
-accepts `pull_request` and `workflow_dispatch` runs and reads the
-`tested-tree` artifact, which both aggregates upload only after their strict
-verification passes.
+**gstack's own profiles.** gstack's `.gstack/pregate.json` declares two, and
+names neither after a lane: `ci-reuse/free-tests` (the complete Free Tests run:
+every non-matrix job and the `free-tests` aggregate, `os` Linux) and
+`ci-reuse/windows-free-tests` (`windows-plan` and the `windows-free-tests`
+aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
+runs and reads the `tested-tree` artifact, which both aggregates upload only
+after their strict verification passes. The main-push reuse job and
+`--from-run` read them. No lane has a profile, so every macOS and Windows lane
+still clears by `--run-url` as before: a pull request cut before these
+workflows uploaded `tested-tree` has no record a lane profile could verify, so
+lane profiles wait until open pull requests carry the producer (GST-555).
 
 **`verify` stays offline.** The check ran at `clear`. `gstack-pregate verify`,
 and `gstack-ship-queue ready` through it, refuse a run receipt whose `tree=`
@@ -765,9 +765,9 @@ push to main reuses ([below](#ci-reuse)).
 `gstack-pregate --stage tests --from-run <run id|url>` takes a Free Tests run
 that already passed on this exact tree, for example the one CI ran on the
 pushed head, instead of running its files again here. The run is verified
-online, once, against the base branch's run profiles named after a lane this
-machine runs locally (gstack's `free-tests.yml/free-suite`), with pregate.json's
-own head as a further veto head. Its tree must be this tree exactly (no
+online, once, against the base branch's run profiles for this machine's OS
+whose workflow holds a lane this machine runs (gstack's `ci-reuse/free-tests`
+on Linux), with pregate.json's own head as a further veto head. Its tree must be this tree exactly (no
 stamp-only substitution). Then:
 
 - The selected local test files the run's `tree.json` lists count as passed.
@@ -780,11 +780,13 @@ stamp-only substitution). Then:
 - A run that does not verify prints `REUSE: refused reason=<code> — …; every
   selected test runs here` and changes nothing else. The codes are
   verifyRun's, plus `tree_mismatch` (another tree), `no_tests`, `no_profile`
-  (no profile names a local lane) and `profiles_unavailable` (the base config
+  (no profile for this OS covers a local lane's workflow) and `profiles_unavailable` (the base config
   or the GitHub origin could not be read).
 
 `--from-run` applies to the tests stage only, so `--stage preflight` refuses it
-as a usage error; the preflight checks, the secrets scan included, always run.
+as a usage error. It changes nothing in the preflight stage: with `--stage all`
+the preflight checks, the secrets scan included, run as before, and
+`--stage tests` runs no preflight check in that invocation, with or without it.
 
 <a id="ci-reuse"></a>
 ### Main pushes reuse the merged pull request's run

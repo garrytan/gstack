@@ -12,7 +12,8 @@ import type { ApiRun, RunProfile, RunSource } from '../lib/run-evidence';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const NOW = new Date('2026-10-30T12:00:00Z');
-const PROFILE: RunProfile = { workflow: 'free-tests.yml', events: ['pull_request', 'workflow_dispatch'], jobs: ['unit'], artifact: 'tested-tree', os: 'Linux' };
+const LOCAL_OS = process.platform === 'darwin' ? 'macOS' : 'Linux';
+const PROFILE: RunProfile = { workflow: 'free-tests.yml', events: ['pull_request', 'workflow_dispatch'], jobs: ['unit'], artifact: 'tested-tree', os: LOCAL_OS };
 const repos: FixtureRepo[] = [];
 const savedRoot = process.env.GSTACK_STATE_ROOT;
 afterEach(() => {
@@ -29,13 +30,13 @@ function fixture(): { repo: FixtureRepo; parent: string; head: string } {
   return { repo, parent, head: repo.git('rev-parse', 'HEAD') };
 }
 
-function source(repo: FixtureRepo, runHead: string, files: string[], profiles: Record<string, RunProfile> = { 'free-tests.yml/unit': PROFILE }): RunSource {
+function source(repo: FixtureRepo, runHead: string, files: string[], profiles: Record<string, RunProfile> = { 'ci-reuse/free-tests': PROFILE }): RunSource {
   const api: ApiRun = { id: 100, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'workflow_dispatch', head_sha: runHead, path: '.github/workflows/free-tests.yml', created_at: '2026-10-30T10:00:00Z', updated_at: '2026-10-30T10:30:00Z', repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
   return {
     repo: 'fx/fx', profiles, now: NOW,
     deps: {
       run: () => api, runsForHead: (_wf, sha) => (sha === runHead ? [api] : []), jobs: () => [{ name: 'unit', conclusion: 'success' }],
-      artifact: () => ({ run_id: 100, run_attempt: 1, event: 'workflow_dispatch', sha: runHead, head_sha: runHead, tree: repo.git('rev-parse', `${runHead}^{tree}`), os: ['Linux'], files, tests: files.length * 4 }),
+      artifact: () => ({ run_id: 100, run_attempt: 1, event: 'workflow_dispatch', sha: runHead, head_sha: runHead, tree: repo.git('rev-parse', `${runHead}^{tree}`), os: [LOCAL_OS], files, tests: files.length * 4 }),
       commitTree: sha => repo.git('rev-parse', `${sha}^{tree}`),
     },
   };
@@ -65,7 +66,7 @@ describe.skipIf(process.platform === 'win32')('--from-run: a verified Free Tests
     const { repo, head } = fixture();
     const { file, check, progress } = await lanes(repo, { ref: '100', check: source(repo, head, ['test/util.test.js', 'test/unrelated.test.js']) });
     expect(check.status).toBe('pass');
-    expect(check.from_run).toEqual({ receipt: expect.stringMatching(new RegExp(`^run tree=${file.tree.slice(0, 12)} tests=8 runs=100/1 profiles=free-tests\\.yml/unit heads=${head.slice(0, 12)} verified=`)), files: ['test/util.test.js'] });
+    expect(check.from_run).toEqual({ receipt: expect.stringMatching(new RegExp(`^run tree=${file.tree.slice(0, 12)} tests=8 runs=100/1 profiles=ci-reuse/free-tests heads=${head.slice(0, 12)} verified=`)), files: ['test/util.test.js'] });
     expect(ranLine(check)).toContain('test/retry.test.js');
     expect(ranLine(check)).not.toContain('test/util.test.js');
     expect(check.detail).toStartWith('1 of 3 local test file(s) passed in the --from-run run; ');
@@ -82,11 +83,13 @@ describe.skipIf(process.platform === 'win32')('--from-run: a verified Free Tests
     expect([check.status, check.from_run?.files.sort(), ranLine(check)]).toEqual(['pass', all, '']);
   }, 120_000);
 
-  test('a refused run prints its REUSE line and runs everything: another tree, no profile for a local lane, unreadable profiles', async () => {
+  test('a refused run prints its REUSE line and runs everything: another tree, no profile for a local lane or this OS, unreadable profiles', async () => {
     const { repo, parent, head } = fixture();
     const cases: Array<[string, RunSource | { error: string }]> = [
       ['tree_mismatch', source(repo, parent, ['test/util.test.js', 'test/retry.test.js'])],
-      ['no_profile', source(repo, head, ['test/util.test.js'], { 'windows.yml/windows-shard': { ...PROFILE, os: 'Windows' } })],
+      ['no_profile', source(repo, head, ['test/util.test.js'], { 'ci-reuse/windows': { ...PROFILE, workflow: 'windows.yml', os: 'Windows' } })],
+      ['no_profile', source(repo, head, ['test/util.test.js'], { 'ci-reuse/free-tests': { ...PROFILE, os: 'Windows' } })],
+      ['no_profile', source(repo, head, ['test/util.test.js'], { 'free-tests.yml/unit': { ...PROFILE, workflow: 'other.yml' } })],
       ['profiles_unavailable', { error: 'origin is not a github.com repository' }],
     ];
     for (const [reason, check] of cases) {

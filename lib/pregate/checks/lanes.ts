@@ -532,12 +532,14 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
 }
 
 /**
- * `--from-run`: verify the run against the base branch's profiles named after a lane this machine runs (not a platform
- * lane), on exactly this tree; the selected local test files its tree.json lists are the ones it already passed.
+ * `--from-run`: verify the run against the base branch's profiles for this machine's OS whose workflow holds a lane this
+ * machine runs (not a platform lane), on exactly this tree; the selected local test files its tree.json lists are the
+ * ones it already passed. Profiles are matched by workflow and OS, never by name, so none has to be named after a lane.
  */
 function fromRun(ctx: PregateContext, sel: Selection): { line: string; passed: string[]; receipt?: string } {
   const { ref, check } = ctx.fromRun!;
-  const names = 'error' in check ? [] : Object.keys(check.profiles).filter(n => ctx.lanes.some(l => l.id === n && l.tier !== 'platform'));
+  const os = ({ linux: 'Linux', darwin: 'macOS', win32: 'Windows' } as Record<string, string>)[ctx.platform];
+  const names = 'error' in check ? [] : Object.entries(check.profiles).filter(([, p]) => p.os === os && ctx.lanes.some(l => l.tier !== 'platform' && l.id.startsWith(`${p.workflow}/`))).map(([n]) => n);
   const v = 'error' in check ? { ok: false as const, reason: 'profiles_unavailable', detail: check.error } : verifyFromRun(check, ref, names, ctx.wtree, ctx.head);
   if (!v.ok) return { line: `REUSE: refused reason=${v.reason} — ${v.detail}; every selected test runs here`, passed: [] };
   const ran = new Set(v.evidence.files);

@@ -15,7 +15,7 @@ import { parseWorkflow } from '../lib/pregate/workflows';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
-const FILES = { 'free-tests.yml': { aggregate: 'free-tests', profile: 'free-tests.yml/free-suite', plan: 'free-plan', exempt: [] as string[] }, 'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'windows-free-tests.yml/windows-free-shard', plan: 'windows-plan', exempt: ['windows-record-durations'] } };
+const FILES = { 'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: [] as string[] }, 'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'ci-reuse/windows-free-tests', plan: 'windows-plan', exempt: ['windows-record-durations'] } };
 const REUSE_IF = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 const SKIP = "steps.route.outputs.reused != 'true'";
 const PROFILES = JSON.parse(read('.gstack/pregate.json')).run_profiles as Record<string, { workflow: string; jobs: string[]; artifact: string; events: string[]; os: string }>;
@@ -122,7 +122,7 @@ for (const [file, spec] of Object.entries(FILES)) {
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     });
 
-    test('its run profile names this workflow, its real non-matrix jobs and the uploaded artifact', () => {
+    test('its run profile names this workflow, its real non-matrix jobs and the uploaded artifact, and is never named after a lane (lane clears keep their URL path until GST-555)', () => {
       const profiles = Object.entries(PROFILES).filter(([, p]) => p.workflow === file);
       expect(profiles.map(([n]) => n)).toContain(spec.profile);
       for (const [name, p] of profiles) {
@@ -130,8 +130,7 @@ for (const [file, spec] of Object.entries(FILES)) {
         expect([name, p.artifact]).toEqual([name, 'tested-tree']);
         for (const job of p.jobs) expect([name, job, !!jobs[job] && !jobs[job].strategy]).toEqual([name, job, true]);
         expect(p.jobs).toContain(spec.aggregate);
-        expect(name.split('/')[0]).toBe(file);
-        expect(jobs[name.split('/')[1]!]).toBeDefined();
+        expect([name, /\.ya?ml\//.test(name)]).toEqual([name, false]);
       }
     });
   });

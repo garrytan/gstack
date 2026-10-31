@@ -88,8 +88,8 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
                                 spent, reserved and unknown
   --run <id>                    the run label recorded in pregate.json and the name of this run's scratch directory (a taken name gets a numbered sibling, <id>-2 … -9)
                                 (<state root>/projects/<slug>/pregate/runs/<id>: lane and guard logs, scan files; default a unique id)
-  --from-run <id|url>           a Free Tests run on this exact tree, verified against the base branch's run profile named after a
-                                local lane (docs/pregate.md#from-run): the selected test files its tree.json lists count as passed and
+  --from-run <id|url>           a Free Tests run on this exact tree, verified against the base branch's run profile for this OS
+                                whose workflow holds a local lane (docs/pregate.md#from-run): the selected test files its tree.json lists count as passed and
                                 are recorded with its receipt; the rest still run. A refused run prints REUSE: refused and runs everything
   --explain                     print each selected test's provenance and each uncertain mapping
   --json                        one JSON object on stdout; a refusal before any check runs (unavailable base, invalid pin

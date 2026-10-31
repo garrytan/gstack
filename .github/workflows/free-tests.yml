@@ -92,7 +92,7 @@ jobs:
         name: Find a green pull request or dispatch run of this exact tree
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bun run scripts/ci-tree-reuse.ts find --workflow free-tests.yml --profile free-tests.yml/free-suite
+        run: bun run scripts/ci-tree-reuse.ts find --workflow free-tests.yml --profile ci-reuse/free-tests
 
   free-plan:
     needs: reuse

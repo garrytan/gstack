@@ -3,8 +3,8 @@
  * profiles, this repository on GitHub, the verifier's gh- and git-backed
  * dependencies, and the remote gate's inventory command (a pin-file command,
  * so it runs only with --allow-repo-commands). Shared by `gstack-pregate
- * clear`, `gstack-pregate --from-run` and `gstack-ship-queue ready
- * --dispatch-ci`, so all three read profiles from the base and nowhere else.
+ * clear` and `gstack-pregate --from-run`, so both read profiles from the
+ * base and nowhere else.
  */
 import { spawnSync } from 'node:child_process';
 import { ghRunDeps, runInventory } from '../run-evidence';

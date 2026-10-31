@@ -4334,9 +4334,7 @@ HEAD is not the PR's pushed head (read through `gh pr view`), CI at that
 exact head is not green (failed, pending or unreadable), or the pregate result
 is missing, failed or recorded on another tree (`PREGATE_STALE`). Under
 `--dispatch-ci` it is also a dispatched workflow run that concluded red (a red
-run clears no pregate lane), a `gh workflow run` that failed, or a run that
-does not verify for a lane the base branch profiles (the message names the
-`REUSE: refused reason=<code>`; [run evidence](pregate.md#run-evidence)). `train land`
+run clears no pregate lane) or a `gh workflow run` that failed. `train land`
 uses it while a slot cannot merge yet: checks on the stamp commit are not
 green, a name in `changelog_fragments.required_checks` is missing or not green
 there, the PR's base is no longer the train's base, the stamp push failed while

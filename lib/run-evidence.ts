@@ -220,11 +220,11 @@ export type FromRunVerdict = { ok: true; evidence: RunEvidence; receipt: string 
 
 /**
  * `gstack-pregate --stage tests --from-run <run>`: the run as evidence for `tree` under the first profile in `names`
- * it verifies against (the base branch's profiles named after a lane this machine runs), with `head` as a further veto
+ * it verifies against (the base branch's profiles for this machine's OS whose workflow holds a local lane), with `head` as a further veto
  * head. The run must have tested exactly this tree (no stamp-only substitution) and list the files it ran.
  */
 export function verifyFromRun(src: RunSource, ref: string, names: string[], tree: string, head: string): FromRunVerdict {
-  if (!names.length) return { ok: false, reason: 'no_profile', detail: 'the base branch declares no run_profiles entry named after a lane this machine runs (free-tests.yml/free-suite, for example)' };
+  if (!names.length) return { ok: false, reason: 'no_profile', detail: 'the base branch declares no run_profiles entry for this machine\'s OS whose workflow holds a lane this machine runs (gstack\'s ci-reuse/free-tests, for example)' };
   const refusals: Array<{ reason: string; detail: string }> = [];
   for (const name of names) {
     const v = verifyRun(src.deps, { repo: src.repo, runRef: ref, profileName: name, profile: src.profiles[name]!, vetoHeads: SHA.test(head) ? [head] : [], now: src.now });
@@ -250,7 +250,7 @@ export function parseRunReceipt(receipt: string): { runs: string[]; profiles: st
 }
 
 /** Egress receipts for the reads below (fail-open, like contributor-mode): only this repository's name, run ids and a commit sha leave the machine. */
-const receiptFor = (host: string, payloadClass: string, request: string) => ({ sink: 'run-evidence', host, payloadClass, bytes: 0, sha256: sha256Hex(request), consent: 'a run verification the user or the repository\'s own workflow started (gstack-pregate clear --run or --from-run, gstack-ship-queue ready --dispatch-ci, the main-push reuse job); reads its own repository\'s Actions runs and fetches a run head by sha' });
+const receiptFor = (host: string, payloadClass: string, request: string) => ({ sink: 'run-evidence', host, payloadClass, bytes: 0, sha256: sha256Hex(request), consent: 'a run verification the user or the repository\'s own workflow started (gstack-pregate clear --run or --from-run, the main-push reuse job); reads its own repository\'s Actions runs and fetches a run head by sha' });
 const receiptFailed = (err: unknown) => process.stderr.write(`[run-evidence] egress receipt could not be written (${(err as Error).message}); proceeding (fail-open)\n`);
 
 function gh(args: string[], timeoutMs = 60_000): string {

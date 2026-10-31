@@ -47,7 +47,7 @@ function deps(w: World, reads: number[] = []): ReuseDeps {
     commitTree: sha => w.trees[sha] ?? null,
   };
 }
-const find = (w: World, reads?: number[]) => findReuse(deps(w, reads), { repo: REPO, base: 'main', pushSha: PUSH, workflow: 'free-tests.yml', profileName: 'free-tests.yml/free-suite', profile: PROFILE, now: NOW });
+const find = (w: World, reads?: number[]) => findReuse(deps(w, reads), { repo: REPO, base: 'main', pushSha: PUSH, workflow: 'free-tests.yml', profileName: 'ci-reuse/free-tests', profile: PROFILE, now: NOW });
 const why = (w: World) => { const v = find(w); return v.reused ? 'reused' : v.reason; };
 
 describe('findReuse: candidate discovery for a main push', () => {
@@ -148,7 +148,7 @@ describe.skipIf(process.platform === 'win32')('the CLI', () => {
       for (const [event, ref] of [['pull_request', 'refs/pull/1/merge'], ['workflow_dispatch', 'refs/heads/main'], ['push', 'refs/heads/feature']]) {
         const out = path.join(dir, 'out');
         fs.writeFileSync(out, '');
-        const r = run(['find', '--workflow', 'free-tests.yml', '--profile', 'free-tests.yml/free-suite'], { GITHUB_EVENT_NAME: event!, GITHUB_REF: ref!, GITHUB_REPOSITORY: REPO, GITHUB_SHA: PUSH, GITHUB_OUTPUT: out, PATH: '/nonexistent' }, dir);
+        const r = run(['find', '--workflow', 'free-tests.yml', '--profile', 'ci-reuse/free-tests'], { GITHUB_EVENT_NAME: event!, GITHUB_REF: ref!, GITHUB_REPOSITORY: REPO, GITHUB_SHA: PUSH, GITHUB_OUTPUT: out, PATH: '/nonexistent' }, dir);
         expect([event, r.status]).toEqual([event, 0]);
         expect(fs.readFileSync(out, 'utf8')).toBe('reused=false\nreason=not_main_push\n');
       }

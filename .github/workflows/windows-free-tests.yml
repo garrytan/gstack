@@ -81,7 +81,7 @@ jobs:
         name: Find a green pull request or dispatch run of this exact tree
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bun run scripts/ci-tree-reuse.ts find --workflow windows-free-tests.yml --profile windows-free-tests.yml/windows-free-shard
+        run: bun run scripts/ci-tree-reuse.ts find --workflow windows-free-tests.yml --profile ci-reuse/windows-free-tests
 
   windows-plan:
     needs: reuse
