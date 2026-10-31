@@ -161,8 +161,10 @@ the readiness dashboard and the PR body, and never count it as a pass.
   label position that none of these forms reads (`## P1/P2 findings`) makes the
   review [`unverified`](#outside-review-unparsed-severity), never `clean`. Code
   fences and inline code are quotes, not labels. A fence that never closes
-  still hides its text from the evidence for `clean`, but a P0 or P1 label, an
-  unreadable label or a `Verdict: not ready` after its opening line blocks.
+  still hides its text from the evidence for `clean`, but after its opening
+  line a P0 or P1 label (or a Critical or High word) and a last
+  `Verdict: not ready` still block, and an unreadable label still makes the
+  review `unverified`.
 - **Severity words in label position.** `Severity: High`, `Priority: low`, a
   line that starts with `High:`, `High —`, `[High]` or `**High**` (after an
   optional heading, bullet or number), a bold `**High**` anywhere, or a table
