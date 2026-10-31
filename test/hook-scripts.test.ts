@@ -1561,15 +1561,14 @@ describe('check-freeze.sh', () => {
     // of padded links must deny fast instead of running for minutes.
     test.skipIf(process.platform === 'win32')('a symlink chain whose targets add up past 8192 characters denies quickly', () => {
       withTree(({ base, home, src, outside }) => {
-        let next = outside;
-        for (let i = 40; i >= 1; i--) {
-          const link = path.join(src, `S${i}`);
-          fs.symlinkSync('.' + '/'.repeat(3990) + path.relative(src, next), link);
-          next = link;
-        }
+        // Each target pads with 'name/..' pairs (few components, so the walk
+        // itself stays cheap) to about 3,800 characters; three hops pass 8192.
+        const pad = ('n'.repeat(250) + '/../').repeat(15);
+        fs.symlinkSync(pad + path.relative(src, outside), path.join(src, 'p3'));
+        fs.symlinkSync(pad + 'p3', path.join(src, 'p2'));
+        fs.symlinkSync(pad + 'p2', path.join(src, 'p1'));
         const started = Date.now();
-        const decision = decide(src, src + '/S1/' + '/'.repeat(3990) + 'x.ts', home, base);
-        expect(decision).toBe('deny');
+        expect(decide(src, src + '/p1/x.ts', home, base)).toBe('deny');
         expect(Date.now() - started).toBeLessThan(4000);
       });
     });

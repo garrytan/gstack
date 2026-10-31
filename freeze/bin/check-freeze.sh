@@ -319,7 +319,7 @@ _resolve_path() {
   printf '%s' "$GSTACK_HOOK_PATH"
 }
 
-_FREEZE_WHY="a symlink loop, a chain over 40 links, link targets over 8192 characters in all, an unreadable link, or a Windows name that cannot be placed"
+_FREEZE_WHY="a symlink loop, a chain over 40 links, a path and link targets over 8192 characters in all, an unreadable link, or a Windows name that cannot be placed"
 FREEZE_DIR_RAW="$FREEZE_DIR"
 FREEZE_DIR=$(_resolve_path "$FREEZE_DIR_RAW" physical "$FREEZE_DIR_WIN") || _freeze_unresolved "the freeze boundary $FREEZE_DIR_RAW" "$_FREEZE_WHY"
 # Hosts disagree on '<link>/..': the OS means the target's parent, a lexical
