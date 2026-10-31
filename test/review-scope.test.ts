@@ -7,12 +7,13 @@
  * in the range since the previous pass (or the diff) and notes the rest.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import {
-  isBlocking, kindOf, locusOf, parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
-  type ScopedFinding,
+  isBlocking, kindOf, locusOf, mapStateMatrixOutput, parseHunks, raisedBy, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
+  UNTESTED_CELL, type ScopedFinding, type ScopeFinding,
 } from '../lib/review-scope';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
@@ -119,6 +120,23 @@ describe('scope decisions', () => {
     // a blocking finding nobody could place is fixed now, never filed against '(no path)'
     const unplaced = scopeFindings([{ severity: 'CRITICAL', category: 'logic', summary: 'somewhere' }], { policy: 'frozen', pass: 2, diffHunks: diff, rangeHunks: range });
     expect(by(unplaced)['undefined']).toBe('outside/defect/blocking/fix');
+  });
+
+  // Value: protects=below-floor findings from Step 11's voices or a fix-check are notes even when classified at --pass 1, so they never send the ship back through Steps 9-11; blocking ones stay fix; fails_when=Step 11 scopes its queue at PASS=1 and four below-floor notes come back `scope: fix` (GSTA-167 replay 8G on #34; CREW 23 and 30a);
+  //   why_new=the frozen pass-1 case above has no raised_by; seam=scopeFindings; no_claim=that the parent tags raised_by correctly
+  test('frozen pass 1: below-floor findings raised after pass 1 (Step 11, fix-check) are notes, blocking ones are fixed', () => {
+    const late = (raised_by: string) => [
+      { fingerprint: `src/auth.ts:42:naming:${raised_by}`, path: 'src/auth.ts', line: 42, severity: 'INFORMATIONAL', category: 'naming', summary: 'wording', raised_by },
+      { fingerprint: `src/auth.ts:11:security:${raised_by}`, path: 'src/auth.ts', line: 11, severity: 'CRITICAL', category: 'security', summary: 'real', raised_by },
+    ];
+    for (const who of ['adversarial-native', 'adversarial', 'outside-voice', 'fix-check']) {
+      const [below, blocker] = scopeFindings(late(who), { policy: 'frozen', pass: 1, diffHunks: diff, rangeHunks: range });
+      expect([who, below!.scope, below!.locus]).toEqual([who, 'note', 'diff']);
+      expect([who, blocker!.scope]).toEqual([who, 'fix']);
+      expect(scopeFindings(late(who), { policy: 'diff-plus-blocking', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('note');
+    }
+    for (const who of ['core', 'red-team', 'qa', 'security']) expect(scopeFindings(late(who), { policy: 'frozen', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('fix');
+    expect(scopeFindings(late('outside-voice'), { policy: 'all', pass: 1, diffHunks: diff, rangeHunks: range })[0]!.scope).toBe('fix');
   });
 
   test('diff-plus-blocking (the documented fallback, not the default): a blocking finding outside the diff is fixed here instead of filed; everything else is as frozen', () => {
@@ -270,6 +288,10 @@ describe('gstack-review-scope (bin)', () => {
     const badRender = runBin(repo, 'gstack-review-scope', ['render', '--deferred', d]);
     expect(badRender.status).toBe(EXIT.fail);
     expect(badRender.err).toContain('expected the JSON array defer --out writes');
+    fs.writeFileSync(d, '{"deferred":[]}');
+    const wrapped = runBin(repo, 'gstack-review-scope', ['render', '--deferred', d]);
+    expect(wrapped.status, wrapped.err).toBe(EXIT.ok);
+    expect(wrapped.out).toBe('');
   });
 
   test('classify sees a non-ASCII changed path under its own name, so a CRITICAL finding there is fixed, not deferred to an issue', () => {
@@ -419,5 +441,78 @@ describe('gstack-review-scope (bin)', () => {
     expect(fs.existsSync(noneOut)).toBe(false);
     const late = runBin(repo, 'gstack-review-scope', ['summary', '--since', '2026-10-27T00:00:00Z']);
     expect(late.status).toBe(EXIT.fail);
+  });
+});
+
+describe('raised_by: which reviewer raised a classified finding (GSTA-152 D6)', () => {
+  test.each([
+    [{ raised_by: 'red-team' }, 'red-team'], [{ raised_by: 'QA' }, 'qa'], [{ raised_by: 'core' }, 'core'], [{ raised_by: 'fix-check' }, 'fix-check'],
+    [{ specialist: 'State Machines' }, 'state-machines'], [{ specialist: 'red-team' }, 'red-team'], [{ specialist: 'adversarial' }, 'adversarial-native'],
+    [{ specialist: 'outside-voice' }, 'outside-voice'], [{ raised_by: 'nonsense\n', specialist: 'testing' }, 'testing'], [{ specialist: 42 }, 'unknown'], [{}, 'unknown'],
+  ])('%j -> %s', (f, want) => expect(raisedBy(f as any)).toBe(want));
+  test('classify stamps raised_by on every finding, and an older row without it still summarizes', () => {
+    const scoped = scopeFindings([{ fingerprint: 'src/a.ts:3:logic', path: 'src/a.ts', line: 3, severity: 'CRITICAL', specialist: 'security' }, { fingerprint: 'src/a.ts:9:logic', path: 'src/a.ts', line: 9, severity: 'CRITICAL' }], { policy: 'frozen', pass: 1, diffHunks: { 'src/a.ts': 'whole' }, rangeHunks: null });
+    expect(scoped.map(f => f.raised_by)).toEqual(['security', 'unknown']);
+    const old = { skill: 'review', via: 'ship', timestamp: '2026-10-28T10:00:00Z', findings: [{ fingerprint: 'src/a.ts:3:logic', blocking: true, action: 'fixed' }] };
+    expect(summarizeReviewLoop([old], '2026-10-28T09:00:00Z')).toMatchObject({ passes: 1, blocking_found: 1, fixed: 1 });
+  });
+});
+
+describe('GSTA-167 part 4b: untested state-matrix cells map below the floor per matrix cell, before the merge', () => {
+  const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'state-matrix-6792', 'captured-output.jsonl');
+  const parse = (text: string) => text.split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(o => !o.matrix);
+  const scope = (findings: ScopeFinding[], policy: 'frozen' | 'all' = 'frozen') => scopeFindings(findings, { policy, pass: 1, diffHunks: { 'src/takes/proposals.ts': 'whole', 'src/m.ts': 'whole' }, rangeHunks: null });
+  const matrix = (test: string | null) => JSON.stringify({ specialist: 'state-machines', matrix: { machine: 'm (src/m.ts)', kinds: ['hold'], actions: ['release'], cells: [{ kind: 'hold', action: 'release', row: 'hold released', test }] } });
+  const untested = { severity: 'CRITICAL', confidence: 7, path: 'src/m.ts', line: 9, category: 'state-matrix', summary: 'untested cell: hold × release → hold released', fingerprint: 'src/m.ts:state-matrix:hold:release', specialist: 'state-machines', cell: { kind: 'hold', action: 'release' } };
+
+  // Value: protects=the captured #6792 review keeps its wrong-row and collapsed-kinds defects blocking while each untested cell
+  //   alone on its cell becomes a pass-1 note; matrix records pass through byte for byte; fails_when=a defect is demoted or a
+  //   pure test gap blocks; seam=mapStateMatrixOutput before Step 9.3's merge
+  test('#6792: four lone untested cells become notes; wrong rows, collapsed kinds and cells they share stay blocking', () => {
+    const raw = fs.readFileSync(FIXTURE, 'utf8');
+    const out = mapStateMatrixOutput(raw);
+    expect(out.mapped).toBe(4);
+    expect(out.text.split('\n')[0]).toBe(raw.split('\n')[0]);
+    const scoped = scope(parse(out.text));
+    const blocking = scoped.filter(f => f.blocking).map(f => f.summary!.split(':')[0]);
+    expect(blocking.sort()).toEqual(['collapsed kinds', 'untested cell', 'untested cell', 'wrong row', 'wrong row']);
+    const notes = scoped.filter(f => f.state_matrix === UNTESTED_CELL);
+    expect(notes.map(f => [f.kind, f.blocking, f.scope, f.severity, f.raw_severity])).toEqual(Array(4).fill(['test-gap', false, 'note', 'INFORMATIONAL', 'CRITICAL']));
+  });
+
+  // Value: protects=F3, a wrong-row finding that reuses the untested cell's fingerprint can never be folded into a demoted record;
+  //   fails_when=the merge keeps the demoted summary and the data-loss row drops to Review notes; seam=the merge keeps CRITICAL if either
+  test('a wrong row sharing the untested cell and its fingerprint keeps both CRITICAL, before and after a merge', () => {
+    const wrong = { ...untested, summary: 'wrong row: hold × release deletes the hold', line: 12 };
+    const out = mapStateMatrixOutput([matrix(null), JSON.stringify(untested), JSON.stringify(wrong)].join('\n'));
+    expect(out.mapped).toBe(0);
+    const merged = { ...parse(out.text)[0], severity: 'CRITICAL' };
+    expect(scope([merged])[0]).toMatchObject({ kind: 'defect', blocking: true, scope: 'fix' });
+    const demoted = parse(mapStateMatrixOutput([matrix(null), JSON.stringify(untested)].join('\n')).text)[0];
+    expect(scope([{ ...demoted, severity: 'CRITICAL' }])[0]).toMatchObject({ kind: 'defect', blocking: true });
+  });
+
+  test('no matrix record, a cell the matrix maps to a test, or a lone wrong row on an untested cell: every one stays CRITICAL', () => {
+    const wrongAlone = { ...untested, summary: 'wrong row: hold × release deletes the hold' };
+    for (const text of [JSON.stringify(untested), [matrix('test/m.test.ts:4'), JSON.stringify(untested)].join('\n'), [matrix(null), JSON.stringify(wrongAlone)].join('\n')]) {
+      const out = mapStateMatrixOutput(text);
+      expect([out.mapped, out.text]).toEqual([0, text]);
+      expect(scope(parse(text))[0]!.blocking).toBe(true);
+    }
+  });
+
+  test('policy all fixes a mapped cell; other policies note it from pass 1 on, in or out of the diff', () => {
+    const [f] = parse(mapStateMatrixOutput([matrix(null), JSON.stringify(untested)].join('\n')).text);
+    expect(scope([f], 'all')[0]!.scope).toBe('fix');
+    expect(scope([f])[0]!.scope).toBe('note');
+    expect(scopeFindings([f], { policy: 'diff-plus-blocking', pass: 2, diffHunks: {}, rangeHunks: {} })[0]!.scope).toBe('note');
+  });
+
+  test('gstack-state-matrix findings prints the mapped output and the count on stderr; check still reads the raw file', () => {
+    const r = spawnSync('bun', ['--no-env-file', '--config=/dev/null', path.join(ROOT, 'bin', 'gstack-state-matrix'), 'findings', FIXTURE], { encoding: 'utf8', timeout: 60_000 });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('STATE_MATRIX_FINDINGS: mapped=4');
+    expect(r.stdout).toBe(mapStateMatrixOutput(fs.readFileSync(FIXTURE, 'utf8')).text);
+    expect(fs.readFileSync(path.join(ROOT, 'review', 'specialists', 'state-machines.md'), 'utf8')).toContain('- **Untested cell (CRITICAL; this rule\'s High tier).**');
   });
 });

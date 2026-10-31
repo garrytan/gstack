@@ -125,6 +125,8 @@ interface GenerateOptions {
   root?: string;
   /** When true, missing skill description should fail the build. */
   strict?: boolean;
+  /** Skill directories a module loadout leaves out (scripts/modules.ts). */
+  excludedSkills?: string[];
 }
 
 export interface GenerateResult {
@@ -143,6 +145,7 @@ export async function generateLlmsTxt(opts: GenerateOptions = {}): Promise<Gener
   const skills: SkillEntry[] = [];
   for (const t of templates) {
     if (!includesSkill(claudeHost, path.dirname(t.tmpl))) continue;
+    if (opts.excludedSkills?.includes(path.dirname(t.tmpl))) continue;
     const filePath = path.join(root, t.tmpl);
     const entry = parseSkillFrontmatter(filePath);
     if (!entry) {

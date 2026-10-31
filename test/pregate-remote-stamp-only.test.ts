@@ -290,3 +290,28 @@ describe.skipIf(process.platform === 'win32')('clear --receipt accepts a stamp-o
     expect(pregateJson(repo).requires_remote[0].receipt).toBeNull();
   }, 120_000);
 });
+
+// /ship docs audit (GSTA-154 PR A): clear's substitution and gstack-tree-receipt share one classifier, fragment fold included.
+describe.skipIf(process.platform === 'win32')('clear --receipt under changelog_fragments', () => {
+  // Value: protects=a receipt for the fragment head clears the stamped head when the stamp is exactly the fold; fails_when=clear treats the fold as a change and forces a second remote gate, or accepts a fold that dropped the text; why_new=every other case uses [Unreleased]; seam=none; no_claim=restamp's own fold (its tests)
+  test('the fold of a deleted fragment is a stamp; a fold that changed the text is not', () => {
+    const repo = makeFixtureRepo({
+      pregate: { ...BASE_PREGATE, remote_gate: GATE },
+      baseFiles: { '.gstack/ship-policy.json': JSON.stringify({ ...POLICY, changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' }, null, 2) + '\n', VERSION: '1.0.0\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.0] - 2026-10-01\n\n- base\n' },
+    });
+    repos.push(repo);
+    repo.git('checkout', '-q', 'feature');
+    repo.git('merge', '-q', '--ff-only', 'main');
+    const gated = commit(repo, { 'lib/util.js': 'exports.add = (a, b) => a + b;\n', 'changelog.d/add.md': '- add\n' }, 'change with a fragment');
+    const gatedTree = repo.git('rev-parse', `${gated}^{tree}`);
+    const stampTo = (entry: string) => {
+      repo.git('checkout', '-q', '--detach', gated);
+      fs.rmSync(path.join(repo.work, 'changelog.d', 'add.md'));
+      return repo.git('rev-parse', `${commit(repo, { VERSION: '1.0.1\n', 'CHANGELOG.md': `# Changelog\n\n## [1.0.1] - 2026-10-29\n\n${entry}\n## [1.0.0] - 2026-10-01\n\n- base\n` }, 'v1.0.1 stamp')}^{tree}`);
+    };
+    const ok = substituteStampOnlyTree(repo.work, 'main', gatedTree, stampTo('- add\n'));
+    expect('substitution' in ok && ok.substitution.files).toEqual(expect.arrayContaining([{ path: 'CHANGELOG.md', rule: 'changelog-fragments' }, { path: 'changelog.d/add.md', rule: 'changelog_fragments' }]));
+    const edited = substituteStampOnlyTree(repo.work, 'main', gatedTree, stampTo('- add, reworded\n'));
+    expect('problem' in edited && edited.problem).toContain('changelog.d/add.md (changelog_fragments: deleted without its text folded');
+  }, 120_000);
+});

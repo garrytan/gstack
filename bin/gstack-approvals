@@ -5,7 +5,7 @@
  *   gstack-approvals add --ask <text> --words <exact words> --by <who> --scope <what it covers>
  *                        [--pending <text>] [--outcome approved|rejected|pending|standing]
  *                        [--date YYYY-MM-DD] [--source <ref>] [--branch <name>] [--json]
- *   gstack-approvals import --autoplan <run dir> [--by <whose words>] [--branch <name>] [--json]
+ *   gstack-approvals import --autoplan <run dir> [--by <whose words>] [--branch <name> | --stack <b1,b2,...>] [--json]
  *   gstack-approvals render [--no-heading] [--branch <name>]
  *   gstack-approvals list [--json] [--branch <name>]
  *   gstack-approvals sync [--branch <name>]
@@ -20,14 +20,15 @@
  */
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import { appendRows, buildRow, importAutoplan, locate, readRecord, renderRecord, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
+import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderRecord, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
 import { resultLine } from '../lib/result-codes';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
 
   add     --ask <text> --words <exact words> --by <who> --scope <what it covers>
           [--pending <text>] [--outcome approved|rejected|pending|standing] [--date YYYY-MM-DD] [--source <ref>]
-  import  --autoplan <run dir> [--by <whose words, e.g. Garry>]
+  import  --autoplan <run dir> [--by <whose words, e.g. Garry>] [--stack <b1,b2,...>]
+          --stack writes the same rows to every branch of a stack; each branch is checked first, and one unknown branch writes none
   render  [--no-heading]          the ## Approvals section for a PR body or report
   list    [--json]
   sync                            re-mirror the record (GSTACK_APPROVALS_DIR, the Captain's drive approvals/, or the project-user Drive)
@@ -40,7 +41,7 @@ Example:
 
 ${exitTableHelp()}`;
 
-const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan']);
+const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack']);
 
 function parse(args: string[]): { flags: Record<string, string>; bools: Set<string>; error?: string } {
   const flags: Record<string, string> = {};
@@ -64,11 +65,45 @@ function fail(cmd: string, e: RecordError): number {
   return EXIT.refused;
 }
 
+/** `import --stack`: every branch checked first, then the same rows (ids are branch-independent) written to each branch's record. */
+function importStack(cmd: string, flags: Record<string, string>, json: boolean): number {
+  if (cmd !== 'import' || !flags['--autoplan'] || flags['--branch'] !== undefined) { process.stderr.write(`gstack-approvals: --stack goes with import --autoplan <run dir>, without --branch\n`); return EXIT.usage; }
+  const branches = [...new Set(flags['--stack']!.split(',').map(b => b.trim()).filter(Boolean))];
+  if (!branches.length) { process.stderr.write(`gstack-approvals: --stack needs <b1,b2,...>\n`); return EXIT.usage; }
+  const cwd = process.cwd();
+  const missing = branches.filter(b => !branchExists(cwd, b));
+  if (missing.length) return fail(cmd, { code: 'APPROVAL_RECORD_NO_BRANCH', message: `no local or origin branch ${missing.join(', ')}; nothing was written` });
+  const runDir = path.resolve(flags['--autoplan']);
+  const results: Array<{ branch: string; added: string[]; skipped: number; file: string; mirror: string | null; error?: string }> = [];
+  let firstError: RecordError | undefined;
+  const plans: Array<{ branch: string; loc: StoreLocation; rows: ReturnType<typeof importAutoplan> & unknown[] }> = [];
+  for (const branch of branches) {
+    const loc = locate({ cwd, env: process.env, branch });
+    if ('code' in loc) return fail(cmd, loc);
+    const rows = importAutoplan(runDir, branch, flags['--by']);
+    if ('code' in rows) return fail(cmd, rows);
+    plans.push({ branch, loc, rows });
+  }
+  for (const { branch, loc, rows } of plans) {
+    const res = appendRows(loc, rows);
+    if ('code' in res) { firstError ??= res; results.push({ branch, added: [], skipped: 0, file: loc.file, mirror: loc.mirror ?? null, error: res.message }); continue; }
+    if (res.mirrorError) firstError ??= res.mirrorError;
+    results.push({ branch, added: res.added.map(r => r.id), skipped: res.skipped, file: loc.file, mirror: loc.mirror ?? null, ...(res.mirrorError ? { error: res.mirrorError.message } : {}) });
+  }
+  if (json) process.stdout.write(JSON.stringify({ branches: results }) + '\n');
+  else {
+    for (const r of results) process.stdout.write(`APPROVAL_IMPORTED: branch=${r.branch} n=${r.added.length} skipped=${r.skipped} ${r.file}${r.mirror ? ` mirror=${r.mirror}` : ''}${r.error ? ` error=${r.error}` : ''}\n`);
+    process.stdout.write(`APPROVAL_IMPORTED_STACK: branches=${results.length} added=${results.reduce((n, r) => n + r.added.length, 0)}\n`);
+  }
+  return firstError ? fail(cmd, firstError) : EXIT.ok;
+}
+
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === '--help' || cmd === '-h') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
   const { flags, bools, error } = parse(rest);
   if (error) { process.stderr.write(`gstack-approvals: ${error}\n${HELP}\n`); return EXIT.usage; }
+  if (flags['--stack'] !== undefined) return importStack(cmd, flags, bools.has('--json'));
   const loc = locate({ cwd: process.cwd(), env: process.env, branch: flags['--branch'] });
   if ('code' in loc) return fail(cmd, loc);
   const json = bools.has('--json');

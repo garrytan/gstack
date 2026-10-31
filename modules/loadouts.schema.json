@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "gstack module loadouts",
+  "description": "Rungs, the model-id to rung table, pinned module ids and named loadouts. Validated by scripts/modules.ts validateLoadouts (bin/gstack-modules validate, test/module-loadouts.test.ts).",
+  "type": "object",
+  "required": [
+    "version",
+    "aliases",
+    "rungs",
+    "pinned",
+    "loadouts",
+    "default"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "note": {
+      "type": "string"
+    },
+    "aliases": {
+      "type": "object",
+      "additionalProperties": {
+        "enum": [
+          "frontier",
+          "strong",
+          "mid",
+          "light"
+        ]
+      }
+    },
+    "rungs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frontier",
+        "strong",
+        "mid",
+        "light"
+      ],
+      "properties": {
+        "frontier": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9.-]+\\*?$"
+          }
+        },
+        "strong": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9.-]+\\*?$"
+          }
+        },
+        "mid": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9.-]+\\*?$"
+          }
+        },
+        "light": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9.-]+\\*?$"
+          }
+        }
+      }
+    },
+    "pinned": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "loadouts": {
+      "type": "object",
+      "required": [
+        "full"
+      ],
+      "propertyNames": {
+        "pattern": "^[a-z0-9-]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "base": {
+            "type": "string"
+          },
+          "include": {
+            "oneOf": [
+              {
+                "const": "*"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "preamble_tier_max": {
+            "enum": [
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "default": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frontier",
+        "strong",
+        "mid",
+        "light",
+        "unknown"
+      ],
+      "properties": {
+        "frontier": {
+          "type": "string"
+        },
+        "strong": {
+          "type": "string"
+        },
+        "mid": {
+          "type": "string"
+        },
+        "light": {
+          "type": "string"
+        },
+        "unknown": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

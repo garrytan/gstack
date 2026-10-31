@@ -367,6 +367,27 @@ describe('uncommitted work is visible (#2299)', () => {
     expect(vars.SCOPE_BACKEND).toBe('true');
   });
 
+  // Value: protects=--head scopes one committed range from any checkout, the input the receipt writer and the merge queue
+  // share; fails_when=--head still reads the working tree or untracked files, or an unknown head reads as all-false; seam=none
+  test('--head <sha> scopes only the committed range: working-tree and untracked files are ignored, an unknown head is an error', () => {
+    const dir = createRepo(['lib/auth.ts']);
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, stdio: 'pipe' }).stdout.toString().trim();
+    mkdirSync(join(dir, 'db', 'migrate'), { recursive: true });
+    writeFileSync(join(dir, 'db', 'migrate', '001.rb'), '# untracked\n');
+    writeFileSync(join(dir, 'styles.css'), 'a{}\n');
+    const scope = (args: string[]) => spawnSync('bash', [SCRIPT, 'main', ...args], { cwd: dir, stdio: 'pipe', timeout: 5000 });
+    const ranged = scope(['--head', head]);
+    expect(ranged.status).toBe(0);
+    const out = ranged.stdout.toString();
+    expect(out).toContain('SCOPE_AUTH=true');
+    expect(out).toContain('SCOPE_MIGRATIONS=false');
+    expect(out).toContain('SCOPE_FRONTEND=false');
+    expect(runScopeFull(dir).vars.SCOPE_MIGRATIONS).toBe('true');
+    const unknown = scope(['--head', 'f'.repeat(40)]);
+    expect(unknown.status).toBe(2);
+    expect(unknown.stdout.toString()).toContain('SCOPE_ERROR=no_head');
+  });
+
   test('non-ASCII path still matches extension globs (NUL-safe file listing, #2526)', () => {
     const dir = createRepo(['docs/M2 — Notes.md']);
     const { vars, status } = runScopeFull(dir);

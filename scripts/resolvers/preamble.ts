@@ -72,6 +72,47 @@ export function generatePreamble(ctx: TemplateContext): string {
   return preambleSections(ctx).join('\n\n');
 }
 
+interface PreamblePiece {
+  /** Module id suffix (`preamble:<id>`); null for the model overlay, whose module id is `overlay:<model>`. */
+  id: string | null;
+  minTier: number;
+  when?: (ctx: TemplateContext) => boolean;
+  render: (ctx: TemplateContext, tier: number) => string;
+}
+
+/**
+ * The preamble's pieces in render order. AskUserQuestion Format renders BEFORE
+ * the model overlay so the pacing rule is the ambient default; the overlay's
+ * nudges land as subordinate patches (Opus 4.7 absorbs the first pacing
+ * directive it hits; reversing this regresses plan-review cadence, v1.6.4.0).
+ * Plan-mode semantics stays right after bash (so _SESSION_ID / _BRANCH / _TEL
+ * are live) and before every onboarding gate. The 8 one-time onboarding
+ * generators live in bin/gstack-skill-start's instruction layer (plan Q2/OV6/F5).
+ */
+export const PREAMBLE_PIECES: readonly PreamblePiece[] = [
+  { id: 'bash', minTier: 1, render: generatePreambleBash },
+  { id: 'make-pdf-setup', minTier: 1, when: ctx => ctx.skillName === 'make-pdf', render: generateMakePdfSetup },
+  { id: 'plan-mode-info', minTier: 1, render: generatePlanModeInfo },
+  { id: 'upgrade-check', minTier: 1, render: generateUpgradeCheck },
+  { id: 'brain-health', minTier: 1, render: generateBrainHealthInstruction },
+  { id: 'ask-user-format', minTier: 2, render: generateAskUserFormat },
+  { id: 'brain-sync', minTier: 1, render: generateBrainSyncBlock },
+  { id: null, minTier: 1, render: generateModelOverlay },
+  { id: 'voice', minTier: 1, render: generateVoiceDirective },
+  { id: 'context-recovery', minTier: 2, render: generateContextRecovery },
+  { id: 'writing-style', minTier: 2, render: generateWritingStyle },
+  { id: 'completeness', minTier: 2, render: generateCompletenessSection },
+  { id: 'confusion', minTier: 2, render: generateConfusionProtocol },
+  { id: 'evidence', minTier: 2, render: generateEvidenceDirective },
+  { id: 'context-health', minTier: 2, render: generateContextHealth },
+  { id: 'question-tuning', minTier: 2, render: generateQuestionTuning },
+  { id: 'repo-mode', minTier: 3, render: () => generateRepoModeSection() },
+  { id: 'search-before-building', minTier: 3, render: generateSearchBeforeBuildingSection },
+  { id: 'completion-status', minTier: 1, render: generateCompletionStatus },
+];
+
+export const PREAMBLE_MODULE_IDS: readonly string[] = PREAMBLE_PIECES.flatMap(p => (p.id ? [`preamble:${p.id}`] : []));
+
 /** The preamble's generator outputs in render order, empty ones dropped. */
 export function preambleSections(ctx: TemplateContext): string[] {
   const tier = ctx.preambleTier;
@@ -84,41 +125,15 @@ export function preambleSections(ctx: TemplateContext): string[] {
   if (tier < 1 || tier > 4) {
     throw new Error(`Invalid preamble-tier: ${tier} in ${ctx.tmplPath}. Must be 1-4.`);
   }
-  const sections = [
-    generatePreambleBash(ctx),
-    ...(ctx.skillName === 'make-pdf' ? [generateMakePdfSetup(ctx)] : []),
-    // Plan-mode-skill semantics stays near the top: after bash (so _SESSION_ID /
-    // _BRANCH / _TEL env vars are live) and before all onboarding gates so
-    // models read the authoritative "AskUserQuestion satisfies plan mode's
-    // end-of-turn" rule before any other instruction. Renders for all skills
-    // (not interactive-gated) on hosts whose capabilities declare planMode.
-    generatePlanModeInfo(ctx),
-    generateUpgradeCheck(ctx),
-    // Phase 2: the 8 one-time onboarding generators (lake-intro, telemetry-
-    // prompt, proactive-prompt, first-run-guidance, routing-injection,
-    // vendoring-deprecation, spawned-session-check, writing-style-migration)
-    // moved into bin/gstack-skill-start's instruction-emission layer — their
-    // text appears at runtime only when its gate fires (plan Q2/OV6/F5).
-    generateBrainHealthInstruction(ctx),
-    // AskUserQuestion Format renders BEFORE the model overlay so the pacing rule
-    // is the ambient default; the overlay's behavioral nudges land as subordinate
-    // patches. Opus 4.7 reads top-to-bottom and absorbs the first pacing directive
-    // it hits; reversing this order regresses plan-review cadence (v1.6.4.0 bug).
-    ...(tier >= 2 ? [generateAskUserFormat(ctx)] : []),
-    generateBrainSyncBlock(ctx),
-    generateModelOverlay(ctx),
-    generateVoiceDirective(ctx, tier),
-    ...(tier >= 2 ? [
-      generateContextRecovery(ctx),
-      generateWritingStyle(ctx),
-      generateCompletenessSection(ctx),
-      generateConfusionProtocol(ctx),
-      generateEvidenceDirective(ctx),
-      generateContextHealth(ctx),
-      generateQuestionTuning(ctx),
-    ] : []),
-    ...(tier >= 3 ? [generateRepoModeSection(), generateSearchBeforeBuildingSection(ctx)] : []),
-    generateCompletionStatus(ctx),
-  ];
-  return sections.filter(s => s && s.trim().length > 0);
+  const filter = ctx.modules;
+  const pieceTier = (piece: PreamblePiece): number => {
+    if (!filter || piece.id === null || filter.pinned.has(`preamble:${piece.id}`)) return tier;
+    return Math.min(tier, filter.preambleTierMax ?? tier);
+  };
+  return PREAMBLE_PIECES
+    .filter(piece => (piece.when?.(ctx) ?? true)
+      && !(piece.id && filter?.excluded.has(`preamble:${piece.id}`))
+      && pieceTier(piece) >= piece.minTier)
+    .map(piece => piece.render(ctx, pieceTier(piece)))
+    .filter(s => s && s.trim().length > 0);
 }

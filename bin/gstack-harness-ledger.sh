@@ -13,8 +13,11 @@
 # uninstall of the state root and the checkout. Only paths below the recorded
 # destination, reached through no symlink, are touched. A context block is cut
 # only when its file holds exactly one whole-line begin/end marker pair whose
-# lines hash to the ledger's block hash; otherwise the file is left as it is
-# (the file is removed only when nothing else is left in it). Folders gstack
+# lines hash to the ledger's block hash; otherwise the file is left as it is.
+# Its blockpad row says what gstack added before the block, so the cut restores
+# the file byte for byte: the blank line (and newline) it appended are removed
+# too, and a file gstack created is removed when nothing else is left in it
+# (ledgers without the row: when only whitespace is left). Folders gstack
 # created are removed only when empty. A QM pack is never touched here: detaching it from
 # the org is `gstack-harness unregister qm --remote`.
 
@@ -33,7 +36,7 @@ _gstack_harness_owned() {
 }
 
 _gstack_harness_cut_block() {
-  local file="$1" want="$2" span s e tmp
+  local file="$1" want="$2" pad="${3:-}" span s e tmp
   local begin='<!-- gstack:begin harness-routing -->' end='<!-- gstack:end harness-routing -->'
   { [ -f "$file" ] && [ ! -L "$file" ]; } || return 0
   span="$(awk -v B="$begin" -v E="$end" '$0 == B { nb++; s = NR } $0 == E { ne++; e = NR } END { if (nb == 1 && ne == 1 && e > s) print s, e; else if (nb || ne) print "bad" }' "$file")"
@@ -44,13 +47,18 @@ _gstack_harness_cut_block() {
     return 0
   fi
   tmp="$file.gstack-cut.$$"
-  awk -v s="$s" -v e="$e" 'NR < s || NR > e' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
-  if [ -z "$(tr -d '[:space:]' < "$tmp")" ]; then rm -f "$file"; else cat "$tmp" > "$file"; fi
+  awk -v s="$s" -v e="$e" -v pad="$pad" '{ line[NR] = $0 }
+    END {
+      from = s; if ((pad == "1" || pad == "2") && s > 1 && line[s - 1] == "") from = s - 1
+      n = 0; for (i = 1; i <= NR; i++) if (i < from || i > e) out[++n] = line[i]
+      for (i = 1; i <= n; i++) { printf "%s", out[i]; if (i < n || !(pad == "2" && e == NR)) printf "\n" }
+    }' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
+  if { [ "$pad" = new ] && [ ! -s "$tmp" ]; } || { [ -z "$pad" ] && [ -z "$(tr -d '[:space:]' < "$tmp")" ]; }; then rm -f "$file"; else cat "$tmp" > "$file"; fi
   rm -f "$tmp"
 }
 
 gstack_harness_unregister_ledger() {
-  local ledger="$1" stamp kind a b target="" dest="" pack=""
+  local ledger="$1" stamp kind a b target="" dest="" pack="" pad="" padpath=""
   : "${GSTACK_STATE_ROOT:?gstack-harness-ledger: GSTACK_STATE_ROOT is not set}"
   [ -f "$ledger" ] || return 0
   stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
@@ -61,7 +69,8 @@ gstack_harness_unregister_ledger() {
         { [ -f "$b" ] && _gstack_harness_owned "$b" "$dest"; } || continue
         if [ "$(_gstack_harness_sha "$b")" = "$a" ]; then rm -f "$b"
         else mv "$b" "$b.edited-$stamp" && echo "  kept your edit: $b.edited-$stamp"; fi ;;
-      block) _gstack_harness_cut_block "$b" "$a" ;;
+      blockpad) pad="$a"; padpath="$b" ;;
+      block) if [ "$padpath" = "$b" ]; then _gstack_harness_cut_block "$b" "$a" "$pad"; else _gstack_harness_cut_block "$b" "$a"; fi ;;
     esac
   done < "$ledger"
   while IFS=$'\t' read -r kind a b; do

@@ -2,8 +2,8 @@
  * `ready --pr <n> --screen | --no-screen` under a ship policy with a `train`
  * block (docs/ship-policy.md#run-a-merge-train; plan GSTA-49 T1). The
  * READY block is today's (lib/ship-queue.ts ready()); this adds the screen
- * selection and the default recommendation (screen when the screen
- * selects a skill's own cases), requires an explicit choice
+ * selection and the default recommendation (screen only when the selector
+ * restores every case or cannot select), requires an explicit choice
  * (READY_SCREEN_CHOICE_REQUIRED), dispatches a chosen screen through
  * eval-bg's nonce with its purpose and policy in the key, and records the
  * choice as a READY receipt (local state and refs/notes/gstack-trains) that
@@ -49,28 +49,41 @@ export function skillOwnCases(selected: readonly string[], touchfiles: Record<st
   return selected.filter(id => (touchfiles[id] ?? []).some(glob => skills.some(s => glob.startsWith(`${s}/`)))).sort();
 }
 
-/** gstack's paid selector over a diff (today's PR selection; T2 narrows it), loaded only when the policy asks for it. */
+/**
+ * gstack's paid selector over a diff, as a narrow screen (`--screen` without `--broad`) plans it, loaded only when the
+ * policy asks for it. The recommendation is --screen only when the selector restores every case (its `full-fallback`
+ * mode: an unknown dependency or a shared runtime input) or cannot select at all; every other PR rides the train
+ * unscreened, where the full gate census runs every case on the tree that merges (GSTA-165).
+ */
 export async function gstackPaidSelection(repoRoot: string, baseSha: string, changed: string[], hasTemplate: (dir: string) => boolean): Promise<ScreenSelection> {
   const { computePaidCaseSelection } = await import('../scripts/lib/paid-select');
   const { E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES } = await import('../test/helpers/touchfiles');
   const skills = touchedSkills(changed, hasTemplate);
-  let e2e: string[]; let judges: number; let note = "today's PR selection; T2's narrowed screen has not landed";
+  let e2e: string[]; let judges: number; let note = "the narrow screen's selection; --broad adds the dependents of files whose references reach every gate case";
+  let why: string;
+  let everyCase = false;
   try {
-    const s = computePaidCaseSelection({ profile: 'pr', rootDir: repoRoot, changedFiles: changed, env: { ...process.env, EVALS_BASE: baseSha, EVALS_ALL: '' } }).selection;
-    e2e = s.e2e ?? Object.keys(E2E_TOUCHFILES);
-    judges = s.judges ? s.judges.length : Object.keys(LLM_JUDGE_TOUCHFILES).length;
+    const r = computePaidCaseSelection({ profile: 'pr', rootDir: repoRoot, changedFiles: changed, env: { ...process.env, EVALS_BASE: baseSha, EVALS_ALL: '', EVALS_SCREEN_POLICY: 'narrow' } });
+    e2e = r.selection.e2e ?? Object.keys(E2E_TOUCHFILES);
+    judges = r.selection.judges ? r.selection.judges.length : Object.keys(LLM_JUDGE_TOUCHFILES).length;
+    const mode = r.coverage?.mode ?? 'unknown';
+    everyCase = mode === 'full-fallback';
+    why = everyCase ? `selector mode full-fallback (${r.reason.slice(0, 200)})` : `selector mode ${mode}: the train gate's full census covers these cases`;
   } catch (error) {
     e2e = Object.keys(E2E_TOUCHFILES);
     judges = Object.keys(LLM_JUDGE_TOUCHFILES).length;
     note = `the PR profile needs full validation (${error instanceof Error ? error.message.slice(0, 160) : String(error)}): the screen is the full gate selection`;
+    everyCase = true;
+    why = 'the selector could not select';
   }
   const own = skillOwnCases(e2e, E2E_TOUCHFILES, skills);
-  const recommend = own.length ? 'screen' : 'no-screen';
+  const recommend = everyCase ? 'screen' : 'no-screen';
   return {
     recommend,
     lines: [
       `SCREEN: selection ${e2e.length} e2e case(s) + ${judges} judge(s) (${note})`,
-      `SCREEN: skill's own cases ${own.length ? own.slice(0, 12).join(',') + (own.length > 12 ? ` (+${own.length - 12})` : '') : 'none'} → recommend --${recommend}`,
+      `SCREEN: skill's own cases ${own.length ? own.slice(0, 12).join(',') + (own.length > 12 ? ` (+${own.length - 12})` : '') : 'none'}`,
+      `SCREEN: ${why} → recommend --${recommend}`,
     ],
   };
 }

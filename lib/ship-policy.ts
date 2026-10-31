@@ -21,7 +21,7 @@ import { cmpVersion, parseVersion } from './version-source';
 export const SHIP_POLICY_PATH = '.gstack/ship-policy.json';
 export const SHIP_POLICY_SCHEMA = 'https://github.com/garrytan/gstack/docs/ship-policy.md#schema-v1';
 
-export type BumpPolicy = 'patch' | 'ask';
+export type BumpPolicy = 'patch' | 'ask' | 'never';
 export type QueueMode = 'claim-at-open' | 'stamp-at-merge';
 export type HistoryPolicy = 'merge-only' | 'squash-ok';
 /** `frozen`: /ship fixes the diff in pass 1, defers unchanged code to issues and reviews only the range after; `all`: every finding is fixed now. */
@@ -29,7 +29,7 @@ export type ReviewScope = 'frozen' | 'diff-plus-blocking' | 'all';
 
 export interface ShipPolicy {
   $schema?: string;
-  /** `patch` skips the MINOR/MAJOR prompts in /ship Step 12; `ask` keeps them. */
+  /** `patch` skips the MINOR/MAJOR prompts in /ship Step 12; `ask` keeps them; `never` keeps VERSION on every unit PR. */
   bump: BumpPolicy;
   /** `stamp-at-merge`: no claim at PR open; stamp when the PR is next. `claim-at-open` is today's queue. */
   queue_mode: QueueMode;
@@ -41,6 +41,8 @@ export interface ShipPolicy {
   stamp_paths: string[];
   /** The CHANGELOG re-headed on a restamp; null for repos without one. */
   changelog: string | null;
+  /** Unversioned CHANGELOG fragments (`<dir>/<slug>.md`) a PR adds instead of an `[Unreleased]` section; null keeps `[Unreleased]`. */
+  changelog_fragments: { dir: string; required_checks?: string[] } | null;
   /** Path of a paired repo to restamp identically (tier 2). */
   mirror: string | null;
   /** `merge-only` refuses a squash or rebase plan in /ship. */
@@ -73,7 +75,12 @@ export interface ShipPolicy {
   train: TrainPolicy | null;
   /** Documentation caps /ship Step 14.5 checks before the verification gate (`gstack-ship-receipt docs-caps`); null declares none. */
   docs: { caps: Array<{ path: string; max_bytes: number }> } | null;
+  /** How /ship reproduces a Step 5 failure on the base branch before calling it base-red (docs/ship-policy.md#base-red); null never calls one base-red. */
+  base_red: BaseRedPolicy | null;
 }
+
+/** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */
+export interface BaseRedPolicy { setup: string | null; select: string; timeout_sec: number }
 
 /** The `train` block: the gate workflow trains dispatch and how its verdict is read. */
 export interface TrainPolicy {
@@ -102,6 +109,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   release_outputs: [],
   stamp_paths: [],
   changelog: 'CHANGELOG.md',
+  changelog_fragments: null,
   mirror: null,
   history: 'squash-ok',
   preregistration_shas: [],
@@ -118,6 +126,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
+  base_red: null,
 };
 
 export type PolicyKey = Exclude<keyof ShipPolicy, '$schema'>;
@@ -125,12 +134,13 @@ export const POLICY_KEYS = Object.keys(DEFAULT_POLICY) as PolicyKey[];
 
 /** What each key means, printed by `init --explain` (JSON carries no comments). */
 export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
-  bump: 'patch | ask. `patch` skips the MINOR/MAJOR prompt in /ship Step 12.',
+  bump: 'patch | ask | never. `patch` skips the MINOR/MAJOR prompt in /ship Step 12; `ask` keeps it, and a session no person answers needs the owner\'s words (--answer) before a bump is written; `never` keeps VERSION on every unit PR (Step 12 writes nothing and asks nothing; the release process bumps). `never` needs min_gstack_version and rules out stamp-at-merge, train and changelog_fragments.',
   queue_mode: 'claim-at-open | stamp-at-merge. stamp-at-merge stamps when the PR is next (`gstack-restamp --next`), from the base branch version at that moment.',
   release_tool: 'The repo’s own release command, run in an isolated staging worktree with an enumerated allowed-output set. Never runs without /ship or --allow-repo-commands.',
   release_outputs: 'Globs the release tool may write beyond the version files, lockfiles, CHANGELOG and stamp_paths. Any other output refuses the restamp.',
   stamp_paths: 'Globs (repo-relative, no `..`) where exact `(was X)`, `since: X` and `vX` mentions of the old version are rewritten.',
   changelog: 'CHANGELOG path re-headed on a restamp (the PR’s `[Unreleased]` or old-version section moves to the top under the new version). null to skip.',
+  changelog_fragments: '{ dir, required_checks? } or null: a PR adds one unversioned `<dir>/<slug>.md` fragment (optional `bump: minor|major` front matter) instead of an `[Unreleased]` section and leaves VERSION, the manifest version and released CHANGELOG sections at its merge base; the restamp folds every fragment under the allocated version and deletes the files (docs/ship-policy.md#changelog-fragments). `required_checks` lists the check runs or status contexts `train land` requires present and green on a stamp commit. null keeps `[Unreleased]`.',
   mirror: 'Relative path of a paired repo to restamp identically; writes are confined to it. null to skip.',
   history: 'merge-only | squash-ok. merge-only makes /ship refuse a squash or rebase plan.',
   preregistration_shas: 'Commits that must be ancestors of HEAD before push (preregistered evals); checked by `gstack-evidence ancestor`.',
@@ -146,6 +156,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   full_e2e: 'true: every merge needs a passing full-gate result (gstack-ship-queue gate-ahead --record, or the lane\'s --gate-exit 0 --gate-log on the gated head) bound to a tree equal to the merging one modulo stamps; ready, stamp and verify refuse without one (QUEUE_GATE_MISSING).',
   train: '{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd } or null: turns on merge trains in gstack-ship-queue (train build|status|verdict|bisect|rebuild|prune, ready --screen|--no-screen, verify --train). null keeps today\'s per-PR queue unchanged.',
   docs: '{ caps: [{ path, max_bytes }] } or null: documentation files with a byte cap. /ship Step 14.5 runs `gstack-ship-receipt docs-caps` before the verification gate and prints one DOCS_CAP: line per cap; a file over its cap (or absent) blocks the ship until the doc is trimmed or the cap raised on the base branch. null declares none.',
+  base_red: '{ setup, select, timeout_sec } or null: how /ship Step 5 proves a failure is the base branch\'s own (docs/ship-policy.md#base-red). gstack-base-red checks out the base head and the PR head in scratch worktrees, runs setup (dependency install, or null), then select with the failing test files in its {files} slot; only the same failures in both, in files the PR does not touch, are base-red, and /ship then pauses before READY instead of failing. Read from the base branch only. null keeps every failure in-branch.',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
 
@@ -176,12 +187,18 @@ export const TRAIN_KEYS_VERSION = '1.91.146.0';
 // its key, so a value a stamp did not move fails there.
 export const REVIEW_SCOPE_KEY_VERSION = '1.91.256.0';
 export const DOCS_CAPS_KEY_VERSION = '1.91.270.0';
+export const CHANGELOG_FRAGMENTS_KEY_VERSION = '1.91.336.0';
+/** `bump: never` is a value of an older key, so the per-key floor check misses it; compatErrors checks it by value. */
+export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
+export const BASE_RED_KEY_VERSION = '1.91.374.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
   pr_count: '1.91.73.0', maintainers: '1.91.73.0', stamp_files: '1.91.98.0', stamp_patterns: '1.91.98.0', restamp_command: '1.91.98.0',
   migrations: '1.91.98.0', gate_command: SHIP_QUEUE_KEYS_VERSION, full_e2e: SHIP_QUEUE_KEYS_VERSION, min_gstack_version: SHIP_QUEUE_KEYS_VERSION,
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
+  changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
+  base_red: BASE_RED_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -194,14 +211,14 @@ const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, pa
 export function runningGstackVersion(): string {
   let own = '0.0.0.0';
   try { own = fs.readFileSync(path.resolve(import.meta.dir, '..', 'VERSION'), 'utf8').trim(); } catch {}
-  const known = Object.values(POLICY_KEY_INTRODUCED).reduce((a, b) => (newer(b, a) ? b : a));
+  const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
   return parseVersion(own) && !newer(known, own) ? own : known;
 }
 
 /** The newest introducing version among the keys a parsed policy sets: the gstack a crew needs to read it. */
 export function minimumReader(raw: Record<string, unknown>): string {
   return Object.keys(raw).filter((k): k is PolicyKey => POLICY_KEYS.includes(k as PolicyKey))
-    .map(k => POLICY_KEY_INTRODUCED[k]).reduce((a, b) => (newer(b, a) ? b : a), POLICY_KEY_INTRODUCED.bump);
+    .map(k => (k === 'bump' && raw.bump === 'never' ? BUMP_NEVER_KEY_VERSION : POLICY_KEY_INTRODUCED[k])).reduce((a, b) => (newer(b, a) ? b : a), POLICY_KEY_INTRODUCED.bump);
 }
 
 export interface PolicyError { code: ResultCodeName; path: string; message: string }
@@ -333,7 +350,11 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   const oneOf = (key: string, values: readonly string[]) => {
     if (key in obj && !values.includes(obj[key] as string)) errors.push({ code: 'POLICY_INVALID', path: key, message: `must be one of ${values.join(' | ')}, got ${JSON.stringify(obj[key])}` });
   };
-  oneOf('bump', ['patch', 'ask']);
+  oneOf('bump', ['patch', 'ask', 'never']);
+  if (obj.bump === 'never') {
+    const stamps = [obj.queue_mode === 'stamp-at-merge' && 'queue_mode stamp-at-merge', obj.train != null && 'train', obj.changelog_fragments != null && 'changelog_fragments'].filter(Boolean);
+    if (stamps.length) errors.push({ code: 'POLICY_INVALID', path: 'bump', message: `never keeps VERSION on every PR, but ${stamps.join(' and ')} stamps a version at every merge; drop one` });
+  }
   oneOf('queue_mode', ['claim-at-open', 'stamp-at-merge']);
   oneOf('history', ['merge-only', 'squash-ok']);
   oneOf('review_scope', ['frozen', 'diff-plus-blocking', 'all']);
@@ -360,6 +381,8 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('full_e2e' in obj && typeof obj.full_e2e !== 'boolean') errors.push({ code: 'POLICY_INVALID', path: 'full_e2e', message: 'must be true or false' });
   if ('train' in obj && obj.train !== null) trainErrors(obj.train, errors);
   if ('docs' in obj && obj.docs !== null) docsErrors(obj.docs, errors);
+  if ('changelog_fragments' in obj && obj.changelog_fragments !== null) fragmentsErrors(obj.changelog_fragments, errors);
+  if ('base_red' in obj && obj.base_red !== null) baseRedErrors(obj.base_red, errors);
   if ('stamp_paths' in obj) listErrors('stamp_paths', obj.stamp_paths, errors, globError);
   for (const key of ['changelog', 'mirror'] as const) {
     if (!(key in obj) || obj[key] === null) continue;
@@ -405,6 +428,9 @@ function compatErrors(obj: Record<string, unknown>, running: string, errors: Pol
     if (typeof min === 'string' && !newer(since, min)) continue;
     errors.push({ code: 'POLICY_INVALID', path: key, message: `introduced in gstack ${since}; set min_gstack_version to ${since} or later so an older gstack refuses this policy by name` });
   }
+  if (obj.bump === 'never' && !(typeof min === 'string' && !newer(BUMP_NEVER_KEY_VERSION, min))) {
+    errors.push({ code: 'POLICY_INVALID', path: 'bump', message: `never was introduced in gstack ${BUMP_NEVER_KEY_VERSION}; set min_gstack_version to ${BUMP_NEVER_KEY_VERSION} or later so an older gstack refuses this policy by name` });
+  }
 }
 
 /**
@@ -439,6 +465,31 @@ function docsErrors(raw: unknown, errors: PolicyError[]): void {
     if (why) errors.push({ code: 'POLICY_CONTAINMENT', path: `docs.caps[${i}].path`, message: `${JSON.stringify(c.path)} ${why}` });
     if (!Number.isInteger(c.max_bytes) || (c.max_bytes as number) < 1) errors.push({ code: 'POLICY_INVALID', path: `docs.caps[${i}].max_bytes`, message: 'must be an integer >= 1' });
   });
+}
+
+function baseRedErrors(raw: unknown, errors: PolicyError[]): void {
+  const b = raw as Record<string, unknown> | null;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) { errors.push({ code: 'POLICY_INVALID', path: 'base_red', message: 'must be { setup, select, timeout_sec } or null' }); return; }
+  for (const k of Object.keys(b)) if (!['setup', 'select', 'timeout_sec'].includes(k)) errors.push({ code: 'POLICY_INVALID', path: `base_red.${k}`, message: 'unknown key' });
+  const command = (key: string, value: unknown, nullable: boolean) => {
+    if (nullable && value === null) return;
+    if (typeof value !== 'string' || !value.trim()) errors.push({ code: 'POLICY_INVALID', path: `base_red.${key}`, message: `must be a non-empty string${nullable ? ' or null' : ''}` });
+    else if (value.length > MAX_COMMAND || /[\0\r\n]/.test(value)) errors.push({ code: 'POLICY_CONTAINMENT', path: `base_red.${key}`, message: `must be one line under ${MAX_COMMAND} characters` });
+  };
+  command('setup', b.setup, true);
+  command('select', b.select, false);
+  if (typeof b.select === 'string' && !b.select.includes('{files}')) errors.push({ code: 'POLICY_INVALID', path: 'base_red.select', message: 'needs a {files} slot for the failing test files' });
+  if (!Number.isInteger(b.timeout_sec) || (b.timeout_sec as number) < 10 || (b.timeout_sec as number) > 7200) errors.push({ code: 'POLICY_INVALID', path: 'base_red.timeout_sec', message: 'must be an integer from 10 to 7200' });
+}
+
+function fragmentsErrors(raw: unknown, errors: PolicyError[]): void {
+  const d = raw as Record<string, unknown> | null;
+  if (!d || typeof d !== 'object' || Array.isArray(d)) { errors.push({ code: 'POLICY_INVALID', path: 'changelog_fragments', message: 'must be { dir, required_checks? } or null' }); return; }
+  const rc = d.required_checks;
+  if (rc !== undefined && (!Array.isArray(rc) || rc.length > 50 || new Set(rc).size !== rc.length || rc.some(n => typeof n !== 'string' || !/^[^\n]{1,100}$/.test(n)))) errors.push({ code: 'POLICY_INVALID', path: 'changelog_fragments.required_checks', message: `${JSON.stringify(rc)} must be up to 50 distinct check names of 1-100 characters` });
+  for (const k of Object.keys(d)) if (k !== 'dir' && k !== 'required_checks') errors.push({ code: 'POLICY_INVALID', path: `changelog_fragments.${k}`, message: 'unknown key' });
+  const why = typeof d.dir === 'string' ? containedRelative(d.dir) ?? (/[*?[\]{}]/.test(d.dir) || d.dir.replace(/\/+$/, '') === '.' ? 'must be one directory, not a glob or the repository root' : null) : 'must be a string';
+  if (why) errors.push({ code: 'POLICY_CONTAINMENT', path: 'changelog_fragments.dir', message: `${JSON.stringify(d.dir)} ${why}` });
 }
 
 /** Merge a parsed file over the defaults, recording per-key provenance. */
@@ -556,7 +607,11 @@ export function shipConsequences(policy: ShipPolicy, base: string): string[] {
     out.push(`shared merge queue: when a coordinator runs the queue, \`gstack-ship-queue ready --pr <n>\`, \`gate-ahead --after <pr> --pr <n>\` and \`stamp --pr <n> --version <X> --expect-gated <sha> --expect-base <sha>\` replace the calls above; stamp only when your slot is called, send the READY block and the QUEUE_STAMP: line; the coordinator runs \`gstack-ship-queue verify\` (docs/ship-policy.md#run-a-shared-merge-queue)${policy.gate_command ? `; gate command: \`${policy.gate_command}\`` : ''}`);
     out.push('gate-ahead: with .gstack/tmp/gate-ahead.json present, Step 16 reuses only the lanes `gstack-tree-receipt --from .gstack/tmp/gate-ahead.json --predecessor-pr <pr> --bundle <bundle> --json > .gstack/tmp/tree-receipt.json` marks reusable; stamp-sensitive and not-eligible lanes run live; `--force-gate <reason>` is the coordinator\'s call');
   } else out.push('queue_mode claim-at-open: Step 12 runs as written (claims through gstack-next-version)');
-  out.push(policy.bump === 'patch' ? 'bump patch: Step 12 never asks for MINOR or MAJOR; PATCH or MICRO by size' : 'bump ask: Step 12 asks for MINOR and MAJOR as written');
+  const frag = policy.changelog_fragments?.dir.replace(/\/+$/, '');
+  if (frag) out.push(`changelog_fragments ${frag}: Step 12 writes no version and Step 13 writes the entry as ${frag}/<branch-slug>.md (the entry text only, no heading; \`bump: minor\` or \`bump: major\` front matter only when the change warrants more than the policy bump), never an [Unreleased] section; lint it with \`gstack-prose-lint ${frag}/<branch-slug>.md --gate\`; \`gstack-ship-queue land\` assigns the version at merge (docs/ship-policy.md#changelog-fragments)`);
+  out.push(policy.bump === 'patch' ? 'bump patch: Step 12 never asks for MINOR or MAJOR; PATCH or MICRO by size'
+    : policy.bump === 'never' ? 'bump never: Step 12 keeps VERSION (no write, no question) and refuses --bump; the release process bumps outside /ship'
+    : 'bump ask: Step 12 asks for MINOR and MAJOR as written; in a session no person answers, a bump waits for the owner\'s words (--answer)');
   out.push(policy.review_scope === 'all'
     ? 'review_scope all: Step 9.4 fixes every finding on every pass (gstack-review-scope classify --policy all)'
     : policy.review_scope === 'diff-plus-blocking'

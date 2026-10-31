@@ -122,6 +122,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the rebuild is not allowed: the bisect was not all green, the train was already rebuilt (or re-dispatched), or there is no bisect or INFRA record',
     fix: 'route the red cases to a repair lane; the train is rebuilt only once the repair merges (a changed train)',
   },
+  QUEUE_TRAIN_STAMP_MISMATCH: {
+    anchor: 'queue-train-stamp-mismatch',
+    summary: 'a stamped train prefix S_i is not the merge of S_(i-1) and its pin modulo stamps, or differs from the plain prefix T_i outside release paths, or could not be stamped; nothing was pushed',
+    fix: 'read the named slot and files: a stamp hook writing product files is fixed in the hook; otherwise rebuild the train without that slot and report it',
+  },
   QUEUE_TRAIN_TREE_MISMATCH: {
     anchor: 'queue-train-tree-mismatch',
     summary: 'main’s tree is neither the train’s prefix before this PR nor after it (modulo stamps), so the merge does not publish what the gate tested',
@@ -147,6 +152,46 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'queue-receipt-stale',
     summary: 'the PR body’s /ship receipt is for another head than the one being READY’d or merged (a push after /ship, or a receipt copied from another PR)',
     fix: 'rerun /ship on the current head so the receipt names it, then gstack-ship-queue ready again; a slot’s stamp commit keeps the receipt written for its pinned head',
+  },
+  QUEUE_RECEIPT_CONDITIONAL: {
+    anchor: 'queue-receipt-conditional',
+    summary: 'the PR body’s /ship receipt is conditional: Step 5 failed on cases gstack-base-red proved are the base branch’s own, so /ship paused before READY',
+    fix: 'wait for the base to pass those cases (gstack-base-red wait --pause <file>), then /ship --resume <record>, which re-runs Step 5 and rewrites the receipt without base_red; nothing READYs, trains or merges on a conditional receipt',
+  },
+  BASE_RED_UNCONFIGURED: {
+    anchor: 'base-red-unconfigured',
+    summary: 'the base branch’s ship policy declares no base_red block, so gstack-base-red cannot reproduce a Step 5 failure there and every failure stays in-branch',
+    fix: 'handle the failure with /ship’s usual triage; to let /ship pause on a red base, add base_red { setup, select, timeout_sec } to .gstack/ship-policy.json on the base branch',
+  },
+  BASE_RED_UNNAMED: {
+    anchor: 'base-red-unnamed',
+    summary: 'the failure evidence names fewer failures than the Step 5 lane reported, so an unnamed failure could be in-branch',
+    fix: 'list every failing test in the evidence file (id, file, first error line), with total equal to the lane’s failure count, and classify again',
+  },
+  BASE_RED_REPRO_ERROR: {
+    anchor: 'base-red-repro-error',
+    summary: 'gstack-base-red could not reproduce at the base or the PR head: a commit did not resolve, the scratch checkout failed, or the setup command exited non-zero',
+    fix: 'read the printed detail; fix the base_red setup command on the base branch or fetch the base, then classify again. Until then every failure is in-branch',
+  },
+  BASE_RED_PAUSE_EXPIRED: {
+    anchor: 'base-red-pause-expired',
+    summary: 'the base-red pause is older than 24 hours, so its classification is stale',
+    fix: 'report the paused PR to its Captain (or owner), then start /ship again on the current base; it classifies afresh',
+  },
+  BASE_RED_WAIT_TIMEOUT: {
+    anchor: 'base-red-wait-timeout',
+    summary: 'no new base head passed the paused cases before gstack-base-red wait’s timeout',
+    fix: 'run gstack-base-red wait --pause <file> again (the pause stays valid until it expires), or check who owns the base red',
+  },
+  QUEUE_RECEIPT_DEPTH_RAISED: {
+    anchor: 'queue-receipt-depth-raised',
+    summary: 'the PR body’s /ship receipt records a review depth below the one its head needs (the queue recomputed it from git), or a current receipt records no review_depth at all',
+    fix: 'run /ship on the head the READY names; the REVIEW_DEPTH line shows the receipt’s depth, the required depth, its reasons and inputs, and the receipt is left unchanged',
+  },
+  QUEUE_RECEIPT_EXCEPTION_INVALID: {
+    anchor: 'queue-receipt-exception-invalid',
+    summary: 'the PR body’s /ship receipt records an owner exception (docs or review loop) that is malformed, lacks the fix-check it follows, or whose line the body no longer carries verbatim',
+    fix: 'restore the exception line in the PR body word for word, or run /ship again and record the owner’s acceptance with --docs or --review-loop-exception',
   },
   QUEUE_SCREEN_STALE_REF: {
     anchor: 'queue-screen-stale-ref',
@@ -246,18 +291,28 @@ export const RELEASE_RESULT_CODES = {
   },
   RECEIPT_CARRY_REFUSED: {
     anchor: 'receipt-carry-refused',
-    summary: 'gstack-ship-receipt carry could not carry the /ship receipt to HEAD: the PR body has no receipt, the receipt head is not an ancestor of HEAD (rebase or force-push), or the product diff could not be compared',
-    fix: 'merge the base in instead of rebasing, keep the reviewed head in HEAD\'s history, then rerun carry; otherwise run /ship on the new head',
+    summary: 'gstack-ship-receipt carry could not carry the /ship receipt to HEAD: the PR body has no receipt, the working tree has uncommitted changes, the receipt head is not an ancestor of HEAD and the receipt records no tree to compare, or the product diff could not be compared',
+    fix: 'commit or stash working-tree changes and rerun carry; when history was rewritten and the receipt predates head_tree, run /ship on the new head (merge the base in instead of rebasing next time)',
   },
   PROSE_LINT_FOUND: {
     anchor: 'prose-lint-found',
     summary: 'the prose /ship is about to publish (a CHANGELOG entry or a PR body) carries an AI tell a regular expression can decide',
     fix: 'rewrite each PROSE: line in the draft the way its hint says, then rerun gstack-prose-lint on the same file',
   },
+  REVIEW_LOOP_EXCEPTION_INVALID: {
+    anchor: 'review-loop-exception-invalid',
+    summary: 'write --review-loop-exception got an exception that is malformed, follows no fix-check (review_loop.fix_checks is 0 or missing), names a fix-check head that is not the receipt head or its ancestor, or is missing from the PR body',
+    fix: 'pass { accepted_by, date, via, reason, fix_check: { head, findings } } with the owner’s words, the --review-loop summary that counts the fix-check, and the printed "Review-loop exception: …" line in the body',
+  },
+  RECEIPT_CARRY_TREE_MISMATCH: {
+    anchor: 'receipt-carry-tree-mismatch',
+    summary: 'the branch was rebased or force-pushed since its /ship receipt, and HEAD\'s tree is not a tree the receipt covers, so no review saw this code',
+    fix: 'run /ship on the new head; next time merge the base in instead of rebasing a reviewed branch (a rebase carries only onto a reviewed tree with the reviewed product diff)',
+  },
   RECEIPT_CARRY_PRODUCT_CHANGED: {
     anchor: 'receipt-carry-product-changed',
-    summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix or release metadata), so the reviewed verdict does not cover HEAD',
-    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata or the base merge and the product patch-id is unchanged',
+    summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
+    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged',
   },
   DOCS_AUDIT_BLOCKED: {
     anchor: 'docs-audit-blocked',
@@ -279,6 +334,32 @@ export const RELEASE_RESULT_CODES = {
     summary: 'gstack-ship-receipt carry needs git 2.39 or later for `git patch-id --verbatim`; the installed git is older, so the product diff could not be compared',
     fix: 'upgrade git to 2.39 or later (the refusal names the installed version), then rerun carry; otherwise run /ship on the new head',
   },
+  // Changelog fragments and the per-PR merge step (lib/changelog-fragments.ts, lib/ship-queue-land.ts).
+  CHANGELOG_FRAGMENT_INVALID: {
+    anchor: 'changelog-fragment-invalid',
+    summary: 'a CHANGELOG fragment is not one regular .md file directly in the fragment directory with entry text, optional bump front matter and no release heading, or one of that name already landed with other text',
+    fix: 'rewrite the named fragment as a flat <dir>/<slug>.md with only the entry text (and optional "bump: minor|major" front matter), rename it if the name already landed, then rerun',
+  },
+  QUEUE_LAND_LOCKED: {
+    anchor: 'queue-land-locked',
+    summary: 'another gstack-ship-queue land holds the repository land lock (refs/notes/gstack-land), so this one would race it for the next version',
+    fix: 'wait for the holder named in the line to finish; if it crashed, gstack-ship-queue land --pr <n> --break-lock (refused while its journal shows a push in flight)',
+  },
+  QUEUE_LAND_CONFLICT: {
+    anchor: 'queue-land-conflict',
+    summary: 'the PR conflicts with the base branch in product files (or a release field cannot be resolved alone), so the merge step cannot stamp it',
+    fix: 'the lane merges the base branch into the PR, resolves the named files, runs /ship and reports READY again',
+  },
+  QUEUE_LAND_DRIFT: {
+    anchor: 'queue-land-drift',
+    summary: 'the base branch moved between the merge step\'s last check and the squash merge, so main\'s tree is not the stamped tree land verified',
+    fix: 'gstack-ship-queue land --pr <n> --repair opens a PR whose only change is a fragment for what the outside merge brought; /ship and land it, which releases the lock',
+  },
+  QUEUE_LAND_BASE_BUSY: {
+    anchor: 'queue-land-base-busy',
+    summary: 'the base branch moved during the stamp commit\'s CI on each of the allowed restamp attempts, so land stopped instead of restamping again',
+    fix: 'find what is merging outside land (every merge should go through it), then rerun gstack-ship-queue land --pr <n>; it resumes from its journal',
+  },
   // gstack-pr-wait (lib/pr-wait.ts): the landing-path PR watcher's two terminal codes.
   PR_WAIT_BLOCKED: {
     anchor: 'pr-wait-blocked',
@@ -289,5 +370,10 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'pr-wait-refused',
     summary: 'the watcher did not start, or a local error stopped it before a verdict',
     fix: 'pass a PR number or URL the current gh login can read (--repo owner/name when the checkout is not that repository), stop the watcher the line names before starting another for the same PR, or fix the named local error',
+  },
+  PREGATE_HEAD_POLICY_LOOSENS: {
+    anchor: 'pregate-head-policy-loosens',
+    summary: 'under --policy-from head, the branch’s .gstack/pregate.json removes, shrinks or loosens something the trusted policy declares; a head policy may only add test lanes',
+    fix: 'keep every key of the trusted policy as it is and only add dependencies globs with tests (or tests on an existing glob); land any other change, a [] declaration included, in its own PR on the base branch first',
   },
 } as const satisfies Record<string, ResultCode>;

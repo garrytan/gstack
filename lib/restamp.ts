@@ -26,6 +26,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from './bun-isolation';
 import { checkChangelog, mergeChangelogs, parseChangelog, reheadChangelog } from './changelog-check';
+import { effectiveBump, foldIntoUnreleased, readFragments, type FragmentSet } from './changelog-fragments';
 import { type ResultCodeName } from './result-codes';
 import { runScriptSync, wtreeFingerprint } from './script-invocation';
 import {
@@ -56,7 +57,7 @@ export interface RestampOptions {
   repoRoot: string; base: string; version?: string; next?: boolean; bump?: Bump; queueMode?: QueueMode;
   after?: { pr: string; ref?: string }; pr?: string; expectBase?: string; expectOrder?: string[]; was?: string;
   policyFrom: 'base' | 'head'; allowRepoCommands: boolean; dryRun: boolean; now?: Date; env?: NodeJS.ProcessEnv;
-  gh?: (args: string[]) => { ok: boolean; out: string }; failAfter?: string; gateWorktree?: string;
+  gh?: (args: string[]) => { ok: boolean; out: string }; failAfter?: string; gateWorktree?: string; baseRef?: string;
 }
 export interface RestampResult {
   status: 'stamped' | 'noop' | 'dry-run' | 'refused' | 'failed' | 'gate-ahead';
@@ -163,7 +164,7 @@ interface Plan {
 }
 
 function planVersions(o: RestampOptions, loaded: LoadedPolicy, policyLabel: string): Plan {
-  const baseRef = `origin/${o.base}`;
+  const baseRef = o.baseRef ?? `origin/${o.base}`;
   const baseSha = git(o.repoRoot, ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`]);
   if (!baseSha.ok) throw new Refusal('POLICY_SOURCE_UNAVAILABLE', `${baseRef} is not a resolvable commit; nothing written`, { fix: `git fetch origin ${o.base} --depth=1` });
   if (o.expectBase && !baseSha.out.startsWith(o.expectBase)) {
@@ -222,6 +223,19 @@ export function versionFiles(root: string, versionRel: string): string[] {
   const pkgRel = fs.existsSync(pin) ? (fs.readFileSync(pin, 'utf8').split('\n')[0]?.trim() || 'package.json') : 'package.json';
   const dir = path.dirname(pkgRel) === '.' ? '' : path.dirname(pkgRel) + '/';
   return [versionRel, pkgRel, ...NPM_LOCKFILES.map(l => dir + l)];
+}
+/**
+ * The manifest's path when the repo's convention is a four-part manifest: the policy lists it as a
+ * stamp file and the base's copy holds a four-part version (gbrain). Read at the base, like the
+ * policy, so a branch an older restamp cut to three parts heals. Otherwise null, and the writer
+ * stores the npm-valid three-part form (decision 11; gstack's own manifest).
+ */
+function manifestKeepsFourParts(plan: Plan, root: string): string | null {
+  const pkgRel = versionFiles(root, plan.versionRel)[1]!;
+  if (pkgRel === plan.versionRel || !matchesAny([...plan.policy.stamp_paths, ...plan.policy.stamp_files], pkgRel)) return null;
+  const atBase = git(root, ['show', `${plan.baseSha}:${pkgRel}`]);
+  const version = atBase.ok ? extractVersion(atBase.out, pkgRel) : '';
+  return version && versionWidth(version) === 4 ? pkgRel : null;
 }
 function allowedOutput(plan: Plan, root: string, rel: string): boolean {
   const p = plan.policy;
@@ -433,7 +447,7 @@ function linkIgnoredDeps(repoRoot: string, staging: string): void {
  */
 function runRestampCommand(command: string, plan: Plan, staging: string, env: NodeJS.ProcessEnv, before: Set<string>, s: StageRecord): void {
   const seeded = git(staging, ['write-tree']).out;
-  const r = spawnSync('sh', ['-c', `${command} "$1"`, 'sh', plan.newVersion], { cwd: staging, encoding: 'utf8', timeout: 600_000, env: { ...env, GSTACK_RESTAMP_VERSION: plan.newVersion } });
+  const r = spawnSync('sh', ['-c', `${command} "$1"`, 'sh', plan.newVersion], { cwd: staging, encoding: 'utf8', timeout: 600_000, env: { ...env, GSTACK_RESTAMP_VERSION: plan.newVersion, GSTACK_RESTAMP_BASE_SHA: plan.baseSha } });
   git(staging, ['read-tree', seeded]);
   if (r.status !== 0) { s.status = 'failed'; s.detail = `${r.stderr ?? ''}${r.stdout ?? ''}`.trim().slice(0, 300); throw new Refusal('RESTAMP_RELEASE_TOOL_FAILED', `restamp_command exited ${r.status}: ${s.detail}; nothing written to the branch`); }
   const outside = changedPaths(staging).filter(p => !before.has(p) && !allowedOutput(plan, staging, p));
@@ -455,9 +469,10 @@ function runStages(o: RestampOptions, plan: Plan, staging: string, since: string
   const v = stage('version');
   if (command) { v.status = 'skipped'; v.detail = 'restamp_command owns the version'; }
   else {
-    const w = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(BIN_DIR, 'gstack-version-bump'), 'write', '--version', plan.newVersion], { cwd: staging, encoding: 'utf8', timeout: 120_000, env });
+    const full = manifestKeepsFourParts(plan, staging);
+    const w = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(BIN_DIR, 'gstack-version-bump'), 'write', '--version', plan.newVersion, ...(full ? ['--manifest-form', 'full'] : [])], { cwd: staging, encoding: 'utf8', timeout: 120_000, env });
     if (w.status !== 0) { v.status = 'failed'; v.detail = (w.stderr ?? '').trim().slice(0, 300); throw new Refusal('RESTAMP_VERSION_SOURCE', `gstack-version-bump write failed: ${v.detail}; nothing written`); }
-    v.status = 'done'; v.detail = `wrote ${plan.newVersion}`;
+    v.status = 'done'; v.detail = `wrote ${plan.newVersion}` + (full ? ` (${full} keeps four parts: a policy stamp file the base holds in four)` : '');
   }
   injected('version');
 
@@ -477,7 +492,11 @@ function runStages(o: RestampOptions, plan: Plan, staging: string, since: string
   if (clPath && fs.existsSync(clPath)) {
     const date = (o.now ?? new Date()).toISOString().slice(0, 10);
     const from = o.was ?? plan.branchStamp;
-    const r = reheadChangelog(fs.readFileSync(clPath, 'utf8'), { from, to: plan.newVersion, date, file: clRel! });
+    const dir = plan.policy.changelog_fragments?.dir;
+    const frags = dir ? readFragments(staging, null, dir, plan.baseSha, clRel) : null;
+    if (frags?.errors.length) { cl.status = 'failed'; cl.detail = `${frags.errors[0]!.path}: ${frags.errors[0]!.message}`; throw new Refusal('CHANGELOG_FRAGMENT_INVALID', `${cl.detail}; nothing written to the branch`); }
+    for (const f of frags?.fragments ?? []) fs.rmSync(path.join(staging, f.path));
+    const r = reheadChangelog(foldIntoUnreleased(fs.readFileSync(clPath, 'utf8'), frags?.fragments ?? []), { from, to: plan.newVersion, date, file: clRel! });
     if (r.error) { cl.status = 'failed'; cl.detail = r.error.message; throw new Refusal(r.error.code, `${clRel}: ${r.error.message}; nothing written to the branch`); }
     if (r.moved) fs.writeFileSync(clPath, r.text);
     // Inherited duplicates are allowed at the larger count of two base readings: the base tip and
@@ -492,7 +511,7 @@ function runStages(o: RestampOptions, plan: Plan, staging: string, since: string
       : `; base ${clRel} unreadable at ${unreadable.join(', ')}, inherited headings counted at ${readable.map(x => x.sha.slice(0, 12)).join(', ')} only`;
     const check = checkChangelog(fs.readFileSync(clPath, 'utf8'), plan.newVersion, clRel!, readable.map(x => x.cl.out + '\n'));
     if (check.length) { cl.status = 'failed'; cl.detail = check[0]!.message + baseNote; throw new Refusal(check[0]!.code, `${check[0]!.path}: ${check[0]!.message}${baseNote}; nothing written to the branch`); }
-    cl.status = 'done'; cl.detail = (r.moved ? `${r.from} -> ${r.to}` : `already headed ${plan.newVersion}`) + baseNote;
+    cl.status = 'done'; cl.detail = (r.moved ? `${r.from} -> ${r.to}` : `already headed ${plan.newVersion}`) + (frags?.fragments.length ? `; folded ${frags.fragments.map(f => f.path).join(', ')}` : '') + baseNote;
   } else { cl.status = 'skipped'; cl.detail = clRel ? `${clRel} absent` : 'changelog: null'; }
   injected('changelog');
 
@@ -632,6 +651,15 @@ function applyToBranch(o: RestampOptions, staging: string, wtree: string, files:
   return writes;
 }
 
+/** The fragments this change adds (absent from origin/<base>), read from the working-tree fingerprint the staging worktree is seeded from. */
+function fragmentsOf(o: RestampOptions, dir: string, changelog: string | null): FragmentSet {
+  const fp = wtreeFingerprint({ cwd: o.repoRoot });
+  if ('error' in fp) throw new Refusal('RESTAMP_CONFLICT', `cannot fingerprint the working tree (${fp.error}); nothing written`);
+  const set = readFragments(o.repoRoot, fp.tree, dir, o.baseRef ?? `origin/${o.base}`, changelog);
+  if (set.errors.length) throw new Refusal('CHANGELOG_FRAGMENT_INVALID', `${set.errors[0]!.path}: ${set.errors[0]!.message}; nothing written`);
+  return set;
+}
+
 function removeWorktree(repoRoot: string, dir: string): void {
   git(repoRoot, ['worktree', 'remove', '--force', dir]);
   fs.rmSync(dir, { recursive: true, force: true });
@@ -644,11 +672,14 @@ export function restamp(o: RestampOptions): RestampResult {
   try {
     const { loaded, label } = loadPolicy(o);
     if (loaded.errors.length) throw new Refusal(loaded.errors[0]!.code, `${SHIP_POLICY_PATH} (${label}): ${loaded.errors[0]!.message} at ${loaded.errors[0]!.path}; nothing written`);
+    if (loaded.policy.bump === 'never' && !o.bump && !o.version) throw new Refusal('RESTAMP_VERSION_SOURCE', `${SHIP_POLICY_PATH} (${label}): bump never names no level; a release stamp passes --bump <level> or --version <X>; nothing written`);
     const commands = declaredCommands(loaded.policy);
     if (commands.length && !o.allowRepoCommands) {
       throw new Refusal('REPO_COMMANDS_NOT_ALLOWED', `repo commands not executed (pass --allow-repo-commands): ${commands.map(c => `${c.key}: ${c.command}`).join('; ')}; nothing written`, { commands });
     }
-    const plan = planVersions(o, loaded, label);
+    const fragDir = loaded.policy.changelog_fragments?.dir ?? null;
+    const frags = fragDir ? fragmentsOf(o, fragDir, loaded.policy.changelog) : null;
+    const plan = planVersions(frags && !o.bump ? { ...o, bump: effectiveBump(loaded.policy.bump === 'patch' ? 'patch' : 'micro', frags.fragments) } : o, loaded, label);
     const headSha = git(o.repoRoot, ['rev-parse', 'HEAD']).out;
     const common: Partial<RestampResult> = {
       oldVersion: plan.oldVersion, newVersion: plan.newVersion, base: { ref: plan.baseRef, sha: plan.baseSha }, policy: plan.policyLabel,

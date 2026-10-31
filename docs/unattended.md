@@ -148,8 +148,12 @@ The other endings, each greppable: when gh cannot read the PR,
 `GSTACK_RESULT: skill=ship status=incomplete run=-` (exit 1); a receipt that is
 missing or names another head, `GSTACK_RESULT: skill=ship status=refused run=-`
 with `QUEUE_RECEIPT_MISSING` or `QUEUE_RECEIPT_STALE` on stderr (exit 3), the
-line a run that stops before publication prints itself; and `result --pr <n>`
-refuses `QUEUE_RECEIPT_STALE` when HEAD is not the PR's pushed head.
+line a run that stops before publication prints itself; `result --pr <n>`
+refuses `QUEUE_RECEIPT_STALE` when HEAD is not the PR's pushed head; and a
+receipt with a `base_red` block (Step 5 paused on a red base) prints
+`SHIP_PAUSED: base-red …` on stderr, writes the run record and ends
+`GSTACK_RESULT: skill=ship status=incomplete run=<dir>` (exit 1): the lane is
+waiting on the base, not failed ([base_red](ship-policy.md#base-red)).
 
 The one publication the unattended rules allow: when an open PR for the branch
 exists and HEAD is its pushed head, Step 18 takes the pr-body section's
@@ -186,6 +190,15 @@ holds its required lines plus at most 150 words; a completion report holds at
 most 300 words; a subagent brief names the files to read instead of pasting
 them. Evidence goes in files the report points to. Waits go on operations,
 never on polling wakes.
+
+### Token caps and fresh-context handoffs
+
+A parent bounds a /ship run with `--token-cap <n>` (or `GSTACK_SHIP_TOKEN_CAP`).
+It is an admission cap: /ship meters usage, reserves every step and dispatch
+batch before it starts, and stops `status=incomplete` with a `RECOVER:` line
+instead of starting work that would cross the cap. Long runs hand Steps 9–11.5
+and 12–22 to fresh-context children. The flow, the BUDGET line and the result
+codes are in [ship-budget.md](ship-budget.md).
 
 ### The outside voice on Capy
 
@@ -225,9 +238,10 @@ and reruns carry with `--pregate .gstack/tmp/pregate.json`. `CARRY: carried from
 now names HEAD with a `carry` object holding the `git range-diff` evidence, and
 `ship-run.json` gains `carried_from` and `carry_reason`; the `review_loop`
 counters are kept, because the reviewed product diff is unchanged. `CARRY:
-current` means nothing moved. `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`
-or `(RECEIPT_CARRY_REFUSED)` with the refused result line means the product
-diff changed or the reviewed head left HEAD's history, so /ship runs again;
+current` means nothing moved. `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`,
+`(RECEIPT_CARRY_TREE_MISMATCH)` or `(RECEIPT_CARRY_REFUSED)` with the refused
+result line means the product diff changed, or history was rewritten onto a
+tree no review saw, so /ship runs again;
 `(RECEIPT_GIT_TOO_OLD)` means the machine's git predates 2.39 and cannot run
 `patch-id --verbatim` ([ship-policy.md](ship-policy.md#receipt-carry)).
 
@@ -493,6 +507,53 @@ by its runner. Result codes: `EXECUTION_UNKNOWN`, `RUN_LOCKED`,
   gstack prints `GSTACK_VERSION_CHANGED` once and moves forward (legacy
   decision ids are renamed and journaled); one written by a newer gstack is
   refused.
+
+### Carry-forward
+
+A gate revision after the first (`gate_rev` 2 and later, written after a
+`revise`) is answered with the owner's recorded words from the revision before
+it when nothing new needs their decision. `gstack-autoplan` prints
+`CARRIED: gate_rev=<n> <- gate_rev=<m> words="<their words>" by=<relayer> reason=<why>`,
+then the usual `APPROVED:` lines, and journals `gate_carried`. The carry needs
+all of: the earlier gate approved (`p1a` or `p1b`) with `rec` or "do it"
+(not item tokens), no item there left pending, and the owner's words
+recorded; that gate was not itself carried; every accepted change incorporated
+or settled; the plan file's bytes equal those recorded at the gate or at the
+`revise` that took the changes (any later edit refuses, an ELI5-only one
+included); no urgent or
+outside-plan finding open; and every new gate item one of the cases below.
+Anything else prints `CARRY: no (<why>)` (journal `carry_refused`) and the gate
+goes to the owner as before. `--no-carry-forward` on the first `next` turns it
+off for the run.
+
+- **"do it".** When the owner's words were "do it" (their words, not a
+  `captain:` relay of them), a new `auto` item that changes no scope, cost or
+  direction, whose recommended option changes no plan text, and is no round
+  or budget grant takes its recommendation. The
+  decision row gets `carried_under: do it`, the output prints
+  `CARRIED_UNDER_DO_IT:` per item, and the approval record lists them as
+  "taken under "do it", not seen by the owner". `rec` carries no new item.
+- **Unreviewed post-cap delta.** A "plan changed after <phase> cap" item
+  recommending `a` (accept) is read by one reviewer before it carries. `CARRY_CHECK:` names the attempt and
+  the prompt (the delta against `plan-at-gate.r<m>.md`, the accepted changes,
+  the full plan); the run reserves the estimate in `spend.json` and refuses
+  when it is over `--carry-check-cap <usd>` (default 5) or the run's cap.
+  Dispatch it to a model family other than the plan reviewers', then
+  `check --out <dir> --attempt <id> --result <file> --model <id>`
+  (`--same-family "<why>"` when no other family is available). A High or
+  Critical finding, or `--unavailable "<reason>"`, leaves the gate for the
+  owner. The verdict is saved as `carry_check` on `gate.json`, on the
+  decision rows (`carry_check`) and in `<dir>/decisions.tsv`. A pending
+  check is void, its reservation released and the gate left for the owner,
+  when the owner answers the gate, the plan is revised, a new gate is
+  written, or the delta changed after dispatch.
+
+Carried rows keep `answered_by: agent:gstack-autoplan` and name their source
+(`carried_gate_from`, `carried_gate_rev`, `carried_answered_by`);
+`gstack-approvals import --autoplan` writes the carried gate as its own row,
+and `gstack-owner-brief render --captain` opens with "Nothing pending.
+Carried forward from gate_rev <m>", followed by any items taken under "do it"
+without being shown to the owner.
 
 ## Owner brief
 

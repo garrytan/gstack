@@ -12,7 +12,7 @@ export const CLAUDE_CODE_RUNTIME_FILES = [
   'bin/gstack-claude-code', 'bin/gstack-models', 'bin/gstack-config', 'bin/gstack-state-root.sh',
   'lib/claude-code.ts', 'lib/claude-code-windows-job.ts', 'lib/claude-bin.ts',
   'lib/outside-review-result.ts', 'lib/gate-outcomes.ts', 'lib/outside-consent.ts', 'lib/state-root.ts',
-  'lib/model-catalog.ts', 'lib/model-policy.ts', 'lib/model-policy-cli.ts', 'lib/model-policy-notice.ts',
+  'lib/model-catalog.ts', 'lib/model-policy.ts', 'lib/model-policy-cli.ts', 'lib/model-policy-notice.ts', 'lib/agent-model.ts',
 ];
 
 export interface RenameOptions {

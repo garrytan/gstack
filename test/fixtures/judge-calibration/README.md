@@ -51,7 +51,11 @@ reservation; its 14 cases now send `WORKFLOW_JUDGE_RESPONSE_SCHEMA` without the
 compact-reasoning validator (still only on `ship`). The frontier (`review`) configuration has no corpus and stays on today's request. A $0.12 two-call pilot sized
 output tokens before the manifest was priced. Total W2 spend: $90.47 of $115.
 
-`cookie-workflow` (GSTA-91, separately funded) is held and stays on today's request. Its one
+`cookie-workflow` (GSTA-91, separately funded) was held, and the hold was released on
+GStack Minder's ruling of 2026-10-29: "GStack Minder, 2026-10-29: release the GSTA-91 hold; a07 is
+matched by old-b; free-text parse errors cost train 42" (`cookie-workflow/release.json`). The
+cookie workflow judge now sends `WORKFLOW_JUDGE_RESPONSE_SCHEMA`, with its thresholds, model and
+samples unchanged; the comparison below stays recorded as held. Its one
 new false pass, a07, scored 4/4/4 on all three new samples and on all three `old-b` samples;
 `old-a`'s a07 panel is incomplete because one old sample returned invalid JSON (the defect the
 schema transport removes), so the comparison counts it against the new request only. Both
