@@ -585,6 +585,53 @@ transcripts_consented() {
   transcript_policy --check 2>/dev/null
 }
 
+# After a rejected push: merge origin/<branch> into HEAD (#3704). git refuses
+# a merge that would overwrite uncommitted edits to tracked files, and that
+# refusal used to repeat on every run, so the edits are set aside first and
+# put back after. A failed merge is aborted, so no half-finished merge or
+# conflict markers block the next commit; git's reason lands in MERGE_ERR.
+# When putting an edit back conflicts with what the merge brought in, the
+# merged version stays in the working tree, so a later sync never publishes
+# the stale local side over the other machine's change, and the local edit
+# stays in the kept stash entry, which the status names with the command
+# that restores it.
+MERGE_ERR=""
+merge_origin_keeping_local_edits() {
+  local branch="$1" out rc=0 stashed=0
+  if ! git -C "$GSTACK_HOME" diff --quiet 2>/dev/null || ! git -C "$GSTACK_HOME" diff --cached --quiet 2>/dev/null; then
+    if ! out=$(git -C "$GSTACK_HOME" stash push -q -m "gstack-brain-sync: local edits before merging origin/$branch" 2>&1); then
+      MERGE_ERR="could not set local edits aside: $(printf '%s\n' "$out" | head -1)"
+      return 1
+    fi
+    stashed=1
+  fi
+  out=$(git -C "$GSTACK_HOME" merge --no-edit "origin/$branch" 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    MERGE_ERR=$(printf '%s\n' "$out" | grep -m1 -E '^(CONFLICT|error|fatal)' || printf '%s\n' "$out" | head -1)
+    git -C "$GSTACK_HOME" merge --abort >/dev/null 2>&1 || true
+  fi
+  [ "$stashed" = 1 ] || return "$rc"
+  out=$(git -C "$GSTACK_HOME" stash pop -q 2>&1) && return "$rc"
+  local stash_sha paths="" args="" p failed=0
+  stash_sha=$(git -C "$GSTACK_HOME" rev-parse -q --verify refs/stash 2>/dev/null)
+  while IFS= read -r -d '' p; do
+    if git -C "$GSTACK_HOME" cat-file -e "HEAD:$p" 2>/dev/null; then
+      git -C "$GSTACK_HOME" checkout -q HEAD -- "$p" >/dev/null 2>&1 || failed=1
+    else
+      { git -C "$GSTACK_HOME" rm -q --cached -- "$p" >/dev/null 2>&1 && rm -f -- "$GSTACK_HOME/$p"; } || failed=1
+    fi
+    paths="$paths ${p}"
+    args="$args $(printf '%q' "$p")"
+  done < <(git -C "$GSTACK_HOME" diff -z --name-only --diff-filter=U 2>/dev/null)
+  git -C "$GSTACK_HOME" reset -q >/dev/null 2>&1 || failed=1
+  if [ -z "$paths" ] || [ "$failed" = 1 ] || [ -z "$stash_sha" ]; then
+    MERGE_ERR="local edits could not be put back after merging origin/$branch ($(printf '%s\n' "$out" | head -1)); they are saved in git -C $GSTACK_HOME stash list"
+    return 1
+  fi
+  ST_NOTE="$ST_NOTE; local edits to$paths conflicted with the merged remote version, which is kept; the local edits are saved in stash $stash_sha (get them back: git -C $GSTACK_HOME restore --source=$stash_sha --$args)"
+  return "$rc"
+}
+
 # Before every push: scan the unpublished range for transcript pages outside
 # the current consent; when some exist, the helper rewrites gstack-brain-sync's
 # own unpublished commits without them, or refuses (exit 3) when it cannot.
@@ -1379,7 +1426,7 @@ subcmd_once() {
         bash -c 'git -C "$1" fetch origin 2>/dev/null' _ "$GSTACK_HOME"; then
       local branch
       branch=$(git -C "$GSTACK_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
-      if git -C "$GSTACK_HOME" merge --no-edit "origin/$branch" >/dev/null 2>&1 && guard_unpublished_range; then
+      if merge_origin_keeping_local_edits "$branch" && guard_unpublished_range; then
         validate_outgoing_paths || exit 0
         if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$push_host" curated-memory-git-push "artifacts_sync_mode!=off" \
             bash -c 'git -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
@@ -1391,7 +1438,10 @@ subcmd_once() {
       fi
     fi
     # Commit exists locally; the run-start detector re-pushes it next time.
-    write_status "push_failed" "push failed: $(printf '%s' "$push_err" | head -1); commit retained locally, will retry next run"
+    local push_reason
+    push_reason=$(printf '%s\n' "$push_err" | grep -v -E '^(To |hint:)' | head -1)
+    [ -n "$push_reason" ] || push_reason=$(printf '%s\n' "$push_err" | head -1)
+    write_status "push_failed" "push failed: $push_reason${MERGE_ERR:+; merging origin failed: $MERGE_ERR}; commit retained locally, will retry next run"
     finalize_queue "$snapshot_file" "$class_file" "$paths_file"
     exit 0
   }
