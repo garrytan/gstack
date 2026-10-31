@@ -155,4 +155,20 @@ describe('sealed skips what the destination already holds', () => {
     expect(h.err).toMatch(/sealed\.local_path\s+notes\.md:2/);
     expect(preflight(s).out).toMatch(/^SEALED: refused findings=1 commits=1 skipped=0 /m);
   });
+
+  test('a landed commit that differs only in bytes that are not UTF-8 is scanned and refuses', () => {
+    const s = scratch();
+    sh(s, ['checkout', '-q', '-b', 'results']);
+    fs.writeFileSync(path.join(s.work, 'notes.md'), Buffer.from('intro\nraw at /home/alice/evals/raw\xe8.jsonl\n', 'latin1'));
+    sh(s, ['add', 'notes.md']); sh(s, ['commit', '-q', '-m', 'notes']);
+    sh(s, ['checkout', '-q', 'main']);
+    fs.writeFileSync(path.join(s.work, 'notes.md'), Buffer.from('intro\nraw at /home/alice/evals/raw\xe9.jsonl\n', 'latin1'));
+    sh(s, ['add', 'notes.md']); sh(s, ['commit', '-q', '-m', 'notes']);
+    sh(s, ['push', '-q', 'origin', 'main']);
+    sh(s, ['checkout', '-q', 'results']);
+    const h = hook(s);
+    expect(h.code).toBe(1);
+    expect(h.err).toMatch(/sealed\.local_path\s+notes\.md:2/);
+    expect(preflight(s).out).toMatch(/^SEALED: refused findings=1 commits=1 skipped=0 /m);
+  });
 });

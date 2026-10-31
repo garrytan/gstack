@@ -82,8 +82,8 @@ export function sealedErrors(raw: unknown): Array<{ path: string; message: strin
   return errors;
 }
 
-function git(repoRoot: string, args: string[], input?: string): { ok: boolean; out: string; err: string } {
-  const r = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', input, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+function git(repoRoot: string, args: string[], input?: string, encoding: BufferEncoding = 'utf8'): { ok: boolean; out: string; err: string } {
+  const r = spawnSync('git', args, { cwd: repoRoot, encoding, input, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
   return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
 }
 
@@ -307,7 +307,7 @@ function publishedViaPulls(o: EvaluateOptions, listed: Set<string>, mbs: string[
 /** Diff text compared after a patch-id match: no commit line, blob ids or hunk line numbers. */
 const patchBody = (diff: string) => diff.split('\n').filter(l => !HEX.test(l) && !l.startsWith('index ')).map(l => l.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, '@@')).join('\n');
 
-/** Listed commits whose own patch (`--verbatim` patch-id, then equal diff text) is a base commit since the merge-base; merges never match. */
+/** Listed commits whose own patch (`--verbatim` patch-id, then equal diff text) is a base commit since the merge-base; merges never match. Diffs are read as latin1 so every byte counts: UTF-8 decoding folds invalid bytes into one replacement character. */
 function landedOnBase(o: EvaluateOptions, rest: string[], mbs: string[], notes: string[]): Map<string, string> {
   const out = new Map<string, string>();
   if (!rest.length) return out;
@@ -318,15 +318,15 @@ function landedOnBase(o: EvaluateOptions, rest: string[], mbs: string[], notes: 
   if (baseCommits.length > MAX_LANDED_BASE || rest.length > MAX_LANDED_LISTED) { notes.push(`${baseCommits.length} base and ${rest.length} listed commits since the merge-base, over ${MAX_LANDED_BASE} or ${MAX_LANDED_LISTED}: commits whose patch landed are scanned`); return out; }
   const diffArgs = ['diff-tree', '-r', '--root', '-p', '--no-color', '--no-ext-diff', '--no-textconv'];
   const ids = (list: string[]): string[][] => {
-    const d = git(o.repoRoot, [...diffArgs, '--stdin'], list.join('\n') + '\n');
+    const d = git(o.repoRoot, [...diffArgs, '--stdin'], list.join('\n') + '\n', 'latin1');
     if (!d.ok) throw new Error(`git diff-tree -p failed: ${d.err.slice(0, 200)}`);
-    const p = git(o.repoRoot, ['patch-id', '--verbatim'], d.out);
+    const p = git(o.repoRoot, ['patch-id', '--verbatim'], d.out, 'latin1');
     if (!p.ok) throw new Error(`git patch-id failed: ${p.err.slice(0, 200)}`);
     return p.out.split('\n').map(l => l.split(' ')).filter(f => f.length === 2);
   };
   const byId = new Map<string, string>();
   for (const [id, c] of ids(baseCommits)) if (!byId.has(id!)) byId.set(id!, c!);
-  const body = (c: string) => { const r = git(o.repoRoot, [...diffArgs, c]); return r.ok && r.out.trim() ? patchBody(r.out) : null; };
+  const body = (c: string) => { const r = git(o.repoRoot, [...diffArgs, c], undefined, 'latin1'); return r.ok && r.out.trim() ? patchBody(r.out) : null; };
   for (const [id, c] of ids(rest)) {
     const b = byId.get(id!);
     if (!b) continue;
