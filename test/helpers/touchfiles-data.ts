@@ -1102,6 +1102,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/fixtures/arm-benchmark/**',
     'test/helpers/llm-judge.ts',
     'test/helpers/arm-benchmark-harness.ts',
+    'test/helpers/arm-pair-judge.ts', 'test/fixtures/judge-calibration/arm-pair/**', 'scripts/judge-calibration.ts', 'lib/spend-ledger.ts', 'test/helpers/pricing.ts',
     'test/skill-e2e-arm-benchmark.test.ts',
     'ship/SKILL.md', 'test/helpers/e2e-gate.ts'],
   'arm-benchmark-crud-endpoint': [
@@ -1110,6 +1111,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/fixtures/arm-benchmark/**',
     'test/helpers/llm-judge.ts',
     'test/helpers/arm-benchmark-harness.ts',
+    'test/helpers/arm-pair-judge.ts', 'test/fixtures/judge-calibration/arm-pair/**', 'scripts/judge-calibration.ts', 'lib/spend-ledger.ts', 'test/helpers/pricing.ts',
     'test/skill-e2e-arm-benchmark.test.ts',
     'ship/SKILL.md', 'test/helpers/e2e-gate.ts'],
   'arm-benchmark-bugfix-decoys': [
@@ -1118,6 +1120,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/fixtures/arm-benchmark/**',
     'test/helpers/llm-judge.ts',
     'test/helpers/arm-benchmark-harness.ts',
+    'test/helpers/arm-pair-judge.ts', 'test/fixtures/judge-calibration/arm-pair/**', 'scripts/judge-calibration.ts', 'lib/spend-ledger.ts', 'test/helpers/pricing.ts',
     'test/skill-e2e-arm-benchmark.test.ts',
     'ship/SKILL.md', 'test/helpers/e2e-gate.ts'],
 
