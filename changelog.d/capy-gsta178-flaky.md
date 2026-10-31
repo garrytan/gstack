@@ -10,10 +10,10 @@
 
 ### Gate integrity
 - **ship-unmanaged-hook-consent** (`test/helpers/ship-hook-actor.ts`): the decline check also credits "no hook/change/file was installed, changed, modified, overwritten or replaced". Gate 41005113772 said "No hook was installed or changed" and "nothing was overwritten" after a correct decline; its installs, hook bytes and question checks all passed. The four negative controls still fail.
-- **tpa-absent-darwin** (`test/helpers/third-party-actions.ts`): the Aside download pitch also counts in the passive voice at a clause start ("Aside ... can be downloaded at aside.com", gate 40987391676). Negated, reported and mid-clause forms still count zero.
+- **tpa-absent-darwin** (`test/helpers/third-party-actions.ts`): the Aside download pitch also counts in the passive voice at a clause start ("Aside ... can be downloaded at aside.com", gate 40987391676). Reported and mid-clause forms still count zero, and so does a clause with "not", "no", "never" or "n't" before the phrase.
 
 ### Changed
 - **autoplan-guard-pty** (`test/helpers/autoplan-guard-pty.ts`, `test/skill-e2e-autoplan-guard-pty.test.ts`): a `dispatch_prompt` deny prints each Agent dispatch's length, first differing offset and context next to the prompt the actor had to copy, read before cleanup deletes it. Gate 40992022983 lost those bytes because the journal summary cuts inputs at 160 characters.
 
 ### Tests
-- New captures: `test/fixtures/ship-hook-consent-2026-10-30.json` and a passive-voice capture in `test/fixtures/third-party-actions-pitch-captures.json`; both tests fail with their detector change reverted. `browse/test/playwright-core-patch.test.ts` checks the backport in the patch and the installed tree, and fails without it. `test/autoplan-guard-pty-fixture.test.ts` checks the dispatch delta on a synthetic journal. `test/qa-deadline.test.ts` plays the parent, so it now acknowledges each receipt; its assertions are unchanged.
+- New captures: `test/fixtures/ship-hook-consent-2026-10-30.json` and a passive-voice capture in `test/fixtures/third-party-actions-pitch-captures.json`; both tests fail with their detector change reverted. `browse/test/playwright-core-patch.test.ts` checks the backport in the patch and the installed tree, and fails without it. `test/autoplan-guard-pty-fixture.test.ts` checks the dispatch delta on a synthetic journal. `test/qa-deadline.test.ts` plays the parent, so it now acknowledges each receipt; its assertions are unchanged, and a new case shows a worker whose parent never acknowledges exits 2 after sending both receipts.
