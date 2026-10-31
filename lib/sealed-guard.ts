@@ -22,7 +22,7 @@
  * destination base branch's `sealed` and the pushed one (a push can tighten,
  * never relax); `allow_paths` exceptions come only from the base branch's
  * policy and remove path findings before waivers, which come only from the
- * base branch's `.gstack/sealed-allow.tsv`. A malformed or unreadable policy refuses (fail
+ * base branch's `.gstack/sealed-allow.tsv` and must name the full commit sha. A malformed or unreadable policy refuses (fail
  * closed). Visibility: the base override, else a cache under the state root
  * (a `public` answer for 24 h, a `private` one for 1 h before it may
  * downgrade a refusal), else `gh repo view` (5 s); unknown counts as public.
@@ -47,7 +47,7 @@ export type Visibility = 'public' | 'private' | 'unknown';
 const KEYS = ['paths', 'transcripts', 'answer_markers', 'seed_patterns', 'local_paths', 'allow_paths', 'case_insensitive', 'visibility'];
 const MAX_ENTRIES = 64;
 const MAX_REGEX = 256;
-const LOCAL_PATH_RE = /(?:^|[^A-Za-z0-9_.~-])(?:\/home\/[^/\s'"`]+\/|\/Users\/[^/\s'"`]+\/|[A-Za-z]:\\+Users\\+[^\\\s'"`]+\\)/;
+const LOCAL_PATH_RE = /(?:^|[^A-Za-z0-9_.~-]|\$\{!?(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]\s]{0,64}\])?|[0-9]+|[@*#?$!-]):?-)(?:\/home\/[^/\s'"`]+\/|\/Users\/[^/\s'"`]+\/|[A-Za-z]:\\+Users\\+[^\\\s'"`]+\\)/;
 const PUBLIC_TTL_MS = 24 * 3600_000;
 const PRIVATE_TTL_MS = 3600_000;
 
@@ -104,13 +104,13 @@ export function unionPolicies(base: SealedPolicy | null, pushed: SealedPolicy | 
   return { paths: u('paths'), transcripts: u('transcripts'), answer_markers: u('answer_markers'), seed_patterns: u('seed_patterns'), local_paths: !!(base?.local_paths || pushed?.local_paths), allow_paths: base?.allow_paths ?? [], case_insensitive: !!(base?.case_insensitive || pushed?.case_insensitive), visibility };
 }
 
-/** Reviewed waivers: `rule<TAB>path<TAB>sha<TAB>reason` lines in the base branch's allow file. */
+/** Reviewed waivers: `rule<TAB>path<TAB>sha<TAB>reason` lines in the base branch's allow file; a waiver counts only when its sha equals the finding's full commit sha. */
 export function allowEntriesAt(repoRoot: string, treeish: string | null): AllowEntry[] {
   if (!treeish) return [];
   const show = git(repoRoot, ['cat-file', 'blob', `${treeish}:${SEALED_ALLOW_PATH}`]);
   if (!show.ok) return [];
-  return show.out.split('\n').filter(l => l.trim() && !l.startsWith('#')).map(l => l.split('\t')).filter(f => f.length >= 4 && /^[0-9a-f]{7,64}$/.test(f[2]!) && f[3]!.trim())
-    .map(f => ({ rule: f[0]!.trim(), path: f[1]!.trim(), sha: f[2]!, reason: f.slice(3).join('\t').trim() }));
+  return show.out.split('\n').filter(l => l.trim() && !l.startsWith('#')).map(l => l.split('\t')).filter(f => f.length >= 4 && f[2]!.trim() && f[3]!.trim())
+    .map(f => ({ rule: f[0]!.trim(), path: f[1]!.trim(), sha: f[2]!.trim(), reason: f.slice(3).join('\t').trim() }));
 }
 
 /** Commits a push publishes: local minus the remote's refs (and its tip for this ref); null remote and no tip → everything reachable. */
@@ -229,7 +229,7 @@ export function resolveVisibility(url: string | null, o: VisibilityOptions = {})
 
 export interface SealedReport {
   status: 'no-policy' | 'clear' | 'refused' | 'warned' | 'error';
-  policyLabels: string[]; commits: number; findings: SealedFinding[]; exempt: ExemptFinding[]; waived: Array<SealedFinding & { reason: string }>;
+  policyLabels: string[]; commits: number; findings: SealedFinding[]; exempt: ExemptFinding[]; waived: Array<SealedFinding & { reason: string }>; ignoredWaivers: Array<{ rule: string; path: string; sha: string; commit: string }>;
   visibility: Visibility; visibilitySource: string; target: string; error?: string;
 }
 
@@ -240,7 +240,7 @@ export interface EvaluateOptions {
 
 /** A report for a failure before any policy is read (an unlisted range, an unreadable push); renders as a fail-closed refusal. */
 export function sealedErrorReport(error: string, target: string): SealedReport {
-  return { status: 'error', error, policyLabels: [], commits: 0, findings: [], exempt: [], waived: [], visibility: 'unknown', visibilitySource: '', target };
+  return { status: 'error', error, policyLabels: [], commits: 0, findings: [], exempt: [], waived: [], ignoredWaivers: [], visibility: 'unknown', visibilitySource: '', target };
 }
 
 /** The whole guard for one push (or range): policies, commits, findings, waivers, visibility, verdict. */
@@ -271,13 +271,20 @@ export function evaluateSealed(o: EvaluateOptions): SealedReport {
   const allow = allowEntriesAt(o.repoRoot, o.baseRef);
   const waived: SealedReport['waived'] = [];
   const findings = found.filter(f => {
-    const entry = allow.find(a => a.rule === f.rule && a.path === f.file && f.commit.startsWith(a.sha));
+    const entry = allow.find(a => a.rule === f.rule && a.path === f.file && a.sha === f.commit);
     if (entry) waived.push({ ...f, reason: entry.reason });
     return !entry;
   });
+  const applied = new Set(waived.map(w => `${w.rule}\t${w.file}\t${w.commit}`));
+  const ignored = new Map<string, SealedReport['ignoredWaivers'][number]>();
+  for (const f of findings) for (const a of allow) {
+    if (a.rule !== f.rule || a.path !== f.file || applied.has(`${a.rule}\t${a.path}\t${a.sha}`)) continue;
+    ignored.set(`${a.rule}\t${a.path}\t${a.sha}\t${f.commit}`, { rule: a.rule, path: a.path, sha: a.sha, commit: f.commit });
+  }
+  const ignoredWaivers = [...ignored.values()];
   const vis = policy.visibility ? { visibility: policy.visibility as Visibility, source: `${VISIBILITY_OVERRIDE_KEY} override` } : resolveVisibility(o.remoteUrl, { env: o.env, gh: o.gh });
   const status = findings.length === 0 ? 'clear' : vis.visibility === 'private' ? 'warned' : 'refused';
-  return { status, policyLabels: labels, commits: commits.length, findings, exempt, waived, visibility: vis.visibility, visibilitySource: vis.source, target: o.target };
+  return { status, policyLabels: labels, commits: commits.length, findings, exempt, waived, ignoredWaivers, visibility: vis.visibility, visibilitySource: vis.source, target: o.target };
 }
 
 const where = (f: SealedFinding) => `${f.file || '(unknown file)'}${f.line ? `:${f.line}` : ''}`;
@@ -287,6 +294,10 @@ export function renderSealed(r: SealedReport, context: string): string {
   const lines: string[] = [];
   for (const e of r.exempt) lines.push(`${context}: exempt ${e.rule}  ${where(e)}  commit ${e.commit.slice(0, 12)} (sealed.allow_paths ${e.glob})`);
   for (const w of r.waived) lines.push(`${context}: waived ${w.rule}  ${where(w)}  commit ${w.commit.slice(0, 12)} (${SEALED_ALLOW_PATH}: ${w.reason})`);
+  for (const i of r.ignoredWaivers) {
+    const why = i.commit.startsWith(i.sha.toLowerCase()) ? `${SEALED_ALLOW_PATH} must name the full lowercase commit sha` : 'it names another commit';
+    lines.push(`${context}: ignored waiver ${i.rule}  ${i.path}  sha ${i.sha} (${why}; this finding is in commit ${i.commit}, review it before waiving)`);
+  }
   const vis = `visibility: ${r.visibility}${r.visibility === 'unknown' ? ', counted public' : ''}; ${r.visibilitySource}`;
   const body = r.findings.map(f => `  ${f.rule}  ${where(f)}  commit ${f.commit.slice(0, 12)}`);
   if (r.status === 'error') {
@@ -294,7 +305,7 @@ export function renderSealed(r: SealedReport, context: string): string {
     lines.push(`Fix the sealed policy (gstack-pregate validate), then retry; an unreadable policy never passes (SEALED_OUTPUT_REFUSED)`);
   } else if (r.status === 'refused') {
     lines.push(`\n⛔ ${context} BLOCKED the publication of ${r.target} (${vis}) — sealed or eval output in ${r.commits} published commit(s):`, ...body);
-    lines.push(`Remove it from every published commit before this branch reaches a public repository, exempt a publishable path with a sealed.allow_paths glob in the base branch's ${SEALED_CONFIG_PATH}, or waive one reviewed finding with a \`rule<TAB>path<TAB>sha<TAB>reason\` line in the base branch's ${SEALED_ALLOW_PATH}. A private destination: set ${VISIBILITY_OVERRIDE_KEY} "private" in the base branch's ${SEALED_CONFIG_PATH} (SEALED_OUTPUT_REFUSED)`);
+    lines.push(`Remove it from every published commit before this branch reaches a public repository, exempt a publishable path with a sealed.allow_paths glob in the base branch's ${SEALED_CONFIG_PATH}, or waive one reviewed finding with a \`rule<TAB>path<TAB>full-commit-sha<TAB>reason\` line in the base branch's ${SEALED_ALLOW_PATH}. A private destination: set ${VISIBILITY_OVERRIDE_KEY} "private" in the base branch's ${SEALED_CONFIG_PATH} (SEALED_OUTPUT_REFUSED)`);
   } else if (r.status === 'warned') {
     lines.push(`${context}: warning — sealed or eval output in a push to a private destination (${vis}); it would be refused for a public one:`, ...body);
   }

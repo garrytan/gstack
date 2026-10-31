@@ -54,6 +54,7 @@ import { generatePlanRealityRows } from './plan-reality';
 import { generateSidewaysSweep, generateFlakeFixNumber } from './sideways';
 import { generateCoordinatorContract } from './coordinator-contract';
 import { generateAutoplanDriverCodes, generateAutoplanDriverCommands, generateAutoplanDriverFiles, generateAutoplanDriverGate, generateAutoplanDriverPhases, generateAutoplanDriverResultFormat } from './autoplan-driver';
+import { generateShipDriverStops } from './ship-driver';
 import { generateQAScope, generateQAExploratory, generateQAFunctional, generateQAResource, generateQAReview, generateQAReviewPreflight, generateQAMethodReads } from './qa';
 import { generateVoiceTriggerRouting } from './voice-triggers';
 import { generateTranscriptDiscovery, generateTranscriptSources } from './transcripts';
@@ -191,6 +192,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   AUTOPLAN_DRIVER_GATE: generateAutoplanDriverGate,
   AUTOPLAN_DRIVER_FILES: generateAutoplanDriverFiles,
   AUTOPLAN_DRIVER_CODES: generateAutoplanDriverCodes,
+  SHIP_DRIVER_STOPS: generateShipDriverStops,
   SECTION,
   SECTION_INDEX,
   TRANSCRIPT_SOURCES: generateTranscriptSources,

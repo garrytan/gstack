@@ -224,6 +224,8 @@ function cmdRender(rest: string[]): number {
   let noted: ScopedFinding[] = [];
   try {
     if (deferredFile) deferred = JSON.parse(fs.readFileSync(deferredFile, 'utf8'));
+    const wrapped = deferred as unknown as { deferred?: unknown };
+    if (!Array.isArray(deferred) && Array.isArray(wrapped?.deferred)) deferred = wrapped.deferred as DeferredRecord[];
     const findingsFile = flag(rest, '--findings');
     if (findingsFile) noted = (readFindings(findingsFile, 'classified findings') as ScopedFinding[]).filter(f => f.scope === 'note');
   } catch (e: any) { return refuse('render', 'REVIEW_SCOPE_INPUT', e.message); }

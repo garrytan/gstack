@@ -446,11 +446,69 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(after.stderr()).toBe("gstack-post: pr-body merged by section: replaced ship receipt, Why; kept unclosed receipt fence; added none\n");
   });
 
+  // Value: protects=a file with sections owns the text above the first heading (GST-412): stale lead text and stale text between the receipt and the
+  // first heading are dropped and named on stderr with their first line, the file's own preamble takes their place, a receipt-only or text-only file
+  // keeps the older merge, a repost is byte-identical and an attribution callout is never doubled; fails_when=pr-body keeps a stale intro above the
+  // receipt or a stale note under it after /ship reposts the sections; why_new=lead text was kept unless the file brought its own; seam=fake run;
+  // no_claim=real gh
+  test("a file with sections replaces every text section above the current first heading and names each dropped piece", () => {
+    const stale = withBody("Draft intro from gh pr create, long enough to need truncation in the summary line\nsecond line\n\n" + CURRENT, { "/b": RECEIPT("bbbb") + "\n## What changed\n\n- new\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], stale)).toBe(EXIT.posted);
+    expect(sent(stale).input).toBe(RECEIPT("bbbb") + "\n## What changed\n\n- new\n\n## Why\n\nBecause.\n\n## Approvals\n\n- owner: do it\n");
+    expect(stale.stderr()).toBe("gstack-post: pr-body merged by section: replaced ship receipt, What changed; kept Why, Approvals; added none; dropped leading text (\"Draft intro from gh pr create, long enough to need truncati…\")\n");
+
+    const between = withBody(RECEIPT("aaaa") + "Old note under the receipt\n\n## What changed\n\n- old\n", { "/b": "## What changed\n\n- new\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], between)).toBe(EXIT.posted);
+    expect(sent(between).input).toBe(RECEIPT("aaaa") + "\n## What changed\n\n- new\n");
+    expect(between.stderr()).toBe("gstack-post: pr-body merged by section: replaced What changed; kept ship receipt; added none; dropped trailing text (\"Old note under the receipt\")\n");
+
+    const own = withBody("Stale intro\n\n" + RECEIPT("aaaa") + "Stale note\n\n## Why\n\nold\n", { "/b": "Fresh intro\n\n" + RECEIPT("bbbb") + "Fresh note\n\n## Why\n\nnew\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], own)).toBe(EXIT.posted);
+    expect(sent(own).input).toBe("Fresh intro\n\n" + RECEIPT("bbbb") + "\nFresh note\n\n## Why\n\nnew\n");
+    expect(mergeBodySections(sent(own).input!, "Fresh intro\n\n" + RECEIPT("bbbb") + "Fresh note\n\n## Why\n\nnew\n").body).toBe(sent(own).input!);
+    expect(own.stderr()).toBe("gstack-post: pr-body merged by section: replaced leading text, ship receipt, trailing text, Why; kept none; added none\n");
+  });
+
+  // Value: protects=the dropped-piece excerpt on stderr never repeats a secret the merge removed from the body (the scan only reads the merged bytes);
+  // fails_when=a stale intro holding a credential is echoed to stderr while it leaves the PR; why_new=the excerpt is new in GST-412; seam=fake run; no_claim=real gh
+  test("a dropped piece whose first line the redaction scan flags is named without its text", () => {
+    const leak = withBody(`Deploy key ${AWS} for the demo\n\n` + CURRENT, { "/b": RECEIPT("bbbb") + "\n## What changed\n\n- new\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], leak)).toBe(EXIT.posted);
+    expect(leak.stderr()).not.toContain(AWS);
+    expect(leak.stderr()).toContain("dropped leading text (first line withheld: the redaction scan flagged it)");
+  });
+
+  test("receipt-only and text-only files keep the older merge; a repost is byte-identical; a callout in the preamble is never doubled", () => {
+    const lead = "Human intro\n\n" + CURRENT;
+    const receiptOnly = withBody(lead, { "/b": RECEIPT("bbbb") });
+    expect(run(["pr-body", "5", "--body-file", "/b"], receiptOnly)).toBe(EXIT.posted);
+    expect(sent(receiptOnly).input).toBe(lead.replace(RECEIPT("aaaa"), RECEIPT("bbbb")));
+    expect(receiptOnly.stderr()).toBe("gstack-post: pr-body merged by section: replaced ship receipt; kept leading text, What changed, Why, Approvals; added none\n");
+
+    const textOnly = withBody(RECEIPT("aaaa") + "Old note\n\n## Why\n\nx\n", { "/b": "New intro\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], textOnly)).toBe(EXIT.posted);
+    expect(sent(textOnly).input).toBe("New intro\n\n" + RECEIPT("aaaa") + "Old note\n\n## Why\n\nx\n");
+    expect(textOnly.stderr()).toBe("gstack-post: pr-body merged by section: replaced none; kept ship receipt, trailing text, Why; added leading text\n");
+
+    const composed = "Intro\n\n" + RECEIPT("bbbb") + "\n## Summary\n\nnew\n\n## Test plan\n\n- [x] bun test\n";
+    const again = mergeBodySections(composed, composed);
+    expect(again.body).toBe(composed);
+    expect([again.added, again.dropped]).toEqual([[], []]);
+
+    const callout = attributionCallout("Claude Opus on behalf of octocat");
+    const withCallout = callout + RECEIPT("bbbb") + "\n## Summary\n\nnew\n";
+    const reposted = mergeBodySections(callout + RECEIPT("aaaa") + "\n## Summary\n\nold\n", withCallout);
+    expect(reposted.body).toBe(withCallout);
+    expect(reposted.body.split("[!NOTE]")).toHaveLength(2);
+    expect(mergeBodySections(reposted.body, withCallout).body).toBe(withCallout);
+  });
+
   // Value: protects=--replace keeps the plain overwrite for a caller that composed the whole body, a current body with no H2 headings is kept as the leading
-  // section, an empty current body posts the new body byte for byte, the scan runs on the merged bytes, and an unreadable current body is exit 3 with
-  // the --replace hint rather than an overwrite; fails_when=--replace merges, headingless text is dropped, the merge changes a lone new body, a secret in a
-  // kept section passes the scan, or a failed read overwrites; why_new=first pr-body merge tests; seam=fake run; no_claim=real gh
-  test("--replace overwrites; a body without H2 headings is kept as a leading section; the merged bytes are what is scanned; a failed read refuses", () => {
+  // section by a file without sections and dropped (and named) by a file with sections (GST-412), an empty current body posts the new body byte for byte,
+  // the scan runs on the merged bytes, and an unreadable current body is exit 3 with the --replace hint rather than an overwrite; fails_when=--replace
+  // merges, headingless text is dropped by a receipt-only post or kept under new sections, the merge changes a lone new body, a secret in a kept section
+  // passes the scan, or a failed read overwrites; why_new=first pr-body merge tests; seam=fake run; no_claim=real gh
+  test("--replace overwrites; a body without H2 headings is kept by a file without sections and dropped by one with sections; the merged bytes are what is scanned; a failed read refuses", () => {
     const replaced = withBody(CURRENT, { "/b": "## What changed\n\nonly this\n" });
     expect(run(["pr-body", "5", "--replace", "--body-file", "/b"], replaced)).toBe(EXIT.posted);
     expect(sent(replaced).input).toBe("## What changed\n\nonly this\n");
@@ -459,8 +517,12 @@ describe("gstack-post pr-body merges the PR body by section", () => {
 
     const plain = withBody("Just a paragraph.\nAnother line.", { "/b": "## Tests\n\n- one\n" });
     expect(run(["pr-body", "5", "--body-file", "/b"], plain)).toBe(EXIT.posted);
-    expect(sent(plain).input).toBe("Just a paragraph.\nAnother line.\n\n## Tests\n\n- one\n");
-    expect(plain.stderr()).toBe("gstack-post: pr-body merged by section: replaced none; kept leading text; added Tests\n");
+    expect(sent(plain).input).toBe("## Tests\n\n- one\n");
+    expect(plain.stderr()).toBe("gstack-post: pr-body merged by section: replaced none; kept none; added Tests; dropped leading text (\"Just a paragraph.\")\n");
+    const plainText = withBody("Just a paragraph.\nAnother line.", { "/b": RECEIPT("bbbb") });
+    expect(run(["pr-body", "5", "--body-file", "/b"], plainText)).toBe(EXIT.posted);
+    expect(sent(plainText).input).toBe(RECEIPT("bbbb") + "\nJust a paragraph.\nAnother line.");
+    expect(plainText.stderr()).toBe("gstack-post: pr-body merged by section: replaced none; kept leading text; added ship receipt\n");
 
     const empty = withBody("", { "/b": "new body" });
     expect(run(["pr-body", "6", "--body-file", "/b"], empty)).toBe(EXIT.posted);
@@ -526,13 +588,40 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(fresh.body).toBe(receipt + "\n## A\n\nb\n");
     expect([fresh.replaced, fresh.kept, fresh.added]).toEqual([["A"], [], ["ship receipt"]]);
 
-    const twice = mergeBodySections("## A\na\n## A\na2\n", "## A\nnew\n");
-    expect(twice.body).toBe("## A\nnew\n\n## A\na2\n");
-    expect([twice.replaced, twice.kept]).toEqual([["A"], ["A"]]);
+    expect(() => mergeBodySections("## A\na\n## A\na2\n", "## A\nnew\n")).toThrow('holds "A" more than once');
+    const untouched = mergeBodySections("## A\na\n## A\na2\n", "## B\nb\n");
+    expect(untouched.body).toBe("## A\na\n## A\na2\n\n## B\nb\n");
+    expect([untouched.kept, untouched.added]).toEqual([["A", "A"], ["B"]]);
 
     const glued = mergeBodySections("## A\n\na", "## B\n\nb");
     expect(glued.body).toBe("## A\n\na\n\n## B\n\nb");
     expect(mergeBodySections("## A\n\na\n\n", "## B\n\nb\n").body).toBe("## A\n\na\n\n## B\n\nb\n");
+  });
+
+  // Value: protects=a PR body holding a section title twice (an old description pasted under the /ship body, gstack-evals#19) refuses to merge,
+  // posts nothing and names the fix, so the stale copy is never kept beside the new one; --replace posts the file as written;
+  // fails_when=the file's section replaces the first copy and the old one is kept (the #19 duplicate); why_new=the merge matched duplicate titles
+  // one to one and reported the leftover as kept; seam=the fake run answers gh pr view --json body; no_claim=real gh
+  test("a current body with a title twice refuses the merge and posts nothing; --replace posts the file", () => {
+    const fresh = RECEIPT("bbbb") + "\n## What changed\n\n- the /ship summary\n\n## Test plan\n\n- [x] bun test\n";
+    const current = RECEIPT("aaaa") + "\n## What changed\n\n- the /ship summary\n\n## Test plan\n\n- [x] bun test\n\n---\n\nOriginal intro.\n\n## What changed\n\n- the old summary\n\n## Checks\n\n- old checks\n";
+    const f = withBody(current, { "/b": fresh + "\n## Original description\n\nOriginal intro.\n" });
+    expect(run(["pr-body", "5", "--body-file", "/b"], f)).toBe(EXIT.usage);
+    expect(f.posts().some(c => c.args[1] === "edit")).toBe(false);
+    expect(f.stderr()).toContain(`the PR's current body holds "What changed" more than once`);
+    expect(f.stderr()).toContain("Rerun with --replace and the whole body");
+
+    const replaced = withBody(current, { "/b": fresh });
+    expect(run(["pr-body", "5", "--body-file", "/b", "--replace"], replaced)).toBe(EXIT.posted);
+    expect(sent(replaced).input).toBe(fresh);
+  });
+
+  // Value: protects=a current body holding two ship-receipt blocks (an old receipt pasted below) refuses like a doubled title, so the stale
+  // receipt is never kept beside the new one; fails_when=receipt keys are exempted from the duplicate check or matched one to one again;
+  // why_new=only doubled ## titles were tested; seam=none; no_claim=how /ship reports the refusal
+  test("a current body with two receipt blocks refuses a file that carries a receipt", () => {
+    const current = RECEIPT("aaaa") + "\n## A\n\na\n\n" + RECEIPT("bbbb") + "\n## B\n\nb\n";
+    expect(() => mergeBodySections(current, RECEIPT("cccc") + "\n## A\n\nnew\n")).toThrow('holds "ship receipt" more than once');
   });
 
   // Value: protects=the body /ship composes (lib/ship-receipt.ts placeReceiptFirst: the receipt block, one blank line, then the sections) reposts
@@ -566,8 +655,8 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(fresh.added).toEqual(["leading text"]);
     const receipt = "```gstack-ship-receipt\n{\n  \"head\": \"a\"\n}\n```\n";
     const afterReceipt = mergeBodySections("Intro line\n\n## Summary\n\nold\n", receipt + "note\n\n## Summary\n\nnew\n");
-    expect(afterReceipt.body).toContain("Intro line\n");
-    expect(afterReceipt.body).toContain("note\n");
+    expect(afterReceipt.body).toBe(receipt + "\nnote\n\n## Summary\n\nnew\n");
     expect(afterReceipt.replaced).toEqual(["Summary"]);
+    expect(afterReceipt.dropped).toEqual(['leading text ("Intro line")']);
   });
 });

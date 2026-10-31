@@ -39,7 +39,7 @@
     "id": "add",
     "prompt": "Record a learning for this project: it's a pitfall, key flaky-port-3000, insight 'Port 3000 collides with the dev proxy, so tests use 3100', confidence 8. I'm stating this myself. Related file: app/models/user.rb.",
     "setup": "sh \"$SKILL_EVAL_FIXTURES/seed.sh\" full",
-    "check": "grep '\"key\":\"flaky-port-3000\"' .gstack-home/projects/*/learnings.jsonl | grep -q '\"trusted\":true'"
+    "check": "d=\".gstack-home/projects/$(basename \"$PWD\" | tr -cd 'a-zA-Z0-9._-')\" && grep '\"key\":\"flaky-port-3000\"' \"$d/learnings.jsonl\" | grep -q '\"trusted\":true'"
   },
   {
     "id": "prune-stale",
@@ -48,7 +48,7 @@
     "must": [
       "stale-cache"
     ],
-    "check": "! grep -q stale-cache-after-deploy .gstack-home/projects/*/learnings.jsonl && grep -q always-run-rubocop .gstack-home/projects/*/learnings.jsonl && grep -q n-plus-one-queries .gstack-home/projects/*/learnings.jsonl"
+    "check": "d=\".gstack-home/projects/$(basename \"$PWD\" | tr -cd 'a-zA-Z0-9._-')\" && ! grep -q stale-cache-after-deploy \"$d/learnings.jsonl\" && grep -q always-run-rubocop \"$d/learnings.jsonl\" && grep -q n-plus-one-queries \"$d/learnings.jsonl\""
   },
   {
     "id": "prune-conflict",
@@ -57,7 +57,7 @@
     "must": [
       "api-retry"
     ],
-    "check": "test \"$(cat .gstack-home/projects/*/learnings.jsonl | wc -l)\" -eq 7"
+    "check": "d=\".gstack-home/projects/$(basename \"$PWD\" | tr -cd 'a-zA-Z0-9._-')\" && test \"$(wc -l < \"$d/learnings.jsonl\")\" -eq 7"
   },
   {
     "id": "cross-project",
@@ -83,6 +83,6 @@
     "must": [
       "n-plus-one|N\\+1"
     ],
-    "check": "git diff --quiet HEAD -- app"
+    "check": "git diff --quiet HEAD -- app && test -z \"$(git ls-files --others -- app)\""
   }
 ]

@@ -51,6 +51,7 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 // when possible; this list is for environment-/runtime-specific tests where
 // the failure mode is structural rather than detectable via source-file scan.
 export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
+  { file: 'test/ship-queue-land.test.ts', reason: 'its gh shim is an extensionless #!/usr/bin/env node script on a colon-joined PATH, which windows-latest cannot launch, so land reaches the real gh (no GH_TOKEN) and every case fails (windows-free-shard 6, run 40824965988); land is a controller command run on Linux and macOS' },
   // Like test/paid-rerun.test.ts (excluded by pattern), it replays a gate capture through the paid lane's --report and --rerun-plan CLI.
   { file: 'test/shared-libs-index-flags-readonly.test.ts', reason: 'its assume-unchanged replay seeds the review through test/helpers/shared-libs-path-fixture.ts, which launches bin/gstack-review-log (a bash script) directly; windows-latest refuses it as not found in $PATH (windows-free-shard 5, run 40727825859)' },
   { file: 'test/credential-rejection.test.ts', reason: 'replays run 39696775546 through the --report and --rerun-plan CLI of the paid lane, which runs only on Linux CI; on windows-latest that CLI exits 1 with EINVAL in open() (windows-free-shard run 39982914852)' },
@@ -291,6 +292,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   },
   // GSTA-49 T1 (merge trains): the train lib logic runs on Windows in test/ship-queue-train-logic.test.ts.
   {
+    file: 'test/ship-queue-train-land.test.ts',
+    reason: 'drives train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for test/ship-queue-train.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
+  },
+  {
     file: 'test/ship-queue-train.test.ts',
     reason: 'drives bin/gstack-ship-queue against the stateful #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard run 39152702056)',
   },
@@ -313,6 +318,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/restamp-gate-ahead-changelog.test.ts',
     reason: 'spawns bin/gstack-restamp (shebang) and a POSIX release tool through test/helpers/restamp-fixture.ts',
+  },
+  {
+    file: 'test/ship-release.test.ts',
+    reason: 'spawns bin/gstack-ship-release (shebang) directly and writes #!/bin/sh gh stubs through test/helpers/ship-bin-fixture.ts; windows-latest exits before the bin runs (windows-free-shard 3, run 41073592483)',
   },
 ];
 

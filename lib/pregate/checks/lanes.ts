@@ -344,7 +344,7 @@ function unfinished(ctx: PregateContext, r: Awaited<ReturnType<typeof runLocal>>
     const killed = r.runs.find(x => x.outcome === 'exited' && x.exit === null);
     return { code: 'PREGATE_INCOMPLETE', detail: `the runner process ended without an exit code (killed by ${killed?.signal ?? 'a signal'}; ${total} files; last file started: ${killed?.lastFile ?? 'none reported'}${rest})`, fix: `read ${r.log}; a runner killed by a signal (out of memory, an outside kill) never passes; rerun, or split the selection` };
   }
-  return { code: 'PREGATE_INCOMPLETE', detail: `a runner process timed out after ${ctx.timeoutMs} ms (--timeout applies to each runner process; ${total} files; last file started: ${timedOut.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest})`, fix: 'raise --timeout or split the selection; a timed-out lane never passes' };
+  return { code: 'PREGATE_INCOMPLETE', detail: `a runner process timed out after ${ctx.timeoutMs} ms (${ctx.timeoutSource ?? '--timeout'} applies to each runner process; ${total} files; last file started: ${timedOut.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest})`, fix: 'raise --timeout or split the selection; a timed-out lane never passes' };
 }
 
 function describe(sel: Selection, noPolicy = false): string[] {
@@ -401,7 +401,8 @@ export function remoteReportProblem(report: RemoteReport, tree: string): string 
 
 /**
  * `--remote`: run the declared remote gate now, under the spend cap. The
- * gate gets PREGATE_TREE, PREGATE_FILES_FILE and PREGATE_SPEND_CAP_USD and
+ * gate gets PREGATE_TREE, PREGATE_FILES_FILE, PREGATE_SPEND_CAP_USD and
+ * PREGATE_TIMEOUT_S (this run's per-process timeout, whole seconds) and
  * must print `PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n> [spent=<usd>]`;
  * the obligation clears only when that tree is the tested tree, tests > 0,
  * failed = 0 and the gate exited 0. Anything else leaves it uncleared and
@@ -417,7 +418,7 @@ async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult)
   const filesFile = path.join(dir, 'files.txt');
   fs.writeFileSync(log, '');
   fs.writeFileSync(filesFile, sel.localTests.join('\n') + '\n');
-  const r = await supervise({ command: obligation.command!, cwd: ctx.repoRoot, env: { ...ctx.env, PREGATE_TREE: ctx.wtree, PREGATE_FILES_FILE: filesFile, PREGATE_SPEND_CAP_USD: String(cap) }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: ctx.stallTimeoutMs, label: `remote gate ${obligation.lane}`, progress: ctx.progress });
+  const r = await supervise({ command: obligation.command!, cwd: ctx.repoRoot, env: { ...ctx.env, PREGATE_TREE: ctx.wtree, PREGATE_FILES_FILE: filesFile, PREGATE_SPEND_CAP_USD: String(cap), PREGATE_TIMEOUT_S: String(Math.floor(ctx.timeoutMs / 1000)) }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: ctx.stallTimeoutMs, label: `remote gate ${obligation.lane}`, progress: ctx.progress });
   const output = readRange(log, r.start, r.end);
   const reported = parseRemoteReport(output);
   const spent = reported?.spent;
@@ -518,9 +519,19 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   return noPolicy ? withStarter(ctx, sel, result) : result;
 }
 
+/**
+ * The fix line for PREGATE_NO_LANE. When the branch edits `.gstack/pregate.json`
+ * while the policy comes from elsewhere (the base copy, or the user-owned file),
+ * a lane the branch adds does not count yet, and saying "declare its lane" again
+ * sends the author round in a circle. That is the trust boundary working (a
+ * branch cannot loosen its own gate), so the line says so and names the two
+ * routes; it never switches to the head policy on its own.
+ */
 function noLaneFix(ctx: PregateContext, noLane: readonly string[]): string {
-  const device = noLane.some(isDeviceDart) ? `; pregate does not run device tests, so declare "**/integration_test/**": [] (and "**/test_driver/**": []) and let CI run them` : '';
-  return `add a test that names the file, or declare its lane (or []) under dependencies — or empty_lanes for other documentation — in ${ctx.configFile}${device}`;
+  const device = noLane.some(isDeviceDart) ? `; pregate does not run device tests, so declare "**/integration_test/**": [] (and "**/test_driver/**": []) on ${ctx.base} and let CI run them` : '';
+  const fix = `add a test that names the file, or declare its lane (or []) under dependencies — or empty_lanes for other documentation — in ${ctx.configFile}${device}`;
+  if (ctx.configKind === 'head' || !ctx.touched.some(t => t.path === PREGATE_CONFIG_PATH && t.status !== 'D')) return fix;
+  return `this branch edits ${PREGATE_CONFIG_PATH}, but the policy comes from ${ctx.configLabel} so a branch cannot loosen its own gate, and a lane it adds counts only once it is on ${ctx.base}: land the policy change in its own PR first, or rerun with --policy-from head --allow-repo-commands (gstack-ship-preflight forwards it; a head policy may only add test lanes, and a [] declaration must land on ${ctx.base} first), which records the run as policy head (unreviewed); otherwise ${fix}`;
 }
 
 export const lanesCheck: CheckDef = { id: 'lanes', stage: 'tests', tier: 1, downgradable: true, needsRepoCommands: true, run };

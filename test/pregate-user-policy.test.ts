@@ -131,6 +131,19 @@ describe('gstack-pregate with a user-owned policy', () => {
     expect(lanes.fix).toContain(`under dependencies — or empty_lanes for other documentation — in ${userPolicy}`);
   }, 60_000);
 
+  // Value: protects=under a user-owned policy, a branch that adds its own .gstack/pregate.json is told the user file is the policy, by path;
+  //   fails_when=the own-policy line is limited to the base copy or hardcodes origin as the source; why_new=the own-policy line is new and its
+  //   test covers the base copy only; seam=none; no_claim=which route suits a user-policy repository
+  test('the own-policy no-lane fix names the user file as the policy source', () => {
+    const { repo, userPolicy, run } = setup();
+    writePolicy(userPolicy, { local: LOCAL_ALL });
+    commit(repo, { 'lib/orphan.js': 'exports.lonely = () => 2;\n', '.gstack/pregate.json': JSON.stringify({ runner: 'node --test {files}', dependencies: { 'lib/orphan.js': ['test/util.test.js'] } }) });
+    expect(run().status).not.toBe(EXIT.ok);
+    const lanes = JSON.parse(fs.readFileSync(path.join(repo.work, '.gstack/tmp/pregate.json'), 'utf8')).checks.find((c: { id: string }) => c.id === 'lanes');
+    expect(lanes.code).toBe('PREGATE_NO_LANE');
+    expect(lanes.fix).toStartWith(`this branch edits .gstack/pregate.json, but the policy comes from user ${userPolicy} so a branch cannot loosen its own gate`);
+  }, 60_000);
+
   // Value: protects=an invalid, sealed-bearing or unreadable user file refuses with PREGATE_CONFIG_INVALID naming the file, with a fix
   //   that points at the file rather than the base branch; fails_when=user-file errors run on defaults, or sealed/price_file are accepted
   //   and look active while nothing reads them; why_new=the user source is new; seam=none; no_claim=the sealed guard itself
@@ -161,16 +174,17 @@ describe('gstack-pregate with a user-owned policy', () => {
     expect(unreadable.err).toContain('cannot read the user-owned policy');
   }, 60_000);
 
-  // Value: protects=the user file is consulted only for --policy-from base with no base copy: head mode and a committed base copy never
-  //   read it; fails_when=either guard on the fallback is dropped and an unreviewed user file overrides reviewed policy; why_new=the
-  //   fallback is new; seam=none; no_claim=none beyond protects
-  test('--policy-from head and a base copy never read the user file', () => {
+  // Value: protects=the user file is consulted only with no base copy: a committed base copy never reads it, and under --policy-from head it
+  //   is the trusted policy the head file is compared with, so an invalid one refuses instead of vanishing (GST-419); fails_when=a base
+  //   copy is overridden by the user file, or head mode drops an unreadable user policy; why_new=the fallback is new, and head mode
+  //   now compares with it; seam=none; no_claim=none beyond protects
+  test('a base copy never reads the user file; under --policy-from head an invalid user file refuses', () => {
     const { repo, userPolicy, run } = setup();
     writePolicy(userPolicy, { local: ['not-a-lane'] });
 
     const head = run(['--policy-from', 'head']);
-    expect(head.err).not.toContain('PREGATE_CONFIG_INVALID');
-    expect(head.out).not.toContain('policy user');
+    expect(head.status).toBe(EXIT.refused);
+    expect(head.err).toContain('PREGATE_CONFIG_INVALID');
 
     commit(repo, { '.gstack/pregate.json': JSON.stringify(BASE_PREGATE) + '\n' });
     repo.git('push', '-q', 'origin', 'HEAD:main');

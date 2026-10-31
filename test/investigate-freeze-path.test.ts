@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -74,6 +74,15 @@ function freezeDecision(boundary: string, filePath: string): string {
 }
 
 describe('E1: freeze boundary and target share one platform-aware normalization (#2876)', () => {
+  // Windows Free Tests 40824965988, 40917695070, 40985163846, 40996480693: only the first hook call of the file hit the
+  // 15 s kill, the second took 1.9-7.9 s and the rest 0.3-1 s (serial retries: 0.3 s). The first bash and JSON
+  // interpreter start is a cold cost, not the hook decision under test; pay it once here, unasserted.
+  beforeAll(() => {
+    withState('C:\\dev\\proj\\src\\', (env) => Bun.spawnSync(['bash', FREEZE_HOOK], {
+      stdin: Buffer.from(JSON.stringify({ tool_input: { file_path: 'C:\\dev\\proj\\src\\a.py' } })), env, timeout: 25_000,
+    }));
+  }, 30_000);
+
   test.each([
     ['C:\\dev\\proj\\src\\', 'C:\\dev\\proj\\src\\a.py', 'allow'],
     ['/c/dev/proj/src/', 'C:\\dev\\proj\\src\\a.py', 'allow'],

@@ -73,6 +73,11 @@ if (role === 'leaf') {
       process.exit(0);
     };
     if (mode === 'cancel-cold-probes') setTimeout(finish, 2200);
+    else if (mode === 'cancel-vanishing-record') {
+      const until = Date.now() + 3000;
+      const awaitObserver = () => fs.existsSync(file('.vanished')) || Date.now() > until ? finish() : setTimeout(awaitObserver, 10);
+      awaitObserver();
+    }
     else if (mode === 'exit-environment-race') setTimeout(finish, 200);
     else finish();
   });

@@ -182,7 +182,7 @@ export function verifyPregate(repoRoot: string, file: PregateFile, treeNow: Wtre
  * environment: the policy file and its digest, or under the defaults the path that was looked for and absent.
  */
 function userPolicyChange(file: PregateFile): string | null {
-  const recorded = file.policy?.startsWith('user ') ? file.policy.slice('user '.length) : null;
+  const recorded = file.policy?.startsWith('user ') ? file.policy.slice('user '.length) : file.policy?.startsWith('head ') ? / over user (.+)$/.exec(file.policy)?.[1] ?? null : null;
   if (recorded) {
     if (!file.policy_digest) return `pregate.json names the user-owned policy ${recorded} without its digest; rerun gstack-pregate`;
     let text: string;

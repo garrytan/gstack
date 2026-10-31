@@ -30,6 +30,9 @@
  *                 a paid gate from (GSTACK_EVAL_CALLS v1; never executed)
  *   stall_timeout_s seconds without test output before the lanes check kills
  *                 the runner's process group (default 300; 0 disables)
+ *   timeout_s     seconds each runner process may take (the unit-file group,
+ *                 each serial file, each guard without its own timeout_s, the
+ *                 remote gate) when `--timeout` is not passed (default 600)
  *   remote_gate   the repo's remote test gate command: under 8 cores the test
  *                 tier is a requires-remote obligation naming it, and
  *                 `--remote` runs it (it prints `PREGATE_REMOTE: tree=… tests=… failed=…`)
@@ -78,17 +81,18 @@ export interface PregateConfig {
   serial_patterns: string[];
   price_file: string | null;
   stall_timeout_s: number | null;
+  timeout_s: number | null;
   remote_gate: string | null;
   allowlist: AllowlistEntry[];
 }
 export interface Guard { id: string; when: string[]; command: string; fix?: string; timeout_s?: number }
 export interface AllowlistEntry { finding: string; paths?: string[]; pattern?: string; reason: string }
-export const DEFAULT_CONFIG: PregateConfig = { runner: null, dependencies: {}, empty_lanes: [], selection: {}, warn: [], strays: { allow: [] }, local: [], guards: [], serial_patterns: DEFAULT_SERIAL_PATTERNS, price_file: null, stall_timeout_s: null, remote_gate: null, allowlist: [] };
+export const DEFAULT_CONFIG: PregateConfig = { runner: null, dependencies: {}, empty_lanes: [], selection: {}, warn: [], strays: { allow: [] }, local: [], guards: [], serial_patterns: DEFAULT_SERIAL_PATTERNS, price_file: null, stall_timeout_s: null, timeout_s: null, remote_gate: null, allowlist: [] };
 export interface ConfigError { code: ResultCodeName; path: string; message: string }
 
 export const MAX_LIST = 256;
 const MAX_COMMAND = 512;
-const KEYS = ['runner', 'dependencies', 'empty_lanes', 'selection', 'warn', 'strays', 'local', 'guards', 'serial_patterns', 'price_file', 'sealed', 'stall_timeout_s', 'remote_gate', 'allowlist'];
+const KEYS = ['runner', 'dependencies', 'empty_lanes', 'selection', 'warn', 'strays', 'local', 'guards', 'serial_patterns', 'price_file', 'sealed', 'stall_timeout_s', 'timeout_s', 'remote_gate', 'allowlist'];
 const LANE_ID = /^[A-Za-z0-9_.-]+\.ya?ml\/[A-Za-z0-9_-]+$/;
 const MAX_GUARDS = 32;
 const GUARD_KEYS = ['id', 'when', 'command', 'fix', 'timeout_s'];
@@ -172,6 +176,9 @@ export function validateConfig(raw: unknown, knownChecks: readonly string[] = []
   if ('stall_timeout_s' in obj && obj.stall_timeout_s !== null && (!Number.isInteger(obj.stall_timeout_s) || (obj.stall_timeout_s as number) < 0 || (obj.stall_timeout_s as number) > 86_400)) {
     errors.push({ code: 'PREGATE_CONFIG_INVALID', path: 'stall_timeout_s', message: 'must be an integer number of seconds from 0 (disabled) to 86400, or null' });
   }
+  if ('timeout_s' in obj && obj.timeout_s !== null && (!Number.isInteger(obj.timeout_s) || (obj.timeout_s as number) < 1 || (obj.timeout_s as number) > 3600)) {
+    errors.push({ code: 'PREGATE_CONFIG_INVALID', path: 'timeout_s', message: 'must be an integer number of seconds from 1 to 3600 (preflight and finish allow gstack-pregate one hour), or null' });
+  }
   if ('remote_gate' in obj && obj.remote_gate !== null) {
     const why = commandError(obj.remote_gate);
     if (why) errors.push({ code: 'PREGATE_CONFIG_INVALID', path: 'remote_gate', message: why });
@@ -244,7 +251,7 @@ export function parseConfig(text: string, knownChecks: readonly string[] = []): 
   const errors = validateConfig(raw, knownChecks);
   if (errors.length) return { config: DEFAULT_CONFIG, errors };
   const o = raw as Partial<PregateConfig>;
-  return { config: { $schema: o.$schema, runner: o.runner ?? null, dependencies: o.dependencies ?? {}, empty_lanes: o.empty_lanes ?? [], selection: o.selection ?? {}, warn: o.warn ?? [], strays: { allow: o.strays?.allow ?? [] }, local: o.local ?? [], guards: o.guards ?? [], serial_patterns: o.serial_patterns ?? DEFAULT_SERIAL_PATTERNS, price_file: o.price_file ?? null, stall_timeout_s: o.stall_timeout_s ?? null, remote_gate: o.remote_gate ?? null, allowlist: o.allowlist ?? [] }, errors: [] };
+  return { config: { $schema: o.$schema, runner: o.runner ?? null, dependencies: o.dependencies ?? {}, empty_lanes: o.empty_lanes ?? [], selection: o.selection ?? {}, warn: o.warn ?? [], strays: { allow: o.strays?.allow ?? [] }, local: o.local ?? [], guards: o.guards ?? [], serial_patterns: o.serial_patterns ?? DEFAULT_SERIAL_PATTERNS, price_file: o.price_file ?? null, stall_timeout_s: o.stall_timeout_s ?? null, timeout_s: o.timeout_s ?? null, remote_gate: o.remote_gate ?? null, allowlist: o.allowlist ?? [] }, errors: [] };
 }
 
 export type ConfigLoad = { config: PregateConfig; errors: ConfigError[]; present: boolean; label: string; kind: 'base' | 'head' | 'user' | 'none'; /** sha256 of the user file's bytes (kind 'user' only). */ digest?: string } | { unavailable: true; base: string; detail: string };
@@ -324,6 +331,7 @@ export function explainConfig(): string {
     'sealed: { paths, transcripts, answer_markers, seed_patterns, local_paths, allow_paths, case_insensitive, visibility }: sealed or eval output the pre-push hook and `gstack-pregate sealed` refuse to publish to a public destination; allow_paths (base branch only) exempt publishable files from the path globs (docs/pregate.md#sealed)',
     'price_file: repo-relative path of the GSTACK_EVAL_CALLS v1 call-plan file `gstack-eval-plan price-gate` prices a paid gate from; never executed (docs/eval-calls.md)',
     'stall_timeout_s: seconds without test output before the lanes check kills the runner\'s process group and records it incomplete (default 300; 0 disables; --stall-timeout overrides)',
+    'timeout_s: seconds each runner process may take (the unit-file group, each serial file, each guard without its own timeout_s, and the remote gate\'s deadline) when --timeout is not passed; 1 to 3600, default 600',
     'remote_gate: the repo\'s remote test gate command; under 8 cores the test tier becomes a requires-remote obligation naming it, and gstack-pregate --remote runs it (it must print PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n>) (docs/pregate.md#remote-gate)',
     `allowlist: [{ finding, paths?, pattern?, reason }]: benign findings the secrets check accepts and names as allowlisted. finding is a gstack-redact id (env.kv, google.api_key, pii.phone.e164, …) or a category (${ALLOWLISTABLE_CATEGORIES.join(', ')}); paths are globs; pattern is a regex matched at the finding's position in the added line; one of the two is required, reason always. Never ${NON_ALLOWLISTABLE.join(' or ')} or engine.* (docs/pregate.md#allowlist)`,
     'no .gstack/pregate.json on the base: <state root>/projects/<slug>/pregate.json is read instead (state root: GSTACK_STATE_ROOT, else GSTACK_HOME, else GSTACK_STATE_DIR, else a gstack plugin data dir, else ~/.gstack, per docs/state-root.md; run --explain prints the resolved path; outside the repo, so a PR cannot reach it; a path inside the checkout is ignored)',

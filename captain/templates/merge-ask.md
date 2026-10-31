@@ -24,4 +24,8 @@ flaky: <cases, both runs, ledger date | none> · pregate: pass tree=<tree12>
 ```
 
 The controller's merge report: the PR link, the key image inline, the version it will
-take, the slot, and the one-word reply if a decision is attached.
+take, the slot, and, if a decision is attached, its lettered line in the ask format
+(gstack docs/captain.md): "A: … Recommendation: x because why. A1 to take recommendation."
+If the merge needs the owner to act (approve a deployment, grant access), the line carries
+the exact link to that page and numbered steps in the simplest words, ending with the one
+word to reply when done (a Capy app page: its exact path and field instead of a link).

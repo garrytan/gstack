@@ -62,6 +62,7 @@ const FAMILY_RULES: Array<[ModelFamily, RegExp]> = [
   ['google', /^(google\/|gemini|gemma)/],
   ['xai', /^(xai\/|grok)/],
   ['deepseek', /^(deepseek\/|deepseek)/],
+  ['deepseek', /^(particle-ai\/|particle\/)?particle-1$/],
   ['qwen', /^(qwen\/|qwen|alibaba\/)/],
   ['zai', /^(zai\/|glm)/],
   ['moonshot', /^(moonshotai\/|moonshot\/|kimi)/],

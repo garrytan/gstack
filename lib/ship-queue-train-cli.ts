@@ -19,6 +19,8 @@ import { trainForget } from './ship-queue-train-forget';
 import { redactCause } from './ship-queue-train-record';
 
 export const TRAIN_HELP = `  train build --prs <n>@<sha>[,...] [--order <n>,...] [--urgent | --repair] [--dry-run [--stack-tests [--stack-tests-command "<cmd>"]]] [--free-timeout <s>]
+                                           [--allow-repo-commands]: changelog_fragments trains stamp S_1..S_k with the
+                                           base policy's restamp_command or release_tool
                                            --order: explicit slot order, every PR in --prs once (default: screened
                                            first, then READY order)
   train build --train <nonce>              resume a train (push, free tests, dispatch) from its record
@@ -27,6 +29,9 @@ export const TRAIN_HELP = `  train build --prs <n>@<sha>[,...] [--order <n>,...]
   train status [--train <nonce>]           never spends: rebuild records from refs/notes/gstack-trains, reconcile
                                            unconfirmed dispatches by nonce
   train verdict --train <nonce>            read the gate run and its record: GREEN, RED, INCOMPLETE or PENDING
+  train land --train <nonce> --pr <n> [--no-wait] [--timeout <min>]
+                                           (changelog_fragments trains) publish slot n's stamped prefix S_i: commit its tree on
+                                           [pin, main], push under the pin's lease, wait for checks, squash, confirm main is S_i
   train bisect --train <nonce> --spend-cap <usd> [--dry-run]
                                            red cases on every prefix T0..Tk, resumable and capped
   train rebuild --train <nonce> [--infra]  the one rebuild an all-green bisect earns (or the one INFRA re-dispatch)
@@ -105,6 +110,7 @@ export async function trainMain(ctx: QueueContext, args: string[]): Promise<numb
     return guarded('train build', () => buildTrain(ctx, {
       pins: flag(rest, '--prs'), order: flag(rest, '--order'), resume: nonce, dryRun, urgent: rest.includes('--urgent'), repair: rest.includes('--repair'), freeTimeoutSec,
       pollMs: Number(process.env.GSTACK_SHIP_QUEUE_POLL_MS) || 30_000, stackTests: stackWords?.length ? stackWords : rest.includes('--stack-tests') ? true : undefined,
+      allowRepoCommands: rest.includes('--allow-repo-commands'),
     }));
   }
   if (sub === 'status') return guarded('train status', () => trainStatus(ctx, { train: nonce }));
@@ -123,6 +129,13 @@ export async function trainMain(ctx: QueueContext, args: string[]): Promise<numb
     return guarded('train watch', () => trainWatch(ctx, { train: nonce, timeoutSec, pollMs: Number(process.env.GSTACK_SHIP_QUEUE_POLL_MS) || 30_000, freeTimeoutSec }));
   }
   if (sub === 'verdict') return guarded('train verdict', () => trainVerdict(ctx, { train: nonce }));
+  if (sub === 'land') {
+    const pr = flag(rest, '--pr');
+    if (!pr || !/^\d+$/.test(pr)) return usage('train land needs --pr <number>');
+    const timeout = positive(flag(rest, '--timeout'), 60);
+    if (Number.isNaN(timeout)) return usage('--timeout needs minutes');
+    return guarded('train land', async () => (await import('./ship-queue-train-land')).trainLand(ctx, { train: nonce, pr, noWait: rest.includes('--no-wait'), timeoutMin: timeout }));
+  }
   if (sub === 'rebuild') return guarded('train rebuild', () => trainRebuild(ctx, { train: nonce, infra: rest.includes('--infra') }));
   if (sub === 'bisect') {
     const cap = positive(flag(rest, '--spend-cap'), NaN);
