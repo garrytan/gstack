@@ -4,9 +4,9 @@
  *
  * The policy is read at the base commit the caller already resolved (loadPolicyAt), never
  * from the head: a branch cannot exclude its own files. Git owns the glob dialect: every
- * matched path comes from `git diff --raw -z` (and `git ls-files --others -z` on a live
- * tree) under one `:(top,glob)<pattern>` pathspec per pattern, so the receipt, the plan
- * line and what readers see are one set. A matched file is excluded only when it is
+ * matched path comes from `git diff --raw -z` under one `:(top,glob)<pattern>` pathspec
+ * per pattern (untracked files never count), so the receipt, the plan line and what
+ * readers see are one set. A matched file is excluded only when it is
  * content (data, docs, binary or a .log) that no rule keeps; every kept file carries one
  * stable reason. Applied patterns become `:(top,exclude,glob)` pathspecs on every reader,
  * and kept files under them come back through a second `:(top,literal)` command, because a
@@ -35,7 +35,7 @@ export const KEEP_ARG_MAX_BYTES = 24_000;
 /** How long one reader's `git diff` may run. */
 export const REVIEW_DIFF_TIMEOUT_MS = 120_000;
 const MAX_BUFFER = 256 * 1024 * 1024;
-export const KEPT_REASONS = ['policy-dir', 'gate-path', 'executable', 'agent-prose', 'config', 'gate-tagged', 'code', 'secret-line', 'named-by-code', 'consumer-scan-unavailable'] as const;
+export const KEPT_REASONS = ['policy-dir', 'gate-path', 'executable', 'agent-prose', 'config', 'gate-tagged', 'code', 'secret-line', 'named-by-code', 'consumer-scan-unavailable', 'link'] as const;
 export type KeptReason = (typeof KEPT_REASONS)[number];
 
 /** What the receipt records and the queue and carry compare (by `digest`, never by `source`). */
@@ -96,9 +96,9 @@ export function literalPrefix(pattern: string): string {
   return head.slice(0, head.lastIndexOf('/') + 1);
 }
 
-interface Matched { oldMode: string; newMode: string; newSha: string }
+interface Matched { oldMode: string; newMode: string; oldSha: string; newSha: string }
 
-/** Every changed path each pattern matches, with its modes, from git's raw diff (and untracked files on a live tree). */
+/** Every changed path each pattern matches, with its modes, from git's raw diff; untracked files are never part of it, since no reader's git diff shows them and the receipt reads the committed head. */
 function select(i: ExcludeInput, patterns: readonly string[]): { byPattern: Map<string, string[]>; files: Map<string, Matched> } | { error: string } {
   const byPattern = new Map<string, string[]>();
   const files = new Map<string, Matched>();
@@ -110,25 +110,50 @@ function select(i: ExcludeInput, patterns: readonly string[]): { byPattern: Map<
     const parts = raw.out.split('\0');
     const hit: string[] = [];
     for (let k = 0; k + 1 < parts.length; k += 2) {
-      const [oldMode, newMode, , newSha] = parts[k]!.slice(1).split(' ');
+      const [oldMode, newMode, oldSha, newSha] = parts[k]!.slice(1).split(' ');
       const f = parts[k + 1]!;
       if (!f) continue;
       hit.push(f);
-      if (!files.has(f)) files.set(f, { oldMode: oldMode ?? '', newMode: newMode ?? '', newSha: newSha ?? '' });
-    }
-    if (!i.head) {
-      const others = git(i.root, ['ls-files', '--others', '--exclude-standard', '-z', '--', spec]);
-      if (!others.ok) return { error: `git ls-files --others -- ${spec}: ${others.err.split('\n')[0] || `exit ${others.status}`}` };
-      for (const f of others.out.split('\0').filter(Boolean)) {
-        hit.push(f);
-        let mode = '100644';
-        try { if (fs.statSync(path.join(i.root, f)).mode & 0o111) mode = '100755'; } catch {}
-        if (!files.has(f)) files.set(f, { oldMode: '000000', newMode: mode, newSha: '' });
-      }
+      if (!files.has(f)) files.set(f, { oldMode: oldMode ?? '', newMode: newMode ?? '', oldSha: oldSha ?? '', newSha: newSha ?? '' });
     }
     byPattern.set(p, hit);
   }
   return { byPattern, files };
+}
+
+/**
+ * The matched paths git calls binary whose bytes hold a NUL in their first 8,000 (git's own test), read from the head blob,
+ * the file on a live tree, or the old blob for a deletion. A branch's .gitattributes can make git call a text file binary;
+ * only real bytes make it binary content here.
+ */
+function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, claimed: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  const real = (sha: string) => /^[0-9a-f]{40,64}$/.test(sha) && !/^0+$/.test(sha);
+  const bySha = new Map<string, string[]>();
+  for (const p of claimed) {
+    const m = files.get(p);
+    if (!m) continue;
+    if (!i.head && m.newMode !== '000000') {
+      try { const fd = fs.openSync(path.join(i.root, p), 'r'); const buf = Buffer.alloc(8000); const n = fs.readSync(fd, buf, 0, 8000, 0); fs.closeSync(fd); if (buf.subarray(0, n).includes(0)) out.add(p); } catch {}
+      continue;
+    }
+    const sha = real(m.newSha) ? m.newSha : real(m.oldSha) ? m.oldSha : '';
+    if (sha) bySha.set(sha, [...(bySha.get(sha) ?? []), p]);
+  }
+  if (!bySha.size) return out;
+  const r = spawnSync('git', ['cat-file', '--batch'], { cwd: i.root, input: [...bySha.keys()].join('\n') + '\n', timeout: 120_000, maxBuffer: MAX_BUFFER });
+  const buf = r.stdout ?? Buffer.alloc(0);
+  let at = 0;
+  while (at < buf.length) {
+    const nl = buf.indexOf(10, at);
+    if (nl < 0) break;
+    const [sha, , size] = buf.subarray(at, nl).toString('utf8').split(' ');
+    const n = Number(size);
+    if (!Number.isFinite(n)) { at = nl + 1; continue; }
+    if (buf.subarray(nl + 1, nl + 1 + Math.min(n, 8000)).includes(0)) for (const p of bySha.get(sha!) ?? []) out.add(p);
+    at = nl + 1 + n + 1;
+  }
+  return out;
 }
 
 /** The kind of content a path holds when the policy may exclude it, or null for code (tests included). */
@@ -145,6 +170,7 @@ function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<
   if (/^\.(gstack|github)\//.test(p)) return 'policy-dir';
   if (isGatePath(p)) return 'gate-path';
   if (m.oldMode === '100755' || m.newMode === '100755') return 'executable';
+  if ([m.oldMode, m.newMode].some(x => x === '120000' || x === '160000')) return 'link';
   if (i.gateTagged?.has(p)) return 'gate-tagged';
   if (binary.has(p)) return null;
   if (isAgentProse(p)) return 'agent-prose';
@@ -166,7 +192,7 @@ function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: Read
   try {
     const list = path.join(dir, 'patterns');
     fs.writeFileSync(list, strings.join('\n') + '\n');
-    const runs = [i.head ? { at: i.head, args: [i.head, '--'] } : { at: '', args: ['--untracked', '--'] }, ...revs.map(rev => ({ at: rev, args: [rev, '--'] }))];
+    const runs = [i.head ? { at: i.head, args: [i.head, '--'] } : { at: '', args: ['--'] }, ...revs.map(rev => ({ at: rev, args: [rev, '--'] }))];
     for (const run of runs) {
       const r = git(i.root, ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', '-f', list, ...run.args]);
       if (r.status !== 0 && r.status !== 1) return null;
@@ -203,7 +229,7 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   if (!patterns.length) { const head = headPatterns(i); return head.length ? { state: 'head-only', patterns: head, source } : { state: 'none' }; }
   const sel = select(i, patterns);
   if ('error' in sel) return { state: 'refused', code: 'REVIEW_DIFF_UNREADABLE', lines: [`${i.context}: git could not list the files review_exclude_paths matches (${sel.error}); fix: git fetch origin ${base}, then rerun once; nothing was planned (REVIEW_DIFF_UNREADABLE)`] };
-  const binary = new Set(i.perPath.filter(e => e.binary).map(e => e.path));
+  const binary = binaryContent(i, sel.files, new Set(i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path)));
   const reasons = new Map<string, KeptReason | null>();
   for (const [p, m] of sel.files) reasons.set(p, pathReason(i, p, m, binary));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));

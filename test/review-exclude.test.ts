@@ -275,3 +275,27 @@ describe('the receipt binds the selection the reviewers read', () => {
     expect(removed.err).toContain(`field=review_exclude expected=none recorded=${digest}`);
   }, 240_000);
 });
+
+describe('a branch cannot hide code under a base pattern', () => {
+  // Value: protects=a branch cannot hide code or a link under a base-declared pattern, and untracked files never move the
+  //   selection away from the committed head the receipt reads; fails_when=the branch's .gitattributes makes a code file
+  //   binary content, a symlink is excluded as data, or an untracked file under a pattern changes the plan's digest;
+  //   why_new=/ship pass-1 security and Red Team findings on GST-508, each reproduced before the fix; seam=bin/gstack-review-plan;
+  //   no_claim=gitlinks (the same mode rule, no fixture)
+  test('a branch .gitattributes cannot make code binary, a symlink is kept, and an untracked file leaves the digest alone', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['receipts/**']) } }); repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'receipts'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'receipts/real.gz'), GZ);
+    fs.symlinkSync('../.env', path.join(repo.work, 'receipts/config.json'));
+    commit(repo, { '.gitattributes': 'receipts/** binary\n', 'receipts/evil.ts': 'export const run = () => 1;\n', 'receipts/a.json': '{}\n' });
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    expect(p.review_exclude.kept_files).toEqual([
+      { path: 'receipts/config.json', reason: 'link' },
+      { path: 'receipts/evil.ts', reason: 'code' },
+    ]);
+    expect(p.review_exclude.content).toMatchObject({ binary: 1, data: 1 });
+    write(repo.work, 'receipts/stray/result.json', '{"ok": true}\n');
+    expect(JSON.parse(plan(repo, ['--json']).out).review_exclude.digest).toBe(p.review_exclude.digest);
+  }, 120_000);
+});
+

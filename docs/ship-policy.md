@@ -1116,9 +1116,8 @@ validate stops the plan (`POLICY_INVALID`), and a base git cannot read stops it
 (`POLICY_SOURCE_UNAVAILABLE`); neither turns exclusion off quietly.
 
 **Git's glob dialect.** Each pattern is a `:(top,glob)` pathspec: root-anchored
-and case-sensitive. The matched set comes from git itself (`git diff --raw -z`,
-plus `git ls-files --others -z` for untracked files), so the plan, the receipt
-and what readers see are one set.
+and case-sensitive. The matched set comes from git itself (`git diff --raw -z`),
+so the plan, the receipt and what readers see are one set. Untracked files are never part of it: no reader's `git diff` shows them, and the receipt reads the committed head.
 
 | Pattern | gitignore would match | `review_exclude_paths` matches |
 |---|---|---|
@@ -1130,8 +1129,7 @@ A pattern that matches no changed file is listed as `unmatched=` on the plan lin
 
 **What is excluded, and what is kept.** A matched file is excluded only when it
 is content: a data file (JSON, JSONL, CSV, TSV, images), a docs-class file, a
-`.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers
-would only see `Binary files differ`). A binary file is content even under
+`.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers would only see `Binary files differ`) whose bytes hold a NUL in their first 8,000, so a branch's `.gitattributes` cannot make a text file binary content. A binary file is content even under
 `config/` or in a skill directory; only the first four reasons below keep it.
 Everything else stays in every reader's diff with one reason code:
 
@@ -1140,6 +1138,7 @@ Everything else stays in every reader's diff with one reason code:
 | `policy-dir` | it is under `.gstack/` or `.github/` |
 | `gate-path` | it is a gate path (lib/review-depth.ts) |
 | `executable` | its old or new mode is executable |
+| `link` | its old or new mode is a symlink or a submodule commit |
 | `agent-prose` | it is a skill, section, resolver, template or rule file |
 | `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles) |
 | `gate-tagged` | the gate scan tagged one of its hunks |
