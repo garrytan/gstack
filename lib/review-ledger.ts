@@ -280,7 +280,8 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const lastSent = p ? events.slice(p.at + 1, i).filter(e => e.event === 'sent' && e.reader === reader).at(-1) : undefined;
     if (!p) { status = 'MISMATCH'; notes.push('brief_not_rendered'); }
     else if (!lastSent || lastSent.sha256 !== events[p.at]!.sha256) { status = 'MISMATCH'; notes.push('brief_not_sent_verbatim'); }
-    const text = typeof o.file === 'string' && fs.existsSync(o.file) ? fs.readFileSync(o.file, 'utf8') : undefined;
+    let text: string | undefined;
+    try { text = typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined; } catch { /* missing or unreadable */ }
     if (text !== undefined && promptHash(text) !== o.sha256) { status = 'MISMATCH'; notes.push('output_file_changed'); }
     const ids = Array.isArray(o.ids) ? (o.ids as string[]) : [];
     let lines: MergedLine[] = [];
@@ -288,10 +289,18 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
     // Each merged row must be the finding collect parses at that id's index from the unchanged output, label and raw text byte for byte.
-    if (text !== undefined && promptHash(text) === o.sha256 && !unavailableOutput(o)) {
+    if (text === undefined && ids.length) {
+      status = 'MISMATCH';
+      notes.push(typeof o.file === 'string' ? 'output_file_missing' : 'output_file_unrecorded');
+      differs.push(...ids);
+    } else if (text !== undefined && promptHash(text) === o.sha256) {
       const parsed = parseFindings(reader, text);
       const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw; });
-      if (off.length || parsed.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_line_differs=${JSON.stringify(off)}`); differs.push(...off); }
+      if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
+      else if (!unavailableOutput(o)) {
+        if (off.length) { status = 'MISMATCH'; notes.push(`merged_line_differs=${JSON.stringify(off)}`); differs.push(...off); }
+        if (parsed.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_count_differs=${parsed.length}/${ids.length}`); }
+      }
     }
     if (status === 'MATCH' && !reviewed(o)) {
       // A non-review the same dispatch later replaced with a review (the brief re-sent verbatim, then answered) is void, counted like a voided send.
@@ -313,11 +322,18 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const judgedIds = new Set(Array.isArray(v.merged_ids) ? (v.merged_ids as string[]) : []);
     const missing = collectedIds(events.slice(0, lastJudge)).filter(id => !judgedIds.has(id));
     if (missing.length) notes.push(`merged_ids_missing=${missing.join(',')}`);
+    // The judged set must come from the merged file collect wrote, holding only rows collect recorded.
+    const outputs = events.slice(0, lastJudge).filter(e => e.event === 'output' && Array.isArray(e.ids) && e.ids.length);
+    if (outputs.some(e => typeof e.merged !== 'string' || path.resolve(e.merged) !== path.resolve(String(v.merged)))) notes.push('judge_merged_not_collected');
     let rerun: Judgment | null = null;
     try {
       const judgedText = fs.readFileSync(String(v.judged), 'utf8');
       if (promptHash(judgedText) !== v.judged_sha256) notes.push('judged_changed_since_judge');
-      rerun = judge(readJsonl<MergedLine>(String(v.merged)), readJsonl<JudgedLine>(String(v.judged)));
+      const merged = readJsonl<MergedLine>(String(v.merged));
+      const collected = new Set(collectedIds(events.slice(0, lastJudge)));
+      const extra = merged.filter(m => !collected.has(m.id)).map(m => m.id);
+      if (extra.length) notes.push(`merged_rows_not_collected=${JSON.stringify(extra)}`);
+      rerun = judge(merged, readJsonl<JudgedLine>(String(v.judged)));
     } catch { notes.push('judged_or_merged_unreadable'); }
     if (rerun && !rerun.ok) notes.push(`rerun_rejects dropped=${JSON.stringify(rerun.dropped)} downgraded=${JSON.stringify(rerun.downgraded)}`);
     const forged = differs.filter(id => judgedIds.has(id));

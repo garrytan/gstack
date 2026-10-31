@@ -501,7 +501,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    against the merged lines they produced, and each merged line against the finding collect
    parses at that id's index from the unchanged output file, label and raw text byte for byte
    (`merged_line_differs` on the OUTPUT and JUDGE rows otherwise, GST-541), so an edited
-   merged.jsonl cannot lower a finding or swap its text, and the judgment rerun against the
+   merged.jsonl cannot lower a finding or swap its text. A recorded output file that is missing
+   (`output_file_missing`), a judgment run on a merged file collect did not write
+   (`judge_merged_not_collected`) and merged rows collect never recorded
+   (`merged_rows_not_collected`) are dirty too. Deleting a whole output event with its rows is
+   not caught yet, because the ledger has no anchor for it, and the judgment rerun against the
    recorded judged set, covering every collected id. A ledger from a run that kept no
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a

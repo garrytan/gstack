@@ -507,5 +507,16 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const copied = forge(setup(), rows => { rows[0]!.label = rows[1]!.label; rows[0]!.raw = rows[1]!.raw; });
     expect([copied.status, copied.stdout]).toEqual([1, expect.stringContaining('merged_line_differs=["specialist/testing#1"]')]);
     expect(copied.stdout).toMatch(/^JUDGE - MISMATCH .*merged_line_differs/m);
+    const gone = setup();
+    fs.rmSync(path.join(gone.out, 'spec.out'));
+    const missing = forge(gone, rows => { rows[0]!.label = 'INFORMATIONAL'; });
+    expect([missing.status, missing.stdout.includes('output_file_missing'), missing.stdout.includes('merged_line_differs=["specialist/testing#1","specialist/testing#2"]')]).toEqual([1, true, true]);
+    const copy = setup();
+    const forgedCopy = copy.w('merged2.jsonl', readJsonl<MergedLine>(copy.merged).map((r, k) => JSON.stringify(k ? r : { ...r, label: 'INFORMATIONAL' })).join('\n') + '\n');
+    expect(run(['judge', '--ledger', copy.ledger, '--merged', forgedCopy, '--judged', copy.w('judged.jsonl', readJsonl<MergedLine>(copy.merged).map(m => JSON.stringify({ id: m.id, severity: 'INFORMATIONAL' })).join('\n') + '\n')]).status).toBe(0);
+    const viaCopy = run(['verify', '--ledger', copy.ledger]);
+    expect([viaCopy.status, viaCopy.stdout]).toEqual([1, expect.stringMatching(/^JUDGE - MISMATCH .*judge_merged_not_collected/m)]);
+    const extra = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; rows.push({ ...rows[1]!, id: 'specialist/testing#9' }); });
+    expect([extra.status, extra.stdout.includes('merged_rows_not_collected=["specialist/testing#9"]')]).toEqual([1, true]);
   });
 });
