@@ -40,13 +40,18 @@ function patternHits(entry: AllowlistEntry, f: AllowlistFinding): boolean {
   return re.test(f.lineText!.slice(f.col! - 1));
 }
 
+function matchesLine(pattern: string, line: string): boolean {
+  try { return new RegExp(pattern).test(line); } catch { return false; }
+}
+
 /**
  * Split findings into the ones an entry covers (with the entry) and the ones
  * kept; env.value and engine.* are always kept. `untested` lists kept findings
  * that a pattern entry named by id and path but could not test because the
  * scanner gave no position, so the table says why the entry was inert;
  * `missed` lists kept findings that a pattern entry named by id and path
- * whose pattern did not match at the finding's position (#3630).
+ * whose pattern matches the finding's line but not at its position (#3630:
+ * the entry was written from the name, not the value).
  */
 export function applyAllowlist<F extends AllowlistFinding>(findings: readonly F[], entries: readonly AllowlistEntry[]): { kept: F[]; allowlisted: Allowlisted<F>[]; untested: Allowlisted<F>[]; missed: Allowlisted<F>[] } {
   const kept: F[] = [];
@@ -59,7 +64,7 @@ export function applyAllowlist<F extends AllowlistFinding>(findings: readonly F[
     if (index >= 0) { allowlisted.push({ finding: f, index, entry: entries[index]! }); continue; }
     kept.push(f);
     if (nonAllowlistable(f.id)) continue;
-    const named = entries.findIndex(e => e.pattern !== undefined && scoped(e));
+    const named = entries.findIndex(e => e.pattern !== undefined && scoped(e) && (!positioned(f) || matchesLine(e.pattern, f.lineText!)));
     if (named >= 0) (positioned(f) ? missed : untested).push({ finding: f, index: named, entry: entries[named]! });
   }
   return { kept, allowlisted, untested, missed };

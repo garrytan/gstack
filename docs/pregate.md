@@ -809,8 +809,9 @@ those, each with its scope and its reason:
 - The position is where the flagged value starts, not the name before it.
   For `session: HttpSession` in a YAML file the pattern is `HttpSession`;
   `session: HttpSession` never matches there. An entry that names a finding
-  by id and path but whose pattern misses prints `allowlist[0] env.kv pattern
-  did not match env.kv (<file>, added line N, col C): …; the finding is kept`.
+  by id and path, and whose pattern matches the line but not at the value,
+  prints `allowlist[0] env.kv pattern did not match env.kv (<file>, added
+  line N, col C): …; the finding is kept`.
 - In Python and Dart source, a parameter or field annotation
   (`session: HttpSession,`) and a dict entry or named argument that reads a
   name (`"password": request.password`) are code, not credentials, as they are

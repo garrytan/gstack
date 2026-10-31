@@ -703,6 +703,11 @@ const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s
 const STRING_SPAN_SOURCE = /\.(?:dart|pyi?)$/i;
 let stringSpansCache: { text: string; lang: string; spans: Array<[number, number]> } | null = null;
 
+/** Drops the cached text once a scan ends, so a long-lived process holds no scanned input. */
+export function clearStringSpanCache(): void {
+  stringSpansCache = null;
+}
+
 function stringSpans(text: string, lang: "py" | "dart"): Array<[number, number]> {
   if (stringSpansCache?.text === text && stringSpansCache.lang === lang) return stringSpansCache.spans;
   const spans: Array<[number, number]> = [];
@@ -750,19 +755,20 @@ function insideString(text: string, offset: number, sourcePath: string): boolean
   return false;
 }
 
-function expressionTail(rest: string): string {
+/** The rest of a name's expression on its line, up to the comma, semicolon or bracket that ends it; null when it continues on the next line. */
+function expressionTail(rest: string): string | null {
   let depth = 0;
   for (let i = 0; i < rest.length; i += 1) {
     const c = rest[i]!;
     if (c === '"' || c === "'" || c === "`") {
       const close = rest.indexOf(c, i + 1);
-      if (close < 0) return rest;
+      if (close < 0) return null;
       i = close;
     } else if ("([{".includes(c)) depth += 1;
     else if (")]}".includes(c)) { if (--depth < 0) return rest.slice(0, i); }
     else if ((c === "," || c === ";") && depth === 0) return rest.slice(0, i);
   }
-  return rest;
+  return depth > 0 || /(?:[=+\\]|\?\?|\|\||&&|\b(?:or|and))\s*$/.test(rest) ? null : rest;
 }
 
 function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
@@ -780,7 +786,10 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
     const separator = head.slice(-1);
     if (separator !== ":" || !CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return false;
     const rest = (span.endsWith("=") ? "=" : "") + match.input.slice(end).split("\n", 1)[0];
-    if (!/[,;]$/.test(span) && carriesSecretLiteral(expressionTail(rest))) return false;
+    if (!/[,;]$/.test(span)) {
+      const tail = expressionTail(rest);
+      if (tail === null || carriesSecretLiteral(tail)) return false;
+    }
   }
   return !insideString(match.input, start, sourcePath);
 }

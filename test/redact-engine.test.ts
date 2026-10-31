@@ -334,6 +334,8 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`/* ''' */\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
       [`/* outer /* ''' */ still a comment ''' */\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
       [`const dir = r'''C:\\dir\\''';\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      // An expression that continues on the next line may carry a literal there.
+      [`    api_token: AuthToken = (\n        "${v}"\n    )`, "app.py"],
       // A literal fallback after a name is still a literal.
       [`      "password": settings.db_pass or "${v}",`, "app.py"], [`      'password': request.password ?? '${v}',`, "lib/a.dart"],
       // A one-line string continued by a backslash spans lines.

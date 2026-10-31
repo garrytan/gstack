@@ -97,6 +97,10 @@ describe('allowlist: the secrets check', () => {
     commit(value, { 'config.yaml': line });
     expect(secrets(value).status).toBe(EXIT.ok);
     expect(row(value).detail).toContain('1 allowlisted (env.kv)');
+    const other = fixture({ ...BASE_PREGATE, allowlist: [{ finding: 'env.kv', paths: ['config.yaml'], pattern: 'dummy-[0-9]+', reason: 'another value' }] });
+    commit(other, { 'config.yaml': line });
+    expect(secrets(other).status).toBe(EXIT.fail);
+    expect(row(other).lines.join('\n')).not.toContain('pattern did not match');
     const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
     const py = fixture({ ...BASE_PREGATE, allowlist: [{ finding: 'env.kv', paths: ['app.py'], pattern: token, reason: 'a fixture' }] });
     commit(py, { 'app.py': `x = 1\nCONFIG = """\npassword: ${token}\n"""\n` });
