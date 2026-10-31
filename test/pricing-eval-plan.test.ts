@@ -221,6 +221,31 @@ describe('priced pilot', () => {
     expect(() => settlePilot(out, s.record.attempts[0]!.attempt, 0.01)).toThrow('seat-metered');
     expect(() => startPilot({ out: path.join(d, 'stray'), cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-5.4-mini'], dryRun: dry })).toThrow('--seat-metered');
   });
+
+  test('#3653: an all-seat-metered pilot spends nothing and fits; one priced attempt is not enough for a verdict', () => {
+    const d = tmp();
+    const dry = passingDryRun(d);
+    const seat = path.join(d, 'all-seat');
+    const s = startPilot({ out: seat, cap: 1, n: 3, arms: ['gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
+    for (const a of s.record.attempts) settlePilot(seat, a.attempt, 'unknown');
+    const all = pilotReport(seat, { total: 50 });
+    expect([all.projection.projected_usd, all.projection.verdict]).toEqual([0, 'within']);
+    expect(renderPilotReport(all)).toContain('known_arms=0/0');
+    const one = path.join(d, 'one');
+    settlePilot(one, startPilot({ out: one, cap: 10, n: 1, arms: ['gpt-6-astra'], dryRun: dry }).record.attempts[0]!.attempt, 0.1);
+    const r = pilotReport(one, { total: 50 });
+    expect([r.projection.band_usd, r.projection.verdict]).toEqual([null, 'unknown']);
+    expect(renderPilotReport(r)).toContain('settle at least 2 attempts per priced arm');
+  });
+
+  test('#3653: pilot start --seat-metered reaches the ledger through the CLI', () => {
+    const d = tmp();
+    const out = path.join(d, 'cli');
+    const r = spawnSync(BIN, ['pilot', 'start', '--out', out, '--cap', '10', '--arms', 'gpt-5.4-mini,gpt-6-astra', '--seat-metered', 'gpt-6-astra', '--dry-run', passingDryRun(d)], { cwd: d, encoding: 'utf8', timeout: 30_000 });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('PILOT_ATTEMPT: pilot-gpt-6-astra-1 model=gpt-6-astra estimate=$0.0000');
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'pilot.json'), 'utf8')).seat_metered).toEqual(['gpt-6-astra']);
+  });
 });
 
 // ---------------------------------------------------------------------------
