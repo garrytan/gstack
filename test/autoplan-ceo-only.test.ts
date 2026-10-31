@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -62,7 +62,10 @@ test('GSTACK_RESULT parses status=reviewed', () => {
 });
 
 describe('ceo-only evidence: a passing run and each negative control', () => {
-  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-only-evidence-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-only-evidence-'));
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runDir = path.join(root, 'run');
+  fs.mkdirSync(runDir);
   const review = ['# CEO-only review: Pricing tier', '', 'Mode: HOLD SCOPE (ceo-only). Not approved.', '',
     '## User challenges (direction kept)', 'None.', '## Scope added', 'None.', '## Conservative choices', 'None.',
     '## Findings', '- High: the premise was never checked with developers; interview them first.',
@@ -97,16 +100,18 @@ describe('ceo-only evidence: a passing run and each negative control', () => {
   fails('a missing terminal line fails', { output: 'Review done.' }, /no GSTACK_RESULT line/);
   fails('headings without a review fail', { transcript: [assistant({ type: 'text', text: 'Done.' })] }, /no gstack-ceo-mode-handoff[\s\S]*no CEO reviewer subagent/);
   fails('loading a skipped phase fails', { transcript: [...good, assistant({ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: '/h/.claude/skills/gstack/autoplan/sections/eng-phase.md' } })] }, /loaded a skipped phase/);
+  fails('loading a skipped phase through Bash fails', { transcript: [...good, assistant({ type: 'tool_use', id: 'b', name: 'Bash', input: { command: 'cat /h/.claude/skills/gstack/autoplan/sections/dx-phase.md' } })] }, /loaded a skipped phase: cat /);
   fails('a write outside its roots fails', { strayWrites: ['.config/x.json'] }, /wrote 1 file\(s\) outside its roots, under \.config\/x\.json/);
   fails('a review that misses the seeded flaw fails', { mustMention: [/churn/i] }, /never names the seeded flaw/);
   test('a missing ceo-review.md fails', () => {
-    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-only-empty-'));
+    const empty = path.join(root, 'empty');
+    fs.mkdirSync(empty);
     const e = ceoOnlyEvidence({ ...base, output: `GSTACK_RESULT: skill=autoplan status=reviewed run=${empty}` });
     expect(e.reasons.join('\n')).toContain('ceo-review.md is missing');
   });
   test('listFiles skips the declared roots', () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-only-home-'));
-    fs.mkdirSync(path.join(home, 'state'));
+    const home = path.join(root, 'home');
+    fs.mkdirSync(path.join(home, 'state'), { recursive: true });
     fs.writeFileSync(path.join(home, 'state', 'a'), '');
     fs.writeFileSync(path.join(home, 'b'), '');
     fs.mkdirSync(path.join(home, '.bun', 'install', 'cache'), { recursive: true });

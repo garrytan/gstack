@@ -15,7 +15,7 @@ export const CEO_REVIEW_HEADINGS = [
 
 const QUESTION_TOOL = /(^|__)(AskUserQuestion|ExitPlanMode)$/;
 const PROSE_QUESTION = /\b(would you like|do you want|should i\b|want me to|shall i\b|which (?:option|mode|one) (?:do|would|should) you|reply with|let me know (?:if|which|whether))/i;
-const LATER_PHASE = /autoplan\/sections\/(?:design-phase|dx-phase|eng-phase|tasks-aggregator)\.md$/;
+const LATER_PHASE = /autoplan\/sections\/(?:design-phase|dx-phase|eng-phase|tasks-aggregator)\.md/;
 const DISPATCH_TOOL = /^(Agent|Task)$/;
 
 export interface CeoOnlyEvidenceInput {
@@ -55,8 +55,9 @@ export function ceoOnlyEvidence(input: CeoOnlyEvidenceInput): CeoOnlyEvidence {
     && results.some(r => r.includes('(CEO-only run: Step 0E'));
   if (!handoff) reasons.push('no gstack-ceo-mode-handoff --ceo-only call with its CEO-only line');
   if (!uses.some(u => DISPATCH_TOOL.test(String(u.name)))) reasons.push('no CEO reviewer subagent was dispatched');
-  const later = uses.filter(u => u.name === 'Read' && LATER_PHASE.test(String(u.input?.file_path ?? '')));
-  if (later.length) reasons.push(`loaded a skipped phase: ${later.map(u => u.input.file_path).join(', ')}`);
+  const later = uses.map(u => String(u.name === 'Bash' ? u.input?.command : (u.input?.file_path ?? u.input?.path ?? u.input?.pattern ?? '')))
+    .filter(arg => LATER_PHASE.test(arg));
+  if (later.length) reasons.push(`loaded a skipped phase: ${later.map(arg => arg.slice(0, 160)).join(', ')}`);
 
   const result = /^GSTACK_RESULT: skill=autoplan status=(\S+) run=(.+)$/m.exec(input.output.split('\n').filter(l => l.startsWith('GSTACK_RESULT: ')).pop() ?? '');
   if (!result) reasons.push('no GSTACK_RESULT line for autoplan in the final output');

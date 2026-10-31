@@ -559,8 +559,10 @@ without being shown to the owner.
 
 ## CEO-only runs
 
-`/autoplan --ceo-only` runs the CEO review by itself and asks nothing, in any
-session kind. It is for a harness or a crew that wants the strategy pass
+`/autoplan --ceo-only` runs the CEO review by itself and asks nothing. It runs
+in the session that invokes the skill; `gstack-autoplan`, the driver a parent
+agent uses, has no CEO-only mode yet, and `run.json` does not accept the
+`reviewed` status. It is for a harness or a crew that wants the strategy pass
 without the full gauntlet, such as an eval comparing gstack's CEO review with a
 plain prompt.
 
