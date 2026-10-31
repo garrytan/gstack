@@ -14,6 +14,23 @@ import { isTestFile, listRepoFiles, scansLiterals } from '../import-graph';
 import type { CheckDef, CheckResult, PregateContext } from '../types';
 
 export interface ChangedLiteral { name: string; old: string; new: string; file: string }
+/** A consumer line a `pregate-literal:` marker waived; `added` when the merge-base file lacks the marker. */
+export interface LiteralWaiver { at: string; reason: string; added: boolean }
+
+const MARKER = /pregate-literal:[ \t]*([A-Za-z_]\w*)=(\S+)[ \t]+(\S.*?)[ \t]*(?:\*\/[ \t]*)?$/;
+
+/** The marker in this line's trailing comment (`//`, `#` or `/*` outside a string), or null. */
+function markerIn(line: string): { marker: string; name: string; value: string; reason: string } | null {
+  const at = line.indexOf('pregate-literal:');
+  if (at < 0) return null;
+  const before = line.slice(0, at);
+  const open = /(?:\/\/|#|\/\*)[ \t]*$/.exec(before);
+  if (!open) return null;
+  const code = before.slice(0, open.index);
+  if (['\'', '"', '`'].some(q => code.split(q).length % 2 === 0)) return null;
+  const m = MARKER.exec(line.slice(at));
+  return m ? { marker: line.slice(at).trim(), name: m[1]!, value: m[2]!, reason: m[3]! } : null;
+}
 
 const CONST_PATTERNS: RegExp[] = [
   /^\s*export\s+(?:const|let|var)\s+([A-Z][A-Z0-9_]{1,})\s*(?::\s*[^=]+?)?\s*=\s*(.+?);?\s*$/,
@@ -79,8 +96,12 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
  * has no new-value row: the branch extended the table. A table it did not
  * extend, a file that already held a new-value row, and an unreadable base
  * still count, and the scan goes on past skipped rows to the first real consumer.
+ *
+ * A consumer line is waived by a `pregate-literal: NAME=<old value> <reason>` comment on that line or
+ * on the comment line directly above it, naming this constant and its old value (#3490: the refused
+ * input after a minimum-version bump). Each waiver goes to `waived`; the scan goes on to the next line.
  */
-export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral, baseText?: (rel: string) => string | null | undefined): string[] {
+export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral, baseText?: (rel: string) => string | null | undefined, waived?: LiteralWaiver[]): string[] {
   const value = unquote(change.old);
   const valueRe = /^-?\d/.test(value) ? new RegExp(`(?<![\\w.])${escape(value)}(?![\\w.])`) : new RegExp(`['"\`]${escape(value)}['"\`]`);
   const row = (raw: string) => new RegExp(`^[ \\t]*\\[[ \\t]*${/^['"`]/.test(raw) ? `['"\`]${escape(unquote(raw))}['"\`]` : escape(raw)}[ \\t]*,`, 'm');
@@ -123,7 +144,15 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
       if (extended === undefined) { const base = baseText?.(rel); extended = base === null || (base !== undefined && !newRowRe.test(base)); }
       return extended;
     };
-    for (let i = 0; i < lines.length; i++) if (valueRe.test(lines[i]!) && (!nameRequired || oldRowRe.test(lines[i]!) || named(i)) && !skip(i)) { hits.push(`${rel}:${i + 1}`); break; }
+    const waiver = (i: number) => {
+      const m = markerIn(lines[i]!) ?? (i > 0 && comment(lines[i - 1]!) ? markerIn(lines[i - 1]!) : null);
+      if (!m || m.name !== change.name || unquote(m.value) !== value) return false;
+      const before = baseText?.(rel);
+      waived?.push({ at: `${rel}:${i + 1}`, reason: m.reason, added: typeof before !== 'string' || !before.includes(m.marker) });
+      return true;
+    };
+    const carries = (i: number) => { const m = markerIn(lines[i]!); return valueRe.test(m ? lines[i]!.slice(0, lines[i]!.indexOf('pregate-literal:')) : lines[i]!); };
+    for (let i = 0; i < lines.length; i++) if (carries(i) && (!nameRequired || oldRowRe.test(lines[i]!) || named(i)) && !skip(i) && !waiver(i)) { hits.push(`${rel}:${i + 1}`); break; }
   }
   return hits;
 }
@@ -142,19 +171,23 @@ function run(ctx: PregateContext): CheckResult {
   if (!changes.length) return { id: 'literals', stage: 'preflight', status: 'pass', inputs, detail: `no exported constant or named timeout literal changed in ${candidates.length} modified source file(s)` };
   const testFiles = listRepoFiles(ctx.repoRoot).filter(f => scansLiterals(f) && !f.startsWith('bin/'));
   const lines: string[] = [];
+  const notes: string[] = [];
   for (const c of changes) {
+    const waived: LiteralWaiver[] = [];
     const hits = consumersOf(ctx.repoRoot, testFiles, c, rel => {
       const from = ctx.touched.find(t => t.path === rel)?.renamedFrom ?? rel;
       const r = spawnSync('git', ['show', `${ctx.mergeBase}:${from}`], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024, env: ctx.env });
       if (r.status === 0) return r.stdout;
       const ls = spawnSync('git', ['ls-tree', ctx.mergeBase, '--', from], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 30_000, env: ctx.env });
       return ls.status === 0 && !ls.stdout.trim() ? null : undefined;
-    });
+    }, waived);
+    for (const w of waived) notes.push(`waived: ${w.at}: ${c.name} ${c.old} (${w.reason}${w.added ? '; marker added on this branch' : ''})`);
     ctx.explain.push(`literals: ${c.file} ${c.name} ${c.old} → ${c.new}: ${hits.length} test file(s) still carry ${c.old}`);
     for (const h of hits) lines.push(`${h}: ${c.name} still ${c.old} (now ${c.new} in ${c.file})`);
   }
-  if (lines.length) return { id: 'literals', stage: 'preflight', status: 'fail', inputs, lines, code: 'PREGATE_LITERALS', detail: `${lines.length} test location(s) still carry an old literal`, fix: 'update each listed test to the new value (nightly- and Heavy-only files included), or keep the old constant' };
-  return { id: 'literals', stage: 'preflight', status: 'pass', inputs, detail: `${changes.length} changed literal(s), no test still carries an old value (${testFiles.length} test-tree files scanned)` };
+  const waivers = notes.length ? `; ${notes.length} line(s) waived by pregate-literal markers` : '';
+  if (lines.length) return { id: 'literals', stage: 'preflight', status: 'fail', inputs, lines: [...lines, ...notes], code: 'PREGATE_LITERALS', detail: `${lines.length} test location(s) still carry an old literal${waivers}`, fix: "update each listed test to the new value (nightly- and Heavy-only files included), keep the old constant, or, when the old value is the test's input on purpose, mark that line with `// pregate-literal: NAME=<old value> <reason>`" };
+  return { id: 'literals', stage: 'preflight', status: 'pass', inputs, ...(notes.length ? { lines: notes } : {}), detail: `${changes.length} changed literal(s), no test still carries an old value (${testFiles.length} test-tree files scanned)${waivers}` };
 }
 
 export const literalsCheck: CheckDef = { id: 'literals', stage: 'preflight', tier: 1, downgradable: true, needsRepoCommands: false, run };

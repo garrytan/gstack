@@ -14,7 +14,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { changedLiterals, constantsIn, consumersOf } from '../lib/pregate/checks/literals';
+import { changedLiterals, constantsIn, consumersOf, type LiteralWaiver } from '../lib/pregate/checks/literals';
 import { parseSummary, planRuns } from '../lib/pregate/checks/lanes';
 import { DEFAULT_CONFIG, validateConfig } from '../lib/pregate/config';
 import { isDocsEmptyLane } from '../lib/pregate/docs-lane';
@@ -263,6 +263,43 @@ describe('literals (pure)', () => {
     expect(consumersOf(root, Object.keys(files), { name: 'attempts', old: '1', new: '3', file: 'lanes/review-noloss/judge-run.ts' })).toEqual(['tests/judge-run.test.ts:3']);
     fs.rmSync(root, { recursive: true, force: true });
   });
+  // Value: protects=a test that keeps an old value on purpose (the refused input after a minimum-version bump) can waive that one line
+  //   with a `pregate-literal: NAME=value reason` comment, while every other old-value line, a marker for another constant or value,
+  //   a marker with no reason and marker text inside a string still count; fails_when=the waiver widens past its line or a stray
+  //   marker clears a real consumer (#3490, gbrain#7690); why_new=the only escape was warn: ["literals"] for every constant;
+  //   seam=none; no_claim=the policy file (no key exists; see the config test)
+  test('consumersOf: a pregate-literal marker waives only its own line, for its own constant and old value, with a reason (#3490)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-waiver-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'test/runtime.test.ts': [
+        "import { MIN_RUNTIME, checkRuntime } from '../src/runtime';",
+        "expect(checkRuntime('1.4.0')).toBe('refused'); // pregate-literal: MIN_RUNTIME='1.4.0' refused input below the minimum",
+        "// pregate-literal: MIN_RUNTIME=1.4.0 the oldest runtime we still name in the error",
+        "expect(message('1.4.0')).toContain('upgrade');",
+        "expect(MIN_RUNTIME).toBe('1.4.0');",
+        ''].join(nl),
+      'test/other-name.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); // pregate-literal: MAX_RUNTIME='1.4.0' wrong constant", ''].join(nl),
+      'test/other-value.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); // pregate-literal: MIN_RUNTIME='1.3.9' wrong value", ''].join(nl),
+      'test/no-reason.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); // pregate-literal: MIN_RUNTIME='1.4.0'", ''].join(nl),
+      'test/in-string.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "const src = \"expect(v('1.4.0')); // pregate-literal: MIN_RUNTIME='1.4.0' looks waived\"; check('1.4.0');", ''].join(nl),
+      'test/two-above.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "// pregate-literal: MIN_RUNTIME='1.4.0' too far above", '', "expect(checkRuntime('1.4.0')).toBe('refused');", ''].join(nl),
+      'test/all-waived.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); # pregate-literal: MIN_RUNTIME='1.4.0' refused input", ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    const change = { name: 'MIN_RUNTIME', old: "'1.4.0'", new: "'1.4.4'", file: 'src/runtime.ts' };
+    const waived: LiteralWaiver[] = [];
+    const base = (rel: string) => rel === 'test/runtime.test.ts' ? files[rel]!.split(nl).slice(0, 2).join(nl) : null;
+    expect(consumersOf(root, Object.keys(files), change, base, waived)).toEqual([
+      'test/runtime.test.ts:5', 'test/other-name.test.ts:2', 'test/other-value.test.ts:2', 'test/no-reason.test.ts:2', 'test/in-string.test.ts:2', 'test/two-above.test.ts:4',
+    ]);
+    expect(waived).toEqual([
+      { at: 'test/runtime.test.ts:2', reason: 'refused input below the minimum', added: false },
+      { at: 'test/runtime.test.ts:4', reason: 'the oldest runtime we still name in the error', added: true },
+      { at: 'test/all-waived.test.ts:2', reason: 'refused input', added: true },
+    ]);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   test('consumersOf: a history row is skipped only when this branch added the new-value row to the same table; other old-value lines still count (GST-344)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-history-'));
     const nl = String.fromCharCode(10);
@@ -463,6 +500,19 @@ describe('gstack-pregate (bin)', () => {
     expect(r.status).toBe(EXIT.fail);
     expect(r.out).toContain('literals: test/nightly/retries.test.js:7: MAX_RETRIES still 3 (now 4 in lib/retry.js)');
     expect(r.err).toContain('(PREGATE_LITERALS)');
+  });
+
+  // Value: protects=end to end, a marked refused-input line passes literals and the run names the waiver, flagging one this branch
+  //   added; a branch policy cannot add a literals waiver; fails_when=the check ignores markers, hides a waiver, or the policy grows a
+  //   literals key (#3490); why_new=no waiver existed; seam=none; no_claim=gstack-gate-diff tagging
+  test('#3490: a pregate-literal marker passes literals for its line and the run lists the waiver as added on this branch', () => {
+    const repo = fixture();
+    commit(repo, { 'test/nightly/retries.test.js': "const test = require('node:test');\nconst assert = require('node:assert');\nconst { MAX_RETRIES, retry } = require('../../lib/retry.js');\n// pregate-literal: MAX_RETRIES=3 the old cap is the input the guard must refuse\ntest('refuses 3', () => assert.throws(() => retry(() => 0, { MAX_RETRIES: 3 })));\n" });
+    commit(repo, { 'lib/retry.js': "exports.MAX_RETRIES = 4;\nexports.TIMEOUT_MS = 5000;\nexports.retry = (fn) => fn();\n", 'test/retry.test.js': "const test = require('node:test');\nconst assert = require('node:assert');\nconst { MAX_RETRIES } = require('../lib/retry.js');\ntest('retries four times', () => assert.strictEqual(MAX_RETRIES, 4));\n" });
+    const r = pregate(repo, ['--stage', 'preflight', '--only', 'literals']);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain('literals: waived: test/nightly/retries.test.js:5: MAX_RETRIES 3 (the old cap is the input the guard must refuse; marker added on this branch)');
+    expect(validateConfig({ ...BASE_PREGATE, literals: { allow: [{ name: 'MAX_RETRIES', value: '3' }] } }).map(e => e.path)).toEqual(['literals']);
   });
 
   test('GST-344: a history table the branch extends passes literals through the merge-base read; one it does not extend fails', () => {

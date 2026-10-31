@@ -201,6 +201,17 @@ Two stages with separate clocks, both printed:
   elsewhere in the file is not a consumer. A call-site name such as `attempts`
   or `limit` is an ordinary word, so for it the file must also name the changed
   module.
+  A test that keeps the old value on purpose, such as the refused input after a
+  minimum version goes up, marks that one line with a comment on it or on the
+  comment line directly above it:
+  `// pregate-literal: MIN_RUNTIME='1.4.0' refused input below the minimum`
+  (`#` and `/*` comments work too). The marker waives only that line, and only
+  when it names the changed constant and its old value and gives a reason; text
+  inside a string is not a marker. Every other line in the file is still
+  checked. The check lists each waived line as
+  `waived: <file>:<line>: <NAME> <old> (<reason>)`, adding `marker added on
+  this branch` when the merge-base file lacks the marker. The policy has no
+  waiver key, so neither a base nor a pushed `pregate.json` can widen it.
 
 - `timing`: added or changed test lines that compare an elapsed wall-clock or
   CPU time against a bound, or sleep and then assert, print
