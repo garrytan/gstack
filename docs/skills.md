@@ -966,7 +966,7 @@ items, records actual spend, extrapolates each priced arm to the full set agains
 the cap (`EVAL_BUDGET_EXHAUSTED`) and prints the spend table the approval question
 shows. An arm on a subscription with no extra charge is declared with
 `pilot start --seat-metered <arm,...>`: it reserves $0, settles as `unknown`, and
-stays out of the projection.
+stays out of the projection until one of its attempts settles a real charge.
 A run stops at the first quota or rate-limit error on such an arm.
 The skill's closing section lists the tier-3 items (instrument audit, steady
 state, sealed paths, off-machine persistence, memory preflight, power tables, QA
