@@ -238,6 +238,15 @@ describe('priced pilot', () => {
     expect(renderPilotReport(r)).toContain('settle at least 2 attempts per priced arm');
   });
 
+  test('#3653: a seat-metered arm needs no pricing row; an undeclared unpriced arm still refuses', () => {
+    const d = tmp();
+    const dry = passingDryRun(d);
+    const s = startPilot({ out: path.join(d, 'seat'), cap: 1, n: 2, arms: ['gpt-5.4-mini', 'seat-only-model'], seatMetered: ['seat-only-model'], dryRun: dry });
+    expect(s.error).toBeUndefined();
+    expect(s.record.attempts.filter(a => a.model === 'seat-only-model').map(a => a.estimate_usd)).toEqual([0, 0]);
+    expect(startPilot({ out: path.join(d, 'undeclared'), cap: 1, n: 2, arms: ['seat-only-model'], dryRun: dry }).error?.code).toBe('EVAL_PRICE_MISSING');
+  });
+
   test('#3653: pilot start --seat-metered reaches the ledger through the CLI', () => {
     const d = tmp();
     const out = path.join(d, 'cli');
