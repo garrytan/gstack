@@ -3905,8 +3905,8 @@ it). A publishable file kept next to sealed data (a `MANIFEST.json` of hashes
 and counts) can be exempted from the path rules with a `sealed.allow_paths`
 glob in the base branch's `.gstack/pregate.json`; the text rules still read it
 ([docs/pregate.md#sealed](pregate.md#sealed)). For `sealed.label_join`, drop
-the identifier fields (or the labels) from the published file, or move it under
-a sealed path; `allow_paths` never exempt it. A reviewed false positive gets
+the identifier fields (or the labels) from the published file, or keep the file
+out of the public repository; `allow_paths` never exempt it. A reviewed false positive gets
 one line in the base branch's
 `.gstack/sealed-allow.tsv`: `rule<TAB>path<TAB>sha<TAB>reason`, where `sha` is
 the full commit sha (a shortened one is ignored and named on stderr). A private

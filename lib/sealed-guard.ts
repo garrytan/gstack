@@ -304,13 +304,14 @@ export function renderSealed(r: SealedReport, context: string): string {
   }
   const vis = `visibility: ${r.visibility}${r.visibility === 'unknown' ? ', counted public' : ''}; ${r.visibilitySource}`;
   const body = r.findings.map(f => `  ${f.rule}  ${where(f)}  commit ${f.commit.slice(0, 12)}${f.keys ? `  keys=${f.keys.join(',')}` : ''}`);
-  const join = r.findings.some(f => f.rule.startsWith('sealed.label_join')) ? [`sealed.label_join: a record puts a sealed.label_keys field next to an identifier (keys= lists the label fields, then the identifier fields); drop one side from the published file or move it under a sealed path. sealed.label_join_unchecked: a supported file the guard could not read (over 4 MiB, unparseable, or nested deeper than 64); allow_paths never exempt either rule`] : [];
+  const join = r.findings.some(f => f.rule.startsWith('sealed.label_join')) ? [`sealed.label_join: a record puts a sealed.label_keys field next to an identifier (keys= lists the label fields, then the identifier fields); drop one side from the published file or keep the file out of the public repository. sealed.label_join_unchecked: a supported file the guard could not read (over 4 MiB, unparseable, or nested deeper than 64); allow_paths never exempt either rule`] : [];
   if (r.status === 'error') {
     lines.push(`\n⛔ ${context} BLOCKED the publication of ${r.target} — ${r.error}.`);
     lines.push(`Fix the sealed policy (gstack-pregate validate), then retry; an unreadable policy never passes (SEALED_OUTPUT_REFUSED)`);
   } else if (r.status === 'refused') {
     lines.push(`\n⛔ ${context} BLOCKED the publication of ${r.target} (${vis}) — sealed or eval output in ${r.commits} published commit(s):`, ...body, ...join);
-    lines.push(`Remove it from every published commit before this branch reaches a public repository, exempt a publishable path with a sealed.allow_paths glob in the base branch's ${SEALED_CONFIG_PATH}, or waive one reviewed finding with a \`rule<TAB>path<TAB>full-commit-sha<TAB>reason\` line in the base branch's ${SEALED_ALLOW_PATH}. A private destination: set ${VISIBILITY_OVERRIDE_KEY} "private" in the base branch's ${SEALED_CONFIG_PATH} (SEALED_OUTPUT_REFUSED)`);
+    const exemptable = r.findings.some(f => !f.rule.startsWith('sealed.label_join')) ? ` exempt a publishable path with a sealed.allow_paths glob in the base branch's ${SEALED_CONFIG_PATH},` : '';
+    lines.push(`Remove it from every published commit before this branch reaches a public repository,${exemptable} or waive one reviewed finding with a \`rule<TAB>path<TAB>full-commit-sha<TAB>reason\` line in the base branch's ${SEALED_ALLOW_PATH}. A private destination: set ${VISIBILITY_OVERRIDE_KEY} "private" in the base branch's ${SEALED_CONFIG_PATH} (SEALED_OUTPUT_REFUSED)`);
   } else if (r.status === 'warned') {
     lines.push(`${context}: warning — sealed or eval output in a push to a private destination (${vis}); it would be refused for a public one:`, ...body, ...join);
   }

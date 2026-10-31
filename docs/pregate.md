@@ -999,7 +999,7 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   `plan_bytes` tells a model under test which unit it is. A record is a JSON
   object at any depth (its own fields plus one level of nested objects, named
   like `meta.head`), a JSONL or NDJSON line, a CSV or TSV row, or a row of a
-  Markdown pipe table. Field names and table headers are compared after
+  Markdown pipe table (CSV and TSV cells may be quoted). Field names and table headers are compared after
   trimming, lowercasing and turning spaces and hyphens into underscores
   (`Tree SHA-256` is `tree_sha_256`); this is the rule's own normalization,
   separate from `case_insensitive`. An identifier is a field whose name
@@ -1010,7 +1010,9 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   to 64 hex characters with at least one digit and one letter a to f. An
   object key of that shape counts as an identifier of the object it holds
   (shown as `(key)`), so a map keyed by sha joins too. Numbers count only
-  through the field name. Both lists take bare field names: a nested field
+  through the field name. A field can be both a label and an identifier, and
+  a record joins when it has a label field and a different identifier field,
+  so adding identifier names to `label_keys` never hides a join. Both lists take bare field names: a nested field
   matches by its own name (`stratum`, never `meta.stratum`). For each supported file a commit adds,
   modifies, renames or copies, the guard fingerprints every joined record
   (sha256 over its label and identifier fields and their values, kept in
@@ -1018,7 +1020,9 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   rename or copy source; every parent for a merge). A fingerprint no parent
   has is a finding, so unchanged records and formatting-only edits stay clear,
   and a replaced, added or widened record refuses even when the count stays
-  the same. A supported file over 4 MiB, one that does not parse (one bad
+  the same. A file whose text never names a label key cannot hold a join, so
+  it is skipped without parsing (a commented `tsconfig.json` passes). A
+  supported file over 4 MiB, one that names a label key and does not parse (one bad
   JSONL line is enough), one nested deeper than 64 levels, or a blob git
   cannot read is `sealed.label_join_unchecked`. It refuses too, and the
   `SEALED:` line counts it as `unchecked=<n>`. Findings print field names

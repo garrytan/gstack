@@ -48,13 +48,10 @@ function classifier(p: JoinPolicy): (fields: Field[]) => { fp: string; labels: s
   const labels = new Set(p.label_keys.map(normalizeKey));
   const ids = p.identifier_keys.map(g => new RegExp(`^${normalizeKey(g).replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*')}$`));
   return fields => {
-    const l: Field[] = []; const i: Field[] = [];
-    for (const f of fields) {
-      if (labels.has(f.key)) l.push(f);
-      else if ((present(f.value) && ids.some(re => re.test(f.key))) || hexValue(f.value)) i.push(f);
-    }
-    if (!l.length || !i.length) return null;
-    const fp = createHash('sha256').update([...l, ...i].map(f => `${f.name}=${JSON.stringify(f.value)}`).sort().join('\0')).digest('hex');
+    const l = fields.filter(f => labels.has(f.key));
+    const i = fields.filter(f => (present(f.value) && ids.some(re => re.test(f.key))) || hexValue(f.value));
+    if (!l.some(a => i.some(b => b !== a))) return null;
+    const fp = createHash('sha256').update([...new Set([...l, ...i])].map(f => `${f.name}=${JSON.stringify(f.value)}`).sort().join('\0')).digest('hex');
     return { fp, labels: l.map(f => shown(f.name)), ids: i.map(f => shown(f.name)) };
   };
 }
@@ -80,7 +77,7 @@ function jsonRecords(root: unknown, out: Field[][]): boolean {
   return true;
 }
 
-function csvRows(text: string): string[][] | null {
+function delimitedRows(text: string, sep: string): string[][] | null {
   const rows: string[][] = []; let row: string[] = []; let cell = ''; let quoted = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i]!;
@@ -89,7 +86,7 @@ function csvRows(text: string): string[][] | null {
       else if (text[i + 1] === '"') { cell += '"'; i++; }
       else quoted = false;
     } else if (c === '"' && cell.trim() === '') { quoted = true; cell = ''; }
-    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === sep) { row.push(cell); cell = ''; }
     else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
     else cell += c;
   }
@@ -131,7 +128,7 @@ export function fileRecords(file: string, text: string): Field[][] | null {
     }
   } catch { return null; }
   if (ext === 'md') { for (const t of markdownTables(body)) tableRecords(t, out); return out; }
-  const rows = ext === 'tsv' ? body.split(/\r?\n/).map(l => l.split('\t')) : csvRows(body);
+  const rows = delimitedRows(body, ext === 'tsv' ? '\t' : ',');
   if (!rows) return null;
   tableRecords(rows.filter(r => r.some(c => c.trim())), out);
   return out;
@@ -139,6 +136,8 @@ export function fileRecords(file: string, text: string): Field[][] | null {
 
 /** Joined-record fingerprints of one file's text; null when it cannot be checked. */
 export function fileJoins(file: string, text: string, p: JoinPolicy): Joins | null {
+  const folded = normalizeKey(text);
+  if (!text.includes('\\u') && !p.label_keys.some(k => folded.includes(normalizeKey(k)))) return new Map();
   const records = fileRecords(file, text);
   if (!records) return null;
   const classify = classifier(p);
@@ -180,15 +179,13 @@ function changedFiles(repoRoot: string, commits: string[]): Change[] {
   return out;
 }
 
-/** Blob text by sha through one `cat-file --batch-check` and chunked `--batch` reads; `big` over the cap, `missing` when unreadable. */
-function readBlobs(repoRoot: string, shas: string[]): Map<string, string | { unread: 'big' | 'missing' }> {
-  const out = new Map<string, string | { unread: 'big' | 'missing' }>();
-  if (!shas.length) return out;
+/** Each blob's text by sha, handed to `use` as it is read (one `cat-file --batch-check`, then chunked `--batch` reads); null over the cap or when unreadable. */
+function readBlobs(repoRoot: string, shas: string[], use: (sha: string, text: string | null) => void): void {
+  if (!shas.length) return;
   const small: Array<[string, number]> = [];
   for (const line of gitBuffer(repoRoot, ['cat-file', '--batch-check'], shas.join('\n') + '\n', 'cat-file --batch-check').toString('utf8').split('\n').filter(Boolean)) {
     const [sha, type, size] = line.split(' ');
-    if (type !== 'blob') out.set(sha!, { unread: 'missing' });
-    else if (Number(size) > JOIN_MAX_BYTES) out.set(sha!, { unread: 'big' });
+    if (type !== 'blob' || Number(size) > JOIN_MAX_BYTES) use(sha!, null);
     else small.push([sha!, Number(size)]);
   }
   const decoder = new TextDecoder();
@@ -200,25 +197,23 @@ function readBlobs(repoRoot: string, shas: string[]): Map<string, string | { unr
     for (let k = start; k < end; k++) {
       const nl = buf.indexOf(0x0a, pos);
       const size = Number(buf.subarray(pos, nl).toString('utf8').split(' ')[2]);
-      out.set(small[k]![0], decoder.decode(buf.subarray(nl + 1, nl + 1 + size)));
+      use(small[k]![0], decoder.decode(buf.subarray(nl + 1, nl + 1 + size)));
       pos = nl + 1 + size + 1;
     }
     start = end;
   }
-  return out;
 }
 
 /** `sealed.label_join` and `sealed.label_join_unchecked` findings for the published commits; [] without label_keys (no git reads). */
 export function joinFindings(repoRoot: string, commits: string[], p: JoinPolicy): SealedFinding[] {
   if (!p.label_keys.length || !commits.length) return [];
   const changes = changedFiles(repoRoot, commits);
-  const blobs = readBlobs(repoRoot, [...new Set(changes.flatMap(c => [c.blob, ...c.parents]))]);
+  const ext = (file: string) => (/\.[a-z]+$/i.exec(file)?.[0] ?? '').toLowerCase();
+  const wanted = new Map<string, Set<string>>();
+  for (const c of changes) for (const sha of [c.blob, ...c.parents]) wanted.set(sha, (wanted.get(sha) ?? new Set()).add(ext(c.file)));
   const cache = new Map<string, Joins | null>();
-  const joinsOf = (sha: string, file: string) => {
-    const key = `${sha}\0${(/\.[a-z]+$/i.exec(file)?.[0] ?? '').toLowerCase()}`;
-    if (!cache.has(key)) { const text = blobs.get(sha); cache.set(key, typeof text === 'string' ? fileJoins(file, text, p) : null); }
-    return cache.get(key)!;
-  };
+  readBlobs(repoRoot, [...wanted.keys()], (sha, text) => { for (const e of wanted.get(sha)!) cache.set(`${sha}\0${e}`, text === null ? null : fileJoins(`f${e}`, text, p)); });
+  const joinsOf = (sha: string, file: string) => cache.get(`${sha}\0${ext(file)}`) ?? null;
   const out: SealedFinding[] = [];
   for (const c of changes) {
     const now = joinsOf(c.blob, c.file);

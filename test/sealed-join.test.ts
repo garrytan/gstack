@@ -87,6 +87,8 @@ describe('formats and matching', () => {
       'j.json': `{"units":{"${HEAD_A}":{"stratum":"decoy","tags":["t"]}}}\n`,
       'k.jsonl': `{"${HEAD_B}":{"stratum":"seeded"}}\n`,
       'l.json': '{"units":{"unit-one":{"stratum":"decoy"}}}\n',
+      'm.tsv': '"Stratum"\t"head"\n"decoy"\t"5b7db3a"\n',
+      'tsconfig.json': '{\n  // a comment, so not strict JSON\n  "compilerOptions": { "strict": true }\n}\n',
     });
     expect(found(s).sort((a, b) => a.file.localeCompare(b.file))).toEqual([
       { rule: 'sealed.label_join', file: 'a.jsonl', commit: sha, keys: ['stratum', 'meta.head'] },
@@ -96,6 +98,7 @@ describe('formats and matching', () => {
       { rule: 'sealed.label_join', file: 'e.json', commit: sha, keys: ['tags', 'id'] },
       { rule: 'sealed.label_join', file: 'j.json', commit: sha, keys: ['stratum', 'tags', '(key)'] },
       { rule: 'sealed.label_join', file: 'k.jsonl', commit: sha, keys: ['stratum', '(key)'] },
+      { rule: 'sealed.label_join', file: 'm.tsv', commit: sha, keys: ['stratum', 'head'] },
     ]);
   });
 
@@ -192,6 +195,7 @@ describe('fail closed, waivers, allow_paths and the policy union (gstack-pregate
     const r = preflight(s);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/findings=1 .* exempt=0 policy=/);
+    expect(r.err).not.toContain('sealed.allow_paths glob');
     landOnMain(s, { '.gstack/sealed-allow.tsv': `sealed.label_join\twiki/board/panel.json\t${sha.slice(0, 12)}\tsynthetic fixture\n` });
     const short = preflight(s);
     expect(short.code).toBe(1);
@@ -204,7 +208,7 @@ describe('fail closed, waivers, allow_paths and the policy union (gstack-pregate
 
   test('a push can enable or widen the rule but never disable or narrow it', () => {
     const leak = { 'wiki/panel.json': panel([unit('u1', HEAD_A)]) };
-    for (const pushed of [{ paths: ['heldout/**'] }, { ...LABELED, identifier_keys: ['zzz'] }, { label_keys: [] as string[], identifier_keys: [] as string[] }]) {
+    for (const pushed of [{ paths: ['heldout/**'] }, { ...LABELED, identifier_keys: ['zzz'] }, { label_keys: [] as string[], identifier_keys: [] as string[] }, { label_keys: [...LABELED.label_keys, 'head', 'plan_bytes'] }]) {
       const s = scratch({ '.gstack/pregate.json': policy(LABELED) });
       commit(s, { '.gstack/pregate.json': policy(pushed), ...leak });
       const r = preflight(s);
