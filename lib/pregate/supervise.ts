@@ -11,7 +11,7 @@
  * headers) reports `PREGATE_TEST: <n>/<total> <file> start|pass|fail <s>`
  * per file; a run of one file reports it from the launch itself for any
  * runner. Without either, only heartbeats: a line after each `heartbeatMs`
- * with no progress line.
+ * with no progress line; with `lastLine` it names the last line the command printed.
  *
  * Platforms: POSIX signals the negative pid (the group `detached` creates
  * with setsid). Windows has no process groups here: the kill is
@@ -43,6 +43,8 @@ export interface SuperviseOptions {
   files?: readonly string[];
   adapter?: ProgressAdapter | null;
   counter?: Counter;
+  /** Heartbeats name the command's last output line (the remote gate, which has no per-file progress). */
+  lastLine?: boolean;
   progress: (line: string) => void;
 }
 
@@ -183,7 +185,13 @@ export function supervise(o: SuperviseOptions): Promise<Supervised> {
       if (outcome) return;
       if (now >= o.deadline) { stop('timeout'); return; }
       if (o.stallMs > 0 && now - lastGrowth >= o.stallMs) { stop('stalled'); return; }
-      if (now - lastProgress >= heartbeatMs) emit(`PREGATE_HEARTBEAT: ${o.label} running ${Math.round((now - started) / 1000)}s; last file ${lastFile ?? 'none reported'}; log ${size - start} bytes, last growth ${Math.round((now - lastGrowth) / 1000)}s ago (${o.log})`);
+      if (now - lastProgress < heartbeatMs) return;
+      let last: string | undefined;
+      if (o.lastLine) {
+        try { last = readRange(o.log, start, size, 4096).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').split(/\r\n?|\n/).map(l => l.replace(/[\x00-\x1f\x7f]/g, '').trim()).filter(Boolean).at(-1); }
+        catch { /* log removed */ }
+      }
+      emit(`PREGATE_HEARTBEAT: ${o.label} running ${Math.round((now - started) / 1000)}s; last file ${lastFile ?? 'none reported'}; log ${size - start} bytes, last growth ${Math.round((now - lastGrowth) / 1000)}s ago (${o.log})${last ? `; last output: ${last.slice(0, 160)}` : ''}`);
     }, pollMs);
     if (child.pid) ACTIVE.add(child.pid);
     child.on('error', e => finish(null, null, e.message));

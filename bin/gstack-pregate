@@ -75,7 +75,7 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
                                 timeout catches a silent one sooner
   --stall-timeout <s>           kill a test command's process group after this long with no output and record the check
                                 incomplete (PREGATE_STALLED); default stall_timeout_s from the base .gstack/pregate.json,
-                                else ${DEFAULT_STALL_TIMEOUT_S}; 0 disables
+                                else ${DEFAULT_STALL_TIMEOUT_S}; 0 disables; the --remote gate is exempt (only --timeout bounds it)
   --remote                      run the base branch's remote_gate now instead of local tests (needs --allow-repo-commands;
                                 under --policy-from head the gate is still the base copy's); it clears the requires-remote obligation only on its
                                 PREGATE_REMOTE: tree=<tested tree> tests=<n> failed=0 line with n > 0
