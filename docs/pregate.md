@@ -1006,8 +1006,9 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   matches an `identifier_keys` glob (`*` is the only wildcard; the default
   is `head`, `head_sha`, `sha`, `commit`, `tree`, `tree_sha*`, `*_sha`,
   `*_sha256`, `sha256`, `digest`, `*_digest`, `hash`, `*_hash`,
-  `*_bytes`, `bytes`, `size`, `files`, `lines`), or any string value of 7
-  to 64 hex characters with at least one digit and one letter a to f. An
+  `*_bytes`, `bytes`, `size`, `files`, `lines`), or any string value (or a
+  list holding one) of 7 to 64 hex characters with at least one digit and
+  one letter a to f. An
   object key of that shape counts as an identifier of the object it holds
   (shown as `(key)`), so a map keyed by sha joins too. Numbers count only
   through the field name. A field can be both a label and an identifier, and
@@ -1022,7 +1023,9 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   and a replaced, added or widened record refuses even when the count stays
   the same. A file whose text never names a label key, ignoring double
   quotes (so `"Strat"um` still names `stratum`), cannot hold a join, so
-  it is skipped without parsing (a commented `tsconfig.json` passes). A
+  it is skipped without parsing (a commented `tsconfig.json` passes). A file
+  with a `\u` escape, which could spell a label key, is always parsed, so a
+  commented one is `sealed.label_join_unchecked`. A
   supported file over 4 MiB, one that names a label key and does not parse (one bad
   JSONL line is enough), one nested deeper than 64 levels, or a blob git
   cannot read is `sealed.label_join_unchecked`. It refuses too, and the
