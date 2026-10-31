@@ -2525,7 +2525,8 @@ has no `## ` heading) is replaced by the file's own text above its first
 heading, or dropped when the file has none. A partial post (`## ` sections
 with no receipt above them, such as a lane posting `## Screenshots`) and a
 file with no `## ` section (a receipt-only or text-only post) leave that text alone, so a human
-intro or a `Review-loop exception:` line under the receipt survives. One stderr line names what was replaced, kept, added
+intro or a `Review-loop exception:` line under the receipt survives; only
+opening lines the file brings of its own replace the PR's opening lines. One stderr line names what was replaced, kept, added
 and dropped, a dropped piece with its first line, or with that line withheld
 when the redaction scan flags it (`gstack-post: pr-body merged
 by section: replaced What changed; kept ship receipt, Why, Approvals; added
