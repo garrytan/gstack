@@ -52,7 +52,7 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
                                      and with --cap reservation-fits-cap (one call: largest row + output budget, priced)
   pilot start --out dir --cap usd --arms m,m#no-gstack --dry-run dry-run.json [--n 3] [--seat-metered arm,...]
                                      --seat-metered: arms on a subscription with no incremental charge; they reserve $0,
-                                     settle only unknown, and sit outside the cap and the projection
+                                     settle unknown, and sit outside the cap and the projection until one settles a charge
   pilot settle --out dir --attempt id --usd <n|unknown>      pilot release --out dir --attempt id
   pilot report --out dir --total items [--workers W] [--json]  spend table + per-arm extrapolation with a 95% band, then the approval ask
   price-gate --gate-file <file> | --gate "<exact gate command>" [--plan-file f] [--base b] [--cap-usd N] [--smoke-cap-usd N] [--allow-unpriced "<reason>"] [--out dir] [--json]

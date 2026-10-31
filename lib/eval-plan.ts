@@ -427,8 +427,9 @@ export function pilotReport(out: string, o: { total: number; workers?: number })
   const record = JSON.parse(fs.readFileSync(path.join(out, PILOT_FILES.pilot), 'utf8')) as PilotRecord;
   const ledger = readLedger(path.join(out, PILOT_FILES.spend), record.cap_usd);
   const summary = summarize(ledger);
-  const seat = new Set(record.seat_metered ?? []);
   const armOf = new Map(record.attempts.map(a => [a.attempt, a.model]));
+  const charged = new Set(ledger.settled.filter(s => typeof s.usd === 'number' && s.usd > 0).map(s => armOf.get(s.attempt)));
+  const seat = new Set((record.seat_metered ?? []).filter(arm => !charged.has(arm)));
   const unknown = ledger.settled.filter(s => s.usd === 'unknown' && !seat.has(armOf.get(s.attempt) ?? '')).length;
   const workers = Math.max(1, o.workers ?? 1);
   const maxEstimate = Math.max(0, ...record.attempts.map(a => a.estimate_usd));

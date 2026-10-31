@@ -219,7 +219,11 @@ describe('priced pilot', () => {
     const out = path.join(d, 'seat');
     const s = startPilot({ out, cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
     settlePilot(out, s.record.attempts[0]!.attempt, 0.05);
-    expect(pilotReport(out, { total: 1 }).spend.summary.spent_usd).toBeCloseTo(0.05, 6);
+    const charged = pilotReport(out, { total: 1000 });
+    expect(charged.spend.summary.spent_usd).toBeCloseTo(0.05, 6);
+    expect(charged.seat_metered).toEqual([]);
+    expect(charged.projection.arms.map(a => [a.arm, a.n])).toEqual([['gpt-6-astra', 1]]);
+    expect(charged.projection.verdict).toBe('unknown');
     expect(() => startPilot({ out: path.join(d, 'stray'), cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-5.4-mini'], dryRun: dry })).toThrow('--seat-metered');
     const switched = path.join(d, 'switched');
     startPilot({ out: switched, cap: 1, n: 3, arms: ['gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
