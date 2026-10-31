@@ -11,7 +11,7 @@ import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
 import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
 import { cleanup, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
-import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
+import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(90_000);
 const BIN = path.dirname(RELEASE);
@@ -484,3 +484,27 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     expect([reset.status, reset.stdout.includes('ATTEMPT: counted (a second install refusal in this invocation)')]).toEqual([3, true]);
   });
 });
+
+describe('preflight carry route for an adjacent base edit (GST-442)', () => {
+  // Value: protects=/ship Step 1's carry check offers the scoped review when the base edited context next to a reviewed hunk,
+  //   instead of treating the refusal as "run the full loop", and its dry run writes nothing; fails_when=preflight acts only on
+  //   'CARRY: would carry' or carry --dry-run writes the packet; seam=gstack-ship-receipt carry --dry-run; no_claim=the reviewer
+  test('preflight routes RECEIPT_CARRY_SCOPED_REVIEW to one scoped review, and the dry run writes no packet', () => {
+    const src = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => edit[i + 1] ?? `exports.v${i + 1} = ${i + 1};`).join('\n') + '\n';
+    const f = fx({ 'lib/rows.js': src() }, { 'lib/rows.js': src({ 6: 'exports.v6 = 600;' }) });
+    const reviewed = f.git('rev-parse', 'HEAD').stdout.trim();
+    f.advanceBase({ 'lib/rows.js': src({ 5: 'exports.v5 = "five";' }) });
+    mergeMain(f, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const view = path.join(f.root, 'view.json');
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
+    f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(lineOf(r.stdout, 'CARRY')).toBe('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)');
+    expect(r.stdout).toMatch(/^NEXT: carry route \(Step 1\.4\): .*one fix-check reviewer.*--scoped-review <record\.json>/m);
+    expect(fs.existsSync(path.join(f.work, '.git', 'gstack', `scoped-review-${head.slice(0, 12)}.md`))).toBe(false);
+    const wrote = f.run(path.join(BIN, 'gstack-ship-receipt'), ['carry', '--pr', '9', '--base', 'main']);
+    expect([wrote.status, fs.existsSync(path.join(f.work, '.git', 'gstack', `scoped-review-${head.slice(0, 12)}.md`))]).toEqual([EXIT.refused, true]);
+  });
+});
+

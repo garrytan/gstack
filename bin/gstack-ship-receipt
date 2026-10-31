@@ -635,6 +635,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (packetBody?.over.length) changedProduct.push(...packetBody.over.map(p => `${p} (too large for the scoped review: over ${PACKET_SECTION_CAP} lines in a section)`));
     if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
+      if (!record && rest.includes('--dry-run')) return refused('RECEIPT_CARRY_SCOPED_REVIEW', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one fix-check reviewer, then carry --scoped-review <record.json>; nothing written`);
       if (!record) {
         const gitPath = git(['rev-parse', '--git-path', `gstack/scoped-review-${head.slice(0, 12)}.md`], repoRoot);
         const packet = path.resolve(repoRoot, gitPath ?? `.git/gstack/scoped-review-${head.slice(0, 12)}.md`);

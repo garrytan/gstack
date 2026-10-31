@@ -50,6 +50,10 @@ function integrate(cwd: string, base: string, r: Report): boolean {
       r.next(`carry route (Step 1.4): fix what the base merge broke (CHANGELOG, size caps), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr ${n} --base ${base} --pregate .gstack/tmp/pregate.json`);
       return false;
     }
+    if (line === 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)') {
+      r.next(`carry route (Step 1.4): the base edited context next to reviewed hunks: gstack-ship-receipt carry --pr ${n} --base ${base} writes the packet; one fix-check reviewer reads it; fix what the base merge broke, gstack-pregate --allow-repo-commands, then carry again with --scoped-review <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
+      return false;
+    }
   } else r.add('PR: none open');
   const apple = git(cwd, ['ls-files', '--', '*.xcodeproj/*', '*.xcworkspace/*', 'Package.swift']).stdout.split('\n').filter(Boolean).map(p => p.replace(/(\.xcodeproj|\.xcworkspace)\/.*$/, '$1'));
   if (apple.length) r.add(`APPLE: ${short([...new Set(apple)], 3)}`).next('Step 0.9: for an App Store/TestFlight ask, confirm the app target and follow apple-release.md; otherwise ignore');
