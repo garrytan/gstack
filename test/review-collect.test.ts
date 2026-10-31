@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { collectCommit, collectLive, CONSUMER_SCAN_CAP, CONSUMER_SCAN_TIMEOUT_MS, grepConsumers, loadRegistryAt, scanConsumers } from '../lib/review-collect';
+import { collectCommit, collectLive, CONSUMER_SCAN_CAP, CONSUMER_SCAN_TIMEOUT_MS, consumerScanTimeoutMs, grepConsumers, loadRegistryAt, scanConsumers } from '../lib/review-collect';
 import { depthOfCommitInput } from '../lib/review-depth';
 
 const dirs: string[] = [];
@@ -238,6 +238,21 @@ describe('GST-544: the consumer scan reads only files that can match, under one 
     const failed: Parameters<typeof scanConsumers>[5] = [];
     expect(scanConsumers(r.dir, ['data/rows.json'], [r.head], false, r.dir, failed, CONSUMER_SCAN_TIMEOUT_MS)).toBe('all');
     expect(failed[0]!.detail).toMatch(new RegExp(`^git grep exited \\d+: .*\\(deadline ${CONSUMER_SCAN_TIMEOUT_MS / 1000} s\\)$`));
+  });
+  const withEnv = (name: string, value: string, fn: () => void) => {
+    const saved = process.env[name];
+    process.env[name] = value;
+    try { fn(); } finally { if (saved === undefined) delete process.env[name]; else process.env[name] = saved; }
+  };
+  // Value: protects=an inherited GIT_LITERAL_PATHSPECS (git --literal-pathspecs exports it to children) cannot empty the narrowed
+  //   search and drop data to docs; a fractional override cannot crash spawnSync; fails_when=the pathspecs use magic the variable
+  //   turns off, or the timeout is not an integer; seam=the process environment
+  test('an inherited GIT_LITERAL_PATHSPECS keeps the same lines; a fractional timeout override is whole milliseconds', () => {
+    const r = mixed();
+    withEnv('GIT_LITERAL_PATHSPECS', '1', () => {
+      for (const at of [r.head, '']) expect((grepConsumers(r.dir, patterns, at, () => true, Date.now() + 10_000) as string[]).filter(Boolean).sort()).toEqual(wholeTree(r.dir, at));
+    });
+    withEnv('GSTACK_CONSUMER_SCAN_TIMEOUT_MS', '1500.5', () => expect(consumerScanTimeoutMs()).toBe(1500));
   });
   // Value: protects=a slow scan ends in its own fail-closed consumer_scan_failed, not in the parent killing gstack-review-plan;
   //   fails_when=the scan deadline reaches the timeout the dispatch and preflight callers give the whole plan; seam=caller source

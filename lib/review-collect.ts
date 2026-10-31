@@ -114,7 +114,7 @@ export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
 
 export function consumerScanTimeoutMs(): number {
   const v = Number(process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS);
-  return Number.isFinite(v) && v > 0 ? v : CONSUMER_SCAN_TIMEOUT_MS;
+  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : CONSUMER_SCAN_TIMEOUT_MS;
 }
 
 export type GrepFailure = { timedOut: boolean; status: number | null; err: string };
@@ -123,7 +123,7 @@ export type GrepFailure = { timedOut: boolean; status: number | null; err: strin
  * The lines `git grep -I -F -o --null` prints for `patterns` at `rev` ('' is the working tree with untracked files), for
  * the files `keep` accepts, in some order. Every pattern holds its own extension, so a `-l` pass for the extensions alone
  * lists every file that can match; the full pattern list then reads only those files, CONSUMER_SCAN_PATHSPEC_BYTES of
- * literal pathspecs per call. Each call gets what is left of `deadline` (epoch ms).
+ * paths per call under --literal-pathspecs (an inherited GIT_GLOB_PATHSPECS makes git refuse, which fails closed). Each call gets what is left of `deadline` (epoch ms).
  */
 export function grepConsumers(root: string, patterns: readonly string[], rev: string, keep: (file: string) => boolean, deadline: number, chunkBytes = CONSUMER_SCAN_PATHSPEC_BYTES): string[] | GrepFailure {
   const where = rev ? [rev, '--'] : ['--untracked', '--'];
@@ -131,12 +131,12 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
   const listed = gitUntil(root, ['grep', '-I', '-F', '-l', '-z', '--no-color', ...exts, ...where], deadline);
   if (listed.status !== 0 && listed.status !== 1) return listed;
   const files = listed.out.split('\0').filter(Boolean).map(f => (rev ? f.slice(rev.length + 1) : f)).filter(keep);
-  const flags = ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns.flatMap(b => ['-e', b]), ...where];
+  const flags = ['--literal-pathspecs', 'grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns.flatMap(b => ['-e', b]), ...where];
   const lines: string[] = [];
   for (let i = 0; i < files.length;) {
     const chunk: string[] = [];
     for (let bytes = 0; i < files.length; i++) {
-      const spec = `:(literal)${files[i]}`;
+      const spec = files[i]!;
       if (chunk.length && bytes + spec.length > chunkBytes) break;
       chunk.push(spec);
       bytes += spec.length;
