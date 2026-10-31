@@ -18,6 +18,7 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, promptHash, renderBrief, sectionTexts, type BriefRole, type Slots } from '../lib/review-brief';
 import { collect, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from '../lib/review-targeted';
+import { resolveBaseBranch } from '../lib/ship-policy';
 
 const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free collection for /ship
 
@@ -27,7 +28,8 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
              --learnings-file <f>  --checklist <path> (default <root>/review/specialists/<name>.md; red-team.md for red-team)
              --checklists <a,b> (specialist-batched: the plan's checklists= names, or paths)  --findings-file <f> --specialists <n> (red-team)
              --fix-list <f> --hunks <f> --tests <f> [--callers <f>] (fix-check)
-             --classes <money,gate,auth,secret> (targeted: the plan's TARGETED classes; the brief is review/specialists/targeted.md)
+             --classes <money,gate,auth,secret> (targeted: the plan's TARGETED classes; the brief is review/specialists/targeted.md;
+             --diff-base must be the merge base with --base, default origin/HEAD's branch, on every pass)
       writes <out>/<role>[-<name>].prompt.md, records it in the ledger (default <out>/review-ledger.jsonl) and prints
       BRIEF: reader=<role/name> sha256=<h> bytes=<n> file=<path>. Pass that file's content as the reader's prompt, unchanged.
   sent --ledger <f> --role <role> [--name <n>] --sent <file>
@@ -61,6 +63,11 @@ function render(): number {
   const checklist = flag('--checklist') ?? (role === 'red-team' ? path.join(ROOT, 'review/specialists/red-team.md') : role === 'targeted' ? path.join(ROOT, 'review/specialists/targeted.md') : role === 'specialist' && name ? path.join(ROOT, 'review/specialists', `${name}.md`) : undefined);
   if (checklist && (role === 'specialist' || role === 'red-team' || role === 'targeted') && !fs.existsSync(checklist)) throw new BriefError(`checklist not found: ${checklist}`);
   const brief = role === 'targeted' ? readFile(checklist, 'targeted brief') : undefined;
+  if (role === 'targeted') {
+    const base = resolveBaseBranch(process.cwd(), flag('--base'));
+    const mb = [`origin/${base}`, base].map(ref => spawnSync('git', ['merge-base', ref, 'HEAD'], { encoding: 'utf8', timeout: 30_000 })).find(r => r.status === 0)?.stdout.trim();
+    if (!diffBase || diffBase !== mb) throw new BriefError(`the targeted reader reads the whole diff on every pass: --diff-base must be the merge base with ${base} (${mb ?? 'unresolved'}), got ${diffBase ?? 'none'}`);
+  }
   const checklists = flag('--checklists')?.split(',').map(s => s.trim()).filter(Boolean).map(c => (c.includes('/') ? c : path.join(ROOT, 'review/specialists', `${c}.md`)));
   for (const c of checklists ?? []) if (!fs.existsSync(c)) throw new BriefError(`checklist not found: ${c}`);
   let diff: string | undefined;

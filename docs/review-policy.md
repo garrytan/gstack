@@ -313,7 +313,9 @@ full review.
 
 The plan prints `TARGETED: classes=<money,gate,auth,secret|none> rules=<hash>
 brief=<sha256 of the brief> targeted_patch_id=<id>` and, when a class hit,
-`DISPATCH: targeted targeted effort=full`. After a fix, pass
+`DISPATCH: targeted targeted effort=full`. The targeted reader always reads the whole diff: `render --role targeted`
+refuses a `--diff-base` other than the merge base, so on pass 2 and later it
+gets the merge base, not `RANGE_BASE`. After a fix, pass
 `--targeted-ran <targeted_patch_id>` from the line the reader ran on: the same
 committed patch skips the reader, and a changed one, uncommitted edits or
 `none` dispatch it again. `targeted_patch_id` is the patch-id of the whole
