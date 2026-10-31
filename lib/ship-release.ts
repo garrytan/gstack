@@ -90,7 +90,8 @@ export function version(argv: readonly string[], cwd: string): Report {
   }
   const atBase = !!explicit && cmpVersion(parseVersion(explicit)!, parseVersion(j.baseVersion)!) === 0;
   const keep = fresh && (has('--keep-current') || atBase);
-  if (keep && asked) return r.stop(`--bump ${asked} moves VERSION and ${has('--keep-current') ? '--keep-current' : `--version ${explicit}`} keeps it: pass one`);
+  const mover = asked ? `--bump ${asked}` : explicit && !atBase ? `--version ${explicit}` : '';
+  if (keep && mover) return r.stop(`${mover} moves VERSION and ${has('--keep-current') ? '--keep-current' : `--version ${explicit}`} keeps it: pass one`);
   if (keep) return r.add(`VERSION: ${j.baseVersion} kept (FRESH, ${has('--keep-current') ? '--keep-current' : `--version ${explicit}`}; no write)`).next(KEPT_NEXT);
   const level = fresh ? asked ?? (policy?.bump === 'patch' ? 'patch' : undefined) : asked ?? derivedLevel(j.baseVersion, j.currentVersion) ?? undefined;
   if (!level) {
@@ -98,9 +99,11 @@ export function version(argv: readonly string[], cwd: string): Report {
     return r.stop(`BUMP_LEVEL needed (FRESH, ${stat || 'no diff'}): MICRO under 50 lines, PATCH 50+ with no feature signal, MINOR/MAJOR ask first (Step 12.2); rerun with --bump <level>, or with --keep-current to leave VERSION at ${j.baseVersion}`);
   }
   const answer = flag('--answer');
-  if ((fresh ? asked : explicit) && policy?.bump !== 'patch' && !answer) {
+  if (explicit && cmpVersion(parseVersion(explicit)!, parseVersion(j.baseVersion)!) <= 0) return r.stop(`${explicit} is not above the base version ${j.baseVersion}`);
+  const rewrites = fresh ? !!asked : !!explicit && cmpVersion(parseVersion(explicit)!, parseVersion(j.currentVersion)!) !== 0;
+  if (rewrites && policy?.bump !== 'patch' && !answer) {
     const kind = bin(cwd, 'gstack-session-kind', [], 30_000).stdout.trim() || 'unknown';
-    const pick = fresh ? `--bump ${asked}` : `--version ${explicit}`;
+    const pick = [asked && `--bump ${asked}`, explicit && `--version ${explicit}`].filter(Boolean).join(' ');
     if (kind !== 'interactive') return r.stop(`BUMP_ANSWER_REQUIRED (${kind} session, bump ask): a version Step 12 writes is the owner's approval, and a brief's "take the recommended option" is not an answer. Ask: ${pick} (recommended), keep ${fresh ? j.baseVersion : j.currentVersion} (--keep-current), or stop; then rerun with ${pick} --answer "<their words>". A repo whose unit PRs never bump sets bump never; one that always takes PATCH sets bump patch`);
   }
   let q = queue(cwd, base, level, j.baseVersion);

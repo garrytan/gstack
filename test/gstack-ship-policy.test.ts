@@ -222,6 +222,15 @@ describe('gstack-ship-policy (bin)', () => {
     expect(runBin(repo, 'gstack-ship-policy', ['show-effective', '--policy-from', 'head']).out).toMatch(/^policy: head \(unreviewed\)/);
   });
 
+  // Value: protects=validate reports bump never's own floor as the policy's minimum reader; fails_when=the CLI prints the bump key's 1.91.73.0 and a crew upgrades to a gstack that refuses the policy;
+  //   why_new=GST-380 outside-voice review (the CLI passed introduction versions to minimumReader); seam=bin/gstack-ship-policy; no_claim=-
+  test('validate --json names bump never\'s floor as the minimum reader', () => {
+    const repo = fixture();
+    fs.writeFileSync(path.join(repo.work, '.gstack', 'ship-policy.json'), JSON.stringify({ bump: 'never', min_gstack_version: BUMP_NEVER_KEY_VERSION }) + '\n');
+    const j = JSON.parse(runBin(repo, 'gstack-ship-policy', ['validate', '--json']).out);
+    expect([j.valid, j.introduced.bump, j.min_reader]).toEqual([true, BUMP_NEVER_KEY_VERSION, BUMP_NEVER_KEY_VERSION]);
+  });
+
   test('POLICY_SOURCE_UNAVAILABLE (exit 3) when origin/<base> does not resolve; no fallback to the working tree', () => {
     const repo = fixture();
     const r = runBin(repo, 'gstack-ship-policy', ['show-effective', '--base', 'release']);
