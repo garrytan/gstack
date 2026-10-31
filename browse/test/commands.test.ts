@@ -19,7 +19,6 @@ import * as fs from 'fs';
 import { spawn } from 'child_process';
 import { isProcessAlive } from '../src/error-handling';
 import * as path from 'path';
-import * as os from 'os';
 
 // Temp files live under os.tmpdir(), never a hardcoded /tmp: macOS points
 // tmpdir at a per-user private dir, and syscall-supervised sandboxes
