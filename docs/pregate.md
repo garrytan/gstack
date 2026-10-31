@@ -1020,7 +1020,8 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   rename or copy source; every parent for a merge). A fingerprint no parent
   has is a finding, so unchanged records and formatting-only edits stay clear,
   and a replaced, added or widened record refuses even when the count stays
-  the same. A file whose text never names a label key cannot hold a join, so
+  the same. A file whose text never names a label key, ignoring double
+  quotes (so `"Strat"um` still names `stratum`), cannot hold a join, so
   it is skipped without parsing (a commented `tsconfig.json` passes). A
   supported file over 4 MiB, one that names a label key and does not parse (one bad
   JSONL line is enough), one nested deeper than 64 levels, or a blob git
