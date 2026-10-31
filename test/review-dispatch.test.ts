@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BriefError, promptHash, renderBrief, sectionTexts } from '../lib/review-brief';
+import { BriefError, promptHash, renderBrief, sectionTexts, workspaceParagraph } from '../lib/review-brief';
 import { collect, judge, parseFindings, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -11,7 +11,19 @@ const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-')); dirs.push(d); return d; };
-const run = (args: string[], cwd = ROOT) => spawnSync(BIN, args, { cwd, encoding: 'utf8', timeout: 60_000 });
+/** A reader that follows its brief's workspace paragraph starts its reply with the REVIEWED_TREE line of that checkout (GST-482). */
+function treeLineOf(cwd: string): string {
+  const git = (a: string[]) => spawnSync('git', ['-C', cwd, ...a], { encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+  return `REVIEWED_TREE: ${git(['rev-parse', 'HEAD^{tree}'])} ${git(['rev-parse', '--show-toplevel'])}\n`;
+}
+function followBrief(output: string, cwd: string) {
+  const text = fs.readFileSync(output, 'utf8');
+  if (!text.includes('REVIEWED_TREE:')) fs.writeFileSync(output, treeLineOf(cwd) + text);
+}
+const run = (args: string[], cwd = ROOT) => {
+  if (args[0] === 'collect' && !args.includes('--unavailable') && args.includes('--output')) followBrief(args[args.indexOf('--output') + 1]!, cwd);
+  return spawnSync(BIN, args, { cwd, encoding: 'utf8', timeout: 60_000 });
+};
 const SHA = 'a'.repeat(40);
 const section = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const field = (out: string, k: string) => new RegExp(`${k}=(\\S+)`).exec(out)?.[1] ?? '';
@@ -338,10 +350,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const b = tmp();
     const batched = field(run(['render', '--role', 'specialist-batched', '--checklists', 'testing,security,state-machines', '--out', b, '--diff-base', SHA]).stdout, 'file');
     const cases = [
-      { reader: 'specialist-batched', dir: b, brief: batched, output: refusal, args: ['--role', 'specialist-batched'] },
+      { reader: 'specialist-batched', dir: b, brief: batched, output: treeLineOf(ROOT) + refusal, args: ['--role', 'specialist-batched'] },
       ...['', 'I could not access the diff: git diff failed with "bad object", so there is nothing here to review.\n'].map(output => {
         const p = pass();
-        return { reader: 'specialist/testing', dir: p.out, brief: p.file, output, args: ['--role', 'specialist', '--name', 'testing'] };
+        return { reader: 'specialist/testing', dir: p.out, brief: p.file, output: treeLineOf(ROOT) + output, args: ['--role', 'specialist', '--name', 'testing'] };
       }),
     ];
     for (const c of cases) {
@@ -365,7 +377,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   //   the non-review rule; fails_when=the rule makes a real NO FINDINGS specialist or a findings reply dirty or exit 1;
   //   why_new=the non-review rule above could over-reach; seam=collect and verify; no_claim=other roles (the matrix below covers them)
   test('a NO FINDINGS reply and a findings reply still collect with exit 0 and verify clean', () => {
-    for (const [output, findings] of [['NO FINDINGS\n', 0], ['{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"off by one","specialist":"testing"}\n', 1]] as const) {
+    for (const [output, findings] of [[treeLineOf(ROOT) + 'NO FINDINGS\n', 0], [treeLineOf(ROOT) + '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"off by one","specialist":"testing"}\n', 1]] as const) {
       const p = pass();
       run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
       const col = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('reply.out', output), '--merged', p.merged]);
@@ -474,5 +486,52 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     fs.writeFileSync(ledger, '{"event":"note","step":"9"}\n');
     const v = run(['verify', '--ledger', ledger]);
     expect([v.status, v.stdout.trim()]).toEqual([3, "VERIFY: no brief records (this run's ledger kept no prompts; dispatched-vs-rendered cannot be checked)"]);
+  });
+});
+
+describe('the workspace paragraph (GST-482)', () => {
+  // Value: protects=GSTA-167's no-loss pin: every role's brief is renderBrief's bytes unchanged, then only the workspace paragraph naming the checkout; fails_when=the paragraph is inserted, a section byte moves, or the CLI names another folder than the checkout it ran in;
+  //   why_new=GST-482 appends a paragraph to every brief; seam=gstack-review-dispatch render; no_claim=that the reader obeys it
+  test('every role renders main\'s brief byte for byte, then the paragraph naming the checkout the CLI ran in', () => {
+    const t = sectionTexts(ROOT);
+    const top = fs.realpathSync(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim());
+    const w = (n: string, s: string) => { const f = path.join(tmp(), n); fs.writeFileSync(f, s); return f; };
+    const cases: Array<[string, string[], Record<string, string>]> = [
+      ['specialist', ['--name', 'testing'], { name: 'testing', checklist: path.join(ROOT, 'review/specialists/testing.md') }],
+      ['specialist', ['--name', 'security'], { name: 'security', checklist: path.join(ROOT, 'review/specialists/security.md') }],
+      ['specialist-batched', ['--checklists', 'testing,security'], { checklists: ['testing', 'security'].map(c => path.join(ROOT, 'review/specialists', c + '.md')).join(',') }],
+      ['red-team', ['--findings-file', w('f.jsonl', 'x\n'), '--specialists', '2'], { checklist: path.join(ROOT, 'review/specialists/red-team.md'), findings: 'x\n', specialists: '2' }],
+      ['adversarial-native', [], {}],
+      ['fix-check', ['--fix-list', w('fl', 'a'), '--hunks', w('h', 'b'), '--tests', w('t', 'c')], { fix_list: 'a', hunks: 'b', tests: 'c' }],
+    ];
+    for (const [role, args, slots] of cases) {
+      const out = tmp();
+      const r = run(['render', '--role', role, '--out', out, ...(role === 'fix-check' ? [] : ['--diff-base', SHA]), ...args]);
+      expect(r.status, role + ': ' + r.stderr).toBe(0);
+      const main = renderBrief(role as Parameters<typeof renderBrief>[0], { diff_base: role === 'fix-check' ? undefined : SHA, ...slots }, t);
+      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(main + '\n\n' + workspaceParagraph(top));
+    }
+    expect(workspaceParagraph(top)).toContain(`begin each command with \`cd '${top}' && \``);
+    expect(workspaceParagraph(top)).toContain(`absolute path under ${top}`);
+  });
+
+  test('a list-item or bold REVIEWED_TREE line counts; a ledger rendered before the paragraph existed is collected as before', () => {
+    const out = tmp();
+    const p = { ledger: path.join(out, 'review-ledger.jsonl'), merged: path.join(out, 'merged.jsonl'), file: field(run(['render', '--role', 'specialist', '--name', 'testing', '--out', out, '--diff-base', SHA]).stdout, 'file'),
+      w: (n: string, t: string) => { const f = path.join(out, n); fs.writeFileSync(f, t); return f; } };
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    const line = treeLineOf(ROOT).trim();
+    const col = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('reply.out', '- **' + line + '**\nNO FINDINGS\n'), '--merged', p.merged]);
+    expect(col.stdout).toStartWith('COLLECT: reader=specialist/testing findings=0 ');
+    const legacy = tmp();
+    const ledger = path.join(legacy, 'review-ledger.jsonl');
+    const brief = path.join(legacy, 'b.md');
+    fs.writeFileSync(brief, 'old brief');
+    fs.writeFileSync(ledger, JSON.stringify({ event: 'rendered', reader: 'specialist/testing', role: 'specialist', name: 'testing', file: brief, sha256: promptHash('old brief'), bytes: 9 }) + '\n');
+    run(['sent', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--sent', brief]);
+    const reply = path.join(legacy, 'r.out');
+    fs.writeFileSync(reply, 'NO FINDINGS\n');
+    const old = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--output', reply, '--merged', path.join(legacy, 'm.jsonl')], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    expect(old.stdout).toStartWith('COLLECT: reader=specialist/testing findings=0 ');
   });
 });
