@@ -48,11 +48,11 @@ describe('reviewer packets stay reverted (GSTA-167)', () => {
  * passes (GStack Minder crew rule, 2026-10-30). Repin with that replay's id in the commit message.
  */
 const REVIEWER_BRIEFS: Record<string, string> = {
-    'ship/sections/review-army.md': '3d89708c2776b0d97fb2420c0461d37179b9f25ca0677ba038a6cff53dbf7465',
+    'ship/sections/review-army.md': 'c3b47f682e6915d15adca00466c067b2f4212a7669853cb4f0e7408e4ee59f1a',
     'ship/sections/adversarial.md': '3f361c1f42605c8329048c81162216e7bf9902bdbb2327811c39ee4e201bb95d',
-    'review/sections/review-army.md': '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967',
+    'review/sections/review-army.md': '4fa13b9830259649b136df5a6c1beccfcb5c6732921f109730a2a71c671ceba1',
     'review/sections/adversarial.md': 'a402018055670f50b75322ab92a0b03d740c481cc5ef2f2ac72b281dae29ec7b',
-    'review/checklist.md': '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699',
+    'review/checklist.md': '08e059eafdf22d0fdbc2f8daa2130bb51a5a0cb5fa2ce8a0780cc380e9ddab63',
     'review/design-checklist.md': 'b9205f88313cc64902c0b13e9685722ab8138d3dcc58916154f47274abda7d83',
     'review/gate-integrity.md': 'f570db344c9a01df633bcaa281d6017f4f12420fd3e0aa3078c1ce06e0df8332',
     'review/specialists/api-contract.md': '263d23ac119dd601d315c191dbdbd503d47c00264c9c0ca81959559ca11d4e95',
@@ -63,8 +63,8 @@ const REVIEWER_BRIEFS: Record<string, string> = {
     'review/specialists/security.md': '17bfe813eb3de22835af048ec359770720f1d7f371a26460169f7e32b1bcac9f',
     'review/specialists/simplification.md': 'f33846b1dcf2fdeef82d0744ab2ef48fb4a33b34a737dafc33dd0e891756689f',
     'review/specialists/state-machines.md': '597215e4438d85d9cc71b48097c61eef7cba4f4b09dc14c92b4b94893b3d3ea2',
-    'review/specialists/testing.md': 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4',
-    'scripts/resolvers/fix-check.ts': '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08',
+    'review/specialists/testing.md': 'f028ca6da0940b1b8b8861ae5f9c156606c0fc343a554f6da6637f9dac1d2581',
+    'scripts/resolvers/fix-check.ts': '2f2fca5db2d3408377dc1ccbd89a820e9ebf9c3152707af7d47896bd074b0c0a',
     'lib/review-depth.ts': '66f4ff6b03c869d6892f6efdfb237d578c301cf4ea6f6ecb4b366cd286a0bcb5',
 };
 

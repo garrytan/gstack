@@ -27,7 +27,7 @@ describe('gstack-review-dispatch render: briefs from the sections, slots only', 
     const adv = section('ship/sections/adversarial.md');
     const spec = renderBrief('specialist', slots, t);
     for (const line of ['Output nothing else: no preamble, no summary or commentary.', 'Required fields: severity, confidence, path, category, summary, specialist.',
-      'blocks with clear intent. Skip test_stub for architectural or design-only findings.']) { expect(army).toContain(line); expect(spec).toContain(line); }
+      'For a finding a test could catch, add a minimal \`test_stub\` skeleton in the detected test']) { expect(army).toContain(line); expect(spec).toContain(line); }
     expect(spec).toContain('Read the checklist at /x/testing.md');
     expect(spec).toContain(`git diff "$DIFF_BASE" -- . ':(exclude)*.lock'`);
     expect(spec).toContain(`DIFF_BASE=${SHA}`);
