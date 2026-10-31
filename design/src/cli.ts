@@ -115,7 +115,7 @@ async function runSetup(flags: Record<string, string | boolean>): Promise<void> 
     process.exit(1);
   }
   let provider = requested as ProviderName | undefined;
-  const existing = provider ? null : resolveProvider();
+  const existing = provider || flags["key-stdin"] ? null : resolveProvider();
   if (existing) {
     provider = existing.provider;
     console.log(`Existing ${provider === "gemini" ? "Gemini" : "OpenAI"} key found. Running smoke test...`);
@@ -142,6 +142,7 @@ async function runSetup(flags: Record<string, string | boolean>): Promise<void> 
   }
 
   console.log("\nRunning smoke test (generating a simple image)...");
+  const shellProvider = process.env.GSTACK_DESIGN_PROVIDER;
   process.env.GSTACK_DESIGN_PROVIDER = provider;
   const smoke = await generate({
     brief: "A simple blue square centered on a white background. Minimal, geometric, clean.",
@@ -157,6 +158,15 @@ async function runSetup(flags: Record<string, string | boolean>): Promise<void> 
     process.exit(1);
   }
   console.log("\nSmoke test PASSED. Design generation is working.");
+  if (shellProvider === undefined) delete process.env.GSTACK_DESIGN_PROVIDER;
+  else process.env.GSTACK_DESIGN_PROVIDER = shellProvider;
+  let next: ProviderName | null = null;
+  try { next = resolveProvider()?.provider ?? null; } catch { /* an invalid shell setting fails the next run with its own Fix line */ }
+  if (next !== provider) {
+    const label = provider === "gemini" ? "Gemini" : "OpenAI";
+    console.log(`Note: later $D runs will not use this ${label} key yet${next ? `; ${next === "gemini" ? "Gemini" : "OpenAI"} is picked first` : ""}.`);
+    console.log(`Fix: export GSTACK_DESIGN_PROVIDER=${provider} (add it to your shell profile to keep it).`);
+  }
 }
 
 async function main(): Promise<void> {

@@ -223,7 +223,9 @@ get real mockups instead of wireframes. A Gemini key from
 | Screenshot reading | `gpt-5.5` | `gemini-3.8-flash` (`GSTACK_DESIGN_MODEL`) |
 | Egress ledger sink | `design-openai` | `design-gemini` |
 
-`GSTACK_DESIGN_PROVIDER=openai|gemini` picks one explicitly. A failure on the
+`GSTACK_DESIGN_PROVIDER=openai|gemini` picks one explicitly; when an OpenAI key
+is also set, `$D setup --provider gemini` saves the key and prints that export
+as its last line, because OpenAI still comes first otherwise. A failure on the
 picked provider is never retried on the other one; an OpenAI
 organization-verification error ends with the line that switches to Gemini.
 On Gemini, model overrides must be `gemini-…` names, `--size` must be

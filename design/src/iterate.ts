@@ -155,11 +155,14 @@ async function iterateOnGemini(provider: ProviderKey, session: DesignSession, fe
   });
   const last = session.outputPaths.at(-1);
   let lastImage: string | null = null;
+  let readError = "";
   try {
     if (last) lastImage = fs.readFileSync(last).toString("base64");
-  } catch {}
+  } catch (err) {
+    readError = ` (${(err as NodeJS.ErrnoException).code ?? (err as Error).message})`;
+  }
   if (!lastImage) {
-    console.error(`  Last image ${last ?? "(none)"} is unreadable; regenerating from the brief and all feedback instead.`);
+    console.error(`  Last image ${last ?? "(none)"} is unreadable${readError}; regenerating from the brief and all feedback instead.`);
     return regenerate();
   }
   try {

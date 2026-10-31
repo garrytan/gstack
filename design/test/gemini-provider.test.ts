@@ -144,6 +144,22 @@ describe("$D setup reaches Gemini without a terminal", () => {
     expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ api_key: GEMINI_KEY });
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     expect(r.stdout + r.stderr).not.toContain(GEMINI_KEY);
+    expect(r.stdout).toContain("Note: later $D runs will not use this Gemini key yet; OpenAI is picked first.\nFix: export GSTACK_DESIGN_PROVIDER=gemini");
+  });
+
+  // Value: protects=a piped key is never silently dropped because another provider's key already resolves;
+  //   fails_when=--key-stdin without --provider smoke-tests the existing key and saves nothing; why_new=/ship review; seam=fetch preload stub
+  test("--key-stdin without --provider stores the piped Gemini key even with OPENAI_API_KEY set", () => {
+    const r = cli(["--key-stdin"], { OPENAI_API_KEY: "sk-unverified" }, GEMINI_KEY);
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, ".gstack", "gemini.json"), "utf8"))).toEqual({ api_key: GEMINI_KEY });
+    expect(r.stdout).toContain("Fix: export GSTACK_DESIGN_PROVIDER=gemini");
+  });
+
+  test("no switch line when the saved key is the one later runs pick", () => {
+    const r = cli(["--provider", "gemini", "--key-stdin"], {}, GEMINI_KEY);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).not.toContain("GSTACK_DESIGN_PROVIDER");
   });
 });
 
@@ -321,3 +337,37 @@ describe("live-gemini-check always tests the defaults", () => {
   });
 });
 
+
+describe("Gemini iterate fallbacks", () => {
+  const geminiSession = () => {
+    Object.assign(process.env, { GEMINI_API_KEY: GEMINI_KEY });
+    fs.writeFileSync(path.join(dir, "shot.png"), Buffer.from(TINY_PNG, "base64"));
+    const file = path.join(dir, "session-fallback.json");
+    fs.writeFileSync(file, JSON.stringify({ id: "s-fb", provider: "gemini", lastResponseId: "r0", originalBrief: "brief",
+      feedbackHistory: [], outputPaths: [path.join(dir, "shot.png")], createdAt: "", updatedAt: "" }));
+    return file;
+  };
+
+  test("a plain 400 on the edit regenerates once without the image; a rejected key never pays twice", async () => {
+    const session = geminiSession();
+    stubFetch((_url, n) => n === 1 ? json({ error: { code: 400, message: "bad edit", status: "INVALID_ARGUMENT" } }, 400) : json(geminiImage()));
+    expect(await iterate({ session, feedback: "x", output: path.join(dir, "fb1.png") })).toBe(0);
+    expect(calls.length).toBe(2);
+    expect(calls[1].body.contents[0].parts.some((p: any) => p.inlineData)).toBe(false);
+
+    calls = [];
+    stubFetch(() => json({ error: { code: 400, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT",
+      details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID" }] } }, 400));
+    expect(await iterate({ session, feedback: "x", output: path.join(dir, "fb2.png") })).toBe(2);
+    expect(calls.length).toBe(1);
+  });
+
+  test("an unreadable last image regenerates from the brief with one call", async () => {
+    const session = geminiSession();
+    fs.rmSync(path.join(dir, "shot.png"));
+    stubFetch(() => json(geminiImage()));
+    expect(await iterate({ session, feedback: "x", output: path.join(dir, "fb3.png") })).toBe(0);
+    expect(calls.length).toBe(1);
+    expect(calls[0].body.contents[0].parts.some((p: any) => p.inlineData)).toBe(false);
+  });
+});
