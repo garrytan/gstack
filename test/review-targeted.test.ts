@@ -320,6 +320,41 @@ describe('the targeted role end to end on a fixture repository', () => {
   }, 180_000);
 });
 
+describe('the /ship commands carry the targeted record to the receipt (GST-464)', () => {
+  // Value: protects=when the targeted reader ran, the receipt /ship writes carries its record, so ready prints verdict=ok instead
+  //   of receipt=legacy (gstack-evals#95, #3682, #3612); fails_when=Step 11's verify writes the record nowhere Step 19 reads, the
+  //   Step 19 or handoff write command omits --review-targeted, or a record from an earlier run survives Step 9; seam=the generated
+  //   sections' own command text, expanded by bash and passed to gstack-ship-receipt write; no_claim=enforcement (report-only)
+  test('Step 11 verify writes the record where Step 19 write reads it, a run without the reader writes none, and Step 9 clears it', () => {
+    const section = (name: string) => fs.readFileSync(path.join(ROOT, 'ship', 'sections', `${name}.md`), 'utf8');
+    const recordPath = /verify --targeted-out (\S+?)`/.exec(section('adversarial'))?.[1];
+    expect(recordPath).toBe('.gstack/tmp/targeted.json');
+    const writeLine = section('pr-body').split('\n').find(l => l.includes('gstack-ship-receipt write --pr'))!;
+    const optional = /\$\(\[ -s (\S+) \] && echo (--review-targeted @\S+)\)/.exec(writeLine);
+    expect(optional?.slice(1)).toEqual([recordPath!, `--review-targeted @${recordPath}`]);
+    expect(section('handoff')).toContain(`When Step 11 saved \`${recordPath}\`, add \`--review-targeted @${recordPath}\` to that write.`);
+    expect(fs.readFileSync(path.join(ROOT, 'ship', 'DRIVER.md'), 'utf8')).toContain(`[--review-targeted @${recordPath}]`);
+    expect(section('review-army')).toContain(`\`${recordPath}\` removed`);
+
+    const repo = makeFixtureRepo({ prefix: 'targeted-wire-' });
+    repos.push(repo);
+    repo.git('checkout', '-q', '-b', 'feat');
+    fs.mkdirSync(path.join(repo.work, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'src', 'charge.ts'), 'export const spend_cap_usd = 5;\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'charge');
+    const expand = () => spawnSync('bash', ['-c', `printf '%s\\n' ${optional![0]}`], { cwd: repo.work, encoding: 'utf8', timeout: 10_000 }).stdout.split('\n').filter(Boolean);
+    expect(expand()).toEqual([]);
+    fs.mkdirSync(path.join(repo.work, '.gstack', 'tmp'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, recordPath!), JSON.stringify({ classes: ['money'], rules: TARGETED_RULES, brief_sha: targetedBriefSha(), status: 'done', findings: 0, raised_by: 'targeted' }) + '\n');
+    const args = expand();
+    expect(args).toEqual(['--review-targeted', `@${recordPath}`]);
+    const write = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', ...args, '--json']);
+    expect(write.status, write.err).toBe(0);
+    const receipt = JSON.parse(write.out) as ShipReceipt;
+    expect(receiptTargetedLine(['money'], receipt)).toBe('REVIEW_TARGETED: required=money receipt=money verdict=ok');
+  });
+});
+
 describe('the receipt record and the queue line', () => {
   const record = { classes: ['gate', 'money'], rules: TARGETED_RULES, brief_sha: 'a'.repeat(64), status: 'done', findings: 0, raised_by: 'targeted' };
   test('parseReviewTargeted binds the receipt\'s product patch, orders the classes and refuses a malformed record', () => {

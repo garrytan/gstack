@@ -1,7 +1,7 @@
 ## Step 9: Pre-Landing Review
 
 Set CYCLES to 0 on first entry only, with PASS set to 1,
-`REVIEW_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` saved and the `ship: review_scope`
+`REVIEW_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` saved, `.gstack/tmp/targeted.json` removed, and the `ship: review_scope`
 policy line (Step 3) kept. Every entry saves `PASS_HEAD=$(git rev-parse HEAD)`; from pass 2 on,
 `RANGE_BASE` is the previous pass's PASS_HEAD. Keep existing approvals; changed
 finding scope needs a new decision. Order: checklist/design, specialists (9.1),
