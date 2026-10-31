@@ -177,8 +177,11 @@ the readiness dashboard and the PR body, and never count it as a pass.
 - **No findings.** A review with no tag and no label is `clean` only when its
   conclusion says so: the last sentence (or its last ", and" clause), or the
   `because` clause of its `Recommendation:` line, opens with `NO_FINDINGS`,
-  "No issues found", "I found no actionable regressions" or "I did not find
-  any bugs", with no "but", "however", "except", "other than" or "elsewhere".
+  "No issues found", "I found no actionable regressions", "I did not find
+  any bugs" or "The changes introduce no regressions", with no "but",
+  "however", "except", "other than" or "elsewhere". Closing sentences that
+  only report passing checks ("Tests, lint, and build all pass.") are not
+  the last sentence; the one before them is.
   When other prose comes first, anything after that statement except a
   predicate ("were found", "is evident") or a colon explanation must scope it
   to the change as a whole ("in this change", "in the staged changes"); "No
