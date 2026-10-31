@@ -99,6 +99,27 @@ describe('pregate secrets: source context and diff integrity', () => {
     } finally { cleanup(fx); }
   });
 
+  test('a Python file whose working copy no longer holds the diff\'s added lines is scanned by its added lines (#3630)', () => {
+    const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\n' } });
+    try {
+      commit(fx, { 'app.py': `x = 1\nAPI_TOKEN = "${token}"\n` });
+      fx.git('update-index', '--assume-unchanged', 'app.py');
+      fs.writeFileSync(path.join(fx.work, 'app.py'), 'x = 1\ny = 2\n');
+      const check = JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
+      expect({ status: check.status, kv: (check.lines as string[]).some((l) => l.includes('env.kv') && l.includes('app.py, added line 1')) }).toEqual({ status: 'fail', kv: true });
+    } finally { cleanup(fx); }
+  });
+
+  test('a one-line change to a Python file counts one added line (#3630)', () => {
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\n'.repeat(50) } });
+    try {
+      commit(fx, { 'app.py': 'x = 1\n'.repeat(50) + 'y = 2\n' });
+      const check = JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
+      expect({ status: check.status, detail: check.detail }).toEqual({ status: 'pass', detail: expect.stringMatching(/^1 added lines clean/) });
+    } finally { cleanup(fx); }
+  });
+
   test('a Python file too large to read whole has its added lines scanned without the source exemption (#3630)', () => {
     const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
     const base = `CONFIG = """\nhost: db\n"""\n${'# pad\n'.repeat(800_000)}`;

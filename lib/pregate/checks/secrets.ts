@@ -43,7 +43,7 @@ export function parseAddedLineNumbers(diff: string): Map<string, number[]> {
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (hunk) { next = Number(hunk[1]); continue; }
     if (!next) { if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : ''; continue; }
-    if (line.startsWith('+')) files.set(file, [...(files.get(file) ?? []), next++]);
+    if (line.startsWith('+')) { if (!files.has(file)) files.set(file, []); files.get(file)!.push(next++); }
     else if (line.startsWith(' ')) next++;
   }
   return files;
@@ -59,7 +59,8 @@ const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
  * (#3211). A tracked Dart or Python file is passed whole with `keep`, its
  * added line numbers, so the scanner sees the strings an added line sits in
  * and only findings on those lines count (#3630); an untracked one keeps every
- * line. One too large or unreadable
+ * line. One too large, unreadable, not a regular file, or whose working copy
+ * no longer holds the diff's added lines at their numbers
  * to read whole is scanned under a neutral name, without that exemption. External diff and textconv
  * drivers are off: either can empty or rewrite the diff, and an empty diff
  * reads as clean.
@@ -71,7 +72,14 @@ export function addedLines(ctx: PregateContext): Array<{ file: string; text: str
   const whole = new Map<string, { text: string; keep: number[] }>();
   for (const [file, keep] of numbers) {
     if (!LEXICAL_CONTEXT_SOURCE.test(file)) continue;
-    try { const st = fs.statSync(path.join(ctx.repoRoot, file)); if (st.isFile() && st.size <= WHOLE_FILE_MAX_BYTES) whole.set(file, { text: fs.readFileSync(path.join(ctx.repoRoot, file), 'utf8'), keep }); } catch { /* unreadable: its added lines are scanned alone */ }
+    try {
+      const st = fs.lstatSync(path.join(ctx.repoRoot, file));
+      if (!st.isFile() || st.size > WHOLE_FILE_MAX_BYTES) continue;
+      const text = fs.readFileSync(path.join(ctx.repoRoot, file), 'utf8');
+      const lines = text.split('\n');
+      const added = files.get(file) ?? [];
+      if (keep.length === added.length && keep.every((n, k) => lines[n - 1] === added[k])) whole.set(file, { text, keep });
+    } catch { /* unreadable: its added lines are scanned alone */ }
   }
   for (const t of ctx.touched) {
     if (!t.uncommitted || t.status === 'D') continue;
@@ -127,7 +135,7 @@ function run(ctx: PregateContext): CheckResult {
     // there is no user to answer gstack-redact's per-finding question here.
     const blocking = kept.filter(f => f.severity === 'HIGH' || (f.severity === 'MEDIUM' && f.category === 'secret'));
     const advisory = kept.filter(f => f.severity === 'MEDIUM' && f.category !== 'secret');
-    const lineCount = parts.reduce((n, p) => n + p.text.split('\n').length, 0);
+    const lineCount = parts.reduce((n, p) => n + (p.keep?.length ?? p.text.split('\n').length), 0);
     const fail = (lines: string[], detail: string): CheckResult => ({ ...base, status: 'fail', cause: 'diff', lines: [...lines, ...allowLines], code: 'PREGATE_SECRETS', detail: `${detail}${allowNote}`, fix: 'rotate and remove the credential from the added lines (history included); secrets cannot be downgraded (a benign finding is allowlisted by id, path and pattern in the policy, never env.value)' });
     if (!high && !medium) return { ...base, status: 'pass', ...(allowLines.length ? { lines: allowLines } : {}), detail: `${lineCount} added lines clean${kept.length ? ` (${kept.length} WARN)` : ''}${allowNote}` };
     if (blocking.length) return fail([...blocking, ...advisory].map(render), `${blocking.length} credential finding(s) in added lines (${blocking.map(f => f.id).join(', ')})`);
