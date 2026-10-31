@@ -17,7 +17,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ROOT, SMALL_PLAN, boundOf, resultOf } from './helpers/autoplan-run-fixture';
+import { ROOT, SMALL_PLAN, boundOf, recCarrying, resultOf } from './helpers/autoplan-run-fixture';
 import { capyRunner, phaseVia, readJsonl, readRunJson, writePlan } from './helpers/autoplan-capy';
 
 const r = capyRunner();
@@ -119,7 +119,7 @@ describe('accepted changes are amendments', () => {
     expect(held.status, held.stderr).toBe(0);
     expect(held.stdout).toMatch(/^GATE_PENDING: uc2, p1 unanswered \(reply with uc2a\|uc2b p1a\|p1b\|p1c\|p1d\|p1e or rec\)$/m);
     expect(held.stdout).not.toMatch(/^APPLY:/m);
-    const res = answer(g.out, 1, 'rec');
+    const res = answer(g.out, 1, recCarrying(g.out, 'rec'));
     expect(res.status, res.stderr).toBe(0);
     expect(res.stdout).toMatch(new RegExp(`^APPLY: ${esc(g.run)}-uc1 Ship the backoff behind a flag first .* -> accept the change both reviewers recommend.*; edit the plan, then revise$`, 'm'));
     expect(res.stdout).not.toMatch(/^REOPENED:/m);
@@ -165,7 +165,7 @@ describe('accepted changes are amendments', () => {
     expect(asIs.stdout).not.toMatch(/^APPLY:/m);
     expect(decisions(g.out).find(d => d.label === 'UC1')).toMatchObject({ chosen: 'a', status: 'approved' });
     const w = gated(AGREE, {});
-    expect(answer(w.out, 1, 'rec except uc1b').stdout).toMatch(/^APPLY:/m);
+    expect(answer(w.out, 1, recCarrying(w.out, 'rec', ['uc1b'])).stdout).toMatch(/^APPLY:/m);
     const withdraw = r.ap(['revise', '--out', w.out, '--withdraw', `${w.run}-uc1`]);
     expect(withdraw.status, withdraw.stderr).toBe(0);
     expect(withdraw.stdout).toMatch(/^APPROVED: gate_rev=1 \(every accepted change is in the plan or settled\)$/m);
@@ -179,7 +179,7 @@ describe('record-only changes settle without a plan edit', () => {
   test('a packaging change: APPLY says settle, revise --settle reopens nothing and completes, export and validate pass; a scope change never settles', () => {
     const g = gated(PACKAGING, {});
     expect(gate(g.out).items.find((i: any) => i.id === 'uc1')).toMatchObject({ recommended: 'b', changes: 'packaging' });
-    const res = answer(g.out, 1, 'rec');
+    const res = answer(g.out, 1, recCarrying(g.out, 'rec'));
     expect(res.status, res.stderr).toBe(0);
     expect(res.stdout).toMatch(new RegExp(`^APPLY: ${esc(g.run)}-uc1 .*; no plan edit needed: revise --settle uc1$`, 'm'));
     expect(readRunJson(g.out).status).toBe('amend_pending');
@@ -196,7 +196,7 @@ describe('record-only changes settle without a plan edit', () => {
     expect(r.ap(['export', '--out', g.out]).status).toBe(0);
     expect(r.validate(g.out).status).toBe(0);
     const scope = gated(AGREE, {});
-    expect(answer(scope.out, 1, 'rec except uc1b').stdout).toMatch(/; edit the plan, then revise$/m);
+    expect(answer(scope.out, 1, recCarrying(scope.out, 'rec', ['uc1b'])).stdout).toMatch(/; edit the plan, then revise$/m);
     const refused = r.ap(['revise', '--out', scope.out, '--settle', 'uc1']);
     expect(refused.status).toBe(3);
     expect(refused.stderr).toMatch(/changes scope; only packaging or ordering changes settle.*\(AMENDMENT_NOT_SETTLEABLE\)$/m);
@@ -229,7 +229,7 @@ describe('mixed amendments: a scope change and a packaging change', () => {
     expect(readRunJson(g.out).status).toBe('running');
     phaseVia(r, g.out, 'ceo');
     expect(phaseVia(r, g.out, 'eng').outside.stdout).toContain('status=gate_pending');
-    expect(answer(g.out, 2, 'rec').stdout).toContain('status=complete');
+    expect(answer(g.out, 2, recCarrying(g.out, 'rec')).stdout).toContain('status=complete');
     expect(r.validate(g.out).status).toBe(0);
   });
   test('settle and incorporate in one revise; settling alone on an unreviewed plan edit is refused', () => {
@@ -262,7 +262,7 @@ describe('partial replies resolve against persisted decisions', () => {
 
   test('validate rejects a complete run with a pending approval', () => {
     const g = gated({}, {});
-    expect(answer(g.out, 1, 'all').stdout).toContain('status=complete');
+    expect(answer(g.out, 1, recCarrying(g.out)).stdout).toContain('status=complete');
     const file = path.join(g.out, 'decisions.jsonl');
     fs.writeFileSync(file, decisions(g.out).map(d => JSON.stringify(d.label === 'UC2' ? { ...d, status: 'pending', chosen: null } : d)).join('\n') + '\n');
     r.ap(['export', '--out', g.out]);
@@ -296,5 +296,41 @@ describe('reruns', () => {
     const done = answer(g.out, 2, `${demoted.id}b p1a`, true);
     expect(JSON.parse(done.stdout)).toMatchObject({ outcome: 'complete', reopened: [] });
     expect(decisions(g.out).find(d => d.gate_rev === 2 && d.label === demoted.id.toUpperCase())).toMatchObject({ chosen: 'b', source: 'agent' });
+  });
+});
+
+describe('open Critical and High findings reach the gate (GBRA-223 claim 3)', () => {
+  const NONE = { native: [], outside: [] };
+  const KILL = { native: [{ id: 'F1', severity: 'Critical', title: 'No kill switch for the resolver rollout', fix: 'add a config kill switch' }], outside: [] };
+  test('each open Critical/High finding is an apply item that rec takes; a twin pair is one item; Medium stays a task', () => {
+    const g = gated({
+      native: [{ id: 'F1', severity: 'Critical', title: 'No kill switch for the resolver rollout', fix: 'add a config kill switch' }, { id: 'F2', severity: 'Medium', title: 'Name the flag consistently' }],
+      outside: [{ id: 'O1', severity: 'High', title: 'No kill switch for the resolver rollout', fix: 'ship behind a kill switch' }],
+    }, { native: [{ id: 'F3', severity: 'High', title: 'No test covers a hung resolver', file: 'test/resolver.test.ts', fix: 'add a hung-resolver test' }], outside: [] });
+    const items = gate(g.out).items;
+    const apply = items.filter((i: any) => i.finding);
+    expect(apply.map((i: any) => i.title)).toEqual([
+      expect.stringMatching(/^Critical: No kill switch for the resolver rollout \[.*-ceo-native-1 \+ .*-ceo-outside-1\]$/),
+      expect.stringMatching(/^High: No test covers a hung resolver \[.*-eng-native-1\]$/),
+    ]);
+    for (const i of apply) expect(i).toMatchObject({ kind: 'auto', recommended: 'a', options: [{ key: 'a', changes_plan: true }, { key: 'b', changes_plan: false }] });
+    expect(apply[0].options[0].text).toContain('add a config kill switch');
+    expect(apply[0].options[0].text).toContain('ship behind a kill switch');
+    expect(items.find((i: any) => i.id === 'p1')).toMatchObject({ recommended: 'b' });
+    expect(items.some((i: any) => /Name the flag/.test(i.title))).toBe(false);
+    const rec = answer(g.out, 1, 'rec');
+    expect(rec.stdout.match(/^APPLY: /gm)?.length).toBe(2);
+    expect(readRunJson(g.out).status).toBe('amend_pending');
+  });
+
+  test('b, as-is, or a token reply that leaves the item unanswered carries the finding into the build with no plan change', () => {
+    for (const pick of [(id: string) => `${id}b p1a`, () => 'as-is', () => 'p1a']) {
+      const g = gated(KILL, NONE);
+      const item = gate(g.out).items.find((i: any) => i.finding);
+      const done = answer(g.out, 1, pick(item.id), true);
+      expect(JSON.parse(done.stdout)).toMatchObject({ outcome: 'complete', reopened: [], amendments: [] });
+      expect(decisions(g.out).find(d => d.label === item.id.toUpperCase())).toMatchObject({ chosen: 'b' });
+      expect(readJsonl(path.join(g.out, 'tasks.jsonl')).some(t => /No kill switch/.test(t.title))).toBe(true);
+    }
   });
 });

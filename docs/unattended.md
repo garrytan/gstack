@@ -369,7 +369,13 @@ the plan.
    refuses to open without one (`CONSENSUS_MISSING`).
 3. **Loop `next` until `status=gate_pending`.** Eng always runs last. The gate
    (`gate.json`, `gate_rev`) lists user challenges as approval items,
-   disagreements as auto items and `p1` plan approval; nothing is approved.
+   disagreements as auto items, each open Critical or High finding as an
+   auto item (a twin pair is one item; `a` applies the reviewer's fix to the
+   plan and is recommended, `b` carries it into the build as a blocking task)
+   and `p1` plan approval; nothing is approved. An unanswered auto item whose
+   recommendation changes the plan keeps the plan's direction, so only `rec`
+   or an explicit `<id>a` applies a fix; a finding carried with `b` stays
+   open, so a rerun that raises it again asks again.
 4. **Answer the gate** with the reply grammar and the revision you read:
    ```bash
    $AP answer --out <dir> --gate-rev 1 --reply "rec" --by human            # every recommendation, plan changes included (APPLY: ...; amend_pending)

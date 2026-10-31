@@ -40,7 +40,7 @@ export const AUTOPLAN_DRIVER_COMMANDS: Array<{ cmd: string; does: string }> = [
 export const GATE_REPLY_FORMS: Array<{ reply: string; means: string }> = [
   { reply: 'rec', means: 'every item takes its recommendation, plan changes included (each prints APPLY:); `all` and `do it` are aliases' },
   { reply: 'as-is', means: 'keep every direction; no plan change' },
-  { reply: 'd3b uc1a', means: 'one <id><option> token per item you set; unanswered auto items take their default' },
+  { reply: 'd3b uc1a', means: 'one <id><option> token per item you set; unanswered auto items take their default (a finding item keeps the plan as written)' },
   { reply: 'rec except d3b', means: 'recommendations, with the listed overrides' },
 ];
 
