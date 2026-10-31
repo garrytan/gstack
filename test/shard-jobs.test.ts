@@ -55,7 +55,7 @@ function harness(shardFiles: string[], respond: (files: string[]) => FreeShardOu
     phaseGuard: (guarded, shards) => { guards.push({ files: guarded, shards }); return { verify: () => homeChange }; },
     log: () => {},
   };
-  const plan = { version: 1 as const, revision: 'revision-a', id: '0123456789abcdef', shards: [{ shard: 1, files: shardFiles, predictedMs: 0 }] };
+  const plan = { version: 1 as const, revision: 'revision-a', id: 'plan-id-for-tests', shards: [{ shard: 1, files: shardFiles, predictedMs: 0 }] };
   const shard = plan.shards[0];
   const run = (jobs: number) => runCiShard({ plan, shard, revision: 'revision-a', jobs, wallTimeoutMs: 360_000, verbose: false, context }, deps);
   return { calls, retries, guards, deps, plan, shard, run, setHomeChange: (value: string) => { homeChange = value; }, cancel: () => { terminate = true; } };
@@ -118,9 +118,9 @@ describe('sub-shard assignment', () => {
 
   test('disjoint, identity-bound, covering the shard once, with exclusive files in one trailing serial sub-shard', () => {
     const shardFiles = [...files, EXCLUSIVE];
-    const assignments = assignSubShards('0123456789abcdef', { shard: 4, files: shardFiles }, 3, file => file in TREE_MUTATING, pack);
+    const assignments = assignSubShards('plan-id-for-tests', { shard: 4, files: shardFiles }, 3, file => file in TREE_MUTATING, pack);
     expect(assignments.map(entry => [entry.id, entry.phase, entry.files.length])).toEqual([
-      ['0123456789ab:4.1', 'parallel', 3], ['0123456789ab:4.2', 'parallel', 2], ['0123456789ab:4.3', 'parallel', 2], ['0123456789ab:4.4', 'serial', 1],
+      ['plan-id-for-:4.1', 'parallel', 3], ['plan-id-for-:4.2', 'parallel', 2], ['plan-id-for-:4.3', 'parallel', 2], ['plan-id-for-:4.4', 'serial', 1],
     ]);
     expect(assignments.at(-1)!.files).toEqual([EXCLUSIVE]);
     expect(assignments.flatMap(entry => entry.files).sort()).toEqual([...shardFiles].sort());
@@ -194,7 +194,7 @@ describe('k > 1: merge, rejection and one retry pass per CI shard', () => {
         expect(result.outcome.unattributedFailures).toBeGreaterThan(0);
         expect(eligibleFreeRetryFiles([result.outcome])).toBeNull();
         expect(exitCode).toBe(1);
-        expect(errors.mock.calls.map(call => String(call[0])).some(line => line.startsWith('[test:free] FREE_SUBSHARD_REJECTED: CI shard 1: 0123456789ab:1.'))).toBe(true);
+        expect(errors.mock.calls.map(call => String(call[0])).some(line => line.startsWith('[test:free] FREE_SUBSHARD_REJECTED: CI shard 1: plan-id-for-:1.'))).toBe(true);
       }
     } finally { errors.mockRestore(); }
   });
@@ -253,7 +253,7 @@ describe('k > 1: merge, rejection and one retry pass per CI shard', () => {
       expect(result.outcome.status).toBe('timed-out');
       expect(exitCode).toBe(1);
       const text = errors.mock.calls.map(call => String(call[0])).join('\n');
-      expect(text).toContain('FREE_SUBSHARD_TIMEOUT: CI shard 1 sub-shard 0123456789ab:1.1 (3 files)');
+      expect(text).toContain('FREE_SUBSHARD_TIMEOUT: CI shard 1 sub-shard plan-id-for-:1.1 (3 files)');
       expect(text).toContain('hit its 360s wall at --jobs 3 on runner-7 (linux, 8 CPUs), run 123/attempt 2.');
       expect(text).toContain(`in flight: ${files[3]}`);
       expect(text).toContain(`printf '%s\\n' '${files[3]}' > files.txt && GSTACK_FREE_JOBS=1 bun run scripts/test-free-shards.ts --files-from files.txt`);
