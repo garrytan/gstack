@@ -17,12 +17,14 @@
  * skill's own SKILL.md), add gstack/SKILL.md for the router, write
  * loadout.lock.json last, then rename the staging folder into place. A rename
  * that loses a race to the same identity reuses the winner; a published folder
- * is never replaced. Folders of the same loadout beyond the newest KEEP are
- * removed.
+ * is never replaced. Folders this installer published for the same loadout
+ * (name, digest and an install lock) beyond the newest KEEP by last use are
+ * removed once unused for PRUNE_GRACE_MS.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { runGeneration } from './gen-skill-docs';
 import { resolveModel } from './models';
@@ -32,6 +34,7 @@ import type { Host } from './resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const KEEP = 3;
+const PRUNE_GRACE_MS = 24 * 60 * 60 * 1000;
 
 export interface InstallRequest {
   selection: ModuleSelection;
@@ -121,12 +124,22 @@ function copyRuntimeAssets(source: string, stage: string): void {
   }
 }
 
+function ownedInstall(dir: string): boolean {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, LOCK_FILE), 'utf-8')).kind === 'install';
+  } catch {
+    return false;
+  }
+}
+
 function prune(store: string, loadout: string, keep: string): void {
+  const name = new RegExp(`^${loadout}-[0-9a-f]{12}$`);
+  const cutoff = Date.now() - PRUNE_GRACE_MS;
   const siblings = fs.readdirSync(store, { withFileTypes: true })
-    .filter(e => e.isDirectory() && e.name.startsWith(`${loadout}-`) && !e.name.includes('.stage-') && path.join(store, e.name) !== keep)
+    .filter(e => e.isDirectory() && name.test(e.name) && path.join(store, e.name) !== keep && ownedInstall(path.join(store, e.name)))
     .map(e => ({ dir: path.join(store, e.name), mtime: fs.statSync(path.join(store, e.name)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
-  for (const { dir } of siblings.slice(KEEP - 1)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const { dir, mtime } of siblings.slice(KEEP - 1)) if (mtime < cutoff) fs.rmSync(dir, { recursive: true, force: true });
 }
 
 export async function installLoadout(request: InstallRequest): Promise<InstallResult> {
@@ -161,7 +174,7 @@ export async function installLoadout(request: InstallRequest): Promise<InstallRe
   }
   const stage = `${final}.stage-${process.pid}-${randomBytes(4).toString('hex')}`;
   try {
-    const result = await runGeneration({ host, outputRoot: stage, contentLinkRoot: final, installRoot: null, model, planMode, modules: selection });
+    const result = await runGeneration({ host, outputRoot: stage, contentLinkRoot: final, installRoot: request.fullRoot && request.fullRoot !== path.join(os.homedir(), '.claude/skills') ? path.join(request.fullRoot, 'gstack') : null, model, planMode, modules: selection });
     const errors = result.diagnostics.filter(d => d.kind === 'error').map(d => d.message);
     if (result.exitCode !== 0 || errors.length) {
       throw new ModuleError('RENDER_FAILED', `gen-skill-docs failed: ${errors.join('; ') || 'exit 1'}`, 'fix the named template or module, then rerun; side effects: none, safe to retry');

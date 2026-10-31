@@ -75,7 +75,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$MODEL" ] || MODEL=${GSTACK_MODEL:-}
+MODEL_SOURCE=model-flag
+[ -n "$MODEL" ] || { MODEL=${GSTACK_MODEL:-}; MODEL_SOURCE=GSTACK_MODEL; }
 [ -n "$FOR" ] && [ -n "$REQUIRE" ] && { echo "gstack-capy-install: --for and --require are exclusive" >&2; exit 2; }
 [ -z "$FOR" ] && [ -z "$REQUIRE" ] && REQUIRE="claude,codex,patch"
 
@@ -722,8 +723,12 @@ fi
 record_verdict "$TRAILER" "$([ "$RC" -eq 0 ] && echo 1 || echo 0)"
 LOADOUT_LINES=""
 if [ "$RC" -eq 0 ] && [ -n "$MODEL" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_FILE" ]; then
-  _lo_full="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
-  _lo_out=$(cd "$ROOT" && bin/gstack-modules install --model "$MODEL" --full-root "$_lo_full" 2>&1)
+  _lo_full=$(. "$SELF/bin/gstack-claude-root.sh" && dirname "$(gstack_canonical_claude_root)")
+  if [ "$MODEL_SOURCE" = model-flag ]; then
+    _lo_out=$(cd "$ROOT" && bin/gstack-modules install --model "$MODEL" --full-root "$_lo_full" 2>&1)
+  else
+    _lo_out=$(cd "$ROOT" && GSTACK_MODEL=$MODEL bin/gstack-modules install --full-root "$_lo_full" 2>&1)
+  fi
   _lo_line=$(printf '%s\n' "$_lo_out" | grep -m1 '^LOADOUT: ')
   _lo_root=$(printf '%s\n' "$_lo_out" | sed -n 's/^SKILL_ROOT: //p' | head -1)
   _lo_notes=$(printf '%s\n' "$_lo_out" | grep -E '^(LOADOUT_INVALID_MODEL|LOADOUT_FALLBACK): ')
@@ -731,15 +736,17 @@ if [ "$RC" -eq 0 ] && [ -n "$MODEL" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_F
   _lo_digest=$(printf '%s' "$_lo_line" | sed -n 's/.* digest=\([0-9a-f]\{12\}\) .*/\1/p')
   if [ -n "$_lo_name" ] && [ "$_lo_name" != full ]; then
     _lo_file="${VERDICT%.json}.loadout-$_lo_name-$_lo_digest.env"
-    _lo_tmp=$(umask 077 && mktemp "$_lo_file.tmp.XXXXXX") \
+    [ -n "$_lo_digest" ] && [ -d "$_lo_root" ] \
+      && _lo_tmp=$(umask 077 && mktemp "$_lo_file.tmp.XXXXXX") \
       && { cat "$LAUNCH_FILE" && echo "export GSTACK_LOADOUT_SKILL_ROOT=$(shq "$_lo_root")"; } > "$_lo_tmp" \
-      && chmod 0600 "$_lo_tmp" && mv -f "$_lo_tmp" "$_lo_file" \
-      && [ -n "$_lo_digest" ] && [ -d "$_lo_root" ] && LAUNCH_FILE=$_lo_file \
+      && chmod 0600 "$_lo_tmp" && mv -f "$_lo_tmp" "$_lo_file" && LAUNCH_FILE=$_lo_file \
       || { rm -f "${_lo_tmp:-}" 2>/dev/null; _lo_notes="${_lo_notes:+$_lo_notes
 }LOADOUT_FALLBACK: could not publish the $_lo_name launch file; serving full (docs/troubleshooting.md#loadout-fallback)"; _lo_name=""; }
   fi
   if [ -z "$_lo_name" ] || [ -z "$_lo_root" ]; then
-    _lo_line="LOADOUT: full model=none source=model-flag reason=render-failed" _lo_root=$_lo_full
+    [ -n "$_lo_line" ] || _lo_notes="${_lo_notes:+$_lo_notes
+}LOADOUT_FALLBACK: $(printf '%s\n' "$_lo_out" | tail -1 | tr -d '\000-\037' | cut -c1-200); serving full (docs/troubleshooting.md#loadout-fallback)"
+    _lo_line="LOADOUT: full model=none source=$MODEL_SOURCE reason=render-failed" _lo_root=$_lo_full
   fi
   LOADOUT_LINES="${_lo_notes:+$_lo_notes
 }$_lo_line

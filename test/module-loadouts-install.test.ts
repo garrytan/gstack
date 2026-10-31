@@ -61,6 +61,8 @@ describe('gstack-modules install', () => {
     const landing = fs.readFileSync(path.join(root, 'land-and-deploy/SKILL.md'), 'utf-8');
     const full = fs.readFileSync(path.join(ROOT, 'land-and-deploy/SKILL.md'), 'utf-8');
     expect(landing.length).toBeLessThan(full.length);
+    expect(landing).toContain(`${FULL_ROOT}/gstack/bin/`);
+    expect(landing).not.toContain('~/.claude/skills/gstack/bin/');
     expect(lock).toMatchObject({ kind: 'install', loadout: 'lite', loadout_model: 'claude-opus-5-5', full_root: FULL_ROOT });
     expect(lock.excluded).toHaveLength(11);
     expect(lock.excluded).not.toContain('preamble:upgrade-check');
@@ -88,18 +90,31 @@ describe('gstack-modules install', () => {
     await expect(installLoadout({ selection: lite, boundModel: 'claude-opus-5-5', fullRoot: FULL_ROOT, store })).rejects.toThrow(/RENDER_DEST_NOT_OWNED/);
   }, 240_000);
 
-  test('pruning keeps the three most recently used folders of a loadout: a reused folder counts as used', async () => {
+  test('pruning removes only its own folders past the three most recently used, and none used in the last day', async () => {
     const store = path.join(tmp, 'prune');
     const install = (fullRoot: string) => installLoadout({ selection: lite, boundModel: 'claude-opus-5-5', fullRoot, store });
+    const age = (dir: string, days: number) => { const t = new Date(Date.now() - days * 86_400_000); fs.utimesSync(dir, t, t); };
+    const published = () => fs.readdirSync(store).filter(n => /^lite-[0-9a-f]{12}$/.test(n));
     const inUse = await install('/r/0');
     const oldest = await install('/r/1');
-    await install('/r/2');
+    const old = await install('/r/2');
+    age(inUse.root, 3);
+    age(oldest.root, 3);
+    age(old.root, 2);
+    const foreign = path.join(store, 'lite-project');
+    fs.mkdirSync(foreign);
+    fs.writeFileSync(path.join(foreign, 'notes.txt'), 'not gstack\n');
+    age(foreign, 9);
     expect((await install('/r/0')).reused).toBe(true);
     const newest = await install('/r/3');
-    expect(fs.existsSync(inUse.root)).toBe(true);
-    expect(fs.existsSync(newest.root)).toBe(true);
+    expect([inUse.root, old.root, newest.root].every(dir => fs.existsSync(dir))).toBe(true);
     expect(fs.existsSync(oldest.root)).toBe(false);
-    expect(fs.readdirSync(store).filter(n => n.startsWith('lite-'))).toHaveLength(3);
+    expect(fs.readFileSync(path.join(foreign, 'notes.txt'), 'utf8')).toBe('not gstack\n');
+    await install('/r/4');
+    await install('/r/5');
+    expect(fs.existsSync(old.root)).toBe(false);
+    expect(fs.existsSync(inUse.root)).toBe(true);
+    expect(published()).toHaveLength(4);
   }, 300_000);
 
   test('the source tree identity changes with a commit and with uncommitted edits', () => {
