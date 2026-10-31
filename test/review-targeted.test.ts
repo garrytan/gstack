@@ -169,6 +169,8 @@ const MAIN: Record<string, { depth: string; classes: string; main: string[] }> =
   'money-pass2': { depth: 'light', classes: 'money', main: ['specialist batched effort=medium checklists=testing,security,state-machines', 'red-team red-team effort=full', 'adversarial-native adversarial effort=full', 'outside-voice outside-voice effort=host'] },
   'gate-repeat': { depth: 'full', classes: 'gate', main: ['specialist batched effort=medium checklists=testing,security,state-machines', 'red-team red-team effort=full'] },
 };
+/** First full passes at full depth: GSTA-167 Round 7 (handoffs/GSTA-167/noloss7-results.md) drops main's standalone Red Team there and nothing else. */
+const ROUND7_FIRST_PASS = ['none-gate-path', 'secret-path', 'gate-tagged', 'auth-path'];
 
 function planRepo(f: Fixture) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'targeted-plan-'));
@@ -189,7 +191,7 @@ describe('gstack-review-plan prints TARGETED and dispatches the targeted reader'
   //   standard and full depth and on fix-check, scoped and repeat steps, is still dispatched unchanged, and the only addition is the
   //   targeted reader on a class diff; fails_when=the change drops, renames or re-efforts any reviewer, or adds the reader on a diff
   //   with no class; seam=bin/gstack-review-plan end to end; no_claim=that the reader finds the defect (the paid replay's question)
-  test('the dispatch-superset no-loss check: on every fixture the branch dispatches main\'s reviewers plus only the targeted reader', () => {
+  test('the dispatch-superset no-loss check: on every fixture the branch dispatches main\'s reviewers plus only the targeted reader, less only the Round 7 first-pass Red Team', () => {
     expect(Object.keys(MAIN).sort()).toEqual(Object.keys(FIXTURES).sort());
     expect(new Set(Object.values(MAIN).map(m => m.depth))).toEqual(new Set(['light', 'standard', 'full']));
     for (const [name, f] of Object.entries(FIXTURES)) {
@@ -199,7 +201,7 @@ describe('gstack-review-plan prints TARGETED and dispatches the targeted reader'
       const want = MAIN[name]!;
       expect(r.stdout, name).toContain(`REVIEW_DEPTH: ${want.depth} `);
       expect(got.filter(d => !want.main.includes(d)), name).toEqual(want.classes === 'none' ? [] : ['targeted targeted effort=full']);
-      expect(want.main.filter(d => !got.includes(d)), name).toEqual([]);
+      expect(want.main.filter(d => !got.includes(d)), name).toEqual(ROUND7_FIRST_PASS.includes(name) ? ['red-team red-team effort=full'] : []);
       expect(field(r.stdout, 'TARGETED:', 'classes'), name).toBe(want.classes);
     }
   }, 180_000);

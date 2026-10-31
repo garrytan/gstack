@@ -180,6 +180,8 @@ const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (
 async function runPass(h: ReturnType<typeof host>, input: Record<string, unknown>): Promise<string> {
   return new AsyncFunction('tools', 'sleep', 'now', 'input', PROGRAM)(h.tools, h.sleep, h.now, { startedAt: await h.now(), laneModel: 'anthropic/claude-opus-5-5', ...input });
 }
+/** A post-fix full pass: the plan keeps the Red Team there; a first full pass has none (GSTA-167 Round 7). */
+const POST_FIX = ['--depth-floor', 'full', '--pass', '1', '--last', 'full', '--fixed-blocking'];
 const bin = (dir: string, env: NodeJS.ProcessEnv, a: string[]) => spawnSync(path.join(BIN, 'gstack-review-dispatch'), a, { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
 
 describe('the targeted reader in a pass (GST-257 on main)', () => {
@@ -225,12 +227,12 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(JSON.parse(body!)).toBe(PROGRAM);
   });
 
-  test('one pass: specialists, then the Red Team on their collected lines; every prompt is the rendered brief; the ledger verifies clean', async () => {
+  test('one post-fix pass: specialists, then the Red Team on their collected lines; every prompt is the rendered brief; the ledger verifies clean', async () => {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env, { output: t => (t.endsWith('specialist-batched') ? 'High: src/a.ts:3 the export is untested' : 'NO FINDINGS') });
     const medium = { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'medium' };
-    const res = await runPass(h, { base: 'main', out, pass: 'x1p1', planFlags: ['--depth-floor', 'full'], models: { specialist: medium, 'red-team': medium } });
+    const res = await runPass(h, { base: 'main', out, pass: 'x1p1', planFlags: POST_FIX, models: { specialist: medium, 'red-team': medium } });
     expect(h.creates.every(c => JSON.stringify(c.model) === JSON.stringify(medium))).toBe(true);
     expect(res).toContain('NEXT: judge (Phase 4)');
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
@@ -247,17 +249,41 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(v.stdout).toContain('VERIFY: clean briefs=' + active.length);
   }, 180_000);
 
+  // Value: protects=the Round 7 cut reaches the pass program: a first full pass creates no Red Team reader and still verifies clean,
+  //   while a post-fix pass whose Red Team fails stops instead of judging; fails_when=pass 1 creates red-team, or a failed Red Team
+  //   on a kept path reaches judge; why_new=GSTA-167 PR A drops the first-pass Red Team; seam=plan through the pass program
+  test('a first full pass creates no Red Team reader; a failed Red Team on a post-fix pass stops the pass', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out, pass: 'x9p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain('SKIP: red-team (first full pass; Round 7 no-loss)');
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(h.creates.map(c => c.title)).toEqual(['ship x9p1 specialist-batched']);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    expect(m.readers.some(r => r.role === 'red-team')).toBe(false);
+    fs.writeFileSync(path.join(out, 'judged.jsonl'), '');
+    expect(bin(dir, env, ['judge', '--ledger', m.ledger, '--merged', m.merged, '--judged', path.join(out, 'judged.jsonl')]).status).toBe(0);
+    expect(bin(dir, env, ['verify', '--ledger', m.ledger]).stdout).toContain('VERIFY: clean briefs=1');
+
+    const b = repo();
+    const h2 = host(b.dir, b.env, { fail: t => t.endsWith('red-team') });
+    const res2 = await runPass(h2, { base: 'main', out: path.join(b.dir, '.state/run/p1'), pass: 'x10p1', planFlags: POST_FIX });
+    expect(res2).toMatch(/STOP: red-team \(subagent \d+\) failed/);
+    expect(res2).not.toContain('NEXT: judge');
+  }, 240_000);
+
   test('a pass past its 200 s window returns NEXT: poll and the rerun resumes without creating any reader twice', async () => {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env, { pollsToFinish: 30 });
-    const first = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    const first = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: POST_FIX, logStart: ['review'] });
     expect(first).toContain('NEXT: poll');
     expect(first).toMatch(/REVIEW_LOG_START: review token=\S+/);
     expect(first).toMatch(/RUNNING: specialist-batched state=created path=1/);
     const created = h.creates.length;
     let res = '';
-    for (let i = 0; i < 6 && !res.includes('NEXT: judge'); i++) res = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    for (let i = 0; i < 6 && !res.includes('NEXT: judge'); i++) res = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: POST_FIX, logStart: ['review'] });
     expect(res).toContain('NEXT: judge');
     expect(res).not.toContain('REVIEW_PLAN:');
     expect(res).not.toContain('REVIEW_LOG_START:');
@@ -285,7 +311,7 @@ describe('Capy pass program (fake host, real bins)', () => {
   test('a failed reader stops the pass before the Red Team; a reader refused at the cap is queued and started later', async () => {
     const { dir, env } = repo();
     const h = host(dir, env, { fail: t => t.endsWith('specialist-batched') });
-    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x5p1', planFlags: ['--depth-floor', 'full'] });
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x5p1', planFlags: POST_FIX });
     expect(res).toMatch(/STOP: specialist-batched \(subagent \d+\) failed/);
     expect(h.creates.some(c => c.title.endsWith('red-team'))).toBe(false);
 
@@ -344,7 +370,7 @@ describe('Capy pass program (fake host, real bins)', () => {
   test('a rerun after a failed reader stops again instead of polling forever', async () => {
     const { dir, env } = repo();
     const h = host(dir, env, { fail: t => t.endsWith('specialist-batched') });
-    const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x12p1', planFlags: ['--depth-floor', 'full'] };
+    const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x12p1', planFlags: POST_FIX };
     expect(await runPass(h, input)).toMatch(/STOP: specialist-batched \(subagent \d+\) failed/);
     const again = await runPass(h, input);
     expect(again).toMatch(/STOP: specialist-batched \(subagent \d+\) failed; .*new --pass and --out/);

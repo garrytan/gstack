@@ -188,8 +188,8 @@ in a data file still schedules the outside voice.
 |---|---|---|
 | **light**, runtime 0 | docs and tests only, or only registered outputs | the core checklist only; the outside voice when the diff publishes numbers |
 | **light**, runtime 1–50 | `SMALL_DIFF_LINES` or fewer runtime lines | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
-| **standard** | more than 50 runtime lines | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
-| **full** | gate class, or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
+| **standard** | more than 50 runtime lines | one batched specialist at `medium`; the Red Team on a CRITICAL or a raised small diff, and past 200 runtime lines only after a fix ([first full pass](#first-pass-red-team)); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
+| **full** | gate class, or any classifier error | one batched specialist on the whole diff, no hit-rate gating; the Red Team on every post-fix full pass and on a CRITICAL, never on the first full pass otherwise ([first full pass](#first-pass-red-team)) |
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus
@@ -206,6 +206,32 @@ standard for the next step (`step=standard`): its specialists read at least 50 l
 and the Red Team runs, so a raise never dispatches less than light did. When the
 next step is a scoped pass, the raise applies to the scoped set only. A fix-check
 is the same at every depth.
+
+<a id="first-pass-red-team"></a>
+**The first full pass has no standalone Red Team (GSTA-167 Round 7).** When a
+change's first full pass (`fullPasses` 0) is gate class or has more than
+`RED_TEAM_LINES` (200) runtime lines, the plan skips the Red Team and says why:
+`SKIP: red-team (first full pass; Round 7 no-loss)`. A full plan reached through a
+classifier error (`DEPTH_ERROR`) runs as gate class, so the same rule covers it;
+Round 7 unit 3540 (an unmatched `gstack-diff-scope` path) is that case. The Red Team
+still runs on a first pass with a CRITICAL (`--critical-found`) and on a small diff
+raised to standard, on every post-fix full pass, and on the scoped pass. A
+fix-check never had one. `RED_TEAM_FIRST_PASS` (false) records the rule in
+`DEPTH_RULES`.
+
+The evidence is the preregistered no-loss replay
+(handoffs/GSTA-167/noloss7-results.md, main cae783e). With the standalone Red Team
+removed on the first full pass, the recorded reviewer stack found 32 of the 41
+panel blockers against 33 with it. The one loss was 3527 B1. The one-sided
+non-inferiority p was 0.00074 at a margin of 4. That replay covered first full
+passes only, so it certifies only this trigger; the post-fix, scoped, CRITICAL
+and raised triggers stay until a fix-regression panel covers them.
+
+This leaves an inversion between depths. Light depth still gives its one batched
+specialist the red-team checklist, while a first standard or gate pass has no Red
+Team at all. Round 7 did not test light: its one light unit (3545) had no
+red-team lines in the baseline. A follow-up arm, light without the red-team
+checklist in the batched reader, is needed before light changes.
 
 **Fail closed.** Each of these makes the depth full and is listed in `errors[]` with
 the input it could not read, a sanitized cause and the repair: a `gstack-diff-scope`
@@ -270,6 +296,11 @@ the specialists, audits and watchers at the host default too
 
 ### Behavior changes
 
+- A change's first full pass at gate class (a depth error included) or past 200
+  runtime lines no longer dispatches the standalone Red Team
+  ([first full pass](#first-pass-red-team), GSTA-167 Round 7). This is a gate
+  edit: the `DEPTH_RULES` hash moves, so receipts written before it carry the old
+  `rules` value.
 - Pass 2 after a blocking fix on a diff below full depth, with a fix range of at
   most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check, the Red
   Team and the native adversarial pass on the range instead of the specialist army.

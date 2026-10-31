@@ -112,6 +112,30 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect([v.status, v.stdout.includes('BRIEF specialist/testing MISMATCH'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
   });
 
+  // Value: protects=the Red Team, still dispatched on post-fix, scoped and CRITICAL passes after GSTA-167 Round 7, is held to the
+  //   verbatim-brief rule: a trimmed send is BRIEF_MISMATCH and the exact re-send before any collect voids it; fails_when=a
+  //   paraphrased Red Team brief counts as reviewed; why_new=PR A narrows when the Red Team runs; seam=render, sent and verify
+  test('a trimmed Red Team brief is BRIEF_MISMATCH; the exact re-send before collect voids it and verifies clean', () => {
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const findings = path.join(out, 'findings.txt');
+    fs.writeFileSync(findings, '[CRITICAL] a.ts:3 off by one\n');
+    const file = field(run(['render', '--role', 'red-team', '--out', out, '--diff-base', SHA, '--findings-file', findings, '--specialists', '1']).stdout, 'file');
+    const trimmed = path.join(out, 'trimmed.txt');
+    fs.writeFileSync(trimmed, fs.readFileSync(file, 'utf8').split('\n').slice(1).join('\n'));
+    const bad = run(['sent', '--ledger', ledger, '--role', 'red-team', '--sent', trimmed]);
+    expect([bad.status, bad.stdout.includes('BRIEF_MISMATCH: reader=red-team')]).toEqual([1, true]);
+    expect(run(['sent', '--ledger', ledger, '--role', 'red-team', '--sent', file]).status).toBe(0);
+    const merged = path.join(out, 'merged.jsonl');
+    const o = path.join(out, 'red.out');
+    fs.writeFileSync(o, 'NO FINDINGS\n');
+    expect(run(['collect', '--ledger', ledger, '--role', 'red-team', '--output', o, '--merged', merged]).status).toBe(0);
+    fs.writeFileSync(path.join(out, 'judged.jsonl'), '');
+    expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(out, 'judged.jsonl')]).status).toBe(0);
+    const v = run(['verify', '--ledger', ledger]);
+    expect([v.status, v.stdout.includes('BRIEF red-team MATCH'), v.stdout.includes('VERIFY: clean briefs=1 outputs=1 voided=1')]).toEqual([0, true, true]);
+  });
+
   // Value: protects=verify checks each render as its own dispatch, so a two-pass ledger compares pass-1 sends with pass-1 briefs, and a mismatched send re-sent byte-exact before any collect is reported as voided, never hidden; a mismatched send that produced an output stays dirty; fails_when=a run-wide verify prints dirty for a clean two-pass run, a superseded mismatch blocks, voided is not printed, or an output collected under a mismatched send reads clean (GSTA-189 #36 replay: VERIFY dirty briefs=9 outputs=16, every output MATCH);
   //   why_new=verify compared every send with the reader's last render; both passes render into one briefs directory and judge runs with relative paths, as a dispatch program does (pass-3 fix-check); seam=sent, collect and verify; no_claim=which pass a render belongs to beyond ledger order
   test('two passes verify per render; a superseded mismatch is voided=1; a mismatched send with an output stays dirty', () => {

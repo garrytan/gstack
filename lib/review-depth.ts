@@ -27,6 +27,12 @@ export const FULL_PASS_CAP = 2;
 export const SMALL_DIFF_LINES = 50;
 export const RED_TEAM_LINES = 200;
 export const LARGE_DIFF_LINES = 100;
+/**
+ * Whether a change's first full pass dispatches the standalone Red Team for gate class (a depth error included) or more than
+ * RED_TEAM_LINES runtime lines. Off since the Round 7 no-loss replay (handoffs/GSTA-167/noloss7-results.md); a CRITICAL, a
+ * raised small diff, post-fix full passes and the scoped pass keep it.
+ */
+export const RED_TEAM_FIRST_PASS = false;
 /** The largest fix range, in runtime lines, a pass 2 after a blocking fix reviews as a scoped pass (GSTA-152 D6); a starting value. */
 export const SCOPED_RANGE_LINES = 150;
 /** The checklists the batched specialist always reads on code and gate class, whatever the depth or scope (GSTA-167 part 2). */
@@ -66,7 +72,7 @@ const DATA_CONFIG = [
 
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
-  SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
+  SMALL_DIFF_LINES, RED_TEAM_LINES, RED_TEAM_FIRST_PASS, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
   patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
@@ -405,10 +411,12 @@ export function planReview(i: PlanInput): ReviewPlan {
     const lines = full ? i.diffLines : Math.max(runtimeLines, raised ? SMALL_DIFF_LINES : 0);
     const checklists = batchChecklists(dcls, i, skipped);
     if (checklists.length) add('specialist', 'batched', specialist, full ? [] : docsAndOutputs, { checklists });
-    const redTeam = dcls === 'gate' || (dcls === 'code' && (lines > RED_TEAM_LINES || !!i.criticalFound || raised));
-    if (redTeam) add('red-team', 'red-team', 'full');
-    else skipped.push(`red-team (${dcls} class${dcls === 'code' ? `, ${lines} runtime lines, no critical` : ''})`);
     const codeLike = dcls === 'code' || dcls === 'gate';
+    const sized = dcls === 'gate' || (dcls === 'code' && lines > RED_TEAM_LINES);
+    const firstPassCut = sized && h.fullPasses === 0 && !RED_TEAM_FIRST_PASS;
+    if (codeLike && (!!i.criticalFound || raised || (sized && !firstPassCut))) add('red-team', 'red-team', 'full');
+    else if (firstPassCut) skipped.push('red-team (first full pass; Round 7 no-loss)');
+    else skipped.push(`red-team (${dcls} class${dcls === 'code' ? `, ${lines} runtime lines, no critical` : ''})`);
     if (h.fullPasses === 0 || (!i.adversarialRan && codeLike)) {
       if (codeLike) add('adversarial-native', 'adversarial', 'full');
       else skipped.push(`adversarial-native (${dcls} class)`);
