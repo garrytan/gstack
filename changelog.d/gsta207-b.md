@@ -1,0 +1,5 @@
+**`./setup` no longer starts a handful of processes per skill just to read its name (#2120).** On Windows 11 on ARM64, Git Bash runs under x64 emulation, and its `fork()` can deadlock when a script starts hundreds of short-lived processes in a row. Setup did exactly that: `gstack-patch-names` and setup's skill-linking loops ran `grep | sed | tr` and `basename` for every skill. The reporter counted about 220 process starts on a full install. Thanks to @habassa5, who traced the hang to those loops.
+
+### Fixed
+- **Skill names are read with bash builtins.** A new sourced helper, `bin/gstack-skill-name.sh`, reads the `name:` line with a `read` loop. It gives the same result as the old pipeline on CRLF files, files with no final newline, and files with no `name:` line. `gstack-patch-names`, setup's Claude skill linker, its two cleanup loops and `gstack-uninstall` use it. They use parameter expansion instead of `basename`. `sed` and `mv` run only for a skill that is actually renamed.
+- **What is not fixed yet.** Setup still starts `ln`, `mkdir` and `cp` per skill. Nobody has confirmed on a Windows ARM64 machine that the hang is gone.
