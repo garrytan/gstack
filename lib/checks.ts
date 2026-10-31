@@ -71,7 +71,7 @@ export function healthStack(claudeMd: string, keepTests = false): Check[] {
     while (taken.has(name)) name = `${key}-${++n + 1}`;
     seen.set(key, n);
     taken.add(name);
-    checks.push({ name, command: m[2].replace(/^`([^`]+)`$/, '$1'), source: 'CLAUDE.md Health Stack' });
+    checks.push({ name, command: m[2].replace(/`/g, ''), source: 'CLAUDE.md Health Stack' });
   }
   return checks;
 }
@@ -141,7 +141,7 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
   const stack = healthStack(claude, true);
   if (/^##\s+Health Stack\s*$/m.test(claude)) {
     const keys = new Set(stack.map(c => c.name.replace(/-\d+$/, '').replace(/^tests$/, 'test')));
-    return { checks: stack.map(c => ({ dimension: c.name, command: c.command, source: c.source })), missing: HEALTH_DIMENSIONS.filter(d => !keys.has(d)).map(dimension => ({ dimension, reason: 'not in the CLAUDE.md Health Stack section' })) };
+    return { checks: stack.map(c => ({ dimension: c.name, command: c.command, source: c.source })), missing: HEALTH_DIMENSIONS.filter(d => !keys.has(d)).map(dimension => ({ dimension, reason: stack.length ? 'not in the CLAUDE.md Health Stack section' : 'the CLAUDE.md Health Stack section has no "- key: command" rows' })) };
   }
   const has = (file: string) => fs.existsSync(path.join(root, file));
   const which = (bin: string) => Bun.which(bin, { PATH: env.PATH ?? '' }) !== null;

@@ -142,17 +142,18 @@ describe('/health detection: no check lost (GST-116 PR 2)', () => {
     }
   });
 
-  // Value: protects=a Health Stack keeps shell syntax, an empty section still turns auto-detection off, and detection runs
-  //   where /health runs (a monorepo package); fails_when=backticks inside a command are stripped (a failing checker becomes
-  //   a lookup), a section with no rows falls through to auto-detection, or the bin detects from the git top-level;
-  //   why_new=review pass 1 outside voice; seam=the bin from a subdirectory
-  test('Health Stack bytes, an empty section, and the working directory', () => {
+  // Value: protects=Health Stack rows read as markdown like gstack:verify: (code-span backticks dropped), an empty section
+  //   still turns auto-detection off and says so, and detection runs where /health runs (a monorepo package);
+  //   fails_when=a section with no rows falls through to auto-detection, or the bin detects from the git top-level;
+  //   why_new=review pass 1 voices; seam=the bin from a subdirectory
+  test('Health Stack spans, an empty section, and the working directory', () => {
     const tick = String.fromCharCode(96);
-    const subst = healthDimensions(repo('hs-subst', { 'CLAUDE.md': `## Health Stack\n\n- test: test "$(${tick}command -v false${tick})" = x\n- lint: ${tick}eslint .${tick}\n` }), { PATH: '', HOME: bareHome });
-    expect(subst.checks.map(c => c.command)).toEqual([`test "$(${tick}command -v false${tick})" = x`, 'eslint .']);
+    const spans = healthDimensions(repo('hs-spans', { 'CLAUDE.md': `## Health Stack\n\n- lint: ${tick}eslint .${tick} && ${tick}prettier --check .${tick}\n` }), { PATH: '', HOME: bareHome });
+    expect(spans.checks.map(c => c.command)).toEqual(['eslint . && prettier --check .']);
     const empty = healthDimensions(repo('hs-empty', { 'tsconfig.json': '{}', 'CLAUDE.md': '## Health Stack\n\nNo health tools are configured.\n' }), { PATH: stubs, HOME: gbrainHome });
     expect(empty.checks).toEqual([]);
     expect(empty.missing.map(m => m.dimension)).toEqual([...HEALTH_DIMENSIONS]);
+    expect(empty.missing[0].reason).toBe('the CLAUDE.md Health Stack section has no "- key: command" rows');
     const mono = repo('monorepo', { 'tsconfig.json': '{}', 'packages/app/package.json': JSON.stringify({ scripts: { test: 'vitest run' } }) });
     expect(spawnSync('git', ['init', '-q'], { cwd: mono, timeout: 30_000 }).status).toBe(0);
     const env = { ...process.env, PATH: process.env.PATH, HOME: bareHome };
