@@ -1557,6 +1557,23 @@ describe('check-freeze.sh', () => {
       });
     });
 
+    // Link targets re-expand the walk, so their total is bounded too: a chain
+    // of padded links must deny fast instead of running for minutes.
+    test.skipIf(process.platform === 'win32')('a symlink chain whose targets add up past 8192 characters denies quickly', () => {
+      withTree(({ base, home, src, outside }) => {
+        let next = outside;
+        for (let i = 40; i >= 1; i--) {
+          const link = path.join(src, `S${i}`);
+          fs.symlinkSync('.' + '/'.repeat(3990) + path.relative(src, next), link);
+          next = link;
+        }
+        const started = Date.now();
+        const decision = decide(src, src + '/S1/' + '/'.repeat(3990) + 'x.ts', home, base);
+        expect(decision).toBe('deny');
+        expect(Date.now() - started).toBeLessThan(4000);
+      });
+    });
+
     test('Windows separators: a C:\\ dotdot escape through a missing directory denies, a new C:\\ subdirectory allows', () => {
       withTree(({ base, home }) => {
         expect(decide('C:\\dev\\proj\\src', 'C:\\dev\\proj\\src\\..\\..\\other\\new\\x.ts', home, base)).toBe('deny');
