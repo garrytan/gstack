@@ -54,6 +54,7 @@ case "$(uname -s)" in
 esac
 PROFILE_FILE="$GSTACK_HOME/developer-profile.json"
 LEGACY_FILE="$GSTACK_HOME/builder-profile.jsonl"
+MIN_EVIDENCE=3
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
 SLUG="${SLUG:-unknown}"
 
@@ -512,14 +513,19 @@ do_gap() {
     const p = JSON.parse(await Bun.stdin.text());
     const declared = p.declared || {};
     const inferred = (p.inferred && p.inferred.values) || {};
+    const contributing = p.inferred && p.inferred.contributing_events;
     const dims = ['scope_appetite','risk_tolerance','detail_preference','autonomy','architecture_care'];
     const gap = {};
+    const low_evidence = {};
     for (const d of dims) {
-      if (declared[d] !== undefined && inferred[d] !== undefined) {
-        gap[d] = +(Math.abs(declared[d] - inferred[d])).toFixed(3);
+      if (declared[d] === undefined || inferred[d] === undefined) continue;
+      if (contributing && (contributing[d] || 0) < $MIN_EVIDENCE) {
+        low_evidence[d] = contributing[d] || 0;
+        continue;
       }
+      gap[d] = +(Math.abs(declared[d] - inferred[d])).toFixed(3);
     }
-    console.log(JSON.stringify({ declared, inferred, gap }, null, 2));
+    console.log(JSON.stringify({ declared, inferred, gap, low_evidence }, null, 2));
   "
 }
 
@@ -657,6 +663,7 @@ do_derive() {
       // Recompute gap.
       const gap = {};
       for (const d of Object.keys(values)) {
+        if ((contributing[d] || 0) < $MIN_EVIDENCE) continue;
         if (profile.declared && profile.declared[d] !== undefined) {
           gap[d] = +(Math.abs(profile.declared[d] - values[d])).toFixed(3);
         }
@@ -727,18 +734,23 @@ do_check_mismatch() {
     const declared = p.declared || {};
     const inferred = (p.inferred && p.inferred.values) || {};
     const sampleSize = (p.inferred && p.inferred.sample_size) || 0;
-    const diversity = (p.inferred && p.inferred.diversity) || {};
+    const contributing = p.inferred && p.inferred.contributing_events;
 
-    // Require enough data before reporting mismatch.
-    if (sampleSize < 10) {
+    if (!contributing && sampleSize < 10) {
       console.log('MISMATCH: not enough data (' + sampleSize + ' events; need 10+)');
       process.exit(0);
     }
 
     const THRESHOLD = 0.3;
     const flagged = [];
+    const thin = [];
     for (const d of Object.keys(declared)) {
       if (inferred[d] === undefined) continue;
+      const n = contributing ? (contributing[d] || 0) : undefined;
+      if (n !== undefined && n < $MIN_EVIDENCE) {
+        thin.push('  ' + d + ': ' + (n === 0 ? 'no observed evidence' : 'too little evidence (' + n + ' of $MIN_EVIDENCE events)'));
+        continue;
+      }
       const gap = Math.abs(declared[d] - inferred[d]);
       if (gap > THRESHOLD) {
         flagged.push({ dim: d, declared: declared[d], inferred: inferred[d], gap: +gap.toFixed(3) });
@@ -753,6 +765,7 @@ do_check_mismatch() {
         console.log('  ' + f.dim + ': declared ' + f.declared + ' vs inferred ' + f.inferred + ' (gap ' + f.gap + ')');
       }
     }
+    for (const line of thin) console.log(line);
   "
 }
 
