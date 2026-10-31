@@ -383,7 +383,7 @@ describe('variant E: the review segment and the docs reader (GSTA-167 replay 5)'
     expect(settled.out).toMatch(new RegExp(`^DRIFT: id=${id} kind=dispatch next=dispatch:docs projected=${K.per_dispatch} actual=2000000 `, 'm'));
     const step = check(h, s.run, '14.5', '15', ['--reading', '3500000']);
     expect(step.out).toMatch(/^DRIFT: id=\S+ kind=step next=14\.5 projected=\d+ actual=400000 /m);
-    expect(h.sb(['check', '--run', s.run, '--step', '15', '--next', 'dispatch:doc', '--reading', '3600000']).err).toContain('valid: specialist, red-team, adversarial-native, outside-voice, fix-check, docs');
+    expect(h.sb(['check', '--run', s.run, '--step', '15', '--next', 'dispatch:doc', '--reading', '3600000']).err).toContain('valid: specialist, red-team, adversarial-native, outside-voice, fix-check, targeted, docs');
   });
 });
 

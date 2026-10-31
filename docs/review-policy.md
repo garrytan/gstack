@@ -230,7 +230,7 @@ and lockfiles stay runtime. To adopt it, commit an entry like this on the base b
 
 **Gate paths for the machinery itself.** An edit to `lib/review-depth.ts`,
 `lib/review-collect.ts`, `bin/gstack-review-plan`, `lib/review-scope.ts`,
-`lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
+`lib/review-targeted.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
 `ship/sections/review-army.md.tmpl`, `ship/sections/adversarial.md.tmpl` or
 `scripts/resolvers/review-army.ts` is gate class: changing how much review runs gets
 the most review. `rules=` (`DEPTH_RULES`) hashes the deciding constants and patterns,
@@ -285,6 +285,59 @@ the specialists, audits and watchers at the host default too
   part 4a). A binary image no code names is no longer a `binary_code_path` error
   that forces full depth; one that code names still is.
 
+## Targeted pass on money, gate, auth and secret code
+
+Some code is costly to get wrong: code that spends money, code that decides
+whether a check passes, code that decides who gets in, and code that handles
+secrets. When a diff touches one of these, `gstack-review-plan` dispatches one
+more reader, `targeted`, at every depth, light included. It reads the whole
+diff, fixtures and tests included, with the blocks of
+`review/specialists/targeted.md` for the classes that hit, and it runs in Step
+11 beside the native adversarial pass and the outside voice (GST-257).
+
+`lib/review-targeted.ts` decides the classes from added and deleted lines, so
+removing a cap, a check or a redaction counts. Docs and tests paths never count,
+and matching is token-bounded: `costume` never reads as cost.
+
+| Class | Signal |
+|---|---|
+| money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid provider `lib/pricing.ts` prices |
+| gate | a hunk the gate scan tagged: a relaxed threshold, a skipped test, a loosened check |
+| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name |
+| secret | a secrets, credentials, keychain or token path, or a changed line that reads a key-named environment variable (`OPENAI_API_KEY`, `GH_TOKEN`) or a credential store |
+
+An input the classifier cannot read (the diff, `gstack-diff-scope`, the gate
+scan) fails closed to all four classes. `TARGETED_RULES` hashes the patterns.
+The classifier and the brief are gate paths, so an edit that weakens them gets
+full review.
+
+The plan prints `TARGETED: classes=<money,gate,auth,secret|none> rules=<hash>
+brief=<sha256 of the brief> targeted_patch_id=<id>` and, when a class hit,
+`DISPATCH: targeted targeted effort=full`. The targeted reader always reads the whole diff: `render --role targeted`
+refuses a `--diff-base` other than the merge base, so on pass 2 and later it
+gets the merge base, not `RANGE_BASE`. After a fix, pass
+`--targeted-ran <targeted_patch_id>` from the line the reader ran on: the same
+committed patch skips the reader, and a changed one, uncommitted edits or
+`none` dispatch it again. `targeted_patch_id` is the patch-id of the whole
+committed diff, tests included, so a test-only fix that adds a gate hunk
+dispatches it again; it is not the receipt's `product_patch_id`.
+
+The brief states the blocking floor in one sentence, and its money block cites
+the checklist's Forced-CRITICAL rule on uncapped spend, so a money finding can
+block without new floor words. The reader is read-only, and `NO FINDINGS` is a
+result. `gstack-review-dispatch render --role targeted --classes <classes>`
+renders its brief; `verify --targeted-out <file>` writes the record that
+`gstack-ship-receipt write --review-targeted @<file>` puts in the receipt.
+`gstack-ship-queue ready` and `train build` print
+`REVIEW_TARGETED: required=<classes|none> receipt=<classes|none|legacy>
+verdict=ok|missing` and refuse nothing yet; enforcement comes in a later
+release.
+
+Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
+21, gate 18, auth 3 and secret 8. The gate class first used the gate paths,
+which hit 43 of 100; those paths already get full depth, so the gate class was
+narrowed to the gate scan's tagged hunks.
+
 ## What the receipt records
 
 `gstack-review-scope summary --since <REVIEW_SINCE>` reads this invocation's
@@ -300,8 +353,9 @@ puts in the receipt:
 | `review_loop.fixed` | findings fixed in this PR |
 | `review_loop.scope` | the `review_scope` the loop ran under |
 | `review_loop.fix_checks` | fix-checks this ship ran (never passes) |
-| `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check` |
+| `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
+| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its output collected and the committed diff it was rendered on still the one at verify, else `failed`; absent when write got no record, which the queue reports as `legacy`), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
 diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,

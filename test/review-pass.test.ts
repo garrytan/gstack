@@ -181,6 +181,41 @@ async function runPass(h: ReturnType<typeof host>, input: Record<string, unknown
 }
 const bin = (dir: string, env: NodeJS.ProcessEnv, a: string[]) => spawnSync(path.join(BIN, 'gstack-review-dispatch'), a, { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
 
+describe('the targeted reader in a pass (GST-257 on main)', () => {
+  // Value: protects=a pass whose plan dispatches the targeted reader stages it with Step 11's voices on the merge base, its brief byte for byte the render CLI's, and its ledger row carrying the classes, rules, brief and patch the receipt's review_targeted record reads; fails_when=the manifest refuses or drops the targeted role, renders it on another base, or writes a rendered row verify --targeted-out cannot use;
+  //   why_new=#3671 added the targeted reader after PR 2's manifest; seam=none; no_claim=the reader's findings
+  test('a secret-path diff stages the targeted reader with the voices, identical to the render CLI, with its targeted ledger fields', () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout; };
+    sh("echo 'export const apiKeyName = \"X\";' > src/secrets.ts && git add -A && git commit -qm secret");
+    const out = path.join(dir, '.state/run/p1');
+    const p = bin(dir, env, ['pass', '--base', 'main', '--out', out, '--pass', 't1p1', '--', '--depth-floor', 'full']);
+    expect(p.status, p.stdout + p.stderr).toBe(0);
+    expect(p.stdout).toMatch(/^DISPATCH: targeted /m);
+    const mf = path.join(out, 'pass-manifest.json');
+    let m = JSON.parse(fs.readFileSync(mf, 'utf8')) as Manifest;
+    const t = m.readers.find(r => r.role === 'targeted')!;
+    expect(t).toMatchObject({ reader: 'targeted', stage: 'voices', classes: ['secret'] });
+    const mergeBase = sh('git merge-base main HEAD').trim();
+    expect(t.diff_base).toBe(mergeBase);
+    for (const st of ['specialists', 'red-team']) {
+      if (st === 'red-team') expect(bin(dir, env, ['stage', '--manifest', mf, '--stage', st]).status).toBe(0);
+      m = JSON.parse(fs.readFileSync(mf, 'utf8')) as Manifest;
+      for (const r of m.readers.filter(x => x.stage === st)) for (const [s, extra] of [['intent', []], ['created', ['--path', '1']], ['collected', []]] as const) expect(bin(dir, env, ['mark', '--manifest', mf, '--reader', r.reader, '--state', s, ...extra]).status).toBe(0);
+    }
+    const v = bin(dir, env, ['stage', '--manifest', mf, '--stage', 'voices']);
+    expect(v.status, v.stdout + v.stderr).toBe(0);
+    m = JSON.parse(fs.readFileSync(mf, 'utf8')) as Manifest;
+    const staged = m.readers.find(r => r.role === 'targeted')!;
+    const cli = bin(dir, env, ['render', '--role', 'targeted', '--classes', 'secret', '--base', 'main', '--diff-base', mergeBase, '--out', path.join(dir, '.state/cli'), '--stack', m.stack, '--test-fw', m.test_fw, ...(staged.exclude ? ['--exclude', staged.exclude] : [])]);
+    expect(cli.status, cli.stdout + cli.stderr).toBe(0);
+    expect(cli.stdout).toContain('sha256=' + staged.sha256);
+    const row = fs.readFileSync(m.ledger, 'utf8').trim().split('\n').map(l => JSON.parse(l)).find(e => e.event === 'rendered' && e.reader === 'targeted');
+    const cliRow = fs.readFileSync(path.join(dir, '.state/cli/review-ledger.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l)).at(-1);
+    for (const k of ['classes', 'rules', 'brief_sha', 'diff_base', 'patch_id', 'sha256']) expect(row[k]).toEqual(cliRow[k]);
+  }, 180_000);
+});
+
 describe('Capy pass program (fake host, real bins)', () => {
   test('gstack-review-dispatch program serves the checked-in file verbatim with its sha', () => {
     const r = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['program'], { encoding: 'utf8', timeout: 30_000 });
