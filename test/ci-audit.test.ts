@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT, main } from '../lib/ci-audit/cli';
-import type { Run } from '../lib/ci-audit/collect';
+import { preflight, type Run } from '../lib/ci-audit/collect';
+import { Budget } from '../lib/ci-audit/github';
 import { concurrencyFlag, lessonRunners } from '../lib/ci-audit/lessons';
 import { cohort, measure, phases } from '../lib/ci-audit/measure';
 import { priceRunner } from '../lib/ci-audit/prices';
@@ -264,6 +265,13 @@ describe('weekly issue', () => {
     expect(planIssue({ exit: 4, report: { ...withFixes, partial: ['x'] } as AuditReport }, null).action).toBe('create');
   });
 
+  test('job names from a fork PR cannot break the tables or mention anyone', () => {
+    const t = { p50: 1, p90: 2 };
+    const body = planIssue({ exit: 0, report: { ...withFixes, jobs: [{ key: 'x | [y](https://e.example) @team <b>', runner: 'ubuntu-latest', n: 1, wait: t, setup: t, run: t, billedMinutesPerWeek: 1, usdPerMonth: 0 }] } as unknown as AuditReport }, null) as { body: string };
+    const row = body.body.split('\n').find(l => l.includes('e.example'))!;
+    expect(row).toBe('| x \\| \\[y\\](https://e.example) @\u200bteam \\<b\\> | ubuntu-latest | 1 | 1s/2s | 1s | 1s | 1 | 0 |');
+  });
+
   test('finds only the workflow bot\'s own issue, past 100 open issues and an outsider\'s copy', async () => {
     const issue = (number: number, login: string, title = 'other', body = '') => ({ number, title, body, user: { login } });
     const open = [issue(1, 'outsider', ISSUE_TITLE, `${ISSUE_MARKER}\nfake findings`),
@@ -298,7 +306,15 @@ describe('Saturday workflow template', () => {
     expect(audit).toContain('set +e');
     const pub = steps.find(s => s.name === 'Publish')!;
     expect(pub.if).toBe('always()');
-    expect(pub.run).toContain('--exit "${{ steps.audit.outputs.code || 5 }}"');
+    expect((pub as { env?: Record<string, string> }).env?.AUDIT_CODE).toBe('${{ steps.audit.outputs.code || 5 }}');
+    expect(pub.run).toContain('--exit "$AUDIT_CODE"');
+    expect(steps.map(s => s.run ?? '').join('\n')).not.toContain('${{');
+  });
+
+  test('a GITHUB_TOKEN with a little of its hour spent still starts the audit', async () => {
+    const left = (remaining: number) => ({ text: async () => null, get: async () => ({ status: 200, json: { resources: { core: { limit: 1000, remaining, reset: 1_800_000_000 } } }, headers: {} }) });
+    expect(await preflight(left(550) as never, new Budget(400, 1000))).toMatchObject({ remaining: 550 });
+    await expect(preflight(left(450) as never, new Budget(400, 1000))).rejects.toThrow('ci_audit_rate_limit');
   });
 });
 

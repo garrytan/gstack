@@ -65,9 +65,11 @@ export async function timingCheck(client: ApiClient, repo: string, pr: number, m
   if (p.status !== 200) throw new AuditError('ci_audit_repo_unreadable', `cannot read PR #${pr} (HTTP ${p.status})`);
   const branch = String((p.json as any)?.head?.ref ?? '');
   const base = String((p.json as any)?.base?.ref ?? '');
+  const headRepo = (p.json as any)?.head?.repo?.full_name as string | undefined;
   const partial: string[] = [];
   const pages = [1, 2, 3, 4].map(n => listRuns(client, repo, 'event=pull_request', 1, partial, { hit: false }, { firstPage: n }));
-  const mine = await listRuns(client, repo, `event=pull_request&branch=${encodeURIComponent(branch)}`, 1, partial, { hit: false });
+  const mine = (await listRuns(client, repo, `event=pull_request&branch=${encodeURIComponent(branch)}`, 1, partial, { hit: false }))
+    .filter(r => !headRepo || !r.head_repository?.full_name || r.head_repository.full_name === headRepo);
   const shas = [...new Set(mine.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(r => r.head_sha))];
   const settled = shas.map(s => headOf(mine, s)).find(Boolean) ?? null;
   if (!settled) return { state: 'pending', line: `CI_AUDIT: pending no settled all-green push on #${pr} yet` };

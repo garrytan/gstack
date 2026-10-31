@@ -59,6 +59,9 @@ export function buildReport(data: AuditData, m: Measures, ls: Lesson[], st: Stat
 const t = (s: number | null) => (s == null ? '-' : s >= 120 ? `${(s / 60).toFixed(1)}m` : `${Math.round(s)}s`);
 const STATE = { pass: 'pass', finding: 'FINDING', unknown: 'unknown', not_applicable: 'n/a' } as const;
 
+/** Job and workflow names come from workflow files a fork PR controls: no table breaks, links, HTML or mentions. */
+const esc = (s: string) => String(s).replace(/[\\|<>[\]`]/g, c => `\\${c}`).replace(/@/g, '@\u200b');
+
 export function renderMarkdown(r: AuditReport, maxJobs = 12): string {
   const out: string[] = [];
   out.push(`# CI audit: ${r.repo}`, '');
@@ -67,17 +70,17 @@ export function renderMarkdown(r: AuditReport, maxJobs = 12): string {
   if (r.partial.length) out.push('', `**Partial:** ${r.partial.join('; ')}`);
   const ex = Object.entries(r.pushToGreen.excluded).filter(([, n]) => n).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`).join(', ');
   out.push('', `**Push to all checks green:** p50 ${t(r.pushToGreen.p50)}, p90 ${t(r.pushToGreen.p90)} over ${r.pushToGreen.n} all-green PR heads${ex ? ` (left out: ${ex})` : ''}. Time to first failure p50 ${t(r.timeToFirstFailure.p50)} (n=${r.timeToFirstFailure.n}). Wait before the first job: p50 ${t(r.preJobWait.p50)}.`);
-  if (r.pushToGreen.bottlenecks.length) out.push(`Finished last: ${r.pushToGreen.bottlenecks.map(b => `${b.workflow} ${Math.round(b.share * 100)}%`).join(', ')}.`);
+  if (r.pushToGreen.bottlenecks.length) out.push(`Finished last: ${r.pushToGreen.bottlenecks.map(b => `${esc(b.workflow)} ${Math.round(b.share * 100)}%`).join(', ')}.`);
   out.push('', '## Ranked fixes', '');
   if (!r.fixes.length) out.push('No lesson has a finding.');
   r.fixes.forEach((f, i) => {
     const gain = [f.prMinutes != null ? `up to ${f.prMinutes} min off each PR${f.measured ? ' (measured)' : ' (estimated)'}` : null, f.jobMinutesPerWeek != null ? `${f.jobMinutesPerWeek} runner-min/week` : null, f.usdPerMonth != null ? `${f.usdPerMonth >= 0 ? '+' : ''}$${f.usdPerMonth}/month` : null].filter(Boolean).join(', ');
-    out.push(`${i + 1}. **Lesson ${f.lesson}, ${f.name}.** ${f.summary}. Fix: ${f.fix}.${gain ? ` Gain: ${gain}.` : ''} ${f.note}.${f.caution ? ` Caution: ${f.caution}.` : ''}`);
+    out.push(`${i + 1}. **Lesson ${f.lesson}, ${f.name}.** ${esc(f.summary)}. Fix: ${esc(f.fix)}.${gain ? ` Gain: ${gain}.` : ''} ${esc(f.note)}.${f.caution ? ` Caution: ${esc(f.caution)}.` : ''}`);
   });
   out.push('', '## The nine lessons', '', '| # | Lesson | State | What we saw |', '|---|---|---|---|');
-  for (const l of r.lessons) out.push(`| ${l.id} | ${l.name} | ${STATE[l.state]} | ${l.summary}${l.evidence.length ? `<br>${l.evidence.slice(0, 3).join('<br>')}` : ''} |`);
+  for (const l of r.lessons) out.push(`| ${l.id} | ${l.name} | ${STATE[l.state]} | ${esc(l.summary)}${l.evidence.length ? `<br>${l.evidence.slice(0, 3).map(esc).join('<br>')}` : ''} |`);
   out.push('', '## Jobs (most runner time first)', '', '| Job | Runner | n | Wait p50/p90 | Setup p50 | Running p50 | Billed min/week | $/month |', '|---|---|---|---|---|---|---|---|');
-  for (const j of r.jobs.slice(0, maxJobs)) out.push(`| ${j.key} | ${j.runner} | ${j.n} | ${t(j.wait.p50)}/${t(j.wait.p90)} | ${t(j.setup.p50)} | ${t(j.run.p50)} | ${j.billedMinutesPerWeek} | ${j.usdPerMonth} |`);
+  for (const j of r.jobs.slice(0, maxJobs)) out.push(`| ${esc(j.key)} | ${esc(j.runner)} | ${j.n} | ${t(j.wait.p50)}/${t(j.wait.p90)} | ${t(j.setup.p50)} | ${t(j.run.p50)} | ${j.billedMinutesPerWeek} | ${j.usdPerMonth} |`);
   out.push('', `**Cost:** about ${r.cost.billedMinutesPerWeek} billed runner-minutes a week, $${r.cost.usdPerMonth} a month at list prices (${r.cost.note}). Price rows and sources are in --json.`);
   return out.join('\n') + '\n';
 }

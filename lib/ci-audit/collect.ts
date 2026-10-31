@@ -3,7 +3,7 @@ import type { LogEvidence } from './lessons';
 
 export interface Step { name: string; started_at: string | null; completed_at: string | null; conclusion: string | null }
 export interface Job { id: number; run_id: number; name: string; status: string; conclusion: string | null; created_at: string; started_at: string | null; completed_at: string | null; labels: string[]; steps: Step[] }
-export interface Run { id: number; name: string; path: string; event: string; head_sha: string; head_branch: string; status: string; conclusion: string | null; created_at: string; run_started_at?: string; updated_at: string; run_attempt: number; pull_requests?: { number: number; base?: { ref?: string } }[] }
+export interface Run { id: number; name: string; path: string; event: string; head_sha: string; head_branch: string; status: string; conclusion: string | null; created_at: string; run_started_at?: string; updated_at: string; run_attempt: number; head_repository?: { full_name?: string }; pull_requests?: { number: number; base?: { ref?: string } }[] }
 export interface Cache { key: string; ref: string; size_in_bytes: number; last_accessed_at: string }
 
 export interface AuditData {
@@ -31,7 +31,7 @@ export async function preflight(client: ApiClient, budget: Budget): Promise<{ li
   const res = await client.get('/rate_limit');
   const core = (res.json as any)?.resources?.core;
   if (res.status !== 200 || !core) return null;
-  const need = budget.maxCalls - budget.used + RATE_HEADROOM;
+  const need = budget.maxCalls - budget.used + Math.min(RATE_HEADROOM, Math.floor(core.limit / 10));
   if (core.remaining < need) {
     const reset = new Date(core.reset * 1000).toISOString();
     throw new AuditError('ci_audit_rate_limit', `${core.remaining} of ${core.limit} GitHub calls left this hour; this run needs up to ${need}`, `after ${reset}`);

@@ -68,7 +68,8 @@ are unknown. `--record <dir>` saves the GitHub responses (allowlisted fields onl
 
 ## The /ship check
 
-`ship-check` runs on every `/ship`. It takes a few seconds, costs no model calls or
+`ship-check` is the check `/ship` will run on every ship (the `/ship` step that calls it
+lands in a follow-up PR; until then, run it by hand). It takes a few seconds, costs no model calls or
 dollars, and never blocks a ship. With CI-shaping files in the diff (workflows,
 `package.json`, hook and linter configs) it checks them against the lessons. With a PR
 number it compares the PR's previous settled push with up to 40 comparable all-green PR

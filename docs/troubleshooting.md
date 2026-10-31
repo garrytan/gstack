@@ -5695,7 +5695,7 @@ Every error is one line, `CI_AUDIT: unavailable <detail> (<code>)`, followed by 
 <a id="ci-audit-rate-limit"></a>
 ### `CI_AUDIT: unavailable <n> of <limit> GitHub calls left this hour (ci_audit_rate_limit)`
 
-**Meaning.** The preflight found fewer GitHub API calls left this hour than the run could use plus 500 spare, so it stopped before spending any. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Wait until the reset time printed on the retry line, or lower --max-calls.
+**Meaning.** The preflight found fewer GitHub API calls left this hour than the run could use plus a spare tenth of the hour's limit (at most 500), so it stopped before spending any. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Wait until the reset time printed on the retry line, or lower --max-calls.
 
 <a id="ci-audit-call-budget"></a>
 ### `CI_AUDIT: unavailable call budget of <n> spent (ci_audit_call_budget)`
