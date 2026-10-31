@@ -208,9 +208,8 @@ next step is a scoped pass, the raise applies to the scoped set only. A fix-chec
 is the same at every depth.
 
 <a id="first-pass-red-team"></a>
-**The first full pass has no standalone Red Team (GSTA-167 Round 7).** When an
-invocation's first full pass (`fullPasses` 0 and no earlier step, so a repeat
-plan that leaves out `--pass` still counts as post-fix) is gate class or has more than
+**The first full pass has no standalone Red Team (GSTA-167 Round 7).** When a
+branch's first full pass is gate class or has more than
 `RED_TEAM_LINES` (200) runtime lines, the plan skips the Red Team and says why:
 `SKIP: red-team (first full pass; Round 7 no-loss)`. A full plan reached through a
 classifier error (`DEPTH_ERROR`) or `--depth-floor full` runs as gate class, so the same rule covers it;
@@ -220,10 +219,19 @@ the scoped pass, and the plan adds it whenever `--critical-found` is given. In
 `/ship` that flag reaches only the repeat plan, so a first pass that logs a
 CRITICAL gets the Red Team only if a post-fix full or scoped pass follows. When
 that CRITICAL is deferred or noted (`done`), fixed below the floor (a fix-check)
-or left open (a stop), no Red Team reads the change. `fullPasses`
-counts passes in one `/ship` invocation, so a new `/ship` after a stop (a fix made
-by hand between runs) starts at 0 and its first full pass has no Red Team either.
-A fix-check never had one. `RED_TEAM_FIRST_PASS` (false) records the rule in
+or left open (a stop), no Red Team reads the change. A fix-check never had one.
+
+A pass is the branch's first only when three things hold: `fullPasses` is 0, no
+step ran earlier in this invocation (so a repeat plan that leaves out `--pass`
+still counts as post-fix), and the branch's review log has no diff-review row. The
+review log is the `<branch>-reviews.jsonl` file that `gstack-review-log` writes and
+`gstack-ship-budget` reads. A diff-review row is any row from the `review`,
+`review-fix-check`, `adversarial-review`, `codex-review`, `design-review-lite` or
+`ship` skills. So a new `/ship` after a stop, on a branch an earlier run already
+reviewed, runs the Red Team on its first full pass, as it did before this rule.
+When the log can't be read, the plan keeps the Red Team too. `gstack-review-plan
+--json` reports the lookup as `reviewed_before`: true, false, or null when the log
+was unreadable. `RED_TEAM_FIRST_PASS` (false) records the rule in
 `DEPTH_RULES`.
 
 The evidence is the preregistered no-loss replay
@@ -303,8 +311,9 @@ the specialists, audits and watchers at the host default too
 
 ### Behavior changes
 
-- An invocation's first full pass at gate class (a depth error included) or past 200
-  runtime lines no longer dispatches the standalone Red Team
+- A branch's first full pass at gate class (a depth error included) or past 200
+  runtime lines, when the branch's review log has no earlier review row, no longer
+  dispatches the standalone Red Team
   ([first full pass](#first-pass-red-team), GSTA-167 Round 7). This is a gate
   edit: the `DEPTH_RULES` hash moves, so receipts written before it carry the old
   `rules` value.

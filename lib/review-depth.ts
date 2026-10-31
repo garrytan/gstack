@@ -299,6 +299,8 @@ export interface PlanInput extends ClassInput {
   tiers?: boolean;
   /** The targeted classes (lib/review-targeted.ts) and whether the targeted reader already read this product patch. */
   targeted?: { classes: readonly string[]; ran?: boolean };
+  /** This branch's review log holds a diff-review row from an earlier run, or could not be read: the first full pass keeps the Red Team. */
+  reviewedBefore?: boolean;
 }
 /** One reviewer. `exclude` holds git pathspec argv items the reviewer's diff leaves out; `checklists` names what the batched specialist reads. */
 export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string }
@@ -413,7 +415,7 @@ export function planReview(i: PlanInput): ReviewPlan {
     if (checklists.length) add('specialist', 'batched', specialist, full ? [] : docsAndOutputs, { checklists });
     const codeLike = dcls === 'code' || dcls === 'gate';
     const sized = dcls === 'gate' || (dcls === 'code' && lines > RED_TEAM_LINES);
-    const firstPassCut = sized && h.fullPasses === 0 && h.last === 'none' && !RED_TEAM_FIRST_PASS;
+    const firstPassCut = sized && h.fullPasses === 0 && h.last === 'none' && !i.reviewedBefore && !RED_TEAM_FIRST_PASS;
     if (codeLike && (!!i.criticalFound || raised || (sized && !firstPassCut))) add('red-team', 'red-team', 'full');
     else if (firstPassCut) skipped.push('red-team (first full pass; Round 7 no-loss)');
     else skipped.push(`red-team (${dcls} class${dcls === 'code' ? `, ${lines} runtime lines, no critical` : ''})`);

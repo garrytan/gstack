@@ -513,7 +513,7 @@ describe('the first full pass drops the standalone Red Team (GSTA-167 Round 7 no
   const rt = (p: ReturnType<typeof planReview>) => p.dispatches.some(d => d.role === 'red-team');
   const NOTE = 'red-team (first full pass; Round 7 no-loss)';
   const postFix = { fullPasses: 1, last: 'full', fixedBlocking: true, rangeRuntimeLines: 300 } as const;
-  // Value: protects=a change's first full pass at gate class (or full from a depth error) or past RED_TEAM_LINES dispatches no
+  // Value: protects=the first full pass of a branch with no earlier review record, at gate class (or full from a depth error) or past RED_TEAM_LINES dispatches no
   //   standalone Red Team and says why in SKIP; fails_when=the Round 7 cut is missing, too broad or unexplained;
   //   why_new=V7 passed (handoffs/GSTA-167/noloss7-results.md: 32 of 41 against 33, p_NI 0.00074); seam=planReview
   test('a first full pass on gate class has no Red Team', () => {
@@ -534,6 +534,16 @@ describe('the first full pass drops the standalone Red Team (GSTA-167 Round 7 no
     expect([p.class, p.depth, p.runtimeLines]).toEqual(['code', 'standard', 201]);
     expect(rt(p)).toBe(false);
     expect(p.skipped).toContain(NOTE);
+  });
+  // Value: protects=a /ship restarted after a stop on a branch whose review log already has a pass keeps the Red Team on its first
+  //   full pass; fails_when=the cut reads run state (fullPasses, last) instead of the branch's review records;
+  //   why_new=GSTA-167 option a (a restart reset both counters and dropped the Red Team); seam=planReview reviewedBefore
+  test('a restarted /ship on a branch with earlier review records keeps the Red Team on its first full pass', () => {
+    for (const o of [{ diffLines: 20, gateTagged: 1 }, { diffLines: 20, scope: { SCOPE_ERROR: 'unmatched path' } }, { diffLines: 201 }]) {
+      const p = planReview(base({ ...o, reviewedBefore: true }));
+      expect([p.next.step, rt(p), p.skipped.includes(NOTE)]).toEqual(['full', true, false]);
+      expect(rt(planReview(base({ ...o, reviewedBefore: false })))).toBe(false);
+    }
   });
   test('a first full pass with a CRITICAL keeps the Red Team, on code and gate class', () => {
     for (const o of [{ diffLines: 120 }, { diffLines: 201 }, { diffLines: 20, gateTagged: 1 }]) expect(rt(planReview(base({ ...o, criticalFound: true })))).toBe(true);

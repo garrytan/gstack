@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { deriveReviewStatus, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
 
-const DIFF_REVIEWS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
+export const DIFF_REVIEWS: ReadonlySet<string> = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
 const SHARED_LIBS_COVERAGE_VERSION = 1;
 const HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
