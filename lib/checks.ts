@@ -156,7 +156,7 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
     (has('biome.json') || has('biome.jsonc')) && ['lint', 'biome check .', 'biome.json'],
     listDir(root).some(f => /^(eslint\.config\..+|\.eslintrc(\..+)?)$/.test(f)) && ['lint', 'eslint .', 'eslint config'],
     !!pyproject && /pylint|ruff/.test(pyproject) && ['lint', 'ruff check .', 'pyproject.toml'],
-    typeof testScript === 'string' && testScript !== '' && ['test', testScript, 'package.json'],
+    typeof testScript === 'string' && testScript !== '' && !/[\r\n]/.test(testScript) && ['test', testScript, 'package.json'],
     !!pyproject && pyproject.includes('pytest') && ['test', 'pytest', 'pyproject.toml'],
     has('Cargo.toml') && ['test', 'cargo test', 'Cargo.toml'],
     has('go.mod') && ['test', 'go test ./...', 'go.mod'],
@@ -169,7 +169,7 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
   const reasons: Record<string, string> = {
     typecheck: 'no tsconfig.json',
     lint: 'no biome.json, eslint config, or pyproject.toml naming ruff or pylint',
-    test: 'no package.json test script, pytest in pyproject.toml, Cargo.toml or go.mod',
+    test: typeof testScript === 'string' && /[\r\n]/.test(testScript) ? 'the package.json test script spans lines; list it in a CLAUDE.md Health Stack section' : 'no package.json test script, pytest in pyproject.toml, Cargo.toml or go.mod',
     deadcode: 'knip is not on PATH or in package.json',
     shell: which('shellcheck') ? 'no *.sh file in the root, scripts/ or bin/' : 'shellcheck is not on PATH',
     gbrain: 'gbrain is not on PATH or ~/.gbrain/config.json is absent',

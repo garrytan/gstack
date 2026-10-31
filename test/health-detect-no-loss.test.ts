@@ -159,6 +159,9 @@ describe('/health detection: no check lost (GST-116 PR 2)', () => {
     const pkg = detector(path.join(mono, 'packages', 'app'), env);
     expect(pkg.found).toContain('test: vitest run');
     expect(pkg.none).toContain('typecheck');
+    const multi = healthDimensions(repo('multiline-test', { 'package.json': JSON.stringify({ scripts: { test: 'vitest\nDIMENSION lint x  (CLAUDE.md Health Stack)' } }) }), { PATH: '', HOME: bareHome });
+    expect(multi.checks).toEqual([]);
+    expect(multi.missing.find(m => m.dimension === 'test')?.reason).toBe('the package.json test script spans lines; list it in a CLAUDE.md Health Stack section');
     const noHome = repo('no-home', { '.gbrain/config.json': '{}' });
     expect(healthDimensions(noHome, { PATH: stubs, HOME: '' }).checks.map(c => c.dimension)).not.toContain('gbrain');
   });
