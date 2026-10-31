@@ -170,6 +170,7 @@ function main(argv: string[]): void {
     return;
   }
   if (command === 'attempt') {
+    const INSTALL_FIX = 'run the Capy skill installer (scripts/install.sh --for document-release), then launch with its GSTACK_LAUNCH line';
     const [file, ...rest] = args;
     if (!file || file.startsWith('--')) throw new Error('attempt takes the child output file, then --state <attempts.json>');
     const state = one(rest, '--state');
@@ -182,17 +183,17 @@ function main(argv: string[]): void {
     try { seen = Number(JSON.parse(fs.readFileSync(state, 'utf8')).not_counted) || 0; } catch { seen = fs.existsSync(state) ? 1 : 0; }
     if (seen >= 1) {
       console.log('ATTEMPT: counted (a second install refusal in this invocation)');
-      console.log(`STOP: run the install fix (${install}) and confirm its gstack: ok trailer before another launch`);
+      console.log(`STOP: ${INSTALL_FIX} and confirm its gstack: ok trailer before another launch`);
       process.exit(3);
     }
     fs.mkdirSync(path.dirname(path.resolve(state)), { recursive: true });
     try { fs.writeFileSync(state, JSON.stringify({ not_counted: 1 }) + '\n', { mode: 0o600, flag: 'wx' }); } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
       console.log('ATTEMPT: counted (another launch in this invocation already used the allowance)');
-      console.log(`STOP: run the install fix (${install}) and confirm its gstack: ok trailer before another launch`);
+      console.log(`STOP: ${INSTALL_FIX} and confirm its gstack: ok trailer before another launch`);
       process.exit(3);
     }
-    console.log(`ATTEMPT: not-counted (install refused: ${install})`);
+    console.log('ATTEMPT: not-counted (the audit child\'s install check refused document-release)');
     return;
   }
   throw new Error(USAGE);

@@ -603,6 +603,12 @@ function cmdCarry(rest: string[], json: boolean): number {
         else if (verdict === 'context') contextPaths.push(p);
       }
       if (!changedProduct.length && !contextPaths.length) changedProduct.push('(a product path outside the branch\'s touched files; compare the two base diffs)');
+      else if (!changedProduct.length) {
+        const rest = [...spec.product, ...contextPaths.map(p => `:(exclude,literal)${p}`)];
+        const restFrom = patchId(repoRoot, fromBase, from, rest);
+        const restHead = patchId(repoRoot, headBase, head, rest);
+        if (typeof restFrom !== 'string' || typeof restHead !== 'string' || restFrom !== restHead) changedProduct.push(`(a product path outside ${contextPaths.join(', ')}; compare the two base diffs without them)`);
+      }
     }
     let scopedReview: string | undefined;
     if (!changedProduct.length && contextPaths.length) {
