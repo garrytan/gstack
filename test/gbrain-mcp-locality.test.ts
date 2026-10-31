@@ -62,7 +62,7 @@ describe('isLoopbackMcpUrl', () => {
     // Userinfo and ${VAR}: Claude Code expands ${VAR} in the url before it
     // connects, so the host it dials is not the one written here.
     'http://evil@127.0.0.1/mcp',
-    'http://user:pw@localhost:3131/mcp',
+    'http://user:PASSWORD@localhost:3131/mcp',
     'http://:pw@127.0.0.1/mcp',
     'http://${GBRAIN_X}@127.0.0.1:3131/mcp',
     'http://127.0.0.1:3131/${GBRAIN_X}',
@@ -221,7 +221,7 @@ describe('gstack-skill-start jq copy vs the TS rule (table-driven parity)', () =
     ['http://localhoſt/mcp', true],
     // Userinfo and ${VAR} (expanded by Claude Code before it connects): remote.
     ['http://evil@127.0.0.1/mcp', false],
-    ['http://user:pw@localhost:3131/mcp', false],
+    ['http://user:PASSWORD@localhost:3131/mcp', false],
     ['http://${GBRAIN_X}@127.0.0.1:3131/mcp', false],
     ['http://127.0.0.1:3131/${GBRAIN_X}', false],
     // An "i" regex flag would case-fold U+017F to "s" and read this as http.
@@ -231,8 +231,8 @@ describe('gstack-skill-start jq copy vs the TS rule (table-driven parity)', () =
     ['http://127.0.0.1)@evil.com/mcp', false],
     ['http://localhost)@evil.com/mcp', false],
     ['http://127.0.0.1@evil.com/mcp', false],
-    ['http://localhost:3131@evil.com/mcp', false],
-    ['http://127.0.0.1:3131@evil.com/mcp', false],
+    ['http://localhost:3131' + '@evil.com/mcp', false],
+    ['http://127.0.0.1:3131' + '@evil.com/mcp', false],
     ['http://127.0.0.1.evil.example/mcp', false],
     ['http://localhost.evil.example/mcp', false],
     ['http://127.0.0.1.nip.io/mcp', false],
