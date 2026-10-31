@@ -42,7 +42,7 @@
 # mode-0600 file beside the verdict; callers and their children `. <file>` it,
 # never re-type it) and the doctor's trailer (`gstack: ok ...` or `gstack: fail ...`;
 # grep that, never pipe through tail).
-# --model <id> (GSTA-161, docs/loadouts.md) names the model this session runs:
+# --model <id>, else GSTACK_MODEL (GSTA-161, docs/loadouts.md), names the model this session runs:
 # bin/gstack-modules install picks its loadout, publishes a non-full one beside
 # the full Claude install and prints LOADOUT and SKILL_ROOT lines before the
 # launch lines; a non-full loadout gets its own launch file, keyed by loadout
@@ -75,6 +75,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+[ -n "$MODEL" ] || MODEL=${GSTACK_MODEL:-}
 [ -n "$FOR" ] && [ -n "$REQUIRE" ] && { echo "gstack-capy-install: --for and --require are exclusive" >&2; exit 2; }
 [ -z "$FOR" ] && [ -z "$REQUIRE" ] && REQUIRE="claude,codex,patch"
 

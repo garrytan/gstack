@@ -45,14 +45,14 @@ bin/gstack-modules render --host claude \
 gstack never guesses the model. It uses, in order:
 
 1. An explicit loadout: `./setup --loadout <name>` on Claude Code, or `bin/gstack-modules install --loadout <name>`. It is served as asked and bound to no model.
-2. An explicit model id: `--model <id>` on the Capy installer (`scripts/install.sh --model <id>`, which passes it to `bin/gstack-capy-install`), else `GSTACK_MODEL`.
+2. An explicit model id: `--model <id>` on the Capy installer (`scripts/install.sh --model <id>`, which passes it to `bin/gstack-capy-install`), else `GSTACK_MODEL`, which the installer also reads.
 3. Nothing: `full`.
 
 A model id is lowercased, its `provider/` prefix and a trailing `[…]` are dropped, and it must then be a plain id (`^[a-z0-9][a-z0-9._-]{0,79}$`). An unmapped id serves `full`; an id that is not plain also serves `full` and prints `LOADOUT_INVALID_MODEL`. Nothing reads Claude Code settings or an inherited loadout variable, so a Sonnet subagent of an Opus session gets `full` unless its own install names Opus.
 
 ### Capy
 
-The Capy skill passes the thread's model id: `bash scripts/install.sh --check --for <skill> --model <id>`. The installer prints two lines before the launch lines:
+The Capy skill passes the thread's model id in the environment: `GSTACK_MODEL=<id> bash scripts/install.sh --check --for <skill>`. The variable, unlike `--model`, is safe on a checkout whose installer predates loadouts: that installer ignores it instead of refusing an unknown argument. The installer prints two lines before the launch lines:
 
 ```
 LOADOUT: lite model=claude-opus-5-5 source=model-flag digest=3f2a9c01d4e7 reused=yes

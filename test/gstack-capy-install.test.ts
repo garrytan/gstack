@@ -561,6 +561,9 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     const plain = run(f, ['--for', 'ship']);
     expect(plain.stdout).not.toMatch(/^(LOADOUT|SKILL_ROOT):/m);
     expect(launchOf(plain.stdout)).toBe(base);
+    const fromEnv = run(f, ['--for', 'ship'], { GSTACK_MODEL: 'claude-opus-5-5' });
+    expect(fromEnv.status, fromEnv.stdout + fromEnv.stderr).toBe(0);
+    expect(launchOf(fromEnv.stdout)).toBe(lite);
     expect(verdicts(f)).toEqual([verdict]);
     expect(fs.existsSync(lite)).toBe(true);
   });
