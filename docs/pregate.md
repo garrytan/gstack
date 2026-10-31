@@ -74,7 +74,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 
 | Key | Meaning |
 |---|---|
-| `runner` | the local test command with `{files}` (gstack: `bun test {files}`); unset, it is detected (bun, vitest, jest, pytest, `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; every other JS/TS test keeps the root detection); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
+| `runner` | the local test command with `{files}` (gstack: `bun test {files}`); unset, it is detected (bun, vitest or jest for JS/TS files, pytest when python3 can import it (else `pytest` or `python3` is named missing), `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; a JS/TS test file that imports `@playwright/test` at the start of a line runs as `playwright test --reporter=list` from its nearest package through that same package manager, whatever the unit runner is, and a run where every failure is a browser Playwright has not installed is `PREGATE_ENVIRONMENT`; every other test keeps the root detection, split by language when no one runner fits them all, so `.mjs` and `.py` root tests each get their own runner); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
 | `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
@@ -193,6 +193,14 @@ Two stages with separate clocks, both printed:
   other line holding the old value still fail. Only the row itself is exempt:
   the old value after its closing bracket on the same line still fails. Rows in object form (`{ v: 45 }`) or spread over several
   lines are not recognized as history rows.
+  A one-character old value (`2`) counts only in a statement that names the
+  constant: on the name's line, or on up to three lines that continue it (the
+  line before ends with `(`, `,`, `.`, `=` or another operator, or the line
+  starts with `.`, `)` or `]`), never on a comment line, plus the history rows
+  above. A `$2` in a shell stub, a comment, or `export default 2` in a fixture
+  elsewhere in the file is not a consumer. A call-site name such as `attempts`
+  or `limit` is an ordinary word, so for it the file must also name the changed
+  module.
 
 - `timing`: added or changed test lines that compare an elapsed wall-clock or
   CPU time against a bound, or sleep and then assert, print
@@ -409,7 +417,7 @@ test-tier command:
   Per-file lines come from a progress adapter where the runner's reporter
   provides them: `bun test` (its `<file>:` headers) is the only adapter today;
   a one-file run (each serial file) reports its file from the launch for any
-  runner. Other runners (node --test, vitest, jest, pytest, flutter test, dart test, cargo test) get heartbeats
+  runner. Other runners (node --test, vitest, jest, pytest, playwright test, flutter test, dart test, cargo test) get heartbeats
   only. A heartbeat follows each 60 s with no progress line;
 - is killed as **stalled** when its log does not grow for the stall timeout
   (`--stall-timeout <s>`, else `stall_timeout_s`, else 300; `0` disables): the

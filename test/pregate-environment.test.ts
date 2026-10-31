@@ -12,8 +12,11 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
+import { planRuns } from '../lib/pregate/checks/lanes';
+import { DEFAULT_CONFIG } from '../lib/pregate/config';
 import { classifyCommandEnvironment, classifyEnvironment, commandBinary } from '../lib/pregate/environment';
 import { verifyPregate } from '../lib/pregate/index';
+import type { PregateContext } from '../lib/pregate/types';
 import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -168,6 +171,81 @@ describe('environment failures are reported apart from diff failures', () => {
     pregate(only, ['--only', 'guards']);
     const o = check(only, 'guards');
     expect([o.status, o.code, o.cause, o.environment.kind]).toEqual(['incomplete', 'PREGATE_ENVIRONMENT', 'environment', 'missing-binary']);
+  });
+});
+
+describe('a detected pytest runner needs pytest importable by python3', () => {
+  const PY_TEST = { 'tests/test_alpha.py': 'import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1 + 1, 2)\n' };
+  /** A directory holding only a `python3` whose `-c` probe exits `probeExit` (0: pytest importable, 1: not). */
+  const python3Shim = (repo: FixtureRepo, probeExit: number): string => {
+    const dir = path.join(repo.root, `py-${probeExit}`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'python3'), `#!/bin/sh\n[ "$1" = "-c" ] && exit ${probeExit}\necho "unexpected: python3 $*"\nexit 3\n`, { mode: 0o755 });
+    return dir;
+  };
+  const ctxFor = (repo: FixtureRepo, PATH: string) => ({ repoRoot: repo.work, config: DEFAULT_CONFIG, env: { PATH } }) as unknown as PregateContext;
+
+  // Value: protects=a `.py` selection plans `python3 -m pytest` only when python3 can import pytest; otherwise the tool to install is
+  //   named (`pytest`, or `python3` when it is off PATH) and the file is unclaimed; fails_when=the pytest branch plans the runner
+  //   unchecked again (#3598); why_new=pnpm/cargo/dart had a pre-run check, pytest none; seam=none; no_claim=a real pytest install
+  test('plans pytest when python3 imports it, else names pytest or python3 as missing', () => {
+    const repo = makeFixtureRepo({ pregate: null, baseFiles: PY_TEST }); repos.push(repo);
+    const files = ['tests/test_alpha.py'];
+    expect(planRuns(ctxFor(repo, python3Shim(repo, 0)), files)).toEqual({ groups: [{ runner: 'python3 -m pytest {files}', cwd: '', files }], unclaimed: [], missing: [], noPubspec: [] });
+    expect(planRuns(ctxFor(repo, python3Shim(repo, 1)), files)).toEqual({ groups: [], unclaimed: files, missing: ['pytest'], noPubspec: [] });
+    expect(planRuns(ctxFor(repo, path.join(repo.root, 'empty-path')), files)).toEqual({ groups: [], unclaimed: files, missing: ['python3'], noPubspec: [] });
+  });
+
+  // Value: protects=the reported case end to end: a machine without pytest gets PREGATE_ENVIRONMENT missing-binary naming pytest and
+  //   "the diff is not at fault", and the lane never runs; fails_when=it is PREGATE_LANE_FAILED with "fix the in-branch failure"
+  //   (#3598); why_new=no pytest environment case existed; seam=none; no_claim=a real pytest install
+  test('a machine without pytest is PREGATE_ENVIRONMENT naming pytest, never PREGATE_LANE_FAILED', () => {
+    const repo = makeFixtureRepo({ pregate: null, baseFiles: PY_TEST }); repos.push(repo);
+    commit(repo, { 'tests/test_alpha.py': `${PY_TEST['tests/test_alpha.py']}# touched\n` });
+    const r = runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--stage', 'tests', '--only', 'lanes'], { PATH: `${python3Shim(repo, 1)}:${process.env.PATH ?? ''}` });
+    expect(r.err).toContain('(PREGATE_ENVIRONMENT)');
+    expect(r.err).not.toContain('PREGATE_LANE_FAILED');
+    expect(r.out).not.toContain('unexpected: python3');
+    const c = check(repo, 'lanes');
+    expect([c.status, c.code, c.cause, c.environment.kind]).toEqual(['incomplete', 'PREGATE_ENVIRONMENT', 'environment', 'missing-binary']);
+    expect(c.environment.evidence).toContain('pytest');
+    expect(c.fix).toContain('install pytest');
+    expect(c.fix).toContain('the diff is not at fault');
+  });
+});
+
+describe('Playwright without its browsers is the machine, not the diff', () => {
+  const SPEC = { 'package.json': JSON.stringify({ name: 'fixture', devDependencies: { '@playwright/test': '^1.48.0' } }) + '\n', 'tests/e2e/home.spec.ts': "import { test } from '@playwright/test';\ntest('home', async ({ page }) => { await page.goto('/'); });\ntest('about', async ({ page }) => { await page.goto('/about'); });\n" };
+  const NO_BROWSERS = ['Running 2 tests using 1 worker', '  x  1 tests/e2e/home.spec.ts:2:5 > home (12ms)', '  x  2 tests/e2e/home.spec.ts:3:5 > about (8ms)', '', '  1) tests/e2e/home.spec.ts:2:5 > home', "    Error: browserType.launch: Executable doesn't exist at /root/.cache/ms-playwright/chromium_headless_shell-1169/chrome-linux/headless_shell", '    Looks like Playwright Test or Playwright was just installed or updated.', '    Please run the following command to download new browsers:', '        npx playwright install', '  2 failed', '    tests/e2e/home.spec.ts:2:5 > home', '    tests/e2e/home.spec.ts:3:5 > about'];
+  const ASSERTION = ['Running 2 tests using 1 worker', '  1) tests/e2e/home.spec.ts:2:5 > home', '    Error: expect(received).toBe(expected)', '  1 failed', '    tests/e2e/home.spec.ts:2:5 > home', '  1 passed (2.0s)'];
+  /** An `npx` first on PATH (and again through BASH_ENV, since the lane puts its Bun's directory first) that prints `lines` and exits 1. */
+  const npxShim = (repo: FixtureRepo, lines: string[]) => {
+    const dir = path.join(repo.root, 'npx-shim');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'out.txt'), lines.join('\n') + '\n');
+    fs.writeFileSync(path.join(dir, 'npx'), `#!/bin/sh\ncat '${path.join(dir, 'out.txt')}'\nexit 1\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, 'path.sh'), `PATH='${dir}':"$PATH"\n`);
+    return { PATH: `${dir}:${process.env.PATH ?? ''}`, BASH_ENV: path.join(dir, 'path.sh') };
+  };
+
+  // Value: protects=a Playwright run whose every failure is a missing browser is PREGATE_ENVIRONMENT missing-binary naming
+  //   `npx playwright install`, while an ordinary assertion failure stays the diff's; fails_when=the browsers case is PREGATE_LANE_FAILED
+  //   "fix the in-branch failure" again (the #3598 misreading for Playwright); why_new=Playwright had no runner before #3629;
+  //   seam=none; no_claim=a real Playwright install
+  test('every test failing to launch its browser is PREGATE_ENVIRONMENT; an assertion failure is PREGATE_LANE_FAILED', () => {
+    const repo = makeFixtureRepo({ pregate: null, baseFiles: SPEC }); repos.push(repo);
+    commit(repo, { 'tests/e2e/home.spec.ts': `${SPEC['tests/e2e/home.spec.ts']}// touched\n` });
+    const args = ['--base', 'main', '--allow-repo-commands', '--stage', 'tests', '--only', 'lanes'];
+    const r = runBin(repo, 'gstack-pregate', args, npxShim(repo, NO_BROWSERS));
+    expect(r.err).toContain('(PREGATE_ENVIRONMENT)');
+    const c = check(repo, 'lanes');
+    expect([c.status, c.code, c.cause, c.environment.kind]).toEqual(['incomplete', 'PREGATE_ENVIRONMENT', 'environment', 'missing-binary']);
+    expect(c.environment.evidence).toContain('Playwright browsers not installed (npx playwright install)');
+    expect(c.lines.join('\n')).toContain('playwright test --reporter=list');
+    runBin(repo, 'gstack-pregate', args, npxShim(repo, ASSERTION));
+    const d = check(repo, 'lanes');
+    expect([d.status, d.code]).toEqual(['fail', 'PREGATE_LANE_FAILED']);
+    expect(d.detail).toContain('1 failed of 2 ran');
   });
 });
 
