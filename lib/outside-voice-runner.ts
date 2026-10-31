@@ -18,7 +18,9 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { classifyOutsideReview, type OutsideGate, type OutsideReviewClassification } from './outside-review-result';
+import { classifyOutsideReview, usageFromEvents, type OutsideGate, type OutsideReviewClassification, type TokenUsage } from './outside-review-result';
+
+export { usageFromEvents };
 
 export type RunnerId = 'codex-cli' | 'api' | 'host-subagent';
 export const RUNNER_IDS: readonly RunnerId[] = ['codex-cli', 'api', 'host-subagent'];
@@ -41,7 +43,7 @@ export interface RunnerRequest {
   binDir?: string;
 }
 export type RunnerStatus = 'completed' | 'unverified' | 'unavailable' | 'failed' | 'timeout' | 'cancelled';
-export interface RunnerUsage { input_tokens?: number; output_tokens?: number; usd: number | 'unknown' }
+export type RunnerUsage = TokenUsage;
 export interface RunnerResult {
   schema_version: 1; runner: RunnerId; status: RunnerStatus; model: string | null; family: ModelFamily;
   capabilities: RunnerCapabilities; input_sha256: string; output_sha256: string | null; output: string | null;
@@ -100,21 +102,6 @@ function classify(text: string, gate: OutsideGate, extra: { stderr?: string; exi
   const verdict = classifyOutsideReview({ text, gate, ...extra });
   const status: RunnerStatus = verdict.verdict === 'unavailable' ? 'unavailable' : verdict.verdict === 'unverified' ? 'unverified' : 'completed';
   return { status, verdict };
-}
-
-/** Token usage from `codex exec --json` events, read loosely: any object carrying usage counters. */
-export function usageFromEvents(events: string): RunnerUsage {
-  let input: number | undefined; let output: number | undefined;
-  for (const line of events.split('\n')) {
-    if (!line.trim()) continue;
-    let obj: any;
-    try { obj = JSON.parse(line); } catch { continue; }
-    const usage = obj?.usage ?? obj?.info?.total_token_usage ?? obj?.payload?.info?.total_token_usage ?? obj?.msg?.info?.total_token_usage;
-    if (!usage || typeof usage !== 'object') continue;
-    if (typeof usage.input_tokens === 'number') input = usage.input_tokens;
-    if (typeof usage.output_tokens === 'number') output = usage.output_tokens;
-  }
-  return { ...(input !== undefined ? { input_tokens: input } : {}), ...(output !== undefined ? { output_tokens: output } : {}), usd: 'unknown' };
 }
 
 // ---------------------------------------------------------------------------
