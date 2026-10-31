@@ -87,6 +87,13 @@ describe('pass manifest', () => {
     expect(m.readers[0]).toMatchObject({ state: 'created', path: '4' });
   });
 
+  // Value: protects=an unreadable extra prompt stops as a BriefError naming the reader; fails_when=a directory prompt_file throws a raw
+  //   EISDIR from the QA guard's read (GST-450 adversarial #4); seam=none
+  test('a directory extra prompt stops as an unreadable prompt file, not a raw read error', () => {
+    const d = manifest([spec('testing')], { extras: [{ name: 'plan', prompt_file: tmp('rp-qa-') }] });
+    expect(() => renderStage(d, 'specialists', texts, () => '')).toThrow(/cannot read audit\/plan's prompt file/);
+  });
+
   test('a brief over 1 MiB with invalid UTF-8 in its diff travels in bounded chunks that rejoin to the rendered sha', () => {
     const m = manifest([{ role: 'outside-voice', name: 'outside-voice', effort: 'host', exclude: [] }]);
     const diff = Buffer.concat([Buffer.from('+line \u00e9\n'.repeat(90_000)), Buffer.from([0xff, 0xfe, 0x0a]), Buffer.from('+"quoted" \\ back\n'.repeat(20_000))]).toString('utf8');
