@@ -869,7 +869,7 @@ describe('gstack-brain-sync per-file hold', () => {
 
     /** The restore command the status names, run as printed. */
     function recover(message: string) {
-      const m = /get them back: (git -C \S+ restore --source=([0-9a-f]{40}) -- .+?)\)/.exec(message);
+      const m = /get them back: (git -C \S+ --literal-pathspecs restore --source=([0-9a-f]{40}) -- .+?)\)/.exec(message);
       expect(m).not.toBeNull();
       const r = spawnSync('bash', ['-c', m![1]], { encoding: 'utf-8', timeout: 30_000 });
       expect(r.status).toBe(0);
@@ -943,6 +943,58 @@ describe('gstack-brain-sync per-file hold', () => {
       expect(fs.existsSync(path.join(tmpHome, SHARED))).toBe(false);
       expect(unmerged()).toBe('');
       recover(s.message);
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+    });
+
+    test('a conflicting file whose name looks like a pattern resets only itself', () => {
+      setup();
+      const GLOB = '[d]eveloper-profile.json';
+      peerCommit(GLOB, '# glob v1\n');
+      expect(git(['fetch', '-q', 'origin']).status).toBe(0);
+      expect(git(['merge', '-q', '--ff-only', 'origin/main']).status).toBe(0);
+      peerCommit(GLOB, '# glob from the peer\n');
+      write(GLOB, '# glob, local edit not queued\n', false);
+      write(SHARED, '# shared, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('ok');
+      expect(fs.readFileSync(path.join(tmpHome, GLOB), 'utf-8')).toBe('# glob from the peer\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+      recover(s.message);
+      expect(fs.readFileSync(path.join(tmpHome, GLOB), 'utf-8')).toBe('# glob, local edit not queued\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+    });
+
+    test('a file that never checks out clean does not strand the other local edits', () => {
+      setup();
+      const CRLF = 'projects/p/ceo-plans/crlf.md';
+      write(CRLF, '# crlf\r\nline\r\n');
+      expect(drain().status).toBe(0);
+      fs.mkdirSync(path.join(tmpHome, '.git', 'info'), { recursive: true });
+      fs.writeFileSync(path.join(tmpHome, '.git', 'info', 'attributes'), '*.md text eol=lf\n');
+      peerCommit(SHARED, '# shared from the peer\n');
+      write(OTHER, '# other, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('ok');
+      expect(remoteFiles()).toContain(CLEAN);
+      expect(fs.readFileSync(path.join(tmpHome, OTHER), 'utf-8')).toBe('# other, local edit not queued\n');
+      expect(git(['stash', 'list']).stdout.trim()).toBe('');
+    });
+
+    test('a stash push that saves nothing never pops an older stash entry', () => {
+      setup();
+      write(OTHER, '# other, older stashed work\n', false);
+      expect(git(['stash', 'push', '-q', '-m', 'older work']).status).toBe(0);
+      peerCommit(SHARED, '# shared from the peer\n');
+      write(SHARED, '# shared, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      const shim = gitShim('case " $* " in *" stash push "*) exit 0;; esac');
+      expect(drain(shim.env).status).toBe(0);
+      expect(statusJson().status).toBe('push_failed');
+      expect(git(['stash', 'list']).stdout).toContain('older work');
+      expect(fs.readFileSync(path.join(tmpHome, OTHER), 'utf-8')).toBe('# other v1\n');
       expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
     });
 
