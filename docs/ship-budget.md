@@ -81,7 +81,8 @@ reads `"this"` and starts with `--subagent --reading-from this --meter-scope tre
 `GSTACK_SHIP_SUBAGENT=1` in its brief): the run is tree-scoped, and every BUDGET, NOTE, BUDGET_FINAL
 and BUDGET_TIMELINE line it prints is followed by `METER: tree (root counter, upper bound)`. A
 subagent that asks for `--meter-scope self` while reading `"this"` is refused
-(`METER_SCOPE_PARENT`). Exact per-run cost comes from a root replay thread: a root thread that runs
+(`METER_SCOPE_PARENT`). A `--token-cap` on a tree-scoped run stops on that upper bound, so sibling
+lanes count against it. Exact per-run cost comes from a root replay thread: a root thread that runs
 only that /ship, whose `"this"` is its own counter. A root thread's own jam id is its `"this"`. A Capy handoff child cannot read its own jam id, so it
 verifies with no reading and prints `METER: parent`; the parent's handoff and reconcile readings,
 taken on its own counter (which holds the child), measure it.

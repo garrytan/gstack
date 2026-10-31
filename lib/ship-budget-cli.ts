@@ -477,7 +477,7 @@ function rebuildLedger(file: string, record: string | undefined, ctx: Ctx, o: Op
     meter: { contract: METER_CONTRACTS[meter], epoch: num('epoch') + 1, baseline: meter === 'capy' ? reading! : 0, last: meter === 'capy' ? reading! : null },
     epochs: [], carried_used: num('used'), estimate_used: 0, unknown: num('unknown') + num('reserved'), next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     ...(() => { try { return { marker: reviewPaths(ctx.cwd, ctx.env).marker, review_log: reviewPaths(ctx.cwd, ctx.env).reviewLog }; } catch { return {}; } })(),
-    ...(b.mode === 'observe' ? { mode: 'observe' as const } : {}),
+    ...(b.mode === 'observe' ? { mode: 'observe' as const } : {}), ...(b.meter_scope === 'tree' ? { meter_scope: 'tree' as const } : {}),
   };
   if (meter === 'estimate') l.estimate_used = 0;
   fs.mkdirSync(l.dir, { recursive: true, mode: 0o700 });

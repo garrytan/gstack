@@ -477,7 +477,7 @@ export function recordBlock(l: Ledger): string {
   const t = tally(l);
   const open = l.handoffs.filter(h => !h.reconciled_at).map(h => h.sha).join(',') || 'none';
   const credits = creditsUsed(l);
-  return `run=${l.run} ledger=${l.file} role=${l.role} cap=${l.cap ?? 'none'} tail=${l.tail} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} baseline=${l.meter.baseline} used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} stop=${l.stopped?.reason ?? 'none'} handoff=${open}${l.mode === 'observe' ? ' mode=observe' : ''}`;
+  return `run=${l.run} ledger=${l.file} role=${l.role} cap=${l.cap ?? 'none'} tail=${l.tail} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} baseline=${l.meter.baseline} used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} stop=${l.stopped?.reason ?? 'none'} handoff=${open}${l.mode === 'observe' ? ' mode=observe' : ''}${l.meter_scope === 'tree' ? ' meter_scope=tree' : ''}`;
 }
 
 /** The record's fenced gstack-budget block: written by the bin, never by the agent. */

@@ -73,6 +73,24 @@ describe('meter scope (GST-467)', () => {
     }
   });
 
+  // Value: protects=a tree run rebuilt from its record after a lost ledger keeps the label; fails_when=the record block drops meter_scope or rebuildLedger does not restore it (red-team, ship gst467-p1);
+  //   why_new=the cases above never lose the ledger; seam=none; no_claim=checkpoint restore, which copies the whole ledger
+  test('a tree run rebuilt from its record still labels its cost lines', () => {
+    const h = fresh();
+    const record = h.record();
+    const s = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1000000', '--meter-scope', 'tree']);
+    const ledger = h.field(s.out, 'BUDGET_RUN', 'ledger');
+    fs.writeFileSync(ledger, '{"kind": "gstack-ship-budget", oops');
+    const rebuilt = h.sb(['resume', '--record', record, '--rebuild-from-record', '--reading', '1500000']);
+    expect(rebuilt.out, rebuilt.out + rebuilt.err).toContain('REBUILT:');
+    const close = h.sb(['close', '--record', record, '--reading', '2000000']);
+    for (const out of [rebuilt, close]) {
+      const labels = costLinesLabeled(out.out);
+      expect(labels.length, out.out).toBeGreaterThan(0);
+      expect(labels.every(Boolean), out.out).toBe(true);
+    }
+  });
+
   // Value: protects=a subagent cannot claim its own cost while reading the root counter; fails_when=start accepts --meter-scope self from a subagent metering "this", or the refusal lacks its code and fix;
   //   why_new=GST-467; seam=none; no_claim=whether the brief sets the subagent flag
   test('a subagent metering "this" that asks for a self scope is refused with METER_SCOPE_PARENT and a fix', () => {
