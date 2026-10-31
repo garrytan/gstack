@@ -1626,6 +1626,23 @@ describe('check-freeze.sh', () => {
       });
     });
 
+    // Windows reads a link target of '\\x' against the link's drive root and
+    // 'C:x' against drive C's own working directory; normalized as /x or C:/x,
+    // either read as inside while the write landed elsewhere.
+    test.skipIf(process.platform === 'win32')('Windows bash: a link target relative to a drive or its root denies, fail closed', () => {
+      withTree(({ home, src }) => {
+        fs.symlinkSync(src.split('/').join('\\'), path.join(src, 'rootrel'));
+        fs.symlinkSync('C:x', path.join(src, 'driverel'));
+        fs.symlinkSync('\\', path.join(src, 'bare'));
+        fs.mkdirSync(path.join(src, 'real'));
+        fs.symlinkSync(path.join(src, 'real'), path.join(src, 'fwd'));
+        expect(decideOnWindowsBash(src, src + '/rootrel/x.ts', home, src)).toBe('deny');
+        expect(decideOnWindowsBash(src, src + '/driverel/x.ts', home, src)).toBe('deny');
+        expect(decideOnWindowsBash(src, src + '/bare' + src + '/x.ts', home, src)).toBe('deny');
+        expect(decideOnWindowsBash(src, src + '/fwd/x.ts', home, src)).toBe('allow');
+      });
+    });
+
     // On POSIX '\\' is a filename character, so a name that spells '..' with
     // backslashes is one directory, not a way back into the boundary.
     test.skipIf(process.platform === 'win32')('a POSIX backslash name that spells dotdot never counts as inside', () => {

@@ -233,9 +233,10 @@ esac
 #      POSIX file name. On a POSIX host a Windows path names no local file,
 #      so it is resolved as text and no local symlink is followed.
 # Returns 1 for a symlink loop, a chain over 40 links, an unreadable or
-# line-broken link, link targets that add up past 8192 characters with the
-# path (the walk is quadratic, so its total input stays bounded), or an
-# unplaceable Windows name; the caller fails closed.
+# line-broken link, a Windows link target relative to a drive or its root,
+# link targets that add up past 8192 characters with the path (the walk is
+# quadratic, so its total input stays bounded), or an unplaceable Windows
+# name; the caller fails closed.
 _resolve_path() {
   local _rem="$1" _win="${3:-0}" _lead="" _cur="" _n=0 _min=0 _reroot=1
   local _part _tgt _p _tail="" _hops=0 _probe=1 _budget="${#1}"
@@ -286,6 +287,7 @@ _resolve_path() {
     _tgt="${_tgt%x}"; _tgt="${_tgt%"$_FREEZE_NL"}"
     case "$_tgt" in ''|*"$_FREEZE_NL"*|*"$_FREEZE_CR"*) return 1 ;; esac
     if [ "$_win" = 1 ]; then
+      case "$_tgt" in [A-Za-z]:|[A-Za-z]:[!\\/]*|\\|\\[!\\]*) return 1 ;; esac
       gstack_hook_normalize_path "$_tgt"
       _tgt="$GSTACK_HOOK_PATH"
     fi
@@ -319,7 +321,7 @@ _resolve_path() {
   printf '%s' "$GSTACK_HOOK_PATH"
 }
 
-_FREEZE_WHY="a symlink loop, a chain over 40 links, a path and link targets over 8192 characters in all, an unreadable link, or a Windows name that cannot be placed"
+_FREEZE_WHY="a symlink loop, a chain over 40 links, a path and link targets over 8192 characters in all, an unreadable link, a Windows link target relative to a drive or its root, or a Windows name that cannot be placed"
 FREEZE_DIR_RAW="$FREEZE_DIR"
 FREEZE_DIR=$(_resolve_path "$FREEZE_DIR_RAW" physical "$FREEZE_DIR_WIN") || _freeze_unresolved "the freeze boundary $FREEZE_DIR_RAW" "$_FREEZE_WHY"
 # Hosts disagree on '<link>/..': the OS means the target's parent, a lexical
