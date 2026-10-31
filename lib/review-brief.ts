@@ -12,13 +12,15 @@
  *   adversarial-native  diff_base
  *   outside-voice       diff_base, diff (the branch diff, which the bin reads from git)
  *   fix-check           fix_list, hunks, tests, callers (scripts/resolvers/fix-check.ts)
+ *   targeted            classes, brief (review/specialists/targeted.md's text), checklist (its path), diff_base, stack, test_fw, learnings
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
+import { parseClassList, targetedBrief } from './review-targeted';
 
-export const BRIEF_ROLES = ['specialist', 'specialist-batched', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check'] as const;
+export const BRIEF_ROLES = ['specialist', 'specialist-batched', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', 'targeted'] as const;
 export type BriefRole = typeof BRIEF_ROLES[number];
 export type Slots = Record<string, string | undefined>;
 
@@ -118,6 +120,14 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
     case 'outside-voice': {
       const body = fill(t.outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
       return [body, '', `## Branch diff (git diff ${diffBase})`, FENCE + 'diff', (slots.diff ?? '').trim(), FENCE].join('\n');
+    }
+    case 'targeted': {
+      const classes = parseClassList(need(slots, 'classes'));
+      if (!classes?.length) throw new BriefError(`slot classes must list money, gate, auth or secret, got ${JSON.stringify(slots.classes)}`);
+      let brief: string;
+      try { brief = targetedBrief(need(slots, 'brief'), classes); } catch (e) { throw new BriefError((e as Error).message); }
+      const body = fill(t.specialist, [['Read the checklist at {checklist path}', `Read the targeted brief above (${need(slots, 'checklist')}: ${classes.join(', ')})`]], role);
+      return `${brief}\n\n${common(body, '')}`;
     }
     case 'fix-check':
       return renderFixCheckPrompt({ fixList: need(slots, 'fix_list'), touchedHunks: need(slots, 'hunks'), testResults: need(slots, 'tests'), callers: slots.callers ?? '' });

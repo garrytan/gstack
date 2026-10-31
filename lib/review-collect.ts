@@ -22,6 +22,8 @@ export interface Collected extends ClassInput {
   stampOnly: string[];
   /** Added lines per path, for scanNumbers. */
   added: Record<string, string[]>;
+  /** Deleted lines per path, for the targeted classes (lib/review-targeted.ts). */
+  removed: Record<string, string[]>;
   diffLines: number;
   mergeBase: string | null;
   untracked: string[];
@@ -52,11 +54,11 @@ export function loadRegistryAt(root: string, sha: string): RegistryInfo {
 }
 
 /** Numstat, deletions and the -U0 patch for `range` (`[mergeBase, head]` or `[mergeBase]` for the working tree). */
-function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'added'> {
+function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'added' | 'removed'> {
   const numstat = git(root, ['diff', '--numstat', '-z', '--no-renames', ...range]);
   const status = git(root, ['diff', '--name-status', '-z', '--no-renames', '--diff-filter=D', ...range]);
   const patch = git(root, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-renames', ...range]);
-  const empty = { perPath: [], deleted: [], stampOnly: [], added: {} };
+  const empty = { perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} };
   for (const [r, what] of [[numstat, '--numstat'], [status, '--name-status'], [patch, '-U0']] as const) {
     if (!r.ok) { errors.push({ code: 'numstat_failed', detail: oneLine(r.err || 'git diff failed'), input: `git diff ${what} ${range.join(' ')}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' }); return empty; }
   }
@@ -69,6 +71,7 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
   const statusParts = status.out.split('\0');
   const deleted = statusParts.flatMap((s, k) => (s === 'D' && statusParts[k + 1] ? [statusParts[k + 1]!] : [])).filter(p => !scratch(p));
   const added: Record<string, string[]> = {};
+  const removed: Record<string, string[]> = {};
   const changed: Record<string, string[]> = {};
   let cur = '';
   let minus = '';
@@ -83,10 +86,11 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
     }
     if (!cur || scratch(cur) || line.startsWith('@@')) continue;
     if (line[0] === '+') (added[cur] ??= []).push(line.slice(1));
+    if (line[0] === '-') (removed[cur] ??= []).push(line.slice(1));
     if (line[0] === '+' || line[0] === '-') (changed[cur] ??= []).push(line);
   }
   const stampOnly = perPath.map(e => e.path).filter(p => p.endsWith('package.json') && !!changed[p]?.length && changed[p]!.every(l => /^[+-]\s*"version"\s*:\s*"[^"]*"\s*,?\s*$/.test(l)));
-  return { perPath, deleted, stampOnly, added };
+  return { perPath, deleted, stampOnly, added, removed };
 }
 
 /** More data candidates than this keep every data file code: the consumer scan is not run. */
@@ -154,7 +158,7 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
   const mb = git(root, ['merge-base', baseSha, headSha]);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || 'no merge base'), input: `git merge-base ${baseSha} ${headSha}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' });
-    return result({ perPath: [], deleted: [], stampOnly: [], added: {} }, { root: [], registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
+    return result({ perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} }, { root: [], registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase, headSha], errors);
@@ -172,7 +176,7 @@ export function collectLive(root: string, base: string): Collected {
   const mb = git(root, ['merge-base', ref, 'HEAD']);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || `no merge base with ${ref}`), input: `git merge-base ${ref} HEAD`, repair: `fetch the base first (git fetch origin ${base})` });
-    return result({ perPath: [], deleted: [], stampOnly: [], added: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
+    return result({ perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase], errors);

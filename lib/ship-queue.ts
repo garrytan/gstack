@@ -271,6 +271,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     gateLine(policy, attempt),
     receipt.line,
     ...(receipt.depthLine ? [receipt.depthLine] : []),
+    ...(receipt.targetedLine ? [receipt.targetedLine] : []),
   ];
   const gate = policy.policy.full_e2e ? gateEvidence(ctx, o.pr, head, attempt, o.gateExit, o.gateLog) : null;
   if (gate) lines.push(gate.line);

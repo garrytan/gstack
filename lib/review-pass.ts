@@ -16,6 +16,7 @@ import * as path from 'node:path';
 import { BriefError, briefFile, promptHash, renderBrief, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { appendEvent, readerKey } from './review-ledger';
 import { diffCommand, type Dispatch } from './review-depth';
+import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from './review-targeted';
 
 export const STAGES = ['first', 'specialists', 'red-team', 'voices'] as const;
 export type Stage = typeof STAGES[number];
@@ -25,6 +26,8 @@ export interface PassModel { model_id: string; reasoning_mode?: string }
 export interface PassReader {
   reader: string; stage: Stage; title: string; state: ReaderState;
   role?: BriefRole; name?: string; effort?: string; exclude?: string; checklists?: string[];
+  /** The targeted reader: the plan's TARGETED classes and the merge base it reads on every pass. */
+  classes?: string[]; diff_base?: string;
   /** An audit or QA reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
   prompt_file?: string; model?: PassModel;
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
@@ -63,12 +66,13 @@ export function detectTestFw(root: string): string {
 }
 
 const safe = (reader: string) => reader.replace(/[^a-zA-Z0-9._-]/g, '_');
-const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'red-team': 'red-team', 'adversarial-native': 'voices', 'outside-voice': 'voices' };
+const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'red-team': 'red-team', 'adversarial-native': 'voices', 'outside-voice': 'voices', targeted: 'voices' };
 
 /** The manifest for one pass from the plan's dispatches. A fix-check is not part of a pass, so it is refused. */
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
   dispatches: Dispatch[]; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
+  targetedClasses?: readonly string[]; mergeBase?: string;
 }): Manifest {
   const readers: PassReader[] = [];
   for (const d of o.dispatches) {
@@ -78,7 +82,8 @@ export function buildManifest(o: {
     const name = role === 'specialist' ? d.name : undefined;
     const reader = readerKey(role, name);
     const exclude = d.exclude.length ? diffCommand(d).slice('git diff <diff-base> '.length) : undefined;
-    readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists });
+    readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists,
+      ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}) });
   }
   for (const e of o.extras ?? []) {
     if (!/^[a-z0-9-]+$/.test(e.name)) throw new BriefError(`an audit reader's name is lowercase letters, digits and dashes: ${e.name}`);
@@ -142,12 +147,20 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       Object.assign(slots, { checklist: path.join(m.checklist_root, 'review/specialists/red-team.md'), findings, specialists: String(specialists) });
     }
     if (role === 'outside-voice') slots.diff = diffFor(m.diff_base);
+    let targeted = {};
+    if (role === 'targeted') {
+      const checklist = path.join(m.checklist_root, 'review/specialists/targeted.md');
+      let brief: string;
+      try { brief = fs.readFileSync(checklist, 'utf8'); } catch { throw new BriefError(`cannot read the targeted brief ${checklist}`); }
+      Object.assign(slots, { checklist, brief, classes: (r.classes ?? []).join(','), diff_base: r.diff_base ?? m.diff_base });
+      targeted = { classes: parseClassList(slots.classes!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: slots.diff_base, patch_id: targetedPatchId(process.cwd(), slots.diff_base!) };
+    }
     const text = renderBrief(role, slots, t);
     const file = path.join(briefs, briefFile(role, r.name));
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
+    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted });
     Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }
