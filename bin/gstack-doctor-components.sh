@@ -347,6 +347,7 @@ gstack_result_anchor() {
     PREREG_INCOMPLETE) printf '%s' 'prereg-incomplete' ;;
     PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
+    EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
     *) return 1 ;;
   esac

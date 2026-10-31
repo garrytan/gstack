@@ -1676,9 +1676,10 @@ own attempts. The arm gets:
 
 **Reporting.** The no-gstack result is one row beside the variants in every
 results table and every verdict, including when it wins. A comparison that
-drops the row has not reported its result. The prereg check cannot see the
-report, so the `report:` line states where the row goes and the reviewer of
-the result holds the author to it.
+drops the row has not reported its result. `gstack-eval-plan results --check
+<prereg> <results.md>` enforces it: one table in the results file must hold a
+filled row for every Arms identity (`EVAL_REPORT_NO_GSTACK_ROW` otherwise), and
+no number is published before it passes.
 
 **Precedent and its gaps.** `test/helpers/arm-benchmark-harness.ts` already has
 a `without-skill` arm beside `with-skill`, and it is the closest existing
