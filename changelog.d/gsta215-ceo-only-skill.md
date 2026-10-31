@@ -5,3 +5,6 @@
 - **`--no-outside`** with `--ceo-only` skips the outside voice, so one model does the whole review.
 - **`gstack-ceo-mode-handoff --ceo-only`** prints `Auto-selected review mode → <mode> (CEO-only run: Step 0E's rule)` instead of crediting a saved preference.
 - **`status=reviewed`** joins the `GSTACK_RESULT` statuses (`docs/unattended.md`, "CEO-only runs").
+
+### For contributors
+- The paid case `autoplan-ceo-only` fails if the mode asks anything, skips a later phase's file, or leaves new files in HOME outside its folders. It takes 6 to 16 minutes, so it runs in the weekly marathon lane, not on autoplan PRs. The mode needs Claude Code for now.
