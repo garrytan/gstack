@@ -447,7 +447,9 @@ describe("NEEDS_ASIDE: Darwin download pitch detector", () => {
     expect(red.text).toContain('Aside runs on macOS 15+ and can be downloaded at aside.com');
     expect(asideDownloadPitchCount(red.text)).toBe(1);
     for (const text of ['Aside cannot be downloaded at aside.com on Linux.', 'The policy says Aside can be downloaded at aside.com, but this is Linux.',
-      "Aside can't be downloaded at aside.com here.", 'I skipped the line about how it can be downloaded at aside.com.'])
+      "Aside can't be downloaded at aside.com here.", 'I skipped the line about how it can be downloaded at aside.com.',
+      'Aside is not something that can be downloaded at aside.com.', 'It no longer can be downloaded at aside.com.',
+      "It isn't a tool that can be downloaded at aside.com on Linux."])
       expect(asideDownloadPitchCount(text), text).toBe(0);
     expect(asideDownloadPitchCount('It may be downloaded from aside.com (macOS 15+); open, sign in, re-run.')).toBe(1);
   });

@@ -363,8 +363,7 @@ describe('Claude Code restricted execution', () => {
       expect(result.error?.code).toBe('output-drain');
       expect(Date.now() - start).toBeLessThan(2000);
     } finally {
-      const pid = Number(readFileSync(PID, 'utf8'));
-      if (running(pid)) process.kill(pid, 'SIGKILL');
+      cleanupDescendant();
     }
   });
 

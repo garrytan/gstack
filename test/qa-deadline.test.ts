@@ -437,6 +437,19 @@ test('internal worker relays every guard receipt before its containment process 
   expect(cli(['--receipt-worker', 'status', f.receipt]).status).toBe(2);
 });
 
+test('a receipt worker whose parent never acks exits 2 after sending every receipt', async () => {
+  const f = fixture();
+  expect(cli(['start', f.receipt, '30']).status).toBe(0);
+  const worker = spawn(process.execPath, [CLI, '--receipt-worker', 'run', f.receipt, '--', process.execPath, '-e', 'process.exit(17)'], {
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+  });
+  const messages: any[] = [];
+  worker.on('message', message => messages.push(message));
+  const code = await new Promise<number | null>(resolve => worker.once('close', resolve));
+  expect(code).toBe(2);
+  expect(messages.map(message => message.receipt.event)).toEqual(['started', 'finished']);
+}, 15_000);
+
 test('completion classification and observedAt use the same pre-cleanup instant', () => {
   const f = fixture();
   expect(cli(['start', f.receipt, '30']).status).toBe(0);
