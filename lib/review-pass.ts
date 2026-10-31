@@ -3,7 +3,7 @@
  *
  * gstack-review-dispatch pass turns gstack-review-plan's dispatches into a manifest: stage `first`
  * (audit readers that may write tests, so they settle before any reviewer reads the tree), stage
- * `specialists` (the specialists, plus the other audit and QA readers), stage `red-team` and stage
+ * `specialists` (the specialists, plus the other audit readers), stage `red-team` and stage
  * `voices` (Step 11). Each reviewer keeps its plan entry (role, effort, exclusions) and is rendered
  * once, when its inputs exist, by lib/review-brief.ts; the Red Team's findings file is the
  * specialists' merged.jsonl lines, byte for byte. Briefs travel to the dispatch program in bounded
@@ -28,7 +28,7 @@ export interface PassReader {
   role?: BriefRole; name?: string; effort?: string; exclude?: string; checklists?: string[];
   /** The targeted reader: the plan's TARGETED classes and the merge base it reads on every pass. */
   classes?: string[]; diff_base?: string;
-  /** An audit or QA reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
+  /** An audit reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
   prompt_file?: string; model?: PassModel;
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
   path?: string; output?: string; error?: string; state_at?: string;
@@ -40,6 +40,9 @@ export interface Manifest {
   log_starts?: Record<string, string>;
 }
 export interface Extra { name: string; prompt_file: string; first?: boolean; model?: PassModel }
+/** Step 9.2.1's own first line: its probes are the parent's, so a QA subagent only refuses (C4-36, C5-36: "parent-only"). */
+export const PARENT_ONLY_QA = 'Only the parent runs report-only discovery.';
+const qaRefusal = (name: string) => new BriefError(`Step 9.2.1 is the parent's report-only discovery (ship/sections/review-army.md: "${PARENT_ONLY_QA}"), never an audit reader: ${name}`);
 
 /** Brief characters per transport chunk: even with every character escaped, one chunk line stays far under 1 MiB. */
 export const CHUNK_CHARS = 65_536;
@@ -87,6 +90,9 @@ export function buildManifest(o: {
   }
   for (const e of o.extras ?? []) {
     if (!/^[a-z0-9-]+$/.test(e.name)) throw new BriefError(`an audit reader's name is lowercase letters, digits and dashes: ${e.name}`);
+    let brief = '';
+    try { brief = fs.readFileSync(e.prompt_file, 'utf8'); } catch { brief = ''; }
+    if (/(^|-)qa(-|$)/.test(e.name) || brief.includes(PARENT_ONLY_QA)) throw qaRefusal(e.name);
     readers.push({ reader: `audit/${e.name}`, stage: e.first ? 'first' : 'specialists', title: `ship ${o.pass} audit/${e.name}`, state: 'planned', prompt_file: path.resolve(e.prompt_file), model: e.model });
   }
   if (new Set(readers.map(r => r.reader)).size !== readers.length) throw new BriefError('two readers share a key in this pass');

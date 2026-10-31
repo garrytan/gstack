@@ -207,14 +207,35 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(flat(read('ship/sections/budget-handoff.md.tmpl'))).toContain('the wait until the last settles (`done`, `failed` or a final summary; a fresh `idle` has not run)');
   });
 
-  // Value: protects=audits that cannot block (Steps 7, 8, 9.2.1, 14.5) run on a small model at low effort with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
+  // Value: protects=audits that cannot block (Steps 7, 8, 14.5) run on a small model at low effort with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
   //   why_new=audit model routing is new; seam=none; no_claim=the audits' recall
   test('audit readers run on a small model at low effort, named for Capy, and Phase 3 dispatches only what READER names', () => {
-    expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 9.2.1, 14.5) cannot block, so each runs on a small model at low effort; their findings go to the PR body');
+    expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 14.5) cannot block, so each runs on a small model at low effort; their findings go to the PR body');
     expect(flat(doc)).toContain('`Coverage:` and Step 8\'s line come from `--audit` when no reader ran');
     const capy = read('capy/skill/gstack/SKILL.md');
     expect(capy).toContain('model: { model_id: "anthropic/claude-sonnet-5-5", reasoning_mode: "low" }');
     expect(capy).toContain('`anthropic/claude-haiku-5-5` also fits');
+  });
+
+  // Value: protects=Step 9.2.1's report-only probes run in the parent's own Phase 4 program, as the section says, with its Reads in Phase 3, and
+  //   their result line reaches the record, at no extra call; fails_when=the driver or the Capy skill sends Step 9.2.1 out as a QA reader
+  //   (C4-36, C5-36: it refused both passes, "parent-only", and QA coverage was empty), the probes leave the record, or they take their own call;
+  //   why_new=#3648 made Step 9.2.1 a reader (GST-450); seam=none; no_claim=the probes' recall
+  test('Step 9.2.1 is the parent\'s: Reads in Phase 3, probes in Phase 4\'s one program, Exploratory QA in the record, never an extra', () => {
+    const f = flat(doc);
+    const phase = (n: number) => f.slice(f.indexOf(`## ${n}. `), f.indexOf(`## ${n + 1}. `));
+    expect(phase(3)).not.toMatch(/QA reader/);
+    expect(phase(3)).toContain("9.2.1's Reads only");
+    expect(phase(4)).toContain("Step 8.1, 9.2.1's probes, 8.2 (`Scope Check:`)");
+    const at = ['Step 8.1', "9.2.1's probes", '8.2 (`Scope Check:`)', 'Steps 9.3, 9.4 and the repeat decision'].map(s => phase(4).indexOf(s));
+    expect(at[0]).toBeGreaterThanOrEqual(0);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(phase(4)).toContain('one program');
+    expect(f).toContain('the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions**');
+    const capy = flat(read('capy/skill/gstack/SKILL.md'));
+    expect(capy).toContain('Steps 7 and 8 go in `extras`');
+    expect(capy).not.toMatch(/9\.2\.1[^.]*`extras`/);
+    expect(flat(read('ship/sections/review-army.md'))).toContain('### Step 9.2.1: Exploratory QA (before Fix-First) Only the parent runs report-only discovery.');
   });
 
   // Value: protects=a driven /ship dispatches every blocking reader on its rendered brief file unchanged, checks it with `sent`, merges findings only through `collect`, gates judgment with `judge` and verifies the run before the bind; fails_when=the driver lets the model write or trim a brief again or merge findings in prose (round 4b: arm D lost 8 blockers with 75 of 112 briefs paraphrased);

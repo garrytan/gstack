@@ -16,7 +16,7 @@ up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at t
 there, come back. Unattended, a question with a recommended option takes it (log it); a gate
 disposition and every approval stay pending and end the run. Keep a private invocation record (the
 `--record` file): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
-(Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Scope Check:`), **Decisions** (any
+(Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions** (any
 phase: each answered or auto-taken question, in its words), **Reviews** (Phases 3-5: the plan line,
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
 version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (every phase: the next act).
@@ -25,7 +25,7 @@ version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (
 outside-voice and documentation brief, its severity and confidence rules and its gates come from its
 section verbatim, with only its placeholders filled; this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
-file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 9.2.1, 14.5) cannot block, so each runs on a
+file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 14.5) cannot block, so each runs on a
 small model at low effort; their findings go to the PR body.
 
 **Calls.** One pass with no fixes is 9 calls: Phases 1-8 and the report; at most 12 with a STOP's
@@ -77,14 +77,14 @@ Never read TODOS.md or the full diff into the parent. A `PERSIST:` hint never re
 ## 3. Audits and review: Steps 7, 8, 9, 9.1, 9.2, 9.2.1
 
 One program: the audit readers `READER:` names (Step 7 from `sections/test-coverage.md`, Step 8 from
-`sections/plan-completion.md`, each run as written; Step 7 may write tests, so it settles first), Step 9.2.1's QA reader (that step of
-`sections/review-army.md` as its brief) and the pass (above): Step 9's plan and start, Step 9.1's
-specialists and Step 9.2's Red Team as written. `Coverage:` and Step 8's line come from `--audit` when no
+`sections/plan-completion.md`, each run as written; Step 7 may write tests, so it settles first), 9.2.1's Reads only and the pass
+(above): Step 9's plan and start, Step 9.1's specialists and 9.2's Red Team from
+`sections/review-army.md` as written. `Coverage:` and Step 8's line come from `--audit` when no
 reader ran.
 
 ## 4. Judgment: Steps 8.1, 8.2, 9.3, 9.4 and Step 11
 
-Steps 8.1 and 8.2 (`Scope Check:`) on the todos and commits files, then the core checklist, Steps
+Step 8.1, 9.2.1's probes, 8.2 (`Scope Check:`) on the todos and commits files, then the core checklist, Steps
 9.3, 9.4 and the repeat decision as written (`gstack-review-plan` included;
 `JUDGMENT: ok` before any fix), fixes and persistence in
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or
