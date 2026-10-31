@@ -53,8 +53,8 @@ export function declaredVerify(claudeMd: string): string | null {
   return null;
 }
 
-/** The '## Health Stack' section (/health's own format): '- key: command' rows. 'test' and 'tests' are left to pregate; a repeated key gets -2, -3 so every check has its own name. */
-export function healthStack(claudeMd: string): Check[] {
+/** The '## Health Stack' section (/health's own format): '- key: command' rows. 'test' and 'tests' are left to pregate unless keepTests (/health scores them); a repeated key gets -2, -3 so every check has its own name. */
+export function healthStack(claudeMd: string, keepTests = false): Check[] {
   const lines = claudeMd.split('\n');
   const start = lines.findIndex(l => /^##\s+Health Stack\s*$/.test(l));
   if (start < 0) return [];
@@ -64,7 +64,7 @@ export function healthStack(claudeMd: string): Check[] {
   for (const line of lines.slice(start + 1)) {
     if (/^#{1,6}\s/.test(line)) break;
     const m = /^\s*[-*]\s*([A-Za-z0-9_-]+):\s*(.+?)\s*$/.exec(line);
-    if (!m || ['test', TESTS].includes(m[1].toLowerCase())) continue;
+    if (!m || (!keepTests && ['test', TESTS].includes(m[1].toLowerCase()))) continue;
     const key = m[1].toLowerCase();
     let n = seen.get(key) ?? 0;
     let name = key;
@@ -125,6 +125,54 @@ export function detectChecks(root: string): Check[] {
     const script = /^(?:npm|pnpm|yarn|bun)\s+run\s+([\w:.-]+)/.exec(c.command)?.[1];
     return c.body === undefined && script && scripts[script] ? { ...c, body: scripts[script] } : c;
   });
+}
+
+export const HEALTH_DIMENSIONS = ['typecheck', 'lint', 'test', 'deadcode', 'shell', 'gbrain'] as const;
+export interface HealthDimensions { checks: Array<{ dimension: string; command: string; source: string }>; missing: Array<{ dimension: string; reason: string }> }
+
+/**
+ * /health Step 1: a Health Stack section row for row (test rows kept, no auto-detection), else /health's own presence rules,
+ * which may use a tool found on PATH (unlike /verify's declared-only manifestChecks). Reads files and PATH; runs nothing.
+ * test/health-detect-no-loss.test.ts holds these rules to the shell block they replaced.
+ */
+export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.env): HealthDimensions {
+  const claude = read(path.join(root, 'CLAUDE.md')) ?? '';
+  const stack = healthStack(claude, true);
+  if (stack.length) {
+    const keys = new Set(stack.map(c => c.name.replace(/-\d+$/, '').replace(/^tests$/, 'test')));
+    return { checks: stack.map(c => ({ dimension: c.name, command: c.command, source: c.source })), missing: HEALTH_DIMENSIONS.filter(d => !keys.has(d)).map(dimension => ({ dimension, reason: 'not in the CLAUDE.md Health Stack section' })) };
+  }
+  const has = (file: string) => fs.existsSync(path.join(root, file));
+  const which = (bin: string) => Bun.which(bin, { PATH: env.PATH ?? '' }) !== null;
+  const pkgText = read(path.join(root, 'package.json'));
+  const pyproject = read(path.join(root, 'pyproject.toml'));
+  let testScript: unknown;
+  try { testScript = pkgText?.includes('"test"') ? JSON.parse(pkgText).scripts?.test : undefined; } catch { /* an unreadable package.json declares nothing */ }
+  const shellFiles = ['.', 'scripts', 'bin'].some(dir => { try { return fs.readdirSync(path.join(root, dir)).some(f => f.endsWith('.sh')); } catch { return false; } });
+  const found: Array<[string, string, string] | false> = [
+    has('tsconfig.json') && ['typecheck', 'tsc --noEmit', 'tsconfig.json'],
+    (has('biome.json') || has('biome.jsonc')) && ['lint', 'biome check .', 'biome.json'],
+    fs.readdirSync(root).some(f => /^(eslint\.config\..+|\.eslintrc(\..+)?)$/.test(f)) && ['lint', 'eslint .', 'eslint config'],
+    !!pyproject && /pylint|ruff/.test(pyproject) && ['lint', 'ruff check .', 'pyproject.toml'],
+    typeof testScript === 'string' && testScript !== '' && ['test', testScript, 'package.json'],
+    !!pyproject && pyproject.includes('pytest') && ['test', 'pytest', 'pyproject.toml'],
+    has('Cargo.toml') && ['test', 'cargo test', 'Cargo.toml'],
+    has('go.mod') && ['test', 'go test ./...', 'go.mod'],
+    which('knip') && ['deadcode', 'knip', 'PATH'],
+    !!pkgText?.includes('"knip"') && ['deadcode', 'npx knip', 'package.json'],
+    which('shellcheck') && shellFiles && ['shell', 'shellcheck', 'PATH, *.sh in the root, scripts/ or bin/'],
+    which('gbrain') && fs.existsSync(path.join(env.HOME ?? '', '.gbrain', 'config.json')) && ['gbrain', 'timeout 5s gbrain doctor --json', 'PATH, ~/.gbrain/config.json'],
+  ];
+  const checks = found.filter((c): c is [string, string, string] => !!c).map(([dimension, command, source]) => ({ dimension, command, source }));
+  const reasons: Record<string, string> = {
+    typecheck: 'no tsconfig.json',
+    lint: 'no biome.json, eslint config, or pyproject.toml naming ruff or pylint',
+    test: 'no package.json test script, pytest in pyproject.toml, Cargo.toml or go.mod',
+    deadcode: 'knip is not on PATH or in package.json',
+    shell: which('shellcheck') ? 'no *.sh file in the root, scripts/ or bin/' : 'shellcheck is not on PATH',
+    gbrain: 'gbrain is not on PATH or ~/.gbrain/config.json is absent',
+  };
+  return { checks, missing: HEALTH_DIMENSIONS.filter(d => !checks.some(c => c.dimension === d)).map(dimension => ({ dimension, reason: reasons[dimension] })) };
 }
 
 /** Every command a run could execute, read without executing any: the checks, the pregate runner and each selection manifest command. */
