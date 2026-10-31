@@ -496,6 +496,13 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '1. **Race on the lock** (a.ts:3)\n   - the writer holds no lock\n\n   Fix: take it first. Severity: High. Blocks: no.').map(f => [f.label, f.raw]))
       .toEqual([['High', '1. **Race on the lock** (a.ts:3) | Fix: take it first. Severity: High. Blocks: no.']]);
     expect(parseFindings('outside-voice', '1. Lock race (a.ts:3)\n\n   Fix: take it first. Blocks: yes\n2. Cache drift (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"critical","summary":"Low-level race in q.ts"}').map(f => [f.label, f.raw]))
+      .toEqual([['critical', '{"severity":"critical","summary":"Low-level race in q.ts"}']]);
+    expect(parseFindings('red-team', '1. Unescaped query\n   **Critical**\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['Critical', '2. Token leak in the logger']]);
+    expect(parseFindings('red-team', '1. Unescaped query\n   ## High\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['High', '2. Token leak in the logger']]);
+    // Known: a Severity field line under an unlabeled item opens its own finding, so a later indented Blocks: yes line becomes a second
+    // finding (main merged them into one CRITICAL). No label is lost; the Low one is a phantom the lead folds.
+    expect(parseFindings('red-team', '1. Race in queue\n- Severity: Low\n   this one blocks. Blocks: yes').map(f => f.label)).toEqual(['Low', 'CRITICAL']);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside

@@ -114,9 +114,9 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
       continue;
     }
     if (!indented && !LIST_ITEM.test(t)) { item = null; itemFinding = null; }
-    if (indented && item && !itemFinding && !LIST_ITEM.test(t) && (label || blocks)) { current = itemFinding = push(blocks ? 'CRITICAL' : label!, `${item} | ${t}`); continue; }
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = named(heading[1]!); current = null; head = ''; continue; }
+    if (indented && item && !itemFinding && !LIST_ITEM.test(t) && !t.startsWith('{') && (label || blocks)) { current = itemFinding = push(blocks ? 'CRITICAL' : label!, `${item} | ${t}`); continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
       try {
