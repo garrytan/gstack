@@ -1465,6 +1465,81 @@ describe('check-freeze.sh', () => {
         fs.rmSync(base, { recursive: true, force: true });
       }
     });
+
+    test.skipIf(process.platform === 'win32')('an in-boundary symlink directory + non-existent subdirectory denies, while a new subdirectory inside the boundary allows', () => {
+      const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-dirlink-'));
+      const boundary = path.join(base, 'boundary');
+      const outside = path.join(base, 'outside');
+      fs.mkdirSync(boundary, { recursive: true });
+      fs.mkdirSync(outside, { recursive: true });
+      fs.symlinkSync(outside, path.join(boundary, 'out-link'));
+      try {
+        withFreezeDir(boundary + '/', (stateDir) => {
+          const viaDirLink = runHook(
+            FREEZE_SCRIPT,
+            freezeInput(path.join(boundary, 'out-link', 'new-subdir', 'secret.txt')),
+            freezeEnv(stateDir),
+          );
+          expect(viaDirLink.exitCode).toBe(0);
+          expect(viaDirLink.output.hookSpecificOutput?.permissionDecision).toBe('deny');
+
+          const newSubdirInside = runHook(
+            FREEZE_SCRIPT,
+            freezeInput(path.join(boundary, 'new-subdir', 'Component.tsx')),
+            freezeEnv(stateDir),
+          );
+          expect(newSubdirInside.exitCode).toBe(0);
+          expect(newSubdirInside.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+        });
+      } finally {
+        fs.rmSync(base, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('dotdot and tilde boundary handling', () => {
+    test('dotdot traversal through a non-existent directory or trailing dotdot denies', () => {
+      withFreezeDir('/Users/dev/project/src/', (stateDir) => {
+        const dotdotNewDir = runHook(
+          FREEZE_SCRIPT,
+          freezeInput('/Users/dev/project/src/../../other-project/new-dir/index.ts'),
+          freezeEnv(stateDir),
+        );
+        expect(dotdotNewDir.exitCode).toBe(0);
+        expect(dotdotNewDir.output.hookSpecificOutput?.permissionDecision).toBe('deny');
+
+        const trailingDotdot = runHook(
+          FREEZE_SCRIPT,
+          freezeInput('/Users/dev/project/src/..'),
+          freezeEnv(stateDir),
+        );
+        expect(trailingDotdot.exitCode).toBe(0);
+        expect(trailingDotdot.output.hookSpecificOutput?.permissionDecision).toBe('deny');
+      });
+    });
+
+    test('tilde-prefixed file_path expands against HOME instead of joining onto cwd', () => {
+      const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-tilde-'));
+      const fakeHome = path.join(base, 'home');
+      const boundary = path.join(fakeHome, 'project', 'src');
+      fs.mkdirSync(boundary, { recursive: true });
+      try {
+        withFreezeDir(boundary + '/', (stateDir) => {
+          const env = freezeEnv(stateDir, { HOME: fakeHome });
+          // Outside tilde path when cwd is inside the frozen directory must deny.
+          const outsideTilde = runHook(FREEZE_SCRIPT, freezeInput('~/.zshrc'), env, boundary);
+          expect(outsideTilde.exitCode).toBe(0);
+          expect(outsideTilde.output.hookSpecificOutput?.permissionDecision).toBe('deny');
+
+          // Inside tilde path when cwd is outside the frozen directory must allow.
+          const insideTilde = runHook(FREEZE_SCRIPT, freezeInput('~/project/src/index.ts'), env, base);
+          expect(insideTilde.exitCode).toBe(0);
+          expect(insideTilde.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+        });
+      } finally {
+        fs.rmSync(base, { recursive: true, force: true });
+      }
+    });
   });
 });
 

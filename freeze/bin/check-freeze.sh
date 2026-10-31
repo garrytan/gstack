@@ -135,6 +135,14 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
+# Expand a leading ~ on file_path just like FREEZE_DIR above; otherwise a
+# tilde-prefixed path is joined onto cwd and allowed whenever cwd is inside
+# the freeze boundary.
+case "$FILE_PATH" in
+  "~/"*) FILE_PATH="$HOME/${FILE_PATH#\~/}" ;;
+  "~") FILE_PATH="$HOME" ;;
+esac
+
 # Canonicalize before the absolute test: a drive-letter path does not start
 # with '/', so it used to be joined onto cwd and every edit was denied.
 gstack_hook_normalize_path "$FILE_PATH"
@@ -154,44 +162,84 @@ _FP_LEAD=""
 case "$FILE_PATH" in
   //[!/]*) _FP_LEAD="/" ;;
 esac
-FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|/\+|/|g;s|/$||')
+FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|//*|/|g;s|/$||')
 FILE_PATH="$_FP_LEAD$FILE_PATH"
 [ -n "$FILE_PATH" ] || FILE_PATH="/"
 
 # Resolve symlinks and .. sequences (POSIX-portable, works on macOS).
-# The FULL path is resolved, including the FINAL component: the previous
-# version resolved only the parent directory, so an in-boundary symlink
-# pointing at an out-of-boundary target sailed through the check while the
-# actual write landed outside the boundary. A final component that is a
-# symlink is followed (bounded, cycle-safe) so the TARGET gets checked; a
-# final component that does not exist yet (new file) has nothing to follow
-# and parent resolution is the correct behavior.
+# Walk components left-to-right so '.', '..', and intermediate or final
+# symlinks are resolved even when trailing directories do not exist yet
+# (e.g., Write creating a file in a new subdirectory), then run pwd -P on
+# the deepest existing directory for platform mount normalization.
 _resolve_path() {
-  local _p="$1" _dir _base _tgt _i=0
-  while [ -L "$_p" ] && [ "$_i" -lt 40 ]; do
-    _tgt=$(readlink "$_p" 2>/dev/null) || break
-    case "$_tgt" in
-      /*) _p="$_tgt" ;;
-      *) _p="$(dirname "$_p")/$_tgt" ;;
+  local _p="$1" _lead="" _cur="" _rem _part _cand _tgt _i=0
+  case "$_p" in
+    //[!/]*) _lead="/"; _rem="${_p#//}" ;;
+    *) _rem="${_p#/}" ;;
+  esac
+  while [ -n "$_rem" ]; do
+    _part="${_rem%%/*}"
+    if [ "$_part" = "$_rem" ]; then
+      _rem=""
+    else
+      _rem="${_rem#*/}"
+    fi
+    case "$_part" in
+      ''|.) continue ;;
+      ..)
+        _cur="${_cur%/*}"
+        continue
+        ;;
     esac
-    _i=$((_i + 1))
+    _cand="$_lead$_cur/$_part"
+    if [ -L "$_cand" ] && [ "$_i" -lt 40 ]; then
+      _tgt=$(readlink "$_cand" 2>/dev/null) || { _cur="$_cur/$_part"; continue; }
+      _i=$((_i + 1))
+      gstack_hook_normalize_path "$_tgt"
+      _tgt="$GSTACK_HOOK_PATH"
+      case "$_tgt" in
+        //[!/]*)
+          _lead="/"
+          _cur=""
+          _rem="${_tgt#//}${_rem:+/$_rem}"
+          ;;
+        /*)
+          _lead=""
+          _cur=""
+          _rem="${_tgt#/}${_rem:+/$_rem}"
+          ;;
+        *)
+          _rem="$_tgt${_rem:+/$_rem}"
+          ;;
+      esac
+      continue
+    fi
+    _cur="$_cur/$_part"
   done
-  _dir="$(dirname "$_p")"
-  _base="$(basename "$_p")"
-  if [ "$_base" = / ]; then printf '/'; return; fi
-  _dir="$(cd "$_dir" 2>/dev/null && pwd -P || printf '%s' "$_dir")"
+  local _dir="$_cur" _tail=""
+  while [ -n "$_dir" ] && [ ! -d "$_lead$_dir" ]; do
+    _tail="/${_dir##*/}$_tail"
+    _dir="${_dir%/*}"
+  done
+  if [ -n "$_dir" ] && [ -d "$_lead$_dir" ]; then
+    _dir="$(cd "$_lead$_dir" 2>/dev/null && pwd -P || printf '%s' "$_lead$_dir")"
+    _p="${_dir%/}$_tail"
+  else
+    _p="$_lead$_tail"
+  fi
+  [ -n "$_p" ] || _p="/"
   # pwd -P answers in the platform's own dialect (/cygdrive/c/... on Cygwin).
-  gstack_hook_normalize_path "${_dir%/}/$_base"
+  gstack_hook_normalize_path "$_p"
   printf '%s' "$GSTACK_HOOK_PATH"
 }
-FILE_PATH=$(_resolve_path "$FILE_PATH")
-FREEZE_DIR=$(_resolve_path "$FREEZE_DIR")
+_RESOLVED_FILE=$(_resolve_path "$FILE_PATH")
+_RESOLVED_FREEZE=$(_resolve_path "$FREEZE_DIR")
 
 # Check: does the file path start with the freeze directory? Windows paths
 # are case-insensitive, so compare that way there.
 [ "$GSTACK_HOOK_IS_WINDOWS" = 1 ] && shopt -s nocasematch
-case "$FILE_PATH" in
-  "${FREEZE_DIR%/}/"*|"${FREEZE_DIR}")
+case "$_RESOLVED_FILE" in
+  "${_RESOLVED_FREEZE%/}/"*|"${_RESOLVED_FREEZE}")
     # Inside freeze boundary — allow
     _FREEZE_DECIDED=1
     echo '{}'
