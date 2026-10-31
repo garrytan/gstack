@@ -160,7 +160,7 @@ The list lives in its own file, not in `pregate.json`, because older pregate rea
 
 ```
 gstack-pregate [--stage preflight|tests|all] [--only <check,..>] [--allow-repo-commands] [--policy-from base|head]
-               [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--explain] [--json]
+               [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--explain] [--json]
 gstack-pregate verify | clear --remote <workflow.yml/job> --run-url <url> | lanes | validate | init
 ```
 
@@ -650,15 +650,20 @@ old the run may be, and `os` (`Linux`, `macOS`, `Windows`) requires
 `tree.json` to record that runner OS. Each workflow uploads `tree.json` from
 its own job: `run_id`, `run_attempt`, `event`, `sha` (or `head_sha`),
 `tree` (`git rev-parse HEAD^{tree}` as tested), `files` (every test file the
-run executed), `tests` (the count) and, with `os`, the runner OS.
+run executed), `tests` (the count) and, with `os`, the runner OS or a list of
+every OS the run's test jobs ran on (the profile's `os` must be one of them).
 
 **What `clear --run` checks** (`lib/run-evidence.ts`), for every run, online,
 once:
 
 - The run belongs to this repository and ran for a same-repository head. Its
-  workflow file is the profile's, its event is `push` or `workflow_dispatch`
-  (a `pull_request` run tests the merge commit, not the head tree, so no
-  profile may accept it), and it completed with success. The API answers with
+  workflow file is the profile's, its event is one the profile lists (`push`,
+  `workflow_dispatch` or `pull_request`), and it completed with success. A
+  `pull_request` run tested GitHub's merge commit, not its head, so its
+  `tree.json` must name the head (`head_sha`) and the merge commit (`sha`), and
+  the tree git computes for that merge commit must equal the head's tree: the
+  head already contained its base, so the merge tested exactly the head tree
+  (`tree_mismatch` otherwise). The API answers with
   the newest attempt, so an earlier green attempt under a newer red one is
   refused, and the run is read again after the evidence is collected: a new
   attempt meanwhile is `run_changed`.
@@ -725,10 +730,22 @@ the same way; for such a lane `--run-url` is verified as `--run` is, and
 recording. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
 shows the lane has no profile; then the lane is recorded as before, with a
-warning naming the cause. `gstack-ship-queue ready --dispatch-ci` still
-records its dispatched runs by URL; routing it through the verifier is the next
-change (P3b), so a repository that declares lane profiles clears those lanes
-with `gstack-pregate clear --run`.
+warning naming the cause. `gstack-ship-queue ready --dispatch-ci` clears each
+lane through this same decision with its dispatched run's URL, so a profiled
+lane's run is verified: a run on another tree, a run whose newest attempt is
+red, or a run with a newer red sibling clears nothing, and the command refuses
+(`QUEUE_NOT_READY`) naming the `REUSE: refused` reason. A lane with no profile
+still records the URL (`PREGATE_UNVERIFIED:` names a lane recorded that way
+because the GitHub origin could not be read).
+
+**gstack's own profiles.** gstack's `.gstack/pregate.json` declares
+`free-tests.yml/free-suite` (the complete Free Tests run: every non-matrix job
+and the `free-tests` aggregate, `os` Linux), the macOS and Windows platform
+lanes of that workflow (`macos-named-regressions`, `cso-macos-launcher`,
+`cso-windows-launcher`) and `windows-free-tests.yml/windows-free-shard`. Each
+accepts `pull_request` and `workflow_dispatch` runs and reads the
+`tested-tree` artifact, which both aggregates upload only after their strict
+verification passes.
 
 **`verify` stays offline.** The check ran at `clear`. `gstack-pregate verify`,
 and `gstack-ship-queue ready` through it, refuse a run receipt whose `tree=`
@@ -738,8 +755,71 @@ merge path.
 
 **What is never reusable.** Security and advisory scans (osv, audit,
 gitleaks) depend on the day, not on the tree, so they are not run profiles:
-they run on every head as before. Pull-request required checks always run
-fresh.
+they run on every head as before, and `--from-run` never skips them.
+Pull-request required checks and dispatched runs always run fresh; only a
+push to main reuses ([below](#ci-reuse)).
+
+<a id="from-run"></a>
+### The tests stage from a Free Tests run (`--from-run`)
+
+`gstack-pregate --stage tests --from-run <run id|url>` takes a Free Tests run
+that already passed on this exact tree, for example the one CI ran on the
+pushed head, instead of running its files again here. The run is verified
+online, once, against the base branch's run profiles named after a lane this
+machine runs locally (gstack's `free-tests.yml/free-suite`), with pregate.json's
+own head as a further veto head. Its tree must be this tree exactly (no
+stamp-only substitution). Then:
+
+- The selected local test files the run's `tree.json` lists count as passed.
+  The lanes check records them under `from_run` with the run receipt
+  (`run tree=… tests=… runs=<id>/<attempt> profiles=… heads=… verified=…`) and
+  prints `REUSE: accepted <n> of <m> selected local test file(s) from <receipt>;
+  <k> still run`.
+- The rest run as they would have: locally, or recorded as the remote gate
+  obligation on a small machine, or through `--remote`.
+- A run that does not verify prints `REUSE: refused reason=<code> — …; every
+  selected test runs here` and changes nothing else. The codes are
+  verifyRun's, plus `tree_mismatch` (another tree), `no_tests`, `no_profile`
+  (no profile names a local lane) and `profiles_unavailable` (the base config
+  or the GitHub origin could not be read).
+
+`--from-run` applies to the tests stage only, so `--stage preflight` refuses it
+as a usage error; the preflight checks, the secrets scan included, always run.
+
+<a id="ci-reuse"></a>
+### Main pushes reuse the merged pull request's run
+
+A squash merge whose pull request head already held main produces a push with
+the identical tree, and Free Tests and Windows Free Tests used to run on it a
+second time. Now each workflow starts with a `reuse` job that runs only on a
+push to `main`, with job-level `contents: read` and `actions: read` (every other
+job keeps the workflow's `contents: read`). It runs
+`scripts/ci-tree-reuse.ts find`, which:
+
+1. finds the pull request whose merge commit is the pushed commit
+   (`repos/{repo}/commits/{sha}/pulls`, one page of at most 10), merged into
+   main from a same-repository head (`no_pr`, `ambiguous_pr`, `fork_head`);
+2. requires that head's tree to equal the pushed tree (`tree_mismatch`);
+3. lists that head's `pull_request` and `workflow_dispatch` runs of the same
+   workflow, newest first, at most 10 (`no_candidate`); and
+4. accepts the first one `verifyRun` accepts under the profile in the pushed
+   tree's `.gstack/pregate.json` (`no_verified_run` lists each refusal; a newer
+   red run on the head vetoes an older green one).
+
+It writes `reused=true` with the run's id and link, or `reused=false` and the
+reason, and prints one `REUSE:` line in the step summary. Every suite job
+needs `reuse` and runs unless it succeeded with `reused=true`; their
+conditions start with `!cancelled()` because GitHub otherwise skips a job whose
+needed job was skipped, and `reuse` is skipped on every pull request and
+dispatch run. The required aggregates (`free-tests`, `windows-free-tests`)
+choose a path in their first step, before any download: a verified reuse writes
+the reused run's link to the summary and passes; anything else, a failed or
+skipped `reuse` job included, takes the strict path unchanged. Only the strict
+path records and uploads `tested-tree`, after its verification passes, so a
+red, partial or reused run never leaves a record and a reuse is never reused.
+The pull request lookup needs no `pull-requests` permission on a public
+repository; a private fork of this setup would need `pull-requests: read`,
+and without it every push falls back to the full run.
 
 <a id="guards"></a>
 ## Guards and the lane-done rule
