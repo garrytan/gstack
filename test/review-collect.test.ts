@@ -154,10 +154,10 @@ describe('GSTA-167 part 4a: which data files code names (scanConsumers)', () => 
   // Value: protects=the scan reads git grep the same way under any user grep config, and a failed grep keeps every data file
   //   code; fails_when=grep.lineNumber/grep.column shift the NUL fields so no consumer matches, or a grep failure drops data to
   //   docs silently; seam=git grep output and exit status
-  test('grep.lineNumber and grep.column in git config do not hide a consumer', () => {
+  test('grep.lineNumber, grep.column and color.grep in git config do not change which files count as consumers', () => {
     const r = repo({ 'src/load.ts': "export const rows = () => require('./data/rows.json');\n" });
-    r.git('config', 'grep.lineNumber', 'true'); r.git('config', 'grep.column', 'true');
-    const head = r.commit({ 'data/rows.json': rows });
+    r.git('config', 'grep.lineNumber', 'true'); r.git('config', 'grep.column', 'true'); r.git('config', 'color.grep', 'always');
+    const head = r.commit({ 'data/rows.json': rows, 'docs/notes.md': 'see rows.json and orphan.json\n', 'data/orphan.json': rows });
     expect([collectCommit(r.dir, r.baseSha, head).consumed, collectLive(r.dir, 'main').consumed]).toEqual([['data/rows.json'], ['data/rows.json']]);
   });
   test('a git grep failure keeps every data file code and records consumer_scan_failed', () => {

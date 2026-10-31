@@ -8,8 +8,9 @@
  *   judgment  each lead-judgment change: an added or promoted finding, with its reason
  *   judge     the verdict on the parent's judged set (ok, or the dropped and downgraded ids)
  *
- * Findings reach merged.jsonl only through collect, with each voice's label exactly as written,
- * except that a prose voice's `Blocks: yes` collects as CRITICAL (GSTA-167 normalizer v2).
+ * Findings reach merged.jsonl only through collect, with each voice's label as written (a prose line's most severe one,
+ * raised by the Severity line below it), except that a prose voice's `Blocks: yes` and the native voice's FIXABLE collect
+ * as CRITICAL (GSTA-167 normalizer v2).
  * The parent's judged set may add or promote a finding and may fold a duplicate into one at least
  * as severe; it never drops or downgrades one. verify replays every check from the ledger alone.
  */
@@ -60,53 +61,70 @@ const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /** The most severe label on a line, so an explicit `Severity: High` outranks a stray `Low-level` or `[P2]` before it. */
 const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => m[1]!).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
 /** A line that only continues the finding above it: its `Severity:` or `Blocks:` field. */
-const META = /^(?:[-*+]\s+)?\**\s*(?:Severity|Blocks)\b/i;
+const META = /^(?:[-*+]\s+)?\**\s*(Severity|Blocks)\**\s*:/i;
 
 export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
 
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
  * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
- * of the two labels). A `Severity:` or `Blocks:` line continues the finding above it in the same list item: `Severity` raises its
- * label, `Blocks: yes` makes it CRITICAL (normalizer v2), `Blocks: no` never lowers it. With no finding above, such a line is its
- * own finding carrying the item's first line.
+ * of the two labels). A `Severity:` or `Blocks:` line that is not itself a top-level list item continues the finding above it,
+ * until a list item, heading, bold paragraph opener or a second line for the same field starts another: `Severity` raises its
+ * label, `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it. With no finding above, such a line is its own finding
+ * carrying the paragraph's first line. The native voice's FIXABLE collects as CRITICAL, since a Severity line must not bury it;
+ * other labels stay as written for lead judgment.
  */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
-  const out: Array<{ label: string; raw: string }> = [];
+  type Finding = { label: string; raw: string; fields: Set<string> };
+  const out: Finding[] = [];
   let section: string | null = null;
-  let current: { label: string; raw: string } | null = null;
+  let current: Finding | null = null;
   let head = '';
+  const role = reader.split('/')[0];
+  const named = (l: string | undefined) => (role === 'adversarial-native' && l?.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
+  const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
     if (!t) continue;
     if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
     const indented = line !== line.trimStart();
-    const label = strongest(t);
+    const label = named(strongest(t));
     const blocks = BLOCKS_YES.test(t);
-    if (META.test(t)) {
-      if (current) {
+    const listItem = !indented && LIST_ITEM.test(t);
+    const meta = listItem ? null : META.exec(t);
+    if (meta) {
+      const field = meta[1]!.toLowerCase();
+      if (current && !current.fields.has(field)) {
+        current.fields.add(field);
         if (blocks) current.label = 'CRITICAL';
         else if (label) current.label = stronger(current.label, label);
         current.raw += ` | ${t}`;
-      } else if (blocks || label) out.push(current = { label: blocks ? 'CRITICAL' : label!, raw: head ? `${head} | ${t}` : t });
+      } else if (blocks || label) current = push(blocks ? 'CRITICAL' : label!, head ? `${head} | ${t}` : t, [field]);
+      else current = null;
       continue;
     }
     const heading = LABEL_HEADING.exec(t);
-    if (heading) { section = heading[1]!; current = null; head = ''; continue; }
+    if (heading) { section = named(heading[1])!; current = null; head = ''; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
       try {
         const o = JSON.parse(t) as Record<string, unknown>;
-        if (typeof o.severity === 'string') { out.push(current = { label: o.severity, raw: t }); continue; }
+        if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    const listItem = !indented && LIST_ITEM.test(t);
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
-    if (found) { out.push(current = { label: blocks ? 'CRITICAL' : found, raw: t }); if (!indented) head = t; continue; }
-    if (listItem) { current = null; head = t; }
+    if (found) { current = push(blocks ? 'CRITICAL' : found, t); if (!indented) head = t; continue; }
+    if (blocks && !t.startsWith('{')) {
+      if (current && !listItem) { current.label = 'CRITICAL'; current.raw += ` | ${t}`; continue; }
+      current = push('CRITICAL', !listItem && head ? `${head} | ${t}` : t);
+      if (listItem) head = t;
+      continue;
+    }
+    if (listItem || (!indented && t.startsWith('**'))) { current = null; head = t; }
+    else if (!indented) head = t;
   }
-  return out;
+  return out.map(({ label, raw }) => ({ label, raw }));
 }
 
 /** collect: hash the raw output, append its findings to merged.jsonl and record both. */

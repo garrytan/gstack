@@ -411,12 +411,15 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    prompt and runs `sent` on what it passed: a hash that differs from the rendered
    one is `BRIEF_MISMATCH`, and that reader's review does not count.
 3. `collect` hashes each reader's raw output and appends its findings to
-   `merged.jsonl` with the label exactly as written (a JSON line's `severity`, or a
-   prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE wherever it
-   stands, headings and table rows included; a top-level list item under a label-only
-   heading takes that label). A prose voice's `Blocks: yes` collects as CRITICAL: on
-   its own line, or on the finding just before it; with no finding there it is one
-   (normalizer v2, GSTA-167). A phantom finding costs a fold; a lost one costs the gate.
+   `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
+   severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
+   wherever they stand, headings and table rows included; a top-level list item under a
+   label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
+   continues the finding above it until a list item, heading, bold paragraph opener or a
+   second line for the same field starts another: `Severity` raises its label,
+   `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
+   `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
+   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). A phantom finding costs a fold; a lost one costs the gate.
 4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
