@@ -1,0 +1,1 @@
+- `/ship`'s preflight no longer runs `git merge` when `origin/<base>` is already in HEAD. It checks `git merge-base --is-ancestor` first and reports `MERGE: up to date`, so a checkout whose guard refuses `git merge` (a shared machine) gets past Step 3 when there is nothing to merge. A moved base still merges (GST-691).
