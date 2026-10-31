@@ -45,11 +45,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Read with git and jq only: without a train block nothing below runs.
+      # Read with git and jq only (history-read.sh is git alone): without a train block nothing below runs.
       - name: Read the train policy (main)
         id: policy
         run: |
-          train=$(git show "${GITHUB_SHA}:.gstack/ship-policy.json" 2>/dev/null | jq -c 'if (.train | type) == "object" then .train else null end' 2>/dev/null || true)
+          policy=$(bash .github/scripts/history-read.sh "$GITHUB_SHA" .gstack/ship-policy.json --absent null)
+          train=$(jq -c 'if (.train | type) == "object" then .train else null end' <<<"$policy") || { echo "::error::${GITHUB_SHA}:.gstack/ship-policy.json is not valid JSON; fix the policy file" >&2; exit 1; }
           if [ -z "$train" ] || [ "$train" = null ]; then
             echo "train=false" >> "$GITHUB_OUTPUT"
             echo "- Backstop inert: main's .gstack/ship-policy.json declares no train block; per-PR gates cover main" >> "$GITHUB_STEP_SUMMARY"
