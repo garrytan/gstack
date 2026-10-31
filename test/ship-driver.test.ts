@@ -226,10 +226,10 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     const phase = (n: number) => f.slice(f.indexOf(`## ${n}. `), f.indexOf(`## ${n + 1}. `));
     expect(phase(3)).not.toMatch(/QA reader/);
     expect(phase(3)).toContain("9.2.1's Reads only");
-    expect(phase(4)).toContain("9.2.1's probes, Steps 8.1 and 8.2");
-    const probes = phase(4).indexOf("9.2.1's probes");
-    expect(probes).toBeGreaterThanOrEqual(0);
-    expect(phase(4).indexOf('Steps 9.3, 9.4 and the repeat decision')).toBeGreaterThan(probes);
+    expect(phase(4)).toContain("Step 8.1, 9.2.1's probes, 8.2 (`Scope Check:`)");
+    const at = ['Step 8.1', "9.2.1's probes", '8.2 (`Scope Check:`)', 'Steps 9.3, 9.4 and the repeat decision'].map(s => phase(4).indexOf(s));
+    expect(at[0]).toBeGreaterThanOrEqual(0);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
     expect(phase(4)).toContain('one program');
     expect(f).toContain('the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions**');
     const capy = flat(read('capy/skill/gstack/SKILL.md'));

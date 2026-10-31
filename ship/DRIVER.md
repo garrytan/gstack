@@ -84,7 +84,7 @@ reader ran.
 
 ## 4. Judgment: Steps 8.1, 8.2, 9.3, 9.4 and Step 11
 
-9.2.1's probes, Steps 8.1 and 8.2 (`Scope Check:`) on the todos and commits files, then the core checklist, Steps
+Step 8.1, 9.2.1's probes, 8.2 (`Scope Check:`) on the todos and commits files, then the core checklist, Steps
 9.3, 9.4 and the repeat decision as written (`gstack-review-plan` included;
 `JUDGMENT: ok` before any fix), fixes and persistence in
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or
