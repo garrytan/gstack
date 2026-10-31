@@ -66,6 +66,30 @@ afterAll(() => {
 describe('gstack-diff-scope', () => {
   // --- Existing scope signals ---
 
+  // Value: protects=a stale local base branch does not stand in for the base: a docs-only branch that merged a newer
+  //   origin/main is docs, not the backend change origin/main already has (GST-462, GBRA-218); fails_when=the script
+  //   diffs against the local branch whenever it resolves (with the name given, or the default it detects); seam=a
+  //   tracking ref moved with update-ref, as a fetch would; no_claim=nothing about remotes other than origin.
+  test('a stale local main yields to origin/main, named or defaulted', () => {
+    const dir = createRepo([]);
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, stdio: 'pipe', timeout: 5000 });
+    git('checkout', '-q', 'main');
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    writeFileSync(join(dir, 'lib', 'server.ts'), 'export const port = 1;\n');
+    git('add', '.'); git('commit', '-qm', 'upstream backend');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('reset', '-q', '--hard', 'HEAD~1');
+    git('checkout', '-q', '-b', 'topic', 'origin/main');
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(join(dir, 'docs', 'howto.md'), '# How to\n');
+    git('add', '.'); git('commit', '-qm', 'docs');
+    for (const args of [['main'], []]) {
+      const out = spawnSync(SCRIPT, args, { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+      expect(out).toContain('SCOPE_DOCS=true');
+      expect(out).toContain('SCOPE_BACKEND=false');
+    }
+  });
+
   test('detects frontend files', () => {
     const dir = createRepo(['styles.css', 'component.tsx']);
     const scope = runScope(dir);

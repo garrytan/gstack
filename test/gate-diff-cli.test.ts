@@ -149,6 +149,33 @@ describe('gstack-gate-diff arguments and exit contract', () => {
     expect(odd.stdout.trim()).toBe("GATE_ERROR=no_base ref=rel;echo pwned fix=git fetch origin '+rel;echo pwned:refs/remotes/origin/rel;echo pwned'");
   });
 
+  // Value: protects=a local base branch that is related to HEAD but behind its remote-tracking twin yields to the twin, so
+  //   commits the base already has (merged into the branch from origin) do not count as the branch's change (GST-462,
+  //   GBRA-218); fails_when=resolveBase returns the local ref whenever it resolves and shares history with HEAD; seam=a
+  //   tracking ref moved with update-ref, as a fetch would; no_claim=nothing about remotes other than origin.
+  test('a local main related to HEAD but behind origin/main yields to origin/main and says so', () => {
+    const src = repo({ fixture: 'rh1-skip', commit: true });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-behind-'));
+    repos.push(dir);
+    gitIn(dir, ['clone', '-q', `file://${src}`, '.']);
+    gitIn(dir, ['checkout', '-q', 'main']);
+    gitIn(dir, ['update-ref', 'refs/remotes/origin/main', 'refs/remotes/origin/feature']);
+    gitIn(dir, ['checkout', '-q', '-b', 'topic', 'origin/main']);
+    fs.writeFileSync(path.join(dir, 'NOTES.md'), 'topic note\n');
+    gitIn(dir, ['add', 'NOTES.md']);
+    gitIn(dir, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'topic']);
+    expect(spawnSync('git', ['merge-base', '--is-ancestor', 'main', 'origin/main'], { cwd: dir, timeout: 30_000 }).status).toBe(0);
+
+    const r = run(dir, ['main']);
+    expect(r.status).toBe(0);
+    expect(summary(r.stdout).tagged).toBe('');
+    expect(r.stderr).toContain('gstack-gate-diff: local main is behind origin/main; base is origin/main');
+    gitIn(dir, ['update-ref', 'refs/heads/main', 'refs/remotes/origin/main']);
+    const current = run(dir, ['main']);
+    expect(summary(current.stdout).tagged).toBe('');
+    expect(current.stderr).not.toContain('base is origin/main');
+  });
+
   // Value: protects=a clone whose only remote is not called origin resolves the base through that remote and the fix line
   // fetches from it; fails_when=remoteNames or resolveBase hard-code origin, or noBaseFix falls back to the literal 'origin'
   // while a real remote exists; why_new=every existing fixture has either an origin remote or none; seam=none;
