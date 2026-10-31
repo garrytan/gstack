@@ -389,7 +389,7 @@ export const RELEASE_RESULT_CODES = {
   RESTAMP_NOT_STAGED: {
     anchor: 'restamp-not-staged',
     summary: 'gstack-restamp wrote the stamp but could not stage it, so a bare git commit would leave the stamp out',
-    fix: 'clear what blocked git add (an index.lock, a changed file), then rerun gstack-restamp: the noop rerun stages the files it wrote',
+    fix: 'clear what blocked git add (an index.lock), then rerun gstack-restamp: the noop rerun stages the files it wrote, or drops the marker when they changed since',
   },
   RESTAMP_UNSTAGED_EDITS: {
     anchor: 'restamp-unstaged-edits',

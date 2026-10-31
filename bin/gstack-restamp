@@ -15,8 +15,8 @@
  * a --no-commit base merge cannot drop the stamp (#3531). A stamp file holding
  * unstaged edits of the caller's own refuses before anything is written
  * (RESTAMP_UNSTAGED_EDITS); a staging failure leaves the files written and
- * .gstack/tmp/restamp-staging.json, which the noop rerun stages
- * (RESTAMP_NOT_STAGED). Idempotent; --dry-run writes nothing. Workflow command: ends with the
+ * .gstack/tmp/restamp-staging.json, which the noop rerun stages, or drops when a
+ * file changed since (RESTAMP_NOT_STAGED). Idempotent; --dry-run writes nothing. Workflow command: ends with the
  * GSTACK_RESULT line. Logic: lib/restamp.ts; policy: lib/ship-policy.ts.
  */
 import { spawnSync } from 'node:child_process';
@@ -57,7 +57,7 @@ function flag(args: string[], name: string): string | undefined {
 
 const STAGING_REL = '.gstack/tmp/restamp-staging.json';
 interface Pending { files: string[]; blobs: Record<string, string | null> }
-interface Staging { staged?: string[]; failure?: string }
+interface Staging { staged?: string[]; dropped?: string[]; failure?: string }
 
 const gitIn = (root: string, args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 60_000 });
 /** Each file's blob sha in the worktree (one git call), null for a file that does not exist. */
@@ -78,19 +78,24 @@ function ownUnstaged(root: string): string[] {
   return unstaged.filter(f => !(pending && f in now && pending.blobs[f] === now[f]));
 }
 
-/** Stage what restamp wrote (`written`), or what a pending marker says is still unstaged; null when there is nothing to stage. */
+/**
+ * Stage what restamp wrote (`written`), or what a pending marker says is still unstaged; a marker file whose bytes
+ * changed since (a hand commit, another branch, a base merge) is stale for that file and dropped, never a failure.
+ * Null when there is nothing to stage.
+ */
 function stage(root: string, written: string[] | null): Staging | null {
   const marker = path.join(root, STAGING_REL);
   const pending = written ? { files: written, blobs: blobsOf(root, written) } : readPending(root);
   if (!pending?.files.length) return null;
   if (written) { fs.mkdirSync(path.dirname(marker), { recursive: true }); fs.writeFileSync(marker, JSON.stringify(pending, null, 2) + '\n'); }
   const now = written ? pending.blobs : blobsOf(root, pending.files);
-  const changed = pending.files.filter(f => now[f] !== pending.blobs[f]);
-  if (changed.length) return { failure: `${changed.join(', ')} changed since restamp wrote ${changed.length === 1 ? 'it' : 'them'}; nothing staged` };
-  const add = gitIn(root, ['add', '-A', '--', ...pending.files]);
-  if (add.status !== 0) return { failure: `git add of ${pending.files.join(' ')} failed (${(add.stderr || add.stdout).trim().split('\n')[0]}); the stamp stays written and ${STAGING_REL} names it` };
+  const dropped = pending.files.filter(f => now[f] !== pending.blobs[f]);
+  const files = pending.files.filter(f => !dropped.includes(f));
+  if (!files.length) { fs.rmSync(marker, { force: true }); return { staged: [], dropped }; }
+  const add = gitIn(root, ['add', '-A', '--', ...files]);
+  if (add.status !== 0) return { failure: `git add of ${files.join(' ')} failed (${(add.stderr || add.stdout).trim().split('\n')[0]}); the stamp stays written and ${STAGING_REL} names it` };
   fs.rmSync(marker, { force: true });
-  return { staged: gitIn(root, ['diff', '--cached', '--name-only', '-z', '--', ...pending.files]).stdout.split('\0').filter(Boolean) };
+  return { staged: gitIn(root, ['diff', '--cached', '--name-only', '-z', '--', ...files]).stdout.split('\0').filter(Boolean), dropped };
 }
 
 function main(argv: string[]): number {
@@ -119,7 +124,9 @@ function main(argv: string[]): number {
   };
   const writes = !after && !options.dryRun;
   const own = writes ? ownUnstaged(repoRoot) : [];
-  const clash = own.length ? (restamp({ ...options, dryRun: true }).files ?? []).filter(f => own.includes(f)) : [];
+  const dry = own.length ? restamp({ ...options, dryRun: true }) : null;
+  if (dry && (dry.status === 'refused' || dry.status === 'failed')) return report(dry, json);
+  const clash = (dry?.files ?? []).filter(f => own.includes(f));
   if (clash.length) return report({ status: 'refused', code: 'RESTAMP_UNSTAGED_EDITS', message: `${clash.join(', ')} ${clash.length === 1 ? 'holds' : 'hold'} unstaged edits of your own, which staging the stamp would sweep into the stamp commit; nothing written`, stages: [] }, json);
   const result = restamp(options);
   const staging = writes && (result.status === 'stamped' || result.status === 'noop') ? stage(repoRoot, result.status === 'stamped' ? result.files ?? [] : null) : null;
@@ -130,7 +137,7 @@ function report(r: RestampResult, json: boolean, staging: Staging | null = null)
   const status = r.status === 'refused' ? 'refused' : r.status === 'failed' || staging?.failure ? 'incomplete' : 'complete';
   const code = r.status === 'refused' ? EXIT.refused : r.status === 'failed' || staging?.failure ? EXIT.fail : EXIT.ok;
   if (json) {
-    process.stdout.write(JSON.stringify({ ...r, ...(staging ?? {}), result: status }) + '\n');
+    process.stdout.write(JSON.stringify({ ...r, ...(staging ?? {}), ...(staging?.failure && !r.code ? { code: 'RESTAMP_NOT_STAGED' } : {}), result: status }) + '\n');
     return code;
   }
   if (staging?.failure) process.stderr.write(`gstack-restamp: ${staging.failure}; fix: ${RESULT_CODES.RESTAMP_NOT_STAGED.fix} (RESTAMP_NOT_STAGED)\n`);
@@ -148,6 +155,7 @@ function report(r: RestampResult, json: boolean, staging: Staging | null = null)
     if (r.diff) process.stdout.write(r.diff + (r.diff.endsWith('\n') ? '' : '\n'));
     process.stdout.write(`FILES: ${(r.files ?? []).join(' ') || '(none)'}\n`);
     if (staging?.staged) process.stdout.write(`STAGED: ${staging.staged.join(' ') || '(none)'}\n`);
+    if (staging?.dropped?.length) process.stdout.write(`NOTE: ${staging.dropped.join(' ')} changed since an earlier restamp wrote ${staging.dropped.length === 1 ? 'it' : 'them'}; not staged, and that run's staging marker is dropped\n`);
     if (r.mergeCondition) process.stdout.write(`MERGE_CONDITION: sha=${r.mergeCondition}\n`);
     if (r.status === 'gate-ahead' && r.gateAhead) process.stdout.write(`next: run the verification gate in ${r.gateAhead.worktree}, then \`gstack-evidence bundle --out <file>\` there; the branch is untouched. At this PR's turn rerun \`gstack-restamp --next\` here and read \`gstack-tree-receipt --from ${GATE_AHEAD_REL}\` before deciding what to rerun.\n`);
     else if ((r.status === 'stamped' || r.status === 'noop') && r.queueMode === 'stamp-at-merge') process.stdout.write(`next: NEW_VERSION=${r.newVersion}; commit and push only the stamp diff above (FILES), with no edit of your own: the train's verify accepts the CHANGELOG only as the base's plus this PR's entry re-headed; merge with the expected head ${r.mergeCondition ?? 'sha'} and recompute on a stale queue.\n`);

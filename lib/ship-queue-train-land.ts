@@ -269,7 +269,7 @@ function trainTakeover(env: TrainEnv, t: TrainRecord, i: number, lock: LandLock)
 function settleLock(s: Slot, out: TrainOut): TrainOut {
   const held = s.lock.held!;
   const midway = s.t.state === 'merging' && s.t.merged.length > 0;
-  const keep = (phase: LandLockPhase, line: string) => (held.set(phase) ? `LOCK: ${phase} could not be written (another lander took the lock)` : line);
+  const keep = (phase: LandLockPhase, line: string) => { const failed = held.set(phase); return failed ? `LOCK: ${phase} could not be written (${failed.message})` : line; };
   let line: string;
   if (activeFreeze(s.env.repo.keys)) line = keep('freeze', 'LOCK: freeze (kept for the repair train the freeze admits; --break-lock never breaks it)');
   else if (midway && (out.exit === 0 || !s.lock.effect)) line = keep('between', `LOCK: between (train ${s.t.nonce} keeps the land lock for its next slot)`);

@@ -4492,7 +4492,9 @@ restamp staged, push, and rerun the verify.
 
 **Fix.** Clear what blocked `git add` (a stale `.git/index.lock`, for
 example) and rerun `gstack-restamp`; the rerun is a noop that stages the files
-it wrote. A file changed since restamp wrote it is not staged; restamp again.
+it wrote. When any of them changed since restamp wrote it (you committed by
+hand, switched branches or merged the base), the marker is stale: the noop
+rerun drops it and stages nothing, and a stamp still owed is restamped as usual.
 
 <a id="restamp-unstaged-edits"></a>
 ### `RESTAMP_UNSTAGED_EDITS`

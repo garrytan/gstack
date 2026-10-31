@@ -659,4 +659,26 @@ describe('gstack-restamp stages what it writes (#3531)', () => {
     expect(again.out).toMatch(/^STAGED: .*VERSION/m);
     expect(fs.existsSync(path.join(repo.work, '.gstack/tmp/restamp-staging.json'))).toBe(false);
   });
+
+  // fails_when=a staging marker left by a failure the lane then cleared by hand makes every later noop restamp exit 1 with RESTAMP_NOT_STAGED, whose fix (rerun) can never clear it (outside voice, PR #3737); why_new=the test above reruns on the same unchanged files; seam=.git/index.lock; no_claim=how the lane cleared the failure
+  test('a stale staging marker (its files changed since: a hand commit, then another stamped branch) is dropped by the noop rerun instead of failing it', () => {
+    const repo = fixture();
+    makePr(repo, 'pr-a');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-q', '-m', 'stamp pr-a');
+    makePr(repo, 'pr-d');
+    const lock = path.join(repo.work, '.git', 'index.lock');
+    fs.writeFileSync(lock, '');
+    expect(restamp(repo, ['--next']).err).toContain('(RESTAMP_NOT_STAGED)');
+    fs.rmSync(lock, { force: true });
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'stamp pr-d by hand');
+    repo.git('checkout', '-q', 'pr-a');
+    const noop = restamp(repo, ['--next']);
+    expect(noop.status, noop.err).toBe(EXIT.ok);
+    expect(noop.err).not.toContain('RESTAMP_NOT_STAGED');
+    expect(noop.out).toMatch(/^NOTE: .*CHANGELOG\.md.* changed since an earlier restamp wrote (it|them); not staged/m);
+    expect(fs.existsSync(path.join(repo.work, '.gstack/tmp/restamp-staging.json'))).toBe(false);
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+  });
 });
