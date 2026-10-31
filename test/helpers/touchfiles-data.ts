@@ -686,12 +686,12 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'write-skill-add-lesson': ['write-skill/**', 'bin/gstack-skill-bill', 'lib/skill-bill.ts', 'lib/context-bill.ts', 'test/skill-e2e-write-skill.test.ts'],
   'learnings-show': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts', 'test/skill-e2e-learnings.test.ts'],
   // W1 safety-rule evals (test/helpers/safety-rules.ts registry; E3).
-  'safety-design-risk-stop': ['design-review/**', 'scripts/resolvers/browse.ts', 'scripts/resolvers/testing.ts', 'lib/aside-render.ts', 'test/skill-e2e-safety-design-risk.test.ts', 'test/helpers/browser-available.ts', 'test/helpers/aside-available.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts', 'test/helpers/llm-judge.ts'],
-  'safety-codex-boundary': ['scripts/resolvers/outside-voice-steps.ts', 'review/**', 'scripts/resolvers/constants.ts', 'test/skill-e2e-safety-codex-boundary.test.ts', 'test/helpers/codex-boundary-evidence.ts', 'test/helpers/safety-rules.ts', 'test/helpers/pricing.ts', 'test/helpers/e2e-gate.ts'],
-  'safety-codex-consult-embed': ['codex/**', 'bin/gstack-codex-probe', 'bin/gstack-paths', 'scripts/resolve-codex-generation-model.ts', 'test/skill-e2e-safety-codex-consult.test.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts'],
+  'safety-design-risk-stop': ['design-review/**', 'scripts/resolvers/browse.ts', 'scripts/resolvers/testing.ts', 'lib/aside-render.ts', 'test/skill-e2e-safety-design-risk.test.ts', 'test/helpers/browser-available.ts', 'test/helpers/aside-available.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts', 'test/helpers/llm-judge.ts', 'test/helpers/safety-design-risk-task.ts', 'test/helpers/none-arm.ts'],
+  'safety-codex-boundary': ['scripts/resolvers/outside-voice-steps.ts', 'review/**', 'scripts/resolvers/constants.ts', 'test/skill-e2e-safety-codex-boundary.test.ts', 'test/helpers/codex-boundary-evidence.ts', 'test/helpers/safety-rules.ts', 'test/helpers/pricing.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/safety-codex-boundary-task.ts', 'test/helpers/none-arm.ts'],
+  'safety-codex-consult-embed': ['codex/**', 'bin/gstack-codex-probe', 'bin/gstack-paths', 'scripts/resolve-codex-generation-model.ts', 'test/skill-e2e-safety-codex-consult.test.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts', 'test/helpers/safety-codex-consult-task.ts', 'test/helpers/none-arm.ts'],
   'safety-ios-demo-ui-only': ['ios-qa/**', 'test/skill-e2e-safety-ios-demo.test.ts', 'test/helpers/ios-stub-state-server.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts'],
   'safety-pair-agent-block': ['pair-agent/**', 'browse/src/cli.ts', 'test/skill-e2e-safety-pair-agent.test.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts'],
-  'safety-ship-stale-evidence': ['ship/SKILL.md.tmpl', 'ship/SKILL.md', 'bin/gstack-evidence', 'bin/gstack-wtree', 'test/skill-e2e-safety-ship-evidence.test.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts', 'test/helpers/llm-judge.ts'],
+  'safety-ship-stale-evidence': ['ship/SKILL.md.tmpl', 'ship/SKILL.md', 'bin/gstack-evidence', 'bin/gstack-wtree', 'test/skill-e2e-safety-ship-evidence.test.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts', 'test/helpers/llm-judge.ts', 'test/helpers/safety-ship-evidence-task.ts', 'test/helpers/none-arm.ts'],
 
   // Session Intelligence (timeline, context recovery, /context-save + /context-restore)
   'timeline-event-flow':            ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'bin/gstack-timeline-log', 'bin/gstack-timeline-read', 'test/skill-e2e-session-intelligence.test.ts'],
@@ -1220,10 +1220,10 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
      "scripts/resolvers/preamble/generate-preamble-bash.ts", "scripts/resolvers/preamble/generate-completion-status.ts"
   ],
-  'router-failure-verified-cause': ['SKILL.md.tmpl', 'SKILL.md', 'scripts/resolvers/preamble/generate-test-failure-triage.ts', 'investigate/SKILL.md.tmpl', 'lib/bun-isolation.ts', 'test/skill-e2e-failure-routing.test.ts'],
-  'router-failure-contradicted-cause': ['SKILL.md.tmpl', 'SKILL.md', 'scripts/resolvers/preamble/generate-test-failure-triage.ts', 'investigate/SKILL.md.tmpl', 'lib/bun-isolation.ts', 'test/skill-e2e-failure-routing.test.ts'],
-  'router-failure-triage-resolves': ['SKILL.md.tmpl', 'SKILL.md', 'scripts/resolvers/preamble/generate-test-failure-triage.ts', 'investigate/SKILL.md.tmpl', 'lib/bun-isolation.ts', 'test/skill-e2e-failure-routing.test.ts'],
-  'router-failure-triage-unclear': ['SKILL.md.tmpl', 'SKILL.md', 'scripts/resolvers/preamble/generate-test-failure-triage.ts', 'investigate/SKILL.md.tmpl', 'lib/bun-isolation.ts', 'test/skill-e2e-failure-routing.test.ts'],
+  'router-failure-verified-cause': ['SKILL.md.tmpl', 'SKILL.md', 'scripts/resolvers/preamble/generate-test-failure-triage.ts', 'investigate/SKILL.md.tmpl', 'lib/bun-isolation.ts', 'test/skill-e2e-failure-routing.test.ts', 'test/helpers/failure-routing-fixture.ts', 'test/helpers/none-arm.ts'],
+  'router-failure-contradicted-cause': ['SKILL.md.tmpl', 'SKILL.md', 'scripts/resolvers/preamble/generate-test-failure-triage.ts', 'investigate/SKILL.md.tmpl', 'lib/bun-isolation.ts', 'test/skill-e2e-failure-routing.test.ts', 'test/helpers/failure-routing-fixture.ts', 'test/helpers/none-arm.ts'],
+  'router-failure-triage-resolves': ['SKILL.md.tmpl', 'SKILL.md', 'scripts/resolvers/preamble/generate-test-failure-triage.ts', 'investigate/SKILL.md.tmpl', 'lib/bun-isolation.ts', 'test/skill-e2e-failure-routing.test.ts', 'test/helpers/failure-routing-fixture.ts', 'test/helpers/none-arm.ts'],
+  'router-failure-triage-unclear': ['SKILL.md.tmpl', 'SKILL.md', 'scripts/resolvers/preamble/generate-test-failure-triage.ts', 'investigate/SKILL.md.tmpl', 'lib/bun-isolation.ts', 'test/skill-e2e-failure-routing.test.ts', 'test/helpers/failure-routing-fixture.ts', 'test/helpers/none-arm.ts'],
 };
 
 /**
