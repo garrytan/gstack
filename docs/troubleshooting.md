@@ -3685,6 +3685,21 @@ goes beside the variants. When no arm loads a skill stack, write
 `stack: none` with a `why:` line instead. The rule is in
 [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
 
+<a id="eval-report-no-gstack-row"></a>
+### `EVAL_REPORT_NO_GSTACK_ROW`
+
+**Meaning.** `gstack-eval-plan results --check <prereg> <results>` found no
+single markdown table in the results file with a filled row for every arm
+identity the preregistration's Arms section lists. Usually the
+`<model>#no-gstack` row is missing, sits in a separate table from its
+variants, or holds only placeholders (`-`, `n/a`, `tbd`). It also fires when
+the preregistration itself fails `prereg --check`.
+
+**Fix.** Put one row per arm identity, each no-gstack arm beside its variants,
+in one table, and rerun the check. Publish no number before it prints
+`RESULTS: ok`. A preregistration with `stack: none` needs no row. The rule is
+in [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
+
 <a id="eval-arm-duplicate"></a>
 ### `EVAL_ARM_DUPLICATE`
 
