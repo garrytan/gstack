@@ -8,8 +8,10 @@
  *   fetch [--pr <n>]     every root review comment, conversation comment and the newest review
  *                        body of each configured bot, all pages; prints REVIEW_BOTS: skip|error
  *                        (<reason>) or REVIEW_BOTS_DIR: <dir> with comments.jsonl and the counts
- *   record --bot B --type fix|fp|already-fixed --file P --category C
- *                        append a triage outcome to review-bot-history.md (project and global)
+ *   record --dir D --id N --type fix|fp|already-fixed --category C
+ *                        append a triage outcome to review-bot-history.md (project and global); the bot
+ *                        and path come from comment N in D/comments.jsonl, never from a shell argument,
+ *                        so a contributor-named file cannot reach the command line
  *
  * fetch marks each record with the false-positive rows that could suppress it: same repo, same
  * bot, matching file. Rows in the old greptile-history.md count as Greptile's.
@@ -56,6 +58,10 @@ interface GhItem {
 interface HistoryRow { repo: string; type: string; pattern: string; category: string; bot: string }
 
 const firstLine = (text: string) => text.trim().split("\n")[0] || "no detail";
+/** gh's answers when the checkout has no GitHub remote at all; any other repo lookup failure is an error, never a skip. */
+const NO_GITHUB_REMOTE = /no git remotes found|none of the git remotes configured for this repository point to a known GitHub host|not a git repository/i;
+/** The issue types a triage outcome may carry (review/greptile-triage.md, Suppressions Check). */
+export const CATEGORIES = ["race-condition", "null-check", "error-handling", "style", "type-safety", "security", "performance", "correctness", "other"] as const;
 
 /** The bot that owns an item's author, or null for humans, other bots and deleted accounts. */
 function ownerOf(item: GhItem, bots: readonly string[]): string | null {
@@ -98,7 +104,7 @@ function readOr(file: string): string {
 
 /** All pages of one REST list, one item per line (no --slurp: gh before 2.48 lacks it), or the reason it could not be read whole. */
 function pages(env: ReviewBotsEnv, endpoint: string): GhItem[] | string {
-  const r = env.run("gh", ["api", "--paginate", `${endpoint}?per_page=100`, "--jq", ".[]"]);
+  const r = env.run("gh", ["api", "--paginate", `${endpoint}?per_page=100`, "--jq", ".[] | tojson"]);
   if (r.status !== 0) return `${endpoint}: ${firstLine(r.stderr)}`;
   try {
     const items: unknown[] = r.stdout.split("\n").filter(l => l.trim()).map(l => JSON.parse(l));
@@ -117,12 +123,15 @@ function fetch(env: ReviewBotsEnv, args: string[]): number {
   if (env.run("gh", ["auth", "status"]).status !== 0) return skip("gh not logged in");
   const repoRun = env.run("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
   const repo = repoRun.stdout.trim();
-  if (repoRun.status !== 0 || !repo) return skip(`not a GitHub remote: ${firstLine(repoRun.stderr)}`);
+  if (repoRun.status !== 0 || !repo) {
+    const why = firstLine(repoRun.stderr);
+    return NO_GITHUB_REMOTE.test(repoRun.stderr) ? skip(`not a GitHub remote: ${why}`) : error(`repository lookup failed: ${why}`);
+  }
   const i = args.indexOf("--pr");
   let pr = i >= 0 ? args[i + 1] ?? "" : "";
   if (!pr) {
     const view = env.run("gh", ["pr", "view", "--json", "number", "--jq", ".number"]);
-    if (view.status !== 0) return skip(/no pull requests found/.test(view.stderr) ? "no PR yet" : `PR lookup failed: ${firstLine(view.stderr)}`);
+    if (view.status !== 0) return /no pull requests found/.test(view.stderr) ? skip("no PR yet") : error(`PR lookup failed: ${firstLine(view.stderr)}`);
     pr = view.stdout.trim();
   }
   if (!/^[1-9][0-9]*$/.test(pr)) return error(`'${pr}' is not a PR number`);
@@ -167,11 +176,16 @@ function fetch(env: ReviewBotsEnv, args: string[]): number {
 
 function record(env: ReviewBotsEnv, args: string[]): number {
   const flag = (name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-  const [bot, type, file, category] = [flag("--bot"), flag("--type"), flag("--file"), flag("--category")];
-  const usage = "usage: gstack-review-bots record --bot <bot> --type fix|fp|already-fixed --file <path|top-level> --category <category>\n";
-  if (!bot || !type || !file || !category) { env.err(usage); return 64; }
+  const [dir, id, type, category] = [flag("--dir"), flag("--id"), flag("--type"), flag("--category")];
+  const usage = "usage: gstack-review-bots record --dir <REVIEW_BOTS_DIR> --id <comment id> --type fix|fp|already-fixed --category <category>\n";
+  if (!dir || !id || !type || !category) { env.err(usage); return 64; }
+  if (!/^[1-9][0-9]*$/.test(id)) { env.err("gstack-review-bots: --id must be a comment id from comments.jsonl\n"); return 64; }
   if (!(HISTORY_TYPES as readonly string[]).includes(type)) { env.err(`gstack-review-bots: --type must be one of ${HISTORY_TYPES.join(", ")}\n`); return 64; }
-  if ([bot, file, category].some(v => /[|\r\n]/.test(v))) { env.err("gstack-review-bots: values cannot contain | or a line break\n"); return 64; }
+  if (!(CATEGORIES as readonly string[]).includes(category)) { env.err(`gstack-review-bots: --category must be one of ${CATEGORIES.join(", ")}\n`); return 64; }
+  const comment = readOr(path.join(dir, "comments.jsonl")).split("\n").filter(Boolean).map(l => JSON.parse(l) as BotComment).find(c => String(c.id) === id);
+  if (!comment) { env.err(`gstack-review-bots: no comment ${id} in ${path.join(dir, "comments.jsonl")}\n`); return 1; }
+  const [bot, file] = [comment.bot, comment.path || "top-level"];
+  if (/[|\r\n]/.test(file)) { env.err("gstack-review-bots: the comment's path contains | or a line break, so it cannot be a history row\n"); return 1; }
   const repoRun = env.run("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
   const repo = repoRun.status === 0 ? repoRun.stdout.trim() : "";
   if (!repo) { env.err(`gstack-review-bots: cannot resolve the GitHub repository: ${firstLine(repoRun.stderr)}\n`); return 1; }
@@ -188,6 +202,6 @@ export function runReviewBots(argv: string[], env: ReviewBotsEnv): number {
   const [cmd, ...rest] = argv;
   if (cmd === "fetch") return fetch(env, rest);
   if (cmd === "record") return record(env, rest);
-  env.err("usage: gstack-review-bots {fetch [--pr <n>] | record --bot B --type fix|fp|already-fixed --file P --category C}\n");
+  env.err("usage: gstack-review-bots {fetch [--pr <n>] | record --dir D --id N --type fix|fp|already-fixed --category C}\n");
   return cmd === "help" || cmd === "--help" ? 0 : 64;
 }

@@ -168,7 +168,8 @@ export function parsePrTarget(raw: string | undefined, repo?: string): { repo?: 
 /** The configured bot that owns a login: the first name the lowercased login starts with (greptile-apps[bot] is greptile, notgreptile is nobody). */
 export function botOwning(login: string | null | undefined, bots: readonly string[]): string | null {
   const lowered = (login ?? '').toLowerCase();
-  return lowered ? bots.find(bot => bot !== '' && lowered.startsWith(bot)) ?? null : null;
+  if (!lowered) return null;
+  return bots.filter(bot => bot !== '' && lowered.startsWith(bot)).sort((a, b) => b.length - a.length)[0] ?? null;
 }
 
 function botList(value: string | null, fallback: string[]): string[] {

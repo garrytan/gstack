@@ -452,7 +452,7 @@ describe('Cross-skill path consistency', () => {
 
   test('greptile-triage.md records through gstack-review-bots into review-bot-history.md', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), 'utf-8');
-    expect(content).toContain('gstack-review-bots record --bot <bot>');
+    expect(content).toContain('gstack-review-bots record --dir <bot-dir> --id <id>');
     expect(content).toContain('review-bot-history.md');
   });
 

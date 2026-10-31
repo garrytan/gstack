@@ -37,10 +37,10 @@ including escalation tiers; the parent handles decisions and queues approved fix
 
 > You are classifying PR review bot comments for a /ship workflow. Read `~/.claude/skills/gstack/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps. `REVIEW_BOTS: skip` is `no_pr`; `REVIEW_BOTS: error` is `unavailable`. Do NOT fix code, do NOT reply to comments, do NOT commit — report only.
 >
-> For each comment, assign: `bot`, `classification` (`valid_actionable`, `already_fixed`, `false_positive`, `suppressed`), `escalation_tier` (1 or 2), the file:line or [top-level] tag, body summary, and permalink URL.
+> For each comment, assign: `id`, `bot`, `classification` (`valid_actionable`, `already_fixed`, `false_positive`, `suppressed`), `escalation_tier` (1 or 2), the file:line or [top-level] tag, body summary, and permalink URL.
 >
 > Return one JSON object on the LAST LINE:
-> `{"status":"complete|no_pr|unavailable","total":N,"comments":[{"bot":"...","classification":"...","escalation_tier":N,"ref":"file:line","summary":"...","permalink":"url"},...],"reason":"..."}`
+> `{"status":"complete|no_pr|unavailable","dir":"<REVIEW_BOTS_DIR>","total":N,"comments":[{"id":N,"bot":"...","classification":"...","escalation_tier":N,"ref":"file:line","summary":"...","permalink":"url"},...],"reason":"..."}`
 > Use `complete` only after a successful fetch, including zero comments; `no_pr` only after confirming no PR exists; `unavailable` for `gh`/API errors or incomplete classification. The latter two return zero total and an empty array. State the failure reason for `unavailable`; otherwise use an empty reason.
 
 **Parent processing:**

@@ -3,7 +3,7 @@
  * gstack-review-bots — the PR review-bot comments /review and /ship triage (fetch, record).
  *
  *   gstack-review-bots fetch [--pr <n>]
- *   gstack-review-bots record --bot <bot> --type fix|fp|already-fixed --file <path> --category <c>
+ *   gstack-review-bots record --dir <REVIEW_BOTS_DIR> --id <comment id> --type fix|fp|already-fixed --category <c>
  *
  * The bots are gstack-pr-wait's lists: gstack-config set pr_wait_gating_bots / pr_wait_advisory_bots.
  * Logic: lib/review-bots.ts.

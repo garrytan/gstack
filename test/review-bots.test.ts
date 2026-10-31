@@ -27,6 +27,8 @@ interface Fixture {
   /** Raw stdout for the reviews call, as gh would print it. */
   rawReviews?: string;
   repoFails?: boolean;
+  /** stderr for a repo lookup that fails for another reason (network, rate limit). */
+  repoError?: string;
 }
 
 function run(opts: Fixture, ...argv: string[]) {
@@ -54,6 +56,7 @@ function run(opts: Fixture, ...argv: string[]) {
       if (cmd === "gh" && args.includes("--slurp")) return { status: 1, stdout: "", stderr: "unknown flag: --slurp (gh 2.45)\n" };
       if (cmd === "gh" && args[0] === "auth" && opts.authFails) return { status: 1, stdout: "", stderr: "not logged in\n" };
       if (cmd === "gh" && args[0] === "repo" && opts.repoFails) return { status: 1, stdout: "", stderr: "no git remotes found\n" };
+      if (cmd === "gh" && args[0] === "repo" && opts.repoError) return { status: 1, stdout: "", stderr: opts.repoError + "\n" };
       if (cmd === "gh" && (args[0] === "--version" || args[0] === "auth")) return ok("");
       if (cmd === "gh" && args[0] === "repo") return ok("acme/widget\n");
       if (cmd === "gh" && args[0] === "pr") return { stdout: "", stderr: "", ...(opts.prView ?? { status: 0, stdout: "12\n" }) };
@@ -77,7 +80,8 @@ describe("botOwning", () => {
     expect(botOwning("notgreptile", ["greptile"])).toBeNull();
     expect(botOwning(null, ["greptile"])).toBeNull();
     expect(botOwning("", ["greptile"])).toBeNull();
-    expect(botOwning("copilot-swe[bot]", ["copilot", "copilot-swe"])).toBe("copilot");
+    expect(botOwning("copilot-swe[bot]", ["copilot", "copilot-swe"])).toBe("copilot-swe");
+    expect(botOwning("coderabbitai[bot]", ["code", "coderabbit"])).toBe("coderabbit");
   });
 });
 
@@ -137,12 +141,14 @@ describe("fetch", () => {
     expect(r.records.map(c => c.id)).toEqual([1]);
     const apiCalls = r.calls.filter(c => c[1] === "api");
     expect(apiCalls).toHaveLength(3);
-    for (const c of apiCalls) expect(c).toEqual(["gh", "api", "--paginate", expect.stringMatching(/\?per_page=100$/), "--jq", ".[]"]);
+    for (const c of apiCalls) expect(c).toEqual(["gh", "api", "--paginate", expect.stringMatching(/\?per_page=100$/), "--jq", ".[] | tojson"]);
   });
 
   test("gh not logged in or no GitHub remote skips; a non-numeric --pr is an error", () => {
     expect(run({ authFails: true }, "fetch").text).toBe("REVIEW_BOTS: skip (gh not logged in)\n");
     expect(run({ repoFails: true }, "fetch").text).toBe("REVIEW_BOTS: skip (not a GitHub remote: no git remotes found)\n");
+    expect(run({ repoError: "HTTP 502: Bad Gateway" }, "fetch").text).toBe("REVIEW_BOTS: error (repository lookup failed: HTTP 502: Bad Gateway)\n");
+    expect(run({ prView: { status: 1, stderr: "API rate limit exceeded" } }, "fetch").text).toBe("REVIEW_BOTS: error (PR lookup failed: API rate limit exceeded)\n");
     const bad = run({}, "fetch", "--pr", "12;rm");
     expect(bad.text).toBe("REVIEW_BOTS: error ('12;rm' is not a PR number)\n");
     expect(bad.calls.some(c => c[1] === "api")).toBe(false);
@@ -172,20 +178,35 @@ describe("fetch", () => {
 });
 
 describe("record and history", () => {
-  test("record appends a six-column row to the project and global files", () => {
-    const r = run({}, "record", "--bot", "CodeRabbit", "--type", "fp", "--file", "src/a.ts", "--category", "style");
+  test("record takes the bot and path from the fetched comment, so a contributor-named file never reaches a shell", () => {
+    const fetched = run({
+      line: [[{ id: 7, user: bot("coderabbitai[bot]"), path: "src/$(printf X).ts", line: 1, position: 1, body: "x" }, { id: 8, user: bot("coderabbitai[bot]"), path: "a | b.ts", line: 1, position: 1, body: "x" }]],
+      top: [[{ id: 9, user: bot("greptile-apps[bot]"), body: "y" }]],
+    }, "fetch");
+    const dir = /^REVIEW_BOTS_DIR: (.+)$/m.exec(fetched.text)![1]!;
+    const r = run({}, "record", "--dir", dir, "--id", "7", "--type", "fp", "--category", "style");
     expect(r.code).toBe(0);
-    const row = "2026-10-31 | acme/widget | fp | src/a.ts | style | coderabbit\n";
+    const row = "2026-10-31 | acme/widget | fp | src/$(printf X).ts | style | coderabbit\n";
     expect(fs.readFileSync(path.join(r.state, "projects/acme-widget/review-bot-history.md"), "utf8")).toBe(row);
     expect(fs.readFileSync(path.join(r.state, "review-bot-history.md"), "utf8")).toBe(row);
-    expect(parseHistory(row)).toEqual([{ repo: "acme/widget", type: "fp", pattern: "src/a.ts", category: "style", bot: "coderabbit" }]);
+    expect(parseHistory(row)).toEqual([{ repo: "acme/widget", type: "fp", pattern: "src/$(printf X).ts", category: "style", bot: "coderabbit" }]);
+    const top = run({}, "record", "--dir", dir, "--id", "9", "--type", "already-fixed", "--category", "correctness");
+    expect(fs.readFileSync(path.join(top.state, "review-bot-history.md"), "utf8")).toBe("2026-10-31 | acme/widget | already-fixed | top-level | correctness | greptile\n");
+    const piped = run({}, "record", "--dir", dir, "--id", "8", "--type", "fp", "--category", "style");
+    expect(piped.code).toBe(1);
+    expect(fs.existsSync(path.join(piped.state, "review-bot-history.md"))).toBe(false);
   });
 
-  test("record refuses unknown types and values that would break a row", () => {
-    expect(run({}, "record", "--bot", "greptile", "--type", "maybe", "--file", "a", "--category", "c").code).toBe(64);
-    expect(run({}, "record", "--bot", "greptile", "--type", "fp", "--file", "a | b", "--category", "c").code).toBe(64);
-    expect(run({}, "record", "--bot", "greptile", "--type", "fp").code).toBe(64);
-    const noRepo = run({ repoFails: true }, "record", "--bot", "greptile", "--type", "fp", "--file", "a", "--category", "c");
+  test("record refuses anything but a known id, type and category", () => {
+    const fetched = run({ top: [[{ id: 9, user: bot("greptile-apps[bot]"), body: "y" }]] }, "fetch");
+    const dir = /^REVIEW_BOTS_DIR: (.+)$/m.exec(fetched.text)![1]!;
+    const rec = (extra: Fixture, ...a: string[]) => run(extra, "record", "--dir", dir, ...a);
+    expect(rec({}, "--id", "9", "--type", "maybe", "--category", "style").code).toBe(64);
+    expect(rec({}, "--id", "9", "--type", "fp", "--category", "$(id)").code).toBe(64);
+    expect(rec({}, "--id", "9;rm", "--type", "fp", "--category", "style").code).toBe(64);
+    expect(rec({}, "--id", "9", "--type", "fp").code).toBe(64);
+    expect(rec({}, "--id", "10", "--type", "fp", "--category", "style").code).toBe(1);
+    const noRepo = rec({ repoFails: true }, "--id", "9", "--type", "fp", "--category", "style");
     expect(noRepo.code).toBe(1);
     expect(fs.existsSync(path.join(noRepo.state, "review-bot-history.md"))).toBe(false);
   });
