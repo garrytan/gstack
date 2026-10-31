@@ -65,35 +65,39 @@ const OPENS = /^(?:[-*+>]\s+|\d+[.)]\s+|#{1,6}\s*)?[\s[(*_`"'“‘|]*$/;
  * A label word used as a word, not as a label (GST-435): negated by the words right before it ("not CRITICAL", "no High findings",
  * "isn't a CRITICAL", "doesn't rise to CRITICAL", "no CRITICAL or High"), said of a negated subject through a copula with no
  * conjunction between ("Neither finding is CRITICAL", "None of these is High", "Nothing here is CRITICAL"), used as a yardstick
- * ("below CRITICAL", "worse than High"), in quotation marks ("rated it 'High'") or listed as vocabulary ("Critical|High"). A negation
- * that describes the defect ("Without auth this is CRITICAL", "None of the inputs are sanitized so this is CRITICAL") leaves the label
- * standing, and so does every label in a table row; a Severity or Blocks field line keeps its quoted labels. The clause runs back to the last sentence,
- * colon, comma, dash or bracket.
+ * ("below CRITICAL", "worse than High"), in quotation marks or code formatting ("rated it 'High'", "maps `FIXABLE`") or listed as
+ * vocabulary ("Critical|High"); bold or code marks between the negation and the label change nothing. A negation that describes the
+ * defect ("Without auth this is CRITICAL", "None of the inputs are sanitized so this is CRITICAL") leaves the label standing; a
+ * parenthesized classification ("(`FIXABLE`)") and a Severity or Blocks field line keep their quoted labels, and table cells are never
+ * vocabulary for each other. The clause runs back to the last sentence, colon, comma, dash, bracket or table bar.
  */
 const NEGATOR = "not|no|never|nothing|without|zero|nor|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|cannot|can't|won't";
 const FILLER = '(?:a|an|any|rated|at|be|really|quite|even|rises?\\s+to|reach(?:es)?|counts?\\s+as)';
-const NEGATED = new RegExp(`\\b(?:${NEGATOR})\\s+(?:${FILLER}\\s+)*(?:(?:${LABELS})\\s*(?:or|nor|and|/)\\s*)*["'“‘]?$`, 'i');
-const CONJUNCTION = 'so|but|and|or|because|while|which|that|yet|though|although|since|whereas|if|when';
-const NEGATED_SUBJECT = new RegExp(`^\\s*(?:neither|none|nothing|no\\s+(?:[\\w-]+\\s+)?(?:findings?|issues?|items?|defects?|problems?))\\b(?:(?!\\b(?:${CONJUNCTION})\\b).)*\\b(?:is|are|was|were|rises?\\s+to|reach(?:es)?|counts?\\s+as|rated)\\s+(?:(?:a|an)\\s+)?["'“‘]?$`, 'i');
-const YARDSTICK = /\b(?:below|under|than|short of|instead of)\s+["'“‘]?$/i;
-const QUOTES: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘': '’' };
+const MARKS = "[*_`\"'“‘]*";
+const NEGATED = new RegExp(`\\b(?:${NEGATOR})\\s+(?:${FILLER}\\s+)*(?:${MARKS}(?:${LABELS})${MARKS}\\s*(?:or|nor|and|/)\\s*)*${MARKS}$`, 'i');
+/** A new clause after a negated subject: a subordinating conjunction, or "and"/"or" that opens a clause with its own subject. */
+const CLAUSE_BREAK = '\\b(?:so|but|yet|because|since|while|whereas|although|though|if|when)\\b|\\b(?:and|or)\\s+(?:the|this|that|these|those|it|its|there|a|an|we|i|you|they)\\b';
+const NEGATED_SUBJECT = new RegExp(`^\\s*(?:neither|none|nothing|no\\s+(?:[\\w-]+\\s+)?(?:findings?|issues?|items?|defects?|problems?))\\b(?:(?!${CLAUSE_BREAK}).)*\\b(?:is|are|was|were|rises?\\s+to|reach(?:es)?|counts?\\s+as|rated)\\s+(?:(?:a|an)\\s+)?${MARKS}$`, 'i');
+const YARDSTICK = new RegExp(`\\b(?:below|under|than|short of|instead of)\\s+${MARKS}$`, 'i');
+const QUOTES: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘': '’', '`': '`' };
 const VOCAB_AFTER = new RegExp(`^\\|(?:${LABELS})(?![A-Za-z0-9])`);
 const VOCAB_BEFORE = new RegExp(`(?<![A-Za-z0-9])(?:${LABELS})\\|$`);
 function aWord(t: string, at: number, len: number): boolean {
   const before = t.slice(0, at);
-  if (OPENS.test(before) || t.startsWith('|')) return false;
+  if (OPENS.test(before)) return false;
   const after = t.slice(at + len);
-  const field = META.test(t);
-  if (!field && QUOTES[before.slice(-1)] !== undefined && after.startsWith(QUOTES[before.slice(-1)]!)) return true;
-  if (!field && (VOCAB_AFTER.test(after) || VOCAB_BEFORE.test(before))) return true;
-  const clause = ' ' + before.slice(Math.max(...['.', ';', ':', '!', '?', ',', '—', '–', '(', ')'].map(c => before.lastIndexOf(c))) + 1);
+  const quote = QUOTES[before.slice(-1)];
+  const quoted = quote !== undefined && after.startsWith(quote) && !(before.endsWith('(' + before.slice(-1)) && after.startsWith(quote + ')'));
+  if (!META.test(t) && quoted) return true;
+  if (!t.startsWith('|') && (VOCAB_AFTER.test(after) || VOCAB_BEFORE.test(before))) return true;
+  const clause = ' ' + before.slice(Math.max(...['.', ';', ':', '!', '?', ',', '—', '–', '(', ')', '|'].map(c => before.lastIndexOf(c))) + 1);
   return NEGATED.test(clause) || NEGATED_SUBJECT.test(clause) || YARDSTICK.test(clause);
 }
 /**
  * A closing summary line ("Overall: …", "In summary, …", "Verdict: …") after the findings restates them: it starts no finding unless
  * it names a file:line, says `Blocks: yes` or carries a label stronger than every finding before it.
  */
-const SUMMARY = /^(?:\*\*)?(?:in\s+summary|summary|overall|verdict|conclusion|bottom\s+line)\**\s*[:,]/i;
+const SUMMARY = /^(?:\*\*)?(?:in\s+summary\b|(?:summary|overall|verdict|conclusion|bottom\s+line)\**\s*[:,—–])/i;
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
@@ -107,8 +111,8 @@ export interface MergedLine { id: string; reader: string; label: string; raw: st
  * of the two labels). A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` raises its label,
  * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
  * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
- * starts the next finding, except an unlabeled, unnumbered bullet right under a paragraph finding whose fields have not come yet,
- * which is its detail and joins its text.
+ * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
+ * come yet, which is its detail and joins its text.
  * An inline `Blocks: yes` is CRITICAL too. A label word used as a word (negated, a yardstick, quoted or listed as vocabulary) is
  * not a label, and a closing summary line after the findings starts none (GST-435). The native voice's FIXABLE collects as CRITICAL;
  * other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
@@ -157,8 +161,8 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
         if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    // An unlabeled, unnumbered bullet right under a paragraph finding whose fields have not come yet is its detail (GSTA-196 native voice).
-    const detail = listItem && /^[-*+]\s/.test(t) && !afterGap && !locus && !label && !section && !!current && !current.list && !current.fields.size;
+    // An unlabeled, unnumbered bullet under a paragraph finding whose fields have not come yet is its detail (GSTA-196 native voice).
+    const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
     if (fresh) { current = null; head = t; }
@@ -325,8 +329,10 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
     if (status === 'MATCH' && !reviewed(o)) {
-      // A non-review the same dispatch later replaced with a review (the brief re-sent and answered) is void, counted like a voided send.
-      const replaced = !!p && events.slice(i + 1, p.next).some(e => e.event === 'output' && e.reader === reader && reviewed(e));
+      // A non-review the same dispatch later replaced with a review (the brief re-sent verbatim, then answered) is void, counted like a voided send.
+      const later = p ? events.slice(i + 1, p.next) : [];
+      const review = later.findIndex(e => e.event === 'output' && e.reader === reader && reviewed(e));
+      const replaced = review > 0 && later.slice(0, review).some(e => e.event === 'sent' && e.reader === reader && e.sha256 === events[p!.at]!.sha256);
       if (unavailableOutput(o)) { status = 'UNAVAILABLE'; notes.push(`reason=${JSON.stringify(o.unavailable)}`); }
       else if (replaced) { status = 'VOIDED'; voided++; notes.push('replaced_by_a_review'); }
       else { status = 'NOT_REVIEWED'; notes.push('no_finding_no_clean_marker'); }

@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, promptHash, renderBrief, sectionTexts, type BriefRole, type Slots } from '../lib/review-brief';
-import { cleanMarkers, collect, mayBeUnavailable, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
+import { cleanMarkers, collect, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from '../lib/review-targeted';
 import { resolveBaseBranch } from '../lib/ship-policy';
 
@@ -38,8 +38,8 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       the reader's raw output: hashes it and appends each finding to merged.jsonl with its label as written. A reply with
       no finding must carry its brief's clean marker (NO FINDINGS; the Recommendation: line for the voices); without one it is
       COLLECT_NOT_REVIEWED (exit 1): a refusal, an empty reply or a reader that never saw the diff, and verify reports NOT_COLLECTED
-      until the brief is re-sent and answered with a review, which voids it. --unavailable '<reason>' (the outside voice only) records
-      its failure text as missing coverage: COLLECT_UNAVAILABLE, and verify prints UNAVAILABLE and unavailable=N, never a review
+      until the brief is re-sent and answered with a review, which voids it. --unavailable '<reason>' (the outside voice only; refused when the
+      output holds findings) records its failure text as missing coverage: COLLECT_UNAVAILABLE, and verify prints UNAVAILABLE and unavailable=N, never a review
   judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl>
       judged lines {"id","severity","reason"?,"duplicate_of"?}: every merged id kept at its severity or above (a
       duplicate folds into one at least as severe); added and promoted findings need a reason. JUDGMENT: ok …, or
@@ -139,6 +139,8 @@ function main(): number {
     if (!reader || output === undefined || !merged) { process.stderr.write('gstack-review-dispatch collect: needs --role, --output <file> and --merged <file>\n'); return EXIT.usage; }
     const unavailable = flag('--unavailable');
     if (unavailable !== undefined && !mayBeUnavailable(reader)) { process.stderr.write(`gstack-review-dispatch collect: --unavailable is for the outside voice only; ${reader}'s missing coverage leaves the review incomplete, never clean\n`); return EXIT.usage; }
+    if (unavailable !== undefined && !unavailable.trim()) { process.stderr.write('gstack-review-dispatch collect: --unavailable needs a reason\n'); return EXIT.usage; }
+    if (unavailable !== undefined && parseFindings(reader, output).length) { process.stderr.write(`gstack-review-dispatch collect: ${reader}'s output holds findings; collect it without --unavailable so none is lost\n`); return EXIT.usage; }
     const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable);
     if (unavailable !== undefined) { process.stdout.write(`COLLECT_UNAVAILABLE: reader=${reader} sha256=${r.sha} reason=${JSON.stringify(unavailable)} (missing outside coverage: unavailable, never clean)\n`); return EXIT.ok; }
     if (!r.review) {

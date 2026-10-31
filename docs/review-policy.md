@@ -474,15 +474,16 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). A label word used as a word is not a label: negated
-   by the word right before it ("not CRITICAL", "no High findings"), said of a negated subject in the same clause ("Neither finding is CRITICAL",
-   "None of these is High"; a "so", "but" or "and" ends the subject, so "None of the inputs are sanitized so this is CRITICAL" keeps its label),
-   a yardstick ("below CRITICAL", "worse than High"; "up to" and "at most" are not yardsticks), in straight or curly quotes (a backticked label
-   counts), or listed as vocabulary ("Critical|High"). A negation that describes the defect ("Without auth this is CRITICAL") leaves the label
-   standing; a label the line opens with, a label on a `Severity:` or `Blocks:` field line and a table cell always count. A closing "Overall:",
-   "Summary:" or "Verdict:" line after the findings starts none unless it carries `Blocks: yes`, a file:line, or a label stronger than every
-   finding before it (GST-435). An unnumbered, unlabeled bullet with no file:line, right under a paragraph finding whose Severity or Blocks
-   line has not come yet, is that finding's detail, so the field line after it lands on the finding; a numbered item or one after a blank line
-   is its own finding.
+   by the word right before it ("not CRITICAL", "not **CRITICAL**", "no High findings"), said of a negated subject in the same clause
+   ("Neither finding is CRITICAL", "None of the read and write paths are High"; "so", "but", "because" and the like, or an "and"/"or" that
+   opens a clause with its own subject, end the subject, so "None of the inputs are sanitized so this is CRITICAL" keeps its label), a
+   yardstick ("below CRITICAL", "worse than High"; "up to" and "at most" are not yardsticks), in quotes or code formatting ("maps
+   `FIXABLE` to `CRITICAL`"), or listed as vocabulary ("Critical|High"). A negation that describes the defect ("Without auth this is
+   CRITICAL") leaves the label standing; a label the line opens with, a parenthesized classification ("(`FIXABLE`)") and a label on a
+   `Severity:` or `Blocks:` field line always count, and table cells are never vocabulary for each other. A closing "Overall:", "Summary:",
+   "In summary" or "Verdict:" line after the findings starts none unless it carries `Blocks: yes`, a file:line, or a label stronger than
+   every finding before it (GST-435). An unnumbered, unlabeled bullet with no file:line under a paragraph finding whose Severity or Blocks
+   line has not come yet is that finding's detail, so the field line after it lands on the finding; a numbered item is its own finding.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
@@ -499,7 +500,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    otherwise, and the output row `NOT_REVIEWED`; the marker is checked again in the output file when it is unchanged, so an
    older ledger meets the same rule; a non-review the same dispatch later replaced with a review, by re-sending the brief, is `VOIDED`
    and counted in `voided=N`). The outside voice may fail without blocking: `collect --unavailable '<reason>'` records its failure text
-   as missing coverage with no findings (`COLLECT_UNAVAILABLE`), verify prints its brief and output `UNAVAILABLE` and `unavailable=N` on the
+   as missing coverage (`COLLECT_UNAVAILABLE`); an empty reason or an output that holds findings is refused (exit 2), so a partial
+   answer is collected normally and loses nothing. Verify prints its brief and output `UNAVAILABLE` and `unavailable=N` on the
    verdict line, and its coverage is logged `unavailable` in the review-log row; any other reader is refused (exit 2), because its
    missing coverage leaves the review incomplete. A mismatched send re-sent
    byte-exact before anything was collected is void and counted (`voided=N` on the

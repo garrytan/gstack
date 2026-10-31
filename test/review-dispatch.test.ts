@@ -419,17 +419,23 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(judge(readJsonl<MergedLine>(merged), readJsonl(judged)).ok).toBe(true);
     for (const word of ['Neither finding is CRITICAL.', 'This is not CRITICAL.', 'There are no CRITICAL findings.', 'None of these is High.', 'The race sits below CRITICAL on the floor.',
       'It ranks lower than High.', "Pass 1 rated it 'High'; the fix closes it.", 'The brief\'s word "CRITICAL" fits none of them.', 'Severity vocabulary: Critical|High|Medium|Low',
-      "This doesn't rise to CRITICAL.", 'It cannot be CRITICAL.', 'Nothing here is CRITICAL.', 'This is not really CRITICAL.'])
+      "This doesn't rise to CRITICAL.", 'It cannot be CRITICAL.', 'Nothing here is CRITICAL.', 'This is not really CRITICAL.',
+      'I used the `CRITICAL` label for none of them.', 'This is not **CRITICAL**.', 'Neither finding is **High**.', 'There are no `CRITICAL` findings.',
+      'The race sits below `CRITICAL` on the floor.', 'No finding that I checked is CRITICAL.', 'None of the read and write paths are CRITICAL.',
+      'No issues in auth or billing are High.'])
       expect([word, parseFindings('outside-voice', word)]).toEqual([word, []]);
     expect(parseFindings('outside-voice', '1. **High**: retry loop never backs off (q.ts:78)\n\nOverall: one High finding, nothing CRITICAL.').map(f => f.label)).toEqual(['High']);
     expect(parseFindings('outside-voice', 'Severity: Low (not High)\n').map(f => f.label)).toEqual(['Low']);
+    expect(parseFindings('outside-voice', '1. **High**: x in a.ts:1\n\nIn summary the race is High, nothing CRITICAL.\n\nVerdict — one High finding.').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('outside-voice', '| a.ts:3 | race | not CRITICAL, Low |').map(f => f.label)).toEqual(['Low']);
+    expect(parseFindings('outside-voice', 'Low: the parser now maps `FIXABLE` to `CRITICAL` in a comment (a.ts:3)').map(f => f.label)).toEqual(['Low']);
     const kept: Array<[string, string]> = [['CRITICAL: x.ts:4 drops rows', 'CRITICAL'], ['1. The token is never checked (auth.ts:9) — High', 'High'], ['- **High**: leak in log.ts:3', 'High'],
       ['| High | race in queue.ts:4 |', 'High'], ['| `High` | race in queue.ts:4 |', 'High'], ['The retry drops writes, a CRITICAL defect (q.ts:78).', 'CRITICAL'], ['[P1] token not expired', 'P1'],
       ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ['Summary: CRITICAL auth bypass at a.ts:3', 'CRITICAL'], ["The lock isn't released on error (pool.ts:12): High", 'High'],
       ['1. Without auth this is CRITICAL (a.ts:3)', 'CRITICAL'], ['- Input is never sanitized CRITICAL', 'CRITICAL'], ['1. Requests with no token pass High (a.ts:4)', 'High'],
       ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'], ['|auth.ts:9|token never expires|CRITICAL|', 'CRITICAL'],
       ['None of the inputs are sanitized so this is CRITICAL (a.ts:3)', 'CRITICAL'], ['Neither path checks auth so this is CRITICAL (a.ts:3)', 'CRITICAL'],
-      ['No defects in parsing but the upload handler is CRITICAL.', 'CRITICAL'], ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'],
+      ['No defects in parsing but the upload handler is CRITICAL.', 'CRITICAL'], ['No defects in parsing and the upload handler is CRITICAL.', 'CRITICAL'], ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'],
       ['|1|FIXABLE|High|race in queue.ts:78|', 'High'], ['**Token leak in log.ts:3**\nSeverity: `Critical`', 'Critical']];
     for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
     // Pre-landing review (#3677 Step 11): a summary-led line with a locus or Blocks: yes, or a stronger label than any finding so far,
@@ -464,6 +470,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', 'Low: cache TTL mismatch (cache.ts:4)\n\n2. Token never expires (auth.ts:9)\nSeverity: High\nBlocks: yes').map(f => [f.label, f.raw]))
       .toEqual([['Low', 'Low: cache TTL mismatch (cache.ts:4)'], ['CRITICAL', '2. Token never expires (auth.ts:9) | Severity: High | Blocks: yes']]);
     expect(parseFindings('outside-voice', '**Race in a.ts:3 (High).**\n- the writer holds no lock\nSeverity: Medium').map(f => f.raw)).toEqual(['**Race in a.ts:3 (High).** | - the writer holds no lock | Severity: Medium']);
+    expect(parseFindings('outside-voice', '**Race in a.ts:3 (Medium).**\n\n- the writer holds no lock\n\nSeverity: Medium. Blocks: yes').map(f => [f.label, f.raw]))
+      .toEqual([['CRITICAL', '**Race in a.ts:3 (Medium).** | - the writer holds no lock | Severity: Medium. Blocks: yes']]);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
@@ -500,6 +508,20 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     run(['sent', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--sent', q.file]);
     const refused = run(['collect', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--output', q.w('t.out', 'timed out\n'), '--merged', q.merged, '--unavailable', 'timeout']);
     expect([refused.status, refused.stderr.includes('--unavailable is for the outside voice only')]).toEqual([2, true]);
+    const partial = path.join(o, 'partial.out');
+    fs.writeFileSync(partial, '1. **CRITICAL**: token leak in a.ts:3\nCodex then timed out.\n');
+    const kept = run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', partial, '--merged', merged, '--unavailable', 'timeout']);
+    expect([kept.status, kept.stderr.includes('holds findings; collect it without --unavailable')]).toEqual([2, true]);
+    expect(run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', fail, '--merged', merged, '--unavailable', ' ']).status).toBe(2);
+    const n = pass();
+    const takeN = (f: string) => run(['collect', '--ledger', n.ledger, '--role', 'specialist', '--name', 'testing', '--output', f, '--merged', n.merged]);
+    run(['sent', '--ledger', n.ledger, '--role', 'specialist', '--name', 'testing', '--sent', n.file]);
+    takeN(n.w('refusal.out', 'I could not access the diff.\n'));
+    takeN(n.w('clean.out', 'NO FINDINGS\n'));
+    fs.writeFileSync(path.join(n.out, 'judged.jsonl'), '');
+    run(['judge', '--ledger', n.ledger, '--merged', n.merged, '--judged', path.join(n.out, 'judged.jsonl')]);
+    const unsent = run(['verify', '--ledger', n.ledger]);
+    expect([unsent.status, unsent.stdout.includes(' NOT_REVIEWED '), unsent.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
   });
 
   test('verify on a ledger that kept no prompts says so and exits 3', () => {
