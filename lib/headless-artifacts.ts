@@ -23,7 +23,7 @@ export type DecisionKind = 'auto' | 'approval' | 'user_challenge';
 export type DecisionStatus = 'pending' | 'approved' | 'overridden' | 'rejected';
 export type TaskStatus = 'pending' | 'ready' | 'blocked_on_dependency' | 'blocked_on_decision' | 'in_progress' | 'done';
 export type VoiceStatus = 'completed' | 'unavailable' | 'disabled' | 'skipped' | 'failed' | 'pending' | 'running';
-export type ResultStatus = 'complete' | 'gate_pending' | 'amend_pending' | 'incomplete' | 'interrupted' | 'refused';
+export type ResultStatus = 'complete' | 'reviewed' | 'gate_pending' | 'amend_pending' | 'incomplete' | 'interrupted' | 'refused';
 export type RunStatus = ResultStatus | 'awaiting_result' | 'running';
 
 export interface FindingRow {
@@ -117,7 +117,7 @@ export interface ShipReceipt {
   base_red?: { cases: string[]; files: string[]; base: string; lane: string; expires_at: string };
 }
 
-export const RESULT_STATUSES: readonly ResultStatus[] = ['complete', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused'];
+export const RESULT_STATUSES: readonly ResultStatus[] = ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused'];
 const TERMINAL_RUN: readonly string[] = ['complete', 'gate_pending', 'amend_pending', 'refused', 'incomplete'];
 const TERMINAL_VOICE: readonly string[] = ['completed', 'unavailable', 'disabled', 'skipped', 'failed'];
 const RESOLVED: readonly string[] = ['accepted', 'partially_accepted', 'rejected', 'deferred', 'fixed'];
