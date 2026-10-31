@@ -3,7 +3,7 @@
  *
  * gstack-review-dispatch pass turns gstack-review-plan's dispatches into a manifest: stage `first`
  * (audit readers that may write tests, so they settle before any reviewer reads the tree), stage
- * `specialists` (the specialists, plus the other audit and QA readers), stage `red-team` and stage
+ * `specialists` (the specialists, plus the other audit readers), stage `red-team` and stage
  * `voices` (Step 11). Each reviewer keeps its plan entry (role, effort, exclusions) and is rendered
  * once, when its inputs exist, by lib/review-brief.ts; the Red Team's findings file is the
  * specialists' merged.jsonl lines, byte for byte. Briefs travel to the dispatch program in bounded
@@ -28,7 +28,7 @@ export interface PassReader {
   role?: BriefRole; name?: string; effort?: string; exclude?: string; checklists?: string[];
   /** The targeted reader: the plan's TARGETED classes and the merge base it reads on every pass. */
   classes?: string[]; diff_base?: string;
-  /** An audit or QA reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
+  /** An audit reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
   prompt_file?: string; model?: PassModel;
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
   path?: string; output?: string; error?: string; state_at?: string;
