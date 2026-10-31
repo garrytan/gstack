@@ -32,3 +32,34 @@ describe('an unclosed fence does not hide what follows it (GST-436)', () => {
     expect(r.findings.highest).toBeNull();
   });
 });
+
+describe('an unclosed fence never makes a reply clean (GST-436 review)', () => {
+  // Value: protects=the outside-voice verdict on review gates; fails_when=text quoted inside an unclosed fence turns a
+  //   not-ready or unverified reply clean; seam=classifyOutsideReview
+  test('a quoted Verdict: ready in an unclosed fence does not override a real not-ready', () => {
+    const text = ['[P2] parser.ts drops the trailing row.', 'Verdict: not ready', 'Recommendation: fix because parser.ts loses data.', '```md', 'Verdict: ready'].join('\n');
+    expect(classifyOutsideReview({ text, gate: 'review' }).verdict).toBe('findings');
+  });
+
+  test('a quoted advisory severity in an unclosed fence does not stand in for a tagged review', () => {
+    const text = ['Recommendation: hold because I ran out of time.', 'Looking at the fixture:', '```', '[P3] example finding text'].join('\n');
+    expect(classifyOutsideReview({ text, gate: 'review' }).verdict).toBe('unverified');
+    expect(classifyOutsideReview({ text, gate: 'structured' }).verdict).toBe('unverified');
+  });
+
+  test('a quoted no-findings line in an unclosed fence does not conclude the review', () => {
+    const text = ['The retry loop in fetch.ts has no cap.', 'Recommendation: fix before merge because the retry loop has no cap.', 'Output of the lint run:', '```text', '$ bun run lint', 'No issues found.'].join('\n');
+    expect(classifyOutsideReview({ text, gate: 'review' }).verdict).toBe('unverified');
+    expect(classifyOutsideReview({ text, gate: 'structured' }).verdict).toBe('unverified');
+  });
+
+  test('many unmatched fences classify in one linear pass', () => {
+    const lines: string[] = [];
+    for (let n = 3002; n >= 3; n--) lines.push((n % 2 ? '`' : '~').repeat(n));
+    const text = [NO_ISSUES, ...lines, '[P1] changed.ts drops the last row', RECOMMEND].join('\n');
+    const started = performance.now();
+    const r = classifyOutsideReview({ text, gate: 'review' });
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(r.verdict).toBe('findings');
+  });
+});
