@@ -1424,10 +1424,13 @@ No free test may write the developer's real home. `scripts/lib/free-home-guard.t
 snapshots `~/.gstack`, `~/.claude`, `~/.codex`, `~/.agents` and `~/.config/gstack`
 (live session logs excluded) and fails the run when an entry changes.
 
-- A shard that runs alone (`--shard`, CI, the exclusive host-state shard, the
-  flaky retry) owns its window, so the failure names its files.
-- Full-suite shards run concurrently on one HOME and cannot tell whose write a
-  change was. The runner guards that whole phase once and names no shard.
+- A shard that runs alone (`--shard`, a CI shard at `--jobs 1` or its trailing
+  serial sub-shard, the exclusive host-state shard, the flaky retry) owns its
+  window, so the failure names its files.
+- Full-suite shards, and the parallel sub-shards of a CI shard at `--jobs k > 1`
+  ([sub-shards](#sub-shards-inside-one-ci-job)), run concurrently on one HOME and
+  cannot tell whose write a change was. The runner guards that whole phase once
+  and names no shard.
 - `bun run scripts/test-free-shards.ts --attribute-home` names the writer: it
   runs every file alone with a private HOME (browser cache and git identity
   still come from the real home) and reports each file that wrote a watched
