@@ -36,12 +36,12 @@ export const PARTS: PartSpec[] = [
   { id: 'review-9.2', file: RA, from: '### Step 9.2: Collect and merge findings', phase: 4 },
   { id: 'review-9.3', file: RA, from: '### Step 9.3: Cross-review finding dedup', phase: 4 },
   { id: 'review-9.4', file: RA, from: '## Step 9.4: Fix-First and persistence', phase: 4 },
-  { id: 'adversarial-11', file: ADV, from: null, phase: 5 },
-  { id: 'adversarial-native', file: ADV, from: '### Claude adversarial subagent (on `DISPATCH: adversarial-native`)', phase: 5 },
-  { id: 'adversarial-codex', file: ADV, from: '### Codex adversarial challenge (runs whenever `CODEX_MODE` is `ready` or `unverified`)', phase: 5 },
-  { id: 'adversarial-structured', file: ADV, from: '### Codex structured review (large diffs only, 200+ lines)', phase: 5 },
-  { id: 'adversarial-finish', file: ADV, from: '### Persist the review result', phase: 5 },
-  { id: 'adversarial-learnings', file: ADV, from: '## Capture Learnings', phase: 5 },
+  { id: 'adversarial-11', file: ADV, from: null, phase: 4 },
+  { id: 'adversarial-native', file: ADV, from: '### Claude adversarial subagent (on `DISPATCH: adversarial-native`)', phase: 4 },
+  { id: 'adversarial-codex', file: ADV, from: '### Codex adversarial challenge (runs whenever `CODEX_MODE` is `ready` or `unverified`)', phase: 4 },
+  { id: 'adversarial-structured', file: ADV, from: '### Codex structured review (large diffs only, 200+ lines)', phase: 4 },
+  { id: 'adversarial-finish', file: ADV, from: '### Persist the review result', phase: 4 },
+  { id: 'adversarial-learnings', file: ADV, from: '## Capture Learnings', phase: 4 },
   { id: 'documentation', file: DOCS, from: null, phase: 6 },
 ];
 
@@ -80,6 +80,7 @@ export function resolveParts(root = ROOT): Part[] {
 }
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12);
+const quote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
 export const block = (p: Part) =>
   `PART: ${p.id} file=${p.file} phase=${p.phase} bytes=${p.end - p.start} sha256=${sha(p.text)}\n${p.text}${p.text.endsWith('\n') ? '' : '\n'}PART_END: ${p.id}\n`;
 
@@ -104,12 +105,14 @@ export function nextParts(parts: Part[], returned: readonly string[], phase: num
 
 const HELP = `gstack-ship-parts — the section text /ship's next phase uses, verbatim, each byte once (GSTA-167 C5)
 
-  next --run <run dir> --phase <n> [--room <bytes>]   print the next parts that fit, in run order
+  next --run <run dir> --phase <n> [--room <bytes>] [--resend]   print the next parts that fit, in run order
   list                                                 every part with its phase and size
 
 Each phase program ends with \`next --phase <its phase + 1>\` and --room set to 32000 less the
-program's other output. \`NEXT: parts\` means a part due by that phase did not fit: run \`next\`
-alone before the phase. State: <run dir>/parts/state.json.
+program's other output; the room covers the whole output, the PARTS: and NEXT: lines included.
+\`NEXT: parts\` means a part due by that phase did not fit: run \`next\` alone before the phase.
+A batch is \`sent\` until the next \`next\` call promotes it to returned; after a return that never
+reached the parent, \`next --resend\` sends that batch again. State: <run dir>/parts/state.json.
 `;
 
 export function shipParts(argv: readonly string[], root = ROOT): { text: string; exit: number } {
@@ -125,11 +128,22 @@ export function shipParts(argv: readonly string[], root = ROOT): { text: string;
   const room = flag('--room') === undefined ? ROOM_DEFAULT : Number(flag('--room'));
   if (!run || !Number.isInteger(phase) || !Number.isFinite(room)) return { text: 'next needs --run <dir> and --phase <n>; --room is a byte count\n', exit: 2 };
   const state = path.join(run, 'parts', 'state.json');
-  const returned: string[] = fs.existsSync(state) ? JSON.parse(fs.readFileSync(state, 'utf8')).returned : [];
-  const { out, due, left } = nextParts(parts, returned, phase, room);
+  let saved: { returned: string[]; sent?: string[] } = { returned: [] };
+  try {
+    if (fs.existsSync(state)) saved = JSON.parse(fs.readFileSync(state, 'utf8'));
+    if (!Array.isArray(saved.returned) || (saved.sent !== undefined && !Array.isArray(saved.sent))) throw new Error('returned and sent must be id lists');
+  } catch (e) {
+    return { text: `STOP: ${state} is not a parts state file (${(e as Error).message}); delete it and rerun to start the run's parts again\n`, exit: 3 };
+  }
+  const returned = rest.includes('--resend') ? saved.returned : [...saved.returned, ...(saved.sent ?? [])];
+  const trailer = (ids: string[], due: string[], left: number) => {
+    const lines = [`PARTS: phase=${phase} returned=${ids.join(',') || 'none'} due=${due.join(',') || 'none'} left=${left}`];
+    if (due.length) lines.push(`NEXT: parts (run \`gstack-ship-parts next --run ${quote(run)} --phase ${phase}\` alone before Phase ${phase})`);
+    return lines.join('\n') + '\n';
+  };
+  const open = parts.filter(p => !returned.includes(p.id)).map(p => p.id);
+  const { out, due, left } = nextParts(parts, returned, phase, room - Buffer.byteLength(trailer(open, open, open.length)));
   fs.mkdirSync(path.dirname(state), { recursive: true });
-  fs.writeFileSync(state, JSON.stringify({ returned: [...returned, ...out.map(p => p.id)] }, null, 2) + '\n');
-  const lines = [`PARTS: phase=${phase} returned=${out.map(p => p.id).join(',') || 'none'} due=${due.join(',') || 'none'} left=${left}`];
-  if (due.length) lines.push(`NEXT: parts (run \`gstack-ship-parts next --run ${run} --phase ${phase}\` alone before Phase ${phase})`);
-  return { text: out.map(block).join('') + lines.join('\n') + '\n', exit: 0 };
+  fs.writeFileSync(state, JSON.stringify({ returned, sent: out.map(p => p.id) }, null, 2) + '\n');
+  return { text: out.map(block).join('') + trailer(out.map(p => p.id), due, left), exit: 0 };
 }

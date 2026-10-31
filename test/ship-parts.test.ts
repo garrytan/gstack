@@ -30,6 +30,7 @@ describe('the parts manifest', () => {
     expect(new Set(parts.map(p => p.id)).size).toBe(parts.length);
     for (const p of parts) expect(Buffer.byteLength(block(p))).toBeLessThanOrEqual(PART_MAX);
     expect(parts.map(p => p.phase)).toEqual([...parts.map(p => p.phase)].sort((a, b) => a - b));
+    for (const p of parts.filter(p => p.file === 'ship/sections/adversarial.md')) expect(p.phase, p.id).toBe(4);
     const phase3 = parts.filter(p => p.phase === 3).reduce((n, p) => n + Buffer.byteLength(block(p)), 0);
     expect(phase3).toBeLessThanOrEqual(PART_MAX);
   });
@@ -69,11 +70,48 @@ describe('gstack-ship-parts next', () => {
       seen.push(...ids);
       const due = r.stdout.match(/^PARTS: phase=\d+ returned=\S+ due=(\S+) left=\d+$/m)![1]!;
       expect(due).toBe(parts.filter(p => p.phase <= phase && !seen.includes(p.id)).map(p => p.id).join(',') || 'none');
-      expect(r.stdout.includes('NEXT: parts (run `gstack-ship-parts next --run ' + dir + ' --phase ' + phase + '` alone before Phase ' + phase + ')')).toBe(due !== 'none');
+      expect(r.stdout.includes("NEXT: parts (run `gstack-ship-parts next --run '" + dir + "' --phase " + phase + '` alone before Phase ' + phase + ')')).toBe(due !== 'none');
     }
     expect(seen).toEqual(parts.map(p => p.id));
     expect(Buffer.byteLength(text)).toBe(parts.reduce((n, p) => n + p.end - p.start, 0));
     expect(run(['next', '--run', dir, '--phase', '7']).stdout).toBe('PARTS: phase=7 returned=none due=none left=0\n');
+  });
+});
+
+describe('gstack-ship-parts next under loss and odd inputs (PR #3670 review)', () => {
+  // Value: protects=a section batch whose return never reached the parent is delivered again, the whole output (trailer included) stays inside --room, the printed recovery command survives a run dir with spaces or quotes, and a corrupt state file stops with its path instead of a crash; fails_when=next marks parts returned before delivery with no resend, budgets only the part blocks, prints the run dir unquoted, or throws on bad JSON;
+  //   why_new=Step 11 findings on #3670 (outside voice 1-3, adversarial 5, QA); seam=none; no_claim=the host noticing that a return was lost
+  test('a lost return is sent again with --resend, and a plain next promotes it to returned', () => {
+    const dir = tmp();
+    const first = run(['next', '--run', dir, '--phase', '3', '--room', '4000']);
+    const ids = [...first.stdout.matchAll(/^PART: (\S+) /gm)].map(m => m[1]!);
+    expect(ids.length).toBeGreaterThan(0);
+    const again = run(['next', '--run', dir, '--phase', '3', '--room', '4000', '--resend']);
+    expect(again.status, again.stderr).toBe(0);
+    expect([...again.stdout.matchAll(/^PART: (\S+) /gm)].map(m => m[1]!)).toEqual(ids);
+    const later = run(['next', '--run', dir, '--phase', '3', '--room', '4000']);
+    expect([...later.stdout.matchAll(/^PART: (\S+) /gm)].map(m => m[1]!).filter(id => ids.includes(id))).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'parts', 'state.json'), 'utf8')).returned).toEqual(expect.arrayContaining(ids));
+  });
+
+  test('the PARTS: and NEXT: parts trailer counts against --room, and the run dir is shell-quoted', () => {
+    const dir = path.join(tmp(), "run with 'spaces' and $(x)");
+    const room = Buffer.byteLength(block(parts[0]!)) + 10;
+    const r = run(['next', '--run', dir, '--phase', '3', '--room', String(room)]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(Buffer.byteLength(r.stdout)).toBeLessThanOrEqual(room);
+    const cmd = r.stdout.match(/^NEXT: parts \(run `(.+)` alone before Phase 3\)$/m)![1]!;
+    const echo = spawnSync('bash', ['-c', cmd.replace('gstack-ship-parts next', 'printf "%s\\n"')], { encoding: 'utf8', timeout: 30_000 });
+    expect(echo.stdout.split('\n')).toContain(dir);
+  });
+
+  test('a corrupt state file stops with its path named', () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'parts'));
+    fs.writeFileSync(path.join(dir, 'parts', 'state.json'), '{bad');
+    const r = run(['next', '--run', dir, '--phase', '3']);
+    expect(r.status).toBe(3);
+    expect(r.stdout).toStartWith('STOP: ' + path.join(dir, 'parts', 'state.json'));
   });
 });
 

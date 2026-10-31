@@ -554,6 +554,44 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(h.creates.find(c => c.title === 'ship x21p2 red-team')!.prompt).toContain('DIFF_BASE=' + rangeBase);
   }, 240_000);
 
+  // Value: protects=a scoped repeat runs its fix-check reader from decision 3.5's files and, without them, stops naming what is missing; fails_when=the program drops fixCheck on a scoped plan or a scoped plan without files dispatches a reader;
+  //   why_new=#3670 Step 11 (adversarial 1, red team 1): the scoped path was never exercised; seam=none; no_claim=the parent writing the files
+  test('a scoped repeat runs with fixCheck files and stops naming them without', async () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+    const rangeBase = sh('git rev-parse HEAD').stdout.trim();
+    expect(sh('echo "export const fix = 1;" >> src/a.ts && git commit -qam fix').status).toBe(0);
+    const planFlags = ['--pass', '1', '--last', 'full', '--fixed-blocking', '--pass1-depth', 'standard', '--range-base', rangeBase];
+    const files = path.join(dir, '.state/fc');
+    fs.mkdirSync(files, { recursive: true });
+    const fc: Record<string, string> = {};
+    for (const [k, v] of [['fix_list', '1. src/a.ts: fix\n'], ['hunks', sh('git diff ' + rangeBase).stdout], ['tests', 'bun test: 1 pass, 0 fail\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
+    const none = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/s0'), pass: 'x22s0', diffBase: rangeBase, planFlags });
+    expect(none).toContain('STOP: gstack-review-dispatch pass exited');
+    expect(none).toContain('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests');
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/s1'), pass: 'x22s1', diffBase: rangeBase, planFlags, fixCheck: fc });
+    expect(res).toContain('next=scoped');
+    expect(res).not.toContain('STOP:');
+    expect(h.creates.map(c => c.title)).toContain('ship x22s1 fix-check');
+  }, 240_000);
+
+  // Value: protects=the program's final NEXT line survives a return that its reader outputs push to the 32 KB cap, and a pass whose out is not <run dir>/<pass dir> says it skipped the parts; fails_when=finish() cuts the tail line, the room ignores the parts trailer, or parts are skipped without a line;
+  //   why_new=#3670 Step 11 (outside voice 2, adversarial 2 and 6); seam=none; no_claim=what the parent does with a capped return
+  test('a near-cap return still ends with its NEXT line, and an odd out prints PARTS: skipped', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    fs.mkdirSync(path.join(dir, '.state/run/parts'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.state/run/parts/state.json'), JSON.stringify({ returned: [] }));
+    const big = host(dir, env, { output: () => 'x'.repeat(15_900) });
+    const res = await runPass(big, { base: 'main', out, pass: 'x23p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res.length).toBeLessThanOrEqual(32000);
+    expect(res.trimEnd().split('\n').at(-1)).toBe('NEXT: judge (Phase 4)');
+    const odd = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/deep/p1'), pass: 'x23p2', planFlags: ['--depth-floor', 'full'] });
+    expect(odd).toMatch(/^PARTS: skipped \(/m);
+    expect(odd.trimEnd().split('\n').at(-1)).toBe('NEXT: judge (Phase 4)');
+  }, 240_000);
+
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();
     const h = host(dir, env);
