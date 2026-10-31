@@ -15,6 +15,7 @@
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { slugFromEnvironment } from './bin-context';
 import { resolveStateRoot } from './state-root';
@@ -28,7 +29,7 @@ import { readRange, supervise } from './pregate/supervise';
 import type { CheckResult, PregateContext } from './pregate/types';
 import { resolveBaseBranch } from './ship-policy';
 
-/** body: what a package.json script runs, so editing the script changes the trusted command set even though the command stays 'npm run x'. */
+/** body: the package.json script behind a '<pm> run x' command, shown by detect; trust hashes the whole scripts map. */
 export interface Check { name: string; command: string; source: string; body?: string }
 export type Verdict = 'PASS' | 'FAIL' | 'ZERO_RUN' | 'UNMAPPED' | 'TOO_BROAD' | 'ENV' | 'TIMEOUT' | 'INCOMPLETE';
 export interface Outcome { name: string; verdict: Verdict; ms: number; detail: string; lines: string[]; log?: string; notCovered?: string[] }
@@ -59,13 +60,15 @@ export function healthStack(claudeMd: string): Check[] {
   const start = lines.findIndex(l => /^##\s+Health Stack\s*$/.test(l));
   if (start < 0) return [];
   const checks: Check[] = [];
+  const seen = new Map<string, number>();
   for (const line of lines.slice(start + 1)) {
     if (/^#{1,6}\s/.test(line)) break;
     const m = /^\s*[-*]\s*([A-Za-z0-9_-]+):\s*(.+?)\s*$/.exec(line);
     if (!m || ['test', TESTS].includes(m[1].toLowerCase())) continue;
     const key = m[1].toLowerCase();
-    let name = key;
-    for (let n = 2; checks.some(c => c.name === name); n++) name = `${key}-${n}`;
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    const name = n === 1 ? key : `${key}-${n}`;
     checks.push({ name, command: m[2].replace(/`/g, ''), source: 'CLAUDE.md Health Stack' });
   }
   return checks;
@@ -103,7 +106,7 @@ export function manifestChecks(root: string): Check[] {
   const cargo = read(path.join(root, 'Cargo.toml'));
   if (cargo !== null) checks.push({ name: 'build', command: 'cargo check --all-targets', source: 'Cargo.toml' });
   if (cargo !== null && (/^\[(workspace\.)?lints\.clippy\]/m.test(cargo) || ['clippy.toml', '.clippy.toml'].some(f => fs.existsSync(path.join(root, f))))) checks.push({ name: 'lint', command: 'cargo clippy --all-targets', source: 'Cargo.toml' });
-  if (fs.existsSync(path.join(root, 'go.mod'))) checks.push({ name: 'vet', command: 'go vet ./...', source: 'go.mod' }, { name: 'build', command: 'go build ./...', source: 'go.mod' });
+  if (fs.existsSync(path.join(root, 'go.mod'))) checks.push({ name: 'vet', command: 'go vet ./...', source: 'go.mod' }, { name: 'build', command: `go build -o ${os.devNull} ./...`, source: 'go.mod' });
   const seen = new Set<string>();
   return checks.filter(c => (seen.has(c.name) ? false : (seen.add(c.name), true)));
 }
@@ -124,16 +127,21 @@ export function detectChecks(root: string): Check[] {
 
 /** Every command a run could execute, read without executing any: the checks, the pregate runner and each selection manifest command. */
 export function commandSet(root: string, checks: readonly Check[], config: Pick<PregateConfig, 'runner' | 'selection'>): string {
-  return sha256(JSON.stringify({ checks: checks.map(c => [c.name, c.command, c.body ?? '']), runner: config.runner ?? detectedRunnerInputs(root), selection: Object.entries(config.selection ?? {}).sort(([a], [b]) => a.localeCompare(b)) }));
+  return sha256(JSON.stringify({ checks: checks.map(c => [c.name, c.command, c.body ?? '']), scripts: packageScripts(root), runner: config.runner ?? detectedRunnerInputs(root), selection: Object.entries(config.selection ?? {}).sort(([a], [b]) => a.localeCompare(b)) }));
 }
 
-/** With no declared runner pregate picks one from lockfiles, test dependencies and the test script, so those are what trust covers. */
+/** Every package.json script: a check or script can call any of them (npm run a && npm run b, yarn a, nested runs), so trust covers the whole map. */
+function packageScripts(root: string): Array<[string, string]> {
+  try { return Object.entries(JSON.parse(read(path.join(root, 'package.json')) ?? '{}').scripts ?? {}).map(([k, v]) => [k, String(v)] as [string, string]).sort(([a], [b]) => a.localeCompare(b)); } catch { return []; }
+}
+
+/** With no declared runner pregate picks one from lockfiles, bunfig.toml and test dependencies, so those are what trust covers. */
 function detectedRunnerInputs(root: string): string[] {
-  let pkg: { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> } = {};
+  let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } = {};
   try { pkg = JSON.parse(read(path.join(root, 'package.json')) ?? '{}'); } catch { /* none */ }
-  const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).filter(d => /^(vitest|jest|mocha|ava|@playwright\/test|pytest)$/.test(d)).sort();
-  const locks = ['bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'yarn.lock', 'package-lock.json'].filter(f => fs.existsSync(path.join(root, f)));
-  return ['detected', ...locks, ...deps, pkg.scripts?.test ?? ''];
+  const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).filter(d => /^(vitest|jest|mocha|ava|@playwright\/test)$/.test(d)).sort();
+  const markers = ['bun.lock', 'bun.lockb', 'bunfig.toml', 'pnpm-lock.yaml', 'yarn.lock', 'package-lock.json', 'npm-shrinkwrap.json'].filter(f => fs.existsSync(path.join(root, f)));
+  return ['detected', ...markers, ...deps];
 }
 
 const realRoot = (root: string) => { try { return fs.realpathSync(root); } catch { return path.resolve(root); } };
