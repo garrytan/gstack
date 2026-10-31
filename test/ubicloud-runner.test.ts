@@ -250,6 +250,25 @@ esac
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 30_000);
 
+  // Value: protects=a project with no VMs (Ubicloud answers vm list with a bare newline) reads as empty everywhere vm_rows feeds; fails_when=a blank list row becomes a VM named "-" again and reap dies on it or usage asks to show it; why_new=every fake list in this file had at least one VM, so #3678 shipped green; seam=none; no_claim=the real API's empty-body shape (taken from #3678's reading of ubi_cli.rb)
+  test('an empty project (vm list answers a bare or blank line) has no VMs: reap destroys nothing and exits 0, usage prints total 0 0, list --mine prints nothing (#3678)', () => {
+    for (const listed of ['\n', '  \n']) {
+      const f = fakeApi({ destroy: 200, listed });
+      try {
+        const reap = f.run('reap');
+        expect(reap.stderr.toString()).toContain('reap: no expired VMs');
+        expect(reap.stderr.toString()).not.toContain('invalid VM name');
+        expect(reap.exitCode).toBe(0);
+        const usage = f.run('usage');
+        expect(usage.exitCode).toBe(0);
+        expect(usage.stdout.toString()).toBe('OWNER           VMS  VCPUS\ntotal             0      0\n');
+        expect(f.run('list', '--mine').stdout.toString()).toBe('');
+        expect(f.calls()).not.toContain('destroy');
+        expect(f.calls()).not.toContain('"show"');
+      } finally { rmSync(f.root, { recursive: true, force: true }); }
+    }
+  });
+
   test('up and run refuse without UBI_OWNER before any API call; list, usage, reap and down still work without it', () => {
     const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 vm-a\n', owner: '' });
     try {
@@ -376,6 +395,25 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 90_000);
 
+  // Value: protects=pack never lets macOS tar add AppleDouble ._* entries (files with extended attributes), which the VM's tree check would count as untracked files and fail the run with UBI_VM_TREE_MISMATCH; fails_when=a tar call in pack runs without COPYFILE_DISABLE=1; why_new=only Apple's tar reads the variable, so no Linux run can see the ._* entries themselves; seam=PATH (a tar shim records its environment, then runs the real tar); no_claim=Apple tar's metadata behavior itself (checked by hand on a Mac)
+  test('pack runs every tar with COPYFILE_DISABLE=1, for a checkout and for a plain directory', () => {
+    const d = mkdtempSync(join(tmpdir(), 'ubi-pack-copyfile-'));
+    try {
+      const realTar = Bun.which('tar');
+      expect(realTar).toBeTruthy();
+      mkdirSync(join(d, 'bin'));
+      writeFileSync(join(d, 'bin/tar'), `#!/usr/bin/env bash\necho "COPYFILE_DISABLE=${'$'}{COPYFILE_DISABLE:-unset}" >> ${JSON.stringify(join(d, 'tar.log'))}\nexec ${JSON.stringify(realTar)} "$@"\n`);
+      chmodSync(join(d, 'bin/tar'), 0o755);
+      const env = { ...process.env, PATH: `${join(d, 'bin')}:${process.env.PATH}`, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+      const sh = (cmd: string) => { const r = Bun.spawnSync(['bash', '-c', cmd], { cwd: d, env, timeout: 30_000 }); expect(r.exitCode, r.stderr.toString()).toBe(0); };
+      sh(`git init -q repo && cd repo && echo a > a && git add a && git commit -qm one && bash ${JSON.stringify(join(DIR, 'ubi-runner.sh'))} pack . > ../repo.tgz`);
+      sh(`mkdir plain && echo p > plain/p && bash ${JSON.stringify(join(DIR, 'ubi-runner.sh'))} pack plain > plain.tgz`);
+      const lines = readFileSync(join(d, 'tar.log'), 'utf8').trim().split('\n');
+      expect(lines.length).toBe(3);
+      expect(lines.every(l => l === 'COPYFILE_DISABLE=1')).toBe(true);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+
   test('up records the VM in the scratch file before the create request is sent', () => {
     const runner = read('scripts/ubicloud/ubi-runner.sh');
     const create = runner.indexOf('cli "${args[@]}" >/dev/null 2>"$dir/create.err"');
@@ -416,7 +454,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       '  *\'"create"\'*) if [ -n ' + JSON.stringify(opts.refuse ?? '') + ' ]; then printf \'%s\' ' + JSON.stringify(opts.refuse ?? '') + ' > "$out"; printf 400; else echo "$loc $name" >> "$listed"; : > "$out"; printf 200; fi ;;\n' +
       '  *destroy*) : > "$out"; if [ -f "$listed.destroy-fails" ]; then printf 500; else grep -v " $name$" "$listed" > "$listed.tmp"; mv "$listed.tmp" "$listed"; printf 200; fi ;;\n' +
       '  *\'"list"\'*) if [ -f "$listed.list-fails" ]; then echo down > "$out"; printf 503; else cat "$listed" > "$out"; printf 200; fi ;;\n' +
-      '  *\'"show"\'*) [ -z "${FAKE_SHOW_DELAY:-}" ] || sleep "$FAKE_SHOW_DELAY"; if grep -q " $name$" "$listed"; then printf \'state: running\\nsize: standard-16\\nip4: 192.0.2.1\\n\' > "$out"; printf 200; else : > "$out"; printf 404; fi ;;\n' +
+      '  *\'"show"\'*) [ -z "${FAKE_SHOW_DELAY:-}" ] || sleep "$FAKE_SHOW_DELAY"; if [ -f "$listed.show-fails" ]; then echo down > "$out"; printf 503; elif grep -q " $name$" "$listed"; then printf \'state: running\\nsize: standard-16\\nip4: 192.0.2.1\\n\' > "$out"; printf 200; else : > "$out"; printf 404; fi ;;\n' +
       '  *) : > "$out"; printf 200 ;;\n' +
       'esac\n');
     writeFileSync(join(bin, 'ssh'), '#!/usr/bin/env bash\n' +
@@ -711,6 +749,47 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
   }, 90_000);
 
   // Value: protects=the quota wait budget counts seconds slept, not usage reads: a slow usage read keeps the printed budget, a wait above 30 s counts down in 30 s steps, and the wait releases when room appears; fails_when=the budget goes back to a wall-clock deadline taken before the first usage read (the first log line shrinks to 1s), the step cap or the decrement is lost, or room found mid-wait still refuses; why_new=the WAIT=3 case above passes under both the old deadline and the new countdown because its fake usage read is instant and it never sees a second step; seam=none (the fixture's bin/ is already first on PATH, so sleep and curl are stubbed there); no_claim=real elapsed time of the long wait (the 70 s case stubs sleep)
+  // Value: protects=the first up on a fresh project reaches its create with the default reap on; fails_when=the reap before up dies on an empty list again (#3678); why_new=no up case ran against a project with no VMs; seam=none; no_claim=real create and boot (fake API and ssh)
+  test('up on an empty project reaps nothing, creates its VM and comes up (#3678)', () => {
+    const f = fakeVm({ listed: '\n' });
+    try {
+      const up = run(f, ['up']);
+      expect(up.stderr.toString()).toContain('reap: no expired VMs');
+      expect(up.exitCode).toBe(0);
+      expect(f.calls()).toContain('"create"');
+      expect(f.calls()).not.toContain('destroy');
+      const name = up.stdout.toString().trim();
+      expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3$/);
+      expect(run(f, ['down', name]).exitCode).toBe(0);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
+
+  // Value: protects=usage never reports a partial or empty count as the project's real usage, and the quota preflight says when it cannot read usage instead of passing silently; fails_when=a failed vm list or vm show prints a total again (the empty-project fix's `|| true` did that) or the preflight drops its log line; why_new=only successful reads were tested, and #3679 showed an unreadable usage switching the preflight off without a word; seam=none; no_claim=the real API's failure bodies
+  test('usage exits 1 without a total when the VM list or a size read fails; the quota preflight logs that and leaves the call to the API', () => {
+    const f = fakeVm({ listed: 'eu-central-h1 ubirun-peer-9999999999-cccc\n' });
+    const listed = join(f.root, 'listed');
+    try {
+      writeFileSync(`${listed}.list-fails`, '');
+      const noList = run(f, ['usage']);
+      expect(noList.exitCode).toBe(1);
+      expect(noList.stdout.toString()).not.toContain('total');
+      expect(noList.stderr.toString()).toContain("usage: could not list the project's VMs");
+      const up = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '16' });
+      expect(up.stderr.toString()).toContain("quota preflight: could not read the project's vCPU usage; the API's own answer decides");
+      expect(f.calls()).toContain('"create"');
+      rmSync(`${listed}.list-fails`);
+      const name = up.stdout.toString().trim();
+      expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3$/);
+      expect(run(f, ['down', name]).exitCode).toBe(0);
+
+      writeFileSync(`${listed}.show-fails`, '');
+      const noShow = run(f, ['usage']);
+      expect(noShow.exitCode).toBe(1);
+      expect(noShow.stdout.toString()).not.toContain('total');
+      expect(noShow.stderr.toString()).toContain('usage: could not read the size of 1 of 1 VMs');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 90_000);
+
   test('quota wait: a slow usage read does not shave the printed budget; a long wait counts down in 30s steps and releases when room appears', () => {
     const slow = fakeVm({ listed: 'eu-central-h1 ubirun-peer-9999999999-cccc\n' });
     try {

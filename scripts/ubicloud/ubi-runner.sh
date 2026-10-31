@@ -740,6 +740,7 @@ run_tiers() {
 vm_rows() {
   local loc name owner created expires
   cli vm list -N -f location,name | while read -r loc name; do
+    [ -n "$name" ] || continue
     owner=. created="" expires=-
     if [[ "$name" =~ ^${PREFIX}-([a-z][a-z0-9]{0,11})-([0-9]{10})- ]]; then
       owner=${BASH_REMATCH[1]} created=${BASH_REMATCH[2]}
@@ -804,21 +805,31 @@ cmd_list() {
 }
 
 # usage: VMs and vCPUs per owner, from each VM's size (standard-16 = 16 vCPUs).
+# Exits 1 with no table when the VM list or any VM's size cannot be read, so a
+# partial count is never taken for the project's usage.
 cmd_usage() {
-  local tmp loc name owner i=0
+  local tmp rows loc name owner f i=0 unread=0
+  rows=$(vm_rows) || { log "usage: could not list the project's VMs"; return 1; }
   tmp=$(mktemp -d)
   while read -r loc name owner _; do
+    [ -n "$name" ] || continue
     i=$(( i + 1 ))
     cli vm "$loc/$name" show 2>/dev/null | sed -n "s/^size: /$owner /p" >"$tmp/$i" &
     [ $(( i % 8 )) -ne 0 ] || wait
-  done < <(vm_rows)
+  done <<<"$rows"
   wait
-  cat "$tmp"/* 2>/dev/null | awk -v me="$OWNER" '
+  for f in "$tmp"/*; do [ ! -e "$f" ] || [ -s "$f" ] || unread=$(( unread + 1 )); done
+  if [ "$unread" -gt 0 ]; then
+    rm -rf "$tmp"
+    log "usage: could not read the size of $unread of $i VMs"
+    return 1
+  fi
+  { [ "$i" -eq 0 ] || cat "$tmp"/*; } | awk -v me="$OWNER" '
     { n = $2; sub(/^.*-/, "", n); o = $1 == "-" ? "(untagged)" : $1 == "." ? "(other)" : $1
       vms[o]++; cpu[o] += n; total += n; count++ }
     END {
       printf "%-14s %4s %6s\n", "OWNER", "VMS", "VCPUS"
-      for (o in cpu) printf "%-14s %4d %6d%s\n", o, vms[o], cpu[o], o == me ? "  (you)" : "" | "sort -k3,3nr"
+      for (o in cpu) printf "%-14s %4d %6d%s\n", o, vms[o], cpu[o], (o == me ? "  (you)" : "") | "sort -k3,3nr"
       close("sort -k3,3nr")
       printf "%-14s %4d %6d\n", "total", count, total
     }'
@@ -881,8 +892,10 @@ quota_preflight() {
   # between them: a slow first usage read must not shave the printed budget.
   remaining=$QUOTA_WAIT
   while :; do
-    used=$(cmd_usage 2>/dev/null | awk '$1=="total" {print $3}')
-    [[ "$used" =~ ^[0-9]+$ ]] || return 0
+    if ! used=$(cmd_usage 2>/dev/null | awk '$1=="total" {print $3}') || ! [[ "$used" =~ ^[0-9]+$ ]]; then
+      log "quota preflight: could not read the project's vCPU usage; the API's own answer decides"
+      return 0
+    fi
     [ $(( used + need )) -gt "$max" ] || return 0
     if [ "$remaining" -le 0 ]; then
       log "quota preflight refused $location/$name ($size): it needs $need vCPUs and the project's VMs already use $used of $max (ceiling from $source; other usage such as managed runners counts on top)"
@@ -1074,7 +1087,12 @@ cmd_down() {
 # pointer into the main repository, useless on the VM; the same snapshot
 # replaces it, on the worktree's own branch and index. Not carried: submodule
 # repositories (.git/modules) and a partial clone's promisor (the fetch pulls
-# every missing blob first); gstack has neither.
+# every missing blob first); gstack has neither. The archive is built in two
+# passes inside the snapshot directory because macOS's bsdtar stops reading
+# options at the first operand and resolves -T names after a -C, so no single
+# tar command line works on both it and GNU tar (#3680). COPYFILE_DISABLE=1
+# keeps Apple's tar from adding ._* AppleDouble entries for files with
+# extended attributes, which the VM would see as untracked files.
 cmd_pack() {
   local src tmp gitdir branch head entry
   src=$(cd "${1:-.}" && pwd)
@@ -1118,15 +1136,18 @@ cmd_pack() {
     fi
     (
       cd "$src"
+      export COPYFILE_DISABLE=1
       git ls-files -z -co --exclude-standard \
         | while IFS= read -r -d '' f; do
             if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\0' "$f"; fi
           done \
-        | tar --null -T - -c -C "$tmp" .git -zf -
+        | tar --null -T - -cf "$tmp/files.tar" \
+        && tar -rf "$tmp/files.tar" -C "$tmp" .git \
+        && gzip -c "$tmp/files.tar"
     )
     rm -rf "$tmp"; trap - EXIT
   else
-    tar -C "$src" -czf - .
+    COPYFILE_DISABLE=1 tar -C "$src" -czf - .
   fi
 }
 
