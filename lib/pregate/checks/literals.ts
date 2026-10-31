@@ -78,7 +78,7 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
 export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral, baseText?: (rel: string) => string | null | undefined): string[] {
   const value = unquote(change.old);
   const valueRe = /^-?\d/.test(value) ? new RegExp(`(?<![\\w.])${escape(value)}(?![\\w.])`) : new RegExp(`['"\`]${escape(value)}['"\`]`);
-  const row = (raw: string) => new RegExp(`^\\s*\\[\\s*${/^['"`]/.test(raw) ? `['"\`]${escape(unquote(raw))}['"\`]` : escape(raw)}\\s*,`, 'm');
+  const row = (raw: string) => new RegExp(`^[ \\t]*\\[[ \\t]*${/^['"`]/.test(raw) ? `['"\`]${escape(unquote(raw))}['"\`]` : escape(raw)}[ \\t]*,`, 'm');
   const oldRowRe = row(change.old);
   const newRowRe = row(change.new);
   const base = path.basename(change.file);
@@ -92,13 +92,19 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
     if (!(nameRe.test(text) || (!nameRequired && moduleRe.test(text)))) continue;
     const lines = text.split('\n');
+    const table: number[] = [];
+    const tableHasNew: boolean[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!/^[ \t]*\[/.test(lines[i]!)) { table.push(-1); continue; }
+      if (table[i - 1] === undefined || table[i - 1] === -1) tableHasNew.push(false);
+      table.push(tableHasNew.length - 1);
+      if (newRowRe.test(lines[i]!)) tableHasNew[tableHasNew.length - 1] = true;
+    }
     let extended: boolean | undefined;
     const skip = (i: number) => {
-      if (!oldRowRe.test(lines[i]!)) return false;
-      let a = i; while (a > 0 && /^\s*\[/.test(lines[a - 1]!)) a--;
-      let b = i; while (b < lines.length - 1 && /^\s*\[/.test(lines[b + 1]!)) b++;
-      if (!lines.slice(a, b + 1).some(l => newRowRe.test(l))) return false;
-      if (extended === undefined) { const b = baseText?.(rel); extended = b === null || (b !== undefined && !newRowRe.test(b)); }
+      const line = lines[i]!;
+      if (!oldRowRe.test(line) || !tableHasNew[table[i]!] || valueRe.test(line.replace(oldRowRe, '['))) return false;
+      if (extended === undefined) { const base = baseText?.(rel); extended = base === null || (base !== undefined && !newRowRe.test(base)); }
       return extended;
     };
     for (let i = 0; i < lines.length; i++) if (valueRe.test(lines[i]!) && !skip(i)) { hits.push(`${rel}:${i + 1}`); break; }
