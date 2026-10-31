@@ -43,6 +43,7 @@ const UBI_RUNNER_STUB = `#!/usr/bin/env bash
 # creating a VM.
 set -uo pipefail
 [ "$1" != owner ] || { echo stub; exit 0; }
+left() { [ "\${STUB_LEFT:-0}" = none ] || echo "UBICLOUD: left=\${STUB_LEFT:-0} owner=stub vm=$name others=0" | tee -a "\${UBI_LEFT_FILE:-/dev/null}" >&2; }
 [ "$1" = run ] || exit 2
 shift
 case " $* " in
@@ -79,17 +80,19 @@ if [ "$fail" = quota ] || { [ "$fail" = quota-once ] && [ "$calls" -eq 1 ]; }; t
   log "quota refused eu-central-h1/$name ($size): it needs 16 vCPUs and the project already uses 64 of 64"
   log "create failed: vCPU quota exhausted; wait for running VMs to finish, or use fewer or smaller VMs (ci:ubicloud --vms N)"
   log "gone: eu-central-h1/$name (never existed or already destroyed)"
+  left
   exit 1
 fi
 if [ "$fail" = create ]; then
   echo "Validation failed for following fields: size" >&2
   log "create failed"
   log "gone: eu-central-h1/$name (never existed or already destroyed)"
+  left
   exit 1
 fi
 log "ready: $name (192.0.2.1)"
 fi
-trap 'log "destroyed eu-central-h1/$name"; echo "term $name" >>"$STUB_CALLS.down"; exit 130' TERM
+trap 'log "destroyed eu-central-h1/$name"; left; echo "term $name" >>"$STUB_CALLS.down"; exit 130' TERM
 vm=$STUB_VM_HOME
 dest="$vm/work/$(basename "$src")"
 rm -rf "$dest" && mkdir -p "$dest"
@@ -103,6 +106,7 @@ if [ -n "$setup" ]; then
   if ! (cd "$dest" && HOME="$vm" bash -c '. ~/.ubirun-env && bash ~/.ubirun-setup.sh'); then
     log "setup failed"
     log "destroyed eu-central-h1/$name"
+    left
     exit 1
   fi
 fi
@@ -117,6 +121,7 @@ else
 fi
 log "command exited $rc after 1s"
 log "destroyed eu-central-h1/$name"
+left
 echo "exit $name" >>"$STUB_CALLS.down"
 exit "$rc"
 `;
@@ -165,7 +170,7 @@ function gate(f: Fixture, files: string[] | null, env: Record<string, string | u
   const out = r.stdout.toString() + r.stderr.toString();
   return { exit: r.exitCode, out, report: parseRemoteReport(out), calls: fs.existsSync(f.calls) ? fs.readFileSync(f.calls, 'utf8').trim().split('\n') : [] };
 }
-const KEY = { UBICLOUD_API_KEY: 'offline-stub' };
+const KEY = { UBICLOUD_API_KEY: 'offline-stub', UBI_OWNER: 'stub' };
 
 describe('pregate-remote.sh inputs and the local tree check', () => {
   test('run bare it exits 2 before any work, naming the pregate command', () => {
@@ -223,6 +228,26 @@ describe('pregate-remote.sh keyed path (stub ubi-runner)', () => {
     expect(remoteReportProblem(empty.report!, empty.report!.tree)).toBe('the remote gate reported 0 tests');
   }, 90_000);
 
+  // Value: protects=a runner that prints no UBICLOUD: left= line fails closed as PREGATE_REMOTE_INFRA (left=missing); fails_when=the leftover check treats an empty left as clean; why_new=the 1 and unknown rows never exercise a missing line; seam=none; no_claim=real ubi-runner output (stub runner)
+  test('a passing run whose VM is not confirmed gone, or whose runner printed no leftover line, is PREGATE_REMOTE_INFRA, never a test result', () => {
+    for (const [stubLeft, shown] of [['1', 'left=1'], ['unknown', 'left=unknown'], ['none', 'left=missing']] as const) {
+      const r = gate(fixture(), ['test/alpha.test.ts'], { ...KEY, STUB_LEFT: stubLeft });
+      expect(r.exit, r.out).toBe(4);
+      expect(r.out).toContain(`PREGATE_REMOTE_INFRA: VM cleanup not confirmed (UBICLOUD: ${shown}); no result reported`);
+      expect(r.out).toMatch(/VM: (ubirun-stub-\d+-[0-9a-f]{8}-t1); destroy it with: bash scripts\/ubicloud\/ubi-runner\.sh down \1/);
+      expect(r.report).toBeNull();
+    }
+  }, 90_000);
+
+  test('without UBI_OWNER the keyed path refuses with exit 2 before any VM is created', () => {
+    const f = fixture();
+    const r = gate(f, ['test/alpha.test.ts'], { ...KEY, UBI_OWNER: '' });
+    expect(r.exit, r.out).toBe(2);
+    expect(r.out).toContain('PREGATE_REMOTE_OWNER_REQUIRED: UBI_OWNER is not set: every VM must carry its owner');
+    expect(r.out).toContain('nothing created, nothing spent');
+    expect(fs.existsSync(f.calls)).toBe(false);
+  }, 60_000);
+
   test('the cap refuses before any VM is created, at the price of the size actually used', () => {
     const f = fixture();
     const low = gate(f, ['test/alpha.test.ts'], { ...KEY, PREGATE_SPEND_CAP_USD: '0.1' });
@@ -246,14 +271,14 @@ describe('pregate-remote.sh keyed path (stub ubi-runner)', () => {
     const create = gate(fixture(), ['test/alpha.test.ts'], { ...KEY, STUB_FAIL: 'create' });
     expect(create.exit, create.out).toBe(4);
     expect(create.out).toContain('PREGATE_REMOTE_INFRA: infrastructure failure (ubi-runner exit 1): ubi-runner: create failed');
-    expect(create.out).toMatch(/VM: eu-central-h1\/(ubirun-stub-\d+-[0-9a-f]{8}); ubi-runner: gone: eu-central-h1\/\1 \(never existed or already destroyed\)/);
-    expect(create.out).toMatch(/VM (ubirun-stub-\d+-[0-9a-f]{8}); if this run is killed before its teardown line, destroy it with: bash scripts\/ubicloud\/ubi-runner\.sh down \1\n/);
+    expect(create.out).toMatch(/VM: eu-central-h1\/(ubirun-stub-\d+-[0-9a-f]{8}-t1); ubi-runner: gone: eu-central-h1\/\1 \(never existed or already destroyed\)/);
+    expect(create.out).toMatch(/VM (ubirun-stub-\d+-[0-9a-f]{8}-t1); if this run is killed before its teardown line, destroy it with: bash scripts\/ubicloud\/ubi-runner\.sh down \1\n/);
     expect(create.out).toMatch(/log: \S+\/\.context\/pregate-remote\/\S+\/run\.log/);
     expect(create.out).toContain('spent=0.00 (0 billed min on standard-16)');
     const setup = gate(fixture(), ['test/alpha.test.ts'], { ...KEY, STUB_SETUP_FAIL: '1' });
     expect(setup.exit, setup.out).toBe(4);
     expect(setup.out).toContain('ubi-runner: setup failed');
-    expect(setup.out).toMatch(/; ubi-runner: destroyed eu-central-h1\/ubirun-stub-\d+-[0-9a-f]{8}/);
+    expect(setup.out).toMatch(/; ubi-runner: destroyed eu-central-h1\/ubirun-stub-\d+-[0-9a-f]{8}-t1/);
     expect(setup.out).toContain('spent=0.01 (1 billed min on standard-16)');
     const ssh = gate(fixture(), ['test/alpha.test.ts'], { ...KEY, STUB_FAIL: 'ssh' });
     expect(ssh.exit, ssh.out).toBe(4);
@@ -338,7 +363,7 @@ describe('pregate-remote.sh keyed path (stub ubi-runner)', () => {
     process.kill(-a.pid, 'SIGKILL');
     await a.exited;
     await until(() => down(killed).endsWith('\n'), 30_000);
-    expect(down(killed)).toMatch(/^exit ubirun-stub-\d+-[0-9a-f]{8}\n$/);
+    expect(down(killed)).toMatch(/^exit ubirun-stub-\d+-[0-9a-f]{8}-t1\n$/);
     const termed = fixture();
     const b = run(termed);
     await until(() => vmLog(termed).includes('ubi-runner: running on'), 30_000);
@@ -346,7 +371,7 @@ describe('pregate-remote.sh keyed path (stub ubi-runner)', () => {
     expect(await b.exited).toBe(130);
     expect(await new Response(b.stdout).text()).toContain('interrupted: ubi-runner is tearing the VM down on its own');
     await until(() => down(termed).endsWith('\n'), 10_000);
-    expect(down(termed)).toMatch(/^term ubirun-stub-\d+-[0-9a-f]{8}\n$/);
+    expect(down(termed)).toMatch(/^term ubirun-stub-\d+-[0-9a-f]{8}-t1\n$/);
     const edited = fixture();
     const c = run(edited);
     await until(() => vmLog(edited).includes('ubi-runner: running on'), 30_000);

@@ -11,8 +11,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  BENCHMARKS, DEFAULTS, classifyGate, collectScorecard, fixtureSource, flakeRecords, fmtHours, gateOutcome, passCount, percentile, readComments, renderCsv,
-  renderMarkdown, scorecardRows, verdictCost, type FixtureFile, type ScorecardOptions,
+  BENCHMARKS, DEFAULTS, classifyGate, collectScorecard, fixtureSource, flakeRecords, fmtHours, gateOutcome, inWindow, passCount, percentile, readComments, renderCsv,
+  renderMarkdown, scorecardRows, searchRange, verdictCost, type FixtureFile, type ScorecardOptions,
 } from '../lib/factory-scorecard';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -122,6 +122,82 @@ describe('factory-scorecard: recorded window', () => {
     expect(values.gates).toStartWith('unavailable (');
     expect(values.red_train).toStartWith('unavailable (');
     expect(values.merged).toBe('3 (crew 2, outside 1)');
+  });
+
+  test('--now closes the window: a PR, gate run, free run or release at or after now is left out, and the runs and issue queries carry the end', () => {
+    // Value: protects=every windowed line counts [now - since-days, now) only, so a past window counts nothing that happened after it; fails_when=a read filters on the window start alone or a query drops the end bound; why_new=GST-135: --now 2026-10-15 counted 290 merged PRs (every merge through the 2026-10-30 run) against 65 in the window, and the gate and release lines ignored --now; seam=none; no_claim=GitHub's server-side date filters, which the reads re-check per item
+    const fx = fixture();
+    const key = (part: string) => Object.keys(fx.responses).find(k => k.includes(part))!;
+    (fx.responses[key('/pulls?')] as any[]).unshift({ number: 106, title: 'merged at the window end', user: { login: 'garry' }, author_association: 'OWNER',
+      created_at: '2026-10-26T10:00:00Z', merged_at: '2026-10-26T12:00:00Z', updated_at: '2026-10-26T13:00:00Z', base: { ref: 'main' } });
+    fx.responses['repos/acme/widgets/issues/106/comments?per_page=100&page=1'] = [];
+    const gateRuns = fx.responses[key('/evals.yml/runs?')] as { workflow_runs: any[] };
+    gateRuns.workflow_runs.unshift({ ...gateRuns.workflow_runs.find(r => r.id === 9002), id: 9007, conclusion: 'success', created_at: '2026-10-26T12:30:00Z' });
+    const freeRuns = fx.responses[key('/free-tests.yml/runs?')] as { workflow_runs: any[] };
+    freeRuns.workflow_runs.unshift({ ...freeRuns.workflow_runs[0], id: 8004, created_at: '2026-10-26T13:00:00Z' });
+    (fx.responses[key('/releases?')] as any[]).unshift({ tag_name: 'v1.2.0', draft: false, prerelease: false, published_at: '2026-10-26T12:00:00Z' });
+    const source = fixtureSource(fx, scratch());
+    const card = collectScorecard(source, options());
+    expect(card.unavailable).toEqual([]);
+    expect(card.prs.map(p => p.number)).toEqual([101, 103, 102]);
+    expect(card.gates.map(g => g.id)).toEqual([9004, 9003, 9002, 9001]);
+    expect(card.freeRuns.map(r => r.id)).toEqual([8003, 8002, 8001]);
+    expect(card.releases.map(r => r.tag)).toEqual(['v1.0.0']);
+    const values = byId(scorecardRows(card));
+    expect(values.merged).toBe('3 (crew 2, outside 1)');
+    expect(values.lead_time).toBe('median 8.0h, p90 5.0d');
+    expect(values.gates).toBe('2 / 1 / 1; known cost $43.00 on 2 of 4 runs');
+    expect(values.releases).toBe('1 (v1.0.0)');
+    for (const workflow of ['/evals.yml/runs?', '/free-tests.yml/runs?']) {
+      expect(decodeURIComponent(source.calls.find(c => c.includes(workflow))!)).toContain('created=2026-10-19..2026-10-26');
+    }
+    const searches = source.calls.filter(c => c.startsWith('search/issues')).map(decodeURIComponent);
+    expect(searches).toEqual([
+      'search/issues?q=repo:acme/widgets is:issue created:2026-10-19T12:00:00Z..2026-10-26T11:59:59Z&per_page=1',
+      'search/issues?q=repo:acme/widgets is:issue closed:2026-10-19T12:00:00Z..2026-10-26T11:59:59Z&per_page=1',
+    ]);
+  });
+
+  test('a past window pages past newer releases, and a read that runs past the page cap is unavailable instead of partial', () => {
+    // Value: protects=a past window still finds its releases behind a full page of newer ones, and a PR read that never reaches the window start reports unavailable rather than a short count; fails_when=releases read page 1 only again or the PR loop exits at MAX_PAGES without throwing; why_new=adversarial review of GST-135 found both truncations silent for past windows; seam=none; no_claim=GitHub's ordering of releases beyond newest-first
+    const fx = fixture();
+    const releasesKey = (page: number) => `repos/acme/widgets/releases?per_page=100&page=${page}`;
+    const recorded = fx.responses[releasesKey(1)] as any[];
+    fx.responses[releasesKey(1)] = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v2.0.${i}`, draft: false, prerelease: false, published_at: '2026-10-27T00:00:00Z' }));
+    fx.responses[releasesKey(2)] = recorded;
+    expect(collectScorecard(fixtureSource(fx, scratch()), options()).releases.map(r => r.tag)).toEqual(['v1.0.0']);
+    const pullsKey = (page: number) => `repos/acme/widgets/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=${page}`;
+    const capped = fixture();
+    for (let page = 1; page <= 20; page++) {
+      capped.responses[pullsKey(page)] = Array.from({ length: 100 }, (_, i) => ({ number: page * 1000 + i, title: 'closed without merge', user: { login: 'garry' },
+        author_association: 'OWNER', created_at: '2026-10-25T00:00:00Z', merged_at: null, updated_at: '2026-10-25T00:00:00Z' }));
+    }
+    const card = collectScorecard(fixtureSource(capped, scratch()), options());
+    expect(card.unavailable).toHaveLength(1);
+    expect(card.unavailable[0]).toStartWith('merged PRs: PRs updated since 2026-10-19T12:00:00.000Z ran past 20 pages of 100');
+    expect(byId(scorecardRows(card)).merged).toStartWith('unavailable (');
+  });
+
+  test('gate-run and release reads past the page cap are unavailable, and a release published late is found on a later page', () => {
+    // Value: protects=the gate, cost and red-train lines and the releases line report unavailable instead of a short count, and a draft published inside the window counts wherever it sits in GitHub's creation order; fails_when=either loop exits at MAX_PAGES without throwing, or release paging stops on a page's oldest publication again; why_new=review of GST-135 found only the merged-PR cap tested and the release stop relying on publication order; seam=none; no_claim=GitHub's 1,000-result limit on filtered workflow-run lists
+    const fx = fixture();
+    const releasesKey = (page: number) => `repos/acme/widgets/releases?per_page=100&page=${page}`;
+    fx.responses[releasesKey(1)] = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v0.9.${i}`, draft: false, created_at: '2026-10-01T00:00:00Z', published_at: '2026-10-02T00:00:00Z' }));
+    fx.responses[releasesKey(2)] = [{ tag_name: 'v0.1.0', draft: false, created_at: '2026-09-01T00:00:00Z', published_at: '2026-10-20T00:00:00Z' }];
+    expect(collectScorecard(fixtureSource(fx, scratch()), options()).releases.map(r => r.tag)).toEqual(['v0.1.0']);
+    const capped = fixture();
+    const runsKey = Object.keys(capped.responses).find(k => k.includes('/evals.yml/runs?'))!.replace(/page=1$/, 'page=');
+    const run = (capped.responses[runsKey + '1'] as any).workflow_runs[0];
+    for (let page = 1; page <= 20; page++) {
+      capped.responses[runsKey + page] = { workflow_runs: Array.from({ length: 100 }, (_, i) => ({ ...run, id: page * 1000 + i })) };
+      capped.responses[releasesKey(page)] = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v${page}.${i}`, draft: false, published_at: '2026-10-27T00:00:00Z' }));
+    }
+    const card = collectScorecard(fixtureSource(capped, scratch()), options());
+    expect(card.unavailable.some(u => u.startsWith('gate runs: gate runs in the window ran past 20 pages of 100'))).toBe(true);
+    expect(card.unavailable.some(u => u.startsWith('releases: releases published since 2026-10-19T12:00:00.000Z ran past 20 pages of 100'))).toBe(true);
+    const values = byId(scorecardRows(card));
+    expect(values.gates).toStartWith('unavailable (');
+    expect(values.releases).toStartWith('unavailable (');
   });
 
   test('--max-artifact-runs caps artifact reads: later runs count without cost or flake data', () => {
@@ -264,6 +340,15 @@ describe('factory-scorecard: pieces', () => {
       JSON.stringify({ kind: 'other', case: 'z', rerun_cost_usd: 9 }), ''].join('\n'));
     expect(flakeRecords([path.join(dir, 'a')])).toEqual({ flakes: 2, rerunUsd: 0.5 });
     expect(flakeRecords([path.join(dir, 'missing')])).toEqual({ flakes: 0, rerunUsd: 0 });
+  });
+
+  test('the window is end-exclusive at millisecond precision; the issue search range stays inside it at whole seconds', () => {
+    // Value: protects=a sub-second --now (the default, Date.now()) neither drops an issue at the end second nor counts one before the start; fails_when=either rounding in searchRange flips or inWindow stops rejecting unparsable timestamps; why_new=the --now test uses a whole-second now only; seam=none; no_claim=GitHub search's inclusive-range semantics
+    const w = { start: '2026-10-19T12:00:00.500Z', end: '2026-10-26T12:00:00.500Z' };
+    expect(searchRange(w)).toBe('2026-10-19T12:00:01Z..2026-10-26T12:00:00Z');
+    expect(searchRange({ start: '2026-10-19T12:00:00.000Z', end: '2026-10-26T12:00:00.000Z' })).toBe('2026-10-19T12:00:00Z..2026-10-26T11:59:59Z');
+    expect(['2026-10-19T12:00:00Z', '2026-10-19T12:00:01Z', '2026-10-26T12:00:00Z', '2026-10-26T12:00:01Z'].map(at => inWindow(at, w))).toEqual([false, true, true, false]);
+    expect([undefined, null, '', 'soon', Date.parse('2026-10-20T00:00:00Z')].map(at => inWindow(at, w))).toEqual([false, false, false, false, false]);
   });
 
   test('percentile is nearest-rank: p50 and p90 of small samples, null when empty', () => {

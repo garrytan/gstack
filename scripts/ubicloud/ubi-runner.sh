@@ -23,10 +23,12 @@
 # Needs only bash, curl, python3, ssh, ssh-keygen, and tar locally, so it works
 # from dev boxes, containers, and cloud sandboxes.
 #
-# Ownership: VMs are named ubirun-<owner>-<epoch>-<suffix>[-t<hours>]. <owner> is UBI_OWNER
+# Ownership: VMs are named ubirun-<owner>-<epoch>-<suffix>-t<hours>. <owner> is UBI_OWNER
 # (lowercased, letters and digits only, at most 12 characters, starting with a
-# letter) or a random per-machine id kept in $STATE_ROOT/owner-id. Ubicloud names
-# allow 63 characters of [a-z0-9-], so a full name stays under 40.
+# letter). `up`, `run` and `verify` refuse without it (UBI_OWNER_REQUIRED), so
+# every VM names whoever can be asked about it; read-only commands fall back to a
+# per-machine id kept in $STATE_ROOT/owner-id. Ubicloud names allow 63 characters
+# of [a-z0-9-], so a full name stays under 45.
 #
 # Teardown: `up` records each VM's state (location, create status) before it
 # sends the create request, and `down` destroys and polls until the VM is
@@ -36,16 +38,26 @@
 # until it finishes. A create refused
 # for vCPU quota prints the project's usage per owner.
 #
-# Stale-VM sweeps are off by default. With UBI_GC_HOURS set to a positive
+# The owner-age sweep is off by default (the TTL reap below always runs). With UBI_GC_HOURS set to a positive
 # number, every `up` first destroys this owner's VMs older than that; `gc HOURS`
 # runs the same sweep on demand. Neither ever touches another owner's VMs.
 #
 # TTL and reaper: a name this script generates ends in -t<hours> (UBI_TTL_HOURS,
-# default 4; 0 omits it), the creator's own declaration of how long the VM may
-# live. `reap` destroys every VM in the project whose TTL expired more than ten
-# minutes ago, whichever owner made it, and every `up` runs it first (UBI_REAP=0
-# skips it), so a runner killed by a sleeping machine leaves nothing behind for
-# longer than its TTL. Names without a TTL are never reaped.
+# 1-999, default 3), the creator's own declaration of how long the VM may live.
+# `reap` destroys every VM in the project whose TTL expired more than ten
+# minutes ago, whichever owner made it, and this owner's own ubirun-<owner>-*
+# names with no TTL once they are UBI_LEGACY_HOURS old (default 4; another
+# owner's or an untagged TTL-less VM is never reaped); every `up` runs it first (UBI_REAP=0 skips it), so a runner
+# killed by a sleeping machine leaves nothing behind for longer than its TTL.
+# Names outside the ubirun- prefix are never reaped.
+#
+# Leftover line: `run` and `verify` end with
+#   UBICLOUD: left=<0|1|unknown> owner=<owner> vm=<name> others=<n>
+# after teardown: left counts this invocation's own VM, checked against the
+# project's VM list, and others counts this owner's other VMs (information only).
+# A left other than 0 turns a passing command into exit 1; `run --keep` reports
+# its live VM as left=1 kept=1 and keeps its exit status. With UBI_LEFT_FILE set,
+# the line is also appended to that file, out of reach of the command's output.
 #
 # Quota preflight: when the project's vCPU ceiling is known (UBI_QUOTA_VCPUS, or
 # the maximum a refusal printed, cached in $STATE_ROOT/quota-max), `up` adds the
@@ -103,7 +115,8 @@ CREATE_GRACE="${UBI_CREATE_GRACE:-180}"
 DOWN_TIMEOUT="${UBI_DOWN_TIMEOUT:-900}"
 POLL="${UBI_POLL_SECONDS:-5}"
 ALLOWED_STORAGE="${UBI_ALLOWED_STORAGE:-320 640}"
-TTL_HOURS="${UBI_TTL_HOURS:-4}"
+TTL_HOURS="${UBI_TTL_HOURS:-3}"
+LEGACY_HOURS="${UBI_LEGACY_HOURS:-4}"
 REAP="${UBI_REAP:-1}"
 REAP_GRACE=600
 IDLE_TIMEOUT="${UBI_IDLE_TIMEOUT:-1800}"
@@ -119,6 +132,7 @@ if [ -n "${UBI_CHECKPOINT_DIR:-}" ]; then CHECKPOINT_DIR="$UBI_CHECKPOINT_DIR"
 elif [ -d "$HOME/.capy/work" ]; then CHECKPOINT_DIR="$HOME/.capy/work/ubi-runner/checkpoints"
 else CHECKPOINT_DIR="$STATE_ROOT/checkpoints"; fi
 CHECKPOINT_MAX_AGE="${UBI_CHECKPOINT_MAX_AGE:-86400}"
+REATTACH_MARGIN="${UBI_REATTACH_MARGIN:-900}"
 
 die() { echo "ubi-runner: $*" >&2; exit 1; }
 log() { echo "ubi-runner: $*" >&2; }
@@ -128,8 +142,7 @@ for bin in curl python3 ssh ssh-keygen tar; do
 done
 UBICLOUD_API_KEY="${UBICLOUD_API_KEY:-${UBICLOUD_API_TOKEN:-}}"
 [[ "$GC_HOURS" =~ ^[0-9]+$ ]] || die "UBI_GC_HOURS must be a whole number of hours (unset or 0 disables the sweep)"
-[[ "$TTL_HOURS" =~ ^(0|[1-9][0-9]{0,2})$ ]] || die "UBI_TTL_HOURS must be a whole number of hours from 0 to 999 with no leading zero (0 names VMs without a TTL)"
-for v in IDLE_TIMEOUT RUN_TIMEOUT HEARTBEAT QUOTA_WAIT CHECKPOINT_MAX_AGE; do
+for v in IDLE_TIMEOUT RUN_TIMEOUT HEARTBEAT QUOTA_WAIT CHECKPOINT_MAX_AGE REATTACH_MARGIN; do
   [[ "${!v}" =~ ^[0-9]+$ ]] || die "UBI_$v must be a whole number of seconds (0 disables it)"
 done
 [ -z "$QUOTA_VCPUS" ] || [[ "$QUOTA_VCPUS" =~ ^[0-9]+$ ]] || die "UBI_QUOTA_VCPUS must be a whole number of vCPUs"
@@ -152,6 +165,21 @@ owner_id() {
   echo "${raw:0:12}"
 }
 OWNER=$(owner_id)
+
+# require_owner: up, run and verify create VMs, and a VM must name its owner
+# and carry a TTL. Only creates check UBI_TTL_HOURS, so an old value never
+# blocks down, reap or list.
+require_owner() {
+  [ -n "${UBI_OWNER:-}" ] || die "UBI_OWNER is not set: every VM must carry its owner; export UBI_OWNER=<your thread or session code> (for example gsta164) and rerun (UBI_OWNER_REQUIRED)"
+  [[ "$TTL_HOURS" =~ ^[1-9][0-9]{0,2}$ ]] || die "UBI_TTL_HOURS must be a whole number of hours from 1 to 999 with no leading zero (every VM carries a TTL; set it above your longest run)"
+}
+
+# leftover FIELDS...: print the UBICLOUD: leftover line, and append it to
+# UBI_LEFT_FILE when set, so a caller can read it apart from the command's output.
+leftover() {
+  echo "UBICLOUD: $*" >&2
+  [ -z "${UBI_LEFT_FILE:-}" ] || echo "UBICLOUD: $*" >>"$UBI_LEFT_FILE"
+}
 
 # api OUT ARGS...: send one Ubicloud CLI command, write the body to OUT, and
 # print the HTTP status (000 when no response arrived).
@@ -354,15 +382,14 @@ stream_cmd() {
 PHASE_LIVE="" STREAM_PID="" RUN_KEY="" TREE=""
 
 # on_hup: once a remote phase is live, HUP detaches: the VM keeps running under
-# its TTL and the next run of the same command reattaches. Before that, or on
-# a VM without a TTL (nothing would ever reap it), HUP tears down like INT and
-# TERM.
+# its TTL and the next run of the same command reattaches. Before that, HUP
+# tears down like INT and TERM.
 on_hup() {
   [ -n "$PHASE_LIVE" ] || exit 130
-  [[ "$RUN_VM" =~ -t[0-9]+$ ]] || { log "HUP: $RUN_VM has no TTL, so it is torn down instead of detached"; exit 130; }
   [ -z "$STREAM_PID" ] || kill -TERM -- "-$STREAM_PID" 2>/dev/null || true
   trap - EXIT
   rm -f "$(state_dir "$RUN_VM")/lease"
+  leftover "left=1 owner=$OWNER vm=$RUN_VM detached=1"
   echo "UBI_DETACHED: vm=$RUN_VM key=${RUN_KEY:0:12} reattach: rerun the same command" >&2
   exit 129
 }
@@ -499,6 +526,37 @@ vm_alive() {
     404) log "run record for $n: the VM is gone; starting a new one"; cmd_down "$n" >/dev/null 2>&1 || true; return 1 ;;
     *) return 1 ;;
   esac
+}
+
+# ttl_short NAME SETUP: true when NAME's TTL (its created_at plus the name's
+# -t<hours>, minus now) does not cover the run still to do plus
+# REATTACH_MARGIN, with the numbers in TTL_WHY. The run still to do is the
+# UBI_RUN_TIMEOUT bound of each phase that has not finished (setup when SETUP is
+# set, then the command or every tier the plan does not reuse), counted from a
+# started phase's recorded start; it is 0 when UBI_RUN_TIMEOUT is 0.
+TTL_WHY=""
+ttl_short() {
+  local name=$1 dir created left now need=0 p i phases=()
+  [[ "$name" =~ -t([0-9]{1,3})$ ]] || return 1
+  dir=$(state_dir "$name")
+  created=$(load "$name"; echo "$CREATE_AT")
+  now=$(date +%s)
+  left=$(( created + 10#${BASH_REMATCH[1]} * 3600 - now ))
+  [ -z "$2" ] || phases+=(setup)
+  if [ ${#TIER_NAMES[@]} -gt 0 ]; then
+    for i in "${!TIER_NAMES[@]}"; do [ "${TIER_ACT[i]}" = reuse ] || phases+=("tier-${TIER_NAMES[i]}"); done
+  else
+    phases+=(command)
+  fi
+  if [ "$RUN_TIMEOUT" -gt 0 ]; then
+    for p in "${phases[@]}"; do
+      if [ -f "$dir/phase.$p.start" ]; then i=$(( RUN_TIMEOUT - (now - $(cat "$dir/phase.$p.start")) )); [ "$i" -gt 0 ] || i=0
+      else i=$RUN_TIMEOUT; fi
+      need=$(( need + i ))
+    done
+  fi
+  TTL_WHY="ttl_left=${left}s needs=$(( need + REATTACH_MARGIN ))s (run still to do ${need}s + UBI_REATTACH_MARGIN=${REATTACH_MARGIN}s)"
+  [ "$left" -lt $(( need + REATTACH_MARGIN )) ]
 }
 
 # find_record: the VM of a run record with this RUN_KEY whose VM still exists.
@@ -675,9 +733,10 @@ run_tiers() {
   done
 }
 
-# vm_rows: "location name owner expires" for every VM in the project; owner is
-# "-" for untagged ubirun-<epoch>-* names and "." for VMs this runner did not
-# name; expires is the epoch the name's -t<hours> TTL ends at, or "-".
+# vm_rows: "location name owner expires created" for every VM in the project;
+# owner is "-" for untagged ubirun-<epoch>-* names and "." for VMs this runner
+# did not name; expires is the epoch the name's -t<hours> TTL ends at, or "-";
+# created is the name's epoch, or "-".
 vm_rows() {
   local loc name owner created expires
   cli vm list -N -f location,name | while read -r loc name; do
@@ -690,23 +749,31 @@ vm_rows() {
     if [ -n "$created" ] && [[ "$name" =~ -t([0-9]{1,3})$ ]]; then
       expires=$(( 10#$created + 10#${BASH_REMATCH[1]} * 3600 ))
     fi
-    echo "$loc $name $owner $expires"
+    echo "$loc $name $owner $expires ${created:--}"
   done
 }
 
 # reap: destroy every VM whose name carries a TTL that ended more than
 # REAP_GRACE seconds ago, whichever owner created it (the TTL is that owner's
-# own declaration). Names without a TTL are never touched.
+# own declaration), and the caller's own TTL-less ubirun-<UBI_OWNER>-* names at
+# least LEGACY_HOURS old. Another owner's TTL-less VM, an untagged one, and names
+# outside the prefix are never touched: only a TTL lets reap judge another lane's VM.
 cmd_reap() {
-  local now rows loc name owner expires n=0 failed=0
+  local now rows loc name owner expires created n=0 failed=0
+  [[ "$LEGACY_HOURS" =~ ^[1-9][0-9]{0,3}$ ]] || die "UBI_LEGACY_HOURS must be a whole number of hours from 1 to 9999 with no leading zero (how old a TTL-less ubirun-* VM must be before reap destroys it)"
   now=$(date +%s)
   rows=$(vm_rows) || { log "reap: could not list the project's VMs; nothing destroyed"; return 1; }
-  while read -r loc name owner expires; do
+  while read -r loc name owner expires created; do
     [ -n "$name" ] || continue
-    [ "$expires" != - ] || continue
-    [ "$now" -ge $(( expires + REAP_GRACE )) ] || continue
+    if [ "$expires" != - ]; then
+      [ "$now" -ge $(( expires + REAP_GRACE )) ] || continue
+      log "reaping expired $loc/$name (owner $owner; its TTL ended $(( (now - expires) / 60 )) min ago)"
+    else
+      [ -n "${UBI_OWNER:-}" ] && [ "$owner" = "$OWNER" ] && [ "$created" != - ] || continue
+      [ $(( now - 10#$created )) -ge $(( LEGACY_HOURS * 3600 )) ] || continue
+      log "reaping TTL-less $loc/$name (owner $owner; $(( (now - 10#$created) / 3600 ))h old, legacy sweep at ${LEGACY_HOURS}h)"
+    fi
     n=$(( n + 1 ))
-    log "reaping expired $loc/$name (owner $owner; its TTL ended $(( (now - expires) / 60 )) min ago)"
     cmd_down "$name" -l "$loc" || { failed=$(( failed + 1 )); log "failed to reap $loc/$name"; }
   done <<<"$rows"
   [ "$n" -gt 0 ] || log "reap: no expired VMs"
@@ -785,9 +852,7 @@ cmd_records() {
 }
 
 new_name() {
-  local ttl=""
-  [ "$TTL_HOURS" -eq 0 ] || ttl="-t$TTL_HOURS"
-  echo "$PREFIX-$OWNER-$(date +%s)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')$ttl"
+  echo "$PREFIX-$OWNER-$(date +%s)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')-t$TTL_HOURS"
 }
 
 # vcpus SIZE: the vCPU count a Ubicloud size name carries (standard-16 -> 16).
@@ -844,6 +909,7 @@ check_storage() {
 UP_NAME=""
 UP_READY=""
 cmd_up() {
+  require_owner
   local size=$DEFAULT_SIZE location=$DEFAULT_LOCATION name="" storage="" image=ubuntu-noble
   while [ $# -gt 0 ]; do
     case $1 in
@@ -1121,8 +1187,29 @@ inside_dir() {
 # PULL_ROOT: set by verify; every pull destination must resolve inside it at
 # pull time (an earlier pull may have placed a symlink where a later one lands).
 PULL_ROOT=""
+
+# run_teardown RC: run's EXIT handler. Destroys RUN_VM, ignoring further
+# signals, then checks the project's VM list for it and prints the leftover
+# line; a VM still listed, or a list that cannot be read, fails the run.
+run_teardown() {
+  local rc=$1 rows left others
+  trap "" INT TERM HUP QUIT
+  cmd_down "$RUN_VM" || log "WARNING: failed to destroy $RUN_VM; run: $0 down $RUN_VM"
+  if rows=$(vm_rows 2>/dev/null); then
+    left=$(awk -v n="$RUN_VM" '$2==n' <<<"$rows" | grep -c . || true)
+    others=$(awk -v n="$RUN_VM" -v o="$OWNER" '$3==o && $2!=n' <<<"$rows" | grep -c . || true)
+  else
+    left=unknown others=unknown
+  fi
+  leftover "left=$left owner=$OWNER vm=$RUN_VM others=$others"
+  [ "$left" = 0 ] && return 0
+  log "VM cleanup not confirmed for $RUN_VM (left=$left); destroy it with: $0 down $RUN_VM"
+  [ "$rc" -ne 0 ] || exit 1
+}
+
 TIER_NAMES=() TIER_CMDS=() RESUME=1 RERUN_FAILED=0 FORCE_ATTACH="" RUN_ARGS=()
 cmd_run() {
+  require_owner
   local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=() passes=() key_inputs=() probe=0
   RUN_ARGS=("$@")
   while [ $# -gt 0 ]; do
@@ -1193,7 +1280,11 @@ cmd_run() {
     else
       local busy=0
       ! lease_busy "$(state_dir "$attach")" || busy=1
-      echo "UBI_ATTACH_INFO: vm=$attach created_at=$(load "$attach"; echo "$CREATE_AT") key=${RUN_KEY:0:12} busy=$busy"
+      if [ "$busy" = 0 ] && [ -z "$FORCE_ATTACH" ] && ttl_short "$attach" "$setup"; then
+        echo "UBI_ATTACH_INFO: none key=${RUN_KEY:0:12} ttl_short vm=$attach $TTL_WHY"
+      else
+        echo "UBI_ATTACH_INFO: vm=$attach created_at=$(load "$attach"; echo "$CREATE_AT") key=${RUN_KEY:0:12} busy=$busy"
+      fi
     fi
     return 0
   fi
@@ -1214,12 +1305,17 @@ cmd_run() {
   if [ -n "$attach" ] && lease_busy "$(state_dir "$attach")"; then
     die "UBI_ATTACH_BUSY: vm=$attach key=${RUN_KEY:0:12}: runner pid $(cut -d' ' -f1 <"$(state_dir "$attach")/lease") on this machine still owns it; wait for it or stop it, then rerun"
   fi
+  if [ -n "$attach" ] && [ -z "$FORCE_ATTACH" ] && ttl_short "$attach" "$setup"; then
+    log "UBI_REATTACH_TTL_SHORT: vm=$attach key=${RUN_KEY:0:12} $TTL_WHY: starting a fresh VM (tier checkpoints carry over) and destroying $attach"
+    cmd_down "$attach" >/dev/null || log "WARNING: failed to destroy $attach; run: $0 down $attach"
+    attach=""
+  fi
   [ -z "$attach" ] || name=$attach
   [ -n "$name" ] || { name=$(new_name); up_args+=(-n "$name"); }
   RUN_VM=$name
   # Armed before the create request: an interrupted `up` still destroys its VM.
   # A second signal must not cut teardown short, so the EXIT handler ignores them.
-  trap 'trap "" INT TERM HUP QUIT; cmd_down "$RUN_VM" || log "WARNING: failed to destroy $RUN_VM; run: $0 down $RUN_VM"' EXIT
+  trap 'run_teardown "$?"' EXIT
   trap 'exit 130' INT TERM QUIT
   trap on_hup HUP
   if [ -n "$attach" ]; then
@@ -1231,8 +1327,10 @@ cmd_run() {
     trap on_hup HUP
     if [[ "$name" =~ -t([0-9]+)$ ]]; then
       log "$name carries a ${BASH_REMATCH[1]}h TTL (any later run of this script reaps it); if this process dies first: $0 down $name"
+    elif [[ "$name" =~ ^$PREFIX-$OWNER-[0-9]{10}- ]]; then
+      log "$name has no TTL (reap destroys it once it is ${LEGACY_HOURS}h old); if this process dies before its teardown line, destroy it with: $0 down $name"
     else
-      log "$name has no TTL; if this process dies before its teardown line, destroy it with: $0 down $name"
+      log "$name has no TTL and no reapable name, so nothing reaps it; if this process dies before its teardown line, destroy it with: $0 down $name"
     fi
   fi
   local dir
@@ -1242,6 +1340,7 @@ cmd_run() {
   if [ "$keep" = 1 ]; then
     # A kept VM's finished run is not reattached by the next run; a detach (HUP) keeps the record.
     trap 'rm -f "$(state_dir "$RUN_VM")/run"' EXIT
+    leftover "left=1 owner=$OWNER vm=$name kept=1"
     log "--keep: leaving $name running; destroy with: $0 down $name"
   fi
 
@@ -1443,7 +1542,8 @@ usage: ubi-runner.sh <command> [args]
   owner                  print this caller's owner tag ($OWNER)
   records                VMs this machine created and has not confirmed gone ($VM_RECORD)
   gc HOURS               destroy this owner's VMs older than HOURS (never other owners')
-  reap                   destroy every VM whose -t<hours> TTL has ended (any owner; TTL-less names never)
+  reap                   destroy every VM whose -t<hours> TTL has ended (any owner) and this
+                         owner's TTL-less ubirun-* VMs older than UBI_LEGACY_HOURS
   cli ARGS...            raw Ubicloud CLI passthrough (e.g. cli vm list)
 
 signals: INT and TERM tear the VM down. HUP, once a remote phase is live, detaches
@@ -1451,10 +1551,11 @@ signals: INT and TERM tear the VM down. HUP, once a remote phase is live, detach
 the run record and the VM; rerun the same command to reattach (UBI_ATTACH_BUSY while
 another runner owns it; exit 125 UBI_ATTACH_LOST when the remote session left no status).
 
-VMs are named $PREFIX-<owner>-<epoch>-<suffix>-t<ttl hours>; set UBI_OWNER (e.g. your
-thread code) to tag them, otherwise a per-machine id is used.
+VMs are named $PREFIX-<owner>-<epoch>-<suffix>-t<ttl hours>; up, run and verify need
+UBI_OWNER (e.g. your thread code); run and verify end with a UBICLOUD: left=<n> line.
 defaults: size=$DEFAULT_SIZE location=$DEFAULT_LOCATION (env UBI_SIZE, UBI_LOCATION)
-env: UBI_TTL_HOURS (${TTL_HOURS}h in the name; 0 omits it), UBI_REAP (0: up skips the reap),
+env: UBI_TTL_HOURS (${TTL_HOURS}h in the name, 1-999), UBI_REAP (0: up skips the reap),
+     UBI_LEGACY_HOURS (${LEGACY_HOURS}h: reap's bound for this owner's TTL-less ubirun-* names),
      UBI_IDLE_TIMEOUT (${IDLE_TIMEOUT}s of silence kills the remote command, exit 124; 0 disables),
      UBI_RUN_TIMEOUT (${RUN_TIMEOUT}s wall clock; 0 unlimited), UBI_HEARTBEAT (${HEARTBEAT}s between heartbeat lines),
      UBI_QUOTA_VCPUS (project vCPU ceiling for the preflight; else the last refusal's maximum),

@@ -46,6 +46,10 @@
 
 **NO_VERSION (Step 12):** skip this step; write no CHANGELOG entry or version header.
 
+**Kept (Step 12 `VERSION: <v> kept`):** no version header. Put the entry where the repo's own rule
+puts unit-PR notes (its CHANGELOG preamble or a fragment directory it names), else under
+`## [Unreleased]`, never under a released heading.
+
 **No CHANGELOG:** when the policy's `changelog` is `null`, or the file it names
 (`CHANGELOG.md` by default) is absent at HEAD, print one line,
 `CHANGELOG: skipped (none at <path>)`, write nothing and never create the file;

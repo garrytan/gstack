@@ -133,7 +133,7 @@
         "body": "ship receipt follows\nSHIP_RECEIPT: pr=103 head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb passes=3"
       }
     ],
-    "repos/acme/widgets/actions/workflows/evals.yml/runs?status=completed&per_page=100&created=%3E%3D2026-10-19&event=workflow_dispatch&page=1": {
+    "repos/acme/widgets/actions/workflows/evals.yml/runs?status=completed&per_page=100&created=2026-10-19..2026-10-26&event=workflow_dispatch&page=1": {
       "total_count": 6,
       "workflow_runs": [
         {
@@ -222,7 +222,7 @@
         }
       ]
     },
-    "repos/acme/widgets/actions/workflows/free-tests.yml/runs?status=completed&per_page=100&created=%3E%3D2026-10-19&branch=main&page=1": {
+    "repos/acme/widgets/actions/workflows/free-tests.yml/runs?status=completed&per_page=100&created=2026-10-19..2026-10-26&branch=main&page=1": {
       "total_count": 3,
       "workflow_runs": [
         {
@@ -289,11 +289,11 @@
         "published_at": "2026-10-01T07:00:00Z"
       }
     ],
-    "search/issues?q=repo%3Aacme%2Fwidgets%20is%3Aissue%20created%3A%3E%3D2026-10-19T12%3A00%3A00Z&per_page=1": {
+    "search/issues?q=repo%3Aacme%2Fwidgets%20is%3Aissue%20created%3A2026-10-19T12%3A00%3A00Z..2026-10-26T11%3A59%3A59Z&per_page=1": {
       "total_count": 5,
       "items": []
     },
-    "search/issues?q=repo%3Aacme%2Fwidgets%20is%3Aissue%20closed%3A%3E%3D2026-10-19T12%3A00%3A00Z&per_page=1": {
+    "search/issues?q=repo%3Aacme%2Fwidgets%20is%3Aissue%20closed%3A2026-10-19T12%3A00%3A00Z..2026-10-26T11%3A59%3A59Z&per_page=1": {
       "total_count": 7,
       "items": []
     }
