@@ -73,7 +73,7 @@ describe("GST-543: a diff line prefix never hides a finding", () => {
     const missed: string[] = [];
     for (const p of PATTERNS) {
       const s = SAMPLES[p.id]!;
-      for (const [label, text] of [["+", "+" + s], ["-", "-" + s], ["space", " " + s], ["hunk", hunk("+" + s)], ["indented hunk", hunk("+    " + s)], ["indented removed", hunk("-    " + s)], ["tab removed", hunk("-\t" + s)]] as const)
+      for (const [label, text] of [["+", "+" + s], ["-", "-" + s], ["space", " " + s], ["hunk", hunk("+" + s)], ["indented hunk", hunk("+    " + s)], ["indented removed", hunk("-    " + s)], ["tab removed", hunk("-\t" + s)], ["combined ++", hunk("++" + s)], ["combined space+", hunk(" +  " + s)], ["combined +-", hunk("+-" + s)]] as const)
         if (!ids(text).includes(p.id)) missed.push(`${p.id} (${label})`);
     }
     expect(missed).toEqual([]);
@@ -83,7 +83,7 @@ describe("GST-543: a diff line prefix never hides a finding", () => {
     const v = SAMPLES["env.kv"]!.slice("API_TOKEN=".length);
     for (const line of [`-export API_TOKEN=${v}`, `+export API_TOKEN=${v}`, `-  api_token: ${v}`])
       expect({ line, kv: ids(hunk(line)).includes("env.kv") }).toEqual({ line, kv: true });
-    for (const bullet of ["- Credentials: `.auth.json`, `auth-token.json`", "- Session: `GSTACK_SESSION_KIND=unattended`"])
+    for (const bullet of ["- Credentials: `.auth.json`, `auth-token.json`", "- Session: `GSTACK_SESSION_KIND=unattended`", "  - Session: `GSTACK_SESSION_KIND=unattended`", "-- Session: `GSTACK_SESSION_KIND=unattended`"])
       expect({ bullet, kv: ids(bullet).includes("env.kv") }).toEqual({ bullet, kv: false });
   });
 
@@ -97,7 +97,7 @@ describe("GST-543: a diff line prefix never hides a finding", () => {
   test("the prefix changes nothing else: env.kv's exemptions hold on an added line", () => {
     for (const line of ["API_TOKEN=changeme", "cacheKey: 8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ", "input_key: expected_media_rate_bits_per_second", 'api_key=os.environ["API_KEY"]', "TOKEN=${API_TOKEN}"]) {
       expect({ line, bare: ids(line).includes("env.kv") }).toEqual({ line, bare: false });
-      for (const marker of ["+", "-", "+  ", "-  "]) expect({ line: marker + line, kv: ids(hunk(marker + line)).includes("env.kv") }).toEqual({ line: marker + line, kv: false });
+      for (const marker of ["+", "-", "+  ", "-  ", "++", " +", "+-"]) expect({ line: marker + line, kv: ids(hunk(marker + line)).includes("env.kv") }).toEqual({ line: marker + line, kv: false });
     }
   });
 });
