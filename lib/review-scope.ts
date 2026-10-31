@@ -36,6 +36,8 @@ export interface ScopedFinding extends ScopeFinding { locus: Locus; kind: Kind; 
 /** Who can raise a finding: the core checklist, QA probes, a specialist by name and the review-depth roles; anything else is `unknown`. */
 const RAISERS: readonly string[] = ['core', 'qa', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', ...SPECIALISTS];
 const RAISER_ALIASES: Record<string, string> = { adversarial: 'adversarial-native' };
+/** Reviewers that read after pass 1 finished (Step 11's voices, a fix-check): only a blocking finding of theirs is ever `fix`. */
+const AFTER_PASS_RAISERS: readonly string[] = ['adversarial-native', 'outside-voice', 'fix-check'];
 
 /** The reviewer that raised a finding, for attributing passes later (GSTA-152 D6): its `raised_by` when known, else its `specialist` tag, else `unknown`. */
 export function raisedBy(finding: ScopeFinding): string {
@@ -154,21 +156,24 @@ export interface ScopeInput { policy: ReviewScopePolicy; pass: number; diffHunks
  * `frozen` pass 1: fix the diff, defer blocking findings in unchanged code,
  * note the rest. `frozen` pass 2+: fix blocking findings in the range since
  * the previous pass or in the diff; defer blocking findings outside; note
- * everything else.
+ * everything else. Step 11's voices and a fix-check read after pass 1 has
+ * finished, so even at `--pass 1` their below-floor findings are notes and
+ * never send the loop back for another pass (CREW rules 23 and 30a).
  */
 export function scopeFindings(findings: readonly ScopeFinding[], input: ScopeInput): ScopedFinding[] {
   return findings.map(finding => {
     const kind = kindOf(finding);
     const blocking = isBlocking(finding, kind);
+    const raised = raisedBy(finding);
     const locus = locusOf(finding, input.diffHunks, input.pass > 1 ? input.rangeHunks : null, input.context);
     // A blocking finding nobody could place cannot be filed against a path; the diff's author resolves it now.
     const placed = typeof finding.path === 'string' || fingerprintPath(finding.fingerprint) !== undefined;
     let scope: ScopeAction;
     if (input.policy === 'all') scope = 'fix';
     else if (locus === 'outside') scope = !blocking ? 'note' : input.policy === 'diff-plus-blocking' || !placed ? 'fix' : 'defer';
-    else if (input.pass <= 1) scope = 'fix';
+    else if (input.pass <= 1 && !AFTER_PASS_RAISERS.includes(raised)) scope = 'fix';
     else scope = blocking ? 'fix' : 'note';
-    return { ...finding, locus, kind, blocking, scope, raised_by: raisedBy(finding) };
+    return { ...finding, locus, kind, blocking, scope, raised_by: raised };
   });
 }
 

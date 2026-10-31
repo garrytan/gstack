@@ -135,6 +135,12 @@ writes `[]`, which would clear a file without a test. A file with no nearby
 test, and a lane whose matrix a planner computes, is printed as a `TODO`.
 Review each entry before committing the file on the base branch.
 
+## `.gstack/always-run.json`
+
+`{ "tests": [globs] }` names whole-tree tests that scan every file of a kind (tripwires, ratchets, conformance and fixture inventories). A diff-selected run never maps a touched file to them, so they used to pass the selected gate and then fail CI (GST-98). When a branch selects any test, owes a lane, or edits this file, the `lanes` selection adds every tracked test file a glob matches. `--explain` prints each one as `<test> (always_run, .gstack/always-run.json)`, and a glob that matches no test as `<glob> matches no test file`. A docs-only branch adds nothing.
+
+The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list matches 16 test files; the 13 with a seed in `scripts/free-test-durations.json` (recorded 2026-10-19) total about 13 s there, and `bun-entry-isolation`, `launch-env-echo-ratchet` and `review-packets-removed` have no seed yet.
+
 ## `gstack-pregate`
 
 ```
@@ -450,7 +456,8 @@ receipt for H when the two trees differ only as a stamp does:
   stamps, each hunk in them must be the exact old → new rewrite under
   `stamp_patterns` (literal `{version}` templates) or the built-in forms
   (`(was X)`, `since: X`, `vX`), and the version file, `package.json`'s
-  `version`, a lockfile's root version keys and a CHANGELOG re-heading have
+  `version`, a lockfile's root version keys and a CHANGELOG re-heading (under
+  `changelog_fragments`, also the fold of the fragments the head deletes) have
   their own built-in rules. There is no second list and no looser rule here:
   the file verdicts `clear` reaches on a pair are the verdicts
   `gstack-tree-receipt --gated G --current H` reaches, and its gate rule holds
@@ -469,7 +476,9 @@ receipt for H when the two trees differ only as a stamp does:
   the policy label (`origin/<base>@<sha>:.gstack/ship-policy.json`) and every
   differing path with the rule that classed it (`version-file`,
   `version-manifest`, `manifest-version`, `lockfile-root-version`,
-  `changelog-heading`, `stamp_files`, `stamp_paths`, `release_outputs`). `clear` prints the same
+  `changelog-heading`, `changelog-fragments` for the CHANGELOG under the fold,
+  `changelog_fragments` for a folded fragment's deletion, `stamp_files`,
+  `stamp_paths`, `release_outputs`). `clear` prints the same
   as `PREGATE_RECEIPT_SUBSTITUTED: …`, `verify` repeats it on its ok line, and
   the ship receipt carries the receipt string. The receipt's own tests and
   failed checks apply as before (its exit status is checked only when
@@ -518,7 +527,7 @@ gstack-pregate verify                             # PREGATE_VERIFY: ok …; preg
 
 gstack's own example: `.gstack/pregate.json` declares
 `"remote_gate": "bash scripts/ubicloud/pregate-remote.sh"`. With
-`UBICLOUD_API_KEY` set the script runs the selected files on one Ubicloud VM
+`UBICLOUD_API_KEY` and `UBI_OWNER` set the script runs the selected files on one Ubicloud VM
 with `bun run test:ubicloud`'s environment, refuses before creating the VM when
 the cap cannot buy a 20-minute run at the size's list price (`UBI_SIZE`,
 default `standard-16`), checks the tree and the planned file set on the VM
@@ -569,7 +578,8 @@ Every refusal line starts with a reason code:
 | `PREGATE_REMOTE_CAP_TOO_LOW` | 5 | the cap cannot buy a 20-minute run at the size's price; nothing created |
 | `PREGATE_REMOTE_NO_PRICE` | 5 | `UBI_SIZE` has no list price in the script |
 | `PREGATE_REMOTE_TIMEOUT_TOO_SHORT` | 5 | pregate's deadline leaves the VM under 300 s after the 135 s teardown reserve; nothing created |
-| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed; the VM, its teardown line and `spent=` follow |
+| `PREGATE_REMOTE_OWNER_REQUIRED` | 2 | `UBI_OWNER` is unset; nothing created (every VM must name its owner) |
+| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed, or the runner's `UBICLOUD: left=` line is not `0`; the VM, its teardown line and `spent=` follow |
 | `PREGATE_REMOTE_INTERRUPTED` | 130 | TERM or INT; ubi-runner tears the VM down on its own |
 
 <a id="guards"></a>
@@ -795,8 +805,10 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
 - **Rules.** `sealed.path` and `sealed.transcript` check every path a commit
   adds, renames or copies, whatever its content (binary, empty, deleted again
   in a later commit); `sealed.answer`, `sealed.seed` and `sealed.local_path`
-  (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`) check each commit's added
-  lines. Findings print rule, `file[:line]` and commit, never the text.
+  (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`, including after a shell
+  default such as `${VAR:-…}` or `${VAR-…}`) check each commit's added lines.
+  Known limit: a path glued to the text before it, by a hyphen (`docs-…`,
+  `$VAR-…`, `${VAR}-…`) or a letter (`-I…`, `-L…`), is not matched. Findings print rule, `file[:line]` and commit, never the text.
 - **Globs.** `paths`, `transcripts` and `allow_paths` match the whole
   repo-relative path from the repository root. `*` and `?` stay inside one
   path segment; `**/` spans zero or more directories; a `**` not followed by
@@ -834,7 +846,12 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   `git ls-remote <remote> <ref>`. A malformed or
   unreadable policy refuses. Waivers come only from the base branch's
   `.gstack/sealed-allow.tsv` (`rule<TAB>path<TAB>sha<TAB>reason`) and are
-  listed on every push.
+  listed on every push. A waiver counts only when `sha` is the finding's full
+  commit sha (40 hex characters, 64 in a SHA-256 repository); a shortened or
+  mistyped one is ignored, so the finding still refuses, and stderr names it
+  (`ignored waiver <rule>  <path>  sha <value> (...)`) with the finding's full
+  commit, which needs a review before anyone waives it.
+  `--json` lists them as `ignoredWaivers`.
 - **Visibility.** `sealed.visibility` from the base branch, else a cache under
   the state root (`sealed-visibility.json`: a `public` answer for 24 hours, a
   `private` one for 1 hour before it may turn a refusal into a warning), else

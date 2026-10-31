@@ -115,7 +115,7 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a full pass that fixed only below-floor findings | one fix-check |
 | a full pass at the cap that fixed a blocking finding | one fix-check |
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
-| a fix-check that found nothing blocking | done |
+| a fix-check that found nothing blocking (below-floor fixes before it included) | done |
 | a fix-check that found a blocking finding | stop: name it for the owner |
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
@@ -357,7 +357,48 @@ email case-folded, so running it twice changes nothing. The `COAUTHORS: <n> in
 <range>` line on stderr is the receipt; `--json` prints `{ range, authors,
 trailers, appended }`.
 
+## Verbatim dispatch
+
+A driven `/ship` (ship/DRIVER.md) never lets the model write a reviewer's brief
+or merge a reviewer's findings. The no-loss replays showed why: with briefs the
+parent filled in by hand, only 37 of 112 dispatched prompts matched the rendered
+ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
+
+1. `render --role <role> [--name <n>] --out <dir>` cuts the brief out of
+   `ship/sections/review-army.md` or `ship/sections/adversarial.md` (the fix-check
+   from `scripts/resolvers/fix-check.ts`) and fills only declared slots: the
+   literal diff base, the plan's `DIFF_CMD` excludes, stack, test framework,
+   learnings, checklist paths, the Red Team's merged findings and specialist count,
+   and the outside voice's branch diff. A section that lost an anchor or placeholder
+   refuses (`BRIEF_RENDER_FAILED`) instead of rendering something else.
+2. The dispatch program passes that file's content unchanged as the reader's
+   prompt and runs `sent` on what it passed: a hash that differs from the rendered
+   one is `BRIEF_MISMATCH`, and that reader's review does not count.
+3. `collect` hashes each reader's raw output and appends its findings to
+   `merged.jsonl` with the label exactly as written (a JSON line's `severity`, or a
+   prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE wherever it
+   stands, headings and table rows included; a top-level list item under a label-only
+   heading takes that label). A phantom finding costs a fold; a lost one costs the gate.
+4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
+   finding, lowers its severity, folds it into a less severe duplicate, or adds or
+   promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
+   the ledger collected is a drop. Each addition and promotion is logged with its reason.
+5. `verify --ledger <f>` replays all of it from the run's ledger: rendered against
+   dispatched hashes per render (each render is one dispatch of its reader, so a
+   two-pass ledger checks pass-1 sends against pass-1 briefs; a later render prints as
+   `<reader>@2`), a collected output for every sent reader (`NOT_COLLECTED`
+   otherwise; a reader that failed is collected from its failure text, where any
+   label word becomes a finding the judge folds, and its coverage is logged
+   `unavailable` in the review-log row). A mismatched send re-sent
+   byte-exact before anything was collected is void and counted (`voided=N` on the
+   verdict line); one that produced an output stays `MISMATCH`. Then output hashes
+   against the merged lines they produced, and the judgment rerun against the
+   recorded judged set, covering every collected id. A ledger from a run that kept no
+   prompts prints `VERIFY: no brief records` (exit 3), never clean.
+
 ## Where this is enforced
+
+- `lib/review-brief.ts`, `lib/review-ledger.ts`, `bin/gstack-review-dispatch`: [verbatim dispatch](#verbatim-dispatch) (`test/review-dispatch.test.ts`).
 
 - `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.

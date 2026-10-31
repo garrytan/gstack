@@ -108,6 +108,23 @@ describe('the policy gate', () => {
     expect(flagged.err).toContain('--screen/--no-screen/--broad ignored: the base policy declares no train block');
     expect(fs.existsSync(path.join(fx.state, 'ship-queue'))).toBe(false);
   }, 120_000);
+
+  // Value: protects=under changelog_fragments ready records the READY receipt land checks, only after every ready check passed; fails_when=land has no proof of the pregate; why_new=the case above covers the key off; seam=none; no_claim=the notes push to a real GitHub remote
+  test('under changelog_fragments ready records a READY receipt; a failed pregate records none', () => {
+    const fx = make({ ...BASE_POLICY, changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' });
+    const head = openPr(fx, '1');
+    fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
+    const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'fail', checks: [{ id: 'unit', status: 'fail' }] }));
+    expect(queue(fx, ['ready', '--pr', '1', '--pregate', pregate]).status).toBe(EXIT.refused);
+    expect(fs.existsSync(path.join(fx.state, 'ship-queue'))).toBe(false);
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    const ok = queue(fx, ['ready', '--pr', '1', '--pregate', pregate]);
+    expect(ok.status).toBe(EXIT.ok);
+    expect(ok.out).toMatch(new RegExp(`^READY_RECEIPT: .*ship-queue/ready/[^/]+/1-${head}\\.json \\(notes pushed to origin refs/notes/gstack-trains\\)$`, 'm'));
+    expect(fx.repo.git('ls-remote', 'origin', 'refs/notes/gstack-trains')).not.toBe('');
+  }, 120_000);
 });
 
 describe('ready under a train policy: the screen choice', () => {
@@ -564,7 +581,7 @@ describe('train build', () => {
     expect(dispatches(fx, 'free-tests.yml').length).toBe(4);
   }, 180_000);
 
-  test('ordering: screened PRs first in READY order; enough unscreened PRs wait for their own train', () => {
+  test('ordering: screened PRs first in READY order; unscreened PRs fill the remaining seats', () => {
     const fx = make({ ...TRAIN_POLICY, train: { ...TRAIN_BLOCK, max_size: 2 } });
     const h = ['1', '2', '3'].map(pr => openPr(fx, pr));
     readyReceipt(fx, '1', h[0]!, { at: '2026-10-18T08:00:00.000Z' });
@@ -572,8 +589,8 @@ describe('train build', () => {
     readyReceipt(fx, '3', h[2]!, { at: '2026-10-18T09:00:00.000Z', screen: true });
     const r = queue(fx, ['train', 'build', '--prs', `1@${h[0]},2@${h[1]},3@${h[2]}`, '--dry-run']);
     expect(r.status).toBe(EXIT.ok);
-    expect(line(r.out, 'ORDER:')).toBe('ORDER: 1:#3(screened)');
-    expect(line(r.out, 'HELD:')).toBe('HELD: #2,#1 (unscreened PRs form their own train)');
+    expect(line(r.out, 'ORDER:')).toBe('ORDER: 1:#3(screened) 2:#2(unscreened)');
+    expect(line(r.out, 'HELD:')).toBe('HELD: #1 (over the train size 2)');
     const wide = make();
     const w = ['1', '2', '3'].map(pr => openPr(wide, pr));
     readyReceipt(wide, '1', w[0]!, { at: '2026-10-18T08:00:00.000Z' });

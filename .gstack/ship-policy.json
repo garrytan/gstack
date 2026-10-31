@@ -14,5 +14,6 @@
   "pr_count": { "default_pr_count": 1, "split_requires_owner": true },
   "maintainers": ["garrytan"],
   "train": { "gate_workflow": "evals.yml", "free_workflow": "free-tests.yml", "full_gate_check": "gstack/full-gate", "record_artifact": "gstack-train-record", "max_size": 3, "fill_hours": 1, "screen_selection": "gstack-paid", "trial_reservation_usd": 1.5 },
-  "min_gstack_version": "1.91.299.0"
+  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-free-tests", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
+  "min_gstack_version": "1.91.340.0"
 }

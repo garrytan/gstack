@@ -8,6 +8,7 @@
  */
 import { ARTIFACT_SCHEMAS, checkSchema, type ShipReceipt, type ValidationError } from './headless-artifacts';
 import { approvalSummary } from './approval-citations';
+import { FRAGMENT_README } from './changelog-fragments';
 import { renderIssueLines } from './issue-links';
 import { matchesAny } from './ship-policy';
 import { stampFileKind, versionStampOnly } from './pregate/stamp-only';
@@ -136,8 +137,9 @@ export function receiptSummaryLine(r: ShipReceipt): string {
  * Paths whose change never invalidates a /ship verdict on its own: tests (the
  * reviewed product code is what the verdict covers; CI at the new head reruns
  * them, unreviewed) and release metadata (the version stamp, the changelog, the
- * agents digest). A repo extends the lists through its ship policy
- * (`stamp_files`, `stamp_paths`, `release_outputs`, `changelog`); lockfiles are
+ * agents digest, and under `changelog_fragments` each `<dir>/<slug>.md` fragment). A repo
+ * extends the lists through its ship policy (`stamp_files`, `stamp_paths`, `release_outputs`,
+ * `changelog`, `changelog_fragments.dir`); lockfiles are
  * product unless the policy names them, because a dependency change is a
  * product change. The test globs name code extensions only: an API contract
  * such as `openapi.spec.yaml` is product.
@@ -203,8 +205,9 @@ export function stampOnlyText(change: CarryChange): boolean {
 }
 
 /**
- * One changed path's carry class. The changelog and the agents digest are
- * metadata. A manifest (`package.json`, `VERSION`) is metadata only while its
+ * One changed path's carry class. The changelog, the agents digest and, when the
+ * base policy names `changelog_fragments.dir` (`extra.fragments`), each fragment
+ * directly under it except its README are metadata. A manifest (`package.json`, `VERSION`) is metadata only while its
  * from..head change is a version stamp and nothing else (`versionStampOnly`): a
  * dependency, a script or a new key is product. A path the policy names under
  * `stamp_files`, `stamp_paths` or `release_outputs` is metadata only while its
@@ -213,9 +216,10 @@ export function stampOnlyText(change: CarryChange): boolean {
  * the tree receipt. `change` carries the texts; a caller without them gets the
  * list-only answer.
  */
-export function classifyCarryPath(rel: string, extra: { metadata?: readonly string[]; outputs?: readonly string[] } = {}, change?: CarryChange): CarryClass {
+export function classifyCarryPath(rel: string, extra: { metadata?: readonly string[]; outputs?: readonly string[]; fragments?: string } = {}, change?: CarryChange): CarryClass {
   const stamp = () => !change || (stampFileKind(rel) ? versionStampOnly(rel, change.before, change.after).stampOnly : stampOnlyText(change));
   if (matchesAny(CARRY_METADATA_GLOBS, rel)) return !change || !stampFileKind(rel) || versionStampOnly(rel, change.before, change.after).stampOnly ? 'metadata' : 'product';
+  if (extra.fragments && rel !== `${extra.fragments}/${FRAGMENT_README}` && matchesAny([`${extra.fragments}/*.md`], rel)) return 'metadata';
   if (matchesAny(extra.outputs ?? [], rel)) return 'generated';
   if (matchesAny(extra.metadata ?? [], rel)) return stamp() ? 'metadata' : 'product';
   if (matchesAny(CARRY_TEST_GLOBS, rel)) return 'test';
