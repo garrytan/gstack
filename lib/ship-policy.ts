@@ -228,7 +228,7 @@ export const DOCS_CAPS_KEY_VERSION = '1.91.270.0';
 export const CHANGELOG_FRAGMENTS_KEY_VERSION = '1.91.336.0';
 /** `bump: never` is a value of an older key, so the per-key floor check misses it; compatErrors checks it by value. */
 export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
-export const BASE_RED_KEY_VERSION = '1.92.0.0';
+export const BASE_RED_KEY_VERSION = '1.91.374.0';
 /** `train.gates` and `train.land` are values of the older train key, so compatErrors checks them by value, as for bump: never. */
 export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {

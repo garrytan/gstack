@@ -194,7 +194,6 @@ gstack_result_anchor() {
     ISSUE_UNREADABLE) printf '%s' 'issue-unreadable' ;;
     ISSUE_LOOKUP_FAILED) printf '%s' 'issue-lookup-failed' ;;
     ISSUE_LINKS_MISSING) printf '%s' 'issue-links-missing' ;;
-    PREREG_INCOMPLETE) printf '%s' 'prereg-incomplete' ;;
     EVAL_PRICE_MISSING) printf '%s' 'eval-price-missing' ;;
     EVAL_DRY_RUN_FAILED) printf '%s' 'eval-dry-run-failed' ;;
     EVAL_ARMS_UNRESOLVED) printf '%s' 'eval-arms-unresolved' ;;
@@ -240,7 +239,6 @@ gstack_result_anchor() {
     OUTSIDE_VOICE_UNAVAILABLE) printf '%s' 'outside-voice-unavailable' ;;
     ARTIFACT_MACHINE_PATH) printf '%s' 'artifact-machine-path' ;;
     ARTIFACT_PUBLIC_TARGET_EXISTS) printf '%s' 'artifact-public-target-exists' ;;
-    PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
     EVAL_MODELS_INVALID) printf '%s' 'eval-models-invalid' ;;
     EVAL_MODEL_DENIED) printf '%s' 'eval-model-denied' ;;
     EVAL_MODEL_OLD_GENERATION) printf '%s' 'eval-model-old-generation' ;;
@@ -359,6 +357,10 @@ gstack_result_anchor() {
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
     BUDGET_CHECK_SKIPPED) printf '%s' 'budget-check-skipped' ;;
     HANDOFF_PIN_MOVED) printf '%s' 'handoff-pin-moved' ;;
+    PREREG_INCOMPLETE) printf '%s' 'prereg-incomplete' ;;
+    PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
+    PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
+    EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
     *) return 1 ;;
   esac
 }

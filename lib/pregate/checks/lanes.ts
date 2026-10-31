@@ -406,7 +406,9 @@ export function remoteReportProblem(report: RemoteReport, tree: string): string 
  * must print `PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n> [spent=<usd>]`;
  * the obligation clears only when that tree is the tested tree, tests > 0,
  * failed = 0 and the gate exited 0. Anything else leaves it uncleared and
- * the check incomplete.
+ * the check incomplete. The gate is bounded by that timeout only: a gate
+ * that waits on CI is quiet by design, so the stall timer does not apply,
+ * and its heartbeat names the gate's last output line.
  */
 async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult): Promise<CheckResult> {
   const lines = base.lines ?? [];
@@ -418,7 +420,7 @@ async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult)
   const filesFile = path.join(dir, 'files.txt');
   fs.writeFileSync(log, '');
   fs.writeFileSync(filesFile, sel.localTests.join('\n') + '\n');
-  const r = await supervise({ command: obligation.command!, cwd: ctx.repoRoot, env: { ...ctx.env, PREGATE_TREE: ctx.wtree, PREGATE_FILES_FILE: filesFile, PREGATE_SPEND_CAP_USD: String(cap), PREGATE_TIMEOUT_S: String(Math.floor(ctx.timeoutMs / 1000)) }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: ctx.stallTimeoutMs, label: `remote gate ${obligation.lane}`, progress: ctx.progress });
+  const r = await supervise({ command: obligation.command!, cwd: ctx.repoRoot, env: { ...ctx.env, PREGATE_TREE: ctx.wtree, PREGATE_FILES_FILE: filesFile, PREGATE_SPEND_CAP_USD: String(cap), PREGATE_TIMEOUT_S: String(Math.floor(ctx.timeoutMs / 1000)) }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: 0, lastLine: true, label: `remote gate ${obligation.lane}`, progress: ctx.progress });
   const output = readRange(log, r.start, r.end);
   const reported = parseRemoteReport(output);
   const spent = reported?.spent;
@@ -426,16 +428,17 @@ async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult)
   ctx.progress(`PREGATE_REMOTE_SPEND: ${spend.slice('spend: '.length)}`);
   const runLines = [...lines, `remote gate: ${obligation.command}`, `log: ${log}`, spend, ...output.trim().split('\n').slice(-15).map(l => `  ${l}`)];
   const inputs = { ...base.inputs, command: sha256(obligation.command!) };
-  const why = r.outcome !== 'exited' ? `the remote gate did not finish (${r.outcome === 'stalled' ? `no output for ${ctx.stallTimeoutMs / 1000} s` : r.outcome})`
+  const why = r.outcome === 'timeout' ? `the remote gate did not finish (timed out after ${ctx.timeoutMs / 1000} s, ${ctx.timeoutSource})`
+    : r.outcome !== 'exited' ? `the remote gate did not finish (${r.outcome})`
     : !reported ? `the remote gate exited ${r.exit} without a PREGATE_REMOTE: line`
     : remoteReportProblem(reported, ctx.wtree) ?? (r.exit !== 0 ? `the remote gate exited ${r.exit}` : null);
   // A gate that printed no report and names a quota, network or missing-tool error in its preamble never ran the tests: the environment, not the diff.
   // Only the gate's first lines are read (a VM refusal or a network error comes before any test streams); exit 127 counts only when the gate's own binary is off PATH.
-  const environment = why && !reported && r.outcome !== 'stalled' && r.outcome !== 'timeout'
+  const environment = why && !reported && r.outcome !== 'timeout'
     ? r.outcome === 'spawn-failed' ? { ...(classifyEnvironment(r.error ?? '', null) ?? launchCause('missing-binary', r.error ?? 'the remote gate could not be started')), proof: 'launch' as const } : classifyCommandEnvironment(obligation.command!, output.split('\n').slice(0, REMOTE_PREAMBLE_LINES).join('\n'), r.exit, ctx.env)
     : null;
   if (environment) return environmentResult({ ...base, inputs, lines: runLines, remote: [...sel.remote, obligation] }, environment, `${why}; requires-remote ${obligation.lane} stays uncleared`);
-  if (why) return { ...base, inputs, lines: runLines, status: 'incomplete', remote: [...sel.remote, obligation], code: r.outcome === 'stalled' ? 'PREGATE_STALLED' : 'PREGATE_INCOMPLETE', detail: `${why}; requires-remote ${obligation.lane} stays uncleared`, fix: `read ${log}; the obligation clears only on PREGATE_REMOTE: tree=${ctx.wtree.slice(0, 12)}… tests>0 failed=0 with exit 0` };
+  if (why) return { ...base, inputs, lines: runLines, status: 'incomplete', remote: [...sel.remote, obligation], code: 'PREGATE_INCOMPLETE', detail: `${why}; requires-remote ${obligation.lane} stays uncleared`, fix: `read ${log}; the obligation clears only on PREGATE_REMOTE: tree=${ctx.wtree.slice(0, 12)}… tests>0 failed=0 with exit 0` };
   const cleared = { ...obligation, receipt: `remote-gate tree=${ctx.wtree.slice(0, 12)} tests=${reported!.tests}`, cleared_by: `gstack-pregate --remote ${new Date().toISOString()}` };
   return { ...base, inputs, lines: runLines, status: 'requires-remote', remote: [...sel.remote, cleared], detail: `remote gate ${obligation.lane}: ${reported!.tests} tests, 0 failed on tree ${ctx.wtree.slice(0, 12)}; ${spend}` };
 }
