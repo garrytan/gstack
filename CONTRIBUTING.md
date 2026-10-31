@@ -14,7 +14,7 @@ bun install                    # install dependencies
 bin/dev-setup                  # activate dev mode
 ```
 
-`./setup` on its own installs production dependencies only. `bun install` (and `bin/dev-setup`, which runs it) adds the dev toolchain the tests and evals need: the Claude Agent SDK, TypeScript and Prettier. Once they are installed, a later `./setup` runs the full install too, so they stay at `bun.lock`'s versions.
+`./setup` on its own installs production dependencies only. `bun install` (and `bin/dev-setup`, which runs it) adds the dev toolchain the tests and evals need: the Claude Agent SDK, TypeScript, Prettier and oxlint. Once they are installed, a later `./setup` runs the full install too, so they stay at `bun.lock`'s versions.
 
 > **Full clone vs shallow.** The README's user-facing install uses `--depth 1` for speed. As a contributor, use a full clone (no `--depth` flag) — you'll need history for `git log`, `git blame`, `git bisect`, and reviewing PRs against earlier versions. If you already have a `--depth 1` clone from following the README, promote it to a full clone with `git fetch --unshallow`.
 
