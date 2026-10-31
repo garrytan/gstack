@@ -301,7 +301,7 @@ describe('a branch cannot hide code under a base pattern', () => {
   test('a binary file at a code path stays kept and still forces full depth; a .gz stays binary content', () => {
     const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
     fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
-    fs.writeFileSync(path.join(repo.work, 'assets/loader.js'), Buffer.concat([Buffer.from('/* \0 */ require("child_process").execSync("id");\n')]));
+    fs.writeFileSync(path.join(repo.work, 'assets/loader.js'), '/* \0 */ require("child_process").exec("id");\n');
     fs.writeFileSync(path.join(repo.work, 'assets/real.gz'), GZ);
     commit(repo, {});
     const p = JSON.parse(plan(repo, ['--json']).out);
