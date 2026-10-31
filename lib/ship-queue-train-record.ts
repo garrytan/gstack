@@ -80,7 +80,7 @@ export interface WaveConstituent {
   /** Files the integrator resolved by hand in this constituent's merge (wave build --continue); absent for a clean merge. */
   resolved?: string[];
 }
-export type WaveState = 'conflict' | 'built' | 'pushed' | 'superseded' | 'settled';
+export type WaveState = 'conflict' | 'built' | 'pushed' | 'superseded' | 'released' | 'settled';
 export interface WaveRecord {
   schema: 1; kind: 'wave'; nonce: string; repo_key: string; area: string; base: { ref: string; sha: string }; branch: string;
   constituents: WaveConstituent[]; head: string | null; state: WaveState;

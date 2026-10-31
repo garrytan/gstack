@@ -115,27 +115,27 @@ export function groupWaves(prs: PlanPr[], areaOf: (f: string) => string, min = W
   return { groups, solo: solo.sort((a, b) => Number(a) - Number(b)) };
 }
 
-export interface WaveChain { integrator: string[]; merges: string[]; stamp: string | null }
+export interface WaveChain { integrator: string[]; merges: string[]; stamps: string[] }
 
 /**
  * Walk the wave branch's first parents from tip back to the recorded base. Every constituent
  * must appear, in order and exactly once, as the second parent of a two-parent commit; a
  * one-parent commit is an integrator commit; any other merge (main merged in, an unknown head)
- * is refused. With stampBase the tip may be train land's stamp commit: parents [wave head, a
- * commit already on stampBase], after every constituent.
+ * is refused. With stampBase, train land's stamp commits (parents [wave head, a commit already
+ * on stampBase]) may follow the last constituent, one per train that stamped the wave.
  */
 export function waveChain(repoRoot: string, w: WaveRecord, tip: string, stampBase: string | null = null): WaveChain | { error: string } {
   const r = git(repoRoot, ['rev-list', '--first-parent', '--parents', `${w.base.sha}..${tip}`]);
   if (!r.ok) return { error: `cannot walk ${short(tip)} back to the wave base ${short(w.base.sha)} (${r.err.slice(0, 120)})` };
   const rows = r.out.split('\n').filter(Boolean).map(l => l.split(' ')).reverse();
   if (!rows.length || rows[0]![1] !== w.base.sha) return { error: `the branch at ${short(tip)} does not start at the wave base ${short(w.base.sha)}` };
-  const out: WaveChain = { integrator: [], merges: [], stamp: null };
+  const out: WaveChain = { integrator: [], merges: [], stamps: [] };
   let next = 0;
-  for (const [i, [commit, , second, ...more]] of rows.entries()) {
+  for (const [commit, , second, ...more] of rows) {
     if (!second) { out.integrator.push(commit!); continue; }
     const want = w.constituents[next];
     if (!more.length && want && second === want.head) { out.merges.push(commit!); next++; continue; }
-    if (!more.length && stampBase && i === rows.length - 1 && next === w.constituents.length && git(repoRoot, ['merge-base', '--is-ancestor', second, stampBase]).ok) { out.stamp = commit!; continue; }
+    if (!more.length && stampBase && next === w.constituents.length && git(repoRoot, ['merge-base', '--is-ancestor', second, stampBase]).ok) { out.stamps.push(commit!); continue; }
     const expected = want ? `#${want.pr}'s pin ${short(want.head)}` : 'a constituent';
     return { error: `${short(commit!)} merges ${short(second)}, which is not ${expected} (only constituent merges and integrator commits belong on a wave branch)` };
   }
@@ -176,6 +176,7 @@ export function checkWavePin(env: TrainEnv, pr: string, info: PrInfo): { wave: W
   if (!w) { rebuildFromNotes(env.ctx.repoRoot, env.remote); w = waveByBranch(env, info.headRefName); }
   if (!w) return { failure: fail('QUEUE_WAVE_UNKNOWN', `#${pr}'s branch ${info.headRefName} has no wave record in local state or refs/notes/gstack-trains`) };
   if (w.state === 'superseded') return { failure: fail('QUEUE_WAVE_MOVED', `wave ${w.nonce} was rebuilt as ${w.superseded_by}; READY the new wave PR`) };
+  if (w.state === 'released') return { failure: fail('QUEUE_WAVE_MOVED', `wave ${w.nonce} was released; its PRs ride as single slots`) };
   if (!ensureCommit(env, info.headRefOid, pr)) return { failure: fail('QUEUE_PROOF_MISSING', `cannot fetch #${pr}'s head ${short(info.headRefOid)}`) };
   const chain = waveChain(env.ctx.repoRoot, w, info.headRefOid, `${env.remote}/${env.ctx.base}`);
   if ('error' in chain) return { failure: fail('QUEUE_WAVE_MOVED', `wave ${w.nonce}: ${chain.error}`) };
@@ -265,7 +266,7 @@ export function wavePlan(ctx: QueueContext, o: { trigger: number; min: number; m
   return outOk(lines, first ? `#${first.integrator}'s owner integrates: ${buildCmd(first.area, first.prs)}` : `${Q} train build --prs <pins>`, 'none');
 }
 
-export interface WaveBuildOptions { pins?: string; area?: string; wave?: string; cont?: boolean; drop?: string; dryRun: boolean; min: number; max: number }
+export interface WaveBuildOptions { pins?: string; area?: string; wave?: string; cont?: boolean; drop?: string; release?: boolean; dryRun: boolean; min: number; max: number }
 
 export function waveBuild(ctx: QueueContext, o: WaveBuildOptions): TrainOut {
   const env = setup(ctx);
@@ -273,6 +274,7 @@ export function waveBuild(ctx: QueueContext, o: WaveBuildOptions): TrainOut {
   if (!o.wave) return newWave(env, o, null);
   const w = loadWave(o.wave);
   if (!w || !env.repo.keys.includes(w.repo_key)) return outRefused(fail('QUEUE_WAVE_UNKNOWN', `no wave record ${o.wave} in local state or refs/notes/gstack-trains`), [], `${Q} wave status`, 'none');
+  if (o.release) return release(env, w, [], o.dryRun);
   if (o.drop) return dropFrom(env, w, o);
   if (o.cont) return continueWave(env, w, o.dryRun);
   if (w.state === 'conflict') return outRefused(fail('QUEUE_WAVE_CONFLICT', `wave ${w.nonce} is stopped at #${w.conflict!.pr}; resolve in ${w.conflict!.worktree}`), [], `${Q} wave build --wave ${w.nonce} --continue`, wavePath(w.nonce));
@@ -419,9 +421,23 @@ function dropFrom(env: TrainEnv, w: WaveRecord, o: WaveBuildOptions): TrainOut {
   const rest = w.constituents.filter(c => c !== dropped);
   const carrier = rest.find(c => git(env.ctx.repoRoot, ['merge-base', '--is-ancestor', dropped.head, c.head]).ok);
   if (carrier) return outRefused(fail('QUEUE_WAVE_DEPENDENT', `#${carrier.pr}'s pin contains #${dropped.pr}'s pin, so dropping #${dropped.pr} would still land its code`), [], `drop #${carrier.pr} too, or keep #${dropped.pr}`, wavePath(w.nonce));
+  if (rest.length < o.min) return release(env, w, [`DROP: #${dropped.pr} from ${w.nonce} leaves ${rest.length} PR(s), under the wave minimum ${o.min}`], o.dryRun);
   const out = newWave(env, { ...o, area: w.area }, w, rest.map(c => ({ pr: c.pr, sha: c.head })));
   out.lines.unshift(`DROP: #${dropped.pr} from ${w.nonce}; the rebuilt wave gets a new branch and PR, and the integrator closes ${w.branch}'s PR`);
   return out;
+}
+
+/** End a live wave without landing it (a drop under the minimum, or a wave PR closed unmerged): every constituent rides on its own again. */
+function release(env: TrainEnv, w: WaveRecord, lines: string[], dryRun: boolean): TrainOut {
+  if (!LIVE.has(w.state)) return outRefused(fail('QUEUE_WAVE_MOVED', `wave ${w.nonce} is ${w.state}; only a live wave is released`), lines, `${Q} wave status --wave ${w.nonce}`, wavePath(w.nonce));
+  const done = [...lines, `RELEASED: ${w.nonce}: ${w.constituents.map(c => '#' + c.pr).join(',')} ride as single slots; close the wave PR on ${w.branch}`];
+  if (dryRun) return outOk([...done, 'DRY-RUN: no record written'], `${Q} wave build --wave ${w.nonce} --release`, wavePath(w.nonce));
+  if (w.conflict) { git(env.ctx.repoRoot, ['worktree', 'remove', '--force', w.conflict.worktree]); w.conflict = null; }
+  w.state = 'released';
+  w.effects.push({ at: nowIso(), what: 'released' });
+  w.updated_at = nowIso();
+  persist(env.ctx.repoRoot, [w], { remote: env.remote });
+  return outOk(done, `each owner READYs its PR alone: ${Q} ready --pr <n> --screen|--no-screen`, wavePath(w.nonce));
 }
 
 export function waveStatus(ctx: QueueContext, o: { wave?: string }): TrainOut {
@@ -520,9 +536,10 @@ export const WAVE_HELP = `gstack-ship-queue wave: wave PRs for merge trains (doc
                                            the integrator branch wave/<nonce>: main plus each pin merged unchanged (train merge
                                            rules), the wave record in refs/notes/gstack-trains, the branch pushed, a frozen notice
                                            on each constituent; a conflict stops in a worktree under the state root
-  wave build --wave <nonce> [--continue | --drop <pr>] [--dry-run]
+  wave build --wave <nonce> [--continue | --drop <pr> | --release] [--dry-run]
                                            resume (retry the push), continue after the integrator committed the resolution, or
-                                           rebuild without one constituent as a new wave (new branch; never a force-push)
+                                           rebuild without one constituent as a new wave (new branch; never a force-push), or
+                                           release the wave so its PRs ride alone (a drop under --min releases too)
   wave status [--wave <nonce>]             records, the branch chain, each constituent's GitHub head
   wave settle --wave <nonce> [--dry-run]   after the wave PR merged: close constituents still at their pins with the link and
                                            version; a moved constituent stays open with a comment; resumable
@@ -563,12 +580,13 @@ export async function waveMain(ctx: QueueContext, args: string[]): Promise<numbe
     if (sub === 'build') {
       const drop = flag(rest, '--drop');
       const cont = rest.includes('--continue');
+      const releaseIt = rest.includes('--release');
       if (!wave && !flag(rest, '--prs')) return usage('wave build needs --prs <n>@<sha>,... or --wave <nonce>');
       if (wave && flag(rest, '--prs')) return usage('pass --prs for a new wave or --wave <nonce> for an existing one, not both');
-      if ((drop !== undefined || cont) && !wave) return usage('--continue and --drop need --wave <nonce>');
-      if (drop !== undefined && cont) return usage('pass one of --continue or --drop');
+      if ((drop !== undefined || cont || releaseIt) && !wave) return usage('--continue, --drop and --release need --wave <nonce>');
+      if ([drop !== undefined, cont, releaseIt].filter(Boolean).length > 1) return usage('pass one of --continue, --drop or --release');
       if (drop !== undefined && !/^\d+$/.test(drop)) return usage('--drop needs a PR number');
-      return print('wave build', waveBuild(ctx, { pins: flag(rest, '--prs'), area: flag(rest, '--area'), wave, cont, drop, dryRun, min, max }));
+      return print('wave build', waveBuild(ctx, { pins: flag(rest, '--prs'), area: flag(rest, '--area'), wave, cont, drop, release: releaseIt, dryRun, min, max }));
     }
     return usage(`unknown wave subcommand ${sub}`);
   } catch (error) {

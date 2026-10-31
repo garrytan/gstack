@@ -156,6 +156,20 @@ describe('wave build', () => {
     expect(waveJson(fx, fresh).constituents.map((c: any) => c.pr)).toEqual(['1', '2', '3', '4']);
     expect(fx.repo.git('ls-remote', 'origin', `refs/heads/wave/${old}`)).not.toBe('');
   }, 120_000);
+
+  test('a drop under the minimum releases the wave, and its other PRs are no longer refused as constituents', () => {
+    const fx = make();
+    const heads = threePrs(fx);
+    const nonce = nonceOf(queue(fx, ['wave', 'build', '--prs', heads.map((h, i) => `${i + 1}@${h}`).join(',')]).out);
+    readyReceipt(fx, '1', heads[0]!);
+    const held = queue(fx, ['train', 'build', '--prs', `1@${heads[0]}`, '--dry-run']);
+    expect([held.status, held.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_DUPLICATE')]);
+    const dropped = queue(fx, ['wave', 'build', '--wave', nonce, '--drop', '3']);
+    expect([dropped.status, line(dropped.out, 'RELEASED:')]).toEqual([EXIT.ok, expect.stringContaining('#1,#2,#3 ride as single slots')]);
+    expect(waveJson(fx, nonce).state).toBe('released');
+    expect(queue(fx, ['train', 'build', '--prs', `1@${heads[0]}`, '--dry-run']).status).toBe(EXIT.ok);
+    expect(queue(fx, ['wave', 'build', '--wave', nonce, '--release']).err).toContain('only a live wave is released');
+  }, 120_000);
 });
 
 describe('ready and train build read the wave', () => {
@@ -235,7 +249,9 @@ describe('wave settle', () => {
     const head = waveAsPr(fx, nonce);
     const early = queue(fx, ['wave', 'settle', '--wave', nonce]);
     expect([early.status, early.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_NOT_MERGED')]);
-    const merge = fx.repo.git('commit-tree', `${head}^{tree}`, '-p', 'origin/main', '-m', 'wave (#10)');
+    const s1 = fx.repo.git('commit-tree', `${head}^{tree}`, '-p', head, '-p', 'origin/main', '-m', 'stamp 1');
+    const s2 = waveAsPr(fx, nonce, '10', fx.repo.git('commit-tree', `${head}^{tree}`, '-p', s1, '-p', 'origin/main', '-m', 'stamp 2'));
+    const merge = fx.repo.git('commit-tree', `${s2}^{tree}`, '-p', 'origin/main', '-m', 'wave (#10)');
     fx.repo.git('push', '-q', 'origin', `${merge}:refs/heads/main`);
     fx.write(d => { Object.assign(d.prs['10'] as any, { state: 'MERGED', mergeCommit: { oid: merge } }); (d.prs['2'] as any).headRefOid = heads[0]; });
     const dry = queue(fx, ['wave', 'settle', '--wave', nonce, '--dry-run']);

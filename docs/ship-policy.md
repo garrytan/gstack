@@ -455,6 +455,7 @@ gstack-ship-queue wave plan                                     # read-only: QUE
 gstack-ship-queue wave build --area ship --prs 41@<sha>,42@<sha>,43@<sha>
 gstack-ship-queue wave build --wave <nonce> --continue          # after resolving a conflict in the printed worktree
 gstack-ship-queue wave build --wave <nonce> --drop 42           # rebuild without #42 as a new wave
+gstack-ship-queue wave build --wave <nonce> --release           # end the wave unlanded; its PRs ride alone
 gstack-ship-queue wave status [--wave <nonce>]
 gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave PR merged
 ```
@@ -489,15 +490,20 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
   constituent that has to change goes back to its owner: `--drop <pr>` builds
   a new wave on a new branch (never a force-push; the old record is marked
   superseded and its PR is closed by the integrator), refused with
-  `QUEUE_WAVE_DEPENDENT` when another pin contains the dropped one.
+  `QUEUE_WAVE_DEPENDENT` when another pin contains the dropped one. A drop
+  that would leave fewer PRs than the minimum releases the wave instead, and
+  `--release` does the same for a wave PR closed without merging: the record
+  is marked released and every constituent can be READY'd on its own again.
 - **READY and the train.** `ready --pr <wave pr>` and `train build` read the
   wave record for a `wave/<nonce>` head branch (rebuilt from the notes ref on a
   fresh machine; `QUEUE_WAVE_UNKNOWN` when there is none). They walk the
   branch's first parents back to the recorded base: every pin must be merged
   unchanged, in order, and any other merge is refused. Every constituent must
   still be open at its pin. READY gains `WAVE:` and `CONSTITUENTS:` lines.
-  `train build` refuses a PR pinned both on its own and inside a wave
-  (`QUEUE_WAVE_DUPLICATE`). From there the wave PR is an ordinary slot: `train
+  `ready` and `train build` refuse a constituent of a live wave on its own
+  (`QUEUE_WAVE_DUPLICATE`), so it cannot land twice. A wave head may carry
+  train land's stamp commits after its last constituent, so a stamped wave
+  is re-READY'd like any stamped PR. From there the wave PR is an ordinary slot: `train
   land`, `verify`, the stamp and the backstop treat it like any PR, and under
   `changelog_fragments` its one stamp folds every constituent's fragment into
   one version section.
