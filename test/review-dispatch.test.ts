@@ -540,6 +540,38 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const extra = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; rows.push({ ...rows[1]!, id: 'specialist/testing#9' }); });
     expect([extra.status, extra.stdout.includes('merged_rows_not_collected=["specialist/testing#9"]')]).toEqual([1, true]);
   });
+  // Value: protects=an output event edited to read like a refused reply (no ids, review false) cannot drop its findings and still verify
+  //   clean; fails_when=verify skips the count check on review:false alone, so a clean marker keeps the output MATCH (fix-check at 721539c:
+  //   VERIFY: clean); why_new=the GST-482 count exemption trusted collect's review field; seam=verify; no_claim=that a deleted output
+  //   event is caught (#3719)
+  test('an output event edited to no ids and review false is dirty; a real wrong-tree reply with findings is NOT_REVIEWED, no count mismatch', () => {
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const voice = (reply: string) => {
+      const out = tmp();
+      const ledger = path.join(out, 'review-ledger.jsonl');
+      const merged = path.join(out, 'merged.jsonl');
+      run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file')]);
+      const file = path.join(out, 'ov.out');
+      fs.writeFileSync(file, reply);
+      const c = run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', file, '--merged', merged]);
+      const judgeNone = () => run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(out, 'judged.jsonl')]);
+      fs.writeFileSync(path.join(out, 'judged.jsonl'), '');
+      return { ledger, merged, c, judgeNone };
+    };
+    const findings = '1. **CRITICAL**: auth.ts:3 leaks a token\nBlocks: yes\n\nRecommendation: request changes\n';
+    const forged = voice(findings);
+    expect(forged.c.status).toBe(0);
+    fs.writeFileSync(forged.ledger, readJsonl<Record<string, unknown>>(forged.ledger).map(e => JSON.stringify(e.event === 'output' ? { ...e, ids: [], review: false } : e)).join('\n') + '\n');
+    fs.writeFileSync(forged.merged, '');
+    expect(forged.judgeNone().status).toBe(0);
+    const v = run(['verify', '--ledger', forged.ledger]);
+    expect([v.status, v.stdout.includes('merged_count_differs=1/0'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const wrong = voice(`REVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\n` + findings);
+    expect([wrong.c.status, wrong.c.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice')]).toEqual([1, true]);
+    expect(wrong.judgeNone().status).toBe(0);
+    const w = run(['verify', '--ledger', wrong.ledger]);
+    expect([w.status, /^OUTPUT outside-voice NOT_REVIEWED .*wrong_tree/m.test(w.stdout), w.stdout.includes('merged_count_differs')]).toEqual([1, true, false]);
+  });
 });
 
 describe('the workspace paragraph (GST-482)', () => {
