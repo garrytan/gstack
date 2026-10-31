@@ -488,8 +488,8 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
 - **Frozen heads.** Once in, a constituent's head does not move. Fixes go on
   the wave branch as integrator commits, which the chain check allows. A
   constituent that has to change goes back to its owner: `--drop <pr>` builds
-  a new wave on a new branch (never a force-push; the old record is marked
-  superseded and its PR is closed by the integrator), refused with
+  a new wave on a new branch (never a force-push; the integrator closes the
+  old wave PR first, and the old record is marked superseded), refused with
   `QUEUE_WAVE_DEPENDENT` when another pin contains the dropped one. A drop
   that would leave fewer PRs than the minimum releases the wave instead, and
   `--release` does the same for a wave PR closed without merging: the record
@@ -510,12 +510,13 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
   land`, `verify`, the stamp and the backstop treat it like any PR, and under
   `changelog_fragments` its one stamp folds every constituent's fragment into
   one version section.
-- **After the merge.** `wave settle` finds the merged wave PR, checks main's
-  merge carries its head tree and walks its chain (the train's stamp commit on
-  top is allowed). A constituent still at its pin gets a "Landed in wave #W as
-  vX (sha)" comment naming any integrator commits that touched its files, and
-  is closed. One whose head moved after the wave froze stays open with a
-  comment saying its newer work did not land. Comments carry a marker, so a
+- **After the merge.** `wave settle` finds the wave PR merged into the base
+  branch, checks that its merge commit is on that branch and carries its head
+  tree, and walks its chain (train land's stamp commits on top are allowed). A
+  constituent still at its pin gets a "Landed in wave #W as vX (sha)" comment
+  naming any integrator commits or hand-resolved merges that touched its
+  files, and is closed. One whose head moved after the wave froze stays open
+  with a comment saying its newer work did not land. Comments carry a marker, so a
   rerun posts nothing twice; `--dry-run` shows the plan.
 
 <a id="ship-before-ready"></a>

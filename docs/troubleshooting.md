@@ -4758,23 +4758,29 @@ build the wave without that PR.
 pushed, closed or merged after it joined (heads freeze once in), the wave
 branch carries a merge that is not a constituent's pin (main merged in, for
 example), a pin is missing from the branch, or the wave was rebuilt and this
-PR is the old one.
+PR is the old one. The same code refuses a constituent that targets a branch
+other than the base (a stacked PR's pin carries its parent's commits), a
+wave that was released, and a `--drop` or `--release` while the wave PR is
+still open, since a train that already admitted it would still land it.
 
-**Fix.** Rebuild without the moved PR, `wave build --wave <nonce> --drop
-<pr>`, which makes a new wave branch and PR (never a force-push); run /ship
-and READY the new wave PR. The moved PR goes back to its owner and rides on its
-own or in a later wave.
+**Fix.** Close the wave PR if one is open, then rebuild without the moved PR,
+`wave build --wave <nonce> --drop <pr>`, which makes a new wave branch and PR (never a
+force-push); run /ship and READY the new wave PR. The moved PR goes back to
+its owner and rides on its own or in a later wave. A stacked PR rides on its
+own; after a release, each constituent is READY'd on its own.
 
 <a id="queue-wave-duplicate"></a>
 ### `QUEUE_WAVE_DUPLICATE`
 
 **Meaning.** A PR would land twice or waves would nest: it is already a
 constituent of another live wave, `train build` was handed both a wave PR and
-one of its constituents (or two waves sharing one), or a wave PR was named as a
-constituent.
+one of its constituents (or two waves sharing one), a wave PR was named as a
+constituent, or a constituent of a live wave was READY'd or handed to `train
+build` on its own.
 
 **Fix.** Keep each PR in one place: drop the separate pin from `train build`,
-or rebuild one wave without the shared PR.
+or rebuild one wave without the shared PR. A constituent of a live wave lands
+through the wave PR.
 
 <a id="queue-wave-size"></a>
 ### `QUEUE_WAVE_SIZE`
@@ -4808,9 +4814,10 @@ still land the dropped code.
 <a id="queue-wave-not-merged"></a>
 ### `QUEUE_WAVE_NOT_MERGED`
 
-**Meaning.** `wave settle` found no merged PR whose head branch is the wave
-branch, or main's merge commit does not carry that PR's head tree, so it
-cannot say the constituents landed. Nothing was commented or closed.
+**Meaning.** `wave settle` found no PR merged into the base branch whose head
+branch is the wave branch, its merge commit is not on the base branch, or that
+merge does not carry the PR's head tree, so it cannot say the constituents
+landed. Nothing was commented or closed.
 
 **Fix.** Land the wave PR through its train (`train land`), then rerun
 `gstack-ship-queue wave settle --wave <nonce>`.
