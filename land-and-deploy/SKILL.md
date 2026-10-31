@@ -206,7 +206,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | running the first-run dry-run validation — Step 1.5's check returned FIRST_RUN or CONFIG_CHANGED (skip on CONFIRMED) | `sections/first-run-validation.md` |
 | the pre-merge readiness gate (Step 3.5) — the last check before the irreversible merge | `sections/readiness-gate.md` |
 | merging the PR and detecting the deploy strategy (Steps 4-5) | `sections/merge-and-deploy.md` |
-| checking a URL's health in Step 7, or any browser step or action on a third-party site (vendor dashboard, API key, webhook, OAuth app) | `sections/canary.md` |
+| Step 7's URL health check, or any browser step or third-party site action (vendor dashboard, API key, webhook) | `sections/canary.md` |
 
 ---
 
@@ -482,7 +482,7 @@ If browser access is unavailable, record SKIPPED with the reason for this target
 Staging choice A returns to its production route; C goes to Step 9 without claiming
 STAGING VERIFIED. Production goes to Step 9 with incomplete health evidence.
 
-> **STOP.** Before checking a URL's health in Step 7, or any browser step or action on a third-party site (vendor dashboard, API key, webhook, OAuth app), Read `~/.claude/skills/gstack/land-and-deploy/sections/canary.md` and execute it
+> **STOP.** Before Step 7's URL health check, or any browser step or third-party site action (vendor dashboard, API key, webhook), Read `~/.claude/skills/gstack/land-and-deploy/sections/canary.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ---

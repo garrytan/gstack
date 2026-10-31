@@ -525,7 +525,7 @@ do not launch the downstream skill or open a browser.`,
   },
   'land-and-deploy': {
     skill: 'land-and-deploy',
-    expectedSections: ['first-run-validation.md', 'readiness-gate.md', 'merge-and-deploy.md'],
+    expectedSections: ['first-run-validation.md', 'readiness-gate.md', 'merge-and-deploy.md', 'canary.md'],
     requiredReads: ['readiness-gate.md', 'merge-and-deploy.md'],
     scenario:
       'This project has a confirmed prior /land-and-deploy run (treat the Step 1.5 check as CONFIRMED). A PR exists for this branch and CI is green. Simulate — do not run gh or actually merge: run the pre-merge readiness gate and produce the readiness report, then walk the merge and deploy-strategy steps, stating which merge path and deploy strategy you would take. Do NOT use AskUserQuestion.',
@@ -544,7 +544,7 @@ do not launch the downstream skill or open a browser.`,
       gateAfterStop: undefined, // operational skill
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 52_682, // GSTA-96 hoist (2026-10-26): lowered from 74_500 by the shared preamble that moved to sections/preamble.md, keeping the pre-hoist headroom of 690 bytes; measured 51,992. Before: + Aside browser contract for Step 7 canary ({{ASIDE_SETUP}}); measured 73_523
+    maxSkeletonBytes: 32_216, // GSTA-161 skill diet (2026-10-30): lowered from 52_682 to the measured skeleton, 32,216; Step 7's canary script, the Aside contract, the browser fallback and Third-Party Web Actions moved to sections/canary.md. Before: GSTA-96 hoist (2026-10-26): lowered from 74_500 by the shared preamble that moved to sections/preamble.md, keeping the pre-hoist headroom of 690 bytes; measured 51,992. Before: + Aside browser contract for Step 7 canary ({{ASIDE_SETUP}}); measured 73_523
     maxSizeRatio: 1.1260, // + #3318 Step 3.4 reads the ship policy and prints one VERSION_CHECK verdict (owner-approved raise, Garry 2026-10-24: "do it"); measured 1.1201 (2026-10-24). Before: 1.1120. + v1.81 Aside contract + gstack-browser fallback block; measured 1.077. + both untrusted-content marker formats in the browser fallback (W7f) + the readiness gate's project test command and live eval-store paths (s06 H6/H7); measured 1.1076 (2026-10-02). Re-measured 1.0943 (2026-10-03); cap = measured + 0.005 headroom. + Oct 7 wave B6: Aside rules 1, 4, 6 and 7 (offer a target-origin tab before openTab, a second sign-in wall means a tab- or URL-bound session, no early-return hint, fast [ok without the sentinel is an abort); measured 115,226 / 104,578 = 1.1018 (2026-10-07). + Honest Work wave merged (W2/W3 gate integrity in review/ship, W4 kernel + DONE line in every tier-2+ skill, W5/W7 in spec/ship): re-measured on the integrated tree (2026-10-10). + GSTA-96 shared-preamble hoist (owner-approved raise, Garry 2026-10-25: "do it"): the union now holds sections/preamble.md, so a fresh invocation reads the pointer plus the shared file; measured 117,753 / 104,578 = 1.1260 (2026-10-25). Before: 1.125.
     minUnionBytes: 91_000, // Phase 4 wave 1; estimated union ~94.9KB
     mustContain: ['readiness', 'merge', 'canary', 'revert', 'staging'],

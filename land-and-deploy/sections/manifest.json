@@ -26,7 +26,7 @@
       "id": "canary",
       "file": "canary.md",
       "title": "Canary verification and browser use",
-      "trigger": "checking a URL's health in Step 7, or any browser step or action on a third-party site (vendor dashboard, API key, webhook, OAuth app)"
+      "trigger": "Step 7's URL health check, or any browser step or third-party site action (vendor dashboard, API key, webhook)"
     }
   ]
 }
