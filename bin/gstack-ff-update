@@ -72,7 +72,7 @@ g() { git -c core.fsmonitor=false -c core.splitIndex=false "$@"; }
 # environment cleared; any git error there means not tracked.
 _PF=$(
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
-  cd -- "$DIR/.." 2>/dev/null || exit 0
+  cd -- "$DIR/.." 2>/dev/null || exit 0  # best-effort: no parent directory means no project tracks the install
   pg() { git -c core.fsmonitor=false -c core.splitIndex=false "$@"; }
   _top=$(pg rev-parse --show-toplevel 2>/dev/null) || exit 0
   _rel="$(pg rev-parse --show-prefix 2>/dev/null)${DIR##*/}" || exit 0
