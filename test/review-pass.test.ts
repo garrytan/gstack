@@ -1,0 +1,316 @@
+/**
+ * GSTA-167 calls PR 2: the staged pass manifest (lib/review-pass.ts), its bin commands, and the
+ * checked-in Capy pass program (lib/capy-review-pass.js) run against a fake host whose shell is real.
+ */
+import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { promptHash, sectionTexts } from '../lib/review-brief';
+import { CHUNK_CHARS, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
+import type { Dispatch } from '../lib/review-depth';
+
+const ROOT = path.resolve(import.meta.dir, '..');
+const BIN = path.join(ROOT, 'bin');
+const texts = sectionTexts(ROOT);
+const SHA = 'a'.repeat(40);
+const spec = (name: string, exclude: string[] = []): Dispatch => ({ role: 'specialist', name, effort: 'full', exclude });
+
+function tmp(prefix: string) { return fs.mkdtempSync(path.join(os.tmpdir(), prefix)); }
+function manifest(dispatches: Dispatch[], o: Partial<Parameters<typeof buildManifest>[0]> = {}): Manifest {
+  const out = tmp('rp-out-');
+  const root = tmp('rp-root-');
+  fs.writeFileSync(path.join(root, 'package.json'), '{}');
+  return buildManifest({ pass: 'p1', out, ledger: path.join(out, 'ledger.jsonl'), base: 'main', diffBase: SHA, root, checklistRoot: ROOT, dispatches, next: 'full', planLines: [], ...o });
+}
+const collectAll = (m: Manifest, stage: string) => { for (const r of m.readers.filter(x => x.stage === stage)) { markReader(m, r.reader, 'intent'); markReader(m, r.reader, 'created', { path: '9' }); markReader(m, r.reader, 'collected'); } };
+
+describe('pass manifest', () => {
+  test('stages follow the plan: specialists, Red Team, voices; batched light depth keeps its checklists and exclusions; fix-check is refused', () => {
+    const m = manifest([spec('testing'), { role: 'red-team', name: 'red-team', effort: 'full', exclude: [] }, { role: 'adversarial-native', name: 'adversarial', effort: 'full', exclude: [] }, { role: 'outside-voice', name: 'outside-voice', effort: 'host', exclude: [] }]);
+    expect(m.readers.map(r => [r.reader, r.stage, r.title])).toEqual([
+      ['specialist/testing', 'specialists', 'ship p1 specialist/testing'], ['red-team', 'red-team', 'ship p1 red-team'],
+      ['adversarial-native', 'voices', 'ship p1 adversarial-native'], ['outside-voice', 'voices', 'ship p1 outside-voice']]);
+    expect(m.stack).toBe('node');
+    expect(m.test_fw).toBe('unknown');
+    const light = manifest([{ role: 'specialist', name: 'batched', effort: 'full', exclude: [':(exclude)docs/a.md'], checklists: ['testing', 'red-team'] }]);
+    expect(light.readers[0]).toMatchObject({ reader: 'specialist-batched', role: 'specialist-batched', exclude: "-- . ':(exclude)docs/a.md'", checklists: ['testing', 'red-team'] });
+    expect(() => manifest([{ role: 'fix-check', name: 'fix-check', effort: 'full', exclude: [] }])).toThrow(/fix-check runs on its own/);
+  });
+
+  test('a manifest render is byte for byte the render CLI\'s brief for the same slots', () => {
+    const m = manifest([spec('security', [':(exclude)test/x.ts'])]);
+    renderStage(m, 'specialists', texts, () => '');
+    const out = tmp('rp-cli-');
+    const r = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['render', '--role', 'specialist', '--name', 'security', '--out', out, '--diff-base', SHA, '--stack', 'node', '--test-fw', 'unknown', '--exclude', "-- . ':(exclude)test/x.ts'"], { encoding: 'utf8', timeout: 30_000 });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('sha256=' + m.readers[0]!.sha256);
+    expect(fs.readFileSync(m.readers[0]!.file!, 'utf8')).toBe(fs.readFileSync(path.join(out, 'specialist-security.prompt.md'), 'utf8'));
+  });
+
+  test('the Red Team renders only after every earlier reader is collected, from the specialists\' merged lines byte for byte', () => {
+    const m = manifest([spec('testing'), spec('security'), { role: 'red-team', name: 'red-team', effort: 'full', exclude: [] }]);
+    renderStage(m, 'specialists', texts, () => '');
+    expect(() => renderStage(m, 'red-team', texts, () => '')).toThrow(/still open: specialist\/testing, specialist\/security/);
+    const lines = [{ id: 'specialist/testing#1', reader: 'specialist/testing', label: 'High', raw: 'High: a — ü', output_sha256: 'x' }, { id: 'red-team#1', reader: 'red-team', label: 'Low', raw: 'Low: b', output_sha256: 'y' }];
+    fs.writeFileSync(m.merged, lines.map(l => JSON.stringify(l) + '\n').join(''));
+    collectAll(m, 'specialists');
+    renderStage(m, 'red-team', texts, () => '');
+    const findings = fs.readFileSync(path.join(m.out, 'briefs/specialist-findings.jsonl'), 'utf8');
+    expect(findings).toBe(JSON.stringify(lines[0]) + '\n');
+    expect(findings).toBe(specialistFindings(m.merged));
+    const rt = m.readers.find(r => r.reader === 'red-team')!;
+    expect(rt.findings_sha256).toBe(promptHash(findings));
+    const brief = fs.readFileSync(rt.file!, 'utf8');
+    expect(brief).toContain('reviewed by 2 specialists');
+    expect(brief).toContain(findings.trim());
+  });
+
+  test('reader states move forward only: intent before create, a path with created or queued', () => {
+    const m = manifest([spec('testing')]);
+    renderStage(m, 'specialists', texts, () => '');
+    expect(() => markReader(m, 'specialist/testing', 'created', { path: '1' })).toThrow(/cannot become created/);
+    markReader(m, 'specialist/testing', 'intent');
+    expect(() => markReader(m, 'specialist/testing', 'created')).toThrow(/only with its subagent path/);
+    markReader(m, 'specialist/testing', 'queued', { path: '4' });
+    markReader(m, 'specialist/testing', 'created');
+    expect(() => markReader(m, 'specialist/testing', 'intent')).toThrow(/cannot become intent/);
+    expect(m.readers[0]).toMatchObject({ state: 'created', path: '4' });
+  });
+
+  test('a brief over 1 MiB with invalid UTF-8 in its diff travels in bounded chunks that rejoin to the rendered sha', () => {
+    const m = manifest([{ role: 'outside-voice', name: 'outside-voice', effort: 'host', exclude: [] }]);
+    const diff = Buffer.concat([Buffer.from('+line \u00e9\n'.repeat(90_000)), Buffer.from([0xff, 0xfe, 0x0a]), Buffer.from('+"quoted" \\ back\n'.repeat(20_000))]).toString('utf8');
+    renderStage(m, 'voices', texts, () => diff);
+    const r = m.readers[0]!;
+    const text = fs.readFileSync(r.file!, 'utf8');
+    expect(Buffer.byteLength(text)).toBeGreaterThan(1024 * 1024);
+    expect(r.chunks).toBe(chunkCount(text));
+    let joined = '';
+    for (let i = 0; i < r.chunks!; i++) {
+      const c = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['chunk', '--manifest', writeManifestFile(m), '--reader', 'outside-voice', '--index', String(i)], { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+      expect(c.status, c.stderr).toBe(0);
+      const [head, body] = c.stdout.split('\n');
+      expect(head).toBe('BRIEF_CHUNK: reader=outside-voice index=' + i + ' of=' + r.chunks + ' sha256=' + r.sha256);
+      expect(Buffer.byteLength(body!)).toBeLessThan(1024 * 1024);
+      joined += JSON.parse(body!);
+    }
+    expect(promptHash(joined)).toBe(r.sha256!);
+    expect(() => chunkOf(text, r.chunks!)).toThrow(/outside/);
+    expect(chunkOf(text, 0).length).toBe(CHUNK_CHARS);
+  });
+});
+
+function writeManifestFile(m: Manifest): string {
+  const f = path.join(m.out, 'pass-manifest.json');
+  fs.writeFileSync(f, JSON.stringify(m));
+  return f;
+}
+
+/** A repository on a feature branch with enough runtime lines for a full plan. */
+function repo(): { dir: string; env: NodeJS.ProcessEnv } {
+  const dir = tmp('rp-repo-');
+  const env = { ...process.env, PATH: BIN + path.delimiter + process.env.PATH, GSTACK_STATE_ROOT: path.join(dir, '.state'), GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); };
+  sh("git init -q -b main && echo '{}' > package.json && mkdir src && echo 'export const a = 1;' > src/a.ts && echo .state > .gitignore && git add -A && git commit -qm base && git checkout -qb feat");
+  sh('for i in $(seq 1 80); do echo "export const v$i = $i;" >> src/a.ts; done && git commit -qam feat');
+  return { dir, env };
+}
+
+interface Sub { title: string; prompt: string; status: string; polls: number; model?: unknown; summary?: string }
+/** A fake Capy host: the shell is real (the repository's bins), subagents are scripted. */
+function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number } = {}) {
+  let clock = 0;
+  const subs = new Map<string, Sub>();
+  const creates: Sub[] = [];
+  const starts: number[][] = [];
+  const advance = () => {
+    for (const s of subs.values()) {
+      if (s.status !== 'working') continue;
+      if (++s.polls < (o.pollsToFinish ?? 1)) continue;
+      if (o.fail?.(s.title)) s.status = 'failed';
+      else { s.status = 'done'; s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; }
+    }
+  };
+  const tools = {
+    capy: {
+      bash: async ({ command }: { command: string }) => {
+        const r = spawnSync('bash', ['-c', command], { cwd: dir, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+        return { exit_code: r.status ?? 1, output: (r.stdout ?? '') + (r.stderr ?? '') };
+      },
+      write: async ({ path: p, content }: { path: string; content: string }) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content); return { path: p }; },
+    },
+    subagent: {
+      create: async ({ tasks, start }: { tasks: Array<{ title: string; prompt: string }>; start: { machine: string; model?: unknown } }) => {
+        const t = tasks[0]!;
+        const mode = o.createThrows?.(t.title);
+        if (mode === 'before') throw new Error('create lost before it ran');
+        expect(start.machine).toBe('shared');
+        const index = subs.size + 1;
+        const rejected = !!o.reject?.(t.title) && !creates.some(c => c.title === t.title);
+        const s: Sub = { title: t.title, prompt: t.prompt, status: rejected ? 'draft' : 'working', polls: 0, model: start.model };
+        subs.set(String(index), s);
+        creates.push(s);
+        if (mode === 'after') throw new Error('create result lost');
+        return { tasks: [{ index, title: t.title }], ...(rejected ? { rejected: [{ index, error: 'cap' }] } : {}) };
+      },
+      start: async ({ indices }: { indices: number[] }) => { starts.push(indices); for (const i of indices) subs.get(String(i))!.status = 'working'; return { started: indices.map(index => ({ index })), rejected: [] }; },
+      list: async () => { advance(); return { tasks: [...subs].map(([p, s]) => ({ path: p, title: s.title, status: s.status })), total: subs.size }; },
+      get: async ({ path: p }: { path: string }) => ({ path: p, status: subs.get(p)!.status, summary: subs.get(p)!.summary }),
+    },
+    thread: { get: async () => ({ cost: { tokens: 1000 + clock, credits: 1 + clock / 1000 } }) },
+  };
+  return { tools, subs, creates, starts, sleep: async (ms: number) => { clock += ms; }, now: async () => 1_000_000 + clock };
+}
+
+const PROGRAM = fs.readFileSync(path.join(ROOT, 'lib/capy-review-pass.js'), 'utf8');
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...a: string[]) => (...v: unknown[]) => Promise<string>;
+async function runPass(h: ReturnType<typeof host>, input: Record<string, unknown>): Promise<string> {
+  return new AsyncFunction('tools', 'sleep', 'now', 'input', PROGRAM)(h.tools, h.sleep, h.now, { startedAt: await h.now(), ...input });
+}
+const bin = (dir: string, env: NodeJS.ProcessEnv, a: string[]) => spawnSync(path.join(BIN, 'gstack-review-dispatch'), a, { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+
+describe('Capy pass program (fake host, real bins)', () => {
+  test('gstack-review-dispatch program serves the checked-in file verbatim with its sha', () => {
+    const r = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['program'], { encoding: 'utf8', timeout: 30_000 });
+    const [head, body] = r.stdout.split('\n');
+    expect(head).toBe('PROGRAM: v1 sha256=' + promptHash(PROGRAM) + ' bytes=' + Buffer.byteLength(PROGRAM));
+    expect(JSON.parse(body!)).toBe(PROGRAM);
+  });
+
+  test('one pass: specialists, then the Red Team on their collected lines; every prompt is the rendered brief; the ledger verifies clean', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { output: t => (t.endsWith('specialist/testing') ? 'High: src/a.ts:3 the export is untested' : 'NO FINDINGS') });
+    const medium = { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'medium' };
+    const res = await runPass(h, { base: 'main', out, pass: 'x1p1', planFlags: ['--depth-floor', 'full'], models: { specialist: medium, 'red-team': medium } });
+    expect(h.creates.every(c => JSON.stringify(c.model) === JSON.stringify(medium))).toBe(true);
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    const active = m.readers.filter(r => r.stage !== 'voices');
+    expect(h.creates.map(c => c.title)).toEqual(active.map(r => r.title));
+    expect(h.creates.at(-1)!.title).toBe('ship x1p1 red-team');
+    for (const r of active) expect(h.creates.find(c => c.title === r.title)!.prompt).toBe(fs.readFileSync(r.file!, 'utf8'));
+    expect(h.creates.at(-1)!.prompt).toContain('the export is untested');
+    expect(active.every(r => r.state === 'collected')).toBe(true);
+    const merged = fs.readFileSync(m.merged, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { id: string; label: string });
+    fs.writeFileSync(path.join(out, 'judged.jsonl'), merged.map(l => JSON.stringify({ id: l.id, severity: l.label }) + '\n').join(''));
+    expect(bin(dir, env, ['judge', '--ledger', m.ledger, '--merged', m.merged, '--judged', path.join(out, 'judged.jsonl')]).status).toBe(0);
+    const v = bin(dir, env, ['verify', '--ledger', m.ledger]);
+    expect(v.stdout).toContain('VERIFY: clean briefs=' + active.length);
+  }, 180_000);
+
+  test('a pass past its 200 s window returns NEXT: poll and the rerun resumes without creating any reader twice', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { pollsToFinish: 30 });
+    const first = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    expect(first).toContain('NEXT: poll');
+    expect(first).toMatch(/REVIEW_LOG_START: review token=\S+/);
+    expect(first).toMatch(/RUNNING: specialist\/testing state=created path=1/);
+    const created = h.creates.length;
+    let res = '';
+    for (let i = 0; i < 6 && !res.includes('NEXT: judge'); i++) res = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    expect(res).toContain('NEXT: judge');
+    expect(res).not.toContain('REVIEW_PLAN:');
+    expect(res).not.toContain('REVIEW_LOG_START:');
+    expect(new Set(h.creates.map(c => c.title)).size).toBe(h.creates.length);
+    expect(h.creates.length).toBe(created + 1);
+  }, 240_000);
+
+  test('a create whose result was lost is reconciled by title on resume; a create that never ran stops the pass as ambiguous', async () => {
+    const { dir, env } = repo();
+    let lost = true;
+    const h = host(dir, env, { createThrows: t => (t.endsWith('specialist/testing') && lost ? (lost = false, 'after') : undefined) });
+    const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x3p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, input)).toContain('STOP: pass program error: create result lost');
+    expect(await runPass(h, input)).toContain('NEXT: judge');
+    expect(h.creates.filter(c => c.title === 'ship x3p1 specialist/testing')).toHaveLength(1);
+
+    const b = repo();
+    const h2 = host(b.dir, b.env, { createThrows: t => (t.endsWith('specialist/testing') ? 'before' : undefined) });
+    const input2 = { ...input, out: path.join(b.dir, '.state/run/p1'), pass: 'x4p1' };
+    expect(await runPass(h2, input2)).toContain('create lost before it ran');
+    const again = await runPass(h2, input2);
+    expect(again).toContain('STOP: specialist/testing was being created when the last program ended and 0 subagents carry its title');
+  }, 240_000);
+
+  test('a failed reader stops the pass before the Red Team; a reader refused at the cap is queued and started later', async () => {
+    const { dir, env } = repo();
+    const h = host(dir, env, { fail: t => t.endsWith('specialist/performance') });
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x5p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res).toMatch(/STOP: specialist\/performance \(subagent \d+\) failed/);
+    expect(h.creates.some(c => c.title.endsWith('red-team'))).toBe(false);
+
+    const b = repo();
+    const h2 = host(b.dir, b.env, { reject: t => t.endsWith('specialist/testing') });
+    const res2 = await runPass(h2, { base: 'main', out: path.join(b.dir, '.state/run/p1'), pass: 'x6p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res2).toContain('DISPATCHED: specialist/testing path=1 queued');
+    expect(res2).toContain('NEXT: judge');
+    expect(h2.starts).toEqual([[1]]);
+  }, 240_000);
+
+  test('Step 11 voices run from the same manifest; the outside voice needs a model of another family', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env);
+    const base = { base: 'main', out, pass: 'x7p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    expect(await runPass(h, { ...base, stage: 'voices' })).toContain("STOP: the outside voice needs input.models['outside-voice']");
+    expect(h.creates.some(c => c.title.startsWith('ship x7p1 ') && /adversarial|outside/.test(c.title))).toBe(false);
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
+    expect(await runPass(h, { ...base, stage: 'voices', models })).toContain('NEXT: judge the voices');
+    expect(h.creates.find(c => c.title === 'ship x7p1 outside-voice')!.model).toEqual(models['outside-voice']);
+    expect(h.creates.find(c => c.title === 'ship x7p1 adversarial-native')!.model).toEqual(models['adversarial-native']);
+  }, 240_000);
+
+  test('an audit reader marked first settles before any specialist starts; its output is returned, never merged', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'coverage.prompt.md'), 'Run Step 7 as written.\n');
+    fs.writeFileSync(path.join(out, 'extras.json'), JSON.stringify([{ name: 'coverage', prompt_file: path.join(out, 'coverage.prompt.md'), first: true, model: { model_id: 'anthropic/claude-sonnet-5-5', reasoning_mode: 'low' } }]));
+    const h = host(dir, env, { output: t => (t.endsWith('audit/coverage') ? 'Coverage: 80% (one test added)' : 'NO FINDINGS') });
+    const res = await runPass(h, { base: 'main', out, pass: 'x8p1', planFlags: ['--depth-floor', 'full'], extras: path.join(out, 'extras.json') });
+    expect(h.creates[0]!.title).toBe('ship x8p1 audit/coverage');
+    expect(h.creates[0]!.prompt).toBe('Run Step 7 as written.\n');
+    expect(res).toContain('Coverage: 80% (one test added)');
+    expect(fs.readFileSync(path.join(out, 'merged.jsonl'), 'utf8')).not.toContain('Coverage');
+  }, 240_000);
+
+  test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
+    const { dir, env } = repo();
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p2'), pass: 'x9p2', planFlags: ['--pass', '1', '--last', 'full'] });
+    expect(res).toContain('PASS: none next=');
+    expect(h.creates).toHaveLength(0);
+  }, 120_000);
+});
+
+describe('the Capy skill loader', () => {
+  // The loader is copied from capy/skill/gstack/SKILL.md with only its placeholders filled, so a drift in either breaks here.
+  test('runs the served program unchanged and the pass notes its readers in the budget', async () => {
+    const skill = fs.readFileSync(path.join(ROOT, 'capy/skill/gstack/SKILL.md'), 'utf8');
+    const at = skill.indexOf('one call to the checked-in pass program');
+    const open = skill.indexOf('(fill only `input`): `', at) + '(fill only `input`): `'.length;
+    const code = skill.slice(open, skill.indexOf('`', open));
+    const { dir, env } = repo();
+    const launch = path.join(dir, '.state/launch.env');
+    const rec = path.join(dir, '.state/rec.md');
+    fs.mkdirSync(path.dirname(launch), { recursive: true });
+    fs.writeFileSync(launch, '');
+    expect(spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --reading 1000 --credits 1', '_', rec], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    const filled = code.split('<launch file>').join(launch).split('<base>').join('main').split('<run dir>/p<n>').join(path.join(dir, '.state/run/p1'))
+      .split('<run>-p<n>').join('x10p1').split('<jam id>').join('jam_test').split('<rec>').join(rec);
+    expect(filled).not.toMatch(/<[a-z ]+>/);
+    const h = host(dir, env);
+    const res = await new AsyncFunction('tools', 'sleep', 'now', filled)(h.tools, h.sleep, h.now);
+    expect(res.split('\n')[0]).toBe('PROGRAM: v1 sha256=' + promptHash(PROGRAM) + ' bytes=' + Buffer.byteLength(PROGRAM));
+    expect(res).toMatch(/REVIEW_LOG_START: review token=\S+/);
+    expect(res).toMatch(/NOTE: \S+ used=\d+ credits=\S+ readers=\d+/);
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(h.creates.length).toBeGreaterThan(0);
+  }, 180_000);
+});
+
