@@ -195,15 +195,18 @@ fallback; unknown files get 99th-percentile pessimism, and both full-suite and
 the long pole. Packed
 shards get duration-aware walls (`max(base, predicted × 3, files × 5s)`). The
 legacy `--shards N --shard i` path keeps stable hash indices. Required CI uses
-one duration-packed `--ci-plan`, 20 ordinary `--ci-run` shards plus a separate
+one duration-packed `--ci-plan`, 10 ordinary `--ci-run` shards plus a separate
 exclusive-fixture shard, and a `--ci-verify` aggregate. CI shards still run on
-independent machines without ordering unrelated jobs. Two workflow-level
+independent machines without ordering unrelated jobs. Three workflow-level
 constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
-(`ubicloud-standard-2`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
-resolves into the shards' runner and shard count. A `workflow_dispatch` run may
-override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`) and
-`free_shards` (1–40) for runner-sizing experiments only; its job summary says
-so, and it is never cited as a PR or train Free Tests result. Each shard prints
+(`ubicloud-standard-8`), `FREE_SUITE_SHARDS` (`'10'`) and `FREE_SUITE_JOBS`
+(`'4'`, the [sub-shards](#sub-shards-inside-one-ci-job) each shard runs side by
+side), which `free-plan` resolves into the shards' runner, shard count and plan.
+GSTA-203 chose them by a 3-run A/B against 20 × `ubicloud-standard-4` at k = 1
+(the PR that set them has the table). A `workflow_dispatch` run may
+override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`),
+`free_shards` (1–40) and `free_jobs` (1–8) for runner-sizing experiments only;
+its job summary says so, and it is never cited as a PR or train Free Tests result. Each shard prints
 `RESOURCES: peak_used_mib=… min_free_disk_mib=… samples=…` from a memory and
 disk sample every 2 seconds, even when the suite fails. The public
 `TREE_MUTATING` map now classifies exclusive host-state fixtures; its sole
@@ -1543,7 +1546,7 @@ refresh to a maintainer.
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
   `windows-free-tests.yml`'s `record_durations` path. The recorder stays on
   `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
-  (`ubicloud-standard-2`); both are Ubicloud standard runners. When either recording adds
+  (`ubicloud-standard-8`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
   dispatches Free Tests, Windows Free Tests and Quality gate on it. Those
@@ -1568,11 +1571,21 @@ inside, with its own sandbox, process-group kill and log. Bun's worker
 `scripts/test-free-shards.ts`). The default is `k = 1`, which runs today's one
 child, so no workflow changes behavior until it passes `--jobs`.
 
-- `--jobs` applies only to `--ci-run`. It takes a positive whole number up to the
-  shard's file count (an empty shard takes 1); anything else stops with
-  `FREE_JOBS_INVALID`. `GSTACK_FREE_JOBS` sets the local full-suite process count
-  and never changes `--ci-run`. The exclusive host-state shard has one file, so
-  a workflow passes it `--jobs 1` or no `--jobs`.
+- Workflows set k in the plan, per shard: `--ci-plan <plan> --shards N
+  --shard-jobs k` stores `jobs = min(k, the shard's files that may run in
+  parallel)` on each shard, and only when that is above 1. The exclusive
+  host-state shard holds only `TREE_MUTATING` files, so it stays one child, and
+  a plan made at k = 1 is byte-identical to one made without `--shard-jobs`.
+  `--ci-run` runs the shard at the plan's k, and `--ci-verify` rejects any
+  shard result that ran at a different k. `free-tests.yml` reads k from
+  `FREE_SUITE_JOBS` and `windows-free-tests.yml` from `WINDOWS_FREE_JOBS`; the
+  `free_jobs` and `windows_jobs` dispatch inputs override them for experiments
+  only.
+- `--jobs` applies only to `--ci-run` and overrides the plan's k, for local
+  reproduction. It takes a positive whole number up to the shard's file count
+  (an empty shard takes 1); anything else stops with `FREE_JOBS_INVALID`, as
+  does a bad `--shard-jobs` or one without `--ci-plan`. `GSTACK_FREE_JOBS` sets
+  the local full-suite process count and never changes `--ci-run`.
 - Files are split into disjoint sub-shards packed by the duration seed. Each
   sub-shard has an id (`<plan id prefix>:<shard>.<n>`) bound to its file list.
   Files in `TREE_MUTATING` or `SLOW_UNDER_LOAD` run after the parallel
@@ -1596,6 +1609,13 @@ reproduce command. If the file passes serially, add it to `SLOW_UNDER_LOAD` in
 `scripts/lib/shard-jobs.ts` with that run id and a reason. Never raise the
 timeout. `SLOW_UNDER_LOAD` is empty today.
 
+The Windows lane stays at `WINDOWS_FREE_JOBS: '1'`. In GSTA-203's A/B, k = 2
+made the slowest Windows shard faster, but two of three runs needed the flaky
+retry for file-lock cleanup errors (`EBUSY` in
+`browse/test/stealth-webdriver.test.ts` and a native fixture cleanup in
+`browse/test/cookie-import-native-job.test.ts`), which k = 1 never showed. Fix
+those cleanups before raising it.
+
 Every `--ci-run` result, at any k, records per-file test and `expect()` counts
 in `outcome.counts` (`tests`, `pass`, `fail`, `skip`, `todo`, `expects` per
 file, plus shard totals). They come from bun's JUnit reporter, which the runner
@@ -1607,8 +1627,8 @@ never decide a verdict.
 
 ### Windows free lane
 
-`windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6`),
-runs one strict serial shard per `windows-latest` job
+`windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6
+--shard-jobs $WINDOWS_FREE_JOBS`), runs one strict shard per `windows-latest` job
 (`bun run test:windows --ci-run`), and verifies every shard receipt on Linux
 (`--windows-only --ci-verify`). Packing uses Windows-measured durations from
 `scripts/free-test-durations-windows.json`; the weekly

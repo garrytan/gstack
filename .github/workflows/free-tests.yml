@@ -44,9 +44,9 @@ on:
 # each shard runs min(k, its parallel files) sandboxed sub-shards side by side
 # (scripts/lib/shard-jobs.ts); the exclusive host-state shard stays one child.
 env:
-  FREE_SUITE_RUNNER: ubicloud-standard-2
-  FREE_SUITE_SHARDS: '20'
-  FREE_SUITE_JOBS: '1'
+  FREE_SUITE_RUNNER: ubicloud-standard-8
+  FREE_SUITE_SHARDS: '10'
+  FREE_SUITE_JOBS: '4'
 
 # Keyed on the PR number, not head_ref: a bare branch name carries no fork
 # prefix, so same-name branches from two forks would share one group and a
