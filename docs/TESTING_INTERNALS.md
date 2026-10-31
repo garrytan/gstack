@@ -1009,12 +1009,12 @@ or its `up` / `ssh` / `sync` / `pull` / `down` steps (`--help` lists them).
 The runner is also the `/ubicloud` skill's engine (`bin/gstack-ubi` execs it).
 A generated name ends in `-t<hours>` (`UBI_TTL_HOURS`, 1-999, default 3; pregate-remote.sh
 uses its stop deadline plus 15 minutes, rounded up: `-t1` today), the creator's own statement of how long the VM may live: `reap`
-destroys every VM in the project whose TTL ended more than ten minutes ago,
-whichever owner made it, and the caller's own `ubirun-<UBI_OWNER>-*` names
-without a TTL (older runner copies) once they are `UBI_LEGACY_HOURS` old
-(default 4). Another owner's TTL-less VM and an untagged one are never reaped,
-because only a TTL lets reap judge another lane's VM. Every `up` runs it
-first (`UBI_REAP=0` skips it). Names outside the `ubirun-` prefix are never reaped. The
+destroys only the caller's own VMs: its `ubirun-<UBI_OWNER>-*` names whose TTL
+ended more than ten minutes ago, and those without a TTL (older runner copies)
+once they are `UBI_LEGACY_HOURS` old (default 4). Another owner's VM and an
+untagged one are never reaped, even after their TTL ends; reap only counts them
+in its log, because cloud deletes stay with the owner that created the VM
+(GST-573). Every `up` runs it first (`UBI_REAP=0` skips it). Names outside the `ubirun-` prefix are never reaped. The
 quota preflight adds the size's vCPUs to the project's running VMs and refuses
 before the create request when that exceeds the known ceiling
 (`UBI_QUOTA_VCPUS`, or the maximum the last refusal printed, remembered in the
@@ -1068,7 +1068,7 @@ machine swap, in this order:
    one side local and the other remote.
 4. Profiling very large imports (a whole-repo ingest, the full free suite under
    a profiler) is warned about before it starts: it holds the VM for hours, and
-   any other lane's `up` reaps it once its TTL (`UBI_TTL_HOURS`, default 3)
+   the same owner's next `up` or `reap` destroys it once its TTL (`UBI_TTL_HOURS`, default 3)
    plus ten minutes has passed, so set `UBI_TTL_HOURS` above the expected
    duration and name that duration in the thread before launching.
 

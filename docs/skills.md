@@ -999,8 +999,8 @@ VM. `/ubicloud` runs it there through one entry point, `bin/gstack-ubi`
 (`scripts/ubicloud/ubi-runner.sh`), with the discipline a shared quota needs:
 every VM is named `ubirun-<owner>-<epoch>-<suffix>-t<hours>`, so its owner
 (`UBI_OWNER`, required to create one) and TTL (`UBI_TTL_HOURS`, default 3) are
-visible to everyone; every `up` first reaps VMs whose TTL ended, whichever owner
-made them, and its own owner's VMs with no TTL once they are 4 hours old; every run
+visible to everyone; every `up` first reaps its own owner's VMs whose TTL ended,
+and those with no TTL once they are 4 hours old, never another owner's; every run
 ends with `UBICLOUD: left=0` or fails; the
 quota preflight refuses before the create request when the project's running
 VMs plus the new size exceed the known ceiling (`UBI_QUOTA_VCPUS`, or the
