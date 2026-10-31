@@ -24,3 +24,15 @@ gstack_harness_pid() {
   done
   printf '%s\n' "$_hp_pid"
 }
+
+# Harnesses that run every session on a machine under one process: Capy runs
+# each tool call as a fresh shell under capy-server, so every session's lease
+# names the same pid and a caller's own ancestry includes every sibling's
+# holder. Matched on comm, path and a leading - stripped as above.
+GSTACK_SHARED_HARNESSES="capy-server"
+# gstack_shared_harness PID — true when PID's command is a shared harness.
+gstack_shared_harness() {
+  _sh_comm=$(ps -o comm= -p "$1" 2>/dev/null | head -1) || return 1
+  _sh_comm=${_sh_comm##*/}; _sh_comm=${_sh_comm#-}
+  case " $GSTACK_SHARED_HARNESSES " in *" $_sh_comm "*) [ -n "$_sh_comm" ] ;; *) return 1 ;; esac
+}

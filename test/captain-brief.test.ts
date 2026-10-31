@@ -1,7 +1,7 @@
 /**
  * The Captain brief (lib/captain-brief.ts, gstack-owner-brief render --captain)
  * and the shared heading parser (lib/markdown-sections.ts): the five-part shape,
- * every choice rec takes shown in words, gate ids only on the agent line, the
+ * every choice as a lettered ask line (docs/captain.md § The ask format), gate ids only on the agent line, the
  * rec_hash binding, and the incomplete and answered states.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
@@ -66,10 +66,10 @@ function run(plan: string, o: { answered?: boolean; urgent?: boolean } = {}): st
   return dir;
 }
 
-function brief(dir: string) {
+function brief(dir: string, captainName?: string) {
   const loaded = loadBriefInputs(dir);
   if ('error' in loaded) throw new Error(loaded.error.message);
-  return { ...renderCaptainBrief(loaded.inputs, { outDir: dir }), gate: loaded.inputs.gate };
+  return { ...renderCaptainBrief(loaded.inputs, { outDir: dir, captainName }), gate: loaded.inputs.gate };
 }
 
 describe('heading parser', () => {
@@ -84,29 +84,38 @@ describe('heading parser', () => {
 });
 
 describe('renderCaptainBrief', () => {
-  test('five parts in order, header first, every choice rec takes in words, ids only on the agent line', () => {
+  test('five parts in order, header first, one lettered ask line per choice with the recommendation as option 1, ids only on the agent line', () => {
     const b = brief(run(FULL_PLAN));
     expect(b.missing).toEqual([]);
     const t = b.text;
-    expect(t.split('\n')[0]).toStartWith('**Decision needed:** approve the plan "Widget export fix". Reply **rec**');
-    const order = ['### Before → after', '### Why it matters', '### What caused this work', '### Big decisions', '### What we need from you', '- **do it:** rec at full scope', 'Reply: **rec**, or **do it**'].map(s => t.indexOf(s));
+    expect(t.split('\n')[0]).toStartWith('**Decision needed:** approve the plan "Widget export fix". Reply **do it**');
+    const order = ['### Before → after', '### Why it matters', '### What caused this work', '### Big decisions', '### What we need from you', '- A: ', '- B: ', '- C: ', '**do it** takes every recommendation in this list', 'Reply: **do it**, or name options such as **A2**'].map(s => t.indexOf(s));
     expect(order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1]!))).toBe(true);
-    expect(t).toContain('1. Split the exporter into its own module: keep the plan as written (a reviewer suggested changing it).');
-    expect(t).toContain('2. Cap memory at 256 MB: cap at 256 MB (changes the plan).');
+    expect(t).toContain('- A: Split the exporter into its own module. We could: 1) keep the plan as written (a reviewer suggested changing it); 2) make the reviewer\'s change. Recommendation: keep the plan as written (a reviewer suggested changing it). A1 to take recommendation.');
+    expect(t).toContain('- B: Cap memory at 256 MB. We could: 1) cap at 256 MB; 2) no cap. Recommendation: cap at 256 MB (changes the plan). B1 to take recommendation.');
+    expect(t).toContain('- C: Approve the plan "Widget export fix". We could: 1) approve, with the plan changes marked above; 2) approve the plan as reviewed;');
+    expect(t).toContain('A named option (for example "A2") takes that option instead.');
+    expect(t).not.toMatch(/^GStack Minder$/m);
+    expect(brief(run(FULL_PLAN), 'GStack Minder').text).toMatch(/^GStack Minder\n- A: /m);
     const [ownerPart, agentPart] = t.split('\n---\n');
     for (const item of b.gate.items) expect(ownerPart).not.toMatch(new RegExp(`\\b${item.id}[a-e]?\\b`));
     expect(ownerPart).not.toContain('gate_rev');
     expect(ownerPart).not.toContain('gstack-autoplan revise');
     expect(agentPart).toContain(`rec_hash=${recHash(b.gate)}`);
-    expect(agentPart).toContain('rec resolves to d1a d2b p1b');
+    expect(agentPart).toContain('rec resolves to d1a d2b p1b; "do it" answers as rec; letters: A1=d1a A2=d1b B1=d2b B2=d2a C1=p1b C2=p1a C3=p1c C4=p1d C5=p1e; a named option answers as `--reply "rec except <token>"` (A2 = rec except d1b);');
+    const named = parseReply('rec except d1b', b.gate);
+    expect(named.valid).toBe(true);
+    expect(named.pending).toEqual([]);
+    expect(named.choices.find(c => c.id === 'd1')?.chosen).toBe('b');
   });
 
   test('a plan missing a section is not ready for approval and invites no reply', () => {
     const b = brief(run(FULL_PLAN.replace('## Why it matters', '## Motivation')));
     expect(b.missing).toEqual(['Why it matters']);
     expect(b.text).toStartWith('**Not ready for approval:** the plan "Widget export fix" is missing Why it matters.');
-    expect(b.text).not.toContain('Reply: **rec**');
-    expect(b.text).not.toContain('**do it:**');
+    expect(b.text).not.toContain('Reply: **do it**');
+    expect(b.text).not.toContain('**do it** takes');
+    expect(b.text).not.toContain('- A: ');
     expect(b.text).toContain('_Not written for this plan yet._');
   });
 
@@ -201,11 +210,11 @@ describe('carried decisions at a cap gate (#3546)', () => {
     gate.items.filter(i => i.id !== 'p1').forEach((item, n) => {
       const text = item.options.find(o => o.key === gateRec[item.id])!.text;
       expect(gateText).toContain(`   ${item.id}${gateRec[item.id]}) ${text}`);
-      expect(briefText).toContain(`  ${n + 1}. ${item.title.replace(/\s*\[[^\]]*\]\s*$/, '')}: ${WORDS[text] ?? text}`);
+      expect(briefText).toContain(`- ${String.fromCharCode(65 + n)}: ${item.title.replace(/\s*\[[^\]]*\]\s*$/, '')}. We could: 1) ${WORDS[text] ?? text};`);
     });
-    expect(briefText).toContain("Use a queue table: make the reviewer's change (your answer at gate_rev 1, carried forward).");
-    expect(briefText).toContain('rec keeps the 3 you already answered and takes the recommended answer for the rest.');
-    expect(briefText).toContain('Reply **rec** to keep the answers you already gave and take every other recommendation (recommended)');
+    expect(briefText).toContain("- A: Use a queue table. We could: 1) make the reviewer's change; 2) keep the plan as written (a reviewer suggested changing it). Recommendation: make the reviewer's change (your answer at gate_rev 1, carried forward). A1 to take recommendation.");
+    expect(briefText).toContain('do it keeps the 3 you already answered and takes the recommendation for the rest.');
+    expect(briefText).toContain('Reply **do it** to keep the answers you already gave and take every other recommendation (recommended)');
   });
 
   test('an answer already given at this gate is what rec keeps, as gstack-autoplan answer --reply rec records it', () => {
@@ -215,7 +224,7 @@ describe('carried decisions at a cap gate (#3546)', () => {
     expect(partial.stdout).toMatch(/^GATE_PENDING: /m);
     const { briefText, briefRec } = renders(copy);
     expect(briefRec).toMatchObject({ d1: 'b', d2: 'a', d3: 'b' });
-    expect(briefText).toContain('Add metrics: keep the plan as written (a reviewer suggested changing it) (your answer at this gate).');
+    expect(briefText).toContain('Recommendation: keep the plan as written (a reviewer suggested changing it) (your answer at this gate). B1 to take recommendation.');
     const answered = r.ap(['answer', '--by', 'human', '--out', copy, '--gate-rev', '2', '--reply', 'rec']);
     expect(answered.stdout).toMatch(/^APPROVED: gate_rev=2/m);
     const recorded = fs.readFileSync(path.join(copy, 'decisions.jsonl'), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(d => d.gate_rev === 2);
@@ -234,8 +243,8 @@ describe('carried decisions at a cap gate (#3546)', () => {
     const { briefText, gateRec, briefRec } = renders(copy);
     expect(briefRec).toEqual(gateRec);
     expect(gateRec).toEqual(Object.fromEntries(gate.items.map(i => [i.id, i.recommended])));
-    expect(briefText).toContain('Use a queue table: keep the plan as written (a reviewer suggested changing it).');
+    expect(briefText).toContain('- A: Use a queue table. We could: 1) keep the plan as written (a reviewer suggested changing it); 2) make the reviewer\'s change. Recommendation: keep the plan as written (a reviewer suggested changing it). A1 to take recommendation.');
     expect(briefText).not.toContain('carried forward');
-    expect(briefText).toContain('rec takes the recommended answer for each.');
+    expect(briefText).toContain('do it takes the recommendation for each.');
   });
 });

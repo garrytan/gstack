@@ -52,8 +52,10 @@ $U owner
 `UBICLOUD_API_KEY` (or `UBICLOUD_API_TOKEN`) is a project-scoped token. When it
 is unset, ask for it as an environment variable and stop; never echo it, write
 it to a file or commit, and never run `env`, `printenv` or `set -x` while it is
-in the environment. `UBI_OWNER` is what `usage` and `list --mine` key on, so set
-it before the first `up` of every session and on every machine.
+in the environment. `UBI_OWNER` is required: `up`, `run` and `verify` refuse
+without it (`UBI_OWNER_REQUIRED`), because a VM nobody can name is a VM nobody
+cleans up. `usage` and `list --mine` key on it, so set it before the first
+`up` of every session and on every machine.
 
 ---
 
@@ -69,8 +71,10 @@ $U usage          # VMs and vCPUs per owner: who holds the shared quota
 A VM in `records` but absent from `list` is already gone: `$U down <name>`
 forgets it. A VM in the project under another owner is theirs; leave it (its
 TTL will reap it). Every `up` runs `$U reap` first, destroying any VM whose
-`-t<hours>` TTL ended more than ten minutes ago, whichever owner made it; a name
-without a TTL is never reaped.
+`-t<hours>` TTL ended more than ten minutes ago, whichever owner made it, and
+this owner's own `ubirun-<UBI_OWNER>-*` names with no TTL once they are
+`UBI_LEGACY_HOURS` old (default 4). Another owner's TTL-less VM, an untagged
+one and names outside the `ubirun-` prefix are never reaped.
 
 Quota: with `UBI_QUOTA_VCPUS=<project ceiling>` exported (or after one refusal,
 whose maximum the runner remembers), `up` adds the size's vCPUs to the project's
@@ -91,8 +95,9 @@ background operation leaves its VM until the reaper. So:
   detach it, and never leave it unwatched when the thread goes idle.
 - In Claude Code, run it under `gstack-detach` and poll the log for its
   `### gstack-detach EXIT=<code> ###` sentinel.
-- Set `UBI_TTL_HOURS` above the longest plausible run (default 4) and name the
-  expected duration in the thread before launching anything over an hour.
+- Set `UBI_TTL_HOURS` above the longest plausible run (default 3; 1-999) and
+  name the expected duration in the thread before launching anything over an
+  hour. A run that outlives its TTL is reaped by the next `up` anywhere.
 
 The runner prints `<name> carries a <n>h TTL ...; if this process dies first:
 <self> down <name>` right after the VM is ready; quote that line in your report
@@ -164,6 +169,11 @@ and for browser tests `xvfb` plus
 
 - `ubi-runner: command exited <rc> after <n>s` is the verdict line; the exit
   status is the command's.
+- `UBICLOUD: left=<n> owner=<o> vm=<name> others=<n>` follows teardown. Report
+  it with every result: `left=0` means this run's VM is confirmed gone. `left=1`
+  or `left=unknown` turns a passing command into exit 1; run the printed `down`
+  command now. `others` counts this owner's other VMs, for information.
+  `run --keep` prints `left=1 ... kept=1` instead and keeps its exit status.
 - Exit 124 with `watchdog: <phase> printed nothing for <n>s` (or `ran <n>s`)
   means the remote hung or exceeded its budget; the last 40 lines follow.
   Diagnose from them before rerunning; a hang is a failure, not infrastructure.

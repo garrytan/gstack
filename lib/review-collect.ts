@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GENERATED_PATH, parseRegistry } from './regen';
 import { RESULT_CODES } from './result-codes';
-import type { ClassInput, DepthError, PathLines, RegistryInfo } from './review-depth';
+import { classifyPath, dataCandidate, type ClassInput, type DepthError, type PathLines, type RegistryInfo } from './review-depth';
 
 export interface Collected extends ClassInput {
   perPath: PathLines[];
@@ -22,14 +22,17 @@ export interface Collected extends ClassInput {
   stampOnly: string[];
   /** Added lines per path, for scanNumbers. */
   added: Record<string, string[]>;
+  /** Deleted lines per path, for the targeted classes (lib/review-targeted.ts). */
+  removed: Record<string, string[]>;
   diffLines: number;
   mergeBase: string | null;
   untracked: string[];
+  consumed: string[] | 'all';
 }
 
-function git(root: string, args: string[]): { ok: boolean; out: string; err: string } {
+function git(root: string, args: string[]): { ok: boolean; status: number | null; out: string; err: string } {
   const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
-  return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
+  return { ok: r.status === 0, status: r.status, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
 }
 const scratch = (p: string) => p.startsWith('.gstack/tmp/');
 const oneLine = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').trim().slice(0, 200);
@@ -51,11 +54,11 @@ export function loadRegistryAt(root: string, sha: string): RegistryInfo {
 }
 
 /** Numstat, deletions and the -U0 patch for `range` (`[mergeBase, head]` or `[mergeBase]` for the working tree). */
-function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'added'> {
+function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'added' | 'removed'> {
   const numstat = git(root, ['diff', '--numstat', '-z', '--no-renames', ...range]);
   const status = git(root, ['diff', '--name-status', '-z', '--no-renames', '--diff-filter=D', ...range]);
   const patch = git(root, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-renames', ...range]);
-  const empty = { perPath: [], deleted: [], stampOnly: [], added: {} };
+  const empty = { perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} };
   for (const [r, what] of [[numstat, '--numstat'], [status, '--name-status'], [patch, '-U0']] as const) {
     if (!r.ok) { errors.push({ code: 'numstat_failed', detail: oneLine(r.err || 'git diff failed'), input: `git diff ${what} ${range.join(' ')}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' }); return empty; }
   }
@@ -68,6 +71,7 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
   const statusParts = status.out.split('\0');
   const deleted = statusParts.flatMap((s, k) => (s === 'D' && statusParts[k + 1] ? [statusParts[k + 1]!] : [])).filter(p => !scratch(p));
   const added: Record<string, string[]> = {};
+  const removed: Record<string, string[]> = {};
   const changed: Record<string, string[]> = {};
   let cur = '';
   let minus = '';
@@ -82,13 +86,67 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
     }
     if (!cur || scratch(cur) || line.startsWith('@@')) continue;
     if (line[0] === '+') (added[cur] ??= []).push(line.slice(1));
+    if (line[0] === '-') (removed[cur] ??= []).push(line.slice(1));
     if (line[0] === '+' || line[0] === '-') (changed[cur] ??= []).push(line);
   }
   const stampOnly = perPath.map(e => e.path).filter(p => p.endsWith('package.json') && !!changed[p]?.length && changed[p]!.every(l => /^[+-]\s*"version"\s*:\s*"[^"]*"\s*,?\s*$/.test(l)));
-  return { perPath, deleted, stampOnly, added };
+  return { perPath, deleted, stampOnly, added, removed };
 }
 
-function result(diff: ReturnType<typeof readDiff>, extra: Pick<Collected, 'root' | 'registry' | 'errors' | 'mergeBase' | 'untracked'>): Collected {
+/** More data candidates than this keep every data file code: the consumer scan is not run. */
+export const CONSUMER_SCAN_CAP = 2000;
+/** How many data files deep a chain of data naming data is followed (a manifest naming a data file) before the rest count as consumed. */
+export const CONSUMER_SCAN_DEPTH = 4;
+
+/**
+ * The data candidates (lib/review-depth.ts dataCandidate) among the changed and deleted paths that a non-docs file names
+ * by basename, at each rev and, with `live`, in the working tree with untracked files. The merge base is one of the revs,
+ * so a consumer the change removes still counts. A data file named only by another data file is consumed when that one
+ * is, followed CONSUMER_SCAN_DEPTH files deep; anything still open after that counts as consumed. A git grep failure is
+ * a collector error, which fails the depth closed.
+ */
+export function scanConsumers(root: string, paths: readonly string[], revs: readonly string[], live: boolean, classRoot: string | readonly string[], errors: DepthError[]): string[] | 'all' {
+  const candidates = [...new Set(paths)].filter(p => dataCandidate(p, classRoot)).sort();
+  if (candidates.length > CONSUMER_SCAN_CAP) return 'all';
+  const base = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+  const named = new Map<string, Set<string>>();
+  const direct = new Set<string>();
+  const probed = new Set<string>();
+  let probe = candidates;
+  for (let depth = 0; probe.length && depth < CONSUMER_SCAN_DEPTH; depth++) {
+    const patterns = [...new Set(probe.map(base))].flatMap(b => ['-e', b]);
+    const runs = [...revs.map(rev => ({ at: rev, args: [rev, '--'] })), ...(live ? [{ at: '', args: ['--untracked', '--'] }] : [])];
+    const next = new Set<string>();
+    for (const run of runs) {
+      const r = git(root, ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns, ...run.args]);
+      if (r.status !== 0 && r.status !== 1) { errors.push({ code: 'consumer_scan_failed', detail: oneLine(r.err || `git grep exited ${r.status}`), input: `git grep -F <data basenames> ${run.at || '--untracked'}`, repair: 'run the git grep by hand and fix what git reports' }); return 'all'; }
+      for (const line of r.out.split('\n')) {
+        const parts = line.split('\0');
+        const where = parts[0];
+        const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
+        if (!where || !match) continue;
+        const file = run.at ? where.slice(run.at.length + 1) : where;
+        if (scratch(file) || classifyPath(file, classRoot) === 'docs') continue;
+        for (const p of probe) {
+          if (file === p || !match.includes(base(p))) continue;
+          if (!dataCandidate(file, classRoot)) { direct.add(p); continue; }
+          (named.get(file) ?? named.set(file, new Set()).get(file)!).add(p);
+          if (!probed.has(file) && !probe.includes(file)) next.add(file);
+        }
+      }
+    }
+    for (const p of probe) probed.add(p);
+    probe = [...next];
+  }
+  const consumed = new Set([...direct, ...probe]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [file, targets] of named) if (consumed.has(file)) for (const p of targets) if (!consumed.has(p)) { consumed.add(p); grew = true; }
+  }
+  return candidates.filter(p => consumed.has(p));
+}
+
+function result(diff: ReturnType<typeof readDiff>, extra: Pick<Collected, 'root' | 'registry' | 'errors' | 'mergeBase' | 'untracked' | 'consumed'>): Collected {
   const paths = diff.perPath.map(e => e.path).sort();
   return { ...diff, ...extra, paths, gateTagged: null, diffLines: diff.perPath.reduce((n, e) => n + e.lines, 0) };
 }
@@ -100,13 +158,14 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
   const mb = git(root, ['merge-base', baseSha, headSha]);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || 'no merge base'), input: `git merge-base ${baseSha} ${headSha}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' });
-    return result({ perPath: [], deleted: [], stampOnly: [], added: {} }, { root: [], registry, errors, mergeBase: null, untracked: [] });
+    return result({ perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} }, { root: [], registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase, headSha], errors);
   const tree = git(root, ['ls-tree', '-r', '--name-only', '-z', headSha]);
   const skillDirs = [...new Set(tree.out.split('\0').flatMap(p => /^([^/]+)\/SKILL\.md(\.tmpl)?$/.exec(p)?.[1] ?? []))].sort();
-  return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [] });
+  const consumed = scanConsumers(root, [...diff.perPath.map(e => e.path), ...diff.deleted], [headSha, mergeBase], false, skillDirs, errors);
+  return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [], consumed });
 }
 
 /** The working tree against the merge base with origin/<base> (or <base>), untracked files counted per path; the registry is the base ref's commit. */
@@ -117,7 +176,7 @@ export function collectLive(root: string, base: string): Collected {
   const mb = git(root, ['merge-base', ref, 'HEAD']);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || `no merge base with ${ref}`), input: `git merge-base ${ref} HEAD`, repair: `fetch the base first (git fetch origin ${base})` });
-    return result({ perPath: [], deleted: [], stampOnly: [], added: {} }, { root, registry, errors, mergeBase: null, untracked: [] });
+    return result({ perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase], errors);
@@ -133,5 +192,6 @@ export function collectLive(root: string, base: string): Collected {
     diff.perPath.push({ path: p, lines, binary });
     if (!binary) diff.added[p] = text.split('\n');
   }
-  return result(diff, { root, registry, errors, mergeBase, untracked });
+  const consumed = scanConsumers(root, [...diff.perPath.map(e => e.path), ...diff.deleted], [mergeBase], true, root, errors);
+  return result(diff, { root, registry, errors, mergeBase, untracked, consumed });
 }

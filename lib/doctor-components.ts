@@ -33,7 +33,8 @@
  *
  * Install profiles (INSTALL_PROFILES) are SKILL_REQUIREMENTS rows that name an
  * install shape instead of a skill directory. `--for review-voice` is the one
- * today: a dispatched reviewer's machine gets a clone or fast-forward and Bun
+ * today: a dispatched reviewer's machine gets a clone when absent (an existing
+ * checkout is used as is unless it is below the supported minimum) and Bun
  * at gstack's own minimum (the project's pins are never applied, so `pins`
  * SKIPs), no ./setup and no host profiles, and the trailer certifies only the
  * read-only helpers (`helpers`). Its verdict covers no host, so admission
@@ -194,6 +195,7 @@ export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   'test-audit': CLAUDE_ONLY,
   ubicloud: CLAUDE_ONLY,
   unfreeze: CLAUDE_ONLY,
+  verify: CLAUDE_ONLY,
   'review-voice': REVIEW_VOICE,
 };
 

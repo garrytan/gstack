@@ -254,11 +254,21 @@ function fragments(removed: string, added: string): { old: string; new: string }
  * the child changed inside them becomes a correction bullet under the child's
  * own `### Gate integrity` (the convention #3453's entry used for its parent),
  * so no wording the gate carried is lost and the released entry below stays
- * byte for byte main's. Null when the shape is something else: no single
- * `[Unreleased]` on our side, no released entry of theirs the base lacks whose
- * text our section holds, or nothing of the child's own left.
+ * byte for byte main's. A line the child inserted between two of the parent's
+ * lines counts as an addition to the parent's entry, unless that would leave
+ * the child nothing of its own: then the inserted lines are the child's entry
+ * (#3613 put its only bullet at the top of #3595's `### Changed` list), and a
+ * line meant as an amendment to the parent lands there too. Null when the
+ * shape is something else: no single `[Unreleased]` on our side, no released
+ * entry of theirs the base lacks whose text our section holds, nothing of the
+ * child's own left either way, or a child entry that repeats a released
+ * parent line (a reordered or duplicated bullet is a hand resolve).
  */
 export function carryReleasedParent(ours: string, theirs: string, base: string): { text: string; notes: string[] } | null {
+  return carryWith(ours, theirs, base, true) ?? carryWith(ours, theirs, base, false);
+}
+
+function carryWith(ours: string, theirs: string, base: string, insertsJoinParent: boolean): { text: string; notes: string[] } | null {
   const a = parseChangelog(ours);
   const unreleased = a.sections.filter(s => s.unreleased);
   if (unreleased.length !== 1) return null;
@@ -268,11 +278,13 @@ export function carryReleasedParent(ours: string, theirs: string, base: string):
   const notes: string[] = [];
   const bullets: string[] = [];
   let carried = false;
+  const parentLines = new Set<string>();
   for (const parent of parseChangelog(theirs).sections.filter(s => !s.unreleased && !baseKeys.has(s.version!))) {
     const pl = parent.lines.slice(1);
     const ownBlocks = entryBlocks({ ...unreleased[0]!, lines: ['', ...lines] });
     if (!entryBlocks(parent).some(b => ownBlocks.includes(b))) continue;
     carried = true;
+    for (const l of pl) if (content(l)) parentLines.add(l);
     // LCS over content lines only: blanks and sub-headings recur in both entries and would anchor wrongly.
     const lcs = Array.from({ length: pl.length + 1 }, () => new Uint32Array(lines.length + 1));
     for (let i = pl.length - 1; i >= 0; i--) for (let j = lines.length - 1; j >= 0; j--) {
@@ -302,7 +314,7 @@ export function carryReleasedParent(ours: string, theirs: string, base: string):
         }
       }
       // Lines added between two of the parent's own lines, or after its last beside an edit there, belong to its entry; the rest are the child's.
-      if (k > 0 && (k < hunks.length - 1 || h.removed.length)) for (const j of h.added) {
+      if (insertsJoinParent && k > 0 && (k < hunks.length - 1 || h.removed.length)) for (const j of h.added) {
         parentAt.add(j);
         bullets.push(`- Addition to the ${v} entry below: ${strip(lines[j]!)}`);
         notes.push(`${v}: added "${strip(lines[j]!).slice(0, 60)}"`);
@@ -320,6 +332,7 @@ export function carryReleasedParent(ours: string, theirs: string, base: string):
   });
   while (kept.length && !kept.at(-1)!.trim()) kept.pop();
   if (!kept.some(content)) return null;
+  if (kept.some(l => content(l) && parentLines.has(l))) return null;
   if (bullets.length) {
     const at = kept.findIndex(l => GATE_INTEGRITY_RE.test(l));
     if (at < 0) kept.push('', '### Gate integrity', ...bullets);

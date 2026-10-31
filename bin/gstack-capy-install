@@ -29,7 +29,10 @@
 # reuse, Bun at gstack's own supported minimum with the project's pins never
 # applied, no ./setup, no host profiles, no shim; the doctor certifies only the
 # read-only helpers, and an ok verdict a fuller install wrote for this HEAD is
-# kept. Without the Drive skill, gstack_capy_bootstrap_cmd prints the command
+# kept: the profile then writes no launch file and announces that install's
+# own launch file and path, so the lane's environment is never rewritten
+# (GST-401). A profile's own launch directory lives under <verdict>.profile/,
+# never <verdict>.launch. Without the Drive skill, gstack_capy_bootstrap_cmd prints the command
 # that clones into an explicit root and runs the checkout's own bootstrapper.
 # Chromium is lazy by default (bin/gstack-browser-ensure
 # installs it on first use); --with-browser installs it now. The last lines
@@ -382,6 +385,11 @@ if [ -n "$RES_BIN" ]; then
     esac
     if [ -z "$LAUNCH_DIR" ]; then
       LAUNCH_DIR="${VERDICT%.json}.launch"
+      if [ "$PROFILE" -eq 1 ]; then
+        LAUNCH_DIR="${VERDICT%.json}.profile/$FOR.launch"
+        (umask 077 && mkdir -p "${VERDICT%.json}.profile") \
+          || stop INSTALL_PREFLIGHT_FAILED "could not create ${VERDICT%.json}.profile" "make $(dirname "$VERDICT") writable, then re-run"
+      fi
       gstack_launch_dir "$LAUNCH_DIR" "$RES_BIN" "$_launch_node" \
         || stop INSTALL_PREFLIGHT_FAILED "could not publish the launch directory $LAUNCH_DIR" "make $(dirname "$LAUNCH_DIR") writable, then re-run"
     fi
@@ -656,13 +664,16 @@ WARN behind — installed $INSTALLED is ${GSTACK_CAPY_BEHIND:-?} commits behind 
   [ -n "$NOTES" ] && TRAILER="$TRAILER ($NOTES)" ;;
 esac
 # The launch file: the same assignments as a sourceable script, mode 0600,
-# beside the verdict. `. <file>` applies them without ever printing them; the
+# beside the verdict. It also appends the checkout's bin directory to PATH
+# (after everything already there, so it shadows nothing): a skill's bare
+# `gstack-ship-budget` resolves in a shell that sourced only this file. `. <file>` applies them without ever printing them; the
 # line carries no secret, but a caller that re-typed it as `export $(...)`
 # ran a bare `export` when the substitution came back empty and dumped the
 # whole environment, API keys included, into its tool output (GSTA-96). The
 # file is part of the ok verdict: a passing run that cannot write it fails,
 # so no caller is left with only the line and the re-typing path.
 LAUNCH_FILE="${VERDICT%.json}.env"
+BIN_DIR=$(cd "$ROOT/bin" 2>/dev/null && pwd -P)
 write_launch_file() {
   local tmp
   mkdir -p "$(dirname "$LAUNCH_FILE")" || return 1
@@ -672,21 +683,34 @@ write_launch_file() {
     echo "# Apply it with: . <this file>"
     echo "# Never print it or the environment: no \`export \$(...)\`, \`env\`, \`printenv\` or bare \`set\` in a tool fence."
     [ -n "$LAUNCH_DIR" ] && echo "case \":\$PATH:\" in *:$(shq "$LAUNCH_DIR"):*) ;; *) PATH=$(shq "$LAUNCH_DIR"):\"\$PATH\" ;; esac; export PATH"
+    [ -n "$BIN_DIR" ] && echo "case \":\$PATH:\" in *:$(shq "$BIN_DIR"):*) ;; *) PATH=\"\${PATH:+\$PATH:}\"$(shq "$BIN_DIR") ;; esac; export PATH"
     echo "export GSTACK_SESSION_KIND=unattended"
     echo "export GSTACK_STATE_ROOT=$(shq "$GSTACK_STATE_ROOT")"
     echo "export GSTACK_EPHEMERAL=$(shq "${GSTACK_EPHEMERAL:-1}")"
     echo "export GSTACK_CAPY=1"
     echo "export GSTACK_INSTALL_VERDICT=$(shq "$VERDICT")"
+    if [ -n "${GSTACK_PREFERENCES_FILE:-}" ]; then echo "export GSTACK_PREFERENCES_FILE=$(shq "$GSTACK_PREFERENCES_FILE")"; fi
   } > "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$LAUNCH_FILE" || { rm -f "$tmp"; return 1; }
 }
-if [ "$RC" -eq 0 ] && ! write_launch_file; then
+# A profile check that keeps a fuller ok verdict borrows that install's launch
+# file and path instead of writing over them (GST-401), unless that install
+# recorded no launch path while this shell needs one to reach its Bun.
+BORROWED=0 _kept_launch=""
+verdict_kept && _kept_launch=$(gstack_install_verdict_field "$VERDICT" launch_path)
+if [ "$RC" -eq 0 ] && verdict_kept && [ -f "$LAUNCH_FILE" ] && { [ -n "$_kept_launch" ] || [ -z "$LAUNCH_DIR" ]; }; then
+  BORROWED=1 LAUNCH_DIR=$_kept_launch
+elif [ "$RC" -eq 0 ] && verdict_kept; then
+  LAUNCH_FILE="${VERDICT%.json}.profile/$FOR.env"
+  (umask 077 && mkdir -p "${VERDICT%.json}.profile") || true
+fi
+if [ "$RC" -eq 0 ] && [ "$BORROWED" -eq 0 ] && ! write_launch_file; then
   TRAILER="gstack: fail launch-file — could not write the launch file $LAUNCH_FILE; fix: make $(dirname "$LAUNCH_FILE") writable, or set GSTACK_STATE_ROOT to a writable directory (LAUNCH_FILE_UNWRITABLE)"
   RC=1
 fi
 # A failing run announces no launch file and removes the one its verdict owned
 # (where the directory lets it); a profile check that keeps a fuller ok verdict
 # leaves that verdict's file in place.
-[ "$RC" -eq 0 ] || { verdict_kept || rm -f "$LAUNCH_FILE" 2>/dev/null; LAUNCH_FILE=""; }
+[ "$RC" -eq 0 ] || { [ "$PROFILE" -eq 1 ] && rm -rf "${VERDICT%.json}.profile" 2>/dev/null; verdict_kept || rm -f "$LAUNCH_FILE" 2>/dev/null; LAUNCH_FILE=""; }
 record_verdict "$TRAILER" "$([ "$RC" -eq 0 ] && echo 1 || echo 0)"
 [ "$CHECK_ONLY" -eq 1 ] || [ "$PROFILE" -eq 1 ] || write_shim
 printf '%s\n' "$OUT" | grep -v '^gstack: '

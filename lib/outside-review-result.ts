@@ -195,17 +195,33 @@ function plainReview(text: string): string {
  * Code quotes text, so a severity inside a fence or an inline code span is not
  * a label. An inline span holding only a severity token in label position
  * (`- \`P1\`: x`, `Severity: \`High\``, a table cell) is formatting and stays.
+ * `readUnclosed` reads a fence that never closes as prose instead (GST-436): the
+ * blocking signals use that view, so an unclosed fence cannot hide a later `[P1]`
+ * or `Verdict: not ready`, while the evidence for clean keeps it blanked. One pass:
+ * an opener closes only when a later marker of its kind is at least as long.
  */
 const CODE_LABEL_BEFORE = /^[\t ]*(?:>[\t ]*)?(?:#{1,6}[\t ]+|[-+*][\t ]+|\(?\d{1,3}[.)][\t ]+)?(?:\*\*|__)?$|\b(?:severity|priority)[\t ]*[:=][\t ]*(?:\*\*|__)?$|\|[\t ]*(?:\*\*)?$/i;
-function withoutCode(text: string): string {
+function withoutCode(text: string, readUnclosed = false): string {
+  const lines = text.split(/\r?\n/);
+  const markers = lines.map(line => /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1]);
+  const closes = markers.map(() => true);
+  if (readUnclosed) {
+    const longestLater: Record<string, number> = { '`': 0, '~': 0 };
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = markers[i];
+      if (!m) continue;
+      closes[i] = longestLater[m[0]!]! >= m.length;
+      longestLater[m[0]!] = Math.max(longestLater[m[0]!]!, m.length);
+    }
+  }
   let fence: string | undefined;
-  return text.split(/\r?\n/).map(line => {
-    const marker = /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1];
+  return lines.map((line, i) => {
+    const marker = markers[i];
     if (fence) {
       if (marker && marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
       return '';
     }
-    if (marker) { fence = marker; return ''; }
+    if (marker) { if (closes[i]) fence = marker; return ''; }
     return line.replace(/`([^`]+)`/g, (span, inner: string, at: number) =>
       inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
   }).join('\n');
@@ -243,9 +259,12 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const plain = plainReview(input.text);
   const reviewed = input.gate !== 'proposal';
   const code = withoutCode(input.text), plainCode = plainReview(code);
-  const levels = [...[...plainCode.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
-    ...severityTokens(code), ...(reviewed ? severityWords(code) : [])];
+  const read = withoutCode(input.text, true), plainRead = plainReview(read);
+  const levelsOf = (c: string, p: string) => [...[...p.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
+    ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
+  const levels = levelsOf(read, plainRead);
   const findings = { highest: levels.length ? levels.sort()[0]! : null };
+  const cleanEvidence = levelsOf(code, plainCode).length > 0;
   const ran = execution(input);
   if (ran.state === 'unavailable') return { execution: ran, findings, verdict: 'unavailable', reason: ran.reason, detail: ran.detail };
   const blocking = findings.highest === 'P0' || findings.highest === 'P1';
@@ -262,12 +281,12 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
     return result('unavailable', 'missing_markers', 'missing review completion recommendation');
   }
   if (!reviewed) return result(blocking ? 'findings' : 'clean');
-  const unparsed = firstUnparsed(code);
+  const unparsed = firstUnparsed(read);
   // A last explicit not-ready blocks even when the only parsed severities are advisory.
-  const notReady = verdictNotReady(plainCode);
+  const notReady = verdictNotReady(plainCode) || verdictNotReady(plainRead);
   if (blocking || notReady) return { ...result('findings'), ...(unparsed ? { unparsed } : {}) };
   if (unparsed) return { ...result('unverified', 'unparsed_severity', unparsed), unparsed };
-  if ((input.gate === 'structured' || input.gate === 'review') && !findings.highest && !concludesNoFindings(code)) {
+  if ((input.gate === 'structured' || input.gate === 'review') && !cleanEvidence && !concludesNoFindings(code)) {
     return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');
   }
   return result('clean');

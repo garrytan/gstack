@@ -344,10 +344,10 @@ describe('READY arrivals and trains', () => {
     expect([percentile([5, 1, 3, 2, 4], 0.5), percentile([5, 1, 3, 2, 4], 0.9), percentile([], 0.5)]).toEqual([3, 5, 0]);
   });
 
-  test('train composition: unscreened PRs form their own train at five, else screened first, else the fill limit', () => {
+  test('train composition: screened first, unscreened fill the remaining seats, else the fill limit', () => {
     const item = (enqueuedMs: number, screened: boolean) => ({ enqueuedMs, screened });
     const pool = [item(0, true), item(1, true), ...[2, 3, 4, 5, 6].map(t => item(t, false))];
-    expect(pickTrain(pool, 10, 5, 100)).toEqual(pool.slice(2));
+    expect(pickTrain(pool, 10, 5, 100)).toEqual(pool.slice(0, 5));
     const mixed = [item(5, false), item(0, true), item(1, false), item(2, true), item(3, true)];
     expect(pickTrain(mixed, 10, 5, 100)?.map(x => x.screened)).toEqual([true, true, true, false, false]);
     expect(pickTrain([item(0, false), item(1, true)], 99, 5, 100)).toBeNull();

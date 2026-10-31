@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.91.320",
+  "version": "1.91.365",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -63,7 +63,7 @@
     "slop": "npx slop-scan scan . 2>/dev/null || echo 'slop-scan not available (install with: npm i -g slop-scan)'",
     "slop:diff": "bun run scripts/slop-diff.ts",
     "test:quick": "bun run scripts/test-free-shards.ts --quick",
-    "test:pr": "EVALS_JOBS=${EVALS_JOBS:-2} bun run scripts/test-paid-shards.ts --tier gate --profile pr",
+    "test:pr": "EVALS_JOBS=${EVALS_JOBS:-2} EVALS_SCREEN_POLICY=${EVALS_SCREEN_POLICY:-narrow} bun run scripts/test-paid-shards.ts --tier gate --profile pr",
     "test:release": "EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier gate --profile full && EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier periodic --profile full",
     "eval:bg:pr": "bun run scripts/eval-bg.ts pr",
     "eval:bg:release": "bun run scripts/eval-bg.ts release"

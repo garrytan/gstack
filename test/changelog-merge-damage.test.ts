@@ -139,6 +139,24 @@ describe("a stacked child whose parent was released since the fork (GSTA-96, tra
     expect(carryReleasedParent(`# C\n\n## [Unreleased]\n\n- a\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Changed\n- one\n\n## [1.0.0] - d\n\n- base\n`, theirs, base)).toBeNull();
   });
 
+  // Value: protects=a stacked child whose only own line sits inside the released parent's list merges instead of refusing; fails_when=the inserted line is filed as an addition to the parent and the merge returns null (#3613 slot 2, train 57, needed a hand resolve); why_new=every shape above has an own entry outside the parent's lines; seam=none; no_claim=where a line inserted beside the child's own entry goes
+  test("#3613's shape: a child whose only own line sits inside the released parent's list keeps that line as its entry", () => {
+    const released = '## [1.0.1] - d\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- one\n- two\n';
+    const theirs = `# C\n\n${released}\n## [1.0.0] - d\n\n- base\n`;
+    const base = '# C\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- one\n- two\n\n## [1.0.0] - d\n\n- base\n';
+    const child = '# C\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- mine\n- one\n- two\n\n## [1.0.0] - d\n\n- base\n';
+    const r = carryReleasedParent(child, theirs, base)!;
+    expect(r.notes).toEqual([]);
+    expect(r.text).toBe('# C\n\n## [Unreleased]\n\n### Changed\n- mine\n\n## [1.0.0] - d\n\n- base\n');
+    const merged = mergeChangelogs(child, theirs, base)!;
+    expect(merged).toBe(`# C\n\n## [Unreleased]\n\n### Changed\n- mine\n\n${released}\n## [1.0.0] - d\n\n- base\n`);
+    expect(ownEntryAboveMain(merged, theirs, new Set(['### Changed', '- mine', '- one', '- two', '- new thing', '### Added', '**Parent paragraph.**']))).toBeNull();
+    expect(carryReleasedParent('# C\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- one\n- two\n\n## [1.0.0] - d\n\n- base\n', theirs, base)).toBeNull();
+    // A reordered or duplicated parent bullet is not the child's entry: it stays a hand resolve.
+    expect(mergeChangelogs('# C\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- two\n- one\n\n## [1.0.0] - d\n\n- base\n', theirs, base)).toBeNull();
+    expect(mergeChangelogs('# C\n\n## [Unreleased]\n\n**Parent paragraph.**\n\n### Added\n- new thing\n\n### Changed\n- one\n- one\n- two\n\n## [1.0.0] - d\n\n- base\n', theirs, base)).toBeNull();
+  });
+
   // Value: protects=carryReleasedParent rewrites only a child that still holds the released parent's entry and keeps an existing Gate integrity section's neighbours in place; fails_when=an unrelated [Unreleased] or an already-stamped head is rewritten or the correction lands outside Gate integrity; why_new=the shapes test above never has a child without the parent's entry, a head without [Unreleased], or a Gate integrity section followed by another heading; seam=none; no_claim=the wording of corrections beyond one edited line
   test('shapes: a child that does not hold the released parent, or a head already stamped, is null; a correction joins the child\'s existing Gate integrity section without crossing the next heading', () => {
     const released = '## [1.0.1] - d\n\n**Parent paragraph.**\n\n### Changed\n- one\n- two\n- three\n';

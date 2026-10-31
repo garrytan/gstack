@@ -113,24 +113,29 @@ function published(env: TrainEnv, t: TrainRecord, i: number, main: string): { sa
  * Freeze the queue: the record goes to local state and the notes ref before
  * anything remote, then the backstop gate is dispatched on main's sha.
  * `states` is the one GitHub read of every unverified slot, made by the
- * caller: a slot that read MERGED is merged, verified tree or not, and a slot
+ * caller (for a stamped train every slot: its record entries never count on
+ * their own): a slot that read MERGED is merged, verified tree or not, and a slot
  * that could not be read is left out of `unmerged`, recorded under
  * `unreadable` and named in the reason and in the NEXT after the repair (the
  * operator seats it by hand once gh answers), so the rebuild after the repair
  * never seats a PR that may already be in.
  */
+/** A record entry that counts as merged without a GitHub read: plain trains only; a stamped train counts only what GitHub reports MERGED (#3603). */
+const recordedMerged = (t: TrainRecord, pr: string): boolean => !t.stamped && t.merged.some(m => m.pr === pr);
+
 async function freezeQueue(env: TrainEnv, t: TrainRecord, reason: string, mainSha: string, states: ReadonlyMap<string, string>): Promise<FreezeRecord> {
   const now = nowIso();
-  const unverified = t.slots.filter(s => !t.merged.some(m => m.pr === s.pr));
+  const unverified = t.slots.filter(s => !recordedMerged(t, s.pr));
   const landed = unverified.filter(s => states.get(s.pr) === 'MERGED').map(s => s.pr);
+  const untreed = landed.filter(pr => !t.merged.some(m => m.pr === pr));
   const unreadable = unverified.filter(s => states.get(s.pr) === 'unreadable').map(s => s.pr);
   const prs = (list: string[]) => list.map(p => '#' + p).join(', ');
   const f: FreezeRecord = {
-    schema: 1, kind: 'freeze', repo_key: env.repo.key, train: t.nonce, merged: [...t.merged.map(m => m.pr), ...landed],
+    schema: 1, kind: 'freeze', repo_key: env.repo.key, train: t.nonce, merged: [...t.slots.filter(s => recordedMerged(t, s.pr)).map(s => s.pr), ...landed],
     unmerged: unverified.filter(s => !landed.includes(s.pr) && !unreadable.includes(s.pr)).map(s => ({ pr: s.pr, head: s.head })),
     unreadable: unverified.filter(s => unreadable.includes(s.pr)).map(s => ({ pr: s.pr, head: s.head })),
     main: { sha: mainSha, tree: git(env.ctx.repoRoot, ['rev-parse', `${mainSha}^{tree}`]).out },
-    reason: [reason, landed.length ? `${prs(landed)} merged on GitHub without a verified tree` : '', unreadable.length ? `${prs(unreadable)} unreadable on GitHub, left out of unmerged; seat it in a train by hand once gh pr view answers` : ''].filter(Boolean).join('; '),
+    reason: [reason, untreed.length ? `${prs(untreed)} merged on GitHub without a verified tree` : '', unreadable.length ? `${prs(unreadable)} unreadable on GitHub, left out of unmerged; seat it in a train by hand once gh pr view answers` : ''].filter(Boolean).join('; '),
     backstop: null, repair: null,
     created_at: now, cleared_at: null, cleared_by: null, updated_at: now,
   };
@@ -170,15 +175,15 @@ function verifiedElsewhere(env: TrainEnv, t: TrainRecord, mainSha: string): stri
  * plain refusal (nothing was published). A GitHub state that cannot be read
  * is neither: the verify refuses and asks to be rerun, never "nothing merged".
  */
-async function stopped(env: TrainEnv, t: TrainRecord, code: 'QUEUE_TRAIN_TREE_MISMATCH' | 'QUEUE_TRAIN_MOVED', message: string, mainSha: string, lines: string[], fetched: boolean): Promise<TrainOut> {
+export async function stopped(env: TrainEnv, t: TrainRecord, code: 'QUEUE_TRAIN_TREE_MISMATCH' | 'QUEUE_TRAIN_MOVED', message: string, mainSha: string, lines: string[], fetched: boolean): Promise<TrainOut> {
   const run = trainFile(t.nonce);
   // One GitHub read per unverified slot decides both the freeze and its record.
-  const states = new Map(t.slots.filter(s => !t.merged.some(m => m.pr === s.pr)).map(s => [s.pr, prState(env.ctx, s.pr)] as const));
-  const landed = t.merged.length > 0 || [...states.values()].includes('MERGED');
+  const states = new Map(t.slots.filter(s => !recordedMerged(t, s.pr)).map(s => [s.pr, prState(env.ctx, s.pr)] as const));
+  const landed = t.slots.some(s => recordedMerged(t, s.pr)) || [...states.values()].includes('MERGED');
   const unreadable = landed ? [] : [...states].filter(([, state]) => state === 'unreadable').map(([pr]) => `#${pr}`);
   if (unreadable.length) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `${message}; whether ${unreadable.join(', ')} merged on GitHub could not be read, so whether the queue must freeze is unknown` }, lines, `${Q} verify --pr ${t.slots[0]!.pr} --train ${t.nonce} (once gh pr view answers)`, run);
   if (!landed) return outFailed({ code, message: `${message}; nothing of train ${t.nonce} merged, so the queue is not frozen` }, lines, `${Q} train build ${prsArgs(t.slots, t.explicit_order)} (a new train on current main)`, run);
-  const later = fetched && t.slots.every(s => t.merged.some(m => m.pr === s.pr) || states.get(s.pr) === 'MERGED') ? verifiedElsewhere(env, t, mainSha) : null;
+  const later = fetched && t.slots.every(s => recordedMerged(t, s.pr) || states.get(s.pr) === 'MERGED') ? verifiedElsewhere(env, t, mainSha) : null;
   if (later) {
     const held = activeFreeze(env.repo.keys);
     return outRefused({ code: 'QUEUE_TRAIN_STALE', message: `${message}; every slot of train ${t.nonce} merged on GitHub and main ${mainSha.slice(0, 12)} is ${later}, so this record is stale and ${held ? `freezes nothing (the queue is already frozen by train ${held.train})` : 'the queue is not frozen'}` }, held ? [...lines, ...frozenLines(held)] : lines, `${Q} train prune --stale --train ${t.nonce}`, run);
@@ -197,6 +202,7 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   const run = trainFile(t.nonce);
   const i = t.slots.findIndex(s => s.pr === o.pr);
   if (i < 0) return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} does not include #${o.pr}` }, [], nextFor(t), run);
+  if (t.stamped) return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} has stamped prefixes; its slots publish S_i exactly through train land, never a hand stamp checked modulo stamps` }, [], `${Q} train land --train ${t.nonce} --pr ${o.pr}`, run);
   const gate = attemptsOf(t).filter(a => a.purpose !== 'bisect').at(-1);
   if (gate?.outcome !== 'GREEN' || !['green', 'merging', 'merged'].includes(t.state)) {
     return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} has no green record (state ${t.state}, last gate ${gate?.outcome ?? 'none'})` }, [], nextFor(t), run);
@@ -230,13 +236,16 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   `merge #${o.pr} with expected head ${head.slice(0, 12)} (gstack-restamp stamps at merge), then ${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
 }
 
-function confirmMerged(env: TrainEnv, t: TrainRecord, pr: string, main: string, index: number, lines: string[]): TrainOut {
+export function confirmMerged(env: TrainEnv, t: TrainRecord, pr: string, main: string, index: number, lines: string[]): TrainOut {
   const run = trainFile(t.nonce);
+  const state = t.stamped ? prState(env.ctx, pr) : 'MERGED';
+  if (state !== 'MERGED') return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `main's tree is S${index} of train ${t.nonce}, but GitHub reports #${pr} as ${state}, not MERGED; only a merge GitHub reports counts` }, lines, `gh pr view ${pr} --json state,headRefOid; rerun once GitHub reports #${pr} MERGED`, run);
   if (!t.merged.some(m => m.pr === pr)) t.merged.push({ pr, sha: main, tree: git(env.ctx.repoRoot, ['rev-parse', `${main}^{tree}`]).out, at: nowIso() });
-  t.state = t.merged.length === t.slots.length ? 'merged' : 'merging';
+  const merged = t.slots.filter(s => s.pr === pr || recordedMerged(t, s.pr) || (t.merged.some(m => m.pr === s.pr) && prState(env.ctx, s.pr) === 'MERGED'));
+  t.state = merged.length === t.slots.length ? 'merged' : 'merging';
   effect(t, `verified #${pr} merged as T${index}`);
   save(env, t);
-  lines.push(`VERIFY_TRAIN: #${pr} merged; main's tree is T${index} of train ${t.nonce} (${t.merged.length}/${t.slots.length} merged)`);
+  lines.push(`VERIFY_TRAIN: #${pr} merged; main's tree is T${index} of train ${t.nonce} (${merged.length}/${t.slots.length} merged)`);
   const freeze = activeFreeze(env.repo.keys);
   if (freeze && freeze.repair?.train === t.nonce && t.state === 'merged') {
     freeze.cleared_at = nowIso();

@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { checkChangelog, mergeChangelogs, normalizeChangelog, reheadChangelog } from '../lib/changelog-check';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
+import { BUMP_NEVER_KEY_VERSION } from '../lib/ship-policy';
 import {
   BASE_POLICY, cleanup, ghShim, makeFixtureRepo, makePr, mergeToMain, readFile, recordAndBundle, restamp, runBin, type FixtureRepo, mergeMain } from './helpers/restamp-fixture';
 
@@ -190,6 +191,18 @@ describe('three PRs, reordered twice, zero manual edits', () => {
     const stamped = restamp(repo, ['--next']);
     expect(stamped.status).toBe(EXIT.ok);
     expect(stamped.out).toMatch(/^next: NEW_VERSION=1\.2\.4\.0; record the release decision, then write the CHANGELOG entry text only/m);
+  });
+
+  // Value: protects=a bump never repo's --next never invents a MICRO stamp: without --bump or --version it refuses and writes nothing, and an explicit level stamps as before; fails_when=restamp falls back to micro for a repo whose policy names no level;
+  //   why_new=GST-380 added bump never; seam=gstack-ship-policy, gstack-version-bump write; no_claim=the claim queue read
+  test('bump never: --next without a level is RESTAMP_VERSION_SOURCE with nothing written; --bump stamps', () => {
+    const repo = fixture({ policy: { ...BASE_POLICY, queue_mode: 'claim-at-open', bump: 'never', min_gstack_version: BUMP_NEVER_KEY_VERSION } });
+    makePr(repo, 'pr-a');
+    const before = readFile(repo, 'VERSION');
+    const r = restamp(repo, ['--next']);
+    expect([r.status, /bump never names no level.*nothing written.*\(RESTAMP_VERSION_SOURCE\)/.test(r.err)]).toEqual([3, true]);
+    expect(readFile(repo, 'VERSION')).toBe(before);
+    expect(restamp(repo, ['--next', '--bump', 'patch', '--dry-run']).status).toBe(EXIT.ok);
   });
 
   test('claim-at-open with an unknown claim says incomplete, names the PR and never says read', () => {

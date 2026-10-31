@@ -25,9 +25,20 @@ passes. Standalone, `gstack-regen check` lists the commands and exits 3
 (`REPO_COMMANDS_NOT_ALLOWED`); `gstack-pregate` marks `regen` and `lanes`
 `incomplete`, never `pass`. `--policy-from head` (a PR that introduces or
 changes a pin file) is accepted only with `--allow-repo-commands` and the record
-says `policy head (unreviewed)`. So a lane or allowlist entry a branch adds to
-its own `pregate.json` counts only once it is on the base; `PREGATE_NO_LANE`'s
-fix line says so when the branch edits the file
+says `policy head (unreviewed)`. Under it the branch's `pregate.json` may only
+add test lanes over the trusted policy (the base copy, or the user-owned file
+when the base has none): a new `dependencies` glob with at least one test, or
+more tests on a glob the trusted policy already maps. A removed or shrunk glob,
+a new `[]` declaration, or any other key that differs (runner, guards, warn,
+allowlist, timeouts, the remote gate, ...) refuses the run with
+[`PREGATE_HEAD_POLICY_LOOSENS`](troubleshooting.md#pregate-head-policy-loosens).
+A branch behind its base is measured from the copy at its merge base and runs
+the base tip's policy plus its additions. With no trusted policy at all, the
+head file is a bootstrap and runs as written. `.gstack/generated.json` is still
+read from the branch under `--policy-from head`. So an allowlist entry or a
+`[]` declaration a branch adds counts only once it is on the base, and a lane it
+adds counts on the base policy only once it lands; `PREGATE_NO_LANE`'s fix line
+says so when the branch edits the file
 ([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)). An unresolvable base exits 3 with
 `POLICY_SOURCE_UNAVAILABLE`. Globs are repo-relative (no `..`, no absolute
 paths, at most 64 per list); commands are one line under 512 bytes.
@@ -75,6 +86,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `sealed` | sealed or eval output that must never reach a public destination; read by the pre-push hook and `gstack-pregate sealed` (see [sealed output](#sealed)) |
 | `price_file` | repo-relative path of the paid gate's call-plan data file (`GSTACK_EVAL_CALLS v1`); `gstack-eval-plan price-gate` prices from it and never executes anything ([docs/eval-calls.md](eval-calls.md)) |
 | `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides (see [supervision](#supervision)) |
+| `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
@@ -86,7 +98,7 @@ state root is `GSTACK_STATE_ROOT`, else `GSTACK_HOME`, else `GSTACK_STATE_DIR`,
 else a gstack plugin's data directory, else `~/.gstack` ([docs/state-root.md](state-root.md)); `<slug>` is what
 `~/.claude/skills/gstack/bin/gstack-slug` prints as `SLUG=` in the repository
 (`GSTACK_PROJECT_SLUG` overrides it). It is read only when the base carries none
-(never under `--policy-from head`), it lives outside the repository so a PR still
+(under `--policy-from head` it is the trusted policy the head file is compared with), it lives outside the repository so a PR still
 cannot reach it, and the record names it (`policy user <path>`) and fingerprints
 its bytes (`policy_digest`, and each check's `inputs.policy`); `verify` and the
 ship receipt treat an edited or deleted user file, or one that appears (or a
@@ -135,6 +147,12 @@ writes `[]`, which would clear a file without a test. A file with no nearby
 test, and a lane whose matrix a planner computes, is printed as a `TODO`.
 Review each entry before committing the file on the base branch.
 
+## `.gstack/always-run.json`
+
+`{ "tests": [globs] }` names whole-tree tests that scan every file of a kind (tripwires, ratchets, conformance and fixture inventories). A diff-selected run never maps a touched file to them, so they used to pass the selected gate and then fail CI (GST-98). When a branch selects any test, owes a lane, or edits this file, the `lanes` selection adds every tracked test file a glob matches. `--explain` prints each one as `<test> (always_run, .gstack/always-run.json)`, and a glob that matches no test as `<glob> matches no test file`. A docs-only branch adds nothing.
+
+The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list matches 16 test files; the 13 with a seed in `scripts/free-test-durations.json` (recorded 2026-10-19) total about 13 s there, and `bun-entry-isolation`, `launch-env-echo-ratchet` and `review-packets-removed` have no seed yet.
+
 ## `gstack-pregate`
 
 ```
@@ -163,7 +181,15 @@ Two stages with separate clocks, both printed:
 - `literals`: for every changed exported constant or named timeout/retry
   literal, the whole test tree (nightly- and Heavy-only files included) is
   searched for the old value; a consumer the branch did not update fails with
-  `file:line`.
+  `file:line`. A version-history row, a line that starts a bracketed row with
+  the old value (`[45, "<digest>"]`), is skipped when the same table (a run of
+  consecutive lines starting with `[`) also holds a row for the new value that
+  the branch added (the file at the merge base, read through a rename git
+  detects, has no new-value row). A table the branch did not extend, a file that already held a
+  new-value row at the merge base, a merge base that cannot be read, and every
+  other line holding the old value still fail. Only the row itself is exempt:
+  the old value after its closing bracket on the same line still fails. Rows in object form (`{ v: 45 }`) or spread over several
+  lines are not recognized as history rows.
 
 - `timing`: added or changed test lines that compare an elapsed wall-clock or
   CPU time against a bound, or sleep and then assert, print
@@ -193,7 +219,8 @@ Two stages with separate clocks, both printed:
   `*_test.dart` files under a `test/` directory are tests, except under `integration_test/` and
   `test_driver/`: they need a device, so pregate never runs them, and a touched
   one has no lane until you declare `"**/integration_test/**": []` (and
-  `"**/test_driver/**": []`) under `dependencies` and let CI run them; Dart files, device tests
+  `"**/test_driver/**": []`) under `dependencies` on the base branch and let CI run them
+  (a `[]` only on the branch is refused under `--policy-from head`); Dart files, device tests
   included, are source code, so a `dependencies` `[]` declaration clears them and `empty_lanes`
   does not); in a Rust crate (the nearest Cargo.toml with a `[package]` name) a `.rs` file is a
   test when it sits under `<crate>/tests/`, holds a `#[cfg(test)]` (any cfg predicate naming
@@ -307,9 +334,9 @@ Two stages with separate clocks, both printed:
   the project's `engines.bun` (the row prints `runtime: bun <v> from <dir>`),
   so a Capy host's older image Bun cannot flip the verdict.
 - Every test-tier command (the lanes runner, each guard, the `--remote` gate)
-  runs supervised: see [supervision](#supervision). `--timeout` bounds each
-  runner process (the unit-file group, each serial file, each guard without
-  its own `timeout_s`), not their total; the stall timeout catches a hung or
+  runs supervised: see [supervision](#supervision). `--timeout` (else the
+  policy's `timeout_s`, else 600 s) bounds each runner process (the unit-file
+  group, each serial file, each guard without its own `timeout_s`), not their total; the stall timeout catches a hung or
   silent one sooner.
 - Under 8 cores, a `remote_gate` in the active policy or a remote `test_backend`
   (`gstack-config set test_backend ubicloud`) records the local test tier as a
@@ -385,9 +412,10 @@ test-tier command:
   (`--stall-timeout <s>`, else `stall_timeout_s`, else 300; `0` disables): the
   check is `incomplete` with `PREGATE_STALLED` and names the last file
   started; the next serial file still runs;
-- is killed as **timed out** when that runner process reaches `--timeout`
-  (per runner process, so many serial files that each fit still pass); the
-  check is `incomplete` and the next serial file still runs.
+- is killed as **timed out** when that runner process reaches its timeout
+  (`--timeout <s>`, else `timeout_s`, else 600; per runner process, so many
+  serial files that each fit still pass): the check is `incomplete`, its detail
+  names which of the three set the timeout, and the next serial file still runs.
 
 A kill is SIGTERM to the group, then SIGKILL after 5 s (a group that ignores
 SIGTERM still dies). SIGINT or SIGTERM to `gstack-pregate` itself SIGKILLs every
@@ -415,11 +443,12 @@ the supervision above. Close the obligation one of two ways:
   `gstack-pregate clear --remote test_backend/<backend> --run-url <url>`, which
   has no machine-checkable receipt and is recorded as `attested:<url>`; or
 - `gstack-pregate --stage tests --remote --spend-cap <usd> --allow-repo-commands`,
-  which runs the declared `remote_gate` now (never under `--policy-from head`;
+  which runs the declared `remote_gate` now (under `--policy-from head`, still the trusted copy's gate;
   a `test_backend` without `remote_gate` cannot be run this way). The gate runs
   in the repository root with `PREGATE_TREE` (the working-tree fingerprint
-  being tested), `PREGATE_FILES_FILE` (the selected files, one per line) and
-  `PREGATE_SPEND_CAP_USD`, and must print
+  being tested), `PREGATE_FILES_FILE` (the selected files, one per line),
+  `PREGATE_SPEND_CAP_USD` and `PREGATE_TIMEOUT_S` (this run's per-process
+  timeout in whole seconds), and must print
   `PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n> [spent=<usd>]`, reporting the
   tree it actually tested. The obligation clears only when that tree is
   `PREGATE_TREE`, `tests` > 0, `failed` = 0 and the gate exits 0; anything else
@@ -450,7 +479,8 @@ receipt for H when the two trees differ only as a stamp does:
   stamps, each hunk in them must be the exact old → new rewrite under
   `stamp_patterns` (literal `{version}` templates) or the built-in forms
   (`(was X)`, `since: X`, `vX`), and the version file, `package.json`'s
-  `version`, a lockfile's root version keys and a CHANGELOG re-heading have
+  `version`, a lockfile's root version keys and a CHANGELOG re-heading (under
+  `changelog_fragments`, also the fold of the fragments the head deletes) have
   their own built-in rules. There is no second list and no looser rule here:
   the file verdicts `clear` reaches on a pair are the verdicts
   `gstack-tree-receipt --gated G --current H` reaches, and its gate rule holds
@@ -469,7 +499,9 @@ receipt for H when the two trees differ only as a stamp does:
   the policy label (`origin/<base>@<sha>:.gstack/ship-policy.json`) and every
   differing path with the rule that classed it (`version-file`,
   `version-manifest`, `manifest-version`, `lockfile-root-version`,
-  `changelog-heading`, `stamp_files`, `stamp_paths`, `release_outputs`). `clear` prints the same
+  `changelog-heading`, `changelog-fragments` for the CHANGELOG under the fold,
+  `changelog_fragments` for a folded fragment's deletion, `stamp_files`,
+  `stamp_paths`, `release_outputs`). `clear` prints the same
   as `PREGATE_RECEIPT_SUBSTITUTED: …`, `verify` repeats it on its ok line, and
   the ship receipt carries the receipt string. The receipt's own tests and
   failed checks apply as before (its exit status is checked only when
@@ -518,7 +550,7 @@ gstack-pregate verify                             # PREGATE_VERIFY: ok …; preg
 
 gstack's own example: `.gstack/pregate.json` declares
 `"remote_gate": "bash scripts/ubicloud/pregate-remote.sh"`. With
-`UBICLOUD_API_KEY` set the script runs the selected files on one Ubicloud VM
+`UBICLOUD_API_KEY` and `UBI_OWNER` set the script runs the selected files on one Ubicloud VM
 with `bun run test:ubicloud`'s environment, refuses before creating the VM when
 the cap cannot buy a 20-minute run at the size's list price (`UBI_SIZE`,
 default `standard-16`), checks the tree and the planned file set on the VM
@@ -531,10 +563,10 @@ are named and left to the paid PR gate; a selection of only paid files reports
 `tests=0`, which never clears the obligation. The command is the same either way
 (`--remote` always needs a cap; the keyless path spends nothing).
 
-pregate kills the gate at its `--timeout` (default 600 s) with a 5 s grace, so
-the script finishes before that deadline: it reads the deadline from
-`PREGATE_TIMEOUT_S`, else from the `gstack-pregate` command it runs under (its
-`--timeout`, else 600), reserves 120 s for teardown plus 15 s margin, and tells
+pregate kills the gate at its `--timeout` (default the policy's `timeout_s`, else
+600 s) with a 5 s grace, so the script finishes before that deadline: it reads the
+deadline from `PREGATE_TIMEOUT_S`, which pregate sets to that same timeout, else from
+the `gstack-pregate` command it runs under (its `--timeout`, else 600), reserves 120 s for teardown plus 15 s margin, and tells
 the VM to stop at whichever comes first, that point or the cap's wall (at most
 45 minutes, minus 3 for teardown). A deadline that leaves the VM under 300 s
 refuses before any VM (`PREGATE_REMOTE_TIMEOUT_TOO_SHORT`). At create time it
@@ -569,7 +601,8 @@ Every refusal line starts with a reason code:
 | `PREGATE_REMOTE_CAP_TOO_LOW` | 5 | the cap cannot buy a 20-minute run at the size's price; nothing created |
 | `PREGATE_REMOTE_NO_PRICE` | 5 | `UBI_SIZE` has no list price in the script |
 | `PREGATE_REMOTE_TIMEOUT_TOO_SHORT` | 5 | pregate's deadline leaves the VM under 300 s after the 135 s teardown reserve; nothing created |
-| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed; the VM, its teardown line and `spent=` follow |
+| `PREGATE_REMOTE_OWNER_REQUIRED` | 2 | `UBI_OWNER` is unset; nothing created (every VM must name its owner) |
+| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed, or the runner's `UBICLOUD: left=` line is not `0`; the VM, its teardown line and `spent=` follow |
 | `PREGATE_REMOTE_INTERRUPTED` | 130 | TERM or INT; ubi-runner tears the VM down on its own |
 
 <a id="guards"></a>
@@ -795,8 +828,10 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
 - **Rules.** `sealed.path` and `sealed.transcript` check every path a commit
   adds, renames or copies, whatever its content (binary, empty, deleted again
   in a later commit); `sealed.answer`, `sealed.seed` and `sealed.local_path`
-  (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`) check each commit's added
-  lines. Findings print rule, `file[:line]` and commit, never the text.
+  (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`, including after a shell
+  default such as `${VAR:-…}` or `${VAR-…}`) check each commit's added lines.
+  Known limit: a path glued to the text before it, by a hyphen (`docs-…`,
+  `$VAR-…`, `${VAR}-…`) or a letter (`-I…`, `-L…`), is not matched. Findings print rule, `file[:line]` and commit, never the text.
 - **Globs.** `paths`, `transcripts` and `allow_paths` match the whole
   repo-relative path from the repository root. `*` and `?` stay inside one
   path segment; `**/` spans zero or more directories; a `**` not followed by
@@ -834,7 +869,12 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   `git ls-remote <remote> <ref>`. A malformed or
   unreadable policy refuses. Waivers come only from the base branch's
   `.gstack/sealed-allow.tsv` (`rule<TAB>path<TAB>sha<TAB>reason`) and are
-  listed on every push.
+  listed on every push. A waiver counts only when `sha` is the finding's full
+  commit sha (40 hex characters, 64 in a SHA-256 repository); a shortened or
+  mistyped one is ignored, so the finding still refuses, and stderr names it
+  (`ignored waiver <rule>  <path>  sha <value> (...)`) with the finding's full
+  commit, which needs a review before anyone waives it.
+  `--json` lists them as `ignoredWaivers`.
 - **Visibility.** `sealed.visibility` from the base branch, else a cache under
   the state root (`sealed-visibility.json`: a `public` answer for 24 hours, a
   `private` one for 1 hour before it may turn a refusal into a warning), else

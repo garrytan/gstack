@@ -6,7 +6,8 @@
 # Under a /ship token cap (docs/ship-budget.md): --start SKILL --reservation ID
 #   with the RESERVATION id gstack-ship-budget check printed for this dispatch
 #   batch; refuses (exit 1, BUDGET_CHECK_SKIPPED) without an unspent one, and
-#   --finish settles it. Without a cap no marker exists and nothing changes.
+#   --finish settles it with the pass's other dispatch reservations of that
+#   step. Without a cap no marker exists and nothing changes.
 # Fix-range repeat (#3339): gstack-review-log --start review --fix-range
 #   prints the token, then FIX_BASE=<sha>; refuses (exit 1) unless the latest
 #   pass completed with fixes on unchanged content and its commit is an
@@ -151,12 +152,13 @@ try {
 
 echo "$STAMPED" >> "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"
 
-# A finished dispatch settles the budget reservation its start consumed (its
-# completion receipt); stdout stays unchanged and a failure never undoes the row.
+# A finished pass settles the budget reservation its start consumed (its
+# completion receipt) and every other dispatch reservation started in the same
+# step; stdout stays unchanged and a failure never undoes the row.
 if [ -n "$TOKEN" ] && [ -f "$GSTACK_SHIP_BUDGET_MARKER" ]; then
   GSTACK_REVIEW_TOKEN="$TOKEN" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
     const { settleReviewFinish } = await import(process.env.GSTACK_SHIP_BUDGET_LIB);
-    try { const id = settleReviewFinish(process.env.GSTACK_SHIP_BUDGET_MARKER, process.env.GSTACK_REVIEW_TOKEN); if (id) console.error("review-log: settled budget reservation " + id); }
+    try { const id = settleReviewFinish(process.env.GSTACK_SHIP_BUDGET_MARKER, process.env.GSTACK_REVIEW_TOKEN); if (id) console.error("review-log: settled budget reservations " + id); }
     catch (e) { console.error("review-log: budget reservation not settled: " + e.message); }
   ' || true
 fi

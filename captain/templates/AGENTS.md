@@ -25,9 +25,11 @@ a standing approval instead of asking again. Append; never rewrite an owner's wo
   rerun: <amount>. Over the cap is a fresh ask.
 
 ## Asks to the owner (<owner>, <date>: "<words>")
-- Plain language, each option with what it is, why it matters, what each answer does and
-  the cost. The recommended one-word reply is the default. Every ask ends with "do it":
-  every recommendation at full scope, follow-ons included, no further ask.
+- The ask format (gstack docs/captain.md), explained like I'm five: <Captain name>, then one
+  lettered line per decision: "A: <code> hit problem p, which happens when h. We could fix it
+  in these ways: 1) x; 2) y; 3) z. Recommendation: x because why. A1 to take recommendation."
+  "do it" takes every recommendation in the list at full scope, follow-ons included, no
+  further ask; a named option ("A2") takes that option instead.
 
 ## Parallelism (<owner>, <date>: "<words>")
 - Keep about <N> lanes working on disjoint files whenever there is backlog. Serial steps

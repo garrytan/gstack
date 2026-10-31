@@ -2,7 +2,8 @@
 `DISPATCH: adversarial-native` and the outside voice only on
 `DISPATCH: outside-voice`. Without the native line (light depth at runtime 0;
 above 0 the plan lists it beside the batched specialist), print `ADVERSARIAL: skipped (review plan)`;
-with neither line, take decision 3 of Finish the adversarial phase. Under a token cap,
+with neither line, take decision 3 of Finish the adversarial phase. On `DISPATCH: targeted`, also run the targeted reader
+(`gstack-review-dispatch render --role targeted --classes <TARGETED classes> --base <base> --diff-base <merge base>`, the merge base on every pass, never RANGE_BASE) like the voices; `verify --targeted-out` feeds the receipt's `--review-targeted`. Under a token cap,
 reserve the planned voices as one batch (`gstack-ship-budget check --next dispatch:<roles>`)
 and add `--reservation <id>` to the `--start adversarial-review` call below.
 

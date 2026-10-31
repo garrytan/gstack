@@ -105,6 +105,19 @@ describe('getChangedFiles union', () => {
     }
   });
 
+  // Value: protects=a rename lists its old path too, so a file moved into an exempt folder (changelog.d/, docs/) still selects the cases its old path fed; fails_when=getChangedFiles reports only the rename's new path (GST-400 adversarial finding);
+  //   why_new=no test covered renames; seam=git diff rename detection; no_claim=copies
+  test('a committed rename lists both the old and the new path', () => {
+    write('lib/foo.ts', 'export const foo = 1;\n'.repeat(20));
+    git(['add', 'lib/foo.ts']);
+    git(['commit', '-q', '-m', 'add foo']);
+    git(['tag', '-f', 'base']);
+    fs.mkdirSync(path.join(repo, 'changelog.d'));
+    git(['mv', 'lib/foo.ts', 'changelog.d/foo.md']);
+    git(['commit', '-q', '-m', 'move foo']);
+    expect(getChangedFiles('base', repo).sort()).toEqual(['changelog.d/foo.md', 'lib/foo.ts']);
+  });
+
   test('missing base ref → throws naming EVALS_ALL and the failing command', () => {
     expect(() => getChangedFiles('no-such-ref', repo)).toThrow(/EVALS_ALL=1/);
     expect(() => getChangedFiles('no-such-ref', repo)).toThrow(/diff --name-only no-such-ref\.\.\.HEAD/);
