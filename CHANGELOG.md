@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.91.375.0] - 2026-10-31
+
+**A /ship subagent now stops once its READY is sent, so CI and review callbacks on a frozen head stop waking it.** Finished /ship subagents kept getting woken by checks and reviews on a PR they had already READY'd. Each wake cost tokens, and some acted on a head that was supposed to be frozen. The parent now subscribes to the PR first, so red checks and human review still reach an owner, and then stops the subagent.
+
+### Changed
+- **`capy/skill/gstack/SKILL.md`** (Plan, approve, ship): the parent subscribes to the PR when the /ship subagent opens it and keeps that subscription until the PR merges or closes. It stops the subagent at READY and owns the PR from then on. A stopped /ship subagent woken by a check, review or merge notice reports one line (what woke it, its pin, the PR head) and ends the turn, while a message from its parent is an instruction it carries out.
+- **`docs/captain.md`** (the lane's /ship sequence): the host-neutral rule (the parent owns red checks, review, the slot stamp, re-READY and receipt carry after READY), with a pointer to the Capy mechanics. **`captain/templates/brief.md`**: one pointer line.
+- **`test/fixtures/context-budget.json`**: the Capy skill's eager ceiling moves from 5136 to 5312 for the 176 tokens it grew (5136 to 5312, measured with `lib/context-bill`), set at the captured value as main's last raise was, rather than a fresh 10% headroom.
+
+## [1.91.374.0] - 2026-10-31
+
+**/ship pauses on a red base instead of failing.** When main is red for a reason outside a PR, /ship's Step 5 used to fail or ask the fix/TODO/blame/skip question, and unattended lanes either burned runs or held by hand. Truther's two main-red fixes (#815 and the cover-contract branch) each failed only on the other's broken cases, so neither could pass /ship alone until a Captain folded them into #818 by hand (GSTA-157, from the 2026-10-29 speed feedback).
+
+### Added
+- **`gstack-base-red classify`** (bin/gstack-base-red, lib/base-red.ts): reads a new `base_red: { setup, select, timeout_sec }` block from the base branch's ship policy, then calls a failure base-red only when every failure the lane reported is named, the PR touches neither the failing test file nor any path its signature names, and `setup` then `select {files}` fails with the same test id and first error line at the base head and at HEAD in scratch worktrees under the state root. Anything else stays in-branch and /ship triages exactly as before. `--pause` writes a pause record (repository and branch hashed, 24-hour expiry).
+- **`gstack-base-red wait --pause <file>`**: on each new base head it reruns the paused files there and exits 0 (`BASE_GREEN`) on the first head that passes; a head that still fails keeps it waiting. Exits 3 on `BASE_RED_WAIT_TIMEOUT` or `BASE_RED_PAUSE_EXPIRED`.
+- **Conditional receipts**: `gstack-ship-receipt write --base-red <pause file>` adds a `base_red` block; `result` then prints `SHIP_PAUSED: base-red …` with `status=incomplete`. `bindReceipt` refuses a conditional receipt by default (`QUEUE_RECEIPT_CONDITIONAL`), so `ready`, `train build`, `verify --train` and `carry` never accept one.
+- **Policy key `base_red`** (`BASE_RED_KEY_VERSION`) with validation: `select` needs a `{files}` slot, commands are one line under 512 characters, `timeout_sec` is 10–7200.
+
+### Changed
+- **/ship Step 5** (ship/sections/tests.md.tmpl) runs `classify` before the T3 question when T1 calls every failure pre-existing, carries base-red cases as that run's only waived failures into Step 16, and documents `/ship --resume <record>` after `BASE_GREEN` (Step 5 reruns on HEAD merged with the new base in a scratch worktree; a green run rewrites the receipt without `base_red`). docs/captain.md names the paused state.
+
+### Tests
+- `test/base-red.test.ts`: base-red on a real fixture with a bare origin and no leftover worktree; in-branch without running anything when the PR touches the test or a path its signature names; in-branch when the test passes on the base or fails there differently; unconfigured, unnamed and failing-setup cases; the hashed pause path; conditional receipts refused by default; `result` reports `SHIP_PAUSED` and `status=incomplete`; `carry` refuses; `wait` skips a still-red base move and returns on the first green head, and expires or times out; policy validation.
+
+## [1.91.373.0] - 2026-10-31
+
+- **No-gstack arm in every head-to-head eval.** `/eval-plan` preregistrations now say in a required `## Comparison` section whether any arm loads gstack or another skill stack (`stack: loaded`) or none does (`stack: none` with a `why:` line). A loaded comparison must add a `## No-gstack arm` section and one `<model>#no-gstack` arm per model. That arm uses the same model and inputs, a plain prompt with no skill text, and the same panel and judge, and its result is reported beside the variants. `gstack-eval-plan prereg --check` refuses a loaded comparison without it (`PREREG_NO_GSTACK_ARM`). Arms are now identities `<model>[#<loadout>]`, priced by the model, so the pilot reserves a variant and its no-gstack arm on the same model separately; a repeated identity is refused (`EVAL_ARM_DUPLICATE`). The rule is written up in `docs/TESTING_INTERNALS.md`.
+
+## [1.91.372.0] - 2026-10-31
+
+**A test that fails once in CI and passes when run again no longer turns the job red, and every such flake is recorded for the daily flaky-fix pass.** `gstack-flaky run` wraps any test command that writes a JUnit report (Playwright, `bun test`, jest, vitest, pytest). When a few tests fail, it runs the command once more. A test that failed and then passes is a flaky pass, so the job stays green, an Actions `::warning` and a step-summary row name it, and one line goes on a ledger. A rerun counts only when the runner itself reports a full green run, so a real failure, a coverage threshold, a test the first run never reached, a crash or a cancelled job stays red. Before this, each one-off flake meant rerunning the whole CI job by hand (five times in Truther's last evidence window, three of them for one test).
+
+### Added
+- **`bin/gstack-flaky run --junit <file.xml> -- <command>`**: reruns the whole command once when at most `--max-reruns` (3) tests failed and the runner made no retries of its own. `--rerun-scope test` opts in to rerunning only the failed tests (Playwright `--grep`/`--project`, bun `--test-name-pattern`), for suites with no coverage gate and no fail-on-flaky policy; it still falls back to the whole command when it sees an early stop, a coverage table or the runner's own retries.
+- **Ledger** at `GSTACK_FLAKE_LEDGER_JUNIT` (default `<state root>/flake-ledger-junit.jsonl`), kept apart from the free suite's file-level ledger: one redacted line per flaky pass and per test that failed its rerun, with tree, commit, branch, run URL, attempts, scope and the first lines of the error.
+- **`gstack-flaky ids --junit <file>`** prints the test ids a report holds (`<file>::<project>::<describe > title>`).
+- Exit codes: 0 pass (flaky passes included), 1 a test failed, 2 usage, 3 no usable report, a crash or a killed runner, each with a `FLAKY_<CODE>` and a `fix:` line. A missing, stale, empty or malformed report never passes, and an existing `--junit` file that is not a JUnit report is refused rather than deleted.
+
+### Docs
+- `docs/flaky.md`: the GitHub Actions setup, runners, rerun scope and its preconditions, rules, output and exit codes. `docs/TESTING_INTERNALS.md#flake-ledger` points other repositories to it.
+
+### Tests
+- `test/flaky-run.test.ts` with captured Playwright 1.64 and bun 1.4 JUnit reports under `test/fixtures/junit/`: flaky pass, real red, rerun scopes, coverage-threshold and early-stop runs, unreported failures, cancelled runs, report deletion and ledger redaction.
+
+### Gate integrity
+- `test/helpers/free-fixtures-data.ts`: registers `test/fixtures/junit/**` to `test/flaky-run.test.ts`. No assertion, threshold or skip changed.
+
+## [1.91.371.0] - 2026-10-31
+
+**A PR push in a repository with a merge train no longer waits ten minutes for a check that does no work.** Under a train policy every PR push runs E2E Evals in `pr-summary` mode, which plans no paid slices, yet its `readiness` job still waited out the 600-second quiet window and green Free Tests before the run could finish. Now `readiness` waits for `route` and skips in `pr-summary` mode, so E2E Evals on a PR push finishes in about a minute (58 s on #3609) instead of after the 10-minute wait.
+
+### Changed
+- **`.github/workflows/evals.yml`**: `readiness` needs `route` and runs only when the mode is not `pr-summary`. In `pr` mode (a repository without a train) it still gates recovery and planning as before. In `pr-summary` mode a red Free Tests now shows on Free Tests alone, which stays the required free check; the train gate and the dispatched screen still carry the paid work.
+- **`bun run test:health`**: the "PR lane push-to-verdict" rule text says `pr-summary` runs skip the wait since GSTA-149, so its p50 drops by about 10 minutes from this change on.
+- **docs/TESTING_INTERNALS.md** describes the skip.
+
+### Tests
+- `test/evals-pr-lane-workflow.test.ts` pins `readiness.needs` and the full `if`. `test/evals-train-workflow.test.ts` checks that a `pr-summary` push runs only `build-image`, `route` and `screen-summary`, and that `pr` mode still runs `readiness`.
+
+## [1.91.370.0] - 2026-10-31
+
+**The free suite now runs on `ubicloud-standard-2` instead of `ubicloud-standard-8`, at the same 20 shards, for about a quarter of the runner cost.** Each shard runs its files one at a time, so it waits on disk and processes rather than CPU. In three paired rounds at one commit, the median per-shard time rose by 3 to 8 s, inside the round-to-round spread of −90 to +65 s, while runner-minutes stayed about equal (464 vs 475). Peak memory stayed under 2.5 GiB and free disk above 15 GiB. A 16-shard arm was slower beyond that spread, so the shard count stays at 20.
+
+### Changed
+- **`.github/workflows/free-tests.yml`**: one workflow-level `FREE_SUITE_RUNNER` (`ubicloud-standard-2`) and `FREE_SUITE_SHARDS` (`20`) set the free-suite size for pull_request, push and dispatch runs alike. `free-plan` resolves them into its `runner` output and the plan's shard count, and `free-suite` reads `runs-on` from that output. The duration-seed recorder stays on `ubicloud-standard-8`.
+- **Sizing experiments without a workflow edit**: `workflow_dispatch` takes `free_runner` (`ubicloud-standard-2`, `-4` or `-8` only) and `free_shards` (1–40). `free-plan` refuses any other value before planning, and a run that overrides either one says in its job summary that it is a sizing experiment, not a PR or train Free Tests result.
+- **Every free-suite shard prints `RESOURCES: peak_used_mib=… min_free_disk_mib=… samples=…`** from a memory and disk sample every 2 s, even when the suite fails. If a shard shows OOM, ENOSPC or an unexplained Chromium launch failure, move `FREE_SUITE_RUNNER` to `ubicloud-standard-4`.
+
+### Tests
+- `test/free-tests-workflow-wiring.test.ts`: runs the real `free-plan` step with a stubbed `bun`. It checks that the constant passes through when no override is given, that a valid override is honored, and that `ubuntu-24.04`, `ubicloud-standard-8 x`, `0`, `41` and `16; true` are refused before planning. It also checks that the sampler starts before the suite and that the report step runs `always()`.
+- `test/free-durations-record-workflow.test.ts`: the recorder and `FREE_SUITE_RUNNER` must both be Ubicloud standard runners. They no longer have to be the same size, because the recorder stays on standard-8.
+
 ## [1.91.369.0] - 2026-10-31
 
 **`gstack-wtree` works again in a repository that gitignores `.bun/`.** Since GST-421, its `git add -A` carried an exclude pathspec naming `.bun`, and git refuses a pathspec naming an ignored path with exit 1. Every fingerprint call then failed, which broke `gstack-review-log --start`, the evidence checks and /ship in harness-evals (HARN-1, HARN-7, harness-evals#148; GST-449).

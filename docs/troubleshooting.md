@@ -3644,13 +3644,43 @@ parentheses; grep the code.
 ### `PREREG_INCOMPLETE`
 
 **Meaning.** `gstack-eval-plan prereg --check <file>` found a required
-preregistration section missing or empty: `## Bars`, `## Arms`, `## Decoys`,
-`## Stop rules` or `## Held-out exposure` (every held-out set the plan
-touches, its prior exposure and the reservation on it).
+preregistration section missing or empty: `## Bars`, `## Arms`,
+`## Comparison`, `## Decoys`, `## Stop rules` or `## Held-out exposure`
+(every held-out set the plan touches, its prior exposure and the reservation
+on it). It also fires when `## Comparison` has no `stack:` line, a value other
+than `loaded` or `none`, or `stack: none` without a `why:` line, and when a
+`## Diagnostics` declaration is malformed.
 
 **Fix.** Fill the named sections before any priced call. A plan that cannot
 name its stop rule or its held-out exposure is not preregistered; the pilot
 refuses to start without a passing check.
+
+<a id="prereg-no-gstack-arm"></a>
+### `PREREG_NO_GSTACK_ARM`
+
+**Meaning.** The preregistration says `stack: loaded` (some arm loads gstack or
+another skill stack) and its `## No-gstack arm` section is missing, lacks one
+of `arms:`, `inputs:`, `prompt:`, `panel:` or `report:`, lists an arm that
+is not a `<model>#no-gstack` Arms line, or leaves a model in the comparison
+without its own no-gstack arm. Arms match on whole identities, so
+`claude-opus-5#no-gstack` does not cover `claude-opus-5-5`.
+
+**Fix.** Add one `<model>#no-gstack` line per model under `## Arms`, list them
+on the `arms:` line, and fill the other four keys: the same inputs, a plain
+prompt with no skill text, the same panel and judge, and where the result row
+goes beside the variants. When no arm loads a skill stack, write
+`stack: none` with a `why:` line instead. The rule is in
+[docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
+
+<a id="eval-arm-duplicate"></a>
+### `EVAL_ARM_DUPLICATE`
+
+**Meaning.** `gstack-eval-plan pilot start --arms` named the same arm identity
+twice, so two arms would share one set of pilot attempts.
+
+**Fix.** Give each arm its own identity: `<model>` or `<model>#<loadout>`, for
+example `claude-opus-5-5` and `claude-opus-5-5#no-gstack`. Nothing was
+reserved.
 
 <a id="eval-price-missing"></a>
 ### `EVAL_PRICE_MISSING`
@@ -4728,6 +4758,67 @@ written for the pinned head is the binding one and `verify --train` accepts it.
 **Fix.** Rerun /ship on the current head so the receipt names it, then rerun
 `gstack-ship-queue ready --pr <n> --screen|--no-screen`. A lane never stamps
 to fix this: the stamp comes only when the slot is called.
+
+<a id="queue-receipt-conditional"></a>
+### `QUEUE_RECEIPT_CONDITIONAL`
+
+**Meaning.** The PR body's ship receipt carries a `base_red` block: /ship's
+Step 5 failed on cases `gstack-base-red` proved are the base branch's own, so
+/ship paused before READY ([base_red](ship-policy.md#base-red)). Nothing
+READYs, trains, carries or merges on it.
+
+**Fix.** Wait for the base to pass those cases (`gstack-base-red wait --pause
+<file>`), then run `/ship --resume <record>`, which reruns Step 5 and rewrites
+the receipt without `base_red`.
+
+<a id="base-red-unconfigured"></a>
+### `BASE_RED_UNCONFIGURED`
+
+**Meaning.** `origin/<base>`'s ship policy has no `base_red` block, so
+`gstack-base-red` cannot reproduce a failure there and every Step 5 failure
+stays in-branch. An invalid ship policy on the base counts the same (the
+invalid key is printed first). `wait` prints it when the block was removed
+after the pause.
+
+**Fix.** Use /ship's usual triage. To let /ship pause on a red base, add
+`base_red` to `.gstack/ship-policy.json` on the base branch
+([base_red](ship-policy.md#base-red)).
+
+<a id="base-red-unnamed"></a>
+### `BASE_RED_UNNAMED`
+
+**Meaning.** The failure evidence names fewer failures than the lane reported,
+so an unnamed failure could be the PR's.
+
+**Fix.** List every failing test (`id`, `file`, first error line as
+`signature`) with `total` equal to the lane's failure count, and classify again.
+
+<a id="base-red-repro-error"></a>
+### `BASE_RED_REPRO_ERROR`
+
+**Meaning.** `gstack-base-red` could not run the reproduction: the base or HEAD
+did not resolve, the PR's diff was unreadable, the scratch checkout failed, or
+`setup` exited non-zero. Every failure stays in-branch.
+
+**Fix.** Read the printed detail. Fetch the base, or fix the `base_red.setup`
+command on the base branch, then classify again.
+
+<a id="base-red-pause-expired"></a>
+### `BASE_RED_PAUSE_EXPIRED`
+
+**Meaning.** The pause is older than 24 hours, so its classification is stale.
+
+**Fix.** Report the paused PR to its Captain or owner, then start /ship again on
+the current base; it classifies afresh.
+
+<a id="base-red-wait-timeout"></a>
+### `BASE_RED_WAIT_TIMEOUT`
+
+**Meaning.** No new base head passed the paused cases before `gstack-base-red
+wait`'s `--timeout`.
+
+**Fix.** Run `wait` again (the pause stays valid until it expires), or find who
+owns the base's red.
 
 <a id="queue-receipt-depth-raised"></a>
 ### `QUEUE_RECEIPT_DEPTH_RAISED`
