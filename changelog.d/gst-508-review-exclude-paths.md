@@ -9,7 +9,7 @@
 - **A review ceiling.** `gstack-review-dispatch pass`, `stage` and `render` read each reader's diff once before writing anything. Over 2,000,000 bytes (about 500K tokens) is `REVIEW_DIFF_TOO_LARGE` (exit 3) with a fix for where the policy stands and pasteable JSON; a `git diff` that fails or runs past 120 seconds is `REVIEW_DIFF_UNREADABLE` (exit 1) with the reason, the timeout and a redacted stderr log.
 
 ### Changed
-- A repository without the key plans, briefs and diffs byte for byte as before. The one change it can see is the ceiling: a reader's diff over 2,000,000 bytes now stops the pass instead of being read in part.
+- A repository without the key plans, briefs and diffs byte for byte as before. The one change it can see is the ceiling. A reader's diff over 2,000,000 bytes now stops the pass instead of being read in part.
 
 ### Tests
 - `test/review-exclude.test.ts`: what is excluded and kept (binary files under `config/`, a file named only by a data manifest or by its basename, a file a test names by full path), every brief's diff commands run against git, the numeric scan and targeted classes, the base policy read (no file, a missing blob, a bad commit, an invalid key), the argument-byte bound, both ceiling lines, and the receipt write, carry and queue checks.
