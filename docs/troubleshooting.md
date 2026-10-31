@@ -1525,7 +1525,8 @@ yourself; or change the pin in the project.
 **Meaning.** An install-mode session start above the supported minimum found
 the checkout behind origin and could not fast-forward it: the checkout is
 dirty, diverged or pinned (`UPGRADE_REFUSED`), another live session holds a
-lease (`UPGRADE_BUSY`), or `bin/gstack-upgrade` is missing
+lease (`UPGRADE_BUSY`), `bin/gstack-upgrade` is missing, or the session is a
+`--for review-voice` reviewer, which never moves a checkout a lane may share
 (`UPGRADE_SKIPPED`). Nothing was changed, the doctor certified the installed
 revision, and the trailer stays `gstack: ok` with the notes above: a gap
 above the minimum is never a hard fail. The verdict records the installed

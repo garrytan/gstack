@@ -27,5 +27,7 @@ ask format is gstack docs/captain.md, The ask format.
 |---|---|---|---|
 | <code> | <files or area> | <building / READY / train slot i / blocked on …> | <age> |
 
+A thread the controller archives leaves this table in the same turn.
+
 Stalls to act on: a lane with no report for longer than <N hours>, a READY older than
 `FILL_HOURS` with no train, a slot call unanswered for longer than <N minutes>.

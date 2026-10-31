@@ -150,16 +150,19 @@ describe('--for review-voice through the no-Drive brief', () => {
     expect(warm.ms).toBeLessThan(WARM_BUDGET_MS);
   }, 300_000);
 
-  test('origin moves: the same brief fast-forwards the checkout before it certifies', () => {
+  // GST-290: the reviewer's machine may share this checkout with a lane mid-workflow.
+  test('origin moves: the same brief never moves the checkout; it certifies the installed revision and reports behind', () => {
+    const head = git(['rev-parse', 'HEAD'], root);
     fs.writeFileSync(path.join(origin, 'REVIEW_VOICE_FIXTURE.md'), 'moved\n');
     git(['add', '-A'], origin);
     git(['commit', '-qm', 'origin moves'], origin);
-    const tip = git(['rev-parse', 'HEAD'], origin);
     const moved = brief();
     expect(moved.status, moved.out + moved.stderr).toBe(0);
-    expect(moved.out).toContain(`SELF_UPGRADE: done ${VERSION} -> ${VERSION}`);
-    expect(git(['rev-parse', 'HEAD'], root)).toBe(tip);
-    expect(trailer(moved.out)).toBe(OK_TRAILER);
+    expect(moved.out).toContain(`SELF_UPGRADE: skipped (review-voice never self-upgrades a shared checkout; fix: ${root}/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED))`);
+    expect(moved.out).not.toContain('SELF_UPGRADE: done');
+    expect(git(['rev-parse', 'HEAD'], root)).toBe(head);
+    expect(trailer(moved.out)).toStartWith(`gstack: ok ${VERSION} for=review-voice (pins: skipped (helper runtime); behind=1 `);
+    expect(trailer(moved.out)).toContain('(UPGRADE_SKIPPED)');
   }, 300_000);
 
   test('a review-voice check never narrows an ok verdict a fuller install wrote for this HEAD and project', () => {

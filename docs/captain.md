@@ -377,7 +377,8 @@ field").
 `DIGEST.md` is rewritten every controller turn: **Needs you** (decisions only the owner
 can make, in [the ask format](#the-ask-format); empty is the goal), **New** (what landed or
 changed, newest first), **In progress** (every lane, what it owns, its state, the age of
-its last report). Ages turn stalls into the controller's next action.
+its last report). Ages turn stalls into the controller's next action. When the controller
+archives a thread, it drops that thread from **In progress** in the same turn.
 
 ## The daily flaky pass
 
