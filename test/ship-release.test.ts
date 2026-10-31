@@ -60,6 +60,51 @@ describe('version (Step 12)', () => {
   });
 });
 
+describe('version (Step 12): keeping VERSION and waiting for the bump answer (GST-380)', () => {
+  const UNATTENDED = { GSTACK_SESSION_KIND: 'unattended' };
+  const untouched = (f: ShipFx) => {
+    expect(read(f, 'VERSION')).toBe('1.0.0.0\n');
+    expect(JSON.parse(read(f, 'package.json')).version).toBe('1.0.0');
+    expect(read(f, 'CHANGELOG.md')).toContain('## [Unreleased]');
+    expect(f.git('status', '--porcelain').stdout).toBe('');
+  };
+
+  // Value: protects=a repo whose unit PRs never change VERSION can pass Step 12 with --keep-current or --version <current> on a FRESH branch, and nothing is written or claimed; fails_when=FRESH demands a level before it reads those flags (gstack-evals#85: BUMP_LEVEL needed for all three flags);
+  //   why_new=GST-380; seam=gstack-version-bump classify; no_claim=the queue's live host read
+  test('FRESH under bump ask: --keep-current and --version <current> keep VERSION with no write', () => {
+    for (const args of [['--keep-current'], ['--version', '1.0.0.0']]) {
+      const f = fx();
+      const r = f.run(RELEASE, ['version', '--base', 'main', ...args]);
+      expect([r.status, lineOf(r.stdout, 'VERSION')]).toEqual([0, expect.stringMatching(/^VERSION: 1\.0\.0\.0 kept \(FRESH, /)]);
+      expect(r.stdout).toContain('NEXT: Step 13');
+      untouched(f);
+    }
+    const g = fx();
+    const incomplete = g.run(RELEASE, ['version', '--base', 'main', '--accept-incomplete']);
+    expect([incomplete.status, incomplete.stdout.includes('--keep-current')]).toEqual([3, true]);
+    untouched(g);
+  });
+
+  // Value: protects=in a session no person answers (unattended, spawned, OpenClaw, headless) a bump under bump ask waits for the owner's words before anything is written; fails_when=the bin writes VERSION on a --bump the agent took as the recommended option (gstack-evals#89 wrote 0.0.2 before anyone was asked);
+  //   why_new=GST-380; seam=gstack-session-kind's classification, gstack-version-bump write; no_claim=that the words came from the owner
+  test('an unattended --bump under bump ask stops with BUMP_ANSWER_REQUIRED and writes nothing until --answer', () => {
+    for (const env of [UNATTENDED, { GSTACK_SESSION_KIND: 'spawned' }, { OPENCLAW_SESSION: '1' }, { GSTACK_HEADLESS: '1' }]) {
+      const f = fx();
+      const r = f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--why', 'small'], env);
+      expect([r.status, /^STOP: BUMP_ANSWER_REQUIRED/m.test(r.stdout), r.stdout.includes('--keep-current')]).toEqual([3, true, true]);
+      untouched(f);
+    }
+    const f = fx();
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--answer', '--why', 'x'], UNATTENDED).status).toBe(2);
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--answer', ' '], UNATTENDED).status).toBe(2);
+    untouched(f);
+    const ok = f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro', '--answer', 'micro is fine'], UNATTENDED);
+    expect([ok.status, read(f, 'VERSION')]).toEqual([0, '1.0.0.1\n']);
+    const patch = fx({ '.gstack/ship-policy.json': '{"bump":"patch"}\n' });
+    expect([patch.run(RELEASE, ['version', '--base', 'main'], UNATTENDED).status, read(patch, 'VERSION')]).toEqual([0, '1.0.1.0\n']);
+  });
+});
+
 describe('finish (Steps 15-16)', () => {
   // Value: protects=finish commits only release metadata with the trailer, then checks the reviewed-tree route, docs freshness, each lane receipt and the pregate; fails_when=it commits feature files, skips a stage, or pushes;
   //   why_new=moved from Steps 15-16; seam=gstack-wtree, gstack-docs-candidate compare, gstack-evidence, gstack-pregate; no_claim=the stage 5 report
