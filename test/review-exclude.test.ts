@@ -32,6 +32,8 @@ function census(patterns: string[] | null = ['receipts/**']): FixtureRepo {
   }
   write(repo.work, 'receipts/run.sh', '#!/bin/sh\necho run\n');
   fs.chmodSync(path.join(repo.work, 'receipts/run.sh'), 0o755);
+  repo.git('add', 'receipts/run.sh');
+  repo.git('update-index', '--chmod=+x', 'receipts/run.sh');
   commit(repo, {
     'receipts/a/result.json': '{"cost_usd": 12.5, "pass_rate": "97%"}\n',
     'receipts/b/result.json': '{"ok": true}\n',
@@ -325,7 +327,7 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect(blind.kept.filter(k => k.reason === 'gate-scan-unavailable').map(k => k.path).sort()).toEqual([...EXCLUDED, 'receipts/b/result.json', 'receipts/d/fixture.json'].sort());
   }, 120_000);
 
-  test('a live binary file whose bytes cannot be read is kept, not excluded', () => {
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('a live binary file whose bytes cannot be read is kept, not excluded', () => {
     const repo = census();
     const gz = path.join(repo.work, 'receipts/a/shot.png');
     fs.writeFileSync(gz, Buffer.from([0x89, 0x50, 0, 1]));
