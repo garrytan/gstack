@@ -180,7 +180,7 @@ describe("fetch", () => {
 describe("record and history", () => {
   test("record takes the bot and path from the fetched comment, so a contributor-named file never reaches a shell", () => {
     const fetched = run({
-      line: [[{ id: 7, user: bot("coderabbitai[bot]"), path: "src/$(printf X).ts", line: 1, position: 1, body: "x" }, { id: 8, user: bot("coderabbitai[bot]"), path: "a | b.ts", line: 1, position: 1, body: "x" }]],
+      line: [[{ id: 7, user: bot("coderabbitai[bot]"), path: "src/$(printf X).ts", line: 1, position: 1, body: "x" }, { id: 8, user: bot("coderabbitai[bot]"), path: "a | b.ts", line: 1, position: 1, body: "x" }, { id: 6, user: bot("coderabbitai[bot]"), path: "**", line: 1, position: 1, body: "x" }]],
       top: [[{ id: 9, user: bot("greptile-apps[bot]"), body: "y" }]],
     }, "fetch");
     const dir = /^REVIEW_BOTS_DIR: (.+)$/m.exec(fetched.text)![1]!;
@@ -192,9 +192,19 @@ describe("record and history", () => {
     expect(parseHistory(row)).toEqual([{ repo: "acme/widget", type: "fp", pattern: "src/$(printf X).ts", category: "style", bot: "coderabbit" }]);
     const top = run({}, "record", "--dir", dir, "--id", "9", "--type", "already-fixed", "--category", "correctness");
     expect(fs.readFileSync(path.join(top.state, "review-bot-history.md"), "utf8")).toBe("2026-10-31 | acme/widget | already-fixed | top-level | correctness | greptile\n");
-    const piped = run({}, "record", "--dir", dir, "--id", "8", "--type", "fp", "--category", "style");
-    expect(piped.code).toBe(1);
-    expect(fs.existsSync(path.join(piped.state, "review-bot-history.md"))).toBe(false);
+    for (const bad of ["8", "6"]) {
+      const refused = run({}, "record", "--dir", dir, "--id", bad, "--type", "fp", "--category", "security");
+      expect(refused.code).toBe(1);
+      expect(fs.existsSync(path.join(refused.state, "review-bot-history.md"))).toBe(false);
+    }
+  });
+
+  test("record refuses an id two comment kinds share", () => {
+    const fetched = run({ line: [[{ id: 9, user: bot("coderabbitai[bot]"), path: "a.ts", line: 1, position: 1, body: "x" }]], top: [[{ id: 9, user: bot("greptile-apps[bot]"), body: "y" }]] }, "fetch");
+    const dir = /^REVIEW_BOTS_DIR: (.+)$/m.exec(fetched.text)![1]!;
+    const r = run({}, "record", "--dir", dir, "--id", "9", "--type", "fp", "--category", "style");
+    expect(r.code).toBe(1);
+    expect(r.text).toContain("more than one comment 9");
   });
 
   test("record refuses anything but a known id, type and category", () => {
@@ -206,6 +216,7 @@ describe("record and history", () => {
     expect(rec({}, "--id", "9;rm", "--type", "fp", "--category", "style").code).toBe(64);
     expect(rec({}, "--id", "9", "--type", "fp").code).toBe(64);
     expect(rec({}, "--id", "10", "--type", "fp", "--category", "style").code).toBe(1);
+    expect(run({}, "record", "--dir", path.join(dir, "gone"), "--id", "9", "--type", "fp", "--category", "style").text).toContain("is gone; run fetch again");
     const noRepo = rec({ repoFails: true }, "--id", "9", "--type", "fp", "--category", "style");
     expect(noRepo.code).toBe(1);
     expect(fs.existsSync(path.join(noRepo.state, "review-bot-history.md"))).toBe(false);

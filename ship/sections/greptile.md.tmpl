@@ -46,7 +46,7 @@ including escalation tiers; the parent handles decisions and queues approved fix
 **Parent processing:**
 
 Parse the LAST line as JSON. Require the declared status, a nonnegative integer
-total matching the comments array, a `bot` on every comment, and the status/reason invariants above. An
+total matching the comments array, a `bot` and integer `id` on every comment, `dir` when comments exist, and the status/reason invariants above. An
 unknown or missing status is unavailable, never an empty successful review.
 
 For `no_pr`, record "Review bots: not run (no PR, or both bot lists are none)"; for `complete` with zero comments,

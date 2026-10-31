@@ -182,10 +182,14 @@ function record(env: ReviewBotsEnv, args: string[]): number {
   if (!/^[1-9][0-9]*$/.test(id)) { env.err("gstack-review-bots: --id must be a comment id from comments.jsonl\n"); return 64; }
   if (!(HISTORY_TYPES as readonly string[]).includes(type)) { env.err(`gstack-review-bots: --type must be one of ${HISTORY_TYPES.join(", ")}\n`); return 64; }
   if (!(CATEGORIES as readonly string[]).includes(category)) { env.err(`gstack-review-bots: --category must be one of ${CATEGORIES.join(", ")}\n`); return 64; }
-  const comment = readOr(path.join(dir, "comments.jsonl")).split("\n").filter(Boolean).map(l => JSON.parse(l) as BotComment).find(c => String(c.id) === id);
-  if (!comment) { env.err(`gstack-review-bots: no comment ${id} in ${path.join(dir, "comments.jsonl")}\n`); return 1; }
-  const [bot, file] = [comment.bot, comment.path || "top-level"];
-  if (/[|\r\n]/.test(file)) { env.err("gstack-review-bots: the comment's path contains | or a line break, so it cannot be a history row\n"); return 1; }
+  const jsonl = path.join(dir, "comments.jsonl");
+  if (!fs.existsSync(jsonl)) { env.err(`gstack-review-bots: ${jsonl} is gone; run fetch again and record by the new ids\n`); return 1; }
+  let matches: BotComment[];
+  try { matches = readOr(jsonl).split("\n").filter(Boolean).map(l => JSON.parse(l) as BotComment).filter(c => String(c.id) === id); }
+  catch { env.err(`gstack-review-bots: ${jsonl} is not valid JSONL; run fetch again\n`); return 1; }
+  if (matches.length !== 1) { env.err(`gstack-review-bots: ${matches.length ? "more than one" : "no"} comment ${id} in ${jsonl}\n`); return 1; }
+  const [bot, file] = [matches[0]!.bot, matches[0]!.path || "top-level"];
+  if (/[|*\r\n]/.test(file)) { env.err("gstack-review-bots: the comment's path contains |, * or a line break, so it cannot be a literal history row\n"); return 1; }
   const repoRun = env.run("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
   const repo = repoRun.status === 0 ? repoRun.stdout.trim() : "";
   if (!repo) { env.err(`gstack-review-bots: cannot resolve the GitHub repository: ${firstLine(repoRun.stderr)}\n`); return 1; }
