@@ -690,7 +690,10 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
     const line = match.input.slice(start + 1).split("\n", 1)[0];
     const close = line.indexOf("}");
     if (close < 0 || /["'`]/.test(line.slice(0, close))) return false;
-    return line.slice(0, close).split("+").every(term => CODE_NAME_CHAIN.test(term.trim()));
+    // Names joined by + or by a logical operator (React keys: `{item.id ?? index}`,
+    // `{a.uuid || a.slug}`). A quoted literal anywhere in the brace already
+    // returned false above, so only identifier chains pass.
+    return line.slice(0, close).split(/\+|\?\?|\|\||&&/).every(term => CODE_NAME_CHAIN.test(term.trim()));
   }
   const separator = match[0].slice(0, match[0].length - span.length).trimEnd().slice(-1);
   if (separator !== ":") return false;

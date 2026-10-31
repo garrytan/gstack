@@ -262,6 +262,10 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [signature, "src/coach.ts"],
       ["interface Props {\n  session: SessionState;\n}", "src/props.ts"],
       ["key={turn.requestId + turn.role + index}", "src/Turn.tsx"],
+      // React keys join names with ?? / || / && as often as with +.
+      ["key={workout.id ?? index}", "src/SessionList.jsx"],
+      ["key={item.uuid || item.slug}", "src/List.tsx"],
+      ["key={row.ready && row.id}", "src/Grid.tsx"],
       ["apiKey={settings.apiKey}", "src/Settings.jsx"],
     ] as const) expect({ code, kv: kv(code, file) }).toEqual({ code, kv: false });
     for (const [literal, file] of [
@@ -271,6 +275,8 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       ["  session: SessionState,", "deploy/values.yaml"],
       [`session: "${v}",`, "src/a.ts"], [`key={${v}}`, "src/A.tsx"], [`API_KEY={${v}}`, "src/A.tsx"],
       [`key={settings.apiKey + "${v}"}`, "src/A.tsx"], [`key="${v}"`, "src/A.tsx"], [`api_key: ${v}`, ".env"],
+      [`key={settings.apiKey ?? "${v}"}`, "src/A.tsx"], [`key={${v} || index}`, "src/A.tsx"],
+      ["key={workout.id ?? index}", ".env"],
     ] as const) expect({ literal, file, kv: kv(literal, file) }).toEqual({ literal, file, kv: true });
     const jwt = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"].join(".");
     expect(scan(`token: ${jwt},`, { repoVisibility: "private", sourcePath: "src/auth.ts" }).findings.map((f) => f.id)).toContain("jwt");
