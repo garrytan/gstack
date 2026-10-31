@@ -9,7 +9,7 @@
  *   judge     the verdict on the parent's judged set (ok, or the dropped and downgraded ids)
  *
  * Findings reach merged.jsonl only through collect, with each voice's label as written (a prose line's most severe one that
- * no negator directly scopes, raised by the Severity line below it), except that a prose voice's `Blocks: yes` and the native voice's FIXABLE collect
+ * no closing-summary sentence drops, raised by the Severity line below it), except that a prose voice's `Blocks: yes` and the native voice's FIXABLE collect
  * as CRITICAL (GSTA-167 normalizer v2).
  * The parent's judged set may add or promote a finding and may fold a duplicate into one at least
  * as severe; it never drops or downgrades one. verify replays every check from the ledger alone.
@@ -60,21 +60,39 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /**
- * GST-435 rule (b): a severity word is no label when a negator directly scopes it: "not CRITICAL", "isn't really High", "no CRITICAL
- * or High findings", "found nothing CRITICAL", "nothing at CRITICAL", "below CRITICAL", "Neither finding is CRITICAL", "none of which is
- * High". A negated subject scopes the label only when it names the review's own findings ("Neither finding", "Nothing here", "none of
- * which"). A negation of something else ("No input validation is CRITICAL (upload.ts:4)", "Nothing guards the write path the failure of
- * which is CRITICAL", "None of the writes are atomic and are CRITICAL") leaves the word a label, and a table row is never read for negation.
+ * GST-435 rule (b'): a severity word is dropped only from a closing summary, a sentence that as a whole is one of a closed set of
+ * templates: an optional "I found" (or "there's", or "N INFORMATIONAL issues and"), a negator (no, nothing, none, neither, not), an
+ * optional review subject (finding, fix, change, here, else, "of these", "in this diff"), an optional is/are, the label words and a
+ * short tail ("findings", "to report"). "I found three INFORMATIONAL issues and no CRITICAL ones", "Neither fix is CRITICAL", "Nothing
+ * in this diff is CRITICAL". A sentence that names a file:line, holds an exception or contrast word, runs over 100 characters or sits
+ * in a table row keeps every label, and so does any phrasing the templates do not list: a phantom costs a fold, a lost one the gate.
  */
 const QUOTE = '[`*"\'\u201c\u201d\u2018\u2019]*';
-const FILLER = '(?:\\s+(?:really|actually|quite|even|yet|a|an|any|at|as|be|rise|rises|to|reach|reaches|meet|meets|count|counts|qualify|qualifies|rated|marked|called|flagged))';
-const SUBJECT_WORD = '(?:the|two|three|four|both|other|remaining|above|listed|reported|new|these|those|them|it|here|else|left|finding|findings|issue|issues|defect|defects|problem|problems|bug|bugs|concern|concerns|item|items|nit|nits|one|ones|note|notes)\\b';
-const DIRECT = `(?:\\b(?:not|never|no|nothing|none|neither|nor|cannot|below|beneath|lower\\s+than|less\\s+than|short\\s+of)|n['\u2019]t)${FILLER}{0,3}`;
-const SUBJECT = `\\b(?:no|none|neither|nothing)(?:\\s+of\\s+(?:the|these|those|them|which|it|this|its|my|our|their))?(?:\\s+${SUBJECT_WORD}){0,3}\\s+(?:is|are|was|were|be|seems?|looks?|reads?\\s+as|counts?\\s+as|rises?\\s+to|ranks?\\s+as)${FILLER}{0,2}`;
-const NEGATED_BEFORE = new RegExp(`(?:${DIRECT}|${SUBJECT})\\s+(?:${QUOTE}(?:${LABELS})${QUOTE}\\s*(?:,|/|\\bor\\b|\\bnor\\b|\\band\\b)\\s*)*${QUOTE}$`, 'i');
+const NUM = '(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d+)';
+const NOUN = '(?:findings?|issues?|defects?|gaps?|nits?|notes?|items?|problems?|blockers?|ones?)';
+const LABEL_LIST = `${QUOTE}(?:${LABELS})${QUOTE}(?:\\s*(?:,|\\bor\\b|\\band\\b)\\s*${QUOTE}(?:${LABELS})${QUOTE})*`;
+const CLOSING = new RegExp(`^(?:so\\s+)?(?:(?:I|we|(?:the|this)\\s+[\\w-]+(?:\\s+[\\w-]+)?\\s+(?:pass|review))\\s+(?:found|find|see|saw|have|has)\\s+|there(?:['\u2019]s|\\s+is|\\s+are|\\s+was|\\s+were)\\s+)?`
+  + `(?:${NUM}\\s+${QUOTE}(?:${LABELS})${QUOTE}\\s+${NOUN}(?:,|\\s+and)\\s+)?(?<neg>(?:no|nothing|none|neither|not)`
+  + `(?:\\s+(?:of\\s+(?:these|them|which|the(?:\\s+${NUM})?\\s+(?:findings|issues|fixes|changes))|findings?|issues?|items?|problems?|fix(?:es)?|changes?|blockers?|here|else|other|in\\s+this\\s+(?:diff|pr|change)))?`
+  + `(?:\\s+(?:is|are|was|were|remains?))?(?:\\s+at)?\\s+${LABEL_LIST}(?:\\s+${NOUN})?(?:\\s+(?:found|remaining|left|to\\s+report|in\\s+this\\s+(?:diff|pr|change)))?)`
+  + `(?:,\\s+so\\s+the\\s+(?:fix|fixes|change|changes)\\s+(?:is|are)\\s+sound)?$`, 'di');
+const EXCEPTION = /\b(?:except|besides|apart\s+from|other\s+than|but|however|only|though|although|unless)\b/i;
+const LEAD = /^\s*(?:(?:[-*+]|\d+[.)])\s+)?(?:\**(?:(?:[\w-]+\s+){0,2}(?:pass|review|check)\s+is\s+done|overall|summary|verdict|in\s+short|bottom\s+line):\**\s+)?(?:(?:none|nothing|no|neither)\b[^:;]*?,\s+so\s+)?/i;
 const tableRow = (t: string) => t.startsWith('|') || (t.match(/\|/g)?.length ?? 0) >= 2;
-/** The label words on a line that no negator directly scopes; on a table row, every one. */
-const unnegatedLabels = (t: string) => [...t.matchAll(ALL_LABELS)].filter(m => tableRow(t) || !NEGATED_BEFORE.test(t.slice(0, m.index))).map(m => m[1]!);
+/** The label words on a line that no closing-summary sentence drops (rule (b')); on a table row, every one. */
+const unnegatedLabels = (t: string) => {
+  const dropped: Array<[number, number]> = [];
+  if (!tableRow(t)) for (const s of t.matchAll(/(?:[^.!?;]|[.!?;](?!\s|$))+[.!?;]*/g)) {
+    if (s[0].length > 160 || LOCUS.test(s[0]) || EXCEPTION.test(s[0])) continue;
+    const lead = LEAD.exec(s[0])![0];
+    if (ANY_LABEL.test(lead)) continue;
+    const core = s[0].slice(lead.length).replace(/[\s.!?;]+$/, '');
+    const m = core.length <= 100 ? CLOSING.exec(core) : null;
+    const span = m?.indices?.groups?.neg;
+    if (span) dropped.push([s.index! + lead.length + span[0], s.index! + lead.length + span[1]]);
+  }
+  return [...t.matchAll(ALL_LABELS)].filter(m => !dropped.some(([a, b]) => m.index! >= a && m.index! < b)).map(m => m[1]!);
+};
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
@@ -84,7 +102,7 @@ export interface MergedLine { id: string; reader: string; label: string; raw: st
 
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
- * FIXABLE/INVESTIGATE label no negator directly scopes ("no CRITICAL ones" is none; a table row is never read for negation), at
+ * FIXABLE/INVESTIGATE label no closing-summary sentence drops (rule (b'): "I found no CRITICAL ones" is none; a table row never drops), at
  * the most severe such label on it, and each top-level list item under a label-only heading (the stronger
  * of the two labels). A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` raises its label,
  * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
