@@ -859,7 +859,7 @@ describe('gstack-developer-profile concurrent writers (#3437)', () => {
       const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
       const res = spawnSync(BIN_DEV, ['--derive'], { env, encoding: 'utf-8', cwd: ROOT, timeout: 10_000 });
       expect(res.signal).toBeNull();
-      expect([0, 5]).toContain(res.status);
+      expect([0, 5]).toContain(res.status ?? -1);
     } finally {
       fs.chmodSync(tmpHome, 0o755);
     }
