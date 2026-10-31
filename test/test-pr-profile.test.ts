@@ -67,6 +67,8 @@ describe('fast PR coverage policy', () => {
   test('a changelog.d fragment has no eval dependents; a touchfile naming one still selects its case (GST-400)', () => {
     const fragment = select({ selectedE2E: [], selectedJudges: [], changedFiles: ['changelog.d/gst-400.md', 'changelog.d/README.md'], derived: null });
     expect([fragment.mode, fragment.unknownFiles, fragment.e2e, fragment.needsFullValidation]).toEqual(['pr', [], [], false]);
+    const outside = select({ selectedE2E: [], selectedJudges: [], changedFiles: ['changelog.d/x.ts', 'changelog.d/nested/x.md'], derived: null });
+    expect([...outside.unknownFiles].sort()).toEqual(['changelog.d/nested/x.md', 'changelog.d/x.ts']);
     const real = selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles: ['changelog.d/gst-400.md'] });
     expect([real.mode, real.unknownFiles]).toEqual(['pr', []]);
     const table = { ...maps.e2eTouchfiles, 'ceo-smoke': ['plan-ceo-review/**', 'changelog.d/ceo.md'] };

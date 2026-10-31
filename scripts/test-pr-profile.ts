@@ -337,7 +337,7 @@ export function knownNonBehaviorFile(file: string): boolean {
     || ['AGENTS.md', 'CLAUDE.md', 'agents-digest/gstack-AGENTS.md'].includes(file)
     || FREE_ONLY_PR_FILES.some(pattern => matchGlob(file, pattern))
     || RELEASE_METADATA_FILES.some(pattern => matchGlob(file, pattern))
-    || (CHANGELOG_FRAGMENTS_DIR !== null && file.startsWith(`${CHANGELOG_FRAGMENTS_DIR}/`))
+    || (CHANGELOG_FRAGMENTS_DIR !== null && path.posix.dirname(file) === CHANGELOG_FRAGMENTS_DIR && file.endsWith('.md'))
     || (PERIODIC_ONLY_PR_FILES as readonly string[]).includes(file)
     || (file.startsWith('test/fixtures/') && Object.keys(FREE_FIXTURES).some(pattern => matchGlob(file, pattern)))
     // Free test files anywhere (test/, browse/test/, design/test/, make-pdf/test/): no paid case runs or reads a free test.
