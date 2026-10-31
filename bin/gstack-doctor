@@ -520,7 +520,7 @@ check_windows_bash() {
     row warn "windows bash" "not checked: bun not found" "install Bun (see the bun row), then rerun $BIN/gstack-doctor"
     return
   fi
-  out=$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$BIN/gstack-windows-bash.ts" ${GSTACK_DOCTOR_BASH_PROBE:+--probe "$GSTACK_DOCTOR_BASH_PROBE"} </dev/null 2>&1)
+  out=$(unset MSYS_NO_PATHCONV; bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$BIN/gstack-windows-bash.ts" ${GSTACK_DOCTOR_BASH_PROBE:+--probe "$GSTACK_DOCTOR_BASH_PROBE"} </dev/null 2>&1)
   rc=$?
   out=$(printf '%s\n' "$out" | tr -d '\000-\010\013-\037')
   bash=$(printf '%s\n' "$out" | sed -n 's/^WINDOWS_BASH: //p' | head -1)
