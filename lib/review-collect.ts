@@ -39,7 +39,7 @@ function gitUntil(root: string, args: string[], deadline: number): { status: num
   const left = deadline - Date.now();
   if (left <= 0) return { status: null, out: '', err: '', timedOut: true };
   const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, encoding: 'utf8', timeout: left, maxBuffer: 256 * 1024 * 1024 });
-  return { status: r.status, out: r.stdout ?? '', err: (r.stderr ?? '').trim(), timedOut: r.status === null && Date.now() >= deadline };
+  return { status: r.status, out: r.stdout ?? '', err: (r.stderr ?? '').trim() || ((r.error as NodeJS.ErrnoException | undefined)?.code ?? ''), timedOut: r.status === null && Date.now() >= deadline };
 }
 const scratch = (p: string) => p.startsWith('.gstack/tmp/');
 const oneLine = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').trim().slice(0, 200);
@@ -123,15 +123,21 @@ export type GrepFailure = { timedOut: boolean; status: number | null; err: strin
  * The lines `git grep -I -F -o --null` prints for `patterns` at `rev` ('' is the working tree with untracked files), for
  * the files `keep` accepts, in some order. Every pattern holds its own extension, so a `-l` pass for the extensions alone
  * lists every file that can match; the full pattern list then reads only those files, CONSUMER_SCAN_PATHSPEC_BYTES of
- * paths per call under --literal-pathspecs (an inherited GIT_GLOB_PATHSPECS makes git refuse, which fails closed). Each call gets what is left of `deadline` (epoch ms).
+ * paths per call under --literal-pathspecs (an inherited GIT_GLOB_PATHSPECS makes git refuse, which fails closed). A listed name
+ * that is not valid UTF-8 cannot be passed back as a path, so then one grep reads the whole tree, as the scan did before GST-544. Each call gets what is left of `deadline` (epoch ms).
  */
 export function grepConsumers(root: string, patterns: readonly string[], rev: string, keep: (file: string) => boolean, deadline: number, chunkBytes = CONSUMER_SCAN_PATHSPEC_BYTES): string[] | GrepFailure {
   const where = rev ? [rev, '--'] : ['--untracked', '--'];
   const exts = [...new Set(patterns.map(b => b.slice(b.lastIndexOf('.'))))].flatMap(e => ['-e', e]);
   const listed = gitUntil(root, ['grep', '-I', '-F', '-l', '-z', '--no-color', ...exts, ...where], deadline);
   if (listed.status !== 0 && listed.status !== 1) return listed;
-  const files = listed.out.split('\0').filter(Boolean).map(f => (rev ? f.slice(rev.length + 1) : f)).filter(keep);
+  const names = listed.out.split('\0').filter(Boolean).map(f => (rev ? f.slice(rev.length + 1) : f));
   const flags = ['--literal-pathspecs', 'grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns.flatMap(b => ['-e', b]), ...where];
+  if (names.some(f => f.includes('\uFFFD'))) {
+    const whole = gitUntil(root, flags, deadline);
+    return whole.status !== 0 && whole.status !== 1 ? whole : whole.out.split('\n');
+  }
+  const files = names.filter(keep);
   const lines: string[] = [];
   for (let i = 0; i < files.length;) {
     const chunk: string[] = [];
@@ -143,7 +149,7 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
     }
     const r = gitUntil(root, [...flags, ...chunk], deadline);
     if (r.status !== 0 && r.status !== 1) return r;
-    lines.push(...r.out.split('\n'));
+    for (const line of r.out.split('\n')) lines.push(line);
   }
   return lines;
 }

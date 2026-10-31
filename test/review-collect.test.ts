@@ -247,13 +247,32 @@ describe('GST-544: the consumer scan reads only files that can match, under one 
   // Value: protects=an inherited GIT_LITERAL_PATHSPECS (git --literal-pathspecs exports it to children) cannot empty the narrowed
   //   search and drop data to docs; a fractional override cannot crash spawnSync; fails_when=the pathspecs use magic the variable
   //   turns off, or the timeout is not an integer; seam=the process environment
-  test('an inherited GIT_LITERAL_PATHSPECS keeps the same lines; a fractional timeout override is whole milliseconds', () => {
+  test('an inherited GIT_LITERAL_PATHSPECS keeps the same lines; a fractional timeout is whole milliseconds; a spawn error is named', () => {
     const r = mixed();
     withEnv('GIT_LITERAL_PATHSPECS', '1', () => {
       for (const at of [r.head, '']) expect((grepConsumers(r.dir, patterns, at, () => true, Date.now() + 10_000) as string[]).filter(Boolean).sort()).toEqual(wholeTree(r.dir, at));
     });
     withEnv('GSTACK_CONSUMER_SCAN_TIMEOUT_MS', '1500.5', () => expect(consumerScanTimeoutMs()).toBe(1500));
+    const errors: Parameters<typeof scanConsumers>[5] = [];
+    withEnv('PATH', path.join(r.dir, 'no-bin'), () => expect(scanConsumers(r.dir, ['data/rows.json'], [r.head], false, r.dir, errors, 10_000)).toBe('all'));
+    expect(errors[0]!.detail).toMatch(/^git grep exited null: .*ENOENT/);
   });
+  // Value: protects=a consumer whose name is not valid UTF-8 still counts, and a file with a million references does not crash the
+  //   planner; fails_when=the -l pass hands back a mangled name as a pathspec, or the matches are spread into one call;
+  //   seam=git tree objects and git grep output size
+  test('a consumer named with invalid UTF-8 bytes still counts; a million matches in one file are all returned', () => {
+    const r = repo({ 'src/keep.ts': 'x\n' });
+    const head = r.commit({ 'data/results.json': rows });
+    const run = (args: string[], input?: Buffer) => { const x = spawnSync('git', args, { cwd: r.dir, input, timeout: 10_000 }); if (x.status !== 0) throw new Error(`git ${args.join(' ')}: ${x.stderr}`); return x.stdout as Buffer; };
+    const sha = run(['hash-object', '-w', '--stdin'], Buffer.from("read('results.json')\n")).toString().trim();
+    const entry = Buffer.concat([Buffer.from(`100644 blob ${sha}\tloader`), Buffer.from([0xff]), Buffer.from('.py\0')]);
+    const tree = run(['mktree', '-z'], Buffer.concat([run(['ls-tree', '-z', head]), entry])).toString().trim();
+    const named = run(['commit-tree', tree, '-p', head, '-m', 'consumer'], Buffer.alloc(0)).toString().trim();
+    expect(collectCommit(r.dir, r.baseSha, named).consumed).toEqual(['data/results.json']);
+    r.write({ 'src/many.ts': 'rows.json\n'.repeat(1_100_000) });
+    const got = grepConsumers(r.dir, ['rows.json'], '', () => true, Date.now() + 30_000);
+    expect(Array.isArray(got) && got.filter(Boolean).length).toBe(1_100_000);
+  }, 30_000);
   // Value: protects=a slow scan ends in its own fail-closed consumer_scan_failed, not in the parent killing gstack-review-plan;
   //   fails_when=the scan deadline reaches the timeout the dispatch and preflight callers give the whole plan; seam=caller source
   test('the default scan deadline leaves a minute of the plan timeout its callers set', () => {
