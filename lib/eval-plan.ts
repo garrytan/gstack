@@ -446,7 +446,7 @@ export function pilotReport(out: string, o: { total: number; workers?: number })
   const priced = arms.filter(a => a.per_item_usd !== null);
   const n = priced.reduce((s, a) => s + a.n, 0);
   const mean = priced.length || !arms.length ? priced.reduce((s, a) => s + a.per_item_usd!, 0) : null;
-  const sd = mean !== null && priced.every(a => a.sd_usd !== null) ? Math.sqrt(priced.reduce((s, a) => s + a.sd_usd! ** 2, 0)) : null;
+  const sd = mean !== null && priced.every(a => a.sd_usd !== null) ? priced.reduce((s, a) => s + a.sd_usd!, 0) : null;
   const projected = mean === null ? null : mean * o.total;
   const band: [number, number] | null = projected !== null && priced.every(a => a.band_usd)
     ? [priced.reduce((s, a) => s + a.band_usd![0], 0), priced.reduce((s, a) => s + a.band_usd![1], 0)] : null;
