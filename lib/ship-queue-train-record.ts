@@ -32,7 +32,8 @@ export interface ScreenChoice {
   branch?: string;
   verdict?: ScreenVerdictRecord;
 }
-export interface TrainSlot { pr: string; head: string; ready_at: string; screen: ScreenChoice }
+/** `wave`: the slot is a wave PR (lib/ship-queue-wave.ts) carrying these constituents at their pins. */
+export interface TrainSlot { pr: string; head: string; ready_at: string; screen: ScreenChoice; wave?: { nonce: string; constituents: string[] } }
 export interface TrainPrefix { index: number; commit: string; tree: string; pr: string | null }
 /** A stamped prefix S_i (changelog_fragments trains, lib/ship-queue-train-stamp.ts): what slot i publishes, exactly. */
 export interface StampedPrefix { index: number; commit: string; tree: string; pr: string; version: string; date: string }
@@ -73,10 +74,21 @@ export interface FreezeRecord {
   main: { sha: string; tree: string }; reason: string; backstop: { nonce: string; run: number | null; state: string } | null;
   repair: { pr: string; head: string; train: string | null } | null; created_at: string; cleared_at: string | null; cleared_by: string | null; updated_at: string;
 }
+/** A constituent of a wave PR (lib/ship-queue-wave.ts): the PR, its pinned head and the wave-branch merge commit whose second parent is that head. */
+export interface WaveConstituent { pr: string; head: string; merge_commit: string | null }
+export type WaveState = 'conflict' | 'built' | 'pushed' | 'superseded' | 'settled';
+export interface WaveRecord {
+  schema: 1; kind: 'wave'; nonce: string; repo_key: string; area: string; base: { ref: string; sha: string }; branch: string;
+  constituents: WaveConstituent[]; head: string | null; state: WaveState;
+  /** The merge the integrator resolves by hand: the constituent, its files, the worktree under the state root and the commit it merges onto. */
+  conflict: { pr: string; files: string[]; worktree: string; pred: string } | null;
+  superseded_by: string | null; settled: Array<{ pr: string; outcome: string; at: string }>;
+  effects: Array<{ at: string; what: string }>; created_at: string; updated_at: string;
+}
 export interface ReadyReceipt {
   schema: 1; kind: 'ready'; repo_key: string; pr: string; head: string; base_sha: string; ready_at: string; screen: ScreenChoice; updated_at: string;
 }
-export type AnyRecord = TrainRecord | AttemptRecord | BisectRecord | FreezeRecord | ReadyReceipt;
+export type AnyRecord = TrainRecord | AttemptRecord | BisectRecord | FreezeRecord | ReadyReceipt | WaveRecord;
 
 /** Clock seam for fill-time and record tests (`GSTACK_SHIP_QUEUE_NOW`, ISO-8601). */
 export function nowIso(): string {
@@ -99,6 +111,7 @@ const attemptPath = (nonce: string, id: string) => path.join(trainDir(nonce), 'a
 const bisectPath = (nonce: string) => path.join(trainDir(nonce), 'bisect.json');
 const freezePath = (repoKey: string) => path.join(queueRoot(), 'freeze', `${repoKey}.json`);
 export const readyPath = (repoKey: string, pr: string, head: string) => path.join(queueRoot(), 'ready', repoKey, `${pr}-${head}.json`);
+export const wavePath = (nonce: string) => path.join(queueRoot(), 'waves', `${nonce}.json`);
 
 /** Hosts that serve GitHub repositories at /<owner>/<repo> (git.capy.ai is Capy's GitHub proxy, set through url.insteadOf). */
 const GITHUB_HOSTS = ['github.com', 'www.github.com', 'ssh.github.com', 'git.capy.ai'];
@@ -146,6 +159,16 @@ export const loadFreeze = (repoKeys: RepoKeys) => firstOf(repoKeys, key => readJ
 export const loadReady = (repoKeys: RepoKeys, pr: string, head: string) => firstOf(repoKeys, key => readJson<ReadyReceipt>(readyPath(key, pr, head), 'ready'));
 export const activeFreeze = (repoKeys: RepoKeys): FreezeRecord | null => firstOf(repoKeys, key => { const f = readJson<FreezeRecord>(freezePath(key), 'freeze'); return f && !f.cleared_at ? f : null; });
 
+export const loadWave = (nonce: string) => (/^[A-Za-z0-9._-]{1,128}$/.test(nonce) ? readJson<WaveRecord>(wavePath(nonce), 'wave') : null);
+/** Every wave of this repository, newest first. */
+export function listWaves(repoKeys: RepoKeys): WaveRecord[] {
+  const dir = path.join(queueRoot(), 'waves');
+  if (!fs.existsSync(dir)) return [];
+  const keys = keyList(repoKeys);
+  return fs.readdirSync(dir).filter(n => n.endsWith('.json')).map(n => loadWave(n.slice(0, -5))).filter((w): w is WaveRecord => !!w && keys.includes(w.repo_key))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.nonce.localeCompare(a.nonce));
+}
+
 export function attemptsOf(train: TrainRecord): AttemptRecord[] {
   return train.attempts.map(id => loadAttempt(train.nonce, id)).filter((a): a is AttemptRecord => !!a);
 }
@@ -164,6 +187,7 @@ export function recordPath(r: AnyRecord): string {
   if (r.kind === 'train-attempt') return attemptPath(r.train, r.id);
   if (r.kind === 'train-bisect') return bisectPath(r.train);
   if (r.kind === 'freeze') return freezePath(r.repo_key);
+  if (r.kind === 'wave') return wavePath(r.nonce);
   return readyPath(r.repo_key, r.pr, r.head);
 }
 
@@ -172,6 +196,7 @@ export function noteName(r: AnyRecord): string {
   if (r.kind === 'train-attempt') return `gstack-trains:attempt:${r.train}:${r.id}`;
   if (r.kind === 'train-bisect') return `gstack-trains:bisect:${r.train}`;
   if (r.kind === 'freeze') return `gstack-trains:freeze:${r.repo_key}`;
+  if (r.kind === 'wave') return `gstack-trains:wave:${r.nonce}`;
   return `gstack-trains:ready:${r.repo_key}:${r.pr}:${r.head}`;
 }
 
@@ -235,6 +260,7 @@ function parseNote(text: string): AnyRecord | null {
     if (r.kind === 'train' && ids.test(r.nonce)) return r;
     if ((r.kind === 'train-attempt' && ids.test(r.train) && ids.test(r.id)) || (r.kind === 'train-bisect' && ids.test(r.train))) return r;
     if (r.kind === 'freeze' && ids.test(r.repo_key)) return r;
+    if (r.kind === 'wave' && ids.test(r.nonce) && ids.test(r.repo_key) && Array.isArray(r.constituents)) return r;
     if (r.kind === 'ready' && ids.test(r.repo_key) && /^\d+$/.test(r.pr) && /^[0-9a-f]{40,64}$/.test(r.head)) return r;
   } catch {}
   return null;

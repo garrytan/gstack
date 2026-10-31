@@ -26,9 +26,10 @@ import { classifyTrainHead } from './version-gate-train';
 import { git } from './ship-queue-gate';
 import { dispatchCi } from './ship-queue-dispatch-ci';
 import { recordVerdict, screenVerdict, verdictLines, type ScreenOutcome } from './ship-queue-screen';
-import { execFor, repoSlug } from './ship-queue-train-github';
+import { execFor, prInfo, repoSlug } from './ship-queue-train-github';
 import { loadReady, nowIso, persist, readyPath, rebuildFromNotes, type ReadyReceipt, type ScreenChoice } from './ship-queue-train-record';
 import { baseOverlap, fetchBase, mergeCommit, outOk, outPending, outRefused, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
+import { checkWavePin } from './ship-queue-wave';
 
 const Q = 'gstack-ship-queue';
 
@@ -192,8 +193,11 @@ export async function trainReady(ctx: QueueContext, o: ReadyOptions): Promise<Tr
   const baseSha = git(ctx.repoRoot, ['rev-parse', `${env.remote}/${ctx.base}`]).out;
   const kind = classifyTrainHead({ repoRoot: ctx.repoRoot, baseRef: ctx.base, head });
   if (kind.kind === 'invalid') return outRefused({ code: 'QUEUE_NOT_READY', message: `the Version Gate refuses ${head.slice(0, 12)}: ${kind.reason}` }, base.lines, `fix the head, push, then ${Q} ready --pr ${o.pr} --screen|--no-screen`, 'none');
+  const info = prInfo(ctx, o.pr);
+  const wave = 'error' in info ? null : checkWavePin(env, o.pr, info);
+  if (wave && 'failure' in wave) return outRefused(wave.failure, base.lines, `${Q} wave status (rebuild the wave without a moved constituent: ${Q} wave build --wave <nonce> --drop <pr>)`, 'none');
   const sel = await screenSelection(env, head, baseSha);
-  const lines = [...base.lines, ...sel.lines];
+  const lines = [...base.lines, ...(wave ? wave.lines : []), ...sel.lines];
   // gstack-pr-wait's base-overlap event, read from git at READY (handoff GSTA-119): the lane learns here that the base
   // moved onto its files, and a merge the train would stop at is refused before the pin is pooled. Under --screen the
   // scratch merge below reports the same conflict as QUEUE_SCREEN_STALE_REF. A comparison git could not make is printed as
