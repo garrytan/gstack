@@ -39,12 +39,14 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --adversarial-ran         Step 11's native adversarial pass already ran (a repeat skips it)
   --gate-tagged <n>         gate hunks the gate scan tagged (default: run gstack-gate-diff; failure means unavailable)
   --gated a,b               specialists the hit-rate stats tag GATE_CANDIDATE
-  --force a,b|all           specialists forced by prompt flags (--all-specialists is all)
+  --force a,b|all           specialists forced by prompt flags (--all-specialists is all): at standard and full depth they join the
+                            batched specialist's checklists, where maintainability, performance and simplification are read only when
+                            forced; light runtime-0 and scoped passes dispatch them one reader each
   --reviewed-numbers <fp>   the numeric-claim fingerprint the outside voice already reviewed
   --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
   --range-base <sha>        the fix range's base (this pass's PASS_HEAD): after a fixed blocker on a diff below full depth, a
                             committed range of at most ${SCOPED_RANGE_LINES} runtime lines plans a scoped pass; anything unread plans the full pass
-  --no-tiers                audits and watchers at the host's default effort too (as gstack-config review_effort_tiers off does)
+  --no-tiers                specialists, audits and watchers at the host's default effort too (as gstack-config review_effort_tiers off does)
   --json                    the plan as JSON (depth, runtime_lines, rules, errors with input and repair, gate_scan, per-dispatch exclude)
   --pass1-depth <d>         pass 1's REVIEW_DEPTH depth: full, or absent, keeps pass 2 full
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
@@ -130,14 +132,14 @@ function main(): number {
     }
   }
   const plan = planReview({
-    ...collected, scope, gateTagged, numbers: scanNumbers(added), force, gated: list('--gated'), floor,
+    ...collected, scope, gateTagged, numbers: scanNumbers(added), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
     history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below') && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines },
   });
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
-    process.stdout.write(JSON.stringify({ ...rest, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly }) + '\n');
+    process.stdout.write(JSON.stringify({ ...rest, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed }) + '\n');
     return EXIT.ok;
   }
   const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`];
@@ -150,7 +152,7 @@ function main(): number {
     if (!d.exclude.length) out.push(`DIFF_EXCLUDE: ${key} none`);
   }
   for (const s of plan.skipped) out.push(`SKIP: ${s}`);
-  out.push(`AUDIT_EFFORT: ${auditEffort} (coverage, plan-completion and docs audits, decision-trail reviewers, watchers; reviewers above stay full)`);
+  out.push(`AUDIT_EFFORT: ${auditEffort} (coverage, plan-completion and docs audits, decision-trail reviewers, watchers; reviewers above run at their effort=)`);
   process.stdout.write(out.join('\n') + '\n');
   return EXIT.ok;
 }

@@ -79,7 +79,11 @@ already assume, and one optional field.
   `GSTACK_HOME`. Set both to `<work dir>/.gstack-home` for the agent, `setup` and `check`; `GSTACK_HOME` alone loses
   to a `GSTACK_STATE_ROOT` inherited from the caller's shell, and the agent then writes the caller's real state. A
   task's `seed.sh` creates `.gstack-home` and lists it in `.git/info/exclude`, so `git diff` checks ignore it and
-  `check` reads state there (/learn's `add` and `prune-stale`, /office-hours' design-doc and mockup checks).
+  `check` reads state there (/learn's `add` and `prune-stale`, /office-hours' design-doc and mockup checks). A
+  `check` that reads `.gstack-home` first requires it to be a real directory, not a symlink, because `find` does not
+  descend into a symlinked start point. /learn's checks read the one project folder named for the work dir, and
+  /office-hours' no-code check lists untracked files against `.git/info/exclude` alone, so a `.gitignore` the agent
+  writes hides nothing.
 - **`resumable`** (optional, in `verdict.json` and any error record): `true` when an INCOMPLETE run can be finished
   with `--resume <out>`, which runs only cells that never ran, under the same lock and trial count, so it adds no
   trials after a result; `false` for a terminal stop, which needs a fix and a fresh run. A missing field reads as

@@ -47,7 +47,7 @@ export type Visibility = 'public' | 'private' | 'unknown';
 const KEYS = ['paths', 'transcripts', 'answer_markers', 'seed_patterns', 'local_paths', 'allow_paths', 'case_insensitive', 'visibility'];
 const MAX_ENTRIES = 64;
 const MAX_REGEX = 256;
-const LOCAL_PATH_RE = /(?:^|[^A-Za-z0-9_.~-])(?:\/home\/[^/\s'"`]+\/|\/Users\/[^/\s'"`]+\/|[A-Za-z]:\\+Users\\+[^\\\s'"`]+\\)/;
+const LOCAL_PATH_RE = /(?:^|[^A-Za-z0-9_.~-]|\$\{!?(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]\s]{0,64}\])?|[0-9]+|[@*#?$!-]):?-)(?:\/home\/[^/\s'"`]+\/|\/Users\/[^/\s'"`]+\/|[A-Za-z]:\\+Users\\+[^\\\s'"`]+\\)/;
 const PUBLIC_TTL_MS = 24 * 3600_000;
 const PRIVATE_TTL_MS = 3600_000;
 

@@ -45,36 +45,53 @@ describe('reviewer packets stay reverted (GSTA-167)', () => {
  * specialist, Red Team, adversarial and outside-voice prompts, the checklists they read, the
  * fix-check prompt and the depth rules that pick reviewers. A change to any of them changes what a
  * reviewer sees or how its findings rate, so it merges only after its preregistered no-loss replay
- * passes (GStack Minder crew rule, 2026-10-30). Repin with that replay's id in the commit message.
+ * passes (GStack Minder crew rule, 2026-10-30); a cost replay alone is not enough (#3621 passed its
+ * cost replay, then its no-loss replay found 11 of 30 blockers). Every pin names the replay that
+ * admits its bytes: repin with that replay's id here and in the commit message, and merge only on
+ * its passing result.
  */
-const REVIEWER_BRIEFS: Record<string, string> = {
-    'ship/sections/review-army.md': 'c3b47f682e6915d15adca00466c067b2f4212a7669853cb4f0e7408e4ee59f1a',
-    'ship/sections/adversarial.md': '3f361c1f42605c8329048c81162216e7bf9902bdbb2327811c39ee4e201bb95d',
-    'review/sections/review-army.md': '4fa13b9830259649b136df5a6c1beccfcb5c6732921f109730a2a71c671ceba1',
-    'review/sections/adversarial.md': 'a402018055670f50b75322ab92a0b03d740c481cc5ef2f2ac72b281dae29ec7b',
-    'review/checklist.md': '08e059eafdf22d0fdbc2f8daa2130bb51a5a0cb5fa2ce8a0780cc380e9ddab63',
-    'review/design-checklist.md': 'b9205f88313cc64902c0b13e9685722ab8138d3dcc58916154f47274abda7d83',
-    'review/gate-integrity.md': 'f570db344c9a01df633bcaa281d6017f4f12420fd3e0aa3078c1ce06e0df8332',
-    'review/specialists/api-contract.md': '263d23ac119dd601d315c191dbdbd503d47c00264c9c0ca81959559ca11d4e95',
-    'review/specialists/data-migration.md': 'b6fd9eb229002ea598f8fe9ff53b1cd8821e3bd37a7aa7b07b5526556c71ebca',
-    'review/specialists/maintainability.md': 'f8015d549e70297f782f0aabf6fe3a9fe31ec5ed61c311ab854e4a858282ed9b',
-    'review/specialists/performance.md': '545c294ae53638b4c8524e8cde08246a4ce3b5c287ec7c44e27f5556a3b0e8cc',
-    'review/specialists/red-team.md': '9ea05149f5b13d6a19ecec26285142d09d259cf80a515af828abdd1f43320427',
-    'review/specialists/security.md': '17bfe813eb3de22835af048ec359770720f1d7f371a26460169f7e32b1bcac9f',
-    'review/specialists/simplification.md': 'f33846b1dcf2fdeef82d0744ab2ef48fb4a33b34a737dafc33dd0e891756689f',
-    'review/specialists/state-machines.md': '597215e4438d85d9cc71b48097c61eef7cba4f4b09dc14c92b4b94893b3d3ea2',
-    'review/specialists/testing.md': 'f028ca6da0940b1b8b8861ae5f9c156606c0fc343a554f6da6637f9dac1d2581',
-    'scripts/resolvers/fix-check.ts': '2f2fca5db2d3408377dc1ccbd89a820e9ebf9c3152707af7d47896bd074b0c0a',
-    'lib/review-depth.ts': '66f4ff6b03c869d6892f6efdfb237d578c301cf4ea6f6ecb4b366cd286a0bcb5',
+const NO_LOSS_REPLAYS = {
+  '#3638': 'no-loss round 3: main restored the pre-#3621 reviewers (v1.91.331.0)',
+  'PR-a': "GSTA-167 variant G Arm 4: structural plan identity at the 14 cohort heads and the free exact re-score of saved C, D and A' findings (parts 4a and 4b)",
+  'G1': "GSTA-167 variant G Arm G1: live no-loss replay of both prose voices with part 1's prompts, 2 passes, normalizer v2, paired rule against pooled C' (parts 1 and 3; specialists at medium as in C and C2)",
+  'GSTA-160': "GSTA-160 severity-floor replay prereg 4c53e80a on GSTA-11's 12 bugs plus decoys (a severity no-loss check: P2, G1 and G2 pass, P1 below bar under Garry's exception); GSTA-167's cohort no-loss arm on these bytes is pending",
+  'L': "GSTA-167 variant G Arm L: live no-loss replay of one batched reader (testing and security plus scoped checklists) and the Red Team on its findings, 2 passes, scored L∘G1 against G1 on the paired rule (part 2)",
+} as const;
+type Replay = keyof typeof NO_LOSS_REPLAYS;
+const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
+    'ship/sections/review-army.md': { sha: '08503248b4cd816975c3d2b045c64008c5a6e5e0823aee36dfa5077a2b5fada2', replay: 'GSTA-160' },
+    'ship/sections/adversarial.md': { sha: 'c48aa7717c7438941fa23418367e19a62e07edda7445d0d5a55924e172dd5d33', replay: 'G1' },
+    'review/sections/review-army.md': { sha: '4fa13b9830259649b136df5a6c1beccfcb5c6732921f109730a2a71c671ceba1', replay: 'GSTA-160' },
+    'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
+    'review/checklist.md': { sha: '08e059eafdf22d0fdbc2f8daa2130bb51a5a0cb5fa2ce8a0780cc380e9ddab63', replay: 'GSTA-160' },
+    'review/design-checklist.md': { sha: 'b9205f88313cc64902c0b13e9685722ab8138d3dcc58916154f47274abda7d83', replay: '#3638' },
+    'review/gate-integrity.md': { sha: 'f570db344c9a01df633bcaa281d6017f4f12420fd3e0aa3078c1ce06e0df8332', replay: '#3638' },
+    'review/specialists/api-contract.md': { sha: '263d23ac119dd601d315c191dbdbd503d47c00264c9c0ca81959559ca11d4e95', replay: '#3638' },
+    'review/specialists/data-migration.md': { sha: 'b6fd9eb229002ea598f8fe9ff53b1cd8821e3bd37a7aa7b07b5526556c71ebca', replay: '#3638' },
+    'review/specialists/maintainability.md': { sha: 'f8015d549e70297f782f0aabf6fe3a9fe31ec5ed61c311ab854e4a858282ed9b', replay: '#3638' },
+    'review/specialists/performance.md': { sha: '545c294ae53638b4c8524e8cde08246a4ce3b5c287ec7c44e27f5556a3b0e8cc', replay: '#3638' },
+    'review/specialists/red-team.md': { sha: '9ea05149f5b13d6a19ecec26285142d09d259cf80a515af828abdd1f43320427', replay: '#3638' },
+    'review/specialists/security.md': { sha: '17bfe813eb3de22835af048ec359770720f1d7f371a26460169f7e32b1bcac9f', replay: '#3638' },
+    'review/specialists/simplification.md': { sha: 'f33846b1dcf2fdeef82d0744ab2ef48fb4a33b34a737dafc33dd0e891756689f', replay: '#3638' },
+    'review/specialists/state-machines.md': { sha: '597215e4438d85d9cc71b48097c61eef7cba4f4b09dc14c92b4b94893b3d3ea2', replay: '#3638' },
+    'review/specialists/testing.md': { sha: 'f028ca6da0940b1b8b8861ae5f9c156606c0fc343a554f6da6637f9dac1d2581', replay: 'GSTA-160' },
+    'scripts/resolvers/fix-check.ts': { sha: '2f2fca5db2d3408377dc1ccbd89a820e9ebf9c3152707af7d47896bd074b0c0a', replay: 'GSTA-160' },
+    'lib/review-depth.ts': { sha: 'd4715a5f534d1470c63da879a3d66bb090a9b4929065d1f06c30acd97ef77bb0', replay: 'L' },
 };
 
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {
   test('every pinned reviewer brief, checklist and depth rule hashes to its pin', () => {
-    const drift = Object.entries(REVIEWER_BRIEFS).filter(([file, sha]) => {
+    const drift = Object.entries(REVIEWER_BRIEFS).filter(([file, pin]) => {
       const text = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');
-      return createHash('sha256').update(text).digest('hex') !== sha;
-    }).map(([file]) => file);
+      return createHash('sha256').update(text).digest('hex') !== pin.sha;
+    }).map(([file]) => `${file} (a repin needs a passing no-loss replay; the current pin names ${REVIEWER_BRIEFS[file]!.replay})`);
     expect(drift).toEqual([]);
+  });
+
+  test('every pin names the preregistered no-loss replay that admits its bytes', () => {
+    const unnamed = Object.entries(REVIEWER_BRIEFS).filter(([, pin]) => !(pin.replay in NO_LOSS_REPLAYS)).map(([file]) => file);
+    expect(unnamed).toEqual([]);
+    for (const what of Object.values(NO_LOSS_REPLAYS)) expect(what).toMatch(/no-loss|re-score/);
   });
 
   test('the pins cover every specialist checklist', () => {

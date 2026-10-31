@@ -1,5 +1,81 @@
 # Changelog
 
+## [1.91.351.0] - 2026-10-31
+
+**Four skill-eval check commands that gstack-evals' Lane A vendors as graders no longer pass runs that break their rule.** gstack-evals' grader audit (GST-374) showed that one agent-written `.gitignore` could hide new code from the /office-hours no-code check, and that three smaller gaps let other checks pass on the wrong files.
+
+### Fixed
+- **office-hours/no-code-session** lists untracked files with `--exclude-from=.git/info/exclude` instead of `--exclude-standard`, so a `.gitignore` the agent writes no longer hides anything. Only the seed's own exclude entry (`.gstack-home/`) still applies.
+- **learn/no-code-change** also fails on a new untracked file under `app/`. Before, `git diff --quiet HEAD -- app` saw only tracked files.
+- **learn/add, prune-stale and prune-conflict** read the seeded project's `learnings.jsonl` (the slug `seed.sh` derives from the work dir) instead of `projects/*`, so an extra project folder can no longer satisfy them.
+- **The eight office-hours design-doc checks and backend-skips-visual** first require `.gstack-home` to be a real directory and not a symlink. `find` does not descend into a symlinked start point, so a swapped state root used to hide every design doc and mockup.
+
+### Gate integrity
+- These are grader edits that only tighten. Each check now fails runs it passed before, and no threshold, trial count or task was removed. The new `test/skill-eval-checks.test.ts` seeds each task with its own `seed.sh`, then runs the committed check after an honest action (it must pass) and after each hole (it must fail). On the old checks, all 15 hole cases passed the check and all 15 honest cases passed too. gstack-evals relocks its vendored copies from this commit.
+- `test/skill-eval-checks.test.ts` joins the `BASELINE` in `test/test-of-test-ratchet.test.ts`. It imports no product module because no gstack module runs these check commands; the commands themselves are what it tests.
+
+## [1.91.350.0] - 2026-10-31
+
+**`/ship` review costs less and catches more: one batched specialist, a blocking floor in both prose voices, and data files that no code reads review as docs (GSTA-167 variant G).** The no-loss replay certified the stack before merge. Round 5 replayed 14 PRs with 29 known blockers, and the new reviewers found 24 against the control's 21, non-inferior at p=0.035. Round 6 pooled 41 blockers (the 29 plus 12 confirmed units from GSTA-2): 33 against 27, non-inferior at p=0.0055. The free re-score for the classifier and state-matrix change lost 0 blockers.
+
+### Changed
+- **One batched specialist reads every checklist at each depth.** It always reads Testing and Security on code and gate diffs, and adds State-machines, Data-migration, API-contract and Design when scope asks for them. Maintainability, Performance and Simplification run only when forced, and `gstack-review-plan` names them on a `SKIP:` line. The Red Team reads the batched reader's merged findings.
+- **Specialists run at medium reasoning effort.** The Red Team, the native adversarial pass and the fix-check stay at full effort. `--no-tiers` (or `review_effort_tiers off`) runs specialists at the host default.
+- **Both prose voices carry the blocking floor.** The native adversarial and outside-voice prompts say a finding blocks only if it would fail a test, break production, or lose data or secrets, and end each finding with `Severity:` and `Blocks: yes|no`. A finding is CRITICAL when its old label rule says so or it says `Blocks: yes`, and `Blocks: no` never lowers one. `gstack-review-dispatch collect` records a `Blocks: yes` finding as CRITICAL, so `judge` refuses a lead judgment that keeps it below the floor.
+- **A JSON, CSV, TSV or raster data file that no code names counts as docs, not runtime lines.** `classifyDiff` finds code consumers with `git grep`; YAML, TOML, SVG and config files stay code, and path-only callers (the receipt's gate scan, the release route) keep data files code. `gstack-ship-preflight`'s `RUNTIME_LINES` now comes from the same function.
+- **An untested state-matrix cell is a test gap below the floor.** A wrong row or collapsed kinds stays CRITICAL, and the state-machines checklist itself is unchanged.
+
+### Fixed
+- **`gstack-review-dispatch render --checklists` takes the plan's checklist names** as well as paths, and refuses an unknown one. The outside-voice brief no longer adds a separate severity line, since the prompt now asks for Severity and Blocks itself.
+- **`collect` keeps one finding per id in the layout the prompts ask for.** A `Severity:` or `Blocks:` line below a finding joins that finding, an inline `Blocks: yes` with no label still collects as CRITICAL, and the native voice's FIXABLE collects as CRITICAL even beside a lower `Severity:`. When the layout is unclear, `collect` merges findings rather than dropping one.
+- **The data-file consumer scan reads `git grep` the same way under any git config.** `grep.lineNumber`, `grep.column` and `color.grep` no longer hide a consumer, and a failed scan keeps every data file code with `consumer_scan_failed`.
+
+### Tests
+- `test/prose-voice-floor.test.ts` renders both prose prompts for the claude and codex hosts and checks the floor sentence and the Blocks line. `test/review-depth.test.ts` covers the batched reader on the captured fixtures, effort per role and the data-file rule. `test/review-dispatch.test.ts` covers `Blocks: yes` collection and batched checklist names. `test/review-packets-removed.test.ts` repins the changed briefs to their no-loss replays (PR-a, G1, L).
+
+## [1.91.349.0] - 2026-10-31
+
+**Nine flaky tests from the 2026-10-30 flaky pass stop failing correct runs.** Two paid detectors missed correct replies, one paid case lost the evidence of its own failure, five free tests raced their own fixtures or paid a cold start inside a timed call, and two Windows failures came from real defects: a lost IPC receipt in the QA deadline worker and a Chromium feature that fails loopback connections.
+
+### Fixed
+- **`lib/qa-deadline.ts`**: the receipt worker waits for the parent to acknowledge each receipt before it exits. Bun can drop an IPC message the parent has not read yet when the child exits, so on Windows `gstack-qa-deadline run` and `gstack-qa-evidence` could return the exit code without the `finished` receipt (Windows Free Tests 40991662945, `test/qa-deadline.test.ts:431` received one of two receipts). A receipt still unacknowledged after the existing 5 s write wait makes the worker exit 2, as an unwritten receipt did before.
+- **`patches/playwright-core@1.62.1.patch`**: backports microsoft/playwright#43605, which disables Chromium's `TcpPortRandomizationWin`. On Windows it fails loopback page loads with `net::ERR_NO_BUFFER_SPACE` even when ports are free (`browse/test/cookie-picker-ui.test.ts`, Windows Free Tests 40656299153 and 41056150287). gstack's own browser launches on Windows had the same exposure.
+- **`test/helpers/qa-only-cleanup.ts`**: the cleanup check reads the daemon state file once and treats a file deleted during shutdown as absent, instead of checking that it exists and then reading it (Free Tests 40964422549: ENOENT on `browse.json`).
+- **`test/claude-code-runner.test.ts`**: the liveness helper counts a process in the `X` (being reaped) state as dead, like `Z`, and the cleanup no longer kills a pid that is already gone (Free Tests 41034844588: ESRCH).
+- **`test/helpers/free-owned-browser-settlement.ts`**: in the `cancel-vanishing-record` case the fake daemon waits for the observer to remove its record before it exits, so the race the case injects always happens (Free Tests 40924799742).
+- **`test/investigate-freeze-path.test.ts`**: the E1 cases pay the first bash and JSON interpreter start once, in an unasserted warm-up, before the timed hook calls. In four Windows runs (40824965988, 40917695070, 40985163846, 40996480693) only the file's first hook call hit the 15 s kill, the second took 1.9 to 7.9 s and the rest 0.3 to 1 s. Each timed call keeps its 15 s kill.
+
+### Gate integrity
+- **ship-unmanaged-hook-consent** (`test/helpers/ship-hook-actor.ts`): the decline check also credits "no hook/change/file was installed, changed, modified, overwritten or replaced". Gate 41005113772 said "No hook was installed or changed" and "nothing was overwritten" after a correct decline; its installs, hook bytes and question checks all passed. The four negative controls still fail.
+- **tpa-absent-darwin** (`test/helpers/third-party-actions.ts`): the Aside download pitch also counts in the passive voice at a clause start ("Aside ... can be downloaded at aside.com", gate 40987391676). Reported and mid-clause forms still count zero, and so does a clause with "not", "no", "never" or "n't" before the phrase.
+
+### Changed
+- **autoplan-guard-pty** (`test/helpers/autoplan-guard-pty.ts`, `test/skill-e2e-autoplan-guard-pty.test.ts`): a `dispatch_prompt` deny prints each Agent dispatch's length, first differing offset and context next to the prompt the actor had to copy, read before cleanup deletes it. Gate 40992022983 lost those bytes because the journal summary cuts inputs at 160 characters.
+
+### Tests
+- New captures: `test/fixtures/ship-hook-consent-2026-10-30.json` and a passive-voice capture in `test/fixtures/third-party-actions-pitch-captures.json`; both tests fail with their detector change reverted. `browse/test/playwright-core-patch.test.ts` checks the backport in the patch and the installed tree, and fails without it. `test/autoplan-guard-pty-fixture.test.ts` checks the dispatch delta on a synthetic journal. `test/qa-deadline.test.ts` plays the parent, so it now acknowledges each receipt; its assertions are unchanged, and a new case shows a worker whose parent never acknowledges exits 2 after sending both receipts.
+
+## [1.91.348.0] - 2026-10-31
+
+- **Pregate now maps tests to dotfiles they name.** A test that reads `../.gitleaks.toml`, `.gitleaks.toml` or `join('.github', 'workflows', 'ci.yml')` used to get no edge to that file, so a branch touching only the dotfile ended in `PREGATE_NO_LANE`. Quoted literals may now start with a dot, and a dot-led literal that isn't `./` or `../` resolves from both the repository root and the folder of the file that names it, so a fixture's own `.github/` keeps its edge. A literal still forms an edge only when it names a file in the repo, so strings like `'.ts'` add nothing. On gstack this adds 179 edges (`buildGraph` over this repository: 16,934 on main 2127729, 17,113 with this change, none removed), all to real dotfiles such as `.github/workflows/*.yml` and `.gstack/*.json`. (GST-246, reported from garrytan/truther#956.)
+
+## [1.91.347.0] - 2026-10-31
+
+**A Captain archives only its own crew's threads (R39, amended). A thread outside every crew belongs to the owner and stays as it is, even when the Captain's own automation created it.**
+
+### Changed
+- **docs/captain.md and the Capy factory context (`factory.md` point 12)** now say a Captain archives only the threads in its own crew, each when its plan for that thread says the work is done. No Captain archives, flags or lists a thread outside every crew for archiving unless the owner asks. The earlier wording also let a Captain archive threads its automations started outside the crew, and that emptied the owner's unattached threads.
+
+## [1.91.346.0] - 2026-10-31
+
+**`sealed.local_path` now flags a home path inside a shell default, `${UBI_RUNNER:-/home/<user>…}`, as it already flagged the same path after `?? "/home/<user>…"` in TypeScript.** gstack-evals `quick/laneb/runner/launch.sh:9` passed the scan because the `-` before the path counted as part of a word (#3568).
+
+### Fixed
+- **`sealed.local_path`** (`lib/sealed-guard.ts`): a home path directly after a `${…:-` or `${…-` default now matches, for a name, an array element (`${arr[0]:-`, a subscript of up to 64 characters, so a long line of unclosed `${a[` cannot make the scan quadratic), an indirect name (`${!ref:-`), a positional number or a special parameter (`${@:-`). `:=`, `:+` and `:?` already matched, because `=`, `+` and `?` were never word characters. A hyphen anywhere else still excludes the match, so a path glued to a word (`docs-…`, `$VAR-…`, `${VAR}-…`) stays unflagged; docs/pregate.md lists that as a known limit.
+
+### Gate integrity
+- This is a gate edit that only tightens. The guard now refuses lines it passed before. No existing test, threshold or allowlist changed. A new case in `test/sealed-guard.test.ts` covers all five operators, a positional parameter, `${@`, an array element, an indirect name, a Windows path and the TypeScript `??` form. It also checks six negative controls, which are two hyphenated paths, a hyphenated sentence, `$VAR-`, `${VAR}-` and a relative default. Without the fix it misses every `-` form.
+
 ## [1.91.345.0] - 2026-10-31
 
 **A capped `/ship` on Capy now spends fewer agent turns and counts only its own tokens, while every reviewer still gets exactly the brief 1.91.331.0 gives it.** Two new commands do `/ship`'s fixed shell work, a short driver file replaces reading the whole skill when a parent agent runs `/ship`, and the budget measures each reviewer batch on its own instead of across the parent's work. Replays of gstack-evals #34 and #36 (GSTA-167) spent 12.19M tokens on Steps 12-17 and 0.25-0.4M on each parent turn; these changes cut turns, not reviewer context.

@@ -8,7 +8,9 @@
  *   judgment  each lead-judgment change: an added or promoted finding, with its reason
  *   judge     the verdict on the parent's judged set (ok, or the dropped and downgraded ids)
  *
- * Findings reach merged.jsonl only through collect, with each voice's label exactly as written.
+ * Findings reach merged.jsonl only through collect, with each voice's label as written (a prose line's most severe one,
+ * raised by the Severity line below it), except that a prose voice's `Blocks: yes` and the native voice's FIXABLE collect
+ * as CRITICAL (GSTA-167 normalizer v2).
  * The parent's judged set may add or promote a finding and may fold a duplicate into one at least
  * as severe; it never drops or downgrades one. verify replays every check from the ledger alone.
  */
@@ -53,31 +55,81 @@ const LABEL_HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(${LABELS})(?:\\s+(?:fin
 const HEADING = /^(?:#{1,6}\s|\*\*[^*]+\*\*:?$)/;
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
+/** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
+const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
+const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
+/** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
+const LOCUS = /[\w./-]+\.\w+:\d+/;
+/** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
+const META = new RegExp(`^(?:[-*+]\\s+)?\\**\\s*(Severity|Blocks)\\**\\s*(?::|\\s+\\**(?:${LABELS}|yes|no)(?![A-Za-z0-9]))`, 'i');
 
 export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
 
-/** One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or FIXABLE/INVESTIGATE label, and each top-level list item under a label-only heading (the stronger of the two labels). */
+/**
+ * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
+ * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
+ * of the two labels). A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` raises its label,
+ * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
+ * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
+ * starts the next finding. An inline `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels
+ * stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
+ */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
-  const out: Array<{ label: string; raw: string }> = [];
+  type Finding = { label: string; raw: string; fields: Set<string> };
+  const out: Finding[] = [];
   let section: string | null = null;
+  let current: Finding | null = null;
+  let head = '';
+  let gap = false;
+  const role = reader.split('/')[0];
+  const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
+  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
+  const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
-    if (!t || /^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) continue;
+    if (!t) { gap = true; continue; }
+    const afterGap = gap;
+    gap = false;
+    if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
+    const indented = line !== line.trimStart();
+    const label = strongest(t);
+    const blocks = BLOCKS_YES.test(t);
+    const listItem = !indented && LIST_ITEM.test(t);
+    const locus = LOCUS.test(t);
+    const meta = listItem && locus ? null : META.exec(t);
+    if (meta) {
+      const field = meta[1]!.toLowerCase();
+      if (current && !current.fields.has(field)) {
+        current.fields.add(field);
+        if (blocks) current.label = 'CRITICAL';
+        else if (label) current.label = stronger(current.label, label);
+        current.raw += ` | ${t}`;
+      } else if (blocks || label) current = push(blocks ? 'CRITICAL' : label!, head ? `${head} | ${t}` : t, [field]);
+      else current = null;
+      continue;
+    }
     const heading = LABEL_HEADING.exec(t);
-    if (heading) { section = heading[1]!; continue; }
-    if (line === line.trimStart() && HEADING.test(t)) section = null;
+    if (heading) { section = named(heading[1]!); current = null; head = ''; continue; }
+    if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
       try {
         const o = JSON.parse(t) as Record<string, unknown>;
-        if (typeof o.severity === 'string') { out.push({ label: o.severity, raw: t }); continue; }
+        if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    const inline = ANY_LABEL.exec(t)?.[1];
-    const inherited = section && line === line.trimStart() && LIST_ITEM.test(t) ? section : undefined;
-    const label = inline && inherited ? stronger(inherited, inline) : inline ?? inherited;
-    if (label) out.push({ label, raw: t });
+    const fresh = listItem || (!indented && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
+    if (fresh) { current = null; head = t; }
+    const inherited = section && listItem ? section : undefined;
+    const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
+    if (found) { current = push(blocks ? 'CRITICAL' : found, t); if (!indented) head = t; continue; }
+    if (blocks && !t.startsWith('{')) {
+      if (current) { current.label = 'CRITICAL'; current.raw += ` | ${t}`; continue; }
+      current = push('CRITICAL', head && head !== t ? `${head} | ${t}` : t);
+      continue;
+    }
+    if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
   }
-  return out;
+  return out.map(({ label, raw }) => ({ label, raw }));
 }
 
 /** collect: hash the raw output, append its findings to merged.jsonl and record both. */

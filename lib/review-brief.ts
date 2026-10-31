@@ -117,7 +117,7 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
       return fill(t.native, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
     case 'outside-voice': {
       const body = fill(t.outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
-      return [body, '', 'Give each finding a severity: Critical, High, Medium or Low.', '', `## Branch diff (git diff ${diffBase})`, FENCE + 'diff', (slots.diff ?? '').trim(), FENCE].join('\n');
+      return [body, '', `## Branch diff (git diff ${diffBase})`, FENCE + 'diff', (slots.diff ?? '').trim(), FENCE].join('\n');
     }
     case 'fix-check':
       return renderFixCheckPrompt({ fixList: need(slots, 'fix_list'), touchedHunks: need(slots, 'hunks'), testResults: need(slots, 'tests'), callers: slots.callers ?? '' });

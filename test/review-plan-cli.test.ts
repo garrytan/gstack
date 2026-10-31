@@ -33,13 +33,20 @@ describe('gstack-review-plan', () => {
     const r = run(repo({ 'docs/bench.md': 'Median latency fell 42% to 180 ms.\n' }), []);
     expect(r.stdout).toContain('DISPATCH: outside-voice outside-voice effort=host');
   });
-  test('--json carries the class, the next step, every dispatch with its effort and the audit effort; --no-tiers renders audits at host effort', () => {
+  test('--json carries the class, the next step, every dispatch with its effort and the audit effort; --no-tiers renders specialists and audits at host effort', () => {
     const r = repo({ 'src/a.ts': Array.from({ length: 80 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n' });
     const plan = JSON.parse(run(r, ['--json']).stdout);
     expect(plan).toMatchObject({ class: 'code', next: { step: 'full' }, pass: 0 });
-    expect(plan.dispatches.find((d: any) => d.role === 'specialist').effort).toBe('full');
+    expect(plan.dispatches.filter((d: any) => d.role === 'specialist').map((d: any) => d.effort)).toEqual(expect.arrayContaining(['medium']));
+    expect(plan.dispatches.filter((d: any) => d.role === 'specialist').every((d: any) => d.effort === 'medium')).toBe(true);
+    expect(plan.dispatches.find((d: any) => d.role === 'adversarial-native').effort).toBe('full');
     expect(plan.audit_effort).toBe('light');
-    expect(JSON.parse(run(r, ['--json', '--no-tiers']).stdout).audit_effort).toBe('host');
+    expect(run(r, []).stdout).toContain('DISPATCH: specialist batched effort=medium checklists=testing,security,state-machines');
+    const host = JSON.parse(run(r, ['--json', '--no-tiers']).stdout);
+    expect(host.audit_effort).toBe('host');
+    expect(host.dispatches.filter((d: any) => d.role === 'specialist').every((d: any) => d.effort === 'host')).toBe(true);
+    expect(host.dispatches.find((d: any) => d.role === 'adversarial-native').effort).toBe('full');
+    expect(run(r, ['--no-tiers']).stdout).toContain('DISPATCH: specialist batched effort=host checklists=testing,security,state-machines');
   });
   test('a below-floor fix after pass 1 plans one fix-check', () => {
     const r = run(repo({ 'src/a.ts': 'export const a = 1;\n' }), ['--pass', '1', '--last', 'full', '--fixed-below']);
@@ -127,25 +134,25 @@ describe('gstack-review-plan: review depth', () => {
     const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
     expect(out).toMatch(/^REVIEW_DEPTH: light runtime_lines=10 rules=[0-9a-f]{16} reasons=runtime=10<=50 codes=none$/m);
     expect(out).toContain(`GATE_SCAN: tagged=0 head=${head}`);
-    expect(out).toContain('DISPATCH: specialist batched effort=full checklists=testing,maintainability,security,performance,state-machines,red-team');
+    expect(out).toContain('DISPATCH: specialist batched effort=full checklists=testing,security,state-machines,red-team');
     expect(out).toContain('DISPATCH: adversarial-native adversarial effort=full reason=backtest inconclusive (GSTA-147 D5)');
   });
   test('DIFF_CMD is shell-quoted per dispatch and excludes what the reviewer does not read; DIFF_EXCLUDE: none when empty', () => {
     const r = repo({ 'src/a.ts': code(80), 'docs/my notes*.md': '# n\n', 'test/a.test.ts': code(3) });
     const out = run(r, []).stdout;
-    expect(out).toContain("DIFF_CMD: testing git diff <diff-base> -- . ':(exclude,literal)docs/my notes*.md'");
-    expect(out).toContain("DIFF_CMD: maintainability git diff <diff-base> -- . ':(exclude,literal)docs/my notes*.md' ':(exclude)test/a.test.ts'");
+    expect(out).toContain("DIFF_CMD: batched git diff <diff-base> -- . ':(exclude,literal)docs/my notes*.md'\n");
+    expect(out).toContain('SKIP: maintainability, performance, simplification (lean ensemble: read only when forced)');
     expect(out).toContain('DIFF_CMD: adversarial git diff <diff-base>\nDIFF_EXCLUDE: adversarial none');
-    const cmd = /^DIFF_CMD: maintainability (.*)$/m.exec(out)![1]!.replace('<diff-base>', 'main');
+    const cmd = /^DIFF_CMD: batched (.*)$/m.exec(out)![1]!.replace('<diff-base>', 'main');
     const diff = spawnSync('bash', ['-c', cmd.replace('git diff main', 'git diff --name-only main')], { cwd: r.dir, encoding: 'utf8' });
-    expect(diff.stdout.trim().split('\n')).toEqual(['src/a.ts']);
+    expect(diff.stdout.trim().split('\n')).toEqual(['src/a.ts', 'test/a.test.ts']);
   });
   test('--json carries depth, runtime_lines, rules, errors, gate_scan and every dispatch\'s exclude array', () => {
     const r = repo({ 'src/a.ts': code(80), 'README.md': '# y\n' });
     const plan = JSON.parse(run(r, ['--json']).stdout);
     expect(plan).toMatchObject({ depth: 'standard', step_depth: 'standard', runtime_lines: 80, errors: [], codes: [], gate_scan: { tagged: 0 } });
     expect(plan.rules).toMatch(/^[0-9a-f]{16}$/);
-    expect(plan.dispatches.find((d: any) => d.name === 'maintainability').exclude).toEqual([':(exclude)README.md']);
+    expect(plan.dispatches.find((d: any) => d.name === 'batched').exclude).toEqual([':(exclude)README.md']);
     expect(plan.dispatches.find((d: any) => d.role === 'outside-voice').exclude).toEqual([]);
   });
   test('--depth-floor full raises a light diff, never lowers a full one, and an invalid floor is a usage error', () => {

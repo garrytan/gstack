@@ -1,5 +1,5 @@
 diff --git a/lib/coreBundle.js b/lib/coreBundle.js
-index d9041dd0f009072511a7d808dec83121ff29e127..e5c72c452c98f1c64038c5f24ac5805fbc99151f 100644
+index d9041dd0f009072511a7d808dec83121ff29e127..542acd31dd7e8ae084de952dc42ec63d0caba849 100644
 --- a/lib/coreBundle.js
 +++ b/lib/coreBundle.js
 @@ -8906,6 +8906,10 @@ async function launchProcess(options) {
@@ -22,3 +22,15 @@ index d9041dd0f009072511a7d808dec83121ff29e127..e5c72c452c98f1c64038c5f24ac5805f
            const [stdout2, stderr2] = [taskkillProcess.stdout.toString(), taskkillProcess.stderr.toString()];
            if (stdout2)
              options.log(`[pid=${spawnedProcess.pid}] taskkill stdout: ${stdout2}`);
+@@ -34634,7 +34638,10 @@ var init_chromiumSwitches = __esm({
+       // Disables forced sign-in in Edge.
+       "msForceBrowserSignIn",
+       // Disables updating the preferred version in LaunchServices preferences on mac.
+-      "msEdgeUpdateLaunchServicesPreferredVersion"
++      "msEdgeUpdateLaunchServicesPreferredVersion",
++      // gstack patch: backport of microsoft/playwright#43605 (1.65). Random client ports fail with
++      // net::ERR_NO_BUFFER_SPACE (WSAENOBUFS) on Windows even when ports are free (crbug.com/572515601).
++      "TcpPortRandomizationWin"
+     ].filter(Boolean);
+     chromiumSwitches = (options) => [
+       "--disable-field-trial-config",

@@ -32,6 +32,8 @@ export interface GuardSession {
   readLog(): Array<Record<string, any>>;
   /** Content-bounded journal summary for a failure message: tool names, inputs' first keys, result heads. */
   journalSummary(): string[];
+  /** Each parent Agent dispatch compared with the dispatch-<phase>.txt the actor had to copy, read before cleanup. */
+  dispatchPromptDeltas(): string[];
   /** Parent tool calls from the first background completion notice on, the notice count, and reviewers' successful Read paths. */
   noticeEvidence(): { notices: number; afterNotice: string[]; reviewerReads: string[] };
   cleanup(): void;
@@ -53,6 +55,18 @@ export function stoppedAtPhaseBoundary(screen: string): boolean {
 
 /** The close packet Read (step 6) came after the CEO reviewer's completion notice, so it ran in the notice's new turn. */
 export const closePacketReadAfterNotice = (afterNotice: string[]): boolean => afterNotice.some(c => /^Read .*close-packet\.md$/.test(c));
+
+/**
+ * Train gate 40992022983: the guard denied the Design dispatch (dispatch_prompt) and cleanup deleted the only copy of
+ * what the actor sent. Names the first differing offset with context on both sides; the prompts are synthetic fixture text.
+ */
+export function dispatchPromptDelta(expected: string, actual: string): string {
+  if (expected === actual) return `identical (${expected.length} chars)`;
+  let at = 0;
+  while (at < expected.length && at < actual.length && expected[at] === actual[at]) at++;
+  const around = (text: string) => JSON.stringify(text.slice(Math.max(0, at - 80), at + 80));
+  return `expected ${expected.length} chars, sent ${actual.length}; first difference at offset ${at}\n  expected: ${around(expected)}\n  sent:     ${around(actual)}`;
+}
 
 export function prepareGuardSession(apiKey: string | undefined): GuardSession {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ap-guard-pty-')));
@@ -131,6 +145,20 @@ console.log(close);
             : b.type === 'tool_result' ? `result${b.is_error ? ' ERROR' : ''} ${JSON.stringify(b.content).slice(0, 240)}`
             : b.type === 'text' ? `text ${String(b.text).slice(0, 80)}` : b.type);
         })));
+    },
+    dispatchPromptDeltas: () => {
+      const projects = path.join(config, 'projects'), sub = `${path.sep}subagents${path.sep}`;
+      const files = fs.existsSync(projects) ? fs.readdirSync(projects, { recursive: true }).map(String)
+        .filter(f => f.endsWith('.jsonl') && !f.includes(sub)).map(f => path.join(projects, f)) : [];
+      return files.flatMap(f => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).flatMap(line => {
+        const r = JSON.parse(line);
+        return Array.isArray(r.message?.content) ? r.message.content.filter((b: any) => b.type === 'tool_use' && b.name === 'Agent') : [];
+      })).map((b: any) => {
+        const phase = /design/i.test(String(b.input?.description)) ? 'design' : 'ceo';
+        const file = path.join(artifacts, `dispatch-${phase}.txt`);
+        if (!fs.existsSync(file)) return `${b.input?.description}: dispatch-${phase}.txt missing`;
+        return `${b.input?.description}: ${dispatchPromptDelta(fs.readFileSync(file, 'utf8'), String(b.input?.prompt ?? ''))}`;
+      });
     },
     noticeEvidence: () => {
       const projects = path.join(config, 'projects'), sub = `${path.sep}subagents${path.sep}`;

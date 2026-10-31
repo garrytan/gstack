@@ -24,7 +24,7 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       roles: ${BRIEF_ROLES.join(', ')}
       slots: --diff-base <sha> (every role but fix-check)  --exclude '<DIFF_CMD tail>'  --stack <s>  --test-fw <s>
              --learnings-file <f>  --checklist <path> (default <root>/review/specialists/<name>.md; red-team.md for red-team)
-             --checklists <a,b> (specialist-batched)  --findings-file <f> --specialists <n> (red-team)
+             --checklists <a,b> (specialist-batched: the plan's checklists= names, or paths)  --findings-file <f> --specialists <n> (red-team)
              --fix-list <f> --hunks <f> --tests <f> [--callers <f>] (fix-check)
       writes <out>/<role>[-<name>].prompt.md, records it in the ledger (default <out>/review-ledger.jsonl) and prints
       BRIEF: reader=<role/name> sha256=<h> bytes=<n> file=<path>. Pass that file's content as the reader's prompt, unchanged.
@@ -57,6 +57,8 @@ function render(): number {
   const diffBase = flag('--diff-base');
   const checklist = flag('--checklist') ?? (role === 'red-team' ? path.join(ROOT, 'review/specialists/red-team.md') : role === 'specialist' && name ? path.join(ROOT, 'review/specialists', `${name}.md`) : undefined);
   if (checklist && (role === 'specialist' || role === 'red-team') && !fs.existsSync(checklist)) throw new BriefError(`checklist not found: ${checklist}`);
+  const checklists = flag('--checklists')?.split(',').map(s => s.trim()).filter(Boolean).map(c => (c.includes('/') ? c : path.join(ROOT, 'review/specialists', `${c}.md`)));
+  for (const c of checklists ?? []) if (!fs.existsSync(c)) throw new BriefError(`checklist not found: ${c}`);
   let diff: string | undefined;
   if (role === 'outside-voice' && diffBase) {
     const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', diffBase], { encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
@@ -65,7 +67,7 @@ function render(): number {
   }
   const slots: Slots = {
     name, diff_base: diffBase, exclude: flag('--exclude'), stack: flag('--stack'), test_fw: flag('--test-fw'),
-    learnings: readFile(flag('--learnings-file'), 'learnings'), checklist, checklists: flag('--checklists'),
+    learnings: readFile(flag('--learnings-file'), 'learnings'), checklist, checklists: checklists?.join(','),
     findings: readFile(flag('--findings-file'), 'findings'), specialists: flag('--specialists'), diff,
     fix_list: readFile(flag('--fix-list'), 'fix list'), hunks: readFile(flag('--hunks'), 'hunks'), tests: readFile(flag('--tests'), 'tests'), callers: readFile(flag('--callers'), 'callers'),
   };

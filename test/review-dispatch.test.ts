@@ -73,6 +73,19 @@ describe('gstack-review-dispatch render: briefs from the sections, slots only', 
     expect(fs.readFileSync(path.join(out, 'review-ledger.jsonl'), 'utf8')).toContain('"event":"rendered"');
     expect(run(['render', '--role', 'specialist', '--name', 'no-such-specialist', '--out', out, '--diff-base', SHA]).stderr).toContain('BRIEF_RENDER_FAILED: checklist not found');
   });
+
+  // Value: protects=the lean ensemble's one batched reader (GSTA-167 part 2) gets checklist paths when the parent passes the plan's
+  //   checklists= names as printed; fails_when=the brief names bare checklist words a reader cannot open, or an unknown name
+  //   renders; seam=gstack-review-dispatch render
+  test('specialist-batched takes the DISPATCH checklists= names and writes each checklist path into the brief', () => {
+    const out = tmp();
+    const r = run(['render', '--role', 'specialist-batched', '--out', out, '--diff-base', SHA, '--checklists', 'testing,security,state-machines']);
+    expect(r.status, r.stderr).toBe(0);
+    const root = path.join(import.meta.dir, '..');
+    const lists = ['testing', 'security', 'state-machines'].map(n => path.join(root, 'review/specialists', `${n}.md`)).join(', ');
+    expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8')).toContain(`Read each checklist at ${lists} (tag each finding's`);
+    expect(run(['render', '--role', 'specialist-batched', '--out', out, '--diff-base', SHA, '--checklists', 'testing,maintenance']).stderr).toContain('BRIEF_RENDER_FAILED: checklist not found');
+  });
 });
 
 describe('gstack-review-dispatch sent, collect, judge and verify: nothing changed on the way in or out', () => {
@@ -212,6 +225,103 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const m: MergedLine[] = [{ id: 'r#1', reader: 'r', label: 'FIXABLE', raw: 'x', output_sha256: 'h' }];
     expect(judge(m, [{ id: 'r#1', severity: 'severe' }]).invalid).toEqual(['r#1']);
     expect(judge(m, [{ id: 'r#1', severity: 'INFORMATIONAL', reason: 'a real defect' }]).ok).toBe(true);
+  });
+
+  // Value: protects=normalizer v2 in production (GSTA-167 part 1, certified by round 5's G1): a prose voice's Blocks: yes reaches
+  //   merged.jsonl as CRITICAL, so judge refuses a lead that keeps it below the floor; Blocks: no never lowers a label;
+  //   fails_when=a Blocks: yes finding is collected at its Medium or INVESTIGATE label, a Blocks line with no finding before it is
+  //   lost, or Blocks: no demotes; seam=parseFindings, judge
+  test('a prose voice\'s Blocks: yes collects as CRITICAL, on its own line or the finding above it; Blocks: no never lowers', () => {
+    const out = [
+      '1. Retry loop drops the last row (queue.ts:78). Severity: Medium · Blocks: yes',
+      '2. INVESTIGATE: lock order in pool.ts:12',
+      '   Blocks: yes',
+      '3. FIXABLE: stale cache key (cache.ts:4)',
+      '   Severity: High',
+      '   Blocks: no',
+      '4. Token never expires (auth.ts:9)',
+      '   Fix: check exp',
+      '   **Blocks:** yes',
+      'Recommendation: Fix the retry loop because it loses rows',
+    ].join('\n');
+    const got = parseFindings('outside-voice', out);
+    expect(got.map(g => g.label)).toEqual(['CRITICAL', 'CRITICAL', 'High', 'CRITICAL']);
+    expect(got[1]!.raw).toBe('2. INVESTIGATE: lock order in pool.ts:12 | Blocks: yes');
+    expect(got[2]!.raw).toBe('3. FIXABLE: stale cache key (cache.ts:4) | Severity: High | Blocks: no');
+    expect(got[3]!.raw).toBe('4. Token never expires (auth.ts:9) | **Blocks:** yes');
+    const m: MergedLine[] = got.map((g, i) => ({ id: `o#${i + 1}`, reader: 'outside-voice', label: g.label, raw: g.raw, output_sha256: 'h' }));
+    expect(judge(m, m.map(x => ({ id: x.id, severity: x.label === 'CRITICAL' ? 'Medium' : x.label }))).downgraded).toEqual(['o#1', 'o#2', 'o#4']);
+  });
+
+  // Value: protects=the prompt's own layout (a finding, then Severity, then Blocks lines) collects as ONE finding that keeps its
+  //   locus, and an explicit Severity outranks a stray label word earlier on the line (#3660 Red Team and Testing findings);
+  //   fails_when=the layout splits into a locus-less CRITICAL plus the finding at INVESTIGATE, or 'Low-level'/'[P2]' sets the label
+  //   below an explicit Severity: Critical/High; seam=parseFindings
+  test('a finding with Severity and Blocks lines below it is one record at the strongest label; a stray label word never lowers an explicit Severity', () => {
+    const one = parseFindings('adversarial-native', ['1. INVESTIGATE: lock order in pool.ts:12', '   Severity: Medium', '   Blocks: yes'].join('\n'));
+    expect(one).toEqual([{ label: 'CRITICAL', raw: '1. INVESTIGATE: lock order in pool.ts:12 | Severity: Medium | Blocks: yes' }]);
+    const words = parseFindings('outside-voice', ['1. Low-level retry loop in queue.ts:78 drops writes on 429. Severity: Critical. Blocks: no', '- [P2] cache.ts:40 evicts live sessions. Severity: High. Blocks: no'].join('\n'));
+    expect(words.map(w => w.label)).toEqual(['Critical', 'High']);
+    const prose = parseFindings('outside-voice', ['1. FIXABLE: race in a.ts:3', 'Why it matters: two writers', 'Severity: Low', 'Blocks: yes', '2. Unlabeled item about b.ts:9', 'Severity: Medium'].join('\n'));
+    expect(prose.map(p => [p.label, p.raw])).toEqual([['CRITICAL', '1. FIXABLE: race in a.ts:3 | Severity: Low | Blocks: yes'], ['Medium', '2. Unlabeled item about b.ts:9 | Severity: Medium']]);
+  });
+
+  // Value: protects=a prose blocker whose only marker is an inline Blocks: yes still reaches merged.jsonl as CRITICAL (#3660 pass 2
+  //   Testing finding); fails_when=an unlabeled line carrying Blocks: yes collects nothing; seam=parseFindings
+  test.each([
+    ['1. Token never expires (auth.ts:9). Blocks: yes', '1. Token never expires (auth.ts:9). Blocks: yes'],
+    ['Token never expires in auth.ts:9 — Blocks: yes', 'Token never expires in auth.ts:9 — Blocks: yes'],
+    ['1. Token never expires (auth.ts:9)\nFix: check exp **Blocks:** yes', '1. Token never expires (auth.ts:9) | Fix: check exp **Blocks:** yes'],
+  ])('an inline Blocks: yes with no label is one CRITICAL finding: %j', (output, raw) => {
+    expect(parseFindings('outside-voice', output)).toEqual([{ label: 'CRITICAL', raw }]);
+  });
+
+  // Value: protects=a top-level `- Severity:` bullet is its own finding and keeps its section's floor (#3660 pass 2 outside voice);
+  //   fails_when=two such bullets merge into one id or a Critical heading's item collects as Medium; seam=parseFindings
+  test('top-level Severity bullets stay separate findings and keep the section label', () => {
+    const got = parseFindings('outside-voice', ['## Critical findings', '- Severity: Medium — missing owner check at auth.ts:14', '- Severity: Low — token logged at log.ts:3'].join('\n'));
+    expect(got.map(g => g.label)).toEqual(['Critical', 'Critical']);
+  });
+  // Value: protects=one finding per merged id however a voice lays findings out (#3660 pass 2 native adversarial); fails_when=
+  //   paragraph findings or a sentence starting with "Blocks" fold into the finding above, or a numbered or quoted Blocks line
+  //   collects nothing; seam=parseFindings
+  test('paragraph findings stay separate, Blocks needs a colon to continue a finding, and a bare Blocks line is its own finding', () => {
+    const bold = parseFindings('outside-voice', ['**Finding 1.** a.ts:3 drops rows', 'Severity: Low', 'Blocks: no', '**Finding 2.** b.ts:4 leaks', 'Severity: High', 'Blocks: yes'].join('\n'));
+    expect(bold.map(b => [b.label, b.raw])).toEqual([['Low', '**Finding 1.** a.ts:3 drops rows | Severity: Low | Blocks: no'], ['CRITICAL', '**Finding 2.** b.ts:4 leaks | Severity: High | Blocks: yes']]);
+    const plain = parseFindings('outside-voice', ['a.ts:3 drops rows', 'Severity: High', 'Blocks: yes', 'b.ts:4 leaks', 'Severity: High', 'Blocks: yes'].join('\n'));
+    expect(plain.map(p => p.raw)).toEqual(['a.ts:3 drops rows | Severity: High | Blocks: yes', 'b.ts:4 leaks | Severity: High | Blocks: yes']);
+    expect(parseFindings('outside-voice', ['1. Medium: cache key drift (c.ts:4)', '   Blocks the event loop on every miss - High'].join('\n')).map(f => f.label)).toEqual(['Medium', 'High']);
+    expect(parseFindings('outside-voice', '2. Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('outside-voice', '> Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
+  });
+  // Value: protects=a later finding's Severity/Blocks line never lands on the finding before it, and an explicit Severity label
+  //   decides its line (#3660 pass 2 Red Team); fails_when=the later blocker's text is lost and the earlier finding takes its
+  //   CRITICAL, or 'Severity: Low (not High)' collects as High; seam=parseFindings
+  test('prose after a finding\'s field, a blank-line paragraph or an indented block starts the next finding; an explicit Severity label wins', () => {
+    const raws = (o: string) => parseFindings('outside-voice', o).map(f => [f.label, f.raw]);
+    const two = [['Low', 'A in a.ts:1. | Severity: Low'], ['CRITICAL', 'B in b.ts:2. | Blocks: yes']];
+    expect(raws('A in a.ts:1.\nSeverity: Low\n\nB in b.ts:2.\nBlocks: yes')).toEqual(two);
+    expect(raws('A in a.ts:1.\nSeverity: Low\nB in b.ts:2.\nBlocks: yes')).toEqual(two);
+    expect(raws('Findings:\n  A in a.ts:1.\n  Severity: Low\n  B in b.ts:2.\n  Blocks: yes')).toEqual(two);
+  });
+  // Value: protects=the fix-check's shapes (#3660): a blocker keeps its own id and its subject, field bullets stay on their finding,
+  //   and no Severity label buries a stronger label on its line; fails_when=any of these collects below CRITICAL, merges a later
+  //   blocker into an earlier finding, or loses the finding's file:line; seam=parseFindings
+  test.each([
+    ['A in a.ts:1.\nSeverity: Low\nB in b.ts:2 drops rows. Blocks: yes', [['Low', 'A in a.ts:1. | Severity: Low'], ['CRITICAL', 'B in b.ts:2 drops rows. Blocks: yes']]],
+    ['**Finding 1.** a.ts:3 races. Severity: Low\n**Finding 2.** b.ts:4 leaks. Blocks: yes', [['Low', '**Finding 1.** a.ts:3 races. Severity: Low'], ['CRITICAL', '**Finding 2.** b.ts:4 leaks. Blocks: yes']]],
+    ['FIXABLE: race in a.ts:3\nSeverity: Medium\nWhy: the writer races\nBlocks: yes', [['CRITICAL', 'FIXABLE: race in a.ts:3 | Severity: Medium | Blocks: yes']]],
+    ['- Unlabeled thing in a.ts:3\n- Severity: Medium\n- Blocks: yes', [['CRITICAL', '- Unlabeled thing in a.ts:3 | - Severity: Medium | - Blocks: yes']]],
+    ['1. Token never expires (auth.ts:9)\nFix: check exp\nBlocks: yes', [['CRITICAL', '1. Token never expires (auth.ts:9) | Blocks: yes']]],
+    ['1. Retry storm (r.ts:2)\nSeverity High', [['High', '1. Retry storm (r.ts:2) | Severity High']]],
+    ['CRITICAL: x.ts:4 drops rows (pass 1 had Severity: Low)', [['CRITICAL', 'CRITICAL: x.ts:4 drops rows (pass 1 had Severity: Low)']]],
+  ])('fix-check shape %j', (output, want) => expect(parseFindings('outside-voice', output).map(f => [f.label, f.raw])).toEqual(want));
+  test('the native voice\'s FIXABLE collects as CRITICAL under its role with or without a dispatch name', () => {
+    for (const reader of ['adversarial-native', 'adversarial-native/adversarial']) expect(parseFindings(reader, 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('outside-voice', 'FIXABLE: race in a.ts:3\nSeverity: Medium').map(f => f.label)).toEqual(['Medium']);
+  });
+  test('a non-prefix Blocks: yes under a labeled finding raises it to CRITICAL', () => {
+    expect(parseFindings('outside-voice', '1. Retry loses writes (queue.ts:78). Severity: Medium\n   Fix: reject the batch. Blocks: yes')).toEqual([{ label: 'CRITICAL', raw: '1. Retry loses writes (queue.ts:78). Severity: Medium | Fix: reject the batch. Blocks: yes' }]);
   });
 
   test('verify on a ledger that kept no prompts says so and exits 3', () => {
