@@ -23,9 +23,11 @@ bin/gstack-modules render --host claude --loadout full --out-dir ~/arms/control
 bin/gstack-modules render --host claude \
   --modules 'full,-section:office-hours/second-opinion,-section:office-hours/visual-design' \
   --out-dir ~/arms/oh-lean
+bin/gstack-modules resolve --model claude-opus-5-5   # the loadout an install would serve, and why
+bin/gstack-modules install --full-root "$HOME/.claude/skills" --model claude-opus-5-5   # publish it and print SKILL_ROOT
 ```
 
-`render` writes the whole host tree into a staging directory beside `--out-dir`. It checks that no rendered file still points at an excluded module, writes `loadout.lock.json` last (loadout name or `adhoc`, the normalized spec and its sha256, host, model, every excluded id, and the sha256 and byte count of every file), then swaps the result into place. A failure leaves an earlier render at `--out-dir` untouched. Claude section links name `--out-dir`, so point the eval harness at that directory. Pass the same `--model`, `--install-root` and `--plan-mode` the install under test uses, so the arms differ only by the modules. Codex renders default to the host's generic `gpt` overlay, while `./setup` uses `gpt-6-astra`.
+`render` writes the whole host tree into a staging directory beside `--out-dir`. It checks that no rendered file still points at an excluded module, writes `loadout.lock.json` last (loadout name or `adhoc`, the normalized spec and its sha256, host, model, every excluded id, and the sha256 and byte count of every file), then swaps the result into place. A failure leaves an earlier render at `--out-dir` untouched. Claude section links name `--out-dir`, so point the eval harness at that directory. Pass the same `--model`, `--install-root` and `--plan-mode` the install under test uses, so the arms differ only by the modules. Codex renders default to the host's generic `gpt` overlay, while `./setup` uses `gpt-6-astra`. `--bind-model <id> --full-root <abs>` (both or neither, on a loadout that excludes something) bakes the start lines an install for that model serves ([below](#the-start-line-carries-the-model)).
 
 `bun run gen:skill-docs --loadout <name> --out-dir <dir>` and `--modules <spec> --out-dir <dir>` apply the same filter to a generation run without the staging, dangling-reference check or lock file; a selection with exclusions and no `--out-dir` is refused with `MODULE_SPEC_INVALID`, because the committed tree is always the `full` render. A non-`full` render adds `<!-- loadout: <name> -->` to each SKILL.md header.
 
@@ -55,7 +57,7 @@ A model id is lowercased, its `provider/` prefix and a trailing `[…]` are drop
 The Capy skill passes the thread's model id in the environment: `GSTACK_MODEL=<id> bash scripts/install.sh --check --for <skill>`. The variable, unlike `--model`, is safe on a checkout whose installer predates loadouts: that installer ignores it instead of refusing an unknown argument. The installer prints two lines before the launch lines:
 
 ```
-LOADOUT: lite model=claude-opus-5-5 source=model-flag digest=3f2a9c01d4e7 reused=yes
+LOADOUT: lite model=claude-opus-5-5 source=GSTACK_MODEL digest=3f2a9c01d4e7 reused=yes
 SKILL_ROOT: /home/user/.gstack/loadouts/lite-3f2a9c01d4e7
 ```
 

@@ -5527,7 +5527,7 @@ QM registration does not work yet. QM's skill-pack import clones the whole repos
 
 ## Module loadouts (gstack-modules)
 
-These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modules` (guide: [loadouts.md](loadouts.md)). Each one exits 2 before anything is written, and none falls back to the `full` loadout: an eval arm that silently rendered `full` would measure the control.
+These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modules` (guide: [loadouts.md](loadouts.md)). Each one exits 2 before anything is written, and none falls back to the `full` loadout: an eval arm that silently rendered `full` would measure the control. The exceptions are the install-time notices `LOADOUT_INVALID_MODEL`, `LOADOUT_MISMATCH` and `LOADOUT_FALLBACK` (from `bin/gstack-modules install`, the Capy installer and `gstack-skill-start`): an install never fails on them and serves `full` instead.
 
 <a id="loadouts-invalid"></a>
 ### `LOADOUTS_INVALID: modules/loadouts.json …`

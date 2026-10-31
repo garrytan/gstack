@@ -467,6 +467,13 @@ make <dir> writable, or set GSTACK_STATE_ROOT to a writable directory
 (LAUNCH_FILE_UNWRITABLE)`, and a failing run prints no `GSTACK_LAUNCH_FILE` line
 and removes the file an earlier passing run left beside the verdict it rewrites
 (a profile check that keeps a fuller ok verdict leaves that verdict's file).
+With `--model <id>`, or `GSTACK_MODEL=<id>` in its environment (what the Capy
+skill passes), an ok run other than `--for review-voice` also prints `LOADOUT: …`
+and `SKILL_ROOT: <dir>` just before `GSTACK_LAUNCH`. For a loadout other than
+`full`, `GSTACK_LAUNCH_FILE` then names `<verdict file without .json>.loadout-<name>-<digest>.env`,
+a copy of the verdict's launch file that adds `GSTACK_LOADOUT_SKILL_ROOT`; the
+verdict and its own launch file do not change, and any failure prints
+`LOADOUT_FALLBACK` and serves `full` ([loadouts](loadouts.md#capy)).
 `. <that file>` at the start of a shell applies them without ever printing them,
 which is the only way to hand them to a child agent: pass the path, never the
 values. None of the assignments is a secret, but during GSTA-96's unattended
