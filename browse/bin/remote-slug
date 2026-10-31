@@ -6,6 +6,19 @@
 # bin/gstack-remote-identity.sh.
 set -e
 . "$(dirname "$0")/../../bin/gstack-remote-identity.sh" 2>/dev/null || { echo "$0: bin/gstack-remote-identity.sh is missing. fix: reinstall with ./setup or /gstack-upgrade" >&2; exit 1; }
+# A counted .gstack-project marker (#2649, #1923) decides identity the way
+# bin/gstack-slug does, so design-doc lookups find docs where skills saved them.
+_d=$(pwd)
+while :; do
+  if [ -e "$_d/.gstack-project" ] || [ -L "$_d/.gstack-project" ]; then
+    _gs="$(dirname "$0")/../../bin/gstack-slug"
+    if [ -n "$("$_gs" --get PROJECT_MARKER 2>/dev/null || true)" ]; then
+      "$_gs" --get SLUG 2>/dev/null && exit 0
+    fi
+    break
+  fi
+  _p=$(dirname "$_d"); [ "$_p" = "$_d" ] && break; _d="$_p"
+done
 URL=$(git remote get-url origin 2>/dev/null || true)
 _gri_slug=""
 if [ -n "$URL" ]; then
