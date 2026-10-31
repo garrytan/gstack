@@ -159,6 +159,68 @@ describe('priced pilot', () => {
     expect(r.settled_unknown).toBe(1);
     expect(r.projection.verdict).toBe('unknown');
   });
+
+  test('#3653: each arm is projected on its own, so arms at different prices that fit the cap are not told they exceed it', () => {
+    const d = tmp();
+    const out = path.join(d, 'mixed');
+    const s = startPilot({ out, cap: 2, n: 3, arms: ['gpt-6-astra', 'gpt-5.4-mini'], dryRun: passingDryRun(d) });
+    expect(s.error).toBeUndefined();
+    const usd: Record<string, number[]> = { 'gpt-6-astra': [0.001, 0.001, 0.001], 'gpt-5.4-mini': [0.10, 0.11, 0.12] };
+    for (const a of s.record.attempts) settlePilot(out, a.attempt, usd[a.model]![a.row - 1]!);
+    const r = pilotReport(out, { total: 10, workers: 1 });
+    expect(r.projection.projected_usd).toBeCloseTo(1.11, 6);
+    expect(r.projection.band_usd![0]).toBeCloseTo(1.11 - 4.303 * 0.01 / Math.sqrt(3) * 10, 4);
+    expect(r.projection.band_usd![1]).toBeCloseTo(1.11 + 4.303 * 0.01 / Math.sqrt(3) * 10, 4);
+    expect(r.projection.verdict).toBe('within');
+    expect(r.projection.arms.map(a => [a.arm, a.n])).toEqual([['gpt-6-astra', 3], ['gpt-5.4-mini', 3]]);
+    expect(renderPilotReport(r)).toContain('PILOT_ARM: arm=gpt-5.4-mini n=3 per_item=$0.1100');
+  });
+
+  test('#3653: a priced arm mean is never multiplied across an arm settled unknown', () => {
+    const d = tmp();
+    const out = path.join(d, 'partial');
+    const s = startPilot({ out, cap: 10, n: 3, arms: ['gpt-6-astra', 'gpt-5.4-mini'], dryRun: passingDryRun(d) });
+    for (const a of s.record.attempts) settlePilot(out, a.attempt, a.model === 'gpt-6-astra' ? 0.0003 : 'unknown');
+    const r = pilotReport(out, { total: 400 });
+    expect(r.projection.projected_usd).toBeCloseTo(0.12, 6);
+    expect(r.projection.verdict).toBe('unknown');
+    expect(r.settled_unknown).toBe(3);
+    const text = renderPilotReport(r);
+    expect(text).toContain('known_arms=1/2');
+    expect(text).toContain('--seat-metered');
+  });
+
+  test('#3653: a declared seat-metered arm holds none of the cap, stays out of the verdict and gets its own line', () => {
+    const d = tmp();
+    const dry = passingDryRun(d);
+    const est = startPilot({ out: path.join(d, 'probe'), cap: 100, n: 1, arms: ['gpt-6-astra', 'gpt-5.4-mini'], dryRun: dry }).record.attempts;
+    const astra = est.find(a => a.model === 'gpt-6-astra')!.estimate_usd, mini = est.find(a => a.model === 'gpt-5.4-mini')!.estimate_usd;
+    const cap = Number((3 * mini + 2 * astra).toFixed(4));
+    expect(startPilot({ out: path.join(d, 'undeclared'), cap, n: 3, arms: ['gpt-5.4-mini', 'gpt-6-astra'], dryRun: dry }).error?.code).toBe('EVAL_BUDGET_EXHAUSTED');
+    const out = path.join(d, 'seat');
+    const s = startPilot({ out, cap, n: 3, arms: ['gpt-5.4-mini', 'gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
+    expect(s.error).toBeUndefined();
+    expect(s.record.seat_metered).toEqual(['gpt-6-astra']);
+    expect(s.record.attempts.filter(a => a.model === 'gpt-6-astra').map(a => a.estimate_usd)).toEqual([0, 0, 0]);
+    for (const a of s.record.attempts) settlePilot(out, a.attempt, a.model === 'gpt-6-astra' ? 'unknown' : 0.0003);
+    const r = pilotReport(out, { total: 400, workers: 3 });
+    expect(r.settled_unknown).toBe(0);
+    expect(r.spend.summary.unknown_usd).toBe(0);
+    expect(r.spend.max_estimate_usd).toBeCloseTo(mini, 6);
+    expect(r.projection.projected_usd).toBeCloseTo(0.12, 6);
+    expect(r.projection.verdict).toBe('within');
+    expect(r.seat_metered).toEqual([{ arm: 'gpt-6-astra', calls: 3, settled: 3 }]);
+    expect(renderPilotReport(r)).toContain('PILOT_SEAT_METERED: arm=gpt-6-astra calls=3 settled=3');
+  });
+
+  test('#3653: a seat-metered attempt settles only unknown, and a seat-metered arm must be one of the arms', () => {
+    const d = tmp();
+    const dry = passingDryRun(d);
+    const out = path.join(d, 'seat');
+    const s = startPilot({ out, cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
+    expect(() => settlePilot(out, s.record.attempts[0]!.attempt, 0.01)).toThrow('seat-metered');
+    expect(() => startPilot({ out: path.join(d, 'stray'), cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-5.4-mini'], dryRun: dry })).toThrow('--seat-metered');
+  });
 });
 
 // ---------------------------------------------------------------------------
