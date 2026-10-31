@@ -86,11 +86,10 @@ describe('next --ceo-only runs the CEO phase alone and ends reviewed', () => {
     expect(fs.existsSync(path.join(out, 'gate.json'))).toBe(false);
   });
 
-  test('answer, recommend, revise, close and budget refuse CEO_ONLY_NO_GATE', () => {
+  test('answer, recommend and revise refuse CEO_ONLY_NO_GATE', () => {
     const plan = path.join(dir('reviewed'), 'plan.md');
     for (const args of [['answer', '--gate-rev', '1', '--reply', 'rec', '--by', 'human'], ['answer', '--reply', 'rec', '--by', 'human'],
-      ['recommend', '--gate-rev', '1', '--item', 'd1', '--option', 'b', '--basis', 'x'], ['revise', '--plan', plan],
-      ['close', '--phase', 'ceo', '--deferred', 'x', '--by', 'human'], ['budget', '--spend-cap', '5', '--by', 'human']]) {
+      ['recommend', '--gate-rev', '1', '--item', 'd1', '--option', 'b', '--basis', 'x'], ['revise', '--plan', plan]]) {
       const r = autoplan([args[0]!, '--out', out, ...args.slice(1)]);
       expect(r.status, args.join(' ')).toBe(3);
       expect(r.stderr).toContain('(CEO_ONLY_NO_GATE)');
@@ -105,6 +104,52 @@ describe('next --ceo-only runs the CEO phase alone and ends reviewed', () => {
     fs.writeFileSync(path.join(bad, 'decisions.jsonl'), '');
     fs.writeFileSync(path.join(bad, 'run.json'), '{not json');
     expect(importAutoplan(bad, 'main')).toMatchObject({ code: 'ARTIFACT_INVALID_JSON' });
+  });
+});
+
+describe('a budget-stopped CEO-only run recovers the way a full run does', () => {
+  const stopped = (name: string, extra: Record<string, string> = {}) => {
+    fs.mkdirSync(dir(name), { recursive: true });
+    fs.writeFileSync(path.join(dir(name), 'plan.md'), SMALL_PLAN);
+    const out = path.join(dir(name), 'run');
+    const first = autoplan(['next', '--out', out, '--plan', path.join(dir(name), 'plan.md'), '--no-ui', '--ceo-only', '--spend-cap', '1', '--estimate-usd', '5'], { env: env(extra) });
+    expect(first.status).toBe(3);
+    expect(first.stderr).toContain('(SPEND_CAP_EXCEEDED)');
+    expect(readRun(out).status).toBe('incomplete');
+    return out;
+  };
+
+  test('budget then resume lifts the stop, and the run ends reviewed', () => {
+    const out = stopped('stopped-budget');
+    const budget = autoplan(['budget', '--out', out, '--spend-cap', '50', '--by', 'human']);
+    expect(budget.status, budget.stderr).toBe(0);
+    expect(autoplan(['resume', '--out', out]).stdout).toContain('STOP_LIFTED');
+    runPhase(out, 'ceo');
+    expect(readRun(out).status).toBe('reviewed');
+    expect(fs.existsSync(path.join(out, 'ceo-review.md'))).toBe(true);
+  });
+
+  test('close --deferred finishes it reviewed, with the report and no gate', () => {
+    const out = stopped('stopped-close');
+    const close = autoplan(['close', '--out', out, '--phase', 'ceo', '--deferred', 'out of budget', '--by', 'human']);
+    expect(close.status, close.stderr).toBe(0);
+    expect(close.stdout).toContain('REVIEWED: ceo-only');
+    expect(close.stdout.trimEnd().split('\n').at(-1)).toBe(`GSTACK_RESULT: skill=autoplan status=reviewed run=${out}`);
+    expect(fs.existsSync(path.join(out, 'ceo-review.md'))).toBe(true);
+    expect(fs.existsSync(path.join(out, 'gate.json'))).toBe(false);
+  });
+});
+
+describe('reviewed is a status at rest for checkpoints', () => {
+  test('resume on a reviewed run publishes a reviewed generation', () => {
+    const root = path.join(dir('ckpt'), 'drive');
+    const out = startSmallRun(dir('ckpt'), ['--ceo-only']);
+    runPhase(out, 'ceo');
+    expect(readRun(out).status).toBe('reviewed');
+    const resumed = autoplan(['resume', '--out', out], { env: env({ GSTACK_AUTOPLAN_CHECKPOINT_DIR: root }) });
+    expect(resumed.stderr).toContain('status=reviewed');
+    const current = JSON.parse(fs.readFileSync(path.join(root, readRun(out).run, 'current.json'), 'utf8'));
+    expect(current.status).toBe('reviewed');
   });
 });
 

@@ -10,7 +10,8 @@
  * decision row of kind `auto` and status `auto_kept` (the plan's direction
  * kept, nobody answered), and ends `reviewed`. It never writes gate.json,
  * never calls approve() and never edits the plan, so the commands that need a
- * gate or an approvable run refuse it (CEO_ONLY_NO_GATE).
+ * gate or an approvable run refuse it (CEO_ONLY_NO_GATE); `budget` and
+ * `close --deferred` still recover a run stopped by its spend cap.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -41,7 +42,7 @@ export function checkCeoOnlyFlags(args: readonly string[], plan: string | undefi
   return true;
 }
 
-/** answer, recommend, revise, close and budget need a gate or an approvable run: a CEO-only run has neither. */
+/** answer, recommend and revise need a gate or an approvable run: a CEO-only run has neither (budget and close stay: they recover a budget stop). */
 export function refuseCeoOnly(state: RunState, verb: string): void {
   if (state.ceo_only) throw new RunError('CEO_ONLY_NO_GATE', `${verb} on CEO-only run ${state.run} (status ${state.status}); report: ${path.join(state.out, CEO_ONLY_REPORT)}`, 3);
 }

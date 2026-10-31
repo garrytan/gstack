@@ -3126,10 +3126,11 @@ review run. A run keeps the mode it started with.
 <a id="ceo-only-no-gate"></a>
 ### `CEO_ONLY_NO_GATE`
 
-**Meaning.** `answer`, `recommend`, `revise`, `close` or `budget` was run on
-a CEO-only run, or `gstack-approvals import` was pointed at one. A CEO-only
+**Meaning.** `answer`, `recommend` or `revise` was run on a CEO-only run, or
+`gstack-approvals import` was pointed at one. A CEO-only
 run writes no gate, ends `status=reviewed` and is never approved, so there is
-nothing to answer, change or import.
+nothing to answer, change or import. (`budget` and `close --deferred` still
+work: they are how a budget-stopped CEO-only run recovers.)
 
 **Fix.** Read `<run dir>/ceo-review.md`. For a gate and an approval, start a
 full review in a new directory: `gstack-autoplan next --out <new dir> --plan

@@ -20,7 +20,7 @@ export const AUTOPLAN_RESULT_CODES = {
   },
   CEO_ONLY_NO_GATE: {
     anchor: 'ceo-only-no-gate',
-    summary: 'the command needs a gate or an approvable run, and a CEO-only run has neither: it ends status=reviewed and is never approved',
+    summary: 'answer, recommend, revise and approvals import need a gate or an approvable run, and a CEO-only run has neither: it ends status=reviewed and is never approved',
     fix: 'read <run dir>/ceo-review.md; to get a gate and an approval, start a full review with gstack-autoplan next --out <new dir> --plan <file> (no --ceo-only)',
   },
 } as const satisfies Record<string, ResultCode>;

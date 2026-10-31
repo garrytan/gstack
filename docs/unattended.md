@@ -605,9 +605,11 @@ approves, so `gstack-artifact validate` accepts the run as it stands.
   `--developer-tool` or `--agent-primary`, and in a plan's scope marker
   (`CEO_ONLY_CONFLICT`); a directory that holds a full run refuses it
   (`CEO_ONLY_AFTER_INIT`).
-- `answer`, `recommend`, `revise`, `close` and `budget` refuse a CEO-only run,
-  and so does `gstack-approvals import` (`CEO_ONLY_NO_GATE`): there is no gate to
-  answer and nothing was approved.
+- `answer`, `recommend` and `revise` refuse a CEO-only run, and so does
+  `gstack-approvals import` (`CEO_ONLY_NO_GATE`): there is no gate to answer and
+  nothing was approved. A run stopped by `--spend-cap` recovers as a full run
+  does: `budget` then `resume`, or `close --phase ceo --deferred`, which ends
+  it `reviewed`.
 
 ## Owner brief
 

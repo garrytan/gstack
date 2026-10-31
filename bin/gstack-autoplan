@@ -266,7 +266,6 @@ function doClose(out: string, rest: string[], json: boolean): number {
   if (!phase || !reason?.trim()) return usage('close needs --phase <p> --deferred "<reason>" --by <human|agent:<id>>');
   if (by === undefined || !ANSWERED_BY_RE.test(by)) throw new RunError('ANSWER_BY_REQUIRED', `close records who deferred the phase: pass --by human or --by agent:<id> (got ${JSON.stringify(by ?? null)})`, 3);
   const state = readState(out);
-  refuseCeoOnly(state, 'close');
   const ps = state.phases[phase];
   if (!state.phase_order.includes(phase as Phase) || ps?.closed_at || ps?.skipped) throw new RunError('PHASE_NOT_AWAITING', `${phase} is ${ps?.skipped ? 'skipped' : ps?.closed_at ? 'already closed' : 'not a phase of this run'}`, 3);
   const stopped = state.status === 'incomplete' && !!state.stop;
@@ -297,7 +296,6 @@ function doCheck(out: string, rest: string[], json: boolean): number {
 
 function doBudget(out: string, rest: string[], json: boolean): number {
   const state = readState(out);
-  refuseCeoOnly(state, 'budget');
   const lines = changeBudget(state, { spendCap: num(rest, '--spend-cap'), maxRounds: num(rest, '--max-rounds'), by: flag(rest, '--by') });
   writeState(state);
   emit(json, [...lines, resultLineFor(state.status, out)], { run: state.run, status: state.status, spend_cap_usd: state.spend_cap_usd, max_rounds: state.max_rounds ?? null, out });
