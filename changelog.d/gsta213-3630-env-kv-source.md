@@ -6,7 +6,8 @@
   - a value that is not an identifier chain;
   - an annotation with a literal default (`api_token: AuthToken = "<secret>"`, now caught in TypeScript too);
   - a `password:` line inside a Dart or Python `'''`/`"""` string, where escaped quotes don't close the string and a delimiter inside a comment or a one-line string opens nothing;
-  - a `password: <value>` pair inside a one-line string, in any of these languages;
+  - a `password: <value>` pair inside a one-line Python or Dart string;
+  - a literal fallback after the name (`"password": settings.db_pass or "<secret>"`);
   - the same lines in `.env` or YAML files.
 
   Python's `=` forms (`password=request.password`) still report.

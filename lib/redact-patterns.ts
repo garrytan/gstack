@@ -687,50 +687,58 @@ const CODE_SOURCE = /\.(?:[cm]?tsx?|jsx|dart|pyi?)$/i;
 const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s<>[\]|]*>)?(?:\[\])*$/;
 
 /**
- * #3418: a `password:` line in a Dart or Python `'''`/`"""` block is a literal
- * in an embedded config, so the name exemption must not reach it. The open
- * spans of every such block are computed once per input (a scan validates
- * many candidates against the same text). Outside a block, a one-line string
- * and a comment (`#` in Python, `//` in Dart) are skipped, so a delimiter
- * inside one never opens a block; inside a block, only the delimiter that
- * opened it closes it, and a backslash escapes the next character. The
- * exemption needs the whole file to see an opener: pregate passes these files
+ * #3418: a `password:` pair inside a string is text in an embedded config,
+ * not a dict entry or annotation, so the name exemption must not reach it.
+ * In Python and Dart (no regex literals, so every quote is a string's), one
+ * linear pass per input (a scan validates many candidates against the same
+ * text) records every string's content span: a `'''`/`"""` block, or a
+ * `'`/`"` string that ends at its line unless a backslash continues it.
+ * Comments are skipped (`#` in Python; `//` and nested `/* *\/` in Dart), so a
+ * delimiter inside one opens nothing; a backslash escapes the next character, except in a Dart raw
+ * string (`r'''…'''`). The exemption needs the
+ * whole file to see a block's opener: pregate passes Dart and Python files
  * whole, and the pre-push hook, which scans added lines alone, passes them
  * without their path.
  */
-const TRIPLE_QUOTED_SOURCE = /\.(?:dart|pyi?)$/i;
-let tripleSpansCache: { text: string; comment: string; spans: Array<[number, number]> } | null = null;
+const STRING_SPAN_SOURCE = /\.(?:dart|pyi?)$/i;
+let stringSpansCache: { text: string; lang: string; spans: Array<[number, number]> } | null = null;
 
-function tripleQuotedSpans(text: string, comment: string): Array<[number, number]> {
-  if (tripleSpansCache?.text === text && tripleSpansCache.comment === comment) return tripleSpansCache.spans;
+function stringSpans(text: string, lang: "py" | "dart"): Array<[number, number]> {
+  if (stringSpansCache?.text === text && stringSpansCache.lang === lang) return stringSpansCache.spans;
   const spans: Array<[number, number]> = [];
-  let open: string | null = null;
-  let from = 0;
-  for (let i = 0; i < text.length; ) {
-    if (open !== null) {
-      if (text[i] === "\\") { i += 2; continue; }
-      if (text.startsWith(open, i)) { spans.push([from, i]); open = null; i += 3; continue; }
-      i += 1;
+  const n = text.length;
+  for (let i = 0; i < n; ) {
+    const c = text[i]!;
+    if (lang === "py" ? c === "#" : text.startsWith("//", i)) {
+      const eol = text.indexOf("\n", i);
+      i = eol < 0 ? n : eol;
       continue;
     }
-    if (text.startsWith('"""', i) || text.startsWith("'''", i)) { open = text.slice(i, i + 3); from = i + 3; i += 3; continue; }
-    if (text.startsWith(comment, i)) { const eol = text.indexOf("\n", i); i = eol < 0 ? text.length : eol; continue; }
-    if (text[i] === '"' || text[i] === "'") {
-      const quote = text[i];
-      let j = i + 1;
-      while (j < text.length && text[j] !== quote && text[j] !== "\n") j += text[j] === "\\" ? 2 : 1;
-      i = j + 1;
+    if (lang === "dart" && text.startsWith("/*", i)) {
+      let depth = 1;
+      for (i += 2; i < n && depth > 0; ) {
+        if (text.startsWith("/*", i)) { depth += 1; i += 2; }
+        else if (text.startsWith("*/", i)) { depth -= 1; i += 2; }
+        else i += 1;
+      }
       continue;
     }
-    i += 1;
+    if (c !== '"' && c !== "'") { i += 1; continue; }
+    const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+    const multiline = close.length === 3;
+    const raw = lang === "dart" && text[i - 1] === "r" && !/[\w$]/.test(text[i - 2] ?? "");
+    let j = i + close.length;
+    while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) j += !raw && text[j] === "\\" ? 2 : 1;
+    spans.push([i + close.length, Math.min(j, n)]);
+    i = j + close.length;
   }
-  if (open !== null) spans.push([from, text.length]);
-  tripleSpansCache = { text, comment, spans };
+  stringSpansCache = { text, lang, spans };
   return spans;
 }
 
-function insideTripleQuotedString(text: string, offset: number, comment: string): boolean {
-  const spans = tripleQuotedSpans(text, comment);
+function insideString(text: string, offset: number, sourcePath: string): boolean {
+  if (!STRING_SPAN_SOURCE.test(sourcePath)) return false;
+  const spans = stringSpans(text, /\.dart$/i.test(sourcePath) ? "dart" : "py");
   let lo = 0;
   let hi = spans.length - 1;
   while (lo <= hi) {
@@ -742,17 +750,19 @@ function insideTripleQuotedString(text: string, offset: number, comment: string)
   return false;
 }
 
-function insideOneLineString(text: string, offset: number, comment: string): boolean {
-  let open: string | null = null;
-  for (let i = text.lastIndexOf("\n", offset - 1) + 1; i < offset; i += 1) {
-    const c = text[i]!;
-    if (open !== null) {
-      if (c === "\\") i += 1;
-      else if (c === open) open = null;
-    } else if (text.startsWith(comment, i)) return false;
-    else if (c === '"' || c === "'" || c === "`") open = c;
+function expressionTail(rest: string): string {
+  let depth = 0;
+  for (let i = 0; i < rest.length; i += 1) {
+    const c = rest[i]!;
+    if (c === '"' || c === "'" || c === "`") {
+      const close = rest.indexOf(c, i + 1);
+      if (close < 0) return rest;
+      i = close;
+    } else if ("([{".includes(c)) depth += 1;
+    else if (")]}".includes(c)) { if (--depth < 0) return rest.slice(0, i); }
+    else if ((c === "," || c === ";") && depth === 0) return rest.slice(0, i);
   }
-  return open !== null;
+  return rest;
 }
 
 function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
@@ -769,11 +779,10 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
     const head = match[0].slice(0, match[0].length - span.length).trimEnd();
     const separator = head.slice(-1);
     if (separator !== ":" || !CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return false;
-    if (insideOneLineString(match.input, start, /\.pyi?$/i.test(sourcePath) ? "#" : "//")) return false;
     const rest = (span.endsWith("=") ? "=" : "") + match.input.slice(end).split("\n", 1)[0];
-    if (/^\s*=/.test(rest) && carriesSecretLiteral(rest)) return false;
+    if (!/[,;]$/.test(span) && carriesSecretLiteral(expressionTail(rest))) return false;
   }
-  return !(TRIPLE_QUOTED_SOURCE.test(sourcePath) && insideTripleQuotedString(match.input, start, /\.dart$/i.test(sourcePath) ? "//" : "#"));
+  return !insideString(match.input, start, sourcePath);
 }
 
 export const PATTERNS: RedactPattern[] = [

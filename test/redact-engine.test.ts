@@ -296,6 +296,10 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       ["key={workout.id ?? index}", "src/SessionList.jsx"],
       ["key={item.uuid || item.slug}", "src/List.tsx"],
       ["key={row.ready && row.id}", "src/Grid.tsx"],
+      // A quote inside a comment opens nothing.
+      ["# it's a session\ndef f(\n    session: HttpSession,\n): pass", "app.py"], ["/* it's a session */\n  password: request.password,", "lib/a.dart"],
+      // A literal in the next pair on the line belongs to that pair.
+      ['    "session": request.session, "mode": "readwrite-primary",', "app.py"],
       // Quotes that close before the name leave it code.
       ["    login('it\\'s', password: request.password);", "lib/a.dart"], ['    "user": "a", "password": request.password,', "app.py"],
       // The triple-quote guard is Dart/Python only: a stray ''' in a TS string leaves #3048 as it was.
@@ -327,6 +331,13 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`# don't use """ here\nCONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
       [`DELIM = '"""'\nCONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
       [`// no ''' here\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      [`/* ''' */\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      [`/* outer /* ''' */ still a comment ''' */\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      [`const dir = r'''C:\\dir\\''';\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      // A literal fallback after a name is still a literal.
+      [`      "password": settings.db_pass or "${v}",`, "app.py"], [`      'password': request.password ?? '${v}',`, "lib/a.dart"],
+      // A one-line string continued by a backslash spans lines.
+      [`CFG = "db: \\\npassword: ${vIdent} \\\n"`, "app.py"],
       // A key and value inside one quoted string are text, not a dict entry.
       [`    'password: ${vIdent} more',`, "lib/a.dart"], [`    "password: ${vIdent} more",`, "app.py"],
     ] as const) expect({ literal, file, kv: kv(literal, file) }).toEqual({ literal, file, kv: true });
