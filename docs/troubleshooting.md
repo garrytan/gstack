@@ -3106,13 +3106,14 @@ the last `next` printed (`ATTEMPT: ... phase=<p> voice=<v>`).
 ### `CEO_ONLY_CONFLICT`
 
 **Meaning.** `gstack-autoplan next --ceo-only` was combined with `--ui`,
-`--developer-tool` or `--agent-primary`, each of which adds a phase a
-CEO-only run never opens, or the plan's `gstack-autoplan-scope` marker names
-`--ceo-only`. The mode is a command-line choice for one run, so a plan can't
-pin it.
+`--developer-tool` or `--agent-primary` (on the command line or in the plan's
+`gstack-autoplan-scope` marker), each of which adds a phase a CEO-only run
+never opens; or the marker names `--ceo-only` (the mode is a command-line
+choice for one run, so a plan can't pin it); or the plan sits at
+`<out>/ceo-review.md`, the report the run would write over it.
 
-**Fix.** Drop the conflicting flag (or the marker token), or run the full
-review without `--ceo-only`.
+**Fix.** Drop the conflicting flag (or the marker token), move the plan out of
+the report path, or run the full review without `--ceo-only`.
 
 <a id="ceo-only-after-init"></a>
 ### `CEO_ONLY_AFTER_INIT`

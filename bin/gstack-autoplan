@@ -188,7 +188,7 @@ function doNext(out: string, rest: string[], json: boolean): number {
   if (fresh) {
     const plan = flag(rest, '--plan');
     if (!plan) throw new RunError('RUN_NOT_INITIALIZED', `${out} has no run.json; pass --plan <file> on the first next`, 3);
-    const ceoOnly = checkCeoOnlyFlags(rest, path.resolve(plan), undefined);
+    const ceoOnly = checkCeoOnlyFlags(rest, path.resolve(plan), undefined, out);
     const ui = rest.includes('--ui') ? true : rest.includes('--no-ui') ? false : undefined;
     const maxRounds = num(rest, '--max-rounds');
     if (maxRounds !== undefined && (!Number.isInteger(maxRounds) || maxRounds < 1)) throw new RunError('ARTIFACT_SCHEMA', '--max-rounds needs an integer >= 1', 1);

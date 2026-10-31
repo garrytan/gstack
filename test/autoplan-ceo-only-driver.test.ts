@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { importAutoplan } from '../lib/approval-record';
-import { ROOT, SMALL_PLAN, autoplan, env, journal, readRun, runPhase, startSmallRun } from './helpers/autoplan-run-fixture';
+import { ROOT, SMALL_PLAN, attemptsOf, autoplan, env, journal, readRun, resultOf, review, runPhase, startSmallRun } from './helpers/autoplan-run-fixture';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-ceo-only-'));
 afterAll(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -175,6 +175,18 @@ describe('--ceo-only is a command-line flag for one run', () => {
     }
   });
 
+  test('a scope marker that adds a phase conflicts with the flag', () => {
+    for (const token of ['--ui', '--developer-tool', '--agent-primary']) {
+      const marked = plan(`marker${token}`, `<!-- gstack-autoplan-scope: ${token} -->
+${SMALL_PLAN}`);
+      const out = path.join(dir(`marker${token}`), 'run');
+      const r = autoplan(['next', '--out', out, '--plan', marked, '--ceo-only']);
+      expect(r.status, token).toBe(3);
+      expect(r.stderr).toContain('(CEO_ONLY_CONFLICT)');
+      expect(fs.existsSync(path.join(out, 'run.json'))).toBe(false);
+    }
+  });
+
   test('a directory that holds a full run refuses it after init', () => {
     const out = startSmallRun(dir('full'));
     const r = autoplan(['next', '--out', out, '--ceo-only']);
@@ -184,3 +196,46 @@ describe('--ceo-only is a command-line flag for one run', () => {
     expect(readRun(out).phase_order).toContain('eng');
   });
 });
+
+describe('the CEO-only finish records no answer nobody gave and writes only its own report', () => {
+  test('a Critical left open by close --deferred stays undecided: no chosen option, listed as needing the owner', () => {
+    const out = startSmallRun(dir('blocker'), ['--ceo-only']);
+    const r = review(path.join(out, 'ceo-native-prompt.md'), { FIXTURE_FINDINGS: JSON.stringify([{ severity: 'Critical', title: 'Retries can double-charge', fix: 'idempotency key' }]) });
+    expect(r.status, r.stderr).toBe(0);
+    const ids = attemptsOf(out, 'ceo');
+    const bound = autoplan(['submit', '--out', out, '--phase', 'ceo', '--voice', 'native', '--result', resultOf(out, 'ceo', 'native'), '--model', 'anthropic/claude-opus-5-5', '--attempt', ids.native, '--runner', 'host-subagent']);
+    expect(bound.status, bound.stderr).toBe(0);
+    const close = autoplan(['close', '--out', out, '--phase', 'ceo', '--deferred', 'owner stop', '--by', 'human']);
+    expect(close.status, close.stderr).toBe(0);
+    expect(close.stdout).toContain('REVIEWED: ceo-only');
+    const blocker = rows(path.join(out, 'decisions.jsonl')).find(d => d.title.includes('Retries can double-charge'));
+    expect(blocker).toMatchObject({ kind: 'auto', status: 'auto_kept', chosen: null, default_if_unanswered: null });
+    const report = fs.readFileSync(path.join(out, 'ceo-review.md'), 'utf8');
+    expect(report).not.toContain('you accept the risk');
+    expect(report).toMatch(/Retries can double-charge.*left open for the owner/);
+  });
+
+  test('a plan at the report path refuses before anything is written', () => {
+    const out = path.join(dir('collide'), 'run');
+    fs.mkdirSync(out, { recursive: true });
+    const plan = path.join(out, 'ceo-review.md');
+    fs.writeFileSync(plan, SMALL_PLAN);
+    const r = autoplan(['next', '--out', out, '--plan', plan, '--no-ui', '--ceo-only']);
+    expect(r.status).toBe(3);
+    expect(r.stderr).toContain('(CEO_ONLY_CONFLICT)');
+    expect(fs.existsSync(path.join(out, 'run.json'))).toBe(false);
+    expect(fs.readFileSync(plan, 'utf8')).toBe(SMALL_PLAN);
+  });
+
+  test('a symlink at the report path is replaced, never written through', () => {
+    const out = startSmallRun(dir('symlink'), ['--ceo-only']);
+    const victim = path.join(dir('symlink'), 'victim.txt');
+    fs.writeFileSync(victim, 'keep me');
+    fs.symlinkSync(victim, path.join(out, 'ceo-review.md'));
+    runPhase(out, 'ceo');
+    expect(readRun(out).status).toBe('reviewed');
+    expect(fs.readFileSync(victim, 'utf8')).toBe('keep me');
+    expect(fs.lstatSync(path.join(out, 'ceo-review.md')).isSymbolicLink()).toBe(false);
+  });
+});
+

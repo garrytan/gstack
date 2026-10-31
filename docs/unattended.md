@@ -597,12 +597,14 @@ voices as usual. When CEO closes, the run prints `REVIEWED:` and ends
 `GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>`, with
 `<dir>/ceo-review.md` in the same sections, hashed in `run.json`. Each item a
 gate would have asked becomes a `decisions.jsonl` row of kind `auto` and status
-`auto_kept` (the plan's direction kept, nobody answered), and tasks are blocked
-on no decision. The driver never edits the plan, writes no `gate.json` and never
+`auto_kept` (nobody answered: the plan's direction is kept, and a round-cap item
+only the owner can accept, such as a Critical left open, stays undecided with
+no chosen option), and tasks are blocked on no decision. The driver never edits the plan, writes no `gate.json` and never
 approves, so `gstack-artifact validate` accepts the run as it stands.
 
 - The flag goes on the first `next` only. It refuses beside `--ui`,
-  `--developer-tool` or `--agent-primary`, and in a plan's scope marker
+  `--developer-tool` or `--agent-primary` on the command line or in the plan's
+  scope marker, when the marker names it, and on a plan at the report path
   (`CEO_ONLY_CONFLICT`); a directory that holds a full run refuses it
   (`CEO_ONLY_AFTER_INIT`).
 - `answer`, `recommend` and `revise` refuse a CEO-only run, and so does
