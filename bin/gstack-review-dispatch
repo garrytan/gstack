@@ -52,10 +52,11 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       VERIFY: no brief records (exit 3: this run's ledger kept no prompts). A ledger with a targeted brief also prints
       TARGETED_RECORD: and --targeted-out writes it as the JSON gstack-ship-receipt write --review-targeted reads
   pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>] [--audit-only]
-       [--checklist-root <dir>] [-- <gstack-review-plan flags>]
+       [--checklist-root <dir>] [--fix-list <f> --hunks <f> --tests <f> [--callers <f>]] [-- <gstack-review-plan flags>]
       runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
       specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
-      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full or scoped prints PASS: none.
+      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full, scoped or fix-check prints PASS: none.
+      A fix-check reader (stage specialists) renders from decision 3.5's --fix-list, --hunks, --tests and --callers files.
       An existing manifest for the same --pass is reused (resumed). --extras: [{"name","prompt_file","first"?,"model"?}]
       --audit-only skips the plan: the --extras readers are the whole pass (Step 14.5's docs audit)
   show --manifest <f>                         MANIFEST_JSON: <the manifest on one line>
@@ -165,7 +166,7 @@ function pass(): number {
   const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] } };
   const planLines = text.stdout.trimEnd().split('\n');
   const step = p.next.step;
-  if (step !== 'full' && step !== 'scoped') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
+  if (step !== 'full' && step !== 'scoped' && step !== 'fix-check') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
   const diffBase = flag('--diff-base') ?? git(['merge-base', base, 'HEAD'])?.trim();
   if (!diffBase) throw new BriefError(`no merge base between ${base} and HEAD`);
   const root = git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd();
@@ -173,7 +174,8 @@ function pass(): number {
   const extras = extrasFile ? JSON.parse(readFile(extrasFile, 'extras')!) as Extra[] : [];
   const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase, root, checklistRoot: flag('--checklist-root') ?? ROOT,
     dispatches: p.dispatches, next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
-    targetedClasses: p.targeted?.classes, mergeBase: git(['merge-base', base, 'HEAD'])?.trim() });
+    targetedClasses: p.targeted?.classes, mergeBase: git(['merge-base', base, 'HEAD'])?.trim(),
+    fixCheck: flag('--fix-list') || flag('--hunks') || flag('--tests') ? { fix_list: flag('--fix-list')!, hunks: flag('--hunks')!, tests: flag('--tests')!, callers: flag('--callers') } : undefined });
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
   const t = sectionTexts(ROOT);
   renderStage(m, 'first', t, branchDiff);

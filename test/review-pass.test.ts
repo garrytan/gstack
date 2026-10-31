@@ -27,7 +27,7 @@ function manifest(dispatches: Dispatch[], o: Partial<Parameters<typeof buildMani
 const collectAll = (m: Manifest, stage: string) => { for (const r of m.readers.filter(x => x.stage === stage)) { markReader(m, r.reader, 'intent'); markReader(m, r.reader, 'created', { path: '9' }); markReader(m, r.reader, 'collected'); } };
 
 describe('pass manifest', () => {
-  test('stages follow the plan: specialists, Red Team, voices; batched light depth keeps its checklists and exclusions; fix-check is refused', () => {
+  test('stages follow the plan: specialists, Red Team, voices; batched light depth keeps its checklists and exclusions; a fix-check needs its files', () => {
     const m = manifest([spec('testing'), { role: 'red-team', name: 'red-team', effort: 'full', exclude: [] }, { role: 'adversarial-native', name: 'adversarial', effort: 'full', exclude: [] }, { role: 'outside-voice', name: 'outside-voice', effort: 'host', exclude: [] }]);
     expect(m.readers.map(r => [r.reader, r.stage, r.title])).toEqual([
       ['specialist/testing', 'specialists', 'ship p1 specialist/testing'], ['red-team', 'red-team', 'ship p1 red-team'],
@@ -36,7 +36,7 @@ describe('pass manifest', () => {
     expect(m.test_fw).toBe('unknown');
     const light = manifest([{ role: 'specialist', name: 'batched', effort: 'full', exclude: [':(exclude)docs/a.md'], checklists: ['testing', 'red-team'] }]);
     expect(light.readers[0]).toMatchObject({ reader: 'specialist-batched', role: 'specialist-batched', exclude: "-- . ':(exclude)docs/a.md'", checklists: ['testing', 'red-team'] });
-    expect(() => manifest([{ role: 'fix-check', name: 'fix-check', effort: 'full', exclude: [] }])).toThrow(/fix-check runs on its own/);
+    expect(() => manifest([{ role: 'fix-check', name: 'fix-check', effort: 'full', exclude: [] }])).toThrow(/the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests/);
     // PR #3665 review: the batched reviewer reads each checklist by path, as the render CLI is given them, never by bare name.
     renderStage(light, 'specialists', texts, () => '');
     expect(fs.readFileSync(light.readers[0]!.file!, 'utf8')).toContain(`Read each checklist at ${path.join(ROOT, 'review/specialists/testing.md')}, ${path.join(ROOT, 'review/specialists/red-team.md')} (tag each finding`);
@@ -133,7 +133,6 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
   const subs = new Map<string, Sub>();
   const creates: Sub[] = [];
   const starts: number[][] = [];
-  const notes: Array<{ to: string; text: string }> = [];
   const advance = () => {
     for (const s of subs.values()) {
       if (s.late && !s.summary) { s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; continue; }
@@ -171,9 +170,8 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
       get: async ({ path: p }: { path: string }) => ({ path: p, status: subs.get(p)!.status, summary: subs.get(p)!.summary }),
     },
     thread: { get: async () => ({ cost: { tokens: 1000 + clock, credits: 1 + clock / 1000 } }) },
-    message: { agent: async ({ to, text }: { to: string; text: string }) => { notes.push({ to, text }); return { delivered: true }; } },
   };
-  return { tools, subs, creates, starts, notes, sleep: async (ms: number) => { clock += ms; }, now: async () => 1_000_000 + clock };
+  return { tools, subs, creates, starts, sleep: async (ms: number) => { clock += ms; }, now: async () => 1_000_000 + clock };
 }
 
 const PROGRAM = fs.readFileSync(path.join(ROOT, 'lib/capy-review-pass.js'), 'utf8');
@@ -474,32 +472,52 @@ describe('Capy pass program (fake host, real bins)', () => {
   //   why_new=replay C2-34 (GSTA-193) on PR 2; seam=none; no_claim=the host's status timing beyond one late summary
   test('extras as JSON, the checkout as cwd, and a late summary all run through without a STOP', async () => {
     const { dir, env } = repo();
-    const elsewhere = tmp('rp-cwd-');
     const out = path.join(dir, '.state/run/p1');
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(path.join(out, 'qa.prompt.md'), 'QA brief');
-    const h = host(elsewhere, env, { lateSummary: true });
-    const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir, planFlags: ['--depth-floor', 'full'],
+    const h = host(dir, env, { lateSummary: true });
+    const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir + '/src/..', planFlags: ['--depth-floor', 'full'],
       extras: [{ name: 'qa', prompt_file: path.join(out, 'qa.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
     expect(res).not.toContain('STOP:');
     expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.find(c => c.title === 'ship x13p1 audit/qa')!.prompt).toBe('QA brief');
   }, 180_000);
 
-  test('with cwd every reader, a queued one included, is told the checkout beside its unchanged brief', async () => {
+  test('a cwd other than the directory readers start in stops the pass before anything is planned or dispatched', async () => {
     const { dir, env } = repo();
+    const elsewhere = tmp('rp-cwd-');
     const out = path.join(dir, '.state/run/p1');
-    const plain = host(dir, env);
-    expect(await runPass(plain, { base: 'main', out: path.join(dir, '.state/run/p0'), pass: 'x18p0', planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
-    expect(plain.notes).toEqual([]);
-    const h = host(tmp('rp-cwd-'), env, { reject: t => t.endsWith('red-team') });
-    expect(await runPass(h, { base: 'main', out, pass: 'x18p1', cwd: dir, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
-    const paths = [...h.subs.keys()];
-    expect(h.notes.map(n => n.to).sort()).toEqual(paths.sort());
-    for (const n of h.notes) expect(n.text).toContain(`The checkout under review is ${dir}`);
-    expect(h.starts.length).toBe(1);
-    const titles = plain.creates.map(c => c.title.replace('x18p0', 'x18p1'));
-    for (const c of h.creates) expect(c.prompt.split('x18p1').join('')).toBe(plain.creates[titles.indexOf(c.title)]!.prompt.split('x18p0').join(''));
+    const h = host(elsewhere, env);
+    const res = await runPass(h, { base: 'main', out, pass: 'x18p1', cwd: dir, planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain(`STOP: readers start in ${fs.realpathSync(elsewhere)}, not ${dir}: run /ship from the workspace checkout`);
+    expect(h.creates).toEqual([]);
+    expect(fs.existsSync(path.join(out, 'pass-manifest.json'))).toBe(false);
+  }, 120_000);
+
+
+  test('decision 3.5 runs in the program: one fix-check reader whose prompt is the render CLI brief byte for byte, sent and collected', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/fc');
+    const files = path.join(dir, '.state/fc');
+    fs.mkdirSync(files, { recursive: true });
+    const fc: Record<string, string> = {};
+    for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n'], ['callers', 'none\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
+    const planFlags = ['--pass', '2', '--last', 'full', '--fixed-blocking'];
+    const missing = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fc0'), pass: 'x19fc0', planFlags });
+    expect(missing).toContain('STOP: gstack-review-dispatch pass exited');
+    expect(missing).toContain('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests');
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out, pass: 'x19fc', planFlags, fixCheck: fc, logStart: ['review-fix-check'] });
+    expect(res).toMatch(/REVIEW_LOG_START: review-fix-check token=\S+/);
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(h.creates.map(c => c.title)).toEqual(['ship x19fc fix-check']);
+    const cli = bin(dir, env, ['render', '--role', 'fix-check', '--out', path.join(dir, '.state/cli'), '--fix-list', fc.fix_list!, '--hunks', fc.hunks!, '--tests', fc.tests!, '--callers', fc.callers!]);
+    expect(cli.status).toBe(0);
+    expect(h.creates[0]!.prompt).toBe(fs.readFileSync(path.join(dir, '.state/cli/fix-check.prompt.md'), 'utf8'));
+    expect(h.creates[0]!.prompt).toContain('You are the fix-check reviewer');
+    const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout;
+    expect(v).toMatch(/^BRIEF fix-check MATCH rendered=(\w+) sent=\1$/m);
+    expect(v).toMatch(/^OUTPUT fix-check MATCH /m);
   }, 240_000);
 
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {

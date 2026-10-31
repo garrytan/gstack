@@ -14,10 +14,9 @@ gates and the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
 the next act. Read a section only when a phase or the list at the end sends you, never
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
 there, come back. Unattended, a question with a recommended option takes it (log it); gate
-dispositions and approvals stay pending and end the run. Keep a private invocation record (the
-`--record` file): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
+dispositions and approvals stay pending and end the run. Keep a private invocation record (`--record`): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
 (Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Scope Check:`), **Decisions** (any
-phase: each answered or auto-taken question, in its words), **Reviews** (Phases 3-5: the plan line,
+phase: each answered or auto-taken question, verbatim), **Reviews** (Phases 3-5: the plan line,
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
 version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (every phase: the next act).
 
@@ -62,8 +61,7 @@ The install check and this file.
 ## 2. Preflight, tests, evals and reads: Steps 0.9, 1, 2, 3, 4, 5, 6, 6.5, 10
 
 `gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] --reading R --credits C`, then
-`gstack-ship-preflight --base <base> --lane <label>=<command>...` (the test commands AGENTS.md or
-CLAUDE.md names). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
+`gstack-ship-preflight --base <base> --lane <label>=<command>...` (AGENTS.md or CLAUDE.md test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
 line. A lane passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a failed lane; `unknown`
 is `count unavailable`. In-branch failures stop the ship; after a repair, rerun `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
@@ -80,8 +78,7 @@ Never read TODOS.md or the full diff into the parent. A `PERSIST:` hint never re
 
 One program: the audit readers `READER:` names (Step 7 from `sections/test-coverage.md`, Step 8 from
 `sections/plan-completion.md`, each run as written; Step 7 may write tests, so it settles first), Step 9.2.1's QA reader (that step of
-`sections/review-army.md` as its brief) and the pass (above): Step 9's plan and start, Step 9.1's
-specialists and Step 9.2's Red Team as written. `Coverage:` and Step 8's line come from `--audit` when no
+`sections/review-army.md` as its brief) and the pass (above): Steps 9-9.2 as written. `Coverage:` and Step 8's line come from `--audit` when no
 reader ran.
 
 ## 4. Judgment: Steps 8.1, 8.2, 9.3, 9.4 and Step 11
@@ -90,7 +87,8 @@ Steps 8.1 and 8.2 (`Scope Check:`) on the todos and commits files, then the core
 9.3, 9.4 and the repeat decision as written (`gstack-review-plan` included;
 `JUDGMENT: ok` before any fix), fixes and persistence in
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or
-`scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated; `done`: the same program runs Step 11 from
+`scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated; `fix-check`: the
+pass (above) with `fixCheck: {fix_list, hunks, tests, callers}` files; `done`: the same program runs Step 11 from
 `sections/adversarial.md` as written (above), only the voices the last full-pass plan lists (neither
 prints `ADVERSARIAL: skipped (review plan)`).
 
@@ -122,7 +120,7 @@ STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` an
 
 - Step 18: the open-PR lookup; a title file starting `v<NEW_VERSION> `. `UNATTENDED_SHIP:` with no open PR at HEAD takes Step 18-H.
 - Step 19 body: the receipt block, then the sections `sections/pr-body.md` lists (Pre-Landing Review: `REVIEW_LOOP:`, `Gate edits:`, deferred, notes), led under `CAPY_PR: on` (Step 19-C) by What changed, Why, Blast radius and Approvals (`gstack-approvals render`). `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> --body <body>`; `gstack-post pr-body` and `pr-title` (a new PR via the host's PR tool; a draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
-- Step 20: the ship metrics row via `gstack-review-log`.
+- Step 20: the metrics row via `gstack-review-log`.
 - Step 22: `gstack-ship-budget close --reading R --credits C` (put `BUDGET_FINAL:` and `BUDGET_TIMELINE:`, tokens and credits, in the report), then `gstack-ship-receipt result --pr <n>`: `GSTACK_RESULT: skill=ship status=complete run=<dir>`. Under a merge queue, `gstack-ship-queue ready --pr <n> [--screen|--no-screen]` at the pushed head; paste its output.
 
 ## Where each STOP sends you (paths under `<root>/ship/`)
