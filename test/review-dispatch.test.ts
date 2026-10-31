@@ -540,10 +540,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const extra = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; rows.push({ ...rows[1]!, id: 'specialist/testing#9' }); });
     expect([extra.status, extra.stdout.includes('merged_rows_not_collected=["specialist/testing#9"]')]).toEqual([1, true]);
   });
-  // Value: protects=an output event edited to read like a refused reply (no ids, review false, tree_ok false) cannot drop its findings
-  //   and still verify clean, while a reply collect really refused for its tree stays NOT_REVIEWED until a re-sent brief is answered;
+  // Value: protects=an output event edited to read like a refused reply (no ids, review false, tree_ok false) or to drop its file
+  //   cannot drop its findings and still verify clean, while a reply collect really refused for its tree stays NOT_REVIEWED until a re-sent brief is answered;
   //   fails_when=verify skips the count check on the editable review or tree_ok field, so a clean marker keeps the output MATCH or a
-  //   later review voids it (fix-checks at 721539c and 56ed6e3: VERIFY: clean); why_new=the GST-482 count exemption trusted collect's
+  //   later review voids it, or an output with no recorded file passes on its review field (fix-checks at 721539c, 56ed6e3 and 50dc73c: VERIFY: clean); why_new=the GST-482 count exemption trusted collect's
   //   fields; seam=verify; no_claim=that a deleted output event is caught (#3719)
   test('an output event edited to look refused is dirty; a real wrong-tree reply is NOT_REVIEWED, then voided by a review', () => {
     const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
@@ -574,6 +574,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     noIds.forge({ ids: [], review: false });
     const v = noIds.verify();
     expect([v.status, v.stdout.includes('merged_count_differs=1/0'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const unfiled = voice(findings);
+    unfiled.forge({ file: null, ids: [] });
+    const u = unfiled.verify();
+    expect([u.status, u.stdout.includes('output_file_unrecorded'), u.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
     const flagged = voice(findings);
     flagged.forge({ ids: [], review: false, tree_ok: false });
     flagged.send();

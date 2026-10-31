@@ -307,11 +307,11 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
     // Each merged row must be the finding collect parses at that id's index from the unchanged output, label and raw text byte for byte.
-    if (text === undefined && (ids.length || typeof o.file === 'string')) {
+    if (text === undefined) {
       status = 'MISMATCH';
       notes.push(typeof o.file === 'string' ? 'output_file_missing' : 'output_file_unrecorded');
       differs.push(...ids);
-    } else if (text !== undefined && promptHash(text) === o.sha256) {
+    } else if (promptHash(text) === o.sha256) {
       const parsed = parseFindings(reader, text);
       const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw; });
       if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
