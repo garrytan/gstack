@@ -120,9 +120,9 @@ export interface WaveChain { integrator: string[]; merges: string[]; stamps: str
 /**
  * Walk the wave branch's first parents from tip back to the recorded base. Every constituent
  * must appear, in order and exactly once, as the second parent of a two-parent commit; a
- * one-parent commit is an integrator commit; any other merge (main merged in, an unknown head)
- * is refused. With stampBase, train land's stamp commits (parents [wave head, a commit already
- * on stampBase]) may follow the last constituent, one per train that stamped the wave.
+ * one-parent commit is an integrator commit; any other merge (an unknown head, main merged in
+ * before the last constituent) is refused. With stampBase, merges of commits already on
+ * stampBase (train land's stamps, or main merged in) may follow the last constituent.
  */
 export function waveChain(repoRoot: string, w: WaveRecord, tip: string, stampBase: string | null = null): WaveChain | { error: string } {
   const r = git(repoRoot, ['rev-list', '--first-parent', '--parents', `${w.base.sha}..${tip}`]);
@@ -143,6 +143,8 @@ export function waveChain(repoRoot: string, w: WaveRecord, tip: string, stampBas
   return out;
 }
 
+/** The conflict worktree is derived from the nonce, never read from a record another machine wrote. */
+const worktreeOf = (w: WaveRecord) => path.join(queueRoot(), 'waves', `${w.nonce}-work`);
 const waveByBranch = (env: TrainEnv, branch: string) => listWaves(env.repo.keys).find(w => w.branch === branch) ?? null;
 
 function ensureCommit(env: TrainEnv, sha: string, pr: string): boolean {
@@ -157,6 +159,7 @@ function constituentProblem(ctx: QueueContext, pr: string, pin: string): { failu
   if ('error' in info) return { failure: fail('QUEUE_PROOF_MISSING', info.error) };
   if (info.isCrossRepository) return { failure: fail('QUEUE_TRAIN_UNTRUSTED', `#${pr}'s head repository is not the base repository; fork work stays on the trusted-branch path`) };
   if (info.state !== 'OPEN') return { failure: fail('QUEUE_WAVE_MOVED', `#${pr} is ${info.state.toLowerCase()}; a wave carries open PRs only`) };
+  if (info.baseRefName && info.baseRefName !== ctx.base) return { failure: fail('QUEUE_WAVE_MOVED', `#${pr} targets ${info.baseRefName}, not ${ctx.base}; a stacked PR would carry its parent's commits into the wave`) };
   if (info.headRefOid !== pin) return { failure: fail('QUEUE_WAVE_MOVED', `#${pr} moved: pinned ${short(pin)}, head is now ${short(info.headRefOid)}`) };
   return null;
 }
@@ -322,7 +325,7 @@ function chainFrom(env: TrainEnv, w: WaveRecord, start: number, pred: string, li
     if ('commit' in m) { c.merge_commit = m.commit; pred = m.commit; lines.push(`MERGED: #${c.pr} at ${short(c.head)} -> ${short(m.commit)}`); continue; }
     const conflictLine = `QUEUE_WAVE_CONFLICT: #${c.pr} conflicts with the wave so far (${m.conflicts.join(', ')})`;
     if (dryRun) return outFailed(fail('QUEUE_WAVE_CONFLICT', `#${c.pr} conflicts with the wave so far`), [...lines, conflictLine, 'DRY-RUN: no record, no worktree, nothing pushed'], `build the wave without --dry-run to resolve it in a worktree, or leave #${c.pr} out`, 'none');
-    const worktree = path.join(queueRoot(), 'waves', `${w.nonce}-work`);
+    const worktree = worktreeOf(w);
     fs.rmSync(worktree, { recursive: true, force: true });
     git(repo, ['worktree', 'prune']);
     const add = git(repo, ['worktree', 'add', '-q', '--detach', worktree, pred]);
@@ -396,7 +399,8 @@ function publish(env: TrainEnv, w: WaveRecord, lines: string[], dryRun: boolean)
 
 function continueWave(env: TrainEnv, w: WaveRecord, dryRun: boolean): TrainOut {
   if (w.state !== 'conflict' || !w.conflict) return outRefused(fail('QUEUE_WAVE_CONFLICT', `wave ${w.nonce} is ${w.state}, not stopped at a conflict`), [], `${Q} wave status --wave ${w.nonce}`, wavePath(w.nonce));
-  const { worktree, pred, pr } = w.conflict;
+  const { pred, pr } = w.conflict;
+  const worktree = worktreeOf(w);
   const idx = w.constituents.findIndex(c => c.pr === pr);
   const c = w.constituents[idx]!;
   const dirty = git(worktree, ['status', '--porcelain']);
@@ -418,7 +422,11 @@ function dropFrom(env: TrainEnv, w: WaveRecord, o: WaveBuildOptions): TrainOut {
   if (!LIVE.has(w.state)) return outRefused(fail('QUEUE_WAVE_MOVED', `wave ${w.nonce} is ${w.state}; only a live wave is rebuilt`), [], `${Q} wave status --wave ${w.nonce}`, wavePath(w.nonce));
   const dropped = w.constituents.find(c => c.pr === o.drop);
   if (!dropped) return outRefused(fail('QUEUE_PROOF_MISSING', `#${o.drop} is not a constituent of wave ${w.nonce}`), [], `${Q} wave status --wave ${w.nonce}`, wavePath(w.nonce));
+  const open = openWavePr(env, w);
+  if (open && !o.dryRun) return outRefused(open, [], `close the wave PR on ${w.branch} (a train may still land it), then rerun the drop`, wavePath(w.nonce));
   const rest = w.constituents.filter(c => c !== dropped);
+  const missing = w.constituents.find(c => !ensureCommit(env, c.head, c.pr));
+  if (missing) return outRefused(fail('QUEUE_PROOF_MISSING', `cannot fetch #${missing.pr}'s pin ${short(missing.head)} to check what the drop leaves behind`), [], 'none', wavePath(w.nonce));
   const carrier = rest.find(c => git(env.ctx.repoRoot, ['merge-base', '--is-ancestor', dropped.head, c.head]).ok);
   if (carrier) return outRefused(fail('QUEUE_WAVE_DEPENDENT', `#${carrier.pr}'s pin contains #${dropped.pr}'s pin, so dropping #${dropped.pr} would still land its code`), [], `drop #${carrier.pr} too, or keep #${dropped.pr}`, wavePath(w.nonce));
   if (rest.length < o.min) return release(env, w, [`DROP: #${dropped.pr} from ${w.nonce} leaves ${rest.length} PR(s), under the wave minimum ${o.min}`], o.dryRun);
@@ -427,17 +435,28 @@ function dropFrom(env: TrainEnv, w: WaveRecord, o: WaveBuildOptions): TrainOut {
   return out;
 }
 
+/** A wave PR still open can still land through a train that admitted it, so drop and release wait for it to close. */
+function openWavePr(env: TrainEnv, w: WaveRecord): QueueFailure | null {
+  const list = env.ctx.gh(['pr', 'list', '--head', w.branch, '--state', 'open', '--json', 'number']);
+  let prs: Array<{ number: number }> | null = null;
+  try { prs = list.ok ? JSON.parse(list.out) : null; } catch {}
+  if (!prs) return fail('QUEUE_PROOF_MISSING', `gh cannot list PRs for ${w.branch}`);
+  return prs.length ? fail('QUEUE_WAVE_MOVED', `wave PR #${prs[0]!.number} on ${w.branch} is still open; a train that admitted it would still land it`) : null;
+}
+
 /** End a live wave without landing it (a drop under the minimum, or a wave PR closed unmerged): every constituent rides on its own again. */
 function release(env: TrainEnv, w: WaveRecord, lines: string[], dryRun: boolean): TrainOut {
   if (!LIVE.has(w.state)) return outRefused(fail('QUEUE_WAVE_MOVED', `wave ${w.nonce} is ${w.state}; only a live wave is released`), lines, `${Q} wave status --wave ${w.nonce}`, wavePath(w.nonce));
+  const open = openWavePr(env, w);
+  if (open) return outRefused(open, lines, `close the wave PR on ${w.branch}, then rerun`, wavePath(w.nonce));
   const done = [...lines, `RELEASED: ${w.nonce}: ${w.constituents.map(c => '#' + c.pr).join(',')} ride as single slots; close the wave PR on ${w.branch}`];
   if (dryRun) return outOk([...done, 'DRY-RUN: no record written'], `${Q} wave build --wave ${w.nonce} --release`, wavePath(w.nonce));
-  if (w.conflict) { git(env.ctx.repoRoot, ['worktree', 'remove', '--force', w.conflict.worktree]); w.conflict = null; }
+  if (w.conflict) { git(env.ctx.repoRoot, ['worktree', 'remove', '--force', worktreeOf(w)]); w.conflict = null; }
   w.state = 'released';
   w.effects.push({ at: nowIso(), what: 'released' });
   w.updated_at = nowIso();
-  persist(env.ctx.repoRoot, [w], { remote: env.remote });
-  return outOk(done, `each owner READYs its PR alone: ${Q} ready --pr <n> --screen|--no-screen`, wavePath(w.nonce));
+  const saved = persist(env.ctx.repoRoot, [w], { remote: env.remote });
+  return outOk([...done, `RECORD: ${saved.detail}`], `each owner READYs its PR alone: ${Q} ready --pr <n> --screen|--no-screen`, wavePath(w.nonce));
 }
 
 export function waveStatus(ctx: QueueContext, o: { wave?: string }): TrainOut {
@@ -454,7 +473,7 @@ export function waveStatus(ctx: QueueContext, o: { wave?: string }): TrainOut {
   if (w.conflict) lines.push(`CONFLICT: #${w.conflict.pr} (${w.conflict.files.join(', ')}) in ${w.conflict.worktree}`);
   const tip = git(env.ctx.repoRoot, ['ls-remote', env.remote, `refs/heads/${w.branch}`]).out.split(/\s/)[0];
   if (tip && git(env.ctx.repoRoot, ['fetch', '--no-tags', '-q', env.remote, `+refs/heads/${w.branch}:refs/gstack/wave/${w.nonce}`]).ok) {
-    const chain = waveChain(env.ctx.repoRoot, w, tip);
+    const chain = waveChain(env.ctx.repoRoot, w, tip, `${env.remote}/${env.ctx.base}`);
     lines.push('error' in chain ? `CHAIN: invalid at ${short(tip)}: ${chain.error}` : `CHAIN: ok at ${short(tip)}: ${chain.merges.length} constituent merges, ${chain.integrator.length} integrator commit(s)`);
   }
   for (const c of w.constituents) {
@@ -477,14 +496,17 @@ export function waveSettle(ctx: QueueContext, o: { wave: string; dryRun: boolean
   if ('exit' in env) return env;
   const w = loadWave(o.wave);
   if (!w || !env.repo.keys.includes(w.repo_key)) return outRefused(fail('QUEUE_WAVE_UNKNOWN', `no wave record ${o.wave}`), [], `${Q} wave status`, 'none');
-  const list = ctx.gh(['pr', 'list', '--head', w.branch, '--state', 'all', '--json', 'number,state,headRefOid,mergeCommit']);
-  let prs: Array<{ number: number; state: string; headRefOid: string; mergeCommit?: { oid?: string } | null }> = [];
+  const list = ctx.gh(['pr', 'list', '--head', w.branch, '--state', 'all', '--json', 'number,state,headRefOid,mergeCommit,baseRefName']);
+  let prs: Array<{ number: number; state: string; headRefOid: string; baseRefName?: string; mergeCommit?: { oid?: string } | null }> = [];
   try { prs = JSON.parse(list.out); } catch {}
-  const merged = list.ok ? prs.find(p => p.state === 'MERGED' && p.mergeCommit?.oid) : undefined;
+  const merged = list.ok ? prs.find(p => p.state === 'MERGED' && p.mergeCommit?.oid && p.baseRefName === w.base.ref) : undefined;
   if (!merged) return outRefused(fail('QUEUE_WAVE_NOT_MERGED', list.ok ? `no merged PR has head branch ${w.branch}` : `gh cannot list PRs for ${w.branch}: ${(list.err ?? '').slice(0, 120)}`), [], `land the wave PR through its train, then ${Q} wave settle --wave ${w.nonce}`, wavePath(w.nonce));
   const mergeSha = merged.mergeCommit!.oid!;
   const repo = ctx.repoRoot;
   if (!ensureCommit(env, merged.headRefOid, String(merged.number)) || !git(repo, ['cat-file', '-e', `${mergeSha}^{commit}`]).ok) return outRefused(fail('QUEUE_PROOF_MISSING', `cannot fetch #${merged.number}'s head or merge commit`), [], 'none', wavePath(w.nonce));
+  if (!git(repo, ['merge-base', '--is-ancestor', mergeSha, `${env.remote}/${w.base.ref}`]).ok) {
+    return outRefused(fail('QUEUE_WAVE_NOT_MERGED', `#${merged.number}'s merge ${short(mergeSha)} is not on ${env.remote}/${w.base.ref}`), [], 'none', wavePath(w.nonce));
+  }
   if (git(repo, ['rev-parse', `${mergeSha}^{tree}`]).out !== git(repo, ['rev-parse', `${merged.headRefOid}^{tree}`]).out) {
     return outRefused(fail('QUEUE_WAVE_NOT_MERGED', `main's merge ${short(mergeSha)} does not carry #${merged.number}'s head tree; what landed is not the wave`), [], 'none', wavePath(w.nonce));
   }
@@ -513,7 +535,9 @@ export function waveSettle(ctx: QueueContext, o: { wave: string; dryRun: boolean
       : `Landed in wave #${merged.number} as ${version} (${short(mergeSha)}), merged from this PR's pin ${short(c.head)}. Integrator changes touching this PR's files: ${touched.length ? touched.join(', ') : 'none'}.`;
     if (o.dryRun) { lines.push(`SETTLED: #${c.pr} would be ${moved ? 'commented, left open' : 'commented and closed'} (dry run)`); continue; }
     const posted = commentOnce(ctx, c.pr, marker(w.nonce, moved ? 'moved' : 'landed'), body);
-    const closed = posted !== 'failed' && !moved ? ctx.gh(['pr', 'close', c.pr]).ok : false;
+    const still = moved || posted === 'failed' ? null : prInfo(ctx, c.pr);
+    const stillAtPin = !!still && !('error' in still) && still.headRefOid === c.head;
+    const closed = stillAtPin ? ctx.gh(['pr', 'close', c.pr]).ok : false;
     const outcome = posted === 'failed' || (!moved && !closed) ? 'incomplete' : moved ? 'moved-left-open' : 'landed-closed';
     if (outcome === 'incomplete') incomplete++;
     lines.push(`SETTLED: #${c.pr} ${outcome} (comment ${posted})`);

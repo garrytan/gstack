@@ -494,6 +494,9 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
   that would leave fewer PRs than the minimum releases the wave instead, and
   `--release` does the same for a wave PR closed without merging: the record
   is marked released and every constituent can be READY'd on its own again.
+  Both wait until the wave PR is closed, since a train that already admitted
+  it would still land it. A constituent must target the base branch; a
+  stacked PR is refused, because its pin carries its parent's commits.
 - **READY and the train.** `ready --pr <wave pr>` and `train build` read the
   wave record for a `wave/<nonce>` head branch (rebuilt from the notes ref on a
   fresh machine; `QUEUE_WAVE_UNKNOWN` when there is none). They walk the

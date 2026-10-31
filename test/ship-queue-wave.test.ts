@@ -99,6 +99,9 @@ describe('wave build', () => {
     fx.write(d => { (d.prs['2'] as any).headRefOid = heads[0]; });
     const moved = queue(fx, ['wave', 'build', '--prs', heads.map((h, i) => `${i + 1}@${h}`).join(',')]);
     expect([moved.status, moved.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_MOVED')]);
+    fx.write(d => { Object.assign(d.prs['2'] as any, { headRefOid: heads[1], baseRefName: 'pr-1' }); });
+    const stacked = queue(fx, ['wave', 'build', '--prs', heads.map((h, i) => `${i + 1}@${h}`).join(',')]);
+    expect([stacked.status, stacked.err]).toEqual([EXIT.refused, expect.stringContaining('#2 targets pr-1, not main')]);
     expect(fs.existsSync(path.join(fx.state, 'ship-queue', 'waves'))).toBe(false);
   }, 120_000);
 
@@ -164,6 +167,10 @@ describe('wave build', () => {
     readyReceipt(fx, '1', heads[0]!);
     const held = queue(fx, ['train', 'build', '--prs', `1@${heads[0]}`, '--dry-run']);
     expect([held.status, held.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_DUPLICATE')]);
+    waveAsPr(fx, nonce);
+    const whileOpen = queue(fx, ['wave', 'build', '--wave', nonce, '--drop', '3']);
+    expect([whileOpen.status, whileOpen.err]).toEqual([EXIT.refused, expect.stringContaining('wave PR #10 on wave/')]);
+    fx.write(d => { (d.prs['10'] as any).state = 'CLOSED'; });
     const dropped = queue(fx, ['wave', 'build', '--wave', nonce, '--drop', '3']);
     expect([dropped.status, line(dropped.out, 'RELEASED:')]).toEqual([EXIT.ok, expect.stringContaining('#1,#2,#3 ride as single slots')]);
     expect(waveJson(fx, nonce).state).toBe('released');
@@ -249,6 +256,13 @@ describe('wave settle', () => {
     const head = waveAsPr(fx, nonce);
     const early = queue(fx, ['wave', 'settle', '--wave', nonce]);
     expect([early.status, early.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_NOT_MERGED')]);
+    const elsewhere = fx.repo.git('commit-tree', `${head}^{tree}`, '-p', head, '-m', 'merged into staging');
+    fx.repo.git('push', '-q', 'origin', `${elsewhere}:refs/heads/staging`);
+    fx.write(d => { Object.assign(d.prs['10'] as any, { state: 'MERGED', baseRefName: 'staging', mergeCommit: { oid: elsewhere } }); });
+    const staging = queue(fx, ['wave', 'settle', '--wave', nonce]);
+    expect([staging.status, staging.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_NOT_MERGED')]);
+    expect((fx.read().prs as any)['1'].state).toBe('OPEN');
+    fx.write(d => { Object.assign(d.prs['10'] as any, { state: 'OPEN', baseRefName: 'main', mergeCommit: null }); });
     const s1 = fx.repo.git('commit-tree', `${head}^{tree}`, '-p', head, '-p', 'origin/main', '-m', 'stamp 1');
     const s2 = waveAsPr(fx, nonce, '10', fx.repo.git('commit-tree', `${head}^{tree}`, '-p', s1, '-p', 'origin/main', '-m', 'stamp 2'));
     const merge = fx.repo.git('commit-tree', `${s2}^{tree}`, '-p', 'origin/main', '-m', 'wave (#10)');
