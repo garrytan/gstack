@@ -170,7 +170,7 @@ export function buildReceipt(o: ReceiptOptions): TreeReceipt | { error: string; 
   const versionRel = o.versionRel ?? ('rel' in cv ? cv.rel : 'rel' in gv ? gv.rel : 'VERSION');
   const oldV = 'version' in gv ? gv.version : null;
   const newV = 'version' in cv ? cv.version : null;
-  const d = spawnSync('git', ['diff', '--unified=0', '--no-color', '--no-ext-diff', gatedHead, currentHead], { cwd: o.repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+  const d = spawnSync('git', ['diff', '--unified=0', '--no-color', '--no-ext-diff', gatedHead, currentHead], { cwd: o.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
   if (d.status !== 0) {
     const why = (d.error as NodeJS.ErrnoException | undefined)?.code ?? (d.signal ? `killed by ${d.signal}` : (d.stderr ?? '').trim().split('\n')[0]?.slice(0, 200) || `exit ${d.status}`);
     return { error: `git diff ${gatedHead.slice(0, 12)} ${currentHead.slice(0, 12)} failed (${why}), so the changed files cannot be classified (GST-448)`, code: 'EVIDENCE_IDENTITY_UNKNOWN' };
