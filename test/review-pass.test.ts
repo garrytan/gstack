@@ -471,26 +471,31 @@ describe('the Capy skill loader', () => {
 
 
 describe('a scoped pass after a blocker fix (GST-619)', () => {
-  // Value: protects=the pass command accepts the scoped plan gstack-review-plan writes after a blocking fix: the Red Team and voices go in the manifest, the fix-check is named outside it for Step 3.5, and a resumed pass names it again; fails_when=pass refuses the scoped plan, drops the fix-check silently, or puts it in the manifest;
+  // Value: protects=the pass command accepts the scoped plan gstack-review-plan writes after a blocking fix, invoked as GEVA-2 ran it: the readers it stages review the fix range, the fix-check is named outside the manifest for Step 3.5, and a resumed pass names it again; fails_when=pass refuses the scoped plan, stages its readers on the merge base, drops the fix-check silently, or puts it in the manifest;
   //   why_new=GEVA-82 on 1.91.379.0 hit BRIEF_RENDER_FAILED on every scoped pass and rendered briefs by hand; seam=none; no_claim=the fix-check's own brief
-  test('pass stages the scoped plan and names its fix-check outside the manifest', () => {
+  test('pass stages the scoped plan on the fix range and names its fix-check outside the manifest', () => {
     const { dir, env } = repo();
     const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
     const rangeBase = sh('git rev-parse HEAD');
     sh('for i in $(seq 1 24); do echo "export const f$i = $i;" >> src/fix.ts; done && git add -A && git commit -qm "fix: pre-landing review fixes"');
     const out = path.join(dir, '.state/run/p2');
-    const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--', '--pass', '1', '--last', 'full', '--fixed-blocking', '--adversarial-ran', '--pass1-depth', 'standard', '--range-base', rangeBase];
+    const extras = path.join(dir, '.state/extras.json');
+    fs.mkdirSync(path.join(dir, '.state'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.state/qa.md'), 'QA the fix.\n');
+    fs.writeFileSync(extras, JSON.stringify([{ name: 'qa', prompt_file: path.join(dir, '.state/qa.md') }]));
+    const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--extras', extras, '--', '--pass', '1', '--last', 'full', '--pass1-depth', 'standard', '--fixed-blocking', '--range-base', rangeBase.slice(0, 7)];
     const p = bin(dir, env, args);
     expect(p.status, p.stdout + p.stderr).toBe(0);
     expect(p.stdout).toMatch(/^NEXT: scoped /m);
     expect(p.stdout).toMatch(/^FIX_CHECK: planned effort=full \(Step 3\.5 runs it on its own; not in this manifest\)$/m);
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
     expect(m.next).toBe('scoped');
-    expect(m.readers.map(r => [r.reader, r.stage])).toEqual([['red-team', 'red-team'], ['adversarial-native', 'voices']]);
+    expect(m.diff_base).toBe(rangeBase);
+    expect(m.readers.map(r => r.reader)).toEqual(['red-team', 'adversarial-native', 'outside-voice', 'audit/qa']);
     const again = bin(dir, env, args);
     expect(again.status, again.stdout + again.stderr).toBe(0);
     expect(again.stdout).toMatch(/^FIX_CHECK: planned effort=full /m);
-    expect(again.stdout).toContain('readers=2 resumed');
+    expect(again.stdout).toContain('readers=4 resumed');
   }, 120_000);
 });
 
