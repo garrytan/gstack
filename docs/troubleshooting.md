@@ -2234,12 +2234,26 @@ base, because an empty diff against a wrong or absent base would read as "no
 gate edits" and pass review. `gstack-diff-scope` prints `SCOPE_ERROR=no_base`
 (all flags false, exit 2) for the same cause.
 
+With no base given, one more cause applies. The remote's `HEAD` names the
+branch you have checked out (a clone made by a PR flow can point `origin/HEAD`
+at the PR branch, GST-511), and nothing past it resolves: no PR base from
+`gh`, no `<remote>/main`, no `<remote>/master`. That base would diff the branch
+against itself, so the line reads `GATE_ERROR=no_base ref=<remote>/HEAD
+target=<remote>/<branch> fix=git remote set-head <remote> <base>`,
+`gstack-diff-scope` adds a `#` line naming the branch, and the ship-policy
+readers (`gstack-pregate`, `gstack-ship-receipt`, `gstack-ship-queue`, ...)
+print `gstack: origin/HEAD names the checked-out branch <branch>, ...` on
+stderr before refusing on a base that does not resolve.
+
 **Fix.** Run the command the line prints. It is built for this checkout:
 `git fetch origin +<branch>:refs/remotes/origin/<branch>` for an unfetched
 branch, `git fetch --unshallow origin <refspec>` or
 `git fetch --deepen=50 origin` when the clone is shallow. In a workflow, check
 out with `fetch-depth: 0` (or fetch the base explicitly) before the step that
-runs `gstack-gate-diff` or `gstack-diff-scope`.
+runs `gstack-gate-diff` or `gstack-diff-scope`. When the remote's `HEAD` names
+the checked-out branch, pass the base explicitly (`gstack-gate-diff <base>`,
+`gstack-diff-scope <base>`, `--base <base>`) or run
+`git remote set-head origin <base>`.
 
 **Expected result.** `gstack-gate-diff <base>` prints `GATE_SUMMARY:` and
 `gstack-diff-scope` prints its `SCOPE_*` flags without an error line.
@@ -3530,7 +3544,8 @@ lane as stamp-sensitive (stamp_sensitive_gates: tests)` (the base policy says
 the test tier reads the stamps, as gstack's own does, so no run on another tree
 covers this one; rerun the gate on the head), `pregate.json was recorded against
 origin/<a>, not this repository's base origin/<b>` (rerun `gstack-pregate --base
-<b>`, or `git remote set-head origin <a>` when `origin/HEAD` was unset), and
+<b>`, or `git remote set-head origin <a>` when `origin/HEAD` was unset or
+named the checked-out branch), and
 `.gstack/ship-policy.json on origin/<base>@<sha> is invalid` or `could not be
 read` (fix the policy on the base, or fetch it).
 
