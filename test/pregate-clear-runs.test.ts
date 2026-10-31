@@ -209,6 +209,19 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     expect(verifyPregate(repo.work, forged, { tree: file.tree } as any)).toMatchObject({ ok: false, code: 'PREGATE_REMOTE_UNCLEARED' });
   }, 120_000);
 
+  test('origin is read before url.insteadOf, so a Capy git.capy.ai proxy still names the GitHub repository', async () => {
+    const repo = fixture();
+    const file = await pregateAt(repo);
+    fs.mkdirSync(path.join(repo.work, '.gstack/tmp'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, '.gstack/tmp/pregate.json'), JSON.stringify(file));
+    repo.git('remote', 'set-url', 'origin', 'https://github.com/fx/fx.git');
+    repo.git('config', 'url.https://git.capy.ai/.insteadOf', 'https://github.com/');
+    expect(repo.git('remote', 'get-url', 'origin')).toBe('https://git.capy.ai/fx/fx.git');
+    const r = runBin(repo, 'gstack-pregate', ['clear', '--remote', LANE, '--run', '200', '--run', '201', '--allow-repo-commands']);
+    expect(r.err).not.toContain('origin is not a github.com repository');
+    expect([r.status, r.err]).toEqual([EXIT.usage, expect.stringContaining('declares remote_gate_runs')]);
+  }, 120_000);
+
   test('the bin refuses --run when the base declares no run profiles, and keeps the --receipt route unchanged', async () => {
     const repo = fixture();
     const file = await pregateAt(repo);

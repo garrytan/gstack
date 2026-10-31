@@ -37,6 +37,7 @@ import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { REMOTE_GATE_LANE } from '../lib/pregate/checks/lanes';
 import { describeSubstitution } from '../lib/pregate/remote-receipt';
 import { ensureTmpExcluded } from '../lib/restamp';
+import { normalizeRemoteUrl } from '../lib/ship-queue-train-record';
 import { RESULT_CODES, resultCodeSuffix, resultLine } from '../lib/result-codes';
 import { DEFAULT_STALL_TIMEOUT_S } from '../lib/pregate/context';
 import { cancelActive } from '../lib/pregate/supervise';
@@ -252,7 +253,7 @@ function runCheck(root: string, lane: string, allowRepoCommands: boolean): RunCh
   // Unknown profiles are treated as present: a lane is cleared unverified only once the base shows it has no profile.
   if (isConfigUnavailable(loaded)) return { error: `the base branch's ${PREGATE_CONFIG_PATH} is unreadable (${loaded.detail}); run profiles come only from the base`, profiled: true };
   if (loaded.errors.length) return { error: `the base branch's ${PREGATE_CONFIG_PATH} is invalid: ${loaded.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`, profiled: true };
-  const repo = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(gitOut(root, ['remote', 'get-url', 'origin']) ?? '')?.[1];
+  const repo = /^https:\/\/github\.com\/(.+)$/.exec(normalizeRemoteUrl(gitOut(root, ['config', '--get', 'remote.origin.url']) ?? ''))?.[1];
   if (!repo) return { error: 'origin is not a github.com repository; run evidence is read from GitHub Actions', profiled: lane === REMOTE_GATE_LANE ? !!loaded.config.remote_gate_runs : !!loaded.config.run_profiles[lane] };
   return {
     repo, deps: ghRunDeps(repo, root), profiles: loaded.config.run_profiles, gateRuns: loaded.config.remote_gate_runs, now: new Date(),
