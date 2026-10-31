@@ -30,9 +30,9 @@
 # applied, no ./setup, no host profiles, no shim; the doctor certifies only the
 # read-only helpers, and an ok verdict a fuller install wrote for this HEAD is
 # kept: the profile then writes no launch file and announces that install's
-own launch file and path, so the lane's environment is never rewritten
-(GST-401). A profile's own launch directory lives under <verdict>.profile/,
-never <verdict>.launch. Without the Drive skill, gstack_capy_bootstrap_cmd prints the command
+# own launch file and path, so the lane's environment is never rewritten
+# (GST-401). A profile's own launch directory lives under <verdict>.profile/,
+# never <verdict>.launch. Without the Drive skill, gstack_capy_bootstrap_cmd prints the command
 # that clones into an explicit root and runs the checkout's own bootstrapper.
 # Chromium is lazy by default (bin/gstack-browser-ensure
 # installs it on first use); --with-browser installs it now. The last lines
@@ -693,10 +693,12 @@ write_launch_file() {
   } > "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$LAUNCH_FILE" || { rm -f "$tmp"; return 1; }
 }
 # A profile check that keeps a fuller ok verdict borrows that install's launch
-# file and path instead of writing over them (GST-401).
-BORROWED=0
-if [ "$RC" -eq 0 ] && verdict_kept && [ -f "$LAUNCH_FILE" ]; then
-  BORROWED=1 LAUNCH_DIR=$(gstack_install_verdict_field "$VERDICT" launch_path)
+# file and path instead of writing over them (GST-401), unless that install
+# recorded no launch path while this shell needs one to reach its Bun.
+BORROWED=0 _kept_launch=""
+verdict_kept && _kept_launch=$(gstack_install_verdict_field "$VERDICT" launch_path)
+if [ "$RC" -eq 0 ] && verdict_kept && [ -f "$LAUNCH_FILE" ] && { [ -n "$_kept_launch" ] || [ -z "$LAUNCH_DIR" ]; }; then
+  BORROWED=1 LAUNCH_DIR=$_kept_launch
 elif [ "$RC" -eq 0 ] && verdict_kept; then
   LAUNCH_FILE="${VERDICT%.json}.profile/$FOR.env"
   (umask 077 && mkdir -p "${VERDICT%.json}.profile") || true
