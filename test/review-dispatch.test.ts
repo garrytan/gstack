@@ -436,7 +436,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'], ['|auth.ts:9|token never expires|CRITICAL|', 'CRITICAL'],
       ['None of the inputs are sanitized so this is CRITICAL (a.ts:3)', 'CRITICAL'], ['Neither path checks auth so this is CRITICAL (a.ts:3)', 'CRITICAL'],
       ['No defects in parsing but the upload handler is CRITICAL.', 'CRITICAL'], ['No defects in parsing and the upload handler is CRITICAL.', 'CRITICAL'], ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'],
-      ['|1|FIXABLE|High|race in queue.ts:78|', 'High'], ['**Token leak in log.ts:3**\nSeverity: `Critical`', 'Critical']];
+      ['|1|FIXABLE|High|race in queue.ts:78|', 'High'],
+      ['| a.ts:3 | race | `High` |', 'High'], ['|a.ts:3|leak|`CRITICAL`|', 'CRITICAL'], ['| a.ts:3 | "CRITICAL" |', 'CRITICAL'],
+      ['- Token leak in log.ts:3 — `CRITICAL`', 'CRITICAL'], ['1. Token leak (log.ts:3): `High`', 'High'],
+      ['Nothing checks the token which is CRITICAL (a.ts:3)', 'CRITICAL'], ['Neither path checks auth and auth is CRITICAL (a.ts:3)', 'CRITICAL'], ['**Token leak in log.ts:3**\nSeverity: `Critical`', 'Critical']];
     for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
     // Pre-landing review (#3677 Step 11): a summary-led line with a locus or Blocks: yes, or a stronger label than any finding so far,
     // still collects; a backticked native classification still collects as CRITICAL.

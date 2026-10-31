@@ -477,10 +477,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    by the word right before it ("not CRITICAL", "not **CRITICAL**", "no High findings"), said of a negated subject in the same clause
    ("Neither finding is CRITICAL", "None of the read and write paths are High"; "so", "but", "because" and the like, or an "and"/"or" that
    opens a clause with its own subject, end the subject, so "None of the inputs are sanitized so this is CRITICAL" keeps its label), a
-   yardstick ("below CRITICAL", "worse than High"; "up to" and "at most" are not yardsticks), in quotes or code formatting ("maps
-   `FIXABLE` to `CRITICAL`"), or listed as vocabulary ("Critical|High"). A negation that describes the defect ("Without auth this is
-   CRITICAL") leaves the label standing; a label the line opens with, a parenthesized classification ("(`FIXABLE`)") and a label on a
-   `Severity:` or `Blocks:` field line always count, and table cells are never vocabulary for each other. A closing "Overall:", "Summary:",
+   yardstick ("below CRITICAL", "worse than High"; "up to" and "at most" are not yardsticks), quoted or code-formatted with words after it
+   ("maps `FIXABLE` to `CRITICAL` in a comment"), or listed as vocabulary ("Critical|High"). A negation that describes the defect
+   ("Without auth this is CRITICAL") leaves the label standing, and a negated subject never cancels a label on a line naming a file:line;
+   a label the line opens with, a quoted label at the end of its line ("— `CRITICAL`", "(`FIXABLE`)"), a label on a `Severity:` or
+   `Blocks:` field line and a table cell always count. A closing "Overall:", "Summary:",
    "In summary" or "Verdict:" line after the findings starts none unless it carries `Blocks: yes`, a file:line, or a label stronger than
    every finding before it (GST-435). An unnumbered, unlabeled bullet with no file:line under a paragraph finding whose Severity or Blocks
    line has not come yet is that finding's detail, so the field line after it lands on the finding; a numbered item is its own finding.

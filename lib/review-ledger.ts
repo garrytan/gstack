@@ -65,18 +65,20 @@ const OPENS = /^(?:[-*+>]\s+|\d+[.)]\s+|#{1,6}\s*)?[\s[(*_`"'“‘|]*$/;
  * A label word used as a word, not as a label (GST-435): negated by the words right before it ("not CRITICAL", "no High findings",
  * "isn't a CRITICAL", "doesn't rise to CRITICAL", "no CRITICAL or High"), said of a negated subject through a copula with no
  * conjunction between ("Neither finding is CRITICAL", "None of these is High", "Nothing here is CRITICAL"), used as a yardstick
- * ("below CRITICAL", "worse than High"), in quotation marks or code formatting ("rated it 'High'", "maps `FIXABLE`") or listed as
- * vocabulary ("Critical|High"); bold or code marks between the negation and the label change nothing. A negation that describes the
- * defect ("Without auth this is CRITICAL", "None of the inputs are sanitized so this is CRITICAL") leaves the label standing; a
- * parenthesized classification ("(`FIXABLE`)") and a Severity or Blocks field line keep their quoted labels, and table cells are never
- * vocabulary for each other. The clause runs back to the last sentence, colon, comma, dash, bracket or table bar.
+ * ("below CRITICAL", "worse than High"), quoted or code-formatted inside a sentence, with words after it ("rated it 'High'; the fix
+ * closes it", "maps `FIXABLE` to `CRITICAL` in a comment") or listed as vocabulary ("Critical|High"); bold or code marks between the
+ * negation and the label change nothing. A negation that describes the defect ("Without auth this is CRITICAL", "None of the inputs
+ * are sanitized so this is CRITICAL") leaves the label standing, and a negated subject never cancels a label on a line naming a
+ * file:line. A quoted label at the end of its line or before only a file:line ("— `CRITICAL`", "(`FIXABLE`)"), on a Severity or Blocks
+ * field line or in a table row counts, and table cells are never vocabulary for each other. The clause runs back to the last
+ * sentence, colon, comma, dash, bracket or table bar.
  */
 const NEGATOR = "not|no|never|nothing|without|zero|nor|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|cannot|can't|won't";
 const FILLER = '(?:a|an|any|rated|at|be|really|quite|even|rises?\\s+to|reach(?:es)?|counts?\\s+as)';
 const MARKS = "[*_`\"'“‘]*";
 const NEGATED = new RegExp(`\\b(?:${NEGATOR})\\s+(?:${FILLER}\\s+)*(?:${MARKS}(?:${LABELS})${MARKS}\\s*(?:or|nor|and|/)\\s*)*${MARKS}$`, 'i');
 /** A new clause after a negated subject: a subordinating conjunction, or "and"/"or" that opens a clause with its own subject. */
-const CLAUSE_BREAK = '\\b(?:so|but|yet|because|since|while|whereas|although|though|if|when)\\b|\\b(?:and|or)\\s+(?:the|this|that|these|those|it|its|there|a|an|we|i|you|they)\\b';
+const CLAUSE_BREAK = '\\b(?:so|but|yet|because|since|while|whereas|although|though|if|when|which)\\b|\\b(?:and|or)\\s+(?:the|this|that|these|those|it|its|there|a|an|we|i|you|they)\\b';
 const NEGATED_SUBJECT = new RegExp(`^\\s*(?:neither|none|nothing|no\\s+(?:[\\w-]+\\s+)?(?:findings?|issues?|items?|defects?|problems?))\\b(?:(?!${CLAUSE_BREAK}).)*\\b(?:is|are|was|were|rises?\\s+to|reach(?:es)?|counts?\\s+as|rated)\\s+(?:(?:a|an)\\s+)?${MARKS}$`, 'i');
 const YARDSTICK = new RegExp(`\\b(?:below|under|than|short of|instead of)\\s+${MARKS}$`, 'i');
 const QUOTES: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘': '’', '`': '`' };
@@ -86,12 +88,13 @@ function aWord(t: string, at: number, len: number): boolean {
   const before = t.slice(0, at);
   if (OPENS.test(before)) return false;
   const after = t.slice(at + len);
+  const table = t.startsWith('|');
   const quote = QUOTES[before.slice(-1)];
-  const quoted = quote !== undefined && after.startsWith(quote) && !(before.endsWith('(' + before.slice(-1)) && after.startsWith(quote + ')'));
-  if (!META.test(t) && quoted) return true;
-  if (!t.startsWith('|') && (VOCAB_AFTER.test(after) || VOCAB_BEFORE.test(before))) return true;
+  const mid = quote !== undefined && after.startsWith(quote) && /[A-Za-z]/.test(after.slice(1).replace(new RegExp(LOCUS.source, 'g'), ''));
+  if (mid && !table && !META.test(t)) return true;
+  if (!table && (VOCAB_AFTER.test(after) || VOCAB_BEFORE.test(before))) return true;
   const clause = ' ' + before.slice(Math.max(...['.', ';', ':', '!', '?', ',', '—', '–', '(', ')', '|'].map(c => before.lastIndexOf(c))) + 1);
-  return NEGATED.test(clause) || NEGATED_SUBJECT.test(clause) || YARDSTICK.test(clause);
+  return NEGATED.test(clause) || (!LOCUS.test(t) && NEGATED_SUBJECT.test(clause)) || YARDSTICK.test(clause);
 }
 /**
  * A closing summary line ("Overall: …", "In summary, …", "Verdict: …") after the findings restates them: it starts no finding unless
