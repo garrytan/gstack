@@ -157,6 +157,9 @@ function packageRunner(repoRoot: string, dir: string, env: NodeJS.ProcessEnv): {
   return { runner: `${PM_EXEC[pm]} ${tool} {files}` };
 }
 
+/** A JS/TS file that imports Playwright's test runner: it runs under `playwright test`, whatever the repo's unit runner is. */
+const PLAYWRIGHT_IMPORT = /(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*)['"]@playwright\/test['"]/;
+
 /** The run plan: the groups that can run, the files no runner claims, tools missing from PATH, and `.dart` files with no pubspec.yaml above. */
 export interface RunPlan { groups: RunGroup[]; unclaimed: string[]; missing: string[]; noPubspec: string[] }
 
@@ -165,7 +168,9 @@ export interface RunPlan { groups: RunGroup[]; unclaimed: string[]; missing: str
  * Dart tests run from their own package root (a sub-package's imports resolve
  * against its own pubspec); Rust tests run per crate as `cargo test -p <name>`
  * from the crate's workspace root; JS/TS tests owned by a nested package that
- * declares vitest or jest run from that package; the rest go to the detected
+ * declares vitest or jest run from that package; a JS/TS test that imports
+ * `@playwright/test` runs through `playwright test` from its nearest package
+ * (a repo's unit runner would find no tests in it); the rest go to the detected
  * runner from the repo root. Files no runner claims (a tool missing from PATH,
  * a `.dart` file outside any package, a `.rs` file outside any crate or in a
  * crate whose name Cargo would reject, no detected runner) are `unclaimed`: the lane is `incomplete`, never a pass.
@@ -176,6 +181,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
   const dart = new Map<string, string[]>();
   const cargo = new Map<string, { name: string; cwd: string; files: string[] }>();
   const packages = new Map<string, string[]>();
+  const playwright = new Map<string, string[]>();
   const seen = new Map<string, string | null>();
   const seenPackage = new Map<string, string | null>();
   let model: CargoModel | null = null;
@@ -198,6 +204,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
       continue;
     }
     const pkg = /\.[cm]?[jt]sx?$/.test(f) ? nearestRoot(ctx.repoRoot, f, 'package.json', seenPackage) : null;
+    if (pkg !== null && PLAYWRIGHT_IMPORT.test(readRepoFile(ctx.repoRoot, f) ?? '')) { add(playwright, pkg, under(pkg, f)); continue; }
     if (pkg) {
       if (!pkgRunners.has(pkg)) pkgRunners.set(pkg, packageRunner(ctx.repoRoot, pkg, ctx.env));
       const r = pkgRunners.get(pkg);
@@ -225,6 +232,12 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
     else unclaimed.push(...rest);
   }
   for (const [root, list] of [...packages].sort(([a], [b]) => a.localeCompare(b))) groups.push({ runner: (pkgRunners.get(root) as { runner: string }).runner, cwd: root, files: list });
+  for (const [root, list] of [...playwright].sort(([a], [b]) => a.localeCompare(b))) {
+    const pm = packageManager(ctx.repoRoot, root);
+    const bin = pm === 'npm' ? 'npx' : pm;
+    if (onPath(bin, ctx.env)) groups.push({ runner: `${PM_EXEC[pm]} playwright test {files}`, cwd: root, files: list });
+    else { missing.add(bin); unclaimed.push(...list.map(f => (root ? `${root}/${f}` : f))); }
+  }
   return { groups, unclaimed: [...unclaimed, ...noPubspec], missing: [...missing].sort(), noPubspec };
 }
 
@@ -263,11 +276,20 @@ function parseCargo(output: string): RunnerSummary | null {
   return { ran: lines.reduce((n, m) => n + Number(m[1]), 0) + failed, failed };
 }
 
-/** The runner's own summary line: bun, node --test, vitest, jest, pytest, bats, dart/flutter test, cargo test. A bats, dart/flutter or cargo runner's summary is tried first (cargo's only there: its `N passed` lines would misread as another runner's); for any other runner the bats and dart formats are a last resort. `ran: null` when not recognised. Colour codes are dropped and a carriage return ends a line, so a coloured or redrawn verdict still reads. */
+/** playwright test: its `N failed`, `N flaky` and `N passed` count lines, each on its own line with the failed tests listed between them; skipped tests did not run. */
+function parsePlaywright(output: string): RunnerSummary | null {
+  const count = (word: string) => Number(new RegExp(`^\\s*(\\d+) ${word}\\b`, 'm').exec(output)?.[1] ?? 0);
+  if (!/^\s*\d+ (?:passed|failed|flaky)\b/m.test(output)) return null;
+  const failed = count('failed');
+  return { ran: count('passed') + count('flaky') + failed, failed };
+}
+
+/** The runner's own summary line: bun, node --test, vitest, jest, pytest, bats, dart/flutter test, cargo test, playwright test. A bats, dart/flutter, playwright or cargo runner's summary is tried first (cargo's only there: its `N passed` lines would misread as another runner's); for any other runner the bats and dart formats are a last resort. `ran: null` when not recognised. Colour codes are dropped and a carriage return ends a line, so a coloured or redrawn verdict still reads. */
 export function parseSummary(raw: string, runner = ''): RunnerSummary {
   const output = raw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '\n');
   if (/(?<![\w-])cargo\s+test(?![\w-])/.test(runner)) return parseCargo(output) ?? { ran: null, failed: null };
   if (/(?<![\w-])bats(?![\w-])/.test(runner)) { const b = parseBats(output); if (b) return b; }
+  if (/(?<![\w-])playwright\s+test(?![\w-])/.test(runner)) { const p = parsePlaywright(output); if (p) return p; }
   const dartRun = /(?<![\w-])(?:dart|flutter)(?![\w-])/.test(runner);
   if (dartRun) { const d = parseDart(output); if (d) return d; }
   let m: RegExpExecArray | null;
