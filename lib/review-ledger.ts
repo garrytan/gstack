@@ -64,7 +64,35 @@ const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
 const META = new RegExp(`^(?:[-*+]\\s+)?\\**\\s*(Severity|Blocks)\\**\\s*(?::|\\s+\\**(?:${LABELS}|yes|no)(?![A-Za-z0-9]))`, 'i');
 
-export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
+export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string; summary_candidate?: true }
+
+const SUMMARY_NONE = '(?:no|nothing(?: at)?)';
+const SUMMARY_KIND = '(?:issues?|findings?|defects?|ones?|problems?)';
+/**
+ * GST-435's closed list of a reader's closing-summary sentences ("I found three INFORMATIONAL issues and nothing CRITICAL",
+ * "Neither finding is CRITICAL"), each taken from a HARN-15 or GEVA-77 reply. "Nothing else" and "no other" stay out: they say
+ * something else is CRITICAL.
+ */
+const SUMMARY_TEMPLATES = [
+  new RegExp(`^(?:I found|I see|there (?:are|is)|there's) ${SUMMARY_NONE} CRITICAL(?: ${SUMMARY_KIND})?$`, 'i'),
+  new RegExp(`^I found (?:\\w+) INFORMATIONAL ${SUMMARY_KIND} and ${SUMMARY_NONE} CRITICAL(?: ${SUMMARY_KIND})?$`, 'i'),
+  /^(?:neither|none of (?:these|them|the \w+)) (?:(?:finding|findings|fix|fixes) )?(?:is|are) CRITICAL$/i,
+  /^nothing (?:here|in this diff) is CRITICAL$/i,
+  new RegExp(`^no CRITICAL(?: or High)? ${SUMMARY_KIND}(?: to report)?$`, 'i'),
+];
+const summaryClauses = (raw: string) => raw.split(/(?<=[.!?])\s+|;\s+|:\s+|,\s+so\s+/)
+  .map(c => c.trim().replace(/[.!?]+$/, '').replace(/^(?:[-*+]|\d+[.)])\s+/, '').replace(/\*\*/g, '')).filter(Boolean);
+/**
+ * A collected prose line is a summary_candidate when one of its clauses is a closing-summary template and nothing else on it could
+ * be a finding: no label outside the template clauses, no file:line, no "block" word, no Blocks: yes, no JSON and no joined field
+ * line. Collect still keeps the line at its label; only a tagged line may be dismissed by judge, on record with its quote.
+ */
+export function summaryCandidate(raw: string): boolean {
+  if (raw.includes(' | ') || raw.trimStart().startsWith('{') || BLOCKS_YES.test(raw) || LOCUS.test(raw)) return false;
+  const clauses = summaryClauses(raw);
+  const rest = clauses.filter(c => !SUMMARY_TEMPLATES.some(t => t.test(c)));
+  return rest.length < clauses.length && rest.every(c => !ANY_LABEL.test(c) && !/block/i.test(c));
+}
 
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
@@ -160,7 +188,7 @@ const hasCleanMarker = (reader: string, output: string) => output.replace(/\r\n/
 export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string, unavailable?: string): { sha: string; lines: MergedLine[]; review: boolean } {
   const sha = promptHash(output);
   const prior = readLedger(ledger).filter(e => e.event === 'output' && e.reader === reader).length;
-  const lines = unavailable ? [] : parseFindings(reader, output).map((f, i) => ({ id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, raw: f.raw, output_sha256: sha }));
+  const lines = unavailable ? [] : parseFindings(reader, output).map((f, i): MergedLine => ({ id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, raw: f.raw, output_sha256: sha, ...(summaryCandidate(f.raw) ? { summary_candidate: true as const } : {}) }));
   const review = !unavailable && (lines.length > 0 || hasCleanMarker(reader, output));
   fs.appendFileSync(mergedFile, lines.map(l => JSON.stringify(l) + '\n').join(''), { mode: 0o600 });
   appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id), review, ...(unavailable ? { unavailable } : {}) });
@@ -174,21 +202,29 @@ export function readJsonl<T>(file: string): T[] {
   return fs.readFileSync(file, 'utf8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l) as T);
 }
 
-export interface JudgedLine { id: string; severity: string; reason?: string; duplicate_of?: string }
-export interface Judgment { ok: boolean; dropped: string[]; downgraded: string[]; unexplained: string[]; invalid: string[]; added: string[]; promoted: string[]; folded: string[] }
+export interface JudgedLine { id: string; severity: string; reason?: string; duplicate_of?: string; dismissed?: { quote?: string; reason?: string } }
+export interface Judgment { ok: boolean; dropped: string[]; downgraded: string[]; unexplained: string[]; invalid: string[]; added: string[]; promoted: string[]; folded: string[]; dismissed: string[] }
 
-/** The lead-judgment rule: every merged finding survives at its severity or above; additions and promotions carry a reason. */
+/**
+ * The lead-judgment rule: every merged finding survives at its severity or above; additions and promotions carry a reason. A dismissal
+ * keeps no survivor, so it counts only for a line summaryCandidate tags from its own raw text, quoted byte for byte, with a reason.
+ */
 export function judge(merged: MergedLine[], judged: JudgedLine[]): Judgment {
   const byId = new Map(judged.map(j => [j.id, j]));
   const mergedIds = new Set(merged.map(m => m.id));
-  const res: Judgment = { ok: true, dropped: [], downgraded: [], unexplained: [], invalid: [], added: [], promoted: [], folded: [] };
+  const res: Judgment = { ok: true, dropped: [], downgraded: [], unexplained: [], invalid: [], added: [], promoted: [], folded: [], dismissed: [] };
   for (const j of judged) if (rank(j.severity) === null) res.invalid.push(j.id);
   for (const m of merged) {
     const j = byId.get(m.id);
     if (!j) { res.dropped.push(m.id); continue; }
+    if (j.dismissed) {
+      const recorded = !j.duplicate_of && summaryCandidate(m.raw) && j.dismissed.quote === m.raw && !!j.dismissed.reason?.trim();
+      (recorded ? res.dismissed : res.dropped).push(m.id);
+      continue;
+    }
     const target = j.duplicate_of ? byId.get(j.duplicate_of) : j;
     // A duplicate folds into a different line that stands on its own; a self-fold, a cycle or a chain keeps no survivor.
-    if (!target || (j.duplicate_of && (j.duplicate_of === j.id || target.duplicate_of))) { res.dropped.push(m.id); continue; }
+    if (!target || (j.duplicate_of && (j.duplicate_of === j.id || target.duplicate_of || target.dismissed))) { res.dropped.push(m.id); continue; }
     const from = rank(m.label) ?? 0;
     const to = rank(target.severity);
     if (to === null) continue;
@@ -212,8 +248,9 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
   if (res.ok) {
     for (const id of res.added) appendEvent(ledger, { event: 'judgment', kind: 'added', id, to: byId.get(id)!.severity, reason: byId.get(id)!.reason });
     for (const id of res.promoted) appendEvent(ledger, { event: 'judgment', kind: 'promoted', id, from: labels.get(id), to: byId.get(id)!.severity, reason: byId.get(id)!.reason });
+    for (const id of res.dismissed) appendEvent(ledger, { event: 'judgment', kind: 'dismissed', id, label: labels.get(id), quote: byId.get(id)!.dismissed!.quote, reason: byId.get(id)!.dismissed!.reason });
   }
-  appendEvent(ledger, { event: 'judge', ok: res.ok, judged: path.resolve(judgedFile), judged_sha256: promptHash(fs.readFileSync(judgedFile, 'utf8')), merged: path.resolve(mergedFile), merged_ids: merged.map(m => m.id), dropped: res.dropped, downgraded: res.downgraded, unexplained: res.unexplained, invalid: res.invalid, added: res.added.length, promoted: res.promoted.length, folded: res.folded.length });
+  appendEvent(ledger, { event: 'judge', ok: res.ok, judged: path.resolve(judgedFile), judged_sha256: promptHash(fs.readFileSync(judgedFile, 'utf8')), merged: path.resolve(mergedFile), merged_ids: merged.map(m => m.id), dropped: res.dropped, downgraded: res.downgraded, unexplained: res.unexplained, invalid: res.invalid, added: res.added.length, promoted: res.promoted.length, folded: res.folded.length, dismissed: res.dismissed.length });
   return res;
 }
 
@@ -234,9 +271,10 @@ const collectedIds = (events: LedgerEvent[]) => events.filter(e => e.event === '
 export interface VerifyRow { kind: 'BRIEF' | 'OUTPUT' | 'JUDGE'; reader: string; status: string; detail: string }
 
 /** Replay every check from a finished run's ledger: briefs dispatched as rendered, outputs merged as returned, judgment without loss. */
-export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; briefs: number; voided: number; unavailable: number } {
+export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; briefs: number; voided: number; unavailable: number; dismissals: Array<{ id: string; label: string; quote: string }> } {
   const events = readLedger(ledger);
   const rows: VerifyRow[] = [];
+  const dismissals: Array<{ id: string; label: string; quote: string }> = [];
   const short = (s: unknown) => (typeof s === 'string' ? s.slice(0, 12) : '-');
   // Each render opens one dispatch of its reader (a pass); its sends and outputs run until that reader's next render.
   const renders = events.flatMap((e, i) => (e.event === 'rendered' ? [i] : []));
@@ -306,15 +344,29 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const missing = collectedIds(events.slice(0, lastJudge)).filter(id => !judgedIds.has(id));
     if (missing.length) notes.push(`merged_ids_missing=${missing.join(',')}`);
     let rerun: Judgment | null = null;
+    let merged: MergedLine[] = [];
     try {
       const judgedText = fs.readFileSync(String(v.judged), 'utf8');
       if (promptHash(judgedText) !== v.judged_sha256) notes.push('judged_changed_since_judge');
-      rerun = judge(readJsonl<MergedLine>(String(v.merged)), readJsonl<JudgedLine>(String(v.judged)));
+      merged = readJsonl<MergedLine>(String(v.merged));
+      rerun = judge(merged, readJsonl<JudgedLine>(String(v.judged)));
     } catch { notes.push('judged_or_merged_unreadable'); }
     if (rerun && !rerun.ok) notes.push(`rerun_rejects dropped=${JSON.stringify(rerun.dropped)} downgraded=${JSON.stringify(rerun.downgraded)}`);
+    // A dismissal stands only when its line is re-derived from the reader's unchanged output file as a tagged finding.
+    const unproven = (rerun?.dismissed ?? []).filter(id => {
+      const m = merged.find(l => l.id === id);
+      const o = events.slice(0, lastJudge).find(e => e.event === 'output' && Array.isArray(e.ids) && (e.ids as string[]).includes(id));
+      let text: string | undefined;
+      try { text = o && typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined; } catch { /* unreadable */ }
+      if (!m || !o || text === undefined || promptHash(text) !== o.sha256) return true;
+      if (!parseFindings(String(o.reader), text).some(f => f.raw === m.raw && summaryCandidate(f.raw))) return true;
+      dismissals.push({ id, label: m.label, quote: m.raw });
+      return false;
+    });
+    if (unproven.length) notes.push(`dismissal_not_rederived=${JSON.stringify(unproven)}`);
     const status = !v.ok ? 'REJECTED' : notes.length ? 'MISMATCH' : 'OK';
-    rows.push({ kind: 'JUDGE', reader: '-', status, detail: `dropped=${JSON.stringify(v.dropped)} downgraded=${JSON.stringify(v.downgraded)} added=${v.added} promoted=${v.promoted} folded=${v.folded}${notes.length ? ' ' + notes.join(' ') : ''}` });
+    rows.push({ kind: 'JUDGE', reader: '-', status, detail: `dropped=${JSON.stringify(v.dropped)} downgraded=${JSON.stringify(v.downgraded)} added=${v.added} promoted=${v.promoted} folded=${v.folded} dismissed=${v.dismissed ?? 0}${notes.length ? ' ' + notes.join(' ') : ''}` });
   } else if (events.some(e => e.event === 'output')) rows.push({ kind: 'JUDGE', reader: '-', status: 'MISSING', detail: 'outputs were collected but no judged set was checked' });
   const clean = episodes.length > 0 && rows.every(r => ['MATCH', 'OK', 'VOIDED', 'UNAVAILABLE'].includes(r.status));
-  return { rows, clean, briefs: episodes.length, voided, unavailable: rows.filter(r => r.kind === 'BRIEF' && r.status === 'UNAVAILABLE').length };
+  return { rows, clean, briefs: episodes.length, voided, unavailable: rows.filter(r => r.kind === 'BRIEF' && r.status === 'UNAVAILABLE').length, dismissals };
 }

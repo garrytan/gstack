@@ -470,7 +470,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    wherever they stand, headings and table rows included; a top-level list item under a
    label-only heading takes the stronger of the two). Every label word counts, a reader's own
    closing summary included ("I found nothing CRITICAL", "Neither finding is CRITICAL"): it
-   collects at its label and stays at that label in the judged set (GST-435). A `Severity:` or `Blocks:` line
+   collects at its label (GST-435). Collect also tags such a line `summary_candidate` when one of its clauses
+   matches a closed list of closing-summary templates and nothing else on it could be a finding. That means no
+   other label, no file:line, no "block" word, no `Blocks: yes`, no JSON and no joined field line. A tagged line still enters
+   the judged set at its label; only `judge` may dismiss it (step 4). A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
    second line for the same field starts another: `Severity` raises its label,
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
@@ -487,6 +490,13 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
    the ledger collected is a drop. Each addition and promotion is logged with its reason.
+   A judged line may carry `dismissed: {quote, reason}` only for a merged line that
+   `summaryCandidate` tags from its own raw text, quoted byte for byte, with a reason.
+   Any other dismissal is a drop, and so is a duplicate folded into a dismissed line. Each
+   dismissal is logged with its label, quote and reason. Known residual risk: a blocker
+   sentence with no label, file:line or "block" word after a summary ("Neither finding is
+   CRITICAL. The token leak must be fixed.") is tagged, so only the judge's recorded,
+   quoted reason stands between it and a dismissal.
 5. `verify --ledger <f>` replays all of it from the run's ledger: rendered against
    dispatched hashes per render (each render is one dispatch of its reader, so a
    two-pass ledger checks pass-1 sends against pass-1 briefs; a later render prints as
@@ -501,7 +511,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    byte-exact before anything was collected is void and counted (`voided=N` on the
    verdict line); one that produced an output stays `MISMATCH`. Then output hashes
    against the merged lines they produced, and the judgment rerun against the
-   recorded judged set, covering every collected id. A ledger from a run that kept no
+   recorded judged set, covering every collected id. Each dismissal is re-derived from the
+   reader's unchanged output file as a tagged finding (`dismissal_not_rederived` otherwise);
+   the JUDGE row prints `dismissed=N` and verify prints one `DISMISSED: <id> <label> "<quote>"`
+   line per dismissal for the PR body. A ledger from a run that kept no
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
    staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then

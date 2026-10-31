@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BriefError, promptHash, renderBrief, sectionTexts } from '../lib/review-brief';
-import { collect, judge, parseFindings, readJsonl, type MergedLine } from '../lib/review-ledger';
+import { collect, judge, parseFindings, readJsonl, summaryCandidate, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
@@ -558,5 +558,51 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     fs.writeFileSync(ledger, '{"event":"note","step":"9"}\n');
     const v = run(['verify', '--ledger', ledger]);
     expect([v.status, v.stdout.trim()]).toEqual([3, "VERIFY: no brief records (this run's ledger kept no prompts; dispatched-vs-rendered cannot be checked)"]);
+  });
+
+  // Value: protects=collect tags only a closing-summary line with nothing else on it that could be a finding, and judge lets a
+  //   tagged line go only when the dismissal quotes it byte for byte with a reason that verify re-derives from the reader's output;
+  //   fails_when=a line naming a blocker ("blocks", a file:line, a second label, Blocks: yes, a joined field) is tagged, an untagged
+  //   or paraphrased or unreasoned dismissal or a fold into a dismissed line passes, or a dismissal survives an edited output file;
+  //   why_new=GST-435 Part 2 (HARN-1's phantom summaries had no way out of the judged set); seam=summaryCandidate, collect, judge
+  //   and verify; no_claim=that a tagged line is never a real blocker (known residual: "Neither finding is CRITICAL. The token leak
+  //   must be fixed." is tagged, and only the judge's recorded, quoted reason covers it)
+  test('summary_candidate: only a tagged closing summary may be dismissed, quoted and reasoned, and verify re-derives it', () => {
+    const fixture = (name: string) => fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger', name), 'utf8');
+    const first = (reader: string, name: string) => parseFindings(reader, fixture(name))[0]!.raw;
+    for (const [reader, name] of [['red-team', 'harn15-ship2-red-team.txt'], ['red-team', 'harn15-ship2-p2-red-team.txt'], ['fix-check', 'geva-77-fix-check.txt']])
+      expect([name, summaryCandidate(reader === 'fix-check' ? parseFindings(reader, fixture(name)).at(-1)!.raw : first(reader, name))]).toEqual([name, true]);
+    expect(summaryCandidate(first('fix-check', 'harn15-ship2-p2-fix-check.txt'))).toBe(false);
+    for (const line of ['There are no CRITICAL findings.', 'No CRITICAL or High findings to report.', 'I found nothing CRITICAL.', 'Neither finding is CRITICAL.',
+      'Nothing here is CRITICAL.', 'Neither fix is CRITICAL.', 'Nothing in this diff is CRITICAL.', 'Neither finding is CRITICAL. The token leak must be fixed.'])
+      expect([line, summaryCandidate(line)]).toEqual([line, true]);
+    for (const line of ['The token leak in log.ts:3 blocks the merge. Nothing else is CRITICAL.', 'Neither finding is CRITICAL. The token leak blocks the merge.',
+      'Neither finding is CRITICAL except the SQL injection', 'Nothing else is CRITICAL.', 'This is not CRITICAL.', 'Neither finding is CRITICAL. The race is High.',
+      'Neither finding is CRITICAL. Blocks: yes', 'Neither finding is CRITICAL | Severity: High', '{"severity":"CRITICAL","summary":"Neither finding is CRITICAL."}'])
+      expect([line, summaryCandidate(line)]).toEqual([line, false]);
+    const p = pass();
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    const summary = 'I found three INFORMATIONAL issues and nothing CRITICAL. All three are in the fix commit.';
+    const blocker = 'Neither finding is CRITICAL. The token leak blocks the merge.';
+    const out = p.w('spec.out', summary + '\n\n' + blocker + '\n');
+    expect(run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', out, '--merged', p.merged]).status).toBe(0);
+    expect(readJsonl<MergedLine>(p.merged).map(m => [m.id, m.label, m.summary_candidate ?? false])).toEqual([['specialist/testing#1', 'CRITICAL', true], ['specialist/testing#2', 'CRITICAL', false]]);
+    const jl = (rows: object[]) => p.w('judged.jsonl', rows.map(r => JSON.stringify(r)).join('\n') + '\n');
+    const keep = { id: 'specialist/testing#2', severity: 'CRITICAL' };
+    const dismiss = (quote: string, reason = 'the reader\'s own closing summary') => ({ id: 'specialist/testing#1', severity: 'INFORMATIONAL', dismissed: { quote, reason } });
+    for (const [rows, dropped] of [[[dismiss(summary), { ...keep, dismissed: { quote: blocker, reason: 'summary' } }], 'specialist/testing#2'],
+      [[dismiss('I found nothing CRITICAL.'), keep], 'specialist/testing#1'], [[dismiss(summary, ' '), keep], 'specialist/testing#1'],
+      [[dismiss(summary), { ...keep, duplicate_of: 'specialist/testing#1' }], 'specialist/testing#2']] as const) {
+      const r = run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', jl([...rows])]);
+      expect([r.status, r.stdout]).toEqual([1, expect.stringContaining('JUDGMENT_REJECTED: dropped=["' + dropped + '"]')]);
+    }
+    const ok = run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', jl([dismiss(summary), keep])]);
+    expect([ok.status, ok.stdout.trim()]).toEqual([0, 'JUDGMENT: ok added=0 promoted=0 folded=0 dismissed=1']);
+    expect(fs.readFileSync(p.ledger, 'utf8')).toContain('"kind":"dismissed","id":"specialist/testing#1","label":"CRITICAL","quote":' + JSON.stringify(summary));
+    const v = run(['verify', '--ledger', p.ledger]);
+    expect([v.status, v.stdout.includes('JUDGE - OK') && v.stdout.includes('dismissed=1'), v.stdout.includes('DISMISSED: specialist/testing#1 CRITICAL ' + JSON.stringify(summary))]).toEqual([0, true, true]);
+    fs.writeFileSync(out, summary + ' Nothing else.\n\n' + blocker + '\n');
+    const edited = run(['verify', '--ledger', p.ledger]);
+    expect([edited.status, edited.stdout.includes('dismissal_not_rederived=["specialist/testing#1"]'), edited.stdout.includes('DISMISSED:')]).toEqual([1, true, false]);
   });
 });

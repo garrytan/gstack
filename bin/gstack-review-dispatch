@@ -48,8 +48,9 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       until the brief is re-sent and answered with a review, which voids it. --unavailable '<reason>' (the outside voice only; refused when the
       output holds findings) records its failure text as missing coverage: COLLECT_UNAVAILABLE, and verify prints UNAVAILABLE and unavailable=N, never a review
   judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl>
-      judged lines {"id","severity","reason"?,"duplicate_of"?}: every merged id kept at its severity or above (a
-      duplicate folds into one at least as severe); added and promoted findings need a reason. JUDGMENT: ok …, or
+      judged lines {"id","severity","reason"?,"duplicate_of"?,"dismissed"?:{"quote","reason"}}: every merged id kept at its
+      severity or above (a duplicate folds into one at least as severe); added and promoted findings need a reason; only a
+      summary_candidate line may be dismissed, quoted byte for byte with a reason (verify prints DISMISSED: lines). JUDGMENT: ok …, or
       JUDGMENT_REJECTED: dropped=… downgraded=… (exit 1)
   verify --ledger <f> [--targeted-out <file>]
       BRIEF, OUTPUT and JUDGE rows from the ledger alone, then VERIFY: clean (exit 0), VERIFY: dirty (exit 1) or
@@ -290,13 +291,14 @@ function main(): number {
     const judged = flag('--judged');
     if (!merged || !judged) { process.stderr.write('gstack-review-dispatch judge: needs --merged <file> and --judged <file>\n'); return EXIT.usage; }
     const r = recordJudgment(ledger, readJsonl<MergedLine>(merged), readJsonl<JudgedLine>(judged), judged, merged);
-    process.stdout.write(r.ok ? `JUDGMENT: ok added=${r.added.length} promoted=${r.promoted.length} folded=${r.folded.length}\n`
+    process.stdout.write(r.ok ? `JUDGMENT: ok added=${r.added.length} promoted=${r.promoted.length} folded=${r.folded.length}${r.dismissed.length ? ` dismissed=${r.dismissed.length}` : ''}\n`
       : `JUDGMENT_REJECTED: dropped=${JSON.stringify(r.dropped)} downgraded=${JSON.stringify(r.downgraded)} unexplained=${JSON.stringify(r.unexplained)} invalid=${JSON.stringify(r.invalid)} (lead judgment may add or promote a finding, never drop or downgrade one)\n`);
     return r.ok ? EXIT.ok : EXIT.fail;
   }
   if (cmd === 'verify') {
     const v = verify(ledger);
     for (const r of v.rows) process.stdout.write(`${r.kind} ${r.reader} ${r.status} ${r.detail}\n`);
+    for (const d of v.dismissals) process.stdout.write(`DISMISSED: ${d.id} ${d.label} ${JSON.stringify(d.quote)}\n`);
     if (!v.briefs) { process.stdout.write('VERIFY: no brief records (this run\'s ledger kept no prompts; dispatched-vs-rendered cannot be checked)\n'); return EXIT.refused; }
     const record = targetedRecord(ledger, v.rows);
     if (record) {
