@@ -548,7 +548,7 @@ export interface DerivedReviewStatus {
 export function isOpenFinding(row: Record<string, unknown>): boolean {
   if (typeof row.disposition === 'string') return !RESOLVED.includes(row.disposition);
   if (typeof row.status === 'string') return !['resolved', 'fixed', 'closed'].includes(row.status);
-  return row.action !== 'fixed';
+  return !['fixed', 'auto-fixed', 'deferred', 'noted'].includes(row.action as string);
 }
 export function isCriticalFinding(row: Record<string, unknown>): boolean {
   return typeof row.severity === 'string' && row.severity.toLowerCase() === 'critical';

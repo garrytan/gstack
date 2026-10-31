@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { deriveReviewStatus, readJsonl } from './headless-artifacts';
+import { deriveReviewStatus, isOpenFinding, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
 
 const DIFF_REVIEWS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
@@ -271,6 +271,12 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
   if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
   stampGateFindings(rec.findings, env.GSTACK_STAMP_SESSION_KIND);
+  // A /ship pass whose findings were all fixed, deferred or noted left no open defect (review-army item 6), so a
+  // claimed issues_found is recorded clean with zero counts and Step 11.5 can bind it (GST-430).
+  if (!findingsPath && (rec.skill === 'review' || rec.skill === 'review-fix-check') && rec.status === 'issues_found' && rec.completed === true &&
+      Array.isArray(rec.findings) && rec.findings.length > 0 && rec.findings.every(f => record(f) && typeof f.action === 'string' && !isOpenFinding(f))) {
+    Object.assign(rec, { status: 'clean', issues_found: 0, critical: 0, informational: 0 });
+  }
   if (!DIFF_REVIEWS.has(rec.skill)) {
     if (env.GSTACK_STAMP_WTREE) rec.wtree = env.GSTACK_STAMP_WTREE;
     return rec;
@@ -326,7 +332,10 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string):
   if (!DIFF_REVIEWS.has(rec.skill)) return;
   if (rec.skill === 'ship') return { status: 'UNVERIFIED', reason: 'ship telemetry is not a review pass' };
   const binding = rec.review_binding;
-  if (binding?.state === 'changed') return { status: 'STALE', reason: 'content changed during review' };
+  if (binding?.state === 'changed') {
+    const short = (w: unknown) => typeof w === 'string' ? w.slice(0, 12) : 'unknown';
+    return { status: 'STALE', reason: `content changed during review: the tree moved from ${short(binding.start_wtree)} to ${short(binding.end_wtree)} while ${rec.skill} ran (an edit, commit or merge landed before its row was logged), so the record cannot bind. Repair: freeze the checkout until every reviewer returns, then rerun the steps 11.5 names on the frozen tree; when the edit was your own fix, log it as a fix so gstack-review-plan picks the repeat depth (docs/troubleshooting.md#review-content-changed)` };
+  }
   if (rec.scope === 'fix-range') return { status: 'UNVERIFIED', reason: 'fix-range pass; only a later full pass can clear review' };
   if (binding?.state !== 'verified' || rec.completed !== true || rec.converged !== true ||
       !rec.wtree || binding.start_wtree !== rec.wtree || binding.end_wtree !== rec.wtree) {

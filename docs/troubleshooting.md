@@ -546,6 +546,25 @@ local `origin/<base>` at `<rev>`.
 **Fix.** Run `git fetch origin <base>` outside the sandbox and rerun /review if
 the base has moved.
 
+<a id="review-content-changed"></a>
+### `review_freshness: STALE content changed during review: the tree moved from <start> to <end> while <skill> ran ...` / **Review records missing or mismatched**
+
+**Meaning.** The working tree changed between the pass's `gstack-review-log --start` and
+its logged row: an edit, commit or merge landed while reviewers were still reading. The
+reviewers may not have seen that change, so the row's `review_binding.state` is `changed`.
+Step 11.5 cannot bind it and inserts `9 → 10 → 11 → 11.5`. Logging the same results again
+cannot repair it.
+
+**Fix.** Keep the checkout frozen (no edits, commits, merges or pushes) from a pass's start
+until every reviewer in it has returned and its row is logged. If the mid-pass change was
+your own fix to that pass's findings, log the pass with `"converged":false` and the fix
+as `"action":"fixed"`. `gstack-review-plan` then picks the repeat: one fix-check reading
+the touched hunks when every fix is below the blocking floor, and 11.5 accepts that
+fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tree.
+
+**Expected result.** `gstack-review-read` shows both records at one tree with
+`review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
+
 <a id="review-fingerprint-tmpdir"></a>
 ### `gstack-wtree: cannot create a temp index under <dir>; set TMPDIR to a writable directory` / `gstack-review-log: cannot create a private object directory under <dir>; no working-tree fingerprint. Set TMPDIR to a writable directory.`
 
