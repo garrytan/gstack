@@ -205,7 +205,7 @@ jobs:
           set -euo pipefail
           for arm in $(jq -r '.[]' <<<"$ARMS"); do
             mapfile -t arm_env < <(bun --no-install run scripts/census-arms.ts --env "$arm")
-            env "${arm_env[@]}" EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan "/tmp/gate-census-plan/$arm/manifest.json" --slice-budget 420 --jobs 2 --skip-judges --max-parallel 20
+            env "${arm_env[@]}" EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan "/tmp/gate-census-plan/$arm/manifest.json" --slice-budget 420 --jobs 2 --skip-judges --max-parallel 24
           done
 
       # One executor per arm and planned slice, each with its slice's ceiling.
@@ -574,7 +574,7 @@ jobs:
     strategy:
       # Two file workers per slice, each retaining two in-file case workers.
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 24
       matrix:
         include: ${{ fromJSON(needs.plan-slices.outputs.gate_matrix) }}
     steps:
