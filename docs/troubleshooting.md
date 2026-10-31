@@ -2522,12 +2522,15 @@ same-titled section (title compared case-insensitively), the
 ````gstack-ship-receipt```` block is a section of its own so a receipt
 rewrite replaces only the receipt, sections the file does not rewrite stay in
 place, and new sections are appended after them. The text above the first
-`## ` heading belongs to the file whenever the file has a `## ` section: the
-current body's text there (the opening lines, and any lines between the receipt
-and the first heading, or the whole body when it has no `## ` heading) is
-replaced by the file's own text above its first heading, or dropped when the
-file has none. A file with no `## ` section (a receipt-only or text-only post)
-leaves that text alone. One stderr line names what was replaced, kept, added
+`## ` heading belongs to the file when the file is a full post: a
+receipt block above its first `## ` section, as /ship composes it. Then the current body's text there (the opening lines, and
+any lines between the receipt and the first heading, or the whole body when it
+has no `## ` heading) is replaced by the file's own text above its first
+heading, or dropped when the file has none. A partial post (`## ` sections
+with no receipt above them, such as a lane posting `## Screenshots`) and a
+file with no `## ` section (a receipt-only or text-only post) leave that text alone, so a human
+intro or a `Review-loop exception:` line under the receipt survives; only
+opening lines the file brings of its own replace the PR's opening lines. One stderr line names what was replaced, kept, added
 and dropped, a dropped piece with its first line, or with that line withheld
 when the redaction scan flags it (`gstack-post: pr-body merged
 by section: replaced What changed; kept ship receipt, Why, Approvals; added
@@ -3464,8 +3467,7 @@ the lane log, then rerun or split the selection. A tool missing from PATH is
 <a id="pregate-stalled"></a>
 ### `PREGATE_STALLED`
 
-**Meaning.** A test command the lanes check (or a guard, or the `--remote`
-gate) launched wrote nothing to its log for the stall timeout (default 300 s,
+**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log for the stall timeout (default 300 s,
 `stall_timeout_s` in the base branch's `.gstack/pregate.json` or the user-owned file, or
 `--stall-timeout`). pregate killed its process group and names the last test
 file started. The check is incomplete, never pass.
@@ -3474,7 +3476,9 @@ file started. The check is incomplete, never pass.
 child, a server that never exits, a synchronous wait), fix it and rerun
 `gstack-pregate --stage tests`. A test that is legitimately quiet for longer
 needs a larger `--stall-timeout`; `0` disables the stall kill and leaves only
-`--timeout`.
+`--timeout`. The `--remote` gate never stalls: it is bounded by `--timeout`
+(else `timeout_s`), so a gate that waits on CI needs a timeout long enough for
+the CI run.
 
 <a id="pregate-receipt-invalid"></a>
 ### `PREGATE_RECEIPT_INVALID`

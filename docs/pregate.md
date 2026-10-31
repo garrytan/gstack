@@ -85,7 +85,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `serial_patterns` | test-file globs the `lanes` check runs one process per file, apart from the unit files (default `**/*.serial.test.*`) |
 | `sealed` | sealed or eval output that must never reach a public destination; read by the pre-push hook and `gstack-pregate sealed` (see [sealed output](#sealed)) |
 | `price_file` | repo-relative path of the paid gate's call-plan data file (`GSTACK_EVAL_CALLS v1`); `gstack-eval-plan price-gate` prices from it and never executes anything ([docs/eval-calls.md](eval-calls.md)) |
-| `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides (see [supervision](#supervision)) |
+| `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
 | `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
@@ -411,7 +411,9 @@ test-tier command:
 - is killed as **stalled** when its log does not grow for the stall timeout
   (`--stall-timeout <s>`, else `stall_timeout_s`, else 300; `0` disables): the
   check is `incomplete` with `PREGATE_STALLED` and names the last file
-  started; the next serial file still runs;
+  started; the next serial file still runs. The `--remote` gate is exempt: a
+  gate that waits on CI is quiet by design, so only its timeout bounds it, and
+  its heartbeats add `; last output: <the gate's last line>`;
 - is killed as **timed out** when that runner process reaches its timeout
   (`--timeout <s>`, else `timeout_s`, else 600; per runner process, so many
   serial files that each fit still pass): the check is `incomplete`, its detail
@@ -452,7 +454,11 @@ the supervision above. Close the obligation one of two ways:
   `PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n> [spent=<usd>]`, reporting the
   tree it actually tested. The obligation clears only when that tree is
   `PREGATE_TREE`, `tests` > 0, `failed` = 0 and the gate exits 0; anything else
-  leaves it uncleared and the check `incomplete`. The cap defaults to
+  leaves it uncleared and the check `incomplete`. The gate runs until it exits
+  or reaches the timeout (`--timeout`, else `timeout_s`, else 600 s); the stall
+  timer does not apply, and each 60 s heartbeat names the gate's last output
+  line, so a gate that prints what it is waiting on (a CI run id and its
+  status) shows it. The cap defaults to
   `$GSTACK_SPEND_CAP_USD`; there is no default spend. Spend prints as
   `spent, reserved, unknown`: a gate that prints no `spent=` is `unknown`,
   counted at the cap.

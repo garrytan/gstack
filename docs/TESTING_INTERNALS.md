@@ -197,7 +197,15 @@ shards get duration-aware walls (`max(base, predicted × 3, files × 5s)`). The
 legacy `--shards N --shard i` path keeps stable hash indices. Required CI uses
 one duration-packed `--ci-plan`, 20 ordinary `--ci-run` shards plus a separate
 exclusive-fixture shard, and a `--ci-verify` aggregate. CI shards still run on
-independent machines without ordering unrelated jobs. The public
+independent machines without ordering unrelated jobs. Two workflow-level
+constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
+(`ubicloud-standard-2`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
+resolves into the shards' runner and shard count. A `workflow_dispatch` run may
+override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`) and
+`free_shards` (1–40) for runner-sizing experiments only; its job summary says
+so, and it is never cited as a PR or train Free Tests result. Each shard prints
+`RESOURCES: peak_used_mib=… min_free_disk_mib=… samples=…` from a memory and
+disk sample every 2 seconds, even when the suite fails. The public
 `TREE_MUTATING` map now classifies exclusive host-state fixtures; its sole
 entry is `test/bootstrap-retention.test.ts`, whose same-UID nondumpable actors
 affect host-wide procfs permission checks. Locally, this file runs only after
@@ -1274,7 +1282,10 @@ re-run keeps the creation time, so it does not wait out the window again). A
 head that is no longer the PR's head reports "superseded by <sha>" and plans
 nothing. Selection, trials and verdict rules do not change. Version Gate is not
 an input, so a stamp push waits only for its own Free Tests and always gets a
-gate. Dispatches (`eval:bg`, the census) never wait.
+gate. Dispatches (`eval:bg`, the census) never wait. Neither does a
+`pr-summary` run (a repository whose policy declares a train): it plans no paid
+slices, so `readiness` is skipped, the run ends with the screening summary, and
+a red Free Tests shows on Free Tests alone.
 
 **Verdict reuse (R2a restamp-only, R2 main moved; a gate edit).** A PR head
 reuses the verdict of the newest executed gate of the same PR instead of
@@ -1511,7 +1522,9 @@ refresh to a maintainer.
 - `free-durations-record.yml` (Mondays 04:00 UTC, before test-health, and on
   dispatch) records the Linux seed on `ubicloud-standard-8` with
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
-  `windows-free-tests.yml`'s `record_durations` path. When either recording adds
+  `windows-free-tests.yml`'s `record_durations` path. The recorder stays on
+  `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
+  (`ubicloud-standard-2`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
   dispatches Free Tests, Windows Free Tests and Quality gate on it. Those
