@@ -45,7 +45,7 @@ import {
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
-import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptDepthAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
+import { deeper, depthBelow, exceptionProblems, GitRunError, parseReviewLoopException, parseReviewTargeted, receiptDepthAtHead, receiptGit, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
@@ -118,8 +118,8 @@ function jsonArg(raw: string | undefined): Record<string, unknown> | undefined {
   return parsed;
 }
 function git(args: string[], cwd?: string): string | undefined {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
-  return r.status === 0 ? r.stdout.trim() : undefined;
+  const r = receiptGit(cwd, args, 30_000);
+  return r.ok ? r.out.trim() : undefined;
 }
 function gh(args: string[]): { ok: boolean; out: string; err: string } {
   const r = spawnSync('gh', args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
@@ -210,7 +210,7 @@ function cmdWrite(rest: string[], json: boolean): number {
     let loop: unknown; try { loop = jsonArg(flag(rest, '--review-loop')); } catch {}
     if (!parseReviewLoop(loop)?.fix_checks) return refuse('--review-loop-exception needs --review-loop with fix_checks >= 1: the stop it accepts follows a fix-check');
     const fc = loopException.exception.fix_check.head;
-    if (spawnSync('git', ['merge-base', '--is-ancestor', fc, head], { cwd: repoRoot }).status !== 0) return refuse(`fix_check.head ${fc.slice(0, 12)} is not ${head.slice(0, 12)} or an ancestor of it`);
+    if (!receiptGit(repoRoot, ['merge-base', '--is-ancestor', fc, head], 30_000).ok) return refuse(`fix_check.head ${fc.slice(0, 12)} is not ${head.slice(0, 12)} or an ancestor of it`);
     const line = reviewLoopExceptionLine(loopException.exception);
     if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
   }
@@ -399,10 +399,10 @@ function writeRunRecord(a: { receipt: ShipReceipt; head: string; pr: string | un
 function patchId(repoRoot: string, from: string, to: string, pathspec: string[]): string | { error: string } {
   const firstLine = (s: string | null | undefined, fallback: string) => (s ?? '').trim().split('\n')[0]?.slice(0, 200) || fallback;
   const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--full-index', from, to, '--', ...pathspec], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
-  if (diff.status !== 0) return { error: `git diff ${from.slice(0, 12)} ${to.slice(0, 12)}: ${firstLine(diff.stderr, diff.signal ? `killed by ${diff.signal}` : `exit ${diff.status}`)}` };
+  if (diff.status !== 0) return { error: `git diff ${from.slice(0, 12)} ${to.slice(0, 12)}: ${firstLine(diff.error?.message ?? diff.stderr, diff.signal ? `killed by ${diff.signal}` : `exit ${diff.status}`)}` };
   if (!diff.stdout.trim()) return '';
   const id = spawnSync('git', ['patch-id', '--verbatim'], { cwd: repoRoot, input: diff.stdout, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
-  if (id.status !== 0) return { error: `git patch-id --verbatim: ${firstLine(id.stderr, id.signal ? `killed by ${id.signal}` : `exit ${id.status}`)}` };
+  if (id.status !== 0) return { error: `git patch-id --verbatim: ${firstLine(id.error?.message ?? id.stderr, id.signal ? `killed by ${id.signal}` : `exit ${id.status}`)}` };
   return id.stdout.trim().split(/\s+/)[0] ?? '';
 }
 
@@ -463,7 +463,7 @@ function productRules(repoRoot: string, base: string, outputs: readonly string[]
 function productSpec(repoRoot: string, rules: ProductRules, from: string, to: string): { changed: Array<{ path: string; class: ReturnType<typeof classifyCarryPath> }>; product: string[]; tests: string[] } | undefined {
   const changedRaw = git(['diff', '--name-only', from, to], repoRoot);
   if (changedRaw === undefined) return undefined;
-  const blobAt = (ref: string, p: string): string | null => { const r = spawnSync('git', ['show', `${ref}:${p}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
+  const blobAt = (ref: string, p: string): string | null => { const r = receiptGit(repoRoot, ['show', `${ref}:${p}`], 30_000); return r.ok ? r.out : null; };
   const versionAt = (ref: string): string | null => {
     const file = blobAt(ref, 'VERSION');
     if (file !== null) return file.trim() || null;
@@ -554,7 +554,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   const dirty = status.stdout.split('\n').filter(Boolean).map(l => l.slice(3).replace(/^.* -> /, ''));
   if (dirty.length) return refused('RECEIPT_CARRY_REFUSED', `the working tree has uncommitted changes (${dirty.slice(0, 5).join(', ')}${dirty.length > 5 ? ` +${dirty.length - 5} more` : ''}); commit them and carry at the new head, or run /ship`);
   const fromKnown = git(['cat-file', '-e', `${from}^{commit}`], repoRoot) !== undefined;
-  const ancestor = fromKnown && spawnSync('git', ['merge-base', '--is-ancestor', from, head], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 }).status === 0;
+  const ancestor = fromKnown && receiptGit(repoRoot, ['merge-base', '--is-ancestor', from, head], 30_000).ok;
   const fromTree = fromKnown ? git(['rev-parse', `${from}^{tree}`], repoRoot) : undefined;
   const covered = [...(receipt.head_tree ? [receipt.head_tree] : fromTree ? [fromTree] : []), ...(receipt.carry?.trees ?? [])];
   if (!ancestor && !covered.length) return refused('RECEIPT_CARRY_REFUSED', `the receipt's head ${from.slice(0, 12)} is not an ancestor of HEAD ${head.slice(0, 12)} (rebased or force-pushed), and the receipt records no tree to compare; merge the base in next time, and run /ship now`);
@@ -636,7 +636,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     return refused('RECEIPT_CARRY_PREGATE_STALE', `the receipt records a pregate for ${receipt.head.slice(0, 12)}; run gstack-pregate at HEAD ${head.slice(0, 12)} and pass --pregate <pregate.json>`);
   }
   let depthField: Partial<ShipReceipt> = {};
-  const isAncestor = (commit: string) => !ancestor || spawnSync('git', ['merge-base', '--is-ancestor', commit, head], { cwd: repoRoot, timeout: 30_000 }).status === 0;
+  const isAncestor = (commit: string) => !ancestor || receiptGit(repoRoot, ['merge-base', '--is-ancestor', commit, head], 30_000).ok;
   const problems = exceptionProblems(body, receipt, isAncestor);
   if (problems.length) return refused('RECEIPT_CARRY_REFUSED', `the receipt's owner exception does not stand: ${problems.join('; ')}; run /ship on ${head.slice(0, 12)}`);
   if (receipt.review_depth || receipt.gstack_version) {
@@ -750,4 +750,16 @@ function main(argv: string[]): number {
   return EXIT.usage;
 }
 
-process.exitCode = main(process.argv.slice(2));
+/** A git answer the receipt could not read (output past the buffer, a timeout) refuses by name instead of reading as "no" (GST-552). */
+function mainRefusingGitErrors(argv: string[]): number {
+  try { return main(argv); } catch (e) {
+    if (!(e instanceof GitRunError)) throw e;
+    const [cmd, ...rest] = argv;
+    const code = cmd === 'carry' ? 'RECEIPT_CARRY_REFUSED' : 'RECEIPT_INVALID';
+    process.stderr.write(resultLineWithDocs(`gstack-ship-receipt ${cmd}`, code, e.message) + '\n');
+    if (cmd === 'carry') process.stdout.write(rest.includes('--json') ? JSON.stringify({ skill: 'ship', status: 'refused', run: '-', code, message: e.message }) + '\n' : `CARRY: refused (${code})\nGSTACK_RESULT: skill=ship status=refused run=-\n`);
+    return EXIT.refused;
+  }
+}
+
+process.exitCode = mainRefusingGitErrors(process.argv.slice(2));

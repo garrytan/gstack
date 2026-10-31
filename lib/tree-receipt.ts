@@ -42,7 +42,7 @@ export interface TreeReceipt {
 }
 
 function git(cwd: string, args: string[]): string | null {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
   return r.status === 0 ? (r.stdout ?? '').replace(/\n$/, '') : null;
 }
 function blob(cwd: string, treeish: string, rel: string): string | null {
@@ -170,11 +170,13 @@ export function buildReceipt(o: ReceiptOptions): TreeReceipt | { error: string; 
   const versionRel = o.versionRel ?? ('rel' in cv ? cv.rel : 'rel' in gv ? gv.rel : 'VERSION');
   const oldV = 'version' in gv ? gv.version : null;
   const newV = 'version' in cv ? cv.version : null;
-  const diffText = git(o.repoRoot, ['diff', '--unified=0', '--no-color', '--no-ext-diff', gatedHead, currentHead]) ?? '';
+  const diffText = git(o.repoRoot, ['diff', '--unified=0', '--no-color', '--no-ext-diff', gatedHead, currentHead]);
+  if (diffText === null) return { error: `git diff ${gatedHead.slice(0, 12)} ${currentHead.slice(0, 12)} failed (past the 256 MiB buffer, a timeout, or a missing object), so the change between the gated and current trees cannot be classified`, code: 'EVIDENCE_IDENTITY_UNKNOWN' };
   const files = classifyFiles(o.repoRoot, parseUnifiedDiff(diffText), gatedHead, currentHead, o.policy, versionRel, oldV, newV);
   const residual = files.filter(f => f.verdict === 'changed').map(f => f.path);
   const stampFiles = files.filter(f => f.verdict === 'stamp').map(f => f.path);
-  const stampDiff = stampFiles.length ? (git(o.repoRoot, ['diff', '--no-color', '--no-ext-diff', gatedHead, currentHead, '--', ...stampFiles]) ?? '') : '';
+  const stampDiff = stampFiles.length ? git(o.repoRoot, ['diff', '--no-color', '--no-ext-diff', gatedHead, currentHead, '--', ...stampFiles]) : '';
+  if (stampDiff === null) return { error: `git diff of the stamp files ${gatedHead.slice(0, 12)} ${currentHead.slice(0, 12)} failed, so the stamp cannot be shown`, code: 'EVIDENCE_IDENTITY_UNKNOWN' };
   const predecessor = resolvePredecessor(o);
 
   const current = executionIdentity(o.repoRoot, currentHead, o.env);

@@ -1,0 +1,5 @@
+**`gstack-ship-receipt carry` works again across a base merge that adds thousands of files.** After harness-evals#147 merged a base that added about 8,300 files, every carry across that merge was refused with "git diff … failed". The carry lists the paths that changed between the reviewed head and HEAD, and that list was 1.37 MB. The git calls ran with the default 1 MiB output limit, so git was stopped mid-listing (ENOBUFS) and the carry read it as a failed diff.
+
+### Fixed
+- **`bin/gstack-ship-receipt`, `lib/ship-receipt-depth.ts`**: the receipt's git calls go through one helper, `receiptGit`, with a 256 MiB output limit (the same one `lib/review-collect.ts` uses). When git's output still passes that limit or the call times out, the command now refuses by name (`RECEIPT_CARRY_REFUSED` for carry) and says the buffer was exceeded, instead of treating the missing answer as "no". The `--is-ancestor` check in `write --review-loop-exception` now has a 30-second timeout.
+- **`lib/tree-receipt.ts`**: the gated-to-current diff runs with a 256 MiB limit, and a failed diff is an `EVIDENCE_IDENTITY_UNKNOWN` error instead of an empty diff that classified no changed files.

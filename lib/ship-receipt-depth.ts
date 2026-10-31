@@ -35,9 +35,23 @@ const sha = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40}
 const BIN_DIR = path.join(import.meta.dir, '..', 'bin');
 const short = (s: string | null | undefined) => (s ? s.slice(0, 12) : 'none');
 
+/** The receipt's git output cap: a base merge can list thousands of paths (harness-evals#147: 1.37 MB of names), past spawnSync's 1 MiB default. */
+export const GIT_MAX_BUFFER = 256 * 1024 * 1024;
+/** A git run whose answer could not be read (output past the buffer, a timeout): a named refusal, never a quiet "no" (GST-552). */
+export class GitRunError extends Error {}
+/** git for the receipt: `ok` is git's own verdict; a spawn error (ENOBUFS, a timeout) throws GitRunError. */
+export function receiptGit(cwd: string | undefined, args: string[], timeout = 60_000, maxBuffer = GIT_MAX_BUFFER): { ok: boolean; out: string } {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout, maxBuffer });
+  if (r.error || (r.status === null && r.signal)) {
+    const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+    const why = code === 'ENOBUFS' ? `its output exceeded the ${maxBuffer / (1024 * 1024)} MiB buffer` : code === 'ETIMEDOUT' || r.signal ? `it was stopped after ${timeout / 1000} s (${r.error?.message ?? r.signal})` : r.error!.message;
+    throw new GitRunError(`git ${args.slice(0, 2).join(' ')} could not be read: ${why}`);
+  }
+  return { ok: r.status === 0, out: r.stdout ?? '' };
+}
 function git(root: string, args: string[]): { ok: boolean; out: string } {
-  const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 60_000 });
-  return { ok: r.status === 0, out: (r.stdout ?? '').trim() };
+  const r = receiptGit(root, args);
+  return { ok: r.ok, out: r.out.trim() };
 }
 
 /** gstack-diff-scope on the committed range `base`...`head` (`--head`): the same signals at write, carry and the queue. */
