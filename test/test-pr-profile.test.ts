@@ -61,6 +61,17 @@ describe('fast PR coverage policy', () => {
     expect(prompt.needsFullValidation || prompt.deferredPromptFiles.length > 0 || prompt.e2e.length > 0).toBe(true);
   });
 
+  // Value: protects=a changelog.d fragment (every PR carries one since v1.91.342.0) has no eval dependents, so it never restores the full gate, while a touchfile that names a fragment still selects its case; fails_when=a fragment-only PR selects every gate shard as a "real unknown dependency" (GST-400, #3668);
+  //   why_new=knownNonBehaviorFile predates changelog_fragments; seam=.gstack/ship-policy.json changelog_fragments.dir; no_claim=the shadow exercised-path block
+  test('a changelog.d fragment has no eval dependents; a touchfile naming one still selects its case (GST-400)', () => {
+    const fragment = select({ selectedE2E: [], selectedJudges: [], changedFiles: ['changelog.d/gst-400.md', 'changelog.d/README.md'], derived: null });
+    expect([fragment.mode, fragment.unknownFiles, fragment.e2e, fragment.needsFullValidation]).toEqual(['pr', [], [], false]);
+    const real = selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles: ['changelog.d/gst-400.md'] });
+    expect([real.mode, real.unknownFiles]).toEqual(['pr', []]);
+    const named = select({ maps: { ...maps, e2eTouchfiles: { ...maps.e2eTouchfiles, 'ceo-smoke': ['plan-ceo-review/**', 'changelog.d/ceo.md'] } }, selectedE2E: ['ceo-smoke'], selectedJudges: [], changedFiles: ['changelog.d/ceo.md'], derived: null });
+    expect(named.e2e).toEqual(['ceo-smoke']);
+  });
+
   test('does not add unrelated short probes or drop selected quality judges', () => {
     const result = select({ selectedJudges: ['browse quality', 'plan-ceo-review/SKILL.md modes'] });
     expect(result.e2e).not.toContain('browse-smoke');
