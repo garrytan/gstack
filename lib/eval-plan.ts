@@ -371,7 +371,7 @@ export interface PilotStartOptions { out: string; cap: number; n: number; arms: 
 
 /**
  * Reserve n attempts per arm under the cap; a refused reservation ends the pilot `budget_exhausted` with nothing else reserved.
- * A seat-metered arm (operator-declared: a subscription call with no incremental charge) reserves $0 and settles only `unknown`.
+ * A seat-metered arm (operator-declared: a subscription call with no incremental charge) reserves $0 and stays outside the projection.
  */
 export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?: { code: ResultCodeName; message: string } } {
   const dry = JSON.parse(fs.readFileSync(o.dryRun, 'utf8')) as DryRunResult;
@@ -380,6 +380,9 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
   const seat = o.seatMetered ?? [];
   const stray = seat.filter(a => !o.arms.includes(a));
   if (stray.length) throw new Error(`--seat-metered ${stray.join(',')} needs to name arms listed in --arms`);
+  const prior = path.join(o.out, PILOT_FILES.pilot);
+  const priorSeat = fs.existsSync(prior) ? (JSON.parse(fs.readFileSync(prior, 'utf8')) as PilotRecord).seat_metered ?? [] : seat;
+  if ([...priorSeat].sort().join(',') !== [...seat].sort().join(',')) throw new Error(`${o.out} holds a pilot started with --seat-metered ${priorSeat.join(',') || '(none)'}; seat-metered arms are fixed when a pilot starts, so this one needs a new --out`);
   const record: PilotRecord = { schema_version: 1, n: o.n, arms: o.arms, ...(seat.length ? { seat_metered: seat } : {}), cap_usd: o.cap, dry_run: o.dryRun, attempts: [], started_at: (o.now ?? new Date()).toISOString(), status: 'reserved' };
   const keyOf = (a: string) => `${armModel(a).replace(/[^A-Za-z0-9.-]/g, '_')}${armLoadout(a) !== null ? `.${armLoadout(a)!.replace(/[^A-Za-z0-9.-]/g, '_')}` : ''}`;
   const keys = o.arms.map(keyOf);
@@ -390,7 +393,7 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
   let error: { code: ResultCodeName; message: string } | undefined;
   outer: for (const model of o.arms) {
     const seated = seat.includes(model);
-    if (!seated && !hasPricing(armModel(model))) { error = { code: 'EVAL_PRICE_MISSING', message: `${armModel(model)} has no row in lib/pricing.ts` }; break; }
+    if (!hasPricing(armModel(model))) { error = { code: 'EVAL_PRICE_MISSING', message: `${armModel(model)} has no row in lib/pricing.ts` }; break; }
     for (let i = 1; i <= o.n; i++) {
       const estimate = seated ? 0 : estimateCostUsd(tokens, armModel(model));
       const attempt = `pilot-${keyOf(model)}-${i}`;
@@ -407,10 +410,6 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
 }
 
 export function settlePilot(out: string, attempt: string, usd: number | 'unknown'): SpendLedger {
-  const file = path.join(out, PILOT_FILES.pilot);
-  const record = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) as PilotRecord : null;
-  const arm = record?.attempts.find(a => a.attempt === attempt)?.model;
-  if (usd !== 'unknown' && arm !== undefined && record?.seat_metered?.includes(arm)) throw new Error(`${attempt} is on seat-metered arm ${arm}; a seat-metered attempt needs --usd unknown`);
   return settle(path.join(out, PILOT_FILES.spend), attempt, usd);
 }
 export function releasePilot(out: string, attempt: string): SpendLedger {
@@ -474,7 +473,7 @@ export function renderPilotReport(r: PilotReport): string {
   const p = r.projection;
   const band = (b: [number, number] | null) => (b ? `[${usd(b[0])}, ${usd(b[1])}]` : 'unknown');
   const notReady = r.settled_unknown > 0
-    ? 'unknown charges make the band meaningless; settle them with actual cost, or restart the pilot with `pilot start --seat-metered <arm>` for an arm on a subscription with no incremental charge'
+    ? 'unknown charges make the band meaningless; settle them with actual cost, or start a new pilot in a new `--out` with `pilot start --seat-metered <arm>` for an arm on a subscription with no incremental charge'
     : 'settle at least 2 attempts per priced arm with actual cost';
   return [
     `PILOT: n=${r.record.n} arms=${r.record.arms.join(',')} settled=${r.settled_known} unknown=${r.settled_unknown} status=${r.record.status}`,

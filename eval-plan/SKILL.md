@@ -258,7 +258,8 @@ eval command, then settle it with the actual cost from the provider's usage fiel
 
 An arm that runs on a subscription with no incremental charge (for example `claude -p` on
 a seat) is declared when the pilot starts: `--seat-metered <arm,...>`, each one also in
-`--arms`. Its attempts reserve $0, settle only as `unknown`, and are listed on their own
+`--arms`. Its attempts reserve $0, settle as `unknown` (a charge that does show up settles as
+its number and counts as spent), and are listed on their own
 `PILOT_SEAT_METERED:` line instead of the projection, so the verdict covers the money arms.
 The first quota or rate-limit error on a seat-metered arm ends the run: never retry it, start
 no new attempt, and release the attempts that never ran. An `unknown` settlement on an

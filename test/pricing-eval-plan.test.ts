@@ -213,13 +213,18 @@ describe('priced pilot', () => {
     expect(renderPilotReport(r)).toContain('PILOT_SEAT_METERED: arm=gpt-6-astra calls=3 settled=3');
   });
 
-  test('#3653: a seat-metered attempt settles only unknown, and a seat-metered arm must be one of the arms', () => {
+  test('#3653: a charge on a seat-metered attempt still counts as spent; the declaration names listed arms and is fixed for its --out', () => {
     const d = tmp();
     const dry = passingDryRun(d);
     const out = path.join(d, 'seat');
     const s = startPilot({ out, cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
-    expect(() => settlePilot(out, s.record.attempts[0]!.attempt, 0.01)).toThrow('seat-metered');
+    settlePilot(out, s.record.attempts[0]!.attempt, 0.05);
+    expect(pilotReport(out, { total: 1 }).spend.summary.spent_usd).toBeCloseTo(0.05, 6);
     expect(() => startPilot({ out: path.join(d, 'stray'), cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-5.4-mini'], dryRun: dry })).toThrow('--seat-metered');
+    const switched = path.join(d, 'switched');
+    startPilot({ out: switched, cap: 1, n: 3, arms: ['gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
+    expect(() => startPilot({ out: switched, cap: 1, n: 3, arms: ['gpt-6-astra'], dryRun: dry })).toThrow('needs a new --out');
+    expect(JSON.parse(fs.readFileSync(path.join(switched, 'pilot.json'), 'utf8')).seat_metered).toEqual(['gpt-6-astra']);
   });
 
   test('#3653: an all-seat-metered pilot spends nothing and fits; one priced attempt is not enough for a verdict', () => {
@@ -238,13 +243,10 @@ describe('priced pilot', () => {
     expect(renderPilotReport(r)).toContain('settle at least 2 attempts per priced arm');
   });
 
-  test('#3653: a seat-metered arm needs no pricing row; an undeclared unpriced arm still refuses', () => {
+  test('#3653: a seat-metered arm still needs a price row, as the dry run does', () => {
     const d = tmp();
-    const dry = passingDryRun(d);
-    const s = startPilot({ out: path.join(d, 'seat'), cap: 1, n: 2, arms: ['gpt-5.4-mini', 'seat-only-model'], seatMetered: ['seat-only-model'], dryRun: dry });
-    expect(s.error).toBeUndefined();
-    expect(s.record.attempts.filter(a => a.model === 'seat-only-model').map(a => a.estimate_usd)).toEqual([0, 0]);
-    expect(startPilot({ out: path.join(d, 'undeclared'), cap: 1, n: 2, arms: ['seat-only-model'], dryRun: dry }).error?.code).toBe('EVAL_PRICE_MISSING');
+    const s = startPilot({ out: path.join(d, 'seat'), cap: 1, n: 2, arms: ['gpt-5.4-mini', 'seat-only-model'], seatMetered: ['seat-only-model'], dryRun: passingDryRun(d) });
+    expect(s.error?.code).toBe('EVAL_PRICE_MISSING');
   });
 
   test('#3653: pilot start --seat-metered reaches the ledger through the CLI', () => {
