@@ -5,12 +5,14 @@
  * Each side is a branch patch: reviewedBase -> reviewed (what the review read) and
  * currentBase -> current (what ships), where each base is that side's merge base with the
  * target branch. A path is
- * - same: the 3-line-context patch-ids match (a base merge only shifted line numbers);
+ * - same: the 3-line-context patch-ids match and every hunk sits where the base's change puts it (a
+ *   base merge only shifted line numbers; patch-ids ignore positions, so a block moved to an identical
+ *   context elsewhere is changed);
  * - context: the +/- lines match hunk for hunk, and each hunk sits where the base's own
  *   change (reviewedBase -> currentBase) puts it, so only context lines the base edited differ.
  *   The merge may still have spliced the two (a JSON entry where the branch changed one key and
  *   the base the next), so a context path needs a scoped review of its hunks, never a silent pass;
- * - changed: anything else, including the same lines moved to another place, and any path whose
+ * - changed: anything else, including the same lines moved to another place, a file-mode change, and any path whose
  *   patches cannot be read (an empty patch on both sides of a path the branch touches).
  * Paths reach git as literal pathspecs from NUL-separated listings, so quoted names and glob
  * characters cannot widen or empty a comparison.
@@ -102,15 +104,18 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   const r3 = pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3);
   const c3 = pathDiff(repoRoot, s.currentBase, s.current, rel, 3);
   if (r3 === null || c3 === null || (!r3.trim() && !c3.trim())) return 'changed';
+  const modes = (d: string) => d.split('\n').filter(l => /^(old mode|new mode|new file mode|deleted file mode) /.test(l)).join('\n');
+  if (modes(r3) !== modes(c3)) return 'changed';
   const ids = [patchId(repoRoot, r3), patchId(repoRoot, c3)];
   if (ids[0] === null || ids[1] === null) return 'changed';
-  if (ids[0] === ids[1]) return 'same';
   const r0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 0) ?? '');
   const c0 = zeroHunks(pathDiff(repoRoot, s.currentBase, s.current, rel, 0) ?? '');
+  if (ids[0] === ids[1] && r0 !== null && !r0.length) return 'same';
   const b0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 0) ?? '');
   if (!r0?.length || !c0 || !b0 || r0.length !== c0.length || r0.some((h, i) => h.body !== c0[i]!.body)) return 'changed';
   const map = mapper(b0);
-  return r0.every((h, i) => sameSpot(h, c0[i]!, map)) ? 'context' : 'changed';
+  if (!r0.every((h, i) => sameSpot(h, c0[i]!, map))) return 'changed';
+  return ids[0] === ids[1] ? 'same' : 'context';
 }
 
 function hunkTexts(diff: string): string[] {
@@ -119,7 +124,10 @@ function hunkTexts(diff: string): string[] {
 
 /** The scoped-review packet: per context path, the hunks that differ between the two branch patches and the base's own change. */
 export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[]): string {
-  const fence = (label: string, body: string) => `${label}\n\`\`\`diff\n${body.split('\n').slice(0, 200).join('\n').trimEnd()}\n\`\`\`\n`;
+  const fence = (label: string, body: string) => {
+    const all = body.split('\n');
+    return `${label}${all.length > 200 ? ` (first 200 of ${all.length} lines; read the rest with git diff)` : ''}\n\`\`\`diff\n${all.slice(0, 200).join('\n').trimEnd()}\n\`\`\`\n`;
+  };
   const parts = [`# Scoped review: base context moved next to the reviewed hunks\n\nreviewed ${s.reviewed.slice(0, 12)} against ${s.reviewedBase.slice(0, 12)}; current ${s.current.slice(0, 12)} against ${s.currentBase.slice(0, 12)}. The branch's +/- lines are unchanged; read whether the merge kept their meaning next to the base's edit. Report clean, or findings at the blocking floor.\n`];
   for (const rel of paths) {
     const r = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3) ?? '');

@@ -191,7 +191,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
       const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim());
       fs.mkdirSync(path.dirname(packet), { recursive: true });
       fs.writeFileSync(packet, contextPacket(cwd, sides, by.context));
-      r.stop(`base context moved next to the reviewed hunks in ${short(by.context)}: one fix-check reviewer reads ${packet}, then rerun with --context-reviewed <record.json> ({"tree":"${now}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding is a behavior change (stage 2.1)`);
+      r.stop(`base context moved next to the reviewed hunks in ${short(by.context)}: one fix-check reviewer reads ${packet}, then rerun with --context-reviewed <record.json> written beside the packet, outside the worktree ({"tree":"${now}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding is a behavior change (stage 2.1)`);
       return null;
     }
     const review = readScopedReview(opts.contextReviewed, { tree: now }, by.context);
@@ -224,6 +224,7 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     const stat = git(cwd, ['diff', '--numstat', '--no-renames', record.head, '--', `:(literal)${p}`]).stdout.trim().split(/\s+/);
     const lines = Number(stat[0]) + Number(stat[1]);
     const why = !audit ? 'needs --docs-result <the audit\'s saved result JSON>'
+      : audit.audit_id !== record.audit_id ? `is backed by the result of audit ${String(audit.audit_id)}, not ${String(record.audit_id)}`
       : !asked.some((s: string) => token.test(s)) ? 'is not named in the audit result\'s blockers or decisions'
       : classifyPath(p, cwd) !== 'docs' ? 'is not an authored doc'
       : [...record.staged, ...record.unstaged, ...record.untracked].includes(p) ? 'was not clean at the post-audit snapshot'

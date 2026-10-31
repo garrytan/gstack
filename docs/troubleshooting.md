@@ -5068,7 +5068,9 @@ write `{"head":"<HEAD>","paths":[...],"reviewer":"<model>","verdict":"clean"}`
 and rerun `gstack-ship-receipt carry ... --scoped-review <record.json>`; the
 carry reason records the reviewer and the paths. A blocking finding means /ship
 on the new head. `gstack-ship-release finish` stops the same way with
-`context=N` and takes `--context-reviewed <record.json>` bound to the tree.
+`context=N` and takes `--context-reviewed <record.json>` bound to the tree;
+write that record beside the packet, outside the worktree, so it does not change
+the tree it is bound to.
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`

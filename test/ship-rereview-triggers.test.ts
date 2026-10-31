@@ -94,6 +94,29 @@ describe('finish route after a base merge (GST-407 #1, GBRA-108 #7739)', () => {
       expect([baseMoves, m.status, m.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/m.ts)')]).toEqual([baseMoves, 3, true]);
     }
 
+    const block = (memory: string) => `  image: x\n  replicas: 1\n  port: 80\n  memory: ${memory}\n  cpu: 1\n  disk: 1\n  zone: a\n`;
+    const deploy = (a: string, b: string) => `a:\n${block(a)}\nb:\n${block(b)}`;
+    for (const baseMoves of [false, true]) {
+      const twin = fx({ 'deploy.yaml': deploy('1Gi', '1Gi') }, { 'deploy.yaml': deploy('2Gi', '1Gi') });
+      const reviewed6 = wtree(twin);
+      const base6 = mergeBase(twin);
+      const post6 = snapshot(twin);
+      if (baseMoves) { twin.advanceBase({ 'deploy.yaml': `# moved by main\n${deploy('1Gi', '1Gi')}` }); mergeMain(twin); }
+      twin.write({ 'deploy.yaml': `${baseMoves ? '# moved by main\n' : ''}${deploy('1Gi', '2Gi')}` }); twin.commit('move the limit to b');
+      const t = finish(twin, reviewed6, post6, ['--reviewed-base', base6]);
+      expect([baseMoves, t.status, t.stdout.includes('STOP: behavior, tests or build inputs changed since review (deploy.yaml)')]).toEqual([baseMoves, 3, true]);
+    }
+
+    const exec = fx({ 'src/run.ts': lines(9) }, { 'src/run.ts': lines(9, { 5: 'export const l5 = 50;' }) });
+    const reviewed7 = wtree(exec);
+    const base7 = mergeBase(exec);
+    const post7 = snapshot(exec);
+    exec.advanceBase({ 'src/run.ts': lines(9, { 4: 'export const l4 = 40;' }) });
+    mergeMain(exec, { 'src/run.ts': lines(9, { 4: 'export const l4 = 40;', 5: 'export const l5 = 50;' }) });
+    fs.chmodSync(path.join(exec.root, 'work', 'src/run.ts'), 0o755); exec.git('add', 'src/run.ts'); exec.commit('make it executable');
+    const x = finish(exec, reviewed7, post7, ['--reviewed-base', base7]);
+    expect([x.status, x.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/run.ts)')]).toEqual([3, true]);
+
     const gate = fx();
     const reviewed5 = wtree(gate);
     const base5 = mergeBase(gate);
@@ -154,9 +177,23 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     const record = path.join(f.root, 'scoped.json');
     fs.writeFileSync(record, JSON.stringify({ tree: wtree(f), paths: ['data/flavor.json'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'blocking' }));
     expect(finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record]).stdout).toContain('STOP: --context-reviewed: the scoped review is "blocking"');
+    fs.writeFileSync(record, JSON.stringify({ tree: reviewed, paths: ['data/flavor.json'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
+    expect(finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record]).stdout).toContain(`STOP: --context-reviewed: the scoped review is for tree ${reviewed.slice(0, 12)}`);
+    fs.writeFileSync(record, JSON.stringify({ tree: wtree(f), paths: [], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
+    expect(finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record]).stdout).toContain('STOP: --context-reviewed: the scoped review does not cover data/flavor.json');
     fs.writeFileSync(record, JSON.stringify({ tree: wtree(f), paths: ['data/flavor.json'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
     const ok = finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record]);
     expect([ok.status, ok.stdout.includes('NEXT: Step 16 stage 5')]).toEqual([0, true]);
+
+    const guard = (text: string) => text.replace('export const l5 = 5;\n', 'export const l5 = 5;\nguard();\n');
+    const inserted = fx({ 'src/m.ts': lines(9) }, { 'src/m.ts': guard(lines(9)) });
+    const reviewed2 = wtree(inserted);
+    const base2 = mergeBase(inserted);
+    const post2 = snapshot(inserted);
+    inserted.advanceBase({ 'src/m.ts': lines(9, { 4: 'export const l4 = 40;' }) });
+    mergeMain(inserted, { 'src/m.ts': guard(lines(9, { 4: 'export const l4 = 40;' })) });
+    const i = finish(inserted, reviewed2, post2, ['--reviewed-base', base2]);
+    expect([i.status, lineOf(i.stdout, 'ROUTE')]).toEqual([3, expect.stringMatching(/ behavior=0 .* context=1$/)]);
   });
 
   // Value: protects=same as above, for the receipt carry; and the same added line moved to another function is
@@ -183,6 +220,11 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     expect(ask.out.trim()).toBe('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)\nGSTACK_RESULT: skill=ship status=refused run=-');
     expect(ask.err).toContain('lib/rows.js');
     const record = path.join(repo.root, 'scoped.json');
+    fs.writeFileSync(record, JSON.stringify({ head: reviewed, paths: ['lib/rows.js'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
+    const stale = carry(['--scoped-review', record]);
+    expect([stale.status, stale.out.includes('RECEIPT_CARRY_REFUSED'), stale.err.includes(`the scoped review is for head ${reviewed.slice(0, 12)}`)]).toEqual([EXIT.refused, true, true]);
+    fs.writeFileSync(record, JSON.stringify({ head, paths: [], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
+    expect(carry(['--scoped-review', record]).err).toContain('the scoped review does not cover lib/rows.js');
     fs.writeFileSync(record, JSON.stringify({ head, paths: ['lib/rows.js'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
     const ok = carry(['--scoped-review', record]);
     expect(ok.status).toBe(EXIT.ok);
@@ -222,6 +264,13 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     f.write({ 'test/b.test.ts': spec('b is two', 'test.skip') }); f.commit('test: skip');
     const skip = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
     expect([skip.status, skip.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/b.test.ts)')]).toEqual([3, true]);
+
+    const helper = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/helpers/h.test.ts': spec('h') });
+    const reviewed2 = wtree(helper);
+    const post2 = snapshot(helper);
+    helper.write({ 'test/helpers/h.test.ts': spec('h, shared') }); helper.commit('test: shared helper');
+    const h = finish(helper, reviewed2, post2, ['--reviewed-base', mergeBase(helper)]);
+    expect([h.status, h.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/helpers/h.test.ts)')]).toEqual([3, true]);
   });
 
   // Value: protects=the one docs fix the audit's result asked for (exact path in blockers or decisions, at most 5 lines, clean
@@ -239,6 +288,10 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     const base = ['--reviewed-base', mergeBase(f), '--docs-rechecked'];
     const stale = finish(f, reviewed, post, base);
     expect(lineOf(stale.stdout, 'DOCS')).toBe('DOCS: stale (docs/KEY_FILES.md)');
+    expect(finish(f, reviewed, post, [...base, '--docs-requested', 'docs/KEY_FILES.md']).stdout).toContain('STOP: --docs-requested docs/KEY_FILES.md needs --docs-result');
+    const other = path.join(f.root, 'a0-result.json');
+    fs.writeFileSync(other, fs.readFileSync(result, 'utf8').replace('"audit_id":"a1"', '"audit_id":"a0"'));
+    expect(finish(f, reviewed, post, [...base, '--docs-requested', 'docs/KEY_FILES.md', '--docs-result', other]).stdout).toContain('STOP: --docs-requested docs/KEY_FILES.md is backed by the result of audit a0, not a1');
     const ok = finish(f, reviewed, post, [...base, '--docs-requested', 'docs/KEY_FILES.md', '--docs-result', result]);
     expect(lineOf(ok.stdout, 'DOCS')).toContain('fresh');
     expect(lineOf(ok.stdout, 'DOCS')).toContain('requested=1');
