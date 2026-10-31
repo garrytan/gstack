@@ -14,6 +14,7 @@
  * Pure functions here; bin/gstack-review-scope runs git and gh.
  */
 import { SPECIALISTS } from './review-depth';
+import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
 export type Kind = 'defect' | 'test-gap' | 'advisory';
@@ -130,13 +131,47 @@ function fingerprintLine(fp: unknown): number | undefined {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
+/** The blocking floor in Garry's words (docs/review-policy.md, CREW rule 23); every reviewer prompt carries it verbatim. */
+export const BLOCKING_FLOOR = 'would fail a test, break production, or lose data or secrets';
+
 /** The categories a reviewer uses for a test finding; `testing` is what the Testing specialist's schema emits. */
 export const TEST_GAP_CATEGORIES: readonly string[] = ['testing', 'tests', 'test-gap', 'test-coverage', 'coverage', 'missing-test', 'untested'];
 
-/** A finding's kind: optional advice, a test finding (a gap, a weak or flaky test), or a product defect. */
+/** What mapStateMatrixOutput stamps on an untested state-matrix cell: a test gap, below the floor (docs/review-policy.md). */
+export const UNTESTED_CELL = 'untested-cell';
+
+const cellKey = (f: Record<string, any>): string | null => (f.cell && typeof f.cell === 'object' ? `${String(f.cell.kind ?? '').trim().toLowerCase()}\u0000${String(f.cell.action ?? '').trim().toLowerCase()}` : null);
+
+/**
+ * A reviewer output (JSON lines) with each untested state-matrix cell mapped below the floor, per matrix cell and before
+ * Step 9.3's fingerprint merge: a `state-matrix` finding the checklist's schema writes as "untested cell: …", whose `cell` is a
+ * cell with `"test": null` in a matrix record of the same output, and the only finding on that cell, becomes INFORMATIONAL with `state_matrix: "untested-cell"` and its
+ * `raw_severity`. A second finding on the cell (a wrong row, collapsed kinds) keeps both as they are, so a merge can never
+ * fold a defect into a demoted record; a cell no matrix lists as untested changes nothing. Every other line, matrix records
+ * included, is returned byte for byte; `gstack-state-matrix check` reads the raw output, never this one.
+ */
+export function mapStateMatrixOutput(text: string): { text: string; mapped: number } {
+  const { matrices, findings } = parseSpecialistOutput(text);
+  const untested = new Set(matrices.flatMap(m => m.cells.filter(c => c.test === null).map(c => cellKey({ cell: c })!)));
+  const perCell = new Map<string, number>();
+  for (const f of findings) { const k = cellKey(f); if (k) perCell.set(k, (perCell.get(k) ?? 0) + 1); }
+  let mapped = 0;
+  const lines = text.split('\n').map(line => {
+    let f: Record<string, any>;
+    try { f = JSON.parse(line.trim()); } catch { return line; }
+    const k = f && typeof f === 'object' && !f.matrix && f.category === 'state-matrix' && /^untested cell\b/i.test(String(f.summary ?? '')) ? cellKey(f) : null;
+    if (!k || !untested.has(k) || perCell.get(k) !== 1 || f.state_matrix === UNTESTED_CELL) return line;
+    mapped += 1;
+    return JSON.stringify({ ...f, severity: 'INFORMATIONAL', raw_severity: f.severity ?? null, state_matrix: UNTESTED_CELL });
+  });
+  return { text: lines.join('\n'), mapped };
+}
+
+/** A finding's kind: optional advice, a test finding (a gap, a weak or flaky test, an untested state-matrix cell still below CRITICAL), or a product defect. */
 export function kindOf(finding: ScopeFinding): Kind {
   if (finding.advisory === true) return 'advisory';
   if (TEST_GAP_CATEGORIES.includes(String(finding.category ?? '').toLowerCase())) return 'test-gap';
+  if (finding.state_matrix === UNTESTED_CELL && String(finding.severity ?? '').toUpperCase() !== 'CRITICAL') return 'test-gap';
   return 'defect';
 }
 
@@ -153,6 +188,8 @@ export interface ScopeInput { policy: ReviewScopePolicy; pass: number; diffHunks
 
 /**
  * The scope decision per finding. `all`: fix everything (today's loop).
+ * An untested state-matrix cell mapped below the floor is a note from pass 1 on
+ * (docs/review-policy.md, the test-gap ruling) under the other policies.
  * `frozen` pass 1: fix the diff, defer blocking findings in unchanged code,
  * note the rest. `frozen` pass 2+: fix blocking findings in the range since
  * the previous pass or in the diff; defer blocking findings outside; note
@@ -170,6 +207,7 @@ export function scopeFindings(findings: readonly ScopeFinding[], input: ScopeInp
     const placed = typeof finding.path === 'string' || fingerprintPath(finding.fingerprint) !== undefined;
     let scope: ScopeAction;
     if (input.policy === 'all') scope = 'fix';
+    else if (kind === 'test-gap' && finding.state_matrix === UNTESTED_CELL) scope = 'note';
     else if (locus === 'outside') scope = !blocking ? 'note' : input.policy === 'diff-plus-blocking' || !placed ? 'fix' : 'defer';
     else if (input.pass <= 1 && !AFTER_PASS_RAISERS.includes(raised)) scope = 'fix';
     else scope = blocking ? 'fix' : 'note';
