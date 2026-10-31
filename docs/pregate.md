@@ -25,9 +25,20 @@ passes. Standalone, `gstack-regen check` lists the commands and exits 3
 (`REPO_COMMANDS_NOT_ALLOWED`); `gstack-pregate` marks `regen` and `lanes`
 `incomplete`, never `pass`. `--policy-from head` (a PR that introduces or
 changes a pin file) is accepted only with `--allow-repo-commands` and the record
-says `policy head (unreviewed)`. So a lane or allowlist entry a branch adds to
-its own `pregate.json` counts only once it is on the base; `PREGATE_NO_LANE`'s
-fix line says so when the branch edits the file
+says `policy head (unreviewed)`. Under it the branch's `pregate.json` may only
+add test lanes over the trusted policy (the base copy, or the user-owned file
+when the base has none): a new `dependencies` glob with at least one test, or
+more tests on a glob the trusted policy already maps. A removed or shrunk glob,
+a new `[]` declaration, or any other key that differs (runner, guards, warn,
+allowlist, timeouts, the remote gate, ...) refuses the run with
+[`PREGATE_HEAD_POLICY_LOOSENS`](troubleshooting.md#pregate-head-policy-loosens).
+A branch behind its base is measured from the copy at its merge base and runs
+the base tip's policy plus its additions. With no trusted policy at all, the
+head file is a bootstrap and runs as written. `.gstack/generated.json` is still
+read from the branch under `--policy-from head`. So an allowlist entry or a
+`[]` declaration a branch adds counts only once it is on the base, and a lane it
+adds counts on the base policy only once it lands; `PREGATE_NO_LANE`'s fix line
+says so when the branch edits the file
 ([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)). An unresolvable base exits 3 with
 `POLICY_SOURCE_UNAVAILABLE`. Globs are repo-relative (no `..`, no absolute
 paths, at most 64 per list); commands are one line under 512 bytes.
@@ -75,6 +86,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `sealed` | sealed or eval output that must never reach a public destination; read by the pre-push hook and `gstack-pregate sealed` (see [sealed output](#sealed)) |
 | `price_file` | repo-relative path of the paid gate's call-plan data file (`GSTACK_EVAL_CALLS v1`); `gstack-eval-plan price-gate` prices from it and never executes anything ([docs/eval-calls.md](eval-calls.md)) |
 | `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides (see [supervision](#supervision)) |
+| `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
@@ -86,7 +98,7 @@ state root is `GSTACK_STATE_ROOT`, else `GSTACK_HOME`, else `GSTACK_STATE_DIR`,
 else a gstack plugin's data directory, else `~/.gstack` ([docs/state-root.md](state-root.md)); `<slug>` is what
 `~/.claude/skills/gstack/bin/gstack-slug` prints as `SLUG=` in the repository
 (`GSTACK_PROJECT_SLUG` overrides it). It is read only when the base carries none
-(never under `--policy-from head`), it lives outside the repository so a PR still
+(under `--policy-from head` it is the trusted policy the head file is compared with), it lives outside the repository so a PR still
 cannot reach it, and the record names it (`policy user <path>`) and fingerprints
 its bytes (`policy_digest`, and each check's `inputs.policy`); `verify` and the
 ship receipt treat an edited or deleted user file, or one that appears (or a
@@ -207,7 +219,8 @@ Two stages with separate clocks, both printed:
   `*_test.dart` files under a `test/` directory are tests, except under `integration_test/` and
   `test_driver/`: they need a device, so pregate never runs them, and a touched
   one has no lane until you declare `"**/integration_test/**": []` (and
-  `"**/test_driver/**": []`) under `dependencies` and let CI run them; Dart files, device tests
+  `"**/test_driver/**": []`) under `dependencies` on the base branch and let CI run them
+  (a `[]` only on the branch is refused under `--policy-from head`); Dart files, device tests
   included, are source code, so a `dependencies` `[]` declaration clears them and `empty_lanes`
   does not); in a Rust crate (the nearest Cargo.toml with a `[package]` name) a `.rs` file is a
   test when it sits under `<crate>/tests/`, holds a `#[cfg(test)]` (any cfg predicate naming
@@ -429,7 +442,7 @@ the supervision above. Close the obligation one of two ways:
   `gstack-pregate clear --remote test_backend/<backend> --run-url <url>`, which
   has no machine-checkable receipt and is recorded as `attested:<url>`; or
 - `gstack-pregate --stage tests --remote --spend-cap <usd> --allow-repo-commands`,
-  which runs the declared `remote_gate` now (never under `--policy-from head`;
+  which runs the declared `remote_gate` now (under `--policy-from head`, still the trusted copy's gate;
   a `test_backend` without `remote_gate` cannot be run this way). The gate runs
   in the repository root with `PREGATE_TREE` (the working-tree fingerprint
   being tested), `PREGATE_FILES_FILE` (the selected files, one per line) and
@@ -548,10 +561,10 @@ are named and left to the paid PR gate; a selection of only paid files reports
 `tests=0`, which never clears the obligation. The command is the same either way
 (`--remote` always needs a cap; the keyless path spends nothing).
 
-pregate kills the gate at its `--timeout` (default 600 s) with a 5 s grace, so
-the script finishes before that deadline: it reads the deadline from
-`PREGATE_TIMEOUT_S`, else from the `gstack-pregate` command it runs under (its
-`--timeout`, else 600), reserves 120 s for teardown plus 15 s margin, and tells
+pregate kills the gate at its `--timeout` (default the policy's `timeout_s`, else
+600 s) with a 5 s grace, so the script finishes before that deadline: it reads the
+deadline from `PREGATE_TIMEOUT_S`, which pregate sets to that same timeout, else from
+the `gstack-pregate` command it runs under (its `--timeout`, else 600), reserves 120 s for teardown plus 15 s margin, and tells
 the VM to stop at whichever comes first, that point or the cap's wall (at most
 45 minutes, minus 3 for teardown). A deadline that leaves the VM under 300 s
 refuses before any VM (`PREGATE_REMOTE_TIMEOUT_TOO_SHORT`). At create time it
