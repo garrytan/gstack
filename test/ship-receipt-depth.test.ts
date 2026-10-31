@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt, renderReceiptBlock } from '../lib/ship-receipt';
-import { bindShippedReceipt, receiptDepthVerdict, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
+import { bindShippedReceipt, receiptDepthAtHead, receiptDepthVerdict, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -204,4 +204,40 @@ describe('the review-loop exception (#3559)', () => {
     expect(!offBranch.ok && offBranch.code).toBe('QUEUE_RECEIPT_EXCEPTION_INVALID');
     expect(!offBranch.ok && offBranch.message).toContain('is not the receipt head or an ancestor of it');
   }, 90_000);
+});
+
+describe('the queue and a scoped second pass (GSTA-152 D6)', () => {
+  // Value: protects=a receipt whose pass 2 was scoped (fix-check, Red Team, native adversarial; no specialists) READYs at the depth
+  // its head needs, with no schema change; fails_when=the queue reads review_loop.dispatches or passes as a depth signal; seam=bindShippedReceipt
+  test('a scoped pass 2 receipt at the required depth binds, its dispatch roles recorded as written', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const head = commit(repo, { 'lib/big.js': lines(80) });
+    const body = path.join(repo.root, 'body.md');
+    const loop = { passes: 2, blocking_found: 1, deferred: 0, fixed: 1, scope: 'frozen', dispatches: { specialist: 4, 'adversarial-native': 2, 'outside-voice': 1, 'fix-check': 1, 'red-team': 1 } };
+    expect(writeReceipt(repo, body, ['--review-loop', JSON.stringify(loop)]).status).toBe(EXIT.ok);
+    expect(receiptIn(body).review_loop).toMatchObject({ passes: 2, dispatches: loop.dispatches });
+    const bound = bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8'), '7', [head]);
+    expect(bound.ok).toBe(true);
+    expect(bound.ok && bound.depthLine).toContain('REVIEW_DEPTH: receipt=standard required=standard');
+  }, 60_000);
+});
+
+describe('GSTA-167 part 4a: the data rule never skips the receipt gate scan', () => {
+  // Value: protects=F1, receiptDepthAtHead decides the gate scan path-only, so a range whose only change is a data file is
+  //   scanned and a failed scan records null, never an unscanned 0; fails_when=the scan is skipped through the data rule;
+  //   seam=stub gstack-gate-diff that fails
+  test('a data-only range no code names is scanned (a failing scan records null); a markdown-only range is not', () => {
+    const run = (files: Record<string, string>) => {
+      const repo = makeFixtureRepo(); repos.push(repo);
+      const bin = path.join(repo.root, 'stub-bin');
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, 'gstack-diff-scope'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      fs.writeFileSync(path.join(bin, 'gstack-gate-diff'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      return receiptDepthAtHead(repo.work, 'main', bin, commit(repo, files));
+    };
+    const data = run({ 'wiki/post/data.json': '{"a": 1}\n' });
+    expect([data.class, data.runtime_lines, data.gate_scan.tagged]).toEqual(['docs', 0, null]);
+    const prose = run({ 'notes/a.md': '# a\n' });
+    expect([prose.class, prose.gate_scan.tagged]).toEqual(['docs', 0]);
+  }, 60_000);
 });

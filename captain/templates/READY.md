@@ -20,6 +20,10 @@ SHIP_RECEIPT: pr=<n> head=<sha12> version=- base=<BASE> tree=<tree> session_kind
 READY_RECEIPT: <path the tool wrote> (<local and notes-ref detail>)
 ```
 
+Under `changelog_fragments` (docs/ship-policy.md#changelog-fragments) the PR's entry is a
+fragment, `changelog.d/<slug>.md`, never an `[Unreleased]` section or a version, and the
+controller merges with `train land` or `land`, so no slot call follows this block.
+
 The lane's own lines, after the block:
 
 ```text

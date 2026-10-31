@@ -14,11 +14,15 @@
  *   gstack-ship-queue gate-ahead --list --pr <n>
  *   gstack-ship-queue verify --pr <n> --screen                  (train policy: the head's screen verdict from its run)
  *   gstack-ship-queue verify --post-merge <sha> [--timeout <s>] (after a merge: main's push workflows at that commit until they settle)
+ *   gstack-ship-queue land --pr <n> [--dry-run] [--no-wait] [--break-lock]   (the merge step; lib/ship-queue-land.ts)
+ *   gstack-ship-queue land --pr <n> --repair                    (after QUEUE_LAND_DRIFT: open the outside merge's release PR)
+ *   gstack-ship-queue land --census
  *   gstack-ship-queue train build|status|verdict|bisect|rebuild|watch|prune ...   (merge trains; train --help)
  *
  * Every subcommand takes --base <branch> (default origin/HEAD, else main) and
  * ends with GSTACK_RESULT: skill=ship-queue status=complete|refused run=<path>.
- * gstack-restamp stays the primitive. Nothing here pushes, except under a
+ * gstack-restamp stays the primitive. Nothing here pushes, except land, ready
+ * under changelog_fragments (its READY receipt note), and under a
  * ship policy with a `train` block: merge trains push train/<nonce> branches
  * and the refs/notes/gstack-trains records, and dispatch through eval-bg.
  * Logic: lib/ship-queue.ts, lib/ship-queue-gate.ts, lib/ship-queue-train*.ts
@@ -52,11 +56,18 @@ const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (doc
   verify --pr <n> --screen                 (train policy) the PR head's screen verdict read from its run (SCREEN_VERDICT)
   verify --post-merge <sha> [--timeout <s>] wait for every check run at a merged commit to settle: POST_MERGE: green|red|pending
                                            and one CHECK: line per workflow; resumable, default timeout 2700 s
+  land --pr <n> [--dry-run] [--no-wait] [--timeout <min>] [--break-lock] [--allow-repo-commands]
+                                           the merge step: lock, merge the base, stamp (fragments folded), push the stamp commit,
+                                           wait for its checks, squash with --match-head-commit, confirm the base tree; resumable
+  land --pr <n> --repair                   after QUEUE_LAND_DRIFT: open the PR that gives the merge outside land its own
+                                           release; /ship and land it, which releases the lock
+  land --census                            what land would do with every open PR (read-only)
   train build|status|verdict|bisect|rebuild|watch|prune ...
                                            merge trains, when the base policy declares a train block (train --help;
                                            docs/ship-policy.md#run-a-merge-train); ready then takes --screen|--no-screen
 
---base <branch>: base branch (default: origin/HEAD, else main). Nothing here pushes.
+--base <branch>: base branch (default: origin/HEAD, else main). Nothing here pushes, except land (the stamp commit and the
+refs/notes/gstack-land lock), ready under changelog_fragments (its READY receipt note) and merge trains.
 ${exitTableHelp()}`;
 
 function flag(args: string[], name: string): string | undefined {
@@ -152,6 +163,13 @@ async function main(argv: string[]): Promise<number> {
     return train.trainMain(ctx, args);
   }
   if (cmd === 'verify' && flag(args, '--post-merge') !== undefined) return (await import('../lib/ship-queue-train-cli')).postMergeMain(ctx, args);
+  if (cmd === 'land') {
+    const l = await import('../lib/ship-queue-land');
+    if (args.includes('--census')) return finish('land', l.census(ctx));
+    if (!pr || !/^\d+$/.test(pr)) return usage('land needs --pr <number> (or --census)');
+    const timeout = flag(args, '--timeout');
+    return finish('land', l.land(ctx, { pr, repair: args.includes('--repair'), dryRun: args.includes('--dry-run'), noWait: args.includes('--no-wait'), breakLock: args.includes('--break-lock'), allowRepoCommands: args.includes('--allow-repo-commands'), waitTimeoutMin: timeout && /^\d+$/.test(timeout) ? Number(timeout) : undefined }));
+  }
   if (!pr || !/^\d+$/.test(pr)) return usage(`${cmd} needs --pr <number>`);
   const gateExit = flag(args, '--gate-exit');
   if (gateExit !== undefined && !/^-?\d+$/.test(gateExit)) return usage('--gate-exit needs an exit code');

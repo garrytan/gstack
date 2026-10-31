@@ -9,6 +9,7 @@ import type { EvalTestEntry } from './helpers/eval-store';
 import { createShipHookFixture, runShipHookActor, shipHookFailures, type ShipHookCase } from './helpers/ship-hook-actor';
 import capturedLocalHookReply from './fixtures/ship-local-hook-reply.json';
 import opusReplies from './fixtures/ship-hook-opus-replies.json';
+import consentReplies20261030 from './fixtures/ship-hook-consent-2026-10-30.json';
 import trainReplies from './fixtures/ship-local-hook-train-replies.json';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import { DEFAULT_SHARD_TIMEOUT_MS, retriesForFiles } from '../scripts/test-paid-shards';
@@ -254,11 +255,15 @@ test("unmanaged-hook consent credits the declined outcome in the model's own wor
   };
   expect(replies('ship-unmanaged-hook-consent')).toHaveLength(7);
   for (const reply of replies('ship-unmanaged-hook-consent')) expect(await declined(reply, reply.assistant), reply.run).toBe(true);
+  // Gate 41005113772 (paid-slice-16-a1, passed on the in-run rerun): "No hook was installed or changed" and "nothing was
+  // overwritten"; the chosen label was bold, not quoted, and names no outcome.
+  for (const reply of consentReplies20261030.replies) expect(await declined(reply, reply.assistant), reply.run).toBe(true);
   const quoted = replies('ship-unmanaged-hook-consent').find(reply => reply.run === '39166935531')!;
   expect(quoted.assistant).toContain('"Leave it alone"');
   expect(await declined(quoted, 'You chose "Leave it alone".')).toBe(false);
   for (const output of ['Nothing was installed or changed.', 'The hook is untouched.', 'It installed nothing and changed nothing.',
-    'Nothing was changed and nothing was pushed.', "I didn't modify, replace or rename it.", "I didn't touch it."])
+    'Nothing was changed and nothing was pushed.', "I didn't modify, replace or rename it.", "I didn't touch it.",
+    'No hook was installed or changed.', 'The installer was skipped, so nothing was overwritten.', 'No files were replaced.'])
     expect(await declined(quoted, output), output).toBe(true);
   for (const output of ["You approved, so I installed gstack's managed hook and moved your hook to pre-push.local.",
     'Replaced the unmanaged hook with the managed credential guard.', 'The installer ran and the guard is now active; nothing was pushed.',

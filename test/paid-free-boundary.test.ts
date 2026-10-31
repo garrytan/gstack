@@ -27,7 +27,7 @@ function runnerDependencies(root: string, entries: string[]): string[] {
     const source = fs.readFileSync(file, 'utf8').replace(/^#![^\n]*(?:\n|$)/, '\n');
     let audited = source;
     if (relative === 'test/helpers/test-selection.ts') {
-      if (createHash('sha256').update(source).digest('hex') !== '052ad5a52472bcb41db04c9f21fe6a819e9547768468f7e5d390e0014b567677') {
+      if (createHash('sha256').update(source).digest('hex') !== 'd618192ed8d354df55ebe8df0c52d3437ef51b4517ef04513efced4ae097c6a6') {
         throw new Error('Re-audit the historical touchfile map loader before excluding its computed import');
       }
       audited = source.replace('`const m = await import(${JSON.stringify(dataPath)});`,', "'',");

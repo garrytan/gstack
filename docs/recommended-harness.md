@@ -119,7 +119,7 @@ explains how the Captain runs a day. Drop the templates in, replace the
 placeholders (repository, crew login list, gate workflow name, minimum
 revision, who may approve what), and the crew has its rules before its first
 thread starts. The approvals shape itself (plan asks with before → after, why,
-cause, big decisions and a one-word default; a `## Approvals` table in every
+cause, big decisions, and the choices as lettered ask lines closed by "do it"; a `## Approvals` table in every
 report and PR body) is the harness-generic part and is documented in
 [capy/skill/gstack/captain.md](../capy/skill/gstack/captain.md).
 
@@ -129,8 +129,9 @@ A lane (one crew thread, one branch) does this, in order. Every command is
 harness-generic; only the thread and the PR tool are Capy.
 
 1. **Branch from the default branch, build, test with focused checks.** Write
-   the CHANGELOG entry under `## [Unreleased]`; leave VERSION at main's value.
-   Never pre-pick a version.
+   the CHANGELOG entry under `## [Unreleased]` (under `changelog_fragments`, a
+   fragment in the policy's fragment directory instead); leave VERSION at
+   main's value. Never pre-pick a version.
 2. **Push the final head.** Everything below binds to the pushed head; a later
    push invalidates the receipt, the pregate record and the review binding.
 3. **Open the PR** with the host's PR tool (Capy: `tools.pr.create`, never
@@ -182,6 +183,11 @@ reference:
    <sha>`, or `--merge` where the repository keeps merge commits), and
    verifies again. A stamp commit that holds anything beyond the stamp files
    fails `verify --train`, freezes the queue and costs a backstop gate.
+   Under `changelog_fragments` there is no slot call and no lane stamp: the
+   controller runs `gstack-ship-queue train land --train <nonce> --pr 41` per
+   slot, which pushes the stamped prefix the gate covered, waits for checks,
+   merges and confirms main
+   ([ship-policy.md#train-land](ship-policy.md#train-land)).
 4. `train prune` when every slot has merged.
 
 **Who merges.** One controller, never the lane. Both crews that ran this
@@ -257,13 +263,17 @@ line whose input could not be read says `unavailable (<reason>)` rather than 0.
 gstack-factory-scorecard --repo owner/name --since-days 7 \
   [--crew login,login] [--gate-workflow evals.yml] [--free-workflow free-tests.yml] \
   [--train-prefix train/] [--ready-marker 'READY #\d+|SHIP_RECEIPT:'] [--pass-marker '"passes": (\d+)|passes=(\d+)'] \
-  [--pass-cap 3] [--out-dir .context/factory-scorecard]
+  [--pass-cap 3] [--out-dir .context/factory-scorecard] [--now <iso>]
 ```
 
 `--repo` defaults to the origin remote's owner/name on github.com (or
 `GH_HOST`) and is required without one. Each run writes this window's `scorecard.md` and `scorecard.csv`
 to `--out-dir` and appends the same rows to `trend.csv` there, so a weekly
 retro accumulates its own trend without renaming files.
+
+The window is `[now - since-days, now)`: `--now` (default: the current time)
+sets its end, and every line counts only items inside it, so a past week
+measured later does not count anything that happened after that week.
 
 | Line | How it is counted | What one of the best software factories would show |
 |---|---|---|
@@ -284,29 +294,29 @@ the gap next to the number.
 
 ### Where gstack's own numbers stand
 
-Measured on gstack's repository with this tool for 2026-10-19 to 2026-10-26
-(the first full week of trains and `/ship`-before-READY; 103 merged PRs, 77
-gate runs, artifacts read for the newest 60):
+Measured on gstack's repository with this tool for the week of 2026-10-19
+through 2026-10-25, UTC (`--now 2026-10-26T00:00:00Z --since-days 7`; the first
+full week of trains and `/ship`-before-READY; 83 merged PRs, 54 gate runs,
+artifacts read for all 54):
 
 | Line | gstack, that week | Against the bar |
 |---|---|---|
-| Merged PRs | 103 (crew 100, outside 3) | volume is there; outside contributions are few and are ported by the crew rather than merged from forks |
-| Lead time, created → merged | median 7.9h, p90 23.7h | inside the bar on both |
-| Lead time, READY → merged | no number: 0 of 103 PRs had a READY comment | the crew reports READY in-thread; step 6 above (post it on the PR) is what makes this measurable |
-| Review passes per PR | no number: 0 of 103 PRs carried a pass count | the receipt's `passes` field lands with /ship's convergence rule; until then crews record the count in the READY block, and the marker reads it from a PR comment |
-| Gate runs | 73 green / 4 red / 0 cancelled; known cost $1,628 on 59 of 77 runs | green rate 95%; cost unknown on 18 runs (screens that planned no cases, and runs older than the artifact cap) |
-| Known gate cost per merged PR | $15.81 (a floor) | about $24 per train of up to 5 PRs, plus screens; one gate per PR would have been about $33 each |
-| Red-train rate | 4% (1 red of 28 trains; 0 red backstop, 3 red screens) | inside the bar; the three red screens were one judge reading a moved file |
-| Flaky events | 21 paid cases passed on their one rerun (rerun spend $10.72); 17 free-suite retries in 17 of 103 runs | above the bar on both: 0.27 flaky cases per gate against 0.1, and 17% of free runs retried against 1%. One family (`ship-docsync-*`) repeated three times in two days |
-| Issues opened / closed | 50 / 56 | inside the bar |
-| Releases cut | 1 (the first weekly release) | on schedule, with the starvation caveat above |
+| Merged PRs | 83 (crew 80, outside 3) | volume is there; the 3 outside PRs are bot PRs (2 from github-actions, 1 from dependabot), and outside contributions are ported by the crew rather than merged from forks |
+| Lead time, created to merged | median 6.5h, p90 20.0h | inside the bar on both |
+| Lead time, READY to merged | no number: 0 of 83 PRs had a READY comment | the crew reports READY in-thread; step 6 above (post it on the PR) is what makes this measurable |
+| Review passes per PR | no number: 0 of 83 PRs carried a pass count | the receipt's `passes` field lands with /ship's convergence rule; until then crews record the count in the READY block, and the marker reads it from a PR comment |
+| Gate runs | 52 green / 2 red / 0 cancelled; known cost $1,361.94 on 52 of 54 runs | green rate 96%; cost unknown only on the 2 red runs (the red train and the red screen) |
+| Known gate cost per merged PR | $16.41 (a floor) | trains averaged $32.48 each for up to 5 PRs (21 trains with a known cost), screens $21.18 each (29 with a known cost) |
+| Red-train rate | 5% (1 red of 22 trains; 0 red backstop, 1 red screen) | the tool rounds 1 of 22 (4.5%) to 5%, so this is just under the 5% bar; the 1 red screen is counted separately from trains |
+| Flaky events | 17 paid flake records across 11 cases, each passing its one rerun (rerun spend $7.20); 17 free-suite retries in 17 of 83 runs | above the bar on all three: 0.31 flake records per gate against 0.1, 4 cases that flaked more than once against 0, and 20% of free runs retried against 1%. One case (`ship-docsync-current`) did it four times in three days |
+| Issues opened / closed | 28 / 51 | inside the bar |
+| Releases cut | 0 | none inside the week: the first weekly release, v1.91.242.0, was published at 12:01 UTC on 2026-10-26, just after the window closed (see the starvation caveat above) |
 
 Read the gap honestly: lead time and throughput are where they should be, the
 gate is green and its cost is mostly known, and flakiness is the line that is
 not. The daily pass exists for exactly that line; the scorecard's job is to
 show next week whether it moved. The inventory lane's per-PR baseline CSV in
-the Captain's Drive (142 merged PRs over the eleven days before this window
-closed) holds the longer history behind these numbers; from here on
+the Captain's Drive holds the longer history behind these numbers; from here on
 `trend.csv` in `--out-dir` carries the weeks.
 
 ## What is Capy-specific and what is not
@@ -317,7 +327,7 @@ closed) holds the longer history behind these numbers; from here on
 | Running a workflow | the SKILL.md files, `GSTACK_SESSION_KIND=unattended`, `GSTACK_RESULT:` lines | the `GSTACK_LAUNCH` assignments, `GSTACK_CAPY=1` and the `capy-asks` block, no enforced hooks (safety skills are advisory) |
 | Approvals | `gstack-approvals`, `gstack-owner-brief render --captain`, the `## Approvals` table | the Captain relay (`needs_you`), the Captain drive `approvals/` mirror |
 | Pull requests | `/ship`, the ship receipt, `gstack-pr-shots` | `tools.pr.create` (callbacks), `tools.pr.uploadAsset` (before/after images) |
-| Merging | `gstack-ship-queue` (ready, train build, verdict, verify), `gstack-restamp`, `gh pr merge --match-head-commit` | the controller is a Captain thread; slot calls are thread messages |
+| Merging | `gstack-ship-queue` (ready, train build, verdict, verify; train land and land under `changelog_fragments`), `gstack-restamp`, `gh pr merge --match-head-commit` | the controller is a Captain thread; slot calls are thread messages |
 | Flaky pass | the rerun rule, `flake-records-a*` and `flake-ledger-*` artifacts, `test:health` | the daily automation and the ledger in the Captain's Drive |
 | Release | `release-cut`, `weekly-release.yml`, the `stable` channel | nothing |
 | Scorecard | `gstack-factory-scorecard`, `/retro` Step 7.5 | nothing (the CSV can be kept in the Captain's Drive) |

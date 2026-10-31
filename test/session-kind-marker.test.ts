@@ -26,6 +26,7 @@ const SESSION_KIND_INVENTORY: Record<string, string> = {
   'bin/gstack-plan-reality': 'records the kind (:58)',
   'bin/gstack-ship-receipt': 'records the kind (:143, :322)',
   'lib/autoplan-run.ts': 'records the kind (:110)',
+  'lib/ship-release.ts': 'an unattended push defers the pre-push guard offer (:203)',
   'bin/gstack-brain-enqueue': 'an unattended session never spools for sync (:38)',
   'hosts/claude/hooks/spawned-directive.ts': 'Claude Code only (:57)',
   'hosts/claude/hooks/question-preference-hook.ts': 'Claude Code only (:506)',

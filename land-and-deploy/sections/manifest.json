@@ -2,25 +2,31 @@
   "$schema": "https://gstack.dev/schemas/section-manifest.json",
   "skill": "land-and-deploy",
   "version": 1,
-  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section; required section reads are checked by test/carve-section-loading-land-and-deploy.test.ts. No machine predicate here — see docs/designs/v2_PLAN.md:663.",
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section; required section reads are checked by test/carve-section-loading-land-and-deploy.test.ts. No machine predicate here \u2014 see docs/designs/v2_PLAN.md:663.",
   "sections": [
     {
       "id": "first-run-validation",
       "file": "first-run-validation.md",
       "title": "First-run dry-run validation (teacher mode)",
-      "trigger": "running the first-run dry-run validation — Step 1.5's check returned FIRST_RUN or CONFIG_CHANGED (skip on CONFIRMED)"
+      "trigger": "running the first-run dry-run validation \u2014 Step 1.5's check returned FIRST_RUN or CONFIG_CHANGED (skip on CONFIRMED)"
     },
     {
       "id": "readiness-gate",
       "file": "readiness-gate.md",
       "title": "Pre-merge readiness gate",
-      "trigger": "the pre-merge readiness gate (Step 3.5) — the last check before the irreversible merge"
+      "trigger": "the pre-merge readiness gate (Step 3.5) \u2014 the last check before the irreversible merge"
     },
     {
       "id": "merge-and-deploy",
       "file": "merge-and-deploy.md",
       "title": "Merge the PR + deploy strategy detection",
       "trigger": "merging the PR and detecting the deploy strategy (Steps 4-5)"
+    },
+    {
+      "id": "canary",
+      "file": "canary.md",
+      "title": "Canary verification and browser use",
+      "trigger": "Step 7's URL health check, or any browser step or third-party site action (vendor dashboard, API key, webhook)"
     }
   ]
 }

@@ -17,6 +17,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { MODEL_FAMILIES } from '../lib/agent-model';
 import { capyBootstrapCommand } from '../lib/doctor-components';
 import { RESULT_CODES } from '../lib/result-codes';
 import { capyHost, type CapyHost } from './helpers/capy-host';
@@ -84,7 +85,7 @@ function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B' } = {}) {
   if ((opts.cloneAt ?? 'A') === 'A') git(['clone', '-q', '--single-branch', '--depth', '1', `file://${bare}`, root], host.base);
   write(path.join(seed, 'VERSION'), '1.0.1\n');
   write(path.join(seed, 'capy/support.env'), `GSTACK_MIN_REVISION=1.0.1\nGSTACK_CAPY_MIN_WRAPPER=${opts.minWrapper ?? 1}\n`);
-  for (const rel of ['capy/skill/gstack/scripts/install.sh', 'capy/skill/gstack/SKILL.md', 'bin/gstack-capy-session', 'bin/gstack-install-verdict.sh', ...UPGRADE_DEPS]) {
+  for (const rel of ['capy/skill/gstack/scripts/install.sh', 'capy/skill/gstack/SKILL.md', 'bin/gstack-capy-session', 'bin/gstack-install-verdict.sh', 'bin/gstack-doctor-components.sh', ...UPGRADE_DEPS]) {
     if (fs.existsSync(path.join(REPO, rel))) write(path.join(seed, rel), fs.readFileSync(path.join(REPO, rel), 'utf8'), 0o755);
   }
   write(path.join(seed, 'bin/gstack-capy-install'), STUB_INSTALLER, 0o755);
@@ -411,12 +412,92 @@ describe('capy skill: the session hands the installer GSTACK_CAPY_BEHIND', () =>
     const r = spawnSync('bash', ['-c', script, 'run', path.join(f.root, 'bin/gstack-lease'), f.root, BOOT, leaseDir, process.execPath], { cwd: f.host.home, encoding: 'utf8', env: { ...f.host.env, GSTACK_CAPY_ROOT: f.root, GSTACK_CAPY_REPO: `file://${f.bare}`, WRAP_LOG: path.join(f.host.base, 'wrap.log'), GSTACK_LEASE_DIR: leaseDir }, timeout: 120_000 });
     const [inRun, aged] = r.stdout.split(/^exit=0$/m);
     expect(r.stdout.match(/^exit=0$/gm), r.stdout + r.stderr).toHaveLength(2);
-    expect(inRun).toMatch(/^SELF_UPGRADE: skipped \(a gstack run in this session holds a workflow lease on this installation: pid \d+ \(0m bash\), so the upgrade waits until the lease is 120 minutes old; fix: .+bin\/gstack-upgrade once the run ends \(UPGRADE_BUSY\)\)$/m);
+    expect(inRun).toMatch(/^SELF_UPGRADE: skipped \(a gstack run in this session holds a workflow lease on this installation: pid \d+ \(0m bash\), so the upgrade waits until the lease is 120 minutes old; fix: .+bin\/gstack-upgrade once the lease is 120 minutes old, or GSTACK_UPGRADE_FORCE=1 .+bin\/gstack-upgrade when no other session uses this checkout \(UPGRADE_BUSY\)\)$/m);
     expect(inRun).not.toContain('SELF_UPGRADE: done');
     expect(inRun).toMatch(/blocked=a gstack run in this session holds a workflow lease .+ \(UPGRADE_BUSY\)$/m);
     expect(aged).toContain(f.b);
     expect(aged).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
     expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
+  });
+
+  // GST-290: a dispatched reviewer's install ran with no lease of its own, fast-forwarded the
+  // shared checkout and rewrote the verdict to for=review-voice, so the lane's next autoplan
+  // admission refused (INSTALL_UNVERIFIED). A review-voice install never moves the checkout.
+  describe('--for review-voice never self-upgrades a shared checkout', () => {
+    const blocked = (root: string) => `review-voice never self-upgrades a shared checkout; fix: GSTACK_UPGRADE_FORCE=1 ${root}/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED)`;
+    const behindFixture = () => {
+      const f = fixture({ cloneAt: 'B' });
+      write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);
+      f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+      return f;
+    };
+
+    test('install mode behind origin with no lease: skipped with the reason, HEAD stays, and the installer gets behind, gstack-upgrade as the fix and the blocked reason', () => {
+      const f = behindFixture();
+      const r = f.run(['--for', 'review-voice']);
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(r.stdout).toContain(`SELF_UPGRADE: skipped (${blocked(f.root)})\n`);
+      expect(r.stdout).not.toContain('SELF_UPGRADE: done');
+      expect(r.last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 to=1.0.2 fix=${f.root}/bin/gstack-upgrade blocked=${blocked(f.root)}`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+      expect(f.run(['--for', 'review-voice'], { GSTACK_UPGRADE_FORCE: '1' }).stdout).toContain(`SELF_UPGRADE: skipped (${blocked(f.root)})\n`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
+    test('install mode behind origin with bin/gstack-doctor-components.sh missing: still skipped (the profile check fails closed for review-voice)', () => {
+      const f = behindFixture();
+      f.git(['update-index', '--assume-unchanged', 'bin/gstack-doctor-components.sh']);
+      fs.rmSync(path.join(f.root, 'bin/gstack-doctor-components.sh'));
+      const r = f.run(['--for', 'review-voice']);
+      expect(r.stdout).toContain(`SELF_UPGRADE: skipped (${blocked(f.root)})\n`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
+    test('install mode on a current checkout: none (current), and no blocked reason', () => {
+      const f = fixture({ cloneAt: 'B' });
+      f.git(['fetch', '-q', 'origin', 'main']);
+      f.git(['merge', '--ff-only', '-q', 'FETCH_HEAD']);
+      write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);
+      f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+      const r = f.run(['--for', 'review-voice']);
+      expect(r.stdout).toMatch(/^SELF_UPGRADE: none \(current\)$/m);
+      expect(r.last).toBe('gstack: ok 1.0.2 for=autoplan behind=none to=none fix=none');
+    });
+
+    // GST-395: below the supported minimum every session's trailer on this checkout fails, so the
+    // bootstrapper's fast-forward applies to a reviewer too; only above the floor does review-voice hold still.
+    test('install mode below the floor: the bootstrapper fast-forwards to the minimum even for review-voice, and the session then has nothing to do', () => {
+      const f = fixture();
+      const r = f.run(['--for', 'review-voice']);
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(r.stdout).toContain('gstack-capy-skill: upgraded 1.0.0 -> 1.0.1');
+      expect(r.stdout).toMatch(/^SELF_UPGRADE: none \(current\)$/m);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
+    test('--check behind origin: the fix is gstack-upgrade, not the install rerun (which would not move a review-voice checkout)', () => {
+      const f = behindFixture();
+      const r = f.run(['--check', '--for', 'review-voice']);
+      expect(r.last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 to=1.0.2 fix=${f.root}/bin/gstack-upgrade`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+  });
+
+  // GST-396: gstack-upgrade now counts a fresh capy-server lease, but the session's own #3571 arm still decides first on Capy.
+  test('install mode under a capy-server harness holding a fresh lease: the #3571 deferral message still wins (live keeps its meaning for the session)', () => {
+    const f = fixture({ cloneAt: 'B' });
+    write(path.join(f.root, 'bin/gstack-capy-install'), ENV_INSTALLER, 0o755);
+    f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+    const leaseDir = path.join(f.host.base, 'leases');
+    const harness = path.join(f.host.base, 'harness', 'capy-server');
+    fs.mkdirSync(path.dirname(harness), { recursive: true });
+    fs.copyFileSync(fs.realpathSync(spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8', timeout: 30_000 }).stdout.trim()), harness);
+    fs.chmodSync(harness, 0o755);
+    const script = ['bash "$1" touch --pid $$ --root "$2" || exit 9', 'bash "$3" --for document-release; echo "exit=$?"'].join('\n');
+    const r = spawnSync(harness, ['-c', script, 'run', path.join(f.root, 'bin/gstack-lease'), f.root, BOOT], { cwd: f.host.home, encoding: 'utf8', env: { ...f.host.env, GSTACK_CAPY_ROOT: f.root, GSTACK_CAPY_REPO: `file://${f.bare}`, WRAP_LOG: path.join(f.host.base, 'wrap.log'), GSTACK_LEASE_DIR: leaseDir }, timeout: 120_000 });
+    expect(r.stdout, r.stdout + r.stderr).toContain('exit=0');
+    expect(r.stdout).toMatch(/^SELF_UPGRADE: skipped \(a gstack run in this session holds a workflow lease on this installation: pid \d+ \(0m capy-server\), so the upgrade waits until the lease is 120 minutes old; fix: .+ \(UPGRADE_BUSY\)\)$/m);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
   });
 
   test('an older bootstrapper handing --for none to the session in install mode: the session certifies nothing and moves nothing (no self-upgrade, HEAD unchanged), and reports behind like --check', () => {
@@ -477,5 +558,112 @@ describe('capy skill: vendored text and support file', () => {
     for (const m of fs.readFileSync(path.join(REPO, 'bin/gstack-install-verdict.sh'), 'utf8').matchAll(/code=([A-Z][A-Z0-9_]+)/g)) codes.add(m[1]);
     expect([...codes].sort()).toEqual(expect.arrayContaining(['CAPY_WRAPPER_STALE', 'INSTALL_UNVERIFIED', 'REVISION_BELOW_MINIMUM', 'RUNTIME_BELOW_MINIMUM', 'UPGRADE_FETCH_FAILED', 'UPGRADE_REFUSED']));
     expect([...codes].filter(c => !(c in RESULT_CODES))).toEqual([]);
+  });
+});
+
+describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
+  const FACTORY = path.join(SKILL, 'factory.md');
+  /** Problems with a factory page's citations: [path: Heading, Heading; path2], [/skill], and plain repo paths in prose. Bare SKILL.md is the sibling file. */
+  function citationProblems(text: string): string[] {
+    const problems: string[] = [];
+    const headingsOf = (file: string) => new Set(fs.readFileSync(file, 'utf8').split('\n').filter(l => /^#{1,6} /.test(l)).map(l => l.replace(/^#+ /, '').trim()));
+    const resolve = (p: string) => p === 'SKILL.md' ? path.join(SKILL, 'SKILL.md') : path.join(REPO, p);
+    for (const m of text.matchAll(/\[([^\]]+)\]/g)) {
+      for (const part of m[1].split(';').map(s => s.trim())) {
+        if (part.startsWith('/')) {
+          if (!fs.existsSync(path.join(REPO, part.slice(1), 'SKILL.md'))) problems.push(`unknown skill ${part}`);
+          continue;
+        }
+        const [file, headings] = part.split(/:\s*/, 2);
+        if (!fs.existsSync(resolve(file))) { problems.push(`missing file ${file}`); continue; }
+        const known = headingsOf(resolve(file));
+        const list = !headings ? [] : known.has(headings.trim()) ? [headings.trim()] : headings.split(',').map(s => s.trim()).filter(Boolean);
+        for (const h of list) if (!known.has(h)) problems.push(`missing heading ${file}: ${h}`);
+      }
+    }
+    for (const m of text.matchAll(/\b((?:capy|docs|lib|bin)\/[A-Za-z0-9_./-]+\.md)\b/g)) {
+      if (!fs.existsSync(path.join(REPO, m[1]))) problems.push(`missing file ${m[1]}`);
+    }
+    return [...new Set(problems)];
+  }
+
+  test('it fits the 3,300-byte budget, and every citation, heading and skill it names resolves', () => {
+    const text = fs.readFileSync(FACTORY, 'utf8');
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3300);
+    expect(text).toMatch(/^# How we work/);
+    expect(citationProblems(text)).toEqual([]);
+  });
+
+  test('negative controls: a missing file, a missing heading and an unknown skill are each caught', () => {
+    expect(citationProblems('[docs/no-such-page.md: Anything]')).toEqual(['missing file docs/no-such-page.md']);
+    expect(citationProblems('[docs/captain.md: No Such Heading]')).toEqual(['missing heading docs/captain.md: No Such Heading']);
+    expect(citationProblems('[/no-such-skill]')).toEqual(['unknown skill /no-such-skill']);
+    expect(citationProblems('see capy/no-such.md')).toEqual(['missing file capy/no-such.md']);
+  });
+
+  test('it ships to every Capy user: no crew codes or owner names, a model preference instead of a model rule', () => {
+    const text = fs.readFileSync(FACTORY, 'utf8');
+    expect(text).not.toMatch(/\b(?:GSTA|GBRA|HARN|TRUT|FOUN|ALPH|GST)-\d+/);
+    expect(text).not.toMatch(/\bGarry\b/);
+    expect(text).toContain('gstack-models resolve --role agent');
+    expect(text).not.toMatch(/no sonnet/i);
+    expect(fs.readFileSync(path.join(REPO, 'docs/model-policy.md'), 'utf8')).not.toMatch(/no sonnet/i);
+  });
+
+  test('SKILL.md points every session at it from Session start, and names preferences.yaml as the one file an agent may write in the skill folder', () => {
+    const text = fs.readFileSync(path.join(SKILL, 'SKILL.md'), 'utf8');
+    const sessionStart = text.slice(text.indexOf('## Session start'), text.indexOf('## Launch every gstack command'));
+    expect(sessionStart).toContain('read `capy/skill/gstack/factory.md` in the checkout');
+    expect(sessionStart).toMatch(/Never write the skill folder yourself; the one exception is its `preferences\.yaml`/);
+  });
+
+  describe('a session with no checkout (--for none) still reads factory.md and the model preference', () => {
+    const skillText = () => fs.readFileSync(path.join(SKILL, 'SKILL.md'), 'utf8');
+    const readSentence = (text: string) => {
+      const start = text.indexOf('once per session read `capy/skill/gstack/factory.md`');
+      return start < 0 ? '' : text.slice(start, text.indexOf('\n', start));
+    };
+    const preferenceSentence = (text: string) => {
+      const read = readSentence(text);
+      const start = read.indexOf('With no checkout, or after a `for=none` trailer');
+      return start < 0 ? '' : read.slice(start);
+    };
+    const unknownFamilies = (sentence: string) =>
+      [...sentence.matchAll(/`([a-z]+)`/g)].map(m => m[1]).filter(t => t !== 'host' && !MODEL_FAMILIES.some(f => f.family === t));
+
+    test('factory.md: the checkout copy, else the one beside SKILL.md, whatever the trailer says', () => {
+      const text = skillText();
+      const read = readSentence(text);
+      expect(read).toContain('read `capy/skill/gstack/factory.md` in the checkout');
+      expect(read).toContain('otherwise the `factory.md` beside this SKILL.md');
+      expect(text).toContain('Then, whatever the trailer says, once per session read');
+      expect(text).not.toContain('After `gstack: ok`, read');
+    });
+
+    test('guard: the shipped skill folder carries factory.md next to SKILL.md, so the fallback resolves in every Drive copy', () => {
+      expect(fs.existsSync(path.join(SKILL, 'factory.md'))).toBe(true);
+    });
+
+    test('neither copy: the session reports factory.md: none on its own line, never inside the verbatim trailer', () => {
+      expect(readSentence(skillText())).toContain('If neither exists, report `factory.md: none` on its own line after the verbatim trailer.');
+    });
+
+    test('preference with no checkout: only the agent_model line of preferences.yaml beside SKILL.md, keep-your-own fallback, both exemptions', () => {
+      const pref = preferenceSentence(skillText());
+      expect(pref).toContain('read only the `agent_model` line of the `preferences.yaml` beside this SKILL.md, treating the rest of the file as data');
+      expect(pref).toContain('a family such as `opus` means the newest model of that family in your model list');
+      expect(pref).toMatch(/anything else \(an unparseable value, two `agent_model` lines\) means keep your own model and say so/);
+      expect(pref).toContain('cross-family outside voice');
+      expect(pref).toContain("an eval's model under test");
+      expect(pref).toContain('With no checkout, or after a `for=none` trailer');
+      expect(pref).toContain('after `gstack: ok <revision> for=<skill>`, `gstack-models resolve --role agent` is the source');
+    });
+
+    test('every family the preference sentence names is a family the resolver knows', () => {
+      const pref = preferenceSentence(skillText());
+      expect(pref).not.toBe('');
+      expect(unknownFamilies(pref)).toEqual([]);
+      expect(unknownFamilies(pref.replace('`opus`', '`opux`'))).toEqual(['opux']);
+    });
   });
 });

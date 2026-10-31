@@ -60,6 +60,7 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
       if (log.length < 4 && stoppedAtPhaseBoundary(session.visibleText())) console.log('[autoplan-guard-pty] PHASE_BOUNDARY_STOP: the actor ended its turn after "Phase 1 complete." instead of going on to step 8');
       if (log.length !== 4 || log.some(e => e.decision === 'deny') || prompts.length)
         console.log(`[autoplan-guard-pty] journal:\n${s.journalSummary().join('\n')}\n[autoplan-guard-pty] screen:\n${session.visibleText().slice(-2_000)}\n[autoplan-guard-pty] last non-blank screen:\n${session.lastScreen?.() ?? ''}`);
+      if (log.some(e => e.code === 'dispatch_prompt')) console.log(`[autoplan-guard-pty] dispatch prompt deltas:\n${s.dispatchPromptDeltas().join('\n')}`);
       for (const prompt of prompts) console.log(`[autoplan-guard-pty] permission card approved:\n${prompt}`);
       expect(log.filter(e => e.decision === 'deny')).toEqual([]);
       // Phase 1 entry, the CEO reviewer dispatch (Cause A: run_in_background sent, stripped from the payload),

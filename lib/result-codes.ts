@@ -513,7 +513,7 @@ export const RESULT_CODES = {
   SEALED_OUTPUT_REFUSED: {
     anchor: 'sealed-output-refused',
     summary: 'a push or PR would publish sealed or eval output (a sealed path, a transcript, a quoted answer, a seed or a local home path) to a public or unknown destination, or the sealed policy is unreadable',
-    fix: 'remove it from every published commit, or add one reviewed `rule<TAB>path<TAB>sha<TAB>reason` line to the base branch\'s .gstack/sealed-allow.tsv; a private destination sets sealed.visibility "private" in the base branch\'s .gstack/pregate.json',
+    fix: 'remove it from every published commit, or add one reviewed `rule<TAB>path<TAB>full-commit-sha<TAB>reason` line to the base branch\'s .gstack/sealed-allow.tsv (a shortened sha is ignored); a private destination sets sealed.visibility "private" in the base branch\'s .gstack/pregate.json',
   },
   EVAL_GATE_UNPRICED: {
     anchor: 'eval-gate-unpriced',
@@ -598,8 +598,8 @@ export const RESULT_CODES = {
   },
   UPGRADE_BUSY: {
     anchor: 'upgrade-busy',
-    summary: 'bin/gstack-upgrade changed nothing: another live session holds a workflow lease on this installation (bin/gstack-lease live), or, at a Capy install, the caller\'s own run does, so moving the checkout would change gstack under it',
-    fix: 'wait for those sessions to finish (bin/gstack-lease list names each pid and age), then re-run bin/gstack-upgrade; GSTACK_UPGRADE_FORCE=1 overrides when you know they are idle',
+    summary: 'bin/gstack-upgrade changed nothing: another live session holds a workflow lease on this installation (bin/gstack-lease live), or, at a Capy install, the caller\'s own run does, or a shared harness (capy-server) whose lease may be a sibling session\'s is under 120 minutes old, so moving the checkout would change gstack under it',
+    fix: 'wait for those sessions to finish, or for a shared-harness lease to turn 120 minutes old (bin/gstack-lease list names each pid and age), then re-run bin/gstack-upgrade; GSTACK_UPGRADE_FORCE=1 overrides when you know no other session uses the checkout',
   },
   UPGRADE_FETCH_FAILED: {
     anchor: 'upgrade-fetch-failed',

@@ -502,6 +502,12 @@ describe('browser consolidation tripwires', () => {
         }
         md += fs.readFileSync(path.join(ROOT, 'qa/sections/browser-setup.md'), 'utf8');
       }
+      if (skill === 'land-and-deploy') {
+        expect(md).toContain('sections/canary.md');
+        expect(md).not.toContain('## BROWSER SETUP (Aside');
+        expect(md).not.toContain('## Third-Party Web Actions');
+        md += fs.readFileSync(path.join(ROOT, 'land-and-deploy/sections/canary.md'), 'utf8');
+      }
       const aside = md.indexOf('## BROWSER SETUP (Aside');
       const fb = md.indexOf("## Browser fallback: gstack's own headless browser");
       expect({ skill, hasAside: aside >= 0, hasFallback: fb >= 0, fallbackAfterAside: fb > aside }).toEqual({ skill, hasAside: true, hasFallback: true, fallbackAfterAside: true });

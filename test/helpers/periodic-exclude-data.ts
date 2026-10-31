@@ -19,6 +19,10 @@ export const PERIODIC_CI_EXCLUDE: Record<string, { reason: string; tracking: str
     reason: 'needs macOS with the Aside app open (asideAvailable()); CI runners are Linux, so every case self-skips',
     tracking: 'TODOS.md "CI-unrunnable paid evals" (re-entry: the CLI/device is available in the CI image; review by 2026-12-28)',
   },
+  'test/skill-e2e-model-panel.test.ts': {
+    reason: 'needs OPENROUTER_API_KEY, which no CI workflow carries; a preregistered research instrument run on demand, not weekly coverage',
+    tracking: 'TODOS.md "CI-unrunnable paid evals" (re-entry: OPENROUTER_API_KEY in the periodic slice env and a new preregistration; review by 2026-12-28)',
+  },
   'test/skill-e2e-ios-device.test.ts': {
     reason: 'needs a physical iPhone over USB/devicectl — manual hardware, not a CI runner capability',
     tracking: 'TODOS.md "CI-unrunnable paid evals" (re-entry: the CLI/device is available in the CI image; review by 2026-12-28)',

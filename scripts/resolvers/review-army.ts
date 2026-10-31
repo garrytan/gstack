@@ -186,7 +186,12 @@ their source labels: specialist scoring is not the final review's defect count.
 After specialist attempts settle, collect their outputs, tagged by actual source.
 \`NO FINDINGS\` is a completed, clean result, never a failed reviewer. Otherwise parse
 each JSON line and skip invalid lines. Missing or unusable output is incomplete
-coverage, not an empty success. Keep each specialist's returned findings for activity stats.
+coverage, not an empty success. Keep each specialist's returned findings for activity stats.${isShip ? `
+An output that carries a state-machine matrix record (State Machines, or a batched
+reader that read its checklist) is parsed from \`${ctx.paths.binDir}/gstack-state-matrix findings <file>\`,
+after \`check\` ran on the raw file: an untested cell that is the only finding on its
+cell comes back INFORMATIONAL (\`"state_matrix":"untested-cell"\`), the test-gap ruling
+in \`docs/review-policy.md\`; a wrong row or collapsed kinds stays CRITICAL.` : ''}
 
 #### 2. Validate severity
 

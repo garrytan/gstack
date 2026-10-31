@@ -217,6 +217,9 @@ function bisectOutcome(env: TrainEnv, t: TrainRecord, b: BisectRecord): TrainOut
     [...lines, `BISECT: UNATTRIBUTED (${c.all_green ? 'all green' : 'not monotone'})`], nextFor(t), run);
 }
 
+/** The commits a bisect tests: T0 and the plain prefixes, or for a stamped train T0 and S_1..S_k, the chain its gate ran. */
+const bisectPrefixes = (t: TrainRecord) => t.stamped ? [t.prefixes[0]!, ...t.stamped] : t.prefixes;
+
 /** Validate bisect inputs: red cases from the gate's own plan, every prefix an ancestor of train/<nonce>'s head. */
 function bisectInputs(env: TrainEnv, t: TrainRecord, red: AttemptRecord): string | null {
   for (const id of red.red_cases) {
@@ -227,7 +230,7 @@ function bisectInputs(env: TrainEnv, t: TrainRecord, red: AttemptRecord): string
   if (!f.ok) return `cannot fetch ${t.branch}: ${f.err.slice(0, 120)}`;
   const tip = git(env.ctx.repoRoot, ['rev-parse', ref]).out;
   if (tip !== t.head) return `${t.branch} is at ${tip.slice(0, 12)}, not the recorded train head ${t.head.slice(0, 12)}`;
-  for (const p of t.prefixes) {
+  for (const p of bisectPrefixes(t)) {
     if (!git(env.ctx.repoRoot, ['merge-base', '--is-ancestor', p.commit, tip]).ok) return `prefix T${p.index} ${p.commit.slice(0, 12)} is not an ancestor of ${t.branch}`;
   }
   return null;
@@ -253,7 +256,7 @@ export async function trainBisect(ctx: QueueContext, o: { train: string; spendCa
   const bad = bisectInputs(env, t, red);
   if (bad) return outRefused({ code: 'QUEUE_TRAIN_PREFIX_INVALID', message: bad }, [], `${Q} train status --train ${t.nonce}`, run);
   const b: BisectRecord = prior ?? { schema: 1, kind: 'train-bisect', train: t.nonce, cases: red.red_cases, spend_cap: o.spendCap, spent_usd: 0,
-    prefixes: t.prefixes.map(p => ({ index: p.index, sha: p.commit, results: {}, attempts: [] })), outcome: null, updated_at: nowIso() };
+    prefixes: bisectPrefixes(t).map(p => ({ index: p.index, sha: p.commit, results: {}, attempts: [] })), outcome: null, updated_at: nowIso() };
   b.spend_cap = o.spendCap;
   const slug = repoSlug(ctx);
   if (!slug) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: 'gh repo view could not name the repository' }, [], `${Q} train bisect --train ${t.nonce} --spend-cap ${o.spendCap}`, run);
