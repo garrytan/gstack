@@ -135,3 +135,18 @@ for (const [file, spec] of Object.entries(FILES)) {
     });
   });
 }
+
+test('every workflow that calls one of these grants the calling job actions: read, which the reuse job needs even when it is skipped', () => {
+  const dir = path.join(ROOT, '.github/workflows');
+  const callers: string[] = [];
+  for (const name of fs.readdirSync(dir).filter(f => /\.ya?ml$/.test(f))) {
+    const jobs = (Bun.YAML.parse(read(`.github/workflows/${name}`)) as any)?.jobs ?? {};
+    for (const [id, job] of Object.entries(jobs) as Array<[string, any]>) {
+      const called = /^\.\/\.github\/workflows\/(.+)$/.exec(job?.uses ?? '')?.[1];
+      if (!called || !(called in FILES)) continue;
+      callers.push(`${name}/${id}`);
+      expect([`${name}/${id}`, job.permissions?.actions]).toEqual([`${name}/${id}`, expect.stringMatching(/^(read|write)$/)]);
+    }
+  }
+  expect(callers).toContain('free-durations-record.yml/windows');
+});

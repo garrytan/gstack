@@ -229,12 +229,13 @@ describe('verifyFromRun (P3b --from-run)', () => {
     const v = verifyFromRun(src(world()), '100', ['test.yml/unit'], TREE, HEAD);
     expect(v).toEqual({ ok: true, evidence: expect.objectContaining({ run_id: 100, files: ['test/a.test.ts', 'test/b.test.ts'] }), receipt: `run tree=${TREE.slice(0, 12)} tests=12 runs=100/1 profiles=test.yml/unit heads=${HEAD.slice(0, 12)} verified=2026-10-29T12:00:00.000Z` });
   });
-  test('another tree, no profile, an empty file list and a failed run each refuse with their reason', () => {
+  test('another tree, no profile, an empty file list, zero tests and a failed run each refuse with their reason', () => {
     const why = (v: ReturnType<typeof verifyFromRun>) => (v.ok ? 'ok' : v.reason);
     const base = world();
     expect(why(verifyFromRun(src(world()), '100', ['test.yml/unit'], 'c'.repeat(40), HEAD))).toBe('tree_mismatch');
     expect(why(verifyFromRun(src(world()), '100', [], TREE, HEAD))).toBe('no_profile');
     expect(why(verifyFromRun(src(world({ artifact: { ...(base.artifact as TreeRecord), files: [] } })), '100', ['test.yml/unit'], TREE, HEAD))).toBe('no_tests');
+    expect(why(verifyFromRun(src(world({ artifact: { ...(base.artifact as TreeRecord), tests: 0 } })), '100', ['test.yml/unit'], TREE, HEAD))).toBe('no_tests');
     expect(why(verifyFromRun(src(world({ run: { ...base.run, conclusion: 'failure' } })), '100', ['test.yml/unit'], TREE, HEAD))).toBe('run_not_success');
     const two = verifyFromRun(src(world({ run: { ...base.run, conclusion: 'failure' } }), { a: PROFILE, b: PROFILE }), '100', ['a', 'b'], TREE, HEAD);
     expect(two).toMatchObject({ ok: false, reason: 'no_verified_run', detail: expect.stringContaining('a: run 100') });

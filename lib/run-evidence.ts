@@ -231,7 +231,7 @@ export function verifyFromRun(src: RunSource, ref: string, names: string[], tree
     if (!v.ok) { refusals.push({ reason: v.reason, detail: `${name}: ${v.detail}` }); continue; }
     const e = v.evidence;
     if (e.tree !== tree) return { ok: false, reason: 'tree_mismatch', detail: `run ${e.run_id} tested tree ${e.tree.slice(0, 12)}, not this tree ${tree.slice(0, 12)}` };
-    if (!e.files.length) return { ok: false, reason: 'no_tests', detail: `run ${e.run_id}'s tree.json lists no test files` };
+    if (!e.files.length || e.tests === 0) return { ok: false, reason: 'no_tests', detail: `run ${e.run_id}'s tree.json ${e.files.length ? `records 0 tests for ${e.files.length} file(s)` : 'lists no test files'}` };
     return { ok: true, evidence: e, receipt: `run tree=${tree.slice(0, 12)} tests=${e.tests ?? e.files.length} ${runReceiptFields([e], src.now)}` };
   }
   return refusals.length === 1 ? { ok: false, ...refusals[0]! } : { ok: false, reason: 'no_verified_run', detail: refusals.map(r => `${r.detail} (${r.reason})`).join(' | ') };
