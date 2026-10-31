@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { readFragments } from '../lib/changelog-fragments';
 import { HistoryReadError, readHistoryFile } from '../lib/history-read';
 import { classifyTrainHead } from '../lib/version-gate-train';
 
@@ -156,6 +157,13 @@ describe('history-read.sh and lib/history-read.ts on a blobless clone', () => {
     const absent = fixture('gate-absent', ONE, { [POLICY]: null });
     absent.cut();
     expect(classifyTrainHead({ repoRoot: absent.clone, baseRef: 'main', head: absent.one })).toEqual({ kind: 'off' });
+  });
+
+  test('the fragment reader fails loudly when the base CHANGELOG cannot be fetched, and treats an absent one as nothing released', () => {
+    const fx = fixture('fragments', { ...ONE, 'CHANGELOG.md': '# Changelog\n\n## [1.0.0.0]\n\n- one\n', 'changelog.d/pr.md': '- the PR entry\n' }, { 'CHANGELOG.md': '# Changelog\n\n## [1.0.0.1]\n\n- two\n\n## [1.0.0.0]\n\n- one\n' });
+    fx.cut();
+    expect(() => readFragments(fx.clone, fx.one, 'changelog.d', fx.two, 'CHANGELOG.md', 'skip')).toThrow(HistoryReadError);
+    expect(readFragments(fx.clone, fx.one, 'changelog.d', fx.two, 'NO-CHANGELOG.md', 'skip').errors).toEqual([]);
   });
 });
 

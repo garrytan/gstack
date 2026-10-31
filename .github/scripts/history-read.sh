@@ -6,14 +6,14 @@
 #
 # Usage: history-read.sh <ref> <path> [--absent <text>]
 #
-# Existence comes from the ref's tree (`git ls-tree --full-tree`, local data only). A path
-# the tree does not list is absent: prints <text> (default: nothing), exits 0.
-# A listed path is read with `git show`, tried 3 times in a partial clone
-# (only a fetch can recover) and once otherwise, waiting
-# HISTORY_READ_BACKOFF_SECONDS (default 2) times the attempt between tries.
-# Anything else (a ref that does not resolve, a fetch that keeps failing) exits
-# 1 with HISTORY_READ_FAILED naming the ref, the path and the git version, and
-# never reads as absent.
+# A read that `git show` answers is the file. When it fails, existence comes
+# from the ref's tree (`git ls-tree --full-tree`, local data only): a path the
+# tree does not list is absent, so this prints <text> (default: nothing) and
+# exits 0. A listed path is retried, 3 tries in all in a partial clone (only a
+# fetch can recover) and none otherwise, waiting HISTORY_READ_BACKOFF_SECONDS
+# (default 2) times the attempt between tries. Anything else (a ref that does
+# not resolve, a fetch that keeps failing) exits 1 with HISTORY_READ_FAILED
+# naming the ref, the path and the git version, and never reads as absent.
 # docs/troubleshooting.md#history-read-failed
 set -euo pipefail
 
@@ -30,6 +30,7 @@ fail() {
   exit 1
 }
 
+if git show "${ref}:${file}" >"$out" 2>"$err"; then cat "$out"; exit 0; fi
 listed=$(git ls-tree --full-tree "$ref" -- "$file" 2>"$err") || fail "git ls-tree failed: $(head -n 1 "$err")"
 if [ -z "$listed" ]; then
   printf '%s' "$absent"
@@ -39,9 +40,9 @@ fi
 tries=1
 if git config --get-regexp '^(remote\..+\.promisor|extensions\.partialclone)$' | grep -qvi ' false$'; then tries=3; fi
 try=1
-until git show "${ref}:${file}" >"$out" 2>"$err"; do
-  [ "$try" -lt "$tries" ] || fail "git show failed ${tries} time(s): $(head -n 1 "$err")"
+while [ "$try" -lt "$tries" ]; do
   sleep "$(( try * ${HISTORY_READ_BACKOFF_SECONDS:-2} ))"
+  if git show "${ref}:${file}" >"$out" 2>"$err"; then cat "$out"; exit 0; fi
   try=$(( try + 1 ))
 done
-cat "$out"
+fail "git show failed ${tries} time(s): $(head -n 1 "$err")"
