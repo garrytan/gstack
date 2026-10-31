@@ -137,6 +137,30 @@ describe('PostToolUse hook (native AskUserQuestion)', () => {
     // Marker stripped from summary
     expect((events[0].question_summary as string).includes('<gstack-qid:')).toBe(false);
   });
+
+  test('a signal hint in the marker reaches the log row (#3442)', () => {
+    runHook({
+      session_id: 'sess-hint',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-hint',
+      tool_input: {
+        questions: [
+          {
+            question: 'D3 — Add caching? <gstack-qid:plan-ceo-review-add-caching;signal=scope-appetite>',
+            options: ['A) Expand to add caching (recommended)', 'B) Hold scope'],
+          },
+        ],
+      },
+      tool_response: { answers: [{ option_label: 'A) Expand to add caching (recommended)' }] },
+      cwd: ROOT,
+    });
+    const events = readLog();
+    expect(events.length).toBe(1);
+    expect(events[0].question_id).toBe('plan-ceo-review-add-caching');
+    expect(events[0].signal_key).toBe('scope-appetite');
+    expect(events[0].user_choice).toBe('expand');
+    expect((events[0].question_summary as string).includes('gstack-qid')).toBe(false);
+  });
 });
 
 // ----------------------------------------------------------------------
