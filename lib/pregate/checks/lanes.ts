@@ -263,13 +263,32 @@ function parseCargo(output: string): RunnerSummary | null {
   return { ran: lines.reduce((n, m) => n + Number(m[1]), 0) + failed, failed };
 }
 
-/** The runner's own summary line: bun, node --test, vitest, jest, pytest, bats, dart/flutter test, cargo test. A bats, dart/flutter or cargo runner's summary is tried first (cargo's only there: its `N passed` lines would misread as another runner's); for any other runner the bats and dart formats are a last resort. `ran: null` when not recognised. Colour codes are dropped and a carriage return ends a line, so a coloured or redrawn verdict still reads. */
+/**
+ * swift test / xcodebuild test: Swift Testing's last `Test run with N tests … passed|failed` and
+ * XCTest's last `Executed N tests, with M failures`, summed (a SwiftPM run prints both, one often
+ * zero). Swift Testing names no failed-test count, so each `✘ Test … failed after` line is one.
+ */
+function parseSwift(output: string): RunnerSummary | null {
+  const testing = [...output.matchAll(/Test run with (\d+) tests? (?:in \d+ suites? )?(passed|failed)/g)].pop();
+  const xctest = [...output.matchAll(/Executed (\d+) tests?, with (\d+) failures?/g)].pop();
+  if (!testing && !xctest) return null;
+  const testingFailed = testing?.[2] === 'failed'
+    ? Math.max(1, (output.match(/^✘ Test (?!run with)[^\n]* failed after/gm) ?? []).length) : 0;
+  return {
+    ran: Number(testing?.[1] ?? 0) + Number(xctest?.[1] ?? 0),
+    failed: testingFailed + Number(xctest?.[2] ?? 0),
+  };
+}
+
+/** The runner's own summary line: bun, node --test, vitest, jest, pytest, bats, dart/flutter test, cargo test, swift test (Swift Testing and XCTest). A bats, dart/flutter or cargo runner's summary is tried first (cargo's only there: its `N passed` lines would misread as another runner's); for any other runner the bats and dart formats are a last resort. `ran: null` when not recognised. Colour codes are dropped and a carriage return ends a line, so a coloured or redrawn verdict still reads. */
 export function parseSummary(raw: string, runner = ''): RunnerSummary {
   const output = raw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '\n');
   if (/(?<![\w-])cargo\s+test(?![\w-])/.test(runner)) return parseCargo(output) ?? { ran: null, failed: null };
   if (/(?<![\w-])bats(?![\w-])/.test(runner)) { const b = parseBats(output); if (b) return b; }
   const dartRun = /(?<![\w-])(?:dart|flutter)(?![\w-])/.test(runner);
   if (dartRun) { const d = parseDart(output); if (d) return d; }
+  const swift = parseSwift(output);
+  if (swift) return swift;
   let m: RegExpExecArray | null;
   if ((m = /^\s*(?:#|ℹ)\s*tests\s+(\d+)/m.exec(output))) return { ran: Number(m[1]), failed: Number(/^\s*(?:#|ℹ)\s*fail\s+(\d+)/m.exec(output)?.[1] ?? 0) };
   if ((m = /Ran\s+(\d+)\s+tests?\s+across/m.exec(output))) return { ran: Number(m[1]), failed: Number(/^\s*(\d+)\s+fail\b/m.exec(output)?.[1] ?? 0) };

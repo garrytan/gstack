@@ -31,7 +31,7 @@ import { djangoEdges } from './django';
 import { rustEdges } from './rust';
 
 export const SOURCE_EXT = /\.(?:[cm]?[jt]sx?|py|rb|sh|bash|go|rs|dart)$/;
-export const TEST_FILE_RE = /(?:^|\/)(?:test|tests|spec|__tests__)\/.*\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)test_[^/]*\.py$|_test\.(?:py|go|rb)$|_spec\.rb$|(?:^|\/)[^/]*\.bats$|(?:^|\/)test\/(?:.*\/)?[^/]*_test\.dart$/;
+export const TEST_FILE_RE = /(?:^|\/)(?:test|tests|spec|__tests__)\/.*\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)test_[^/]*\.py$|_test\.(?:py|go|rb)$|_spec\.rb$|(?:^|\/)[^/]*\.bats$|(?:^|\/)test\/(?:.*\/)?[^/]*_test\.dart$|(?:^|\/)[^/]*Tests\/(?:.*\/)?[^/]*Tests?\.swift$/;
 
 export interface Edge { from: string; via: 'import' | 'literal' | 'convention' | 'declared' | 'generated' | 'framework' }
 export interface Graph {
