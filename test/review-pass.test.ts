@@ -432,7 +432,7 @@ describe('Capy pass program (fake host, real bins)', () => {
   }, 180_000);
 
   // Value: protects=Step 9.2.1's probes stay the parent's, as its section says, so QA coverage is never a subagent's refusal; fails_when=the
-  //   pass program dispatches a QA extra (C4-36, C5-36: the QA reader refused both passes, "parent-only", and QA coverage was empty);
+  //   pass program dispatches a QA extra (C4-36, C5-36: the QA reader refused both passes, "parent-only", and the parent ran the probes after it);
   //   why_new=extras took any prompt (GST-450); seam=the pass program; no_claim=the parent's probes themselves (DRIVER Phase 4)
   test('a QA extra, by name or by its section\'s parent-only brief, stops the pass before any reader is created', async () => {
     const section = fs.readFileSync(path.join(ROOT, 'ship/sections/review-army.md'), 'utf8');
