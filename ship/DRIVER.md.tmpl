@@ -64,7 +64,7 @@ line. A lane passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a
 is `count unavailable`. In-branch failures stop the ship; after a repair rerun with `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
 harness changed, start the eval selector and pre-merge command (detached past 30 min); else
-record `evals: none affected`. Steps 6.5 and 10 run only if `gstack-greptile-early detect` finds
+record `evals: none affected`. Step 6.5 runs only if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
 (`CONTEXT:`) and the TODOS.md items naming touched paths (`TODOS:`), and prints the coverage map, the
 plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`. Programs read

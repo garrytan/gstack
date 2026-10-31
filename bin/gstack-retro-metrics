@@ -375,6 +375,7 @@ fi
 # ── Aux inputs (presence only — the model Reads what exists) ─────────────────
 [ -f "$_GH/retro-context.md" ]            && echo "RETRO_CONTEXT: present ($_GH/retro-context.md)"            || echo "RETRO_CONTEXT: absent"
 [ -f "$_GH/greptile-history.md" ]         && echo "GREPTILE_HISTORY: present ($_GH/greptile-history.md)"      || echo "GREPTILE_HISTORY: absent"
+[ -f "$_GH/review-bot-history.md" ]       && echo "REVIEW_BOT_HISTORY: present ($_GH/review-bot-history.md)"  || echo "REVIEW_BOT_HISTORY: absent"
 [ -f "TODOS.md" ]                         && echo "TODOS_FILE: present (TODOS.md)"                            || echo "TODOS_FILE: absent"
 [ -f "$_GH/analytics/skill-usage.jsonl" ] && echo "SKILL_USAGE_LOG: present ($_GH/analytics/skill-usage.jsonl)" || echo "SKILL_USAGE_LOG: absent"
 [ -f "$_GH/analytics/eureka.jsonl" ]      && echo "EUREKA_LOG: present ($_GH/analytics/eureka.jsonl)"         || echo "EUREKA_LOG: absent"

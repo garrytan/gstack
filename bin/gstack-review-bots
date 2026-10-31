@@ -1,0 +1,27 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-review-bots — the PR review-bot comments /review and /ship triage (fetch, record).
+ *
+ *   gstack-review-bots fetch [--pr <n>]
+ *   gstack-review-bots record --bot <bot> --type fix|fp|already-fixed --file <path> --category <c>
+ *
+ * The bots are gstack-pr-wait's lists: gstack-config set pr_wait_gating_bots / pr_wait_advisory_bots.
+ * Logic: lib/review-bots.ts.
+ */
+import * as os from "os";
+import * as path from "path";
+import { spawnSync } from "child_process";
+import { runReviewBots } from "../lib/review-bots";
+
+process.exitCode = runReviewBots(process.argv.slice(2), {
+  run(cmd, args) {
+    const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+    return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? (r.error ? String(r.error) : "") };
+  },
+  vars: process.env,
+  binDir: path.resolve(import.meta.dir),
+  tmpDir: process.env.TMPDIR || os.tmpdir(),
+  now: () => Date.now(),
+  out: (t) => process.stdout.write(t),
+  err: (t) => process.stderr.write(t),
+});

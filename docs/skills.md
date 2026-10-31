@@ -1528,7 +1528,7 @@ Install Greptile on your GitHub repo at [greptile.com](https://greptile.com) —
 
 The problem with any automated reviewer is triage. Greptile is good, but not every comment is a real issue. Some are false positives. Some flag things you already fixed three commits ago. Without a triage layer, the comments pile up and you start ignoring them — which defeats the purpose.
 
-gstack solves this. `/review` and `/ship` are now Greptile-aware. They read Greptile's comments, classify each one, and take action:
+gstack solves this. `/review` and `/ship` read your review bots' comments (Greptile, CodeRabbit, Macroscope, or any bot you name), classify each one, and take action:
 
 - **Valid issues** get added to the critical findings and fixed before shipping
 - **Already-fixed issues** get an auto-reply acknowledging the catch
@@ -1538,7 +1538,11 @@ The result is a two-layer review: Greptile catches things asynchronously on the 
 
 ### Learning from history
 
-Every false positive you confirm gets saved to `~/.gstack/greptile-history.md`. Future runs auto-skip known FP patterns for your codebase. And `/retro` tracks Greptile's batting average over time — so you can see whether the signal-to-noise ratio is improving.
+Every false positive you confirm gets saved to `~/.gstack/review-bot-history.md`, tagged with the bot that made it. Future runs auto-skip that bot's known FP patterns for your codebase. And `/retro` tracks each bot's batting average over time — so you can see whether the signal-to-noise ratio is improving.
+
+### Choosing your bots
+
+The bots are the two lists `gstack-pr-wait` uses: `gstack-config set pr_wait_gating_bots greptile,macroscope` (waited for, then triaged) and `gstack-config set pr_wait_advisory_bots coderabbit,copilot` (triaged, never waited for). Set both to `none` to turn bot triage off. Greptile's early review (`/ship` opening the PR early) runs only while `greptile` is in one of the lists.
 
 ### Example
 

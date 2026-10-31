@@ -36,7 +36,7 @@ export function qaCallerInstructions(caller: QaCaller, root = QA_CALLER_ROOT): s
     ? callerExcerpt(source, '## Step 4: Critical pass (core review)', '## Step 5.8: Persist Eng Review result')
     : callerExcerpt(source,
       '> **STOP.** Before auditing plan completion, verification, and scope drift (Step 8),',
-      '> **STOP.** Before addressing Greptile review comments');
+      '> **STOP.** Before addressing review bot comments');
   const review = caller === 'review' ? excerpt : read('ship/sections/review-army.md');
   if (!review.includes(`### Step ${caller === 'review' ? '4.7' : '9.2.1'}: Exploratory QA (before Fix-First)`) || !review.includes('sections/exploratory.md')) {
     throw new Error(`Generated /${caller} parent is missing the exploratory QA integration`);

@@ -116,9 +116,9 @@ unavailable results as passing.>
 ## Eval Results
 <If evals ran: suite names, pass/fail counts, cost dashboard summary. If skipped: "No prompt-related files changed — evals skipped.">
 
-## Greptile Review
-<Step 10 complete: list comments with [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED], or "No Greptile comments." for a successful empty fetch.>
-<Step 10 unavailable: include `Greptile triage: UNAVAILABLE (dispatch failed)` and the actual reason.>
+## Review bot comments
+<Step 10 complete: list comments with their bot and [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED], or "No review bot comments." for a successful empty fetch.>
+<Step 10 unavailable: include `Review bot triage: UNAVAILABLE (dispatch failed)` and the actual reason.>
 <Step 10 no_pr: omit this section.>
 
 ## Scope Drift
@@ -171,8 +171,8 @@ the receipt write below refuses (`DOCS_AUDIT_BLOCKED`) when the body lacks it.>
 
 The PR body is world-readable on a public repo. `gstack-post` scans the exact title
 and body bytes it sends and passes them to `gh`/`glab` as arguments, so there is no
-separate scan here. Wrap any Codex / Greptile / eval output sections in
-tool-attributed fences (` ```codex-review ` / ` ```greptile `) so the scanner
+separate scan here. Wrap any Codex / review bot / eval output sections in
+tool-attributed fences (` ```codex-review ` / ` ```review-bot `) so the scanner
 WARN-degrades the example credentials those tools quote instead of blocking the PR
 (a live-format credential inside the fence still blocks).
 

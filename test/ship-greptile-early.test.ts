@@ -64,6 +64,20 @@ describe("/ship Step 10 waits for the early review", () => {
   });
 });
 
+describe("/ship Step 10 triages every configured review bot (#3122)", () => {
+  test("Step 10 runs the bot-agnostic fetch with a bot on every record; only Step 6.5 waits on Greptile detection", () => {
+    const s = flat(step10);
+    expect(s).toContain("`REVIEW_BOTS: skip` is `no_pr`; `REVIEW_BOTS: error` is `unavailable`");
+    expect(s).toContain("a `bot` on every comment");
+    expect(flat(read("review/greptile-triage.md"))).toContain("~/.claude/skills/gstack/bin/gstack-review-bots fetch");
+    const driver = flat(read("ship/DRIVER.md.tmpl"));
+    expect(driver).toContain("Step 6.5 runs only if `gstack-greptile-early detect` finds Greptile.");
+    expect(driver).not.toMatch(/Steps 6\.5 and 10 run only if/);
+    expect(prBody).toContain("## Review bot comments");
+    expect(prBody).not.toContain("## Greptile Review");
+  });
+});
+
 describe("/ship Steps 18-19 finish the early PR", () => {
   test("the provisional title is replaced and the draft is marked ready unless a draft was asked for", () => {
     expect(flat(prBody)).toContain("For an existing open PR/MR (not Step 6.5's early PR, which takes item 2)");

@@ -281,7 +281,9 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   bot owns logins starting with its name and
 #                           #   checks mentioning it).
 # pr_wait_advisory_bots: coderabbit  # review bots gstack-pr-wait reports but
-#                           #   never waits for. Both lists: lowercase names,
+#                           #   never waits for. /review and /ship triage the
+#                           #   comments of every bot in both lists (e.g.
+#                           #   coderabbit,copilot). Both lists: lowercase names,
 #                           #   letters, digits, . _ - only; none empties a list.
 #                           #   Invalid values are REJECTED (value kept).
 #

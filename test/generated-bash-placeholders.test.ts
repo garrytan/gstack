@@ -171,9 +171,9 @@ describe('Greptile replies through the real review/greptile-triage.md blocks', (
     expect(createBlock).toBe(freeTextFileBash([{ variable: 'REPLY_FILE', stem: 'reply' }]));
   });
 
-  test('the fetched JSON goes to a mktemp directory, not fixed /tmp paths', () => {
+  test('the fetched JSON goes to the helper\'s private directory, not fixed /tmp paths', () => {
     expect(doc).not.toMatch(/\/tmp\/greptile_/);
-    expect(fence(doc, 'GREPTILE_DIR=$(mktemp -d')).toContain('"$GREPTILE_DIR/line.json"');
+    expect(fence(doc, 'gstack-review-bots fetch')).toContain('~/.claude/skills/gstack/bin/gstack-review-bots fetch');
   });
 
   for (const [kind, block, args] of [['line-level', lineBlock, ['api', '--method=POST', 'repos/{owner}/{repo}/pulls/7/comments/123/replies', '--field=body=@-']], ['top-level', topBlock, ['pr', 'comment', '7', '--body-file=-']]] as const) {

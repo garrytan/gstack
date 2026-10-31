@@ -430,7 +430,7 @@ describe('Update check preamble', () => {
 // --- Part 7: Cross-skill path consistency (A1) ---
 
 describe('Cross-skill path consistency', () => {
-  test('REMOTE_SLUG derivation pattern is identical across files that use it', () => {
+  test('REMOTE_SLUG derivation pattern is identical across files that still use it', () => {
     const patterns = extractRemoteSlugPatterns(ROOT, ['qa', 'review']);
     const allPatterns: string[] = [];
 
@@ -438,8 +438,7 @@ describe('Cross-skill path consistency', () => {
       allPatterns.push(...filePatterns);
     }
 
-    // Should find at least 2 occurrences (qa/SKILL.md + review/greptile-triage.md)
-    expect(allPatterns.length).toBeGreaterThanOrEqual(2);
+    // review-bot triage, its last prose copy, resolves the repo in gstack-review-bots (#3122)
 
     // All occurrences must be character-for-character identical
     const unique = new Set(allPatterns);
@@ -452,36 +451,26 @@ describe('Cross-skill path consistency', () => {
     }
   });
 
-  test('all greptile-history write references specify both per-project and global paths', () => {
-    const filesToCheck = [
-      'review/SKILL.md',
-      'ship/SKILL.md',
-      'review/greptile-triage.md',
-    ];
-
-    for (const file of filesToCheck) {
-      const filePath = path.join(ROOT, file);
-      if (!fs.existsSync(filePath)) continue;
-      // ship's greptile handling moved into sections/greptile.md (T9 carve).
-      const content = file === 'ship/SKILL.md' ? readShipUnion() : fs.readFileSync(filePath, 'utf-8');
-
-      const hasBoth = (content.includes('per-project') && content.includes('global')) ||
-        (content.includes('$REMOTE_SLUG/greptile-history') && content.includes('~/.gstack/greptile-history'));
-
-      expect(hasBoth).toBe(true);
+  test('every review-bot history write goes through the one writer (project and global rows: test/review-bots.test.ts)', () => {
+    // ship's bot handling moved into sections/greptile.md (T9 carve).
+    for (const content of [fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8'), readShipUnion()]) {
+      expect(content).toContain('History File Writes');
+      expect(content).not.toContain('greptile-history (type:');
     }
   });
 
-  test('greptile-triage.md contains both project and global history paths', () => {
+  test('greptile-triage.md records through gstack-review-bots into review-bot-history.md', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), 'utf-8');
-    expect(content).toContain('$REMOTE_SLUG/greptile-history.md');
-    expect(content).toContain('~/.gstack/greptile-history.md');
+    expect(content).toContain('gstack-review-bots record --bot <bot>');
+    expect(content).toContain('review-bot-history.md');
   });
 
-  test('retro/SKILL.md reads global greptile-history (not per-project)', () => {
+  test('retro/SKILL.md reads the global review-bot and greptile histories (not per-project)', () => {
     const content = fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('the path `GREPTILE_HISTORY` printed');
-    expect(fs.readFileSync(path.join(ROOT, 'bin', 'gstack-retro-metrics'), 'utf-8')).toContain('$_GH/greptile-history.md');
+    expect(content).toContain('`REVIEW_BOT_HISTORY` / `GREPTILE_HISTORY: present`');
+    const metrics = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-retro-metrics'), 'utf-8');
+    expect(metrics).toContain('$_GH/greptile-history.md');
+    expect(metrics).toContain('$_GH/review-bot-history.md');
     // Should NOT reference per-project path for reads
     expect(content).not.toContain('$REMOTE_SLUG/greptile-history.md');
   });
