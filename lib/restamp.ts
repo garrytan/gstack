@@ -672,6 +672,7 @@ export function restamp(o: RestampOptions): RestampResult {
   try {
     const { loaded, label } = loadPolicy(o);
     if (loaded.errors.length) throw new Refusal(loaded.errors[0]!.code, `${SHIP_POLICY_PATH} (${label}): ${loaded.errors[0]!.message} at ${loaded.errors[0]!.path}; nothing written`);
+    if (loaded.policy.bump === 'never' && !o.bump && !o.version) throw new Refusal('RESTAMP_VERSION_SOURCE', `${SHIP_POLICY_PATH} (${label}): bump never names no level; a release stamp passes --bump <level> or --version <X>; nothing written`);
     const commands = declaredCommands(loaded.policy);
     if (commands.length && !o.allowRepoCommands) {
       throw new Refusal('REPO_COMMANDS_NOT_ALLOWED', `repo commands not executed (pass --allow-repo-commands): ${commands.map(c => `${c.key}: ${c.command}`).join('; ')}; nothing written`, { commands });
