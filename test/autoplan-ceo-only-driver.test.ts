@@ -227,6 +227,35 @@ describe('the CEO-only finish records no answer nobody gave and writes only its 
     expect(fs.readFileSync(plan, 'utf8')).toBe(SMALL_PLAN);
   });
 
+  test('a plan that reaches the report path through a symlink, or through a symlinked --out, refuses too', () => {
+    const real = path.join(dir('alias'), 'real-run');
+    fs.mkdirSync(real, { recursive: true });
+    const report = path.join(real, 'ceo-review.md');
+    fs.writeFileSync(report, SMALL_PLAN);
+    const link = path.join(dir('alias'), 'input.md');
+    fs.symlinkSync(report, link);
+    const linkedOut = path.join(dir('alias'), 'linked-run');
+    fs.symlinkSync(real, linkedOut);
+    for (const [plan, out] of [[link, real], [report, linkedOut]]) {
+      const r = autoplan(['next', '--out', out!, '--plan', plan!, '--no-ui', '--ceo-only']);
+      expect(r.status, plan).toBe(3);
+      expect(r.stderr).toContain('(CEO_ONLY_CONFLICT)');
+      expect(fs.existsSync(path.join(real, 'run.json'))).toBe(false);
+    }
+    expect(fs.readFileSync(report, 'utf8')).toBe(SMALL_PLAN);
+  });
+
+  test('a plan that became the report file after init (a hard link) refuses at the finish and stays intact', () => {
+    const out = startSmallRun(dir('hardlink'), ['--ceo-only']);
+    const plan = path.join(dir('hardlink'), 'plan.md');
+    fs.linkSync(plan, path.join(out, 'ceo-review.md'));
+    const submit = runPhase(out, 'ceo').outside;
+    expect(submit.status).toBe(3);
+    expect(submit.stderr).toContain('(CEO_ONLY_CONFLICT)');
+    expect(fs.readFileSync(plan, 'utf8')).toBe(SMALL_PLAN);
+    expect(readRun(out).status).not.toBe('reviewed');
+  });
+
   test('a symlink at the report path is replaced, never written through', () => {
     const out = startSmallRun(dir('symlink'), ['--ceo-only']);
     const victim = path.join(dir('symlink'), 'victim.txt');

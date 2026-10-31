@@ -42,7 +42,8 @@ export function checkCeoOnlyFlags(args: readonly string[], plan: string | undefi
   if (!args.includes(CEO_ONLY_FLAG)) return false;
   const conflicts = CEO_ONLY_CONFLICTS.filter(f => args.includes(f) || tokens.includes(f));
   if (conflicts.length) throw new RunError('CEO_ONLY_CONFLICT', `${CEO_ONLY_FLAG} with ${conflicts.join(', ')}`, 3);
-  if (plan && out && path.resolve(plan) === path.resolve(out, CEO_ONLY_REPORT)) throw new RunError('CEO_ONLY_CONFLICT', `the plan ${plan} is the report path`, 3);
+  const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  if (plan && out && real(plan) === path.join(real(out), CEO_ONLY_REPORT)) throw new RunError('CEO_ONLY_CONFLICT', `the plan ${plan} is the report path`, 3);
   if (existing && !existing.ceo_only) throw new RunError('CEO_ONLY_AFTER_INIT', `${existing.out} holds full run ${existing.run} (status ${existing.status})`, 3);
   return true;
 }
@@ -55,6 +56,10 @@ export function refuseCeoOnly(state: RunState, verb: string): void {
 /** Every phase closed: a full run writes its gate (carry lines follow); a CEO-only run writes its report and ends reviewed. */
 export function finishRun(state: RunState): string[] {
   if (!state.ceo_only) { finishGate(state); return carryLines(state); }
+  const report = path.join(state.out, CEO_ONLY_REPORT);
+  const at = fs.existsSync(report) && !fs.lstatSync(report).isSymbolicLink() ? fs.statSync(report) : undefined;
+  const plan = [state.plan_source, state.plan_input, state.active_plan].find(p => p && at && fs.existsSync(p) && fs.statSync(p).ino === at.ino && fs.statSync(p).dev === at.dev);
+  if (plan) throw new RunError('CEO_ONLY_CONFLICT', `the plan ${plan} is the report path ${report}`, 3);
   const list = buildGate(state, 1);
   const items = list.items.filter(i => i.id !== 'p1');
   const kept = (item: GateItem) => (item.cap && item.kind === 'approval' ? null : keepDirection(item));
@@ -63,7 +68,6 @@ export function finishRun(state: RunState): string[] {
   state.status = 'reviewed';
   exportRun(state);
   const findings = aggregateFindings(state);
-  const report = path.join(state.out, CEO_ONLY_REPORT);
   const tmp = `${report}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   fs.writeFileSync(tmp, renderReport(state, items, rows, findings), { flag: 'wx' });
   fs.renameSync(tmp, report);
