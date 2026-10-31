@@ -153,7 +153,7 @@ describe('gstack-gate-diff arguments and exit contract', () => {
   //   commits the base already has (merged into the branch from origin) do not count as the branch's change (GST-462,
   //   GBRA-218); fails_when=resolveBase returns the local ref whenever it resolves and shares history with HEAD; seam=a
   //   tracking ref moved with update-ref, as a fetch would; no_claim=nothing about remotes other than origin.
-  test('a local main related to HEAD but behind origin/main yields to origin/main and says so', () => {
+  test('a local main related to HEAD but behind, ahead of or diverged from origin/main yields to origin/main and says which', () => {
     const src = repo({ fixture: 'rh1-skip', commit: true });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-behind-'));
     repos.push(dir);
@@ -174,6 +174,15 @@ describe('gstack-gate-diff arguments and exit contract', () => {
     const current = run(dir, ['main']);
     expect(summary(current.stdout).tagged).toBe('');
     expect(current.stderr).not.toContain('base is origin/main');
+    const commitOn = (ref: string, name: string) => {
+      const tree = gitIn(dir, ['rev-parse', `${ref}^{tree}`]).trim();
+      const sha = gitIn(dir, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', tree, '-p', ref, '-m', name]).trim();
+      gitIn(dir, ['update-ref', ref, sha]);
+    };
+    commitOn('refs/heads/main', 'unpushed');
+    expect(run(dir, ['main']).stderr).toContain('gstack-gate-diff: local main is ahead of origin/main; base is origin/main');
+    commitOn('refs/remotes/origin/main', 'upstream moved');
+    expect(run(dir, ['main']).stderr).toContain('gstack-gate-diff: local main has diverged from origin/main; base is origin/main');
   });
 
   // Value: protects=a clone whose only remote is not called origin resolves the base through that remote and the fix line

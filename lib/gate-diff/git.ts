@@ -94,7 +94,7 @@ export function isShallow(cwd: string): boolean {
  * tracking ref is a fix and not a loop. `local` says why the twin won when the
  * local branch differs from it.
  */
-export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' | 'behind' | 'diverged' } | null {
+export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' | 'behind' | 'ahead' | 'diverged' } | null {
   const related = (sha: string) => !head || mergeBase(sha, head, cwd) !== null;
   const direct = resolvesToCommit(ref, cwd);
   if (isBranchName(ref)) {
@@ -103,7 +103,8 @@ export function resolveBase(ref: string, cwd: string, head?: string): { ref: str
       const sha = resolvesToCommit(tracking, cwd);
       if (!sha || !related(sha)) continue;
       if (sha === direct) return { ref, sha };
-      const local = !direct ? 'missing' : !related(direct) ? 'unrelated' : mergeBase(direct, sha, cwd) === direct ? 'behind' : 'diverged';
+      const fork = direct && related(direct) ? mergeBase(direct, sha, cwd) : null;
+      const local = !direct ? 'missing' : !fork ? 'unrelated' : fork === direct ? 'behind' : fork === sha ? 'ahead' : 'diverged';
       return { ref: tracking, sha, local };
     }
   }

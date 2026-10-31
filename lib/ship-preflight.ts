@@ -32,7 +32,7 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   if (!branch || branch === base || branch === head) { r.stop(`on the base branch (${branch || 'detached HEAD'}): ship from a feature branch`); return false; }
   const status = git(cwd, ['status', '--porcelain']).stdout.split('\n').filter(Boolean);
   r.add(`STATUS: modified=${status.filter(l => !l.startsWith('??')).length} untracked=${status.filter(l => l.startsWith('??')).length} (uncommitted changes ship with this run)`);
-  const fetch = git(cwd, ['fetch', 'origin', base], 300_000);
+  const fetch = git(cwd, ['fetch', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`], 300_000);
   if (fetch.status !== 0) { r.stop(`git fetch origin ${base} failed: ${firstLine(fetch.stderr)}; restore access first`); return false; }
   const stat = git(cwd, ['diff', forkPoint(cwd, base), '--shortstat']).stdout.trim();
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
@@ -43,6 +43,7 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   if (!pr) r.add('PR: not checked (origin is a local path, not a hosted remote gh can map; Step 0 uses git-native commands)');
   else if (pr.status !== 0) r.add(`CARRY: not checked (gh pr list failed: ${firstLine(pr.stderr)})`);
   else if (/^\d+$/.test(n)) {
+    if (!prSized(cwd, base, n, r)) return false;
     const carry = bin(cwd, 'gstack-ship-receipt', ['carry', '--pr', n, '--base', base, '--dry-run'], 120_000);
     const line = (carry.stdout.match(/^CARRY: .*$/m) ?? [`CARRY: check failed (${firstLine(carry.stderr)})`])[0];
     r.add(`PR: #${n}`).add(line);
@@ -62,6 +63,17 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   if (scopeError) r.add(`SCOPE: unknown (gstack-diff-scope origin/${base}: SCOPE_ERROR=${scopeError})`);
   else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the design lite check; mention /design-review when no design review exists)' : ''}`);
   return merge(cwd, base, r);
+}
+
+/** The diff against origin/<base> must be about the PR's size: far more files (a stale or wrong base, HARN-15's 17,000-file review of main's history) stops before any reader runs. Checked only when HEAD is the PR's pushed head. */
+function prSized(cwd: string, base: string, n: string, r: Report): boolean {
+  const view = gh(cwd, ['pr', 'view', n, '--json', 'changedFiles,headRefOid,baseRefName', '--jq', '"\\(.changedFiles) \\(.headRefOid) \\(.baseRefName)"']);
+  const [pr, prHead, prBase] = view.status === 0 ? view.stdout.trim().split(' ') : [];
+  if (!pr || !/^\d+$/.test(pr) || prHead !== git(cwd, ['rev-parse', 'HEAD']).stdout.trim()) return true;
+  const local = git(cwd, ['diff', '--name-only', forkPoint(cwd, base), 'HEAD']).stdout.split('\n').filter(Boolean).length;
+  if (local <= 2 * Number(pr) + 50) return true;
+  r.stop(`the diff against origin/${base} lists ${local} files but PR #${n} changes ${pr} (its base is ${prBase}): origin/${base} is stale or not the PR's base; rerun with --base ${prBase} after git fetch origin +refs/heads/${prBase}:refs/remotes/origin/${prBase}`);
+  return false;
 }
 
 const forkPoint = (cwd: string, base: string) => git(cwd, ['merge-base', `origin/${base}`, 'HEAD']).stdout.trim() || `origin/${base}`;

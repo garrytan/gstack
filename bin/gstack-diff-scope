@@ -34,9 +34,9 @@ _default_base() {
   echo "main"
 }
 BASE="${1:-$(_default_base)}"
-if git show-ref --verify -q "refs/remotes/origin/${BASE}"; then BASE="origin/${BASE}"; fi
 HEAD_REF=""
 if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
+if [ "$BASE" != HEAD ] && git show-ref --verify -q "refs/remotes/origin/${BASE}" && git merge-base "origin/${BASE}" "${HEAD_REF:-HEAD}" >/dev/null 2>&1; then BASE="origin/${BASE}"; fi
 
 FRONTEND=false
 BACKEND=false

@@ -88,6 +88,11 @@ describe('gstack-diff-scope', () => {
       expect(out).toContain('SCOPE_DOCS=true');
       expect(out).toContain('SCOPE_BACKEND=false');
     }
+    git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    expect(spawnSync(SCRIPT, ['HEAD'], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString()).toContain('SCOPE_DOCS=false');
+    git('update-ref', 'refs/remotes/origin/main', git('commit-tree', git('rev-parse', 'HEAD^{tree}').stdout.toString().trim(), '-m', 'unrelated').stdout.toString().trim());
+    const unrelated = spawnSync(SCRIPT, ['main'], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    expect(unrelated).toContain('SCOPE_BACKEND=true');
   });
 
   test('detects frontend files', () => {
