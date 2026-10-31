@@ -25,7 +25,9 @@ function seedRepo(repo:string,home:string){
   return git;
 }
 // The first /usr/bin/git spawns on a cold macOS runner can eat a test's whole 5 s budget before the code under test runs; pay them once here.
+// Every test below skips on Windows, which has no /usr/bin/git, so the warm-up does too.
 beforeAll(()=>{
+  if(process.platform==='win32')return;
   const warm=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'cso-git-hardening-warm-')));
   try{seedRepo(path.join(warm,'repo'),warm);}finally{fs.rmSync(warm,{recursive:true,force:true});}
 },{timeout:30_000});
