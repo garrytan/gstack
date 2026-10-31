@@ -7,19 +7,17 @@
  * one. Per-provider auth/timeout/rate-limit errors don't abort the batch.
  */
 
-import type { ProviderAdapter, RunOpts, RunResult, TokenUsage } from './providers/types';
-import { ClaudeAdapter } from './providers/claude';
-import { GptAdapter } from './providers/gpt';
-import { GeminiAdapter } from './providers/gemini';
+import type { RunOpts, RunResult, TokenUsage } from './providers/types';
+import { PROVIDERS, type ProviderName } from './providers/registry';
 
 export interface BenchmarkInput {
   prompt: string;
   workdir: string;
   timeoutMs?: number;
-  /** Adapter names to run (e.g., ['claude', 'gpt', 'gemini']). */
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  /** Adapter names to run (e.g., ['claude', 'gpt', 'gemini', 'particle']). */
+  providers: ProviderName[];
   /** Optional per-provider model overrides. */
-  models?: Partial<Record<'claude' | 'gpt' | 'gemini', string>>;
+  models?: Partial<Record<ProviderName, string>>;
   /** If true, skip providers whose available() returns !ok. If false, include them with error. */
   skipUnavailable?: boolean;
 }
@@ -44,12 +42,6 @@ export interface BenchmarkReport {
   entries: BenchmarkEntry[];
 }
 
-const ADAPTERS: Record<'claude' | 'gpt' | 'gemini', () => ProviderAdapter> = {
-  claude: () => new ClaudeAdapter(),
-  gpt: () => new GptAdapter(),
-  gemini: () => new GeminiAdapter(),
-};
-
 export async function runBenchmark(input: BenchmarkInput): Promise<BenchmarkReport> {
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
@@ -59,7 +51,7 @@ export async function runBenchmark(input: BenchmarkInput): Promise<BenchmarkRepo
   const runPromises: Array<Promise<void>> = [];
 
   for (const name of input.providers) {
-    const factory = ADAPTERS[name];
+    const factory = PROVIDERS[name];
     if (!factory) {
       entries.push({ provider: name, family: 'claude', available: false, unavailable_reason: `unknown provider: ${name}` });
       continue;

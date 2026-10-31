@@ -86,9 +86,15 @@ async function settleOwnedBrowser(directory: string, deadlineEpochMs: number): P
   if (!chromium.length || chromium.some(child => !child.start)) fail('Chromium identity is unavailable');
   if (state.chromiumPid !== undefined && !chromium.some(child => child.pid === state.chromiumPid
     && child.start === state.chromiumStartTime)) fail('Chromium ownership is unconfirmed');
+  const current = (file: string) => {
+    try { return fs.readFileSync(file, 'utf8'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+  };
   const unchanged = () => {
-    if (fs.existsSync(stateFile) && fs.readFileSync(stateFile, 'utf8') !== raw) fail('daemon state was replaced');
-    if (fs.existsSync(agentFile) && fs.readFileSync(agentFile, 'utf8') !== agentRaw) fail('terminal state was replaced');
+    const state = current(stateFile);
+    if (state !== undefined && state !== raw) fail('daemon state was replaced');
+    const terminal = current(agentFile);
+    if (terminal !== undefined && terminal !== agentRaw) fail('terminal state was replaced');
   };
   unchanged();
   if (readPidStartTime(state.pid) !== daemonStart || readPidCmdline(state.pid) !== command) fail('daemon identity changed before stop');

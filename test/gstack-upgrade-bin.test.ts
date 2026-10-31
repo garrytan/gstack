@@ -202,6 +202,52 @@ describe('gstack-upgrade', () => {
     expect(f.calls()).toEqual(['setup --refresh-registered']);
   });
 
+  // GST-396: on Capy every tool call is a fresh shell under one capy-server, so
+  // every session's lease names capy-server and the caller's own-ancestry
+  // exclusion used to drop a sibling's fresh lease: a hand-run upgrade moved the checkout.
+  describe('a lease held by a shared harness (capy-server) ancestor', () => {
+    const underHarness = (f: ReturnType<typeof fixture>, harness: string, ageMinutes: number, extra: Record<string, string> = {}) => {
+      const bin = path.join(f.host.base, 'harness');
+      fs.mkdirSync(bin, { recursive: true });
+      const exe = path.join(bin, harness);
+      if (!fs.existsSync(exe)) fs.copyFileSync(fs.realpathSync(spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8', timeout: 30_000 }).stdout.trim()), exe);
+      fs.chmodSync(exe, 0o755);
+      const script = [
+        'bash "$1" touch --root "$2" --pid $$ || exit 9',
+        '[ "$4" -gt 0 ] && "$5" -e "const t = Date.now() / 1000 - Number(process.argv[2]) * 60; require(\'fs\').utimesSync(process.argv[1], t, t)" "${GSTACK_LEASE_DIR:-$(git -C "$2" rev-parse --absolute-git-dir)/gstack-leases}/$$" "$4"',
+        'bash "$3"',
+        'echo "exit=$?"',
+      ].join('\n');
+      return spawnSync(exe, ['-c', script, harness, path.join(f.root, 'bin/gstack-lease'), f.root, path.join(f.root, 'bin/gstack-upgrade'), String(ageMinutes), process.execPath], { cwd: f.host.home, encoding: 'utf8', env: { ...f.host.env, UPGRADE_LOG: path.join(f.host.base, 'calls.log'), ...extra }, timeout: 60_000 });
+    };
+
+    test('a fresh lease refuses UPGRADE_BUSY naming the shared harness, HEAD unchanged; GSTACK_UPGRADE_FORCE=1 proceeds', () => {
+      const f = fixture();
+      const r = underHarness(f, 'capy-server', 0);
+      expect(r.stdout, r.stdout + r.stderr).toContain('exit=3');
+      expect(r.stderr).toMatch(/^gstack-upgrade: a shared harness \(capy-server, pid \d+\) holds a lease 0m old; every session on this machine runs under it, so the upgrade waits until the lease is 120 minutes old \(counted from the last renewal by any session\); nothing was changed; fix: re-run then, or with GSTACK_UPGRADE_FORCE=1 when no other session uses this checkout \(UPGRADE_BUSY\)$/m);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.a);
+      const forced = underHarness(f, 'capy-server', 0, { GSTACK_UPGRADE_FORCE: '1' });
+      expect(forced.stdout, forced.stdout + forced.stderr).toContain('exit=0');
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
+    test('once that lease is 120 minutes old the upgrade proceeds', () => {
+      const f = fixture();
+      const r = underHarness(f, 'capy-server', 121);
+      expect(r.stdout, r.stdout + r.stderr).toContain('exit=0');
+      expect(r.stderr).not.toContain('UPGRADE_BUSY');
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
+    test('a per-session harness (a plain shell, the Claude Code shape) still never blocks its own upgrade', () => {
+      const f = fixture();
+      const r = underHarness(f, 'claude', 0);
+      expect(r.stdout, r.stdout + r.stderr).toContain('exit=0');
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+  });
+
   test('a dead-pid lease does not block', () => {
     const f = fixture();
     const dead = spawnSync('true', [], { timeout: 30_000 }).pid!;

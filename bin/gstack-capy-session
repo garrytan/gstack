@@ -29,7 +29,10 @@
 # inside a workflow (/ship's docs step) must not change gstack under it. The age
 # bound matters on Capy, where the leased harness pid is the machine's
 # long-lived capy-server and a live lease alone would never end the deferral;
-# each gstack-skill-start renews it (UPGRADE_BUSY; GSTACK_UPGRADE_FORCE=1 overrides). Lines: `SELF_UPGRADE: done <old> -> <new>` | `skipped (<reason>)`
+# each gstack-skill-start renews it (UPGRADE_BUSY; GSTACK_UPGRADE_FORCE=1 overrides).
+# An install profile (`--for review-voice`, a dispatched reviewer on a machine
+# whose checkout a lane shares) never self-upgrades, lease or not, and
+# GSTACK_UPGRADE_FORCE does not override it (UPGRADE_SKIPPED, GST-290). Lines: `SELF_UPGRADE: done <old> -> <new>` | `skipped (<reason>)`
 # | `none (current)` | `disabled (<the variable: GSTACK_CAPY_SELF_UPGRADE=off or
 # GSTACK_CAPY_AUTO_UPGRADE=0>)`.
 # --check never moves the checkout; behind origin it prints
@@ -70,6 +73,8 @@ fi
 [ "${GSTACK_CAPY_REMOTE_MIN:-}" = unknown ] && echo "gstack-capy-session: remote minimum unknown (fetch failed); the revision row is local only"
 # shellcheck source=bin/gstack-install-verdict.sh
 . "$ROOT/bin/gstack-install-verdict.sh"
+# shellcheck source=bin/gstack-doctor-components.sh
+. "$ROOT/bin/gstack-doctor-components.sh" 2>/dev/null || gstack_doctor_install_profile() { [ "$1" = review-voice ]; }
 MIN_WRAPPER=$(gstack_support_env_get "$(gstack_source_root "$ROOT/bin")" GSTACK_CAPY_MIN_WRAPPER)
 if [ -n "$MIN_WRAPPER" ] && [ "${GSTACK_CAPY_WRAPPER_REV:-0}" -lt "$MIN_WRAPPER" ] 2>/dev/null; then
   echo "gstack-capy-skill: owner action — Drive copy is wrapper ${GSTACK_CAPY_WRAPPER_REV:-0}, minimum $MIN_WRAPPER; copy $ROOT/capy/skill/gstack/ (CAPY_WRAPPER_STALE)"
@@ -91,12 +96,25 @@ report_behind() {
     GSTACK_CAPY_BEHIND_TO="$(git -C "$ROOT" show FETCH_HEAD:VERSION 2>/dev/null | head -1)" GSTACK_CAPY_BEHIND_FIX="$1"
 }
 unset GSTACK_CAPY_BEHIND GSTACK_CAPY_BEHIND_TO GSTACK_CAPY_BEHIND_FIX GSTACK_CAPY_BEHIND_BLOCKED
+# The owner's preferences.yaml sits beside the Drive skill's SKILL.md and is
+# read where it lies (never copied), so --check never writes the skill folder
+# and a newer file is seen by the next command. The installer writes the path
+# into the launch file; gstack-models resolve --role agent reads it. A wrapper
+# inside this checkout is no Drive skill, so it names no preferences file.
+if [ -n "${GSTACK_CAPY_WRAPPER_PATH:-}" ]; then
+  _prefs_dir="$(dirname "$(dirname "$GSTACK_CAPY_WRAPPER_PATH")")"
+  case "$_prefs_dir/" in
+    "$ROOT"/*) ;;
+    *) export GSTACK_PREFERENCES_FILE="$_prefs_dir/preferences.yaml" ;;
+  esac
+fi
 RERUN="bash ${GSTACK_CAPY_WRAPPER_PATH:-<skill>/scripts/install.sh}${SKILL:+ --for $SKILL}"
 if [ "$CHECK" -eq 1 ]; then
   if behind; then
     # The rerun fast-forwards only what gstack-upgrade would move; otherwise
     # gstack-upgrade itself names the refusal and its fix.
-    if [ "${GSTACK_CAPY_SELF_UPGRADE:-}" = off ]; then report_behind "unset GSTACK_CAPY_SELF_UPGRADE, then $RERUN"
+    if gstack_doctor_install_profile "$SKILL"; then report_behind "$ROOT/bin/gstack-upgrade"
+    elif [ "${GSTACK_CAPY_SELF_UPGRADE:-}" = off ]; then report_behind "unset GSTACK_CAPY_SELF_UPGRADE, then $RERUN"
     elif [ "${GSTACK_CAPY_AUTO_UPGRADE:-1}" = 0 ]; then report_behind "unset GSTACK_CAPY_AUTO_UPGRADE, then $RERUN"
     elif [ "$(git -C "$ROOT" symbolic-ref -q --short HEAD 2>/dev/null)" != "$(sed -n "1s/.*branch '\([^']*\)' of .*/\1/p" "$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)/FETCH_HEAD" 2>/dev/null)" ] \
       || [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ] \
@@ -111,6 +129,11 @@ elif [ "${GSTACK_CAPY_SELF_UPGRADED:-}" != 1 ]; then
   elif [ "${GSTACK_CAPY_AUTO_UPGRADE:-1}" = 0 ]; then disabled GSTACK_CAPY_AUTO_UPGRADE
   elif [ -z "${GSTACK_CAPY_REMOTE_MIN:-}" ] || [ "$GSTACK_CAPY_REMOTE_MIN" = unknown ]; then echo "SELF_UPGRADE: none (remote minimum unknown)"
   elif ! behind; then echo "SELF_UPGRADE: none (current)"
+  elif gstack_doctor_install_profile "$SKILL"; then
+    REASON="$SKILL never self-upgrades a shared checkout; fix: GSTACK_UPGRADE_FORCE=1 $ROOT/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_SKIPPED)"
+    echo "SELF_UPGRADE: skipped ($REASON)"
+    report_behind "$ROOT/bin/gstack-upgrade"
+    export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"
   elif [ ! -x "$ROOT/bin/gstack-upgrade" ]; then echo "SELF_UPGRADE: skipped ($ROOT/bin/gstack-upgrade is missing)"; report_behind "$RERUN"
     export GSTACK_CAPY_BEHIND_BLOCKED="$ROOT/bin/gstack-upgrade is missing; fix: $RERUN (UPGRADE_REFUSED)"
   elif [ "${GSTACK_UPGRADE_FORCE:-}" != 1 ] && [ -x "$ROOT/bin/gstack-lease" ] \
@@ -121,7 +144,7 @@ elif [ "${GSTACK_CAPY_SELF_UPGRADED:-}" != 1 ]; then
     while read -r _pid _age; do HOLDERS="$HOLDERS${HOLDERS:+, }pid $_pid ($_age)"; done <<EOF_OWN
 $OWN
 EOF_OWN
-    REASON="a gstack run in this session holds a workflow lease on this installation: $HOLDERS, so the upgrade waits until the lease is 120 minutes old; fix: $ROOT/bin/gstack-upgrade once the run ends (UPGRADE_BUSY)"
+    REASON="a gstack run in this session holds a workflow lease on this installation: $HOLDERS, so the upgrade waits until the lease is 120 minutes old; fix: $ROOT/bin/gstack-upgrade once the lease is 120 minutes old, or GSTACK_UPGRADE_FORCE=1 $ROOT/bin/gstack-upgrade when no other session uses this checkout (UPGRADE_BUSY)"
     echo "SELF_UPGRADE: skipped ($REASON)"
     report_behind "$ROOT/bin/gstack-upgrade"
     export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"
