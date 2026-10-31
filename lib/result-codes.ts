@@ -343,6 +343,11 @@ export const RESULT_CODES = {
     summary: 'a `REALITY:` line names its row but carries no file:line or commit receipt',
     fix: 'cite where the check was made (`path:line`, `path:line-line` or a commit sha); a row without a receipt is a claim, not a row',
   },
+  OFFICE_HOURS_PROBE_REFUSED: {
+    anchor: 'office-hours-probe-refused',
+    summary: 'the office-hours spec reviewer asked to run `--help` for a command outside the probe allowlist',
+    fix: 'leave the claim unverified and check it from source (Read or Grep in the repository); only gstack bins and the listed read-only CLIs on PATH, outside the repository, can be probed',
+  },
   REALITY_RECEIPT_UNRESOLVED: {
     anchor: 'reality-receipt-unresolved',
     summary: 'a `REALITY:` receipt names a file the checkout does not have, or a line past its end',

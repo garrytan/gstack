@@ -3229,6 +3229,19 @@ makes the row a check rather than a claim.
 `REALITY: already-done pass 0 hits since 2026-10-09 for bin/gstack-doctor 91bbd9e`
 or `REALITY: surface-check finding bun upgrade --version absent on 1.3.14 bin/gstack-capy-install:52`.
 
+<a id="office-hours-probe-refused"></a>
+### `OFFICE_HOURS_PROBE_REFUSED`
+
+**Meaning.** The office-hours spec reviewer may check a cited flag with
+`gstack-office-hours-review probe --help <command>`, and nothing else runs.
+The command must be a gstack bin or one of the listed read-only CLIs (git, gh,
+bun, node, npm, pnpm, yarn, jq, rg, python3, uv, go, cargo, make, docker,
+claude, codex, gemini), found on PATH outside the repository. The probe never
+runs a shell, closes stdin and stops after 10 seconds.
+
+**Fix.** Nothing to repair. The claim stays unverified, not disproved; check it
+from the command's source or docs in the repository instead.
+
 <a id="reality-receipt-unresolved"></a>
 ### `REALITY_RECEIPT_UNRESOLVED`
 
