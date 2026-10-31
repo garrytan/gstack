@@ -453,7 +453,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       'case "$body" in\n' +
       '  *\'"create"\'*) if [ -n ' + JSON.stringify(opts.refuse ?? '') + ' ]; then printf \'%s\' ' + JSON.stringify(opts.refuse ?? '') + ' > "$out"; printf 400; else echo "$loc $name" >> "$listed"; : > "$out"; printf 200; fi ;;\n' +
       '  *destroy*) : > "$out"; if [ -f "$listed.destroy-fails" ]; then printf 500; else grep -v " $name$" "$listed" > "$listed.tmp"; mv "$listed.tmp" "$listed"; printf 200; fi ;;\n' +
-      '  *\'"list"\'*) if [ -f "$listed.list-fails" ]; then echo down > "$out"; printf 503; else cat "$listed" > "$out"; printf 200; fi ;;\n' +
+      '  *\'"list"\'*) if [ -f "$listed.list-fails" ]; then echo down > "$out"; printf 503; else cat "$listed" "$listed.ghost" > "$out" 2>/dev/null; printf 200; fi ;;\n' +
       '  *\'"show"\'*) [ -z "${FAKE_SHOW_DELAY:-}" ] || sleep "$FAKE_SHOW_DELAY"; if [ -f "$listed.show-fails" ]; then echo down > "$out"; printf 503; elif grep -q " $name$" "$listed"; then printf \'state: running\\nsize: standard-16\\nip4: 192.0.2.1\\n\' > "$out"; printf 200; else : > "$out"; printf 404; fi ;;\n' +
       '  *) : > "$out"; printf 200 ;;\n' +
       'esac\n');
@@ -765,7 +765,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
   }, 90_000);
 
   // Value: protects=usage never reports a partial or empty count as the project's real usage, and the quota preflight says when it cannot read usage instead of passing silently; fails_when=a failed vm list or vm show prints a total again (the empty-project fix's `|| true` did that) or the preflight drops its log line; why_new=only successful reads were tested, and #3679 showed an unreadable usage switching the preflight off without a word; seam=none; no_claim=the real API's failure bodies
-  test('usage exits 1 without a total when the VM list or a size read fails; the quota preflight logs that and leaves the call to the API', () => {
+  test('usage exits 1 without a total when the VM list or a size read fails, skips a VM destroyed since the list, and the quota preflight logs an unreadable usage and leaves the call to the API', () => {
     const f = fakeVm({ listed: 'eu-central-h1 ubirun-peer-9999999999-cccc\n' });
     const listed = join(f.root, 'listed');
     try {
@@ -787,6 +787,13 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(noShow.exitCode).toBe(1);
       expect(noShow.stdout.toString()).not.toContain('total');
       expect(noShow.stderr.toString()).toContain('usage: could not read the size of 1 of 1 VMs');
+      rmSync(`${listed}.show-fails`);
+
+      // A VM destroyed between the list and its size read (show answers 404) is gone, not unread.
+      writeFileSync(`${listed}.ghost`, 'eu-central-h1 ubirun-gone-9999999999-dddd-t3\n');
+      const ghost = run(f, ['usage']);
+      expect(ghost.exitCode).toBe(0);
+      expect(ghost.stdout.toString()).toBe('OWNER           VMS  VCPUS\npeer              1     16\ntotal             1     16\n');
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 90_000);
 

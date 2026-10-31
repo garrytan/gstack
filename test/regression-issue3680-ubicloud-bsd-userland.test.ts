@@ -107,7 +107,7 @@ printf 200
   test.skipIf(!bwkAwk)('usage prints the per-owner table, and up refuses a create that would pass UBI_QUOTA_VCPUS', () => {
     const f = fakeApi();
     try {
-      expect(Bun.spawnSync(['awk', '--version'], { env: f.env }).stdout.toString()).toContain('awk version');
+      expect(Bun.spawnSync(['awk', '--version'], { env: f.env, timeout: 10_000 }).stdout.toString()).toContain('awk version');
       const usage = f.run(['usage']);
       expect(usage.stderr.toString()).toBe('');
       expect(usage.exitCode).toBe(0);

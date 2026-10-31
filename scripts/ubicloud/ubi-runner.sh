@@ -806,7 +806,8 @@ cmd_list() {
 
 # usage: VMs and vCPUs per owner, from each VM's size (standard-16 = 16 vCPUs).
 # Exits 1 with no table when the VM list or any VM's size cannot be read, so a
-# partial count is never taken for the project's usage.
+# partial count is never taken for the project's usage. A VM destroyed between
+# the list and its size read (404) no longer counts and is not a failure.
 cmd_usage() {
   local tmp rows loc name owner f i=0 unread=0
   rows=$(vm_rows) || { log "usage: could not list the project's VMs"; return 1; }
@@ -814,7 +815,14 @@ cmd_usage() {
   while read -r loc name owner _; do
     [ -n "$name" ] || continue
     i=$(( i + 1 ))
-    cli vm "$loc/$name" show 2>/dev/null | sed -n "s/^size: /$owner /p" >"$tmp/$i" &
+    {
+      case $(api "$tmp/$i.show" vm "$loc/$name" show) in
+        200) sed -n "s/^size: /$owner /p" "$tmp/$i.show" >"$tmp/$i" ;;
+        404) ;;
+        *) : >"$tmp/$i" ;;
+      esac
+      rm -f "$tmp/$i.show"
+    } &
     [ $(( i % 8 )) -ne 0 ] || wait
   done <<<"$rows"
   wait
@@ -824,7 +832,7 @@ cmd_usage() {
     log "usage: could not read the size of $unread of $i VMs"
     return 1
   fi
-  { [ "$i" -eq 0 ] || cat "$tmp"/*; } | awk -v me="$OWNER" '
+  find "$tmp" -type f -exec cat {} + | awk -v me="$OWNER" '
     { n = $2; sub(/^.*-/, "", n); o = $1 == "-" ? "(untagged)" : $1 == "." ? "(other)" : $1
       vms[o]++; cpu[o] += n; total += n; count++ }
     END {
