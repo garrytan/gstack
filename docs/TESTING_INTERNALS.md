@@ -1000,7 +1000,7 @@ with `UBICLOUD: left=<0|1|unknown> owner=<o> vm=<name> others=<n>`, checked
 against the project's VM list after teardown; anything but `left=0` turns a
 passing command into exit 1. pregate-remote.sh reads that line from the file
 named by `UBI_LEFT_FILE`, never from the command's output. No owner-age sweep runs by default (the TTL reaper
-below covers every owner); set
+below covers this owner's expired VMs); set
 `UBI_GC_HOURS` to a positive number (or run `gc HOURS`; `gc 0` is a no-op) to
 sweep only this owner's VMs older than that. For other commands, use the runner
 directly: `scripts/ubicloud/ubi-runner.sh run --setup <script> -- '<command>'`,
