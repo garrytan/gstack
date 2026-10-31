@@ -5061,10 +5061,36 @@ retargeted stacked PR the parent branch and the base.
 **Fix.** Run /ship on the new head. The receipt carries only across a
 conflict-only base merge, a test-only change, release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
-the recorded product diff, or a stacked PR's retarget once its parent fully
-landed on the base, which the
+the recorded product diff, a stacked PR's retarget once its parent fully
+landed on the base, or base context next to unchanged hunks after a clean
+scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
+
+<a id="receipt-carry-scoped-review"></a>
+### `RECEIPT_CARRY_SCOPED_REVIEW`
+
+**Meaning.** Every product path the branch touches has the reviewed +/- lines
+in the same places, but the base edited context lines next to some of them, so
+the 3-line patches differ (GST-384: main reworded the line above the PR's
+hunk). The merge may have spliced the two, as in a JSON entry where the branch
+changed one key and the base the next, so the receipt does not carry silently.
+The refusal names the paths and a packet file with the hunks that differ and
+the base's own change. The same lines moved somewhere else are
+`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code.
+
+**Fix.** Dispatch one fix-check reviewer
+([review-policy.md](review-policy.md)) on the packet. When it comes back clean,
+write `{"head":"<HEAD>","paths":[...],"reviewer":"<model>","verdict":"clean"}`
+and rerun `gstack-ship-receipt carry ... --scoped-review <record.json>`; the
+carry reason records the reviewer and the paths. A blocking finding means /ship
+on the new head. `gstack-ship-release finish` stops the same way with
+`context=N` and takes `--context-reviewed <record.json>` bound to the tree;
+write that record beside the packet, outside the worktree, so it does not change
+the tree it is bound to. Finish also stops this way for test code changed since
+review with no gate edit (`tests=N`): the packet holds those test hunks, and the
+reviewer checks that each test still tests what it did. A packet that cannot be
+written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the path.
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`
