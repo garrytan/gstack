@@ -466,12 +466,15 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       ['Nothing checks the token which is CRITICAL (a.ts:3)', 'CRITICAL'], ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'],
       ['No defects in parsing but the upload handler is CRITICAL.', 'CRITICAL'], ['1. Without auth this is CRITICAL (a.ts:3)', 'CRITICAL'],
       ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ["The lock isn't released on error (pool.ts:12): High", 'High'],
-      ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'], ['Low: the parser now maps `FIXABLE` to `CRITICAL` in a comment (a.ts:3)', 'CRITICAL']];
+      ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'], ['Low: the parser now maps `FIXABLE` to `CRITICAL` in a comment (a.ts:3)', 'CRITICAL'],
+      ['No input validation is CRITICAL (upload.ts:4)', 'CRITICAL'], ['No CSRF token is a CRITICAL gap at form.ts:12', 'CRITICAL'],
+      ['Nothing escaped here is CRITICAL: stored XSS at view.ts:8', 'CRITICAL'], ['No timeout here is High (fetch.ts:3)', 'High']];
     for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
     const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/harn15-152-p1-adversarial-native.txt'), 'utf8');
     expect(parseFindings('adversarial-native', native).map(f => f.label)).toEqual(['CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL']);
     expect(parseFindings('adversarial-native', '**1. Race in a.ts:3 (`FIXABLE`).**\nSeverity: Low. Blocks: no').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('red-team', '1. Race in a.ts:3 (FIXABLE).').map(f => f.label)).toEqual(['FIXABLE']);
+    expect(parseFindings('adversarial-native', 'No rate limit is FIXABLE (login.ts:9)').map(f => f.label)).toEqual(['CRITICAL']);
   });
 
   // Value: protects=a list item whose label first appears in an indented later paragraph ("Fix: ... FIXABLE. Severity: Low.") collects as

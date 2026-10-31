@@ -470,8 +470,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    wherever they stand, headings and table rows included; a top-level list item under a
    label-only heading takes the stronger of the two). A label a negator directly scopes is
    no label: "not CRITICAL", "no CRITICAL or High findings", "found nothing CRITICAL",
-   "Neither finding is CRITICAL", "below High" (GST-435). A negation of something else
-   ("Nothing guards the write path the failure of which is CRITICAL") leaves the label, a
+   "Neither finding is CRITICAL", "below High" (GST-435). A negated subject counts only when it
+   names the review's own findings ("Neither finding", "Nothing here", "none of which"). A negation of
+   something else ("No input validation is CRITICAL", "Nothing guards the write path the failure
+   of which is CRITICAL") leaves the label, a
    table row is never read for negation, and a kept finding never takes a weaker label than
    the strongest one left on its line. A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a

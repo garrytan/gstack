@@ -62,12 +62,13 @@ const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /**
  * GST-435 rule (b): a severity word is no label when a negator directly scopes it: "not CRITICAL", "isn't really High", "no CRITICAL
  * or High findings", "found nothing CRITICAL", "nothing at CRITICAL", "below CRITICAL", "Neither finding is CRITICAL", "none of which is
- * High". A negation of something else ("Nothing guards the write path the failure of which is CRITICAL", "None of the writes are atomic
- * and are CRITICAL") leaves the word a label, and a table row is never read for negation.
+ * High". A negated subject scopes the label only when it names the review's own findings ("Neither finding", "Nothing here", "none of
+ * which"). A negation of something else ("No input validation is CRITICAL (upload.ts:4)", "Nothing guards the write path the failure of
+ * which is CRITICAL", "None of the writes are atomic and are CRITICAL") leaves the word a label, and a table row is never read for negation.
  */
 const QUOTE = '[`*"\'\u201c\u201d\u2018\u2019]*';
 const FILLER = '(?:\\s+(?:really|actually|quite|even|yet|a|an|any|at|as|be|rise|rises|to|reach|reaches|meet|meets|count|counts|qualify|qualifies|rated|marked|called|flagged))';
-const SUBJECT_WORD = "(?!(?:which|that|who|whom|whose|so|and|but|or|nor|because|since|while|if|when|where|then|than|is|are|was|were)\\b)[A-Za-z][\\w'\u2019-]*";
+const SUBJECT_WORD = '(?:the|two|three|four|both|other|remaining|above|listed|reported|new|these|those|them|it|here|else|left|finding|findings|issue|issues|defect|defects|problem|problems|bug|bugs|concern|concerns|item|items|nit|nits|one|ones|note|notes)\\b';
 const DIRECT = `(?:\\b(?:not|never|no|nothing|none|neither|nor|cannot|below|beneath|lower\\s+than|less\\s+than|short\\s+of)|n['\u2019]t)${FILLER}{0,3}`;
 const SUBJECT = `\\b(?:no|none|neither|nothing)(?:\\s+of\\s+(?:the|these|those|them|which|it|this|its|my|our|their))?(?:\\s+${SUBJECT_WORD}){0,3}\\s+(?:is|are|was|were|be|seems?|looks?|reads?\\s+as|counts?\\s+as|rises?\\s+to|ranks?\\s+as)${FILLER}{0,2}`;
 const NEGATED_BEFORE = new RegExp(`(?:${DIRECT}|${SUBJECT})\\s+(?:${QUOTE}(?:${LABELS})${QUOTE}\\s*(?:,|/|\\bor\\b|\\bnor\\b|\\band\\b)\\s*)*${QUOTE}$`, 'i');
