@@ -9,9 +9,9 @@
  * `pr-body` merges by `## ` section into the PR's current body (read through
  * the same runner): a section in the file replaces the same-titled one, the
  * ship-receipt block is a section of its own, sections the file does not
- * rewrite are kept, new ones are appended, and a file with a `## ` section
- * plus a receipt or its own lead text replaces the text above the first
- * heading; `--replace` overwrites instead.
+ * rewrite are kept, new ones are appended, and a file with a receipt above
+ * its first `## ` section replaces the text above the first heading;
+ * `--replace` overwrites instead.
  * The scan runs on the merged bytes, which are the bytes sent.
  *
  * Exit codes: 0 posted; 1 HIGH finding (or oversize input) refused;
@@ -213,16 +213,16 @@ function splitSections(body: string): Section[] {
  * A file section whose title the current body holds more than once (an old
  * description pasted under the new one) matches no single section, so the
  * merge refuses instead of replacing one copy and keeping the stale other.
- * A full post (a file with at least one `## ` section and a receipt block or
- * text of its own above its first heading) manages the preamble (GST-412): every
+ * A full post (a file with a receipt block above its first `## ` section, as
+ * /ship composes it) manages the preamble (GST-412): every
  * non-blank text section before the current body's first heading (the leading
  * text, text after a receipt block) is dropped, the file's own text before its
  * first heading takes its place (leading text first, text after the file's
  * receipt right after the receipt), a dropped piece the file brings no text for
  * is listed in `dropped` with its first line (withheld when the redaction scan
  * flags it, since the merged bytes no longer hold it), and the receipt keeps the rules
- * above. A partial post (`## ` sections only) and a file without a `## `
- * section merge as described above, so the current intro is kept.
+ * above. Any other file (`## ` sections with no receipt above them, or no
+ * `## ` section) merges as described above, so the current intro is kept.
  */
 export function mergeBodySections(current: string, incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[]; dropped: string[] } {
   const now = splitSections(current);
@@ -233,7 +233,8 @@ export function mergeBodySections(current: string, incoming: string): { body: st
     const end = list.findIndex(s => s.key.startsWith("h2:"));
     return list.slice(0, end < 0 ? list.length : end).filter(s => s.key.startsWith("text:") && s.text.trim() !== "");
   };
-  const managed = next.some(n => n.key.startsWith("h2:")) && (next.some(n => n.key === "receipt") || preamble(next).length > 0);
+  const firstHeading = next.findIndex(n => n.key.startsWith("h2:"));
+  const managed = firstHeading > 0 && next.slice(0, firstHeading).some(n => n.key === "receipt");
   const stale = managed ? preamble(now) : [];
   const ours = managed ? preamble(next) : [];
   const role = (s: Section) => (s.key === "text:lead" ? "lead" : "trailing");

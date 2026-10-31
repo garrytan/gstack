@@ -446,12 +446,12 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(after.stderr()).toBe("gstack-post: pr-body merged by section: replaced ship receipt, Why; kept unclosed receipt fence; added none\n");
   });
 
-  // Value: protects=a file with sections owns the text above the first heading (GST-412): stale lead text and stale text between the receipt and the
+  // Value: protects=a full post (a receipt above its first heading, as /ship composes it) owns the text above the first heading (GST-412): stale lead text and stale text between the receipt and the
   // first heading are dropped and named on stderr with their first line, the file's own preamble takes their place, a receipt-only or text-only file
   // keeps the older merge, a repost is byte-identical and an attribution callout is never doubled; fails_when=pr-body keeps a stale intro above the
   // receipt or a stale note under it after /ship reposts the sections; why_new=lead text was kept unless the file brought its own; seam=fake run;
   // no_claim=real gh
-  test("a file with sections replaces every text section above the current first heading and names each dropped piece", () => {
+  test("a full post replaces every text section above the current first heading and names each dropped piece", () => {
     const stale = withBody("Draft intro from gh pr create, long enough to need truncation in the summary line\nsecond line\n\n" + CURRENT, { "/b": RECEIPT("bbbb") + "\n## What changed\n\n- new\n" });
     expect(run(["pr-body", "5", "--body-file", "/b"], stale)).toBe(EXIT.posted);
     expect(sent(stale).input).toBe(RECEIPT("bbbb") + "\n## What changed\n\n- new\n\n## Why\n\nBecause.\n\n## Approvals\n\n- owner: do it\n");
@@ -469,8 +469,8 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(own.stderr()).toBe("gstack-post: pr-body merged by section: replaced leading text, ship receipt, trailing text, Why; kept none; added none\n");
   });
 
-  // Value: protects=a partial post (`## ` sections only, no receipt and no text of its own above its first heading) keeps the human intro and
-  //   the note under the receipt, the same as a full post that brings no replacement for them; fails_when=a lane posting only `## Screenshots`
+  // Value: protects=a partial post (no receipt above its first `## ` heading, even with a caption of its own or a receipt further down) keeps
+  //   the human intro and the note under the receipt; fails_when=a lane posting only `## Screenshots`
   //   deletes the intro or a Review-loop exception line; why_new=GST-412 made any file with a section own the preamble (GstackMinder,
   //   2026-10-31: "a partial pr-body post must keep the human intro"); seam=fake run; no_claim=real gh
   test("a partial post keeps the current intro and the note under the receipt", () => {
@@ -478,6 +478,12 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(run(["pr-body", "5", "--body-file", "/b"], partial)).toBe(EXIT.posted);
     expect(sent(partial).input).toBe("Human intro\n\n" + RECEIPT("aaaa") + "Review-loop exception: accepted by owner\n\n## What changed\n\n- old\n\n## Screenshots\n\n![shot](u)\n");
     expect(partial.stderr()).toBe("gstack-post: pr-body merged by section: replaced none; kept leading text, ship receipt, trailing text, What changed; added Screenshots\n");
+
+    for (const file of ["Screenshots below.\n\n## Screenshots\n\n![shot](u)\n", "## Screenshots\n\n![shot](u)\n\n" + RECEIPT("bbbb")]) {
+      const merged = mergeBodySections("Human intro\n\n" + RECEIPT("aaaa") + "Review-loop exception: accepted by owner\n\n## What changed\n\n- old\n", file);
+      expect(merged.body).toContain("Review-loop exception: accepted by owner");
+      expect(merged.dropped).toEqual([]);
+    }
   });
 
   // Value: protects=the dropped-piece excerpt on stderr never repeats a secret the merge removed from the body (the scan only reads the merged bytes);
@@ -515,11 +521,11 @@ describe("gstack-post pr-body merges the PR body by section", () => {
   });
 
   // Value: protects=--replace keeps the plain overwrite for a caller that composed the whole body, a current body with no H2 headings is kept as the leading
-  // section by a file without sections and dropped (and named) by a file with sections (GST-412), an empty current body posts the new body byte for byte,
+  // section by a file without sections and dropped (and named) by a full post (GST-412), an empty current body posts the new body byte for byte,
   // the scan runs on the merged bytes, and an unreadable current body is exit 3 with the --replace hint rather than an overwrite; fails_when=--replace
   // merges, headingless text is dropped by a receipt-only post or kept under new sections, the merge changes a lone new body, a secret in a kept section
   // passes the scan, or a failed read overwrites; why_new=first pr-body merge tests; seam=fake run; no_claim=real gh
-  test("--replace overwrites; a body without H2 headings is kept by a file without sections and dropped by one with sections; the merged bytes are what is scanned; a failed read refuses", () => {
+  test("--replace overwrites; a body without H2 headings is kept by a file without a receipt and dropped by a full post; the merged bytes are what is scanned; a failed read refuses", () => {
     const replaced = withBody(CURRENT, { "/b": "## What changed\n\nonly this\n" });
     expect(run(["pr-body", "5", "--replace", "--body-file", "/b"], replaced)).toBe(EXIT.posted);
     expect(sent(replaced).input).toBe("## What changed\n\nonly this\n");
