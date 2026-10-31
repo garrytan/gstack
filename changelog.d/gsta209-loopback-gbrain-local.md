@@ -9,4 +9,4 @@
 - `USING_GBRAIN_WITH_GSTACK.md`: a loopback serve over this machine's engine is not Path 4. A loopback tunnel to a remote brain on a machine that also has a local engine counts as local too.
 
 ### Tests
-- `test/gbrain-mcp-locality.test.ts` covers the rule, the list-line parser, and a check that the shipped jq copy never says local where the TypeScript rule says remote. The detect, local-status and memory-ingest tests add loopback and stuck-page cases. On main, 25 of the new cases fail.
+- `test/gbrain-mcp-locality.test.ts` covers the rule, the list-line parser, and a check that the shipped jq copy never says local where the TypeScript rule says remote. The detect, local-status and memory-ingest tests add loopback and stuck-page cases. On main's code (the tests-first commit f3712618), 13 of the new cases fail and `test/gbrain-mcp-locality.test.ts` cannot load, because the module it tests is new.
