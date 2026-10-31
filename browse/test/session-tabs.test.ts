@@ -131,6 +131,34 @@ const rootTab = bm.getActiveTabId();
   steps.sweep = { a: owned('session:a').length, d: owned('session:d').length, fresh: owned('session:fresh').length };
 }
 
+{ // a session the CLI derived on its own is ignored for a scoped token
+  const scoped = { token: 't', clientId: 'agent-y', type: 'session', scopes: ['read', 'write', 'admin', 'meta'], tabPolicy: 'shared', rateLimit: 0, createdAt: new Date().toISOString(), commandCount: 0 };
+  const auto = await run('url', [], { session: 'auto1', sessionAuto: true }, scoped);
+  steps.auto = { status: auto.status, tabs: owned('session:auto1').length };
+}
+
+{ // the session cap: refused while every other session is busy, LRU eviction once one is idle
+  process.env.BROWSE_SESSION_IDLE_MINUTES = '0';
+  process.env.BROWSE_MAX_SESSIONS = '1';
+  const busy = run('goto', [U('busy', 600)], { session: 'fresh' });
+  await Bun.sleep(150);
+  const limited = await run('url', [], { session: 'limit' });
+  await busy;
+  const freshTab = owned('session:fresh')[0];
+  const evicted = await run('url', [], { session: 'limit2' });
+  steps.limit = { status: limited.status, result: limited.result, limitTabs: owned('session:limit').length,
+    evictedStatus: evicted.status, fresh: owned('session:fresh').length, freshOpen: bm.pages.has(freshTab),
+    limit2: owned('session:limit2').length };
+}
+
+{ // in headed mode an evicted session's tab is released to the user, not closed
+  const tab = owned('session:limit2')[0];
+  const mode = bm.getConnectionMode;
+  bm.getConnectionMode = () => 'headed';
+  try { await run('url', [], { session: 'limit3' }); } finally { bm.getConnectionMode = mode; }
+  steps.headed = { open: bm.pages.has(tab), owner: bm.getTabOwner(tab) ?? null, limit2: owned('session:limit2').length };
+}
+
 await Bun.write(${JSON.stringify(path.join(root, 'steps.json'))}, JSON.stringify(steps));
 fixture.stop(true);
 await Promise.race([bm.close(), Bun.sleep(3000)]);
@@ -215,5 +243,19 @@ describe('session lifecycle', () => {
   });
   test('idle sessions are closed on the next lookup', () => {
     expect(steps.sweep).toEqual({ a: 0, d: 0, fresh: 1 });
+  });
+  test('an automatic session from a scoped token falls through and opens no tab', () => {
+    expect(steps.auto).toEqual({ status: 200, tabs: 0 });
+  });
+  test('at the cap a new session is refused while the others are busy', () => {
+    expect(steps.limit.status).toBe(429);
+    expect(steps.limit.result).toContain('BROWSE_SESSION_LIMIT');
+    expect(steps.limit.limitTabs).toBe(0);
+  });
+  test('at the cap the least recently used idle session is evicted', () => {
+    expect(steps.limit).toMatchObject({ evictedStatus: 200, fresh: 0, freshOpen: false, limit2: 1 });
+  });
+  test('in headed mode an evicted session keeps its tab open and unowned', () => {
+    expect(steps.headed).toEqual({ open: true, owner: null, limit2: 0 });
   });
 });
