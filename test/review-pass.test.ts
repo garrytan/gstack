@@ -583,7 +583,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const out = path.join(dir, '.state/run/p1');
     fs.mkdirSync(path.join(dir, '.state/run/parts'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.state/run/parts/state.json'), JSON.stringify({ returned: [] }));
-    const big = host(dir, env, { output: () => 'x'.repeat(15_900) });
+    const big = host(dir, env, { output: () => 'x'.repeat(15_900) + '\nNO FINDINGS' });
     const res = await runPass(big, { base: 'main', out, pass: 'x23p1', planFlags: ['--depth-floor', 'full'] });
     expect(res.length).toBeLessThanOrEqual(32000);
     expect(res.trimEnd().split('\n').at(-1)).toBe('NEXT: judge (Phase 4)');
