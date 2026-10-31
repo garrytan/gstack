@@ -2,4 +2,4 @@
 
 ### Fixed
 - **Skill names are read with bash builtins.** A new sourced helper, `bin/gstack-skill-name.sh`, reads the `name:` line with a `read` loop. It gives the same result as the old pipeline on CRLF files, files with no final newline, and files with no `name:` line. `gstack-patch-names`, setup's Claude skill linker, its two cleanup loops and `gstack-uninstall` use it. They use parameter expansion instead of `basename`. `sed` and `mv` run only for a skill that is actually renamed.
-- **What is not fixed yet.** Setup still starts `ln`, `mkdir` and `cp` per skill. Nobody has confirmed on a Windows ARM64 machine that the hang is gone.
+- **What is not fixed yet.** Setup still starts `ln`, `mkdir` and `cp` per skill, and the linkers for Cursor, OpenCode, Copilot, Factory, Agy and Kiro still run `basename` per skill. Nobody has confirmed on a Windows ARM64 machine that the hang is gone.
