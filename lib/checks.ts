@@ -15,7 +15,6 @@
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { slugFromEnvironment } from './bin-context';
 import { resolveStateRoot } from './state-root';
@@ -61,14 +60,17 @@ export function healthStack(claudeMd: string): Check[] {
   if (start < 0) return [];
   const checks: Check[] = [];
   const seen = new Map<string, number>();
+  const taken = new Set<string>();
   for (const line of lines.slice(start + 1)) {
     if (/^#{1,6}\s/.test(line)) break;
     const m = /^\s*[-*]\s*([A-Za-z0-9_-]+):\s*(.+?)\s*$/.exec(line);
     if (!m || ['test', TESTS].includes(m[1].toLowerCase())) continue;
     const key = m[1].toLowerCase();
-    const n = (seen.get(key) ?? 0) + 1;
+    let n = seen.get(key) ?? 0;
+    let name = key;
+    while (taken.has(name)) name = `${key}-${++n + 1}`;
     seen.set(key, n);
-    const name = n === 1 ? key : `${key}-${n}`;
+    taken.add(name);
     checks.push({ name, command: m[2].replace(/`/g, ''), source: 'CLAUDE.md Health Stack' });
   }
   return checks;
@@ -106,7 +108,7 @@ export function manifestChecks(root: string): Check[] {
   const cargo = read(path.join(root, 'Cargo.toml'));
   if (cargo !== null) checks.push({ name: 'build', command: 'cargo check --all-targets', source: 'Cargo.toml' });
   if (cargo !== null && (/^\[(workspace\.)?lints\.clippy\]/m.test(cargo) || ['clippy.toml', '.clippy.toml'].some(f => fs.existsSync(path.join(root, f))))) checks.push({ name: 'lint', command: 'cargo clippy --all-targets', source: 'Cargo.toml' });
-  if (fs.existsSync(path.join(root, 'go.mod'))) checks.push({ name: 'vet', command: 'go vet ./...', source: 'go.mod' }, { name: 'build', command: `go build -o ${os.devNull} ./...`, source: 'go.mod' });
+  if (fs.existsSync(path.join(root, 'go.mod'))) checks.push({ name: 'vet', command: 'go vet ./...', source: 'go.mod' }, { name: 'build', command: `go build -o ${process.platform === 'win32' ? 'NUL' : '/dev/null'} ./...`, source: 'go.mod' });
   const seen = new Set<string>();
   return checks.filter(c => (seen.has(c.name) ? false : (seen.add(c.name), true)));
 }

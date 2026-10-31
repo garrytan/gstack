@@ -60,6 +60,7 @@ describe('detection', () => {
       .toEqual([['typecheck', 'tsc --noEmit'], ['shell', 'shellcheck *.sh']]);
     // A repeated key keeps both checks under their own names, and a tests row is pregate's, so status never reads one verdict for two checks.
     expect(healthStack('## Health Stack\n- lint: eslint .\n- lint: stylelint "**/*.css"\n- lint: oxlint\n- tests: npm test\n').map(c => c.name)).toEqual(['lint', 'lint-2', 'lint-3']);
+    expect(healthStack('## Health Stack\n- lint: eslint .\n- lint-2: oxlint\n- lint: stylelint x\n').map(c => c.name)).toEqual(['lint', 'lint-2', 'lint-3']);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-checks-manifest-'));
     dirs.push(dir);
     fs.writeFileSync(path.join(dir, 'tsconfig.json'), '{}');
@@ -68,7 +69,7 @@ describe('detection', () => {
     fs.writeFileSync(path.join(dir, 'bun.lock'), '');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { lint: 'eslint .' }, devDependencies: { typescript: '5' } }));
     fs.writeFileSync(path.join(dir, 'go.mod'), 'module x\n');
-    expect(manifestChecks(dir).map(c => c.command)).toEqual(['bunx tsc --noEmit', 'bun run lint', 'go vet ./...', `go build -o ${os.devNull} ./...`]);
+    expect(manifestChecks(dir).map(c => c.command)).toEqual(['bunx tsc --noEmit', 'bun run lint', 'go vet ./...', `go build -o ${process.platform === 'win32' ? 'NUL' : '/dev/null'} ./...`]);
     // Clippy is a rustup component Cargo.toml does not declare: it runs only when the repo opts in.
     const rs = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-checks-rs-'));
     dirs.push(rs);
