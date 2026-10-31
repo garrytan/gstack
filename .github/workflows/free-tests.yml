@@ -259,6 +259,8 @@ jobs:
         run: bun run typecheck
       - name: Test-code type-debt ratchet
         run: bun run typecheck:test
+      - name: oxlint ratchet (correctness rules)
+        run: bun run lint
       - name: CSO source formatting
         run: bun run format:cso:check
 

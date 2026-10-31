@@ -15,6 +15,7 @@
     "format:cso:check": "prettier --check 'lib/cso/*.ts'",
     "typecheck": "tsc -p tsconfig.json",
     "typecheck:test": "bun run scripts/typecheck-test.ts",
+    "lint": "bun run scripts/lint-ratchet.ts",
     "test:cso:docker": "bun test --max-concurrency 1 test/cso-docker-integration.test.ts test/cso-node-lifecycle-integration.test.ts test/cso-stack-cold-integration.test.ts",
     "test:cso:macos": "bun test test/cso-macos-launcher.test.ts test/cso-registry-socket.test.ts",
     "test:cso:windows": "bun test test/cso-windows-launcher.test.ts",
@@ -99,6 +100,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.141",
     "@types/bun": "1.4.3",
+    "oxlint": "1.90.0",
     "prettier": "3.9.10",
     "typescript": "7.0.2"
   },
