@@ -328,6 +328,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
+    file: 'test/ubicloud-runner-tiers.test.ts',
+    reason: 'split from test/ubicloud-runner.test.ts, excluded as a whole: runs scripts/ubicloud/ubi-runner.sh through bash with the #!/usr/bin/env bash curl, ssh and make shims test/helpers/ubi-runner-fake-vm.ts puts on a colon-joined PATH, like test/ubicloud-runner-run.test.ts',
+  },
+  {
     file: 'test/ship-queue-train-freeze.test.ts',
     reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
