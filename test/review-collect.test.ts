@@ -190,7 +190,7 @@ describe('GST-544: the consumer scan reads only files that can match, under one 
   const patterns = ['rows.json', 'my rows.json', 'rules.json', 'index.json', 'post.json', 'orphan.json', 'live.csv', 'b.csv'];
   const wholeTree = (dir: string, at: string) => {
     const r = spawnSync('git', ['-c', 'core.quotePath=false', 'grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns.flatMap(b => ['-e', b]), ...(at ? [at, '--'] : ['--untracked', '--'])], { cwd: dir, encoding: 'utf8', timeout: 10_000 });
-    expect([0, 1]).toContain(r.status);
+    expect([0, 1]).toContain(r.status ?? -1);
     return r.stdout.split('\n').filter(Boolean).sort();
   };
   // Value: protects=the narrowed scan prints exactly the lines one whole-tree git grep prints, at a commit, at the merge base
