@@ -126,18 +126,20 @@ function repo(): { dir: string; env: NodeJS.ProcessEnv } {
   return { dir, env };
 }
 
-interface Sub { title: string; prompt: string; status: string; polls: number; model?: unknown; summary?: string }
+interface Sub { title: string; prompt: string; status: string; polls: number; model?: unknown; summary?: string; late?: boolean }
 /** A fake Capy host: the shell is real (the repository's bins), subagents are scripted. */
-function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number } = {}) {
+function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean } = {}) {
   let clock = 0;
   const subs = new Map<string, Sub>();
   const creates: Sub[] = [];
   const starts: number[][] = [];
   const advance = () => {
     for (const s of subs.values()) {
+      if (s.late && !s.summary) { s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; continue; }
       if (s.status !== 'working') continue;
       if (++s.polls < (o.pollsToFinish ?? 1)) continue;
       if (o.fail?.(s.title)) s.status = 'failed';
+      else if (o.lateSummary && !s.late) { s.status = 'done'; s.late = true; }
       else { s.status = 'done'; s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; }
     }
   };
@@ -396,6 +398,22 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(ids[0]).toBe('plan-8.1-8.2');
   }, 240_000);
 
+  // Value: protects=the loader's input is filled as SKILL.md reads it: extras as JSON, the checkout named by cwd, and a reader whose summary lands a tick after its done status is collected, not stopped; fails_when=extras must be a file path (replay C2-34: BRIEF_RENDER_FAILED [object Object]), the bins run in the jam's directory instead of the checkout (C2-34: a wrapper launch file), or a done reader without its summary yet stops the pass (C2-34: "finished with no output", one extra call);
+  //   why_new=replay C2-34 (GSTA-193) on PR 2; seam=none; no_claim=the host's status timing beyond one late summary
+  test('extras as JSON, the checkout as cwd, and a late summary all run through without a STOP', async () => {
+    const { dir, env } = repo();
+    const elsewhere = tmp('rp-cwd-');
+    const out = path.join(dir, '.state/run/p1');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'qa.prompt.md'), 'QA brief');
+    const h = host(elsewhere, env, { lateSummary: true });
+    const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir, planFlags: ['--depth-floor', 'full'],
+      extras: [{ name: 'qa', prompt_file: path.join(out, 'qa.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
+    expect(res).not.toContain('STOP:');
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(h.creates.find(c => c.title === 'ship x13p1 audit/qa')!.prompt).toBe('QA brief');
+  }, 180_000);
+
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();
     const h = host(dir, env);
@@ -419,7 +437,7 @@ describe('the Capy skill loader', () => {
     fs.writeFileSync(launch, '');
     expect(spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --reading 1000 --credits 1', '_', rec], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
     const filled = code.split('<launch file>').join(launch).split('<base>').join('main').split('<run dir>/p<n>').join(path.join(dir, '.state/run/p1'))
-      .split('<run>-p<n>').join('x10p1').split('<jam id>').join('jam_test').split('<rec>').join(rec).split('<your model id>').join('anthropic/claude-opus-5-5');
+      .split('<run>-p<n>').join('x10p1').split('<jam id>').join('jam_test').split('<rec>').join(rec).split('<your model id>').join('anthropic/claude-opus-5-5').split('<repo>').join(dir);
     expect(filled).not.toMatch(/<[a-z ]+>/);
     const h = host(dir, env);
     const res = await new AsyncFunction('tools', 'sleep', 'now', filled)(h.tools, h.sleep, h.now);

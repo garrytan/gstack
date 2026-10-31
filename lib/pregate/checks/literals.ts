@@ -66,10 +66,21 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
  * English word in half the test tree, and a one-character old value (`2`)
  * sits in every test, so that value needs the constant's name (a wrapper
  * version 2 → 3 flagged 575 consumers through the stem alone).
+ *
+ * A version-history row (`[45, "<digest>"]`, the old value first in a
+ * bracketed row) is skipped when the same table, a run of consecutive
+ * `[…` lines, holds a new-value row and `baseText` (the file at the merge
+ * base; null for a file the base lacks, undefined when it cannot be read)
+ * has no new-value row: the branch extended the table. A table it did not
+ * extend, a file that already held a new-value row, and an unreadable base
+ * still count, and the scan goes on past skipped rows to the first real consumer.
  */
-export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral): string[] {
+export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral, baseText?: (rel: string) => string | null | undefined): string[] {
   const value = unquote(change.old);
   const valueRe = /^-?\d/.test(value) ? new RegExp(`(?<![\\w.])${escape(value)}(?![\\w.])`) : new RegExp(`['"\`]${escape(value)}['"\`]`);
+  const row = (raw: string) => new RegExp(`^[ \\t]*\\[[ \\t]*${/^['"`]/.test(raw) ? `['"\`]${escape(unquote(raw))}['"\`]` : escape(raw)}[ \\t]*,`, 'm');
+  const oldRowRe = row(change.old);
+  const newRowRe = row(change.new);
   const base = path.basename(change.file);
   const stem = base.replace(/\.[^.]+$/, '');
   const moduleRe = new RegExp(`(?:(?:^|[/\\\\])${escape(stem)}|(?<![\\w-])${escape(base)})(?![\\w-])`, 'm');
@@ -81,7 +92,22 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
     if (!(nameRe.test(text) || (!nameRequired && moduleRe.test(text)))) continue;
     const lines = text.split('\n');
-    for (let i = 0; i < lines.length; i++) if (valueRe.test(lines[i]!)) { hits.push(`${rel}:${i + 1}`); break; }
+    const table: number[] = [];
+    const tableHasNew: boolean[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!/^[ \t]*\[/.test(lines[i]!)) { table.push(-1); continue; }
+      if (table[i - 1] === undefined || table[i - 1] === -1) tableHasNew.push(false);
+      table.push(tableHasNew.length - 1);
+      if (newRowRe.test(lines[i]!)) tableHasNew[tableHasNew.length - 1] = true;
+    }
+    let extended: boolean | undefined;
+    const skip = (i: number) => {
+      const line = lines[i]!;
+      if (!oldRowRe.test(line) || !tableHasNew[table[i]!] || valueRe.test(line.slice(line.indexOf(']') + 1))) return false;
+      if (extended === undefined) { const base = baseText?.(rel); extended = base === null || (base !== undefined && !newRowRe.test(base)); }
+      return extended;
+    };
+    for (let i = 0; i < lines.length; i++) if (valueRe.test(lines[i]!) && !skip(i)) { hits.push(`${rel}:${i + 1}`); break; }
   }
   return hits;
 }
@@ -101,7 +127,13 @@ function run(ctx: PregateContext): CheckResult {
   const testFiles = listRepoFiles(ctx.repoRoot).filter(f => scansLiterals(f) && !f.startsWith('bin/'));
   const lines: string[] = [];
   for (const c of changes) {
-    const hits = consumersOf(ctx.repoRoot, testFiles, c);
+    const hits = consumersOf(ctx.repoRoot, testFiles, c, rel => {
+      const from = ctx.touched.find(t => t.path === rel)?.renamedFrom ?? rel;
+      const r = spawnSync('git', ['show', `${ctx.mergeBase}:${from}`], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024, env: ctx.env });
+      if (r.status === 0) return r.stdout;
+      const ls = spawnSync('git', ['ls-tree', ctx.mergeBase, '--', from], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 30_000, env: ctx.env });
+      return ls.status === 0 && !ls.stdout.trim() ? null : undefined;
+    });
     ctx.explain.push(`literals: ${c.file} ${c.name} ${c.old} → ${c.new}: ${hits.length} test file(s) still carry ${c.old}`);
     for (const h of hits) lines.push(`${h}: ${c.name} still ${c.old} (now ${c.new} in ${c.file})`);
   }
