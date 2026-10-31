@@ -106,11 +106,14 @@ export const CONSUMER_SCAN_CAP = 2000;
 export const CONSUMER_SCAN_DEPTH = 4;
 /**
  * One consumer scan's whole budget, every git grep in it (GSTACK_CONSUMER_SCAN_TIMEOUT_MS overrides it); past it the scan fails
- * closed. It stays a minute under the 180 s gstack-review-dispatch and gstack-ship-preflight give all of gstack-review-plan.
+ * closed. One scan stays a minute under the 180 s gstack-review-dispatch and gstack-ship-preflight give all of gstack-review-plan;
+ * a plan that also scans a fix range (--range-base) runs a second scan and can still reach that limit, which fails the plan.
  */
 export const CONSUMER_SCAN_TIMEOUT_MS = 120_000;
 /** Pathspec bytes per git grep call: a long list of files to search splits across calls instead of growing one command line. */
 export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
+/** Output bytes one consumer grep may return across all its calls, the buffer the single whole-tree call had; past it the scan fails closed. */
+export const CONSUMER_SCAN_OUTPUT_BYTES = 256 * 1024 * 1024;
 
 export function consumerScanTimeoutMs(): number {
   const v = Number(process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS);
@@ -123,10 +126,10 @@ export type GrepFailure = { timedOut: boolean; status: number | null; err: strin
  * The lines `git grep -I -F -o --null` prints for `patterns` at `rev` ('' is the working tree with untracked files), for
  * the files `keep` accepts, in some order. Every pattern holds its own extension, so a `-l` pass for the extensions alone
  * lists every file that can match; the full pattern list then reads only those files, CONSUMER_SCAN_PATHSPEC_BYTES of
- * paths per call under --literal-pathspecs (an inherited GIT_GLOB_PATHSPECS makes git refuse, which fails closed). A listed name
+ * paths per call under --literal-pathspecs, CONSUMER_SCAN_OUTPUT_BYTES of output in all (an inherited GIT_GLOB_PATHSPECS makes git refuse, which fails closed). A listed name
  * that is not valid UTF-8 cannot be passed back as a path, so then one grep reads the whole tree, as the scan did before GST-544. Each call gets what is left of `deadline` (epoch ms).
  */
-export function grepConsumers(root: string, patterns: readonly string[], rev: string, keep: (file: string) => boolean, deadline: number, chunkBytes = CONSUMER_SCAN_PATHSPEC_BYTES): string[] | GrepFailure {
+export function grepConsumers(root: string, patterns: readonly string[], rev: string, keep: (file: string) => boolean, deadline: number, chunkBytes = CONSUMER_SCAN_PATHSPEC_BYTES, outputBytes = CONSUMER_SCAN_OUTPUT_BYTES): string[] | GrepFailure {
   const where = rev ? [rev, '--'] : ['--untracked', '--'];
   const exts = [...new Set(patterns.map(b => b.slice(b.lastIndexOf('.'))))].flatMap(e => ['-e', e]);
   const listed = gitUntil(root, ['grep', '-I', '-F', '-l', '-z', '--no-color', ...exts, ...where], deadline);
@@ -139,6 +142,7 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
   }
   const files = names.filter(keep);
   const lines: string[] = [];
+  let total = 0;
   for (let i = 0; i < files.length;) {
     const chunk: string[] = [];
     for (let bytes = 0; i < files.length; i++) {
@@ -149,6 +153,8 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
     }
     const r = gitUntil(root, [...flags, ...chunk], deadline);
     if (r.status !== 0 && r.status !== 1) return r;
+    total += Buffer.byteLength(r.out);
+    if (total > outputBytes) return { status: null, err: 'ENOBUFS', timedOut: false };
     for (const line of r.out.split('\n')) lines.push(line);
   }
   return lines;

@@ -180,10 +180,12 @@ consumer each keep the path code, and YAML, TOML and SVG are always code. More t
 2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. The scan first lists the files that contain a candidate's
 extension and then searches only those, docs files left out, so a large data tree
-costs one cheap pass. The whole scan gets one 120-second deadline, a minute under the
-180 seconds /ship gives `gstack-review-plan`, set in milliseconds with
-`GSTACK_CONSUMER_SCAN_TIMEOUT_MS`; a scan that runs past it is also
-`consumer_scan_failed`, and its detail says it timed out and names the deadline. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
+costs one cheap pass. Each scan gets one 120-second deadline, set in milliseconds with
+`GSTACK_CONSUMER_SCAN_TIMEOUT_MS`; a scan that runs past it, or whose matches pass
+256 MB, is also `consumer_scan_failed`, and its detail says what stopped it and names
+the deadline. One scan fits a minute inside the 180 seconds /ship gives
+`gstack-review-plan`; a plan that also scans a fix range runs two scans, and if they
+pass that limit the plan fails, which also leads to a full review. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
 finds the consumers, `gstack-ship-preflight`'s `RUNTIME_LINES` reads the same
 function); every path-only caller (the receipt's gate-scan decision, the Step 16
 post-review route, /autoplan's docs-only scope) keeps data files code. A numeric claim

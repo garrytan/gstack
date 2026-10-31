@@ -260,7 +260,7 @@ describe('GST-544: the consumer scan reads only files that can match, under one 
   // Value: protects=a consumer whose name is not valid UTF-8 still counts, and a file with a million references does not crash the
   //   planner; fails_when=the -l pass hands back a mangled name as a pathspec, or the matches are spread into one call;
   //   seam=git tree objects and git grep output size
-  test('a consumer named with invalid UTF-8 bytes still counts; a million matches in one file are all returned', () => {
+  test('a consumer named with invalid UTF-8 bytes still counts; output past the byte cap fails closed; a million matches are all returned', () => {
     const r = repo({ 'src/keep.ts': 'x\n' });
     const head = r.commit({ 'data/results.json': rows });
     const run = (args: string[], input?: Buffer) => { const x = spawnSync('git', args, { cwd: r.dir, input, timeout: 10_000 }); if (x.status !== 0) throw new Error(`git ${args.join(' ')}: ${x.stderr}`); return x.stdout as Buffer; };
@@ -269,6 +269,9 @@ describe('GST-544: the consumer scan reads only files that can match, under one 
     const tree = run(['mktree', '-z'], Buffer.concat([run(['ls-tree', '-z', head]), entry])).toString().trim();
     const named = run(['commit-tree', tree, '-p', head, '-m', 'consumer'], Buffer.alloc(0)).toString().trim();
     expect(collectCommit(r.dir, r.baseSha, named).consumed).toEqual(['data/results.json']);
+    const small = mixed();
+    const capped = grepConsumers(small.dir, patterns, '', () => true, Date.now() + 10_000, 1, 50);
+    expect(capped).toEqual({ status: null, err: 'ENOBUFS', timedOut: false });
     r.write({ 'src/many.ts': 'rows.json\n'.repeat(1_100_000) });
     const got = grepConsumers(r.dir, ['rows.json'], '', () => true, Date.now() + 30_000);
     expect(Array.isArray(got) && got.filter(Boolean).length).toBe(1_100_000);
