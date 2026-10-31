@@ -13,7 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { classifyDiff, planReview, scanNumbers, type PlanInput } from '../lib/review-depth';
 import { raisedBy, summarizeReviewLoop } from '../lib/review-scope';
-import { TARGETED_RULES, targetedBrief, targetedBriefSha, targetedClasses, type TargetedInput } from '../lib/review-targeted';
+import { TARGETED_RULES, targetedBrief, targetedBriefSha, targetedClasses, type TargetedClass, type TargetedInput } from '../lib/review-targeted';
 import { carryReceipt, extractReceipt, renderReceiptBlock } from '../lib/ship-receipt';
 import { bindShippedReceipt, parseReviewTargeted, receiptTargetedLine } from '../lib/ship-receipt-depth';
 import type { ShipReceipt } from '../lib/headless-artifacts';
@@ -65,7 +65,7 @@ describe('targetedClasses: the four classes from added and deleted lines', () =>
   // Value: protects=the classifier fails closed like the depth does; fails_when=an unreadable diff, a scope error or a missing gate
   //   scan returns no class, so the targeted reader silently skips; seam=targetedClasses errors
   test('an input the classifier cannot read fails closed to all four classes with the reason', () => {
-    const all = ['money', 'gate', 'auth', 'secret'];
+    const all: TargetedClass[] = ['money', 'gate', 'auth', 'secret'];
     expect(targetedClasses(input(['src/a.ts'], { scope: undefined }))).toMatchObject({ classes: all, errors: ['scope unavailable (gstack-diff-scope did not run)'] });
     expect(targetedClasses(input(['src/a.ts'], { scope: { SCOPE_ERROR: 'unmatched' } })).classes).toEqual(all);
     expect(targetedClasses(input(['src/a.ts'], { gateTagged: null })).errors).toEqual(['gate scan unavailable']);
