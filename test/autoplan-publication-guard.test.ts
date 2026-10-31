@@ -1628,14 +1628,15 @@ describe('#3651: Claude Code cwd-reset footer on a Bash result', () => {
       expect(decision.reason).toContain('re-run');
     });
 
-test('#3651: the hook path keeps the first binding when a cwd-reset init is re-run after a typed user message', async () => {
+  test('#3651: the hook path keeps the first binding when an init is re-run after a typed user message', async () => {
     const footer = '\nShell cwd was reset to /home/user/project';
-    const run = async (tail: string) => {
+    const run = async (tail: string, failed?: unknown) => {
       const f = fixture(); (f.events[1] as any).content += tail; f.message();
+      if (failed !== undefined) { f.use('bad-init', 'Bash', (f.events[0] as any).input); f.result('bad-init', { content: failed }); }
       f.use('re-init', 'Bash', (f.events[0] as any).input); f.result('re-init', { content: JSON.stringify({ ...f.init, reused: true }) + tail });
       f.current();
       const { rows, record } = f.journal();
-      const at = rows.findIndex(r => Array.isArray(r.message.content) && r.message.content.some((b: any) => b.type === 'tool_use' && b.id === 're-init'));
+      const at = rows.findIndex(r => Array.isArray(r.message.content) && r.message.content.some((b: any) => b.type === 'tool_use' && ['bad-init', 're-init'].includes(b.id)));
       rows[at - 1]!.message.stop_reason = 'end_turn';
       rows.splice(at, 0, record('user', 'Looks good, keep going.', { origin: { kind: 'human' }, promptSource: 'typed', promptId: randomUUID() }));
       rows.forEach((r, i) => { r.parentUuid = i ? rows[i - 1]!.uuid : null; });
@@ -1644,6 +1645,8 @@ test('#3651: the hook path keeps the first binding when a cwd-reset init is re-r
     };
     expect(await run('')).toEqual(OWNED_READ_APPROVAL);
     expect(await run(footer)).toEqual(OWNED_READ_APPROVAL);
+    expect(await run('', 'unexpected output')).toEqual(OWNED_READ_APPROVAL);
+    expect(await run('', [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])).toEqual(OWNED_READ_APPROVAL);
   });
 
   for (const [name, content] of [['did not parse', undefined], ['had no single text block', [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }]]] as const)

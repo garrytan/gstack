@@ -74,10 +74,12 @@ function select(tests: GuardJournalTests, currentToolUseId: string) {
         .filter(e => e.kind === 'result' && e.toolUseId === init.use.toolUseId && e.order > init.use.order);
       let reply: unknown;
       try { reply = replies.length === 1 ? bashJson(textResult(replies[0]!) ?? 'null') : undefined; } catch { reply = undefined; }
+      // A failed or unreadable init binds nothing and is skipped, as invocation() does.
+      if (!object(reply)) continue;
       // A reused:true init keeps the earlier binding, as invocation() does.
       if (object(reply) && reply.reused === true && bound && bound.activePlan === reply.activePlan &&
           bound.restorePath === reply.restorePath) continue;
-      chainStart = init.record; bound = object(reply) ? reply : undefined;
+      chainStart = init.record; bound = reply;
     }
     let start = 0;
     for (let i = chainStart ?? records.length - 1; i >= 0; i--)
