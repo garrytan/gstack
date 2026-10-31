@@ -186,7 +186,7 @@ describe('gstack-skill-start jq copy vs the TS rule (table-driven parity)', () =
 
   function jqTrue(program: string, input: string): boolean {
     try {
-      execFileSync('jq', ['-e', program], { input, stdio: ['pipe', 'ignore', 'ignore'] });
+      execFileSync('jq', ['-e', program], { input, stdio: ['pipe', 'ignore', 'ignore'], timeout: 30_000 });
       return true;
     } catch {
       return false;
