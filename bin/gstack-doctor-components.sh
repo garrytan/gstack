@@ -350,10 +350,6 @@ gstack_result_anchor() {
     PROJECT_FLOOR_UNMET) printf '%s' 'project-floor-unmet' ;;
     PROJECT_NODE_PIN_UNMET) printf '%s' 'project-node-pin-unmet' ;;
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
-    BROWSE_SESSION_INVALID) printf '%s' 'browse-session-invalid' ;;
-    BROWSE_SESSION_ROOT_ONLY) printf '%s' 'browse-session-root-only' ;;
-    BROWSE_SESSION_TAB_RESET) printf '%s' 'browse-session-tab-reset' ;;
-    BROWSE_SESSION_LIMIT) printf '%s' 'browse-session-limit' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
     BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;
@@ -366,6 +362,13 @@ gstack_result_anchor() {
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
     EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
+    BROWSE_SESSION_INVALID) printf '%s' 'browse-session-invalid' ;;
+    BROWSE_SESSION_ROOT_ONLY) printf '%s' 'browse-session-root-only' ;;
+    BROWSE_SESSION_TAB_RESET) printf '%s' 'browse-session-tab-reset' ;;
+    BROWSE_SESSION_LIMIT) printf '%s' 'browse-session-limit' ;;
+    BROWSE_DEVICE_UNKNOWN) printf '%s' 'browse-device-unknown' ;;
+    BROWSE_DEVICE_CDP_FAILED) printf '%s' 'browse-device-cdp-failed' ;;
+    BROWSE_TOUCH_NO_DEVICE) printf '%s' 'browse-touch-no-device' ;;
     *) return 1 ;;
   esac
 }

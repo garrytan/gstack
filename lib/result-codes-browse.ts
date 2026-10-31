@@ -29,4 +29,20 @@ export const BROWSE_RESULT_CODES = {
     summary: 'every session slot is running a command, so no idle session could be closed to make room',
     fix: 'retry when a command finishes, or raise BROWSE_MAX_SESSIONS (default 16)',
   },
-} satisfies Record<string, ResultCode>;
+  // Phone emulation and touch (#3058).
+  BROWSE_DEVICE_UNKNOWN: {
+    anchor: 'browse-device-unknown',
+    summary: 'no Playwright device has that name, so nothing on the tab changed',
+    fix: '$B device --list',
+  },
+  BROWSE_DEVICE_CDP_FAILED: {
+    anchor: 'browse-device-cdp-failed',
+    summary: 'Chromium refused a device emulation call on this tab',
+    fix: '$B device off',
+  },
+  BROWSE_TOUCH_NO_DEVICE: {
+    anchor: 'browse-touch-no-device',
+    summary: 'touch input needs a phone profile on this tab first',
+    fix: '$B device "iPhone 15"',
+  },
+} as const satisfies Record<string, ResultCode>;

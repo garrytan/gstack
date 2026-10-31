@@ -56,6 +56,7 @@ export const SCOPE_WRITE = new Set([
   'upload', 'viewport', 'newtab', 'closetab',
   'dialog-accept', 'dialog-dismiss',
   'download', 'scrape', 'archive',
+  'device', 'tap', 'swipe', 'pinch', 'touch',
 ]);
 
 /** Page-level power tools — JS execution, credential access, page mutations */

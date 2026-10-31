@@ -22,13 +22,14 @@ import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { emitActivity } from './activity';
 import { validateNavigationUrl, blockedNavigationReason } from './url-validation';
-import { TabSession, type RefEntry } from './tab-session';
+import { TabSession, type DeviceProfile, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks, resolveConfig } from './config';
 import { ensureProjectProfile } from './chromium-profiles';
 import { launchWithXProtectHeal } from './xprotect-heal';
 import { DIRECT_PROXY_ARG, forcesDirect } from './proxy-config';
 import { readPidStartTime, shouldSpawnXvfb, spawnFreeXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
 import { withCdpSession } from './cdp-bridge';
+import { applyDevice } from './device-emulation';
 import { resultLine } from '../../lib/result-codes';
 import { sanitizeEcho } from '../../lib/sanitize-echo';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
@@ -353,6 +354,8 @@ export interface BrowserState {
      * In-memory only.
      */
     owner?: string;
+    /** `$B device` profile, re-applied before the restored tab's first request. */
+    device?: DeviceProfile;
   }>;
 }
 
@@ -1882,6 +1885,7 @@ export class BrowserManager {
         loadedHtml: loaded?.html,
         loadedHtmlWaitUntil: loaded?.waitUntil,
         owner,
+        device: session?.getDevice() ?? undefined,
       });
     }
 
@@ -1943,6 +1947,9 @@ export class BrowserManager {
       // across context recreation (viewport --scale, user-agent change, handoff).
       if (saved.owner) {
         this.tabOwnership.set(id, saved.owner);
+      }
+      if (saved.device) {
+        await applyDevice(newSession, saved.device).catch((err: any) => console.warn(`[browse] Failed to re-apply device for tab ${id}: ${err.message}`));
       }
 
       if (saved.loadedHtml) {
