@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.91.367.0] - 2026-10-31
+
+**/ship's review collection no longer counts a reviewer that says it could not review as clean.** In the GSTA-196 replay a specialist replied in prose that the diff base did not exist and it was not returning NO FINDINGS. `collect` parsed that reply to zero findings, and `verify` marked the brief collected, so the review would have read clean from a reader that never saw the diff. What reviewers see is unchanged: every brief renders byte for byte as before.
+
+### Fixed
+- **`gstack-review-dispatch collect` needs the clean marker a reader's own brief asks for before it counts a reply with no findings.** That is `NO FINDINGS` alone on a line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check; the `Recommendation:` line for the outside voice; and either one for the native adversarial voice. A reply with no finding and no marker (a refusal, an empty reply, a reader that never got the diff) is recorded with `review: false`, prints `COLLECT_NOT_REVIEWED` and exits 1. Re-sending the brief and collecting a real review voids it, and the outside voice, whose failure never blocks, is collected with `--unavailable '<reason>'` and verifies as `UNAVAILABLE`, never as a review. A failure text that still holds findings is refused there and collected normally, so nothing is lost.
+- **`gstack-review-dispatch verify` reports that reader's brief `NOT_COLLECTED` and its output `NOT_REVIEWED`, so VERIFY reads dirty.** When the output file is still there and unchanged, verify checks the marker in it again, so a ledger written before this change is judged by the same rule. The GSTA-189 replay's combined ledger still verifies clean, with five `NO FINDINGS` specialists and one outside voice ending in `Recommendation:`.
+- **A paragraph finding keeps its detail bullets.** The GSTA-196 native adversarial voice wrote four findings, each with unlabeled bullets and then a `Severity:` line. Every bullet closed the open finding, so each `Severity:` line opened a new one: 4 findings collected as 8. They now collect as 4, each at the stronger of its two labels. Only an unnumbered bullet with no file and line of its own counts as detail; a numbered item is still its own finding.
+- **Every other finding collects exactly as before.** Main's parser and this one were run over every recorded reader output: 25 raw outputs from the GSTA-189 and GSTA-196 replays and 2,172 finding records from arms C6, L6, A3668 (both suites), G1 and L. 2,196 of the 2,197 collect the same findings with the same labels. The one difference is the GSTA-196 native sample, where 8 fragments join into 4 findings, each at its strongest fragment's label.
+
+## [1.91.366.0] - 2026-10-31
+
+**A partial `gstack-post pr-body` post keeps the PR's intro.** Since GST-412, any body file with a `## ` section replaced the text above the PR's first heading, so a lane that posted only `## Screenshots` deleted a human intro or a `Review-loop exception:` line under the receipt (GStack Minder: "a partial pr-body post must keep the human intro").
+
+### Fixed
+- **Only a full post owns the text above the first heading.** A file with a receipt block above its first `## ` section, as /ship composes it, still replaces stale lead text and stale notes under the receipt. Any other file keeps them; its own lead text still replaces the PR's lead text.
+
+### Tests
+- `test/gstack-post.test.ts`: a partial post keeps the intro and the note under the receipt, even with a caption of its own or a receipt further down; the full-post cases now carry a receipt, as /ship's body does.
+
 ## [1.91.365.0] - 2026-10-31
 
 **An unclosed code fence in an outside review no longer hides a later `[P1]` or not-ready verdict (GST-436).** Before, an outside-voice reply that said no issues were found, opened a code fence it never closed, and then listed a `[P1]` finding or ended with `Verdict: not ready` was classified clean, because everything after the fence was treated as quoted code. Now a P0 or P1 severity or a last `Verdict: not ready` after an unclosed fence still blocks. Text inside that fence still can't make a reply clean, so a quoted `Verdict: ready`, `[P3]` or `No issues found.` there is ignored, as before.

@@ -128,6 +128,7 @@ function repo(): { dir: string; env: NodeJS.ProcessEnv } {
 
 interface Sub { title: string; prompt: string; status: string; polls: number; model?: unknown; summary?: string; late?: boolean }
 /** A fake Capy host: the shell is real (the repository's bins), subagents are scripted. */
+const cleanReply = (title: string) => (title.endsWith('outside-voice') ? 'Recommendation: ship as-is because no finding survived' : 'NO FINDINGS');
 function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean } = {}) {
   let clock = 0;
   const subs = new Map<string, Sub>();
@@ -135,12 +136,12 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
   const starts: number[][] = [];
   const advance = () => {
     for (const s of subs.values()) {
-      if (s.late && !s.summary) { s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; continue; }
+      if (s.late && !s.summary) { s.summary = o.output?.(s.title) ?? cleanReply(s.title); continue; }
       if (s.status !== 'working') continue;
       if (++s.polls < (o.pollsToFinish ?? 1)) continue;
       if (o.fail?.(s.title)) s.status = 'failed';
       else if (o.lateSummary && !s.late) { s.status = 'done'; s.late = true; }
-      else { s.status = 'done'; s.summary = o.output?.(s.title) ?? 'NO FINDINGS'; }
+      else { s.status = 'done'; s.summary = o.output?.(s.title) ?? cleanReply(s.title); }
     }
   };
   const tools = {
