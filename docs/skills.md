@@ -938,8 +938,9 @@ You: /ci-audit --since-days 14 --workflows ci.yml
 `gstack-ci-audit` splits each job into waiting, setup and running, measures push to all
 checks green per PR head, and prices the minutes from dated rows. The skill reports the
 ranked fixes, asks once per fix, and after a fix lands `gstack-ci-audit compare` prints
-before and after. `/ship` runs a few-second report-only check, and a Saturday workflow
-keeps one "Weekly CI audit" issue current.
+before and after. `gstack-ci-audit ship-check` is a few-second report-only check for
+`/ship` (the `/ship` step that calls it lands in a follow-up PR), and a Saturday workflow
+template keeps one "Weekly CI audit" issue current.
 
 ## `/test-audit`
 
