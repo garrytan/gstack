@@ -344,7 +344,7 @@ function unfinished(ctx: PregateContext, r: Awaited<ReturnType<typeof runLocal>>
     const killed = r.runs.find(x => x.outcome === 'exited' && x.exit === null);
     return { code: 'PREGATE_INCOMPLETE', detail: `the runner process ended without an exit code (killed by ${killed?.signal ?? 'a signal'}; ${total} files; last file started: ${killed?.lastFile ?? 'none reported'}${rest})`, fix: `read ${r.log}; a runner killed by a signal (out of memory, an outside kill) never passes; rerun, or split the selection` };
   }
-  return { code: 'PREGATE_INCOMPLETE', detail: `a runner process timed out after ${ctx.timeoutMs} ms (--timeout applies to each runner process; ${total} files; last file started: ${timedOut.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest})`, fix: 'raise --timeout or split the selection; a timed-out lane never passes' };
+  return { code: 'PREGATE_INCOMPLETE', detail: `a runner process timed out after ${ctx.timeoutMs} ms (${ctx.timeoutSource ?? '--timeout'} applies to each runner process; ${total} files; last file started: ${timedOut.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest})`, fix: 'raise --timeout or split the selection; a timed-out lane never passes' };
 }
 
 function describe(sel: Selection, noPolicy = false): string[] {
@@ -401,11 +401,14 @@ export function remoteReportProblem(report: RemoteReport, tree: string): string 
 
 /**
  * `--remote`: run the declared remote gate now, under the spend cap. The
- * gate gets PREGATE_TREE, PREGATE_FILES_FILE and PREGATE_SPEND_CAP_USD and
+ * gate gets PREGATE_TREE, PREGATE_FILES_FILE, PREGATE_SPEND_CAP_USD and
+ * PREGATE_TIMEOUT_S (this run's per-process timeout, whole seconds) and
  * must print `PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n> [spent=<usd>]`;
  * the obligation clears only when that tree is the tested tree, tests > 0,
  * failed = 0 and the gate exited 0. Anything else leaves it uncleared and
- * the check incomplete.
+ * the check incomplete. The gate is bounded by that timeout only: a gate
+ * that waits on CI is quiet by design, so the stall timer does not apply,
+ * and its heartbeat names the gate's last output line.
  */
 async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult): Promise<CheckResult> {
   const lines = base.lines ?? [];
@@ -417,7 +420,7 @@ async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult)
   const filesFile = path.join(dir, 'files.txt');
   fs.writeFileSync(log, '');
   fs.writeFileSync(filesFile, sel.localTests.join('\n') + '\n');
-  const r = await supervise({ command: obligation.command!, cwd: ctx.repoRoot, env: { ...ctx.env, PREGATE_TREE: ctx.wtree, PREGATE_FILES_FILE: filesFile, PREGATE_SPEND_CAP_USD: String(cap) }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: ctx.stallTimeoutMs, label: `remote gate ${obligation.lane}`, progress: ctx.progress });
+  const r = await supervise({ command: obligation.command!, cwd: ctx.repoRoot, env: { ...ctx.env, PREGATE_TREE: ctx.wtree, PREGATE_FILES_FILE: filesFile, PREGATE_SPEND_CAP_USD: String(cap), PREGATE_TIMEOUT_S: String(Math.floor(ctx.timeoutMs / 1000)) }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: 0, lastLine: true, label: `remote gate ${obligation.lane}`, progress: ctx.progress });
   const output = readRange(log, r.start, r.end);
   const reported = parseRemoteReport(output);
   const spent = reported?.spent;
@@ -425,16 +428,17 @@ async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult)
   ctx.progress(`PREGATE_REMOTE_SPEND: ${spend.slice('spend: '.length)}`);
   const runLines = [...lines, `remote gate: ${obligation.command}`, `log: ${log}`, spend, ...output.trim().split('\n').slice(-15).map(l => `  ${l}`)];
   const inputs = { ...base.inputs, command: sha256(obligation.command!) };
-  const why = r.outcome !== 'exited' ? `the remote gate did not finish (${r.outcome === 'stalled' ? `no output for ${ctx.stallTimeoutMs / 1000} s` : r.outcome})`
+  const why = r.outcome === 'timeout' ? `the remote gate did not finish (timed out after ${ctx.timeoutMs / 1000} s, ${ctx.timeoutSource})`
+    : r.outcome !== 'exited' ? `the remote gate did not finish (${r.outcome})`
     : !reported ? `the remote gate exited ${r.exit} without a PREGATE_REMOTE: line`
     : remoteReportProblem(reported, ctx.wtree) ?? (r.exit !== 0 ? `the remote gate exited ${r.exit}` : null);
   // A gate that printed no report and names a quota, network or missing-tool error in its preamble never ran the tests: the environment, not the diff.
   // Only the gate's first lines are read (a VM refusal or a network error comes before any test streams); exit 127 counts only when the gate's own binary is off PATH.
-  const environment = why && !reported && r.outcome !== 'stalled' && r.outcome !== 'timeout'
+  const environment = why && !reported && r.outcome !== 'timeout'
     ? r.outcome === 'spawn-failed' ? { ...(classifyEnvironment(r.error ?? '', null) ?? launchCause('missing-binary', r.error ?? 'the remote gate could not be started')), proof: 'launch' as const } : classifyCommandEnvironment(obligation.command!, output.split('\n').slice(0, REMOTE_PREAMBLE_LINES).join('\n'), r.exit, ctx.env)
     : null;
   if (environment) return environmentResult({ ...base, inputs, lines: runLines, remote: [...sel.remote, obligation] }, environment, `${why}; requires-remote ${obligation.lane} stays uncleared`);
-  if (why) return { ...base, inputs, lines: runLines, status: 'incomplete', remote: [...sel.remote, obligation], code: r.outcome === 'stalled' ? 'PREGATE_STALLED' : 'PREGATE_INCOMPLETE', detail: `${why}; requires-remote ${obligation.lane} stays uncleared`, fix: `read ${log}; the obligation clears only on PREGATE_REMOTE: tree=${ctx.wtree.slice(0, 12)}… tests>0 failed=0 with exit 0` };
+  if (why) return { ...base, inputs, lines: runLines, status: 'incomplete', remote: [...sel.remote, obligation], code: 'PREGATE_INCOMPLETE', detail: `${why}; requires-remote ${obligation.lane} stays uncleared`, fix: `read ${log}; the obligation clears only on PREGATE_REMOTE: tree=${ctx.wtree.slice(0, 12)}… tests>0 failed=0 with exit 0` };
   const cleared = { ...obligation, receipt: `remote-gate tree=${ctx.wtree.slice(0, 12)} tests=${reported!.tests}`, cleared_by: `gstack-pregate --remote ${new Date().toISOString()}` };
   return { ...base, inputs, lines: runLines, status: 'requires-remote', remote: [...sel.remote, cleared], detail: `remote gate ${obligation.lane}: ${reported!.tests} tests, 0 failed on tree ${ctx.wtree.slice(0, 12)}; ${spend}` };
 }
@@ -527,10 +531,10 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
  * routes; it never switches to the head policy on its own.
  */
 function noLaneFix(ctx: PregateContext, noLane: readonly string[]): string {
-  const device = noLane.some(isDeviceDart) ? `; pregate does not run device tests, so declare "**/integration_test/**": [] (and "**/test_driver/**": []) and let CI run them` : '';
+  const device = noLane.some(isDeviceDart) ? `; pregate does not run device tests, so declare "**/integration_test/**": [] (and "**/test_driver/**": []) on ${ctx.base} and let CI run them` : '';
   const fix = `add a test that names the file, or declare its lane (or []) under dependencies — or empty_lanes for other documentation — in ${ctx.configFile}${device}`;
   if (ctx.configKind === 'head' || !ctx.touched.some(t => t.path === PREGATE_CONFIG_PATH && t.status !== 'D')) return fix;
-  return `this branch edits ${PREGATE_CONFIG_PATH}, but the policy comes from ${ctx.configLabel} so a branch cannot loosen its own gate, and a lane it adds counts only once it is on ${ctx.base}: land the policy change in its own PR first, or rerun with --policy-from head --allow-repo-commands, which records the run as policy head (unreviewed); otherwise ${fix}`;
+  return `this branch edits ${PREGATE_CONFIG_PATH}, but the policy comes from ${ctx.configLabel} so a branch cannot loosen its own gate, and a lane it adds counts only once it is on ${ctx.base}: land the policy change in its own PR first, or rerun with --policy-from head --allow-repo-commands (gstack-ship-preflight forwards it; a head policy may only add test lanes, and a [] declaration must land on ${ctx.base} first), which records the run as policy head (unreviewed); otherwise ${fix}`;
 }
 
 export const lanesCheck: CheckDef = { id: 'lanes', stage: 'tests', tier: 1, downgradable: true, needsRepoCommands: true, run };
