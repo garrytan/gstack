@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import {
   BudgetError, DEFAULT_TAIL, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
-  aboveFloor, admits, applyCredits, applyReading, budgetError, creditsUsed, parseCredits, budgetLine, keepsSmallRun, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
+  aboveFloor, admits, applyCredits, applyReading, budgetError, creditsUsed, parseCredits, budgetLine, keepsSmallRun, labelScope, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
   parseNext, parseRecordBlock, parseStep, parseTokens, pointMarker, projector, readLedger, reserveIn, restoreRun, reviewPaths,
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
   type Ledger, type MeterKind, type Next, type Note,
@@ -236,9 +236,15 @@ function pickMeter(o: Opts): MeterKind | undefined {
 }
 
 export function cmdStart(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode']);
+  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode', 'meter-scope', 'reading-from'], ['subagent']);
   const mode = str(o, 'mode') ?? 'admit';
   if (mode !== 'admit' && mode !== 'observe') throw usageError(`--mode '${mode}' is not admit or observe`);
+  const scope = str(o, 'meter-scope');
+  if (scope !== undefined && scope !== 'self' && scope !== 'tree') throw usageError(`--meter-scope '${scope}' is not self or tree`);
+  const from = str(o, 'reading-from');
+  if (from !== undefined && from !== 'this' && from !== 'own') throw usageError(`--reading-from '${from}' is not this or own`);
+  const parentCounter = (o.subagent === true || ctx.env.GSTACK_SHIP_SUBAGENT === '1') && from === 'this';
+  if (parentCounter && scope === 'self') throw budgetError('METER_SCOPE_PARENT', 'start --subagent --reading-from this --meter-scope self');
   const record = str(o, 'record');
   if (!record) throw usageError('start needs --record <invocation record path>');
   const rawCap = str(o, 'token-cap') ?? ctx.env.GSTACK_SHIP_TOKEN_CAP;
@@ -249,7 +255,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const existing = parseRecordBlock(record);
   if (existing?.ledger && fs.existsSync(existing.ledger) && !readLedger(existing.ledger).closed_at) {
     const l = readLedger(existing.ledger);
-    return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 };
+    return labelScope(l, { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 });
   }
   const meter = pickMeter(o);
   if (!meter) {
@@ -270,6 +276,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     marker: paths.marker, review_log: paths.reviewLog, ...(str(o, 'calibration') ? { calibration: path.resolve(str(o, 'calibration')!) } : {}),
     ...(callFloor !== undefined ? { call_floor: callFloor } : {}), ...(mode === 'observe' ? { mode } : {}),
+    ...(scope === 'tree' || parentCounter ? { meter_scope: 'tree' as const } : {}),
   };
   if (meter === 'capy' && tokensOpt(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', 'start --meter capy');
   if (meter === 'capy') l.meter.baseline = tokensOpt(o, 'reading')!;
@@ -278,7 +285,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const out = decide(l, '0.9', { kind: 'step', step: '1' }, call, true);
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
-  return { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...out.stdout], exit: out.exit };
+  return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...out.stdout], exit: out.exit });
 }
 
 /**

@@ -19,6 +19,11 @@ export const BUDGET_RESULT_CODES = {
     summary: 'the Capy meter needs a fresh counter reading and none was passed',
     fix: 'read cost.tokens from tools.thread.get({ thread_id: "<your own jam id>" }) (your own jam, its subagents included, never the root thread) inside the execute program that runs the command and pass it with --reading <n> (ship/sections/budget-handoff.md has the recipe)',
   },
+  METER_SCOPE_PARENT: {
+    anchor: 'meter-scope-parent',
+    summary: 'a subagent asked for a self-scoped run while its reading comes from "this", the root thread\'s counter, which also holds every sibling lane',
+    fix: 'start with --meter-scope tree (every cost line then prints METER: tree (root counter, upper bound)); exact per-run cost comes from a root replay thread',
+  },
   BUDGET_READING_REJECTED: {
     anchor: 'budget-reading-rejected',
     summary: 'the reading does not fit the run\'s meter contract: it is lower than the last reading of the same epoch, it was passed to a meter that reads its own source, or --prior-reading is above --reading',

@@ -25,7 +25,7 @@ import { resolveClaudeCommand } from './claude-bin';
 import { wtreeFingerprint } from './script-invocation';
 import { resultLine } from './result-codes';
 import {
-  MAX_CHAIN_DEPTH, SHIP_STEPS, budgetError, budgetLine, ledgerFileFor, loadCalibration, mintRunId, mutateLedger, parseStep, pointMarker,
+  MAX_CHAIN_DEPTH, SHIP_STEPS, budgetError, budgetLine, labelScope, ledgerFileFor, loadCalibration, mintRunId, mutateLedger, parseStep, pointMarker,
   projector, readLedger, reserveIn, runDirFor, segmentEstimate, settleIn, tally, usageError, writeLedger, type Handoff, type Ledger,
 } from './ship-budget';
 import { loadMeterState, saveMeterState } from './claude-usage';
@@ -195,7 +195,7 @@ export function cmdVerifyHandoff(argv: string[], ctx: Ctx): Outcome {
       ...(parent.meter.contract.meter === 'claude' ? { sessions: [str(o, 'session') ?? ''], config_dir: parent.meter.config_dir } : {}) },
     epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     marker: parent.marker, review_log: parent.review_log, calibration: parent.calibration,
-    ...(parentMetered ? { parent_metered: true } : {}),
+    ...(parentMetered ? { parent_metered: true } : {}), ...(parent.meter_scope ? { meter_scope: parent.meter_scope } : {}),
   };
   if (parent.meter.contract.meter === 'claude' && !str(o, 'session')) throw usageError('verify-handoff on meter=claude needs --session <this child session id>');
   readMeter(child, o, !parentMetered);
@@ -205,9 +205,9 @@ export function cmdVerifyHandoff(argv: string[], ctx: Ctx): Outcome {
   });
   writeLedger(child, ctx.env);
   pointMarker(child.marker, child);
-  return { stdout: [`HANDOFF_OK: steps=${block.from}-${block.to} sha256=${sha}`, `BUDGET_RUN: id=${run} ledger=${child.file}`,
+  return labelScope(child, { stdout: [`HANDOFF_OK: steps=${block.from}-${block.to} sha256=${sha}`, `BUDGET_RUN: id=${run} ledger=${child.file}`,
     ...(parentMetered ? [`${PARENT_METERED} (no counter of its own: the parent's handoff and reconcile readings measure Steps ${block.from}-${block.to})`] : []),
-    budgetLine(child, { call: null, next: block.from, projected: 0, verdict: 'continue' })], exit: 0 };
+    budgetLine(child, { call: null, next: block.from, projected: 0, verdict: 'continue' })], exit: 0 });
 }
 
 export function cmdReturn(argv: string[], ctx: Ctx): Outcome {

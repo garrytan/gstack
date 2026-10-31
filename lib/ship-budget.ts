@@ -91,6 +91,8 @@ export interface Ledger {
   /** Capy cost.credits readings beside the token meter: baseline is the first reading, last the newest. */
   credits?: { baseline: number; last: number };
   notes?: Note[];
+  /** tree: the reading is the root thread's counter (a subagent cannot read its own jam id), so every cost line carries TREE_METER. */
+  meter_scope?: 'tree';
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
 }
 
@@ -359,8 +361,20 @@ export function mutateLedger<T>(file: string, env: NodeJS.ProcessEnv, fn: (l: Le
     const ledger = readLedger(file);
     const out = fn(ledger);
     writeLedger(ledger, env);
-    return out;
+    return labelScope(ledger, out);
   });
+}
+
+export const TREE_METER = 'METER: tree (root counter, upper bound)';
+
+/** A tree-scoped run never prints a cost line without TREE_METER on the line after it. */
+export function labelScope<T>(l: Ledger, out: T): T {
+  if (l.meter_scope !== 'tree') return out;
+  const label = (lines: string[]) => lines.flatMap(line => /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|NOTE):/.test(line) ? [line, TREE_METER] : [line]);
+  if (Array.isArray(out)) return label(out) as T;
+  const o = out as { stdout?: unknown };
+  if (Array.isArray(o?.stdout)) o.stdout = label(o.stdout);
+  return out;
 }
 
 function childUsed(l: Ledger, r: Reservation): number {
