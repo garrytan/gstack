@@ -16,7 +16,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { isReviewedTreeLine, promptHash, type TreeCheck } from './review-brief';
+import { checkReviewedTree, isReviewedTreeLine, promptHash, type TreeCheck } from './review-brief';
 
 export interface LedgerEvent { event: 'rendered' | 'sent' | 'output' | 'judgment' | 'judge' | 'program'; [k: string]: unknown }
 export const readerKey = (role: string, name?: string) => (name ? `${role}/${name}` : role);
@@ -234,6 +234,14 @@ function reviewed(o: LedgerEvent): boolean {
   return text !== undefined && promptHash(text) === o.sha256 ? hasCleanMarker(String(o.reader), text) : o.review === true;
 }
 
+/** A recorded output's file text while it still hashes to what collect recorded. */
+function unchangedOutput(o: LedgerEvent): string | undefined {
+  try {
+    const text = typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined;
+    return text !== undefined && promptHash(text) === o.sha256 ? text : undefined;
+  } catch { return undefined; }
+}
+
 /** Every id collect recorded, in order. */
 const collectedIds = (events: LedgerEvent[]) => events.filter(e => e.event === 'output').flatMap(e => (Array.isArray(e.ids) ? (e.ids as string[]) : []));
 
@@ -288,6 +296,10 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     else if (!lastSent || lastSent.sha256 !== events[p.at]!.sha256) { status = 'MISMATCH'; notes.push('brief_not_sent_verbatim'); }
     let text: string | undefined;
     try { text = typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined; } catch { /* missing or unreadable */ }
+    // Whether a reply names the tree its render recorded (GST-482), checked on the reply itself, never on an output event's editable fields.
+    const render = p ? events[p.at]! : undefined;
+    const treeHolds = (reply: string | undefined) => !render || !('tree' in render)
+      || (reply !== undefined && checkReviewedTree(reply, typeof render.tree === 'string' ? render.tree : null).ok);
     if (text !== undefined && promptHash(text) !== o.sha256) { status = 'MISMATCH'; notes.push('output_file_changed'); }
     const ids = Array.isArray(o.ids) ? (o.ids as string[]) : [];
     let lines: MergedLine[] = [];
@@ -305,14 +317,14 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
       if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
       else if (!unavailableOutput(o)) {
         if (off.length) { status = 'MISMATCH'; notes.push(`merged_line_differs=${JSON.stringify(off)}`); differs.push(...off); }
-        // A reply collect refused for its tree (GST-482) records no ids whatever it holds; tree_ok false always verifies NOT_REVIEWED.
-        if (parsed.length !== ids.length && !(o.tree_ok === false && !ids.length)) { status = 'MISMATCH'; notes.push(`merged_count_differs=${parsed.length}/${ids.length}`); }
+        // A reply collect refused for its tree (GST-482) records no ids whatever it holds; the refusal is re-derived from the reply.
+        if (parsed.length !== ids.length && !(o.tree_ok === false && !ids.length && !treeHolds(text))) { status = 'MISMATCH'; notes.push(`merged_count_differs=${parsed.length}/${ids.length}`); }
       }
     }
     if (status === 'MATCH' && !reviewed(o)) {
       // A non-review the same dispatch later replaced with a review (the brief re-sent verbatim, then answered) is void, counted like a voided send.
       const later = p ? events.slice(i + 1, p.next) : [];
-      const review = later.findIndex(e => e.event === 'output' && e.reader === reader && reviewed(e));
+      const review = later.findIndex(e => e.event === 'output' && e.reader === reader && reviewed(e) && treeHolds(unchangedOutput(e)));
       const replaced = review > 0 && later.slice(0, review).some(e => e.event === 'sent' && e.reader === reader && e.sha256 === events[p!.at]!.sha256);
       if (unavailableOutput(o)) { status = 'UNAVAILABLE'; notes.push(`reason=${JSON.stringify(o.unavailable)}`); }
       else if (replaced) { status = 'VOIDED'; voided++; notes.push('replaced_by_a_review'); }

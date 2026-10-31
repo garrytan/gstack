@@ -540,37 +540,54 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const extra = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; rows.push({ ...rows[1]!, id: 'specialist/testing#9' }); });
     expect([extra.status, extra.stdout.includes('merged_rows_not_collected=["specialist/testing#9"]')]).toEqual([1, true]);
   });
-  // Value: protects=an output event edited to read like a refused reply (no ids, review false) cannot drop its findings and still verify
-  //   clean; fails_when=verify skips the count check on review:false alone, so a clean marker keeps the output MATCH (fix-check at 721539c:
-  //   VERIFY: clean); why_new=the GST-482 count exemption trusted collect's review field; seam=verify; no_claim=that a deleted output
-  //   event is caught (#3719)
-  test('an output event edited to no ids and review false is dirty; a real wrong-tree reply with findings is NOT_REVIEWED, no count mismatch', () => {
+  // Value: protects=an output event edited to read like a refused reply (no ids, review false, tree_ok false) cannot drop its findings
+  //   and still verify clean, while a reply collect really refused for its tree stays NOT_REVIEWED until a re-sent brief is answered;
+  //   fails_when=verify skips the count check on the editable review or tree_ok field, so a clean marker keeps the output MATCH or a
+  //   later review voids it (fix-checks at 721539c and 56ed6e3: VERIFY: clean); why_new=the GST-482 count exemption trusted collect's
+  //   fields; seam=verify; no_claim=that a deleted output event is caught (#3719)
+  test('an output event edited to look refused is dirty; a real wrong-tree reply is NOT_REVIEWED, then voided by a review', () => {
     const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const findings = '1. **CRITICAL**: auth.ts:3 leaks a token\nBlocks: yes\n\nRecommendation: request changes\n';
     const voice = (reply: string) => {
       const out = tmp();
       const ledger = path.join(out, 'review-ledger.jsonl');
       const merged = path.join(out, 'merged.jsonl');
-      run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file')]);
-      const file = path.join(out, 'ov.out');
-      fs.writeFileSync(file, reply);
-      const c = run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', file, '--merged', merged]);
-      const judgeNone = () => run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(out, 'judged.jsonl')]);
-      fs.writeFileSync(path.join(out, 'judged.jsonl'), '');
-      return { ledger, merged, c, judgeNone };
+      const brief = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+      const send = () => run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', brief]);
+      let n = 0;
+      const take = (text: string) => { const f = path.join(out, `ov${++n}.out`); fs.writeFileSync(f, text); return run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', f, '--merged', merged]); };
+      send();
+      const c = take(reply);
+      const forge = (edit: Record<string, unknown>) => {
+        fs.writeFileSync(ledger, readJsonl<Record<string, unknown>>(ledger).map(e => JSON.stringify(e.event === 'output' ? { ...e, ...edit } : e)).join('\n') + '\n');
+        fs.writeFileSync(merged, '');
+      };
+      const verify = () => {
+        fs.writeFileSync(path.join(out, 'judged.jsonl'), '');
+        expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(out, 'judged.jsonl')]).status).toBe(0);
+        return run(['verify', '--ledger', ledger]);
+      };
+      return { c, send, take, forge, verify };
     };
-    const findings = '1. **CRITICAL**: auth.ts:3 leaks a token\nBlocks: yes\n\nRecommendation: request changes\n';
-    const forged = voice(findings);
-    expect(forged.c.status).toBe(0);
-    fs.writeFileSync(forged.ledger, readJsonl<Record<string, unknown>>(forged.ledger).map(e => JSON.stringify(e.event === 'output' ? { ...e, ids: [], review: false } : e)).join('\n') + '\n');
-    fs.writeFileSync(forged.merged, '');
-    expect(forged.judgeNone().status).toBe(0);
-    const v = run(['verify', '--ledger', forged.ledger]);
+    const noIds = voice(findings);
+    expect(noIds.c.status).toBe(0);
+    noIds.forge({ ids: [], review: false });
+    const v = noIds.verify();
     expect([v.status, v.stdout.includes('merged_count_differs=1/0'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const flagged = voice(findings);
+    flagged.forge({ ids: [], review: false, tree_ok: false });
+    flagged.send();
+    expect(flagged.take('Recommendation: approve\n').status).toBe(0);
+    const f = flagged.verify();
+    expect([f.status, f.stdout.includes('merged_count_differs=1/0'), f.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
     const wrong = voice(`REVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\n` + findings);
     expect([wrong.c.status, wrong.c.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice')]).toEqual([1, true]);
-    expect(wrong.judgeNone().status).toBe(0);
-    const w = run(['verify', '--ledger', wrong.ledger]);
+    const w = wrong.verify();
     expect([w.status, /^OUTPUT outside-voice NOT_REVIEWED .*wrong_tree/m.test(w.stdout), w.stdout.includes('merged_count_differs')]).toEqual([1, true, false]);
+    wrong.send();
+    expect(wrong.take('Recommendation: approve\n').status).toBe(0);
+    const r = wrong.verify();
+    expect([r.status, r.stdout.includes('replaced_by_a_review'), r.stdout.includes('VERIFY: clean briefs=1 outputs=2 voided=1')]).toEqual([0, true, true]);
   });
 });
 
