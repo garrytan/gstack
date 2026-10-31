@@ -289,6 +289,32 @@ describe.skipIf(process.platform === 'win32')('gstack-ff-update: moving the tree
     expect(reverted.status).toBe(6);
     expect(reverted.stdout).toStartWith('version-reverted: VERSION says 1.0.0 but the checkout is at 1.1.0');
     expect(read(fx, 'VERSION')).toBe('1.0.0\n');
+    write(fx, 'VERSION', '9.9.9\n');
+    expect(ff(fx).stdout).toStartWith('version-reverted: VERSION says 9.9.9 but the checkout is at 1.1.0: files changed outside git');
+  });
+
+  // Value: protects=an unmerged VERSION still takes the existing rescue, which the unmerged-files banner's command relies on;
+  //   fails_when=the version-reverted preflight fires on conflict markers; why_new=the preflight is new; seam=none
+  test('preflight: an unmerged VERSION is rescued, not refused as version-reverted', () => {
+    const fx = makeFixture();
+    makeUnmerged(fx, 'VERSION');
+    const target = release(fx, { 'notes.txt': 'x\n' });
+    const r = ff(fx, target);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^rescued .* unmerged=1/);
+  });
+
+  // Value: protects=the preflight runs no code from the enclosing project (its core.fsmonitor hook); fails_when=an enclosing-repo git call
+  //   drops the fsmonitor override; why_new=the enclosing-project probe is new; seam=none
+  test('preflight: an enclosing project\'s core.fsmonitor hook never runs', () => {
+    const fx = makeFixture();
+    const sentinel = path.join(fx.base, 'fsmonitor-ran');
+    git(fx.base, 'init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(fx.base, 'hook.sh'), `#!/bin/sh\ntouch '${sentinel}'\n`, { mode: 0o755 });
+    git(fx.base, 'config', 'core.fsmonitor', path.join(fx.base, 'hook.sh'));
+    const r = spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(fs.existsSync(sentinel)).toBe(false);
   });
 
   test('refusals: not a fast-forward, an unresolvable target, and a missing checkout', () => {
