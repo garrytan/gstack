@@ -42,6 +42,7 @@ describe('targetedClasses: the four classes from added and deleted lines', () =>
     expect(classesOf(input(['lib/pregate-check.ts']))).toEqual([]);
     expect(classesOf(input(['src/auth/session.ts'], { scope: { SCOPE_AUTH: 'true' } }))).toEqual(['auth']);
     expect(classesOf(input(['src/auth/session.ts']))).toEqual([]);
+    expect(classesOf(input(['lib/authentication.ts', 'src/authorizer/index.ts'], { scope: { SCOPE_AUTH: 'true' } }))).toEqual(['auth']);
     expect(classesOf(input(['src/client.ts'], { added: { 'src/client.ts': ['const key = process.env.OPENAI_API_KEY;'] } }))).toEqual(['secret']);
     expect(classesOf(input(['src/log.ts'], { removed: { 'src/log.ts': ['  console.log(s.replaceAll(process.env.ANTHROPIC_API_KEY ?? "", "***"));'] } }))).toEqual(['secret']);
     expect(classesOf(input(['bin/run.sh'], { added: { 'bin/run.sh': ['curl -H "Authorization: $GH_TOKEN" "$URL"'] } }))).toEqual(['secret']);
@@ -208,7 +209,7 @@ describe('gstack-review-plan prints TARGETED and dispatches the targeted reader'
     const first = repo.run([]);
     expect(field(first.stdout, 'TARGETED:', 'rules')).toBe(TARGETED_RULES);
     expect(field(first.stdout, 'TARGETED:', 'brief')).toBe(targetedBriefSha());
-    const patch = field(first.stdout, 'TARGETED:', 'product_patch_id')!;
+    const patch = field(first.stdout, 'TARGETED:', 'targeted_patch_id')!;
     expect(patch).toMatch(/^[0-9a-f]{40}$/);
     const same = repo.run(['--pass', '1', '--last', 'full', '--fixed-below', '--targeted-ran', patch]);
     expect(same.stdout).not.toContain('DISPATCH: targeted');
@@ -218,10 +219,18 @@ describe('gstack-review-plan prints TARGETED and dispatches the targeted reader'
     expect(other.stdout).toContain('DIFF_EXCLUDE: targeted none');
     repo.write({ 'src/charge.ts': 'export const spend_cap_usd = 6;\n' });
     const dirty = repo.run(['--pass', '1', '--last', 'full', '--fixed-below', '--targeted-ran', patch]);
-    expect(field(dirty.stdout, 'TARGETED:', 'product_patch_id')).toBe('uncommitted');
+    expect(field(dirty.stdout, 'TARGETED:', 'targeted_patch_id')).toBe('uncommitted');
     expect(dirty.stdout).toContain('DISPATCH: targeted targeted effort=full');
-    expect(JSON.parse(repo.run(['--json']).stdout).targeted).toMatchObject({ classes: ['money'], rules: TARGETED_RULES, product_patch_id: 'uncommitted' });
-  }, 60_000);
+    expect(JSON.parse(repo.run(['--json']).stdout).targeted).toMatchObject({ classes: ['money'], rules: TARGETED_RULES, targeted_patch_id: 'uncommitted' });
+    const read = planRepo(FIXTURES['money-light']!);
+    const readId = field(read.run([]).stdout, 'TARGETED:', 'targeted_patch_id')!;
+    read.write({ 'test/charge.test.ts': 'test("cap", () => {});\n' });
+    for (const args of [['add', '.'], ['commit', '-qm', 'test-only fix']]) expect(spawnSync('git', args, { cwd: read.dir, encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const testFix = read.run(['--gate-tagged', '1', '--pass', '1', '--last', 'full', '--fixed-below', '--targeted-ran', readId]);
+    expect(field(testFix.stdout, 'TARGETED:', 'classes')).toBe('money,gate');
+    expect(field(testFix.stdout, 'TARGETED:', 'targeted_patch_id')).not.toBe(readId);
+    expect(testFix.stdout).toContain('DISPATCH: targeted targeted effort=full');
+  }, 90_000);
 });
 
 // --- production path: render, sent, collect, judge, verify, receipt write, summary and the queue ------------------------
@@ -268,6 +277,11 @@ describe('the targeted role end to end on a fixture repository', () => {
     expect(verify.status, verify.out).toBe(0);
     expect(verify.out).toContain(`TARGETED_RECORD: classes=money status=done findings=1 brief=${targetedBriefSha().slice(0, 12)} rules=${TARGETED_RULES}`);
     expect(verify.out).toContain('VERIFY: clean');
+    fs.writeFileSync(path.join(repo.work, 'src', 'charge.ts'), 'export const spend_cap_usd = 50;\n');
+    repo.git('commit', '-qam', 'later product change the reader never read');
+    expect(runBin(repo, 'gstack-review-dispatch', ['verify', '--ledger', ledger]).out).toContain('TARGETED_RECORD: classes=money status=failed findings=0');
+    repo.git('reset', '-q', '--hard', head);
+    expect(runBin(repo, 'gstack-review-dispatch', ['verify', '--ledger', ledger]).out).toContain('TARGETED_RECORD: classes=money status=done findings=1');
 
     const body = path.join(repo.root, 'body.md');
     const write = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--review-targeted', `@${record}`, '--body', body, '--json']);

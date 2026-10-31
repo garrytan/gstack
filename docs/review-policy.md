@@ -312,11 +312,13 @@ The classifier and the brief are gate paths, so an edit that weakens them gets
 full review.
 
 The plan prints `TARGETED: classes=<money,gate,auth,secret|none> rules=<hash>
-brief=<sha256 of the brief> product_patch_id=<id>` and, when a class hit,
+brief=<sha256 of the brief> targeted_patch_id=<id>` and, when a class hit,
 `DISPATCH: targeted targeted effort=full`. After a fix, pass
-`--targeted-ran <product_patch_id>` from the line the reader ran on: the same
-committed product patch skips the reader, and a changed one or uncommitted
-edits dispatch it again.
+`--targeted-ran <targeted_patch_id>` from the line the reader ran on: the same
+committed patch skips the reader, and a changed one, uncommitted edits or
+`none` dispatch it again. `targeted_patch_id` is the patch-id of the whole
+committed diff, tests included, so a test-only fix that adds a gate hunk
+dispatches it again; it is not the receipt's `product_patch_id`.
 
 The brief states the blocking floor in one sentence, and its money block cites
 the checklist's Forced-CRITICAL rule on uncapped spend, so a money finding can
@@ -351,7 +353,7 @@ puts in the receipt:
 | `review_loop.fix_checks` | fix-checks this ship ran (never passes) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
-| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its output collected, else `failed`; absent when write got no record, which the queue reports as `legacy`), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
+| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its output collected and the committed diff it was rendered on still the one at verify, else `failed`; absent when write got no record, which the queue reports as `legacy`), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
 diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,

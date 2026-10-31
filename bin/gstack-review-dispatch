@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, promptHash, renderBrief, sectionTexts, type BriefRole, type Slots } from '../lib/review-brief';
 import { collect, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
-import { TARGETED_RULES, parseClassList, targetedBriefSha } from '../lib/review-targeted';
+import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from '../lib/review-targeted';
 
 const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free collection for /ship
 
@@ -82,13 +82,16 @@ function render(): number {
   fs.writeFileSync(file, text, { mode: 0o600 });
   const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
   const sha = promptHash(text);
-  const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist) };
+  const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: diffBase ?? null, patch_id: diffBase ? targetedPatchId(process.cwd(), diffBase) : 'none' };
   appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), ...targeted });
   process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
   return EXIT.ok;
 }
 
-/** The receipt's review_targeted record from the newest targeted dispatch: done only when its brief was sent verbatim and its output collected. */
+/**
+ * The receipt's review_targeted record from the newest targeted dispatch: done only when its brief was sent verbatim, its output
+ * collected, and the committed diff it was rendered on is still the one at verify (targetedPatchId; uncommitted never proves it).
+ */
 function targetedRecord(ledger: string, rows: VerifyRow[]): { classes: string[]; rules: string; brief_sha: string; status: 'done' | 'failed'; findings: number; raised_by: string } | null {
   const events = readLedger(ledger);
   const render = events.filter(e => e.event === 'rendered' && e.reader === 'targeted').at(-1);
@@ -96,7 +99,8 @@ function targetedRecord(ledger: string, rows: VerifyRow[]): { classes: string[];
   const label = rows.filter(r => r.kind === 'BRIEF' && r.reader.split('@')[0] === 'targeted').at(-1)?.reader;
   const brief = rows.filter(r => r.kind === 'BRIEF' && r.reader === label).at(-1);
   const output = rows.filter(r => r.kind === 'OUTPUT' && r.reader === label).at(-1);
-  const done = brief?.status === 'MATCH' && output?.status === 'MATCH';
+  const read = typeof render.patch_id === 'string' && !['uncommitted', 'none'].includes(render.patch_id) && typeof render.diff_base === 'string' && targetedPatchId(process.cwd(), render.diff_base) === render.patch_id;
+  const done = brief?.status === 'MATCH' && output?.status === 'MATCH' && read;
   const ids = events.filter(e => e.event === 'output' && e.reader === 'targeted').at(-1)?.ids;
   return { classes: (render.classes as string[]) ?? [], rules: String(render.rules), brief_sha: String(render.brief_sha), status: done ? 'done' : 'failed', findings: done && Array.isArray(ids) ? ids.length : 0, raised_by: 'targeted' };
 }

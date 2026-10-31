@@ -16,6 +16,7 @@
  * loosened check), not GATE_PATH: over the last 100 non-release commits on main, GATE_PATH
  * alone hit 43 (the precision gate allows 25), and those paths already get full depth.
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -96,6 +97,19 @@ export function targetedClasses(i: TargetedInput): TargetedResult {
 export const TARGETED_BRIEF_FILE = path.join(import.meta.dir, '..', 'review', 'specialists', 'targeted.md');
 export function targetedBriefSha(file = TARGETED_BRIEF_FILE): string {
   try { return createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { return 'missing'; }
+}
+
+/**
+ * The patch the targeted reader reads: the patch-id of the whole committed diff from `mergeBase`, tests included, so a
+ * test-only fix that adds a gate hunk changes it. `uncommitted` with tracked edits or untracked files, `none` for an empty
+ * or unreadable diff; neither proves what a reader read. Not the receipt's product_patch_id (that leaves tests out).
+ */
+export function targetedPatchId(root: string, mergeBase: string): string {
+  const git = (args: string[], input?: string) => spawnSync('git', args, { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+  if (git(['diff', '--quiet', 'HEAD', '--']).status !== 0 || git(['ls-files', '--others', '--exclude-standard']).stdout?.trim()) return 'uncommitted';
+  const diff = git(['diff', '--no-color', '--no-ext-diff', mergeBase, 'HEAD']);
+  if (diff.status !== 0 || !diff.stdout.trim()) return 'none';
+  return git(['patch-id', '--verbatim'], diff.stdout).stdout?.trim().split(/\s+/)[0] || 'none';
 }
 
 /** A class list as printed and recorded: comma-joined, or `none`. */
