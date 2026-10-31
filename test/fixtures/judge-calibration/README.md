@@ -22,17 +22,6 @@ and priced usage, and `comparison-1.result.json` holds the flip rates, agreement
 false passes, error rates, p95 latency, landing decision and the UC3 prose-step
 trigger. `manifest.json` prices every planned call before dispatch.
 
-`arm-pair` is the exception to that shape. It calibrates the arm benchmark's paired
-judge (GST-469), not a W2 schema migration. Its `corpus.json` holds 16 items built
-from the `arm` corpus's labels and the arm-benchmark reference diffs: 6 crossing pairs
-shown in both orders (`x01-ab` through `x06-ba`) and 4 identical-diff pairs
-(`s01`-`s04`), with no held-out third. Its configuration is `ARM_PAIR_CALIBRATION` in
-`test/helpers/arm-pair-judge.ts` (`run --config arm-pair`), `manifest.json` does not
-price it, and its bar is `pairCalibrationBar` rather than the landing rule below.
-Comparison 1 (2026-10-31, `claude-fable-5-1`, 144 calls, $7.22) met the bar 6/6, so
-the paired judge decides the arm benchmark's over_engineering
-([PREREG](../arm-benchmark/PREREG.md)).
-
 ## Comparison (1) results (2026-10-03, `claude-fable-5-1`, unless the row says otherwise)
 
 Flips are panel-verdict differences on items where both panels completed: old-vs-old
