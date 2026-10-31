@@ -150,8 +150,8 @@ export const RELEASE_RESULT_CODES = {
   },
   QUEUE_WAVE_MOVED: {
     anchor: 'queue-wave-moved',
-    summary: 'a constituent is no longer open at its pinned head, or the wave branch no longer merges every pin unchanged, so the wave would not land what its record names',
-    fix: 'rebuild without the moved PR (wave build --wave <nonce> --drop <pr>) and READY the new wave PR; the moved PR goes back to its owner',
+    summary: 'a constituent is no longer open at its pinned head or targets another branch, the wave branch no longer merges every pin unchanged, the wave was rebuilt or released, or its wave PR is still open for a drop or release',
+    fix: 'close the wave PR, rebuild without the moved PR (wave build --wave <nonce> --drop <pr>) and READY the new wave PR; the moved PR goes back to its owner',
   },
   QUEUE_WAVE_DUPLICATE: {
     anchor: 'queue-wave-duplicate',

@@ -431,7 +431,7 @@ function dropFrom(env: TrainEnv, w: WaveRecord, o: WaveBuildOptions): TrainOut {
   if (carrier) return outRefused(fail('QUEUE_WAVE_DEPENDENT', `#${carrier.pr}'s pin contains #${dropped.pr}'s pin, so dropping #${dropped.pr} would still land its code`), [], `drop #${carrier.pr} too, or keep #${dropped.pr}`, wavePath(w.nonce));
   if (rest.length < o.min) return release(env, w, [`DROP: #${dropped.pr} from ${w.nonce} leaves ${rest.length} PR(s), under the wave minimum ${o.min}`], o.dryRun);
   const out = newWave(env, { ...o, area: w.area }, w, rest.map(c => ({ pr: c.pr, sha: c.head })));
-  out.lines.unshift(`DROP: #${dropped.pr} from ${w.nonce}; the rebuilt wave gets a new branch and PR, and the integrator closes ${w.branch}'s PR`);
+  out.lines.unshift(`DROP: #${dropped.pr} from ${w.nonce}; the rebuilt wave gets a new branch and PR (${w.branch}'s PR is already closed)`);
   return out;
 }
 
