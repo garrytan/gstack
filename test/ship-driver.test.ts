@@ -207,7 +207,7 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(flat(read('ship/sections/budget-handoff.md.tmpl'))).toContain('the wait until the last settles (`done`, `failed` or a final summary; a fresh `idle` has not run)');
   });
 
-  // Value: protects=audits that cannot block (Steps 7, 8, 9.2.1, 14.5) run on a small model at low effort with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
+  // Value: protects=audits that cannot block (Steps 7, 8, 14.5) run on a small model at low effort with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
   //   why_new=audit model routing is new; seam=none; no_claim=the audits' recall
   test('audit readers run on a small model at low effort, named for Capy, and Phase 3 dispatches only what READER names', () => {
     expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 14.5) cannot block, so each runs on a small model at low effort; their findings go to the PR body');
@@ -225,8 +225,8 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     const f = flat(doc);
     const phase = (n: number) => f.slice(f.indexOf(`## ${n}. `), f.indexOf(`## ${n + 1}. `));
     expect(phase(3)).not.toMatch(/QA reader/);
-    expect(phase(3)).toContain("9.2.1's Reads (no probe)");
-    expect(phase(4)).toContain("The parent's 9.2.1 probes, Steps 8.1 and 8.2");
+    expect(phase(3)).toContain("9.2.1's Reads only");
+    expect(phase(4)).toContain("9.2.1's probes, Steps 8.1 and 8.2");
     expect(phase(4).indexOf('9.2.1 probes')).toBeLessThan(phase(4).indexOf('Steps 9.3, 9.4 and the repeat decision'));
     expect(phase(4)).toContain('one program');
     expect(f).toContain('the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions**');
