@@ -10,6 +10,7 @@ export type CsoRuntimeBuildStack = typeof CSO_RUNTIME_STACKS[number];
 
 const IMAGE = /^[a-z0-9.-]+(?::[0-9]+)?\/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/;
 const TAGGED_IMAGE = /^[a-z0-9.-]+(?::[0-9]+)?\/[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const RELEASE_TAG = /:v?\d+\.\d+[A-Za-z0-9._-]*$/;
 const REVISION = /^[a-z0-9][a-z0-9._-]{0,100}$/;
 const REQUIRED_VERSIONS: Record<CsoRuntimeBuildStack, string[]> = {
   node: ['node', 'npm', 'cso-preparation'],
@@ -58,6 +59,7 @@ function repositoryOfTag(image: string): string {
 
 function assertPinnedFamily(source: unknown, indexImage: unknown, images: unknown, label: string): Record<CsoRuntimeBuildPlatform, string> {
   if (typeof source !== 'string' || !TAGGED_IMAGE.test(source)) throw new Error(`INVALID_${label}_SOURCE`);
+  if (!RELEASE_TAG.test(source)) throw new Error(`FLOATING_${label}_SOURCE: ${source} must name a release version, not a moving major or alias tag`);
   if (typeof indexImage !== 'string' || !IMAGE.test(indexImage)) throw new Error(`UNPINNED_${label}_INDEX`);
   if (!record(images)) throw new Error(`MISSING_${label}_IMAGES`);
   const repository = repositoryOfTag(source);
