@@ -317,6 +317,56 @@ describe.skipIf(process.platform === 'win32')('gstack-ff-update: moving the tree
     expect(fs.existsSync(sentinel)).toBe(false);
   });
 
+  // Value: protects=the printed repair untracks only the install, even when its name holds glob characters, and prints whole at any path length;
+  //   fails_when=the rm drops --literal-pathspecs, the ignore rule is unescaped, or the message is capped short; why_new=review pass 1; seam=none
+  test('preflight: the tracked-by-project repair is literal and printed whole', () => {
+    const fx = makeFixture(`gstack*${'x'.repeat(150)}`);
+    const name = path.basename(fx.install);
+    git(fx.base, 'init', '-q', '-b', 'main');
+    fs.mkdirSync(path.join(fx.base, 'gstack-data'));
+    fs.writeFileSync(path.join(fx.base, 'gstack-data', 'important'), 'keep\n');
+    git(fx.base, 'add', '--', 'gstack-data/important');
+    git(fx.base, 'update-index', '--add', '--', `${name}/VERSION`);
+    const r = spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 });
+    expect(r.status, r.stdout + r.stderr).toBe(6);
+    expect(r.stdout.trimEnd()).toEndWith('and re-run');
+    expect(r.stdout).toContain(`add /gstack\\*${'x'.repeat(150)}/ to`);
+    const rm = r.stdout.match(/fix: (git -C .*? rm -r -q --cached -- '[^']*')/)?.[1];
+    expect(rm).toContain('--literal-pathspecs');
+    expect(spawnSync('bash', ['-c', rm!], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    expect(git(fx.base, 'ls-files').split('\n')).toEqual(['gstack-data/important']);
+  });
+
+  // Value: protects=a dirty VERSION beside an unmerged file still takes the rescue (stash cannot run there); a VERSION that differs only in mode is no
+  //   revert; a held lock wins over the VERSION check; fails_when=the check looks only at VERSION's own stage, compares bytes, or runs before the lock;
+  //   why_new=review pass 1; seam=none
+  test('preflight: version-reverted yields to the rescue, to a same-text VERSION, and to a held lock', () => {
+    const fx = makeFixture();
+    makeUnmerged(fx, 'notes.txt');
+    write(fx, 'VERSION', '0.9.0\n');
+    const mixed = ff(fx, release(fx, { 'other.txt': 'x\n' }));
+    expect(mixed.status, mixed.stdout + mixed.stderr).toBe(0);
+    expect(mixed.stdout).toMatch(/^rescued .* unmerged=1/);
+
+    const fy = makeFixture();
+    fs.chmodSync(path.join(fy.install, 'VERSION'), 0o755);
+    expect(spawnSync('bash', [FF, '--preflight', fy.install], { encoding: 'utf8', env: isolatedEnv(fy.base), timeout: 60_000 }).status).toBe(0);
+
+    const fz = makeFixture();
+    release(fz, { 'other.txt': 'x\n' });
+    write(fz, 'VERSION', '0.9.0\n');
+    const holder = spawn('sleep', ['30']);
+    try {
+      const lock = path.join(fz.install, '.git', 'gstack-ff.lock');
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, 'pid'), `${holder.pid}\n`);
+      expect(ff(fz, 'origin/main', { GSTACK_FF_LOCK_WAIT: '0' }).status).toBe(75);
+      expect(spawnSync('bash', [FF, '--preflight', fz.install], { encoding: 'utf8', env: isolatedEnv(fz.base), timeout: 60_000 }).status).toBe(6);
+    } finally {
+      holder.kill();
+    }
+  });
+
   test('refusals: not a fast-forward, an unresolvable target, and a missing checkout', () => {
     const fx = makeFixture();
     write(fx, 'VERSION', 'local\n');

@@ -185,7 +185,7 @@ describe.skipIf(process.platform === 'win32')('gstack-session-update: held-updat
     const cmd = lines[0].match(/The full fix: (bash .*?)\. https:/)![1];
     const r = run(fx, cmd);
     expect(r.status).toBe(6);
-    expect(r.stdout).toContain(`git -C ${quoted(fx.base)} rm -r -q --cached -- ${quoted("it's an install")}`);
+    expect(r.stdout).toContain(`git -C ${quoted(fx.base)} --literal-pathspecs rm -r -q --cached -- ${quoted("it's an install")}`);
   });
 
   // Value: protects=a project holding the install as a submodule gitlink keeps auto-updating; fails_when=the #1022 check counts a gitlink;

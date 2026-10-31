@@ -416,7 +416,7 @@ describe('gstack-upgrade', () => {
       expect(r.status, r.stdout + r.stderr).toBe(3);
       expect(r.stderr).toContain('(UPGRADE_REFUSED)');
       expect(r.stderr).toContain(`${f.project} tracks`);
-      expect(r.stderr).toContain(`git -C '${f.project}' rm -r -q --cached -- '.claude/skills/gstack'`);
+      expect(r.stderr).toContain(`git -C '${f.project}' --literal-pathspecs rm -r -q --cached -- '.claude/skills/gstack'`);
       expect(r.stderr.trim().split('\n').filter(l => l.startsWith('gstack-upgrade: '))).toHaveLength(1);
       expect(f.git(['rev-parse', 'HEAD'])).toBe(f.a);
       expect(f.git(['reflog'])).toBe(reflog);
