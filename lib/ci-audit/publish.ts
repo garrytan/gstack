@@ -51,11 +51,16 @@ export const ISSUE_AUTHOR = 'github-actions[bot]';
  * The open issue this audit owns: opened by the workflow's own token, with its title and marker.
  * Anyone can copy the title and marker, so an issue another account opened is never touched.
  */
-export async function findIssue(client: ApiClient, repo: string): Promise<Existing | null> {
-  const res = await client.get(`/repos/${repo}/issues?state=open&creator=${encodeURIComponent(ISSUE_AUTHOR)}&per_page=100&sort=created&direction=desc`);
-  if (res.status !== 200) throw new AuditError('ci_audit_api_failed', `issues list returned HTTP ${res.status}`, 'now');
-  const hit = ((res.json as any[]) ?? []).find(i => !i.pull_request && i.user?.login === ISSUE_AUTHOR && i.title === ISSUE_TITLE && String(i.body ?? '').includes(ISSUE_MARKER));
-  return hit ? { number: Number(hit.number), body: String(hit.body) } : null;
+export async function findIssue(client: ApiClient, repo: string, maxPages = 5): Promise<Existing | null> {
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await client.get(`/repos/${repo}/issues?state=open&creator=${encodeURIComponent(ISSUE_AUTHOR)}&per_page=100&sort=created&direction=desc&page=${page}`);
+    if (res.status !== 200) throw new AuditError('ci_audit_api_failed', `issues list returned HTTP ${res.status}`, 'now');
+    const rows = (res.json as any[]) ?? [];
+    const hit = rows.find(i => !i.pull_request && i.user?.login === ISSUE_AUTHOR && i.title === ISSUE_TITLE && String(i.body ?? '').includes(ISSUE_MARKER));
+    if (hit) return { number: Number(hit.number), body: String(hit.body) };
+    if (rows.length < 100) return null;
+  }
+  return null;
 }
 
 export type GhWrite = (method: 'POST' | 'PATCH', apiPath: string, body: Record<string, unknown>) => Promise<number>;

@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   audit:
-    if: github.ref_name == github.event.repository.default_branch
+    if: github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

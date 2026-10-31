@@ -83,7 +83,8 @@ Turn it off with `gstack-config set ci_audit_ship off`.
 `lib/ci-audit/templates/ci-audit-weekly.yml` runs the full report every Saturday at 15:00 UTC
 and keeps one open "Weekly CI audit" issue current. A complete audit creates or replaces
 the issue, or closes it when nothing is left to fix. A partial or failed audit comments
-on the issue and keeps the last complete findings. The issue is matched by its author
+on the issue and keeps the last complete findings; with no issue open, a partial audit
+that has findings opens one, with its `Partial:` line saying what was cut. The issue is matched by its author
 (`github-actions[bot]`, the workflow's own token), its title and a marker line, so an
 issue anyone else opened, even with the same title and marker, is left alone. It reads
 with the workflow's `GITHUB_TOKEN` (1,000 calls an hour), so it runs with

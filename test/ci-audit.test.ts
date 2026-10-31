@@ -267,21 +267,23 @@ describe('weekly issue', () => {
 
   test('job names from a fork PR cannot break the tables or mention anyone', () => {
     const t = { p50: 1, p90: 2 };
-    const body = planIssue({ exit: 0, report: { ...withFixes, jobs: [{ key: 'x | [y](https://e.example) @team <b>', runner: 'ubuntu-latest', n: 1, wait: t, setup: t, run: t, billedMinutesPerWeek: 1, usdPerMonth: 0 }] } as unknown as AuditReport }, null) as { body: string };
+    const body = planIssue({ exit: 0, report: { ...withFixes, jobs: [{ key: 'x | [y](https://e.example) @team <b> o/r#1', runner: 'ubuntu-latest', n: 1, wait: t, setup: t, run: t, billedMinutesPerWeek: 1, usdPerMonth: 0 }] } as unknown as AuditReport }, null) as { body: string };
     const row = body.body.split('\n').find(l => l.includes('e.example'))!;
-    expect(row).toBe('| x \\| \\[y\\](https://e.example) @\u200bteam \\<b\\> | ubuntu-latest | 1 | 1s/2s | 1s | 1s | 1 | 0 |');
+    expect(row).toBe('| x \\| \\[y\\](https:\u200b//e.example) @\u200bteam \\<b\\> o/r#\u200b1 | ubuntu-latest | 1 | 1s/2s | 1s | 1s | 1 | 0 |');
   });
 
-  test('finds only the workflow bot\'s own issue, past 100 open issues and an outsider\'s copy', async () => {
+  test('finds only the workflow bot\'s own issue, past 100 open issues, 100 newer bot issues and an outsider\'s copy', async () => {
     const issue = (number: number, login: string, title = 'other', body = '') => ({ number, title, body, user: { login } });
     const open = [issue(1, 'outsider', ISSUE_TITLE, `${ISSUE_MARKER}\nfake findings`),
       ...Array.from({ length: 150 }, (_, i) => issue(i + 2, 'person')),
-      issue(152, 'github-actions[bot]', ISSUE_TITLE, `${ISSUE_MARKER}\nreal findings`)];
+      issue(152, 'github-actions[bot]', ISSUE_TITLE, `${ISSUE_MARKER}\nreal findings`),
+      ...Array.from({ length: 120 }, (_, i) => issue(i + 153, 'github-actions[bot]', 'Nightly flake report'))];
     const client = { text: async () => null, get: async (apiPath: string) => {
       const q = new URL(apiPath, 'https://api.github.com').searchParams;
       const rows = open.filter(i => !q.get('creator') || i.user.login === q.get('creator'));
       if (q.get('direction') !== 'asc') rows.reverse();
-      return { status: 200, json: rows.slice(0, Number(q.get('per_page') ?? 30)), headers: {} };
+      const per = Number(q.get('per_page') ?? 30), page = Number(q.get('page') ?? 1);
+      return { status: 200, json: rows.slice((page - 1) * per, page * per), headers: {} };
     } };
     expect(await findIssue(client as never, 'o/n')).toEqual({ number: 152, body: `${ISSUE_MARKER}\nreal findings` });
   });
@@ -295,7 +297,7 @@ describe('Saturday workflow template', () => {
     expect(doc.on.schedule).toEqual([{ cron: '0 15 * * 6' }]);
     expect('workflow_dispatch' in doc.on).toBe(true);
     expect(doc.permissions).toEqual({ actions: 'read', contents: 'read', issues: 'write' });
-    expect(doc.jobs.audit.if).toBe('github.ref_name == github.event.repository.default_branch');
+    expect(doc.jobs.audit.if).toBe("github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch");
   });
 
   test('audits within the GITHUB_TOKEN hourly limit and always publishes the outcome', () => {

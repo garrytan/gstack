@@ -59,8 +59,8 @@ export function buildReport(data: AuditData, m: Measures, ls: Lesson[], st: Stat
 const t = (s: number | null) => (s == null ? '-' : s >= 120 ? `${(s / 60).toFixed(1)}m` : `${Math.round(s)}s`);
 const STATE = { pass: 'pass', finding: 'FINDING', unknown: 'unknown', not_applicable: 'n/a' } as const;
 
-/** Job and workflow names come from workflow files a fork PR controls: no table breaks, links, HTML or mentions. */
-const esc = (s: string) => String(s).replace(/[\\|<>[\]`]/g, c => `\\${c}`).replace(/@/g, '@\u200b');
+/** Job and workflow names come from workflow files a fork PR controls: no table breaks, links, HTML, mentions or issue references. */
+const esc = (s: string) => String(s).replace(/[\\|<>[\]`]/g, c => `\\${c}`).replace(/[@#]/g, c => `${c}\u200b`).replace(/:\/\//g, ':\u200b//');
 
 export function renderMarkdown(r: AuditReport, maxJobs = 12): string {
   const out: string[] = [];
