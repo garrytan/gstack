@@ -468,7 +468,12 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
    wherever they stand, headings and table rows included; a top-level list item under a
-   label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
+   label-only heading takes the stronger of the two). A label a negator directly scopes is
+   no label: "not CRITICAL", "no CRITICAL or High findings", "found nothing CRITICAL",
+   "Neither finding is CRITICAL", "below High" (GST-435). A negation of something else
+   ("Nothing guards the write path the failure of which is CRITICAL") leaves the label, a
+   table row is never read for negation, and a kept finding never takes a weaker label than
+   the strongest one left on its line. A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
    second line for the same field starts another: `Severity` raises its label,
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
@@ -476,6 +481,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
+   An indented later paragraph that gives an unlabeled list item its first label (`Fix: ... FIXABLE. Severity: Low.`) collects
+   as that item, its first line included.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`

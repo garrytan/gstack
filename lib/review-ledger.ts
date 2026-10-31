@@ -8,8 +8,8 @@
  *   judgment  each lead-judgment change: an added or promoted finding, with its reason
  *   judge     the verdict on the parent's judged set (ok, or the dropped and downgraded ids)
  *
- * Findings reach merged.jsonl only through collect, with each voice's label as written (a prose line's most severe one,
- * raised by the Severity line below it), except that a prose voice's `Blocks: yes` and the native voice's FIXABLE collect
+ * Findings reach merged.jsonl only through collect, with each voice's label as written (a prose line's most severe one that
+ * no negator directly scopes, raised by the Severity line below it), except that a prose voice's `Blocks: yes` and the native voice's FIXABLE collect
  * as CRITICAL (GSTA-167 normalizer v2).
  * The parent's judged set may add or promote a finding and may fold a duplicate into one at least
  * as severe; it never drops or downgrades one. verify replays every check from the ledger alone.
@@ -59,6 +59,21 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
+/**
+ * GST-435 rule (b): a severity word is no label when a negator directly scopes it: "not CRITICAL", "isn't really High", "no CRITICAL
+ * or High findings", "found nothing CRITICAL", "nothing at CRITICAL", "below CRITICAL", "Neither finding is CRITICAL", "none of which is
+ * High". A negation of something else ("Nothing guards the write path the failure of which is CRITICAL", "None of the writes are atomic
+ * and are CRITICAL") leaves the word a label, and a table row is never read for negation.
+ */
+const QUOTE = '[`*"\'\u201c\u201d\u2018\u2019]*';
+const FILLER = '(?:\\s+(?:really|actually|quite|even|yet|a|an|any|at|as|be|rise|rises|to|reach|reaches|meet|meets|count|counts|qualify|qualifies|rated|marked|called|flagged))';
+const SUBJECT_WORD = "(?!(?:which|that|who|whom|whose|so|and|but|or|nor|because|since|while|if|when|where|then|than|is|are|was|were)\\b)[A-Za-z][\\w'\u2019-]*";
+const DIRECT = `(?:\\b(?:not|never|no|nothing|none|neither|nor|cannot|below|beneath|lower\\s+than|less\\s+than|short\\s+of)|n['\u2019]t)${FILLER}{0,3}`;
+const SUBJECT = `\\b(?:no|none|neither|nothing)(?:\\s+of\\s+(?:the|these|those|them|which|it|this|its|my|our|their))?(?:\\s+${SUBJECT_WORD}){0,3}\\s+(?:is|are|was|were|be|seems?|looks?|reads?\\s+as|counts?\\s+as|rises?\\s+to|ranks?\\s+as)${FILLER}{0,2}`;
+const NEGATED_BEFORE = new RegExp(`(?:${DIRECT}|${SUBJECT})\\s+(?:${QUOTE}(?:${LABELS})${QUOTE}\\s*(?:,|/|\\bor\\b|\\bnor\\b|\\band\\b)\\s*)*${QUOTE}$`, 'i');
+const tableRow = (t: string) => t.startsWith('|') || (t.match(/\|/g)?.length ?? 0) >= 2;
+/** The label words on a line that no negator directly scopes; on a table row, every one. */
+const unnegatedLabels = (t: string) => [...t.matchAll(ALL_LABELS)].filter(m => tableRow(t) || !NEGATED_BEFORE.test(t.slice(0, m.index))).map(m => m[1]!);
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
@@ -68,12 +83,14 @@ export interface MergedLine { id: string; reader: string; label: string; raw: st
 
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
- * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
+ * FIXABLE/INVESTIGATE label no negator directly scopes ("no CRITICAL ones" is none; a table row is never read for negation), at
+ * the most severe such label on it, and each top-level list item under a label-only heading (the stronger
  * of the two labels). A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` raises its label,
  * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
  * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
- * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An inline
+ * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An indented later
+ * paragraph that first labels an unlabeled list item collects as that item, its first line included (GST-435). An inline
  * `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
  */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
@@ -83,9 +100,11 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let current: Finding | null = null;
   let head = '';
   let gap = false;
+  let item: string | null = null;
+  let itemFinding: Finding | null = null;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
-  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
+  const strongest = (t: string) => unnegatedLabels(t).map(named).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
   const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
@@ -110,6 +129,8 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
       else current = null;
       continue;
     }
+    if (!indented && !LIST_ITEM.test(t)) { item = null; itemFinding = null; }
+    if (indented && item && !itemFinding && !LIST_ITEM.test(t) && (label || blocks)) { current = itemFinding = push(blocks ? 'CRITICAL' : label!, `${item} | ${t}`); continue; }
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = named(heading[1]!); current = null; head = ''; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
@@ -121,14 +142,16 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
+    if (listItem && !detail) { item = t; itemFinding = null; }
     const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
     if (fresh) { current = null; head = t; }
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
-    if (found) { current = push(blocks ? 'CRITICAL' : found, t); if (!indented) head = t; continue; }
+    if (found) { current = push(blocks ? 'CRITICAL' : found, t); if (!indented) head = t; if (item === t) itemFinding = current; continue; }
     if (blocks && !t.startsWith('{')) {
       if (current) { current.label = 'CRITICAL'; current.raw += ` | ${t}`; continue; }
       current = push('CRITICAL', head && head !== t ? `${head} | ${t}` : t);
+      if (item === t) itemFinding = current;
       continue;
     }
     if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;

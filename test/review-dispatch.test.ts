@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BriefError, promptHash, renderBrief, sectionTexts } from '../lib/review-brief';
-import { collect, judge, parseFindings, type MergedLine } from '../lib/review-ledger';
+import { collect, judge, parseFindings, readJsonl, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
@@ -416,6 +416,78 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '**Race in a.ts:3 (High).**\n- the writer holds no lock\nSeverity: Medium').map(f => f.raw)).toEqual(['**Race in a.ts:3 (High).** | - the writer holds no lock | Severity: Medium']);
     expect(parseFindings('outside-voice', '**Race in a.ts:3 (Medium).**\n\n- the writer holds no lock\n\nSeverity: Medium. Blocks: yes').map(f => [f.label, f.raw]))
       .toEqual([['CRITICAL', '**Race in a.ts:3 (Medium).** | - the writer holds no lock | Severity: Medium. Blocks: yes']]);
+  });
+
+  // Value: protects=a severity word a negator directly scopes makes no finding (GST-435 rule (b)), so a reader's own "no CRITICAL" summary
+  //   never collects as a blocker judge then refuses to drop: HARN-15's Red Team and fix-check replies (harness-evals #152 and the
+  //   ship2 run: "I found three INFORMATIONAL issues and no CRITICAL ones", "nothing CRITICAL", "nothing at CRITICAL") and GEVA-77's
+  //   fix-check closing line ("Neither finding is CRITICAL.") each collected a phantom CRITICAL on main; fails_when=any of those lines
+  //   collects CRITICAL, or a listed negation shape collects a label; why_new=any label word anywhere on a line was a finding;
+  //   seam=parseFindings, collect and judge; no_claim=every English negation (the corpus replay in the PR bounds the rest)
+  test('a severity word a negator directly scopes is no label: the HARN-15 summaries and the GEVA-77 closing line collect no CRITICAL', () => {
+    const fixture = (name: string) => fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger', name), 'utf8');
+    const replies: Array<[string, string, number]> = [['red-team', 'harn15-ship2-red-team.txt', 3], ['red-team', 'harn15-ship2-p2-red-team.txt', 3],
+      ['fix-check', 'harn15-ship2-p2-fix-check.txt', 4], ['fix-check', 'harn15-152-p2-fix-check.txt', 2]];
+    for (const [reader, name, json] of replies) {
+      const found = parseFindings(reader, fixture(name));
+      expect([name, found.map(f => f.label)]).toEqual([name, Array(json + 1).fill('INFORMATIONAL')]);
+      expect(found[0]!.raw).toMatch(/(no|nothing( at)?) CRITICAL/);
+    }
+    const fc = fixture('geva-77-fix-check.txt');
+    expect(parseFindings('fix-check', fc).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL']);
+    const d = tmp();
+    const merged = path.join(d, 'merged.jsonl');
+    const r = collect(path.join(d, 'l.jsonl'), 'fix-check', fc, merged);
+    expect([r.review, r.lines.map(l => [l.id, l.label])]).toEqual([true, [['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL']]]);
+    const judged = path.join(d, 'judged.jsonl');
+    fs.writeFileSync(judged, r.lines.map(l => JSON.stringify({ id: l.id, severity: 'INFORMATIONAL' })).join('\n') + '\n');
+    expect(judge(readJsonl<MergedLine>(merged), readJsonl(judged)).ok).toBe(true);
+    for (const line of ['This is not CRITICAL.', "This isn't really CRITICAL.", 'It cannot be CRITICAL.', "This doesn't rise to CRITICAL.", 'This is not **CRITICAL**.',
+      'There are no CRITICAL findings.', 'There are no `CRITICAL` findings.', 'No CRITICAL or High findings to report.', 'I found nothing CRITICAL.', "So there's nothing at CRITICAL.",
+      'Neither finding is CRITICAL.', 'Neither of the two findings is CRITICAL.', 'Nothing here is CRITICAL.', 'None of these is High.', 'Two nits, neither of which is CRITICAL.',
+      'Two nits, none of which is High.', 'The race sits below CRITICAL on the floor.', 'It ranks lower than High.'])
+      expect([line, parseFindings('outside-voice', line)]).toEqual([line, []]);
+    for (const reader of ['adversarial-native', 'red-team']) expect(parseFindings(reader, 'Nothing here is FIXABLE, and nothing is CRITICAL.')).toEqual([]);
+    expect(parseFindings('outside-voice', 'Severity: Low (not High)').map(f => f.label)).toEqual(['Low']);
+    expect(parseFindings('outside-voice', '1. **High**: retry loop never backs off (q.ts:78)\n\nOverall: one High finding, nothing CRITICAL.').map(f => f.label)).toEqual(['High', 'High']);
+  });
+
+  // Value: protects=rule (b) never reaches a word some other negation sits near, a table row, or the native voice's FIXABLE, and a kept
+  //   finding takes the strongest label on its line (GST-435 rule (a)): fix-check 5's two table rows and its two INFORMATIONAL cases
+  //   ("None of the writes are atomic and are CRITICAL (queue.ts:78); High confidence", "Nothing guards the write path the failure of
+  //   which is CRITICAL") stay CRITICAL, and harness-evals #152's native (FIXABLE, medium) findings stay CRITICAL (adversarial.md);
+  //   fails_when=any of them collects nothing or a weaker label; why_new=the #3677 draft's quote and negated-subject rules lowered these;
+  //   seam=parseFindings; no_claim=that every kept line is a real finding (judge folds phantoms)
+  test('a negation of something else, a table row and the native FIXABLE keep their strongest label', () => {
+    const kept: Array<[string, string]> = [['| 1 | `CRITICAL` | High | token leak in log.ts:3 |', 'CRITICAL'], ['| log.ts:3 | `CRITICAL` | High | token leak |', 'CRITICAL'],
+      ['None of the writes are atomic and are CRITICAL (queue.ts:78); High confidence', 'CRITICAL'], ['Nothing guards the write path the failure of which is CRITICAL', 'CRITICAL'],
+      ['| a.ts:3 | race | not CRITICAL, Low |', 'CRITICAL'], ['| a.ts:3 | maps `FIXABLE` to `CRITICAL` in a comment | Low |', 'CRITICAL'],
+      ['Neither path checks auth so this is CRITICAL (a.ts:3)', 'CRITICAL'], ['None of the inputs are sanitized so this is CRITICAL (a.ts:3)', 'CRITICAL'],
+      ['Nothing checks the token which is CRITICAL (a.ts:3)', 'CRITICAL'], ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'],
+      ['No defects in parsing but the upload handler is CRITICAL.', 'CRITICAL'], ['1. Without auth this is CRITICAL (a.ts:3)', 'CRITICAL'],
+      ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ["The lock isn't released on error (pool.ts:12): High", 'High'],
+      ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'], ['Low: the parser now maps `FIXABLE` to `CRITICAL` in a comment (a.ts:3)', 'CRITICAL']];
+    for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/harn15-152-p1-adversarial-native.txt'), 'utf8');
+    expect(parseFindings('adversarial-native', native).map(f => f.label)).toEqual(['CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL']);
+    expect(parseFindings('adversarial-native', '**1. Race in a.ts:3 (`FIXABLE`).**\nSeverity: Low. Blocks: no').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('red-team', '1. Race in a.ts:3 (FIXABLE).').map(f => f.label)).toEqual(['FIXABLE']);
+  });
+
+  // Value: protects=a list item whose label first appears in an indented later paragraph ("Fix: ... FIXABLE. Severity: Low.") collects as
+  //   that item, title included (HARN-15 ship2 native item 4 "The host lock is not atomic" collected as a finding that began "Fix: create
+  //   the file", so judge could not tell which finding it was); fails_when=the item's finding loses its first line or the reply collects
+  //   more or fewer than 6; why_new=#3677's detail merge covered margin bullets only, not an item's later paragraphs; seam=parseFindings;
+  //   no_claim=a labeled item's labeled later paragraph (it stays its own finding, as above)
+  test('an indented later paragraph that first labels a list item collects as that item, title included', () => {
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/harn15-ship2-p2-adversarial-native.txt'), 'utf8');
+    const found = parseFindings('adversarial-native', native);
+    expect(found.map(f => [f.label, f.raw.slice(0, 3)])).toEqual([['CRITICAL', '1. '], ['CRITICAL', '2. '], ['CRITICAL', '3. '], ['CRITICAL', '4. '], ['CRITICAL', '5. '], ['Low', '6. ']]);
+    expect(found[3]!.raw).toStartWith('4. **The host lock is not atomic** (`qm-stack.ts:66-76`).');
+    expect(found[3]!.raw).toContain(' | Fix: create the file with `writeFileSync(path, pid, { flag: \'wx\' })`.');
+    expect(parseFindings('outside-voice', '1. **Race on the lock** (a.ts:3)\n   - the writer holds no lock\n\n   Fix: take it first. Severity: High. Blocks: no.').map(f => [f.label, f.raw]))
+      .toEqual([['High', '1. **Race on the lock** (a.ts:3) | Fix: take it first. Severity: High. Blocks: no.']]);
+    expect(parseFindings('outside-voice', '1. Lock race (a.ts:3)\n\n   Fix: take it first. Blocks: yes\n2. Cache drift (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
