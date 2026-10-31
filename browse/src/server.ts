@@ -1050,6 +1050,8 @@ async function handleCommandInternalImpl(
     if (!opts?.skipRateCheck && tokenInfo.token) recordCommand(tokenInfo.token);
   }
 
+  // Pin to a specific tab: runInRequestTab (session-tabs.ts) already bound this request's tab (#1961).
+
   // ─── Tab ownership check (own-only tokens / pair-agent isolation) ──
   //
   // Only `own-only` tokens (pair-agent over tunnel) are bound to their own
