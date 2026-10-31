@@ -172,9 +172,10 @@ Two stages with separate clocks, both printed:
   `file:line`. A version-history row, a line that starts a bracketed row with
   the old value (`[45, "<digest>"]`), is skipped when the same table (a run of
   consecutive lines starting with `[`) also holds a row for the new value that
-  the branch added. A table the branch did not extend, a table that already
-  held the new row at the merge base, and every other line holding the old
-  value still fail. Rows in object form (`{ v: 45 }`) or spread over several
+  the branch added (the file at the merge base, read through a rename, has no
+  new-value row). A table the branch did not extend, a file that already held a
+  new-value row at the merge base, a merge base that cannot be read, and every
+  other line holding the old value still fail. Rows in object form (`{ v: 45 }`) or spread over several
   lines are not recognized as history rows.
 
 - `timing`: added or changed test lines that compare an elapsed wall-clock or

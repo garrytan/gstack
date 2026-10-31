@@ -249,6 +249,10 @@ describe('literals (pure)', () => {
     fs.writeFileSync(path.join(root, 'test/versions.test.ts'), ["import { SCHEMA } from '../src/schema.ts';", 'const history = [', "  ['v3', 'a'],", '  ["v4", \'b\'],', '];', ''].join(nl));
     const strings = (rel: string) => rel === 'test/versions.test.ts' ? ["import { SCHEMA } from '../src/schema.ts';", 'const history = [', "  ['v3', 'a'],", '];'].join(nl) : null;
     expect(consumersOf(root, ['test/versions.test.ts'], { name: 'SCHEMA', old: "'v3'", new: "'v4'", file: 'src/schema.ts' }, strings)).toEqual([]);
+    expect(consumersOf(root, ['test/versions.test.ts'], { name: 'SCHEMA', old: "'v3'", new: "'v4'", file: 'src/schema.ts' }, () => undefined)).toEqual(['test/versions.test.ts:3']);
+    fs.writeFileSync(path.join(root, 'test/semver.test.ts'), ["import { RELEASE } from '../src/release.ts';", 'const history = [', "  ['1.2.3', 'a'],", "  ['1.2.4', 'b'],", '];', ''].join(nl));
+    expect(consumersOf(root, ['test/semver.test.ts'], { name: 'RELEASE', old: "'1.2.3'", new: "'1.2.4'", file: 'src/release.ts' }, () => null)).toEqual([]);
+    expect(consumersOf(root, ['test/semver.test.ts'], { name: 'RELEASE', old: "'1.2.3'", new: "'1.2.4'", file: 'src/release.ts' }, () => "  ['1.2.4', 'b'],")).toEqual(['test/semver.test.ts:3']);
     fs.rmSync(root, { recursive: true, force: true });
   });
   test('runner summaries: bun, node --test, vitest, jest, pytest, zero-run', () => {
@@ -409,6 +413,11 @@ describe('gstack-pregate (bin)', () => {
     const r = pregate(repo, ['--stage', 'preflight', '--only', 'literals']);
     expect(r.out).toMatch(/^preflight {2}literals {2}pass /m);
     expect(r.status).toBe(EXIT.ok);
+    const renamed = fixture({ baseFiles: { 'test/history.test.js': history(2, 3, 4) } });
+    commit(renamed, { ...bump, 'test/history.test.js': null, 'test/versions.test.js': history(2, 3, 4) });
+    const held = pregate(renamed, ['--stage', 'preflight', '--only', 'literals']);
+    expect(held.status).toBe(EXIT.fail);
+    expect(held.out).toContain('literals: test/versions.test.js:4: MAX_RETRIES still 3 (now 4 in lib/retry.js)');
   });
 
   test('secrets: a credential in an added line fails and cannot be downgraded; a committed-then-removed line is clean', () => {
