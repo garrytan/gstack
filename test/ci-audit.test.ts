@@ -333,6 +333,14 @@ describe('command line', () => {
     expect(r.stdout.toString()).toContain('(ci_audit_deadline)');
   }, 35_000);
 
+  test('a rate-limited 403 is reported as ci_audit_rate_limit with the reset time', () => {
+    const bin = tmp();
+    fs.symlinkSync(process.execPath, path.join(bin, 'bun'));
+    fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nprintf "HTTP/2.0 403 Forbidden\\r\\nX-Ratelimit-Remaining: 0\\r\\nX-Ratelimit-Reset: 1793472066\\r\\n\\r\\n{\\"message\\":\\"API rate limit exceeded\\"}"\nexit 1\n', { mode: 0o755 });
+    const r = Bun.spawnSync([path.join(bin, 'bun'), '--no-env-file', '--config=/dev/null', path.join(ROOT, 'bin/gstack-ci-audit'), 'ship-check', '--base', 'main', '--pr', '5', '--repo', 'o/n', '--root', tmp()], { env: { PATH: `${bin}:/bin:/usr/bin`, HOME: tmp(), GSTACK_STATE_ROOT: tmp() }, timeout: 20_000 });
+    expect(r.stdout.toString()).toContain('(ci_audit_rate_limit)');
+  });
+
   test('ship-check against a failing gh reports ci_audit_api_failed', () => {
     const bin = tmp();
     fs.symlinkSync(process.execPath, path.join(bin, 'bun'));

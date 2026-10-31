@@ -86,6 +86,10 @@ function parseIncluded(out: string, err: string, code: number, apiPath: string):
     if (/gh auth login|not logged in|GH_TOKEN/i.test(err)) throw new AuditError('ci_audit_gh_missing', 'gh is not signed in');
     throw new AuditError('ci_audit_api_failed', `gh api ${apiPath}: ${err.trim().split('\n')[0] ?? 'no output'}`, 'now');
   }
+  if ((status === 403 || status === 429) && (/^x-ratelimit-remaining:\s*0\s*$/im.test(head) || /rate limit/i.test(body))) {
+    const reset = Number(/^x-ratelimit-reset:\s*(\d+)/im.exec(head)?.[1]);
+    throw new AuditError('ci_audit_rate_limit', `GitHub refused ${apiPath} for rate limit (HTTP ${status})`, Number.isFinite(reset) ? `after ${new Date(reset * 1000).toISOString()}` : 'after an hour');
+  }
   let json: unknown = null;
   try { json = body ? JSON.parse(body) : null; } catch { throw new AuditError('ci_audit_api_failed', `gh api ${apiPath} returned non-JSON (HTTP ${status})`, 'now'); }
   return { status, json };
