@@ -23,11 +23,11 @@ version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (
 outside-voice and documentation brief, its severity and confidence rules and its gates come from its
 section verbatim, with only its placeholders filled; this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
-file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 9.2.1, 14.5) cannot block, so each runs on a
-small model at low effort; their findings go to the PR body.
+file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 9.2.1, 14.5) cannot block, so each runs at low effort on a small model,
+Step 14.5 once on Sonnet 5.5; findings go to the PR body.
 
 **Calls.** One pass with no fixes is 9 calls: Phases 1-8 and the report; at most 12 with a STOP's
-section read or a fix-check, plus a keep-alive per 200 s waited. A fix repeats Phases 3-4.
+section read or a fix-check, plus a keep-alive per 200 s waited.
 
 **Budget: observe.** `gstack-ship-budget start --mode observe` records, never admits: each program ends
 with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in that program
