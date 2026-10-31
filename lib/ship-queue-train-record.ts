@@ -169,6 +169,15 @@ const firstOf = <T>(k: RepoKeys, read: (key: string) => T | null): T | null => {
 export const loadFreeze = (repoKeys: RepoKeys) => firstOf(repoKeys, key => readJson<FreezeRecord>(freezePath(key), 'freeze'));
 export const loadReady = (repoKeys: RepoKeys, pr: string, head: string) => firstOf(repoKeys, key => readJson<ReadyReceipt>(readyPath(key, pr, head), 'ready'));
 export const activeFreeze = (repoKeys: RepoKeys): FreezeRecord | null => firstOf(repoKeys, key => { const f = readJson<FreezeRecord>(freezePath(key), 'freeze'); return f && !f.cleared_at ? f : null; });
+/**
+ * When a freeze-phase land lock's freeze is over, the cleared_at that proves it: the notes ref fetched, no freeze
+ * active, and the last freeze cleared at or after the lock was written. Absence of a record is never proof.
+ */
+export function freezeLockCleared(repoRoot: string, remote: string, repoKeys: RepoKeys, lock: { phase_at?: string; started_at: string }): string | null {
+  if (!rebuildFromNotes(repoRoot, remote).fetched || activeFreeze(repoKeys)) return null;
+  const last = loadFreeze(repoKeys);
+  return last?.cleared_at && Date.parse(last.cleared_at) >= Date.parse(lock.phase_at ?? lock.started_at) ? last.cleared_at : null;
+}
 
 export function attemptsOf(train: TrainRecord): AttemptRecord[] {
   return train.attempts.map(id => loadAttempt(train.nonce, id)).filter((a): a is AttemptRecord => !!a);

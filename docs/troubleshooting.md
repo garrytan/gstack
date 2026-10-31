@@ -4467,7 +4467,10 @@ the holder entered a push or a merge less than 10 minutes ago, while a train is
 between slots for less than 10 minutes, and for a live train run unless you also
 pass `--break-train-lock`. A lock in phase `drift` is released by landing its
 repair PR ([QUEUE_LAND_DRIFT](#queue-land-drift)); a lock in phase `freeze` is
-released only by the repair train ([QUEUE_TRAIN_FROZEN](#queue-train-frozen)).
+released by the verify that clears the freeze
+([QUEUE_TRAIN_FROZEN](#queue-train-frozen)). If that release push failed, the
+next `land` or `train land` takes the lock over once the freeze record it fetches
+shows the freeze cleared after the lock was written; `--break-lock` never does.
 
 <a id="queue-train-unstamped"></a>
 ### `QUEUE_TRAIN_UNSTAMPED`

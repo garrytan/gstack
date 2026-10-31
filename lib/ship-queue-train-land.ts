@@ -34,7 +34,7 @@ import { waitChecks } from './ship-queue-land';
 import { verifyPostMerge } from './ship-queue-post-merge';
 import { bindTrainReceipt } from './ship-queue-train-gate';
 import { checkRun, prInfo, type PrInfo } from './ship-queue-train-github';
-import { TERMINAL_STATES, activeFreeze, attemptsOf, loadFreeze, nowIso, rebuildFromNotes, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
+import { TERMINAL_STATES, activeFreeze, attemptsOf, freezeLockCleared, nowIso, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
 import { fetchBase, fetchTrainBranch, findTrain, frozenLines, nextFor, outFailed, outPending, outRefused, save, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { confirmMerged, stopped } from './ship-queue-train-verify';
 
@@ -249,12 +249,9 @@ interface TrainLandOptions { train: string; pr: string; noWait?: boolean; timeou
 function trainTakeover(env: TrainEnv, t: TrainRecord, i: number, lock: LandLock): string | null {
   if (lock.train === t.nonce && lock.phase === 'between') return `LOCK: train ${t.nonce} slot ${i + 1} takes over its train's between-slots lock (from slot ${lock.slot})`;
   if (lock.phase === 'freeze') {
-    const synced = rebuildFromNotes(env.ctx.repoRoot, env.remote);
-    const freeze = activeFreeze(env.repo.keys);
-    if (freeze?.repair?.train === t.nonce) return `LOCK: repair train ${t.nonce} takes over the freeze lock of ${lockLabel(lock)}`;
-    const last = synced.fetched && !freeze ? loadFreeze(env.repo.keys) : null;
-    const cleared = last?.cleared_at && Date.parse(last.cleared_at) >= Date.parse(lock.phase_at ?? lock.started_at);
-    return cleared ? `LOCK: train ${t.nonce} takes over ${lockLabel(lock)}'s freeze lock; that freeze was cleared at ${last!.cleared_at}` : null;
+    const cleared = freezeLockCleared(env.ctx.repoRoot, env.remote, env.repo.keys, lock);
+    if (activeFreeze(env.repo.keys)?.repair?.train === t.nonce) return `LOCK: repair train ${t.nonce} takes over the freeze lock of ${lockLabel(lock)}`;
+    return cleared ? `LOCK: train ${t.nonce} takes over ${lockLabel(lock)}'s freeze lock; that freeze was cleared at ${cleared}` : null;
   }
   if (!lock.train || lock.train === t.nonce) return null;
   const other = findTrain(env, lock.train);

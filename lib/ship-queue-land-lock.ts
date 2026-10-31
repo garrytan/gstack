@@ -25,7 +25,11 @@ export const ownsLock = (lock: LandLock, owner: LockOwner, journal: string): boo
   lock.pr === owner.pr && (lock.train ?? null) === (owner.train ?? null) && (lock.slot ?? null) === (owner.slot ?? null) && lock.journal === journal;
 
 export function readLock(root: string, remote = 'origin'): LockRead {
-  git(root, ['fetch', '-q', remote, `+${LAND_LOCK_REF}:${LAND_LOCK_REF}`]);
+  const fetched = git(root, ['fetch', '-q', remote, `+${LAND_LOCK_REF}:${LAND_LOCK_REF}`]);
+  if (!fetched.ok) {
+    const listed = git(root, ['ls-remote', remote, LAND_LOCK_REF]);
+    if (listed.ok && !listed.out.trim()) git(root, ['update-ref', '-d', LAND_LOCK_REF]);
+  }
   const sha = git(root, ['rev-parse', '--verify', '--quiet', LAND_LOCK_REF]).out;
   if (!sha) return { state: 'absent', sha: '' };
   const body = git(root, ['show', `${sha}:lock.json`]);

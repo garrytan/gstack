@@ -794,8 +794,8 @@ whether the base merge is committed or still staged (`stage stamp_paths` says
 "N line(s) the base added since the fork point are the base's"; train 24,
 2026-10-27, moved main's `DOCS_CAPS_KEY_VERSION` in both slots before this
 rule). Restamp stages what it writes and prints `STAGED:`; commit what restamp
-staged. A file the slot call does not name is not a stamp: `git restore --staged`
-it and report it. A stamp file holding unstaged edits of your own refuses before
+staged. A file the slot call does not name is not a stamp: `git restore --staged
+--worktree` it and report it. A stamp file holding unstaged edits of your own refuses before
 anything is written (`RESTAMP_UNSTAGED_EDITS`), and a staging failure leaves the
 files written for the noop rerun to stage (`RESTAMP_NOT_STAGED`), so a bare
 commit after a `--no-commit` base merge can no longer drop the stamp (#3527). The tree receipt refuses such a move after the fact

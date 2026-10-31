@@ -17,12 +17,12 @@ import * as path from 'node:path';
 import { mergeChangelogs, parseChangelog } from './changelog-check';
 import { fragmentSlug, readFragments } from './changelog-fragments';
 import { restamp, versionAtRef } from './restamp';
-import { acquireLandLock, readLock, writeLock, type LandLockPhase } from './ship-queue-land-lock';
+import { acquireLandLock, lockLabel, readLock, writeLock, type LandLockPhase } from './ship-queue-land-lock';
 import { matchesAny, type ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
 import { QUEUE_DIR_REL, git, writeJsonAtomic, type QueueFailure } from './ship-queue-gate';
 import { bindShippedReceipt } from './ship-receipt-depth';
-import { TERMINAL_STATES, loadReady, loadTrain, rebuildFromNotes, repoIdentity } from './ship-queue-train-record';
+import { TERMINAL_STATES, freezeLockCleared, loadReady, loadTrain, rebuildFromNotes, repoIdentity } from './ship-queue-train-record';
 
 export { LAND_LOCK_REF } from './ship-queue-land-lock';
 export const MAX_RESTAMPS = 2;
@@ -361,6 +361,10 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   const got = acquireLandLock({
     root, holder, owner: { pr: o.pr }, journal: run, now, breakLock: o.breakLock, breakTrainLock: o.breakTrainLock,
     takeover: held => {
+      if (held.phase === 'freeze') {
+        const cleared = freezeLockCleared(root, ctx.remote ?? 'origin', keys, held);
+        return cleared ? `LOCK: taking over ${lockLabel(held)}'s freeze lock; that freeze was cleared at ${cleared}` : null;
+      }
       if (held.train || held.phase !== 'drift' || (held.repair_pr !== o.pr && readJson<LandJournal>(path.join(root, landJournalRel(held.pr)))?.repair_pr !== o.pr)) return null;
       driftOf = held.pr;
       return `LOCK: taking over #${held.pr}'s drift lock for its repair`;

@@ -16,7 +16,7 @@ markers before you stamp). The restamp stages what it writes (STAGED:); commit w
 staged, which must be only the BASE merge and the stamp files this call names: <STAMP_FILES>
 (plus the file carrying a `*_KEY_VERSION` your PR introduced, on your own line only, when this
 call names it), never a fifth: a file the call does not name is not a stamp, `git restore
---staged` it and say so. verify reads the head's own STAMP_VERSION and refuses an unstamped
+--staged --worktree` it and say so. verify reads the head's own STAMP_VERSION and refuses an unstamped
 head (QUEUE_TRAIN_UNSTAMPED).
 A pin stacked on a PR that merged earlier conflicts beyond the CHANGELOG where the parent's
 squash touched your lines: take your pin's bytes there (verify checks the tree against

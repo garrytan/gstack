@@ -273,6 +273,7 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   if ('error' in info) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: info.error }, lines, `${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
   const shipped = bindReceipt(info.body, o.pr, [t.slots[i]!.head, head]);
   if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, [...lines, shipped.line], `#${o.pr}'s lane runs /ship and READYs again; then ${Q} train build --prs <pins>`, run);
+  if (!headRef) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `#${o.pr}'s current head was not read (${o.noFetch ? '--no-fetch' : 'the head fetch failed'}), and the pin it falls back to is unstamped by design, so the stamp cannot be proved` }, lines, `${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
   const stamp = stampProof(env, head, main);
   if ('rule' in stamp) return outRefused({ code: 'QUEUE_TRAIN_UNSTAMPED', message: `#${o.pr}'s head ${head.slice(0, 12)} is not stamped above main: ${stamp.rule}: ${stamp.detail}` }, lines, `#${o.pr}'s lane runs gstack-restamp --next on its head, commits what restamp staged, pushes, then ${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
   return outOk([...lines, `main: ${main} = T${before.index} (${pre.detail})`, `head: ${head} (${stampOnly.detail})`, `${shipped.line} (binds ${shipped.head === t.slots[i]!.head ? 'the pinned head' : 'the current head'})`, `STAMP_VERSION: ${stamp.version}`,
@@ -299,7 +300,11 @@ export function confirmMerged(env: TrainEnv, t: TrainRecord, pr: string, main: s
     persist(env.ctx.repoRoot, [freeze], { remote: env.remote });
     lines.push(`FREEZE: cleared (${freeze.cleared_by})`);
     const held = readLock(env.ctx.repoRoot, env.remote);
-    if (held.state === 'held' && held.lock.phase === 'freeze' && writeLock(env.ctx.repoRoot, held.sha, { released: true, by: `verify #${pr} via train ${t.nonce}`, at: nowIso() }, env.remote).ok) lines.push('LOCK: released the freeze lock');
+    if (held.state === 'held' && held.lock.phase === 'freeze') {
+      lines.push(writeLock(env.ctx.repoRoot, held.sha, { released: true, by: `verify #${pr} via train ${t.nonce}`, at: nowIso() }, env.remote).ok
+        ? 'LOCK: released the freeze lock'
+        : 'LOCK: the freeze lock could not be released; the next land or train land takes it over once it reads this cleared freeze');
+    }
     const rebuild = freeze.unmerged.length ? `${Q} train build --prs ${pinList(freeze.unmerged)}` : '';
     const unread = freeze.unreadable ?? [];
     const check = unread.length ? `${unread.map(u => `gh pr view ${u.pr} --json state,headRefOid`).join(' && ')} (unreadable at the freeze: ${unread.map(u => `#${u.pr}@${u.head.slice(0, 12)}`).join(', ')}); seat each that is OPEN in a train` : '';

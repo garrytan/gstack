@@ -239,6 +239,12 @@ describe('land and train land share the lock', () => {
       expect(writeLock(fx.repo.work, cur.sha, { pr: '9', slot: 1, holder: 'old:1', started_at: '2026-10-31T12:00:00.000Z', phase_at: '2026-10-31T12:00:00.000Z', journal: `train/${lock.train}/slot-1`, ...lock } as LandLock).ok).toBe(true);
     });
   }
+  /** A freeze record for this repository, cleared at `cleared`, written to the state root as the clearing verify leaves it. */
+  function clearedFreeze(fx: TrainFixture, train: string, cleared: string): void {
+    const file = path.join(freezeFile(fx), `${repoKey(fx)}.json`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ schema: 1, kind: 'freeze', repo_key: repoKey(fx), train, merged: ['9'], unmerged: [], main: { sha: '0'.repeat(40), tree: '0'.repeat(40) }, reason: 'test', backstop: null, repair: null, created_at: '2026-10-31T11:00:00.000Z', cleared_at: cleared, cleared_by: 'test', updated_at: cleared }));
+  }
 
   // fails_when=trainTakeover reads "no active freeze record here" as "the freeze is cleared", so a train whose notes fetch failed, or whose freezer never pushed the record, takes the freeze lock and lands onto a frozen main (red team, PR #3737 pass 2); why_new=the freeze test above only exercises the admitted repair train's takeover; seam=a lock and a freeze record written straight to origin and the state root; no_claim=how the record went missing
   test('another train\'s freeze lock is taken over only on a freeze record cleared after the lock: no record, or one cleared before it, refuses', () => {
@@ -251,15 +257,33 @@ describe('land and train land share the lock', () => {
     expect(noRecord.out).not.toMatch(/^PUSHED:/m);
     expect(originLock(fx)).toMatchObject({ train: old, phase: 'freeze' });
 
-    const file = path.join(freezeFile(fx), `${repoKey(fx)}.json`);
-    const record = (cleared: string) => ({ schema: 1, kind: 'freeze', repo_key: repoKey(fx), train: old, merged: ['9'], unmerged: [], main: { sha: '0'.repeat(40), tree: '0'.repeat(40) }, reason: 'test', backstop: null, repair: null, created_at: '2026-10-31T11:00:00.000Z', cleared_at: cleared, cleared_by: 'test', updated_at: cleared });
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(record('2026-10-31T11:30:00.000Z')));
+    clearedFreeze(fx, old, '2026-10-31T11:30:00.000Z');
     expect(trainLand(fx, nonce, '1').err).toContain('(QUEUE_LAND_LOCKED)');
-    fs.writeFileSync(file, JSON.stringify(record('2026-10-31T12:30:00.000Z')));
+    clearedFreeze(fx, old, '2026-10-31T12:30:00.000Z');
     const taken = trainLand(fx, nonce, '1');
     expect(taken.out, taken.err).toContain(`LOCK: train ${nonce} takes over train ${old} slot 1 (#9)'s freeze lock; that freeze was cleared at 2026-10-31T12:30:00.000Z`);
     expect(taken.out).toMatch(/^PUSHED: [0-9a-f]{40}/m);
+  }, 300_000);
+
+  // fails_when=a freeze lock whose release failed after its freeze cleared refuses every standalone land for good, or a lock ref deleted on origin still reads held from this clone's cached copy (adversarial review, PR #3737 Step 11); why_new=the tests above take the freeze lock over only from train land; seam=a lock and a freeze record written straight to origin and the state root; no_claim=why the release failed
+  test('a standalone land takes over a freeze lock once a fetched freeze record shows it cleared after the lock, and a lock deleted on origin reads as absent', () => {
+    const { fx } = stampedTrain(['1']);
+    fragmentPr(fx, '3');
+    seedLock(fx, { train: 'gate.train-old', phase: 'freeze' });
+    const frozen = land(fx, '3');
+    expect(frozen.status).toBe(EXIT.refused);
+    expect(frozen.err).toMatch(/train gate\.train-old slot 1 \(#9\) holds the land lock .*phase freeze.*\(QUEUE_LAND_LOCKED\)/);
+    clearedFreeze(fx, 'gate.train-old', '2026-10-31T12:30:00.000Z');
+    const taken = land(fx, '3');
+    expect(taken.out, taken.err).toContain("LOCK: taking over train gate.train-old slot 1 (#9)'s freeze lock; that freeze was cleared at 2026-10-31T12:30:00.000Z");
+    expect(taken.out).toMatch(/^PUSHED: [0-9a-f]{40}/m);
+
+    const { fx: other } = stampedTrain(['1']);
+    fragmentPr(other, '3');
+    seedLock(other, { train: 'gate.train-old', phase: 'waiting' });
+    expect(land(other, '3').err).toContain('(QUEUE_LAND_LOCKED)');
+    other.repo.git('--git-dir', other.repo.origin, 'update-ref', '-d', LAND_LOCK_REF);
+    expect(land(other, '3').out).toMatch(/^PUSHED: [0-9a-f]{40}/m);
   }, 300_000);
 
   // fails_when=trainTakeover treats a live train as terminal (two landers publish onto one main) or never takes over a finished train's lock (a stale lock blocks every later train); why_new=no other test seats a foreign train's lock; seam=a second train record written into the state root; no_claim=how that train ended

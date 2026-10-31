@@ -1278,6 +1278,10 @@ describe('verify --train proves the slot stamp and a GitHub merge (#3531)', () =
     expect(ok.status, ok.err).toBe(EXIT.ok);
     expect(ok.out).toContain('STAMP_VERSION: 1.2.4.0');
     expect(line(ok.out, 'MERGE_CONDITION:')).toBe(`MERGE_CONDITION: sha=${s1}`);
+    const unread = queue(fx, ['verify', '--pr', '1', '--train', nonce, '--no-fetch'], {}, coord);
+    expect(unread.status).toBe(EXIT.refused);
+    expect(unread.err).toMatch(/#1's current head was not read \(--no-fetch\).*\(QUEUE_PROOF_MISSING\)/);
+    expect(unread.out).not.toContain('MERGE_CONDITION:');
     publishMain(fx, t.prefixes[1].commit, '1.2.4.0', { file: 'CHANGELOG.md', text: fx.repo.git('show', `${s1}:CHANGELOG.md`) + '\n' });
     markMerged(fx, '1');
     expect(v('1').out).toContain(`VERIFY_TRAIN: #1 merged; main's tree is T1 of train ${nonce} (1/2 merged)`);
