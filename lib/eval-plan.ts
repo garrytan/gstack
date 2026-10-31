@@ -375,8 +375,10 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
   if (!dry.pass) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `${o.dryRun} did not pass; the pilot never starts on a failed dry run` } };
   const tokens = o.tokens ?? { input: dry.rows ? Math.ceil(dry.est_input_tokens / dry.rows) : DEFAULT_TOKENS.input, output: dry.checks.output_budget.budget };
   const record: PilotRecord = { schema_version: 1, n: o.n, arms: o.arms, cap_usd: o.cap, dry_run: o.dryRun, attempts: [], started_at: (o.now ?? new Date()).toISOString(), status: 'reserved' };
-  const duplicates = [...new Set(o.arms.filter((a, i) => o.arms.indexOf(a) !== i))];
-  if (duplicates.length) return { record, error: { code: 'EVAL_ARM_DUPLICATE', message: `arm ${duplicates.join(', ')} is listed more than once; give each arm its own <model>#<loadout> identity` } };
+  const keyOf = (a: string) => `${armModel(a).replace(/[^A-Za-z0-9.-]/g, '_')}${armLoadout(a) !== null ? `.${armLoadout(a)!.replace(/[^A-Za-z0-9.-]/g, '_')}` : ''}`;
+  const keys = o.arms.map(keyOf);
+  const duplicates = [...new Set(o.arms.filter((_, i) => keys.indexOf(keys[i]!) !== i).map(a => o.arms.filter(b => keyOf(b) === keyOf(a)).join(' = ')))];
+  if (duplicates.length) return { record, error: { code: 'EVAL_ARM_DUPLICATE', message: `arm ${duplicates.join(', ')} is listed more than once or shares one ledger attempt name; give each arm its own <model>#<loadout> identity` } };
   fs.mkdirSync(o.out, { recursive: true });
   const ledgerFile = path.join(o.out, PILOT_FILES.spend);
   let error: { code: ResultCodeName; message: string } | undefined;
@@ -384,8 +386,7 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
     if (!hasPricing(armModel(model))) { error = { code: 'EVAL_PRICE_MISSING', message: `${armModel(model)} has no row in lib/pricing.ts` }; break; }
     for (let i = 1; i <= o.n; i++) {
       const estimate = estimateCostUsd(tokens, armModel(model));
-      const loadout = armLoadout(model);
-      const attempt = `pilot-${armModel(model).replace(/[^A-Za-z0-9.-]/g, '_')}${loadout ? `.${loadout.replace(/[^A-Za-z0-9.-]/g, '_')}` : ''}-${i}`;
+      const attempt = `pilot-${keyOf(model)}-${i}`;
       try { reserve(ledgerFile, attempt, estimate, { cap: o.cap, label: `pilot ${model} #${i}`, now: o.now }); }
       catch (e) {
         if (e instanceof SpendCapExceeded) { record.status = 'budget_exhausted'; error = { code: 'EVAL_BUDGET_EXHAUSTED', message: e.message }; break outer; }

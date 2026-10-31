@@ -149,6 +149,17 @@ describe('arm identities in pricing and the pilot', () => {
     expect(r.error?.code).toBe('EVAL_ARM_DUPLICATE');
     expect(r.record.attempts).toEqual([]);
   });
+
+  test('distinct identities that share one ledger attempt name are refused before anything is reserved', () => {
+    for (const arms of [['claude-opus-5-5#review/a', 'claude-opus-5-5#review_a'], ['gpt-6#1-sol', 'gpt-6.1-sol']]) {
+      const d = tmp();
+      const r = startPilot({ out: path.join(d, 'pilot'), cap: 100, n: 1, arms, dryRun: passingDryRun(d) });
+      expect(r.error?.code).toBe('EVAL_ARM_DUPLICATE');
+      expect(r.error?.message).toContain(arms.join(' = '));
+      expect(r.record.attempts).toEqual([]);
+      expect(fs.existsSync(path.join(d, 'pilot'))).toBe(false);
+    }
+  });
 });
 
 describe('gstack-eval-plan prereg --check', () => {
