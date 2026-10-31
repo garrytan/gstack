@@ -294,6 +294,17 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '2. Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('outside-voice', '> Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
   });
+  // Value: protects=a later finding's Severity/Blocks line never lands on the finding before it, and an explicit Severity label
+  //   decides its line (#3660 pass 2 Red Team); fails_when=the later blocker's text is lost and the earlier finding takes its
+  //   CRITICAL, or 'Severity: Low (not High)' collects as High; seam=parseFindings
+  test('prose after a finding\'s field, a blank-line paragraph or an indented block starts the next finding; an explicit Severity label wins', () => {
+    const raws = (o: string) => parseFindings('outside-voice', o).map(f => [f.label, f.raw]);
+    const two = [['Low', 'A in a.ts:1. | Severity: Low'], ['CRITICAL', 'B in b.ts:2. | Blocks: yes']];
+    expect(raws('A in a.ts:1.\nSeverity: Low\n\nB in b.ts:2.\nBlocks: yes')).toEqual(two);
+    expect(raws('A in a.ts:1.\nSeverity: Low\nB in b.ts:2.\nBlocks: yes')).toEqual(two);
+    expect(raws('Findings:\n  A in a.ts:1.\n  Severity: Low\n  B in b.ts:2.\n  Blocks: yes')).toEqual(two);
+    expect(raws('Retry loop in queue.ts:4 is fine. Severity: Low (not High)\nBlocks: no')).toEqual([['Low', 'Retry loop in queue.ts:4 is fine. Severity: Low (not High) | Blocks: no']]);
+  });
   test('the native voice\'s FIXABLE collects as CRITICAL under its role with or without a dispatch name', () => {
     for (const reader of ['adversarial-native', 'adversarial-native/adversarial']) expect(parseFindings(reader, 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('outside-voice', 'FIXABLE: race in a.ts:3\nSeverity: Medium').map(f => f.label)).toEqual(['Medium']);

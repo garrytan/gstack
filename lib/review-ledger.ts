@@ -58,8 +58,9 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
-/** The most severe label on a line, so an explicit `Severity: High` outranks a stray `Low-level` or `[P2]` before it. */
-const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => m[1]!).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
+const SEVERITY_FIELD = new RegExp(`[Ss]everity\\**\\s*:\\**\\s*(${LABELS})(?![A-Za-z0-9])`);
+/** A line's explicit `Severity:` label, else the most severe label on it, so a stray `Low-level` or `[P2]` never decides it. */
+const strongest = (t: string) => SEVERITY_FIELD.exec(t)?.[1] ?? [...t.matchAll(ALL_LABELS)].map(m => m[1]!).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
 /** A line that only continues the finding above it: its `Severity:` or `Blocks:` field. */
 const META = /^(?:[-*+]\s+)?\**\s*(Severity|Blocks)\**\s*:/i;
 
@@ -68,8 +69,9 @@ export interface MergedLine { id: string; reader: string; label: string; raw: st
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
  * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
- * of the two labels). A `Severity:` or `Blocks:` line that is not itself a top-level list item continues the finding above it,
- * until a list item, heading, bold paragraph opener or a second line for the same field starts another: `Severity` raises its
+ * of the two labels; an explicit `Severity:` label wins on its line). A `Severity:` or `Blocks:` line that is not itself a top-level
+ * list item continues the finding above it until a list item, heading, bold or post-blank paragraph, prose after one of these fields,
+ * or a second line for the same field starts another: `Severity` raises its
  * label, `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it. With no finding above, such a line is its own finding
  * carrying the paragraph's first line. The native voice's FIXABLE collects as CRITICAL, since a Severity line must not bury it;
  * other labels stay as written for lead judgment.
@@ -80,12 +82,15 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let section: string | null = null;
   let current: Finding | null = null;
   let head = '';
+  let gap = false;
   const role = reader.split('/')[0];
   const named = (l: string | undefined) => (role === 'adversarial-native' && l?.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
-    if (!t) continue;
+    if (!t) { gap = true; continue; }
+    const afterGap = gap;
+    gap = false;
     if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
     const indented = line !== line.trimStart();
     const label = named(strongest(t));
@@ -121,8 +126,8 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
       if (listItem) head = t;
       continue;
     }
-    if (listItem || (!indented && t.startsWith('**'))) { current = null; head = t; }
-    else if (!indented) head = t;
+    if (listItem || (!indented && (t.startsWith('**') || afterGap)) || current?.fields.size) { current = null; head = t; }
+    else if (!indented || (!current && !LIST_ITEM.test(head))) head = t;
   }
   return out.map(({ label, raw }) => ({ label, raw }));
 }
