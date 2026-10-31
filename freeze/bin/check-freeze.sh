@@ -250,8 +250,11 @@ _resolve_path() {
           while [ "${_rem#/}" != "$_rem" ]; do _rem="${_rem#/}"; done
           ;;
         //[!/]*)
-          _lead="/"; _rem="${_rem#//}"
-          if [ "$_win" = 1 ]; then _min=2; fi
+          if [ "$_win" = 1 ]; then
+            _lead="/"; _rem="${_rem#//}"; _min=2
+          else
+            _rem="${_rem#//}"
+          fi
           ;;
         *)
           while [ "${_rem#/}" != "$_rem" ]; do _rem="${_rem#/}"; done

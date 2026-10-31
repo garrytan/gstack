@@ -1643,6 +1643,21 @@ describe('check-freeze.sh', () => {
       });
     });
 
+    // Linux and macOS read a leading '//' as '/', so neither a '//' path nor a
+    // link to '//' may borrow a UNC boundary, and a link to '/' followed by
+    // '/' stays a plain absolute path.
+    test.skipIf(process.platform === 'win32')('POSIX: a double slash is the root, never a UNC prefix', () => {
+      withTree(({ base, home, src }) => {
+        fs.symlinkSync('//', path.join(base, 'dbl'));
+        fs.symlinkSync('/', path.join(base, 'root'));
+        const unc = '\\\\server.invalid\\share\\proj';
+        expect(decide(unc, base + '/dbl/server.invalid/share/proj/x.ts', home, base)).toBe('deny');
+        expect(decide(unc, '//server.invalid/share/proj/x.ts', home, base)).toBe('deny');
+        expect(decide(src, base + '/root/' + src + '/x.ts', home, base)).toBe('allow');
+        expect(decide(src, '/' + src + '/x.ts', home, base)).toBe('allow');
+      });
+    });
+
     // On POSIX '\\' is a filename character, so a name that spells '..' with
     // backslashes is one directory, not a way back into the boundary.
     test.skipIf(process.platform === 'win32')('a POSIX backslash name that spells dotdot never counts as inside', () => {
