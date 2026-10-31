@@ -299,7 +299,7 @@ anything else goes to a repair lane. An infra-only census earns one re-dispatch.
 backstop gate runs on every push to the base branch and freezes the queue when it finds
 a tree no green train covered; one repair PR at its exact head clears the freeze.
 
-**Wave PRs when the queue is long (Garry's R46, 2026-10-31).** Every slot pays its own
+**Wave PRs when the queue is long.** Every slot pays its own
 stamp, its own round of required checks and its own version, one after another. When more
 than 6 PRs are READY, `gstack-ship-queue wave plan` prints `WAVE_ADVISED` and suggested
 area groups of 3 to 6 (`train build` prints the same line when handed more than 6 pins). The
