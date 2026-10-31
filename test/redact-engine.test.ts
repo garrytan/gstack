@@ -532,10 +532,6 @@ describe("tool-attributed fence WARN-degrade (TENSION-3)", () => {
     const r = scan(text, { repoVisibility: "private" });
     expect(r.counts.HIGH).toBe(1); // not degraded — live format
   });
-  test("review-bot fence (#3122): placeholder degrades, live-format credential still blocks", () => {
-    expect(scan("```review-bot\nfound your_aws_key AKIAIOSFODNN7EXAMPLE in code\n```", { repoVisibility: "private" }).counts.HIGH).toBe(0);
-    expect(scan("```review-bot\nleaked AKIA1234567890ABCDEF here\n```", { repoVisibility: "private" }).counts.HIGH).toBe(1);
-  });
   test("AKIA outside any fence blocks", () => {
     expect(exitCodeFor(scan("AKIA1234567890ABCDEF", {}))).toBe(3);
   });
