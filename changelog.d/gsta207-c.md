@@ -2,4 +2,4 @@
 
 ### Fixed
 - **`bin/gstack-launch-probe.sh`** writes the pattern with its POSIX leading `(`, which every bash version accepts.
-- **A new test scans every tracked shell script** for a `case` pattern without a leading `(` inside `$( )` or `<( )`, so Linux CI catches this before it reaches a Mac. The probe test also parses the file with `/bin/bash`, which is bash 3.2 on a macOS runner.
+- **A new test scans every tracked shell script** for a `case` pattern without a leading `(` inside `$( )` or `<( )`, so Linux CI catches this before it reaches a Mac. The probe test also parses the file with `/bin/bash`, which catches it when the test runs on a Mac.
