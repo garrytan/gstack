@@ -77,8 +77,8 @@ one program measure nothing: Capy books a call after its program ends.
 A jam's own counter includes its own subagents, outside voices too (measured 2026-10-30: +10.92M
 across a six-reader dispatch with two ~0.35M parent calls between). `"this"` is the root thread,
 whose counter also holds every sibling tree. A subagent running /ship cannot read its own jam id, so it
-reads `"this"` and starts with `--subagent --reading-from this --meter-scope tree` (or
-`GSTACK_SHIP_SUBAGENT=1` in its brief): the run is tree-scoped, and every BUDGET, NOTE, BUDGET_FINAL
+reads `"this"` and starts with `--subagent --reading-from this --meter-scope tree` (`GSTACK_SHIP_SUBAGENT=1` in its
+brief stands in for `--subagent` only; `--reading-from this` is still required): the run is tree-scoped, and every BUDGET, NOTE, BUDGET_FINAL
 and BUDGET_TIMELINE line it prints is followed by `METER: tree (root counter, upper bound)`. A
 subagent that asks for `--meter-scope self` while reading `"this"` is refused
 (`METER_SCOPE_PARENT`). A `--token-cap` on a tree-scoped run stops on that upper bound, so sibling
