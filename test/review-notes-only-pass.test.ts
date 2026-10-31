@@ -68,6 +68,17 @@ describe('a notes-only /ship review pass (GST-430)', () => {
     }
   });
 
+  // Value: protects=a claimed clean row cannot carry a gate finding the unattended logger stamped open past Step 11.5;
+  //   catches=a reader that trusts the claimed status and counts over the stamped finding (red-team#2, pass 1).
+  test('a claimed clean row with a stamped-open gate finding is not CURRENT', () => {
+    const token = run(['--start', 'review']).out.trim();
+    const gate = note(1, 'kept', { gate: 'RH1', gate_id: 'g', reason: 'r', severity: 'CRITICAL' });
+    expect(run([pass([gate], { status: 'clean', issues_found: 0, critical: 0, informational: 0 }), '--finish', token]).code).toBe(0);
+    const row = lastRow();
+    expect([row.status, row.findings[0].action, row.review_binding.state]).toEqual(['clean', 'open', 'verified']);
+    expect(reviewFreshness(row, row.wtree)?.status).toBe('UNVERIFIED');
+  });
+
   test('isOpenFinding: noted, deferred and auto-fixed actions are not open; skipped and missing actions are', () => {
     expect(['fixed', 'auto-fixed', 'deferred', 'noted', 'skipped', undefined].map(action => isOpenFinding({ action })))
       .toEqual([false, false, false, false, true, true]);

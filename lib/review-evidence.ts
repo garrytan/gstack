@@ -352,7 +352,8 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string):
   // issues_found, and the legacy `critical` and Codex counters stay as they were.
   const open = typeof rec.findings_open === 'number' ? rec.findings_open : rec.issues_found;
   if (rec.status !== 'clean' || open > 0 || rec.critical > 0 ||
-      (rec.skill === 'codex-review' && rec.findings > (rec.findings_fixed ?? 0))) {
+      (rec.skill === 'codex-review' && rec.findings > (rec.findings_fixed ?? 0)) ||
+      (Array.isArray(rec.findings) && rec.findings.some(f => record(f) && f.action === 'open'))) {
     return { status: 'UNVERIFIED', reason: 'review has unresolved findings or did not finish clean' };
   }
   return { status: 'CURRENT', reason: 'completed clean pass on unchanged content' };
