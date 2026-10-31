@@ -174,8 +174,8 @@ function packageRunner(repoRoot: string, dir: string, env: NodeJS.ProcessEnv): {
   return { runner: `${PM_EXEC[pm]} ${tool} {files}` };
 }
 
-/** A JS/TS test that imports Playwright's runner at the start of a line (a string or a fixture body that mentions it mid-line does not count). */
-const PLAYWRIGHT_IMPORT = /^[\t ]*(?:import\b[^'"`\n]*?\bfrom|\}[\t ]*from|import|(?:const|let|var)\b[^=\n]*=[\t ]*require\()[\t ]*['"]@playwright\/test['"]/m;
+/** A JS/TS test that imports Playwright's runner at the start of a line (a string or a fixture body that mentions it mid-line, or an `import type`, does not count). */
+const PLAYWRIGHT_IMPORT = /^[\t ]*(?:import\b(?![\t ]+type\b)[^'"`\n]*?\bfrom|\}[\t ]*from|import|(?:const|let|var)\b[^=\n]*=[\t ]*require\()[\t ]*['"]@playwright\/test['"]/m;
 /** Playwright's own text when its browsers are not installed on this machine. */
 const PLAYWRIGHT_NO_BROWSERS = /^.*(?:Executable doesn't exist at|download new browsers).*$/m;
 
@@ -532,7 +532,7 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
     // only when the runner's binary is off PATH.
     const environment = r.ran === null && r.bad && !r.bad.observedStart ? classifyCommandEnvironment(r.bad.runner, r.tail.join('\n'), r.exit, runtime.env) : null;
     if (environment) return environmentResult(withRun, environment, `the runner exited ${r.exit} before any test was counted (${total} files): ${environment.evidence}`);
-    // Playwright counts a test whose browser is not installed as failed; when every failure in every failed run is that, the machine lacks the browsers.
+    // Playwright counts a test whose browser is not installed as failed; when every test of every failed run failed and Playwright says so, the machine lacks the browsers.
     const failedRuns = r.runs.filter(x => x.exit !== 0);
     if (failedRuns.every(x => x.noBrowsers && x.failed !== null && x.failed === x.ran)) return environmentResult(withRun, { kind: 'missing-binary', evidence: `Playwright browsers not installed (npx playwright install): ${failedRuns[0]!.noBrowsers}`, proof: 'output' }, `every Playwright test failed to launch its browser (${r.failed} of ${r.ran}; ${total} files)`);
     return { ...withRun, status: 'fail', cause: 'diff', code: 'PREGATE_LANE_FAILED', detail: `local lane exited ${r.exit} (${r.failed ?? '?'} failed of ${r.ran ?? '?'} ran; ${total} files; pipefail)`, fix: `read ${r.log}, fix the in-branch failure, rerun gstack-pregate --stage tests` };

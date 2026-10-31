@@ -846,7 +846,7 @@ describe('nested JS packages run their own runner from their own directory', () 
     write(repo.work, 'package.json', JSON.stringify({ name: 'fixture', devDependencies: { vitest: '^3.2.0', '@playwright/test': '^1.48.0' } }) + '\n');
     write(repo.work, 'tests/e2e/home.spec.ts', "import { expect, test } from '@playwright/test';\ntest('home', async ({ page }) => expect(page).toBeTruthy());\n");
     write(repo.work, 'app/e2e/app.spec.ts', "import {\n  test,\n} from \"@playwright/test\";\ntest('app', () => {});\n");
-    write(repo.work, 'test/util.test.js', "import { test } from 'vitest';\nconst spec = \"import { test } from '@playwright/test';\";\ntest('fixture text only', () => {});\n");
+    write(repo.work, 'test/util.test.js', "import { test } from 'vitest';\nimport type { Page } from '@playwright/test';\nconst spec = \"import { test } from '@playwright/test';\";\ntest('fixture text and a type import only', () => {});\n");
     expect(planRuns(ctx, ['tests/e2e/home.spec.ts', 'test/util.test.js', 'app/src/sum.test.ts', 'app/e2e/app.spec.ts'])).toEqual({ groups: [
       { runner: 'npx vitest run {files}', cwd: '', files: ['test/util.test.js'] },
       { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },
