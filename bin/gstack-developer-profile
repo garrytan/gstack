@@ -68,22 +68,25 @@ shift || true
 # --log-session. Writers hold a mkdir lock (<profile>.lock/, whose owner file
 # names the holder's pid and a random token; release is ownership-checked)
 # from before their read until after their rename, and write a unique temp
-# file. A lock whose holder process is gone is taken over at once, and a live
-# holder is never evicted. Takeovers are serialized by a second mkdir lock
+# file. A lock whose holder process is gone is taken over at once; one older
+# than 5 minutes is taken over even when its pid is alive, since no writer
+# runs that long and the pid may have been reused. Takeovers are serialized by a second mkdir lock
 # (<profile>.lock.takeover/) and re-read the owner under it, so two waiters
 # cannot both take over or remove a lock a third writer just took. A lock or
 # takeover directory older than 30 s with no owner belongs to a writer that
-# died before writing one. A writer that cannot get the lock within the
+# died before writing one; cleanup removes a takeover lock this writer holds. A writer that cannot get the lock within the
 # give-up window writes nothing and exits 5. Writers outside this binary
 # (gstack-distill-apply, /plan-tune's declared edits) do not take it yet.
 # -----------------------------------------------------------------------
 LOCK_DIR="$PROFILE_FILE.lock"
 TAKEOVER_DIR="$LOCK_DIR.takeover"
 LOCK_TOKEN=""
+HOLDS_TAKEOVER=""
 PROFILE_TMP=""
 
 cleanup() {
   if [ -n "$PROFILE_TMP" ]; then rm -f "$PROFILE_TMP"; fi
+  if [ -n "$HOLDS_TAKEOVER" ]; then rmdir "$TAKEOVER_DIR" 2>/dev/null || true; fi
   if [ -n "$LOCK_TOKEN" ] && [ "$(cat "$LOCK_DIR/owner" 2>/dev/null || true)" = "$LOCK_TOKEN" ]; then
     rm -rf "$LOCK_DIR"
   fi
@@ -101,7 +104,7 @@ dir_age_s() {
 
 lock_abandoned() {
   if [ -n "$1" ]; then
-    ! kill -0 "${1%%-*}" 2>/dev/null
+    ! kill -0 "${1%%-*}" 2>/dev/null || [ "$(dir_age_s "$LOCK_DIR")" -gt 300 ]
   else
     [ "$(dir_age_s "$LOCK_DIR")" -gt 30 ]
   fi
@@ -126,10 +129,12 @@ acquire_lock() {
     if [ -d "$LOCK_DIR" ] && lock_abandoned "$owner"; then
       if [ -d "$TAKEOVER_DIR" ] && [ "$(dir_age_s "$TAKEOVER_DIR")" -gt 30 ]; then rmdir "$TAKEOVER_DIR" 2>/dev/null || true; fi
       if mkdir "$TAKEOVER_DIR" 2>/dev/null; then
+        HOLDS_TAKEOVER=1
         if [ "$(cat "$LOCK_DIR/owner" 2>/dev/null || true)" = "$owner" ] && lock_abandoned "$owner"; then
           rm -rf "$LOCK_DIR" 2>/dev/null || true
         fi
         rmdir "$TAKEOVER_DIR" 2>/dev/null || true
+        HOLDS_TAKEOVER=""
         if [ ! -e "$LOCK_DIR" ]; then continue; fi
       fi
     fi
