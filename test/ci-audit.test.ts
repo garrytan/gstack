@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT, main } from '../lib/ci-audit/cli';
-import { preflight, type Run } from '../lib/ci-audit/collect';
+import { countRuns, listJobs, preflight, type Run } from '../lib/ci-audit/collect';
 import { Budget } from '../lib/ci-audit/github';
 import { concurrencyFlag, lessonRunners } from '../lib/ci-audit/lessons';
 import { cohort, measure, phases } from '../lib/ci-audit/measure';
@@ -197,6 +197,31 @@ describe('prices', () => {
     expect(priceRunner('ubicloud-standard-2', false, {}, 'premium').usdPerMinute).toBeCloseTo(0.002);
     expect(priceRunner('ubicloud-standard-8', false, {}, 'premium').usdPerMinute).toBeCloseTo(0.008);
     expect(priceRunner('ubicloud-standard-2', false).usdPerMinute).toBeCloseTo(0.00125);
+  });
+});
+
+describe('cost accounting inputs', () => {
+  const json = (status: number, body: unknown) => ({ status, json: body, headers: {} });
+  test('a failed run-count request makes the whole count partial instead of zero runs', async () => {
+    const client = { text: async () => null, get: async (p: string) =>
+      p.includes('/workflows?') ? json(200, { workflows: [{ path: '.github/workflows/a.yml', id: 1 }, { path: '.github/workflows/b.yml', id: 2 }] })
+        : p.includes('/workflows/1/') ? json(200, { total_count: 5 }) : json(500, {}) };
+    const partial: string[] = [];
+    expect(await countRuns(client as never, 'o/n', '2026-10-24T00:00:00Z', 'created=>=2026-10-24', ['.github/workflows/a.yml', '.github/workflows/b.yml'], partial)).toBeNull();
+    expect(partial.join()).toContain('run counts');
+  });
+
+  test('a matrix past 100 jobs is read to its last page', async () => {
+    const jobs = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ id: from + i }));
+    const client = { text: async () => null, get: async (p: string) => json(200, { total_count: 101, jobs: /[?&]page=2/.test(p) ? jobs(1, 100) : jobs(100, 0) }) };
+    expect((await listJobs(client as never, 'o/n', { id: 9, run_attempt: 1 } as Run))?.length).toBe(101);
+  });
+
+  test('larger macOS runners are not priced as free standard runners', () => {
+    expect(priceRunner('macos-14', false).usdPerMinute).toBe(0);
+    const xl = priceRunner('macos-14-xlarge', false);
+    expect(xl.kind).not.toBe('github-hosted');
+    expect(xl.assumed).toBe(true);
   });
 });
 

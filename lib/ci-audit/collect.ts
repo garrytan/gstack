@@ -58,9 +58,15 @@ export async function listRuns(client: ApiClient, repo: string, query: string, m
 }
 
 export async function listJobs(client: ApiClient, repo: string, run: Run): Promise<Job[] | null> {
-  const res = await client.get(`/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=100`);
-  if (res.status !== 200) return null;
-  return ((res.json as any)?.jobs ?? []) as Job[];
+  const jobs: Job[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const res = await client.get(`/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=100${page > 1 ? `&page=${page}` : ''}`);
+    if (res.status !== 200) return page === 1 ? null : jobs;
+    const got = ((res.json as any)?.jobs ?? []) as Job[];
+    jobs.push(...got);
+    if (got.length < 100 || jobs.length >= Number((res.json as any)?.total_count ?? 0)) return jobs;
+  }
+  return jobs;
 }
 
 /** Newest completed runs per workflow file, the sample whose jobs get fetched. */
@@ -143,6 +149,8 @@ export async function countRuns(client: ApiClient, repo: string, since: string, 
       if (r.status === 200 && Number.isFinite(n)) byPath[p] = n;
     });
     if (got.error) { partial.push(`run counts stopped early (${got.error.code}); cost scaled from the runs list`); return null; }
+    const missing = paths.filter(p => !(p in byPath));
+    if (missing.length) { partial.push(`run counts missing for ${missing.length} workflow(s) (${missing.slice(0, 3).join(', ')}); cost scaled from the runs list`); return null; }
     if (Object.values(byPath).some(n => n >= 2500)) partial.push('a workflow reached GitHub\'s 2,500 run-count limit; its cost is a floor');
     return { since, byPath };
   } catch (e) { if (!(e instanceof AuditError)) throw e; partial.push(`run counts skipped (${e.code})`); return null; }

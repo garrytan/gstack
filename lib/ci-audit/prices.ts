@@ -13,7 +13,7 @@ export const PRICE_ROWS: [RegExp, PriceRow][] = [
   [/^ubuntu-(latest|\d{2}\.\d{2})(-arm)?$/, { usd: 0.006, vcpu: 4, source: `${GH} (Linux 2-core; 4 vCPU on public repos)`, freeOnPublic: true }],
   [/^ubuntu-.*-slim$/, { usd: 0.002, vcpu: 1, source: `${GH} (Linux 1-core)`, freeOnPublic: true }],
   [/^windows-(latest|\d{4})(-arm)?$/, { usd: 0.010, vcpu: 4, source: `${GH} (Windows 2-core; 4 vCPU on public repos)`, freeOnPublic: true }],
-  [/^macos-/, { usd: 0.062, vcpu: 3, source: `${GH} (macOS)`, freeOnPublic: true }],
+  [/^macos-(latest|\d+)(-arm64)?$/, { usd: 0.062, vcpu: 3, source: `${GH} (macOS)`, freeOnPublic: true }],
   [/^ubicloud-standard-(\d+)/, { usd: 0.000625, vcpu: null, source: `${CIB} (Ubicloud standard, $0.000625 per vCPU-minute)` }],
   [/^ubicloud-premium-(\d+)/, { usd: 0.001, vcpu: null, source: `${CIB} (Ubicloud premium, $0.001 per vCPU-minute)` }],
   [/^ubicloud$/, { usd: 0.00125, vcpu: 2, source: `${CIB} (Ubicloud standard-2)` }],
