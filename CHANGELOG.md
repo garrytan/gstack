@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.91.379.0] - 2026-10-31
+
+**/ship's review readers now review the checkout /ship ships, even when it runs from a worktree on a shared machine.** Readers start as subagents on `machine: "shared"`, so each one opens in the machine's working directory. Their briefs never named a folder, so a /ship run from a worktree had its readers review whatever branch the primary checkout held. GBrain's crew saw a specialist return four findings in files outside the PR (GBRA-218, GST-482). A clean review of the wrong tree would have looked the same as a clean review of the right one.
+
+### Fixed
+- **Every reader's brief ends with a workspace paragraph** naming the checkout under review (the toplevel of the directory the bins run in). It tells the reader to start each command with `cd <checkout> && `, to give every file tool an absolute path under the checkout, and to make the first line of its final reply `REVIEWED_TREE: <HEAD^{tree}> <toplevel>`, measured there. The paragraph comes after the section text, so the rest of the brief is the same bytes as before. It covers the specialists, the batched specialist, the Red Team, the targeted reader, fix-check, Step 11's native and outside voices, and audit readers passed as extras (Steps 7, 8 and 14.5, and Step 9.2.1's QA reader). An audit reader's brief is now written to `briefs/` as its prompt file plus the paragraph, and its prompt file is not changed.
+- **`gstack-review-dispatch collect` checks that line against the fingerprint recorded when the brief was rendered.** A missing line, or one naming another checkout, prints `COLLECT_WRONG_TREE`; a line from the right checkout at a later commit prints `COLLECT_TREE_MOVED`. Either way it exits 1, merges nothing, and `verify` reports the brief `NOT_COLLECTED`. With `--manifest`, the reader becomes `failed`, so a rerun stops on it instead of collecting the same reply again. An outside voice whose reply fails the check and holds no finding is recorded as unavailable coverage, never clean; one with findings is refused like any other reader, so none is lost. An audit reader gets the same check when the pass marks it collected, and that now needs `--output`.
+- **Unavailable outside-voice output never counts as a review in `verify`**, even when its text carries a `Recommendation:` line.
+
+### Tests
+- `test/review-pass.test.ts`: a primary checkout and a worktree on another branch, with readers starting in the primary checkout. A reader that reviews the primary checkout, or names none, is refused and nothing it said is merged. One that follows its brief passes, and every brief names the worktree. An audit reader from the wrong checkout is refused. A rerun stops on the failed reader with one output event. A worktree at the same commit is told apart by its toplevel. A commit between render and reply is `COLLECT_TREE_MOVED`. A wrong-tree outside voice with no finding is `UNAVAILABLE`. All eight fail on the previous dispatch code.
+- `test/review-dispatch.test.ts`: every role's brief is the old render byte for byte, followed by the paragraph. A list-item, heading, bold or backticked `REVIEWED_TREE` line counts, the path keeps its own characters, and the first line wins over one quoted later. An outside voice with findings and no line is refused. A render outside a readable checkout refuses, and a ledger rendered before this change collects as before.
+
+## [1.91.378.0] - 2026-10-31
+
+**The CSO runtime image workflow passes again after Docker moved its `scout-sbom-indexer:1` tag.** All 10 `validate-native` jobs in Stage CSO Runtime Images were failing with `SOURCE_TAG_MOVED: docker.io/docker/scout-sbom-indexer:1` on every PR that touched CSO paths. Docker pushed release 1.29.0 to the floating `:1` tag on 2026-10-29. The reviewed index `sha256:4b67f29e…` is Docker's 1.24.0 release, and the `1.24.0` tag still points at it. So the SBOM generator source now names `:1.24.0`. The pinned digests and the build-inputs revision are byte-identical, no requalification trigger changes, and the 10 qualified runtimes stay current.
+
+### Changed
+- **`lib/cso/images/build-inputs.json`**: `sbomGenerator.source` is `docker.io/docker/scout-sbom-indexer:1.24.0` instead of `:1`.
+- **`scripts/cso-image-matrix.ts`**: every pinned family (SBOM generator, base images, uv) must name an exact release in its source tag: `<major>.<minor>.<patch>`, or `<major>.<minor>` for the PostgreSQL base, whose releases have two parts. A floating major or minor tag (`:1`, `:1.24`, `python:3.13-slim`), `latest` or another alias fails with `FLOATING_<FAMILY>_SOURCE` before any build. An exact tag can still be re-pushed upstream (Docker's official images rebuild them when their Debian base changes), and `SOURCE_TAG_MOVED` still reports that. Moving the generator to 1.29.0 is a separate change that needs a new build-inputs revision and a requalified catalog.
+
+### Tests
+- `test/cso-distribution.test.ts`: `:1`, `:1.24`, `:1.24-slim`, `:latest` and `:stable` are refused for the SBOM generator and for a base image; PostgreSQL accepts `17.2` but not `17`, Python refuses `3.13-slim-bookworm`; and the committed inputs build all 10 rows with the `1.24.0` source.
+
+## [1.91.377.0] - 2026-10-31
+
+**A passed GitHub Actions run can now clear the remote test gate for the same tree, so a repository stops running its full suite twice per slot.** gbrain paid a 30–45 minute Ubicloud gate and then an 18–20 minute full-ci dispatch on the same tree in every serial slot (GBRA-108: #7872's slot took 5.6 h). `gstack-pregate clear --remote pregate.json/remote_gate --run <id> --run <id>` accepts one verified run per profile the base branch declares. gstack checks each run against the runner's own record, never against a pasted claim. It reads the GitHub API's run and jobs, the tree git computes for the run's head, and the `tree.json` the run uploaded. Nothing is skipped: the tests still run once, in CI. A repository that declares no profiles is unchanged.
+
+### Added
+- **`gstack-pregate clear --run <id|url>`** (repeatable; `lib/run-evidence.ts`, docs/pregate.md#run-evidence). A run is accepted only when it belongs to this repository, ran a `push` or `workflow_dispatch` event of the profile's workflow, and its newest attempt succeeded with every named job passing exactly once. Its `tree.json` must name the run, attempt, event and head and record the head's tree, and it must be fresh (`max_age_hours`, default 24) and on the profile's OS. It is refused if any run of that workflow on the head that started at or after it failed, was cancelled or is still running, or if the run changed attempts while being checked. All runs must be on one tree: pregate.json's, or a stamp-only predecessor under the existing tree-receipt rule. Their `files` must cover the obligation's selected tests plus every file the declared `inventory` command lists for that tree. Refusals print `REUSE: refused reason=<code>`; an accepted clear prints `REUSE: accepted`, and the receipt records `runs=<id>/<attempt> profiles= heads= verified=`.
+- **`run_profiles` and `remote_gate_runs`** in `.gstack/pregate.json`, read only from `origin/<base>`. A user-owned policy that sets them is refused, because nothing would read them there. `gstack-pregate clear` clears a lane named by a profile only through verified runs, so its `--run-url` is verified the same way, and `--bundle-lane` is refused. `gstack-ship-queue ready --dispatch-ci` still records a plain run URL for such a lane, and `verify` does not yet re-check it (docs/pregate.md#run-evidence). When the base config cannot be read, any lane's `--run-url` or `--bundle-lane` clear refuses, since the base may profile it. When the GitHub origin cannot be read, a profiled lane refuses rather than fall back to an unverified record.
+
+### Changed
+- **`gstack-pregate verify`** stays offline. It also refuses a run receipt recorded for another tree unless its stamp-only substitution is recorded.
+
+### Tests
+- `test/run-evidence.test.ts`: every refusal reason, including the re-run cases (a red re-run of an older run vetoes; re-running the candidate does not hide a failure in between), a run that changes attempts while being checked, malformed counts and paths, and profile validation.
+- `test/pregate-clear-runs.test.ts`: on a fixture repository, clear on the same tree, verify offline, and bind the ship receipt. Also covers a stamp-only predecessor, a non-stamp difference, uncovered files, runs on different trees, base mismatch, repeated runs, the profile-to-run assignment, the profiled-lane matrix (`--run-url`, `--bundle-lane`, `--run`), a non-GitHub origin failing closed, an origin that `url.insteadOf` rewrites to a proxy (Capy's git.capy.ai) still read as the GitHub repository, and an unreadable base config refusing `--run-url` on every lane. The `--run-url` fallback test failed before the fix.
+
 ## [1.91.376.0] - 2026-10-31
 
 bump: minor

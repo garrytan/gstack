@@ -157,12 +157,16 @@ describe('gstack-pregate with a user-owned policy', () => {
     expect(invalid.err).toContain(`fix: edit ${userPolicy} directly`);
     expect(invalid.err).not.toContain('.gstack/pregate.json has');
 
-    for (const [key, value] of [['sealed', { paths: ['evals/**'] }], ['price_file', 'evals/calls.json']] as const) {
+    const profile = { workflow: 'test.yml', events: ['push'], jobs: ['full-suite'], artifact: 'full-suite-tree' };
+    for (const [key, value] of [['sealed', { paths: ['evals/**'] }], ['price_file', 'evals/calls.json'], ['run_profiles', { test: profile }], ['remote_gate_runs', { profiles: ['test'], inventory: 'true' }]] as const) {
       writePolicy(userPolicy, { [key]: value });
       const r = run();
       expect(r.status).toBe(EXIT.refused);
       expect(r.err).toContain(`covers gstack-pregate run only; ${key}`);
     }
+    // An empty run_profiles is the documented default, not a policy, so it is accepted.
+    writePolicy(userPolicy, { run_profiles: {}, local: LOCAL_ALL });
+    expect(run().err).not.toContain('PREGATE_CONFIG_INVALID');
     // A null price_file is the documented default, not a policy, so it is accepted.
     writePolicy(userPolicy, { price_file: null, local: LOCAL_ALL });
     expect(run().err).not.toContain('PREGATE_CONFIG_INVALID');
