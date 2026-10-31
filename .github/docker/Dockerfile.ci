@@ -178,6 +178,21 @@ RUN for i in 1 2 3; do \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
+# ffmpeg (with ffprobe): /design-motion's checks and exports shell out to it
+# (lib/motion-encode.ts), and the marathon design-motion-showcase case runs
+# that flow end to end. The image had none, so every trial stopped at
+# FFMPEG_MISSING (#3687). The build fails if the packaged ffmpeg ever lacks a
+# filter or encoder the checks and exports use.
+RUN for i in 1 2 3; do \
+      apt-get update && apt-get install -y --no-install-recommends ffmpeg && break || \
+      (echo "ffmpeg install retry $i/3"; sleep 10); \
+    done \
+    && rm -rf /var/lib/apt/lists/* \
+    && command -v ffprobe \
+    && filters="$(ffmpeg -hide_banner -filters)" && encoders="$(ffmpeg -hide_banner -encoders)" \
+    && for f in psnr gblur palettegen paletteuse signalstats tile; do echo "$filters" | grep -qw "$f" || { echo "ERROR: ffmpeg lacks the $f filter" >&2; exit 1; }; done \
+    && for e in libx264 gif; do echo "$encoders" | grep -qw "$e" || { echo "ERROR: ffmpeg lacks the $e encoder" >&2; exit 1; }; done
+
 # Pre-install dependencies (cached layer — only rebuilds when package.json or
 # bun.lock changes). Copy BOTH so install is deterministic and matches local
 # resolution. Without bun.lock here, bun install resolved transitive deps
