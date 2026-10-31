@@ -279,6 +279,33 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(fs.readFileSync(path.join(out, 'merged.jsonl'), 'utf8')).not.toContain('Coverage');
   }, 240_000);
 
+  test('a rerun after a failed review-log start runs the start again before any reader is sent', async () => {
+    const { dir, env } = repo();
+    const shim = path.join(dir, '.state/shim');
+    fs.mkdirSync(shim, { recursive: true });
+    fs.writeFileSync(path.join(shim, 'gstack-review-log'), '#!/bin/sh\necho refused >&2\nexit 1\n', { mode: 0o755 });
+    const h = host(dir, { ...env, PATH: shim + path.delimiter + env.PATH });
+    const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x11p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] };
+    expect(await runPass(h, input)).toContain('STOP: gstack-review-log --start review exited 1');
+    expect(h.creates).toHaveLength(0);
+    fs.rmSync(path.join(shim, 'gstack-review-log'));
+    const res = await runPass(h, input);
+    expect(res).toMatch(/REVIEW_LOG_START: review token=\S+/);
+    expect(res).toContain('NEXT: judge');
+    expect(res.indexOf('REVIEW_LOG_START:')).toBeLessThan(res.indexOf('DISPATCHED:'));
+  }, 240_000);
+
+  test('a rerun after a failed reader stops again instead of polling forever', async () => {
+    const { dir, env } = repo();
+    const h = host(dir, env, { fail: t => t.endsWith('specialist/performance') });
+    const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x12p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, input)).toMatch(/STOP: specialist\/performance \(subagent \d+\) failed/);
+    const again = await runPass(h, input);
+    expect(again).toMatch(/STOP: specialist\/performance \(subagent \d+\) failed; .*new --pass and --out/);
+    expect(again).not.toContain('NEXT: poll');
+    expect(h.creates.some(c => c.title.endsWith('red-team'))).toBe(false);
+  }, 240_000);
+
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();
     const h = host(dir, env);

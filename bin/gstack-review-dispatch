@@ -60,6 +60,7 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       BRIEF_CHUNK: reader=… index=i of=n sha256=…, then one JSON string line of at most 65,536 brief characters
   mark --manifest <f> --reader <r> --state <intent|created|queued|collected|failed> [--path <p>] [--output <f>] [--error <e>]
   mark --manifest <f> --before <tokens>,<credits>
+  mark --manifest <f> --log-start <key> --token <t>   records a review-log start token once, so a rerun starts only what is missing
       reader states move forward only; intent is recorded before the subagent is created, its path right after
   program [--ledger <f>]
       PROGRAM: v<n> sha256=… bytes=…, then lib/capy-review-pass.js as one JSON string line (see the gstack Capy skill)
@@ -174,6 +175,16 @@ function passStep(cmd: string): number {
     return EXIT.ok;
   }
   if (cmd === 'mark') {
+    const logStart = flag('--log-start');
+    if (logStart) {
+      const token = flag('--token');
+      if (!token) { process.stderr.write('gstack-review-dispatch mark: --log-start <key> --token <t>\n'); return EXIT.usage; }
+      m.log_starts ??= {};
+      m.log_starts[logStart] ??= token;
+      writeManifest(file, m);
+      process.stdout.write(`LOG_START: ${logStart} token=${m.log_starts[logStart]}\n`);
+      return EXIT.ok;
+    }
     const before = flag('--before');
     if (before) {
       const [tokens, credits] = before.split(',').map(Number);
