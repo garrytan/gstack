@@ -77,3 +77,14 @@ describe.if(process.platform === 'linux')('live /proc walk', () => {
     }
   });
 });
+
+describe('sidebar terminal agent', () => {
+  test('its claude keeps the user\'s tab: the spawn env turns the automatic session off', () => {
+    const source = fs.readFileSync(path.resolve(import.meta.dir, '../src/terminal-agent.ts'), 'utf8');
+    const start = source.indexOf('function spawnClaude');
+    const spawnEnv = source.slice(start, source.indexOf('--append-system-prompt', start));
+    expect(spawnEnv).toContain("BROWSE_SESSION: '',");
+    const lookup: ProcLookup = () => ({ ppid: 0, comm: 'claude' });
+    expect(chooseSession({ hasTab: false, flag: undefined, env: { BROWSE_SESSION: '' }, parentPid: 7, lookup })).toEqual({});
+  });
+});

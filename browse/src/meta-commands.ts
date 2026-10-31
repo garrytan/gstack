@@ -930,7 +930,7 @@ export async function handleMetaCommand(
           version: 1,
           savedAt: new Date().toISOString(),
           cookies: state.cookies,
-          pages: state.pages.map(p => ({ url: p.url, isActive: p.isActive })),
+          pages: state.pages.map(p => ({ url: p.url, isActive: state.pages.some(q => q.scoped) ? Boolean(p.scoped) : p.isActive })),
         };
         writeSecureFile(statePath, JSON.stringify(saveData, null, 2));
         return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages)\n⚠️  Cookies stored in plaintext. Delete when no longer needed.`;

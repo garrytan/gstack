@@ -117,6 +117,18 @@ const rootTab = bm.getActiveTabId();
   steps.rebuild = { uaStatus: ua.status, url: (await run('url', [], { session: 'b' })).result, tabsB: owned('session:b').length };
 }
 
+{ // context recreation under a tab pin keeps every tab and the global active tab
+  const home = bm.getActiveTabId();
+  const t = JSON.parse((await run('newtab', [U('pinrb'), '--json'])).result).tabId;
+  bm.switchTab(home, { bringToFront: false });
+  const before = bm.pages.size;
+  const ua = await run('useragent', ['Mozilla/5.0 gstack-pin-test'], { tabId: t });
+  const pinned = [...bm.pages.entries()].find(([, p]) => p.url().includes('s=pinrb'))?.[0];
+  steps.pinRebuild = { status: ua.status, result: ua.result, before, after: bm.pages.size, rootUrl: (await run('url')).result,
+    pinnedUrl: pinned === undefined ? null : (await run('url', [], { tabId: pinned })).result };
+  if (pinned !== undefined) await bm.closeTab(pinned);
+}
+
 { // only root may name a session; names are validated
   const scoped = { token: 't', clientId: 'agent-x', type: 'session', scopes: ['read', 'write', 'admin', 'meta'], tabPolicy: 'shared', rateLimit: 0, createdAt: new Date().toISOString(), commandCount: 0 };
   const denied = await run('url', [], { session: 'z' }, scoped);
@@ -157,6 +169,23 @@ const rootTab = bm.getActiveTabId();
   bm.getConnectionMode = () => 'headed';
   try { await run('url', [], { session: 'limit3' }); } finally { bm.getConnectionMode = mode; }
   steps.headed = { open: bm.pages.has(tab), owner: bm.getTabOwner(tab) ?? null, limit2: owned('session:limit2').length };
+}
+
+{ // tab <id> inside a session sticks for the session's next command
+  await run('goto', [U('mine')], { session: 'pick' });
+  const other = JSON.parse((await run('newtab', [U('theirs'), '--json'])).result).tabId;
+  const switched = await run('tab', [String(other)], { session: 'pick' });
+  const next = (await run('js', ['document.title'], { session: 'pick' })).result;
+  steps.pick = { switched: switched.status, next, owner: bm.getTabOwner(other) ?? null };
+}
+
+{ // state save and load inside a session land the session on its own saved page
+  await run('goto', [U('st')], { session: 'st' });
+  const save = await run('state', ['save', 'gsta227-session'], { session: 'st' });
+  const load = await run('state', ['load', 'gsta227-session'], { session: 'st' });
+  const after = await run('js', ['document.title'], { session: 'st' });
+  steps.stateLoad = { save: save.status, load: load.status, loadText: load.result, afterStatus: after.status, title: after.result,
+    rootStatus: (await run('url')).status };
 }
 
 await Bun.write(${JSON.stringify(path.join(root, 'steps.json'))}, JSON.stringify(steps));
@@ -232,6 +261,13 @@ describe('session lifecycle', () => {
     expect(steps.rebuild.url).toContain('s=rb');
     expect(steps.rebuild.tabsB).toBe(1);
   });
+  test('context recreation under a tab pin keeps every tab', () => {
+    expect(steps.pinRebuild.status).toBe(200);
+    expect(steps.pinRebuild.result).not.toContain('Browser reset');
+    expect(steps.pinRebuild.after).toBe(steps.pinRebuild.before);
+    expect(steps.pinRebuild.rootUrl).toContain('s=root');
+    expect(steps.pinRebuild.pinnedUrl).toContain('s=pinrb');
+  });
   test('a scoped token cannot name a session and opens no tab', () => {
     expect(steps.auth.deniedStatus).toBe(403);
     expect(steps.auth.denied).toContain('BROWSE_SESSION_ROOT_ONLY');
@@ -254,6 +290,12 @@ describe('session lifecycle', () => {
   });
   test('at the cap the least recently used idle session is evicted', () => {
     expect(steps.limit).toMatchObject({ evictedStatus: 200, fresh: 0, freshOpen: false, limit2: 1 });
+  });
+  test('tab <id> in a session moves that session to the tab for its next command', () => {
+    expect(steps.pick).toEqual({ switched: 200, next: 'theirs', owner: null });
+  });
+  test('state save and load inside a session leave it on its saved page', () => {
+    expect(steps.stateLoad).toMatchObject({ save: 200, load: 200, afterStatus: 200, title: 'st', rootStatus: 200 });
   });
   test('in headed mode an evicted session keeps its tab open and unowned', () => {
     expect(steps.headed).toEqual({ open: true, owner: null, limit2: 0 });

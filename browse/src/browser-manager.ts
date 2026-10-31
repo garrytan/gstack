@@ -356,11 +356,13 @@ export interface BrowserState {
     owner?: string;
     /** `$B device` profile, re-applied before the restored tab's first request. */
     device?: DeviceProfile;
+    /** The tab the calling request's scope was on, so restoreState rebinds that scope. In-memory only. */
+    scoped?: boolean;
   }>;
 }
 
 /** The tab a scoped request runs on; owner set for session scopes (#1961). */
-export interface TabScope { tabId: number; owner?: string }
+export interface TabScope { tabId: number; owner?: string; picked?: number }
 
 export class BrowserManager {
   private browser: Browser | null = null;
@@ -1281,7 +1283,7 @@ export class BrowserManager {
   switchTab(id: number, opts?: { bringToFront?: boolean }): void {
     if (!this.tabSessions.has(id)) throw new Error(`Tab ${id} not found`);
     const scope = this.tabScope.getStore();
-    if (scope) scope.tabId = id;
+    if (scope) scope.tabId = scope.picked = id;
     else this.activeTabId = id;
     // Only bring to front when explicitly requested (user-initiated tab switch).
     // Internal tab pinning (BROWSE_TAB) should NOT steal focus.
@@ -1340,9 +1342,10 @@ export class BrowserManager {
     return scope ? this.resolveScopeTab(scope) : this.activeTabId;
   }
 
-  /** The scope's tab; an owned scope whose tab id went stale (context rebuild) moves to its owner's newest tab. */
+  /** The scope's tab; an owned scope whose tab is gone (context rebuild) or neither owned nor picked with `tab <id>` moves to its owner's newest tab. */
   resolveScopeTab(scope: TabScope): number {
-    if (scope.owner && !(this.pages.has(scope.tabId) && this.tabOwnership.get(scope.tabId) === scope.owner)) {
+    const kept = this.tabOwnership.get(scope.tabId) === scope.owner || scope.picked === scope.tabId;
+    if (scope.owner && !(this.pages.has(scope.tabId) && kept)) {
       const ownedTabs = this.tabsOwnedBy(scope.owner);
       if (ownedTabs.length > 0) scope.tabId = ownedTabs[ownedTabs.length - 1]!;
     }
@@ -1866,6 +1869,8 @@ export class BrowserManager {
 
     const cookies = await this.context.cookies();
     const pages: BrowserState['pages'] = [];
+    const scope = this.tabScope.getStore();
+    const scopeTab = scope ? this.resolveScopeTab(scope) : null;
 
     for (const [id, page] of this.pages) {
       const url = page.url();
@@ -1886,6 +1891,7 @@ export class BrowserManager {
         loadedHtmlWaitUntil: loaded?.waitUntil,
         owner,
         device: session?.getDevice() ?? undefined,
+        scoped: id === scopeTab || undefined,
       });
     }
 
@@ -1935,6 +1941,7 @@ export class BrowserManager {
 
     // Re-create pages
     let activeId: number | null = null;
+    let scopeId: number | null = null;
     for (const saved of state.pages) {
       const page = await this.context.newPage();
       const id = this.nextTabId++;
@@ -1993,14 +2000,14 @@ export class BrowserManager {
       }
 
       if (saved.isActive) activeId = id;
+      if (saved.scoped) scopeId = id;
     }
 
     // If no pages were saved, create a blank one
-    if (this.pages.size === 0) {
-      await this.newTab();
-    } else {
-      this.activeTabId = activeId ?? [...this.pages.keys()][0];
-    }
+    if (this.pages.size === 0) await this.newTab();
+    this.activeTabId = activeId ?? [...this.pages.keys()][0];
+    const scope = this.tabScope.getStore();
+    if (scope) scope.tabId = scope.picked = scopeId ?? this.activeTabId;
 
     // Clear refs — pages are new, locators are stale
     this.clearRefs();

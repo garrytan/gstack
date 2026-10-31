@@ -396,6 +396,7 @@ function spawnClaude(cols: number, rows: number, lifecycle: PtyLifecycle) {
     BROWSE_STATE_FILE: STATE_FILE,
     BROWSE_NO_AUTOSTART: '1',
     BROWSE_HEADED: '1',
+    BROWSE_SESSION: '',
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
   };
