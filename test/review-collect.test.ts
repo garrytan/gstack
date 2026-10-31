@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { collectCommit, collectLive, CONSUMER_SCAN_CAP, loadRegistryAt } from '../lib/review-collect';
+import { collectCommit, collectLive, CONSUMER_SCAN_CAP, grepConsumers, loadRegistryAt, scanConsumers } from '../lib/review-collect';
 import { depthOfCommitInput } from '../lib/review-depth';
 
 const dirs: string[] = [];
@@ -176,4 +176,67 @@ describe('GSTA-167 part 4a: which data files code names (scanConsumers)', () => 
     expect(c.consumed).toBe('all');
     expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('code');
   }, 60_000);
+});
+
+describe('GST-544: the consumer scan reads only files that can match, under one overall deadline', () => {
+  const rows = Array.from({ length: 40 }, (_, i) => `{"i":${i}}`).join('\n') + '\n';
+  const blob = Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from(' rows.json post.json\n')]);
+  const mixed = () => {
+    const r = repo({ 'src/old.ts': "read('rules.json')\n", 'src/manifest.ts': "load('index.json')\n", 'docs/wiki.md': 'see orphan.json and rows.json\n', 'bench/blob.bin': blob, 'bench/notes.ts': 'no data names here, only .json and .csv\n' });
+    const head = r.commit({ 'src/old.ts': null, 'src/load.ts': "require('./data/rows.json'); require('my rows.json')\n", 'data/rows.json': rows, 'data/my rows.json': rows, 'assets/rules.json': rows, 'assets/index.json': '["post.json"]\n', 'assets/post.json': rows, 'wiki/orphan.json': rows, 'wiki/live.csv': 'a\n', 'bench/overlap.ts': "'xrows.jsonl' 'ab.csv' 'b.csv'\n" });
+    r.write({ 'src/untracked.ts': "read('live.csv')\n" });
+    return { ...r, head };
+  };
+  const patterns = ['rows.json', 'my rows.json', 'rules.json', 'index.json', 'post.json', 'orphan.json', 'live.csv', 'b.csv'];
+  const wholeTree = (dir: string, at: string) => {
+    const r = spawnSync('git', ['-c', 'core.quotePath=false', 'grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns.flatMap(b => ['-e', b]), ...(at ? [at, '--'] : ['--untracked', '--'])], { cwd: dir, encoding: 'utf8', timeout: 10_000 });
+    expect([0, 1]).toContain(r.status);
+    return r.stdout.split('\n').filter(Boolean).sort();
+  };
+  // Value: protects=the narrowed scan prints exactly the lines one whole-tree git grep prints, at a commit, at the merge base
+  //   and in the working tree with untracked files; fails_when=the extension pre-pass or the pathspecs drop a consumer;
+  //   seam=git grep output, compared with the single grep the scan ran before GST-544
+  test('grepConsumers prints the same lines as one whole-tree git grep at each rev and in the working tree', () => {
+    const r = mixed();
+    for (const at of [r.baseSha, r.head, '']) {
+      const got = grepConsumers(r.dir, patterns, at, () => true, Date.now() + 10_000);
+      expect(Array.isArray(got)).toBe(true);
+      expect((got as string[]).filter(Boolean).sort()).toEqual(wholeTree(r.dir, at));
+    }
+    expect(wholeTree(r.dir, '').length).toBeGreaterThan(5);
+  });
+  test('the pathspec chunks give the same lines when every file is its own git grep call', () => {
+    const r = mixed();
+    const got = grepConsumers(r.dir, patterns, '', () => true, Date.now() + 10_000, 1);
+    expect((got as string[]).filter(Boolean).sort()).toEqual(wholeTree(r.dir, ''));
+    expect(new Set(wholeTree(r.dir, '').map(l => l.split('\0')[0])).size).toBeGreaterThan(3);
+  });
+  test('consumed sets on the mixed fixture: chains through a data manifest, a live untracked consumer, docs ignored', () => {
+    const r = mixed();
+    const commit = collectCommit(r.dir, r.baseSha, r.head);
+    expect([commit.consumed, commit.errors]).toEqual([['assets/index.json', 'assets/post.json', 'assets/rules.json', 'data/my rows.json', 'data/rows.json'], []]);
+    const live = collectLive(r.dir, 'main');
+    expect([live.consumed, live.errors]).toEqual([['assets/index.json', 'assets/post.json', 'assets/rules.json', 'data/my rows.json', 'data/rows.json', 'wiki/live.csv'], []]);
+  });
+  // Value: protects=a scan that runs out of time keeps every data file code and says it timed out, with the deadline;
+  //   fails_when=a slow grep drops data to docs or reads as a git error; seam=the spawnSync timeout
+  test('a scan past its deadline fails closed with consumer_scan_failed naming the timeout and the deadline', () => {
+    const r = mixed();
+    const errors: Parameters<typeof scanConsumers>[5] = [];
+    expect(scanConsumers(r.dir, ['data/rows.json', 'wiki/orphan.json'], [r.head], true, r.dir, errors, 1)).toBe('all');
+    expect(errors).toEqual([expect.objectContaining({ code: 'consumer_scan_failed', detail: expect.stringMatching(/timed out.*0\.001 s deadline.*GSTACK_CONSUMER_SCAN_TIMEOUT_MS/) })]);
+    const saved = process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS;
+    process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS = '1';
+    try {
+      const c = collectCommit(r.dir, r.baseSha, r.head);
+      expect(c.consumed).toBe('all');
+      expect(c.errors.map(e => [e.code, /timed out/.test(e.detail)])).toEqual([['consumer_scan_failed', true]]);
+    } finally {
+      if (saved === undefined) delete process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS; else process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS = saved;
+    }
+    r.git('config', 'grep.lineNumber', 'not-a-bool');
+    const failed: Parameters<typeof scanConsumers>[5] = [];
+    expect(scanConsumers(r.dir, ['data/rows.json'], [r.head], false, r.dir, failed)).toBe('all');
+    expect(failed[0]!.detail).toMatch(/^git grep exited \d+: .*\(deadline 300 s\)$/);
+  });
 });

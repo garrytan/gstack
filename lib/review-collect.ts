@@ -34,6 +34,13 @@ function git(root: string, args: string[]): { ok: boolean; status: number | null
   const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
   return { ok: r.status === 0, status: r.status, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
 }
+/** git with what is left of an overall deadline (epoch ms) as its timeout, for a read that may take minutes. */
+function gitUntil(root: string, args: string[], deadline: number): { status: number | null; out: string; err: string; timedOut: boolean } {
+  const left = deadline - Date.now();
+  if (left <= 0) return { status: null, out: '', err: '', timedOut: true };
+  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, encoding: 'utf8', timeout: left, maxBuffer: 256 * 1024 * 1024 });
+  return { status: r.status, out: r.stdout ?? '', err: (r.stderr ?? '').trim(), timedOut: r.status === null && Date.now() >= deadline };
+}
 const scratch = (p: string) => p.startsWith('.gstack/tmp/');
 const oneLine = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').trim().slice(0, 200);
 const unavailable = (input: string, detail: string): RegistryInfo => ({ sha: null, outputs: [], error: { code: 'registry_unavailable', detail: oneLine(detail), input, repair: 'fetch the base branch (git fetch origin <base>) so its commit and registry resolve' } });
@@ -97,36 +104,81 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
 export const CONSUMER_SCAN_CAP = 2000;
 /** How many data files deep a chain of data naming data is followed (a manifest naming a data file) before the rest count as consumed. */
 export const CONSUMER_SCAN_DEPTH = 4;
+/** One consumer scan's whole budget, every git grep in it (GSTACK_CONSUMER_SCAN_TIMEOUT_MS overrides it); past it the scan fails closed. */
+export const CONSUMER_SCAN_TIMEOUT_MS = 300_000;
+/** Pathspec bytes per git grep call, so a long list of files to search stays under Windows' 32 KB command line. */
+export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
+
+export function consumerScanTimeoutMs(): number {
+  const v = Number(process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS);
+  return Number.isFinite(v) && v > 0 ? v : CONSUMER_SCAN_TIMEOUT_MS;
+}
+
+export type GrepFailure = { timedOut: boolean; status: number | null; err: string };
+
+/**
+ * The lines `git grep -I -F -o --null` prints for `patterns` at `rev` ('' is the working tree with untracked files), for
+ * the files `keep` accepts, in some order. Every pattern holds its own extension, so a `-l` pass for the extensions alone
+ * lists every file that can match; the full pattern list then reads only those files, CONSUMER_SCAN_PATHSPEC_BYTES of
+ * literal pathspecs per call. Each call gets what is left of `deadline` (epoch ms).
+ */
+export function grepConsumers(root: string, patterns: readonly string[], rev: string, keep: (file: string) => boolean, deadline: number, chunkBytes = CONSUMER_SCAN_PATHSPEC_BYTES): string[] | GrepFailure {
+  const where = rev ? [rev, '--'] : ['--untracked', '--'];
+  const exts = [...new Set(patterns.map(b => b.slice(b.lastIndexOf('.'))))].flatMap(e => ['-e', e]);
+  const listed = gitUntil(root, ['grep', '-I', '-F', '-l', '-z', '--no-color', ...exts, ...where], deadline);
+  if (listed.status !== 0 && listed.status !== 1) return listed;
+  const files = listed.out.split('\0').filter(Boolean).map(f => (rev ? f.slice(rev.length + 1) : f)).filter(keep);
+  const flags = ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns.flatMap(b => ['-e', b]), ...where];
+  const lines: string[] = [];
+  for (let i = 0; i < files.length;) {
+    const chunk: string[] = [];
+    for (let bytes = 0; i < files.length; i++) {
+      const spec = `:(literal)${files[i]}`;
+      if (chunk.length && bytes + spec.length > chunkBytes) break;
+      chunk.push(spec);
+      bytes += spec.length;
+    }
+    const r = gitUntil(root, [...flags, ...chunk], deadline);
+    if (r.status !== 0 && r.status !== 1) return r;
+    lines.push(...r.out.split('\n'));
+  }
+  return lines;
+}
 
 /**
  * The data candidates (lib/review-depth.ts dataCandidate) among the changed and deleted paths that a non-docs file names
  * by basename, at each rev and, with `live`, in the working tree with untracked files. The merge base is one of the revs,
  * so a consumer the change removes still counts. A data file named only by another data file is consumed when that one
- * is, followed CONSUMER_SCAN_DEPTH files deep; anything still open after that counts as consumed. A git grep failure is
- * a collector error, which fails the depth closed.
+ * is, followed CONSUMER_SCAN_DEPTH files deep; anything still open after that counts as consumed. A git grep failure, or
+ * a scan that outlives `timeoutMs`, is a collector error, which fails the depth closed.
  */
-export function scanConsumers(root: string, paths: readonly string[], revs: readonly string[], live: boolean, classRoot: string | readonly string[], errors: DepthError[]): string[] | 'all' {
+export function scanConsumers(root: string, paths: readonly string[], revs: readonly string[], live: boolean, classRoot: string | readonly string[], errors: DepthError[], timeoutMs = consumerScanTimeoutMs()): string[] | 'all' {
   const candidates = [...new Set(paths)].filter(p => dataCandidate(p, classRoot)).sort();
   if (candidates.length > CONSUMER_SCAN_CAP) return 'all';
+  const deadline = Date.now() + timeoutMs;
   const base = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+  const read = (file: string) => !scratch(file) && classifyPath(file, classRoot) !== 'docs';
   const named = new Map<string, Set<string>>();
   const direct = new Set<string>();
   const probed = new Set<string>();
   let probe = candidates;
   for (let depth = 0; probe.length && depth < CONSUMER_SCAN_DEPTH; depth++) {
-    const patterns = [...new Set(probe.map(base))].flatMap(b => ['-e', b]);
-    const runs = [...revs.map(rev => ({ at: rev, args: [rev, '--'] })), ...(live ? [{ at: '', args: ['--untracked', '--'] }] : [])];
+    const patterns = [...new Set(probe.map(base))];
     const next = new Set<string>();
-    for (const run of runs) {
-      const r = git(root, ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns, ...run.args]);
-      if (r.status !== 0 && r.status !== 1) { errors.push({ code: 'consumer_scan_failed', detail: oneLine(r.err || `git grep exited ${r.status}`), input: `git grep -F <data basenames> ${run.at || '--untracked'}`, repair: 'run the git grep by hand and fix what git reports' }); return 'all'; }
-      for (const line of r.out.split('\n')) {
+    for (const at of [...revs, ...(live ? [''] : [])]) {
+      const r = grepConsumers(root, patterns, at, read, deadline);
+      if (!Array.isArray(r)) {
+        const detail = r.timedOut ? `timed out: the scan's ${timeoutMs / 1000} s deadline passed (GSTACK_CONSUMER_SCAN_TIMEOUT_MS)` : `git grep exited ${r.status}${r.err ? `: ${r.err}` : ''} (deadline ${timeoutMs / 1000} s)`;
+        errors.push({ code: 'consumer_scan_failed', detail: oneLine(detail), input: `git grep -F <data basenames> ${at || '--untracked'}`, repair: r.timedOut ? 'raise GSTACK_CONSUMER_SCAN_TIMEOUT_MS (milliseconds) or run the git grep by hand to see why it is slow' : 'run the git grep by hand and fix what git reports' });
+        return 'all';
+      }
+      for (const line of r) {
         const parts = line.split('\0');
         const where = parts[0];
         const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
         if (!where || !match) continue;
-        const file = run.at ? where.slice(run.at.length + 1) : where;
-        if (scratch(file) || classifyPath(file, classRoot) === 'docs') continue;
+        const file = at ? where.slice(at.length + 1) : where;
+        if (!read(file)) continue;
         for (const p of probe) {
           if (file === p || !match.includes(base(p))) continue;
           if (!dataCandidate(file, classRoot)) { direct.add(p); continue; }
