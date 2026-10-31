@@ -520,6 +520,40 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(v).toMatch(/^OUTPUT fix-check MATCH /m);
   }, 240_000);
 
+  test('Step 11 records one start per row it logs, even when two rows share a skill (native and outside adversarial-review)', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env);
+    const base = { base: 'main', out, pass: 'x20p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
+    const res = await runPass(h, { ...base, stage: 'voices', models, logStart: ['adversarial-review', 'adversarial-review'] });
+    const starts = res.split('\n').filter(l => l.startsWith('REVIEW_LOG_START: adversarial-review'));
+    expect(starts.length).toBe(2);
+    expect(new Set(starts.map(l => l.split('token=')[1])).size).toBe(2);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(Object.keys(m.log_starts).sort()).toEqual(['voices:adversarial-review', 'voices:adversarial-review#2']);
+    const again = await runPass(h, { ...base, stage: 'voices', models, logStart: ['adversarial-review', 'adversarial-review'] });
+    expect(again).not.toContain('REVIEW_LOG_START:');
+  }, 240_000);
+
+  test('a repeat pass reads the range: diffBase reaches the specialists and the Red Team, byte for byte the render CLI at that base', async () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+    const rangeBase = sh('git rev-parse HEAD').stdout.trim();
+    expect(sh('echo "export const fix = 1;" >> src/a.ts && git commit -qam fix').status).toBe(0);
+    const out = path.join(dir, '.state/run/p2');
+    const h = host(dir, env);
+    expect(await runPass(h, { base: 'main', out, pass: 'x21p2', diffBase: rangeBase, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(m.diff_base).toBe(rangeBase);
+    const spec = m.readers.find((r: { role?: string }) => r.role === 'specialist-batched');
+    const cli = bin(dir, env, ['render', '--role', 'specialist-batched', '--out', path.join(dir, '.state/cli'), '--diff-base', rangeBase, '--checklists', spec.checklists.join(','), '--stack', m.stack, '--test-fw', m.test_fw]);
+    expect(cli.status, cli.stderr).toBe(0);
+    expect(h.creates.find(c => c.title === 'ship x21p2 specialist-batched')!.prompt).toBe(fs.readFileSync(path.join(dir, '.state/cli/specialist-batched.prompt.md'), 'utf8'));
+    expect(h.creates.find(c => c.title === 'ship x21p2 red-team')!.prompt).toContain('DIFF_BASE=' + rangeBase);
+  }, 240_000);
+
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {
     const { dir, env } = repo();
     const h = host(dir, env);

@@ -11,7 +11,7 @@ outputs; print them verbatim. The model keeps only lead judgment, fixes, CHANGEL
 gates and the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
 the next act. Read a section only when a phase or the list at the end sends you, never
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
-there, come back. Unattended, a question with a recommended option takes it (log it); gate
+there, come back. Unattended, take a question's recommended option (log it); gate
 dispositions and approvals stay pending and end the run. Keep a private invocation record (`--record`): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
 (Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Scope Check:`), **Decisions** (any
 phase: each answered or auto-taken question, verbatim), **Reviews** (Phases 3-5: the plan line,
@@ -54,7 +54,7 @@ final output and status, via `collect`; it never walks the dispatch steps call b
 
 ## 1. Load: Step 0
 
-The install check and this file.
+Install check, this file.
 
 ## 2. Preflight, tests, evals and reads: Steps 0.9, 1, 2, 3, 4, 5, 6, 6.5, 10
 
@@ -64,7 +64,7 @@ line. A lane passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a
 is `count unavailable`. In-branch failures stop the ship; after a repair, rerun `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
 harness changed, start the eval selector and pre-merge command (detached past 30 min); else
-record `evals: none affected`. Steps 6.5 and 10 run only if `gstack-greptile-early detect` finds
+record `evals: none affected`. Steps 6.5 and 10 run if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
 (`CONTEXT:`) and the TODOS.md items naming touched paths (`TODOS:`), and prints the coverage map, the
 plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`. Programs read the todos and
@@ -85,7 +85,7 @@ Steps 8.1 and 8.2 (`Scope Check:`) on the todos and commits files, then the core
 9.3, 9.4 and the repeat decision as written (`gstack-review-plan` included;
 `JUDGMENT: ok` before any fix), fixes and persistence in
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or
-`scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated; `fix-check`: the
+`scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated (`diffBase`: RANGE_BASE); `fix-check`: the
 pass (above) with `fixCheck: {fix_list, hunks, tests, callers}` files; `done`: the same program runs Step 11 from
 `sections/adversarial.md` as written (above), only the voices the last full-pass plan lists (neither
 prints `ADVERSARIAL: skipped (review plan)`).
@@ -108,7 +108,7 @@ One re-audit at most.
 
 ## 7. Release: Steps 15, 16, 17
 
-Commit in bisectable chunks, then `gstack-ship-release finish --base <base> --reviewed-tree <t>
+Commit bisectable chunks, then `gstack-ship-release finish --base <base> --reviewed-tree <t>
 --docs-post <post> --lane ... [--build <cmd>] --trailer '<t>'`: `ROUTE:`, `DOCS:`, `EVIDENCE:` (FRESH;
 STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` and each `tests_ran`. Then
 `gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `PUSH:`
