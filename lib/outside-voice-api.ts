@@ -13,7 +13,13 @@ import { modelFamily, type ModelFamily } from './outside-voice-runner';
 
 export interface ApiCallRequest { model: string; prompt: string; timeoutMs: number; env?: Record<string, string | undefined>; signal?: AbortSignal; maxTokens?: number }
 export interface ApiUsage { input_tokens?: number; output_tokens?: number }
-export interface ApiCallResult { text: string; model: string; usage: ApiUsage; provider: 'openai' | 'anthropic'; status: number }
+/** `truncated`: the provider stopped at the output token limit (Anthropic `max_tokens`, OpenAI `length`), so the text is cut off. */
+export interface ApiCallResult { text: string; model: string; usage: ApiUsage; provider: 'openai' | 'anthropic'; status: number; truncated: boolean }
+
+/** Anthropic requires max_tokens; a full review needs more than 8192. OpenAI gets a limit only when one is asked for. */
+export const DEFAULT_MAX_TOKENS = 16_384;
+/** The api runner's default time limit: five minutes, or about 40 ms per output token the call may write. */
+export const apiTimeoutMs = (maxTokens?: number): number => Math.max(300_000, (maxTokens ?? DEFAULT_MAX_TOKENS) * 40);
 
 export const API_FAMILIES: readonly ModelFamily[] = ['openai', 'anthropic'];
 
@@ -57,17 +63,17 @@ export async function callModel(req: ApiCallRequest): Promise<ApiCallResult> {
   const model = req.model.includes('/') ? req.model.slice(req.model.indexOf('/') + 1) : req.model;
   if (auth.provider === 'anthropic') {
     const base = (env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/$/, '');
-    const body = JSON.stringify({ model, max_tokens: req.maxTokens ?? 8192, messages: [{ role: 'user', content: req.prompt }] });
+    const body = JSON.stringify({ model, max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS, messages: [{ role: 'user', content: req.prompt }] });
     const { status, json } = await post(`${base}/v1/messages`, { 'x-api-key': auth.key, 'anthropic-version': '2023-06-01' }, body, req, 'anthropic');
     if (status < 200 || status >= 300) throw new Error(`anthropic ${status}: ${json?.error?.message ?? json?.raw ?? JSON.stringify(json)}`);
     const text = Array.isArray(json?.content) ? json.content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n') : '';
-    return { text, model: typeof json?.model === 'string' ? json.model : model, usage: { input_tokens: json?.usage?.input_tokens, output_tokens: json?.usage?.output_tokens }, provider: 'anthropic', status };
+    return { text, model: typeof json?.model === 'string' ? json.model : model, usage: { input_tokens: json?.usage?.input_tokens, output_tokens: json?.usage?.output_tokens }, provider: 'anthropic', status, truncated: json?.stop_reason === 'max_tokens' };
   }
   const base = (env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, '');
-  const body = JSON.stringify({ model, messages: [{ role: 'user', content: req.prompt }] });
+  const body = JSON.stringify({ model, messages: [{ role: 'user', content: req.prompt }], ...(req.maxTokens ? { max_completion_tokens: req.maxTokens } : {}) });
   const { status, json } = await post(`${base}/chat/completions`, { authorization: `Bearer ${auth.key}` }, body, req, 'openai');
   if (status < 200 || status >= 300) throw new Error(`openai ${status}: ${json?.error?.message ?? json?.raw ?? JSON.stringify(json)}`);
   const content = json?.choices?.[0]?.message?.content;
   const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((c: any) => c?.text ?? '').join('\n') : '';
-  return { text, model: typeof json?.model === 'string' ? json.model : model, usage: { input_tokens: json?.usage?.prompt_tokens, output_tokens: json?.usage?.completion_tokens }, provider: 'openai', status };
+  return { text, model: typeof json?.model === 'string' ? json.model : model, usage: { input_tokens: json?.usage?.prompt_tokens, output_tokens: json?.usage?.completion_tokens }, provider: 'openai', status, truncated: json?.choices?.[0]?.finish_reason === 'length' };
 }

@@ -59,6 +59,8 @@ line yourself; gstack never writes the plan.
 
 - `gstack-autoplan next --out <dir> --plan <plan.md> [scope flags] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--estimate-usd <n>] [--scaffold]`
   first call: init the run, print PHASE:, SCOPE:, DRIVER: and one ATTEMPT: per voice; --max-rounds caps review rounds per phase (default 2 unattended); an unattended run with --spend-cap (or any unattended Capy run) reserves 5.00 per voice for each attempt, so the cap binds; --estimate-usd <n> sets that reservation and the run keeps it for later phases.
+- `gstack-autoplan run --out <dir> --plan <plan.md> --native-model <id> --outside-model <id> --native-runner api --runner api [--max-tokens <n>] [--spend-cap <usd>]`
+  hosts without subagents: one command calls both models directly (ANTHROPIC_API_KEY, OPENAI_API_KEY) and loops next/submit to the gate; a response cut off at the output limit is reported truncated, so raise --max-tokens (Anthropic default 16384).
 - `gstack-autoplan next --out <dir> [--redispatch <attempt>]`
   later calls: open the next phase or reprint open attempts; never redispatches on its own.
 - `gstack-autoplan submit --out <dir> --phase <p> --voice native|outside --record <file.md> --model <id> [--attempt <id>]`
@@ -75,10 +77,8 @@ line yourself; gstack never writes the plan.
   change one recommendation before relay; then render and relay again (a `rec` needs the new `--rec-hash`).
 - `gstack-autoplan revise --out <dir> --plan <plan v2> --incorporates <decision ids>`
   bind the amended plan; reopens every phase whose reviewed plan changed, Eng last.
-- `gstack-autoplan revise --out <dir> --settle <decision id|d4>`
-  discharge a packaging or ordering change with no plan edit; reopens nothing.
-- `gstack-autoplan revise --out <dir> --withdraw <decision id>`
-  drop a pending amendment instead of applying it.
+- `gstack-autoplan revise --out <dir> --settle <decision id|d4> | --withdraw <decision id>`
+  --settle discharges a packaging or ordering change with no plan edit and reopens nothing; --withdraw drops a pending amendment instead of applying it.
 - `gstack-autoplan close --out <dir> --phase <p> --deferred "<reason>" --by human|agent:<id>`
   close a phase accepted-with-findings: its open findings go to tasks.jsonl, and Critical, urgent or user-challenge findings become gate items; also the recovery from `STOP: reason=budget_exhausted`.
 - `gstack-autoplan budget --out <dir> [--spend-cap <usd>] [--max-rounds <n>] --by human|agent:<id>`

@@ -9,7 +9,7 @@
  *   gstack-autoplan submit  --out <dir> --phase <p> --voice outside --unavailable <reason> | --failed <reason> [--json]
  *   gstack-autoplan revise  --out <dir> --plan <file> [--incorporates <id,...>] [--withdraw <id>] [--settle <id>] [--json]   review a revised plan in this run
  *   gstack-autoplan run     --out <dir> --plan <file> --native-model <id> --outside-model <id> [--runner codex-cli|api] [--native-runner api]
- *                           [--deadline <min>] [--spend-cap <usd>] [--estimate-usd <n>] [--json]      next in a loop; needs runners for both voices
+ *                           [--deadline <min>] [--spend-cap <usd>] [--estimate-usd <n>] [--max-tokens <n>] [--json]      next in a loop; needs runners for both voices
  *   gstack-autoplan answer  --out <dir> --gate-rev <rev> --reply "<grammar>" --by <human|agent:<id>> [--owner-reply <text>|-] [--rec-hash <h>] [--json]
  *   gstack-autoplan recommend --out <dir> --gate-rev <n> --item <id> --option <k> --basis "<why>" [--by <who>]
  *   gstack-autoplan resume  --out <dir> [--from <checkpoint>] [--json]   take ownership; intent without a terminal record becomes EXECUTION_UNKNOWN
@@ -48,6 +48,7 @@ import { FILES, RunError, currentPhase, initRun, markOutside, nextStep, readStat
 import { driverFile, type Phase } from '../lib/autoplan-prompts';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { createRunner, familyConflict, type RunnerId } from '../lib/outside-voice-runner';
+import { apiTimeoutMs } from '../lib/outside-voice-api';
 import { resultLine } from '../lib/result-codes';
 import { release } from '../lib/spend-ledger';
 import { COORDINATOR_CONTRACT } from '../lib/coordinator-contract';
@@ -80,7 +81,9 @@ DRIVER: ${driverFile()}
           comes into scope, the edit applies without re-review (APPLIED:); --withdraw (alone or with --plan) drops one;
           --settle records a packaging/ordering change that needs no plan edit and reopens nothing (ids: decision id or d4)
   run     --out <dir> --plan <file> --native-model <id> --outside-model <id> [--runner codex-cli|api] [--native-runner api] ...
-          next in a loop, only when a runner executes both voices here; --deadline cancels the children it started
+          next in a loop, only when a runner executes both voices here (hosts without subagents: --native-runner api --runner api);
+          --deadline cancels the children it started; --max-tokens caps each api call's output (Anthropic default 16384), and a
+          response cut off at that limit is reported truncated; submit's result checks judge every completed response
   answer  --out <dir> --gate-rev <rev> --reply "<rec | rec except d3a | d3b uc1a | as-is>" --by <human|agent:<id>> [--json]
           --by agent:<id> needs --owner-reply "<owner's words>" (- reads stdin; --owner-reply-file <path>), stored verbatim;
           --rec-hash <h> binds a rec to the render the owner saw (required once recommend ran); accepted changes leave amend_pending
@@ -305,6 +308,7 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
   if (!['codex-cli', 'api'].includes(outsideRunner)) return usage('--runner must be codex-cli or api for run (host-subagent cannot execute here; use next/submit)');
   const conflict = familyConflict(outsideModel, nativeModel);
   if (conflict) throw new RunError('MODEL_FAMILY_CONFLICT', conflict, 3);
+  const maxTokens = num(rest, '--max-tokens');
   const deadline = num(rest, '--deadline');
   const deadlineAt = deadline ? Date.now() + deadline * 60_000 : undefined;
   for (let guard = 0; guard < 40; guard++) {
@@ -322,16 +326,16 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
       if (!open) continue;
       const runnerId = voice === 'native' ? nativeRunner : outsideRunner;
       const runner = createRunner(runnerId);
-      const remaining = deadlineAt ? deadlineAt - Date.now() : 300_000;
+      const remaining = deadlineAt ? deadlineAt - Date.now() : runnerId === 'api' ? apiTimeoutMs(maxTokens) : 300_000;
       if (remaining <= 0) { withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }
       const timer = deadlineAt ? setTimeout(() => runner.cancel(), remaining) : undefined;
-      const res = await runner.run({ promptFile: open.prompt, outFile: `${open.result}.raw`, model: voice === 'native' ? nativeModel : outsideModel, timeoutMs: Math.min(remaining, 600_000), cwd: process.cwd(), gate: 'review' });
+      const res = await runner.run({ promptFile: open.prompt, outFile: `${open.result}.raw`, model: voice === 'native' ? nativeModel : outsideModel, timeoutMs: Math.min(remaining, runnerId === 'api' ? apiTimeoutMs(maxTokens) : 600_000), cwd: process.cwd(), gate: 'execution', maxTokens });
       if (timer) clearTimeout(timer);
       if (!json) process.stdout.write(`VOICE: ${phase} ${voice} ${res.status} runner=${res.runner} model=${res.model ?? 'unknown'}\n`);
       if (res.status === 'cancelled') { withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }
       if (res.status !== 'completed' && res.status !== 'unverified') {
         if (voice === 'outside') { withRunLock(out, () => markOutside(out, phase as Phase, 'unavailable', `${res.runner} ${res.status}${res.detail ? `: ${res.detail}` : ''}`)); continue; }
-        process.stderr.write(`gstack-autoplan run: native voice ${res.status}${res.detail ? `: ${res.detail}` : ''}\n`);
+        process.stderr.write(`gstack-autoplan run: native voice ${res.status}${res.reason ? `: ${res.reason}` : ''}${res.detail ? `: ${res.detail}` : ''}\n`);
         withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); });
         process.stdout.write(resultLineFor('interrupted', out) + '\n');
         return EXIT.fail;
