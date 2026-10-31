@@ -126,7 +126,7 @@ function select(i: ExcludeInput, patterns: readonly string[]): { byPattern: Map<
  * the file on a live tree, or the old blob for a deletion. A branch's .gitattributes can make git call a text file binary;
  * only real bytes make it binary content here.
  */
-function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, claimed: ReadonlySet<string>): Set<string> {
+function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, claimed: ReadonlySet<string>, unread: Set<string>): Set<string> {
   const out = new Set<string>();
   const real = (sha: string) => /^[0-9a-f]{40,64}$/.test(sha) && !/^0+$/.test(sha);
   const bySha = new Map<string, string[]>();
@@ -134,7 +134,7 @@ function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, cla
     const m = files.get(p);
     if (!m) continue;
     if (!i.head && m.newMode !== '000000') {
-      try { const fd = fs.openSync(path.join(i.root, p), 'r'); const buf = Buffer.alloc(8000); const n = fs.readSync(fd, buf, 0, 8000, 0); fs.closeSync(fd); if (buf.subarray(0, n).includes(0)) out.add(p); } catch {}
+      try { const fd = fs.openSync(path.join(i.root, p), 'r'); const buf = Buffer.alloc(8000); const n = fs.readSync(fd, buf, 0, 8000, 0); fs.closeSync(fd); if (buf.subarray(0, n).includes(0)) out.add(p); } catch { unread.add(p); }
       continue;
     }
     const sha = real(m.newSha) ? m.newSha : real(m.oldSha) ? m.oldSha : '';
@@ -232,9 +232,10 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   if (!patterns.length) { const head = headPatterns(i); return head.length ? { state: 'head-only', patterns: head, source } : { state: 'none' }; }
   const sel = select(i, patterns);
   if ('error' in sel) return { state: 'refused', code: 'REVIEW_DIFF_UNREADABLE', lines: [`${i.context}: git could not list the files review_exclude_paths matches (${sel.error}); fix: git fetch origin ${base}, then rerun once; nothing was planned (REVIEW_DIFF_UNREADABLE)`] };
-  const binary = binaryContent(i, sel.files, new Set(i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path)));
+  const unread = new Set<string>();
+  const binary = binaryContent(i, sel.files, new Set(i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path)), unread);
   const reasons = new Map<string, KeptReason | null>();
-  for (const [p, m] of sel.files) reasons.set(p, pathReason(i, p, m, binary));
+  for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(i, p, m, binary));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
   const named = grepFixed(i, [...candidates].filter(p => !p.includes('\n')), candidates, [i.mergeBase]);
   for (const p of candidates) {

@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude, tooLargeLine, unreadableLine } from '../lib/review-exclude';
-import { collectCommit } from '../lib/review-collect';
+import { collectCommit, collectLive } from '../lib/review-collect';
 import { extractReceipt } from '../lib/ship-receipt';
 import { bindShippedReceipt } from '../lib/ship-receipt-depth';
 import { REVIEW_EXCLUDE_KEY_VERSION, isUnavailable, loadPolicyAt } from '../lib/ship-policy';
@@ -323,6 +323,23 @@ describe('a branch cannot hide code under a base pattern', () => {
     if (blind.state !== 'active') return;
     expect(blind.excluded.size).toBe(0);
     expect(blind.kept.filter(k => k.reason === 'gate-scan-unavailable').map(k => k.path).sort()).toEqual([...EXCLUDED, 'receipts/b/result.json', 'receipts/d/fixture.json'].sort());
+  }, 120_000);
+
+  test('a live binary file whose bytes cannot be read is kept, not excluded', () => {
+    const repo = census();
+    const gz = path.join(repo.work, 'receipts/a/shot.png');
+    fs.writeFileSync(gz, Buffer.from([0x89, 0x50, 0, 1]));
+    commit(repo, {});
+    fs.writeFileSync(gz, Buffer.from([0x89, 0x50, 0, 2]));
+    fs.chmodSync(gz, 0o000);
+    try {
+      const c = collectLive(repo.work, 'origin/main');
+      const x = reviewExclude({ root: repo.work, baseSha: repo.git('rev-parse', 'origin/main'), ref: 'origin/main', mergeBase: c.mergeBase!, perPath: [...c.perPath, { path: 'receipts/a/shot.png', lines: 0, binary: true }], added: c.added, classRoot: repo.work, gateTagged: new Set(), context: 'test' });
+      expect(x.state).toBe('active');
+      if (x.state !== 'active') return;
+      expect(x.excluded.has('receipts/a/shot.png')).toBe(false);
+      expect(x.kept).toContainEqual({ path: 'receipts/a/shot.png', reason: 'consumer-scan-unavailable' });
+    } finally { fs.chmodSync(gz, 0o644); }
   }, 120_000);
 });
 
