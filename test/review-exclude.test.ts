@@ -279,7 +279,7 @@ describe('the receipt binds the selection the reviewers read', () => {
 describe('a branch cannot hide code under a base pattern', () => {
   // Value: protects=a branch cannot hide code or a link under a base-declared pattern, and untracked files never move the
   //   selection away from the committed head the receipt reads; fails_when=the branch's .gitattributes makes a code file
-  //   binary content, a symlink is excluded as data, or an untracked file under a pattern changes the plan's digest;
+  //   binary content, a NUL-bearing code file is excluded as binary, a symlink is excluded as data, or an untracked file under a pattern changes the plan's digest;
   //   why_new=/ship pass-1 security and Red Team findings on GST-508, each reproduced before the fix; seam=bin/gstack-review-plan;
   //   no_claim=gitlinks (the same mode rule, no fixture)
   test('a branch .gitattributes cannot make code binary, a symlink is kept, and an untracked file leaves the digest alone', () => {
@@ -296,6 +296,17 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect(p.review_exclude.content).toMatchObject({ binary: 1, data: 1 });
     write(repo.work, 'receipts/stray/result.json', '{"ok": true}\n');
     expect(JSON.parse(plan(repo, ['--json']).out).review_exclude.digest).toBe(p.review_exclude.digest);
+  }, 120_000);
+  test('a binary file at a code path stays kept and still forces full depth; a .gz stays binary content', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'assets/loader.js'), Buffer.concat([Buffer.from('/* \0 */ require("child_process").execSync("id");\n')]));
+    fs.writeFileSync(path.join(repo.work, 'assets/real.gz'), GZ);
+    commit(repo, {});
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    expect(p.review_exclude.kept_files).toEqual([{ path: 'assets/loader.js', reason: 'code' }]);
+    expect(p.review_exclude.content).toMatchObject({ binary: 1 });
+    expect(p).toMatchObject({ depth: 'full', errors: expect.arrayContaining([expect.objectContaining({ code: 'binary_code_path', input: 'assets/loader.js' })]) });
   }, 120_000);
 });
 

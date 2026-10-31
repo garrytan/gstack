@@ -165,6 +165,9 @@ function contentKind(i: ExcludeInput, p: string, binary: ReadonlySet<string>): C
   return classifyPath(p, i.classRoot) === 'docs' ? 'docs' : null;
 }
 
+/** Source and script extensions: a NUL in one does not make it excludable binary content. */
+const CODE_EXT = /\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kts?|scala|swift|exs?|php|cs|c|h|cc|cpp|hpp|mm?|dart|pl|pm|lua|sh|bash|zsh|fish|ps1|bat|cmd|vue|svelte|html?|wasm)$/i;
+
 /** Why a matched file is kept by its path, mode and lines alone; null for content the policy may exclude. A binary file readers would only see as "Binary files differ" is content unless its directory, mode or gate tags keep it. */
 function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<string>): KeptReason | null {
   if (/^\.(gstack|github)\//.test(p)) return 'policy-dir';
@@ -172,7 +175,7 @@ function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<
   if (m.oldMode === '100755' || m.newMode === '100755') return 'executable';
   if ([m.oldMode, m.newMode].some(x => x === '120000' || x === '160000')) return 'link';
   if (i.gateTagged?.has(p)) return 'gate-tagged';
-  if (binary.has(p)) return null;
+  if (binary.has(p)) return CODE_EXT.test(p) ? 'code' : null;
   if (isAgentProse(p)) return 'agent-prose';
   if (isDataConfig(p)) return 'config';
   if (contentKind(i, p, binary) === null) return 'code';

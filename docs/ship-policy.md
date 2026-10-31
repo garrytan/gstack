@@ -1130,7 +1130,7 @@ A pattern that matches no changed file is listed as `unmatched=` on the plan lin
 **What is excluded, and what is kept.** A matched file is excluded only when it
 is content: a data file (JSON, JSONL, CSV, TSV, images), a docs-class file, a
 `.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers would only see `Binary files differ`) whose bytes hold a NUL in their first 8,000, so a branch's `.gitattributes` cannot make a text file binary content. A binary file is content even under
-`config/` or in a skill directory; only the first four reasons below keep it.
+`config/` or in a skill directory; only the first five reasons below, or a source or script extension (`code`), keep it.
 Everything else stays in every reader's diff with one reason code:
 
 | Reason | Kept because |
@@ -1142,7 +1142,7 @@ Everything else stays in every reader's diff with one reason code:
 | `agent-prose` | it is a skill, section, resolver, template or rule file |
 | `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles) |
 | `gate-tagged` | the gate scan tagged one of its hunks |
-| `code` | it is code or a test, not content |
+| `code` | it is code or a test, not content; a binary file with a source or script extension (`.js`, `.py`, `.sh`, `.wasm`) counts as code |
 | `secret-line` | an added line reads a credential (the targeted pass's secret rule) |
 | `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
 | `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept |
