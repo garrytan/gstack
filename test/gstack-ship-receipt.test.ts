@@ -524,16 +524,17 @@ describe('gstack-ship-receipt carry (harness lane E row 3: receipt follows a hea
       const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(repo.work, rel)), { recursive: true }); fs.writeFileSync(path.join(repo.work, rel), text); };
       const released = fs.readFileSync(path.join(repo.work, 'CHANGELOG.md'), 'utf8');
       put('src/app.ts', 'export const a = 1;\n');
-      put('changelog.d/README.md', '# fragments\n');
       repo.git('add', '-A'); repo.git('commit', '-qm', 'seed app'); repo.git('push', '-q', 'origin', 'main');
       repo.git('checkout', '-qb', 'feat');
       put('src/app.ts', 'export const a = 2;\n');
       put('CHANGELOG.md', released.replace('# Changelog\n', '# Changelog\n\n## [Unreleased]\n\n- a=2\n'));
       repo.git('add', '-A'); repo.git('commit', '-qm', 'feat: a=2');
       const reviewed = repo.git('rev-parse', 'HEAD');
-      // main turns on fragments (or only adds a policy without them); the merge moves the entry into changelog.d/feat.md
+      // main turns on fragments with their README (or only adds a policy without them), as #3654 did after #3606 was
+      // reviewed (GST-343); the merge moves the entry into changelog.d/feat.md
       repo.git('checkout', '-q', 'main');
       put('.gstack/ship-policy.json', policy(fragments));
+      put('changelog.d/README.md', '# fragments\n');
       repo.git('add', '-A'); repo.git('commit', '-qm', 'policy'); repo.git('push', '-q', 'origin', 'main');
       repo.git('checkout', '-q', 'feat');
       repo.git('merge', '-q', '--no-commit', 'origin/main');
