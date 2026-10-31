@@ -223,6 +223,34 @@ describe('literals (pure)', () => {
     expect(consumersOf(root, all, { name: 'TIMEOUT_MS', old: '5000', new: '9000', file: 'lib/retry.js' })).toEqual(['test/retry.test.ts:1', 'test/retry-path.test.ts:2', 'test/retry-bare.test.ts:2']);
     fs.rmSync(root, { recursive: true, force: true });
   });
+  test('consumersOf: a history row is skipped only when this branch added the new-value row to the same table; other old-value lines still count (GST-344)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-history-'));
+    const nl = String.fromCharCode(10);
+    const head = "import { PROOF_CHECKS } from '../src/proof-checks.ts';";
+    const rows = (...ns: number[]) => ns.map(n => `  [${n}, "digest-${n}"],`);
+    const files: Record<string, [string[], string[] | null]> = {
+      'test/history.test.ts': [[head, 'const versions = [', ...rows(44, 45, 46), '];', 'expect(PROOF_CHECKS).toBe(46);'], [head, 'const versions = [', ...rows(44, 45), '];', 'expect(PROOF_CHECKS).toBe(45);']],
+      'test/newest-first.test.ts': [[head, 'const versions = [', ...rows(46, 45, 44), '];'], [head, 'const versions = [', ...rows(45, 44), '];']],
+      'test/unextended.test.ts': [[head, 'const versions = [', ...rows(44, 45), '];'], [head, 'const versions = [', ...rows(44, 45), '];']],
+      'test/stale-later.test.ts': [[head, 'const versions = [', ...rows(44, 45, 46), '];', 'expect(PROOF_CHECKS).toBe(45);'], [head, 'const versions = [', ...rows(44, 45), '];', 'expect(PROOF_CHECKS).toBe(45);']],
+      'test/two-tables.test.ts': [[head, 'const a = [', ...rows(44, 45), '];', 'const b = [', ...rows(45, 46), '];'], [head, 'const a = [', ...rows(44, 45), '];', 'const b = [', ...rows(45), '];']],
+      'test/boundary.test.ts': [[head, 'test.each([', ...rows(45, 46), '])("%d", () => {});'], [head, 'test.each([', ...rows(45, 46), '])("%d", () => {});']],
+      'test/new-file.test.ts': [[head, 'const versions = [', ...rows(45, 46), '];'], null],
+    };
+    for (const [rel, [now]] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), now.join(nl) + nl); }
+    const baseText = (rel: string) => files[rel]?.[1]?.join(nl) ?? null;
+    const lineOf = (rel: string, text: string) => `${rel}:${files[rel]![0].indexOf(text) + 1}`;
+    expect(consumersOf(root, Object.keys(files), { name: 'PROOF_CHECKS', old: '45', new: '46', file: 'src/proof-checks.ts' }, baseText).sort()).toEqual([
+      lineOf('test/boundary.test.ts', '  [45, "digest-45"],'),
+      lineOf('test/stale-later.test.ts', 'expect(PROOF_CHECKS).toBe(45);'),
+      lineOf('test/two-tables.test.ts', '  [45, "digest-45"],'),
+      lineOf('test/unextended.test.ts', '  [45, "digest-45"],'),
+    ].sort());
+    fs.writeFileSync(path.join(root, 'test/versions.test.ts'), ["import { SCHEMA } from '../src/schema.ts';", 'const history = [', "  ['v3', 'a'],", '  ["v4", \'b\'],', '];', ''].join(nl));
+    const strings = (rel: string) => rel === 'test/versions.test.ts' ? ["import { SCHEMA } from '../src/schema.ts';", 'const history = [', "  ['v3', 'a'],", '];'].join(nl) : null;
+    expect(consumersOf(root, ['test/versions.test.ts'], { name: 'SCHEMA', old: "'v3'", new: "'v4'", file: 'src/schema.ts' }, strings)).toEqual([]);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   test('runner summaries: bun, node --test, vitest, jest, pytest, zero-run', () => {
     expect(parseSummary(' 12 pass\n 1 fail\nRan 13 tests across 2 files.')).toEqual({ ran: 13, failed: 1 });
     expect(parseSummary('# tests 4\n# pass 4\n# fail 0')).toEqual({ ran: 4, failed: 0 });
@@ -367,6 +395,20 @@ describe('gstack-pregate (bin)', () => {
     // Updating the consumer clears it.
     commit(repo, { 'test/nightly/retry-heavy.test.js': "const test = require('node:test');\nconst assert = require('node:assert');\ntest('heavy', () => assert.strictEqual(require('../../lib/retry.js').TIMEOUT_MS, 9000));\n" });
     expect(pregate(repo, ['--stage', 'preflight', '--only', 'literals']).status).toBe(EXIT.ok);
+  });
+
+  test('GST-344: a history table the branch extends passes literals through the merge-base read; one it does not extend fails', () => {
+    const history = (...ns: number[]) => ["const { MAX_RETRIES } = require('../lib/retry.js');", 'const versions = [', ...ns.map(n => `  [${n}, 'digest-${n}'],`), '];', ''].join('\n');
+    const repo = fixture({ baseFiles: { 'test/history.test.js': history(2, 3) } });
+    const bump = { 'lib/retry.js': "exports.MAX_RETRIES = 4;\nexports.TIMEOUT_MS = 5000;\nexports.retry = (fn) => fn();\n", 'test/retry.test.js': "const test = require('node:test');\nconst assert = require('node:assert');\nconst { MAX_RETRIES } = require('../lib/retry.js');\ntest('retries four times', () => assert.strictEqual(MAX_RETRIES, 4));\n" };
+    commit(repo, bump);
+    const stale = pregate(repo, ['--stage', 'preflight', '--only', 'literals']);
+    expect(stale.status).toBe(EXIT.fail);
+    expect(stale.out).toContain('literals: test/history.test.js:4: MAX_RETRIES still 3 (now 4 in lib/retry.js)');
+    commit(repo, { 'test/history.test.js': history(2, 3, 4) });
+    const r = pregate(repo, ['--stage', 'preflight', '--only', 'literals']);
+    expect(r.out).toMatch(/^preflight {2}literals {2}pass /m);
+    expect(r.status).toBe(EXIT.ok);
   });
 
   test('secrets: a credential in an added line fails and cannot be downgraded; a committed-then-removed line is clean', () => {

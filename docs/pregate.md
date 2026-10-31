@@ -169,7 +169,13 @@ Two stages with separate clocks, both printed:
 - `literals`: for every changed exported constant or named timeout/retry
   literal, the whole test tree (nightly- and Heavy-only files included) is
   searched for the old value; a consumer the branch did not update fails with
-  `file:line`.
+  `file:line`. A version-history row, a line that starts a bracketed row with
+  the old value (`[45, "<digest>"]`), is skipped when the same table (a run of
+  consecutive lines starting with `[`) also holds a row for the new value that
+  the branch added. A table the branch did not extend, a table that already
+  held the new row at the merge base, and every other line holding the old
+  value still fail. Rows in object form (`{ v: 45 }`) or spread over several
+  lines are not recognized as history rows.
 
 - `timing`: added or changed test lines that compare an elapsed wall-clock or
   CPU time against a bound, or sleep and then assert, print

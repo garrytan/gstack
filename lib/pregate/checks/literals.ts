@@ -66,10 +66,20 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
  * English word in half the test tree, and a one-character old value (`2`)
  * sits in every test, so that value needs the constant's name (a wrapper
  * version 2 → 3 flagged 575 consumers through the stem alone).
+ *
+ * A version-history row (`[45, "<digest>"]`, the old value first in a
+ * bracketed row) is skipped when the same table, a run of consecutive
+ * `[…` lines, holds a new-value row that `baseText` (the file at the merge
+ * base, null for a new file) lacks: the branch extended the table. A table it
+ * did not extend, or one that already held the new row, still counts, and the
+ * scan goes on past skipped rows to the first real consumer.
  */
-export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral): string[] {
+export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral, baseText?: (rel: string) => string | null): string[] {
   const value = unquote(change.old);
-  const valueRe = /^-?\d/.test(value) ? new RegExp(`(?<![\\w.])${escape(value)}(?![\\w.])`) : new RegExp(`['"\`]${escape(value)}['"\`]`);
+  const literal = (v: string) => /^-?\d/.test(v) ? escape(v) : `['"\`]${escape(v)}['"\`]`;
+  const valueRe = /^-?\d/.test(value) ? new RegExp(`(?<![\\w.])${escape(value)}(?![\\w.])`) : new RegExp(literal(value));
+  const oldRowRe = new RegExp(`^\\s*\\[\\s*${literal(value)}\\s*,`);
+  const newRowRe = new RegExp(`^\\s*\\[\\s*${literal(unquote(change.new))}\\s*,`, 'm');
   const base = path.basename(change.file);
   const stem = base.replace(/\.[^.]+$/, '');
   const moduleRe = new RegExp(`(?:(?:^|[/\\\\])${escape(stem)}|(?<![\\w-])${escape(base)})(?![\\w-])`, 'm');
@@ -81,7 +91,16 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
     if (!(nameRe.test(text) || (!nameRequired && moduleRe.test(text)))) continue;
     const lines = text.split('\n');
-    for (let i = 0; i < lines.length; i++) if (valueRe.test(lines[i]!)) { hits.push(`${rel}:${i + 1}`); break; }
+    let extended: boolean | undefined;
+    const skip = (i: number) => {
+      if (!oldRowRe.test(lines[i]!)) return false;
+      let a = i; while (a > 0 && /^\s*\[/.test(lines[a - 1]!)) a--;
+      let b = i; while (b < lines.length - 1 && /^\s*\[/.test(lines[b + 1]!)) b++;
+      if (!lines.slice(a, b + 1).some(l => newRowRe.test(l))) return false;
+      extended ??= baseText !== undefined && !newRowRe.test(baseText(rel) ?? '');
+      return extended;
+    };
+    for (let i = 0; i < lines.length; i++) if (valueRe.test(lines[i]!) && !skip(i)) { hits.push(`${rel}:${i + 1}`); break; }
   }
   return hits;
 }
@@ -101,7 +120,10 @@ function run(ctx: PregateContext): CheckResult {
   const testFiles = listRepoFiles(ctx.repoRoot).filter(f => scansLiterals(f) && !f.startsWith('bin/'));
   const lines: string[] = [];
   for (const c of changes) {
-    const hits = consumersOf(ctx.repoRoot, testFiles, c);
+    const hits = consumersOf(ctx.repoRoot, testFiles, c, rel => {
+      const r = spawnSync('git', ['show', `${ctx.mergeBase}:${rel}`], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024, env: ctx.env });
+      return r.status === 0 ? r.stdout : null;
+    });
     ctx.explain.push(`literals: ${c.file} ${c.name} ${c.old} → ${c.new}: ${hits.length} test file(s) still carry ${c.old}`);
     for (const h of hits) lines.push(`${h}: ${c.name} still ${c.old} (now ${c.new} in ${c.file})`);
   }
