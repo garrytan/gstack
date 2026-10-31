@@ -254,8 +254,10 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   if (delegate !== 'auto' && delegate !== 'never') throw usageError(`--delegate '${delegate}' is not auto or never`);
   const existing = parseRecordBlock(record);
   if (existing?.ledger && fs.existsSync(existing.ledger) && !readLedger(existing.ledger).closed_at) {
-    const l = readLedger(existing.ledger);
-    return labelScope(l, { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 });
+    return mutateLedger(existing.ledger, ctx.env, l => {
+      if (scope === 'tree' || parentCounter) l.meter_scope = 'tree';
+      return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 };
+    });
   }
   const meter = pickMeter(o);
   if (!meter) {

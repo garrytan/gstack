@@ -8,11 +8,12 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { RESULT_CODES } from '../lib/result-codes';
+import { labelScope, type Ledger } from '../lib/ship-budget';
 import { budgetHarness, type Harness } from './helpers/ship-budget-harness';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TREE = 'METER: tree (root counter, upper bound)';
-const COST = /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|NOTE):/;
+const COST = /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|BUDGET_DRIFT|NOTE|RECONCILED):/;
 const harnesses: Harness[] = [];
 const fresh = () => { const h = budgetHarness(); harnesses.push(h); return h; };
 afterEach(() => { while (harnesses.length) harnesses.pop()!.cleanup(); });
@@ -89,6 +90,45 @@ describe('meter scope (GST-467)', () => {
       expect(labels.length, out.out).toBeGreaterThan(0);
       expect(labels.every(Boolean), out.out).toBe(true);
     }
+  });
+
+  // Value: protects=re-running start with tree flags on an open self run upgrades it, and a tree child's saved return file keeps the label the parent reads; fails_when=the re-start returns before applying the scope, or the return file is written before labelScope (outside voice, ship gst467-p1);
+  //   why_new=start's resume branch and the return file were never driven with tree scope; seam=none; no_claim=a downgrade, which tree never allows
+  test('a re-start asking for tree upgrades an open run, and a tree child return file carries the label once', () => {
+    const h = fresh();
+    const record = h.record();
+    const s = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1000000']);
+    expect(s.out).not.toContain(TREE);
+    const again = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1100000', '--subagent', '--reading-from', 'this', '--meter-scope', 'tree']);
+    const close = h.sb(['close', '--record', record, '--reading', '2000000']);
+    for (const out of [again, close]) {
+      expect(out.code, out.out + out.err).toBe(0);
+      const labels = costLinesLabeled(out.out);
+      expect(labels.length, out.out).toBeGreaterThan(0);
+      expect(labels.every(Boolean), out.out).toBe(true);
+    }
+    const p = h.sb(['start', '--record', h.record(), '--token-cap', '200M', '--reading', '1000000', '--meter-scope', 'tree']);
+    const run = h.field(p.out, 'BUDGET_RUN', 'id');
+    const ho = h.sb(['handoff', '--run', run, '--from', '9', '--to', '11.5', '--base', 'origin/main', '--reading', '1300000']);
+    const returnFile = ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!;
+    const child = h.sb(['verify-handoff', '--in', ho.out.match(/^HANDOFF: (\S+) /m)![1]!]);
+    const ret = h.sb(['return', '--run', h.field(child.out, 'BUDGET_RUN', 'id'), '--to', '11.5']);
+    expect(ret.code, ret.out + ret.err).toBe(0);
+    for (const text of [ret.out, fs.readFileSync(returnFile, 'utf8')]) {
+      const labels = costLinesLabeled(text);
+      expect(labels.length, text).toBeGreaterThan(0);
+      expect(labels.every(Boolean), text).toBe(true);
+      expect(text.split(TREE).length - 1, text).toBe(labels.length);
+    }
+  });
+
+  // Value: protects=every root-counter line a tree run prints is labeled once, drift and reconcile lines included; fails_when=labelScope misses BUDGET_DRIFT or RECONCILED, or labels an already-labeled line twice (adversarial, ship gst467-p1);
+  //   why_new=no CLI case above prints drift or reconcile lines; seam=labelScope; no_claim=which commands print them
+  test('labelScope labels drift and reconcile lines too, and never twice', () => {
+    const tree = { meter_scope: 'tree' } as Ledger;
+    const lines = ['RECONCILED: handoff=x child=complete child_used=5', 'BUDGET: used=1', TREE, 'BUDGET_DRIFT: steps=1 step_actual=2', 'GSTACK_RESULT: skill=ship'];
+    expect(labelScope(tree, [...lines])).toEqual(['RECONCILED: handoff=x child=complete child_used=5', TREE, 'BUDGET: used=1', TREE, 'BUDGET_DRIFT: steps=1 step_actual=2', TREE, 'GSTACK_RESULT: skill=ship']);
+    expect(labelScope({} as Ledger, [...lines])).toEqual(lines);
   });
 
   // Value: protects=a subagent cannot claim its own cost while reading the root counter; fails_when=start accepts --meter-scope self from a subagent metering "this", or the refusal lacks its code and fix;

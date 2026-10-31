@@ -229,11 +229,11 @@ export function cmdReturn(argv: string[], ctx: Ctx): Outcome {
     const unreconciled = l.handoffs.filter(h => !h.reconciled_at);
     const dropped = l.reservations.filter(r => r.remaining?.length && !accepted.has(r.id));
     const result = status === 'complete' && (unreconciled.length || dropped.length) ? 'incomplete' : status;
-    const lines = [`RETURN: handoff=${l.parent.handoff_sha} status=${result} steps=${l.parent.from}-${to} head=${head} tree=${tree}`,
+    const lines = labelScope(l, [`RETURN: handoff=${l.parent.handoff_sha} status=${result} steps=${l.parent.from}-${to} head=${head} tree=${tree}`,
       ...unreconciled.map(h => `UNRECONCILED: handoff=${h.sha} steps=${h.from}-${h.to} (reconcile --run ${l.run} --return ${h.return_file} before returning)`),
       ...dropped.map(r => `DROPPED: step=${r.step} reservation=${r.id} roles=${r.remaining!.join(',')} (ADMIT named them; no later check requested them)`),
       `RECORD_CHANGED: ${str(o, 'changed') ?? 'none'}`, ...(l.parent_metered ? [PARENT_METERED] : []), budgetLine(l, { call: null, next: '-', projected: 0, verdict: 'continue' }),
-      `GSTACK_RESULT: skill=ship status=${result} run=${l.dir}`];
+      `GSTACK_RESULT: skill=ship status=${result} run=${l.dir}`]);
     writeReturnFile(l.parent.return_file, lines);
     l.closed_at = new Date().toISOString();
     return { stdout: lines, exit: 0 };

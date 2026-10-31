@@ -370,7 +370,7 @@ export const TREE_METER = 'METER: tree (root counter, upper bound)';
 /** A tree-scoped run never prints a cost line without TREE_METER on the line after it. */
 export function labelScope<T>(l: Ledger, out: T): T {
   if (l.meter_scope !== 'tree') return out;
-  const label = (lines: string[]) => lines.flatMap(line => /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|NOTE):/.test(line) ? [line, TREE_METER] : [line]);
+  const label = (lines: string[]) => lines.flatMap((line, i) => /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|BUDGET_DRIFT|NOTE|RECONCILED):/.test(line) && lines[i + 1] !== TREE_METER ? [line, TREE_METER] : [line]);
   if (Array.isArray(out)) return label(out) as T;
   const o = out as { stdout?: unknown };
   if (Array.isArray(o?.stdout)) o.stdout = label(o.stdout);
