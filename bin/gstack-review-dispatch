@@ -127,6 +127,9 @@ const PROGRAM_FILE = path.join(ROOT, 'lib', 'capy-review-pass.js');
 const PROGRAM_VERSION = 1;
 const git = (a: string[]) => { const r = spawnSync('git', a, { encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
 const readerLine = (m: Manifest, r: PassReader) => `READER: ${r.reader} stage=${r.stage} state=${r.state} title="${r.title}"${r.sha256 ? ` sha256=${r.sha256} bytes=${r.bytes} chunks=${r.chunks}` : ''}${r.path ? ` path=${r.path}` : ''}`;
+/** The fork point the way preflight and render find it: origin/<base> first, so a missing or stale local branch never decides it. */
+const forkPoint = (base: string) => [`origin/${base.replace(/^origin\//, '')}`, base].map(ref => git(['merge-base', ref, 'HEAD'])?.trim()).find(Boolean);
+
 const branchDiff = (base: string) => {
   const d = git(['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', base]);
   if (d === null) throw new BriefError(`git diff ${base} failed`);
@@ -148,7 +151,7 @@ function pass(): number {
     const extrasFile = flag('--extras');
     if (!extrasFile) { process.stderr.write('gstack-review-dispatch pass --audit-only: needs --extras (the audit readers, e.g. Step 14.5\'s docs reader)\n'); return EXIT.usage; }
     const extras = JSON.parse(readFile(extrasFile, 'extras')!) as Extra[];
-    const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase: git(['merge-base', base, 'HEAD'])?.trim() ?? 'HEAD', root: git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd(),
+    const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase: forkPoint(base) ?? 'HEAD', root: git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd(),
       checklistRoot: flag('--checklist-root') ?? ROOT, dispatches: [], next: 'audit', planLines: ['PASS: audit-only (no reviewer plan; its extras run as one batch)'], extras });
     fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
     const t = sectionTexts(ROOT);
@@ -167,14 +170,14 @@ function pass(): number {
   const planLines = text.stdout.trimEnd().split('\n');
   const step = p.next.step;
   if (step !== 'full' && step !== 'scoped' && step !== 'fix-check') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
-  const diffBase = flag('--diff-base') ?? git(['merge-base', base, 'HEAD'])?.trim();
+  const diffBase = flag('--diff-base') ?? forkPoint(base);
   if (!diffBase) throw new BriefError(`no merge base between ${base} and HEAD`);
   const root = git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd();
   const extrasFile = flag('--extras');
   const extras = extrasFile ? JSON.parse(readFile(extrasFile, 'extras')!) as Extra[] : [];
   const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase, root, checklistRoot: flag('--checklist-root') ?? ROOT,
     dispatches: p.dispatches, next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
-    targetedClasses: p.targeted?.classes, mergeBase: git(['merge-base', base, 'HEAD'])?.trim(),
+    targetedClasses: p.targeted?.classes, mergeBase: forkPoint(base),
     fixCheck: flag('--fix-list') || flag('--hunks') || flag('--tests') ? { fix_list: flag('--fix-list')!, hunks: flag('--hunks')!, tests: flag('--tests')!, callers: flag('--callers') } : undefined });
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
   const t = sectionTexts(ROOT);

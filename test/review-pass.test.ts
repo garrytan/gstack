@@ -563,6 +563,35 @@ describe('Capy pass program (fake host, real bins)', () => {
   }, 120_000);
 });
 
+describe('the pass resolves --base the way preflight does', () => {
+  function withOrigin(stale: boolean) {
+    const { dir, env } = repo();
+    const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(c + ': ' + r.stderr); return r.stdout.trim(); };
+    const origin = tmp('rp-origin-');
+    sh('git init -q --bare "$0" && git remote add origin "$0"'.split('$0').join(origin));
+    if (stale) {
+      sh('git checkout -q main && echo "# base" > BASE.md && git add BASE.md && git commit -qm m2 && git push -q origin main && git reset -q --hard HEAD~1 && git checkout -q feat && git merge -q --no-edit origin/main');
+    } else {
+      sh('git push -q origin main && git fetch -q origin && git branch -D main');
+    }
+    return { dir, env, originMain: sh('git rev-parse origin/main') };
+  }
+  // Value: protects=a checkout whose local main is missing or behind origin/main reviews the same fork point preflight merged, not a stale one or none; fails_when=pass resolves --base against the local branch only (replay C5-36: BRIEF_RENDER_FAILED: no merge base between main and HEAD);
+  //   why_new=identity checks ran with local main equal to origin/main; seam=gstack-review-dispatch pass; no_claim=hosts whose remote is not named origin
+  test.each([['no local main', false], ['a local main behind origin/main', true]])('%s: diff base is the fork point with origin/main, briefs byte for byte the render CLI there', (_, stale) => {
+    const { dir, env, originMain } = withOrigin(stale as boolean);
+    const out = path.join(dir, '.state/run/p1');
+    const r = bin(dir, env, ['pass', '--base', 'main', '--out', out, '--pass', 'x22p1', '--', '--depth-floor', 'full']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(m.diff_base).toBe(originMain);
+    const spec = m.readers.find((x: { role?: string }) => x.role === 'specialist-batched');
+    const cli = bin(dir, env, ['render', '--role', 'specialist-batched', '--out', path.join(dir, '.state/cli'), '--diff-base', originMain, '--checklists', spec.checklists.join(','), '--stack', m.stack, '--test-fw', m.test_fw]);
+    expect(cli.status, cli.stderr).toBe(0);
+    expect(fs.readFileSync(spec.file, 'utf8')).toBe(fs.readFileSync(path.join(dir, '.state/cli/specialist-batched.prompt.md'), 'utf8'));
+  }, 120_000);
+});
+
 describe('the Capy skill loader', () => {
   // The loader is copied from capy/skill/gstack/SKILL.md with only its placeholders filled, so a drift in either breaks here.
   test('runs the served program unchanged and the pass notes its readers in the budget', async () => {
