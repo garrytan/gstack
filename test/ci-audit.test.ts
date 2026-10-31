@@ -9,7 +9,7 @@ import { concurrencyFlag, lessonRunners } from '../lib/ci-audit/lessons';
 import { cohort, measure, phases } from '../lib/ci-audit/measure';
 import { priceRunner } from '../lib/ci-audit/prices';
 import { ISSUE_MARKER, ISSUE_TITLE, applyIssue, findIssue, planIssue } from '../lib/ci-audit/publish';
-import type { AuditReport } from '../lib/ci-audit/report';
+import { buildReport, type AuditReport } from '../lib/ci-audit/report';
 import { CI_SHAPING, MIN_COHORT, comparable, judgeHead, staticChecks } from '../lib/ci-audit/ship-check';
 import { parseWorkflow, readStatic } from '../lib/ci-audit/static';
 import { scoreReply, writePlantedRepo } from './helpers/ci-audit-planted';
@@ -215,6 +215,16 @@ describe('cost accounting inputs', () => {
     const jobs = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ id: from + i }));
     const client = { text: async () => null, get: async (p: string) => json(200, { total_count: 101, jobs: /[?&]page=2/.test(p) ? jobs(1, 100) : jobs(100, 0) }) };
     expect((await listJobs(client as never, 'o/n', { id: 9, run_attempt: 1 } as Run))?.length).toBe(101);
+  });
+
+  test('minutes on runners with no price row are disclosed in the cost note, not passed off as $0', () => {
+    const d = { p50: 60, p90: 60, n: 1 };
+    const data = { repo: 'o/n', runs: [{ path: 'w.yml' }], partial: [], notes: [], calls: 1, since: '2026-10-24T00:00:00Z', until: '2026-10-31T00:00:00Z', isPrivate: true, runCounts: null };
+    const m = { windowDays: 7, jobs: [{ workflow: 'w.yml', runId: 1 }], groups: [{ key: 'build', labels: 'ubuntu-latest-16-cores', workflow: 'w.yml', billedMinutes: 70, n: 1, wait: d, setup: d, run: d }],
+      cohort: { total: { n: 0, p50: null, p90: null }, excluded: {}, bottlenecks: [], failures: { n: 0, p50: null, p90: null } }, preJob: { n: 0, p50: null, p90: null }, sampledRuns: 1 };
+    const r = buildReport(data as never, m as never, [], null);
+    expect(r.cost.usdPerMonth).toBe(0);
+    expect(r.cost.note).toContain('70 billed min/week on runners with no price row (ubuntu-latest-16-cores)');
   });
 
   test('larger macOS runners are not priced as free standard runners', () => {

@@ -37,13 +37,17 @@ export function buildReport(data: AuditData, m: Measures, ls: Lesson[], st: Stat
   if (!counted) for (const r of data.runs) runsPerWorkflow.set(r.path, (runsPerWorkflow.get(r.path) ?? 0) + 1);
   const sampledPerWorkflow = new Map<string, Set<number>>();
   for (const j of m.jobs) sampledPerWorkflow.set(j.workflow, (sampledPerWorkflow.get(j.workflow) ?? new Set()).add(j.runId));
+  const unpriced = new Map<string, number>();
   const jobs: JobRow[] = m.groups.map(g => {
     const p = priceRunner(g.labels, data.isPrivate, prices, family);
     const scale = (runsPerWorkflow.get(g.workflow) ?? 0) / Math.max(1, sampledPerWorkflow.get(g.workflow)?.size ?? 1);
     const billed = (g.billedMinutes * scale) / weeks;
+    if (p.kind === 'unknown') unpriced.set(p.label, (unpriced.get(p.label) ?? 0) + billed);
     return { key: g.key, runner: p.label, vcpu: p.vcpu, n: g.n, wait: g.wait, setup: g.setup, run: g.run, billedMinutesPerWeek: Math.round(billed), usdPerMonth: round(billed * WEEKS_PER_MONTH * p.usdPerMinute), price: `${p.usdPerMinute}/min: ${p.source}${p.assumed ? ' (assumed)' : ''}` };
   });
   const billedMinutesPerWeek = jobs.reduce((a, j) => a + j.billedMinutesPerWeek, 0);
+  const unpricedMinutes = Math.round([...unpriced.values()].reduce((a, b) => a + b, 0));
+  const unpricedNote = unpriced.size ? `; ${unpricedMinutes} billed min/week on runners with no price row (${[...unpriced.keys()].slice(0, 5).join(', ')}) count as $0; pass --prices to price them` : '';
   const familyNote = !family && jobs.some(j => /^ubicloud/.test(j.runner)) ? '; Ubicloud VM family not read from a job log, so Ubicloud jobs are priced as standard (assumed); --logs 5 reads it, --ubicloud-family sets it' : '';
   return {
     schema: SCHEMA, ok: true, repo: data.repo, generatedAt: new Date(now).toISOString(),
@@ -52,7 +56,7 @@ export function buildReport(data: AuditData, m: Measures, ls: Lesson[], st: Stat
     pushToGreen: { ...m.cohort.total, excluded: m.cohort.excluded, bottlenecks: m.cohort.bottlenecks.slice(0, 5).map(b => ({ workflow: b.workflow, share: round(b.share) })) },
     timeToFirstFailure: m.cohort.failures, preJobWait: m.preJob, sampledRuns: m.sampledRuns,
     jobs, lessons: ls, fixes: rankFixes(ls),
-    cost: { billedMinutesPerWeek, usdPerMonth: round(jobs.reduce((a, j) => a + j.usdPerMonth, 0)), note: `billed minutes scaled from the sampled runs to ${counted ? `every run of each workflow since ${counted.since}` : 'every run in the runs list'}; each job rounded up to a whole minute; workflows with no sampled PR or push run are not priced` + familyNote },
+    cost: { billedMinutesPerWeek, usdPerMonth: round(jobs.reduce((a, j) => a + j.usdPerMonth, 0)), note: `billed minutes scaled from the sampled runs to ${counted ? `every run of each workflow since ${counted.since}` : 'every run in the runs list'}; each job rounded up to a whole minute; workflows with no sampled PR or push run are not priced` + unpricedNote + familyNote },
   };
 }
 
