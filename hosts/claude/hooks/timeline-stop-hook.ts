@@ -161,9 +161,38 @@ function slugOverride(): string | undefined {
   return slug && slug !== '.' && slug !== '..' ? slug : undefined;
 }
 
-function readStopCwd(): string {
+// Devin's Stop RPC keeps the stdin pipe open after writing the payload, so a
+// plain readFileSync(0) never sees EOF and blocks past the 15s host timeout.
+// Stream-read with a deadline and bail as soon as a complete JSON object
+// arrives. Claude Code closes stdin after the payload — this resolves early.
+async function readStdinBounded(ms: number): Promise<string> {
+  const chunks: Buffer[] = [];
+  const reader = (async (): Promise<string> => {
+    for await (const chunk of process.stdin) {
+      chunks.push(chunk as Buffer);
+      const text = Buffer.concat(chunks).toString('utf8');
+      try {
+        JSON.parse(text);
+        return text;
+      } catch {
+        // incomplete JSON — keep reading until EOF or deadline
+      }
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  })();
+  const deadline = new Promise<string>((resolve) => setTimeout(() => resolve(''), ms));
+  const out = await Promise.race([reader, deadline]);
+  process.stdin.destroy();
+  reader.catch(() => {});
+  return out;
+}
+
+async function readStopCwd(): Promise<string> {
+  // Devin supplies the project dir directly — no stdin read at all.
+  const devinDir = process.env.DEVIN_PROJECT_DIR;
+  if (devinDir && fs.existsSync(devinDir)) return devinDir;
   try {
-    const stdin = fs.readFileSync(0, 'utf8');
+    const stdin = await readStdinBounded(300);
     if (stdin.trim()) {
       const payload = JSON.parse(stdin) as { cwd?: string };
       if (payload.cwd && fs.existsSync(payload.cwd)) return payload.cwd;
@@ -209,12 +238,12 @@ function backgroundRepair(cwd: string): void {
   });
 }
 
-function main(): void {
+async function main(): Promise<void> {
   if (process.argv[2] === '--repair' && process.argv[3]) {
     backgroundRepair(process.argv[3]);
     return;
   }
-  const cwd = readStopCwd();
+  const cwd = await readStopCwd();
   const slug = slugOverride() ?? readVersionedSlugCache(resolveStateRoot(), cwd);
   if (!slug) {
     spawnRepair(cwd);
@@ -318,9 +347,11 @@ function repairTimeline(slug: string, deadline: number): void {
   }
 }
 
-try {
-  main();
-} catch (err) {
-  logHookError(`unexpected: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+if (import.meta.main) {
+  try {
+    await main();
+  } catch (err) {
+    logHookError(`unexpected: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  }
 }
 process.exit(0);

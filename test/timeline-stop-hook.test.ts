@@ -487,3 +487,52 @@ describe('timeline-stop-hook wiring', () => {
     expect(r.status).toBe(0);
   });
 });
+
+describe('host integration — stdin held open (Devin)', () => {
+  const hook = path.resolve(import.meta.dir, '../hosts/claude/hooks/timeline-stop-hook.ts');
+  const bun = process.execPath;
+
+  test('child exits under the host deadline when stdin never closes', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'stop-hook-e2e-'));
+    fs.mkdirSync(path.join(home, 'projects', 'demo'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'projects', 'demo', 'timeline.jsonl'), '');
+
+    const proc = Bun.spawn([bun, hook], {
+      stdin: 'pipe',
+      stdout: 'ignore',
+      stderr: 'ignore',
+      env: { ...process.env, GSTACK_HOME: home, DEVIN_PROJECT_DIR: home, GSTACK_PROJECT_SLUG: 'demo' },
+      cwd: home,
+    });
+    proc.stdin.write(JSON.stringify({ cwd: home }) + '\n');
+    proc.stdin.flush();
+    // stdin intentionally left open — the Devin RPC behavior that caused the 15s timeout
+    const code = await Promise.race([
+      proc.exited,
+      new Promise<string>((r) => setTimeout(() => r('timeout'), 5000)),
+    ]);
+    expect(code).toBe(0);
+  }, 10000);
+
+  test('concurrent separate processes write no duplicate completions', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'stop-hook-race-'));
+    const dir = path.join(home, 'projects', 'demo');
+    fs.mkdirSync(dir, { recursive: true });
+    const timelinePath = path.join(dir, 'timeline.jsonl');
+    fs.writeFileSync(
+      timelinePath,
+      ['s1', 's2', 's3'].map((s) => JSON.stringify({ skill: 'x', event: 'started', session: s, ts: '2026-01-01T00:00:00Z' })).join('\n') + '\n',
+    );
+    const env = { ...process.env, GSTACK_HOME: home, DEVIN_PROJECT_DIR: home, GSTACK_PROJECT_SLUG: 'demo' };
+    const procs = Array.from({ length: 4 }, () =>
+      Bun.spawn([bun, hook], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env, cwd: home }));
+    const codes = await Promise.all(procs.map((p) => p.exited));
+    expect(codes.every((c) => c === 0)).toBe(true);
+
+    const completed = fs.readFileSync(timelinePath, 'utf8')
+      .split('\n').filter((l) => l.includes('"completed"'));
+    expect(completed.length).toBe(3);
+    const sessions = completed.map((l) => JSON.parse(l).session).sort();
+    expect(sessions).toEqual(['s1', 's2', 's3']);
+  }, 30000);
+});

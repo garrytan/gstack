@@ -61,6 +61,7 @@ function currentUserSid(): string | null {
     const out = execFileSync(`${systemRoot}\\System32\\whoami.exe`, ['/user', '/fo', 'csv', '/nh'], {
       encoding: 'utf8',
       windowsHide: true,
+      timeout: 10_000,
     });
     const match = out.match(/S-1-[\d-]+/);
     cachedSid = match ? match[0] : null;
@@ -118,7 +119,7 @@ export function restrictFilePermissions(filePath: string): void {
       execFileSync(
         'icacls',
         [filePath, '/inheritance:r', '/grant:r', `${user}:(F)`],
-        { stdio: 'ignore', windowsHide: true },
+        { stdio: 'ignore', windowsHide: true, timeout: 30_000 },
       );
     } catch (err) {
       warnIcaclsFailure(filePath, err);
@@ -184,7 +185,7 @@ export function restrictDirectoryPermissions(dirPath: string): void {
       execFileSync(
         'icacls',
         [dirPath, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)(F)`],
-        { stdio: 'ignore', windowsHide: true },
+        { stdio: 'ignore', windowsHide: true, timeout: 60_000 },
       );
     } catch (err) {
       warnIcaclsFailure(dirPath, err);
@@ -317,7 +318,7 @@ function canListDir(dirPath: string): boolean {
 export function repairBrokenDacl(dirPath: string): void {
   if (process.platform !== 'win32') return;
   try {
-    execFileSync('icacls', [dirPath, '/reset', '/T', '/C', '/Q'], { stdio: 'ignore', windowsHide: true });
+    execFileSync('icacls', [dirPath, '/reset', '/T', '/C', '/Q'], { stdio: 'ignore', windowsHide: true, timeout: 300_000 });
   } catch (err) {
     warnIcaclsFailure(dirPath, err);
   }

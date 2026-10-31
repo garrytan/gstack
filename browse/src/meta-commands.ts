@@ -846,7 +846,7 @@ export async function handleMetaCommand(
       const { execSync } = await import('child_process');
       let gitRoot: string;
       try {
-        gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }).trim();
+        gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, timeout: 10_000 }).trim();
       } catch (err: any) {
         // execSync throws with exit status on non-git directories
         if (err?.status === undefined && !err?.message?.includes('Command failed')) throw err;

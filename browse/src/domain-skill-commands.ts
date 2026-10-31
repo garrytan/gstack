@@ -191,6 +191,7 @@ async function handleEdit(args: string[]): Promise<string> {
   const editor = process.env.EDITOR || 'vi';
   const tmpFile = path.join(os.tmpdir(), `gstack-domain-skill-${process.pid}-${Date.now()}.md`);
   await fs.writeFile(tmpFile, current.body, 'utf8');
+  // tripwire-exempt: interactive $EDITOR session — the user controls how long it stays open
   const result = spawnSync(editor, [tmpFile], { stdio: 'inherit' });
   if (result.status !== 0) {
     await fs.unlink(tmpFile).catch(() => {});

@@ -33,6 +33,7 @@ export function resolveStateFilePath(): string {
   if (envOverride) return envOverride;
   try {
     const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      timeout: 10_000,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
@@ -166,6 +167,7 @@ export function readCmdline(pid: number, timeoutMs?: number): string {
     }
     if (process.platform === "darwin") {
       return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+        timeout: 10_000,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         ...(timeout === undefined ? {} : { timeout }),
