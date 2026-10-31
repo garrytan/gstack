@@ -31,13 +31,13 @@ beforeAll(() => {
 });
 afterAll(() => { server.stop(true); fs.rmSync(TMP, { recursive: true, force: true }); });
 
-async function run(name: string) {
+async function run(name: string, extra: string[] = []) {
   const dir = path.join(TMP, name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'plan.md'), SMALL_PLAN);
   const out = path.join(dir, 'run');
   const base = `http://127.0.0.1:${server.port}`;
-  const proc = Bun.spawn(['bun', AUTOPLAN, 'run', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui', '--no-dx', '--native-model', 'anthropic/claude-opus-5-5', '--outside-model', 'openai/gpt-6-astra', '--runner', 'api', '--native-runner', 'api'], {
+  const proc = Bun.spawn(['bun', AUTOPLAN, 'run', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui', '--no-dx', '--native-model', 'anthropic/claude-opus-5-5', '--outside-model', 'openai/gpt-6-astra', '--runner', 'api', '--native-runner', 'api', ...extra], {
     cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     env: env({ ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test', ANTHROPIC_BASE_URL: base, OPENAI_BASE_URL: `${base}/v1`, GSTACK_AUTOPLAN_CHECKPOINT_DIR: '', GSTACK_STATE_ROOT: path.join(TMP, 'state') }),
   });
@@ -54,6 +54,15 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain(`GSTACK_RESULT: skill=autoplan status=gate_pending run=${r.out}`);
     for (const phase of ['ceo', 'eng']) for (const voice of ['native', 'outside']) expect(r.state.phases[phase][voice]).toMatchObject({ status: 'completed', findings: 1 });
+  }, 150_000);
+
+  test('a spend cap does not reserve the host-subagent default for api attempts', async () => {
+    mode = 'ok';
+    const r = await run('capped', ['--spend-cap', '8']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(`GSTACK_RESULT: skill=autoplan status=gate_pending run=${r.out}`);
+    expect(r.stdout).not.toMatch(/^ESTIMATE:/m);
+    expect(r.stdout).toContain('GATE_SPEND: spent=0.00 worst_case=0.00 cap=8.00');
   }, 150_000);
 
   test('a response stopped at the output limit is named truncated and interrupts the run', async () => {

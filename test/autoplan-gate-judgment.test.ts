@@ -19,6 +19,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ROOT, SMALL_PLAN, boundOf, recCarrying, resultOf } from './helpers/autoplan-run-fixture';
 import { capyRunner, phaseVia, readJsonl, readRunJson, writePlan } from './helpers/autoplan-capy';
+import { settledIds } from '../lib/autoplan-confirm';
 
 const r = capyRunner();
 afterAll(() => r.cleanup());
@@ -332,5 +333,30 @@ describe('open Critical and High findings reach the gate (GBRA-223 claim 3)', ()
       expect(decisions(g.out).find(d => d.label === item.id.toUpperCase())).toMatchObject({ chosen: 'b' });
       expect(readJsonl(path.join(g.out, 'tasks.jsonl')).some(t => /No kill switch/.test(t.title))).toBe(true);
     }
+    const g = gated(KILL, NONE);
+    const item = gate(g.out).items.find((i: any) => i.finding);
+    answer(g.out, 1, 'p1a');
+    expect(readJsonl(path.join(g.out, 'attempts.jsonl')).find(e => e.event === 'answered')).toMatchObject({ answer_class: 'overrides', overrides: [`${item.id}b`] });
+    expect(settledIds({ out: g.out } as any).has(item.finding[0])).toBe(false);
+  });
+
+  test('p1b applies the finding fixes its option text lists, and an applied finding is settled', () => {
+    const g = gated(KILL, NONE);
+    const item = gate(g.out).items.find((i: any) => i.finding);
+    expect(gate(g.out).items.find((i: any) => i.id === 'p1').options[1].text).toContain(`${item.id}a`);
+    expect(answer(g.out, 1, 'p1b').stdout).toMatch(/^APPLY: /m);
+    expect(decisions(g.out).find(d => d.label === item.id.toUpperCase())).toMatchObject({ chosen: 'a' });
+    expect(readJsonl(path.join(g.out, 'attempts.jsonl')).find(e => e.event === 'answered')).toMatchObject({ answer_class: 'plan-changes', changes: [`${item.id}a`] });
+    expect(readRunJson(g.out).status).toBe('amend_pending');
+    expect(settledIds({ out: g.out } as any).has(item.finding[0])).toBe(true);
+  });
+
+  test('at the round cap, an outside Critical paired by file with an unrelated native Medium still counts as open', () => {
+    const dir = path.join(r.host.base, `gj${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui', '--max-rounds', '1']).status).toBe(0);
+    phaseVia(r, out, 'ceo', { native: [{ id: 'F1', severity: 'Medium', title: 'rename the config key', file: 'src/resolver.ts' }], outside: [{ id: 'O1', severity: 'Critical', title: 'SQL injection in lookup query', file: 'src/resolver.ts' }] });
+    const eng = phaseVia(r, out, 'eng', NONE).outside.stdout;
+    expect(eng.split('\n').filter(l => l.startsWith('ESCALATE:'))).toEqual(['ESCALATE: evidence sufficient, decision needed (ceo: 1 High open)']);
   });
 });

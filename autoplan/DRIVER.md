@@ -111,7 +111,7 @@ A reply binds to the `gate_rev` you read (`--gate-rev`). Bare `yes`/`no` is unpa
 
 - `rec`: every item takes its recommendation, plan changes included (each prints APPLY:); `all` and `do it` are aliases.
 - `as-is`: keep every direction; no plan change.
-- `d3b uc1a`: one <id><option> token per item you set; unanswered auto items take their default (a finding item keeps the plan as written).
+- `d3b uc1a`: one <id><option> token per item you set; unanswered auto items take their default (a finding item keeps the plan as written; `p1b` applies it).
 - `rec except d3b`: recommendations, with the listed overrides.
 
 ## Run directory

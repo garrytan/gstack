@@ -142,7 +142,7 @@ export function voiceState(state: RunState, phase: Phase, voice: Voice): VoiceSt
 }
 const openAttempt = (v: VoiceState) => v.attempts?.find(a => a.state === 'dispatched' || a.state === 'execution_unknown');
 
-export interface NextOptions { out: string; cwd: string; estimateUsd?: number; redispatch?: string[] }
+export interface NextOptions { out: string; cwd: string; estimateUsd?: number; redispatch?: string[]; hostSubagent?: boolean }
 export interface NextResult { state: RunState; phase?: Phase; attempts: Array<{ attempt: string; voice: Voice; prompt: string; result: string; model_family: string; new: boolean }>; lines: string[] }
 
 function openPhase(state: RunState, phase: Phase, cwd: string): void {
@@ -220,7 +220,7 @@ export function nextStep(o: NextOptions): NextResult {
   if (ps.sections) lines.push(`Skipped sections: ${ps.sections.skipped.length ? ps.sections.skipped.join(',') : 'none'} (scope: ui=${state.scope.ui ? 'yes' : 'no'},dx=${state.scope.dx ? 'yes' : 'no'},source=${scopeSourceLabel(state.scope)}; checklist=${ps.sections.checklist ? 'loaded' : 'none'})`);
   const prompts = ps.prompts!;
   if (o.estimateUsd !== undefined) state.estimate_usd = o.estimateUsd;
-  const estimate = attemptEstimate(state, o.estimateUsd, process.env);
+  const estimate = attemptEstimate(state, o.estimateUsd, process.env, o.hostSubagent ?? true);
   if (estimate.line) lines.push(estimate.line);
   if (first) lines.push(reviewEstimateLine(state, estimate.usd));
   const fresh = (['native', 'outside'] as const).filter(voice => { const v = voiceState(state, phase!, voice); const open = openAttempt(v); return !voiceTerminal(v) && (!open || (open.state === 'execution_unknown' && o.redispatch?.includes(open.attempt))); });

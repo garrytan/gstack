@@ -373,8 +373,9 @@ the plan.
    auto item (a twin pair is one item; `a` applies the reviewer's fix to the
    plan and is recommended, `b` carries it into the build as a blocking task)
    and `p1` plan approval; nothing is approved. An unanswered auto item whose
-   recommendation changes the plan keeps the plan's direction, so only `rec`
-   or an explicit `<id>a` applies a fix; a finding carried with `b` stays
+   recommendation changes the plan keeps the plan's direction, so only `rec`,
+   `p1b` (approve with the recommended changes) or an explicit `<id>a` applies
+   a fix; a finding carried with `b` stays
    open, so a rerun that raises it again asks again.
 4. **Answer the gate** with the reply grammar and the revision you read:
    ```bash
@@ -442,8 +443,9 @@ Concurrency and recovery: every state write is a locked read-modify-write
 `test/autoplan-answer-invalidation.test.ts`). `--spend-cap` admits each attempt
 through `spend.json` (`SPEND_CAP_EXCEEDED` refuses, exit 3); host-subagent
 spend is `unknown` and counted in `worst_case`. Under a cap (or on Capy) each
-unattended attempt reserves the default per voice unless `next --estimate-usd
-<n>` sets the reservation, which the run keeps for later phases; `submit
+unattended host-subagent attempt reserves the default per voice unless
+`next --estimate-usd <n>` sets the reservation, which the run keeps for later
+phases (`run`'s api and codex-cli attempts reserve only that flag); `submit
 --usage-usd <n>` settles an attempt at its real cost. `--deadline <min>` makes the
 `run` subcommand cancel the children it started and marks the run
 `interrupted`.

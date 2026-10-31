@@ -3,7 +3,8 @@
  * A gate list is numbered items, each with a stable id, a recommended default
  * and lettered options; `auto` items take their recommendation when
  * unanswered (one whose recommendation changes the plan keeps the plan's
- * direction instead), `approval` items stay pending until answered. One reply
+ * direction instead, unless the reply approves with the recommended changes,
+ * `p1b`), `approval` items stay pending until answered. One reply
  * grammar: `rec` (every item takes its recommendation, plan changes
  * included), `<id><option>` tokens (`d3b uc1a`), or `rec except <tokens>`
  * (the same operation as listing the overrides). `all`, `approve all`,
@@ -199,6 +200,7 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
   const choices: GateChoice[] = [];
   const pending: string[] = [];
   const how = (item: GateItem, chosen: string) => (chosen === item.recommended ? 'recommended' : 'override') as GateChoice['how'];
+  const withChanges = overrides.get('p1') === 'b';
   for (const item of list.items) {
     const chosen = overrides.get(item.id);
     const earlier = prior[item.id] ?? item.carried?.chosen;
@@ -206,7 +208,7 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
     else if (earlier !== undefined && item.options.some(o => o.key === earlier)) choices.push({ id: item.id, chosen: earlier, kind: item.kind, how: how(item, earlier), prior: true });
     else if (asIs) { const keep = keepDirection(item); choices.push({ id: item.id, chosen: keep, kind: item.kind, how: how(item, keep) }); }
     else if (rec) choices.push({ id: item.id, chosen: item.recommended, kind: item.kind, how: 'recommended' });
-    else if (item.kind === 'auto') choices.push({ id: item.id, chosen: autoDefault(item), kind: item.kind, how: 'auto_default' });
+    else if (item.kind === 'auto') choices.push({ id: item.id, chosen: withChanges ? item.recommended : autoDefault(item), kind: item.kind, how: 'auto_default' });
     else pending.push(item.id);
   }
   return { ...base, valid: true, choices, pending, mode: rec ? 'rec' : asIs ? 'as-is' : 'tokens' };

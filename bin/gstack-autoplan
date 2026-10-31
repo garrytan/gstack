@@ -181,7 +181,7 @@ function emit(json: boolean, lines: string[], payload: Record<string, unknown>):
   else process.stdout.write(lines.join('\n') + '\n');
 }
 
-function doNext(out: string, rest: string[], json: boolean): number {
+function doNext(out: string, rest: string[], json: boolean, hostSubagent = true): number {
   const cwd = process.cwd();
   const initLines: string[] = [];
   const fresh = !fs.existsSync(path.join(out, FILES.run));
@@ -198,7 +198,7 @@ function doNext(out: string, rest: string[], json: boolean): number {
       deadlineMin: num(rest, '--deadline'), light: rest.includes('--light'), scaffold: rest.includes('--scaffold'), scope: { ui, developerTool: rest.includes('--developer-tool'), agentPrimary: rest.includes('--agent-primary'), dx: rest.includes('--no-dx') ? false : undefined, ...(rest.includes('--docs-only') ? { docsOnly: true } : {}) } }, initLines);
   }
   const redispatch = rest.flatMap((a, i) => (a === '--redispatch' && rest[i + 1] ? [rest[i + 1]!] : []));
-  const r = nextStep({ out, cwd, estimateUsd: num(rest, '--estimate-usd'), redispatch });
+  const r = nextStep({ out, cwd, estimateUsd: num(rest, '--estimate-usd'), redispatch, hostSubagent });
   moment = fresh ? 'init' : r.attempts.some(a => a.new) || r.lines.some(l => l.startsWith('PHASE_DEFERRED: ')) ? 'transition' : undefined;
   const status = r.state.status;
   const lines = [...initLines, ...r.lines];
@@ -312,7 +312,7 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
   const deadline = num(rest, '--deadline');
   const deadlineAt = deadline ? Date.now() + deadline * 60_000 : undefined;
   for (let guard = 0; guard < 40; guard++) {
-    const code = withRunLock(out, () => doNext(out, rest, true));
+    const code = withRunLock(out, () => doNext(out, rest, true, false));
     if (code !== EXIT.ok) return code;
     const state = readState(out);
     if (state.status !== 'awaiting_result') {

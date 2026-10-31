@@ -90,4 +90,10 @@ describe('plan reviews name a file without a line (GBRA-223 claim 1)', () => {
     expect(reconcile([lined], [row('outside', 1, { severity: 'High', title: 'retry loop has no bound', file: 'src/resolver.ts', line: 90 })]).rows[0]!.disposition).toBe('new');
     expect(reconcile([native], [row('outside', 1, { severity: 'High', title: 'CAP6:src/cli.ts:fix', file: 'src/cli.ts' })]).rows[0]!.disposition).toBe('new');
   });
+
+  test('control: the same CAP item and wording on two different files never pairs by title', () => {
+    const a = row('native', 1, { severity: 'High', title: 'CAP6:bin/gstack-upgrade:recovery no retry bound on network failure', file: 'bin/gstack-upgrade' });
+    const b = row('outside', 1, { severity: 'High', title: 'CAP6:lib/telemetry-sync.ts:recovery no retry bound on network failure', file: 'lib/telemetry-sync.ts' });
+    expect(reconcile([a], [b]).rows[0]).toMatchObject({ disposition: 'new', native_id: null });
+  });
 });

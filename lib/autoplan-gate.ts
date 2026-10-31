@@ -437,7 +437,7 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   const carried = (c: GateChoice) => itemOf(c.id).carried?.chosen === c.chosen;
   const changing = proceeds ? parsed.choices.filter(c => c.id !== 'p1' && !carried(c) && itemOf(c.id).reopens !== false && (optionOf(c).changes_plan ?? c.how === 'override')) : [];
   const tokens = (cs: GateChoice[]) => cs.map(c => `${c.id}${c.chosen}`);
-  const overrides = parsed.choices.filter(c => c.how === 'override' && c.id !== 'p1');
+  const overrides = parsed.choices.filter(c => c.id !== 'p1' && (c.how === 'override' || (c.how === 'auto_default' && c.chosen !== itemOf(c.id).recommended)));
   const reopenSet = new Set<Phase>(plan.chosen === 'd' ? state.phase_order : []);
   record();
   state.gate = { ...(state.gate ?? {}), answered_at: answeredAt, reply, gate_rev: gateRev, plan: plan.chosen, overrides: tokens(overrides), ...(answeredBy ? { answered_by: answeredBy } : {}), ...provenance };

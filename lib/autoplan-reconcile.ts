@@ -226,8 +226,9 @@ function contradictory(a: string, b: string): boolean {
 
 /**
  * Structural reconciliation. Findings associate by a title overlap of at least
- * half the words (a leading CAP code ignored), or by file:line (±3 lines), or,
- * when either finding has no line, by the same file. Association alone never
+ * half the words (a leading CAP code ignored; never across two different files),
+ * or by file:line (±3 lines), or, when either finding has no line, by the same
+ * file. Association alone never
  * confirms: a title association is `confirmed` only when both voices state the
  * same remedy, `disagree` when severities differ by two or more levels or the
  * remedies contradict (one keeps, drops or negates what the other changes),
@@ -266,7 +267,7 @@ export function reconcile(native: FindingRow[], outside: FindingRow[], overrides
     let match: FindingRow | undefined;
     let best = 0;
     for (const n of native) {
-      if (used.has(n.id)) continue;
+      if (used.has(n.id) || (o.file && n.file && o.file !== n.file)) continue;
       const score = jaccard(ot, tokens(n.title)) + (near(n) ? 0.01 : 0);
       if (score >= 0.5 && score > best) { best = score; match = n; }
     }
