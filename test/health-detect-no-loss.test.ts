@@ -28,6 +28,9 @@ fs.mkdirSync(path.join(gbrainHome, '.gbrain'), { recursive: true });
 fs.writeFileSync(path.join(gbrainHome, '.gbrain', 'config.json'), '{}\n');
 const bareHome = path.join(tmp, 'home-bare');
 fs.mkdirSync(bareHome);
+// The knip, shellcheck and gbrain stubs are extensionless #!/bin/sh files, which windows-latest cannot find or launch
+// (windows-free-shard 3, run 41204425554); the cases that need them run on Linux and macOS.
+const stubbed = test.skipIf(process.platform === 'win32');
 
 const PKG = JSON.stringify({ name: 'fx', scripts: { test: 'vitest run', lint: 'eslint .' }, devDependencies: { knip: '^5.0.0' } });
 const FIXTURES: Record<string, Record<string, string>> = {
@@ -89,7 +92,7 @@ describe('/health detection: no check lost (GST-116 PR 2)', () => {
   //   category or command (knip, shellcheck, gbrain, a lint or test rule) for any fixture; why_new=/health moved onto the
   //   detector in this change; seam=the frozen legacy block run beside the bin; no_claim=that the found tools succeed
   for (const [envName, envVars] of Object.entries(ENVS)) {
-    test(`every legacy line is found: ${envName}`, () => {
+    (envName.startsWith('tools on PATH') ? stubbed : test)(`every legacy line is found: ${envName}`, () => {
       const env = { ...process.env, ...envVars };
       let legacyTotal = 0;
       for (const [name, files] of Object.entries(FIXTURES)) {
@@ -106,7 +109,7 @@ describe('/health detection: no check lost (GST-116 PR 2)', () => {
 
   // Value: protects=the matrix exercises knip, shellcheck and gbrain, not just the manifest rules; fails_when=a stub stops
   //   being found so the no-loss comparison above runs with those categories empty; why_new=new fixture; seam=none
-  test('the stubbed run covers every category on both sides', () => {
+  stubbed('the stubbed run covers every category on both sides', () => {
     const env = { ...process.env, ...ENVS['tools on PATH, gbrain configured'] };
     const dir = repo('everything', FIXTURES.everything);
     expect(new Set(legacy(dir, env).map(p => p.split(':')[0]))).toEqual(new Set(HEALTH_DIMENSIONS));
@@ -169,7 +172,7 @@ describe('/health detection: no check lost (GST-116 PR 2)', () => {
 
   // Value: protects=an unavailable category says why, so Step 2 records SKIPPED with a reason; fails_when=a none line
   //   loses its reason or shellcheck's two causes collapse; why_new=new output; seam=none
-  test('none lines name the reason', () => {
+  stubbed('none lines name the reason', () => {
     const empty = healthDimensions(repo('empty', {}), { PATH: '', HOME: bareHome });
     expect(empty.checks).toEqual([]);
     expect(empty.missing.find(m => m.dimension === 'shell')?.reason).toBe('shellcheck is not on PATH');
