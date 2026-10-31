@@ -72,6 +72,16 @@ describe('frictionBySkill questions', () => {
     expect(rows).toEqual([{ skill: 'ship', runs: 0, questions: 3, typed: 1, errors: 0, aborts: 0, score: 3 }]);
   });
 
+  test('hook rows the hook could not attribute to a skill are not counted', () => {
+    const rows = run([{ skill: 'ship', event: 'started', session: 'gstack-1', ts: at(25) }], [
+      { skill: 'unknown', source: 'hook', session_id: '6f1c2d3e-claude-session', tool_use_id: 'toolu_1', question_id: 'hook-a1b2c3d4e5', ts: at(25) },
+      { skill: 'unknown', source: 'auq-other', session_id: '6f1c2d3e-claude-session', tool_use_id: 'toolu_2', question_id: 'hook-f6a7b8c9d0', ts: at(25) },
+      { skill: 'ship', source: 'agent', session_id: '1234-1730000000-abcd', question_id: 'ship-x', ts: at(25) },
+      { skill: 'ship', source: 'agent', session_id: '1234-1730000000-abcd', question_id: 'ship-y', ts: at(25) },
+    ]);
+    expect(rows).toEqual([{ skill: 'ship', runs: 1, questions: 2, typed: 0, errors: 0, aborts: 0, score: 2 }]);
+  });
+
   test('an exact (source, tool_use_id) repeat counts once', () => {
     const q = { skill: 'qa', source: 'hook', session_id: 'A', tool_use_id: 't1', ts: at(25) };
     expect(run([], [q, q])[0].questions).toBe(1);

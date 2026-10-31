@@ -280,7 +280,8 @@ describe('gstack-retro-metrics behavior', () => {
     );
     fs.writeFileSync(
       path.join(projects, slug, 'question-log.jsonl'),
-      line({ skill: 'ship', source: 'hook', session_id: 'A', tool_use_id: 't1', ts: '2026-03-10T12:10:00Z' }),
+      line({ skill: 'ship', source: 'agent', session_id: 'A', question_id: 'ship-x', ts: '2026-03-10T12:10:00Z' }) +
+        line({ skill: 'unknown', source: 'hook', session_id: 'claude-uuid', tool_use_id: 't1', ts: '2026-03-10T12:10:00Z' }),
     );
     fs.writeFileSync(
       path.join(projects, 'other-project', 'timeline.jsonl'),
@@ -291,6 +292,7 @@ describe('gstack-retro-metrics behavior', () => {
       expect(out).toMatch(/^FRICTION_SOURCES: timeline=present questions=present$/m);
       expect(out).toMatch(/^FRICTION: \/ship score=2 runs=1 questions=1 typed=0 errors=0 aborts=1$/m);
       expect(out).not.toMatch(/^FRICTION: \/qa /m);
+      expect(out).not.toMatch(/^FRICTION: \/unknown /m);
       const prior = runMetrics(['--base', 'main', '--since', '2026-03-01T00:00:00', '--until', '2026-03-08T00:00:00']);
       expect(prior).toMatch(/^FRICTION: none$/m);
     } finally {

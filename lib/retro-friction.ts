@@ -11,9 +11,11 @@
  *
  * Only explicit outcomes count: the stop hook's `unknown` completions and
  * unmatched starts are not aborts. Machine answers (auto-decided, spawned-env
- * denies, Codex imports) are not questions. Per skill and session, hook-captured
- * rows win over the agent's own rows for the same questions, so one question
- * counts once. Skill names outside ^[a-z0-9-]{1,64}$ are dropped so log text
+ * denies, Codex imports) are not questions. The Claude Code question hook logs
+ * skill `unknown` (it cannot tell which skill asked), so those rows are not
+ * counted; the agent's own rows carry the skill. Per skill and session,
+ * hook-captured rows that do name a skill win over the agent's rows for the
+ * same questions, so one question counts once. Skill names outside ^[a-z0-9-]{1,64}$ are dropped so log text
  * never reaches the prompt. Idea credit: @thesohamdatta (#3417).
  *
  * CLI (bin/gstack-retro-metrics):
@@ -94,7 +96,7 @@ export function frictionBySkill(input: FrictionInput): SkillFriction[] {
     if (!j || !inWindow(j, input.sinceMs, input.untilMs)) continue;
     const skill = skillOf(j);
     const source = typeof j.source === 'string' ? j.source : 'agent';
-    if (!skill || !HUMAN_SOURCES.has(source)) continue;
+    if (!skill || skill === 'unknown' || !HUMAN_SOURCES.has(source)) continue;
     const toolUse = typeof j.tool_use_id === 'string' && j.tool_use_id ? j.tool_use_id : '';
     if (toolUse) {
       const key = `${source}:${toolUse}`;
