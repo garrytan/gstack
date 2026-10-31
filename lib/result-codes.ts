@@ -13,6 +13,7 @@
 import { RELEASE_RESULT_CODES } from './result-codes-release';
 import { CAPY_RESULT_CODES } from './result-codes-capy';
 import { BUDGET_RESULT_CODES } from './result-codes-budget';
+import { EVAL_RESULT_CODES } from './result-codes-eval';
 
 export interface ResultCode {
   /** Stable `<a id>` in docs/troubleshooting.md. */
@@ -435,11 +436,6 @@ export const RESULT_CODES = {
   },
   // PR E (multi-agent wave): gstack-eval-plan, gstack-lane-check, gstack-evidence verify,
   // gstack-owner-brief, gstack-contributor-mode, gstack-banned-terms.
-  PREREG_INCOMPLETE: {
-    anchor: 'prereg-incomplete',
-    summary: 'the preregistration file lacks a required section or a section is empty',
-    fix: 'fill every section `gstack-eval-plan prereg --check` names (bars, arms, decoys, stop rules, held-out exposure) before any priced call',
-  },
   EVAL_PRICE_MISSING: {
     anchor: 'eval-price-missing',
     summary: 'an arm names a model with no row in the price table, so its admission cannot be estimated',
@@ -671,12 +667,6 @@ export const RESULT_CODES = {
     summary: '`gstack-autoplan export --public <dir>` writes only into an empty directory or over an earlier public copy of the same run',
     fix: 'pass an empty or new --public directory, or the directory that already holds this run\'s public copy',
   },
-  // Field list 2 (2026-10-16), W8: preregistered diagnostics run before the freeze commit.
-  PREREG_DIAGNOSTIC_UNTESTED: {
-    anchor: 'prereg-diagnostic-untested',
-    summary: 'the declared summarizer, run on the declared synthetic fixture, did not report every preregistered diagnostic at its expected count',
-    fix: 'fix the summarizer or the declared definition (expected count, fixture) until every PREREG_DIAGNOSTIC line says ok, then commit the freeze; never freeze a diagnostic the summarizer has not counted',
-  },
   // Field list 2 (2026-10-16), W9: .gstack/eval-models.json.
   EVAL_MODELS_INVALID: {
     anchor: 'eval-models-invalid',
@@ -772,6 +762,7 @@ export const RESULT_CODES = {
   ...RELEASE_RESULT_CODES,
   ...CAPY_RESULT_CODES,
   ...BUDGET_RESULT_CODES,
+  ...EVAL_RESULT_CODES,
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

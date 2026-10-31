@@ -1034,6 +1034,22 @@ never forwards `UBICLOUD_*`. All of this is pinned offline in
 `test/ubicloud-runner.test.ts` against a fake API and a fake `ssh`, including
 a fixture whose fake API creates, so `run` and `verify` execute end to end.
 
+`run` and `verify` start their setup, command and tier phases detached on the
+VM (output, leader pid and exit status in `~/.ubirun-<phase>.*`) and key each
+run locally before any VM exists (content tree, command, setup content, env,
+pass-value hashes, size, location, image, storage, origin/HEAD, the runner's
+own sha256). A rerun of the same command after the runner died reattaches to
+the live VM and continues from the first phase without an exit file
+(`UBI_ATTACH_BUSY` while another runner owns it, exit 125 `UBI_ATTACH_LOST`
+when the session left no status); HUP detaches (`UBI_DETACHED`, exit 129), INT
+and TERM still tear down. A `.gstack/ubicloud.json` with `tiers` records
+start/pass/fail per tier under `UBI_CHECKPOINT_DIR/<run key>/`, so a resume on
+a fresh VM reruns setup and only the tiers without a pass; `pregate-remote.sh`
+adds its tree and planned-set digest to the key, so a rerun of
+`gstack-pregate --stage tests --remote` reattaches and bills from the original
+`created_at`. The fake VM in `test/ubicloud-runner.test.ts` runs these phases
+for real in a directory.
+
 Under 8 cores (`gstack-doctor`'s `cores` row says so), run the full unit and
 E2E tiers on a remote gate: `gstack-config set test_backend ubicloud` records
 the choice and the row names the runner. Resume checklist after a wake or a
@@ -1643,6 +1659,51 @@ lower-case words in path components under `test/fixtures/`; a substring match
 (`factory-scorecard/`, `ios-qa/FixtureApp/Tests/`) was not counted. Renaming is a
 separate change with its own touchfile updates; the list is here so that change
 can be scoped.
+
+## No-gstack arm
+
+Garry, 2026-10-31: "all of our head to head tests have to test no gstack from
+here so that that case is tested obviously Do it for science". A variant that
+beats another variant can still lose to the plain model, and only a no-gstack
+arm shows that.
+
+**Scope.** Every preregistered comparison where any arm loads gstack or another
+skill stack: review variants, preamble loadouts, skill diets scored by behavior
+evals, and model panels run under gstack or under another stack. The
+preregistration says which kind it is in `## Comparison`: `stack: loaded`, or
+`stack: none` with a `why:` line (a scorer calibration, for example, where no
+arm loads any skill text). `gstack-eval-plan prereg --check` refuses a loaded
+comparison without the arm (`PREREG_NO_GSTACK_ARM`).
+
+**How the arm is built.** One arm per model in the comparison, named
+`<model>#no-gstack` in the Arms section and listed on the `arms:` line of
+`## No-gstack arm`. Arm identities are `<model>[#<loadout>]` and are priced by
+the model, so the pilot reserves the no-gstack arm beside its variants under its
+own attempts. The arm gets:
+
+- the same model, settings, inputs, fixture and tools as the variants;
+- a plain prompt: the task text only, with no SKILL.md, preamble, hooks,
+  installed skills or routing lines from gstack or any other stack;
+- the same panel: the same `E2E_KINDS` kind and trial count, the same judge and
+  rubric, and the same blinding labels (the judge reads it as `A` or `B` like
+  any other arm, per [Candidate-side blinding](#candidate-side-blinding));
+- the same budget treatment: it is priced and reserved in the pilot like every
+  other arm.
+
+**Reporting.** The no-gstack result is one row beside the variants in every
+results table and every verdict, including when it wins. A comparison that
+drops the row has not reported its result. The prereg check cannot see the
+report, so the `report:` line states where the row goes and the reviewer of
+the result holds the author to it.
+
+**Precedent and its gaps.** `test/helpers/arm-benchmark-harness.ts` already has
+a `without-skill` arm beside `with-skill`, and it is the closest existing
+control. It falls short of this rule in three ways: each arm and task runs
+once rather than as a panel; the judge (`armJudge` in
+`test/helpers/llm-judge.ts`) scores each diff on its own, without `A`/`B`
+labels; and the candidate's temporary folder is named after the arm
+(`arm-<fixture>-<arm>-*`). Existing paid cases are not retrofitted by the
+change that added this rule; an audit of them is tracked separately.
 
 ## Running evals as an agent: detach
 

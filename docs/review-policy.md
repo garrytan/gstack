@@ -516,6 +516,17 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    missing or doubled title stops the pass. On Capy the pass runs as one call to the
    checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
    unchanged by the gstack Capy skill.
+7. Every brief, audit readers' included, ends with a workspace paragraph naming the
+   checkout the bins run in (GST-482): a reader on a shared machine starts in the
+   machine's working directory, so it is told to `cd` there on every command, to give
+   every file tool an absolute path under it, and to start its reply with
+   `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` measured there. The paragraph follows the
+   section's render, which stays byte for byte. `collect` and `mark --state collected`
+   compare that line with the fingerprint recorded at render: a missing or foreign line is
+   `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
+   is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
+   outside voice's tree failure is recorded `unavailable` only when its reply holds no finding. The line catches a reader that
+   worked elsewhere by accident; it is not proof of reading, since diff text can predict it.
 
 ## Where this is enforced
 

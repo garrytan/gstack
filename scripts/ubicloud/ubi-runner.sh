@@ -33,8 +33,9 @@
 # Teardown: `up` records each VM's state (location, create status) before it
 # sends the create request, and `down` destroys and polls until the VM is
 # confirmed gone or provably never existed, waiting out a create that may still
-# be in flight. An interrupted `up` or `run` (EXIT, INT, TERM, HUP, QUIT) runs
-# that `down`; further signals are ignored until it finishes. A create refused
+# be in flight. An interrupted `up` or `run` (EXIT, INT, TERM, QUIT, and HUP
+# until a remote phase is live) runs that `down`; further signals are ignored
+# until it finishes. A create refused
 # for vCPU quota prints the project's usage per owner.
 #
 # The owner-age sweep is off by default (the TTL reap below always runs). With UBI_GC_HOURS set to a positive
@@ -69,6 +70,33 @@
 # UBI_RUN_TIMEOUT seconds (0, unlimited), exiting 124 with the last 40 lines,
 # so a hung verify fails fast instead of holding the VM until its TTL.
 #
+# Detached phases and reattach: `run` and `verify` start their setup, command
+# and tier phases on the VM detached from the ssh connection (setsid; stdout to
+# ~/.ubirun-<phase>.out, stderr to .err, the session leader's pid in .pid, and
+# the exit status in .exit, written by rename once the streams are closed) and
+# stream both files back. Before creating a VM they compute a run key locally
+# (the checkout's content tree, the command, the setup script's content, every
+# --env entry, each --pass name with a sha256 of its value, size, location,
+# image, storage, origin/HEAD, tiers and this script's own sha256) and look for
+# a run record (<state dir>/<vm>/run) with the same key whose VM still exists:
+# its runner alive (lease pid and start time) refuses with UBI_ATTACH_BUSY,
+# otherwise the run reattaches, printing `reattached to <vm> created_at=<epoch>
+# key=<k12>`, and continues from the first phase without an exit file. After
+# unpack the VM recomputes the tree and refuses a mismatch (UBI_VM_TREE_MISMATCH).
+# A leader gone with no exit file exits 125 (UBI_ATTACH_LOST). Signals: INT
+# and TERM tear the VM down as before; HUP once a remote phase is live detaches
+# (UBI_DETACHED, exit 129) and leaves the VM under its TTL; SIGKILL or a machine
+# stop leaves the record and the VM, and the next run of the same command
+# reattaches. `attach NAME` resumes a recorded run explicitly. Reattach never
+# extends a TTL, and the reaper still applies.
+#
+# Tier checkpoints: a .gstack/ubicloud.json with `tiers` runs each tier as its
+# own detached phase after setup, and records start/pass/fail per tier under
+# UBI_CHECKPOINT_DIR/<run key>/ (write-once JSON plus the tier's log, published
+# under a lock with a monotonic generation). A rerun reuses a pass younger than
+# UBI_CHECKPOINT_MAX_AGE whose log re-hashes, so a resume on a fresh VM reruns
+# only setup and the tiers without a pass.
+#
 # `verify` is the one entry point for a repository's full remote verify: it
 # reads .gstack/ubicloud.json (setup, command, size, location, env, pass, pull)
 # and runs it through `run`, so lanes share one committed definition instead of
@@ -100,6 +128,11 @@ PREFIX="ubirun"
 if [ -n "${UBI_VM_RECORD:-}" ]; then VM_RECORD="$UBI_VM_RECORD"
 elif [ -d "$HOME/.capy/work" ]; then VM_RECORD="$HOME/.capy/work/ubi-runner/vms.tsv"
 else VM_RECORD="$STATE_ROOT/vms.tsv"; fi
+if [ -n "${UBI_CHECKPOINT_DIR:-}" ]; then CHECKPOINT_DIR="$UBI_CHECKPOINT_DIR"
+elif [ -d "$HOME/.capy/work" ]; then CHECKPOINT_DIR="$HOME/.capy/work/ubi-runner/checkpoints"
+else CHECKPOINT_DIR="$STATE_ROOT/checkpoints"; fi
+CHECKPOINT_MAX_AGE="${UBI_CHECKPOINT_MAX_AGE:-86400}"
+REATTACH_MARGIN="${UBI_REATTACH_MARGIN:-900}"
 
 die() { echo "ubi-runner: $*" >&2; exit 1; }
 log() { echo "ubi-runner: $*" >&2; }
@@ -109,7 +142,7 @@ for bin in curl python3 ssh ssh-keygen tar; do
 done
 UBICLOUD_API_KEY="${UBICLOUD_API_KEY:-${UBICLOUD_API_TOKEN:-}}"
 [[ "$GC_HOURS" =~ ^[0-9]+$ ]] || die "UBI_GC_HOURS must be a whole number of hours (unset or 0 disables the sweep)"
-for v in IDLE_TIMEOUT RUN_TIMEOUT HEARTBEAT QUOTA_WAIT; do
+for v in IDLE_TIMEOUT RUN_TIMEOUT HEARTBEAT QUOTA_WAIT CHECKPOINT_MAX_AGE REATTACH_MARGIN; do
   [[ "${!v}" =~ ^[0-9]+$ ]] || die "UBI_$v must be a whole number of seconds (0 disables it)"
 done
 [ -z "$QUOTA_VCPUS" ] || [[ "$QUOTA_VCPUS" =~ ^[0-9]+$ ]] || die "UBI_QUOTA_VCPUS must be a whole number of vCPUs"
@@ -294,6 +327,410 @@ watched() {
   wait "$pid" || rc=$?
   trap - INT TERM; eval "$old_traps"
   return "$rc"
+}
+
+proc_start() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' || true; }
+fsize() { if [ -f "$1" ]; then wc -c <"$1" | tr -d ' '; else echo 0; fi; }
+sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
+
+# TREE_SH: print the content tree of the current directory, the same way here
+# and on the VM: at a checkout's root, `git add -A` into a copy of its index
+# (tracked plus untracked files that are not ignored, the files pack uploads);
+# elsewhere, the same into a scratch repository over the directory.
+TREE_SH='idx=$(mktemp -d "${TMPDIR:-/tmp}/ubirun-tree.XXXXXX") || exit 1
+if [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; then
+  gi=$(git rev-parse --git-path index)
+  if [ "$(git config --bool core.splitIndex)" != true ] && [ -f "$gi" ]; then cp "$gi" "$idx/index"; fi
+else
+  git init -q --bare "$idx/git" && export GIT_DIR="$idx/git" GIT_WORK_TREE=.
+fi
+GIT_INDEX_FILE="$idx/index" git add -A >/dev/null 2>&1 && GIT_INDEX_FILE="$idx/index" git write-tree
+rc=$?; rm -rf "$idx"; exit $rc'
+
+# vm_tree NAME QDEST: the content tree of QDEST on the VM.
+vm_tree() {
+  remote "$1" "command -v git >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git; } >/dev/null 2>&1; cd $2 && bash -c $(sq "$TREE_SH")" </dev/null
+}
+
+base_sha() { git -C "$1" rev-parse -q --verify 'refs/remotes/origin/HEAD^{commit}' 2>/dev/null || echo none; }
+
+# phase_status NAME PHASE: "exit <rc>" once the phase wrote its exit file,
+# "alive" while its session leader runs, "lost" when the leader is gone with no
+# exit file, "none" when it never started.
+phase_status() {
+  local p="~/.ubirun-$2"
+  remote "$1" "if [ -f $p.exit ]; then echo exit \$(cat $p.exit); elif [ -s $p.pid ] && kill -0 \$(cat $p.pid) 2>/dev/null; then echo alive; elif [ -s $p.pid ]; then echo lost; else echo none; fi" </dev/null
+}
+
+# phase_start NAME PHASE INNER: start INNER on the VM in its own session,
+# detached from this ssh connection. The leader records its pid, runs INNER with
+# stdout and stderr in files, and writes the exit status by rename only after
+# INNER's streams are closed.
+phase_start() {
+  local p="~/.ubirun-$2" inner
+  inner=$(sq "echo \$\$ >$p.pid.tmp && mv $p.pid.tmp $p.pid; ( $3 ) >$p.out 2>$p.err </dev/null; echo \$? >$p.exit.tmp && mv $p.exit.tmp $p.exit")
+  remote "$1" "rm -f $p.exit $p.pid; : >$p.out; : >$p.err; if command -v setsid >/dev/null 2>&1; then setsid -f bash -c $inner </dev/null >/dev/null 2>&1; else nohup bash -c $inner </dev/null >/dev/null 2>&1 & fi" </dev/null >/dev/null
+}
+
+# stream_cmd PHASE OUT_OFFSET ERR_OFFSET: follow both output files from the
+# given byte offsets until the session leader exits.
+stream_cmd() {
+  local p="~/.ubirun-$1"
+  printf '%s' "i=0; while [ ! -s $p.pid ] && [ ! -f $p.exit ] && [ \$i -lt 600 ]; do sleep 0.1; i=\$((i + 1)); done; pid=\$(cat $p.pid 2>/dev/null); f=; [ -z \"\$pid\" ] || f=\"-f --pid=\$pid\"; tail -c +$(( $3 + 1 )) \$f $p.err >&2 & tail -c +$(( $2 + 1 )) \$f $p.out; wait"
+}
+
+PHASE_LIVE="" STREAM_PID="" RUN_KEY="" TREE=""
+
+# on_hup: once a remote phase is live, HUP detaches: the VM keeps running under
+# its TTL and the next run of the same command reattaches. Before that, HUP
+# tears down like INT and TERM.
+on_hup() {
+  [ -n "$PHASE_LIVE" ] || exit 130
+  [ -z "$STREAM_PID" ] || kill -TERM -- "-$STREAM_PID" 2>/dev/null || true
+  trap - EXIT
+  rm -f "$(state_dir "$RUN_VM")/lease"
+  leftover "left=1 owner=$OWNER vm=$RUN_VM detached=1"
+  echo "UBI_DETACHED: vm=$RUN_VM key=${RUN_KEY:0:12} reattach: rerun the same command" >&2
+  exit 129
+}
+
+# detached NAME PHASE INNER: run INNER as a detached phase (or reattach to it),
+# streaming its output to this process and to the VM's state dir
+# (<phase>.out, <phase>.err and the combined <phase>.log) under the same
+# heartbeat and watchdog as watched. RUN_TIMEOUT counts from the phase's
+# recorded start, not from a reattach. Returns the phase's exit status, 124
+# after a watchdog kill, 125 when the session is gone without an exit status.
+detached() {
+  local name=$1 phase=$2 inner=$3 dir st rc=0 tries=0 start now idle elapsed last_beat why old_traps spid sst oo oe
+  load "$name"
+  dir=$(state_dir "$name")
+  local lout="$dir/$phase.out" lerr="$dir/$phase.err" out="$dir/$phase.log" p="~/.ubirun-$phase"
+  st=none
+  if [ -f "$dir/phase.$phase.start" ]; then
+    st=$(phase_status "$name" "$phase") || st=""
+  fi
+  case $st in
+    none)
+      : >"$lout"; : >"$lerr"; : >"$out"
+      date +%s >"$dir/phase.$phase.start"
+      phase_start "$name" "$phase" "$inner" || { log "could not start $phase on $name"; return 255; } ;;
+    alive) log "$phase is still running on $name; following it" ;;
+    "exit "*) ;;
+    lost) log "UBI_ATTACH_LOST: vm=$name phase=$phase: its session is gone and left no exit status ($p.exit)"; return 125 ;;
+    *) log "could not read the state of $phase on $name"; return 255 ;;
+  esac
+  PHASE_LIVE=1
+  start=$(cat "$dir/phase.$phase.start")
+  # A runner killed on this machine leaves its stream client behind; it would
+  # append to the same local copies.
+  if [ -f "$dir/stream" ] && read -r spid sst <"$dir/stream" && [ -n "$spid" ] && [ "$(proc_start "$spid")" = "$sst" ]; then
+    kill -TERM -- "-$spid" 2>/dev/null || true
+  fi
+  oo=$(fsize "$lout") oe=$(fsize "$lerr")
+  if [ "$st" != none ]; then head -c "$oo" "$lout"; head -c "$oe" "$lerr" >&2; fi
+  old_traps=$(trap -p INT TERM)
+  trap '[ -z "$STREAM_PID" ] || kill -TERM -- "-$STREAM_PID" 2>/dev/null; exit 130' INT TERM
+  last_beat=$(date +%s)
+  while :; do
+    touch "$out"
+    # shellcheck disable=SC2046
+    ( exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+        ssh $(ssh_opts) "ubi@$IP" "umask 022; $(stream_cmd "$phase" "$oo" "$oe")" ) \
+      </dev/null > >(tee -a "$lout" | tee -a "$out") 2> >(tee -a "$lerr" | tee -a "$out" >&2) &
+    STREAM_PID=$!
+    echo "$STREAM_PID $(proc_start "$STREAM_PID")" >"$dir/stream"
+    why=""
+    while :; do
+      sleep 1
+      kill -0 "$STREAM_PID" 2>/dev/null || break
+      now=$(date +%s)
+      elapsed=$(( now - start ))
+      idle=$(( now - $(mtime "$out") ))
+      if [ "$IDLE_TIMEOUT" -gt 0 ] && [ "$idle" -ge "$IDLE_TIMEOUT" ]; then
+        why="printed nothing for ${idle}s (UBI_IDLE_TIMEOUT=$IDLE_TIMEOUT)"
+      elif [ "$RUN_TIMEOUT" -gt 0 ] && [ "$elapsed" -ge "$RUN_TIMEOUT" ]; then
+        why="ran ${elapsed}s (UBI_RUN_TIMEOUT=$RUN_TIMEOUT)"
+      fi
+      [ -z "$why" ] || break
+      if [ "$HEARTBEAT" -gt 0 ] && [ $(( now - last_beat )) -ge "$HEARTBEAT" ]; then
+        log "heartbeat: $phase ${elapsed}s elapsed, last output ${idle}s ago"
+        last_beat=$now
+      fi
+    done
+    if [ -n "$why" ]; then
+      log "watchdog: $phase $why; killing it. Last output:"
+      tail -n 40 "$out" >&2
+      kill -TERM -- "-$STREAM_PID" 2>/dev/null || kill "$STREAM_PID" 2>/dev/null || true
+      wait "$STREAM_PID" 2>/dev/null || true
+      STREAM_PID=""
+      # A phase that finished in the instant before the kill keeps its exit 0.
+      if [ "$(phase_status "$name" "$phase" 2>/dev/null)" = "exit 0" ]; then
+        log "watchdog: $phase finished before it could be killed; its exit 0 stands"
+        rc=0
+      else
+        remote_cancel "$name" "$p.pid"
+        rc=124
+      fi
+      break
+    fi
+    wait "$STREAM_PID" 2>/dev/null || true
+    STREAM_PID=""
+    st=$(phase_status "$name" "$phase") || st=""
+    case $st in
+      "exit "*) rc=${st#exit }; break ;;
+      lost|none) log "UBI_ATTACH_LOST: vm=$name phase=$phase: its session is gone and left no exit status ($p.exit)"; rc=125; break ;;
+    esac
+    tries=$(( tries + 1 ))
+    if [ "$tries" -ge 5 ]; then log "lost the connection to $phase on $name 5 times; giving up (the VM keeps it until teardown)"; rc=255; break; fi
+    log "the stream of $phase on $name dropped; following it again"
+    sleep "$POLL"
+    oo=$(fsize "$lout") oe=$(fsize "$lerr")
+  done
+  rm -f "$dir/stream"
+  trap - INT TERM; eval "$old_traps"
+  return "$rc"
+}
+
+# write_record DIR: the run record a later run of the same command reattaches
+# by (key, tree, and this invocation for `attach NAME`). Remote files of each
+# phase: ~/.ubirun-<phase>.{out,err,exit,pid} (setup, command, tier-<name>).
+qwords() { local x; for x in "$@"; do printf '%q ' "$x"; done; }
+write_record() {
+  {
+    printf 'RUN_KEY=%q\nTREE=%q\nPULL_ROOT=%q\nRESUME=%q\nRERUN_FAILED=%q\n' "$RUN_KEY" "$TREE" "$PULL_ROOT" "$RESUME" "$RERUN_FAILED"
+    printf 'RUN_ARGS=(%s)\n' "$(qwords "${RUN_ARGS[@]}")"
+    printf 'TIER_NAMES=(%s)\n' "$(qwords ${TIER_NAMES[@]+"${TIER_NAMES[@]}"})"
+    printf 'TIER_CMDS=(%s)\n' "$(qwords ${TIER_CMDS[@]+"${TIER_CMDS[@]}"})"
+    echo "# remote files: ~/.ubirun-<phase>.{out,err,exit,pid}; phase starts: phase.<phase>.start; lease: lease (pid start time)"
+  } >"$1/run.$$" && mv "$1/run.$$" "$1/run"
+}
+
+lease_take() { echo "$$ $(proc_start $$)" >"$1/lease.$$" && mv "$1/lease.$$" "$1/lease"; }
+lease_busy() {
+  local pid st
+  [ -f "$1/lease" ] || return 1
+  read -r pid st <"$1/lease" || true
+  [ -n "$pid" ] && [ "$pid" != "$$" ] && kill -0 "$pid" 2>/dev/null && [ "$(proc_start "$pid")" = "$st" ]
+}
+
+# vm_alive NAME: the recorded VM still answers show. One confirmed gone is
+# cleaned up (state dir and scratch record), so its record is never tried again.
+vm_alive() {
+  local n=$1 out code
+  ( load "$n"; [ "$CREATED" = yes ] && [ -n "$IP" ] ) 2>/dev/null || return 1
+  out=$(mktemp)
+  code=$(load "$n"; api "$out" vm "$LOCATION/$n" show)
+  rm -f "$out"
+  case $code in
+    200) return 0 ;;
+    404) log "run record for $n: the VM is gone; starting a new one"; cmd_down "$n" >/dev/null 2>&1 || true; return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ttl_short NAME SETUP: true when NAME's TTL (its created_at plus the name's
+# -t<hours>, minus now) does not cover the run still to do plus
+# REATTACH_MARGIN, with the numbers in TTL_WHY. The run still to do is the
+# UBI_RUN_TIMEOUT bound of each phase that has not finished (setup when SETUP is
+# set, then the command or every tier the plan does not reuse), counted from a
+# started phase's recorded start; it is 0 when UBI_RUN_TIMEOUT is 0.
+TTL_WHY=""
+ttl_short() {
+  local name=$1 dir created left now need=0 p i phases=()
+  [[ "$name" =~ -t([0-9]{1,3})$ ]] || return 1
+  dir=$(state_dir "$name")
+  created=$(load "$name"; echo "$CREATE_AT")
+  now=$(date +%s)
+  left=$(( created + 10#${BASH_REMATCH[1]} * 3600 - now ))
+  [ -z "$2" ] || phases+=(setup)
+  if [ ${#TIER_NAMES[@]} -gt 0 ]; then
+    for i in "${!TIER_NAMES[@]}"; do [ "${TIER_ACT[i]}" = reuse ] || phases+=("tier-${TIER_NAMES[i]}"); done
+  else
+    phases+=(command)
+  fi
+  if [ "$RUN_TIMEOUT" -gt 0 ]; then
+    for p in "${phases[@]}"; do
+      if [ -f "$dir/phase.$p.start" ]; then i=$(( RUN_TIMEOUT - (now - $(cat "$dir/phase.$p.start")) )); [ "$i" -gt 0 ] || i=0
+      else i=$RUN_TIMEOUT; fi
+      need=$(( need + i ))
+    done
+  fi
+  TTL_WHY="ttl_left=${left}s needs=$(( need + REATTACH_MARGIN ))s (run still to do ${need}s + UBI_REATTACH_MARGIN=${REATTACH_MARGIN}s)"
+  [ "$left" -lt $(( need + REATTACH_MARGIN )) ]
+}
+
+# find_record: the VM of a run record with this RUN_KEY whose VM still exists.
+find_record() {
+  local f n
+  for f in "$STATE_ROOT"/*/run; do
+    [ -f "$f" ] || continue
+    grep -qx "RUN_KEY=$RUN_KEY" "$f" || continue
+    n=$(basename "$(dirname "$f")")
+    if vm_alive "$n"; then echo "$n"; return 0; fi
+  done
+}
+
+# Tier checkpoints: write-once records <tier>.<epoch>.<pid>.json beside a copy
+# of the tier's log, under CHECKPOINT_DIR/<run key>/, published under a lock
+# with a monotonic generation; the newest generation per tier decides.
+CKPT_PY='
+import fcntl, hashlib, json, os, shutil, sys, time
+op, d = sys.argv[1], sys.argv[2]
+def records():
+    out = []
+    for f in (os.listdir(d) if os.path.isdir(d) else []):
+        if not f.endswith(".json") or f.startswith("."):
+            continue
+        try:
+            r = json.load(open(os.path.join(d, f)))
+        except (OSError, ValueError):
+            continue
+        if isinstance(r, dict) and isinstance(r.get("generation"), int):
+            r["_file"] = f
+            out.append(r)
+    return out
+def newest(rs, tier):
+    rs = [r for r in rs if r.get("tier") == tier]
+    return max(rs, key=lambda r: r["generation"]) if rs else None
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as fh:
+        for b in iter(lambda: fh.read(65536), b""):
+            h.update(b)
+    return h.hexdigest()
+if op == "decide":
+    now, maxage, resume, rerun = int(sys.argv[3]), int(sys.argv[4]), sys.argv[5] == "1", sys.argv[6] == "1"
+    rs = records()
+    for tier in sys.argv[7:]:
+        r = newest(rs, tier)
+        f = r["_file"] if r else "-"
+        age = now - int(r.get("finished_at") or r.get("started_at") or now) if r else 0
+        dur = int(r.get("duration_s") or 0) if r else 0
+        code = str(r.get("exit", "-")) if r else "-"
+        log = os.path.join(d, str(r.get("log"))) if r and r.get("log") else ""
+        if not resume:
+            act, why = "run", "--no-resume"
+        elif r is None:
+            act, why = "run", "no record"
+        elif r.get("status") == "start":
+            act, why = "run", "interrupted (only a start record, %s)" % f
+        elif r.get("status") == "pass":
+            if age >= maxage:
+                act, why = "run", "pass %s is %ds old (UBI_CHECKPOINT_MAX_AGE=%d)" % (f, age, maxage)
+            elif not log or not os.path.isfile(log) or sha(log) != r.get("log_sha256"):
+                act, why = "run", "pass %s: its log does not re-hash" % f
+            else:
+                act, why = "reuse", "-"
+        elif r.get("status") == "fail":
+            act, why = ("rerun", "prior fail %s (exit %s; --rerun-failed)" % (f, code)) if rerun else ("blocked", "-")
+        else:
+            act, why = "run", "unreadable record %s" % f
+        print("\t".join([tier, act, f, str(age), str(dur), code, why]))
+elif op == "publish":
+    tier, status, vm, started, finished, code, log, startgen, key, tree, pid = sys.argv[3:14]
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, ".lock"), "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        rs = records()
+        gen = max([r["generation"] for r in rs] + [0]) + 1
+        if status != "start":
+            r = newest(rs, tier)
+            if r is None or str(r["generation"]) != startgen:
+                print("stale writer: its start record is generation %s, the newest for %s is %s" % (startgen, tier, r["generation"] if r else "none"), file=sys.stderr)
+                sys.exit(2)
+        rec = {"tier": tier, "status": status, "generation": gen, "vm": vm, "key": key, "tree": tree, "started_at": int(started)}
+        if status != "start":
+            rec.update(finished_at=int(finished), duration_s=int(finished) - int(started), exit=int(code))
+        epoch = int(time.time())
+        while os.path.exists(os.path.join(d, "%s.%d.%s.json" % (tier, epoch, pid))) or os.path.exists(os.path.join(d, "%s.%d.%s.log" % (tier, epoch, pid))):
+            epoch += 1
+        stem = "%s.%d.%s" % (tier, epoch, pid)
+        if status != "start":
+            shutil.copyfile(log, os.path.join(d, stem + ".log"))
+            rec["log"], rec["log_sha256"] = stem + ".log", sha(os.path.join(d, stem + ".log"))
+        tmp = os.path.join(d, ".%s.tmp" % stem)
+        with open(tmp, "w") as fh:
+            json.dump(rec, fh, sort_keys=True)
+            fh.write("\n")
+        os.link(tmp, os.path.join(d, stem + ".json"))
+        os.unlink(tmp)
+        print(gen)
+'
+
+# ckpt_publish TIER STATUS VM STARTED FINISHED EXIT LOG STARTGEN: print the new
+# record's generation; fails (nothing published) for a stale writer.
+ckpt_publish() { python3 -c "$CKPT_PY" publish "$CHECKPOINT_DIR/$RUN_KEY" "$@" "$RUN_KEY" "$TREE" "$$"; }
+
+TIER_ACT=() TIER_TO_RUN=0 TIER_PASSED=0 TIER_REUSED="" TIER_FAILED="" TIER_PRIOR="" TIER_SAVED=0 TIER_BLOCKED="" TIER_BLOCKED_RC=1
+
+# tier_plan: decide each tier from its newest checkpoint and print one
+# UBI_VERIFY_RESUME line per tier before anything runs.
+tier_plan() {
+  local plan t act f age dur code why
+  plan=$(python3 -c "$CKPT_PY" decide "$CHECKPOINT_DIR/$RUN_KEY" "$(date +%s)" "$CHECKPOINT_MAX_AGE" "$RESUME" "$RERUN_FAILED" "${TIER_NAMES[@]}") \
+    || die "verify: could not read the tier checkpoints in $CHECKPOINT_DIR/$RUN_KEY"
+  while IFS=$'\t' read -r t act f age dur code why; do
+    case $act in
+      reuse)
+        echo "UBI_VERIFY_RESUME: tier=$t reuse $f (${age}s)" >&2
+        TIER_REUSED=${TIER_REUSED:+$TIER_REUSED,}$t TIER_SAVED=$(( TIER_SAVED + dur )) TIER_PASSED=$(( TIER_PASSED + 1 )) ;;
+      blocked)
+        echo "UBI_VERIFY_RESUME: tier=$t fail $f (${age}s, exit $code): not rerun without --rerun-failed" >&2
+        if [ -z "$TIER_BLOCKED" ]; then TIER_BLOCKED=$t; if [[ "$code" =~ ^[0-9]+$ ]]; then TIER_BLOCKED_RC=$code; fi; fi ;;
+      rerun)
+        echo "UBI_VERIFY_RESUME: tier=$t run: $why" >&2
+        TIER_PRIOR=${TIER_PRIOR:+$TIER_PRIOR,}$t:$code TIER_TO_RUN=$(( TIER_TO_RUN + 1 )) ;;
+      *)
+        echo "UBI_VERIFY_RESUME: tier=$t run: $why" >&2
+        TIER_TO_RUN=$(( TIER_TO_RUN + 1 )) ;;
+    esac
+    TIER_ACT+=("$act")
+  done <<<"$plan"
+}
+
+verify_line() {
+  echo "UBI_VERIFY: tree=${TREE:0:12} key=${RUN_KEY:0:12} tiers=${#TIER_NAMES[@]} passed=$TIER_PASSED reused=${TIER_REUSED:-none} failed=${TIER_FAILED:-none} prior_failures=${TIER_PRIOR:-none} saved_s=$TIER_SAVED"
+}
+
+# run_tiers NAME QDEST: run every tier the plan did not reuse, in order, each
+# as its own detached phase; stop at the first failure and return its status.
+# A pass is recorded only when the VM's tree after the tier equals the tree
+# before it.
+run_tiers() {
+  local name=$1 qdest=$2 dir i t phase before after trc started finished gen
+  dir=$(state_dir "$name")
+  for i in "${!TIER_NAMES[@]}"; do
+    [ "${TIER_ACT[i]}" != reuse ] || continue
+    t=${TIER_NAMES[i]} phase="tier-${TIER_NAMES[i]}"
+    if [ ! -f "$dir/phase.$phase.start" ]; then
+      before=$(vm_tree "$name" "$qdest") || before=unavailable
+      echo "$before" >"$dir/phase.$phase.tree"
+      if gen=$(ckpt_publish "$t" start "$name" "$(date +%s)" 0 0 "" 0); then echo "$gen" >"$dir/phase.$phase.gen"
+      else echo "UBI_CHECKPOINT_WRITE_FAILED: tier=$t start record (the tier still runs)" >&2; fi
+    fi
+    log "running tier $t on $name: ${TIER_CMDS[i]}"
+    trc=0
+    detached "$name" "$phase" "cd $qdest && . ~/.ubirun-env && bash -lc $(printf %q "${TIER_CMDS[i]}")" || trc=$?
+    started=$(cat "$dir/phase.$phase.start" 2>/dev/null || date +%s) finished=$(date +%s)
+    log "tier $t exited $trc after $(( finished - started ))s"
+    case $trc in 125|255) TIER_FAILED=$t; return "$trc" ;; esac
+    gen=$(cat "$dir/phase.$phase.gen" 2>/dev/null || echo 0)
+    if [ "$trc" -ne 0 ]; then
+      ckpt_publish "$t" fail "$name" "$started" "$finished" "$trc" "$dir/$phase.log" "$gen" >/dev/null \
+        || echo "UBI_CHECKPOINT_WRITE_FAILED: tier=$t fail record (the result stands)" >&2
+      TIER_FAILED=$t
+      return "$trc"
+    fi
+    TIER_PASSED=$(( TIER_PASSED + 1 ))
+    after=$(vm_tree "$name" "$qdest") || after=unavailable
+    before=$(cat "$dir/phase.$phase.tree" 2>/dev/null || echo unavailable)
+    if [ "$after" != "$before" ] || [ "$after" = unavailable ]; then
+      echo "UBI_VERIFY_TREE_MOVED: tier=$t before=${before:0:12} after=${after:0:12}: a tier must leave the source tree as it found it; no pass record" >&2
+      continue
+    fi
+    ckpt_publish "$t" pass "$name" "$started" "$finished" 0 "$dir/$phase.log" "$gen" >/dev/null \
+      || echo "UBI_CHECKPOINT_WRITE_FAILED: tier=$t pass record (the result stands)" >&2
+  done
 }
 
 # vm_rows: "location name owner expires created" for every VM in the project;
@@ -770,9 +1207,11 @@ run_teardown() {
   [ "$rc" -ne 0 ] || exit 1
 }
 
+TIER_NAMES=() TIER_CMDS=() RESUME=1 RERUN_FAILED=0 FORCE_ATTACH="" RUN_ARGS=()
 cmd_run() {
   require_owner
-  local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=()
+  local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=() passes=() key_inputs=() probe=0
+  RUN_ARGS=("$@")
   while [ $# -gt 0 ]; do
     case $1 in
       -S|--storage) check_storage "$2"; up_args+=("$1" "$2"); shift 2 ;;
@@ -781,60 +1220,161 @@ cmd_run() {
       --dest) dest=$2; shift 2 ;;
       --setup) setup=$2; shift 2 ;;
       --env) envs+=("$2"); shift 2 ;;
-      --pass) pass_name "$2"; [ -n "${!2+x}" ] || die "--pass $2: not set locally"; envs+=("$2=${!2}"); shift 2 ;;
+      --pass) pass_name "$2"; [ -n "${!2+x}" ] || die "--pass $2: not set locally"; passes+=("$2"); shift 2 ;;
       --pull) pulls+=("$2"); shift 2 ;;
       --keep) keep=1; shift ;;
+      --key-input) key_inputs+=("$2"); shift 2 ;;
+      --probe) probe=1; shift ;;
+      --resume) RESUME=1; shift ;;
+      --no-resume) RESUME=0; shift ;;
+      --rerun-failed) RERUN_FAILED=1; shift ;;
       --) shift; break ;;
       *) die "run: unknown option $1" ;;
     esac
   done
-  [ $# -gt 0 ] || die "run: missing command after --"
+  [ $# -gt 0 ] || [ ${#TIER_NAMES[@]} -gt 0 ] || die "run: missing command after --"
   [ -z "$setup" ] || [ -f "$setup" ] || die "setup script not found: $setup"
+  command -v git >/dev/null || die "git is required: the run key fingerprints the checkout with it"
   src=$(cd "$src" && pwd)
   [ -n "$dest" ] || dest="work/$(basename "$src")"
 
-  local i name=""
+  local i name="" size=$DEFAULT_SIZE location=$DEFAULT_LOCATION image=ubuntu-noble storage="" e n
   for (( i = 0; i < ${#up_args[@]}; i += 2 )); do
-    case ${up_args[i]} in -n|--name) name=${up_args[i+1]} ;; esac
+    case ${up_args[i]} in
+      -n|--name) name=${up_args[i+1]} ;;
+      -s|--size) size=${up_args[i+1]} ;;
+      -l|--location) location=${up_args[i+1]} ;;
+      -b|--image) image=${up_args[i+1]} ;;
+      -S|--storage) storage=${up_args[i+1]} ;;
+    esac
   done
+  # The run key: everything that decides what the VM runs, computed before any
+  # VM exists. Pass values enter only as their sha256.
+  if [ -z "$FORCE_ATTACH" ]; then
+    TREE=$(cd "$src" && bash -c "$TREE_SH") || die "could not fingerprint $src (git add -A into a temporary index failed)"
+    RUN_KEY=$({
+      echo "ubi-runner run key v1"
+      echo "tree $TREE"
+      printf 'command %q\n' "$*"
+      if [ -n "$setup" ]; then echo "setup $(sha256 <"$setup")"; else echo "setup none"; fi
+      for e in ${envs[@]+"${envs[@]}"}; do printf 'env %q\n' "$e"; done
+      for n in ${passes[@]+"${passes[@]}"}; do printf 'pass %s %s\n' "$n" "$(printf %s "${!n}" | sha256)"; done
+      printf 'vm %q %q %q %q\n' "$size" "$location" "$image" "$storage"
+      echo "base $(base_sha "$src")"
+      echo "runner $(sha256 <"${BASH_SOURCE[0]}")"
+      for e in ${key_inputs[@]+"${key_inputs[@]}"}; do printf 'input %q\n' "$e"; done
+      for i in "${!TIER_NAMES[@]}"; do printf 'tier %q %q\n' "${TIER_NAMES[i]}" "${TIER_CMDS[i]}"; done
+    } | sha256)
+  fi
+  [ ${#TIER_NAMES[@]} -eq 0 ] || tier_plan
+
+  local attach=""
+  if [ -n "$FORCE_ATTACH" ]; then
+    vm_alive "$FORCE_ATTACH" || die "attach: $FORCE_ATTACH no longer exists; rerun the original command to start fresh"
+    attach=$FORCE_ATTACH
+  else
+    attach=$(find_record)
+  fi
+  if [ "$probe" = 1 ]; then
+    if [ -z "$attach" ]; then echo "UBI_ATTACH_INFO: none key=${RUN_KEY:0:12}"
+    else
+      local busy=0
+      ! lease_busy "$(state_dir "$attach")" || busy=1
+      if [ "$busy" = 0 ] && [ -z "$FORCE_ATTACH" ] && ttl_short "$attach" "$setup"; then
+        echo "UBI_ATTACH_INFO: none key=${RUN_KEY:0:12} ttl_short vm=$attach $TTL_WHY"
+      else
+        echo "UBI_ATTACH_INFO: vm=$attach created_at=$(load "$attach"; echo "$CREATE_AT") key=${RUN_KEY:0:12} busy=$busy"
+      fi
+    fi
+    return 0
+  fi
+  if [ ${#TIER_NAMES[@]} -gt 0 ] && { [ -n "$TIER_BLOCKED" ] || [ "$TIER_TO_RUN" -eq 0 ]; } && [ -n "$attach" ] && ! lease_busy "$(state_dir "$attach")"; then
+    log "verify: no tier needs $attach, which a dead runner left behind; destroying it"
+    cmd_down "$attach" >/dev/null || log "WARNING: failed to destroy $attach; run: $0 down $attach"
+  fi
+  if [ ${#TIER_NAMES[@]} -gt 0 ] && [ -n "$TIER_BLOCKED" ]; then
+    TIER_FAILED=$TIER_BLOCKED
+    verify_line
+    return "$TIER_BLOCKED_RC"
+  fi
+  if [ ${#TIER_NAMES[@]} -gt 0 ] && [ "$TIER_TO_RUN" -eq 0 ]; then
+    log "verify: every tier passed under this key; no VM needed"
+    verify_line
+    return 0
+  fi
+  if [ -n "$attach" ] && lease_busy "$(state_dir "$attach")"; then
+    die "UBI_ATTACH_BUSY: vm=$attach key=${RUN_KEY:0:12}: runner pid $(cut -d' ' -f1 <"$(state_dir "$attach")/lease") on this machine still owns it; wait for it or stop it, then rerun"
+  fi
+  if [ -n "$attach" ] && [ -z "$FORCE_ATTACH" ] && ttl_short "$attach" "$setup"; then
+    log "UBI_REATTACH_TTL_SHORT: vm=$attach key=${RUN_KEY:0:12} $TTL_WHY: starting a fresh VM (tier checkpoints carry over) and destroying $attach"
+    cmd_down "$attach" >/dev/null || log "WARNING: failed to destroy $attach; run: $0 down $attach"
+    attach=""
+  fi
+  [ -z "$attach" ] || name=$attach
   [ -n "$name" ] || { name=$(new_name); up_args+=(-n "$name"); }
   RUN_VM=$name
   # Armed before the create request: an interrupted `up` still destroys its VM.
   # A second signal must not cut teardown short, so the EXIT handler ignores them.
   trap 'run_teardown "$?"' EXIT
-  trap 'exit 130' INT TERM HUP QUIT
-  cmd_up "${up_args[@]}" >/dev/null
-  if [[ "$name" =~ -t([0-9]+)$ ]]; then
-    log "$name carries a ${BASH_REMATCH[1]}h TTL (any later run of this script reaps it); if this process dies first: $0 down $name"
-  elif [[ "$name" =~ ^$PREFIX-$OWNER-[0-9]{10}- ]]; then
-    log "$name has no TTL (reap destroys it once it is ${LEGACY_HOURS}h old); if this process dies before its teardown line, destroy it with: $0 down $name"
+  trap 'exit 130' INT TERM QUIT
+  trap on_hup HUP
+  if [ -n "$attach" ]; then
+    load "$name"
+    log "reattached to $name created_at=$CREATE_AT key=${RUN_KEY:0:12}"
   else
-    log "$name has no TTL and no reapable name, so nothing reaps it; if this process dies before its teardown line, destroy it with: $0 down $name"
+    cmd_up "${up_args[@]}" >/dev/null
+    trap 'exit 130' INT TERM QUIT
+    trap on_hup HUP
+    if [[ "$name" =~ -t([0-9]+)$ ]]; then
+      log "$name carries a ${BASH_REMATCH[1]}h TTL (any later run of this script reaps it); if this process dies first: $0 down $name"
+    elif [[ "$name" =~ ^$PREFIX-$OWNER-[0-9]{10}- ]]; then
+      log "$name has no TTL (reap destroys it once it is ${LEGACY_HOURS}h old); if this process dies before its teardown line, destroy it with: $0 down $name"
+    else
+      log "$name has no TTL and no reapable name, so nothing reaps it; if this process dies before its teardown line, destroy it with: $0 down $name"
+    fi
   fi
+  local dir
+  dir=$(state_dir "$name")
+  write_record "$dir"
+  lease_take "$dir"
   if [ "$keep" = 1 ]; then
-    trap - EXIT
+    # A kept VM's finished run is not reattached by the next run; a detach (HUP) keeps the record.
+    trap 'rm -f "$(state_dir "$RUN_VM")/run"' EXIT
     leftover "left=1 owner=$OWNER vm=$name kept=1"
     log "--keep: leaving $name running; destroy with: $0 down $name"
   fi
 
-  local e
-  for e in ${envs[@]+"${envs[@]}"}; do printf 'export %s=%q\n' "${e%%=*}" "${e#*=}"; done \
-    | remote "$name" 'umask 077 && cat > ~/.ubirun-env'
-
-  cmd_sync "$name" "$src" "$dest"
-  local qdest rc=0
+  local qdest rc=0 vmt
   qdest=$(printf %q "$dest")
+  if [ ! -f "$dir/synced" ]; then
+    { for e in ${envs[@]+"${envs[@]}"}; do printf 'export %s=%q\n' "${e%%=*}" "${e#*=}"; done
+      for n in ${passes[@]+"${passes[@]}"}; do printf 'export %s=%q\n' "$n" "${!n}"; done; } \
+      | remote "$name" 'umask 077 && cat > ~/.ubirun-env'
+    cmd_sync "$name" "$src" "$dest"
+    # A subdirectory of a checkout uploads the whole .git with only its own
+    # files, so its tree is compared VM to VM (tiers) but not to this side.
+    if [ -z "$(git -C "$src" rev-parse --show-prefix 2>/dev/null)" ]; then
+      vmt=$(vm_tree "$name" "$qdest") || vmt=unavailable
+      if [ "$vmt" != "$TREE" ]; then
+        log "UBI_VM_TREE_MISMATCH: vm=$name tree=${vmt:0:12} expected=${TREE:0:12}: the unpacked checkout is not the one this run was keyed on"
+        exit 3
+      fi
+    fi
+    [ -z "$setup" ] || remote "$name" 'cat > ~/.ubirun-setup.sh' <"$setup"
+    : >"$dir/synced"
+  fi
   if [ -n "$setup" ]; then
-    remote "$name" 'cat > ~/.ubirun-setup.sh' <"$setup"
     log "running setup $(basename "$setup")"
-    watched "$name" setup "cd $qdest && . ~/.ubirun-env && bash -l ~/.ubirun-setup.sh" || { rc=$?; log "setup failed (exit $rc)"; exit "$rc"; }
+    detached "$name" setup "cd $qdest && . ~/.ubirun-env && bash -l ~/.ubirun-setup.sh" || { rc=$?; log "setup failed (exit $rc)"; exit "$rc"; }
   fi
 
-  local start
-  start=$(date +%s)
-  log "running on $name: $*"
-  watched "$name" command "cd $qdest && . ~/.ubirun-env && bash -lc $(printf %q "$*")" || rc=$?
-  log "command exited $rc after $(( $(date +%s) - start ))s"
+  if [ ${#TIER_NAMES[@]} -gt 0 ]; then
+    run_tiers "$name" "$qdest" || rc=$?
+  else
+    log "running on $name: $*"
+    detached "$name" command "cd $qdest && . ~/.ubirun-env && bash -lc $(printf %q "$*")" || rc=$?
+    log "command exited $rc after $(( $(date +%s) - $(cat "$dir/phase.command.start" 2>/dev/null || date +%s) ))s"
+  fi
 
   local p
   for p in ${pulls[@]+"${pulls[@]}"}; do
@@ -845,7 +1385,21 @@ cmd_run() {
     fi
     cmd_pull "$name" "${p%%:*}" "${p#*:}" || log "pull failed: $p"
   done
+  [ ${#TIER_NAMES[@]} -eq 0 ] || verify_line
   return "$rc"
+}
+
+# attach NAME: resume the run recorded for NAME on this machine (the same
+# invocation, key and tiers), as a rerun of the same command would.
+cmd_attach() {
+  local name=${1:-}
+  [ -n "$name" ] || die "attach: missing NAME"
+  valid_name "$name" || die "invalid VM name '$name'"
+  [ -f "$(state_dir "$name")/run" ] || die "attach: no run record for $name on this machine ($(state_dir "$name")/run); a machine replacement loses it"
+  # shellcheck disable=SC1091
+  . "$(state_dir "$name")/run"
+  FORCE_ATTACH=$name
+  cmd_run "${RUN_ARGS[@]}"
 }
 
 # verify [run opts] [--trust-config] [-- COMMAND]: run the repository's
@@ -860,7 +1414,7 @@ cmd_run() {
 # local variable it lists under pass is forwarded only when this command line
 # also names it (--pass NAME) or grants every listed name (--trust-config).
 cmd_verify() {
-  local src=. i j g n cfg cfg_setup cfg_cmd parsed err rc=0 trust=0 cfg_args=() cfg_pass=() user_pre=() user_cmd=() granted=() missing=()
+  local src=. i j g n cfg cfg_setup cfg_cmd parsed err rc=0 trust=0 cfg_args=() cfg_pass=() user_pre=() user_cmd=() granted=() missing=() cfg_tier_names=() cfg_tier_cmds=()
   for (( i = 1; i <= $#; i++ )); do
     [ "${!i}" = -- ] && break
     if [ "${!i}" = --src ]; then j=$(( i + 1 )); src=${!j}; fi
@@ -869,7 +1423,7 @@ cmd_verify() {
   [ -f "$cfg" ] || die "verify: no $cfg; commit one ({\"setup\": \"scripts/ubicloud/bootstrap.sh\", \"command\": \"bash scripts/ubicloud/verify.sh\"}) so every lane runs the same verify instead of its own wrapper"
   err=$(mktemp)
   parsed=$(python3 -c '
-import json, os, shlex, sys
+import json, os, re, shlex, sys
 cfg, src = sys.argv[1], sys.argv[2]
 try:
     c = json.load(open(cfg))
@@ -895,7 +1449,25 @@ for item in c.get("pull", []):
     if not sep or not remote:
         print("pull entry %r must be REMOTE_GLOB:LOCAL_DIR" % (item,), file=sys.stderr); sys.exit(2)
     args += ["--pull", q(remote + ":" + inside(local, "pull destination"))]
+tiers = c.get("tiers")
+names = []
+if tiers is not None:
+    if "command" in c:
+        print("UBI_CONFIG_TIERS_AND_COMMAND: give either command or tiers, not both", file=sys.stderr); sys.exit(2)
+    if not isinstance(tiers, list) or not tiers:
+        print("UBI_CONFIG_TIER_NAME: tiers must be a non-empty list of {\"name\", \"command\"}", file=sys.stderr); sys.exit(2)
+    for t in tiers:
+        name = t.get("name") if isinstance(t, dict) else None
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", name):
+            print("UBI_CONFIG_TIER_NAME: tier name %r must match ^[a-z0-9][a-z0-9_-]{0,31}$" % (name,), file=sys.stderr); sys.exit(2)
+        if name in names:
+            print("UBI_CONFIG_TIER_NAME: tier name %r appears twice" % name, file=sys.stderr); sys.exit(2)
+        if not isinstance(t.get("command"), str) or not t["command"].strip():
+            print("UBI_CONFIG_TIER_NAME: tier %r needs a command" % name, file=sys.stderr); sys.exit(2)
+        names.append(name)
 setup = c.get("setup", "")
+print("cfg_tier_names=(" + " ".join(q(n) for n in names) + ")")
+print("cfg_tier_cmds=(" + " ".join(q(t["command"]) for t in (tiers or [])) + ")")
 print("cfg_args=(" + " ".join(args) + ")")
 print("cfg_pass=(" + " ".join(q(x) for x in c.get("pass", [])) + ")")
 print("cfg_setup=" + q(inside(setup, "setup") if setup else ""))
@@ -912,7 +1484,7 @@ print("cfg_cmd=" + q(c.get("command", "")))
     case $1 in
       --) shift; user_cmd=("$@"); break ;;
       --trust-config) trust=1; shift ;;
-      --keep) user_pre+=("$1"); shift ;;
+      --keep|--resume|--no-resume|--rerun-failed|--probe) user_pre+=("$1"); shift ;;
       --pass|-S|--storage|-s|--size|-l|--location|-n|--name|-b|--image|--src|--dest|--setup|--env|--pull)
         [ $# -ge 2 ] || die "verify: $1 needs a value"
         [ "$1" != --pass ] || granted+=("$2")
@@ -927,11 +1499,16 @@ print("cfg_cmd=" + q(c.get("command", "")))
     missing+=("$n")
   done
   [ ${#missing[@]} -eq 0 ] || die "verify: $cfg asks to forward local ${missing[*]}; grant each on this command line with --pass NAME, or every name it lists with --trust-config"
-  [ ${#user_cmd[@]} -gt 0 ] || [ -n "$cfg_cmd" ] || die "verify: $cfg names no command and none was given after --"
-  [ ${#user_cmd[@]} -gt 0 ] || user_cmd=("$cfg_cmd")
+  # A trailing -- COMMAND replaces the configured tiers as it replaces command.
+  if [ ${#user_cmd[@]} -eq 0 ] && [ ${#cfg_tier_names[@]} -gt 0 ]; then
+    TIER_NAMES=("${cfg_tier_names[@]}") TIER_CMDS=("${cfg_tier_cmds[@]}")
+  else
+    [ ${#user_cmd[@]} -gt 0 ] || [ -n "$cfg_cmd" ] || die "verify: $cfg names no command and none was given after --"
+    [ ${#user_cmd[@]} -gt 0 ] || user_cmd=("$cfg_cmd")
+  fi
   log "verify: $cfg"
   PULL_ROOT=$(cd "$src" && pwd)
-  cmd_run ${cfg_args[@]+"${cfg_args[@]}"} ${cfg_setup:+--setup "$cfg_setup"} --src "$src" ${user_pre[@]+"${user_pre[@]}"} -- "${user_cmd[@]}"
+  cmd_run ${cfg_args[@]+"${cfg_args[@]}"} ${cfg_setup:+--setup "$cfg_setup"} --src "$src" ${user_pre[@]+"${user_pre[@]}"} -- ${user_cmd[@]+"${user_cmd[@]}"}
 }
 
 usage() {
@@ -939,13 +1516,17 @@ usage() {
 usage: ubi-runner.sh <command> [args]
 
   run [up opts] [--src DIR] [--dest PATH] [--setup FILE] [--env K=V]...
-      [--pass NAME]... [--pull REMOTE_GLOB:LOCAL_DIR]... [--keep] -- COMMAND
-                         up + sync + setup + command + pull + destroy; exits with COMMAND's status
-  verify [run opts] [--trust-config] [-- COMMAND]
+      [--pass NAME]... [--pull REMOTE_GLOB:LOCAL_DIR]... [--keep] [--key-input S]... [--probe] -- COMMAND
+                         up + sync + setup + command + pull + destroy; exits with COMMAND's status.
+                         A rerun of the same command (same run key) reattaches to its live VM;
+                         --probe prints UBI_ATTACH_INFO (and the tier plan) and exits
+  verify [run opts] [--trust-config] [--resume|--no-resume] [--rerun-failed] [-- COMMAND]
                          run the repository's committed verify (.gstack/ubicloud.json under --src);
                          its setup script and every pull destination stay inside --src (checked
                          again at pull time), and its pass names are forwarded only when granted
-                         here (--pass NAME, or all: --trust-config)
+                         here (--pass NAME, or all: --trust-config). With tiers, a pass checkpoint
+                         under the same run key is reused (resume is the default)
+  attach NAME            resume the run recorded for NAME on this machine, as a rerun would
   up [-s SIZE] [-l LOCATION] [-n NAME] [-S STORAGE_GIB] [-b IMAGE]
                          create a VM and wait for SSH; prints its name
                          (STORAGE_GIB: one of $ALLOWED_STORAGE)
@@ -965,6 +1546,11 @@ usage: ubi-runner.sh <command> [args]
                          owner's TTL-less ubirun-* VMs older than UBI_LEGACY_HOURS
   cli ARGS...            raw Ubicloud CLI passthrough (e.g. cli vm list)
 
+signals: INT and TERM tear the VM down. HUP, once a remote phase is live, detaches
+(UBI_DETACHED, exit 129; the VM runs on under its TTL). SIGKILL or a machine stop leaves
+the run record and the VM; rerun the same command to reattach (UBI_ATTACH_BUSY while
+another runner owns it; exit 125 UBI_ATTACH_LOST when the remote session left no status).
+
 VMs are named $PREFIX-<owner>-<epoch>-<suffix>-t<ttl hours>; up, run and verify need
 UBI_OWNER (e.g. your thread code); run and verify end with a UBICLOUD: left=<n> line.
 defaults: size=$DEFAULT_SIZE location=$DEFAULT_LOCATION (env UBI_SIZE, UBI_LOCATION)
@@ -976,7 +1562,8 @@ env: UBI_TTL_HOURS (${TTL_HOURS}h in the name, 1-999), UBI_REAP (0: up skips the
      UBI_QUOTA_WAIT (${QUOTA_WAIT}s to wait for quota room instead of refusing),
      UBI_GC_HOURS (unset/0: no sweep on up), UBI_CREATE_GRACE (${CREATE_GRACE}s),
      UBI_DOWN_TIMEOUT (${DOWN_TIMEOUT}s), UBI_API_TIMEOUT (${API_TIMEOUT}s), UBI_VM_RECORD (scratch VM-id file),
-     UBI_ALLOWED_STORAGE (the -S sizes Ubicloud accepts; default "320 640")
+     UBI_ALLOWED_STORAGE (the -S sizes Ubicloud accepts; default "320 640"),
+     UBI_CHECKPOINT_DIR (tier checkpoints; $CHECKPOINT_DIR), UBI_CHECKPOINT_MAX_AGE (${CHECKPOINT_MAX_AGE}s a pass is reused)
 EOF
 }
 
@@ -989,6 +1576,7 @@ esac
 case $cmd in
   run) cmd_run "$@" ;;
   verify) cmd_verify "$@" ;;
+  attach) cmd_attach "$@" ;;
   up) trap 'trap "" INT TERM HUP QUIT; [ -z "$UP_NAME" ] || [ -n "$UP_READY" ] || cmd_down "$UP_NAME" || log "WARNING: failed to destroy $UP_NAME; run: $0 down $UP_NAME"' EXIT
       trap 'exit 130' INT TERM HUP QUIT
       cmd_up "$@" ;;
