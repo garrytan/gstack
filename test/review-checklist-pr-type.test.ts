@@ -2,7 +2,8 @@
  * /review's PR-type step (GSTA-224 H1, issue #356). The checklist names the PR type from the changed paths, keeps every
  * category on application and mixed diffs, always runs five categories on CI/infra, scripts/tooling and docs-only diffs,
  * and reports the rest in one not-applicable line. The classifier below is built from the patterns the checklist itself
- * lists, so a reworded rule that drops a pattern fails here before a reviewer reads it.
+ * lists (its backticked globs, plus the compose, Terraform and README/CHANGELOG phrases the classifier hardcodes), so a
+ * reworded rule that drops one fails here before a reviewer reads it.
  */
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
@@ -44,6 +45,9 @@ function classifier() {
   expect(app).toContain('package manifests and lockfiles');
   expect(app).toContain('skill Markdown');
   expect(rule('docs-only')).toContain('\x60docs/\x60');
+  expect(rule('docs-only')).toContain('README/CHANGELOG');
+  expect(rule('CI/infra')).toContain('compose files');
+  expect(rule('CI/infra')).toContain('Terraform');
   const isScript = (p: string) => scriptRes.some(r => r.test(base(p)));
   return (p: string): Exclude<PrType, 'mixed'> => {
     if (appDirs.some(d => p.startsWith(d)) && !isScript(p)) return 'application';
