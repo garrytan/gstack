@@ -318,6 +318,14 @@ _resolve_path() {
     else
       _p="$_lead$_tail"
     fi
+    # Git Bash spells one folder several ways through its mounts (/tmp is
+    # %TEMP%, and HOME converts through them); cygpath -m gives the one drive
+    # spelling Claude Code reports.
+    if [ -n "$_p" ] && [ "$GSTACK_HOOK_IS_WINDOWS" = 1 ] && command -v cygpath >/dev/null 2>&1; then
+      _p=$(cygpath -m "$_p" && printf x) || return 1
+      _p="${_p%"$_FREEZE_NL"x}"
+      case "$_p" in ''|*"$_FREEZE_NL"*|*"$_FREEZE_CR"*) return 1 ;; esac
+    fi
   fi
   [ -n "$_p" ] || _p="/"
   gstack_hook_normalize_path "$_p"

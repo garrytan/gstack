@@ -1643,6 +1643,44 @@ describe('check-freeze.sh', () => {
       });
     });
 
+    // Git Bash reaches one folder through several mounts (/tmp is %TEMP%, and
+    // HOME converts through them), so '~/x' and 'D:\\...\\x' can name one file
+    // in two spellings; the hook compares cygpath's drive spelling.
+    test.skipIf(process.platform === 'win32')('Windows bash: a folder reached through a Git Bash mount compares by its drive spelling', () => {
+      withTree(({ base, home, src, outside }) => {
+        const bin = path.join(base, 'bin');
+        fs.mkdirSync(bin);
+        const mnt = path.join(base, 'mnt');
+        fs.writeFileSync(path.join(bin, 'cygpath'), [
+          '#!/bin/bash',
+          'case "$2" in',
+          '  "$FAKE_MNT"/in/*) printf "%s\\n" "$FAKE_IN${2#"$FAKE_MNT"/in}" ;;',
+          '  "$FAKE_MNT"/out/*) printf "%s\\n" "$FAKE_OUT${2#"$FAKE_MNT"/out}" ;;',
+          '  *) printf "%s\\n" "$2" ;;',
+          'esac',
+          '',
+        ].join('\n'), { mode: 0o755 });
+        const decideWithCygpath = (filePath: string): string => {
+          let decision = '';
+          withFreezeDir(src + '/', (stateDir) => {
+            const r = spawnSync('bash', ['-c', 'OSTYPE=msys; . "$0"', FREEZE_SCRIPT], {
+              input: JSON.stringify(freezeInput(filePath)),
+              env: { ...process.env, ...freezeEnv(stateDir, { HOME: home }), PATH: bin + path.delimiter + (process.env.PATH ?? ''), FAKE_MNT: mnt, FAKE_IN: home, FAKE_OUT: outside },
+              cwd: base,
+              timeout: 5000,
+            });
+            expect(r.status).toBe(0);
+            const raw = r.stdout.toString().trim();
+            decision = raw === '{}' ? 'allow' : (JSON.parse(raw).hookSpecificOutput?.permissionDecision ?? raw);
+          });
+          return decision;
+        };
+        expect(decideWithCygpath(mnt + '/in/proj/src/x.ts')).toBe('allow');
+        expect(decideWithCygpath(mnt + '/out/proj/src/x.ts')).toBe('deny');
+        expect(decideWithCygpath(src + '/x.ts')).toBe('allow');
+      });
+    });
+
     // Linux and macOS read a leading '//' as '/', so neither a '//' path nor a
     // link to '//' may borrow a UNC boundary, and a link to '/' followed by
     // '/' stays a plain absolute path.
