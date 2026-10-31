@@ -304,6 +304,29 @@ describe('gstack-evidence check', () => {
     expect(chk.status).toBe(0);
   });
 
+  // Value: protects=a repository that gitignores .bun/ still gets a fingerprint (GST-449): an exclude pathspec naming an ignored path made
+  //   `git add -A` exit 1, so gstack-wtree failed and every review-log start and evidence check lost its fingerprint; fails_when=gstack-wtree
+  //   exits non-zero or the lane records no wtree with .bun/ (or /.bun) in .gitignore; why_new=the GST-421 test covered only an unignored
+  //   .bun/ (harness-evals#148); seam=none; no_claim=Windows git
+  test('GST-449: with .bun/ gitignored, gstack-wtree still fingerprints and a lane that writes .bun/ grades FRESH', () => {
+    for (const pattern of ['.bun/', '/.bun']) {
+      fs.writeFileSync(path.join(repoDir, '.gitignore'), `${pattern}\n`);
+      git('add .gitignore');
+      git(`commit -q -m "ignore ${pattern}"`);
+      fs.mkdirSync(path.join(repoDir, '.bun'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, '.bun', 'x'), 'cache\n');
+      const wt = runBin(path.join(ROOT, 'bin', 'gstack-wtree'), [], { cwd: repoDir });
+      expect(wt.stderr).toBe('');
+      expect(wt.status).toBe(0);
+      expect(wt.stdout.trim()).toMatch(/^[0-9a-f]{40}$/);
+      const r = run(['run', '--label', 'tests', '--', 'echo cache2 > .bun/y && echo green']);
+      expect(r.status).toBe(0);
+      expect(records().pop().wtree).toMatch(/^[0-9a-f]{40}$/);
+      expect(run(['check', '--label', 'tests']).stdout).toContain('EVIDENCE: FRESH label=tests');
+      fs.rmSync(path.join(repoDir, '.bun'), { recursive: true, force: true });
+    }
+  });
+
   test('GST-421: a lane that writes untracked source grades STALE and the reason names the path', () => {
     const r = run(['run', '--label', 'tests', '--', 'mkdir -p src && echo "export {}" > src/new.ts && echo green']);
     expect(r.status).toBe(0);
