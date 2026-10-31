@@ -48,6 +48,31 @@ describe('import graph: route-group / dynamic-segment paths and tsconfig path al
     expect(testsFor(buildGraph(repo.work), 'ship/sections/pr-body.md.tmpl').tests).toEqual(['test/publication.test.ts']);
   });
 
+  test('a dotfile named by a quoted literal or a join() maps, relative or from the repo root', () => {
+    const repo = fixture();
+    commit(repo, {
+      '.gitleaks.toml': 'title = "x"\n',
+      '.github/workflows/ci.yml': 'on: push\n',
+      'test/relative.test.ts': "import { readFileSync } from 'node:fs';\nreadFileSync(new URL('../.gitleaks.toml', import.meta.url), 'utf8');\n",
+      'test/rooted.test.ts': "import { readFileSync } from 'node:fs';\nreadFileSync('.gitleaks.toml', 'utf8');\n",
+      'test/joined.test.ts': "import { join } from 'node:path';\nimport { readFileSync } from 'node:fs';\nreadFileSync(join('.github', 'workflows', 'ci.yml'), 'utf8');\n",
+    });
+    const g = buildGraph(repo.work);
+    expect(testsFor(g, '.gitleaks.toml').tests).toEqual(['test/relative.test.ts', 'test/rooted.test.ts']);
+    expect(testsFor(g, '.github/workflows/ci.yml').tests).toEqual(['test/joined.test.ts']);
+  });
+
+  test('a dot-led literal that names no repo file adds no edge (extensions, missing dotfiles)', () => {
+    const repo = fixture();
+    commit(repo, {
+      'lib/plan.ts': 'export const plan = 1;\n',
+      'test/ext.test.ts': "const exts = ['.ts', '.md', '.env', '../.missing.toml', '.github'];\nexport { exts };\n",
+    });
+    const g = buildGraph(repo.work);
+    expect(testsFor(g, 'lib/plan.ts').tests).toEqual([]);
+    expect([...g.reverse.values()].flat().filter(e => e.from === 'test/ext.test.ts')).toEqual([]);
+  });
+
   test('a relative import of a bracketed path already maps (control: the import scanner is not the bug)', () => {
     const repo = fixture();
     commit(repo, {

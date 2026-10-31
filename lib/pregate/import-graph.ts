@@ -55,7 +55,7 @@ const scanner = new Bun.Transpiler({ loader: 'tsx' });
 // `new URL(…, import.meta.url)` or `readFileSync`) resolves from the file that
 // names it, like a relative import; without it a test reading a template by
 // relative path had no edge to the template (GSTA-121's test/ship-publication-gates.test.ts).
-const QUOTED = /['"`]((?:\.\.?\/)*[A-Za-z0-9_@][A-Za-z0-9_./@()[\]+-]*)['"`]/g;
+const QUOTED = /['"`]((?:\.\.?\/)*\.?[A-Za-z0-9_@][A-Za-z0-9_./@()[\]+-]*)['"`]/g;
 const JOIN = /\bjoin\(([^()]*)\)/g;
 const RESOLVE_EXT = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '/index.ts', '/index.tsx', '/index.js', '/index.jsx', '/index.mjs'];
 // A statement starts a line or follows `;` or a compound statement's `:`. The module spec is
@@ -291,7 +291,7 @@ function resolveCandidate(files: Set<string>, dirs: Set<string>, c: string, lite
  */
 function resolveRefs(files: Set<string>, dirs: Set<string>, fromFile: string, ref: string, literal = false, config: PathAliases = NO_ALIASES): string[] {
   if (!ref || ref.startsWith('node:') || ref.startsWith('bun:')) return [];
-  if (ref.startsWith('.')) { const t = resolveCandidate(files, dirs, normalize(path.posix.join(path.posix.dirname(fromFile), ref)), literal); return t ? [t] : []; }
+  if (/^\.\.?(?:\/|$)/.test(ref)) { const t = resolveCandidate(files, dirs, normalize(path.posix.join(path.posix.dirname(fromFile), ref)), literal); return t ? [t] : []; }
   const { chosen, others } = matchAliases(config.aliases, ref);
   for (const c of chosen ?? []) { const t = resolveCandidate(files, dirs, c, literal); if (t) return [t]; }
   if (!chosen && others.length === 0 && ref.startsWith('@') && !ref.includes('/')) return [];
