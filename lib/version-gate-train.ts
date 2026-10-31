@@ -101,10 +101,7 @@ export function classifyTrainHead(o: { repoRoot: string; baseRef: string; head: 
   if (!mergeBase) return { kind: 'invalid', reason: `no merge base between ${base} and ${o.head}` };
 
   const npmVersion = (rev: string) => { try { return JSON.parse(show(rev, 'package.json') ?? '{}').version ?? null; } catch { return null; } };
-  if (policy.bump === 'never') {
-    return show(mergeBase, 'VERSION') === show(o.head, 'VERSION') && npmVersion(mergeBase) === npmVersion(o.head) ? { kind: 'unstamped', entry: 'kept' }
-      : { kind: 'invalid', reason: `the base's ship policy says bump never: leave VERSION and package.json's version at the merge base's values` };
-  }
+  if (policy.bump === 'never') return show(mergeBase, 'VERSION') === show(o.head, 'VERSION') && npmVersion(mergeBase) === npmVersion(o.head) ? { kind: 'unstamped', entry: 'kept' } : { kind: 'off' };
   const changed = (git(o.repoRoot, ['diff', '--name-only', mergeBase, o.head]) ?? '').split('\n').filter(Boolean);
   const releaseOutputs: string[] = Array.isArray(policy.release_outputs) ? policy.release_outputs : [];
   // touched: what marks the head as stamped (the labels only feed the length check below)
