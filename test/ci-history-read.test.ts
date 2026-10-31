@@ -186,6 +186,7 @@ describe.skipIf(!Bun.which('jq') || !Bun.which('bash'))('the workflow steps that
   for (const { file, job, name, env } of policySteps) {
     test(`${file} ${job}: an unfetchable policy fails, a malformed one fails, an absent one routes as before`, () => {
       const script = stepOf(file, job, name).run!;
+      expect(script, 'the policy read runs no repository code: git and jq only').not.toMatch(/\.github\/scripts|\bbun\b/);
       expect(script).not.toContain('|| true');
       expect(script).not.toContain('2>/dev/null');
 

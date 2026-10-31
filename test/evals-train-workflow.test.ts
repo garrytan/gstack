@@ -379,8 +379,6 @@ describe.skipIf(!Bun.which('jq') || !Bun.which('bash'))('the route job reads the
     fs.writeFileSync(path.join(dir, 'README.md'), 'x\n');
     git('add', '-A');
     git('commit', '-q', '-m', 'base');
-    fs.mkdirSync(path.join(dir, '.github/scripts'), { recursive: true });
-    fs.copyFileSync(path.join(ROOT, '.github/scripts/history-read.sh'), path.join(dir, '.github/scripts/history-read.sh'));
     return { dir, base: git('rev-parse', 'HEAD').stdout.trim() };
   }
   function run(script: string, dir: string, env: Record<string, string>): Record<string, string> {

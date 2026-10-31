@@ -2829,10 +2829,11 @@ tree is there, but an older file's contents are fetched from GitHub the first
 time something reads them. When that fetch fails three times (a GitHub outage,
 a network drop), or the ref does not resolve at all, the read fails here
 instead of counting as "the file is absent". A file the commit really does not
-have still reads as absent: no ship policy at the base means no train, no
-VERSION means `0.0.0.0`, as before. `.github/scripts/history-read.sh` (the
-workflow steps) and `lib/history-read.ts` (the Version Gate's train
-classification) print this line. The Version Gate prints the same code when
+have still reads as absent, as before. No ship policy at the base means no
+train, and no VERSION means `0.0.0.0`. The route and backstop policy reads (inline
+in their workflows), `.github/scripts/history-read.sh` (the Version Gate's base
+`VERSION`) and `lib/history-read.ts` (the Version Gate's train classification)
+print this line. The Version Gate prints the same code when
 `git fetch origin <base>` fails three times.
 
 **Fix.** Rerun the failed job once GitHub is reachable. If it fails the same

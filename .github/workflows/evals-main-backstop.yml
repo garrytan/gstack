@@ -45,11 +45,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Read with git and jq only (history-read.sh is git alone): without a train block nothing below runs.
+      # Read with git and jq only: without a train block nothing below runs.
       - name: Read the train policy (main)
         id: policy
         run: |
-          policy=$(bash .github/scripts/history-read.sh "$GITHUB_SHA" .gstack/ship-policy.json --absent null)
+          ref="$GITHUB_SHA" file=.gstack/ship-policy.json policy=null
+          read_failed() { echo "::error::cannot read ${file} at ${ref}. $1 ($(git --version)). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)" >&2; exit 1; }
+          listed=$(git ls-tree --full-tree "$ref" -- "$file") || read_failed "git ls-tree failed"
+          if [ -n "$listed" ]; then
+            for try in 1 2 3; do
+              policy=$(git show "${ref}:${file}") && break
+              if [ "$try" = 3 ]; then read_failed "git show failed 3 times"; fi
+              sleep $((try * 2))
+            done
+          fi
           train=$(jq -c 'if (.train | type) == "object" then .train else null end' <<<"$policy") || { echo "::error::${GITHUB_SHA}:.gstack/ship-policy.json is not valid JSON; fix the policy file" >&2; exit 1; }
           if [ -z "$train" ] || [ "$train" = null ]; then
             echo "train=false" >> "$GITHUB_OUTPUT"
