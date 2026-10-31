@@ -215,8 +215,14 @@ runs `ready … --dispatch-ci free-tests.yml,windows-free-tests.yml [--timeout
 (`gh workflow run <wf> --ref <branch>`, skipped when a run at this head already
 concluded), waits for the runs (`CI_DISPATCH: <wf> --ref <branch> run <id> <url>
 <conclusion>`), clears every requires-remote pregate lane whose workflow is one
-of them with the run URL (`PREGATE_CLEARED: <lane> <url>`; a lane of another
-workflow stays uncleared and is named in the refusal), and then reads the head
+of them (`PREGATE_CLEARED: <lane> <receipt>`; a lane of another workflow stays
+uncleared and is named in the refusal), and then reads the head. Each lane
+clears exactly as `gstack-pregate clear --remote <lane> --run-url <run>` would:
+a lane the base branch profiles ([run evidence](pregate.md#run-evidence); gstack
+profiles its macOS and Windows lanes) is verified, so a run on another tree, a
+run whose newest attempt is red or a run with a newer red sibling clears
+nothing and refuses (`QUEUE_NOT_READY` with the `REUSE: refused` reason); a
+lane with no profile records the run URL as before. It then reads the head
 as usual, which passes because the dispatched check runs attach to the commit;
 the `ci-hint:` line then says those non-pull_request runs count. A red run
 clears no lane and refuses (`QUEUE_NOT_READY`); a run still going at `--timeout`

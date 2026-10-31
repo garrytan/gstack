@@ -19,6 +19,13 @@
     "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list",
     "windows-free-tests.yml/windows-free-shard": "bun run scripts/test-free-shards.ts --windows-only --list"
   },
+  "run_profiles": {
+    "free-tests.yml/free-suite": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["free-plan", "typecheck", "quick-bun-default", "cso-macos-launcher", "macos-named-regressions", "cso-windows-launcher", "cso-docker-integration", "free-tests"], "artifact": "tested-tree", "os": "Linux" },
+    "free-tests.yml/macos-named-regressions": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["macos-named-regressions", "free-tests"], "artifact": "tested-tree", "os": "macOS" },
+    "free-tests.yml/cso-macos-launcher": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["cso-macos-launcher", "free-tests"], "artifact": "tested-tree", "os": "macOS" },
+    "free-tests.yml/cso-windows-launcher": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["cso-windows-launcher", "free-tests"], "artifact": "tested-tree", "os": "Windows" },
+    "windows-free-tests.yml/windows-free-shard": { "workflow": "windows-free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["windows-plan", "windows-free-tests"], "artifact": "tested-tree", "os": "Windows" }
+  },
   "warn": [],
   "strays": { "allow": ["modules/loadouts.json", "modules/loadouts.schema.json"] }
 }

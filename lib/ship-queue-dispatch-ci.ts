@@ -10,18 +10,30 @@
  * `PREGATE_CLEARED:` per requires-remote lane whose workflow is one of them
  * and whose run concluded success. A red run clears no lane and refuses. A
  * fork head is never dispatched here (QUEUE_TRAIN_UNTRUSTED).
+ *
+ * Each lane clears through `clearDecision`, exactly as `gstack-pregate clear
+ * --remote <lane> --run-url <url>` would: a lane the base branch profiles
+ * (`.gstack/pregate.json` run_profiles, docs/pregate.md#run-evidence) is
+ * verified by lib/run-evidence.ts, so a run on another tree, an older green
+ * attempt under a newer red one or a run with a newer red sibling clears
+ * nothing and refuses; a lane with no profile records the URL as before.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { PregateFile } from './headless-artifacts';
-import { PREGATE_OUT_REL, clearObligation, readPregateFile, writePregateFile } from './pregate/index';
+import { PREGATE_OUT_REL, clearDecision, clearObligation, readPregateFile, writePregateFile, type RunCheck } from './pregate/index';
+import { buildRunCheck } from './pregate/run-check';
 import type { QueueContext } from './ship-queue';
 import type { QueueFailure } from './ship-queue-gate';
 import { prInfo, repoSlug, runView } from './ship-queue-train-github';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export interface DispatchCiOptions { pr: string; workflows: string[]; pregate?: string; timeoutSec: number; pollMs: number }
+export interface DispatchCiOptions {
+  pr: string; workflows: string[]; pregate?: string; timeoutSec: number; pollMs: number;
+  /** The run-evidence inputs for one lane; the base branch's (lib/pregate/run-check.ts) unless a test injects them. */
+  runCheck?: (lane: string) => RunCheck | { error: string; profiled?: boolean };
+}
 export type DispatchCiResult = { lines: string[] } | { lines: string[]; failure: QueueFailure };
 
 interface RunRow { databaseId: number; url: string; status: string; conclusion: string | null; headSha: string }
@@ -69,12 +81,20 @@ export async function dispatchCi(ctx: QueueContext, o: DispatchCiOptions): Promi
   if (!read.file) return { lines };
   let file: PregateFile = read.file;
   let changed = false;
+  const refused: string[] = [];
+  const runCheck = o.runCheck ?? ((lane: string) => buildRunCheck(ctx.repoRoot, lane, false, ctx.base));
   for (const lane of (file.requires_remote ?? []).filter(l => !l.receipt && concluded.has(l.workflow))) {
     const run = concluded.get(lane.workflow)!;
-    file = clearObligation(file, lane.lane, run.url, `gstack-ship-queue ready --dispatch-ci ${new Date().toISOString()}`);
-    lines.push(`PREGATE_CLEARED: ${lane.lane} ${run.url}`);
+    const checked = runCheck(lane.lane);
+    if ('error' in checked && checked.profiled) { refused.push(`${lane.lane}: ${checked.error}; it may have a run profile, so it clears only with a verified run and stays uncleared`); continue; }
+    const decision = clearDecision(file, lane.lane, { runUrl: run.url, evidence: 'error' in checked ? undefined : checked }, ctx.repoRoot);
+    if ('refused' in decision) { refused.push(`${lane.lane}: ${decision.message}`); continue; }
+    file = clearObligation(file, lane.lane, decision.receipt, `gstack-ship-queue ready --dispatch-ci ${new Date().toISOString()}`, decision.substitution);
+    lines.push(`PREGATE_CLEARED: ${lane.lane} ${decision.receipt}`);
+    if ('error' in checked) lines.push(`PREGATE_UNVERIFIED: ${lane.lane} recorded by URL (${checked.error})`);
     changed = true;
   }
   if (changed) writePregateFile(ctx.repoRoot, pregateFile, file);
+  if (refused.length) return { lines, failure: { code: 'QUEUE_NOT_READY', message: refused.join('; ') } };
   return { lines };
 }
