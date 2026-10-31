@@ -65,8 +65,8 @@ line yourself; gstack never writes the plan.
   bind a free-form review record (canonical fence, one findings table or list, or `No findings.`).
 - `gstack-autoplan submit ... --record <file.md> --attest "<reason>" --attempt <id>`
   bind a record with no INPUT: line as receipt: attested (a wrong INPUT: always refuses).
-- `gstack-autoplan submit --out <dir> --phase <p> --voice native|outside --result <file> --model <id> --attempt <id>`
-  bind a canonical result (the RESULT FORMAT below).
+- `gstack-autoplan submit --out <dir> --phase <p> --voice native|outside --result <file> --model <id> --attempt <id> [--reconcile <jsonl>]`
+  bind a canonical result (the RESULT FORMAT below); on the submit that closes the phase, `--reconcile` takes your own pairing of findings both voices raised, one `{"outside_id","native_id","disposition","resolution"}` row each, over the structural one.
 - `gstack-autoplan submit --out <dir> --phase <p> --voice outside --unavailable|--failed "<reason>"`
   close the phase native-only when no outside voice can run.
 - `gstack-autoplan answer --out <dir> --gate-rev <n> --reply "<reply>" --by human|agent:<id> [--owner-reply <text>|-] [--rec-hash <h>]`
