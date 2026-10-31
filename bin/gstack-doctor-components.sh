@@ -285,6 +285,12 @@ gstack_result_anchor() {
     QUEUE_TRAIN_FROZEN) printf '%s' 'queue-train-frozen' ;;
     QUEUE_RECEIPT_MISSING) printf '%s' 'queue-receipt-missing' ;;
     QUEUE_RECEIPT_STALE) printf '%s' 'queue-receipt-stale' ;;
+    QUEUE_RECEIPT_CONDITIONAL) printf '%s' 'queue-receipt-conditional' ;;
+    BASE_RED_UNCONFIGURED) printf '%s' 'base-red-unconfigured' ;;
+    BASE_RED_UNNAMED) printf '%s' 'base-red-unnamed' ;;
+    BASE_RED_REPRO_ERROR) printf '%s' 'base-red-repro-error' ;;
+    BASE_RED_PAUSE_EXPIRED) printf '%s' 'base-red-pause-expired' ;;
+    BASE_RED_WAIT_TIMEOUT) printf '%s' 'base-red-wait-timeout' ;;
     QUEUE_RECEIPT_DEPTH_RAISED) printf '%s' 'queue-receipt-depth-raised' ;;
     QUEUE_RECEIPT_EXCEPTION_INVALID) printf '%s' 'queue-receipt-exception-invalid' ;;
     QUEUE_SCREEN_STALE_REF) printf '%s' 'queue-screen-stale-ref' ;;

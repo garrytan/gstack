@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.91.376.0] - 2026-10-31
+
+bump: minor
+---
+**A remote verify now survives a dead local runner, and a long verify can resume from the tiers that already passed (GSTA-158 P3).** Before, a Capy machine that went to sleep or a runner that got killed lost the whole remote run, and the paid VM ran on until its TTL. Now `ubi-runner run` and `verify` run each phase detached on the VM, and running the same command again reattaches to the live VM. A verify can be split into tiers, and a rerun skips the tiers that passed.
+
+### Added
+- **Reattach by run key.** The key covers the checkout's content, the command, setup, env, a hash of each `--pass` value, size, image, origin/HEAD and the runner itself. A rerun prints `ubi-runner: reattached to <vm> created_at=<epoch> key=<k12>`, replays what the phase already printed and follows it from there. A finished setup is not rerun. `UBI_ATTACH_BUSY` means another live runner owns the VM. Exit 125 `UBI_ATTACH_LOST` means the remote session died without an exit status.
+- **Reattach only while the TTL lasts.** A reattach needs the VM's remaining TTL to cover the run still to do (each unfinished phase's `UBI_RUN_TIMEOUT` bound) plus `UBI_REATTACH_MARGIN` (900 s). Otherwise the runner prints `UBI_REATTACH_TTL_SHORT` with the numbers, destroys the old VM and starts a fresh one. Tier checkpoints carry over to it.
+- **Verify tiers.** `.gstack/ubicloud.json` can list `tiers: [{name, command}]` in place of `command`. Each tier writes a start, pass or fail checkpoint under `UBI_CHECKPOINT_DIR`. A rerun prints `UBI_VERIFY_RESUME:` per tier and reuses passes younger than `UBI_CHECKPOINT_MAX_AGE` whose logs still hash. It reruns a recorded fail only with `--rerun-failed`. The last line is `UBI_VERIFY: …`.
+- **`attach NAME`, `run --probe` and `--key-input`.**
+
+### Changed
+- **HUP once a phase is live detaches** (`UBI_DETACHED`, exit 129, `UBICLOUD: left=1 … detached=1`): the VM keeps running under its TTL. INT and TERM still tear it down.
+- **`gstack-pregate --stage tests --remote` reattaches** to the VM a killed run left. It bills `spent=` from the original create time, and a cap that is already spent refuses with `PREGATE_REMOTE_CAP_SPENT`. The `PREGATE_REMOTE:` receipt is unchanged.
+
+## [1.91.375.0] - 2026-10-31
+
+**A /ship subagent now stops once its READY is sent, so CI and review callbacks on a frozen head stop waking it.** Finished /ship subagents kept getting woken by checks and reviews on a PR they had already READY'd. Each wake cost tokens, and some acted on a head that was supposed to be frozen. The parent now subscribes to the PR first, so red checks and human review still reach an owner, and then stops the subagent.
+
+### Changed
+- **`capy/skill/gstack/SKILL.md`** (Plan, approve, ship): the parent subscribes to the PR when the /ship subagent opens it and keeps that subscription until the PR merges or closes. It stops the subagent at READY and owns the PR from then on. A stopped /ship subagent woken by a check, review or merge notice reports one line (what woke it, its pin, the PR head) and ends the turn, while a message from its parent is an instruction it carries out.
+- **`docs/captain.md`** (the lane's /ship sequence): the host-neutral rule (the parent owns red checks, review, the slot stamp, re-READY and receipt carry after READY), with a pointer to the Capy mechanics. **`captain/templates/brief.md`**: one pointer line.
+- **`test/fixtures/context-budget.json`**: the Capy skill's eager ceiling moves from 5136 to 5312 for the 176 tokens it grew (5136 to 5312, measured with `lib/context-bill`), set at the captured value as main's last raise was, rather than a fresh 10% headroom.
+
+## [1.91.374.0] - 2026-10-31
+
+**/ship pauses on a red base instead of failing.** When main is red for a reason outside a PR, /ship's Step 5 used to fail or ask the fix/TODO/blame/skip question, and unattended lanes either burned runs or held by hand. Truther's two main-red fixes (#815 and the cover-contract branch) each failed only on the other's broken cases, so neither could pass /ship alone until a Captain folded them into #818 by hand (GSTA-157, from the 2026-10-29 speed feedback).
+
+### Added
+- **`gstack-base-red classify`** (bin/gstack-base-red, lib/base-red.ts): reads a new `base_red: { setup, select, timeout_sec }` block from the base branch's ship policy, then calls a failure base-red only when every failure the lane reported is named, the PR touches neither the failing test file nor any path its signature names, and `setup` then `select {files}` fails with the same test id and first error line at the base head and at HEAD in scratch worktrees under the state root. Anything else stays in-branch and /ship triages exactly as before. `--pause` writes a pause record (repository and branch hashed, 24-hour expiry).
+- **`gstack-base-red wait --pause <file>`**: on each new base head it reruns the paused files there and exits 0 (`BASE_GREEN`) on the first head that passes; a head that still fails keeps it waiting. Exits 3 on `BASE_RED_WAIT_TIMEOUT` or `BASE_RED_PAUSE_EXPIRED`.
+- **Conditional receipts**: `gstack-ship-receipt write --base-red <pause file>` adds a `base_red` block; `result` then prints `SHIP_PAUSED: base-red …` with `status=incomplete`. `bindReceipt` refuses a conditional receipt by default (`QUEUE_RECEIPT_CONDITIONAL`), so `ready`, `train build`, `verify --train` and `carry` never accept one.
+- **Policy key `base_red`** (`BASE_RED_KEY_VERSION`) with validation: `select` needs a `{files}` slot, commands are one line under 512 characters, `timeout_sec` is 10–7200.
+
+### Changed
+- **/ship Step 5** (ship/sections/tests.md.tmpl) runs `classify` before the T3 question when T1 calls every failure pre-existing, carries base-red cases as that run's only waived failures into Step 16, and documents `/ship --resume <record>` after `BASE_GREEN` (Step 5 reruns on HEAD merged with the new base in a scratch worktree; a green run rewrites the receipt without `base_red`). docs/captain.md names the paused state.
+
+### Tests
+- `test/base-red.test.ts`: base-red on a real fixture with a bare origin and no leftover worktree; in-branch without running anything when the PR touches the test or a path its signature names; in-branch when the test passes on the base or fails there differently; unconfigured, unnamed and failing-setup cases; the hashed pause path; conditional receipts refused by default; `result` reports `SHIP_PAUSED` and `status=incomplete`; `carry` refuses; `wait` skips a still-red base move and returns on the first green head, and expires or times out; policy validation.
+
 ## [1.91.373.0] - 2026-10-31
 
 - **No-gstack arm in every head-to-head eval.** `/eval-plan` preregistrations now say in a required `## Comparison` section whether any arm loads gstack or another skill stack (`stack: loaded`) or none does (`stack: none` with a `why:` line). A loaded comparison must add a `## No-gstack arm` section and one `<model>#no-gstack` arm per model. That arm uses the same model and inputs, a plain prompt with no skill text, and the same panel and judge, and its result is reported beside the variants. `gstack-eval-plan prereg --check` refuses a loaded comparison without it (`PREREG_NO_GSTACK_ARM`). Arms are now identities `<model>[#<loadout>]`, priced by the model, so the pilot reserves a variant and its no-gstack arm on the same model separately; a repeated identity is refused (`EVAL_ARM_DUPLICATE`). The rule is written up in `docs/TESTING_INTERNALS.md`.
