@@ -818,13 +818,31 @@ publication whenever the managed pre-push hook (`gstack-redact
 install-prepush-hook`, no reinstall needed) or the standalone preflight runs:
 
 ```
-gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--json]
+gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--no-skip] [--json]
 ```
 
 - **Boundary.** Every commit the push publishes: `git rev-list <local sha>
   --not --remotes=<remote>` (and the remote tip when the ref exists); a
   destination with no refs means everything reachable. `--range` names the
   commits explicitly.
+- <a id="sealed-skip"></a>**Skipped commits.** When the base branch resolves, a
+  listed commit is not rescanned when the destination already holds it or its
+  patch already landed. Held: an ancestor of the destination's own
+  `refs/pull/<n>/head` for a squash commit `(#n)` on the base since the
+  merge-base; the subject is only a hint, the fetched ref is the proof. That
+  lookup lists and fetches at most 50 refs within 20 seconds (receipted, sink
+  `sealed-guard`) and deletes the fetched refs afterwards. Landed: the commit's
+  own `git patch-id --verbatim` equals a base commit's since the merge-base and
+  so does its diff, apart from blob ids and line numbers; a merge never matches,
+  and above 2,000 base or 400 listed commits this check is off. Nothing
+  matches a combined diff, so a parent whose commits were never published is
+  scanned whole even when its squash landed. A lookup that fails, runs out of
+  time or exceeds a limit prints one line and scans everything. Each PR group
+  and landed commit is listed (`skipped <n> commit(s) the destination already
+  has as refs/pull/<n>/head`, `skipped commit <sha> (its patch landed on the
+  base as <sha>)`), the `SEALED:` line counts them as `skipped=<n>` (its
+  `commits=` counts the commits scanned), and `--no-skip` scans every listed
+  commit. The pre-push hook and `gstack-pregate sealed` skip the same way.
 - **Rules.** `sealed.path` and `sealed.transcript` check every path a commit
   adds, renames or copies, whatever its content (binary, empty, deleted again
   in a later commit); `sealed.answer`, `sealed.seed` and `sealed.local_path`

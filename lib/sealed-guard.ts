@@ -27,10 +27,19 @@
  * (a `public` answer for 24 h, a `private` one for 1 h before it may
  * downgrade a refusal), else `gh repo view` (5 s); unknown counts as public.
  * Findings name file, line, rule and commit, never the matched text.
+ *
+ * Skipping (on when a base resolves; `--no-skip` turns it off): a listed
+ * commit the destination already holds as an ancestor of `refs/pull/<n>/head`,
+ * for a squash `(#n)` on the base since the merge-base (at most 50 refs, a
+ * 20 s budget, fetched from the destination remote), is not rescanned, nor is
+ * one whose own `git patch-id --verbatim` and diff equal a base commit's
+ * since the merge-base (off above 2,000 base or 400 listed commits). No
+ * combined-diff matching; any lookup failure scans everything.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { sha256Hex, writeReceipt } from './egress-receipt';
 import { containedRelative, globToRegExp } from './ship-policy';
 import { resolveStateRoot } from './state-root';
 
@@ -73,8 +82,8 @@ export function sealedErrors(raw: unknown): Array<{ path: string; message: strin
   return errors;
 }
 
-function git(repoRoot: string, args: string[], input?: string): { ok: boolean; out: string; err: string } {
-  const r = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', input, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+function git(repoRoot: string, args: string[], input?: string, encoding: BufferEncoding = 'utf8'): { ok: boolean; out: string; err: string } {
+  const r = spawnSync('git', args, { cwd: repoRoot, encoding, input, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
   return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
 }
 
@@ -227,20 +236,124 @@ export function resolveVisibility(url: string | null, o: VisibilityOptions = {})
   return { visibility, source: `gh repo view ${slug}` };
 }
 
+export interface SkippedCommit { commit: string; pr?: number; landed?: string }
+
 export interface SealedReport {
   status: 'no-policy' | 'clear' | 'refused' | 'warned' | 'error';
-  policyLabels: string[]; commits: number; findings: SealedFinding[]; exempt: ExemptFinding[]; waived: Array<SealedFinding & { reason: string }>; ignoredWaivers: Array<{ rule: string; path: string; sha: string; commit: string }>;
+  policyLabels: string[]; commits: number; skipped: SkippedCommit[]; notes: string[]; findings: SealedFinding[]; exempt: ExemptFinding[]; waived: Array<SealedFinding & { reason: string }>; ignoredWaivers: Array<{ rule: string; path: string; sha: string; commit: string }>;
   visibility: Visibility; visibilitySource: string; target: string; error?: string;
 }
 
 export interface EvaluateOptions {
   repoRoot: string; targets: Array<{ commits: string[]; pushedSha: string }>; baseRef: string | null; baseLabel?: string; remoteUrl: string | null; target: string;
+  /** The destination remote whose refs/pull/<n>/head prove a commit is already published; null skips that lookup. */
+  remoteName?: string | null; skip?: boolean;
   env?: NodeJS.ProcessEnv; gh?: VisibilityOptions['gh'];
 }
 
 /** A report for a failure before any policy is read (an unlisted range, an unreadable push); renders as a fail-closed refusal. */
 export function sealedErrorReport(error: string, target: string): SealedReport {
-  return { status: 'error', error, policyLabels: [], commits: 0, findings: [], exempt: [], waived: [], ignoredWaivers: [], visibility: 'unknown', visibilitySource: '', target };
+  return { status: 'error', error, policyLabels: [], commits: 0, skipped: [], notes: [], findings: [], exempt: [], waived: [], ignoredWaivers: [], visibility: 'unknown', visibilitySource: '', target };
+}
+
+const MAX_PULL_REFS = 50;
+const PULL_BUDGET_MS = 20_000;
+const MAX_LANDED_BASE = 2000;
+const MAX_LANDED_LISTED = 400;
+const PULL_NS = 'refs/gstack/sealed-pull';
+
+function remoteHost(url: string | null): string {
+  const m = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:]+)/i.exec(url ?? '') ?? /^[^@/:]+@([^:/]+):/.exec(url ?? '');
+  return m?.[1] ?? 'local';
+}
+
+/** Listed commits the destination already has: ancestors of refs/pull/<n>/head for the squashes `(#n)` on the base since the merge-base. */
+function publishedViaPulls(o: EvaluateOptions, listed: Set<string>, mbs: string[], notes: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!o.remoteName) return out;
+  const log = git(o.repoRoot, ['log', '--first-parent', '--format=%s', o.baseRef!, ...mbs.map(b => `^${b}`)]);
+  if (!log.ok) { notes.push(`could not read the base since the merge-base (${log.err.slice(0, 120)}): published commits are scanned`); return out; }
+  const prs = [...new Set(log.out.split('\n').map(l => /\(#(\d+)\)\s*$/.exec(l)?.[1]).filter((n): n is string => !!n))];
+  if (!prs.length) return out;
+  if (prs.length > MAX_PULL_REFS) { notes.push(`${prs.length} squashed pull requests on the base since the merge-base, over ${MAX_PULL_REFS}: published commits are scanned`); return out; }
+  const url = git(o.repoRoot, ['remote', 'get-url', o.remoteName]).out.trim() || null;
+  const deadline = Date.now() + PULL_BUDGET_MS;
+  const remote = (args: string[]) => {
+    const left = deadline - Date.now();
+    if (left <= 0) return { ok: false, out: '', err: `the ${PULL_BUDGET_MS / 1000} s budget ran out` };
+    try { writeReceipt({ sink: 'sealed-guard', host: remoteHost(url), payloadClass: 'pull-ref-read', bytes: 0, sha256: sha256Hex(args.join(' ')), consent: 'the sealed guard reads the destination\'s own refs/pull/<n>/head for the squashes on its base, to skip commits it already holds', env: o.env }); }
+    catch (err) { process.stderr.write(`[sealed-guard] egress receipt could not be written (${(err as Error).message}); proceeding (fail-open)\n`); }
+    const r = spawnSync('git', args, { cwd: o.repoRoot, encoding: 'utf8', timeout: left });
+    return { ok: r.status === 0 && !r.error, out: r.stdout ?? '', err: (r.stderr || String(r.error ?? '')).trim() };
+  };
+  const ls = remote(['ls-remote', o.remoteName, ...prs.map(n => `refs/pull/${n}/head`)]);
+  if (!ls.ok) { notes.push(`could not list refs/pull/<n>/head on ${o.remoteName} (${ls.err.slice(0, 120)}): published commits are scanned`); return out; }
+  const heads = ls.out.split('\n').map(l => /^([0-9a-f]{40,64})\trefs\/pull\/(\d+)\/head$/.exec(l)).filter((m): m is RegExpExecArray => !!m);
+  if (!heads.length) return out;
+  try {
+    const fetched = remote(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', o.remoteName, ...heads.map(m => `+refs/pull/${m[2]}/head:${PULL_NS}/${m[2]}`)]);
+    if (!fetched.ok) { notes.push(`could not fetch refs/pull/<n>/head from ${o.remoteName} (${fetched.err.slice(0, 120)}): published commits are scanned`); return out; }
+    for (const m of heads) {
+      const r = git(o.repoRoot, ['rev-list', m[1]!, ...mbs.map(b => `^${b}`)]);
+      if (!r.ok) continue;
+      for (const c of r.out.split('\n')) if (listed.has(c) && !out.has(c)) out.set(c, Number(m[2]));
+    }
+    return out;
+  } finally {
+    git(o.repoRoot, ['update-ref', '--stdin'], heads.map(m => `delete ${PULL_NS}/${m[2]}`).join('\n') + '\n');
+  }
+}
+
+/** Diff text compared after a patch-id match: no commit line, blob ids or hunk line numbers. */
+const patchBody = (diff: string) => diff.split('\n').filter(l => !HEX.test(l) && !l.startsWith('index ')).map(l => l.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, '@@')).join('\n');
+
+/** Listed commits whose own patch (`--verbatim` patch-id, then equal diff text) is a base commit since the merge-base; merges never match. Diffs are read as latin1 so every byte counts: UTF-8 decoding folds invalid bytes into one replacement character. */
+function landedOnBase(o: EvaluateOptions, rest: string[], mbs: string[], notes: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!rest.length) return out;
+  const base = git(o.repoRoot, ['rev-list', '--no-merges', o.baseRef!, ...mbs.map(b => `^${b}`)]);
+  if (!base.ok) { notes.push(`could not list the base since the merge-base (${base.err.slice(0, 120)}): commits whose patch landed are scanned`); return out; }
+  const baseCommits = base.out.split('\n').filter(Boolean);
+  if (!baseCommits.length) return out;
+  if (baseCommits.length > MAX_LANDED_BASE || rest.length > MAX_LANDED_LISTED) { notes.push(`${baseCommits.length} base and ${rest.length} listed commits since the merge-base, over ${MAX_LANDED_BASE} or ${MAX_LANDED_LISTED}: commits whose patch landed are scanned`); return out; }
+  const diffArgs = ['diff-tree', '-r', '--root', '-p', '--no-color', '--no-ext-diff', '--no-textconv'];
+  const ids = (list: string[]): string[][] => {
+    const d = git(o.repoRoot, [...diffArgs, '--stdin'], list.join('\n') + '\n', 'latin1');
+    if (!d.ok) throw new Error(`git diff-tree -p failed: ${d.err.slice(0, 200)}`);
+    const p = git(o.repoRoot, ['patch-id', '--verbatim'], d.out, 'latin1');
+    if (!p.ok) throw new Error(`git patch-id failed: ${p.err.slice(0, 200)}`);
+    return p.out.split('\n').map(l => l.split(' ')).filter(f => f.length === 2);
+  };
+  const byId = new Map<string, string>();
+  for (const [id, c] of ids(baseCommits)) if (!byId.has(id!)) byId.set(id!, c!);
+  const body = (c: string) => { const r = git(o.repoRoot, [...diffArgs, c], undefined, 'latin1'); return r.ok && r.out.trim() ? patchBody(r.out) : null; };
+  for (const [id, c] of ids(rest)) {
+    const b = byId.get(id!);
+    if (!b) continue;
+    const mine = body(c!);
+    if (mine !== null && mine === body(b)) out.set(c!, b);
+  }
+  return out;
+}
+
+/** The listed commits the guard need not rescan, and why (docs/pregate.md#sealed-skip); any failure skips nothing. */
+function alreadyPublished(o: EvaluateOptions, listed: string[]): { skipped: SkippedCommit[]; notes: string[] } {
+  const notes: string[] = [];
+  if (!o.baseRef || o.skip === false || !listed.length) return { skipped: [], notes };
+  try {
+    const mbs: string[] = [];
+    for (const t of o.targets) {
+      const r = git(o.repoRoot, ['merge-base', o.baseRef, t.pushedSha]);
+      if (!r.ok || !r.out.trim()) { notes.push(`no merge-base between ${o.baseRef} and ${t.pushedSha.slice(0, 12)}: every listed commit is scanned`); return { skipped: [], notes }; }
+      mbs.push(r.out.trim());
+    }
+    const pulls = publishedViaPulls(o, new Set(listed), mbs, notes);
+    const landed = landedOnBase(o, listed.filter(c => !pulls.has(c)), mbs, notes);
+    return { skipped: [...[...pulls].map(([commit, pr]) => ({ commit, pr })), ...[...landed].map(([commit, b]) => ({ commit, landed: b }))], notes };
+  } catch (e: any) {
+    notes.push(`skipping failed (${String(e?.message ?? e).slice(0, 160)}): every listed commit is scanned`);
+    return { skipped: [], notes };
+  }
 }
 
 /** The whole guard for one push (or range): policies, commits, findings, waivers, visibility, verdict. */
@@ -257,10 +370,13 @@ export function evaluateSealed(o: EvaluateOptions): SealedReport {
     policy = unionPolicies(policy, pushed.policy);
   }
   if (!policy) return { ...blank, status: 'no-policy' };
-  const commits = [...new Set(o.targets.flatMap(t => t.commits))];
+  const listed = [...new Set(o.targets.flatMap(t => t.commits))];
+  const { skipped, notes } = alreadyPublished(o, listed);
+  const skip = new Set(skipped.map(k => k.commit));
+  const commits = listed.filter(c => !skip.has(c));
   let found: SealedFinding[];
   try { found = scanCommits(o.repoRoot, commits, policy); }
-  catch (e: any) { return { ...blank, policyLabels: labels, commits: commits.length, status: 'error', error: `could not read the published commits: ${e.message}` }; }
+  catch (e: any) { return { ...blank, policyLabels: labels, commits: commits.length, skipped, notes, status: 'error', error: `could not read the published commits: ${e.message}` }; }
   const exception = globMatcher(policy.allow_paths, false);
   const exempt: ExemptFinding[] = [];
   found = found.filter(f => {
@@ -284,7 +400,7 @@ export function evaluateSealed(o: EvaluateOptions): SealedReport {
   const ignoredWaivers = [...ignored.values()];
   const vis = policy.visibility ? { visibility: policy.visibility as Visibility, source: `${VISIBILITY_OVERRIDE_KEY} override` } : resolveVisibility(o.remoteUrl, { env: o.env, gh: o.gh });
   const status = findings.length === 0 ? 'clear' : vis.visibility === 'private' ? 'warned' : 'refused';
-  return { status, policyLabels: labels, commits: commits.length, findings, exempt, waived, ignoredWaivers, visibility: vis.visibility, visibilitySource: vis.source, target: o.target };
+  return { status, policyLabels: labels, commits: commits.length, skipped, notes, findings, exempt, waived, ignoredWaivers, visibility: vis.visibility, visibilitySource: vis.source, target: o.target };
 }
 
 const where = (f: SealedFinding) => `${f.file || '(unknown file)'}${f.line ? `:${f.line}` : ''}`;
@@ -292,6 +408,11 @@ const where = (f: SealedFinding) => `${f.file || '(unknown file)'}${f.line ? `:$
 /** stderr text for a report: findings one per line (`<rule>  <file[:line]>  commit <sha12>`), never the matched text. */
 export function renderSealed(r: SealedReport, context: string): string {
   const lines: string[] = [];
+  const byPr = new Map<number, number>();
+  for (const k of r.skipped) if (k.pr !== undefined) byPr.set(k.pr, (byPr.get(k.pr) ?? 0) + 1);
+  for (const [pr, n] of byPr) lines.push(`${context}: skipped ${n} commit(s) the destination already has as refs/pull/${pr}/head`);
+  for (const k of r.skipped) if (k.landed) lines.push(`${context}: skipped commit ${k.commit.slice(0, 12)} (its patch landed on the base as ${k.landed.slice(0, 12)})`);
+  for (const n of r.notes) lines.push(`${context}: ${n}`);
   for (const e of r.exempt) lines.push(`${context}: exempt ${e.rule}  ${where(e)}  commit ${e.commit.slice(0, 12)} (sealed.allow_paths ${e.glob})`);
   for (const w of r.waived) lines.push(`${context}: waived ${w.rule}  ${where(w)}  commit ${w.commit.slice(0, 12)} (${SEALED_ALLOW_PATH}: ${w.reason})`);
   for (const i of r.ignoredWaivers) {
