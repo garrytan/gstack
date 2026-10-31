@@ -64,9 +64,9 @@ gstack_claude_overlay() {
 # for a saved non-full claude_loadout, else empty. A malformed value is
 # ignored with a note, so the full skills are served.
 gstack_claude_loadout_arg() {
-  local value
+  local CONFIG_BIN="$1" value
   _LOADOUT_ARG=""
-  value="$("$1" get claude_loadout 2>/dev/null || true)"
+  value="$("$CONFIG_BIN" get claude_loadout 2>/dev/null || true)"
   case "$value" in
     ''|full) return 0 ;;
   esac
