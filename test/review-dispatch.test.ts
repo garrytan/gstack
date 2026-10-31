@@ -422,7 +422,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       "This doesn't rise to CRITICAL.", 'It cannot be CRITICAL.', 'Nothing here is CRITICAL.', 'This is not really CRITICAL.',
       'I used the `CRITICAL` label for none of them.', 'This is not **CRITICAL**.', 'Neither finding is **High**.', 'There are no `CRITICAL` findings.',
       'The race sits below `CRITICAL` on the floor.', 'No finding that I checked is CRITICAL.', 'None of the read and write paths are CRITICAL.',
-      'No issues in auth or billing are High.'])
+      'No issues in auth or billing are High.', 'Two nits in the docs, neither of which is CRITICAL.', 'Two nits, none of which is High.'])
       expect([word, parseFindings('outside-voice', word)]).toEqual([word, []]);
     expect(parseFindings('outside-voice', '1. **High**: retry loop never backs off (q.ts:78)\n\nOverall: one High finding, nothing CRITICAL.').map(f => f.label)).toEqual(['High']);
     expect(parseFindings('outside-voice', 'Severity: Low (not High)\n').map(f => f.label)).toEqual(['Low']);
@@ -439,7 +439,11 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       ['|1|FIXABLE|High|race in queue.ts:78|', 'High'],
       ['| a.ts:3 | race | `High` |', 'High'], ['|a.ts:3|leak|`CRITICAL`|', 'CRITICAL'], ['| a.ts:3 | "CRITICAL" |', 'CRITICAL'],
       ['- Token leak in log.ts:3 — `CRITICAL`', 'CRITICAL'], ['1. Token leak (log.ts:3): `High`', 'High'],
-      ['Nothing checks the token which is CRITICAL (a.ts:3)', 'CRITICAL'], ['Neither path checks auth and auth is CRITICAL (a.ts:3)', 'CRITICAL'], ['**Token leak in log.ts:3**\nSeverity: `Critical`', 'Critical']];
+      ['Nothing checks the token which is CRITICAL (a.ts:3)', 'CRITICAL'],
+      ['- Token leak in log.ts:3: `CRITICAL` — attacker reads every session token', 'CRITICAL'], ['1. Token leak (log.ts:3): `High`, reachable from any request', 'High'],
+      ['Token leak is `CRITICAL` at log.ts:3', 'CRITICAL'], ['a.ts:3 | `High` | race in queue', 'High'], ['| a.ts:3 | maps `FIXABLE` to `CRITICAL` in a comment | Low |', 'Low'],
+      // Merge-not-drop wins the tie: a line naming a file:line is finding-shaped, so the word rules pick its label but never leave it with none.
+      ['Nothing here is CRITICAL (checked auth.ts:9)', 'CRITICAL'], ['Neither path checks auth and auth is CRITICAL (a.ts:3)', 'CRITICAL'], ['**Token leak in log.ts:3**\nSeverity: `Critical`', 'Critical']];
     for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
     // Pre-landing review (#3677 Step 11): a summary-led line with a locus or Blocks: yes, or a stronger label than any finding so far,
     // still collects; a backticked native classification still collects as CRITICAL.

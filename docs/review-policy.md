@@ -479,9 +479,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    opens a clause with its own subject, end the subject, so "None of the inputs are sanitized so this is CRITICAL" keeps its label), a
    yardstick ("below CRITICAL", "worse than High"; "up to" and "at most" are not yardsticks), quoted or code-formatted with words after it
    ("maps `FIXABLE` to `CRITICAL` in a comment"), or listed as vocabulary ("Critical|High"). A negation that describes the defect
-   ("Without auth this is CRITICAL") leaves the label standing, and a negated subject never cancels a label on a line naming a file:line;
+   ("Without auth this is CRITICAL") leaves the label standing;
    a label the line opens with, a quoted label at the end of its line ("— `CRITICAL`", "(`FIXABLE`)"), a label on a `Severity:` or
-   `Blocks:` field line and a table cell always count. A closing "Overall:", "Summary:",
+   `Blocks:` field line and a table cell always count. A line naming a file:line, or a table row, is finding-shaped: the word rules pick
+   its label but never leave it with none, so a tie goes to a phantom the lead must fix or fold, never to a lost finding. A closing "Overall:", "Summary:",
    "In summary" or "Verdict:" line after the findings starts none unless it carries `Blocks: yes`, a file:line, or a label stronger than
    every finding before it (GST-435). An unnumbered, unlabeled bullet with no file:line under a paragraph finding whose Severity or Blocks
    line has not come yet is that finding's detail, so the field line after it lands on the finding; a numbered item is its own finding.
