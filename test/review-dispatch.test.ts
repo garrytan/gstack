@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BriefError, promptHash, renderBrief, sectionTexts } from '../lib/review-brief';
-import { collect, judge, parseFindings, type MergedLine } from '../lib/review-ledger';
+import { collect, judge, parseFindings, readJsonl, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
@@ -399,6 +399,57 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       expect([reader, output, r.lines.length, r.review]).toEqual([reader, output, 0, review]);
       expect(JSON.parse(fs.readFileSync(ledger, 'utf8').trim()).review).toBe(review);
     }
+  });
+
+  // Value: protects=a severity word used as a word (negated, a yardstick, quoted, listed as vocabulary, or in a closing summary)
+  //   creates no finding, so judge can bind a reader's own "nothing here is CRITICAL" (GST-435: GEVA-77's fix-check closing line
+  //   "Neither finding is CRITICAL." collected as CRITICAL fix-check#3 and judge refused to drop it); and every labeled prose finding
+  //   shape still collects at its label; fails_when=the closing line is a finding, or a guard case (a label the line opens with, a
+  //   Severity field, a table row, a mid-sentence label) is lost; why_new=any label word anywhere on a line was a finding;
+  //   seam=parseFindings, collect and judge; no_claim=every English negation (the replay over recorded outputs bounds the rest)
+  test('a severity word that is negated, compared, quoted or in a closing summary is no finding; labeled prose findings stay', () => {
+    const fc = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/geva-77-fix-check.txt'), 'utf8');
+    expect(parseFindings('fix-check', fc).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL']);
+    const d = tmp();
+    const merged = path.join(d, 'merged.jsonl');
+    const r = collect(path.join(d, 'l.jsonl'), 'fix-check', fc, merged);
+    expect(r.lines.map(l => [l.id, l.label])).toEqual([['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL']]);
+    const judged = path.join(d, 'judged.jsonl');
+    fs.writeFileSync(judged, r.lines.map(l => JSON.stringify({ id: l.id, severity: 'INFORMATIONAL' })).join('\n') + '\n');
+    expect(judge(readJsonl<MergedLine>(merged), readJsonl(judged)).ok).toBe(true);
+    for (const word of ['Neither finding is CRITICAL.', 'This is not CRITICAL.', 'There are no CRITICAL findings.', 'None of these is High.', 'The race sits below CRITICAL on the floor.',
+      'It ranks lower than High.', "Pass 1 rated it 'High'; the fix closes it.", 'I used the `CRITICAL` label for none of them.', 'Severity vocabulary: Critical|High|Medium|Low'])
+      expect([word, parseFindings('outside-voice', word)]).toEqual([word, []]);
+    expect(parseFindings('outside-voice', '1. **High**: retry loop never backs off (q.ts:78)\n\nOverall: one High finding, nothing CRITICAL.').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('outside-voice', 'Severity: Low (not High)\n').map(f => f.label)).toEqual(['Low']);
+    const kept: Array<[string, string]> = [['CRITICAL: x.ts:4 drops rows', 'CRITICAL'], ['1. The token is never checked (auth.ts:9) — High', 'High'], ['- **High**: leak in log.ts:3', 'High'],
+      ['| High | race in queue.ts:4 |', 'High'], ['| `High` | race in queue.ts:4 |', 'High'], ['The retry drops writes, a CRITICAL defect (q.ts:78).', 'CRITICAL'], ['[P1] token not expired', 'P1'],
+      ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ['Summary: CRITICAL auth bypass at a.ts:3', 'CRITICAL'], ["The lock isn't released on error (pool.ts:12): High", 'High']];
+    for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
+  });
+
+  // Value: protects=the mirror of GST-435: a refusal whose prose names severity words ("no CRITICAL or High findings to report") is
+  //   neither findings nor clean; collect says COLLECT_NOT_REVIEWED and exits 1; fails_when=its words collect as phantom findings or it
+  //   reads as reviewed; why_new=GST-434 and GST-435 meet in the same parser; seam=collect; no_claim=refusals that carry a clean marker
+  test('a refusal that names severity words collects no finding and is a non-review, never clean', () => {
+    const p = pass();
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    const reply = p.w('reply.out', 'I could not access the diff, so there are no CRITICAL or High findings to report.\n');
+    const col = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', reply, '--merged', p.merged]);
+    expect([col.status, col.stdout.startsWith('COLLECT_NOT_REVIEWED: reader=specialist/testing findings=0 ')]).toEqual([1, true]);
+    expect(run(['verify', '--ledger', p.ledger]).stdout).toContain('BRIEF specialist/testing NOT_COLLECTED');
+  });
+
+  // Value: protects=a paragraph finding's unlabeled detail bullets and the Severity/Blocks line after them stay one finding (GSTA-196
+  //   native voice: 4 findings collected as 8, the closing Severity lines opening phantoms judge had to fold); a list item's sibling and
+  //   a labeled bullet still start their own findings; fails_when=the sample collects more or fewer than 4, or a labeled bullet merges
+  //   away; why_new=every margin list item closed the open finding; seam=parseFindings; no_claim=indented detail lists (already attached)
+  test('unlabeled detail bullets and the Severity line after them stay on the open paragraph finding', () => {
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-196-native.txt'), 'utf8');
+    expect(parseFindings('adversarial-native', native).map(f => [f.label, f.raw.slice(0, 12), f.raw.endsWith('| Severity: ' + (f.label === 'High' ? 'High' : 'Low') + '. Blocks: no.')]))
+      .toEqual([['High', '**1. A PR in', true], ['CRITICAL', '**2. A case ', true], ['CRITICAL', '**3. Local `', true], ['Low', '**4. No trai', true]]);
+    expect(parseFindings('outside-voice', '1. FIXABLE: race in a.ts:3\n- Unlabeled sibling at b.ts:9\nSeverity: Medium').map(f => f.label)).toEqual(['FIXABLE', 'Medium']);
+    expect(parseFindings('outside-voice', '**Retry storm in r.ts:2 (INVESTIGATE).**\n- detail\n- High: a second defect in s.ts:4\nSeverity: Medium').map(f => f.label)).toEqual(['INVESTIGATE', 'High']);
   });
 
   test('verify on a ledger that kept no prompts says so and exits 3', () => {

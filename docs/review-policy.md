@@ -473,7 +473,12 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    second line for the same field starts another: `Severity` raises its label,
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
-   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). A phantom finding costs a fold; a lost one costs the gate.
+   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). A label word used as a word is not a label: negated
+   within three words in its clause ("not CRITICAL", "Neither finding is CRITICAL", "no High findings"), a yardstick ("below
+   CRITICAL", "worse than High"), quoted, or listed as vocabulary ("Critical|High"); a label the line opens with always counts, and a
+   closing "Overall:", "Summary:" or "Verdict:" line after the findings starts none (GST-435). An unlabeled bullet under a paragraph
+   finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it lands on the finding.
+   A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
    line for the outside voice, either for the native adversarial voice. Without one (a refusal, an empty reply, a reader

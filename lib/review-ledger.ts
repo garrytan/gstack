@@ -59,6 +59,27 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
+/** The label the line opens with, after a list marker, heading mark, table bar, bracket, bold or quote: always a label. */
+const OPENS = /^(?:[-*+>]\s+|\d+[.)]\s+|#{1,6}\s*)?[\s[(*_`"'“‘|]*$/;
+/**
+ * A label word used as a word, not as a label (GST-435): negated within three words in its clause ("not CRITICAL", "Neither finding is
+ * CRITICAL", "no High findings"), used as a yardstick ("below CRITICAL", "worse than High"), quoted ("'High'", `CRITICAL`) or listed as
+ * vocabulary ("Critical|High"). The clause runs back to the last sentence, colon, comma, dash or bracket.
+ */
+const NEGATED = /\b(?:not|no|neither|nor|none|never|nothing|without|zero|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|cannot|can't)\b(?:\s+[\w'’-]+){0,3}?\s+[*_`"'“‘]*$/i;
+const YARDSTICK = /\b(?:below|under|than|short of|instead of|up to|at most)\s+[*_`"'“‘]*$/i;
+const QUOTES: Record<string, string> = { '"': '"', "'": "'", '`': '`', '“': '”', '‘': '’' };
+function aWord(t: string, at: number, len: number): boolean {
+  const before = t.slice(0, at);
+  if (OPENS.test(before)) return false;
+  const after = t.slice(at + len);
+  if (QUOTES[before.slice(-1)] !== undefined && after.startsWith(QUOTES[before.slice(-1)]!)) return true;
+  if (/^\|[A-Za-z]/.test(after) || /[A-Za-z0-9]\|$/.test(before)) return true;
+  const clause = before.slice(Math.max(...['.', ';', ':', '!', '?', ',', '—', '–', '(', ')'].map(c => before.lastIndexOf(c))) + 1);
+  return NEGATED.test(' ' + clause) || YARDSTICK.test(' ' + clause);
+}
+/** A closing summary line ("Overall: …", "In summary, …", "Verdict: …") after the findings restates them; it starts no finding. */
+const SUMMARY = /^(?:\*\*)?(?:in\s+)?(?:summary|overall|verdict|conclusion|bottom line)\b/i;
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
@@ -72,11 +93,13 @@ export interface MergedLine { id: string; reader: string; label: string; raw: st
  * of the two labels). A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` raises its label,
  * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
  * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
- * starts the next finding. An inline `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels
- * stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
+ * starts the next finding, except an unlabeled bullet under a paragraph finding whose fields have not come yet, which is its detail.
+ * An inline `Blocks: yes` is CRITICAL too. A label word used as a word (negated, a yardstick, quoted or listed as vocabulary) is
+ * not a label, and a closing summary line after the findings starts none (GST-435). The native voice's FIXABLE collects as CRITICAL;
+ * other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
  */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
-  type Finding = { label: string; raw: string; fields: Set<string> };
+  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean };
   const out: Finding[] = [];
   let section: string | null = null;
   let current: Finding | null = null;
@@ -84,14 +107,14 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let gap = false;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
-  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
-  const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields) }; out.push(f); return f; };
+  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].filter(m => !aWord(t, m.index!, m[1]!.length)).map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
+  const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
     if (!t) { gap = true; continue; }
     const afterGap = gap;
     gap = false;
-    if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
+    if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t) || (out.length && SUMMARY.test(t))) { current = null; continue; }
     const indented = line !== line.trimStart();
     const label = strongest(t);
     const blocks = BLOCKS_YES.test(t);
@@ -118,7 +141,9 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
         if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    const fresh = listItem || (!indented && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
+    // An unlabeled bullet under a paragraph finding whose fields have not come yet is its detail, not the next finding (GSTA-196 native voice).
+    const detail = listItem && !label && !section && !!current && !current.list && !current.fields.size;
+    const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
     if (fresh) { current = null; head = t; }
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
