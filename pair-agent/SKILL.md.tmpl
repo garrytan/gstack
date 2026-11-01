@@ -201,8 +201,8 @@ $B pair-agent --restrict "read,write" --client TARGET_HOST    # no JS, no cookie
 ```
 
 **CRITICAL: You MUST output the full instruction block to the user.** The command
-prints everything between its `=====` divider lines. Copy the ENTIRE block verbatim into your
-response so the user can copy-paste it into their other agent. Do NOT summarize it,
+prints the block from its first `=====` divider line to its last. Copy the ENTIRE block verbatim,
+both of those divider lines included, into your response so the user can copy-paste it into their other agent. Do NOT summarize it,
 do NOT skip it, do NOT just say "here's the output." The user needs to SEE the block
 to copy it. Output it inside a markdown code block so it's easy to select and copy.
 
