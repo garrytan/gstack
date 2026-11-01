@@ -351,14 +351,6 @@ function main(): void {
 // callers — setup, bin/dev-setup, and `gstack-config gbrain-refresh` — can
 // decide whether to render the gbrain :user variant without duplicating the
 // JSON grep. Prints nothing on stdout.
-// --doctor: the full brain-health gate /setup-gbrain Step 5 runs. Prints the
-// DoctorVerdict as JSON and exits 0 iff brain_ok.
-if (process.argv.includes("--doctor")) {
-  const verdict = runDoctor([], 300_000);
-  process.stdout.write(JSON.stringify(verdict, null, 2) + "\n");
-  process.exit(verdict.brain_ok ? 0 : 1);
-}
-
 if (process.argv.includes("--is-ok")) {
   const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
   const status = localEngineStatus({ noCache });
@@ -370,4 +362,13 @@ if (process.argv.includes("--is-ok")) {
   );
 }
 
-main();
+// --doctor: the full brain-health gate /setup-gbrain Step 5 runs. Prints the
+// DoctorVerdict as JSON and exits 0 iff brain_ok. exitCode, not process.exit:
+// exit() cuts off a large report still draining into a pipe.
+if (process.argv.includes("--doctor")) {
+  const verdict = runDoctor([], 300_000);
+  process.stdout.write(JSON.stringify(verdict, null, 2) + "\n");
+  process.exitCode = verdict.brain_ok ? 0 : 1;
+} else {
+  main();
+}

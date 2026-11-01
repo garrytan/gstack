@@ -141,6 +141,17 @@ describe('gstack-gbrain-detect --doctor', () => {
     expect(JSON.parse(r.stdout)).toMatchObject({ brain_ok: false, brain_failures: ['pgvector'] });
   });
 
+  test('prints a large report whole through a pipe', () => {
+    const big = { status: 'healthy', checks: Array.from({ length: 3000 }, (_, i) => ({ ...check(`c${i}`, 'brain'), message: 'x'.repeat(60) })) };
+    const env = { ...caseEnv('all checks pass'), FAKE_DOCTOR_DIR: path.join(tmp, 'big') };
+    fs.mkdirSync(env.FAKE_DOCTOR_DIR, { recursive: true });
+    fs.writeFileSync(path.join(env.FAKE_DOCTOR_DIR, 'scoped.json'), JSON.stringify(big));
+    for (let i = 0; i < 3; i++) {
+      const r = spawnSync('bash', ['-c', `"${DETECT}" --doctor | cat`], { env, encoding: 'utf-8', timeout: 30_000 });
+      expect(JSON.parse(r.stdout).report.checks).toHaveLength(3000);
+    }
+  });
+
   test('exits 1 with the cause when doctor prints no JSON', () => {
     const r = spawnSync(DETECT, ['--doctor'], { env: caseEnv('doctor prints no JSON'), encoding: 'utf-8', timeout: 30_000 });
     expect(r.status).toBe(1);
