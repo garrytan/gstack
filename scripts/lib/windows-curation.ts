@@ -56,6 +56,8 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   { file: 'test/shared-libs-index-flags-readonly.test.ts', reason: 'its assume-unchanged replay seeds the review through test/helpers/shared-libs-path-fixture.ts, which launches bin/gstack-review-log (a bash script) directly; windows-latest refuses it as not found in $PATH (windows-free-shard 5, run 40727825859)' },
   { file: 'test/credential-rejection.test.ts', reason: 'replays run 39696775546 through the --report and --rerun-plan CLI of the paid lane, which runs only on Linux CI; on windows-latest that CLI exits 1 with EINVAL in open() (windows-free-shard run 39982914852)' },
   // Field list 2, W11: the review-voice install is a POSIX launcher contract, exercised end to end on Linux and macOS.
+  // GST-840: the Codex host runtime links each installed skill into the checkout, as ./setup --host codex does on POSIX.
+  { file: 'test/codex-host-safety-arm.test.ts', reason: 'builds a symlinked ~/.codex/skills install (a linked skill folder and a linked folder inside a real one), which needs Developer Mode that windows-latest runners lack; ./setup --host codex copies instead of linking on Windows, so the removed-arm strip it tests only matters on POSIX (windows-free-shard 3, run 41336347706)' },
   { file: 'test/capy-review-voice.test.ts', reason: 'copies the checkout with tar -C into the temp root (GNU tar reads a D: path as a remote host) and launches the bash --for review-voice installer with a colon-joined GSTACK_LAUNCH PATH' },
   // C-pregate. Since fix wave PR 5 (item 10b) test/helpers/pregate-fixture.ts and restamp-fixture.ts
   // runBin launch bins through lib/script-invocation.ts, so gstack-pregate runs on windows-latest
