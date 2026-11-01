@@ -266,6 +266,151 @@ describe('gbrain_mcp_mode — Tier 3: ~/.claude.json jq read', () => {
   });
 });
 
+// #3539: a loopback `gbrain serve --http` over this machine's own engine is a
+// local brain. It reports local-stdio (the local-engine mode every consumer
+// already understands), in all three tiers.
+describe('gbrain_mcp_mode — loopback serve --http over a local engine (#3539)', () => {
+  const LOOPBACK = 'http://127.0.0.1:3131/mcp';
+  function localEngine(extra: Record<string, unknown> = {}, dir = tmpHome): void {
+    fs.mkdirSync(path.join(dir, '.gbrain'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.gbrain', 'config.json'), JSON.stringify({ engine: 'pglite', ...extra }));
+  }
+
+  test('tier 1: loopback http entry + local engine → local-stdio', () => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: true, getJsonOutput: JSON.stringify({ type: 'http', url: LOOPBACK }) });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('local-stdio');
+  });
+
+  test('tier 2: loopback URL on the mcp list line + local engine → local-stdio', () => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: `gbrain: ${LOOPBACK} (HTTP) - ✓ Connected` });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('local-stdio');
+  });
+
+  test('tier 3: loopback http entry + local engine under GBRAIN_HOME → local-stdio', () => {
+    const gbrainHome = path.join(tmpHome, 'gb');
+    localEngine({}, gbrainHome);
+    fs.writeFileSync(
+      path.join(tmpHome, '.claude.json'),
+      JSON.stringify({ mcpServers: { gbrain: { type: 'http', url: LOOPBACK, headers: { Authorization: 'Bearer x' } } } })
+    );
+    expect(runDetect({ GBRAIN_HOME: gbrainHome }).json.gbrain_mcp_mode).toBe('local-stdio');
+  });
+
+  test('loopback entry without a local engine config stays remote-http', () => {
+    fs.writeFileSync(path.join(tmpHome, '.claude.json'), JSON.stringify({ mcpServers: { gbrain: { type: 'http', url: LOOPBACK } } }));
+    expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
+  });
+
+  test('loopback entry with remote_mcp in the config stays remote-http', () => {
+    localEngine({ remote_mcp: { mcp_url: 'https://team-brain.example.com/mcp' } });
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: `gbrain: ${LOOPBACK} (HTTP) - ✓ Connected` });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
+  });
+
+  test('non-loopback entry with a local engine stays remote-http', () => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: true, getJsonOutput: JSON.stringify({ type: 'http', url: 'https://brain.example.com/mcp' }) });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
+  });
+
+  // Tier 2 classifies the whole URL token. A URL cut at ")" or at whitespace
+  // would read these remote hosts as 127.0.0.1 / localhost.
+  test.each([
+    'gbrain: http://127.0.0.1)@evil.com/mcp (HTTP) - ✓ Connected',
+    'gbrain: http://localhost)@evil.com/mcp (HTTP) - ✓ Connected',
+    'gbrain: http://127.0.0.1 (HTTP)@evil.com/mcp (HTTP) - ✓ Connected',
+    'gbrain: http://127.0.0.1\t.evil.com/mcp (HTTP) - ✓ Connected',
+    'gbrain: ws://127.0.0.1:3131/mcp (HTTP) - ✓ Connected',
+    'gbrain: http://127.0.0.1.evil.example/mcp (HTTP) - ✓ Connected',
+    'gbrain: HTTP server, url hidden - ✓ Connected',
+  ])('tier 2: %s → remote-http (local engine present)', (line: string) => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: line });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
+  });
+
+  test('tier 2: a loopback URL with a ")" in its path is still local', () => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: 'gbrain: http://127.0.0.1:3131/mcp(x) (HTTP) - ✓ Connected' });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('local-stdio');
+  });
+
+  // (SSE) lines carry no "http" word. Before, they fell through to
+  // local-stdio even for a remote host.
+  test('tier 2: remote (SSE) line → remote-http', () => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: 'gbrain: https://brain.example.com/sse (SSE) - ✓ Connected' });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
+  });
+
+  test('tier 2: loopback (SSE) line over a local engine → local-stdio', () => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: 'gbrain: http://localhost:3131/sse (SSE) - ✓ Connected' });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('local-stdio');
+  });
+
+  // Several gbrain servers: the exact `gbrain:` line wins whatever the list
+  // order (the .claude.json insertion order), as in tier 3 and memory-ingest.
+  test.each([
+    ['variant first', `gbrain-a: ${LOOPBACK} (HTTP) - ✓ Connected\ngbrain: https://team.example.com/mcp (HTTP) - ✓ Connected`],
+    ['exact first', `gbrain: https://team.example.com/mcp (HTTP) - ✓ Connected\ngbrain-a: ${LOOPBACK} (HTTP) - ✓ Connected`],
+  ])('tier 2: loopback gbrain-a + remote gbrain (%s) → remote-http', (_order: string, list: string) => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: list });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
+  });
+
+  test.each([
+    ['variant first', `gbrain_work: https://team.example.com/mcp (HTTP) - ✓ Connected\ngbrain: ${LOOPBACK} (HTTP) - ✓ Connected`],
+    ['exact first', `gbrain: ${LOOPBACK} (HTTP) - ✓ Connected\ngbrain_work: https://team.example.com/mcp (HTTP) - ✓ Connected`],
+  ])('tier 2: loopback gbrain + remote gbrain_work (%s) → local-stdio', (_order: string, list: string) => {
+    localEngine();
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: list });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('local-stdio');
+  });
+
+  test('tier 2: with no exact gbrain line, the first gbrain[-_]* line counts', () => {
+    localEngine();
+    makeFakeClaude({
+      hasGetJson: false,
+      hasMcpList: true,
+      mcpListOutput: `posthog: https://mcp.posthog.com/mcp (HTTP)\ngbrain-remote: https://team.example.com/mcp (HTTP) - ✓ Connected\ngbrain-a: ${LOOPBACK} (HTTP) - ✓ Connected`,
+    });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
+  });
+
+  test('tier 2: loopback (SSE) line without a local engine → remote-http', () => {
+    makeFakeClaude({ hasGetJson: false, hasMcpList: true, mcpListOutput: 'gbrain: http://localhost:3131/sse (SSE) - ✓ Connected' });
+    expect(runDetect().json.gbrain_mcp_mode).toBe('remote-http');
+  });
+
+  // detect's two fields must agree: a loopback entry over a local engine that
+  // gbrain reports as locked (a live serve holding PGLite) is local-stdio +
+  // engine-locked, never local-stdio + thin-client.
+  test('mcp_mode and local_status agree for a loopback entry over a locked local engine', () => {
+    localEngine({ database_path: '/x/brain.pglite' });
+    fs.writeFileSync(path.join(tmpHome, '.claude.json'), JSON.stringify({ mcpServers: { gbrain: { type: 'http', url: LOOPBACK } } }));
+    fs.writeFileSync(
+      path.join(fakeBinDir, 'gbrain'),
+      [
+        '#!/bin/bash',
+        'case "$1" in',
+        '  --version|version) echo "gbrain 0.60.472.0"; exit 0 ;;',
+        '  sources) echo "GBrain\'s local database is already open through `gbrain serve` (MCP, PID 4242). This brain uses PGLite" >&2; exit 1 ;;',
+        '  *) exit 0 ;;',
+        'esac',
+        '',
+      ].join('\n'),
+      { mode: 0o755 },
+    );
+    const { json } = runDetect();
+    expect(json.gbrain_mcp_mode).toBe('local-stdio');
+    expect(json.gbrain_local_status).toBe('engine-locked');
+  });
+});
+
 describe('gbrain_mcp_mode — no info anywhere', () => {
   test('no claude binary AND no ~/.claude.json → none', () => {
     // No fake claude, no file.
