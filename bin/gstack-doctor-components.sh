@@ -141,6 +141,7 @@ gstack_result_anchor() {
     BROWSER_UNAVAILABLE) printf '%s' 'browser-ensure-failed' ;;
     INSTALL_PREFLIGHT_FAILED) printf '%s' 'capy-install-preflight-failed' ;;
     SETUP_PS1_EMPTY_ARGUMENT) printf '%s' 'setup-ps1-empty-argument' ;;
+    SETUP_DEPS_MIGRATE_FAILED) printf '%s' 'setup-deps-migrate-failed' ;;
     POLICY_SOURCE_UNAVAILABLE) printf '%s' 'policy-source-unavailable' ;;
     POLICY_INVALID) printf '%s' 'policy-invalid' ;;
     POLICY_CONTAINMENT) printf '%s' 'policy-containment' ;;
