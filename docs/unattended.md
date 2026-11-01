@@ -458,7 +458,12 @@ spend is `unknown` and counted in `worst_case`. Under a cap (or on Capy) each
 unattended host-subagent attempt reserves the default per voice unless
 `next --estimate-usd <n>` sets the reservation, which the run keeps for later
 phases (`run` reserves an api attempt's priced worst case, prompt bytes / 3
-input tokens plus the output limit, and settles it at its token usage); `submit
+input tokens plus the output limit, and settles it at its token usage; a native
+call that fails after it was sent settles at its usage, or at its full
+reservation when the usage is unknown, while one refused before anything was
+sent, such as with no API key, keeps its attempt open for the rerun, and a
+failed outside call leaves the phase native-only and stays counted at its
+reservation); `submit
 --usage-usd <n>` settles an attempt at its real cost. `--deadline <min>` makes the
 `run` subcommand cancel the children it started and marks the run
 `interrupted`.
