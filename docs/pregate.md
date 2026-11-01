@@ -75,10 +75,10 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | Key | Meaning |
 |---|---|
 | `runner` | the local test command with `{files}` (gstack: `bun test {files}`); unset, it is detected (bun, vitest, jest, pytest, `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; every other JS/TS test keeps the root detection); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
-| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences) |
+| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
-| `warn` | check ids downgraded to warn; `secrets` and required lanes never |
+| `warn` | check ids downgraded to warn; `secrets` and required lanes never. `"lanes"` downgrades only a touched file with no lane: the selected tests still run, a red lane stays `fail` (`PREGATE_LANE_FAILED`) and an unfinished one `incomplete`; a green run is `warn` `PREGATE_NO_LANE` naming the unmapped files |
 | `strays.allow` | intentional root files or new top-level directories |
 | `local` | `workflow.yml/job` lanes a local run satisfies: a platform-agnostic toolchain (an `ubuntu-latest` suite that runs the same on a Mac), or a repo whose CI is off. Their tests run here instead of becoming `requires-remote`, except that on a machine under 8 cores with a `remote_gate` or a remote `test_backend` the small-machine rule still records the test tier as a `requires-remote` obligation. `--explain` notes an id that matches no workflow lane |
 | `guards` | `[{ id, when: [globs], command, fix?, timeout_s? }]`: repo commands a lane must pass when a touched file matches `when` (manifest checks, subprocess goldens the import graph cannot see); see [guards](#guards) |
@@ -88,7 +88,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
 | `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
-| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)) |
+| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory }`: the run profiles that together clear `pregate.json/remote_gate`, and the command that prints the remote gate's test files, one per line, which their runs must cover (see [run evidence](#run-evidence)) |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
@@ -141,6 +141,19 @@ unmapped file is `PREGATE_NO_LANE` again: the warning is for the first /ship
 in a new repository (three Captains lost their first pass to it), never a way
 to hide missing coverage. `--policy-from head` with a head policy is strict too.
 
+<a id="lane-requirements"></a>
+**Lane requirements.** "Any policy" above means a policy that declares lanes:
+one with a `dependencies`, `empty_lanes`, `selection` or `local` key, even an
+empty one (`gstack-pregate init` writes the first three). A policy with none of
+them, such as
+`{"timeout_s": 1800}` to give long tests more time, keeps the no-policy lane
+verdicts: an unmapped file is the `warn` `PREGATE_NO_POLICY`, the selected
+tests run, a red lane is `fail`, and the starter says the active policy
+declares no lanes instead of claiming there is none. So raising
+`timeout_s` never needs a `"**": []` catch-all. Add `dependencies` when you
+want unmapped files to fail. The same rule applies to the user-owned file and to
+a `--policy-from head` bootstrap (gbrain-evals #272, GST-775).
+
 `gstack-pregate init` writes a draft built from the repo, not a fixed example.
 It prints the languages it found and the runner each language's tests would
 get, then maps every file the import graph cannot place to the tests of the
@@ -160,7 +173,7 @@ The list lives in its own file, not in `pregate.json`, because older pregate rea
 
 ```
 gstack-pregate [--stage preflight|tests|all] [--only <check,..>] [--allow-repo-commands] [--policy-from base|head]
-               [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--explain] [--json]
+               [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--explain] [--json]
 gstack-pregate verify | clear --remote <workflow.yml/job> --run-url <url> | lanes | validate | init
 ```
 
@@ -266,9 +279,10 @@ Two stages with separate clocks, both printed:
   `.cjs`, `.mts`, `.cts`, then `index.ts`, `index.tsx`, `index.js`, `index.jsx`
   and `index.mjs` inside the directory; the first file that exists wins.
   A touched source file with no lane is `FAIL lanes — <file> has no test lane`
-  once any policy exists (the base copy, the user-owned file or `--policy-from
-  head`); with no policy anywhere it is the `warn` `PREGATE_NO_POLICY` with a
-  starter printed ([no policy](#no-policy)); never a pass. Markdown that no
+  once a policy that [declares lanes](#lane-requirements) exists (the base copy,
+  the user-owned file or `--policy-from head`); with no policy anywhere, or one
+  that declares no lanes, it is the `warn` `PREGATE_NO_POLICY` with a starter
+  printed ([no policy](#no-policy)); never a pass. Markdown that no
   test depends on is a docs/no-tests empty lane
   instead (`docs/no-tests: N documentation file(s)`), including when the base
   branch has no `.gstack/pregate.json`. The dependency is the same import graph
@@ -654,15 +668,20 @@ old the run may be, and `os` (`Linux`, `macOS`, `Windows`) requires
 `tree.json` to record that runner OS. Each workflow uploads `tree.json` from
 its own job: `run_id`, `run_attempt`, `event`, `sha` (or `head_sha`),
 `tree` (`git rev-parse HEAD^{tree}` as tested), `files` (every test file the
-run executed), `tests` (the count) and, with `os`, the runner OS.
+run executed), `tests` (the count) and, with `os`, the runner OS or a list of
+every OS the run's test jobs ran on (the profile's `os` must be one of them).
 
 **What `clear --run` checks** (`lib/run-evidence.ts`), for every run, online,
 once:
 
 - The run belongs to this repository and ran for a same-repository head. Its
-  workflow file is the profile's, its event is `push` or `workflow_dispatch`
-  (a `pull_request` run tests the merge commit, not the head tree, so no
-  profile may accept it), and it completed with success. The API answers with
+  workflow file is the profile's, its event is one the profile lists (`push`,
+  `workflow_dispatch` or `pull_request`), and it completed with success. A
+  `pull_request` run tested GitHub's merge commit, not its head, so its
+  `tree.json` must name the head (`head_sha`) and the merge commit (`sha`), and
+  the tree git computes for that merge commit must equal the head's tree: the
+  head already contained its base, so the merge tested exactly the head tree
+  (`tree_mismatch` otherwise). The API answers with
   the newest attempt, so an earlier green attempt under a newer red one is
   refused, and the run is read again after the evidence is collected: a new
   attempt meanwhile is `run_changed`.
@@ -730,9 +749,21 @@ recording. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
 shows the lane has no profile; then the lane is recorded as before, with a
 warning naming the cause. `gstack-ship-queue ready --dispatch-ci` still
-records its dispatched runs by URL; routing it through the verifier is the next
-change (P3b), so a repository that declares lane profiles clears those lanes
-with `gstack-pregate clear --run`.
+records its dispatched runs by URL; routing it through the verifier is a
+follow-up (GST-555), so a repository that declares lane profiles clears those
+lanes with `gstack-pregate clear --run`.
+
+**gstack's own profiles.** gstack's `.gstack/pregate.json` declares two, and
+names neither after a lane: `ci-reuse/free-tests` (the complete Free Tests run:
+every non-matrix job and the `free-tests` aggregate, `os` Linux) and
+`ci-reuse/windows-free-tests` (`windows-plan` and the `windows-free-tests`
+aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
+runs and reads the `tested-tree` artifact, which both aggregates upload only
+after their strict verification passes. The main-push reuse job and
+`--from-run` read them. No lane has a profile, so every macOS and Windows lane
+still clears by `--run-url` as before. A pull request cut before these
+workflows uploaded `tested-tree` has no record a lane profile could verify, so
+lane profiles wait until open pull requests carry the producer (GST-555).
 
 **`verify` stays offline.** The check ran at `clear`. `gstack-pregate verify`,
 and `gstack-ship-queue ready` through it, refuse a run receipt whose `tree=`
@@ -742,8 +773,75 @@ merge path.
 
 **What is never reusable.** Security and advisory scans (osv, audit,
 gitleaks) depend on the day, not on the tree, so they are not run profiles:
-they run on every head as before. Pull-request required checks always run
-fresh.
+they run on every head as before, and `--from-run` never skips them.
+Pull-request required checks and dispatched runs always run fresh; only a
+push to main reuses ([below](#ci-reuse)).
+
+<a id="from-run"></a>
+### The tests stage from a Free Tests run (`--from-run`)
+
+`gstack-pregate --stage tests --from-run <run id|url>` takes a Free Tests run
+that already passed on this exact tree, for example the one CI ran on the
+pushed head, instead of running its files again here. The run is verified
+online, once, against the base branch's run profiles for this machine's OS
+whose workflow holds a lane this machine runs (gstack's `ci-reuse/free-tests`
+on Linux), with pregate.json's own head as a further veto head. Its tree must be this tree exactly (no
+stamp-only substitution). Then:
+
+- The selected local test files the run's `tree.json` lists count as passed.
+  The lanes check records them under `from_run` with the run receipt
+  (`run tree=… tests=… runs=<id>/<attempt> profiles=… heads=… verified=…`) and
+  prints `REUSE: accepted <n> of <m> selected local test file(s) from <receipt>;
+  <k> still run`.
+- The rest run as they would have: locally, or recorded as the remote gate
+  obligation on a small machine, or through `--remote`.
+- A run that does not verify prints `REUSE: refused reason=<code> — …; every
+  selected test runs here` and changes nothing else. The codes are
+  verifyRun's, plus `tree_mismatch` (another tree), `no_tests`, `no_profile`
+  (no profile for this OS covers a local lane's workflow), `no_verified_run`
+  (more than one profile applied and each refused; the detail lists every
+  refusal) and `profiles_unavailable` (the base config or the GitHub origin
+  could not be read).
+
+`--from-run` applies to the tests stage only, so `--stage preflight` refuses it
+as a usage error. It changes nothing in the preflight stage: with `--stage all`
+the preflight checks, the secrets scan included, run as before, and
+`--stage tests` runs no preflight check in that invocation, with or without it.
+
+<a id="ci-reuse"></a>
+### Main pushes reuse the merged pull request's run
+
+A squash merge whose pull request head already held main produces a push with
+the identical tree, and Free Tests and Windows Free Tests used to run on it a
+second time. Now each workflow starts with a `reuse` job that runs only on a
+push to `main`, with job-level `contents: read` and `actions: read` (every other
+job keeps the workflow's `contents: read`). It runs
+`scripts/ci-tree-reuse.ts find`, which:
+
+1. finds the pull request whose merge commit is the pushed commit
+   (`repos/{repo}/commits/{sha}/pulls`, one page of at most 10), merged into
+   main from a same-repository head (`no_pr`, `ambiguous_pr`, `fork_head`);
+2. requires that head's tree to equal the pushed tree (`tree_mismatch`);
+3. lists that head's `pull_request` and `workflow_dispatch` runs of the same
+   workflow, newest first, at most 10 (`no_candidate`); and
+4. accepts the first one `verifyRun` accepts under the profile in the pushed
+   tree's `.gstack/pregate.json` (`no_verified_run` lists each refusal; a newer
+   red run on the head vetoes an older green one).
+
+It writes `reused=true` with the run's id and link, or `reused=false` and the
+reason, and prints one `REUSE:` line in the step summary. Every suite job
+needs `reuse` and runs unless it succeeded with `reused=true`; their
+conditions start with `!cancelled()` because GitHub otherwise skips a job whose
+needed job was skipped, and `reuse` is skipped on every pull request and
+dispatch run. The required aggregates (`free-tests`, `windows-free-tests`)
+choose a path in their first step, before any download. A verified reuse writes
+the reused run's link to the summary and passes; anything else, a failed or
+skipped `reuse` job included, takes the strict path unchanged. Only the strict
+path records and uploads `tested-tree`, after its verification passes, so a
+red, partial or reused run never leaves a record and a reuse is never reused.
+The pull request lookup needs no `pull-requests` permission on a public
+repository; a private fork of this setup would need `pull-requests: read`,
+and without it every push falls back to the full run.
 
 <a id="guards"></a>
 ## Guards and the lane-done rule

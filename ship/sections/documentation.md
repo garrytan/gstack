@@ -137,4 +137,6 @@ auto-commit or push unexpected child commits.
    `.gstack/tmp/docs-audit.json` as `{"status":"blocked","scope":"<scope>","exception":{"accepted_by":"<owner>","date":"<YYYY-MM-DD>","via":"<their reply or review reference>","reason":"<their words, one line>"}}`;
    the PR body's Documentation section repeats it word for word, and
    `gstack-ship-receipt write --docs` refuses a blocked record without one
-   (`DOCS_AUDIT_BLOCKED`). An unattended run has no owner to accept: it stops here.
+   (`DOCS_AUDIT_BLOCKED`). Then save Step 16's post snapshot from it: the Prepare
+   `snapshot` with `--out <audit-id>-post.json --exception .gstack/tmp/docs-audit.json`;
+   finish refuses a blocked audit whose post snapshot lacks it. An unattended run has no owner to accept: it stops here.

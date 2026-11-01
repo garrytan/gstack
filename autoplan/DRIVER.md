@@ -57,8 +57,8 @@ line yourself; gstack never writes the plan.
 
 ### Commands
 
-- `gstack-autoplan next --out <dir> --plan <plan.md> [scope flags] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--scaffold]`
-  first call: init the run, print PHASE:, SCOPE:, DRIVER: and one ATTEMPT: per voice; --max-rounds caps review rounds per phase (default 2 unattended), and an unattended Capy run reserves 5.00 per host attempt unless --estimate-usd <n> says otherwise, so --spend-cap binds.
+- `gstack-autoplan next --out <dir> --plan <plan.md> [scope flags] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--scaffold] [--ceo-only]`
+  first call: init the run, print PHASE:, SCOPE:, DRIVER: and one ATTEMPT: per voice; --max-rounds caps review rounds per phase (default 2 unattended), and an unattended Capy run reserves 5.00 per host attempt unless --estimate-usd <n> says otherwise, so --spend-cap binds; --ceo-only (command line only, never a scope marker) reviews CEO alone and ends `status=reviewed` with `<dir>/ceo-review.md` (`REVIEWED:`): no gate, and the gate verbs refuse it (`CEO_ONLY_NO_GATE`).
 - `gstack-autoplan next --out <dir> [--redispatch <attempt>]`
   later calls: open the next phase or reprint open attempts; never redispatches on its own.
 - `gstack-autoplan submit --out <dir> --phase <p> --voice native|outside --record <file.md> --model <id> [--attempt <id>]`

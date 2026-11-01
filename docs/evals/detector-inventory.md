@@ -96,7 +96,7 @@ The plan-ceo-review-plan-mode (:89, :108), plan-devex-review-plan-mode (:181-222
 | Case | Check (file:line) | Matches | Structured source | User-visible | Disposition |
 |---|---|---|---|---|---|
 | ship-docsync-store | test/skill-e2e-ship-docsync.test.ts:74, :78 | ship report ~ `Documentation…blocked`; not `Documentation: current` | no receipt, no publish call (:75-77) | yes (report status) | (c) |
-| ship-docsync-completion, ship-docsync-current | test/skill-e2e-ship-docsync.test.ts:81, :97 | parsed docs contract, then report contains `contract.documentation_section` | docs dispatch JSON (ship/sections/documentation.md.tmpl:52-56) | yes | (a) |
+| ship-docsync-completion, ship-docsync-current | test/skill-e2e-ship-docsync.test.ts:85, :105 | parsed docs contract, then report contains `contract.documentation_section` | docs dispatch JSON (ship/sections/documentation.md.tmpl:52-56) | yes | (a) |
 | ship-docsync-late-result, -missing-marker, -missing-asset, -launch-failure, -timeout-unsettled, -failure | test/helpers/docsync-fault-eval.ts:28, :30 | non-success report ~ `Documentation…blocked`, no `Documentation: current` outside inline code | actor event log decides dispatch count and publication first (:22-27) | yes | (c) |
 | ship-docsync-recovery, -stale-before, -stale-after | test/helpers/docsync-fault-eval.ts:31 | report contains the accepted audit id | actor state `acceptedId` | yes | (a) |
 | docsync-spawned | test/skill-e2e-docsync-spawned.test.ts:60 | `contract.blockers` ~ security/sensitive | parsed docs contract | no | (a) |

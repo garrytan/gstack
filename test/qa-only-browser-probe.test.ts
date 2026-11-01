@@ -4,9 +4,36 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { startTestServer } from '../browse/test/test-server';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const PROBE = path.join(ROOT, 'test/fixtures/qa-only-browser-probe.ts');
+const FILE_OWNERS = path.join(ROOT, 'browse/test/fixtures/native-cookie-file-owners.ts');
+
+// Windows Free Tests 40624015029, 40842574997, 41068546881 and 41172879765: rm of qa-probe-* hit EBUSY after every child
+// had exited. Restart Manager names the holder: a process outside the test (the runner's %TEMP%\provjobd.exe agent)
+// opens each newly run browse.exe and lets go 1-52 ms later (GSTA-199 scratch runs 41205291567, 41205903081). Wait only for an
+// outside holder of browse.exe, then remove once more; a test-host owner, a holder past 5 s or a second failure throws
+// with the owners named.
+function removeProbeDirectory(directory: string, browse: string) {
+  try { fs.rmSync(directory, { recursive: true, force: true }); return; }
+  catch (error) {
+    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EBUSY' || !fs.existsSync(browse)) throw error;
+  }
+  const deadline = Date.now() + 5_000;
+  let receipt: { available?: boolean; owners?: { isTestHost: boolean }[] };
+  for (;;) {
+    const result = spawnSync(process.execPath, [...bunIsolationArgs(), FILE_OWNERS,
+      Buffer.from(JSON.stringify({ root: directory, file: browse, testPid: process.pid })).toString('base64')],
+    { encoding: 'utf8', timeout: 5_000, windowsHide: true });
+    try { receipt = JSON.parse(result.stdout); } catch { receipt = { available: false }; }
+    const outside = receipt.available === true && !!receipt.owners?.length && !receipt.owners.some(owner => owner.isTestHost);
+    if (!outside || Date.now() > deadline) break;
+    Bun.sleepSync(25);
+  }
+  try { fs.rmSync(directory, { recursive: true, force: true }); }
+  catch (error) { throw new Error(`${(error as Error).message}; browse.exe owners: ${JSON.stringify(receipt)}`); }
+}
 
 test('the report-only fixture serves exactly one bounded, observable defect', async () => {
   const { server, url } = startTestServer();
@@ -78,6 +105,6 @@ process.stderr.write(args[0]+' diagnostic\\n');
     }
     expect(fs.readFileSync(screenshot, 'utf8')).toBe('fixture image');
   } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
+    removeProbeDirectory(directory, browse);
   }
 });

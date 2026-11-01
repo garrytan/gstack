@@ -20,7 +20,7 @@ export type Severity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
 export type Disposition = 'open' | 'accepted' | 'partially_accepted' | 'rejected' | 'deferred' | 'fixed';
 export type Voice = 'native' | 'outside';
 export type DecisionKind = 'auto' | 'approval' | 'user_challenge';
-export type DecisionStatus = 'pending' | 'approved' | 'overridden' | 'rejected';
+export type DecisionStatus = 'pending' | 'approved' | 'overridden' | 'rejected' | 'auto_kept';
 export type TaskStatus = 'pending' | 'ready' | 'blocked_on_dependency' | 'blocked_on_decision' | 'in_progress' | 'done';
 export type VoiceStatus = 'completed' | 'unavailable' | 'disabled' | 'skipped' | 'failed' | 'pending' | 'running';
 export type ResultStatus = 'complete' | 'reviewed' | 'gate_pending' | 'amend_pending' | 'incomplete' | 'interrupted' | 'refused';
@@ -73,6 +73,8 @@ export interface PregateCheck {
   cause?: 'diff' | 'environment'; environment?: { kind: string; evidence: string; proof?: 'launch' | 'output' };
   /** `regen`: the touched outputs the generator recreated byte-identically from a deleted copy (what a receipt carry may set aside as generated). */
   proven?: string[];
+  /** `lanes` under `--from-run`: the run receipt and the selected local test files that run already passed on this tree (not run again here). */
+  from_run?: { receipt: string; files: string[] };
 }
 /** A remote_gate receipt accepted from a stamp-only predecessor tree (lib/pregate/remote-receipt.ts): the gated tree, the tree it was accepted for, the policy, and every differing path with its stamp rule. */
 export interface PregateReceiptSubstitution { gated_tree: string; accepted_for: string; policy: string; files: Array<{ path: string; rule: string }> }
@@ -118,7 +120,7 @@ export interface ShipReceipt {
 }
 
 export const RESULT_STATUSES: readonly ResultStatus[] = ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused'];
-const TERMINAL_RUN: readonly string[] = ['complete', 'gate_pending', 'amend_pending', 'refused', 'incomplete'];
+const TERMINAL_RUN: readonly string[] = ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'refused', 'incomplete'];
 const TERMINAL_VOICE: readonly string[] = ['completed', 'unavailable', 'disabled', 'skipped', 'failed'];
 const RESOLVED: readonly string[] = ['accepted', 'partially_accepted', 'rejected', 'deferred', 'fixed'];
 
@@ -172,7 +174,7 @@ export const ARTIFACT_SCHEMAS = {
     required: ['schema_version', 'run', 'id', 'title', 'options', 'recommended', 'kind', 'status', 'gate_rev'],
     properties: {
       schema_version: { const: 1 }, run: str, id: str, label: str, title: str, options: strList, recommended: nullableStr,
-      kind: { enum: ['auto', 'approval', 'user_challenge'] }, status: { enum: ['pending', 'approved', 'overridden', 'rejected'] },
+      kind: { enum: ['auto', 'approval', 'user_challenge'] }, status: { enum: ['pending', 'approved', 'overridden', 'rejected', 'auto_kept'] },
       default_if_unanswered: nullableStr, gate_rev: { type: 'integer', minimum: 1 }, phase: str, chosen: nullableStr,
       answered_at: str, reply: str, source: str, cost: str,
       recommended_basis: str, changes: str, origin: str, carried_from: str, chosen_text: str,
@@ -203,7 +205,7 @@ export const ARTIFACT_SCHEMAS = {
     required: ['schema_version', 'run', 'status', 'required_phases', 'phases', 'artifacts'],
     properties: {
       schema_version: { const: 1 }, run: str,
-      status: { enum: ['complete', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused', 'awaiting_result', 'running'] },
+      status: { enum: ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused', 'awaiting_result', 'running'] },
       base: str, host: str, session_kind: str, required_phases: strList,
       phases: { type: 'object', description: 'phase id → { snapshot, native, outside }', properties: {} },
       counts: { type: 'object', description: 'decisions, decisions_pending, findings, tasks: each must equal the rows in its file' },
@@ -219,7 +221,7 @@ export const ARTIFACT_SCHEMAS = {
     type: 'object', required: ['schema_version', 'tree', 'checks'],
     properties: {
       schema_version: { const: 1 }, run: str, tree: str, stage1_ms: num, stage2_ms: num,
-      checks: { type: 'array', items: { type: 'object', required: ['id', 'status'], properties: { id: str, status: { enum: ['pass', 'fail', 'warn', 'incomplete', 'requires-remote', 'not_installed'] }, ms: num, detail: str, stage: { enum: ['preflight', 'tests'] }, inputs: { type: 'object' }, fix: str, code: str, lines: strList, cause: { enum: ['diff', 'environment'] }, environment: { type: 'object', required: ['kind', 'evidence'], properties: { kind: str, evidence: str } }, proven: strList } } },
+      checks: { type: 'array', items: { type: 'object', required: ['id', 'status'], properties: { id: str, status: { enum: ['pass', 'fail', 'warn', 'incomplete', 'requires-remote', 'not_installed'] }, ms: num, detail: str, stage: { enum: ['preflight', 'tests'] }, inputs: { type: 'object' }, fix: str, code: str, lines: strList, cause: { enum: ['diff', 'environment'] }, environment: { type: 'object', required: ['kind', 'evidence'], properties: { kind: str, evidence: str } }, proven: strList, from_run: { type: 'object', required: ['receipt', 'files'], properties: { receipt: str, files: strList } } } } },
       head: str, base: str, generated_at: str, policy: str, policy_digest: str, policy_user_path: str, registry: str, verdict: str, scratch: str,
       requires_remote: { type: 'array', items: { type: 'object', required: ['lane', 'platform', 'tests', 'receipt'], properties: { lane: str, platform: str, workflow: str, job: str, tests: strList, receipt: nullableStr, cleared_by: str, command: str,
         substitution: { type: 'object', required: ['gated_tree', 'accepted_for', 'policy', 'files'], properties: { gated_tree: str, accepted_for: str, policy: str, files: { type: 'array', items: { type: 'object', required: ['path', 'rule'], properties: { path: str, rule: str } } } } } } } },
@@ -549,9 +551,16 @@ export interface DerivedReviewStatus {
   findings_total: number; findings_open: number; findings_resolved: number;
 }
 export function isOpenFinding(row: Record<string, unknown>): boolean {
+  if (row.action === 'open') return true;
   if (typeof row.disposition === 'string') return !RESOLVED.includes(row.disposition);
   if (typeof row.status === 'string') return !['resolved', 'fixed', 'closed'].includes(row.status);
-  return row.action !== 'fixed';
+  return isOpenByAction(row);
+}
+/** A finding's `action` alone: fixed and auto-fixed resolve it; deferred and noted resolve only one marked `blocking: false` that is not CRITICAL (review policy's floor). */
+export function isOpenByAction(row: Record<string, unknown>): boolean {
+  if (row.action === 'fixed' || row.action === 'auto-fixed') return false;
+  if (row.action === 'deferred' || row.action === 'noted') return row.blocking !== false || isCriticalFinding(row);
+  return true;
 }
 export function isCriticalFinding(row: Record<string, unknown>): boolean {
   return typeof row.severity === 'string' && row.severity.toLowerCase() === 'critical';

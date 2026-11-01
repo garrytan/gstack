@@ -72,6 +72,8 @@ export interface RunState extends RunManifest {
   dispatches?: DispatchCounts; est_input_tokens?: number;
   /** Carry-forward (lib/autoplan-carry.ts): false with --no-carry-forward; the per-gate cap on the delta check; the latest carry decision. */
   carry_forward?: boolean; carry_check_cap_usd?: number; carry?: import('./autoplan-carry').CarryRecord;
+  /** `next --ceo-only` (lib/autoplan-ceo-only.ts): the CEO phase alone, no gate, ends `reviewed`; never set by a scope marker. */
+  ceo_only?: boolean;
 }
 
 export const TERMINAL_VOICE_STATUSES = ['completed', 'disabled', 'unavailable', 'failed', 'skipped'] as const;

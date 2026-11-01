@@ -24,21 +24,22 @@ export const PLAN_WARN_BYTES = 30_000;
 export function buildTasks(state: RunState, findings: FindingRow[]): TaskRow[] {
   const tasks: TaskRow[] = [];
   const covered = new Set<string>();
+  const blockedBy = state.ceo_only ? [] : [decisionId(state.run, state.gate_rev ?? 1, 'p1')];
   let n = 0;
   for (const f of findings as Array<FindingRow & { settled_by?: string }>) {
     if (f.settled_by || covered.has(f.id)) continue;
     if (f.disposition === 'deferred') {
       covered.add(f.id);
       tasks.push({ schema_version: 2, run: state.run, id: `${state.run}-T${++n}`, title: `deferred from ${f.phase}: ${f.title}`, status: 'pending', depends_on: [], findings: [f.id],
-        blocked_by: [decisionId(state.run, state.gate_rev ?? 1, 'p1')], acceptance: f.resolution ? f.resolution : `the build resolves: ${f.title}`, priority: f.severity, ...(f.file ? { files: [f.file] } : {}), item: f.phase });
+        blocked_by: blockedBy, acceptance: f.resolution ? f.resolution : `the build resolves: ${f.title}`, priority: f.severity, ...(f.file ? { files: [f.file] } : {}), item: f.phase });
       continue;
     }
     if (!['Critical', 'High'].includes(f.severity) || f.disposition === 'rejected') continue;
     const twin = typeof f.native_counterpart === 'string' ? f.native_counterpart : findings.find(x => x.native_counterpart === f.id)?.id;
     const ids = twin ? [f.id, twin] : [f.id];
     ids.forEach(id => covered.add(id));
-    tasks.push({ schema_version: 2, run: state.run, id: `${state.run}-T${++n}`, title: f.title, status: 'blocked_on_decision', depends_on: [], findings: ids,
-      blocked_by: [decisionId(state.run, state.gate_rev ?? 1, 'p1')], acceptance: f.resolution ? f.resolution : `reviewer re-verifies: ${f.title}`, priority: f.severity, ...(f.file ? { files: [f.file] } : {}), item: f.phase });
+    tasks.push({ schema_version: 2, run: state.run, id: `${state.run}-T${++n}`, title: f.title, status: state.ceo_only ? 'pending' : 'blocked_on_decision', depends_on: [], findings: ids,
+      blocked_by: blockedBy, acceptance: f.resolution ? f.resolution : `reviewer re-verifies: ${f.title}`, priority: f.severity, ...(f.file ? { files: [f.file] } : {}), item: f.phase });
   }
   return tasks;
 }
@@ -100,7 +101,7 @@ function runLog(state: RunState, findings: number, tasks: number, decisions: { t
     ...[...(state.stops ?? []), ...(state.stop ? [state.stop] : [])].map(s => `Stopped ${s.reason} at ${s.at}: cap ${s.cap_usd ?? 'none'}, spent ${s.spent}, reserved ${s.reserved}, unknown ${s.unknown}${s === state.stop ? '' : ' (lifted)'}`),
   ];
   if (budget.length) lines.push(`Budget: max_rounds ${state.max_rounds ?? 'none'}${state.round_grants ? `, grants ${JSON.stringify(state.round_grants)}` : ''}.`, ...budget, '');
-  lines.push(`Gate: ${state.gate_rev ? `gate_rev ${state.gate_rev}, ${decisions.total} decisions (${decisions.pending} pending)${state.gate && typeof (state.gate as any).reply === 'string' ? `; answered "${(state.gate as any).reply}"${typeof (state.gate as any).answered_by === 'string' ? ` answered by ${(state.gate as any).answered_by}` : ''}` : ''}` : 'not reached'}. Findings: ${findings}. Tasks: ${tasks}.`);
+  lines.push(`Gate: ${state.ceo_only ? 'none (CEO-only run: ceo-review.md, never approved)' : state.gate_rev ? `gate_rev ${state.gate_rev}, ${decisions.total} decisions (${decisions.pending} pending)${state.gate && typeof (state.gate as any).reply === 'string' ? `; answered "${(state.gate as any).reply}"${typeof (state.gate as any).answered_by === 'string' ? ` answered by ${(state.gate as any).answered_by}` : ''}` : ''}` : 'not reached'}. Findings: ${findings}. Tasks: ${tasks}.`);
   return lines.join('\n') + '\n';
 }
 

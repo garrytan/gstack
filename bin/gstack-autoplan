@@ -2,7 +2,7 @@
 /**
  * gstack-autoplan — the unattended /autoplan runner as an explicit, durable state machine (plan B2).
  *
- *   gstack-autoplan next    --out <dir> [--plan <file>] [--plan-heading <text>] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--docs-only]
+ *   gstack-autoplan next    --out <dir> [--plan <file>] [--plan-heading <text>] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--docs-only] [--ceo-only]
  *                           [--no-outside] [--light] [--spend-cap <usd>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
  *   gstack-autoplan submit  --out <dir> --phase <p> --voice native|outside --result <file> | --record <file> [--attest <reason>]
  *                           --model <id> [--attempt <id>] [--runner <r>] [--usage-usd <n>] [--reconcile <jsonl>] [--json]
@@ -31,10 +31,11 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { amendmentSteps, answerGate, closeDeferred, finishGate, recommendGate } from '../lib/autoplan-gate';
+import { amendmentSteps, answerGate, closeDeferred, recommendGate } from '../lib/autoplan-gate';
+import { checkCeoOnlyFlags, finishRun, refuseCeoOnly } from '../lib/autoplan-ceo-only';
 import { gateCost, gateCostPayload, renderGateCost, type GateCost } from '../lib/autoplan-gate-cost';
 import { attemptEstimate, changeBudget, escalateLine, liftStop } from '../lib/autoplan-budget';
-import { DEFAULT_CARRY_CHECK_CAP_USD, carryLines, submitCarryCheck } from '../lib/autoplan-carry';
+import { DEFAULT_CARRY_CHECK_CAP_USD, submitCarryCheck } from '../lib/autoplan-carry';
 import { ANSWERED_BY_RE } from '../lib/gate-list';
 import { checkpointLines, checkpointRun, restoreCheckpoint, type CheckpointMoment } from '../lib/autoplan-checkpoint';
 import { admit, touchInstallLease } from '../lib/autoplan-admission';
@@ -55,10 +56,11 @@ import { COORDINATOR_CONTRACT } from '../lib/coordinator-contract';
 const HELP = `gstack-autoplan — unattended /autoplan: next/submit loop, answer, resume (docs/unattended.md)
 DRIVER: ${driverFile()}
 
-  next    --out <dir> [--plan <file>] [--plan-heading <text>] [--scaffold] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--no-dx] [--docs-only]
+  next    --out <dir> [--plan <file>] [--plan-heading <text>] [--scaffold] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--no-dx] [--docs-only] [--ceo-only]
           [--no-outside] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
           --max-rounds (first next): review rounds per phase (default 2 unattended); at the cap a phase closes accepted-with-findings
           --docs-only (first next; also detected when every Implementation-plan path is docs-class): CEO (native voice only) + Eng
+          --ceo-only (first next, command line only): the CEO phase alone, no gate; ends status=reviewed with <out>/ceo-review.md, never approved
           --estimate-usd: reserved per new attempt; unattended Capy runs reserve a default for host attempts so --spend-cap binds
           --scaffold (first next): a plan missing one of its two sections is reviewed from <out>/plan-source.md with the heading added
           --light loads each phase's checklist plus the sections its scope needs (the unattended default); interactive kinds load everything
@@ -182,16 +184,18 @@ function doNext(out: string, rest: string[], json: boolean): number {
   const cwd = process.cwd();
   const initLines: string[] = [];
   const fresh = !fs.existsSync(path.join(out, FILES.run));
+  if (!fresh) checkCeoOnlyFlags(rest, undefined, readState(out));
   if (fresh) {
     const plan = flag(rest, '--plan');
     if (!plan) throw new RunError('RUN_NOT_INITIALIZED', `${out} has no run.json; pass --plan <file> on the first next`, 3);
+    const ceoOnly = checkCeoOnlyFlags(rest, path.resolve(plan), undefined, out);
     const ui = rest.includes('--ui') ? true : rest.includes('--no-ui') ? false : undefined;
     const maxRounds = num(rest, '--max-rounds');
     if (maxRounds !== undefined && (!Number.isInteger(maxRounds) || maxRounds < 1)) throw new RunError('ARTIFACT_SCHEMA', '--max-rounds needs an integer >= 1', 1);
     const carryCheckCapUsd = num(rest, '--carry-check-cap');
     if (carryCheckCapUsd !== undefined && !(carryCheckCapUsd >= 0)) throw new RunError('ARTIFACT_SCHEMA', '--carry-check-cap needs a number >= 0', 1);
     initRun({ plan, out, cwd, planHeading: flag(rest, '--plan-heading'), outsideEnabled: !rest.includes('--no-outside'), spendCap: num(rest, '--spend-cap') ?? null, maxRounds,
-      carryForward: !rest.includes('--no-carry-forward'), carryCheckCapUsd,
+      carryForward: !rest.includes('--no-carry-forward'), carryCheckCapUsd, ceoOnly,
       deadlineMin: num(rest, '--deadline'), light: rest.includes('--light'), scaffold: rest.includes('--scaffold'), scope: { ui, developerTool: rest.includes('--developer-tool'), agentPrimary: rest.includes('--agent-primary'), dx: rest.includes('--no-dx') ? false : undefined, ...(rest.includes('--docs-only') ? { docsOnly: true } : {}) } }, initLines);
   }
   const redispatch = rest.flatMap((a, i) => (a === '--redispatch' && rest[i + 1] ? [rest[i + 1]!] : []));
@@ -248,6 +252,7 @@ function doRevise(out: string, rest: string[], json: boolean): number {
   const plan = flag(rest, '--plan'); const incorporates = listFlag(rest, '--incorporates'); const withdraw = listFlag(rest, '--withdraw'); const settle = listFlag(rest, '--settle');
   if (!plan && !withdraw.length && !settle.length) return usage('revise needs --plan <file> (and optionally --incorporates <id,...>), --withdraw <decision id> or --settle <id>');
   if (!plan && incorporates.length) return usage('--incorporates binds accepted changes to a revised plan: pass --plan <file>');
+  refuseCeoOnly(readState(out), 'revise');
   const r = reviseRun({ out, plan: plan ? path.resolve(plan) : undefined, incorporates, withdraw, settle, cwd: process.cwd() });
   const lines = [...r.lines];
   if (r.state.status === 'running' || r.state.status === 'amend_pending') lines.push(nextLine(r.state, out));
@@ -268,7 +273,7 @@ function doClose(out: string, rest: string[], json: boolean): number {
   const r = closeDeferred(state, phase as Phase, { reason: reason.trim(), by, cause: 'owner' });
   moment = 'transition';
   const lines = [...r.lines, ...(stopped ? liftStop(state, `${phase} closed deferred by ${by}`) : [])];
-  if (!currentPhase(state)) { finishGate(state); lines.push(...carryLines(state), ...(state.status === 'gate_pending' ? gateLines(state, out) : [])); }
+  if (!currentPhase(state)) lines.push(...finishRun(state), ...(state.status === 'gate_pending' ? gateLines(state, out) : []));
   else { state.status = 'running'; lines.push(`NEXT: gstack-autoplan next --out ${out}`); }
   writeState(state);
   lines.push(resultLineFor(state.status, out));
@@ -383,12 +388,13 @@ async function main(argv: string[]): Promise<number> {
     if (cmd === 'answer') {
       const rev = flag(rest, '--gate-rev'); const reply = flag(rest, '--reply'); const by = flag(rest, '--by');
       if (reply === undefined) return usage('answer needs --reply "<text>"');
-      if (rev === undefined) { const s = readState(out); process.stderr.write(resultLine('gstack-autoplan answer', 'GATE_REV_STALE', `no --gate-rev given; current gate_rev=${s.gate_rev ?? 0}`) + '\n'); return EXIT.refused; }
+      if (rev === undefined) { const s = readState(out); refuseCeoOnly(s, 'answer'); process.stderr.write(resultLine('gstack-autoplan answer', 'GATE_REV_STALE', `no --gate-rev given; current gate_rev=${s.gate_rev ?? 0}`) + '\n'); return EXIT.refused; }
       const replyFile = flag(rest, '--owner-reply-file'); const ownerFlag = flag(rest, '--owner-reply');
       if (replyFile !== undefined && ownerFlag !== undefined) return usage('--owner-reply and --owner-reply-file are exclusive');
       const ownerReply = replyFile !== undefined ? fs.readFileSync(replyFile, 'utf8') : ownerFlag === '-' ? fs.readFileSync(0, 'utf8') : ownerFlag;
       return mutating(out, json, () => {
         const state = readState(out);
+        refuseCeoOnly(state, 'answer');
         const r = answerGate(state, Number(rev), reply, by, { recHash: flag(rest, '--rec-hash'), ownerReply });
         writeState(state);
         const lines = [...r.lines];
@@ -403,6 +409,7 @@ async function main(argv: string[]): Promise<number> {
       if (rev === undefined || !item || !option || !basis?.trim()) return usage('recommend needs --gate-rev <n> --item <id> --option <k> --basis "<why>"');
       return mutating(out, json, () => {
         const state = readState(out);
+        refuseCeoOnly(state, 'recommend');
         const lines = recommendGate(state, Number(rev), item.toLowerCase(), option.toLowerCase(), basis.trim(), flag(rest, '--by') ?? 'parent');
         writeState(state);
         emit(json, [...lines, resultLineFor(state.status, out)], { run: state.run, status: state.status, gate_rev: state.gate_rev, out });

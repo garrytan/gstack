@@ -550,6 +550,25 @@ local `origin/<base>` at `<rev>`.
 **Fix.** Run `git fetch origin <base>` outside the sandbox and rerun /review if
 the base has moved.
 
+<a id="review-content-changed"></a>
+### `review_freshness: STALE content changed during review: the tree moved from <start> to <end> while <skill> ran ...` / **Review records missing or mismatched**
+
+**Meaning.** The working tree changed between the pass's `gstack-review-log --start` and
+its logged row: an edit, commit or merge landed while reviewers were still reading. The
+reviewers may not have seen that change, so the row's `review_binding.state` is `changed`.
+Step 11.5 cannot bind it and inserts `9 → 10 → 11 → 11.5`. Logging the same results again
+cannot repair it.
+
+**Fix.** Keep the checkout frozen (no edits, commits, merges or pushes) from a pass's start
+until every reviewer in it has returned and its row is logged. If the mid-pass change was
+your own fix to that pass's findings, log the pass with `"converged":false` and the fix
+as `"action":"fixed"`. `gstack-review-plan` then picks the repeat: one fix-check reading
+the touched hunks when every fix is below the blocking floor, and 11.5 accepts that
+fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tree.
+
+**Expected result.** `gstack-review-read` shows both records at one tree with
+`review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
+
 <a id="review-fingerprint-tmpdir"></a>
 ### `gstack-wtree: cannot create a temp index under <dir>; set TMPDIR to a writable directory` / `gstack-review-log: cannot create a private object directory under <dir>; no working-tree fingerprint. Set TMPDIR to a writable directory.`
 
@@ -1239,8 +1258,8 @@ git -C ~/.claude/skills/gstack update-ref -d 'refs/gstack/rescue/<oid>'
 <a id="setup-runtime-root-contains-checkout"></a>
 ### `gstack setup: refusing to replace <root> for <host>: this runtime directory contains the source checkout setup runs from (<checkout>), so replacing it would delete the checkout. Nothing was changed.`
 
-**Meaning.** Setup installs Codex, Factory, OpenCode, Cursor, Copilot and
-Antigravity by building a runtime root (such as `~/.cursor/skills/gstack`) and
+**Meaning.** Setup installs Codex, Factory, OpenCode, Cursor, Copilot,
+Antigravity and Gemini CLI by building a runtime root (such as `~/.cursor/skills/gstack`) and
 swapping it in for the old one, and Kiro by writing into `~/.kiro/skills/gstack`.
 Your gstack checkout lives at that root or inside it, so the swap would delete
 the checkout (#3084), and Kiro would link the checkout into itself. Setup refuses before
@@ -1942,6 +1961,18 @@ owner's call: run the printed `RECOVER:` line; its resume needs
 **Fix.** In the execute program that runs the command, read
 `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` and pass it as `--reading <n>`.
 
+<a id="meter-scope-parent"></a>
+### `gstack-ship-budget: ... (METER_SCOPE_PARENT)`
+
+**Meaning.** `start` was told the run is a subagent (`--subagent` or `GSTACK_SHIP_SUBAGENT=1`) reading
+`"this"` (`--reading-from this`), the root thread's counter, which also holds every sibling lane, and
+asked for `--meter-scope self`. A self scope would print that counter as the run's own cost. Exit 2;
+no run started.
+
+**Fix.** Start with `--meter-scope tree`. Every cost line then prints
+`METER: tree (root counter, upper bound)`. Exact per-run cost comes from a root replay thread
+(`docs/ship-budget.md`).
+
 <a id="budget-reading-rejected"></a>
 ### `gstack-ship-budget: ... (BUDGET_READING_REJECTED)`
 
@@ -2202,6 +2233,25 @@ anything.
 
 ```powershell
 .\setup.ps1 --host codex
+```
+
+---
+
+<a id="setup-deps-migrate-failed"></a>
+### `gstack: WARN kept the full dependency install (SETUP_DEPS_MIGRATE_FAILED; ...): <cause>`
+
+**Meaning.** Your install was made before v1.91.231.0, so it still carries the
+test and eval packages (about 520 MB, mostly the Claude Agent SDK). setup moved
+`node_modules` aside to install production dependencies only, that install
+failed, and setup put the full `node_modules` back. Nothing was removed, and
+gstack keeps working on the full install.
+
+**Fix.** Fix the cause the warning names (no network, a proxy, a full disk),
+then run `./setup` again. Developing gstack in this checkout? Mark it, and
+setup keeps the dev packages from then on:
+
+```bash
+git config gstack.contributor true
 ```
 
 ---
@@ -2896,6 +2946,34 @@ fetching it cannot create that ref, so pass a branch that exists on `origin`
 (`git branch -r --list 'origin/*'` lists them). `gstack-pregate` says so in
 its fix instead of suggesting the fetch.
 
+<a id="history-read-failed"></a>
+### `cannot read <path> at <ref>. <cause> (git version <v>). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)`
+
+**Meaning.** A CI job or a local release tool read a file at an older commit
+and git could not produce it. The PR and train path jobs (Free Tests' plan, the Version Gate,
+and E2E Evals' route, screen summary, planner, slices, reruns, bisect and
+report) check out blobless clones (`filter: blob:none`): every commit and
+tree is there, but an older file's contents are fetched from GitHub the first
+time something reads them. When that fetch fails three times (a GitHub outage,
+a network drop), or the ref does not resolve at all, the read fails here
+instead of counting as "the file is absent". A file the commit really does not
+have still reads as absent, as before. No ship policy at the base means no
+train, and no VERSION means `0.0.0.0`. The route and backstop policy reads (inline
+in their workflows), `.github/scripts/history-read.sh` (the Version Gate's base
+`VERSION`) and `lib/history-read.ts` (the Version Gate's train classification)
+print this line. The Version Gate prints the same code when
+`git fetch origin <base>` fails three times. `gstack-restamp` and
+`gstack-ship-queue land` print it too when they cannot read the base branch's
+CHANGELOG, which they check fragments against (`lib/changelog-fragments.ts`
+reads it through `lib/history-read.ts`); outside a partial clone they do not
+retry.
+
+**Fix.** Rerun the failed job once GitHub is reachable. If it fails the same
+way on a healthy network, check that the ref exists on `origin` and that the
+runner's git supports partial clone (`git --version` 2.22 or newer; the eval
+image asserts it at build time in `.github/docker/Dockerfile.ci`). For a local
+tool, run `git fetch origin <base>` and rerun it.
+
 <a id="policy-invalid"></a>
 ### `POLICY_INVALID`
 
@@ -3081,9 +3159,14 @@ or pass `--force-gate <reason>` in `/ship` to run the full gate again.
 **Meaning.** The bundle (or ledger record) lacks a committed tree id, runtime
 versions, lockfile hashes or the command hash, so no reuse decision can rest on
 it. Imported assertions without verification count as unknown too.
+`gstack-tree-receipt` also fails with this code when git cannot produce the
+diff between the gated and current heads (a missing object, a timeout): the
+error names git's reason, and a failed diff is never read as no change.
 
 **Fix.** Rebuild the bundle on the gate machine after the lanes ran on a
-committed head: `gstack-evidence bundle --out <file> --label <lane>...`.
+committed head: `gstack-evidence bundle --out <file> --label <lane>...`. For
+the tree receipt, fix what git's reason names (fetch a missing head with
+`git fetch origin <sha>`), then rerun.
 
 <a id="evidence-bundle-invalid"></a>
 ### `EVIDENCE_BUNDLE_INVALID`
@@ -3179,6 +3262,42 @@ result.
 
 **Fix.** Run `gstack-autoplan status --out <dir>` and submit for the attempt
 the last `next` printed (`ATTEMPT: ... phase=<p> voice=<v>`).
+
+<a id="ceo-only-conflict"></a>
+### `CEO_ONLY_CONFLICT`
+
+**Meaning.** `gstack-autoplan next --ceo-only` was combined with `--ui`,
+`--developer-tool` or `--agent-primary` (on the command line or in the plan's
+`gstack-autoplan-scope` marker), each of which adds a phase a CEO-only run
+never opens; or the marker names `--ceo-only` (the mode is a command-line
+choice for one run, so a plan can't pin it); or the plan is `<out>/ceo-review.md`
+(directly, through a symlink or a hard link), the report the run would write
+over it. The finish checks that last case again before it writes the report.
+
+**Fix.** Drop the conflicting flag (or the marker token), move the plan out of
+the report path, or run the full review without `--ceo-only`.
+
+<a id="ceo-only-after-init"></a>
+### `CEO_ONLY_AFTER_INIT`
+
+**Meaning.** `next --ceo-only` named a run directory that already holds a full
+review run. A run keeps the mode it started with.
+
+**Fix.** Start the CEO-only run in a new `--out` directory, passing
+`--ceo-only` on its first `next`.
+
+<a id="ceo-only-no-gate"></a>
+### `CEO_ONLY_NO_GATE`
+
+**Meaning.** `answer`, `recommend` or `revise` was run on a CEO-only run, or
+`gstack-approvals import` was pointed at one. A CEO-only
+run writes no gate, ends `status=reviewed` and is never approved, so there is
+nothing to answer, change or import. (`budget` and `close --deferred` still
+work: they are how a budget-stopped CEO-only run recovers.)
+
+**Fix.** Read `<run dir>/ceo-review.md`. For a gate and an approval, start a
+full review in a new directory: `gstack-autoplan next --out <new dir> --plan
+<file>` without `--ceo-only`.
 
 <a id="attempt-mismatch"></a>
 ### `ATTEMPT_MISMATCH`
@@ -3514,9 +3633,12 @@ never runs them: declare `"**/integration_test/**": []` (and
 them. A `[]` declaration added only on the branch is refused under
 `--policy-from head` ([`PREGATE_HEAD_POLICY_LOOSENS`](#pregate-head-policy-loosens)),
 so land it in its own PR first.
-With no policy anywhere (no base copy, no user-owned file) an unmapped file is
+With no policy anywhere (no base copy, no user-owned file), or a policy with no
+`dependencies`, `empty_lanes`, `selection` or `local` key (a timeout-only file), an unmapped file is
 the warning [`PREGATE_NO_POLICY`](#pregate-no-policy) with a starter policy
-printed, not this error; `gstack-pregate init` writes that draft and lists the
+printed, not this error. Under `warn: ["lanes"]` it is a `warn` with this code,
+given only after the selected tests ran green (a red lane is still
+`PREGATE_LANE_FAILED`); `gstack-pregate init` writes that draft and lists the
 files it could not place. `--explain` prints every mapping and why. For a file with no lane it also prints the import
 specifiers in test files that resolved to no repo file (for example a
 `tsconfig.json` `paths` alias such as `@/lib/x` whose target is missing) and any
@@ -3654,8 +3776,9 @@ differing path is a change.
 ### `PREGATE_NO_POLICY`
 
 **Meaning.** The repository has no pregate policy yet (no `.gstack/pregate.json`
-on the base branch and no user-owned `<state root>/projects/<slug>/pregate.json`)
-and a touched file maps to no test lane. Under no policy that is a `warn`, not
+on the base branch and no user-owned `<state root>/projects/<slug>/pregate.json`),
+or its policy declares no lanes (no `dependencies`, `empty_lanes`, `selection` or `local` key, a
+timeout-only file for example), and a touched file maps to no test lane. Under no policy that is a `warn`, not
 `PREGATE_NO_LANE`: the selected tests still ran (a red lane is still `fail`),
 and the table printed a starter policy drafted from the repository
 (`PREGATE_STARTER:` lines: runner, test directories, CI lanes, the JSON between
@@ -3666,7 +3789,8 @@ Details: [docs/pregate.md](pregate.md#no-policy).
 overwrite an existing file without `--force`), edit each `TODO` (a test that
 names the file, a `dependencies` entry, or `[]` for a file with no behaviour),
 run `gstack-pregate validate`, then commit `.gstack/pregate.json` on the base
-branch. From then on an unmapped file is `PREGATE_NO_LANE`.
+branch. When a policy already exists, add the starter's `dependencies` to it
+instead. From then on an unmapped file is `PREGATE_NO_LANE`.
 
 <a id="pregate-environment"></a>
 ### `PREGATE_ENVIRONMENT`
@@ -5466,7 +5590,9 @@ compare (a receipt written before `head_tree`, whose head is not in this
 clone), the PR was retargeted to the base after its stack parent landed but
 the receipt records no `product_patch_id` and `origin/<parent>` no longer
 resolves, so the reviewed range cannot be recomputed, or git could not
-compare the two product diffs or read the working tree's status. It also refuses when an owner exception the receipt records
+compare the two product diffs (including when carry cannot create its temp
+directory under `.git/gstack-patch-id`; the message names it) or read the
+working tree's status. It also refuses when an owner exception the receipt records
 no longer stands, and, for a receipt from a gstack that records review
 depth, when HEAD needs a deeper review than the receipt records, `--head` is
 not the checked-out HEAD, or the receipt records `gstack_version` without
@@ -5559,6 +5685,10 @@ the tree it is bound to. Finish also stops this way for test code changed since
 review with no gate edit (`tests=N`): the packet holds those test hunks, and the
 reviewer checks that each test still tests what it did. A packet that cannot be
 written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the path.
+`carry --dry-run` reports this code without writing the packet, and only when
+none of carry's other checks would refuse; carry without `--dry-run` writes it.
+In /ship Step 1, `gstack-ship-preflight` prints the route as `NEXT: carry
+route (Step 1.4)`.
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`
@@ -5614,7 +5744,10 @@ over` line names (or raise its cap on the base branch). When the owner accepts
 the named risk instead, record it as `docs.exception: { accepted_by, date, via,
 reason }` and carry the `Documentation exception: accepted by <owner> <date> via
 <ref>: <reason>` line in the PR body's `## Documentation` section, word for word
-([ship-policy.md](ship-policy.md#ship-receipt)).
+([ship-policy.md](ship-policy.md#ship-receipt)). Then save the post-audit snapshot with
+`gstack-docs-candidate snapshot --exception .gstack/tmp/docs-audit.json`;
+`gstack-ship-release finish` stops on a blocked audit whose snapshot lacks the
+exception.
 <a id="gstack-pr-wait"></a>
 ## gstack-pr-wait
 
@@ -5971,6 +6104,26 @@ The router's description (at most 300 bytes) and the context block (at most 600 
 ### `gstack-harness: no registration named "<name>"` (HARNESS_NOT_REGISTERED)
 
 There is no ledger for that harness or id under `$GSTACK_STATE_ROOT/harness`. `gstack-harness status` lists every registration on this machine with its id.
+
+<a id="harness-hook-unsupported"></a>
+### `gstack-harness: <harness> has no start hook` / `the start hook goes into the <harness> profile <dir>, and this registration uses another skills folder` (HARNESS_HOOK_UNSUPPORTED)
+
+The [start hook](hosts.md#start-hook) exists for OpenClaw and Hermes only, and it goes into the harness profile's own plugin folder, the one the harness scans. A registration with `--skills-dir` somewhere else has no profile gstack can trust, and with `OPENCLAW_CONFIG_PATH` set OpenClaw reads a config outside the profile, where gstack's settings change would not land, so `--start-hook` is refused and nothing is written. Register without `--skills-dir` (set `OPENCLAW_STATE_DIR` or `HERMES_HOME` to pick the profile), or drop `--start-hook`. When the choice comes from `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` instead of the flag, such a registration just gets no hook, and its receipt says so.
+
+<a id="harness-hook-choice-invalid"></a>
+### `gstack-harness: GSTACK_HARNESS_START_HOOK="<value>" is not on or off` (HARNESS_HOOK_CHOICE_INVALID)
+
+The start hook switch takes `on` or `off` (`GSTACK_HARNESS_START_HOOK` also takes `1` or `0`). Nothing was registered. Fix the value, or unset it so each registration keeps its saved choice.
+
+<a id="harness-hook-owned-elsewhere"></a>
+### `gstack-harness: a gstack-start plugin already exists at <dir> and this registration did not write it` (HARNESS_HOOK_OWNED_ELSEWHERE)
+
+Each harness profile has one start hook, owned by the gstack registration that wrote it, so that removing one install can never take another install's hook away. This folder is not in this registration's ledger: another gstack checkout or state root wrote it, or someone made it by hand. Nothing was written. Run `gstack-harness register <harness> --no-start-hook` from the gstack install that wrote it (its `gstack-harness status` shows the hook), or move the folder aside, then register again.
+
+<a id="harness-hook-inactive"></a>
+### `gstack-harness: <harness> start hook is written: <why>. Turn it on: <command>` (HARNESS_HOOK_INACTIVE, exit 4)
+
+The skills are registered and the start hook's files are in place, but the hook is not active in the harness. gstack turns the hook on through the harness's own CLI and then reads it back, so this means the CLI was not on `PATH`, one of its commands failed or timed out (the message quotes its last output), or the harness's settings block the plugin: OpenClaw's `plugins.allow` set without `gstack-start`, `gstack-start` in `plugins.deny`, or `hooks.allowPromptInjection: false`. gstack never edits your allow or deny lists. Run the printed command, then `gstack-harness status`; `--start-hook` again retries the whole step. `./setup --host` exits 4 for the same reason. Refreshes and upgrades retry on their own without failing, and stop once you disable the plugin in the harness.
 
 <a id="harness-qm-credentials"></a>
 ### `gstack-harness: no QM admin credential in the environment` / `... needs --yes` (HARNESS_QM_CREDENTIALS)

@@ -141,6 +141,7 @@ gstack_result_anchor() {
     BROWSER_UNAVAILABLE) printf '%s' 'browser-ensure-failed' ;;
     INSTALL_PREFLIGHT_FAILED) printf '%s' 'capy-install-preflight-failed' ;;
     SETUP_PS1_EMPTY_ARGUMENT) printf '%s' 'setup-ps1-empty-argument' ;;
+    SETUP_DEPS_MIGRATE_FAILED) printf '%s' 'setup-deps-migrate-failed' ;;
     POLICY_SOURCE_UNAVAILABLE) printf '%s' 'policy-source-unavailable' ;;
     POLICY_INVALID) printf '%s' 'policy-invalid' ;;
     POLICY_CONTAINMENT) printf '%s' 'policy-containment' ;;
@@ -360,6 +361,7 @@ gstack_result_anchor() {
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
+    METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;
     BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;
     BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
@@ -373,6 +375,9 @@ gstack_result_anchor() {
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
     REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
+    CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
+    CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
+    CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;
     *) return 1 ;;
   esac
 }
