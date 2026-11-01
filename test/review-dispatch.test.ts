@@ -249,6 +249,27 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(judge(m, [{ id: 'r#1', severity: 'INFORMATIONAL', reason: 'a real defect' }]).ok).toBe(true);
   });
 
+  // Value: protects=a reader's closing prose that negates a severity word ("found nothing CRITICAL") is not collected as a finding,
+  //   while a label stated as a finding still is; fails_when=collect records the negated word as a CRITICAL the judge cannot drop;
+  //   why_new=GST-766: GEVA-92's fix-check#5 on gstack-evals #108 (1.92.17.0) became a phantom CRITICAL; seam=parseFindings; no_claim=prose voices' summaries that state a count
+  test('a negated severity word is not a finding: GEVA-92 fix-check#5 and its negated forms', () => {
+    const fixCheck = [
+      'REVIEWED_TREE: bedd511efa0fa16c9277821073c68e438dc760d2 /workspace/gstack-evals',
+      '{"severity":"INFORMATIONAL","path":"wiki/board/README.md","line":229,"summary":"Section 9\'s opening still says every ruling is recorded in the approvals file."}',
+      '{"severity":"INFORMATIONAL","path":"wiki/board/README.md","line":113,"summary":"The tstack row still runs on full stacks-r1 and is not labelled raw."}',
+      '',
+      'I checked these against the post, the frozen texts and the pinned code, and found nothing CRITICAL. The arithmetic is consistent throughout:',
+      '- The new secondary: 47/60, 15/60, 5/40, 7/40, 4/40 and 11.5/40.',
+      '- The minimum p of 2^-15.',
+    ].join('\n');
+    expect(parseFindings('fix-check', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL']);
+    for (const prose of ['Found no CRITICAL issues in the fix range.', 'Nothing CRITICAL or HIGH remains.', 'This is not CRITICAL.', 'I found zero Critical findings, and none High.', 'The retry path is safe; without CRITICAL impact.'])
+      expect([prose, parseFindings('fix-check', prose)]).toEqual([prose, []]);
+    expect(parseFindings('r', 'Not CRITICAL, but High: the cache drops a row (c.ts:4)').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('r', '1. A CRITICAL race in queue.ts:78 that no lock covers').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('adversarial-native', 'FIXABLE: no timeout on the fetch in a.ts:3').map(f => f.label)).toEqual(['CRITICAL']);
+  });
+
   // Value: protects=normalizer v2 in production (GSTA-167 part 1, certified by round 5's G1): a prose voice's Blocks: yes reaches
   //   merged.jsonl as CRITICAL, so judge refuses a lead that keeps it below the floor; Blocks: no never lowers a label;
   //   fails_when=a Blocks: yes finding is collected at its Medium or INVESTIGATE label, a Blocks line with no finding before it is
