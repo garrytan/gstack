@@ -223,6 +223,46 @@ describe('literals (pure)', () => {
     expect(consumersOf(root, all, { name: 'TIMEOUT_MS', old: '5000', new: '9000', file: 'lib/retry.js' })).toEqual(['test/retry.test.ts:1', 'test/retry-path.test.ts:2', 'test/retry-bare.test.ts:2']);
     fs.rmSync(root, { recursive: true, force: true });
   });
+  // Value: protects=a one-character old value counts only in a statement that names the constant (its line, or lines that continue it),
+  //   so comments, shell positionals and fixture bodies elsewhere in a file that names it are not consumers, while a formatter-split
+  //   assertion still is; fails_when=any lone digit in such a file is reported again
+  //   (#3492: five false hits on a wrapper 2 -> 3 bump, the same five on 3 -> 4 at v1.91.376.0); why_new=only file-level gating was
+  //   tested; seam=none; no_claim=longer values (module-gated as before)
+  test('consumersOf: a one-character old value counts only in a statement that names the constant (#3492)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-bound-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'scripts/install.sh': ['#!/usr/bin/env bash', '#   handing the held lock over (GSTACK_DEMO_LOCK_HELD=1) and,', "#   from revision 2, origin's VERSION read in this run", 'GSTACK_DEMO_WRAPPER=3', ''].join(nl),
+      'test/prose.test.ts': ["const rev = read(BOOT).match(/^GSTACK_DEMO_WRAPPER=(\\d+)$/m);", '', '// Field list 2 item 13: lanes relay only the trailer', ''].join(nl),
+      'test/stub.test.ts': ["const env = { GSTACK_DEMO_WRAPPER: '9' };", 'const script = [', "  'bash \"$1\" touch --root \"$2\" --pid $$ || exit 9',", '];', ''].join(nl),
+      'test/fixture.test.ts': ['// covers the GSTACK_DEMO_WRAPPER readers', "write('src/a.js', 'export default 1;');", "write('src/b.js', 'export default 2;');", ''].join(nl),
+      'test/same-line.test.ts': ['expect(GSTACK_DEMO_WRAPPER).toBe(2);', ''].join(nl),
+      'test/later.test.ts': ['// readers of the wrapper revision', "it('x', () => { const n = 2; });", 'expect(env.GSTACK_DEMO_WRAPPER).toBe(2);', ''].join(nl),
+      'test/split.test.ts': ['expect(read().GSTACK_DEMO_WRAPPER)', '  .toBe(2);', ''].join(nl),
+      'test/split-args.test.ts': ['assert.strictEqual(', '  mod.GSTACK_DEMO_WRAPPER,', '  2,', ');', ''].join(nl),
+      'test/adjacent.test.ts': ['const rev = mod.GSTACK_DEMO_WRAPPER;', 'const two = 2;', ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    expect(consumersOf(root, Object.keys(files), { name: 'GSTACK_DEMO_WRAPPER', old: '2', new: '3', file: 'scripts/install.sh' })).toEqual(['test/same-line.test.ts:1', 'test/later.test.ts:3', 'test/split.test.ts:2', 'test/split-args.test.ts:3']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  // Value: protects=a one-character call-site literal (`attempts: 1`) counts only in a file that also names the changed module, on a line
+  //   naming the call-site name, because `attempts`, `limit` and `cap` are ordinary words across a test tree; fails_when=any file with
+  //   the word and a lone `1` is reported again (gstack-evals#97: `retry: { attempts: 1 }` -> `JUDGE_RETRY` raised 11 false hits,
+  //   GSTA-2); why_new=call-site names had only the constant-name gate; seam=none; no_claim=constant names (previous test)
+  test('consumersOf: a one-character call-site literal needs the changed module in the file and the name on its line (gstack-evals#97)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-call-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'tests/grid.test.ts': ['const grid = { tasks: ["a"], attempts: 1, n_concurrent: 4 };', ''].join(nl),
+      'tests/replay.test.ts': ['// attempts are counted per finding', 'expect(r.findings.length).toBe(1);', ''].join(nl),
+      'tests/proxy.test.ts': ["import { retryBudget } from '../lanes/proxy';", 'const cell = { trial: 1, attempt: 1 };', 'expect(retryBudget().attempts).toBeGreaterThan(0);', ''].join(nl),
+      'tests/judge-run.test.ts': ["import { run } from '../lanes/review-noloss/judge-run';", 'const n = 1;', 'expect(run({ retry: { attempts: 1 } }).sent).toBe(n);', ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    expect(consumersOf(root, Object.keys(files), { name: 'attempts', old: '1', new: '3', file: 'lanes/review-noloss/judge-run.ts' })).toEqual(['tests/judge-run.test.ts:3']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   test('consumersOf: a history row is skipped only when this branch added the new-value row to the same table; other old-value lines still count (GST-344)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-history-'));
     const nl = String.fromCharCode(10);
@@ -266,6 +306,13 @@ describe('literals (pure)', () => {
     expect(parseSummary('Tests:       1 failed, 7 passed, 8 total')).toEqual({ ran: 8, failed: 1 });
     expect(parseSummary('===== 3 passed in 0.1s =====')).toEqual({ ran: 3, failed: 0 });
     expect(parseSummary('No tests found')).toEqual({ ran: 0, failed: 0 });
+    // Playwright lists the failed tests between its counts, so each count line is read on its own.
+    expect(parseSummary('  2 failed\n    [e2e] › a.spec.ts:9:1 › one\n    [e2e] › b.spec.ts:4:1 › two\n  1 flaky\n    [e2e] › c.spec.ts:2:1 › three\n  3 skipped\n  135 passed (3.0m)', 'npx playwright test {files}')).toEqual({ ran: 138, failed: 2 });
+    expect(parseSummary('  137 passed (1.1m)', 'npx playwright test {files}')).toEqual({ ran: 137, failed: 0 });
+    expect(parseSummary('  3 failed\n    [e2e] › a.spec.ts:9:1 › one\n  1 interrupted\n  2 did not run', 'npx playwright test {files}')).toEqual({ ran: 4, failed: 4 });
+    expect(parseSummary('  5 skipped', 'npx playwright test {files}')).toEqual({ ran: 0, failed: 0 });
+    // A test's own output that looks like a count is not the summary: the last count lines are.
+    expect(parseSummary('  0 passed\n  1 failed\n    [e2e] › a.spec.ts:9:1 › one\n  4 passed (2.0s)', 'npx playwright test {files}')).toEqual({ ran: 5, failed: 1 });
     expect(parseSummary('ok')).toEqual({ ran: null, failed: null });
   });
   test('config: unknown keys, secrets in warn, a runner without {files} and an uncontained glob are PREGATE_CONFIG_INVALID', () => {
@@ -403,6 +450,19 @@ describe('gstack-pregate (bin)', () => {
     // Updating the consumer clears it.
     commit(repo, { 'test/nightly/retry-heavy.test.js': "const test = require('node:test');\nconst assert = require('node:assert');\ntest('heavy', () => assert.strictEqual(require('../../lib/retry.js').TIMEOUT_MS, 9000));\n" });
     expect(pregate(repo, ['--stage', 'preflight', '--only', 'literals']).status).toBe(EXIT.ok);
+  });
+
+  // Value: protects=a real stale one-character constant still fails literals end to end after the #3492 narrowing, and an incidental
+  //   digit in the same file is not what it reports; fails_when=the statement binding drops a named assertion; why_new=only
+  //   multi-character values had a bin-level control; seam=none; no_claim=two-character values
+  test('#3492 control: a one-character constant change still fails literals on the test that asserts the old value by name', () => {
+    const repo = fixture();
+    commit(repo, { 'test/nightly/retries.test.js': "const test = require('node:test');\nconst assert = require('node:assert');\n// covers 3 retry shapes\nconst { MAX_RETRIES } = require('../../lib/retry.js');\ntest('retries', () => assert.strictEqual(\n  MAX_RETRIES,\n  3,\n));\n" });
+    commit(repo, { 'lib/retry.js': "exports.MAX_RETRIES = 4;\nexports.TIMEOUT_MS = 5000;\nexports.retry = (fn) => fn();\n" });
+    const r = pregate(repo, ['--stage', 'preflight', '--only', 'literals']);
+    expect(r.status).toBe(EXIT.fail);
+    expect(r.out).toContain('literals: test/nightly/retries.test.js:7: MAX_RETRIES still 3 (now 4 in lib/retry.js)');
+    expect(r.err).toContain('(PREGATE_LITERALS)');
   });
 
   test('GST-344: a history table the branch extends passes literals through the merge-base read; one it does not extend fails', () => {
@@ -730,6 +790,78 @@ describe('nested JS packages run their own runner from their own directory', () 
     fs.rmSync(path.join(repo.work, 'yarn.lock'));
     write(repo.work, 'app/package.json', JSON.stringify({ name: 'app', devDependencies: { vitest: '^3.2.0' } }) + '\n');
     expect(planRuns(ctx, ['app/src/sum.test.ts']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] }]);
+  });
+
+  /** `env` with a `python3` first on PATH whose `-c` probe exits `probeExit` (0: pytest importable, 3: not). */
+  const withPython = (repo: FixtureRepo, env: { PATH: string; BASH_ENV: string }, probeExit: number) => {
+    const dir = path.join(repo.root, `py-${probeExit}`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'python3'), `#!/bin/sh\n[ "$1" = "-c" ] && exit ${probeExit}\nexit 3\n`, { mode: 0o755 });
+    return { ...env, PATH: `${dir}:${env.PATH}` };
+  };
+
+  // Value: protects=root-owned tests in two languages each get their language's runner instead of the whole lane going incomplete, and a
+  //   language whose runner this machine lacks is named while the other still runs; fails_when=detection again needs one language
+  //   across every root file (#3600: `.mjs` + `.py` was PREGATE_INCOMPLETE asking for one `runner` for both); why_new=only
+  //   single-language root selections were tested; seam=none; no_claim=the runners themselves (plan only)
+  test('root tests in two languages plan one group per language; a file no runner claims stays unclaimed', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const ctx = ctxFor(repo, withPython(repo, pmShim(repo), 0));
+    const mixed = ['scripts/doku-gate.test.mjs', 'scripts/test_assets.py', 'scripts/version-gate.test.mjs'];
+    expect(planRuns(ctx, mixed)).toEqual({ groups: [
+      { runner: 'node --test {files}', cwd: '', files: ['scripts/doku-gate.test.mjs', 'scripts/version-gate.test.mjs'] },
+      { runner: 'python3 -m pytest {files}', cwd: '', files: ['scripts/test_assets.py'] },
+    ], unclaimed: [], missing: [], noPubspec: [] });
+    expect(planRuns(ctx, ['scripts/doku-gate.test.mjs', 'test/run.bats'])).toEqual({ groups: [
+      { runner: 'node --test {files}', cwd: '', files: ['scripts/doku-gate.test.mjs'] },
+    ], unclaimed: ['test/run.bats'], missing: [], noPubspec: [] });
+    expect(planRuns(ctxFor(repo, withPython(repo, pmShim(repo), 3)), mixed)).toEqual({ groups: [
+      { runner: 'node --test {files}', cwd: '', files: ['scripts/doku-gate.test.mjs', 'scripts/version-gate.test.mjs'] },
+    ], unclaimed: ['scripts/test_assets.py'], missing: ['pytest'], noPubspec: [] });
+  });
+
+  // Value: protects=a repo-wide bun or vitest claims only JS/TS files, so a root `.py` test beside them gets pytest instead of being handed to
+  //   the JS runner; fails_when=bun.lock or a vitest dependency again takes every extension; why_new=the split was only tested with no
+  //   repo runner; seam=none; no_claim=the runners themselves (plan only)
+  test('a repo-wide bun or vitest runner claims JS/TS only; a root .py test beside it gets pytest; parts with one runner run together', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const ctx = ctxFor(repo, withPython(repo, pmShim(repo), 0));
+    write(repo.work, 'package.json', JSON.stringify({ name: 'fixture', devDependencies: { vitest: '^3.2.0' } }) + '\n');
+    expect(planRuns(ctx, ['test/a.test.ts', 'scripts/b.test.mjs', 'scripts/test_c.py', 'test/run.bats'])).toEqual({ groups: [
+      { runner: 'npx vitest run {files}', cwd: '', files: ['test/a.test.ts', 'scripts/b.test.mjs'] },
+      { runner: 'python3 -m pytest {files}', cwd: '', files: ['scripts/test_c.py'] },
+    ], unclaimed: ['test/run.bats'], missing: [], noPubspec: [] });
+    expect(planRuns(ctx, ['test/a.test.ts', 'scripts/b.test.mjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['test/a.test.ts', 'scripts/b.test.mjs'] }]);
+    write(repo.work, 'bun.lock', '');
+    expect(planRuns(ctx, ['test/a.test.ts', 'scripts/test_c.py']).groups).toEqual([
+      { runner: 'bun test {files}', cwd: '', files: ['test/a.test.ts'] },
+      { runner: 'python3 -m pytest {files}', cwd: '', files: ['scripts/test_c.py'] },
+    ]);
+  });
+
+  // Value: protects=a Playwright spec in a repo whose unit runner is vitest runs through `playwright test`, never vitest (which finds
+  //   no test files and exits 1 on a diff that touches only specs); fails_when=the repo-wide runner takes every JS/TS test again (#3629);
+  //   why_new=no detection knew Playwright; seam=none; no_claim=a real Playwright run (plan only)
+  test('a spec importing @playwright/test runs through playwright test from its package; the other tests keep their runner', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const ctx = ctxFor(repo, pmShim(repo));
+    write(repo.work, 'package.json', JSON.stringify({ name: 'fixture', devDependencies: { vitest: '^3.2.0', '@playwright/test': '^1.48.0' } }) + '\n');
+    write(repo.work, 'tests/e2e/home.spec.ts', "import { expect, test } from '@playwright/test';\ntest('home', async ({ page }) => expect(page).toBeTruthy());\n");
+    write(repo.work, 'app/e2e/app.spec.ts', "import {\n  test, // the runner's fixture\n  /* it's */ expect,\n} from \"@playwright/test\";\ntest('app', () => {});\n");
+    write(repo.work, 'tests/e2e/tight.spec.ts', "import{test}from'@playwright/test';\ntest('tight', () => {});\n");
+    write(repo.work, 'test/pad.test.js', 'import' + ' '.repeat(5_000) + '\n');
+    write(repo.work, 'test/util.test.js', "import { test } from 'vitest';\nimport type { Page } from '@playwright/test';\nimport type {\n  Locator,\n} from '@playwright/test';\nimport { type BrowserContext } from '@playwright/test';\nconst spec = \"import { test } from '@playwright/test';\";\ntest('fixture text and type imports only', () => {});\n");
+    expect(planRuns(ctx, ['tests/e2e/home.spec.ts', 'tests/e2e/tight.spec.ts', 'test/util.test.js', 'test/pad.test.js', 'app/src/sum.test.ts', 'app/e2e/app.spec.ts'])).toEqual({ groups: [
+      { runner: 'npx vitest run {files}', cwd: '', files: ['test/util.test.js', 'test/pad.test.js'] },
+      { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },
+      { runner: 'npx playwright test --reporter=list {files}', cwd: '', files: ['tests/e2e/home.spec.ts', 'tests/e2e/tight.spec.ts'] },
+      { runner: 'pnpm exec playwright test --reporter=list {files}', cwd: 'app', files: ['e2e/app.spec.ts'] },
+    ], unclaimed: [], missing: [], noPubspec: [] });
+    // A declared runner still takes every file, Playwright specs included.
+    const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'bun test {files}' } } as PregateContext;
+    expect(planRuns(declared, ['tests/e2e/home.spec.ts']).groups).toEqual([{ runner: 'bun test {files}', cwd: '', files: ['tests/e2e/home.spec.ts'] }]);
+    // A package manager missing from PATH leaves the spec unclaimed naming it.
+    expect(planRuns(ctxFor(repo, { PATH: path.join(repo.root, 'empty-path') }), ['app/e2e/app.spec.ts'])).toEqual({ groups: [], unclaimed: ['app/e2e/app.spec.ts'], missing: ['pnpm'], noPubspec: [] });
   });
 
   // Value: protects=repos where root detection works today are unchanged: a nested package that declares no test runner stays with the

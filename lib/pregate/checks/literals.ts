@@ -65,7 +65,12 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
  * path fragment (`/retry.js`, `/retry'`): a bare stem such as `install` or `retry` is an
  * English word in half the test tree, and a one-character old value (`2`)
  * sits in every test, so that value needs the constant's name (a wrapper
- * version 2 → 3 flagged 575 consumers through the stem alone).
+ * version 2 → 3 flagged 575 consumers through the stem alone), and counts only
+ * in a statement that names it: on the name's line, or on a line that
+ * continues it (the line before ends open, `(` `,` `.` `=`, or the line
+ * starts with `.` `)` `]`), comments excluded (#3492: `$2`, "from revision 2",
+ * `export default 2`). A call-site name (`attempts`, `limit`) is an ordinary
+ * word, so for it the file must also name the module (gstack-evals#97).
  *
  * A version-history row (`[45, "<digest>"]`, the old value first in a
  * bracketed row) is skipped when the same table, a run of consecutive
@@ -86,12 +91,23 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   const moduleRe = new RegExp(`(?:(?:^|[/\\\\])${escape(stem)}|(?<![\\w-])${escape(base)})(?![\\w-])`, 'm');
   const nameRe = new RegExp(`\\b${escape(change.name)}\\b`);
   const nameRequired = value.length < 2;
+  const callSite = !/^[A-Z]/.test(change.name);
+  const comment = (l: string) => /^\s*(?:\/\/|#|\*|\/\*|<!--)/.test(l);
+  const continues = (prev: string, cur: string) => /[([{,.=+\-*/&|?:\\]\s*$/.test(prev) || /^\s*[.)\]}?:&|+]/.test(cur);
   const hits: string[] = [];
   for (const rel of testFiles) {
     let text: string;
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
-    if (!(nameRe.test(text) || (!nameRequired && moduleRe.test(text)))) continue;
+    if (nameRequired ? !(nameRe.test(text) && (!callSite || moduleRe.test(text))) : !(nameRe.test(text) || moduleRe.test(text))) continue;
     const lines = text.split('\n');
+    const named = (i: number) => {
+      if (comment(lines[i]!)) return false;
+      for (let j = i; j >= 0 && i - j < 4; j--) {
+        if (j < i && (comment(lines[j]!) || !continues(lines[j]!, lines[j + 1]!))) return false;
+        if (nameRe.test(lines[j]!)) return true;
+      }
+      return false;
+    };
     const table: number[] = [];
     const tableHasNew: boolean[] = [];
     for (let i = 0; i < lines.length; i++) {
@@ -107,7 +123,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
       if (extended === undefined) { const base = baseText?.(rel); extended = base === null || (base !== undefined && !newRowRe.test(base)); }
       return extended;
     };
-    for (let i = 0; i < lines.length; i++) if (valueRe.test(lines[i]!) && !skip(i)) { hits.push(`${rel}:${i + 1}`); break; }
+    for (let i = 0; i < lines.length; i++) if (valueRe.test(lines[i]!) && (!nameRequired || oldRowRe.test(lines[i]!) || named(i)) && !skip(i)) { hits.push(`${rel}:${i + 1}`); break; }
   }
   return hits;
 }
