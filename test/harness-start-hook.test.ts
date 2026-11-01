@@ -420,6 +420,13 @@ describe('start hook: teardown keeps what gstack did not write (fake CLI)', () =
       expect(() => register(r.o({ startHook: false }))).toThrow(/EACCES/);
       expect(readLedger(on.ledger)!.meta.hook_root).toBe(r.root);
     } finally { fs.chmodSync(r.root, 0o755); }
+    const ext = path.join(r.profile, 'extensions'), moved = path.join(r.d, 'moved');
+    fs.renameSync(ext, moved);
+    fs.symlinkSync(moved, ext);
+    expect(() => register(r.o({ startHook: false }))).toThrow(expect.objectContaining({ code: 'HARNESS_UNSAFE_DESTINATION' }));
+    expect(fs.existsSync(path.join(moved, HOOK_ID, 'index.js'))).toBe(true);
+    fs.unlinkSync(ext);
+    fs.renameSync(moved, ext);
     const off = register(r.o({ startHook: false }));
     expect(off.hook?.state).toBe('off');
     expect(fs.existsSync(path.join(r.profile, 'extensions'))).toBe(false);

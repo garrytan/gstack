@@ -540,7 +540,8 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
   const profile = prevOn ? prev!.meta.hook_profile : hookProfile(t.name, opts.env, opts.home);
   const root = hookRoot(t.name, profile);
   const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
-  if (prevOn && !choice.on) assertHookRoot(t.name, profile, root, root, (code, msg) => { throw new HarnessError(code, msg); });
+  const saved = prev?.meta.hook_root && prev.meta.hook_profile ? { profile: prev.meta.hook_profile, root: prev.meta.hook_root } : null;
+  if (saved && !choice.on) assertHookRoot(t.name, saved.profile, saved.root, saved.root, (code, msg) => { throw new HarnessError(code, msg); });
   if (!choice.on) return plan;
   const why = dest !== profileSkills(t.name, profile) ? 'this registration uses another skills folder (' + dest + ')'
     : t.name === 'openclaw' && opts.env.OPENCLAW_CONFIG_PATH ? 'OPENCLAW_CONFIG_PATH points OpenClaw at a config outside that profile' : '';
