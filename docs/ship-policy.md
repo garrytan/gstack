@@ -1221,13 +1221,13 @@ construction:
    fix-range`) or in the diff is `scope: fix`; nothing below the floor earns a
    pass. `NO FINDINGS` is the expected reviewer result for a clean range, never a
    failed review.
-3. **Two full passes plus one fix-check is the cap**, stepped by the
-   [transition table](review-policy.md#transitions); a
-   [scoped pass](review-policy.md#scoped-pass) counts as a full pass. A pass that applied no edits
+3. **Two rounds is the cap** (R51), stepped by the
+   [transition table](review-policy.md#transitions); a full pass, a
+   [scoped pass](review-policy.md#scoped-pass) and a fix-check each count as a round. A pass that applied no edits
    continues to Step 10: the loop ships with its deferred and noted items named in
    the PR body. A blocking finding still open after the last allowed step stops
    the run and names the finding (path, severity, problem) for the owner instead
-   of a third full pass.
+   of a third round; the owner may grant one scoped fix-check.
 
 `gstack-review-scope summary --since <REVIEW_SINCE>` reads the branch's review-log
 rows for this invocation and writes the counters the ship receipt carries
