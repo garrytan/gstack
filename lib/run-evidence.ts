@@ -71,7 +71,7 @@ const SHA = /^[0-9a-f]{40}$/;
 const RUN_EVENTS = ['push', 'workflow_dispatch', 'pull_request'];
 const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours', 'os'];
 const WORKFLOW_FILE = /^[A-Za-z0-9_.-]+\.ya?ml$/;
-const NAME = /^[A-Za-z0-9_.\/-]{1,128}$/;
+const NAME = /^[A-Za-z0-9_./-]{1,128}$/;
 export const DEFAULT_MAX_AGE_HOURS = 24;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 

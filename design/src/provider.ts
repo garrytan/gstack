@@ -118,7 +118,7 @@ export function readImage(auth: DesignAuth, data: any): { responseId: string; im
   const parts: any[] = candidate?.content?.parts ?? [];
   const images = parts.filter(part => {
     const inline = part?.inlineData ?? part?.inline_data;
-    return typeof inline?.data === "string" && /^image\//.test(inline.mimeType ?? inline.mime_type ?? "");
+    return typeof inline?.data === "string" && String(inline.mimeType ?? inline.mime_type ?? "").startsWith("image/");
   });
   const image = images.findLast(part => part?.thought !== true) ?? images.at(-1);
   if (image) {

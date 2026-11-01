@@ -1728,7 +1728,7 @@ describe('check-freeze.sh', () => {
     // The host resolves a relative path against its physical cwd; a logical
     // $PWD through a symlink names a different parent for '..'.
     test.skipIf(process.platform === 'win32')('a relative path resolves against the physical working directory', () => {
-      withTree(({ base, home, src, outside }) => {
+      withTree(({ home, src, outside }) => {
         const work = path.join(outside, 'work');
         fs.mkdirSync(work);
         fs.mkdirSync(path.join(src, 'a', 'b'), { recursive: true });

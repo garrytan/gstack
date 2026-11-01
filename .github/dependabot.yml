@@ -29,6 +29,10 @@ updates:
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "@anthropic-ai/sdk"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # oxlint is pinned exactly and scripts/lint-baseline.json records the
+      # version that wrote it. A bump can add rules or findings, so it lands
+      # as a maintainer PR that runs bun run lint --write-baseline --oxlint-upgrade.
+      - dependency-name: "oxlint"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "github-actions"

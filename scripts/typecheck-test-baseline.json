@@ -9,7 +9,6 @@
     "browse/test/browse-client.test.ts\tTS2322\tType 'number | undefined' is not assignable to type 'number'. Type 'undefined' is not assignable to type 'number'.": 1,
     "browse/test/cdp-e2e.test.ts\tTS2339\tProperty 'cleanup' does not exist on type 'BrowserManager'.": 1,
     "browse/test/cdp-inspector-history-cap.test.ts\tTS2741\tProperty 'sourceLine' is missing in type '{ method: 'setProperty'; newValue: string; oldValue: string; property: string; selector: string; source: 'inline'; timestamp: number; }' but required in type 'StyleModification'.": 7,
-    "browse/test/commands.test.ts\tTS2300\tDuplicate identifier 'os'.": 2,
     "browse/test/config.test.ts\tTS2367\tThis comparison appears to be unintentional because the types '\"abc123\"' and '\"def456\"' have no overlap.": 1,
     "browse/test/config.test.ts\tTS2769\tNo overload matches this call. The last overload gave the following error. Argument of type 'string | null' is not assignable to parameter of type 'string'. Type 'null' is not assignable to type 'string'.": 1,
     "browse/test/cookie-auth-verification.test.ts\tTS2493\tTuple type '[]' of length '0' has no element at index '0'.": 2,

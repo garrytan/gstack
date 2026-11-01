@@ -61,7 +61,7 @@ describe('free-tests workflow wiring', () => {
     expect(gate.env.TYPECHECK_RESULT).toBe('${{ needs.typecheck.result }}');
     expect(gate.run).toContain('test "$TYPECHECK_RESULT" = success');
     const typecheck = workflow.jobs.typecheck.steps.map((step: any) => step.run).filter(Boolean);
-    expect(typecheck).toEqual(expect.arrayContaining(['bun run typecheck', 'bun run typecheck:test', 'bun run format:cso:check']));
+    expect(typecheck).toEqual(expect.arrayContaining(['bun run typecheck', 'bun run typecheck:test', 'bun run lint', 'bun run format:cso:check']));
     expect(source).not.toContain('--quick');
   });
 
