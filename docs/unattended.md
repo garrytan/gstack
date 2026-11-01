@@ -65,10 +65,12 @@ A run that writes a record ends with one line the parent greps:
 GSTACK_RESULT: skill=<name> status=<status> run=<dir>
 ```
 
-`status` is one of `complete`, `gate_pending`, `incomplete`, `interrupted` or
-`refused`; `run` is where the run's record is. `/autoplan`
+`status` is one of `complete`, `reviewed`, `gate_pending`, `incomplete`,
+`interrupted` or `refused`; `run` is where the run's record is. `/autoplan`
 always ends `gate_pending` when it reaches the final gate, because the gate is
-written and never approved. Pure queries (`gstack-artifact schema`,
+written and never approved. `/autoplan --ceo-only` ends `reviewed`: it runs the
+CEO phase alone, asks nothing, writes no gate and approves nothing (see
+[CEO-only runs](#ceo-only-runs)). Pure queries (`gstack-artifact schema`,
 `gstack-gate render`) print no result line.
 
 Not every workflow writes this line or a run directory today:
@@ -558,6 +560,40 @@ Carried rows keep `answered_by: agent:gstack-autoplan` and name their source
 and `gstack-owner-brief render --captain` opens with "Nothing pending.
 Carried forward from gate_rev <m>", followed by any items taken under "do it"
 without being shown to the owner.
+
+## CEO-only runs
+
+`/autoplan --ceo-only` runs the CEO review by itself and asks nothing. It runs
+in the session that invokes the skill; `gstack-autoplan`, the driver a parent
+agent uses, has no CEO-only mode yet, and `run.json` does not accept the
+`reviewed` status. It needs Claude Code: other hosts inline autoplan's sections
+and do not carry this one yet. It is for a harness or a crew that wants the strategy pass
+without the full gauntlet, such as an eval comparing gstack's CEO review with a
+plain prompt.
+
+- **What runs:** Phase 0, the outside-reviewer preflight and the CEO phase.
+  Design, DX, Eng and the final gate do not run.
+- **How it decides:** every question takes its recommendation and is logged in
+  the Decision Audit Trail. The review mode comes from plan-ceo-review's 0E
+  rule (file count, then greenfield, added capability or fix), not autoplan's
+  fixed SELECTIVE EXPANSION, and the mode line says `CEO-only run`. Consent,
+  destructive and irreversible options take the conservative choice.
+- **What it never does:** apply a user challenge (the plan's direction stays;
+  each challenge is listed), chain to another skill, promote the CEO plan, or
+  approve anything.
+- **One model:** add `--no-outside` to skip the outside voice, so every
+  reviewer runs on the host model.
+- **Where it writes:** the run directory (`.gstack/tmp/autoplan/` in the
+  repository), the reviewed plan, and CEO plans and task files under
+  `GSTACK_STATE_ROOT`. Point that variable inside a trial folder to keep every
+  write there.
+- **What it leaves:** the reviewed plan (its original is kept at the restore
+  point), `<run dir>/ceo-review.md` (user challenges, scope added,
+  conservative choices, findings and the audit trail), and the last line
+  `GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>`.
+
+`test/skill-e2e-autoplan-ceo-only.test.ts` runs it on a plan that makes the
+interactive CEO review ask a question and fails if this mode asks anything.
 
 ## Owner brief
 

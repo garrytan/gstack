@@ -45,6 +45,12 @@
       "file": "unattended.md",
       "title": "Unattended profile: parent-driven next/submit loop, gate answers, export, terminal line",
       "trigger": "the preamble echoed `SESSION_KIND: unattended` (read before Phase 1 and at the Phase 4 gate)"
+    },
+    {
+      "id": "ceo-only",
+      "file": "ceo-only.md",
+      "title": "CEO-only run: zero questions, CEO phase only, review report, no gate",
+      "trigger": "the invocation names `--ceo-only` (read before any preamble instruction block)"
     }
   ]
 }
