@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.92.25.0] - 2026-11-01
+
+- In a repository that merges the base during `/ship` (any `queue_mode` but `stamp-at-merge`), Step 3 now stops by name when an earlier merge, cherry-pick or revert is still unfinished (`STOP: an unfinished cherry-pick is in progress (CHERRY_PICK_HEAD): …`), with any conflicted files listed, and runs no `git merge`. Conflicted files left with no operation in progress, as after a conflicted `git stash pop`, stop with those files named instead of a merge message. Before, both fell through to `git merge`, so on a machine whose shared-tree guard refuses `git merge`, the guard's refusal was the only message (GST-732). A branch or tag named `MERGE_HEAD`, `CHERRY_PICK_HEAD` or `REVERT_HEAD` is not mistaken for one. The ship skill's Step 3 now names the `MERGE: up to date` outcome.
+
+## [1.92.24.0] - 2026-11-01
+
+- `/ship` can finish after the owner accepts a Step 14.5 documentation risk. `gstack-docs-candidate snapshot --exception .gstack/tmp/docs-audit.json` writes the post-audit snapshot from the blocked record, naming who accepted it, the date, how and the base SHA, and `gstack-ship-release finish` prints that exception on its `DOCS:` line. Finish still stops on a blocked audit with no accepted exception, and on an exception snapshot whose docs-audit record no longer carries it (GST-713).
+
+## [1.92.23.0] - 2026-11-01
+
+- **OpenClaw and Hermes: opt-in start hook.** `gstack-harness register openclaw|hermes --start-hook` (or `gstack-config set harness_start_hook on`, or `GSTACK_HARNESS_START_HOOK=1`) adds a `gstack-start` plugin that puts a one-line note on every user turn telling the agent to run a gstack skill's start command as written. Agents in these harnesses read gstack's skills but ran that command on 1 of 29 chances. gstack turns the plugin on through each harness's own CLI, checks that it is active, and exits 4 when it is not. It is off by default, the choice is saved across upgrades, a plugin you disable in the harness stays off, and `--no-start-hook`, unregister and uninstall take it out. See docs/hosts.md#start-hook.
+
+## [1.92.22.0] - 2026-11-01
+
+**gstack installs into Gemini CLI, and installs made before v1.91.231.0 finally drop the test and eval packages they never needed.** `./setup --host gemini` puts every gstack skill in `~/.gemini/skills`, where Gemini CLI 0.66.0 lists them (#1247). Separately, `./setup` used to treat any checkout that had TypeScript installed as a contributor's, so every install made before v1.91.231.0 (which ran a full `bun install`) kept about 510 MB of dev packages in `node_modules` forever (#3447).
+
+### Added
+- **Gemini CLI host** (experimental): `./setup --host gemini` (alias `gemini-cli`; `--host auto` picks it only when `gemini` is on PATH) links `gstack-<skill>` directories into `~/.gemini/skills` plus the `~/.gemini/skills/gstack` runtime root. The render goes to `.gemini-cli/` with frontmatter names that match their directories, `CLAUDE.md` read as `GEMINI.md`, and a tool glossary for Gemini CLI's tool names and for Antigravity CLI, which can read the same folder. Ask for a skill by name (`gstack-office-hours`); Gemini CLI loads it with `activate_skill`. `gstack-uninstall` removes only gstack-managed entries there, so your own skills stay. `--local --host gemini` is refused with a note that Gemini CLI loads workspace skills only in trusted folders. docs/ADDING_A_HOST.md lists the verified facts.
+- **An explicit contributor marker**: `bin/dev-setup` runs `git config gstack.contributor true`, and `GSTACK_CONTRIBUTOR=1` marks a single run. A marked clone keeps the full install on every `./setup`.
+
+### Changed
+- **An unmarked clone that still has the dev toolchain moves to production dependencies once.** setup takes a lock in the checkout, moves `node_modules` aside, installs production dependencies, checks every runtime package resolves, then deletes the old copy. If the install fails, the full `node_modules` goes back and setup prints `SETUP_DEPS_MIGRATE_FAILED` with the cause; nothing is removed and the next `./setup` tries again. CI, and a checkout whose git config cannot be read, never migrate. On a real install `node_modules` went from 1079 MB to 569 MB. Bun's shared package cache is left alone, because other projects can read it through symlinks.
+
+### Tests
+- test/setup-production-deps.test.ts: the marker (git config, env, CI, unreadable git config), the one-time migration and its no-op rerun, restore on a failed or unverified install, recovery of an interrupted move, the lock, an untouched Bun cache, and a real-Bun fixture for a marked and an unmarked clone. test/uninstall.test.ts: Gemini CLI entries removed, the user's own kept. Host config, conformance, install-registry, render-prune and runtime-root tests cover the new host.
+
+## [1.92.21.0] - 2026-11-01
+
+**The PR and train path check out blobless clones, and the history reads they gate on fail loudly instead of reading a failed fetch as "absent" (GSTA-203 PR 5).** Free Tests' plan job, the Version Gate and E2E Evals' route, screen summary, planner, slices, reruns, bisect and report checked out every file of every commit (about 232 MB) to read a handful of old files. They now check out with `filter: blob:none` (about 17 MB), and git fetches an old file's contents the first time something reads it.
+
+### Changed
+- **Blobless checkouts** (`filter: blob:none`) in `free-tests.yml` (free-plan), `version-gate.yml` and `evals.yml` (route, screen-summary, plan-slices, eval-slices, eval-rerun, train-bisect, slices-report). The release, CSO, periodic, marathon, sweep and recorder workflows and the main backstop keep full clones. `test/ci-history-read.test.ts` names each with its reason and fails on any other full-history checkout without the filter, printing the file and line to fix.
+- **History reads fail loudly.** The train-policy reads in the route and backstop jobs stay inline (git and jq only, so no repository code decides whether a PR push starts paid work). The Version Gate's base `VERSION` read goes through `.github/scripts/history-read.sh` from the gate's merge-commit checkout, and its train classification through the TypeScript twin, `lib/history-read.ts`, which also lists the merge base's changed files without rename detection so that diff needs no file contents. Each one checks existence with `git ls-tree`, reads with `git show` (3 tries in a partial clone) and fails with `HISTORY_READ_FAILED` naming the ref, the path and the git version (docs/troubleshooting.md#history-read-failed). A file that is really absent keeps its old meaning. A ship policy that is not valid JSON now fails the route and backstop jobs instead of reading as "no train". The Version Gate goes red when `git fetch origin <base>` fails 3 times instead of carrying on. `gstack-restamp` and `gstack-ship-queue land` read the base branch's CHANGELOG the same way, so a read that fails stops them with `HISTORY_READ_FAILED` instead of treating the base as having no released sections.
+- **The eval image asserts partial clone support.** `.github/docker/Dockerfile.ci` makes a blobless clone and fetches a missing blob at build time, so an image whose git cannot do that fails to build.
+
 ## [1.92.20.0] - 2026-11-01
 
 **`/retro global` now sees Kimi Code, OMP and Antigravity sessions (#2917, #1977).** `gstack-global-discover` scanned only Claude Code, Codex and Gemini. A week spent in other agent CLIs went uncounted, and nothing showed a zero to notice.
