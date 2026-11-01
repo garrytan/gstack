@@ -39,6 +39,7 @@ const KEPT: Record<string, string> = {
   'base-red.json': '/ship base-red record',
   'review-*': '/ship review loop records',
   'fix-check-*': '/ship fix-check inputs',
+  'tasks-*': 'gstack-tasks rows files (bin/gstack-tasks)',
   'autoplan': 'autoplan phase artifacts (autoplan/SKILL.md.tmpl)',
   'eval-bisect': '/investigate eval bisect cache',
   'price-gate': 'gstack-eval-plan price receipts',
