@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.92.19.0] - 2026-11-01
+
+**On Linux and Windows the renderer goes straight to gstack's own browser instead of asking for Aside (#2864).** `probeAside()` in `lib/aside-render.ts`, used by /make-pdf, /diagram and `gstack-render`, used to run `aside --version` on any platform. When that failed it told the user to install a browser that only ships for macOS. Off macOS it now answers `NEEDS_ASIDE` with "Aside is macOS-only (this is linux)", without starting a process, and the renderer moves on to gstack's own browser. macOS behavior and `GSTACK_SKIP_ASIDE=1` are unchanged.
+
+### Changed
+- **`probeAside(timeoutMs, platform)`** takes the platform, which defaults to `process.platform`. The fake-CLI probe tests pass `darwin`, so they still run on Linux CI.
+
+Thanks to @furkankoykiran for the report. The bash readiness block inside browsing skills already prints `NEEDS_ASIDE: Linux` and is unchanged.
+
 ## [1.92.18.0] - 2026-11-01
 
 - `install.sh --project` (through `gstack-capy-install`) resolves the directory it names to its git toplevel, which is where pregate admission looks for the install verdict. `--project <repo>/<subdir>` now writes, and reads pins from, the same place as `--project <repo>`, so a Bun pin declared only in a subpackage no longer applies. A value that isn't a directory, such as a repo slug or a directory this shell can't enter, is a usage error that asks for the checkout's path, and it stops before anything is cloned or installed. Before this change, a slug or a subdirectory keyed the verdict somewhere admission never looks, so a later pregate admission check read a stale verdict (GST-743).
