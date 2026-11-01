@@ -120,7 +120,7 @@ STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` an
 
 - Step 18: the open-PR lookup; a title file starting `v<NEW_VERSION> `. `UNATTENDED_SHIP:` with no open PR at HEAD takes Step 18-H.
 - Step 19 body: the receipt block, then the sections `sections/pr-body.md` lists (Pre-Landing Review: `REVIEW_LOOP:`, `Gate edits:`, deferred, notes), led under `CAPY_PR: on` (Step 19-C) by What changed, Why, Blast radius and Approvals (`gstack-approvals render`). `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> [--review-targeted @.gstack/tmp/targeted.json] --body <body>`; `gstack-post pr-body` and `pr-title` (new PR: the host's PR tool; draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
-- Step 20: the metrics row via `gstack-review-log`.
+- Step 20: a metrics row via `gstack-review-log`.
 - Step 22: `gstack-ship-budget close --reading R --credits C` (report `BUDGET_FINAL:`, `BUDGET_TIMELINE:` (tokens, credits), any `METER:` line), then `gstack-ship-receipt result --pr <n>`: `GSTACK_RESULT: skill=ship status=complete run=<dir>`. Under a merge queue, `gstack-ship-queue ready --pr <n> [--screen|--no-screen]` at the pushed head; paste its output.
 
 ## Where each STOP sends you (paths under `<root>/ship/`)
