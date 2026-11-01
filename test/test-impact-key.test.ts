@@ -6,10 +6,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import { ALWAYS_RUN_PATH } from '../lib/pregate/lane-selection';
-import { computeKeys, MAX_HOPS, type KeyResult } from '../lib/test-impact/key';
+import { computeKeys, materializeTree, MAX_HOPS, type KeyResult } from '../lib/test-impact/key';
 import { TRACE_VERSION, envDigests, parseStrace, readTrace, tracePath, type TraceRecord } from '../lib/test-impact/trace';
 import { cleanup, commit, makeFixtureRepo, type FixtureRepo } from './helpers/pregate-fixture';
 
@@ -28,7 +29,7 @@ function fixture(baseFiles: Record<string, string> = {}): FixtureRepo {
 }
 
 /** Write `test`'s trace from strace lines that open `reads`, list `lists` and add `extra` raw calls, through parseStrace. */
-function traceFrom(repo: FixtureRepo, test: string, opts: { reads?: string[]; lists?: Record<string, string[]>; extra?: string[]; tracedAt?: string; env?: Record<string, string | undefined> } = {}): string {
+function traceFrom(repo: FixtureRepo, test: string, opts: { reads?: string[]; lists?: Record<string, string[]>; extra?: string[]; tracedAt?: string; env?: Record<string, string | undefined>; runtime?: TraceRecord['runtime'] } = {}): string {
   const w = repo.work;
   const lines = [test, ...(opts.reads ?? [])].map(p => `100 openat(AT_FDCWD<${w}>, "${w}/${p}", O_RDONLY|O_CLOEXEC) = 3<${w}/${p}>`);
   for (const [dir, names] of Object.entries(opts.lists ?? {})) lines.push(`100 getdents64(4<${w}/${dir}>, [${['.', '..', ...names].map(n => `{d_ino=1, d_off=1, d_reclen=24, d_type=DT_REG, d_name="${n}"}`).join(', ')}], 32768) = 96`);
@@ -36,7 +37,7 @@ function traceFrom(repo: FixtureRepo, test: string, opts: { reads?: string[]; li
   const dir = path.join(repo.root, 'traces');
   fs.mkdirSync(dir, { recursive: true });
   const set = parseStrace(lines.join('\n'), { repoRoot: w, home: repo.home, tmpDir: path.join(repo.root, 'run'), sharedTmp: [] });
-  const record: TraceRecord = { version: TRACE_VERSION, test, tracedAt: opts.tracedAt ?? '2026-11-01T00:00:00Z', commit: null, exitCode: 0, runtime: RUNTIME, env: envDigests(opts.env ?? {}), ...set };
+  const record: TraceRecord = { version: TRACE_VERSION, test, tracedAt: opts.tracedAt ?? '2026-11-01T00:00:00Z', commit: null, exitCode: 0, runtime: opts.runtime ?? RUNTIME, env: envDigests(opts.env ?? {}), ...set };
   fs.writeFileSync(tracePath(dir, test), JSON.stringify(record));
   return dir;
 }
@@ -213,6 +214,41 @@ describe('test-impact key: ineligible', () => {
   });
 });
 
+describe('test-impact materializeTree: a hostile tree cannot write outside its temp dir', () => {
+  const hashTree = (repo: FixtureRepo, entries: [string, string, string][]) => {
+    const body = Buffer.concat(entries.map(([mode, name, oid]) => Buffer.concat([Buffer.from(`${mode} ${name}\0`), Buffer.from(oid, 'hex')])));
+    const r = spawnSync('git', ['hash-object', '-t', 'tree', '-w', '--literally', '--stdin'], { cwd: repo.work, input: body, encoding: 'utf8', timeout: 60_000 });
+    expect(r.status).toBe(0);
+    return r.stdout.trim();
+  };
+  const attempt = (fn: () => string) => { try { fs.rmSync(fn(), { recursive: true, force: true }); return 'did not throw'; } catch (error) { return String(error); } };
+  const hashBlob = (repo: FixtureRepo, text: string) => spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: repo.work, input: text, encoding: 'utf8', timeout: 60_000 }).stdout.trim();
+
+  test('a tree entry named .. (or .git) throws and writes nothing outside the temp dir', () => {
+    const repo = fixture();
+    const victim = `gstack-test-impact-victim-${process.pid}-${Date.now()}`;
+    const outside = path.join(os.tmpdir(), victim);
+    const evil = hashTree(repo, [['100644', 'evil.txt', hashBlob(repo, 'pwned\n')]]);
+    const victimTree = hashTree(repo, [['40000', victim, evil]]);
+    try {
+      const thrown = attempt(() => materializeTree(repo.work, hashTree(repo, [['40000', '..', victimTree]])));
+      expect(fs.existsSync(outside)).toBe(false);
+      expect(thrown).toMatch(/unsafe tree path/);
+      expect(() => materializeTree(repo.work, hashTree(repo, [['40000', '.git', hashTree(repo, [['40000', 'hooks', evil]])]]))).toThrow(/unsafe tree path/);
+    } finally { fs.rmSync(outside, { recursive: true, force: true }); }
+  });
+
+  test('a blob under a symlink entry (a -> outside dir, a/x) throws and writes nothing through the link', () => {
+    const repo = fixture();
+    const outside = fs.mkdtempSync(path.join(repo.root, 'outside-'));
+    const sub = hashTree(repo, [['100644', 'x', hashBlob(repo, 'pwned\n')]]);
+    const tree = hashTree(repo, [['40000', 'a', sub], ['120000', 'a', hashBlob(repo, outside)]]);
+    const thrown = attempt(() => materializeTree(repo.work, tree));
+    expect(fs.readdirSync(outside)).toEqual([]);
+    expect(thrown).toMatch(/duplicate tree path|under symlink/);
+  });
+});
+
 describe('scripts/test-impact.ts', () => {
   test('key --base runs the base ref\'s key code, not this checkout\'s, and refuses when the base has none', () => {
     const repo = fixture();
@@ -229,7 +265,7 @@ describe('scripts/test-impact.ts', () => {
     expect(trusted.out).toContain('key code from main:lib/test-impact/key.ts');
     expect(trusted.out).toContain('INELIGIBLE test/util.test.js: stub key code from the base ref');
 
-    traceFrom(repo, 'test/util.test.js', { env: { ...process.env, ...repo.env } });
+    traceFrom(repo, 'test/util.test.js', { env: { ...process.env, ...repo.env }, runtime: { platform: process.platform, arch: process.arch, bun: Bun.version }, tracedAt: new Date().toISOString() });
     const local = cli(repo, ['explain', '--tree', 'HEAD', '--traces', path.join(repo.root, 'traces'), 'test/util.test.js']);
     expect(local.status).toBe(0);
     expect(local.out).toMatch(/KEY test\/util\.test\.js [0-9a-f]{12}/);

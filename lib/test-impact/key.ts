@@ -73,6 +73,7 @@ export function readTreeIndex(repoRoot: string, treeish: string): TreeIndex {
     if (tab < 0) continue;
     const [mode, type, oid] = rec.slice(0, tab).split(' ');
     const rel = rec.slice(tab + 1);
+    if (entries.has(rel)) throw new Error(`${treeish}: duplicate tree path ${JSON.stringify(rel)}`);
     entries.set(rel, { mode: mode!, type: type!, oid: oid! });
     const parent = path.posix.dirname(rel);
     children.set(parent, [...(children.get(parent) ?? []), path.posix.basename(rel)]);
@@ -108,12 +109,23 @@ export function catText(repoRoot: string, treeish: string, rel: string): string 
  * A tree-ish written to a fresh temp directory blob by blob from `git cat-file --batch`, with a git index loaded by read-tree,
  * so the import graph (git ls-files) sees exactly that tree's paths and bytes. Nothing applies attributes: `git archive`
  * honors export-ignore and checkout-index honors working-tree-encoding and filters, and either would let the tree hide
- * an import from the graph. Submodules are skipped; symlinks become symlinks.
+ * an import from the graph. Submodules are skipped; symlinks become symlinks, written last. Every path is checked before
+ * anything is written: a `..`, `.` or `.git` segment, an empty segment or a backslash, or an entry under a symlink entry,
+ * refuses the tree, so a hand-built tree object cannot write outside the temp dir or into its .git.
  */
 export function materializeTree(repoRoot: string, treeish: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-impact-tree-'));
   try {
-    const blobs = [...readTreeIndex(repoRoot, treeish).entries].filter(([, e]) => e.type === 'blob');
+    const { entries } = readTreeIndex(repoRoot, treeish);
+    for (const rel of entries.keys()) {
+      const parts = rel.split('/');
+      if (parts.some(p => p === '' || p === '.' || p === '..' || p.toLowerCase() === '.git' || p.includes('\\'))) throw new Error(`${treeish}: unsafe tree path ${JSON.stringify(rel)}`);
+      for (let i = 1; i < parts.length; i++) {
+        const prefix = parts.slice(0, i).join('/');
+        if (entries.get(prefix)?.mode === '120000') throw new Error(`${treeish}: ${JSON.stringify(rel)} is under symlink ${JSON.stringify(prefix)}`);
+      }
+    }
+    const blobs = [...entries].filter(([, e]) => e.type === 'blob').sort(([, a], [, b]) => Number(a.mode === '120000') - Number(b.mode === '120000'));
     const buf = blobs.length ? git(repoRoot, ['cat-file', '--batch'], blobs.map(([, e]) => e.oid).join('\n') + '\n') : Buffer.alloc(0);
     let at = 0;
     for (const [rel, e] of blobs) {
@@ -124,7 +136,7 @@ export function materializeTree(repoRoot: string, treeish: string): string {
       const abs = path.join(dir, rel);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       if (e.mode === '120000') fs.symlinkSync(bytes.toString('utf8'), abs);
-      else fs.writeFileSync(abs, bytes, { mode: e.mode === '100755' ? 0o755 : 0o644 });
+      else fs.writeFileSync(abs, bytes, { mode: e.mode === '100755' ? 0o755 : 0o644, flag: 'wx' });
     }
     git(dir, ['init', '-q']);
     git(repoRoot, ['read-tree', treeish], undefined, { ...process.env, GIT_INDEX_FILE: path.join(dir, '.git', 'index') });
