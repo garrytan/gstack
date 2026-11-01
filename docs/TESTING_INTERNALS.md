@@ -1448,7 +1448,13 @@ Monday "Weekly test health" workflow (`bun run test:health --enforce`) reads
 main's ledgers through `scripts/lib/ci-history.ts` and fails when a file flakes
 in more than 5% of main free-tests runs over a window of at least 20 runs; a
 window thinner than 20 runs in the last 7 days widens to the newest 20 runs, and
-fewer than 20 runs is report-only. `bun run test:health flake-summary <dir>`
+fewer than 20 runs is report-only. A main push that reused its pull request's
+run ([CI reuse](pregate.md#ci-reuse)) ran no shards, so it stays out of the
+window and its denominator, and older runs take its place. Such a run has no
+artifacts and a green `reuse` job; checking that costs one job listing per
+run with no artifacts, at most 40 per read. Past that cap, or when a listing
+fails, the run counts as before and the report says so.
+`bun run test:health flake-summary <dir>`
 prints a run's ledgers as a table. A flaky file is fixed at source; the retry
 never masks it. `bun run eval:pass-rates` lists only the local ledger
 (`flakeLedgerPath()`, overridden by `GSTACK_FLAKE_LEDGER`).
