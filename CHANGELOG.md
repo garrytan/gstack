@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.25.0] - 2026-11-01
+
+- In a repository that merges the base during `/ship` (any `queue_mode` but `stamp-at-merge`), Step 3 now stops by name when an earlier merge, cherry-pick or revert is still unfinished (`STOP: an unfinished cherry-pick is in progress (CHERRY_PICK_HEAD): …`), with any conflicted files listed, and runs no `git merge`. Conflicted files left with no operation in progress, as after a conflicted `git stash pop`, stop with those files named instead of a merge message. Before, both fell through to `git merge`, so on a machine whose shared-tree guard refuses `git merge`, the guard's refusal was the only message (GST-732). A branch or tag named `MERGE_HEAD`, `CHERRY_PICK_HEAD` or `REVERT_HEAD` is not mistaken for one. The ship skill's Step 3 now names the `MERGE: up to date` outcome.
+
 ## [1.92.24.0] - 2026-11-01
 
 - `/ship` can finish after the owner accepts a Step 14.5 documentation risk. `gstack-docs-candidate snapshot --exception .gstack/tmp/docs-audit.json` writes the post-audit snapshot from the blocked record, naming who accepted it, the date, how and the base SHA, and `gstack-ship-release finish` prints that exception on its `DOCS:` line. Finish still stops on a blocked audit with no accepted exception, and on an exception snapshot whose docs-audit record no longer carries it (GST-713).
