@@ -49,6 +49,7 @@ function resolveAuthorEmails(argv: string[]): string[] {
     const gitEmail = execSync('git config user.email', {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 10_000,
     }).trim();
     if (gitEmail) return [gitEmail];
   } catch {
@@ -126,7 +127,7 @@ type Output = {
 
 function hasScc(): boolean {
   try {
-    execSync('command -v scc', { stdio: 'ignore' });
+    execSync('command -v scc', { stdio: 'ignore', timeout: 10_000 });
     return true;
   } catch {
     return false;
@@ -171,7 +172,7 @@ function enumerateCommits(year: number, repoPath: string, authorEmails: string[]
   const authorFlags = authorEmails.map(e => `--author=${e}`).join(' ');
   try {
     const cmd = `git -C "${repoPath}" log --since=${since} --until=${until} ${authorFlags} --pretty=format:'%H' 2>/dev/null`;
-    const out = execSync(cmd, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const out = execSync(cmd, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 60_000 });
     return out.split('\n').filter(l => /^[0-9a-f]{40}$/.test(l.trim()));
   } catch {
     return [];
@@ -186,7 +187,7 @@ function analyzeCommit(commit: string, repoPath: string, sccAvailable: boolean):
   try {
     diff = execSync(
       `git -C "${repoPath}" show --no-renames --format= --unified=0 ${commit}`,
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 50 * 1024 * 1024 }
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 50 * 1024 * 1024, timeout: 60_000 }
     );
   } catch {
     return { raw: 0, logical: 0, filesTouched: 0, perLang: {} };
@@ -265,7 +266,7 @@ function analyzeRepo(repoPath: string, year: number, authorEmails: string[], scc
     try {
       const dateStr = execSync(
         `git -C "${repoPath}" show --format=%cI --no-patch ${commit}`,
-        { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
+        { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000 }
       ).trim();
       if (dateStr) {
         const d = new Date(dateStr);

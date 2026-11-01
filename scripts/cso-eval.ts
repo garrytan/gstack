@@ -341,9 +341,9 @@ function initializeFixtureRepository(path: string): void {
   // can remove .git/objects/maintenance.lock while that copy is in progress.
   const safe = ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
     '-c', `core.hooksPath=${nullPath}`, '-c', `core.attributesFile=${nullPath}`, '-c', `core.excludesFile=${nullPath}`];
-  execFileSync(git, [...safe, 'init', '--quiet', '--initial-branch=main'], { cwd: path, env, stdio: 'ignore' });
-  execFileSync(git, [...safe, 'add', '--all'], { cwd: path, env, stdio: 'ignore' });
-  execFileSync(git, [...safe, 'commit', '--quiet', '-m', 'immutable evaluation fixture'], { cwd: path, env, stdio: 'ignore' });
+  execFileSync(git, [...safe, 'init', '--quiet', '--initial-branch=main'], { cwd: path, env, stdio: 'ignore', timeout: 30_000 });
+  execFileSync(git, [...safe, 'add', '--all'], { cwd: path, env, stdio: 'ignore', timeout: 30_000 });
+  execFileSync(git, [...safe, 'commit', '--quiet', '-m', 'immutable evaluation fixture'], { cwd: path, env, stdio: 'ignore', timeout: 30_000 });
 }
 
 function sourceEntries(corpus: EvalCorpus, caseId: string, variant: EvalVariant): ProducerSourceEntry[] {

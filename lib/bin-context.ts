@@ -29,6 +29,15 @@ export function toMsysPath(p: string): string {
   return drive ? `/${drive[1].toLowerCase()}${body}` : body;
 }
 
+/**
+ * Hard cap on every `git` spawn. On Windows hosts git children can stall far
+ * past a hook's RPC window (MSYS init, flaky mounts, wedged locks) — an
+ * unbounded spawnSync turned Stop hooks into 15s timeouts. Callers already
+ * degrade on non-zero status / missing stdout, so a timed-out child must read
+ * as "no answer", never as a block.
+ */
+const GIT_SPAWN_TIMEOUT_MS = 1500;
+
 /** `-f` in bash terms: a regular file (following symlinks), never a directory. */
 function isFile(p: string): boolean {
   try {
@@ -98,7 +107,10 @@ export function outermostRemoteRepo(startDir: string): { root: string; url: stri
   let depth = 0;
   while (dir && dir !== "/" && depth < 64) {
     if (existsSync(join(dir, ".git"))) {
-      const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf-8" });
+      const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], {
+        encoding: "utf-8",
+        timeout: GIT_SPAWN_TIMEOUT_MS,
+      });
       const u = r.status === 0 ? (r.stdout || "").trim() : "";
       if (u) {
         root = dir;
@@ -461,6 +473,7 @@ export function slugFromEnvironment(
           (() => {
             const rootOrigin = spawnSync("git", ["-C", projectRoot, "remote", "get-url", "origin"], {
               encoding: "utf-8",
+              timeout: GIT_SPAWN_TIMEOUT_MS,
             });
             const rootUrl = rootOrigin.status === 0 ? (rootOrigin.stdout || "").trim() : "";
             if (rootUrl) return false; // marker root's own origin resolves — not the stray shape
@@ -559,7 +572,7 @@ export const NEEDS_NATIVE_SLUG_ON_WINDOWS = process.platform === "win32";
  * was unconditionally wrong and so has nothing to regress.
  */
 export function resolveSlug(slugBinPath: string): string {
-  const r = spawnSync(slugBinPath, { encoding: "utf-8" });
+  const r = spawnSync(slugBinPath, { encoding: "utf-8", timeout: GIT_SPAWN_TIMEOUT_MS });
   const m = (r.stdout || "").match(/^SLUG=(.+)$/m);
   if (m) return m[1].trim();
   if (NEEDS_NATIVE_SLUG_ON_WINDOWS) return slugFromEnvironment();
@@ -568,7 +581,10 @@ export function resolveSlug(slugBinPath: string): string {
 
 /** Current git branch, or undefined on detached HEAD / outside a repo. */
 export function gitBranch(): string | undefined {
-  const r = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf-8" });
+  const r = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    encoding: "utf-8",
+    timeout: GIT_SPAWN_TIMEOUT_MS,
+  });
   const b = (r.stdout || "").trim();
   return b && b !== "HEAD" ? b : undefined;
 }

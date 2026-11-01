@@ -2100,7 +2100,7 @@ async function main(): Promise<number> {
 
 /** Dirty generated artifacts (SKILL.md / host outputs) after a failed exclusive shard. */
 function spawnSyncGitStatusGenerated(): string[] {
-  const result = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' });
+  const result = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8', timeout: 15_000 });
   if (result.status !== 0 || !result.stdout) return [];
   return result.stdout.split('\n').filter((line) =>
     /SKILL\.md$/.test(line) || line.includes('.agents/') || line.includes('.factory/'));

@@ -31,12 +31,20 @@ export function binPath(name: string): string {
 }
 
 /**
+ * Last-ditch bound when a caller forgets `timeout`. A blocking spawnSync wedged
+ * a Stop hook past the host's 15s RPC window once; callers should pass their own
+ * deadline (the repair child passes REPAIR_SLUG_TIMEOUT_MS), this only caps the
+ * forgetful.
+ */
+const RUNBIN_FALLBACK_TIMEOUT_MS = 30_000;
+
+/**
  * Resolve `name` under bin/ and run it through lib/script-invocation.ts. On
  * Windows the Git Bash resolution is cached in the state root (keyed by the
  * git.exe path and mtime), so a hook spawns nothing extra on the hot path.
  */
 export function runBin(name: string, args: string[], opts: SpawnSyncOptions) {
-  return runScriptSync(binPath(name), args, opts, {
+  return runScriptSync(binPath(name), args, { timeout: RUNBIN_FALLBACK_TIMEOUT_MS, ...opts }, {
     resolve: () => resolveWindowsBashCached(path.join(resolveStateRoot(), 'cache', 'windows-bash.json')),
   });
 }

@@ -14,9 +14,10 @@ import { homedir } from 'os';
 function getGitRoot(): string | null {
   try {
     const proc = Bun.spawnSync(['git', 'rev-parse', '--show-toplevel'], {
-    windowsHide: true,
+      windowsHide: true,
       stdout: 'pipe',
       stderr: 'pipe',
+      timeout: 10_000,
     });
     if (proc.exitCode !== 0) return null;
     return proc.stdout.toString().trim();

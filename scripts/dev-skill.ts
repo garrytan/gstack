@@ -22,7 +22,7 @@ const TEMPLATES = discoverTemplates(ROOT).map(t => ({
 function regenerateAndValidate() {
   // Regenerate
   try {
-    execSync('bun run scripts/gen-skill-docs.ts', { cwd: ROOT, stdio: 'pipe' });
+    execSync('bun run scripts/gen-skill-docs.ts', { cwd: ROOT, stdio: 'pipe', timeout: 300_000 });
   } catch (err: any) {
     console.log(`  [gen]   ERROR: ${err.stderr?.toString().trim() || err.message}`);
     return;
@@ -61,7 +61,7 @@ function regenerateAndValidate() {
     try {
       execSync(
         `bun run scripts/gen-skill-docs.ts --respect-detection --host claude --out-dir ${JSON.stringify(RENDER_DIR)}`,
-        { cwd: ROOT, stdio: 'pipe' },
+        { cwd: ROOT, stdio: 'pipe', timeout: 300_000 },
       );
       console.log('  [render] refreshed .claude/gstack-rendered (brain-aware workspace copy)');
     } catch (err: any) {

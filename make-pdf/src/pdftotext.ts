@@ -161,7 +161,7 @@ function describeBinary(bin: string): PdftotextInfo {
   // was version="unknown" flavor="unknown" on every poppler install. spawnSync
   // hands back both streams regardless of exit status, which also covers the
   // xpdf builds that exit 99.
-  const res = spawnSync(bin, ["-v"], { encoding: "utf8" });
+  const res = spawnSync(bin, ["-v"], { encoding: "utf8", timeout: 10_000 });
   const raw = `${res.stdout ?? ""}\n${res.stderr ?? ""}`;
 
   // The version banner is not reliably the first line once both streams are in
@@ -194,6 +194,7 @@ export function pdftotext(pdfPath: string, opts?: { layout?: boolean }): string 
     return execFileSync(info.bin, args, {
       encoding: "utf8",
       maxBuffer: 32 * 1024 * 1024,
+      timeout: 120_000,
     });
   } catch (err: any) {
     throw new Error(`pdftotext failed on ${pdfPath}: ${err.message}`);
