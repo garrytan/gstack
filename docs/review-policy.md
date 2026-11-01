@@ -462,7 +462,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    literal diff base, the plan's `DIFF_CMD` excludes, stack, test framework,
    learnings, checklist paths, the Red Team's merged findings and specialist count,
    and the outside voice's branch diff. A section that lost an anchor or placeholder
-   refuses (`BRIEF_RENDER_FAILED`) instead of rendering something else.
+   refuses (`BRIEF_RENDER_FAILED`) instead of rendering something else, and so does
+   a slot the section leaves unfilled (every reader but fix-check and the outside voice).
+   That check runs before the findings and learnings go in, and they reach the reader
+   as written, so a finding that quotes `origin/<base>` neither fails the render nor
+   gets filled (GST-797).
 2. The dispatch program passes that file's content unchanged as the reader's
    prompt and runs `sent` on what it passed: a hash that differs from the rendered
    one is `BRIEF_MISMATCH`, and that reader's review does not count.
