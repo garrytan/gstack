@@ -1515,6 +1515,18 @@ capacity each), flushed to disk asynchronously via `Bun.write()`:
 - Network: `.gstack/browse-network.log`
 - Dialog: `.gstack/browse-dialog.log`
 
+The browse server appends to these logs (and to `browse-daemon.log`,
+`browse-startup-error.log` and the `browse-audit.jsonl` command audit) for
+the life of the project, and codex scratch files collect in `.gstack/tmp/`.
+Run `gstack-clean` in the repository to see what it would reclaim, then
+`gstack-clean --apply` to do it: it cuts these logs to their last 256 KB
+once they pass 1 MB, removes `tmp/codex-*` files older than 7 days, and
+trims the audit log only when you pass `--audit-days N`. It never touches
+`browse.json`, `session-state.json`, `chromium-profile/`, `browser-skills/`
+or `browse-states/`, and it skips the browse files while the daemon runs.
+Deleting the whole `.gstack/` folder instead also deletes your cookies and
+browser skills.
+
 The `console`, `network`, and `dialog` commands read from the in-memory
 buffers (not disk) so capture is real-time even when disk is slow.
 

@@ -5818,3 +5818,27 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 ### `RENDER_DEST_NOT_OWNED: <dir> exists and holds no loadout.lock.json`
 
 **Meaning.** `--out-dir` is a non-empty directory that an earlier `gstack-modules render` did not write, so replacing it could delete someone's files. **Fix.** Pass a new or empty directory, or the directory of an earlier render.
+
+## Per-repo cleanup (gstack-clean)
+
+These codes come from `bin/gstack-clean`, which reclaims old codex scratch in `<repo>/.gstack/tmp/`, browse logs over 1 MB and, with `--audit-days N`, old browse audit entries. It changes nothing unless you pass `--apply`, and `gstack-clean --help` lists what it touches.
+
+<a id="gstack-clean-usage"></a>
+### `gstack-clean: an unknown flag or a bad --audit-days value … (GSTACK_CLEAN_USAGE)`
+
+**Meaning.** A flag is not one of `--apply`, `--audit-days N`, `--json` or `--help`, or `--audit-days` got something other than a whole number of days from 1 to 99999. The line quotes the bad value and the last line is the usage line. Exit 2; nothing was read or changed. **Fix.** `gstack-clean --audit-days 30`, for example.
+
+<a id="gstack-clean-target-refused"></a>
+### `gstack-clean: the folder to clean is not a safe per-repo .gstack folder … (GSTACK_CLEAN_TARGET_REFUSED)`
+
+**Meaning.** gstack-clean only cleans `<git toplevel>/.gstack` for the directory you run it in. It refuses outside a git checkout, when `.gstack` is a symlink, when `BROWSE_STATE_FILE` points at a different folder's `browse.json`, and when the folder is, holds or sits inside the gstack state root (`~/.gstack` by default), where your learnings and settings live. Exit 3; nothing was touched. **Fix.** Run it from inside the repository, unset `BROWSE_STATE_FILE` (or point it at this repository's `.gstack/browse.json`), and replace a symlinked `.gstack` with a real folder.
+
+<a id="gstack-clean-partial"></a>
+### `FAILED <path> <errno>` … `(GSTACK_CLEAN_PARTIAL)`
+
+**Meaning.** One or more removals or cuts failed, usually `EACCES` or `EPERM` (a read-only file or folder) or `EBUSY` (another program holds the file). Every other action finished. Exit 1. **Fix.** Rerunning is safe: fix the permissions on each FAILED path, or wait for the program holding it to finish, then run `gstack-clean --apply` again.
+
+<a id="gstack-clean-internal"></a>
+### `gstack-clean: unexpected gstack-clean failure … (GSTACK_CLEAN_INTERNAL)`
+
+**Meaning.** gstack-clean hit an error it does not expect; the line names it. Exit 1. Changes made before the error stay made, and each was checked right before it was made. **Fix.** Rerun once; if it repeats, report the printed error to the gstack maintainers.
