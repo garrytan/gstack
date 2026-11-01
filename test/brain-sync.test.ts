@@ -1078,6 +1078,91 @@ describe('gstack-brain-sync per-file hold', () => {
       expect(remoteShow(SNAP).stdout).toContain('"ccc"');
     });
   });
+
+  describe('a synced JSON file that does not parse is never committed (#3763)', () => {
+    const PROFILE = 'developer-profile.json';
+    const MARKED = '{\n  "sessions": [],\n<<<<<<< HEAD\n  "v": "local"\n=======\n  "v": "peer"\n>>>>>>> origin/main\n}\n';
+    const parses = (text: string) => { try { JSON.parse(text); return true; } catch { return false; } };
+
+    test('a queued profile holding conflict markers is held back; the rest syncs; a repaired profile syncs next', () => {
+      init();
+      write(PROFILE, MARKED);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      expect(remoteFiles()).toContain(CLEAN);
+      expect(remoteFiles()).not.toContain(PROFILE);
+      expect(staged()).toBe('');
+      expect(spoolText()).toContain(PROFILE);
+      const s = statusJson();
+      expect(s.status).toBe('held');
+      expect(s.held.map((h: { path: string; rule: string }) => [h.path, h.rule])).toEqual([[PROFILE, 'invalid-json']]);
+      expect(s.held[0].fixes[0]).toContain(`${PROFILE} is not valid JSON`);
+      expect(s.held[0].fixes).toHaveLength(1);
+      expect(s.message).toContain('not valid JSON');
+      expect(s.message).not.toContain('secret scan');
+
+      write(PROFILE, '{"sessions":[],"v":"repaired"}\n', false);
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('ok');
+      expect(remoteShow(PROFILE).stdout).toBe('{"sessions":[],"v":"repaired"}\n');
+    });
+
+    test('a marker-free syntax error is held too', () => {
+      init();
+      write(PROFILE, '{"sessions": [],}\n');
+      expect(drain().status).toBe(0);
+      expect(remoteFiles()).not.toContain(PROFILE);
+      expect(statusJson().held.map((h: { rule: string }) => h.rule)).toEqual(['invalid-json']);
+      expect(spoolText()).toContain(PROFILE);
+    });
+
+    test('an unparseable decisions.active.json holds its coupled decisions.jsonl until repaired', () => {
+      init();
+      writeDecisions(['a'], ['a']);
+      expect(drain().status).toBe(0);
+      write(LOG, [decide('a'), decide('bb')].join('\n') + '\n', false);
+      write(SNAP, '[{"id":"a"},\n<<<<<<< HEAD\n{"id":"bb"}\n=======\n{"id":"c"}\n>>>>>>> origin/main\n]\n', false);
+      run(['gstack-brain-enqueue', LOG]);
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('held');
+      expect(s.held.map((h: { path: string; rule: string; dependents: string[] }) => [h.path, h.rule, h.dependents])).toEqual([[SNAP, 'invalid-json', [LOG]]]);
+      expect(remoteShow(LOG).stdout).toBe(decide('a') + '\n');
+      expect(spoolText()).toContain(LOG);
+
+      writeDecisions(['a', 'bb'], ['a', 'bb']);
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('ok');
+      expect(remoteShow(LOG).stdout).toBe([decide('a'), decide('bb')].join('\n') + '\n');
+    });
+
+    test('two machines editing the profile never put conflict markers on the remote', () => {
+      init();
+      write(PROFILE, '{"sessions":[],"v":"base"}\n');
+      expect(drain().status).toBe(0);
+      // The retry merge commits with the ambient identity; a CI runner has none.
+      expect(git(['config', 'user.name', 'fixture']).status).toBe(0);
+      expect(git(['config', 'user.email', 'fixture@example.com']).status).toBe(0);
+      const peer = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-peer-'));
+      try {
+        expect(git(['clone', '-q', bareRemote, peer]).status).toBe(0);
+        fs.writeFileSync(path.join(peer, PROFILE), '{"sessions":[],"v":"peer"}\n');
+        expect(git(['add', '-f', '--', PROFILE], peer).status).toBe(0);
+        expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', 'peer profile'], peer).status).toBe(0);
+        expect(git(['push', '-q', 'origin', 'HEAD'], peer).status).toBe(0);
+      } finally {
+        fs.rmSync(peer, { recursive: true, force: true });
+      }
+      write(PROFILE, '{"sessions":[],"v":"local"}\n');
+      expect(drain().status).toBe(0);
+      // Every later profile write queues the file again.
+      run(['gstack-brain-enqueue', PROFILE]);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      expect(parses(remoteShow(PROFILE).stdout)).toBe(true);
+      expect(remoteShow(PROFILE).stdout).not.toContain('<<<<<<<');
+    });
+  });
 });
 
 // ---------------------------------------------------------------
