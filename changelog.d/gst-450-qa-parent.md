@@ -2,4 +2,4 @@
 
 ### Fixed
 - **The parent runs Step 9.2.1's probes itself, as the section says.** Phase 3 does the section's method Reads and no probe; Phase 4's one program runs the smoke and plan checks after Step 8.1 collects the plan checks and before Scope Check, dedup and Fix-First, and the record's Checks heading carries the `Exploratory QA:` line. The call count is unchanged, and the section text is untouched.
-- **`gstack-review-dispatch pass` refuses a QA extra.** An extra named `qa`, or one whose prompt holds Step 9.2.1's "Only the parent runs report-only discovery.", stops the pass before any reader is created. A prompt file that cannot be read stops as an unreadable prompt, not a raw read error. The Capy skill lists only Steps 7 and 8 as extras.
+- **`gstack-review-dispatch pass` refuses a QA extra.** An extra named `qa`, or one whose prompt holds Step 9.2.1's "Only the parent runs report-only discovery.", stops the pass before any reader is created. A prompt file that cannot be read stops as an unreadable prompt, not a raw read error. The Capy skill lists Steps 7, 8 and 14.5 as extras, not Step 9.2.1.
