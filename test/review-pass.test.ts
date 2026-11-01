@@ -325,6 +325,27 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(h2.starts).toEqual([[1]]);
   }, 240_000);
 
+  // Value: protects=Step 11.5 always has an adversarial-review start token to bind; fails_when=Step 11 reuses the pass input's logStart: ["review"] and runs the voices with no adversarial-review start, or a missing token is found only after the voices ran;
+  //   why_new=GBRA-218 reran a whole pass after the loader example's logStart was reused for stage voices; seam=lib/capy-review-pass.js log starts; no_claim=gstack-review-read's binding itself
+  test('Step 11 takes the adversarial-review start token by default and refuses a list without it before anything runs', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env);
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' } };
+    const base = { base: 'main', out, pass: 'x12p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    const created = h.creates.length;
+    const reused = await runPass(h, { ...base, stage: 'voices', models });
+    expect(reused).toStartWith('STOP: Step 11 (stage "voices") takes the adversarial-review start token');
+    expect(h.creates.length).toBe(created);
+    const voices = await runPass(h, { ...base, logStart: undefined, stage: 'voices', models });
+    expect(voices).toMatch(/REVIEW_LOG_START: adversarial-review token=\S+/);
+    expect(voices.indexOf('REVIEW_LOG_START: adversarial-review')).toBeLessThan(voices.indexOf('DISPATCHED:'));
+    expect(voices).toContain('NEXT: judge the voices');
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(Object.keys(m.log_starts ?? {}).sort()).toEqual(['pass:review', 'voices:adversarial-review']);
+  }, 240_000);
+
   test('Step 11 voices run from the same manifest; the outside voice needs a model of another family', async () => {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/p1');
@@ -501,11 +522,10 @@ describe('Capy pass program (fake host, real bins)', () => {
   //   why_new=replay C2-34 (GSTA-193) on PR 2; seam=none; no_claim=the host's status timing beyond one late summary
   test('extras as JSON, the checkout as cwd, and a late summary all run through without a STOP', async () => {
     const { dir, env } = repo();
-    const elsewhere = tmp('rp-cwd-');
     const out = path.join(dir, '.state/run/p1');
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(path.join(out, 'qa.prompt.md'), 'QA brief');
-    const h = host(elsewhere, env, { lateSummary: true });
+    const h = host(dir, env, { lateSummary: true });
     const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir, planFlags: ['--depth-floor', 'full'],
       extras: [{ name: 'qa', prompt_file: path.join(out, 'qa.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
     expect(res).not.toContain('STOP:');
@@ -759,12 +779,46 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     sh('for i in $(seq 1 20); do echo "export const w$i = $i;" >> src/a.ts; done && git commit -qam allow', wt);
     return { dir, env, wt: fs.realpathSync(wt) };
   }
+  // Value: protects=no reader is started where Capy will put it (the shared machine's start checkout) when /ship ships another checkout; fails_when=the program dispatches readers that start in the primary checkout while the pass ships a worktree (GBRA-218's outside voice ignored `cd <dir> &&` and reviewed the primary checkout, losing Step 11 outside coverage);
+  //   why_new=GBRA-218 on gstack 1.92.25.0; Capy subagents take no working directory; seam=lib/capy-review-pass.js before any log start or create; no_claim=that Capy can start a reader in a chosen directory
+  test('a shared machine whose start checkout is not the worktree refuses before any start token or reader; a start directory outside any checkout dispatches', async () => {
+    const { dir, env, wt } = worktree();
+    const out = path.join(wt, '.state/run/p1');
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out, pass: 'w0p1', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    expect(res).toContain(`STOP: readers on the shared machine start in ${fs.realpathSync(dir)}, not in ${wt}`);
+    expect(res).not.toContain('REVIEW_LOG_START:');
+    expect(h.creates.length).toBe(0);
+    const voices = await runPass(h, { base: 'main', out, pass: 'w0p1', cwd: wt, planFlags: ['--depth-floor', 'full'], stage: 'voices', models: { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' } } });
+    expect(voices).toContain('STOP: readers on the shared machine start in ');
+    expect(h.creates.length).toBe(0);
+    const started = host(wt, env);
+    expect(await runPass(started, { base: 'main', out: path.join(wt, '.state/run/p2'), pass: 'w0p2', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    expect(started.creates.length).toBeGreaterThan(0);
+    const outside = host(path.dirname(wt), env);
+    expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p3'), pass: 'w0p3', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    const broken = tmp('rp-broken-');
+    fs.writeFileSync(path.join(broken, '.git'), 'garbage\n');
+    const unreadable = host(broken, env);
+    expect(await runPass(unreadable, { base: 'main', out: path.join(wt, '.state/run/p4'), pass: 'w0p4', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('STOP: cannot read the directory readers on the shared machine start in: fatal: invalid gitfile format');
+    expect(unreadable.creates.length).toBe(0);
+    const slow = host(wt, env, { pollsToFinish: 30 });
+    let probes = 0;
+    const bash = slow.tools.capy.bash;
+    slow.tools.capy.bash = async (a) => { if (a.command.startsWith('if d=$(git rev-parse')) probes++; return bash(a); };
+    const input = { base: 'main', out: path.join(wt, '.state/run/p5'), pass: 'w0p5', cwd: wt, planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(slow, input)).toContain('NEXT: poll');
+    expect(await runPass(slow, input)).toContain('NEXT: poll');
+    expect(probes).toBe(1);
+    expect(await runPass(host(wt, env), { ...input, logStart: [7] })).toStartWith('STOP: input.logStart must be a list');
+  }, 240_000);
+
   // Value: protects=a reader that never left the machine's default checkout cannot hand /ship a review of another tree; fails_when=collect merges a reply whose REVIEWED_TREE names the primary checkout while the pass ships a worktree, or a reply with no such line;
   //   why_new=GBRA-218: pass 1's specialist reviewed /workspace/gbrain while /ship shipped ~/.capy/work/wt-allow; seam=gstack-review-dispatch collect; no_claim=a reader that fingerprints the right checkout but reads another
   test('a reader that reviews the primary checkout instead of the worktree is refused and nothing it said is merged', async () => {
     const { dir, env, wt } = worktree();
     const out = path.join(wt, '.state/run/p1');
-    const h = host(dir, env, { reportFrom: () => dir, output: t => (t.includes('specialist') ? '[CRITICAL] (confidence: 9/10) src/other.ts:3 a file outside this PR' : cleanReply(t)) });
+    const h = host(wt, env, { reportFrom: () => dir, output: t => (t.includes('specialist') ? '[CRITICAL] (confidence: 9/10) src/other.ts:3 a file outside this PR' : cleanReply(t)) });
     const res = await runPass(h, { base: 'main', out, pass: 'w1p1', cwd: wt, planFlags: ['--depth-floor', 'full'] });
     expect(res).toContain('COLLECT_WRONG_TREE: reader=');
     expect(res).toContain(`reported="${treeLine(dir).slice(15).trim()}"`);
@@ -779,20 +833,20 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
   test('a reply that names no checkout is refused the same way', async () => {
     const { dir, env, wt } = worktree();
     const out = path.join(wt, '.state/run/p1');
-    const res = await runPass(host(dir, env, { reportFrom: () => '' }), { base: 'main', out, pass: 'w2p1', cwd: wt, planFlags: ['--depth-floor', 'full'] });
+    const res = await runPass(host(wt, env, { reportFrom: () => '' }), { base: 'main', out, pass: 'w2p1', cwd: wt, planFlags: ['--depth-floor', 'full'] });
     expect(res).toContain('COLLECT_WRONG_TREE: reader=');
     expect(res).toContain('reported="none"');
     expect(res).not.toContain('NEXT: judge');
   }, 240_000);
 
-  // Value: protects=/ship from a worktree on a shared machine works when readers follow their brief, though they start in another checkout; fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
+  // Value: protects=/ship from a worktree that is the shared machine's start checkout works, its readers' briefs naming it (GST-776 refuses any other start checkout up front); fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
   //   why_new=GBRA-218 (no brief named a directory); seam=lib/review-pass.ts renderStage and the Capy pass program; no_claim=model compliance with the paragraph
   test('a reader that works in the checkout its brief names passes, and every brief names the worktree', async () => {
     const { dir, env, wt } = worktree();
     const out = path.join(wt, '.state/run/p1');
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(path.join(out, 'coverage.prompt.md'), 'Run Step 7 as written.\n');
-    const h = host(dir, env);
+    const h = host(wt, env);
     const res = await runPass(h, { base: 'main', out, pass: 'w3p1', cwd: wt, planFlags: ['--depth-floor', 'full'],
       extras: [{ name: 'coverage', prompt_file: path.join(out, 'coverage.prompt.md'), first: true }] });
     expect(res).not.toContain('STOP:');
@@ -807,7 +861,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     const out = path.join(wt, '.state/run/p1');
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(path.join(out, 'docs.prompt.md'), 'Run the Step 14.5 audit as written.\n');
-    const h = host(dir, env, { reportFrom: t => (t.endsWith('audit/docs') ? dir : briefDirOf(h, t)) });
+    const h = host(wt, env, { reportFrom: t => (t.endsWith('audit/docs') ? dir : briefDirOf(h, t)) });
     const res = await runPass(h, { base: 'main', out, pass: 'w4p1', cwd: wt, planFlags: ['--depth-floor', 'full'],
       extras: [{ name: 'docs', prompt_file: path.join(out, 'docs.prompt.md'), first: true }] });
     expect(res).toContain('COLLECT_WRONG_TREE: reader=audit/docs');
@@ -818,7 +872,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
   test('a rerun after a wrong-tree STOP stops on the failed reader and never collects its reply twice', async () => {
     const { dir, env, wt } = worktree();
     const out = path.join(wt, '.state/run/p1');
-    const h = host(dir, env, { reportFrom: () => dir });
+    const h = host(wt, env, { reportFrom: () => dir });
     const input = { base: 'main', out, pass: 'w5p1', cwd: wt, planFlags: ['--depth-floor', 'full'] };
     expect(await runPass(h, input)).toContain('COLLECT_WRONG_TREE: reader=');
     const again = await runPass(h, input);
@@ -832,7 +886,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     const wt = path.join(tmp('rp-wt-'), 'same');
     expect(spawnSync('git', ['worktree', 'add', '-q', '--detach', wt, 'feat'], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
     const out = path.join(wt, '.state/run/p1');
-    const res = await runPass(host(dir, env, { reportFrom: () => dir }), { base: 'main', out, pass: 'w6p1', cwd: fs.realpathSync(wt), planFlags: ['--depth-floor', 'full'] });
+    const res = await runPass(host(wt, env, { reportFrom: () => dir }), { base: 'main', out, pass: 'w6p1', cwd: fs.realpathSync(wt), planFlags: ['--depth-floor', 'full'] });
     expect(res).toContain('COLLECT_WRONG_TREE: reader=');
     expect(res).not.toContain('COLLECT_TREE_MOVED');
   }, 240_000);
@@ -841,7 +895,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     const { dir, env, wt } = worktree();
     const out = path.join(wt, '.state/run/p1');
     let moved = false;
-    const h = host(dir, env, { reportFrom: t => {
+    const h = host(wt, env, { reportFrom: t => {
       if (!moved) { moved = true; spawnSync('bash', ['-c', 'echo "export const late = 1;" >> src/a.ts && git commit -qam late'], { cwd: wt, env, encoding: 'utf8', timeout: 60_000 }); }
       return briefDirOf(h, t);
     } });
@@ -853,7 +907,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
   test('an outside voice that reviewed another tree is recorded as unavailable coverage, never clean, and the voices still finish', async () => {
     const { dir, env, wt } = worktree();
     const out = path.join(wt, '.state/run/p1');
-    const h = host(dir, env, { reportFrom: t => (t.endsWith('outside-voice') ? dir : briefDirOf(h, t)) });
+    const h = host(wt, env, { reportFrom: t => (t.endsWith('outside-voice') ? dir : briefDirOf(h, t)) });
     const base = { base: 'main', out, pass: 'w8p1', cwd: wt, planFlags: ['--depth-floor', 'full'] };
     expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
