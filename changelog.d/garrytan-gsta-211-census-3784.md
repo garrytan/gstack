@@ -1,0 +1,5 @@
+**The two red cases in the 2026-11-01 Codex census (#3784) are fixed: one was a test fixture and one was unclear wording in /pair-agent.** Run 41279336076 (main @ 482ffd1) went red on the codex-astra arm.
+
+### Fixed
+- **/pair-agent says the instruction block includes its first and last `=====` lines.** The skill said the command "prints everything between its `=====` divider lines", so Codex copied every line but those two outer dividers, and `safety-pair-agent-block` failed. The rule's pinned hash in `test/helpers/safety-rules.ts` moves with the new wording. With the new wording, the rule arm passed on gpt-6-astra and on Claude, and the removed-rule arm still failed on Claude.
+- **`cso-diff-mode`'s fixture now has a page that reads the paid plan.** The forged payment webhook wrote to a map that nothing read. /cso daily reports leave out a candidate whose impact needs code outside the snapshot, so Codex correctly left out the forgery finding. The fixture now serves a premium report only to accounts marked paid, which makes the forgery an in-snapshot entitlement bypass. The assertions are unchanged.
