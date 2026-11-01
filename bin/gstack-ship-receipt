@@ -484,7 +484,7 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
   const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classify(p, from, to) }));
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
   const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)
-    : [...branch.touched].filter(p => stamped(p) && (changed.some(c => c.path === p && c.class === 'product') || branch.sides.some(([a, b]) => classify(p, a, b) === 'product')));
+    : [...branch.touched].filter(p => stamped(p) && (changed.some(c => c.path === p && c.class === 'product') || branch.sides.some(([a, b]) => blobAt(a, p) !== blobAt(b, p) && classify(p, a, b) === 'product')));
   const metadataGlobs = rules.metadata.filter(g => !demoted.some(p => matchesAny([g], p)));
   return { changed, product: ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs)], tests: [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs)] };
 }
