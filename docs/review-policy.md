@@ -518,8 +518,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
    staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
-   the specialists with QA and the other audits, then the Red Team, then Step 11's
-   voices. Each reviewer keeps its plan entry and is rendered by the same code as
+   the specialists with the other audit readers, then the Red Team, then Step 11's
+   voices. A QA extra is refused before any reader is created: Step 9.2.1's probes
+   are the parent's. Each reviewer keeps its plan entry and is rendered by the same code as
    `render`, once its inputs exist; the Red Team's findings file is the specialists'
    `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
    most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
