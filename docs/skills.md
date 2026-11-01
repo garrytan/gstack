@@ -45,6 +45,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/deslop-shared-libs`](#deslop-shared-libs) | **Shared Code Reviewer** | Find worthwhile shared-code extractions in recent work. Recommendations only. |
 | [`/write-skill`](#write-skill) | **Skill Editor** | Write or improve an agent skill without bloat: edit ladder, size per level, skill-to-bin drift check, full diets with a before/after test. |
 | [`/test-audit`](#test-audit) | **Test Auditor** | Sweep existing tests for low-value, implementation-coupled or duplicate tests. Report-only unless you approve a batch. |
+| [`/ci-audit`](#ci-audit) | **CI Auditor** | Measure GitHub Actions CI against nine CI-speed lessons; ranked fixes in minutes and dollars. Report-only unless you approve a fix. |
 | [`/landing-report`](#landing-report) | **Ship Queue Dashboard** | Read-only snapshot of the workspace-aware ship queue. Which version slots are claimed, which sibling workspaces have WIP. |
 | [`/captain`](#captain) | **Crew Controller** | Run many coding agents from one controller. Lanes build and send a READY block; the controller validates it, merges through trains (stamp on call, verify, merge with the expected head, verify again; `train land` per slot under `changelog_fragments`), keeps the digest, relays approvals in three fixed shapes and runs a daily flaky-fix pass. Also answers to `/crew`. |
 | [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini, plus particle-1 and DeepSeek V4.1 Flash through OpenRouter). Latency, tokens, cost, optional LLM-judged quality. |
@@ -923,6 +924,23 @@ gstack's own templates and for any skill folder you own.
 `/write-skill` is not `/skillify`: `/skillify` codifies a browser scrape into a browser-skill. Adapted from
 [nicobailon/skill-diet](https://github.com/nicobailon/skill-diet) (MIT). The first diet, /learn, cut its template from
 5,797 to 2,955 bytes.
+
+## `/ci-audit`
+
+Measure where a repo's GitHub Actions time goes and check it against nine CI-speed
+lessons. Details: [ci-audit.md](ci-audit.md).
+
+```text
+You: /ci-audit
+You: /ci-audit --since-days 14 --workflows ci.yml
+```
+
+`gstack-ci-audit` splits each job into waiting, setup and running, measures push to all
+checks green per PR head, and prices the minutes from dated rows. The skill reports the
+ranked fixes, asks once per fix, and after a fix lands `gstack-ci-audit compare` prints
+before and after. `gstack-ci-audit ship-check` is a few-second report-only check for
+`/ship` (the `/ship` step that calls it lands in a follow-up PR), and a Saturday workflow
+template keeps one "Weekly CI audit" issue current.
 
 ## `/test-audit`
 

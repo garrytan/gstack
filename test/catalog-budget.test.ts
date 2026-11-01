@@ -96,8 +96,17 @@ import { skillCensus } from './helpers/skill-census';
  * New-skill ratchet: previous ceiling 1,393 + ceil(118 / 4) = 1,423
  * token-equivalents (5,692 bytes), leaving 10 bytes. Existing descriptions
  * are unchanged.
+ *   ref     ci-audit addition on base 5ba425a (2026-10-31), Garry
+ *           2026-10-31 'Add it on Saturday mornings do it' (GSTA-204 plan v4,
+ *           autoplan-20261031162908)
+ *   result  pre-addition aggregate 5,682 bytes; ci-audit adds 104 bytes
+ *           (name plus the one-sentence catalog lead), yielding 5,786 bytes
+ *           = 1,447 token-equivalents including the root router alias.
+ * New-skill ratchet: previous ceiling 1,423 + ceil(104 / 4) = 1,449
+ * token-equivalents (5,796 bytes), leaving 10 bytes. Existing descriptions
+ * are unchanged.
  */
-const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 1_423;
+const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 1_449;
 
 // Largest today: design-consultation at 229 bytes. A description that needs
 // more than 260 bytes is a body paragraph, not a catalog entry.

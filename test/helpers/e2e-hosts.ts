@@ -40,6 +40,7 @@ const ADAPTER_ONLY: readonly string[] = [
   'browse-basic',
   'browse-snapshot',
   'canary-workflow',
+  'ci-audit-planted',
   'context-recovery-artifacts',
   'context-restore-loads-latest',
   'context-save-writes-file',

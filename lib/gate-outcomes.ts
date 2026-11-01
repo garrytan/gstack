@@ -213,6 +213,56 @@ export const GATE_OUTCOMES = {
     summary: 'the Chromium at GSTACK_CHROMIUM_PATH could not launch',
     fix: 'point GSTACK_CHROMIUM_PATH at a working Chromium, or unset GSTACK_CHROMIUM_PATH',
   },
+  ci_audit_bad_repo: {
+    state: 'unavailable', anchor: 'ci-audit-bad-repo',
+    summary: "the repo is not an owner/name slug for github.com, or the checkout's origin is not on github.com",
+    fix: "pass --repo owner/name, or run inside a checkout whose origin is https://github.com/owner/name",
+  },
+  ci_audit_gh_missing: {
+    state: 'unavailable', anchor: 'ci-audit-gh-missing',
+    summary: "the GitHub CLI (gh) is not installed or not signed in",
+    fix: "install gh and run gh auth status until it reports a signed-in account",
+  },
+  ci_audit_repo_unreadable: {
+    state: 'unavailable', anchor: 'ci-audit-repo-unreadable',
+    summary: "GitHub would not show this repo's Actions runs to the signed-in account",
+    fix: "check the repo name and that gh auth status shows an account that can read it",
+  },
+  ci_audit_rate_limit: {
+    state: 'unavailable', anchor: 'ci-audit-rate-limit',
+    summary: "too few GitHub API calls are left this hour for the run",
+    fix: "wait until the reset time printed on the retry line, or lower --max-calls",
+  },
+  ci_audit_call_budget: {
+    state: 'unavailable', anchor: 'ci-audit-call-budget',
+    summary: "the run used its whole GitHub call budget before it finished",
+    fix: "raise --max-calls, or narrow with --workflows or --runs-per-workflow",
+  },
+  ci_audit_deadline: {
+    state: 'unavailable', anchor: 'ci-audit-deadline',
+    summary: "GitHub calls did not finish before the deadline",
+    fix: "raise --timeout, or narrow with --workflows; on /ship the check is skipped and the ship goes on",
+  },
+  ci_audit_api_failed: {
+    state: 'unavailable', anchor: 'ci-audit-api-failed',
+    summary: "a GitHub API call failed",
+    fix: "retry in a minute; check https://www.githubstatus.com if it keeps failing",
+  },
+  ci_audit_no_runs: {
+    state: 'unavailable', anchor: 'ci-audit-no-runs',
+    summary: "the repo has no GitHub Actions runs in the window",
+    fix: "widen --since-days, or check that the repo runs GitHub Actions",
+  },
+  ci_audit_bin_missing: {
+    state: 'unavailable', anchor: 'ci-audit-bin-missing',
+    summary: "gstack-ci-audit is not installed with this gstack",
+    fix: "gstack-upgrade",
+  },
+  ci_audit_internal: {
+    state: 'unavailable', anchor: 'ci-audit-internal',
+    summary: "gstack-ci-audit hit an unexpected error",
+    fix: "rerun with the same flags; if it repeats, file an issue with the printed error line",
+  },
 } as const satisfies Record<string, GateOutcome>;
 
 export type GateReason = keyof typeof GATE_OUTCOMES;

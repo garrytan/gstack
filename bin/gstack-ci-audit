@@ -1,0 +1,4 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+import { main } from '../lib/ci-audit/cli';
+
+process.exit(await main(process.argv.slice(2)));

@@ -1,0 +1,63 @@
+# Weekly CI audit (gstack /ci-audit), report-only.
+# Copy to .github/workflows/ci-audit-weekly.yml. Every Saturday at 15:00 UTC
+# (8 AM Pacific in summer, 7 AM in winter) it measures this repo's GitHub Actions
+# runs and keeps one open "Weekly CI audit" issue current: a complete run creates or
+# replaces it, or closes it when nothing is left to fix; a partial or failed run
+# comments and keeps the last complete findings. It never edits code.
+name: Weekly CI audit
+
+on:
+  schedule:
+    - cron: '0 15 * * 6'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: ci-audit-weekly
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    if: github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # main follows gstack's latest; pin a release tag or a full commit sha to control upgrades.
+      GSTACK_REF: main
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          filter: blob:none
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Fetch gstack
+        run: |
+          git init --quiet "$RUNNER_TEMP/gstack"
+          git -C "$RUNNER_TEMP/gstack" fetch --quiet --depth 1 https://github.com/garrytan/gstack "$GSTACK_REF"
+          git -C "$RUNNER_TEMP/gstack" checkout --quiet FETCH_HEAD
+      - name: Audit
+        id: audit
+        # GITHUB_TOKEN allows 1,000 API calls an hour; the run refuses to start below its budget plus 100.
+        run: |
+          set +e
+          "$RUNNER_TEMP/gstack/bin/gstack-ci-audit" run --repo "$GITHUB_REPOSITORY" --since-days 7 --runs-per-workflow 10 --logs 5 --max-calls 400 --out audit.json > audit.md 2> audit.err
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          cat audit.err
+      - name: Publish
+        if: always()
+        env:
+          AUDIT_CODE: ${{ steps.audit.outputs.code || 5 }}
+        run: |
+          "$RUNNER_TEMP/gstack/bin/gstack-ci-audit" publish --repo "$GITHUB_REPOSITORY" --exit "$AUDIT_CODE" --report audit.json --error-file audit.err --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: ci-audit
+          path: |
+            audit.json
+            audit.md
+          retention-days: 30

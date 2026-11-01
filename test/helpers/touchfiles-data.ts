@@ -820,6 +820,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'ship-coverage-value': ['ship/**', 'scripts/resolvers/testing.ts', 'test/fixtures/coverage-audit-fixture.ts', 'test/skill-e2e-test-value.test.ts', 'test/helpers/test-value-fixture.ts', 'scripts/resolvers/test-value.ts', 'test/helpers/office-hours-attempt.ts', 'lib/eval-model.ts'],
   'review-test-value': ['review/**', 'test/fixtures/coverage-audit-fixture.ts', 'test/skill-e2e-test-value.test.ts', 'test/helpers/test-value-fixture.ts', 'scripts/resolvers/test-value.ts', 'test/helpers/office-hours-attempt.ts', 'lib/eval-model.ts'],
   'test-audit-report-only': ['test-audit/**', 'test/fixtures/coverage-audit-fixture.ts', 'test/skill-e2e-test-value.test.ts', 'test/helpers/test-value-fixture.ts', 'scripts/resolvers/test-value.ts', 'test/helpers/office-hours-attempt.ts', 'lib/eval-model.ts'],
+  'ci-audit-planted': ['ci-audit/**', 'lib/ci-audit/**', 'bin/gstack-ci-audit', 'test/skill-e2e-ci-audit.test.ts', 'test/helpers/ci-audit-planted.ts', 'test/helpers/office-hours-attempt.ts', 'lib/eval-model.ts'],
+  'ci-audit-planted-no-gstack': ['test/skill-e2e-ci-audit.test.ts', 'test/helpers/ci-audit-planted.ts', 'test/helpers/office-hours-attempt.ts', 'lib/eval-model.ts'],
   'plan-eng-coverage-audit': [
     'scripts/resolvers/learnings.ts',
     'test/fixtures/coverage-audit-ci-diagrams.json',
@@ -1356,6 +1358,8 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
   'ship-coverage-value': 'gate',
   'review-test-value': 'gate',
   'test-audit-report-only': 'gate',
+  'ci-audit-planted': 'gate',
+  'ci-audit-planted-no-gstack': 'periodic',
   'plan-review-report': 'gate',
 
   // Plan-mode handshake. plan-ceo/plan-devex ask-first reliably (gate-tier);
@@ -1856,6 +1860,8 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'ship-coverage-value': 'rule',
   'review-test-value': 'rule',
   'test-audit-report-only': 'rule',
+  'ci-audit-planted': 'behavior',
+  'ci-audit-planted-no-gstack': 'behavior',
   'plan-devex-review-plan-mode': 'rule',
   'plan-mode-no-op': 'rule',
   'office-hours-auto-mode': 'rule',
@@ -2068,6 +2074,10 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
  * E2E_KINDS; values are non-empty.
  */
 export const BEHAVIOR_WHY: Record<string, string> = {
+  'ci-audit-planted':
+    "How the live model words and orders the ranked fixes varies run to run; naming the three planted problems with their numbers, flagging neither decoy and editing nothing stay the contract.",
+  'ci-audit-planted-no-gstack':
+    "The no-gstack arm reads raw API responses with no skill text, so what it finds and how it words it varies run to run; it is scored on the same three problems and two decoys as the skill arm.",
   'planning-wave-planted-facts':
     "Which planted errors a live spec reviewer reaches, and how it words them, varies run to run; finding at least two of the four and never calling the correct claim wrong stay the contract.",
   'planning-wave-schema':

@@ -56,6 +56,7 @@ gstack/
 ├── deslop-shared-libs/ # Recommendations-only audit for worthwhile shared-code extractions
 ├── write-skill/     # /write-skill skill (edit ladder, levels, gstack-skill-bill, full diet in references/diet.md)
 ├── test-audit/      # Report-first sweep for low-value tests (test value bar, audit mode)
+├── ci-audit/        # Report-first CI speed audit (bin/gstack-ci-audit, lib/ci-audit/); templates/ holds the Saturday workflow
 ├── eval-plan/       # Preregistered paid evals: prereg, arms, $0 dry run, priced pilot (bin/gstack-eval-plan)
 ├── captain/         # /captain (also /crew): one controller, many lanes; templates/ holds CREW.md, AGENTS.md, NOTES.md, DIGEST.md, the flaky ledger, the lane report, the READY block, slot call, the lane brief, asks and the daily automation prompt
 ├── plan-ceo-review/ # /plan-ceo-review skill

@@ -6101,3 +6101,57 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 ### `RENDER_DEST_NOT_OWNED: <dir> exists and holds no loadout.lock.json`
 
 **Meaning.** `--out-dir` is a non-empty directory that an earlier `gstack-modules render` did not write, so replacing it could delete someone's files. **Fix.** Pass a new or empty directory, or the directory of an earlier render.
+
+## gstack-ci-audit
+
+Every error is one line, `CI_AUDIT: unavailable <detail> (<code>)`, followed by `fix:`, `retry:` and `used: <n>/<max> calls`. Exit codes: 0 complete, 1 usage, 3 unavailable, 4 partial. See [docs/ci-audit.md](ci-audit.md).
+
+<a id="ci-audit-bad-repo"></a>
+### `CI_AUDIT: unavailable <repo> is not a github.com owner/name repo (ci_audit_bad_repo)`
+
+**Meaning.** The audit reads a GitHub repo by its `owner/name` slug. It got something else, or the checkout's `origin` points somewhere other than `https://github.com/` (static lessons need a checkout of the audited repo). On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Pass --repo owner/name, or run inside a checkout whose origin is https://github.com/owner/name.
+
+<a id="ci-audit-gh-missing"></a>
+### `CI_AUDIT: unavailable gh is not installed or not signed in (ci_audit_gh_missing)`
+
+**Meaning.** Every GitHub read goes through the `gh` CLI, and `gh` was not found on PATH or has no signed-in account. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Install gh and run gh auth status until it reports a signed-in account.
+
+<a id="ci-audit-repo-unreadable"></a>
+### `CI_AUDIT: unavailable cannot read <repo> (HTTP 404) (ci_audit_repo_unreadable)`
+
+**Meaning.** GitHub answered 404 or 403 for the repo or its Actions runs: the name is wrong, or the signed-in account can't see it. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Check the repo name and that gh auth status shows an account that can read it.
+
+<a id="ci-audit-rate-limit"></a>
+### `CI_AUDIT: unavailable <n> of <limit> GitHub calls left this hour (ci_audit_rate_limit)`
+
+**Meaning.** The preflight found fewer GitHub API calls left this hour than the run could use plus a spare tenth of the hour's limit (at most 500), so it stopped before spending any. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Wait until the reset time printed on the retry line, or lower --max-calls.
+
+<a id="ci-audit-call-budget"></a>
+### `CI_AUDIT: unavailable call budget of <n> spent (ci_audit_call_budget)`
+
+**Meaning.** The run reached `--max-calls` (default 800). What it measured so far is printed and marked partial (exit 4) when there is enough to report; otherwise nothing is reported. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Raise --max-calls, or narrow with --workflows or --runs-per-workflow.
+
+<a id="ci-audit-deadline"></a>
+### `CI_AUDIT: unavailable gh api <path> did not finish before the deadline (ci_audit_deadline)`
+
+**Meaning.** In-flight `gh api` calls were stopped at the deadline (`--timeout`, default 300 s; 10 s for the /ship check). On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Raise --timeout, or narrow with --workflows; on /ship the check is skipped and the ship goes on.
+
+<a id="ci-audit-api-failed"></a>
+### `CI_AUDIT: unavailable runs list returned HTTP <status> (ci_audit_api_failed)`
+
+**Meaning.** GitHub returned a 5xx or another unexpected status. Nothing is cached from a failed call. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Retry in a minute; check https://www.githubstatus.com if it keeps failing.
+
+<a id="ci-audit-no-runs"></a>
+### `CI_AUDIT: unavailable no GitHub Actions runs for <repo> since <date> (ci_audit_no_runs)`
+
+**Meaning.** The runs list was empty for the window, so there is nothing to measure. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Widen --since-days, or check that the repo runs GitHub Actions.
+
+<a id="ci-audit-bin-missing"></a>
+### `CI_AUDIT: unavailable bin-missing (ci_audit_bin_missing)`
+
+**Meaning.** /ship looked for `gstack-ci-audit` and the installed gstack doesn't have it (an install older than the release that added /ci-audit). On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Gstack-upgrade.
+
+<a id="ci-audit-internal"></a>
+### `CI_AUDIT: unavailable internal error: <message> (ci_audit_internal)`
+
+**Meaning.** A bug in gstack-ci-audit, not in your CI or GitHub. On /ship this line is informational: the ship continues and nothing is blocked. **Fix.** Rerun with the same flags; if it repeats, file an issue with the printed error line.

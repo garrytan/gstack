@@ -173,7 +173,7 @@ jobs:
         if: steps.census.outputs.periodic_lane == 'true'
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slice-budget 420 --jobs 2 --max-parallel 40
+        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slice-budget 420 --jobs 2 --max-parallel 41
 
       # Codex-only slices run on the host-run eval-codex-slices job; the
       # container executor runs every other slice.
@@ -205,7 +205,7 @@ jobs:
           set -euo pipefail
           for arm in $(jq -r '.[]' <<<"$ARMS"); do
             mapfile -t arm_env < <(bun --no-install run scripts/census-arms.ts --env "$arm")
-            env "${arm_env[@]}" EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan "/tmp/gate-census-plan/$arm/manifest.json" --slice-budget 420 --jobs 2 --skip-judges --max-parallel 20
+            env "${arm_env[@]}" EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan "/tmp/gate-census-plan/$arm/manifest.json" --slice-budget 420 --jobs 2 --skip-judges --max-parallel 24
           done
 
       # One executor per arm and planned slice, each with its slice's ceiling.
@@ -296,7 +296,7 @@ jobs:
       # Every planned slice starts at once; test/evals-workflow-wiring.test.ts
       # fails when the live plan outgrows this cap. 38 → 40 on 2026-10-26: the
       # benchmark and context-restore carve cases made the census 39 slices.
-      max-parallel: 40
+      max-parallel: 41
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_slices) }}
     steps:
@@ -574,7 +574,7 @@ jobs:
     strategy:
       # Two file workers per slice, each retaining two in-file case workers.
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 24
       matrix:
         include: ${{ fromJSON(needs.plan-slices.outputs.gate_matrix) }}
     steps:

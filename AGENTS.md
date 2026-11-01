@@ -31,6 +31,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/deslop-shared-libs` | Find worthwhile shared-code extractions in recent work. Recommendations only. |
 | `/write-skill` | Write or improve an agent skill without bloat: edit ladder, size per level (`gstack-skill-bill`), skill-to-bin drift check, full diets with a before/after test. |
 | `/test-audit` | Sweep existing tests for low-value, implementation-coupled or duplicate tests. Report-only unless you approve a batch. |
+| `/ci-audit` | Measure GitHub Actions CI against nine CI-speed lessons; ranked fixes in minutes and dollars. Report-only unless you approve a fix. |
 | `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. Available outside the Codex harness. |
 | `/claude-code` | Second opinion via Claude Code. Review, challenge, or consult modes. Available outside the Claude Code harness. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |

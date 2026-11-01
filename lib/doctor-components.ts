@@ -193,6 +193,7 @@ export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   'setup-gbrain': CLAUDE_ONLY,
   'sync-gbrain': CLAUDE_ONLY,
   'test-audit': CLAUDE_ONLY,
+  'ci-audit': CLAUDE_ONLY,
   ubicloud: CLAUDE_ONLY,
   unfreeze: CLAUDE_ONLY,
   verify: CLAUDE_ONLY,
