@@ -486,8 +486,15 @@ function productRules(repoRoot: string, base: string, outputs: readonly string[]
  * The product pathspec between two commits: every path but tests and release
  * metadata, where a metadata-listed path whose change from `from` to `to` is
  * not a stamp stays product (every glob that matches it leaves the exclusion).
+ * With `branch` (the paths the branch itself changed against the base, and its
+ * base..head ranges), only the branch's own non-stamp changes demote a glob: a
+ * touched path whose change is not a stamp on either side, or between the two
+ * heads. A path only a base merge brought in has the same patch against the base
+ * at both heads, and demoting its glob would pull a matching path the branch did
+ * change, such as a CHANGELOG fragment next to the base's changelog.d/README.md
+ * (GST-343, #3606), into the product patch-id at one head only.
  */
-function productSpec(repoRoot: string, rules: ProductRules, from: string, to: string): { changed: Array<{ path: string; class: ReturnType<typeof classifyCarryPath> }>; product: string[]; tests: string[] } | undefined {
+function productSpec(repoRoot: string, rules: ProductRules, from: string, to: string, branch?: { touched: ReadonlySet<string>; sides: ReadonlyArray<readonly [string, string]> }): { changed: Array<{ path: string; class: ReturnType<typeof classifyCarryPath> }>; product: string[]; tests: string[] } | undefined {
   const changedRaw = git(['diff', '--name-only', from, to], repoRoot);
   if (changedRaw === undefined) return undefined;
   const blobAt = (ref: string, p: string): string | null => { const r = spawnSync('git', ['show', `${ref}:${p}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
@@ -496,11 +503,14 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
     if (file !== null) return file.trim() || null;
     try { const v = JSON.parse(blobAt(ref, 'package.json') ?? 'null')?.version; return typeof v === 'string' ? v : null; } catch { return null; }
   };
-  const oldVersion = versionAt(from);
-  const newVersion = versionAt(to);
-  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classifyCarryPath(p, rules.extra, matchesAny(rules.metadata, p) && !matchesAny(rules.extra.outputs, p) ? { before: blobAt(from, p), after: blobAt(to, p), oldVersion, newVersion, templates: rules.templates } : undefined) }));
+  const versions = new Map<string, string | null>();
+  const version = (ref: string) => { if (!versions.has(ref)) versions.set(ref, versionAt(ref)); return versions.get(ref)!; };
+  const stamped = (p: string) => matchesAny(rules.metadata, p) && !matchesAny(rules.extra.outputs, p);
+  const classify = (p: string, a: string, b: string) => classifyCarryPath(p, rules.extra, stamped(p) ? { before: blobAt(a, p), after: blobAt(b, p), oldVersion: version(a), newVersion: version(b), templates: rules.templates } : undefined);
+  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classify(p, from, to) }));
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
-  const demoted = changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path);
+  const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)
+    : [...branch.touched].filter(p => stamped(p) && (changed.some(c => c.path === p && c.class === 'product') || branch.sides.some(([a, b]) => blobAt(a, p) !== blobAt(b, p) && classify(p, a, b) === 'product')));
   const metadataGlobs = rules.metadata.filter(g => !demoted.some(p => matchesAny([g], p)));
   return { changed, product: ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs)], tests: [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs)] };
 }
@@ -606,7 +616,10 @@ function cmdCarry(rest: string[], json: boolean): number {
   } else {
     const fromBase = git(['merge-base', baseRef, from], repoRoot);
     if (!fromBase) return refused('RECEIPT_CARRY_REFUSED', `cannot resolve the merge base of ${baseRef} (fetch it first)`);
-    const spec = productSpec(repoRoot, rules, from, head);
+    const listed = [touchedPaths(repoRoot, fromBase, from), touchedPaths(repoRoot, headBase, head)];
+    if (!listed[0] || !listed[1]) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
+    const touched = new Set([...listed[0], ...listed[1]]);
+    const spec = productSpec(repoRoot, rules, from, head, { touched, sides: [[fromBase, from], [headBase, head]] });
     if (!spec) return refused('RECEIPT_CARRY_REFUSED', `git diff ${from.slice(0, 12)} ${head.slice(0, 12)} failed`);
     const { changed } = spec;
     const productFrom = patchId(repoRoot, fromBase, from, spec.product);
@@ -638,10 +651,9 @@ function cmdCarry(rest: string[], json: boolean): number {
       // the same patch, so only paths that moved on one side are compared (GST-448: 6000 touched paths). A path whose only difference is base context next to unchanged hunks
       // (lib/ship-patch.ts) needs a scoped review instead of the loop.
       const sides = { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head };
-      const listed = [touchedPaths(repoRoot, fromBase, from), touchedPaths(repoRoot, headBase, head), touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, fromBase, headBase)];
-      if (listed.some(l => !l)) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
-      const [touchedFrom, touchedHead, movedHead, movedBase] = listed as Set<string>[];
-      const touched = new Set([...touchedFrom, ...touchedHead]);
+      const moved = [touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, fromBase, headBase)];
+      if (moved.some(l => !l)) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
+      const [movedHead, movedBase] = moved as Set<string>[];
       for (const p of [...touched].filter(p => movedHead.has(p) || movedBase.has(p)).sort()) {
         if (changedProduct.length >= CARRY_NAMED_PATHS) break;
         const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra);

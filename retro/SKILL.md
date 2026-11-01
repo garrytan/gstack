@@ -305,15 +305,16 @@ Also check `RETRO_REF`: if it is not `origin/<default>` (local-only repo, missin
 | `TEST_FILES_TOTAL` / `TEST_FILES_CHANGED` / `REGRESSION_TEST_COMMITS` / `REGRESSION_COMMIT` | Test health: repo-wide test file count, test files changed in window, `test(qa):` / `test(design):` / `test: coverage` commits |
 | `VERSION_RANGE` | First → last VERSION file value in the window (when tracked) |
 | `TEAM_STREAK` / `USER_STREAK` | Consecutive commit days with anchor date (Step 11) |
-| `RETRO_CONTEXT` / `GREPTILE_HISTORY` / `TODOS_FILE` / `SKILL_USAGE_LOG` / `EUREKA_LOG` | Presence of optional inputs — Read the ones marked present |
+| `RETRO_CONTEXT` / `GREPTILE_HISTORY` / `TODOS_FILE` / `SKILL_USAGE_LOG` / `EUREKA_LOG` | Presence of optional inputs |
+| `FRICTION` / `FRICTION_SOURCES` | Friction by skill, top 3 (`questions=absent`: untracked) |
 
 **Optional inputs** (Read each file the script marks `present`):
 
-- `RETRO_CONTEXT: present` → Read the `retro-context.md` path that line printed. It is user-authored and may contain meeting notes, calendar events, decisions, and other context that doesn't appear in git history. Incorporate it into the retro narrative where relevant.
-- `GREPTILE_HISTORY: present` → Read the `greptile-history.md` path that line printed. Filter entries to the retro window by date. Count by type: `fix`, `fp`, `already-fixed`. Signal ratio = `(fix + already-fixed) / (fix + already-fixed + fp)`. Skip unparseable lines silently; if no entries fall in the window, skip the Greptile metric row.
+- `RETRO_CONTEXT: present` → Read the path it prints. It is user-authored and may contain meeting notes, calendar events, decisions, and other context that doesn't appear in git history. Incorporate it into the retro narrative where relevant.
+- `GREPTILE_HISTORY: present` → Read the path it prints. Filter entries to the retro window by date. Count by type: `fix`, `fp`, `already-fixed`. Signal ratio = `(fix + already-fixed) / (fix + already-fixed + fp)`. Skip unparseable lines silently; if no entries fall in the window, skip the Greptile metric row.
 - `TODOS_FILE: present` → Read `TODOS.md`. Compute: total open TODOs (exclude the `## Completed` section), P0/P1 count, P2 count, items completed this period (Completed entries dated within the window), items added this period (cross-reference `COMMIT:` lines that touched TODOS.md).
-- `SKILL_USAGE_LOG: present` → Read the path it prints (`$GSTACK_STATE_ROOT/analytics/skill-usage.jsonl`). Filter to the window by `ts`. Separate skill activations (no `event` field) from hook fires (`event: "hook_fire"`). Aggregate by skill name.
-- `EUREKA_LOG: present` → Read the path it prints (`$GSTACK_STATE_ROOT/analytics/eureka.jsonl`). Filter to the window by `ts`. For each eureka moment note the skill that flagged it, the branch, and a one-line summary of the insight.
+- `SKILL_USAGE_LOG: present` → Read the path it prints. Filter to the window by `ts`. Separate skill activations (no `event` field) from hook fires (`event: "hook_fire"`). Aggregate by skill name.
+- `EUREKA_LOG: present` → Read the path it prints. Filter to the window by `ts`. For each eureka moment note the skill that flagged it, the branch, and a one-line summary of the insight.
 
 ### Step 2: Compute Metrics
 
@@ -363,6 +364,7 @@ Conditional rows (skip each when its input is absent or empty in the window):
 ```
 | Backlog Health | N open (X P0/P1, Y P2) · Z completed this period |
 | Skill Usage | /ship(12) /qa(8) /review(5) · 3 safety hook fires |
+| Friction by skill | /ship 7 in 12 runs (4 questions, 3 aborts) · /qa 5 in 6 (5 questions) |
 | Eureka Moments | 2 this period |
 ```
 
