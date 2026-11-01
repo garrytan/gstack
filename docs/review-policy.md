@@ -515,7 +515,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
    staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
    the specialists with QA and the other audits, then the Red Team, then Step 11's
-   voices. Each reviewer keeps its plan entry and is rendered by the same code as
+   voices. `--diff-base` sets every reader's base, a scoped pass's Red Team
+   included; the targeted reader keeps the merge base. Each reviewer keeps its plan entry and is rendered by the same code as
    `render`, once its inputs exist; the Red Team's findings file is the specialists'
    `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
    most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a

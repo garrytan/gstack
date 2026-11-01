@@ -49,6 +49,26 @@ export function parseAddedLineNumbers(diff: string): Map<string, number[]> {
   return files;
 }
 
+/** Each file's whole postimage from a diff with full context: one hunk starting at line 1, its context and added lines; a file with any other shape is left out. */
+export function parsePostimages(diff: string): Map<string, string[]> {
+  const files = new Map<string, string[]>();
+  let file = '';
+  let lines: string[] | null = null;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --')) { file = ''; lines = null; continue; }
+    if (line.startsWith('@@')) {
+      const first: boolean = lines === null && file !== '' && /^@@ -\d+(?:,\d+)? \+1(?:,\d+)? @@/.test(line);
+      files.delete(file);
+      lines = first ? [] : null;
+      if (lines) files.set(file, lines); else file = '';
+      continue;
+    }
+    if (lines === null) { if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : ''; continue; }
+    if (line.startsWith('+') || line.startsWith(' ')) lines.push(line.slice(1));
+  }
+  return files;
+}
+
 /** Files whose source-syntax exemption needs the whole file: a line added inside an existing `'''`/`"""` block is a literal (#3630). */
 const LEXICAL_CONTEXT_SOURCE = /\.(?:dart|pyi?)$/i;
 const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
@@ -58,10 +78,11 @@ const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
  * untracked files, grouped by file so gstack-redact can use each file's type
  * (#3211). A tracked Dart or Python file is passed whole with `keep`, its
  * added line numbers, so the scanner sees the strings an added line sits in
- * and only findings on those lines count (#3630); an untracked one keeps every
- * line. One too large, unreadable, not a regular file, or whose working copy
- * no longer holds the diff's added lines at their numbers
- * to read whole is scanned under a neutral name, without that exemption. External diff and textconv
+ * and only findings on those lines count (#3630). The whole text is the
+ * postimage git diffed (a full-context diff), never the working copy, which
+ * assume-unchanged can hide from git (GST-738); an untracked file keeps every
+ * line. One too large, or whose full diff does not parse as one hunk holding
+ * its added lines, is scanned under a neutral name, without that exemption. External diff and textconv
  * drivers are off: either can empty or rewrite the diff, and an empty diff
  * reads as clean.
  */
@@ -70,16 +91,15 @@ export function addedLines(ctx: PregateContext): Array<{ file: string; text: str
   const files = parseAddedLines(diff.stdout ?? '');
   const numbers = parseAddedLineNumbers(diff.stdout ?? '');
   const whole = new Map<string, { text: string; keep: number[] }>();
-  for (const [file, keep] of numbers) {
-    if (!LEXICAL_CONTEXT_SOURCE.test(file)) continue;
-    try {
-      const st = fs.lstatSync(path.join(ctx.repoRoot, file));
-      if (!st.isFile() || st.size > WHOLE_FILE_MAX_BYTES) continue;
-      const text = fs.readFileSync(path.join(ctx.repoRoot, file), 'utf8');
-      const lines = text.split('\n');
+  const sources = [...numbers.keys()].filter(file => LEXICAL_CONTEXT_SOURCE.test(file));
+  if (sources.length) {
+    const full = spawnSync('git', ['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=100000000', '--diff-filter=ACMR', ctx.mergeBase, '--', ...sources.map(file => `:(literal)${file}`)], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
+    for (const [file, post] of parsePostimages(full.status === 0 ? full.stdout ?? '' : '')) {
+      const keep = numbers.get(file) ?? [];
       const added = files.get(file) ?? [];
-      if (keep.length === added.length && keep.every((n, k) => lines[n - 1] === added[k])) whole.set(file, { text, keep });
-    } catch { /* unreadable: its added lines are scanned alone */ }
+      const text = post.join('\n');
+      if (text.length <= WHOLE_FILE_MAX_BYTES && keep.length === added.length && keep.every((n, k) => post[n - 1] === added[k])) whole.set(file, { text, keep });
+    }
   }
   for (const t of ctx.touched) {
     if (!t.uncommitted || t.status === 'D') continue;
