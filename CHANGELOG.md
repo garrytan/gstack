@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.92.10.0] - 2026-11-01
+
+**/ship's scoped second pass runs again, and its Red Team reviews the fix range while Step 11's voices still read the whole branch.** After a blocking fix on a small range, `gstack-review-plan` plans a scoped pass: one fix-check, the Red Team and the native adversarial pass on the range. `gstack-review-dispatch pass` refused that plan with `BRIEF_RENDER_FAILED: a pass dispatches no fix-check reader`, because a fix-check is not a pass reader. Every scoped pass failed this way, and GEVA-82 rendered its briefs by hand to get through (GST-619). Even past that refusal, the pass would have staged its Red Team on the merge base, because the Capy pass program never passes `--diff-base`.
+
+### Fixed
+- **`gstack-review-dispatch pass` keeps the fix-check out of the pass manifest and prints it as `FIX_CHECK: planned effort=full (Step 3.5 runs it on its own; not in this manifest)`.** A resumed `pass` command prints the line again. /ship's Step 9 text already runs that fix-check inside the scoped pass with `git diff $RANGE_BASE` as its hunks, so the pinned reviewer prose is unchanged. No reader is added or removed, so the pass runs the readers the plan already lists.
+- **A scoped pass's Red Team reviews the plan's fix range.** `pass` resolves the range base from the plan's `fix_range` and gives it to the Red Team alone, so it reviews `RANGE_BASE..HEAD` as docs/review-policy.md describes. Until Step 11 has run, the native adversarial pass and the outside voice in a scoped pass are Step 11's own voices, so they keep the merge base and read the whole branch. Once the plan flags carry `--adversarial-ran`, the whole scoped pass reads the range. An explicit `--diff-base` still wins, and a scoped plan without a readable range base is refused.
+
+### Tests
+- `test/review-pass.test.ts`: GEVA-2's invocation (`--extras`, `--pass1-depth standard --fixed-blocking --range-base <short sha>`) plans `NEXT: scoped`. `pass` exits 0, prints the `FIX_CHECK:` line (and again on resume), and stages the Red Team, the adversarial pass, the outside voice and the audit reader. The Red Team's brief names the full range-base sha, and the outside voice's diff carries the pass-1 lines. With `--adversarial-ran` added, the manifest's diff base is the range base. Both fail on main with `BRIEF_RENDER_FAILED`, and on the previous head of this PR because every reader there read the range.
+
 ## [1.92.9.0] - 2026-11-01
 
 **/freeze can no longer be walked around with paths through folders that don't exist yet (#3623).** /freeze checks every Edit, Write and NotebookEdit path against its folder. The check only resolved a parent folder that already existed and compared the raw text otherwise, so `<boundary>/../outside/new/x`, `<boundary>/link-to-outside/new/x`, `<boundary>/..`, `~/.zshrc` with the working folder inside the boundary, and `C:\proj\src\..\..\other\new\x` were all allowed. Reported by Quinn O'Donnell (#3623, #3624).
