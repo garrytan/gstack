@@ -611,7 +611,7 @@ function sealedForPush(refs: Array<{ localSha: string; remoteSha: string }>): Se
     if ("error" in published) return sealedErrorReport(published.error, remoteUrl ?? "the push target");
     targets.push({ commits: published.commits, pushedSha: ref.localSha });
   }
-  return evaluateSealed({ repoRoot: ".", targets, baseRef: defaultRemoteBranch(), remoteUrl, target: remoteUrl ?? remoteName ?? "the push target" });
+  return evaluateSealed({ repoRoot: ".", targets, baseRef: defaultRemoteBranch(), remoteUrl, target: remoteUrl ?? remoteName ?? "the push target", remoteName });
 }
 
 function main() {
