@@ -83,7 +83,10 @@ const SPECS = {
 } as const;
 
 export const isHookTarget = (t: string): t is HookTarget => t === 'openclaw' || t === 'hermes';
-export const hookProfile = (t: HookTarget, env: Env, home: string) => env[SPECS[t].profileVar] || path.join(home, SPECS[t].home);
+export function hookProfile(t: HookTarget, env: Env, home: string): string {
+  const v = env[SPECS[t].profileVar];
+  return v && path.isAbsolute(v) ? path.resolve(v) : v || path.join(home, SPECS[t].home);
+}
 export const hookRoot = (t: HookTarget, profile: string) => path.join(profile, SPECS[t].sub, HOOK_ID);
 /** The skills folder a registration must use for the hook to go into that profile. */
 export const profileSkills = (t: HookTarget, profile: string) => path.join(profile, ...SPECS[t].skills);
@@ -154,13 +157,18 @@ export function inspectHook(t: HookTarget, profile: string, env: Env, home: stri
   return { state: 'written', detail: why, fix };
 }
 
+/** True when a plugin folder holds nothing but the .edited-<stamp> copies gstack kept when it turned the hook off. */
+const onlyKeptEdits = (root: string) => fs.readdirSync(root, { recursive: true, withFileTypes: true })
+  .every(e => e.isDirectory() || (e.isFile() && /\.edited-[0-9T-]+Z$/.test(e.name)));
+
 /** Checks the plugin folder before anything is written: under the profile, no symlink from the profile down, and not someone else's. */
 export function assertHookRoot(t: HookTarget, profile: string, root: string, recordedRoot: string | undefined, fail: (code: 'HARNESS_UNSAFE_DESTINATION' | 'HARNESS_HOOK_OWNED_ELSEWHERE', msg: string) => never): void {
   if (!path.isAbsolute(profile) || /[\t\n\r]/.test(profile)) fail('HARNESS_UNSAFE_DESTINATION', 'the ' + t + ' profile ' + profile + ' is not a plain absolute path');
-  for (let d = root; d !== profile && d !== path.dirname(d); d = path.dirname(d)) {
+  const top = path.resolve(profile);
+  for (let d = root; d !== top && d !== path.dirname(d); d = path.dirname(d)) {
     let st: fs.Stats;
     try { st = fs.lstatSync(d); } catch { continue; }
     if (st.isSymbolicLink()) fail('HARNESS_UNSAFE_DESTINATION', d + ' is a symlink');
   }
-  if (fs.existsSync(root) && recordedRoot !== root) fail('HARNESS_HOOK_OWNED_ELSEWHERE', 'a ' + HOOK_ID + ' plugin already exists at ' + root + ' and this registration did not write it');
+  if (fs.existsSync(root) && recordedRoot !== root && !onlyKeptEdits(root)) fail('HARNESS_HOOK_OWNED_ELSEWHERE', 'a ' + HOOK_ID + ' plugin already exists at ' + root + ' and this registration did not write it');
 }

@@ -23,6 +23,7 @@ const FAKE_OPENCLAW = String.raw`#!/bin/sh
 d="$OPENCLAW_STATE_DIR"; c="$d/fake-config"
 printf '%s|secret=%s|home=%s|cfg=%s\n' "$*" "$ANTHROPIC_API_KEY" "$HOME" "$OPENCLAW_CONFIG_PATH" >> "$d/fake-calls"
 [ -f "$d/fake-fail" ] && { echo "config write refused" >&2; exit 3; }
+[ -f "$d/fake-kill" ] && { rm -f "$d/fake-kill"; kill -9 "$PPID"; sleep 5; }
 touch "$c"
 acc=false; grep -q '^plugins.entries.gstack-start.hooks.allowConversationAccess=true$' "$c" && acc=true
 en=$(grep '^plugins.entries.gstack-start.enabled=' "$c" | tail -1 | cut -d= -f2); enj=null; [ -n "$en" ] && enj=$en
@@ -167,6 +168,16 @@ describe('start hook: who decides', () => {
     expect(fs.readdirSync(path.join(s.d, 'elsewhere'))).toEqual([]);
     expect(r.calls().concat(s.calls())).toEqual([]);
   });
+
+  test('a profile path with a trailing slash under a symlinked parent still takes the hook and is saved without the slash', () => {
+    const r = rig('hermes');
+    const link = path.join(tmp(), 'ln');
+    fs.symlinkSync(r.d, link);
+    const res = register({ ...r.o({ startHook: true }), env: { ...r.env, HERMES_HOME: path.join(link, 'he') + '/' } });
+    expect(res.hook?.state).toBe('active');
+    expect(readLedger(res.ledger)!.meta.hook_profile).toBe(path.join(link, 'he'));
+    expect(fs.existsSync(path.join(r.root, 'plugin.yaml'))).toBe(true);
+  }, 120_000);
 });
 
 describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
@@ -230,6 +241,33 @@ describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
     expect(cli.stderr).toContain('config write refused');
     expect(cli.stderr).toContain('(HARNESS_HOOK_INACTIVE; docs/troubleshooting.md#harness-hook-inactive)');
     expect(fs.existsSync(path.join(s.profile, 'skills', 'gstack', 'SKILL.md'))).toBe(true);
+  }, 300_000);
+
+  test('a run killed during activation leaves the hook marked not active, so the next plain register activates it', () => {
+    const r = rig('openclaw');
+    fs.writeFileSync(path.join(r.profile, 'fake-kill'), '');
+    const cli = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', path.join(ROOT, 'bin', 'gstack-harness'), 'register', 'openclaw'],
+      { env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1', PATH: r.env.PATH + path.delimiter + path.dirname(process.execPath), HOME: path.join(r.d, 'home'), GSTACK_STATE_ROOT: path.join(r.d, 'state') }, encoding: 'utf8', timeout: 240_000 });
+    expect(cli.signal, cli.stderr).toBe('SIGKILL');
+    const dir = path.join(r.d, 'state', 'harness');
+    const lfile = fs.readdirSync(dir).find(f => f.endsWith('.ledger'));
+    expect(readLedger(path.join(dir, lfile!))!.meta).toMatchObject({ start_hook: 'on', hook_active: 'no' });
+    const next = register(r.o());
+    expect(next.hook).toMatchObject({ state: 'active', retried: true });
+    expect(readLedger(next.ledger)!.meta.hook_active).toBe('yes');
+  }, 300_000);
+
+  test('off with an edited plugin file keeps the edit, and the same registration can turn the hook back on', () => {
+    const r = rig('openclaw');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    fs.writeFileSync(path.join(r.root, 'note.txt'), 'my note\n');
+    const off = register(r.o({ startHook: false }));
+    expect(off.kept).toHaveLength(1);
+    expect(off.kept[0]).toMatch(/note\.txt\.edited-/);
+    const on = register(r.o({ startHook: true }));
+    expect(on.hook?.state).toBe('active');
+    expect(fs.readFileSync(path.join(r.root, 'note.txt'), 'utf8')).toBe(START_NOTE + '\n');
+    expect(fs.readFileSync(off.kept[0], 'utf8')).toBe('my note\n');
   }, 300_000);
 
   test('without the harness on PATH the hook is written, not active, and names the commands to run', () => {

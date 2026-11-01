@@ -643,7 +643,7 @@ export function register(opts: RegisterOptions): RegisterResult {
       for (const p of files.keys()) for (let d = path.dirname(p); !fs.existsSync(d) && path.dirname(d) !== d; d = path.dirname(d)) dirs.add(d);
       const record = (recorded: typeof want) => writeLedger(lfile, {
         meta: { id, target: t.name, dest, mode, checkout: opts.checkout, version: opts.version, names: visible.join(','), ...(router ? { router } : {}), ...(context ? { context } : {}),
-          ...(hook ? { start_hook: hook.on ? 'on' : 'off' } : {}), ...(hook?.on ? { hook_profile: hook.profile, hook_root: hook.root, ...(prev?.meta.hook_active ? { hook_active: prev.meta.hook_active } : {}) } : {}) },
+          ...(hook ? { start_hook: hook.on ? 'on' : 'off' } : {}), ...(hook?.on ? { hook_profile: hook.profile, hook_root: hook.root, ...(!hook.prevOn || hook.explicit ? { hook_active: 'no' } : prev?.meta.hook_active ? { hook_active: prev.meta.hook_active } : {}) } : {}) },
         files: recorded, dirs: [...dirs].sort((a, b) => b.length - a.length), blocks,
       });
       record([...want, ...(prev?.files ?? []).filter(f => !files.has(f.path))]);
