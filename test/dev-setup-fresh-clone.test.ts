@@ -68,4 +68,17 @@ describe.skipIf(process.platform === 'win32')('bin/dev-setup in a fresh gstack c
     expect(result.stderr).toContain('overlaps the source tree');
     expect(tree(f.dir)).toEqual(before);
   }, 90_000);
+
+  test('setup --host codex from the checkout\'s own layout is still refused by the Codex preflight, without writes', () => {
+    const { f, source } = freshClone();
+    const devSetup = spawnSync('bash', [join(source, 'bin/dev-setup')], { cwd: source, env: f.env, encoding: 'utf8', timeout: 120_000, input: '' });
+    expect(devSetup.status, devSetup.stdout + devSetup.stderr).toBe(0);
+    const before = tree(f.dir);
+    const result = spawnSync('bash', [join(source, '.claude/skills/gstack/setup'), '--host', 'codex', '--no-team', '--no-plan-tune-hooks', '--no-timeline-stop-hook'], {
+      cwd: source, env: f.env, encoding: 'utf8', timeout: 60_000, input: '',
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stderr).toContain(`Refusing: Codex sidecar root write overlaps source or escapes its namespace: ${join(source, '.agents/skills/gstack')}`);
+    expect(tree(f.dir)).toEqual(before);
+  }, 240_000);
 });
