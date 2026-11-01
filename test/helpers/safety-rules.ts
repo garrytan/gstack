@@ -54,7 +54,7 @@ export const SAFETY_RULES: readonly SafetyRule[] = [
     evalId: 'safety-pair-agent-block',
     source: 'pair-agent/SKILL.md.tmpl',
     match: /full instruction block/i,
-    sha256: '3cc7a009f9941469b55a460d293a1233f6c80df4c26b26df85f67c61ff13284f',
+    sha256: 'e8ce8b02fc431679c8b9ec89bccced4e289c7ed9043809638fbedf0e9ebf1f8a',
   },
   {
     id: 'codex-consult-embed',
