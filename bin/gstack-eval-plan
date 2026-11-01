@@ -5,7 +5,7 @@
  *   gstack-eval-plan prereg --check <file> [--allow-repo-commands] [--json] | --init <file> [--title <t>]
  *   gstack-eval-plan arms [--arms <model,model>] [--policy-doc <file>] [--input-tokens N] [--output-tokens N] [--json]
  *   gstack-eval-plan dry-run --input <rows.jsonl> --arms <model,model> [--fields a,b] [--output-budget N]
- *                            [--retry-prompt <file>] [--max-rows N] [--out <dir>] [--json]
+ *                            [--retry-prompt <file>] [--max-rows N] [--tier-question <why>] [--out <dir>] [--json]
  *   gstack-eval-plan pilot start  --out <dir> --cap <usd> --arms <model[#loadout],...> --dry-run <dry-run.json> [--n 3]
  *   gstack-eval-plan pilot settle --out <dir> --attempt <id> --usd <n|unknown>
  *   gstack-eval-plan pilot release --out <dir> --attempt <id>
@@ -50,9 +50,11 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
   prereg --init <file> [--title <t>] write the template
   arms [--arms m,m] [--policy-doc f] [--input-tokens N] [--output-tokens N] [--json]
                                      arms from \`gstack-models resolve --role eval-arms\`, else the repo policy doc, each priced per item
-  dry-run --input rows.jsonl --arms m,m [--fields a,b] [--output-budget N] [--retry-prompt f] [--max-rows N] [--cap usd] [--out dir] [--json]
+  dry-run --input rows.jsonl --arms m,m [--fields a,b] [--output-budget N] [--retry-prompt f] [--max-rows N] [--cap usd] [--tier-question "<why>"] [--out dir] [--json]
                                      stub model over the real rows; checklist: price table, output budget, retry prompt text,
-                                     and with --cap reservation-fits-cap (one call: largest row + output budget, priced)
+                                     and with --cap reservation-fits-cap (one call: largest row + output budget, priced);
+                                     frontier: refuses a plan whose every arm is Haiku or Sonnet unless --tier-question
+                                     names what it asks about that tier, and re-costs the plan on frontier prices (R54)
   pilot start --out dir --cap usd --arms m,m#no-gstack --dry-run dry-run.json [--n 3]
   pilot settle --out dir --attempt id --usd <n|unknown>      pilot release --out dir --attempt id
   pilot report --out dir --total items [--workers W] [--json]  spend table + extrapolation with a 95% band, then the approval ask
@@ -163,13 +165,15 @@ function doDryRun(rest: string[]): number {
   if (!arms.length) return usage('dry-run needs --arms <model,model>');
   const scope = scopeOf(rest);
   const modelRules = lintModels(rest, arms.map(model => ({ model, scope, where: 'dry-run --arms' })), 'dry-run');
-  const r = dryRun({ input, arms, fields: csv(flag(rest, '--fields')), outputBudget: num(rest, '--output-budget'), retryPrompt: flag(rest, '--retry-prompt'), maxRows: num(rest, '--max-rows'), cap: num(rest, '--cap'), modelRules });
+  const tierQuestion = flag(rest, '--tier-question');
+  if (tierQuestion?.startsWith('--')) return usage('--tier-question needs the question the preregistration asks about that tier, not another flag');
+  const r = dryRun({ input, arms, fields: csv(flag(rest, '--fields')), outputBudget: num(rest, '--output-budget'), retryPrompt: flag(rest, '--retry-prompt'), maxRows: num(rest, '--max-rows'), cap: num(rest, '--cap'), modelRules, tierQuestion });
   const out = flag(rest, '--out');
   if (out) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, 'dry-run.json'), JSON.stringify(r, null, 2) + '\n'); }
   if (rest.includes('--json')) process.stdout.write(JSON.stringify(r) + '\n'); else process.stdout.write(renderDryRun(r));
   if (out) process.stdout.write(`DRY_RUN_RECORD: ${path.join(out, 'dry-run.json')}\n`);
   if (!r.pass) {
-    const why = [r.rows === 0 ? 'no rows' : '', r.bad_rows.length ? `${r.bad_rows.length} bad rows` : '', !r.checks.price_table.ok ? `price missing: ${r.checks.price_table.missing.join(',') || 'no arms'}` : '', !r.checks.output_budget.ok ? 'output budget below the reasoning floor' : '', !r.checks.retry_prompt.ok ? 'retry prompt missing' : '', r.checks.reservation_fits_cap && !r.checks.reservation_fits_cap.ok ? `one call exceeds --cap $${r.checks.reservation_fits_cap.cap}` : '', r.checks.model_rules && !r.checks.model_rules.ok ? 'model rules refused an arm (EVAL_MODEL lines above)' : ''].filter(Boolean).join('; ');
+    const why = [r.rows === 0 ? 'no rows' : '', r.bad_rows.length ? `${r.bad_rows.length} bad rows` : '', !r.checks.price_table.ok ? `price missing: ${r.checks.price_table.missing.join(',') || 'no arms'}` : '', !r.checks.output_budget.ok ? 'output budget below the reasoning floor' : '', !r.checks.retry_prompt.ok ? 'retry prompt missing' : '', r.checks.reservation_fits_cap && !r.checks.reservation_fits_cap.ok ? `one call exceeds --cap $${r.checks.reservation_fits_cap.cap}` : '', r.checks.model_rules && !r.checks.model_rules.ok ? 'model rules refused an arm (EVAL_MODEL lines above)' : '', !r.checks.frontier.ok ? 'every arm is Haiku or Sonnet (R54; CHECK: frontier above)' : ''].filter(Boolean).join('; ');
     process.stderr.write(resultLine('gstack-eval-plan dry-run', r.checks.price_table.ok ? 'EVAL_DRY_RUN_FAILED' : 'EVAL_PRICE_MISSING', why) + '\n');
     return EXIT.fail;
   }

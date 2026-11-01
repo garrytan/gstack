@@ -1,0 +1,3 @@
+### Changed
+
+- Evals test frontier models (R54). /eval-plan and docs/TESTING_INTERNALS.md#frontier-models-under-test now say that models under test are Opus 5.5 and GPT-6.1 Sol, plus at most one named low-cost primary. Haiku and Sonnet aren't stand-ins for a frontier model, and a Haiku- or Sonnet-only result can't carry a KEEP, FIX-METHOD or CUT-CANDIDATE verdict. Judges, review voices and housekeeping models keep their models. `gstack-eval-plan dry-run` refuses a plan whose every arm is Haiku or Sonnet unless `--tier-question` names what it asks about that tier, warns on a mixed plan, and prices the whole plan on frontier models. `pilot start` refuses a Haiku- or Sonnet-only pilot unless its dry run recorded that tier question.
