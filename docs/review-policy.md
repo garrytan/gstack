@@ -485,7 +485,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    worded around a negated label still arrives through its Severity or Blocks field. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
    a classified finding that carries `stated` shows it in its deferred-review issue next to the label ("CRITICAL (the
-   reviewer wrote Severity: Low, Blocks: no)"). What blocks is unchanged.
+   reviewer wrote Severity: Low, Blocks: no)"). /ship's Step 9.4 does not copy `stated` into its findings file yet: that
+   instruction lives in a reviewer brief that changes only after a no-loss replay. What blocks is unchanged.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
