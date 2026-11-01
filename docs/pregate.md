@@ -841,7 +841,9 @@ path records and uploads `tested-tree`, after its verification passes, so a
 red, partial or reused run never leaves a record and a reuse is never reused.
 The pull request lookup needs no `pull-requests` permission on a public
 repository; a private fork of this setup would need `pull-requests: read`,
-and without it every push falls back to the full run.
+and without it every push falls back to the full run. Windows Free Tests now
+runs nightly and by hand only (docs/support-tiers.md), never on a push, so its
+`reuse` job is always skipped and every nightly run takes the strict path.
 
 <a id="guards"></a>
 ## Guards and the lane-done rule

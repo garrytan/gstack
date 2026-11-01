@@ -16,8 +16,7 @@
     "supabase/**": []
   },
   "selection": {
-    "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list",
-    "windows-free-tests.yml/windows-free-shard": "bun run scripts/test-free-shards.ts --windows-only --list"
+    "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list"
   },
   "run_profiles": {
     "ci-reuse/free-tests": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["free-plan", "typecheck", "quick-bun-default", "cso-macos-launcher", "macos-named-regressions", "cso-windows-launcher", "cso-docker-integration", "free-tests"], "artifact": "tested-tree", "os": "Linux" },

@@ -92,7 +92,7 @@ hard-code:
   "changelog": "CHANGELOG.md",
   "history": "squash-ok",
   "stamp_sensitive_gates": ["tests"],
-  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-free-tests", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
+  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-smoke", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
   "min_gstack_version": "1.91.340.0"
 }
 ```
@@ -210,16 +210,18 @@ READY PR as conflicting each time main stamps; the train merges the CHANGELOG
 by section, so the lane never merges main for it. The conflict does mean GitHub
 has no merge ref for the PR, so no `pull_request` CI runs on the head and
 `ready` prints `ci: none at <head12>` with a `ci-hint:` line. The lane then
-runs `ready … --dispatch-ci free-tests.yml,windows-free-tests.yml [--timeout
+runs `ready … --dispatch-ci free-tests.yml,windows-smoke.yml [--timeout
 <s>]` (under a train policy): it dispatches each named workflow on the branch
 (`gh workflow run <wf> --ref <branch>`, skipped when a run at this head already
-concluded), waits for the runs (`CI_DISPATCH: <wf> --ref <branch> run <id> <url>
-<conclusion>`), clears every requires-remote pregate lane whose workflow is one
-of them with the run URL (`PREGATE_CLEARED: <lane> <url>`; a lane of another
-workflow stays uncleared and is named in the refusal), and then reads the head
-as usual, which passes because the dispatched check runs attach to the commit;
-the `ci-hint:` line then says those non-pull_request runs count. A red run
-clears no lane and refuses (`QUEUE_NOT_READY`); a run still going at `--timeout`
+concluded, and skipped with a note when the base has the workflow file but the
+branch predates it, since GitHub reads the file from the branch), waits for the
+runs (`CI_DISPATCH: <wf> --ref <branch> run <id> <url> <conclusion>`), clears
+every requires-remote pregate lane whose workflow is one of them with the run
+URL (`PREGATE_CLEARED: <lane> <url>`; a lane of another workflow stays
+uncleared and is named in the refusal), and then reads the head as usual,
+which passes because the dispatched check runs attach to the commit; the
+`ci-hint:` line then says those non-pull_request runs count. A red run clears
+no lane and refuses (`QUEUE_NOT_READY`); a run still going at `--timeout`
 (default 2700 s) is `QUEUE_TRAIN_PENDING`, and rerunning the command keeps
 waiting; a fork head is never dispatched here (`QUEUE_TRAIN_UNTRUSTED`). By hand the same four steps are `gh workflow
 run <wf> --ref <branch>`, wait, `gstack-pregate clear --remote <lane> --run-url

@@ -82,7 +82,7 @@ test('the propose step touches only the two seeds, never the allowlist, on one b
   expect(script).not.toContain('free-test-seed-allowlist.json');
   expect(script).toContain('branch=bot/free-duration-seeds');
   expect(script).toContain('bun test test/free-seed-ratchet.test.ts');
-  for (const workflow of ['free-tests.yml', 'windows-free-tests.yml', 'quality-gate.yml']) {
+  for (const workflow of ['free-tests.yml', 'windows-smoke.yml', 'quality-gate.yml']) {
     expect(script).toContain(`gh workflow run ${workflow} --repo "$GITHUB_REPOSITORY" --ref "$branch"`);
     expect(load(workflow).on).toHaveProperty('workflow_dispatch');
   }

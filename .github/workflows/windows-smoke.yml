@@ -1,0 +1,170 @@
+name: Windows Smoke
+
+# The required Windows check under minimal support (docs/support-tiers.md):
+# with a default Git for Windows install, ./setup installs and the core skills
+# start. One windows-latest job, under 5 minutes:
+#   1. ./setup --host claude into an isolated HOME under Git Bash, with
+#      gstack's own browser (Playwright Chromium).
+#   2. The core skills start: gstack-skill-start for /ship, /review,
+#      /qa-only, /investigate and /browse answers SKILL_START_PROTO: 1.
+#   3. /browse on gstack's own browser: the installed browse runs a piped
+#      chain flow against a local page from an unrelated directory.
+#   4. The fastest Windows-safe free tests for those paths (list below).
+# The full curated Windows suite is windows-free-tests.yml: nightly on main
+# and on dispatch, never a PR gate.
+#
+# No bun install cache: a cold install took 16-17 s on windows-latest, a
+# restore of the ~450 MB cache 33-42 s (GSTA-203 PR 1 A/B, 3 runs per arm).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-smoke-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Configure git identity (required by tests that init temp repos)
+        run: |
+          git config --global user.email "windows-smoke@gstack.test"
+          git config --global user.name "Windows Smoke"
+          git config --global init.defaultBranch main
+        shell: bash
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        shell: bash
+
+      - name: ./setup installs into an isolated HOME
+        run: |
+          set -euo pipefail
+          SMOKE_HOME="$RUNNER_TEMP/smoke-home"
+          mkdir -p "$SMOKE_HOME"
+          HOME="$SMOKE_HOME" USERPROFILE="$(cygpath -w "$SMOKE_HOME")" ./setup --host claude
+          test -x "$SMOKE_HOME/.claude/skills/gstack/bin/gstack-skill-start" || (echo "MISSING: installed gstack-skill-start" && exit 1)
+        shell: bash
+
+      - name: The core skills start
+        run: |
+          set -euo pipefail
+          SMOKE_HOME="$RUNNER_TEMP/smoke-home"
+          USERPROFILE="$(cygpath -w "$SMOKE_HOME")"
+          export HOME="$SMOKE_HOME" USERPROFILE
+          for skill in ship review qa-only investigate browse; do
+            set +e
+            OUT=$(timeout 120 "$SMOKE_HOME/.claude/skills/gstack/bin/gstack-skill-start" --skill "$skill" --model claude 2>&1 < /dev/null)
+            CODE=$?
+            set -e
+            echo "::group::$skill"; echo "$OUT"; echo "::endgroup::"
+            test "$CODE" -eq 0 || (echo "/$skill: gstack-skill-start exited $CODE" && exit 1)
+            grep -q '^SKILL_START_PROTO: 1' <<< "$OUT" || (echo "/$skill: no SKILL_START_PROTO: 1 line" && exit 1)
+          done
+        shell: bash
+
+      - name: /browse on gstack's own browser runs a piped chain flow from an unrelated directory
+        run: |
+          set -euo pipefail
+          SMOKE_HOME="$RUNNER_TEMP/smoke-home"
+          USERPROFILE="$(cygpath -w "$SMOKE_HOME")"
+          export HOME="$SMOKE_HOME" USERPROFILE
+          BROWSE="$SMOKE_HOME/.claude/skills/gstack/browse/dist/browse.exe"
+          [ -f "$BROWSE" ] || BROWSE="$SMOKE_HOME/.claude/skills/gstack/browse/dist/browse"
+          test -f "$BROWSE" || (echo "MISSING: installed browse" && exit 1)
+          bun -e 'Bun.serve({ hostname: "127.0.0.1", port: 47124, fetch: () => new Response("<title>gstack smoke</title><h1>gstack-windows-smoke-ok</h1>", { headers: { "content-type": "text/html" } }) }); setInterval(() => {}, 1 << 30);' &
+          PAGE_PID=$!
+          trap 'kill "$PAGE_PID" 2>/dev/null || true; "$BROWSE" stop >/dev/null 2>&1 || true' EXIT
+          mkdir -p "$RUNNER_TEMP/unrelated-dir" && cd "$RUNNER_TEMP/unrelated-dir"
+          set +e
+          OUT=$(printf '%s\n' '[["goto","http://127.0.0.1:47124/"],["text"]]' | "$BROWSE" chain 2>&1)
+          CODE=$?
+          set -e
+          echo "$OUT"
+          if [ "$CODE" -ne 0 ]; then
+            find "$RUNNER_TEMP/unrelated-dir" "$SMOKE_HOME" -maxdepth 4 \( -name 'browse-daemon.log' -o -name 'browse-startup-error.log' \) -print -exec tail -n 60 {} \; 2>/dev/null || true
+            echo "browse chain exited $CODE" && exit 1
+          fi
+          grep -q 'gstack-windows-smoke-ok' <<< "$OUT" || (echo "chain output lacks the page text: the flow did not run" && exit 1)
+        shell: bash
+
+      - name: Fastest Windows-safe free tests for install and the core skills
+        # Windows-measured seconds from scripts/free-test-durations-windows.json.
+        #   setup-windows-fallback (0.1): setup's _link_or_copy copies, never links, on Windows
+        #   setup-staged-copy (0.6): a copy install is staged and swapped in only when complete
+        #   setup-windows-rerun-refresh (1.7): re-running ./setup refreshes copied skills (#2444)
+        #   setup-skill-copies (0.1): copied SKILL.md hashes and the backup of an edited copy
+        #   setup-bun-cmd-and-pipe-bugs (0.4): setup's bun.cmd and pipe handling
+        #   gstack-launch-probe (0.1): setup's Smart App Control launch probe (#2595)
+        #   state-root-parity (2.1): every skill start resolves one state root in TS and bash
+        #   bun-isolation-launch (1.1): Bun entries ignore .env and bunfig under Git Bash (#3415)
+        #   gstack-lease-git-bash (3.7): the skill-start lease under Git Bash (#3330)
+        #   gstack-wtree-windows-paths (1.3): /review and /ship record a start on C:/ paths (#3101)
+        #   ship-hook-windows-paths (2.3): /ship's pre-push guard in a Windows worktree (#2805)
+        #   qa-only-browser-probe (2.4): /qa-only's browser probe fixture
+        #   find-browse (0.1): /browse resolves its binary (.exe)
+        #   cli-chain-stdin (0.3): /browse chain reads its flow from stdin on Windows (#3039)
+        #   windows-spawn-hide (0.1): /browse's spawns hide their console window (#1835)
+        env:
+          GSTACK_FREE_RETRY_FLAKY: '1'
+          GSTACK_FLAKE_LEDGER: ${{ runner.temp }}/flake-ledger.jsonl
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/windows-smoke-files.txt" <<'LIST'
+          test/setup-windows-fallback.test.ts
+          test/setup-staged-copy.test.ts
+          test/setup-windows-rerun-refresh.test.ts
+          test/setup-skill-copies.test.ts
+          test/setup-bun-cmd-and-pipe-bugs.test.ts
+          test/gstack-launch-probe.test.ts
+          test/state-root-parity.test.ts
+          test/bun-isolation-launch.test.ts
+          test/gstack-lease-git-bash.test.ts
+          test/gstack-wtree-windows-paths.test.ts
+          test/ship-hook-windows-paths.test.ts
+          test/qa-only-browser-probe.test.ts
+          browse/test/find-browse.test.ts
+          browse/test/cli-chain-stdin.test.ts
+          browse/test/windows-spawn-hide.test.ts
+          LIST
+          bun run scripts/test-free-shards.ts --files-from "$RUNNER_TEMP/windows-smoke-files.txt"
+        shell: bash
+
+      - name: Upload full test logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-smoke-logs
+          path: |
+            .context/free-test-logs/gstack-free-test-*.log
+            ${{ runner.temp }}/gstack-free-test-*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+      - name: Upload flake ledger
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: flake-ledger-windows-smoke
+          path: ${{ runner.temp }}/flake-ledger.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
