@@ -202,7 +202,7 @@ added and deleted lines; any class makes the depth full (`risk:<class>` in
 [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code)'s matchers.
 **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
 consent, escape) or line (`shell: true`, `execSync(`, `eval`, `new Function(`,
-raw HTML sinks). **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+raw HTML sinks, a shell run through argv, recursive deletes). **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
@@ -210,16 +210,16 @@ the patterns and `DEPTH_RULES` includes it.
 
 **UI or game text.** A UI file (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.html`,
 `.astro`, `.hbs`, `.erb`) or a string resource (a `locales/`, `i18n/`, `l10n/`,
-`translations/`, `strings/` or `dialogue/` directory; `.po`, `.strings`,
+`translations/`, `strings/` or `dialogue/` directory, for a json, yaml, toml, properties, ini, xml or txt file; `.po`, `.strings`,
 `.xliff`, `.arb`, `.resx`, `.ftl`, `strings.xml`) counts as docs when it removes and
 adds the same number of lines and each pair differs only inside text spans:
-markup text between two tags, the `title`, `alt`, `placeholder`, `aria-label` and
+markup text between two tags (no quotes or `+`, so a string literal is never text), the `title`, `alt`, `placeholder`, `aria-label` and
 `aria-description` values, a quoted resource value after its key, a `.po` msgstr.
 The placeholders (`{name}`, `%s`, `${`, `{{`) must match, and a line with
 `<script`, `<style`, a template tag or a front-matter fence is never text. Any
 other change keeps the path code (`uiTextOnly`, `test/review-depth.test.ts`).
 
-**Chart SVG.** An `.svg` counts as docs when none of its added lines holds a
+**Chart SVG.** A new `.svg` (its added lines are the whole file; an edited one stays code) counts as docs when none of its lines holds a
 `<script>`, an `on*=` handler, `<foreignObject>`, an entity or doctype, an
 animated href, `@import`, `javascript:`, or an `href` or `url(` that is not a
 `#fragment` (`SVG_ACTIVE`). Anything active or external keeps it code
@@ -424,8 +424,8 @@ difference passed a scoped review.
 
 | Value | Pass 1 | Blocking finding in unchanged code | Pass 2+ | Cap |
 |---|---|---|---|---|
-| `frozen` (default) | the diff | filed as an issue, listed as deferred | the range since the previous pass, blocking only | 2 full passes + 1 fix-check |
-| `diff-plus-blocking` | the diff | fixed in this PR | the range since the previous pass, blocking only | 2 full passes + 1 fix-check |
+| `frozen` (default) | the diff | filed as an issue, listed as deferred | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
+| `diff-plus-blocking` | the diff | fixed in this PR | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
 | `all` | everything | fixed in this PR | the whole diff, every finding | 3 fix cycles |
 
 `diff-plus-blocking` is the fallback for a repository where deferred issues pile

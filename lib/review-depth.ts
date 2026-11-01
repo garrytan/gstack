@@ -60,18 +60,20 @@ const GATE_PATH = [
 
 /**
  * UI or game text (R51): a UI source file or a string resource whose every changed line pair differs only inside text spans.
- * Spans: markup text between two tags (no braces), five display attributes, a quoted resource value after its key, a .po msgstr.
+ * Spans: markup text between two tags (no braces, quotes or +, so a string literal is never text), five display attributes, a quoted resource value after its key, a .po msgstr.
  */
 const UI_FILE = /\.(tsx|jsx|vue|svelte|html?|astro|hbs|erb)$/i;
-const STRING_RESOURCE = [/(^|\/)(locales?|i18n|l10n|translations?|strings|dialogues?)\//i, /\.(po|pot|strings|xliff|xlf|arb|resx|ftl)$/i, /(^|\/)strings\.xml$/i];
-const UI_SPAN: [RegExp, string][] = [[/(<\/?[A-Za-z][\w.:-]*(?:\s[^<>{}]*)?>)[^<>{}()=;&|]+(?=<\/?[A-Za-z])/g, '$1\u0000'], [/\b(title|alt|placeholder|aria-label|aria-description)=(["'])[^"'{}]*\2/g, '$1=\u0000']];
+const STRING_RESOURCE = [/(^|\/)(locales?|i18n|l10n|translations?|strings|dialogues?)\/(.*\/)?[^/]+\.(json|ya?ml|toml|properties|ini|xml|txt)$/i, /\.(po|pot|strings|xliff|xlf|arb|resx|ftl)$/i, /(^|\/)strings\.xml$/i];
+const UI_SPAN: [RegExp, string][] = [[/(<\/?[A-Za-z][\w.:-]*(?:\s[^<>{}]*)?>)[^<>{}()=;&|'"`+]+(?=<\/?[A-Za-z])/g, '$1\u0000'], [/\b(title|alt|placeholder|aria-label|aria-description)=(["'])[^"'{}]*\2/g, '$1=\u0000']];
 const RESOURCE_SPAN: [RegExp, string][] = [[/^(\s*(?:"[^"]*"|'[^']*'|[\w.-]+)\s*[:=]\s*)(["'])(?:\\.|(?!\2).)*\2(\s*[,;]?\s*)$/, '$1\u0000$3'], [/^(msgstr(?:\[\d+\])?\s+)".*"\s*$/, '$1\u0000']];
 /** Lines the UI-text rule never reads as text: inline script or style, template tags, front-matter fences. */
 const CODE_IN_MARKUP = /<script|<style|<%|\{\{|\{%|^\s*---\s*$/i;
+/** A UI line is text only when it is markup end to end: a line that builds markup in a string or an expression is code. */
+const MARKUP_LINE = /^\s*<[^`]*>\s*$/;
 const PLACEHOLDER = /\{[^{}]*\}|%[-+ #0]*\d*(?:\.\d+)?[a-zA-Z@]|\$\{|\{\{/g;
 
 /**
- * A chart SVG is docs (R51) only when its added lines hold no script, event handler, foreign object, entity, animated href,
+ * A new chart SVG is docs (R51) only when the whole file (all added) holds no script, event handler, foreign object, entity, animated href,
  * import, or href or url() that leaves the file: anything active or external keeps it code.
  */
 const SVG_ACTIVE = /<script|<foreignObject|<!ENTITY|<!DOCTYPE|<iframe|<embed|<object|@import|javascript:|(^|[\s"'/])on[a-z]+\s*=|attributeName\s*=\s*["']?(xlink:)?href|\bhref\s*=\s*(?!["']?#)|url\(\s*(?!["']?#)/i;
@@ -86,7 +88,7 @@ const DATA_CONFIG = [
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
   RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, TEXT_SPAN: [...UI_SPAN, ...RESOURCE_SPAN].map(([r, w]) => [`/${r.source}/${r.flags}`, w]), LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
-  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, UI_FILE: [UI_FILE], STRING_RESOURCE, PLACEHOLDER: [PLACEHOLDER], SVG_ACTIVE: [SVG_ACTIVE] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
+  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, UI_FILE: [UI_FILE], MARKUP_LINE: [MARKUP_LINE], STRING_RESOURCE, PLACEHOLDER: [PLACEHOLDER], SVG_ACTIVE: [SVG_ACTIVE] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
 /**
@@ -148,6 +150,8 @@ export interface ClassInput {
    * (lib/review-collect.ts). A candidate not listed counts as docs; 'all' or no scan keeps every data file code.
    */
   consumed?: readonly string[] | 'all';
+  /** Paths the diff creates: a chart SVG counts as docs only when it is one, so its added lines are the whole file. */
+  created?: readonly string[];
   /** Added and deleted lines per path (lib/review-collect.ts): the UI-text rule and the risk classes read them; without them neither applies. */
   added?: Record<string, readonly string[]>;
   removed?: Record<string, readonly string[]>;
@@ -158,7 +162,7 @@ export interface ClassResult { class: DiffClass; reasons: string[]; errors: Dept
 export function uiTextOnly(p: string, removed: readonly string[] = [], added: readonly string[] = []): boolean {
   const spans = STRING_RESOURCE.some(r => r.test(p)) ? RESOURCE_SPAN : UI_FILE.test(p) ? UI_SPAN : null;
   if (!spans || [...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p))) return false;
-  if (!added.length || removed.length !== added.length || [...removed, ...added].some(l => CODE_IN_MARKUP.test(l))) return false;
+  if (!added.length || removed.length !== added.length || [...removed, ...added].some(l => CODE_IN_MARKUP.test(l) || (spans === UI_SPAN && !MARKUP_LINE.test(l)))) return false;
   const mask = (l: string) => { const texts: string[] = []; let k = l; for (const [r, w] of spans) k = k.replace(r, (...m) => { texts.push(String(m[0])); return w.replace(/\$(\d)/g, (_, n) => String(m[Number(n)] ?? '')); }); return { k, holes: texts.join('').match(PLACEHOLDER)?.sort().join('') ?? '', texts }; };
   return removed.every((r, n) => { const a = mask(r), b = mask(added[n]!); return a.texts.length > 0 && a.k === b.k && a.holes === b.holes; });
 }
@@ -167,7 +171,7 @@ const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
 const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && dataCandidate(p, i.root);
 const uiText = (i: ClassInput, p: string) => !!i.added && classifyPath(p, i.root) === 'code' && uiTextOnly(p, i.removed?.[p], i.added[p]);
-const chartSvg = (i: ClassInput, p: string) => /\.svg$/i.test(p) && !!i.added?.[p]?.length && classifyPath(p, i.root) === 'code'
+const chartSvg = (i: ClassInput, p: string) => /\.svg$/i.test(p) && !!i.created?.includes(p) && !!i.added?.[p]?.length && classifyPath(p, i.root) === 'code'
   && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p)) && !i.added[p]!.some(l => SVG_ACTIVE.test(l));
 const pathClass = (i: ClassInput, p: string): PathClass => ((i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || uiText(i, p) || chartSvg(i, p) ? 'docs' : classifyPath(p, i.root));
 

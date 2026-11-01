@@ -28,6 +28,8 @@ describe('risk classes', () => {
     expect(risk(['src/db/users.ts'], { 'src/db/users.ts': ['await sql`DELETE FROM users WHERE id = ${id}`;'] })).toEqual(['data']);
     expect(risk(['app/models/user.rb'], { 'app/models/user.rb': ['User.where(stale: true).destroy_all'] })).toEqual(['data']);
     expect(risk(['src/list.ts'], { 'src/list.ts': ['// delete from the list when done', 'arr.splice(i, 1);'] })).toEqual([]);
+    for (const line of ["const r = spawn('sh', ['-c', cmd], { timeout: 1 });", "Bun.spawn(['bash', '-lc', x]);", "fs.rmSync(t, { recursive: true, force: true });", 'rm -rf "$DIR"'])
+      expect(risk(['src/run.ts'], { 'src/run.ts': [line] })).toEqual(['security']);
     expect(risk(['scripts/test-pr-profile.ts', 'lib/storyboard.ts'])).toEqual([]);
     expect(RISK_RULES).toMatch(/^[0-9a-f]{16}$/);
   });
@@ -61,6 +63,9 @@ describe('UI or game text is docs (uiTextOnly)', () => {
     expect(uiTextOnly('locales/en.json', [], ['  "new": "New",'])).toBe(false);
     expect(uiTextOnly('src/errors.ts', ['throw new Error("bad input");'], ['throw new Error("invalid input");'])).toBe(false);
     expect(uiTextOnly('src/App.tsx', ['  <h1>Hi</h1>'], ['  <h1>Hi</h1>  '])).toBe(false);
+    expect(uiTextOnly('src/App.tsx', ["  const html = '<p>' + safeName + '</p>';"], ["  const html = '<p>' + rawName + '</p>';"])).toBe(false);
+    expect(uiTextOnly('src/App.vue', ['  el.innerHTML = `<b>hi</b>`;'], ['  el.innerHTML = `<b>bye</b>`;'])).toBe(false);
+    expect(uiTextOnly('src/i18n/loader.ts', ['  endpoint: "https://a.example",'], ['  endpoint: "https://b.example",'])).toBe(false);
   });
   test('classifyDiff counts a text-only UI path as docs only when it has the lines', () => {
     const i = { paths: ['src/App.tsx'], scope: {}, gateTagged: 0, perPath: [{ path: 'src/App.tsx', lines: 2, binary: false }] };
@@ -117,7 +122,7 @@ describe('a research write-up with a chart SVG (R51, gstack-evals#113)', () => {
   //   chart plans the code reviewers, an active or external SVG plans as docs, or the specialist reads only the SVG; seam=planReview
   const md = 'docs/evals/run.md';
   const chart = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">', '<defs><linearGradient id="g"/></defs>', '<rect width="40" height="30" fill="url(#g)"/>', '<use href="#bar"/><text x="2" y="48">recall 33/41</text>', '</svg>'];
-  const writeUp = (svg: string[]) => ({ paths: [md, 'docs/evals/chart.svg'], added: { [md]: ['recall 33/41'], 'docs/evals/chart.svg': svg }, removed: {},
+  const writeUp = (svg: string[]) => ({ paths: [md, 'docs/evals/chart.svg'], created: [md, 'docs/evals/chart.svg'], added: { [md]: ['recall 33/41'], 'docs/evals/chart.svg': svg }, removed: {},
     perPath: [{ path: md, lines: 1, binary: false }, { path: 'docs/evals/chart.svg', lines: svg.length, binary: false }], numbers: scanNumbers({ [md]: ['recall 33/41'] }) });
   test('a clean chart SVG goes light with one reader', () => {
     const p = plan(writeUp(chart));
@@ -137,6 +142,9 @@ describe('a research write-up with a chart SVG (R51, gstack-evals#113)', () => {
     ['an animated href', '<set attributeName="href" to="#b"/>'],
   ])('an SVG with %s stays code', (_n, line) => {
     expect(plan(writeUp([...chart.slice(0, -1), line, '</svg>'])).class).toBe('code');
+  });
+  test('an edited SVG stays code: a changed line may sit inside an existing script block', () => {
+    expect(plan({ ...writeUp(['  draw(next);']), created: [md] }).class).toBe('code');
   });
   test('the batched specialist on a write-up reads its text files, not only the SVG', () => {
     const p = plan(writeUp([...chart.slice(0, -1), '<svg onload="alert(1)">', '</svg>']));
