@@ -44,7 +44,7 @@ export interface Rule {
 export interface ShimData {
   repo: string; origin: string; nextId: number; prs: Record<string, unknown>; runs: Array<Record<string, unknown>>;
   artifacts: Record<string, Record<string, unknown>>; checks: Record<string, Array<{ name: string; status: string; conclusion: string | null }>>;
-  ci: Record<string, unknown[]>; rules: Record<string, Rule>; artifact: string; log: Array<Record<string, unknown>>;
+  ci: Record<string, unknown[]>; ciFail?: string[]; rules: Record<string, Rule>; artifact: string; log: Array<Record<string, unknown>>;
   /** Commit statuses (the legacy status API) at a sha, beside the check runs in `ci`. */
   statuses?: Record<string, Array<{ state: string; context: string }>>;
   /** Per PR, how many more `gh pr view` calls answer before the PR reads as not found (a GitHub answer that changes between two reads). */
@@ -206,9 +206,13 @@ function shimSource(): string {
     "  const named = /commits\\/([0-9a-f]+)\\/check-runs\\?check_name=([^&]+)/.exec(a[1] || '');",
     "  if (named) { const list = (d.checks[named[1]] || []).filter(c => c.name === decodeURIComponent(named[2])); out({ total_count: list.length, check_runs: list }); }",
     "  const paged = /commits\\/([0-9a-f]+)\\/(check-runs|status)\\?.*page=(\\d+)/.exec(a[1] || '');",
+    "  if (paged && (d.ciFail || []).includes(paged[1])) fail('HTTP 502: gateway timeout');",
     "  if (paged) { const list = paged[2] === 'check-runs' ? (d.ci[paged[1]] || []) : ((d.statuses || {})[paged[1]] || []); const key = paged[2] === 'check-runs' ? 'check_runs' : 'statuses';",
     "    out(paged[3] === '1' ? { total_count: list.length, state: 'success', [key]: list } : { total_count: list.length, [key]: [] }); }",
     "}",
+    "if (a[0] === 'pr' && a[1] === 'comment') { const p = d.prs[a[2]]; if (!p) fail('no pull request found'); p.comments = [...(p.comments || []), { body: opt('--body') }]; out({}); }",
+    "if (a[0] === 'pr' && a[1] === 'close') { const p = d.prs[a[2]]; if (!p) fail('no pull request found'); p.state = 'CLOSED'; out({}); }",
+    "if (a[0] === 'pr' && a[1] === 'list') { const head = opt('--head'); const st = opt('--state'); out(Object.entries(d.prs).filter(([, p]) => (!head || p.headRefName === head) && (st !== 'open' || p.state === 'OPEN')).map(([n, p]) => ({ number: Number(n), state: p.state, headRefOid: p.headRefOid, baseRefName: p.baseRefName || 'main', mergeCommit: p.mergeCommit || null }))); }",
     "fail('gh shim: unsupported ' + a.join(' '));",
   ].join('\n') + '\n';
 }

@@ -60,6 +60,21 @@ RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL \
     && rm -rf /var/lib/apt/lists/* \
     && git --no-lazy-fetch --version
 
+# Partial clone: the eval jobs check out with `filter: blob:none` and read
+# older files through on-demand blob fetches (.github/scripts/history-read.sh).
+# Prove this Git makes a blobless clone and fetches a missing blob, so the image
+# fails here instead of in a slice's history read.
+RUN set -e; d=$(mktemp -d); \
+    git init -q -b main "$d/src"; echo one > "$d/src/f"; git -C "$d/src" add f; \
+    git -C "$d/src" -c user.name=ci -c user.email=ci@localhost commit -qm one; \
+    echo two > "$d/src/f"; git -C "$d/src" -c user.name=ci -c user.email=ci@localhost commit -qam two; \
+    git -C "$d/src" config uploadpack.allowFilter true; \
+    git clone -q --filter=blob:none --no-local "file://$d/src" "$d/clone"; \
+    test "$(git -C "$d/clone" config remote.origin.promisor)" = true; \
+    if GIT_NO_LAZY_FETCH=1 git -C "$d/clone" cat-file -e HEAD~1:f 2>/dev/null; then echo "blob present: not a partial clone" >&2; exit 1; fi; \
+    test "$(git -C "$d/clone" show HEAD~1:f)" = one; \
+    rm -rf "$d"; echo "partial clone: ok ($(git --version))"
+
 RUN python3 -m venv /tmp/gstack-ci-venv \
     && /tmp/gstack-ci-venv/bin/python -m pip --version \
     && rm -rf /tmp/gstack-ci-venv

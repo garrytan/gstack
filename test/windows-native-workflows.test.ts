@@ -20,7 +20,7 @@ const native = load('native-qualification.yml');
  * intentionally excluded Windows-safe tests, lower this floor to the printed
  * count in the same PR and say why; when the count grows, raise it.
  */
-const WINDOWS_CURATED_FLOOR = 638;
+const WINDOWS_CURATED_FLOOR = 795;
 
 test('the Windows lane plans, runs one strict shard per job and verifies every result', () => {
   expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'push', 'workflow_call', 'workflow_dispatch']);
