@@ -57,25 +57,26 @@ describe('write records the review depth at the checked-out head', () => {
 describe('the queue refuses a receipt below the depth its head needs', () => {
   // Value: protects=a receipt reviewed lighter than its head needs never READYs or seats, and the refusal says what to do;
   // fails_when=the queue trusts the recorded depth, or prints no required depth, reasons and inputs; seam=bindShippedReceipt
-  test('light on a standard head, a missing depth from a current writer and an unbound gate scan refuse; a legacy receipt is accepted', () => {
+  // R51: size never raises the depth, so the head that needs more than light is a risk-class one (a money path needs full).
+  test('standard on a full (money) head, a missing depth from a current writer and an unbound gate scan refuse; a legacy receipt is accepted', () => {
     const repo = makeFixtureRepo(); repos.push(repo);
-    const head = commit(repo, { 'lib/big.js': lines(80) });
+    const head = commit(repo, { 'lib/billing.js': lines(80) });
     const body = path.join(repo.root, 'body.md');
     expect(writeReceipt(repo, body).status).toBe(EXIT.ok);
-    expect(receiptIn(body).review_depth).toMatchObject({ depth: 'standard', runtime_lines: 80 });
+    expect(receiptIn(body).review_depth).toMatchObject({ depth: 'full', runtime_lines: 80, risk: ['money'] });
     const base = repo.git('rev-parse', 'origin/main').slice(0, 12);
     const bind = (text: string) => bindShippedReceipt(repo.work, 'origin/main', text, '7', [head]);
     const good = bind(fs.readFileSync(body, 'utf8'));
     expect(good.ok).toBe(true);
-    expect(good.ok && good.depthLine).toContain('REVIEW_DEPTH: receipt=standard required=standard runtime_lines=80 class=code');
+    expect(good.ok && good.depthLine).toContain('REVIEW_DEPTH: receipt=full required=full runtime_lines=80 class=code');
 
-    const low = bind(rewrite(body, r => { r.review_depth.depth = 'light'; }));
+    const low = bind(rewrite(body, r => { r.review_depth.depth = 'standard'; }));
     expect(low.ok).toBe(false);
     if (low.ok) return;
     expect(low.code).toBe('QUEUE_RECEIPT_DEPTH_RAISED');
-    expect(low.depthLine).toContain('receipt=light required=standard runtime_lines=80');
+    expect(low.depthLine).toContain('receipt=standard required=full runtime_lines=80');
     expect(low.depthLine).toContain(`inputs=base@${base},registry@${base},gate_scan@${head.slice(0, 12)}`);
-    expect(low.message).toContain('runtime=80>50');
+    expect(low.message).toContain('risk:money');
     expect(low.message).toContain(`the receipt is unchanged; run /ship on ${head.slice(0, 12)}`);
 
     const unbound = bind(rewrite(body, r => { r.review_depth.depth = 'standard'; r.review_depth.gate_scan.head = 'a'.repeat(40); }));
@@ -218,7 +219,8 @@ describe('the queue and a scoped second pass (GSTA-152 D6)', () => {
     expect(receiptIn(body).review_loop).toMatchObject({ passes: 2, dispatches: loop.dispatches });
     const bound = bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8'), '7', [head]);
     expect(bound.ok).toBe(true);
-    expect(bound.ok && bound.depthLine).toContain('REVIEW_DEPTH: receipt=standard required=standard');
+    expect(bound.ok && bound.depthLine).toContain('REVIEW_DEPTH: receipt=light required=light');
+    expect(bound.ok && bound.depthLine).toMatch(/ rounds=2$/);
   }, 60_000);
 });
 

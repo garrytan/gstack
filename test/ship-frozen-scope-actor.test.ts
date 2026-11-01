@@ -86,7 +86,7 @@ posixTest('a scripted actor that fixes the diff, defers the pre-existing defect 
   await act(f);
   const verdict = await shipFrozenScopeFailures(f, { exitReason: 'success' });
   expect(verdict.failures).toEqual([]);
-  expect(verdict.evidence.loop).toEqual({ passes: 2, blocking_found: 2, deferred: 1, noted: 0, fixed: 1, scope: 'frozen' });
+  expect(verdict.evidence.loop).toEqual({ passes: 2, blocking_found: 2, deferred: 1, noted: 0, fixed: 1, rounds: 2, scope: 'frozen' });
   const rows = verdict.evidence.rows as Array<Record<string, any>>;
   expect(rows.map(r => r.pass)).toEqual([1, 2]);
   expect(rows[0]!.findings.map((x: any) => [x.fingerprint, x.action])).toEqual([[FROZEN_SCOPE_FIX_IDENTITY, 'auto-fixed'], [FROZEN_SCOPE_DEFER_IDENTITY, 'deferred']]);

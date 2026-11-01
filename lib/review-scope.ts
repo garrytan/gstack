@@ -300,6 +300,8 @@ export interface ReviewLoopSummary {
   passes: number; blocking_found: number; deferred: number; noted: number; fixed: number; scope: ReviewScopePolicy | 'unknown';
   /** One-reviewer re-checks of a fix (docs/review-policy.md#transitions); never passes. */
   fix_checks?: number;
+  /** Review rounds (R51): passes plus fix-checks; the loop caps them at 2. */
+  rounds?: number;
   /** Reviewer dispatches of this invocation by role (specialist, red-team, adversarial-native, outside-voice, fix-check, targeted). */
   dispatches?: Record<string, number>;
   /** Prompt plus diff bytes the dispatches read, / 4: a relative estimate, never a bill. */
@@ -370,6 +372,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blocking.size, deferred: deferred.size, noted: noted.size, fixed: fixed.size, scope };
   const fixChecks = loopRows.filter(r => r.skill === FIX_CHECK_SKILL).length;
   if (fixChecks) out.fix_checks = fixChecks;
+  out.rounds = passes.length + fixChecks;
   const byRole: Record<string, number> = {};
   let bytes = 0; let measured = false;
   for (const row of rows.filter(r => inRun(r) && DISPATCH_SKILLS.includes(r.skill))) {
