@@ -578,8 +578,9 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
   trigger (6) it prints `WAVE_ADVISED` and suggested groups of 3 to 6: PRs
   whose changes to a common code file conflict (`git merge-tree` cannot merge
   the two heads) always share a group, so that conflict is resolved once. Hub
-  files never link PRs: anything under `docs/`, Markdown and its `.tmpl`
-  sources, and JSON ledgers and registries. Most PRs append to them, and
+  files never link PRs: anything under `docs/`, Markdown (generated skill
+  renders included; their `.tmpl` sources still link) and JSON ledgers and
+  registries. Most PRs append to them, and
   linking through them once chained a 55-PR queue into a single area
   (GST-770). Each group takes its largest PR's functional
   area (a skill directory, the first word of a `lib/`, `bin/` or `test/`

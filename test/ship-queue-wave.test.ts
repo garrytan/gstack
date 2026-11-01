@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { WAVE_HELP, areaKey, groupWaves, type PlanPr } from '../lib/ship-queue-wave';
+import { WAVE_HELP, areaKey, groupWaves, isHubFile, type PlanPr } from '../lib/ship-queue-wave';
 import { cleanup, runBin } from './helpers/restamp-fixture';
 import { line, openPr, queue, readyReceipt, shippedBody, trainFixture, type TrainFixture } from './helpers/ship-queue-train-fixture';
 
@@ -65,6 +65,19 @@ describe('areas and grouping', () => {
       ['ship', ['1', '2', '3', '4', '5', '6'], '2'],
     ]);
     expect(solo).toEqual(['7']);
+  });
+
+  test('groupWaves links PRs through a shared code file or skill template only when the merge conflicts there, never through a hub file (GST-770)', () => {
+    const pr = (n: string, files: string[]): PlanPr => ({ pr: n, head: n.repeat(40).slice(0, 40), files, lines: 10 });
+    const areaOf = (f: string) => areaKey(f, d => d === 'ship');
+    const linked = (files: string[], conflicts?: (a: PlanPr, b: PlanPr) => string[] | null) =>
+      groupWaves([pr('1', ['lib/pregate-a.ts', 'test/pregate-a.test.ts', ...files]), pr('2', ['lib/review-b.ts', 'test/review-b.test.ts', ...files])], areaOf, 2, 6, conflicts).groups.map(g => g.prs.map(p => p.pr));
+    expect(linked(['lib/ship-a.ts'])).toEqual([['1', '2']]);
+    expect(linked(['lib/ship-a.ts'], () => ['lib/ship-a.ts'])).toEqual([['1', '2']]);
+    expect(linked(['lib/ship-a.ts'], () => [])).toEqual([]);
+    expect(linked(['ship/SKILL.md.tmpl'], () => ['ship/SKILL.md.tmpl'])).toEqual([['1', '2']]);
+    for (const hub of ['docs/troubleshooting.md', 'ship/SKILL.md', 'scripts/harness-version.json']) expect(linked([hub], () => [hub])).toEqual([]);
+    expect([isHubFile('docs/x.ts'), isHubFile('TODOS.md'), isHubFile('test/fixtures/x.json'), isHubFile('ship/SKILL.md.tmpl'), isHubFile('lib/x.ts')]).toEqual([true, true, true, false, false]);
   });
 });
 
@@ -278,9 +291,11 @@ describe('ready and train build read the wave', () => {
     for (const n of ['4', '5', '6']) pr(n, 'pregate');
     pr('8', 'review', { 'lib/ship-a.ts': "export const a = 'eight';\n" });
     pr('9', 'pregate', {}, 'failure');
+    pr('10', 'pregate');
+    fx.write(d => { d.ci[d.prs['10']!.headRefOid] = [{ name: 'free-tests', status: 'in_progress', conclusion: null }]; });
     const plan = queue(fx, ['wave', 'plan']);
     expect(plan.status).toBe(EXIT.ok);
-    expect(line(plan.out, 'NOT_GREEN:')).toMatch(/^NOT_GREEN: #9 \(red at [0-9a-f]{12} /);
+    expect(plan.out.split('\n').filter(l => l.startsWith('NOT_GREEN:')).map(l => l.replace(/ at [0-9a-f]{12} .*/, ''))).toEqual(['NOT_GREEN: #9 (red', 'NOT_GREEN: #10 (pending']);
     expect(line(plan.out, 'QUEUE:')).toContain('7 live READY PR(s)');
     expect(plan.out.split('\n').filter(l => l.startsWith('WAVE_GROUP:'))).toEqual([
       'WAVE_GROUP: area=pregate prs=#4,#5,#6 integrator=#4 (most changed lines)',

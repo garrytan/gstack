@@ -79,12 +79,12 @@ export function dominantArea(files: string[], areaOf: (f: string) => string): st
 const largestFirst = (a: PlanPr, b: PlanPr) => b.lines - a.lines || Number(a.pr) - Number(b.pr);
 
 /**
- * Hub files: prose (docs/**, Markdown and its .tmpl sources, generated SKILL.md renders) and JSON
- * ledgers and registries. Most PRs append to them, so their conflicts are kept-both-sides edits
- * that any train slot resolves; linking PRs through them chained a 55-PR queue into one area
- * (GST-770). They never link PRs into a wave.
+ * Hub files: prose (docs/**, Markdown, generated SKILL.md renders) and JSON ledgers and registries.
+ * Most PRs append to them, so their conflicts are kept-both-sides edits that any train slot
+ * resolves; linking PRs through them chained a 55-PR queue into one area (GST-770). They never
+ * link PRs into a wave. Skill templates (.md.tmpl) are source and link on a real conflict.
  */
-export const isHubFile = (file: string) => file.startsWith('docs/') || /\.(md|md\.tmpl|jsonl?)$/.test(file);
+export const isHubFile = (file: string) => file.startsWith('docs/') || /\.(md|jsonl?)$/.test(file);
 
 /**
  * Group PRs into waves: PRs whose changes to a common code file conflict always travel together
