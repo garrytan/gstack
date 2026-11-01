@@ -21,9 +21,8 @@ phase: each answered or auto-taken question, in its words), **Reviews** (Phases 
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
 version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (every phase: the next act).
 
-**Reviewers are the sections' own.** Every audit, specialist, Red Team, QA, fix-check, adversarial,
-outside-voice and documentation brief, its severity and confidence rules and its gates come from its
-section verbatim, with only its placeholders filled; this file
+**Reviewers are the sections' own.** Every reviewer brief, with its severity and confidence rules
+and gates, comes from its section verbatim (placeholders filled); this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
 file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 9.2.1, 14.5) cannot block, so each runs on a
 small model at low effort; their findings go to the PR body.
@@ -66,7 +65,7 @@ line. A lane passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a
 is `count unavailable`. In-branch failures stop the ship; after a repair rerun with `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
 harness changed, start the eval selector and pre-merge command (detached past 30 min); else
-record `evals: none affected`. Steps 6.5 and 10 run only if `gstack-greptile-early detect` finds
+record `evals: none affected`. Step 6.5 runs only if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
 (`CONTEXT:`) and the TODOS.md items naming touched paths (`TODOS:`), and prints the coverage map, the
 plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`. Programs read
@@ -133,6 +132,7 @@ STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` an
 - a failed or zero-run lane: `sections/tests.md#test-failure-ownership-triage`
 - a red eval or a failed free-suite shard: `sections/measure.md#measure-then-fix-loop-a-red-paid-eval-or-a-failed-free-suite-shard`
 - Greptile found: `sections/greptile-early.md#step-65-early-greptile-pr-after-the-free-tests-pass`
+- Step 10 with a PR: `sections/greptile.md#step-10-address-review-bot-comments-if-pr-exists`
 - coverage below target, a failed audit: `sections/test-coverage.md#step-7-test-coverage-audit`
 - plan items NOT DONE or UNVERIFIABLE: `sections/plan-completion.md#gate-logic`
 - `NEXT: stop`: `sections/review-army.md#decide-whether-to-repeat-step-9`

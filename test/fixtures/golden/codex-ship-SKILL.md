@@ -253,7 +253,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | the pre-landing review and specialist dispatch (Step 9) | `sections/review-army.md` |
 | exploratory QA before Fix-First (Step 9.2.1) | Use the QA Read directive in `sections/review-army.md` |
 | reusing explicitly skipped shared-code advice (Step 9.3) | `sections/shared-code-reuse.md` |
-| addressing Greptile review comments when a PR exists (Step 10) | `sections/greptile.md` |
+| addressing review bot comments when a PR exists (Step 10) | `sections/greptile.md` |
 | the adversarial review and learnings capture (Step 11) | `sections/adversarial.md` |
 | writing the CHANGELOG entry (Step 13) | `sections/changelog.md` |
 | auditing docs before final commit/verification (Step 14.5), on every ship | `sections/documentation.md` |
@@ -482,7 +482,7 @@ repeat Step 2 (decisions included) on the merged content, then Step 4.
 > **STOP.** Before the pre-landing review and specialist dispatch (Step 9), Read `sections/review-army.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-> **STOP.** Before addressing Greptile review comments when a PR exists (Step 10), Read `sections/greptile.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
+> **STOP.** Before addressing review bot comments when a PR exists (Step 10), Read `sections/greptile.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 > **STOP.** Before the adversarial review and learnings capture (Step 11), Read `sections/adversarial.md` relative to the installed `gstack-ship` SKILL.md directory and execute it

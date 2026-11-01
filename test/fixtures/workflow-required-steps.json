@@ -65,7 +65,7 @@
         "## Step 1: Check branch",
         "## Step 1.5: Scope Drift Detection",
         "## Step 2: Read the checklist",
-        "## Step 2.5: Check for Greptile review comments",
+        "## Step 2.5: Check for review bot comments",
         "## Step 3: Get the diff",
         "## Step 3.4: Workspace-aware queue status (advisory)",
         "## Step 3.5: Diff scans",
@@ -132,7 +132,7 @@
         "## Step 6.5: Early Greptile PR (after the free tests pass)"
       ],
       "sections/greptile.md": [
-        "## Step 10: Address Greptile review comments (if PR exists)"
+        "## Step 10: Address review bot comments (if PR exists)"
       ],
       "sections/plan-completion.md": [
         "## Step 8: Plan Completion Audit",

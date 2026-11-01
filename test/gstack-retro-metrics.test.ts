@@ -153,6 +153,7 @@ const REQUIRED_KEYS = [
   'USER_STREAK',
   'RETRO_CONTEXT',
   'GREPTILE_HISTORY',
+  'REVIEW_BOT_HISTORY',
   'TODOS_FILE',
   'SKILL_USAGE_LOG',
   'EUREKA_LOG',
@@ -248,16 +249,19 @@ describe('gstack-retro-metrics behavior', () => {
 
   test('aux inputs report present when the files exist under GSTACK_HOME', () => {
     fs.writeFileSync(path.join(tmpGstackHome, 'greptile-history.md'), '# history\n');
+    fs.writeFileSync(path.join(tmpGstackHome, 'review-bot-history.md'), '# history\n');
     fs.mkdirSync(path.join(tmpGstackHome, 'analytics'), { recursive: true });
     fs.writeFileSync(path.join(tmpGstackHome, 'analytics', 'skill-usage.jsonl'), '{}\n');
     try {
       const out = runMetrics(['--base', 'main', '--since', '2026-03-09T00:00:00']);
       expect(out).toMatch(/^GREPTILE_HISTORY: present /m);
+      expect(out).toMatch(/^REVIEW_BOT_HISTORY: present /m);
       expect(out).toMatch(/^SKILL_USAGE_LOG: present /m);
       expect(out).toMatch(/^RETRO_CONTEXT: absent$/m);
       expect(out).toMatch(/^EUREKA_LOG: absent$/m);
     } finally {
       fs.rmSync(path.join(tmpGstackHome, 'greptile-history.md'), { force: true });
+      fs.rmSync(path.join(tmpGstackHome, 'review-bot-history.md'), { force: true });
       fs.rmSync(path.join(tmpGstackHome, 'analytics'), { recursive: true, force: true });
     }
   });

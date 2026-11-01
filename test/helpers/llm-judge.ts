@@ -741,7 +741,7 @@ export function buildCrossSkillConsistencyJudgePrompt(collected: string): string
   return `You are evaluating whether multiple skill configuration files implement the same data architecture consistently.
 
 INTENDED ARCHITECTURE:
-- greptile-history has TWO paths: per-project (~/.gstack/projects/{slug}/greptile-history.md) and global (~/.gstack/greptile-history.md)
+- the review-bot history has TWO paths: per-project (~/.gstack/projects/{slug}/review-bot-history.md) and global (~/.gstack/review-bot-history.md); older installs name the same files greptile-history.md, whose rows count as Greptile's
 - /review and /ship WRITE to BOTH paths (per-project for suppressions, global for retro aggregation)
 - /review and /ship delegate write mechanics to greptile-triage.md
 - /retro READS from the GLOBAL path only (it aggregates across all projects)

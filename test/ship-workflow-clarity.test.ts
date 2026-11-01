@@ -194,7 +194,7 @@ test('linked spec discovery reads frontmatter fields and claims closure only for
 test('comment triage reports one of three statuses with fixed result strings', () => {
   const section = compact(readTemplate('ship/sections/greptile.md.tmpl'));
   expectTokens(section, ['"status":"complete|no_pr|unavailable"', '`complete`', '`no_pr`', '`unavailable`',
-    '"Greptile: no PR exists"', '"Greptile: fetched, zero comments"', '`Greptile triage: UNAVAILABLE (dispatch failed)`'], 'ship greptile section');
+    '"Review bots: not run (no PR, or both bot lists are none)"', '"Review bots: fetched, zero comments"', '`Review bot triage: UNAVAILABLE (dispatch failed)`'], 'ship greptile section');
   expectAbsent(section, ['If no PR exists, `gh` fails, the API errors, or there are zero comments'], 'ship greptile section');
 });
 

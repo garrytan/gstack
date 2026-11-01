@@ -17,6 +17,7 @@ export const SHIP_DRIVER_STOPS: Array<{ when: string; read: string }> = [
   { when: 'a failed or zero-run lane', read: 'sections/tests.md#test-failure-ownership-triage' },
   { when: 'a red eval or a failed free-suite shard', read: 'sections/measure.md#measure-then-fix-loop-a-red-paid-eval-or-a-failed-free-suite-shard' },
   { when: 'Greptile found', read: 'sections/greptile-early.md#step-65-early-greptile-pr-after-the-free-tests-pass' },
+  { when: 'Step 10 with a PR', read: 'sections/greptile.md#step-10-address-review-bot-comments-if-pr-exists' },
   { when: 'coverage below target, a failed audit', read: 'sections/test-coverage.md#step-7-test-coverage-audit' },
   { when: 'plan items NOT DONE or UNVERIFIABLE', read: 'sections/plan-completion.md#gate-logic' },
   { when: '`NEXT: stop`', read: 'sections/review-army.md#decide-whether-to-repeat-step-9' },

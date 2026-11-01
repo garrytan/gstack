@@ -1,9 +1,9 @@
 <!-- AUTO-GENERATED from greptile.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-## Step 10: Address Greptile review comments (if PR exists)
+## Step 10: Address review bot comments (if PR exists)
 
-Check for a PR first. Greptile reviews a PR, so with no PR, no `gh`, no `gh` login or
-a non-GitHub remote there is nothing to triage yet:
+Check for a PR first. Bots review a PR, so with no PR, no `gh`, no `gh` login or a
+non-GitHub remote there is nothing to triage yet:
 
 ```bash
 if ! command -v gh >/dev/null 2>&1; then echo "PR: skip (gh not installed)"
@@ -15,7 +15,7 @@ fi
 ```
 
 Only `PR: exists` dispatches. `PR: skip (<reason>)` → do not dispatch; record
-"Greptile: not run (<reason>); runs on the PR once it exists" and continue to Step 11.
+"Review bots: not run (<reason>); runs on the PR once it exists" and continue to Step 11.
 
 **Early PR (Step 6.5):** when the record holds `EARLY_PR` and `EARLY_PR_OPENED_AT`, first
 wait for Greptile's review of that PR, substituting both values:
@@ -32,36 +32,36 @@ comments. Comments on the early head are triaged against the current diff
 
 Dispatch a subagent through Agent with `subagent_type: "general-purpose"` and
 `run_in_background: false`, using Step 7's shared foreground-dispatch rule.
-It fetches and classifies all Greptile comments,
+It fetches and classifies every configured bot's comments,
 including escalation tiers; the parent handles decisions and queues approved fixes.
 
 **Subagent prompt:**
 
-> You are classifying Greptile review comments for a /ship workflow. Read `~/.claude/skills/gstack/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps. Do NOT fix code, do NOT reply to comments, do NOT commit — report only.
+> You are classifying PR review bot comments for a /ship workflow. Read `~/.claude/skills/gstack/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps. `REVIEW_BOTS: skip` is `no_pr`; `REVIEW_BOTS: error` is `unavailable`. Do NOT fix code, do NOT reply to comments, do NOT commit — report only.
 >
-> For each comment, assign: `classification` (`valid_actionable`, `already_fixed`, `false_positive`, `suppressed`), `escalation_tier` (1 or 2), the file:line or [top-level] tag, body summary, and permalink URL.
+> For each comment, assign: `id`, `bot`, `classification` (`valid_actionable`, `already_fixed`, `false_positive`, `suppressed`), `escalation_tier` (1 or 2), the file:line or [top-level] tag, body summary, and permalink URL.
 >
 > Return one JSON object on the LAST LINE:
-> `{"status":"complete|no_pr|unavailable","total":N,"comments":[{"classification":"...","escalation_tier":N,"ref":"file:line","summary":"...","permalink":"url"},...],"reason":"..."}`
+> `{"status":"complete|no_pr|unavailable","dir":"<REVIEW_BOTS_DIR>","total":N,"comments":[{"id":N,"bot":"...","classification":"...","escalation_tier":N,"ref":"file:line","summary":"...","permalink":"url"},...],"reason":"..."}`
 > Use `complete` only after a successful fetch, including zero comments; `no_pr` only after confirming no PR exists; `unavailable` for `gh`/API errors or incomplete classification. The latter two return zero total and an empty array. State the failure reason for `unavailable`; otherwise use an empty reason.
 
 **Parent processing:**
 
 Parse the LAST line as JSON. Require the declared status, a nonnegative integer
-total matching the comments array, and the status/reason invariants above. An
+total matching the comments array, a `bot` and integer `id` on every comment, `dir` when comments exist, and the status/reason invariants above. An
 unknown or missing status is unavailable, never an empty successful review.
 
-For `no_pr`, record "Greptile: no PR exists"; for `complete` with zero comments,
-record "Greptile: fetched, zero comments". Both continue to Step 11.
+For `no_pr`, record "Review bots: not run (no PR, or both bot lists are none)"; for `complete` with zero comments,
+record "Review bots: fetched, zero comments". Both continue to Step 11.
 
 **Unavailable triage:** A returned `unavailable`, failed dispatch, invalid result,
 or missing completion after ~10 minutes takes this route. Stop a running child
-and confirm it stopped before continuing. Print `Greptile triage did not complete — review the PR comments manually`.
-Include `Greptile triage: UNAVAILABLE (dispatch failed)` and the actual reason in
+and confirm it stopped before continuing. Print `Review bot triage did not complete — review the PR comments manually`.
+Include `Review bot triage: UNAVAILABLE (dispatch failed)` and the actual reason in
 Step 19's review results; Step 20 has no triage field. Continue to Step 11 without
 claiming zero comments or completed triage. This optional triage does not block ship.
 
-Otherwise, print: `+ {total} Greptile comments ({valid_actionable} valid, {already_fixed} already fixed, {false_positive} FP)`.
+Otherwise, print one line per bot: `+ {n} {bot} comments ({valid_actionable} valid, {already_fixed} already fixed, {false_positive} FP)`.
 
 For each comment in `comments`:
 
@@ -69,20 +69,20 @@ For each comment in `comments`:
 - The comment (file:line or [top-level] + body summary + permalink URL)
 - `RECOMMENDATION: Choose A because [one-line reason]`
 - Options: A) Fix now, B) Acknowledge and ship anyway, C) It's a false positive
-- If user chooses A: queue the approved fix without editing here. After that fix passes review and tests, use the **Fix reply template** from greptile-triage.md (inline diff + explanation) and save per-project/global greptile-history (type: fix).
-- If user chooses C: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp).
+- If user chooses A: queue the approved fix without editing here. After that fix passes review and tests, use the **Fix reply template** from greptile-triage.md (inline diff + explanation) and record it (History File Writes, type: fix).
+- If user chooses C: reply using the **False Positive reply template** from greptile-triage.md and record it (type: fp).
 
 **VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
 - Include what was done and the fixing commit SHA
-- Save to both per-project and global greptile-history (type: already-fixed)
+- Record it (type: already-fixed)
 
 **FALSE POSITIVE:** Use AskUserQuestion:
 - Show the comment and why you think it's wrong (file:line or [top-level] + body summary + permalink URL)
 - Options:
-  - A) Reply to Greptile explaining the false positive (recommended if clearly wrong)
+  - A) Reply to the bot explaining the false positive (recommended if clearly wrong)
   - B) Fix it anyway (if trivial)
   - C) Ignore silently
-- If user chooses A: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp)
+- If user chooses A: reply using the **False Positive reply template** from greptile-triage.md and record it (type: fp)
 - If user chooses B: queue the approved fix, as above.
 
 **SUPPRESSED:** Skip silently — these are known false positives from previous triage.

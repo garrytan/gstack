@@ -176,8 +176,8 @@ test('publication composes the saved documentation section unchanged and refuses
 });
 
 test('publication reports unavailable triage separately from an empty successful fetch', () => {
-  const section = template.slice(template.indexOf('## Greptile Review'), template.indexOf('## Scope Drift'));
-  expect(section).toContain('Greptile triage: UNAVAILABLE (dispatch failed)');
+  const section = template.slice(template.indexOf('## Review bot comments'), template.indexOf('## Scope Drift'));
+  expect(section).toContain('Review bot triage: UNAVAILABLE (dispatch failed)');
   expect(section).toContain('actual reason');
   expect(section).toContain('complete');
   expect(section).toContain('no_pr');

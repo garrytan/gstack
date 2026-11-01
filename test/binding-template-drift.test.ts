@@ -211,9 +211,9 @@ describe('content-binding template drift', () => {
     }
   });
 
-  test('greptile triage reads bodies through the guard (metadata/body split)', () => {
+  test('review bot triage reads bodies through the guard (metadata/body split)', () => {
     const triage = rendered('review/greptile-triage.md');
-    expect(triage).toContain('gstack-issue-guard --stdin --source greptile-line');
+    expect(triage).toContain('gstack-issue-guard --stdin --source review-bot');
     expect(triage).toContain('gstack-issue-guard --stdin --source greptile-replies');
   });
 });

@@ -44,7 +44,7 @@ describe('/ship Step 10 Greptile PR check', () => {
     expect(dispatchIdx).toBeGreaterThan(checkIdx);
     const between = SECTION.slice(checkIdx, dispatchIdx);
     expect(between).toContain('Only `PR: exists` dispatches.');
-    expect(between).toContain('"Greptile: not run (<reason>); runs on the PR once it exists"');
+    expect(between).toContain('"Review bots: not run (<reason>); runs on the PR once it exists"');
     expect(SECTION).not.toContain('PR: unknown');
   });
 
