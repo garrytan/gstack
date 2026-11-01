@@ -725,6 +725,44 @@ function commentEnd(text: string, i: number, lang: "py" | "dart"): number {
   return j;
 }
 
+/** The index after a Dart `${…}` expression starting at `j`: braces balance, and its strings and comments are skipped whole. */
+function dartExpressionEnd(text: string, j: number): number {
+  for (let depth = 1; j < text.length && depth > 0; ) {
+    const d = text[j]!;
+    if (text.startsWith("//", j) || text.startsWith("/*", j)) { j = commentEnd(text, j, "dart"); continue; }
+    if (d === '"' || d === "'") { j = stringAt(text, j, "dart")[2]; continue; }
+    if (d === "{") depth += 1;
+    else if (d === "}") depth -= 1;
+    j += 1;
+  }
+  return Math.min(j, text.length);
+}
+
+/**
+ * The index after a Python replacement field whose expression starts at `j`.
+ * The expression's strings, and its `#` comments in a triple-quoted string, are skipped whole; a `:` or `!`
+ * outside its brackets starts the conversion and format spec, which is plain
+ * text apart from nested `{…}` fields (`{n:#x}`, `{n:'>10}`).
+ */
+function pythonFieldEnd(text: string, j: number, multiline: boolean): number {
+  const n = text.length;
+  let nest = 0;
+  while (j < n) {
+    const d = text[j]!;
+    if (d === "#" && multiline) { j = commentEnd(text, j, "py"); continue; }
+    if (d === '"' || d === "'") { j = stringAt(text, j, "py")[2]; continue; }
+    if (d === "}" && nest === 0) return j + 1;
+    if (nest === 0 && (d === ":" || (d === "!" && text[j + 1] !== "="))) {
+      for (j += 1; j < n && text[j] !== "}"; ) j = text[j] === "{" ? pythonFieldEnd(text, j + 1, multiline) : j + 1;
+      return Math.min(j + 1, n);
+    }
+    if ("([{".includes(d)) nest += 1;
+    else if (")]}".includes(d)) nest = Math.max(0, nest - 1);
+    j += 1;
+  }
+  return n;
+}
+
 /**
  * The string whose quote is at `i`: where its content starts and ends, and the
  * index after its closing delimiter. An interpolated expression (`{…}` in a
@@ -748,16 +786,7 @@ function stringAt(text: string, i: number, lang: "py" | "dart"): [number, number
     if (!interpolated) { j += 1; continue; }
     if (lang === "py" && text.startsWith("{{", j)) { j += 2; continue; }
     if (lang === "py" ? text[j] !== "{" : !text.startsWith("${", j)) { j += 1; continue; }
-    j += lang === "py" ? 1 : 2;
-    for (let depth = 1; j < n && depth > 0; ) {
-      const d = text[j]!;
-      const comment = lang === "py" ? d === "#" : text.startsWith("//", j);
-      if (comment || (lang === "dart" && text.startsWith("/*", j))) { j = commentEnd(text, j, lang); continue; }
-      if (d === '"' || d === "'") { j = stringAt(text, j, lang)[2]; continue; }
-      if (d === "{") depth += 1;
-      else if (d === "}") depth -= 1;
-      j += 1;
-    }
+    j = lang === "py" ? pythonFieldEnd(text, j + 1, multiline) : dartExpressionEnd(text, j + 2);
   }
   return [i + close.length, Math.min(j, n), Math.min(j, n) + close.length];
 }

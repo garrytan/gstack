@@ -362,11 +362,16 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`CONFIG = f"""\n{1 # } """\n}\npassword: ${v}\n"""\n`, "app.py"],
       [`const s = '''\${x // '''\n}\npassword: ${v}\n''';\n`, "lib/a.dart"],
       [`void main() {}\n/*\npassword: ${v}\n*/\n`, "lib/a.dart"],
+      // A format spec is text: its # or quote opens nothing.
+      [`render({\n    "id": f"{n:#x}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
+      [`render({\n    "id": f"{n:'>10}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
+      [`render({\n    "id": f"{n!r:{w}}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
     ] as const) expect({ literal, kv: kv(literal, file) }).toEqual({ literal, kv: true });
     for (const [code, file] of [
       ["msg = f'{a}:{b}'\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
       ["msg = f'''{{literal brace'''\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
       ["msg = f'{x:>{width}}'\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
+      ["msg = f\"{when:%b %d '%y} {d[':']} {a[1:2]} {a!=b}\"\nrows = {\n    \"password\": session.password,\n}\n", "app.py"],
       ["if'a' in s: pass\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
       ["final s = 'hi ${user.name} and $id';\n  login(password: request.password);\n", "lib/a.dart"],
       ["final s = r'${raw}';\n  login(password: request.password);\n", "lib/a.dart"],
