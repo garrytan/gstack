@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.92.4.0] - 2026-10-31
+
+**A merge train now carries up to five READY PRs instead of three.** That means fewer full gates for the same number of PRs. A short train still leaves one hour after its oldest READY.
+
+### Changed
+- `.gstack/ship-policy.json`: `train.max_size` goes from 3 to 5 (Garry, 2026-10-31). `fill_hours` stays at 1. `test/gstack-ship-policy.test.ts` pins the new value. Four READY PRs wait for the hour, and the fifth fills the train. The example block in docs/ship-policy.md, which shows gstack's own policy, now reads 5.
+
+## [1.92.3.0] - 2026-10-31
+
+**`gstack-redact` now catches a credential on a diff line (GST-543).** The env.kv rule matched from the start of the line, so the leading `+` or `-` of a diff line stopped the match. `git diff | gstack-redact` returned no finding and exit 0 for `+API_TOKEN=<random value>`. It did the same for a removed line that was indented or used `export`, and for a merge diff's two-column markers (`++`, ` +`). A `diff` code block in a PR body had the same blind spot. Pregate's `secrets` check and the pre-push hook were not affected, because both strip the `+` before scanning.
+
+### Fixed
+- **`lib/redact-patterns.ts`:** env.kv accepts a diff marker before the name: `+` or `-`, optionally after one more column of a space, `+` or `-`. So the line in the example above now reports MEDIUM env.kv and exits 2. A `-` followed by one space and text still reads as a Markdown bullet or YAML list item, as before. The name-shape check and the schema-field exemption accept the same marker, so `API_TOKEN=changeme`, `cacheKey: …` and `input_key: …` stay clean on a diff line. Scanning every tracked file in the repo gives the same env.kv results as before.
+- **`test/redact-diff-prefix.test.ts`:** every pattern in `PATTERNS` has a sample. The test requires each sample to report bare, behind each diff marker, and on an added or removed line inside a real hunk, indented or not. A new pattern without a sample fails the test. The check found that env.kv was the only rule with this blind spot. Every other rule starts at a word boundary or has no line anchor.
+
+## [1.92.2.0] - 2026-10-31
+
+- The model panel adds a `<model>#no-gstack` arm beside each model's skill arm (Garry's rule that every head-to-head eval also tests no gstack), with its rows keyed by arm identity and the candidate's folders named after a project. arm-benchmark runs three with/without pairs per task under a spend ledger and a pinned model. A paired judge scores both orders and must pass calibration before it decides; the per-diff judge is reported beside it. The safety-rule and router cases gain a descriptive `none` arm where the task exists without the skill text. `gstack-eval-plan results --check <prereg> <results.md>` refuses a results file unless one table holds a filled row for every arm, so each no-gstack row sits beside its variants (`EVAL_REPORT_NO_GSTACK_ROW`).
+
+## [1.92.1.0] - 2026-10-31
+
+**The free suite moves from `ubicloud-standard-2` to `ubicloud-standard-4`, still at 20 shards, because standard-2 made Free Tests slower than its revert rule allows.** #3617's week-1 check measured three paired rounds at main 5ba425af. On standard-2 the slowest shard took 380, 396 and 388 s, against 314, 327 and 336 s on standard-8, and runs finished in 514 to 526 s against 405 to 434 s. On standard-4 the slowest shard took 323, 335 and 317 s, inside standard-8's 313 to 336 s range from the same day's paired runs. Per shard, standard-4 runs 10 to 15 % slower than standard-8 and costs about 57 % as much per run, so it keeps most of the saving without slowing the run's slowest shard.
+
+### Changed
+- **`.github/workflows/free-tests.yml`**: `FREE_SUITE_RUNNER` is `ubicloud-standard-4`. The shard count, the dispatch overrides and the `RESOURCES:` line are unchanged.
+- **docs/TESTING_INTERNALS.md** names the new runner.
+
+## [1.92.0.0] - 2026-10-31
+
+**Merge trains work for any repository, not just gstack.** Until now a train needed gstack's own eval workflow, gated only its tip and needed a bisect to find a culprit, so peer crews like gbrain and Truther merged one PR at a time and folded main-red fixes together by hand (GSTA-157).
+
+### Added
+- **`gates` in the train block** (docs/ship-policy.md#train-gates, `TRAIN_GATES_KEY_VERSION`): `workflows` gates dispatch the repository's own CI on every prefix ref (`train-prefix/<nonce>/t<i>`) by nonce and need every named job green at that exact commit, with one rerun of failed jobs (a pass is GREEN with a FLAKY line); `command` gates run a test command on a Ubicloud VM per prefix under one spend cap per gate for the whole train (`train init` prices it for a full train and one rerun: $3 at 1800 s). A workflow is sent at most twice per prefix, and one build or verdict at a time writes a train. Every prefix has its own verdict, so the first red prefix after a green one names the culprit and the slots before it can still land.
+- **`train land --train <nonce> --pr <n>` for these trains**: `direct` merges the pin itself (`gh pr merge --match-head-commit`) when branch protection is not strict and the pin's checks are green; `update` commits the gated tree on [pin, main] first. `train.land` sets the merge method and required checks; `rebase` always refuses, since a replayed tree is not the gated one. A workflows gate's `post_merge_checks` must succeed on main (`verify --post-merge <sha> --checks <names>`) before the next slot lands.
+- **`train watch --land`** waits for every prefix run, reads the verdict and lands each landable slot in order.
+- **`train init` and `train doctor`** print a train block from branch protection and the repository's workflows, plus the workflow snippet each gate needs, and check a live block, including a command cap too low for a full train. Neither writes anything.
+- **Base-red PRs ride a train**: `ready --base-red --fixer <pr>` READYs a PR whose /ship paused on a red base, and `ready --fixes-base-red <cases>` READYs its fixer. The train seats the fixer at slot 1, allows main red on exactly those cases, gates every conditional PR on its own prefix and lands it only through an update commit.
+- Result codes `QUEUE_TRAIN_BASE_RED`, `QUEUE_TRAIN_SPEND_CAP`, `QUEUE_TRAIN_LAND_METHOD`, `QUEUE_TRAIN_INIT_REFUSED`, `QUEUE_TRAIN_DOCTOR_FINDINGS`, `QUEUE_BASE_RED_NO_TRAIN` and `SHIP_BASE_RED_FIXER`, each with a docs/troubleshooting.md entry; captain/templates/merge-train-peer.md for a peer crew turning one on.
+
+### Changed
+- gstack's own train block (no `gates`) and every recorded train behave exactly as before. A train with gates refuses `train bisect` and `train rebuild`, since every prefix already has its verdict, and `verify --train` names `train land` instead. `train prune` keeps an attributed train while slots before its culprit are still unmerged.
+
+### Tests
+- `test/ship-queue-train-generic.test.ts`: policy validation (and gstack's own policy file unchanged), prefix verdicts including FIXES_BASE_RED, run classification, test records, base-red admission, workflow facts; on fixture repos: dispatch by nonce on every prefix, direct and update landing, rebase and fork refusals, an attributed culprit, the one-rerun FLAKY path, red on main, command gates through a fake ubi-runner with `UBI_REAP=0` and the spend cap, `ready --base-red`, a fixer train landed by `watch --land`, and `train init`/`train doctor`; plus the review fixes: unreadable protection, a dispatch no run adopts, a held lease, a run another process owns, output past the 1 MB log tail, rebase, post-merge checks and an INCOMPLETE train rebuilt on the same pins.
+
 ## [1.91.379.0] - 2026-10-31
 
 **/ship's review readers now review the checkout /ship ships, even when it runs from a worktree on a shared machine.** Readers start as subagents on `machine: "shared"`, so each one opens in the machine's working directory. Their briefs never named a folder, so a /ship run from a worktree had its readers review whatever branch the primary checkout held. GBrain's crew saw a specialist return four findings in files outside the PR (GBRA-218, GST-482). A clean review of the wrong tree would have looked the same as a clean review of the right one.
