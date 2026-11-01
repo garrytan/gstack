@@ -248,7 +248,8 @@ a push included. The sequence that works unattended on Capy:
    ([base_red](ship-policy.md#base-red)): the lane is waiting, not failed. It
    registers `gstack-base-red wait --pause <file>` as a background operation,
    tells the controller which cases hold it, and on `BASE_GREEN` runs
-   `/ship --resume <record>`; no READY goes out on the conditional receipt.
+   `/ship --resume <record>`; no READY goes out on the conditional receipt,
+   except on a train with `gates` ([Merge trains for other repos](#merge-trains-for-other-repos)).
 9. READY: `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen|--no-screen`;
    send the printed block.
 10. After the slot call, the stamp commit keeps the pin's receipt; re-READY with the same
@@ -299,6 +300,18 @@ anything else goes to a repair lane. An infra-only census earns one re-dispatch.
 backstop gate runs on every push to the base branch and freezes the queue when it finds
 a tree no green train covered; one repair PR at its exact head clears the freeze.
 
+**Wave PRs when the queue is long.** Every slot pays its own
+stamp, its own round of required checks and its own version, one after another. When more
+than 6 PRs are READY, `gstack-ship-queue wave plan` prints `WAVE_ADVISED` and suggested
+area groups of 3 to 6 (`train build` prints the same line when handed more than 6 pins). The
+controller asks the owner of each group's largest PR to integrate: `wave build` makes the
+wave branch with every constituent merged unchanged, the integrator runs /ship once and
+READYs the wave PR, which then takes one slot and one version. Constituent heads are frozen
+once in; fixes go through the integrator, and a constituent that must change is dropped
+(`wave build --wave <nonce> --drop <pr>`) and goes back to its owner. After the wave lands,
+`wave settle` closes each constituent with a link. While the queue stays long, start new
+work as area waves. The full flow is in [ship-policy.md](ship-policy.md#wave-prs).
+
 **Slot 2 and later.** The base branch already carries the earlier slots' stamps, so a
 stamp on the bare pin leaves the PR conflicting on the CHANGELOG. The lane merges the base
 into its pin first (expect a CHANGELOG-only conflict; resolve it with `mergeChangelogs`
@@ -329,6 +342,27 @@ commits; lane stamps versus controller stamps; gate-ahead (slot i+1 gates on slo
 head while i merges); the severe race (several severe lanes told at once that the next
 urgent train is theirs, first complete READY takes it; never a race for a slot inside a
 built train); whether a READY also carries a gate run id and tree hash.
+
+### Merge trains for other repos
+
+A repository without gstack's eval workflow declares `gates` in its train block
+([ship-policy.md](ship-policy.md#train-gates)): its own CI workflows, a test
+command on a Ubicloud VM, or both. Every prefix is gated, so a red train names
+its culprit with no bisect and no rebuild. To turn one on, run `train init` in
+a checkout, commit the printed block (and the workflow snippet) on the base
+branch through a PR, then run `train doctor` until it reports no findings.
+
+The controller's loop shortens to `train build --prs <pins>`, then
+`train watch --train <nonce> --land`, which waits for every prefix run, reads
+the verdict and lands each landable slot in order. Lanes READY with
+`ready --pr <n> --no-screen`; there is no screen and no slot call. A lane whose
+/ship paused on a red base READYs with `--base-red --fixer <pr>`, its fixer with
+`--fixes-base-red <cases>`, and the train seats the fixer at slot 1. The `update` commit `train land` pushes to a PR
+branch (the gated tree on [pin, main]) is the one exception to CREW rule 14's "never merge
+the base into a PR": it is tool-made, recorded before the push, and pushed under the pin's
+lease, like a stamped train's stamp commit. A peer crew
+adopting this starts from
+[captain/templates/merge-train-peer.md](../captain/templates/merge-train-peer.md).
 
 ## Approvals: three shapes
 

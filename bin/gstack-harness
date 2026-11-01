@@ -8,10 +8,16 @@
  *
  * Usage:
  *   gstack-harness detect [--json]
- *   gstack-harness register <target> [--skills router|hybrid|all] [--skills-dir <dir>] [--context <file>] [--print] [--yes] [--no-registry]
+ *   gstack-harness register <target> [--skills router|hybrid|all] [--skills-dir <dir>] [--context <file>] [--start-hook|--no-start-hook] [--print] [--yes] [--no-registry]
  *     --context <file> writes gstack's marked routing block into that file only
  *     (opt-in: setup, upgrades and refresh never add one, and a block you
  *     delete stays deleted); it prints the file and its scope before writing
+ *     --start-hook (OpenClaw, Hermes; opt-in) adds the gstack-start plugin, which
+ *     puts a one-line note on every user turn to run a gstack skill's start
+ *     command, and turns it on through the harness's own commands (this edits
+ *     openclaw.json or Hermes's config.yaml); --no-start-hook takes it out. The
+ *     choice is saved; GSTACK_HARNESS_START_HOOK=1|0 or gstack-config
+ *     harness_start_hook on|off make it too. Exit 4: skills registered, hook not active
  *   gstack-harness unregister <target|registration id> [--remote]
  *   gstack-harness status [--json] [--no-check]
  *   gstack-harness refresh
@@ -46,11 +52,18 @@ function receiptLines(r: RegisterResult): string[] {
     'gstack-harness: ' + t.displayName + ': ' + r.skills + ' gstack skills ' + how + ' at ' + r.dest + ' (' + r.status + (r.written ? ', ' + r.written + ' files written' : '') + ')',
     ...(r.router ? ['  router: ' + r.router + ' (register with --skills all to list every skill natively)'] : []),
     ...r.kept.map(k => '  kept your edit: ' + k),
+    ...(r.hook ? ['  start hook: ' + r.hook.state + (r.hook.state === 'active' ? ' (new sessions get the note; a running gateway picks it up when it reloads)' : '') + (r.hook.detail ? ' - ' + r.hook.detail : '') + (r.hook.fix ? '; ' + r.hook.fix : '')] : []),
     '  ledger: ' + r.ledger,
     '  remove: ' + self + ' unregister ' + r.id,
   ];
 }
 const receipt = (r: RegisterResult) => console.log(receiptLines(r).join('\n'));
+/** A start hook this run turned on, or was asked for, that did not end up active: exit 4 after the receipt. */
+function hookFailed(r: RegisterResult): number {
+  if (!r.hook?.required || r.hook.state === 'active') return 0;
+  console.error(new HarnessError('HARNESS_HOOK_INACTIVE', TARGETS[r.target].displayName + ' start hook is ' + r.hook.state + (r.hook.detail ? ': ' + r.hook.detail : '') + (r.hook.fix ? '. Turn it on: ' + r.hook.fix : '')).report());
+  return 4;
+}
 
 function usage(code: number): never {
   const text = fs.readFileSync(process.argv[1], 'utf8').split('\n').slice(1).filter(l => l.startsWith(' *')).map(l => l.slice(3)).join('\n');
@@ -73,6 +86,7 @@ async function main(): Promise<number> {
       const mode = flag('--skills') as SkillsMode | undefined;
       const skillsDir = flag('--skills-dir'); const context = flag('--context');
       const print = bool('--print'); const yes = bool('--yes'); const noRegistry = bool('--no-registry');
+      const startHook = bool('--start-hook') ? true : bool('--no-start-hook') ? false : undefined;
       const t = getTarget(argv.shift() ?? '');
       if (print) { console.log(printPayload(checkout)); return 0; }
       if (t.name === 'qm') {
@@ -88,10 +102,10 @@ async function main(): Promise<number> {
         return 3;
       }
       if (context) (json ? console.error : console.log)('gstack-harness: context block: ' + path.resolve(context) + ' (' + contextScope(t, context, env, home) + ' scope)');
-      const r = register({ ...base, target: t, mode, skillsDir, context, registry: !noRegistry });
+      const r = register({ ...base, target: t, mode, skillsDir, context, registry: !noRegistry, startHook });
       if (json) console.log(JSON.stringify({ ...r, receipt: receiptLines(r).map(l => l.trim()).join('; ') }));
       else receipt(r);
-      return 0;
+      return hookFailed(r);
     }
     case 'unregister': {
       const remote = bool('--remote');
@@ -113,23 +127,25 @@ async function main(): Promise<number> {
       const extra = (['muse', 'grok'] as TargetName[]).filter(n => TARGETS[n].present(env, home)).map(n => ({ target: n, ...(check ? harnessSees(TARGETS[n], '', env, ['review', 'gstack-review'], true) : { visible: 'unknown' as const }) }));
       if (json) { console.log(JSON.stringify({ registrations: rows, detected: extra })); return 0; }
       if (!rows.length && !extra.length) console.log('gstack-harness: no harness registrations on this machine');
-      for (const r of rows) console.log(r.target + '\t' + r.mode + '\t' + r.dest + '\t' + r.files + ' files\t' + (r.stale ? 'stale (' + r.version + '; refresh: ' + self + ' refresh)' : r.version) + '\tvisible to harness: ' + r.visible + (r.checked ? ' (' + r.checked + ')' : '') + (r.missing?.length ? ' missing: ' + r.missing.slice(0, 5).join(', ') : '') + '\t' + r.id);
+      for (const r of rows) console.log(r.target + '\t' + r.mode + '\t' + r.dest + '\t' + r.files + ' files\t' + (r.stale ? 'stale (' + r.version + '; refresh: ' + self + ' refresh)' : r.version) + '\tvisible to harness: ' + r.visible + (r.checked ? ' (' + r.checked + ')' : '') + (r.missing?.length ? ' missing: ' + r.missing.slice(0, 5).join(', ') : '') + '\t' + r.id
+        + (r.hook ? '\n  start hook: ' + r.hook.state + (r.hook.detail ? ' - ' + r.hook.detail : '') + (r.hook.state !== 'active' && r.hook.fix ? '; ' + r.hook.fix : '') : ''));
       for (const x of extra) console.log(x.target + '\tdetect\t~/.claude/skills\t' + (x.visible === 'yes' ? 'discovered (Claude-rendered, unverified)' : 'unverified') + (x.checked ? ' (' + x.checked + ')' : ''));
       return 0;
     }
     case 'refresh': {
-      for (const r of refresh(base)) if (r.status !== 'unchanged') receipt(r);
-      return 0;
+      let code = 0;
+      for (const r of refresh(base)) { if (r.status !== 'unchanged' || r.hook?.required || r.hook?.retried || r.hook?.detail) receipt(r); code ||= hookFailed(r); }
+      return code;
     }
     case 'auto': {
       const d = detect(env, home);
       let failed = 0;
       const done = new Set<string>();
       for (const n of d.inside.filter(n => TARGETS[n].mechanism === 'skill-folder')) {
-        try { const r = register({ ...base, target: TARGETS[n], registry: true }); done.add(r.id); receipt(r); }
+        try { const r = register({ ...base, target: TARGETS[n], registry: true }); done.add(r.id); receipt(r); hookFailed(r); }
         catch (e) { if (e instanceof HarnessError) { console.error(e.report()); failed = 1; } else throw e; }
       }
-      try { for (const r of refresh(base, done)) if (r.status !== 'unchanged') receipt(r); }
+      try { for (const r of refresh(base, done)) { if (r.status !== 'unchanged' || r.hook?.required || r.hook?.retried || r.hook?.detail) receipt(r); hookFailed(r); } }
       catch (e) { if (e instanceof HarnessError) { console.error(e.report()); failed = 1; } else throw e; }
       for (const n of d.present.filter(n => !d.inside.includes(n) && TARGETS[n].mechanism === 'skill-folder' && !listLedgers(stateRoot).some(l => l.ledger.meta.target === n))) {
         console.log('gstack-harness: ' + TARGETS[n].displayName + ' is installed here; to give it gstack skills: ' + self + ' register ' + n);

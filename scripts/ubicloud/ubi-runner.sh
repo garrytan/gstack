@@ -1143,9 +1143,10 @@ cmd_pack() {
     # index's blobs that HEAD's tree lacks (staged, intent-to-add, the stages
     # of an unmerged entry) are behind no ref, so they travel as a pack of
     # their own; without them the VM's write-tree (gstack-wtree) cannot read a
-    # staged file.
+    # staged file. cat, not cp: git renames index.lock over the index, which
+    # cp reports as "replaced while being copied"; one open() reads one whole index.
     if [ "$(git -C "$src" config --bool core.splitIndex 2>/dev/null)" != true ]; then
-      cp "$(cd "$src" && cd "$(dirname "$(git rev-parse --git-path index)")" && pwd)/index" "$tmp/.git/index"
+      cat "$(cd "$src" && cd "$(dirname "$(git rev-parse --git-path index)")" && pwd)/index" > "$tmp/.git/index"
       # Read the copy, not the live index, so the pack matches it; a gitlink's
       # sha (mode 160000) is a submodule commit this object store lacks.
       GIT_INDEX_FILE="$tmp/.git/index" git -C "$src" ls-files -s | awk '$1 != "160000" {print $2}' | sort -u \

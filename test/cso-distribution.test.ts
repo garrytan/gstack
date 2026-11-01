@@ -368,6 +368,26 @@ describe('CSO runtime staging gates', () => {
     expect(() => imageBuildMatrix(versions)).toThrow('UNPINNED_TOOL_VERSION');
   });
 
+  test.each(['docker.io/tool/sbom:1', 'docker.io/tool/sbom:1.24', 'docker.io/tool/sbom:1.24-slim', 'docker.io/tool/sbom:latest', 'docker.io/tool/sbom:stable'])('floating source tag %s cannot pin a reviewed family', source => {
+    const sbom = reviewedInputs(); sbom.sbomGenerator.source = source;
+    expect(() => imageBuildMatrix(sbom)).toThrow('FLOATING_SBOM_GENERATOR_SOURCE');
+    const base = reviewedInputs(); base.profiles[0].source = source.replace('docker.io/tool/sbom', 'docker.io/library/node');
+    expect(() => imageBuildMatrix(base)).toThrow('FLOATING_BASE_SOURCE');
+  });
+
+  test('PostgreSQL alone may name a two-part release, which is exact for it', () => {
+    const postgres = reviewedInputs(); postgres.profiles[4].source = 'docker.io/library/postgres:17-bookworm';
+    expect(() => imageBuildMatrix(postgres)).toThrow('FLOATING_BASE_SOURCE');
+    const python = reviewedInputs(); python.profiles[2].source = 'docker.io/library/python:3.13-slim-bookworm';
+    expect(() => imageBuildMatrix(python)).toThrow('FLOATING_BASE_SOURCE');
+    expect(imageBuildMatrix(reviewedInputs()).include.find(row => row.stack === 'postgresql')?.baseSource).toBe('docker.io/library/postgres:17.2');
+  });
+
+  test('the committed build inputs name release tags for every source', () => {
+    expect(buildInputs.sbomGenerator.source).toBe('docker.io/docker/scout-sbom-indexer:1.24.0');
+    expect(committedImageBuildMatrix().include).toHaveLength(10);
+  });
+
   test('duplicate stacks and missing Python uv images fail precisely', () => {
     const duplicate = reviewedInputs(); duplicate.profiles[1].stack = 'node';
     expect(() => imageBuildMatrix(duplicate)).toThrow('INVALID_STACK');
@@ -388,8 +408,16 @@ describe('CSO runtime staging gates', () => {
     expect(gate['continue-on-error']).not.toBe(true);
     const required = workflow.jobs['free-tests'];
     expect(required.if).toBe('always()');
-    expect(required.needs).toEqual(['free-suite', 'typecheck', 'quick-bun-default', 'cso-macos-launcher', 'macos-named-regressions', 'cso-windows-launcher', 'cso-docker-integration']);
-    expect(required.steps[0].run).toContain('test "$CSO_DOCKER_RESULT" = success');
+    expect(required.needs).toEqual(['reuse', 'free-suite', 'typecheck', 'quick-bun-default', 'cso-macos-launcher', 'macos-named-regressions', 'cso-windows-launcher', 'cso-docker-integration']);
+    expect(job.if).toBe("${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}");
+    const route = required.steps[0];
+    expect(route.id).toBe('route');
+    expect(route.env.REUSE_RESULT).toBe('${{ needs.reuse.result }}');
+    expect(route.run).toContain('if [ "$REUSE_RESULT" != success ] || [ "$REUSED" != true ]; then');
+    const strict = required.steps.find((step: any) => step.run?.includes('test "$CSO_DOCKER_RESULT" = success'));
+    expect(strict.env.CSO_DOCKER_RESULT).toBe('${{ needs.cso-docker-integration.result }}');
+    expect(strict.if).toBe("steps.route.outputs.reused != 'true'");
+    expect(required.steps.indexOf(strict)).toBe(1);
     for (const current of Object.values(workflow.jobs) as any[]) for (const step of current.steps) {
       if (step.uses?.startsWith('oven-sh/setup-bun')) expect(step.uses).toBe('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6');
     }

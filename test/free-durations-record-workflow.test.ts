@@ -46,7 +46,7 @@ test('Linux records on the free-suite runner image, turns red on any red file, a
 });
 
 test('Windows records through the windows-free-tests record_durations path, and propose needs both complete recordings', () => {
-  expect(recorder.jobs.windows).toEqual({ uses: './.github/workflows/windows-free-tests.yml', with: { record_durations: true } });
+  expect(recorder.jobs.windows).toEqual({ uses: './.github/workflows/windows-free-tests.yml', permissions: { contents: 'read', actions: 'read' }, with: { record_durations: true } });
   expect(recorder.jobs.propose.needs).toEqual(['linux', 'windows']);
   expect(recorder.jobs.propose.if).toBe('${{ !cancelled() }}');
   const downloads = recorder.jobs.propose.steps.filter((step: any) => step.uses?.startsWith('actions/download-artifact@'));

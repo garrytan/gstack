@@ -199,7 +199,7 @@ one duration-packed `--ci-plan`, 20 ordinary `--ci-run` shards plus a separate
 exclusive-fixture shard, and a `--ci-verify` aggregate. CI shards still run on
 independent machines without ordering unrelated jobs. Two workflow-level
 constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
-(`ubicloud-standard-2`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
+(`ubicloud-standard-4`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
 resolves into the shards' runner and shard count. A `workflow_dispatch` run may
 override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`) and
 `free_shards` (1–40) for runner-sizing experiments only; its job summary says
@@ -795,7 +795,9 @@ When a judge's abort signal cancels its request, `callJudge`
 (`test/helpers/llm-judge.ts`) prints one `llm-judge-aborted` JSON line to
 stderr: elapsed time, wrapper `attempts` and `retryWaitsMs` (429 waits),
 `httpRequests` and `httpStatuses` (so SDK retries show), `connectedMs`,
-`firstEventMs` and `lastEventMs`, the open `block` type, `thinkingChars` and
+`firstEventMs` and `lastEventMs`, `bytesReceived` and `lastByteMs` (every body
+byte, pings included, so a silent socket differs from a model thinking on a live
+connection), the open `block` type, `thinkingChars` and
 `textChars`, `messageId`, `requestId` and the `reason` (at most 200
 characters). It holds counts and ids only, never content, and changes no
 request, score or verdict.
@@ -1033,7 +1035,7 @@ repository content: its setup script and pull destinations must resolve inside
 `--src`, and a name it lists under `pass` is forwarded only when the command
 line grants it (`--pass NAME`, or all of them with `--trust-config`); `--pass`
 never forwards `UBICLOUD_*`. All of this is pinned offline in
-`test/ubicloud-runner.test.ts` against a fake API and a fake `ssh`, including
+`test/ubicloud-runner*.test.ts` against a fake API and a fake `ssh`, including
 a fixture whose fake API creates, so `run` and `verify` execute end to end.
 
 `run` and `verify` start their setup, command and tier phases detached on the
@@ -1049,7 +1051,7 @@ start/pass/fail per tier under `UBI_CHECKPOINT_DIR/<run key>/`, so a resume on
 a fresh VM reruns setup and only the tiers without a pass; `pregate-remote.sh`
 adds its tree and planned-set digest to the key, so a rerun of
 `gstack-pregate --stage tests --remote` reattaches and bills from the original
-`created_at`. The fake VM in `test/ubicloud-runner.test.ts` runs these phases
+`created_at`. The fake VM in `test/helpers/ubi-runner-fake-vm.ts` runs these phases
 for real in a directory.
 
 Under 8 cores (`gstack-doctor`'s `cores` row says so), run the full unit and
@@ -1542,7 +1544,7 @@ refresh to a maintainer.
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
   `windows-free-tests.yml`'s `record_durations` path. The recorder stays on
   `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
-  (`ubicloud-standard-2`); both are Ubicloud standard runners. When either recording adds
+  (`ubicloud-standard-4`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
   dispatches Free Tests, Windows Free Tests and Quality gate on it. Those
@@ -1647,9 +1649,11 @@ word list: `test/fixtures/arm-benchmark/` and its four children, `browse-judge/`
 names under `paid-report-census/` and the `test/` subdirectories of
 `state-matrix-6792/`. All of these are runner-side: no candidate's working
 directory is one of them. Candidate-visible gaps are in the temporary roots
-the harnesses create: `test/helpers/arm-benchmark-harness.ts` copies each fixture
-into `os.tmpdir()/arm-<fixture>-<arm>-*`, so the candidate's working directory is
-named after the arm rather than after a project; `test/skill-e2e-deploy.test.ts`
+the harnesses create: `test/helpers/arm-benchmark-harness.ts` copied each fixture
+into `os.tmpdir()/arm-<fixture>-<arm>-*`, so the candidate's working directory was
+named after the arm rather than after a project (since GST-469 it is named after
+the task's project: `hike-booking-*`, `notes-api-*`, `receipts-*`);
+`test/skill-e2e-deploy.test.ts`
 runs the /benchmark case in `skill-e2e-benchmark-*`, a root that carries a listed
 word; `test/skill-e2e-test-value.test.ts` creates `skill-e2e-<id>-*` roots as the
 candidate's working directory, and two of its ids (`review-test-value`,
@@ -1694,18 +1698,66 @@ own attempts. The arm gets:
 
 **Reporting.** The no-gstack result is one row beside the variants in every
 results table and every verdict, including when it wins. A comparison that
-drops the row has not reported its result. The prereg check cannot see the
-report, so the `report:` line states where the row goes and the reviewer of
-the result holds the author to it.
+drops the row has not reported its result. `gstack-eval-plan results --check
+<prereg> <results.md>` enforces it: one table in the results file must hold a
+filled row for every Arms identity (`EVAL_REPORT_NO_GSTACK_ROW` otherwise), and
+no number is published before it passes.
 
-**Precedent and its gaps.** `test/helpers/arm-benchmark-harness.ts` already has
-a `without-skill` arm beside `with-skill`, and it is the closest existing
-control. It falls short of this rule in three ways: each arm and task runs
-once rather than as a panel; the judge (`armJudge` in
-`test/helpers/llm-judge.ts`) scores each diff on its own, without `A`/`B`
-labels; and the candidate's temporary folder is named after the arm
-(`arm-<fixture>-<arm>-*`). Existing paid cases are not retrofitted by the
-change that added this rule; an audit of them is tracked separately.
+**Safety-rule and router evals: a descriptive third arm.** The W1 safety-rule
+evals compare `GSTACK_SAFETY_ARM=rule` (the shipped rule) with `removed` (the
+rule paragraph deleted), and the router failure-routing evals compare
+`GSTACK_ROUTER_ARM=current` with `before` (the base branch's router). Both
+variables also take `none` (GST-470): the same fixture, tools and user request,
+with no skill excerpt, rule text, step file or installed skill. Any other value
+throws, so a typo cannot run one arm under another's label. The `rule`,
+`removed`, `current` and `before` prompts are byte for byte what they were
+before `none` existed (`test/safety-none-arm.test.ts`,
+`test/failure-routing-arm.test.ts`). To run the three arms as a comparison, run
+the same case once per arm, each as its CI panel:
+
+```bash
+for arm in rule removed none; do
+  GSTACK_SAFETY_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case safety-ship-stale-evidence
+done
+for arm in current before none; do
+  GSTACK_ROUTER_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case router-failure-contradicted-cause
+done
+```
+
+The arm variable is part of the shard-reuse environment, so one arm's result is
+never reused for another. Report the three rows side by side in one results
+table and pass `gstack-eval-plan results --check` on it.
+
+**The descriptive exception.** Under `none` every behavioral check, the plain
+`expect`s on model actions included, is recorded as an observation in
+`none-arm-observations.jsonl` in the eval directory and on stderr
+(`test/helpers/none-arm.ts`). It never fails the case and never writes
+`contract-violations.jsonl`; harness preconditions (the fixture built, the CLI
+ran, the session ended normally) still assert. This departs from "the same
+panel" above because these contracts are gstack's own rules: a plain model was
+never asked to keep them, so a failing `none` trial is the measurement, not a
+regression, and a red verdict would block the gate on behavior nobody
+specified. The router's `none` arm has no "routed to /investigate" metric,
+since no skill is installed to route to; it records plain metrics instead:
+whether the suite is green, whether an edit came before the first read, and
+how many read-only calls came before the first edit. The first paid comparison
+with these arms gets its own preregistration.
+
+**Cases without a `none` arm.** `safety-pair-agent-block` and
+`safety-ios-demo-ui-only` refuse `GSTACK_SAFETY_ARM=none` with the reason
+(`NO_NONE_ARM` in `test/helpers/safety-rules.ts`). Their task exists only in
+the skill: relaying /pair-agent's remote instruction block, and /ios-qa's demo
+mode with its device routes. A plain prompt has nothing to relay and no device
+interface to drive, so the arm would measure the prompt, not gstack.
+
+**Precedent.** `test/skill-e2e-arm-benchmark.test.ts` runs a `with-skill` and a
+`without-skill` arm (named `<model>#no-gstack` in its preregistration) as 3
+pairs per task under a spend ledger and cap. A paired judge reads both diffs as
+`A` and `B` in both orders, counts a win only when the orders agree, and
+decides only after it passes calibration; the per-diff `armJudge` stays beside
+it as the diagnostic. Candidate folders and git identity name a project, never
+the arm. The model panel (`test/skill-e2e-model-panel.test.ts`) runs a
+`<model>#no-gstack` arm beside each model (GST-468, GST-469).
 
 ## Running evals as an agent: detach
 
