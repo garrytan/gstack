@@ -20,7 +20,7 @@ afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
 const COPIED = ['scripts/ubicloud/pregate-remote.sh', 'bin/gstack-wtree', 'bin/gstack-path-spelling.sh',
   'scripts/test-free-shards.ts', 'scripts/test-strict-output.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts',
-  'scripts/lib/free-ci-health.ts', 'scripts/lib/windows-curation.ts', 'lib/state-root.ts', 'test/helpers/paid-test-set.ts',
+  'scripts/lib/free-ci-health.ts', 'scripts/lib/windows-curation.ts', 'scripts/lib/shard-jobs.ts', 'lib/state-root.ts', 'test/helpers/paid-test-set.ts',
   'test/helpers/touchfiles.ts', 'test/helpers/touchfiles-data.ts', 'test/helpers/test-selection.ts'];
 const TESTS: Record<string, string> = {
   'test/alpha.test.ts': "import { expect, test } from 'bun:test';\ntest('alpha', () => { expect(1).toBe(1); });\n",
