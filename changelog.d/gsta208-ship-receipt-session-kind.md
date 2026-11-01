@@ -4,4 +4,4 @@
 - **`bin/gstack-ship-receipt`** starts `gstack-session-kind` with `runScriptSync`.
 
 ### Tests
-- `test/gstack-ship-receipt.test.ts`: a receipt written without a session kind takes it from `gstack-session-kind`.
+- `test/ship-receipt-session-kind.test.ts` (windows-free-tests too): a receipt written without a session kind records what `gstack-session-kind` prints.

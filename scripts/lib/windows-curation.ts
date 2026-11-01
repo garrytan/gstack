@@ -405,6 +405,7 @@ export const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   { file: 'test/gstack-wtree-windows-paths.test.ts', reason: '#3101: runs bin/gstack-wtree through explicit bash in an os.tmpdir linked worktree with forward-slash paths; never executes a shebang; the drive-letter simulation is skipIf win32' },
   { file: 'test/setup-hook-syntax-gate.test.ts', reason: '#3088/#3100: runs bin/gstack-hook-check and the setup hook sections through explicit bash with forward-slash paths; never executes a shebang. Its Bun drive-path spelling is the Windows bug it guards' },
   { file: 'test/bun-config-shell-bins.test.ts', reason: '#3415: runs the record bins through lib/script-invocation.ts (Git Bash on Windows) with MSYS path conversion off, the case it guards; its bun and cygpath stand-ins and simulated-OSTYPE cases are skipIf win32' },
+  { file: 'test/ship-receipt-session-kind.test.ts', reason: '#3541: runs gstack-ship-receipt write through lib/script-invocation.ts, which must reach the bash gstack-session-kind through Git Bash; os.tmpdir git fixture only' },
   { file: 'test/path-spelling.test.ts', reason: 'sources bin/gstack-path-spelling.sh through explicit bash and checks lib/path-spelling.ts; on Windows it exercises the real Git Bash spellings' },
   { file: 'test/state-root-parity.test.ts', reason: 'runs the bash twin and lib/state-root.ts over an env table with PATH empty; no shebang execution, raw-string comparison is platform-neutral' },
   { file: 'test/generator-eexist.test.ts',
