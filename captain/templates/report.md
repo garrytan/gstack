@@ -6,6 +6,8 @@ Written by the lane when it finishes. The controller reads this before chat.
 
 <what shipped, in two or three sentences; what was out of scope and where it went>
 
+Unverified: <none | each claim above that the lane did not check itself, and why>
+
 ## PR
 
 | PR | Head (full SHA) | Version | Checks | Train |

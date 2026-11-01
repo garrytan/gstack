@@ -147,7 +147,8 @@ Every PR you send READY on, and the READY report itself, has:
 3. **Blast radius.** What else the change touches and the one fact that makes that safe, with the
    evidence-ladder rung that fact reached.
 4. **Approvals.** `gstack-approvals render`.
-5. **Evidence.** Checks green at the head, gate or train results, flaky cases.
+5. **Evidence.** Checks green at the head, gate or train results, flaky cases, and an `Unverified:` line:
+   each claim you did not check yourself and why, or `none`.
 
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
 /ship does all of this when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
