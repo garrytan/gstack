@@ -12,7 +12,8 @@ import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude, tooLargeLine, unreada
 import { collectCommit, collectLive } from '../lib/review-collect';
 import { extractReceipt } from '../lib/ship-receipt';
 import { bindShippedReceipt } from '../lib/ship-receipt-depth';
-import { REVIEW_EXCLUDE_KEY_VERSION, isUnavailable, loadPolicyAt } from '../lib/ship-policy';
+import { REVIEW_EXCLUDE_KEY_VERSION, isUnavailable } from '../lib/ship-policy';
+import { loadPolicyAt } from '../lib/ship-policy-at';
 import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];

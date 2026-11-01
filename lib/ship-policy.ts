@@ -659,7 +659,7 @@ export function resolveBaseBranch(repoRoot: string, explicit?: string): string {
   return 'main';
 }
 
-function finish(rawText: string | null, source: PolicySource): LoadedPolicy {
+export function finish(rawText: string | null, source: PolicySource): LoadedPolicy {
   if (rawText === null) return { policy: mergePolicy(null, source.label).policy, present: false, source, errors: [], values: mergePolicy(null, source.label).values };
   let raw: unknown;
   try { raw = JSON.parse(rawText); }
@@ -683,26 +683,6 @@ export function loadPolicyFromBase(repoRoot: string, base: string): PolicyLoad {
   if (!exists.ok) return finish(null, { ...source, kind: 'none', label: `${ref}@${sha.out.slice(0, 12)} (no ${SHIP_POLICY_PATH})` });
   const show = git(repoRoot, ['show', `${sha.out}:${SHIP_POLICY_PATH}`]);
   return finish(show.ok ? show.out : null, source);
-}
-
-/**
- * The policy committed at `sha` (a commit the caller already resolved, labeled `ref`): `cat-file -e` first, and only an
- * `ls-tree` that succeeds with no entry is a missing file (defaults); any git failure, including a `show` failure after
- * the file was found, is `unavailable`, never a silent default.
- */
-export function loadPolicyAt(repoRoot: string, sha: string, ref: string): PolicyLoad {
-  const label = `${ref}@${sha.slice(0, 12)}`;
-  const source: PolicySource = { kind: 'base', ref, sha, label: `${label}:${SHIP_POLICY_PATH}` };
-  const spec = `${sha}:${SHIP_POLICY_PATH}`;
-  const base = ref.replace(/^origin\//, '');
-  if (!git(repoRoot, ['cat-file', '-e', spec]).ok) {
-    const tree = git(repoRoot, ['ls-tree', sha, '--', SHIP_POLICY_PATH]);
-    if (!tree.ok) return { unavailable: true, base, detail: `git ls-tree ${sha.slice(0, 12)} failed: ${tree.err.split('\n')[0] || 'no detail'}` };
-    if (!tree.out) return finish(null, { ...source, kind: 'none', label: `${label} (no ${SHIP_POLICY_PATH})` });
-  }
-  const show = git(repoRoot, ['show', spec]);
-  if (!show.ok) return { unavailable: true, base, detail: `git show ${label}:${SHIP_POLICY_PATH} failed: ${show.err.split('\n')[0] || 'no detail'}` };
-  return finish(show.out, source);
 }
 
 /** The working-tree policy: unreviewed, labeled so in every receipt. */

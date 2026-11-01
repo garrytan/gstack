@@ -26,7 +26,8 @@ import { collectLive } from './review-collect';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
 import { secretLine } from './review-targeted';
 import { cmpVersion, parseVersion } from './version-source';
-import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, loadPolicyAt, policyUnavailableLine } from './ship-policy';
+import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
+import { loadPolicyAt } from './ship-policy-at';
 
 /** The most diff bytes one reader is handed (about 500K tokens); above it the pass stops instead of truncating. */
 export const REVIEW_DIFF_MAX_BYTES = 2_000_000;
