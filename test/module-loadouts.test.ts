@@ -1,8 +1,10 @@
 /**
- * Module loadouts (GSTA-140, PR 1a): modules/loadouts.json, the derived
- * catalog, --modules selection, the render filter, and gstack-modules render.
- * Every rung loads `full` today, so the synthetic ad-hoc arms below are the
- * only exclusion coverage; committed bytes are covered by Skill Docs Freshness.
+ * Module loadouts (GSTA-140, PR 1a; GSTA-161, PR 1b): modules/loadouts.json,
+ * the derived catalog, --modules selection, the render filter, and
+ * gstack-modules render. Every rung loads `full`; the one named exclusion set
+ * is `lite`, mapped only from Claude Opus 5.5 (install and detection:
+ * test/module-loadouts-install.test.ts, test/model-detect.test.ts). Committed
+ * bytes are covered by Skill Docs Freshness.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'child_process';
@@ -44,6 +46,24 @@ describe('modules/loadouts.json', () => {
 
   test('every rung and unknown loads full until GSTA-2 measures a smaller loadout', () => {
     expect(Object.values(manifest.default)).toEqual(['full', 'full', 'full', 'full', 'full']);
+  });
+
+  test('lite drops the eleven coaching pieces, keeps upgrade-check and brain-sync, and only Opus 5.5 maps to it', () => {
+    const coaching = ['voice', 'writing-style', 'completeness', 'confusion', 'evidence', 'context-health', 'question-tuning', 'search-before-building', 'repo-mode', 'brain-health', 'context-recovery'];
+    expect(manifest.loadouts.lite).toMatchObject({ base: 'full', exclude: coaching.map(id => `preamble:${id}`) });
+    expect(manifest.models).toEqual({ 'claude-opus-5-5': 'lite' });
+    const s = selectModules({ loadout: 'lite' })!;
+    expect([...s.excluded].sort()).toEqual(coaching.map(id => `preamble:${id}`).sort());
+    for (const kept of ['preamble:upgrade-check', 'preamble:brain-sync', ...manifest.pinned]) expect(s.excluded.has(kept)).toBe(false);
+  });
+
+  test('a broken models map names each problem', () => {
+    const bad = structuredClone(manifest);
+    bad.models = { 'Claude-Opus*': 'lite', 'claude-opus-5-5': 'ghost', 'claude-opus-5-5-latest': 'lite' };
+    const problems = validateLoadouts(bad, catalog, CORPUS).join('\n');
+    expect(problems).toContain('models key "Claude-Opus*" must be an exact model id');
+    expect(problems).toContain('models.claude-opus-5-5 names no loadout');
+    expect(problems).toContain('models key claude-opus-5-5-latest is also matched by claude-opus-5-5');
   });
 
   test('the catalog derives every module kind from its source files', () => {
@@ -251,6 +271,11 @@ describe('modules/loadouts.schema.json', () => {
     expect([...schema.properties.aliases.additionalProperties.enum].sort()).toEqual([...rungs].sort());
     const pattern = new RegExp(schema.properties.rungs.properties.frontier.items.pattern);
     for (const rung of rungs) for (const glob of raw.rungs[rung]) expect(glob).toMatch(pattern);
+    const modelKey = new RegExp(schema.properties.models.propertyNames.pattern);
+    for (const [key, loadout] of Object.entries(raw.models as Record<string, string>)) {
+      expect(key).toMatch(modelKey);
+      expect(Object.keys(raw.loadouts)).toContain(loadout);
+    }
   });
 });
 
@@ -289,6 +314,19 @@ describe('bin/gstack-modules', () => {
       expect(result.stderr).toContain('MODULE_SPEC_INVALID');
     }
     expect(spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf-8', timeout: 30_000 }).stdout).toBe(before);
+  });
+
+  test('render --bind-model bakes the start lines an install for that model serves, and only for an exclusion loadout', () => {
+    const out = path.join(tmp, 'cli-bind');
+    const result = run('render', '--host', 'claude', '--loadout', 'lite', '--bind-model', 'anthropic/claude-opus-5-5', '--full-root', '/opt/full', '--out-dir', out);
+    expect(result.code).toBe(0);
+    expect(fs.readFileSync(path.join(out, 'qa/SKILL.md'), 'utf-8')).toContain(`--skill "qa" --model "claude" --loadout 'lite' --loadout-model 'claude-opus-5-5' --full-root '/opt/full'`);
+    expect(JSON.parse(fs.readFileSync(path.join(out, LOCK_FILE), 'utf-8'))).toMatchObject({ loadout: 'lite', loadout_model: 'claude-opus-5-5', full_root: '/opt/full' });
+    const refused = path.join(tmp, 'cli-bind-refused');
+    for (const args of [['--loadout', 'full', '--bind-model', 'claude-opus-5-5', '--full-root', '/opt/full'], ['--loadout', 'lite', '--bind-model', 'claude-opus-5-5'], ['--loadout', 'lite', '--bind-model', 'a$(id)', '--full-root', '/opt/full'], ['--loadout', 'lite', '--bind-model', 'claude-opus-5-5', '--full-root', 'rel']]) {
+      expect(run('render', '--host', 'claude', ...args, '--out-dir', refused)).toMatchObject({ code: 2, stderr: expect.stringContaining('MODULE_SPEC_INVALID') });
+    }
+    expect(fs.existsSync(refused)).toBe(false);
   });
 
   test('render prints one RENDERED line and writes the lock', () => {

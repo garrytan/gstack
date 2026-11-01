@@ -50,7 +50,7 @@ function fixture(opts: { bun?: string; jq?: boolean } = {}) {
   const log = path.join(base, 'calls.log');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(stub, { recursive: true });
-  for (const rel of ['bin/gstack-capy-install', 'bin/gstack-bun-version.sh', 'bin/gstack-doctor-components.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-node-runtime.sh']) {
+  for (const rel of ['bin/gstack-capy-install', 'bin/gstack-bun-version.sh', 'bin/gstack-claude-root.sh', 'bin/gstack-doctor-components.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-node-runtime.sh']) {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.copyFileSync(path.join(REPO, rel), path.join(root, rel));
     fs.chmodSync(path.join(root, rel), fs.statSync(path.join(REPO, rel)).mode);
@@ -548,6 +548,49 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     const plain = run(f, ['--for', 'autoplan']);
     expect(plain.status, plain.stdout + plain.stderr).toBe(0);
     expect(fs.readFileSync(launch, 'utf8')).not.toContain('GSTACK_PREFERENCES_FILE');
+  });
+
+  test('--model: Opus 5.5 gets the lite SKILL_ROOT and its own launch file; another model, a failed render and no --model keep the verdict and its launch file', () => {
+    const f = fixture();
+    script(path.join(f.root, 'bin/gstack-modules'), [
+      'echo "modules $*" >> "$CAPY_LOG"',
+      'model="${GSTACK_MODEL:-}" full=""; while [ $# -gt 0 ]; do case "$1" in --model) model="$2"; shift ;; --full-root) full="$2"; shift ;; esac; shift; done',
+      'case "$model" in',
+      '  claude-opus-5-5) mkdir -p "$HOME/lite-0123456789ab"; echo "LOADOUT: lite model=claude-opus-5-5 source=model-flag digest=0123456789ab reused=no"; echo "SKILL_ROOT: $HOME/lite-0123456789ab" ;;',
+      '  broken) echo "boom" >&2; exit 1 ;;',
+      '  *) echo "LOADOUT: full model=none source=model-flag reason=unmapped"; echo "SKILL_ROOT: $full" ;;',
+      'esac',
+    ]);
+    const launchOf = (out: string) => out.match(/^GSTACK_LAUNCH_FILE: (.+)$/m)![1];
+    const opus = run(f, ['--for', 'ship', '--model', 'claude-opus-5-5']);
+    expect(opus.status, opus.stdout + opus.stderr).toBe(0);
+    expect(f.calls().filter(l => l.startsWith('modules '))).toEqual([`modules install --model claude-opus-5-5 --full-root ${f.home}/.claude/skills`]);
+    expect(opus.stdout).toContain(`LOADOUT: lite model=claude-opus-5-5 source=model-flag digest=0123456789ab reused=no\nSKILL_ROOT: ${f.home}/lite-0123456789ab\n`);
+    const [verdict] = verdicts(f);
+    const base = verdict.replace(/\.json$/, '.env');
+    const lite = launchOf(opus.stdout);
+    expect(lite).toBe(verdict.replace(/\.json$/, '.loadout-lite-0123456789ab.env'));
+    expect(fs.statSync(lite).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(lite, 'utf8')).toBe(fs.readFileSync(base, 'utf8') + `export GSTACK_LOADOUT_SKILL_ROOT='${f.home}/lite-0123456789ab'\n`);
+    expect(fs.readFileSync(base, 'utf8')).not.toContain('GSTACK_LOADOUT_SKILL_ROOT');
+    expect(lastLine(opus.stdout)).toMatch(/^gstack: ok 1\.2\.3 /);
+
+    const sonnet = run(f, ['--for', 'ship', '--model', 'claude-sonnet-5-5']);
+    expect(sonnet.status).toBe(0);
+    expect(sonnet.stdout).toContain(`LOADOUT: full model=none source=model-flag reason=unmapped\nSKILL_ROOT: ${f.home}/.claude/skills\n`);
+    expect(launchOf(sonnet.stdout)).toBe(base);
+    const broken = run(f, ['--for', 'ship', '--model', 'broken']);
+    expect(broken.stdout).toContain(`LOADOUT_FALLBACK: boom; serving full (docs/troubleshooting.md#loadout-fallback)\nLOADOUT: full model=none source=model-flag reason=render-failed\nSKILL_ROOT: ${f.home}/.claude/skills\n`);
+    expect(launchOf(broken.stdout)).toBe(base);
+    const plain = run(f, ['--for', 'ship']);
+    expect(plain.stdout).not.toMatch(/^(LOADOUT|SKILL_ROOT):/m);
+    expect(launchOf(plain.stdout)).toBe(base);
+    const fromEnv = run(f, ['--for', 'ship'], { GSTACK_MODEL: 'claude-opus-5-5' });
+    expect(fromEnv.status, fromEnv.stdout + fromEnv.stderr).toBe(0);
+    expect(launchOf(fromEnv.stdout)).toBe(lite);
+    expect(f.calls().filter(l => l.startsWith('modules ')).at(-1)).toBe(`modules install --full-root ${f.home}/.claude/skills`);
+    expect(verdicts(f)).toEqual([verdict]);
+    expect(fs.existsSync(lite)).toBe(true);
   });
 
   test('the verdict file records checkout, HEAD, workflow, trailer and the Bun resolution, keyed by checkout and project; --check certifies without setup or downloads', () => {

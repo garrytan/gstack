@@ -6065,7 +6065,7 @@ QM registration does not work yet. QM's skill-pack import clones the whole repos
 
 ## Module loadouts (gstack-modules)
 
-These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modules` (guide: [loadouts.md](loadouts.md)). Each one exits 2 before anything is written, and none falls back to the `full` loadout: an eval arm that silently rendered `full` would measure the control.
+These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modules` (guide: [loadouts.md](loadouts.md)). Each one exits 2 before anything is written, and none falls back to the `full` loadout: an eval arm that silently rendered `full` would measure the control. The exceptions are the install-time notices `LOADOUT_INVALID_MODEL`, `LOADOUT_MISMATCH` and `LOADOUT_FALLBACK` (from `bin/gstack-modules install`, the Capy installer and `gstack-skill-start`): an install never fails on them and serves `full` instead.
 
 <a id="loadouts-invalid"></a>
 ### `LOADOUTS_INVALID: modules/loadouts.json …`
@@ -6076,6 +6076,21 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 ### `LOADOUT_UNKNOWN: "<name>" is not a loadout (valid: …)`
 
 **Meaning.** `--loadout` or the first token of `--modules` names no loadout in `modules/loadouts.json`. **Fix.** Use a name from the `valid:` list (`bin/gstack-modules list` prints them); `full` is always present.
+
+<a id="loadout-invalid-model"></a>
+### `LOADOUT_INVALID_MODEL: "<id>" is not a plain model id; using full`
+
+**Meaning.** The model id given to the installer (`--model`) or in `GSTACK_MODEL` is not a plain id after normalizing (lowercase letters, digits, `.`, `_` and `-`, at most 80 characters), so it never reaches a launch file or a start line. The full skills are served; nothing failed. **Fix.** Pass the model id as your model list names it, for example `--model claude-opus-5-5` or `--model anthropic/claude-opus-5-5` ([loadouts](loadouts.md#how-gstack-picks-a-loadout)).
+
+<a id="loadout-mismatch"></a>
+### `LOADOUT_MISMATCH: <baked id> vs <running id>: read <full root>/<skill>/SKILL.md now`
+
+**Meaning.** The skill you opened is the lite render made for one model, and `GSTACK_MODEL` says this session runs another. Lite is measured only on the baked model. **Fix.** Read the named full SKILL.md and follow it instead of the lite one. To stop it recurring, run the installer with this session's model (`scripts/install.sh --model <id>`) and read skills from the `SKILL_ROOT` it prints.
+
+<a id="loadout-fallback"></a>
+### `LOADOUT_FALLBACK: <reason>; serving full`
+
+**Meaning.** A lite tree could not be published (a render or dangling-reference failure, an unwritable state root, or a published folder whose files no longer match its `loadout.lock.json`), so the installer served the full skills and printed `SKILL_ROOT` for them. Nothing else changed. **Fix.** Fix the named reason; for a folder whose files changed, delete `<state root>/loadouts/<loadout>-<digest>` and rerun the installer, which publishes it again.
 
 <a id="module-spec-invalid"></a>
 ### `MODULE_SPEC_INVALID: …`

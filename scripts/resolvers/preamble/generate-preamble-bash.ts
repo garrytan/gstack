@@ -23,10 +23,27 @@ import { runtimeRootPrelude } from '../runtime-root';
  * sessions refuse a command named by a variable, a `[ -x ] ||` fallback, or a
  * trailing `|| echo`. A missing helper is covered by the degraded-mode prose.
  */
+/**
+ * A loadout chosen for one model (GSTA-161) bakes its name, that model and
+ * the full install root into the start line, so gstack-skill-start can tell
+ * any other model to read the full SKILL.md. An explicit or ad-hoc selection
+ * is bound to no model and adds nothing. The values are validated literals;
+ * nothing from the environment reaches here.
+ */
+function loadoutStartFlags(ctx: TemplateContext): string {
+  const filter = ctx.modules;
+  if (!filter?.boundModel) return '';
+  if (!/^[a-z0-9-]{1,40}$/.test(filter.name)) throw new Error(`loadout name ${JSON.stringify(filter.name)} cannot be baked into a start line`);
+  if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(filter.boundModel)) throw new Error(`model id ${JSON.stringify(filter.boundModel.slice(0, 80))} cannot be baked into a start line`);
+  if (!filter.fullRoot || !/^\/[A-Za-z0-9_.@+\/-]*$/.test(filter.fullRoot)) throw new Error('a model-bound loadout needs a plain absolute fullRoot');
+  return ` --loadout '${filter.name}' --loadout-model '${filter.boundModel}' --full-root '${filter.fullRoot}'`;
+}
+
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
   const runtimeRoot = hostConfig.usesEnvVars ? `${runtimeRootPrelude(ctx)}\n` : '';
   const brainHealthFlag = ctx.host === 'gbrain' || ctx.host === 'hermes' ? ' --brain-health' : '';
+  const loadoutFlags = loadoutStartFlags(ctx);
   const startCommand = hostConfig.usesEnvVars
     ? `"${ctx.paths.binDir}/gstack-skill-start"`
     : `${ctx.paths.binDir}/gstack-skill-start`;
@@ -40,7 +57,7 @@ export function generatePreambleBash(ctx: TemplateContext): string {
   return `${entry}
 
 \`\`\`bash
-${runtimeRoot}${startCommand} --skill "${ctx.skillName}" --model "${ctx.model ?? 'none'}"${brainHealthFlag}
+${runtimeRoot}${startCommand} --skill "${ctx.skillName}" --model "${ctx.model ?? 'none'}"${loadoutFlags}${brainHealthFlag}
 \`\`\`
 
 Read the echoed \`KEY: value\` STATUS lines — they drive every preamble rule
