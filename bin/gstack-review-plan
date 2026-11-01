@@ -167,4 +167,4 @@ function main(): number {
   return EXIT.ok;
 }
 
-process.exit(main());
+process.exitCode = main();

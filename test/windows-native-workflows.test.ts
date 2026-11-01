@@ -20,7 +20,7 @@ const native = load('native-qualification.yml');
  * intentionally excluded Windows-safe tests, lower this floor to the printed
  * count in the same PR and say why; when the count grows, raise it.
  */
-const WINDOWS_CURATED_FLOOR = 638;
+const WINDOWS_CURATED_FLOOR = 795;
 
 test('the Windows lane plans, runs one strict shard per job and verifies every result', () => {
   expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'push', 'workflow_call', 'workflow_dispatch']);
@@ -34,7 +34,7 @@ test('the Windows lane plans, runs one strict shard per job and verifies every r
   expect(planStep.env.GSTACK_FREE_TEST_DURATIONS).toBe('scripts/free-test-durations-windows.json');
   const shard = windows.jobs['windows-free-shard'];
   expect(shard['runs-on']).toBe('windows-latest');
-  expect(shard.needs).toBe('windows-plan');
+  expect(shard.needs).toEqual(['windows-plan', 'reuse']);
   expect(shard.strategy).toEqual({ 'fail-fast': false, matrix: '${{ fromJSON(needs.windows-plan.outputs.matrix) }}' });
   const run = shard.steps.find((step: any) => step.name === 'Run Windows-safe shard');
   expect(run.run).toStartWith('bun run test:windows --ci-run "$RUNNER_TEMP/windows-plan.json" --shard ${{ matrix.shard }} --result ');
@@ -42,9 +42,9 @@ test('the Windows lane plans, runs one strict shard per job and verifies every r
   expect(shard.steps.find((step: any) => step.name === 'Upload strict shard result').if).toBe('always()');
   const aggregate = windows.jobs['windows-free-tests'];
   expect(aggregate.if).toBe('${{ always() && !inputs.record_durations }}');
-  expect(plan.if).toBe('${{ !inputs.record_durations }}');
-  expect(aggregate.needs).toEqual(['windows-plan', 'windows-free-shard']);
-  expect(aggregate.steps.at(-1).run).toContain('--windows-only --ci-verify "$RUNNER_TEMP/windows-plan.json" --results ');
+  expect(plan.if).toBe("${{ !cancelled() && !inputs.record_durations && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}");
+  expect(aggregate.needs).toEqual(['reuse', 'windows-plan', 'windows-free-shard']);
+  expect(aggregate.steps.find((step: any) => step.name === 'Require exact coverage and complete strict results').run).toContain('--windows-only --ci-verify "$RUNNER_TEMP/windows-plan.json" --results ');
 });
 
 test('a Windows CI plan binds the curated file set, so it never verifies as the full Linux suite', () => {

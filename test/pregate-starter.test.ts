@@ -85,8 +85,8 @@ describe('no policy anywhere: warn plus a printed starter (never PREGATE_NO_LANE
     expect(r.out).toContain('no policy: lib/orphan.js scripts/report.js have no test lane');
   });
 
-  // Value: protects=a repository with a policy keeps the hard PREGATE_NO_LANE (base copy, and the user-owned file); fails_when=the
-  //   warn branch fires whenever an entry is unmapped; why_new=the branch condition is new; seam=none; no_claim=none
+  // Value: protects=a repository with a policy that declares lanes keeps the hard PREGATE_NO_LANE (base copy, the user-owned file and a
+  //   head bootstrap; a runner-only policy declares none since GST-775); fails_when=the warn branch fires whenever an entry is unmapped; why_new=the branch condition is new; seam=none; no_claim=none
   test('a base policy or a user-owned policy keeps PREGATE_NO_LANE as a hard failure', () => {
     const withBase = fixture();
     commit(withBase, { 'lib/orphan.js': 'exports.lonely = () => 2;\n' });
@@ -98,14 +98,14 @@ describe('no policy anywhere: warn plus a printed starter (never PREGATE_NO_LANE
     commit(withUser, { 'lib/orphan.js': 'exports.lonely = () => 2;\n' });
     const userPolicy = path.join(withUser.home, 'projects', 'starterslug', 'pregate.json');
     fs.mkdirSync(path.dirname(userPolicy), { recursive: true });
-    fs.writeFileSync(userPolicy, JSON.stringify({ runner: 'node --test {files}' }));
+    fs.writeFileSync(userPolicy, JSON.stringify({ runner: 'node --test {files}', dependencies: { 'docs/**': [] } }));
     const u = lanes(withUser, [], { GSTACK_PROJECT_SLUG: 'starterslug' });
     expect(u.status).toBe(EXIT.fail);
     expect(u.err).toContain('(PREGATE_NO_LANE)');
     expect(u.out).not.toContain('PREGATE_STARTER');
     // --policy-from head with a head policy (no base copy) is strict too.
     const withHead = fixture({ pregate: null });
-    commit(withHead, { 'lib/orphan.js': 'exports.lonely = () => 2;\n', '.gstack/pregate.json': JSON.stringify({ runner: 'node --test {files}' }) + '\n' });
+    commit(withHead, { 'lib/orphan.js': 'exports.lonely = () => 2;\n', '.gstack/pregate.json': JSON.stringify({ runner: 'node --test {files}', dependencies: { 'docs/**': [] } }) + '\n' });
     const h = lanes(withHead, ['--policy-from', 'head']);
     expect(h.status).toBe(EXIT.fail);
     expect(h.err).toContain('(PREGATE_NO_LANE)');

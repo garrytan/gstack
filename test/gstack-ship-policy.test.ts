@@ -165,16 +165,17 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     expect(raw.changelog_fragments.required_checks.filter((n: string) => !jobs.has(n))).toEqual([]);
   });
 
-  // Value: protects=the fill rule the coordinator relies on: a train dispatches at 3 READY PRs or one hour after the first READY, whichever comes first
-  // (2026-10-26: 5 PRs / 3 hours left READY PRs waiting most of a day); fails_when=the live block drifts back to a larger or slower fill; why_new=the values were unpinned; seam=the policy file; no_claim=fillDue's arithmetic (ship-queue-train-logic)
-  test('fills a train at 3 READY PRs or one hour after the first READY, whichever comes first', () => {
+  // Value: protects=the fill rule the coordinator relies on: a train dispatches at 5 READY PRs or one hour after the first READY, whichever comes first
+  // (2026-10-26: 5 PRs / 3 hours left READY PRs waiting most of a day, so the fill went to 3 PRs / 1 hour; 2026-10-31: Garry's B1 raised the size back to 5, keeping the 1-hour fill); fails_when=the live block drifts back to a larger or slower fill; why_new=the values were unpinned; seam=the policy file; no_claim=fillDue's arithmetic (ship-queue-train-logic)
+  test('fills a train at 5 READY PRs or one hour after the first READY, whichever comes first', () => {
     const raw = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', '.gstack', 'ship-policy.json'), 'utf8'));
-    expect([raw.train.max_size, raw.train.fill_hours]).toEqual([3, 1]);
+    expect([raw.train.max_size, raw.train.fill_hours]).toEqual([5, 1]);
     const first = '2026-10-26T09:00:00.000Z';
     const slots = (n: number) => Array.from({ length: n }, (_, i) => ({ pr: i + 1, ready_at: new Date(Date.parse(first) + i * 60_000).toISOString() })) as any;
     expect(fillDue(slots(2), raw.train, '2026-10-26T09:59:00Z', false)).toBe('2026-10-26T10:00:00.000Z');
     expect(fillDue(slots(2), raw.train, '2026-10-26T10:00:00Z', false)).toBeNull();
-    expect(fillDue(slots(3), raw.train, '2026-10-26T09:05:00Z', false)).toBeNull();
+    expect(fillDue(slots(4), raw.train, '2026-10-26T09:05:00Z', false)).toBe('2026-10-26T10:00:00.000Z');
+    expect(fillDue(slots(5), raw.train, '2026-10-26T09:05:00Z', false)).toBeNull();
   });
 });
 
