@@ -36,7 +36,7 @@ async function fake(name: string, script: Array<Record<string, unknown>>) {
   const port = Number(fs.readFileSync(path.join(dir, 'port'), 'utf8'));
   const state = path.join(dir, 'state');
   fs.mkdirSync(state, { recursive: true });
-  const env = { GSTACK_STATE_ROOT: state, ANTHROPIC_API_KEY: 'sk-fake-anthropic', OPENAI_API_KEY: 'sk-fake-openai', ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`, OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1` };
+  const env = { HOME: state, GSTACK_HOME: state, GSTACK_STATE_ROOT: state, ANTHROPIC_API_KEY: 'sk-fake-anthropic', OPENAI_API_KEY: 'sk-fake-openai', ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`, OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1` };
   return { dir, env, requests: () => rows(path.join(dir, 'requests.jsonl')), receipts: () => rows(path.join(state, 'security', 'egress.jsonl')) };
 }
 
@@ -173,9 +173,6 @@ describe('the 10% audit mark', () => {
 describe('callModel: the shadow receipt, stop_reason and the OpenAI output bound (existing callers unchanged)', async () => {
   const f = await fake('transport', [{ mode: 'valid' }, { mode: 'truncated' }, { mode: 'valid' }, { mode: 'truncated' }]);
   test('a receipt override writes exactly one receipt with its sink and consent; the default stays the outside-voice receipt', async () => {
-    const saved = process.env.GSTACK_STATE_ROOT;
-    process.env.GSTACK_STATE_ROOT = f.env.GSTACK_STATE_ROOT;
-    afterAll(() => { if (saved === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = saved; });
     await callModel({ model: 'claude-opus-5-5', prompt: 'p', timeoutMs: 5000, env: f.env, maxTokens: 10, receipt: { sink: 'autoplan-shadow', consent: 'autoplan_shadow on', payloadClass: 'plan-and-gate' } });
     expect(f.receipts().map(r => [r.sink, r.consent, r.payload_class ?? r.payloadClass])).toEqual([['autoplan-shadow', 'autoplan_shadow on', 'plan-and-gate']]);
     const cut = await callModel({ model: 'claude-opus-5-5', prompt: 'p', timeoutMs: 5000, env: f.env });

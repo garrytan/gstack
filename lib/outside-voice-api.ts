@@ -26,9 +26,11 @@ export function apiKeyFor(family: ModelFamily, env: Record<string, string | unde
   return undefined;
 }
 
-function receipted(url: string, body: string, provider: string, receipt: ApiReceipt | undefined): void {
+function receipted(url: string, body: string, provider: string, req: ApiCallRequest): void {
+  const receipt = req.receipt;
   try {
     writeReceipt({
+      env: req.env,
       sink: receipt?.sink ?? 'outside-voice-api', host: new URL(url).host, payloadClass: receipt?.payloadClass ?? 'review-prompt', bytes: Buffer.byteLength(body), sha256: sha256Hex(body),
       consent: receipt?.consent ?? `user ran gstack-outside-voice --runner api (${provider.toUpperCase()}_API_KEY configured)`,
     });
@@ -38,7 +40,7 @@ function receipted(url: string, body: string, provider: string, receipt: ApiRece
 }
 
 async function post(url: string, headers: Record<string, string>, body: string, req: ApiCallRequest, provider: string): Promise<{ status: number; json: any }> {
-  receipted(url, body, provider, req.receipt);
+  receipted(url, body, provider, req);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`timeout after ${req.timeoutMs} ms`)), req.timeoutMs);
   req.signal?.addEventListener('abort', () => controller.abort(req.signal!.reason), { once: true });
