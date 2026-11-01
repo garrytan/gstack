@@ -76,8 +76,14 @@ one program measure nothing: Capy books a call after its program ends.
 
 A jam's own counter includes its own subagents, outside voices too (measured 2026-10-30: +10.92M
 across a six-reader dispatch with two ~0.35M parent calls between). `"this"` is the root thread,
-whose counter also holds every sibling tree, so a subagent running /ship passes its own jam id;
-a root thread's own jam id is its `"this"`. A Capy handoff child cannot read its own jam id, so it
+whose counter also holds every sibling tree. A subagent running /ship cannot read its own jam id, so it
+reads `"this"` and starts with `--subagent --reading-from this --meter-scope tree` (`GSTACK_SHIP_SUBAGENT=1` in its
+brief stands in for `--subagent` only; `--reading-from this` is still required): the run is tree-scoped, and every BUDGET, NOTE, BUDGET_FINAL
+and BUDGET_TIMELINE line it prints is followed by `METER: tree (root counter, upper bound)`. A
+subagent that asks for `--meter-scope self` while reading `"this"` is refused
+(`METER_SCOPE_PARENT`). A `--token-cap` on a tree-scoped run stops on that upper bound, so sibling
+lanes count against it. Exact per-run cost comes from a root replay thread: a root thread that runs
+only that /ship, whose `"this"` is its own counter. A root thread's own jam id is its `"this"`. A Capy handoff child cannot read its own jam id, so it
 verifies with no reading and prints `METER: parent`; the parent's handoff and reconcile readings,
 taken on its own counter (which holds the child), measure it.
 
@@ -286,6 +292,7 @@ stop rules) before claiming a saving from the cap or from delegation.
 
 [BUDGET_CAP_REACHED](troubleshooting.md#budget-cap-reached) ·
 [BUDGET_READING_MISSING](troubleshooting.md#budget-reading-missing) ·
+[METER_SCOPE_PARENT](troubleshooting.md#meter-scope-parent) ·
 [BUDGET_READING_REJECTED](troubleshooting.md#budget-reading-rejected) ·
 [BUDGET_METER_UNAVAILABLE](troubleshooting.md#budget-meter-unavailable) ·
 [BUDGET_LEDGER_INVALID](troubleshooting.md#budget-ledger-invalid) ·

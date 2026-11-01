@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.92.40.0] - 2026-11-01
+
+**A subagent's /ship cost now says it is an upper bound.** A Capy subagent cannot read its own jam counter, so its /ship read `"this"`, the root thread, whose counter also holds every sibling lane. BUDGET_FINAL and the notes printed that total as if it were the run's own cost.
+
+### Added
+- **`gstack-ship-budget start --meter-scope self|tree`.** A run started with `tree`, or with `--subagent` (or `GSTACK_SHIP_SUBAGENT=1`) and `--reading-from this`, is tree-scoped: every BUDGET, NOTE, BUDGET_FINAL and BUDGET_TIMELINE line it prints is followed by `METER: tree (root counter, upper bound)`.
+- **`METER_SCOPE_PARENT`.** A subagent reading `"this"` that asks for `--meter-scope self` is refused with exit 2 and the fix `--meter-scope tree` (docs/troubleshooting.md#meter-scope-parent).
+
+### Changed
+- The Capy skill and docs/ship-budget.md tell a subagent to start with `--subagent --reading-from this --meter-scope tree`, and say exact per-run cost comes from a root replay thread. The driver's Step 22 carries the `METER: tree` line into the report.
+
+### Tests
+- `test/ship-budget-meter-scope.test.ts`: tree runs label every cost line, self runs print none, the refusal and its troubleshooting anchor, and the docs pointers.
+
 ## [1.92.39.0] - 2026-11-01
 
 **A push to main no longer runs Free Tests and Windows Free Tests again on a tree its pull request already passed.** 22 of 22 merges in 30 hours (Oct 27–29) reran both suites on the identical tree, about 66 Linux shard-minutes and 44 Windows minutes each. Now a `reuse` job, on main pushes only, finds the merged pull request, requires its head's tree to equal the pushed tree, and verifies that head's newest green `pull_request` or `workflow_dispatch` run with the same checks `gstack-pregate clear --run` uses. When it verifies, every suite job is skipped and the required check links the reused run. Anything else runs every job as before. The same verifier backs a new `--from-run` flag for the pregate tests stage.

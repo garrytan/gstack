@@ -1942,6 +1942,18 @@ owner's call: run the printed `RECOVER:` line; its resume needs
 **Fix.** In the execute program that runs the command, read
 `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` and pass it as `--reading <n>`.
 
+<a id="meter-scope-parent"></a>
+### `gstack-ship-budget: ... (METER_SCOPE_PARENT)`
+
+**Meaning.** `start` was told the run is a subagent (`--subagent` or `GSTACK_SHIP_SUBAGENT=1`) reading
+`"this"` (`--reading-from this`), the root thread's counter, which also holds every sibling lane, and
+asked for `--meter-scope self`. A self scope would print that counter as the run's own cost. Exit 2;
+no run started.
+
+**Fix.** Start with `--meter-scope tree`. Every cost line then prints
+`METER: tree (root counter, upper bound)`. Exact per-run cost comes from a root replay thread
+(`docs/ship-budget.md`).
+
 <a id="budget-reading-rejected"></a>
 ### `gstack-ship-budget: ... (BUDGET_READING_REJECTED)`
 

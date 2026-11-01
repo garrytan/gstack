@@ -91,6 +91,8 @@ export interface Ledger {
   /** Capy cost.credits readings beside the token meter: baseline is the first reading, last the newest. */
   credits?: { baseline: number; last: number };
   notes?: Note[];
+  /** tree: the reading is the root thread's counter (a subagent cannot read its own jam id), so every cost line carries TREE_METER. */
+  meter_scope?: 'tree';
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
 }
 
@@ -359,8 +361,20 @@ export function mutateLedger<T>(file: string, env: NodeJS.ProcessEnv, fn: (l: Le
     const ledger = readLedger(file);
     const out = fn(ledger);
     writeLedger(ledger, env);
-    return out;
+    return labelScope(ledger, out);
   });
+}
+
+export const TREE_METER = 'METER: tree (root counter, upper bound)';
+
+/** A tree-scoped run never prints a cost line without TREE_METER on the line after it. */
+export function labelScope<T>(l: Ledger, out: T): T {
+  if (l.meter_scope !== 'tree') return out;
+  const label = (lines: string[]) => lines.flatMap((line, i) => /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|BUDGET_DRIFT|NOTE|RECONCILED):/.test(line) && lines[i + 1] !== TREE_METER ? [line, TREE_METER] : [line]);
+  if (Array.isArray(out)) return label(out) as T;
+  const o = out as { stdout?: unknown };
+  if (Array.isArray(o?.stdout)) o.stdout = label(o.stdout);
+  return out;
 }
 
 function childUsed(l: Ledger, r: Reservation): number {
@@ -463,7 +477,7 @@ export function recordBlock(l: Ledger): string {
   const t = tally(l);
   const open = l.handoffs.filter(h => !h.reconciled_at).map(h => h.sha).join(',') || 'none';
   const credits = creditsUsed(l);
-  return `run=${l.run} ledger=${l.file} role=${l.role} cap=${l.cap ?? 'none'} tail=${l.tail} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} baseline=${l.meter.baseline} used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} stop=${l.stopped?.reason ?? 'none'} handoff=${open}${l.mode === 'observe' ? ' mode=observe' : ''}`;
+  return `run=${l.run} ledger=${l.file} role=${l.role} cap=${l.cap ?? 'none'} tail=${l.tail} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} baseline=${l.meter.baseline} used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} stop=${l.stopped?.reason ?? 'none'} handoff=${open}${l.mode === 'observe' ? ' mode=observe' : ''}${l.meter_scope === 'tree' ? ' meter_scope=tree' : ''}`;
 }
 
 /** The record's fenced gstack-budget block: written by the bin, never by the agent. */
