@@ -44,7 +44,7 @@ const savedConsoleLog = console.log;
 function stubFetch(reply: (url: string, n: number) => Response) {
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = String(input);
-    calls.push({ url, headers: { ...(init?.headers ?? {}) }, body: JSON.parse(String(init?.body)) });
+    calls.push({ url, headers: { ...init?.headers }, body: JSON.parse(String(init?.body)) });
     return reply(url, calls.length);
   }) as typeof globalThis.fetch;
 }
