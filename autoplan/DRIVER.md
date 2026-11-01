@@ -60,7 +60,7 @@ line yourself; gstack never writes the plan.
 - `gstack-autoplan next --out <dir> --plan <plan.md> [scope flags] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--estimate-usd <n>] [--scaffold]`
   first call: init the run, print PHASE:, SCOPE:, DRIVER: and one ATTEMPT: per voice; --max-rounds caps review rounds per phase (default 2 unattended); an unattended run with --spend-cap (or any unattended Capy run) reserves 5.00 per voice for each attempt, so the cap binds; --estimate-usd <n> sets that reservation and the run keeps it for later phases.
 - `gstack-autoplan run --out <dir> --plan <plan.md> --native-model <id> --outside-model <id> --native-runner api --runner api [--max-tokens <n>] [--spend-cap <usd>]`
-  hosts without subagents: one command calls both models directly (ANTHROPIC_API_KEY, OPENAI_API_KEY) and loops next/submit to the gate; a response cut off at the output limit is reported truncated, so raise --max-tokens (Anthropic default 16384).
+  hosts without subagents: one command calls both models directly (ANTHROPIC_API_KEY, OPENAI_API_KEY) and loops next/submit to the gate; a response cut off at the output limit is reported truncated, so raise --max-tokens (default 16384 for both providers; OpenAI counts reasoning tokens toward it).
 - `gstack-autoplan next --out <dir> [--redispatch <attempt>]`
   later calls: open the next phase or reprint open attempts; never redispatches on its own.
 - `gstack-autoplan submit --out <dir> --phase <p> --voice native|outside --record <file.md> --model <id> [--attempt <id>]`

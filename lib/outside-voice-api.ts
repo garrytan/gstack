@@ -16,7 +16,7 @@ export interface ApiUsage { input_tokens?: number; output_tokens?: number }
 /** `truncated`: the provider stopped at the output token limit (Anthropic `max_tokens`, OpenAI `length`), so the text is cut off. */
 export interface ApiCallResult { text: string; model: string; usage: ApiUsage; provider: 'openai' | 'anthropic'; status: number; truncated: boolean }
 
-/** Anthropic requires max_tokens; a full review needs more than 8192. OpenAI gets a limit only when one is asked for. */
+/** Anthropic requires max_tokens; a full review needs more than 8192. `run` sends this to OpenAI too, where reasoning tokens count toward it. */
 export const DEFAULT_MAX_TOKENS = 16_384;
 /** The api runner's default time limit: five minutes, or about 40 ms per output token the call may write. */
 export const apiTimeoutMs = (maxTokens?: number): number => Math.max(300_000, (maxTokens ?? DEFAULT_MAX_TOKENS) * 40);

@@ -322,7 +322,9 @@ network.
 review ends mid-sentence and its findings may be missing.
 
 **Fix.** Re-run with a larger `--max-tokens` (`gstack-outside-voice run` or
-`gstack-autoplan run`; Anthropic defaults to 16384), or shorten the prompt.
+`gstack-autoplan run`), or shorten the prompt. `gstack-autoplan run` sends a
+default of 16384 to both providers, and OpenAI counts reasoning tokens toward
+it; `gstack-outside-voice run` sends that default to Anthropic only.
 
 **Expected result.** `OUTSIDE_STATUS: completed`.
 
