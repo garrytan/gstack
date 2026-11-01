@@ -59,9 +59,14 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
-/** A label a negation word governs ("found nothing CRITICAL", "no High or Critical issues", "not CRITICAL") is no finding (GST-766). */
-const NEGATED = /(?<![A-Za-z0-9])(?:no|nothing|not|none|zero|without|never)\s+$/i;
-const NEGATION_LIST = /^\s*(?:,|\/|or|nor|and)\s*$/i;
+/**
+ * A label a negation word governs ("found nothing CRITICAL", "no new **High** or Critical issues", "not CRITICAL") is no finding
+ * (GST-766), unless it opens a field ("High:"), or every label on a line naming a file:line is negated: that line keeps them all,
+ * so no located defect is dropped.
+ */
+const NEGATED = /(?<![A-Za-z0-9])(?:no|nothing|not|none|zero|without|never)\s+(?:(?:new|remaining|other|further|additional|more)\s+)?$/i;
+const NEGATION_LIST = /^\s*(?:or|nor)\s*$/i;
+const MARKUP = /[*_`[\]]/g;
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
@@ -90,12 +95,16 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const asserted = (t: string) => {
+    const all = [...t.matchAll(ALL_LABELS)];
     let end = -1, negated = false;
-    return [...t.matchAll(ALL_LABELS)].filter(m => {
-      negated = NEGATED.test(t.slice(0, m.index)) || (negated && NEGATION_LIST.test(t.slice(end, m.index)));
-      end = m.index! + m[0].length;
+    const kept = all.filter(m => {
+      const at = m.index!;
+      negated = !/^[*_`\]]*\s*:/.test(t.slice(at + m[0].length))
+        && (NEGATED.test(t.slice(0, at).replace(MARKUP, '')) || (negated && NEGATION_LIST.test(t.slice(end, at).replace(MARKUP, ''))));
+      end = at + m[0].length;
       return !negated;
     });
+    return kept.length || !LOCUS.test(t) ? kept : all;
   };
   const strongest = (t: string) => asserted(t).map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
   const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw) }; out.push(f); return f; };
