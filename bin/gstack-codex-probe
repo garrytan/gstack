@@ -662,8 +662,8 @@ _gstack_codex_lock_acquire() {
       if [ "$_ohost" = "$_host" ] && ! kill -0 "$_pid" 2>/dev/null; then _dead=1; fi
       [ $((_now - _ts)) -ge "$_stale" ] && _dead=1
     else
-      _ts=$(stat -c %Y "$_dir" 2>/dev/null || stat -f %m "$_dir" 2>/dev/null || echo 0)
-      case "$_ts" in ''|*[!0-9]*) _ts=0 ;; esac
+      _ts=$(stat -c %Y "$_dir" 2>/dev/null || stat -f %m "$_dir" 2>/dev/null || echo "$_now")
+      case "$_ts" in ''|*[!0-9]*) _ts="$_now" ;; esac
       [ $((_now - _ts)) -ge 5 ] && _dead=1
     fi
     [ "$_dead" -eq 1 ] && _gstack_codex_lock_break "$_dir" "$_owner"

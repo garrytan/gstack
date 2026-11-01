@@ -1316,7 +1316,9 @@ describe('Autoplan phase entry through the gbrain :user render (#2569)', () => {
       edit(rewriteSectionBase(fs.readFileSync(path.join(ROOT, 'autoplan/sections', name), 'utf8'), linkRoot)));
     return root;
   }
-  function withEnv<T>(env: Record<string, string | undefined>, work: () => T): T {
+  /** The state-root chain the case does not name is cleared, so an ambient GSTACK_STATE_ROOT (every gstack launch file exports one) cannot pick the root. */
+  function withEnv<T>(given: Record<string, string | undefined>, work: () => T): T {
+    const env = { GSTACK_STATE_ROOT: undefined, GSTACK_STATE_DIR: undefined, CLAUDE_PLUGIN_DATA: undefined, ...given };
     const previous = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]));
     for (const [k, v] of Object.entries(env)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
     try { return work(); }

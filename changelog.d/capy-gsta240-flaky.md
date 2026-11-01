@@ -1,0 +1,14 @@
+**Eight flaky tests from the 2026-11-01 flaky pass stop failing correct runs, and five more now name their cause when they fail.** One product lock broke a fresh lock it had misjudged as abandoned, the free-shard runner failed a shard over a browser child that had already exited, and the rest were fixtures that raced their own setup, leaned on wall-clock sleeps or read the caller's state root.
+
+### Fixed
+- **`bin/gstack-codex-probe`**: a waiter that cannot read an owner-less lock's age (the holder removed it in that instant, or `stat -f` printed filesystem text on Linux) now treats the lock as fresh instead of abandoned, so it no longer deletes the next owner's lock and the probe no longer ends `MODEL_PROBE_INCONCLUSIVE` (Free Tests 41216564482, 41235671867, 41263831361). A stat stub for both race windows fails without the fix; 64 stress runs went from 2 failures to 0.
+- **`scripts/test-free-shards.ts`**: a recorded browser child the runner never saw, belonging to a known daemon, settles when it has already exited; a live one still fails the shard and now names its pid and daemon (Free Tests 41264845860 shard 7). A live child from another shard still fails.
+- **`scripts/lib/free-home-guard.ts`, `bin/gstack-evidence`**: `gstack-evidence run` names its own lane log in `GSTACK_EVIDENCE_LOG`, and the real-home tripwire ignores exactly that file, so a /ship lane no longer trips over its own output. A foreign write under the home's `~/.gstack` still fails.
+- **`test/autoplan-publication-guard.test.ts`**: the render-root cases clear the state-root variables they don't name, so a `GSTACK_STATE_ROOT` exported by the gstack launch file no longer picks the root. Three cases failed every time under that variable, and the lookalike controls passed for the wrong reason.
+- **`test/gstack-design-detect.test.ts`**: the directory scan proves one batch by counting engine calls instead of sleeping near the 1,500 ms detect timeout (macOS job 124813933194). The product timeout is unchanged.
+- **`test/pregate-regate.test.ts`**: the two fixtures are built once and copied per test (`copyFixtureRepo` in `test/helpers/restamp-fixture.ts`), so 8 builds become 2.
+- **`test/ship-queue-train.test.ts`**: the planted seam has its own name, so the fixture's own background `git maintenance` lock no longer collides with it (EEXIST, Free Tests 41288253305, 41288417894), and the test now holds a real `maintenance.lock` beside it.
+- **`test/ship-budget.test.ts`**: the fake child writes its args to a temporary file and renames it, so the poll never reads an empty file (Free Tests 41242243205).
+
+### Changed
+- `test/bootstrap-retention-shard.test.ts`, `test/office-hours-attempt.test.ts`, `test/session-update-autostash.test.ts`, `test/shard-engine.test.ts` and `test/auq-parallel.test.ts` print the process state, exit status or cleanup events behind their assertion, so the next red names its cause.

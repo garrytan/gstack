@@ -78,6 +78,34 @@ describe('free-suite home-write tripwire (#2895)', () => {
     expect(failure).toContain('only');
   });
 
+  test.skipIf(process.platform === 'win32')('the wrapping gstack-evidence lane log is excluded by its exact path; a foreign write beside it still trips', async () => {
+    const home = fakeHome();
+    const logs = path.join(home, '.gstack/projects/p/logs');
+    fs.mkdirSync(logs, { recursive: true });
+    const laneLog = path.join(logs, 'focused.log');
+    fs.writeFileSync(laneLog, 'lane start\n');
+    const unexcluded = guardFreeHome(['test/a.test.ts'], { HOME: home });
+    const options = (script: string, name: string) => ({ env: { ...process.env, HOME: home, GSTACK_EVIDENCE_LOG: laneLog }, quiet: true, log: () => {},
+      logFilePath: path.join(home, `${name}.log`),
+      commandFor: () => ({ command: process.execPath, args: ['-e', `${script}console.log('Ran 1 tests across 1 files. [1.00ms]')`] }) });
+    const grow = `require('fs').appendFileSync(${JSON.stringify(laneLog)}, 'lane output\\n');`;
+    const errors: string[] = [];
+    const spy = spyOn(console, 'error').mockImplementation((...args: unknown[]) => { errors.push(args.join(' ')); });
+    try {
+      expect((await runFreeShard(['test/a.test.ts'], 1, 1, options(grow, 'lane'))).status).toBe('passed');
+      expect(unexcluded.verify()).toContain('~/.gstack/projects/p/logs/focused.log');
+      const foreign = `${grow}require('fs').writeFileSync(${JSON.stringify(path.join(logs, 'other.log'))}, 'x');`;
+      expect((await runFreeShard(['test/a.test.ts'], 1, 1, options(foreign, 'foreign'))).status).toBe('failed');
+      expect(errors.join('\n')).toContain('~/.gstack/projects/p/logs/other.log');
+      expect(errors.join('\n')).not.toContain('focused.log');
+    } finally {
+      spy.mockRestore();
+      for (const retained of errors.flatMap(line => /retained (\S+)$/.exec(line)?.[1] ?? [])) {
+        if (/^gstack-free-shard-/.test(path.basename(retained))) fs.rmSync(retained, { recursive: true, force: true });
+      }
+    }
+  });
+
   test('a concurrent phase guard names no shard and points at attribution', () => {
     const home = fakeHome();
     const guard = guardFreeHome(['test/a.test.ts', 'test/b.test.ts'], { HOME: home }, { kind: 'concurrent', shards: 3 });

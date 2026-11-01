@@ -312,7 +312,8 @@ describe('Office Hours real session runner with fake processes', () => {
         expect(captured.output).toBe('captured output');
         const diagnostic = JSON.parse(fs.readFileSync(path.join(dir, '.gstack/test-transcripts/drain-failure.json'), 'utf8'));
         expect(diagnostic.stderr).toContain('fixture auth failure');
-        expect(running(Number(fs.readFileSync(path.join(dir, 'child.pid'), 'utf8')))).toBe(false);
+        const child = fs.readFileSync(path.join(dir, 'child.pid'), 'utf8').trim();
+        expect(running(Number(child)), `held-pipe child after the runner returned (group ${fs.readFileSync(path.join(dir, 'parent.pid'), 'utf8').trim()}): ${spawnSync('ps', ['-o', 'pid=,ppid=,pgid=,stat=,etime=', '-p', child], { encoding: 'utf8', timeout: 5_000 }).stdout.trim() || 'gone now'}`).toBe(false);
       });
     }, 10_000);
   }

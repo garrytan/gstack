@@ -284,7 +284,8 @@ describe('gstack-session-update lock identity + TTL (#2613)', () => {
       const r = runScript(base, install, state);
       expect(r.status).toBe(0);
       const log = await waitForLog(state, /UP_TO_DATE|UPDATING/);
-      expect(log).toMatch(/UP_TO_DATE|UPDATING/);
+      const lockPid = fs.existsSync(path.join(lockDir, 'pid')) ? fs.readFileSync(path.join(lockDir, 'pid'), 'utf8').trim() : 'no lock';
+      expect(log, `planted dead pid ${dead.pid} (alive now: ${isAlive(dead.pid)}); lock pid after 15 s: ${lockPid} (alive: ${isAlive(Number(lockPid))}); script exit ${r.status}, stderr: ${r.stderr}`).toMatch(/UP_TO_DATE|UPDATING/);
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }
