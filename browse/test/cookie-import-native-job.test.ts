@@ -334,6 +334,8 @@ afterAll(() => {
   }
 }, 15_000);
 
+const NATIVE_SUPERVISOR_MS = 25_000 + NATIVE_CLEANUP_MS;
+
 const request: NativeCookieRequest = {
   nodeExecutable: 'C:\\fixture\\node.exe',
   nodeArchitecture: process.arch,
@@ -1081,11 +1083,11 @@ function safeLaunchEvidence(file: string): object {
 }
 
 function nativeSupervisor(input: NativeCookieRequest, env: NodeJS.ProcessEnv) {
-  const cleanupDeadline = performance.now() + 25_000 + NATIVE_CLEANUP_MS;
+  const cleanupDeadline = performance.now() + NATIVE_SUPERVISOR_MS;
   const child = ownFixtureChild(spawn(process.execPath, ['--no-env-file', '--no-install', '--no-macros', '--config=NUL', path.resolve(import.meta.dir, '../src/cookie-import-native-worker.ts')], { env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }));
   let output = '';
   child.stdout.on('data', chunk => { output += chunk; });
-  const timer = setTimeout(() => child.kill(), 25_000 + NATIVE_CLEANUP_MS);
+  const timer = setTimeout(() => child.kill(), NATIVE_SUPERVISOR_MS);
   const done = new Promise<NativeCookieReply>((resolve, reject) => {
     child.once('error', reject);
     child.once('close', () => {
@@ -1183,7 +1185,7 @@ describe('native Windows process qualification', () => {
       }
       for (const parent of createdParents.reverse()) rmdirSync(parent);
     }
-  }, 65_000);
+  }, 2 * NATIVE_SUPERVISOR_MS + 5_000);
 
   test.skipIf(process.platform !== 'win32')('a locked real Edge profile leaves its existing owner alive', async () => {
     const node = Bun.which('node');
@@ -1218,7 +1220,7 @@ describe('native Windows process qualification', () => {
       await contender?.done.catch(() => {});
       await owner.done.catch(() => {});
     }
-  }, 65_000);
+  }, 2 * NATIVE_SUPERVISOR_MS + 5_000);
 
   for (const mode of ['normal-close', 'stalled-close']) {
     test.skipIf(process.platform !== 'win32')(`real Edge synthetic profile: ${mode} returns only after the owned browser exits`, async () => {
@@ -1236,7 +1238,7 @@ describe('native Windows process qualification', () => {
       let output = '';
       supervisor.stdout.on('data', chunk => { output += chunk; });
       const started = Date.now();
-      const deadline = setTimeout(() => supervisor.kill(), 30_000);
+      const deadline = setTimeout(() => supervisor.kill(), NATIVE_SUPERVISOR_MS);
       supervisor.stdin.write(JSON.stringify({ ...request, nodeExecutable: node, playwrightEntry, executablePath: edge, userDataDir: path.join(fixture, 'User Data'), deadline: started + 25_000, qualifiedBunVersions: [Bun.version] }) + '\n');
       try {
         await closed;
@@ -1250,13 +1252,13 @@ describe('native Windows process qualification', () => {
         expect(browser.args.some((arg: string) => arg.startsWith('--remote-debugging-port'))).toBe(false);
         expect(browser.args.some((arg: string) => /^--(?:no-sandbox|disable-setuid-sandbox)(?:=|$)/.test(arg))).toBe(false);
         expect(alive(browser.pid)).toBe(false);
-        expect(Date.now() - started).toBeLessThan(30_000);
+        expect(Date.now() - started).toBeLessThan(NATIVE_SUPERVISOR_MS);
       } finally {
         clearTimeout(deadline);
         supervisor.kill();
         await closed;
       }
-    }, 35_000);
+    }, NATIVE_SUPERVISOR_MS + 5_000);
   }
 
   for (const mode of ['timeout', 'owner-exit', 'worker-crash']) {
@@ -1637,7 +1639,7 @@ describe('native Windows launch diagnostics', () => {
       expect(directObservation.observedCommandLine).toMatchObject({ available: true });
       expect(containedObservation.folderEvidence.directoriesAfterProbe).toEqual(containedObservation.folderEvidence.directoriesBefore);
       expect(directObservation.folderEvidence.directoriesAfterProbe).toEqual(directObservation.folderEvidence.directoriesBefore);
-    }, 65_000);
+    }, 2 * NATIVE_SUPERVISOR_MS + 5_000);
   }
 
   for (const state of ['preserved', 'fresh']) {
@@ -1692,6 +1694,6 @@ describe('native Windows launch diagnostics', () => {
       expect(secondObservation.observedCommandLine).toMatchObject({ available: true });
       expect('error' in second ? second.error : null).not.toBe('native_cleanup_failed');
       if (state === 'fresh') expect(firstObservation.folderEvidence.directoriesBefore).toEqual(secondObservation.folderEvidence.directoriesBefore);
-    }, 65_000);
+    }, 2 * NATIVE_SUPERVISOR_MS + 5_000);
   }
 });

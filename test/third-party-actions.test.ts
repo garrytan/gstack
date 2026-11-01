@@ -634,7 +634,8 @@ describe('consent offer extraction: an Aside-absence reason on the gstack drive 
     for (const option of ["A) I drive it in your Aside browser, even though Aside isn't running yet.",
       "B) I drive it in gstack's own browser, or in Aside once Aside is not busy.", "B) Since Aside isn't available, I drive it in Aside's fallback window.",
       "A) Aside isn't available yet, so open it; then I drive it in your Aside browser.", "A) I drive it in Aside; gstack isn't available.",
-      "B) I drive it in gstack's own browser and switch to Aside if it's running."])
+      "B) I drive it in gstack's own browser and switch to Aside if it's running.",
+      "A) Aside isn't running, so I'll launch it and drive it there.", "A) Aside app is not running yet; I'll start it and drive the dashboard for you."])
       expect(asideDriveOptions(option), option).toHaveLength(1);
   });
 });
