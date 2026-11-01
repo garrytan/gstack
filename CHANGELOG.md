@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.92.41.0] - 2026-11-01
+
+**The Ubicloud runner works on macOS and on a project with no VMs (#3680, #3679, #3678).** On a Mac, `gstack-ubi pack` failed, so every `sync`, `run` and `verify` broke after the VM was already created, and `gstack-ubi usage` was a syntax error that also switched off the vCPU quota check. On any machine, an empty Ubicloud project made `reap` and every `up` die. All three were reported by Jared.
+
+### Fixed
+- **`pack` on macOS.** macOS's tar read pack's options as file names and shipped an archive holding only `.git`. Pack now builds the archive in two steps that work with both macOS and GNU tar, and keeps macOS tar from adding hidden `._*` copies of files that carry extended attributes. (#3680)
+- **`usage` and the quota check on macOS.** One line of the usage report was a syntax error for macOS's awk. `usage` now also exits 1 instead of printing a partial count when Ubicloud can't list the VMs or read a size, and skips a VM destroyed between the two reads. When usage can't be read, the quota check retries while `UBI_QUOTA_WAIT` has time left, then says so in the log and leaves the decision to Ubicloud. (#3679)
+- **`reap` and `up` on an empty project.** An empty VM list was read as one VM named `-`, so they died with `invalid VM name '-'`. (#3678)
+
 ## [1.92.40.0] - 2026-11-01
 
 **A subagent's /ship cost now says it is an upper bound.** A Capy subagent cannot read its own jam counter, so its /ship read `"this"`, the root thread, whose counter also holds every sibling lane. BUDGET_FINAL and the notes printed that total as if it were the run's own cost.
