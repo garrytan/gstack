@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.92.9.0] - 2026-11-01
+
+**/freeze can no longer be walked around with paths through folders that don't exist yet (#3623).** /freeze checks every Edit, Write and NotebookEdit path against its folder. The check only resolved a parent folder that already existed and compared the raw text otherwise, so `<boundary>/../outside/new/x`, `<boundary>/link-to-outside/new/x`, `<boundary>/..`, `~/.zshrc` with the working folder inside the boundary, and `C:\proj\src\..\..\other\new\x` were all allowed. Reported by Quinn O'Donnell (#3623, #3624).
+
+### Fixed
+- **The boundary check resolves the whole path.** `freeze/bin/check-freeze.sh` walks the path one folder at a time, follows symlinks at any depth even when the rest of the path does not exist yet, expands `~`, and resolves relative paths against the real working folder. An edit counts as inside only when both the operating system's reading and a path normalizer's reading of `..` land inside.
+- **Paths the hook can't place are blocked with a reason:** symlink loops, chains over 40 links, link targets that add up past 8192 characters, paths over 4096 characters, line breaks, Windows drive-relative (`C:x`) and root-relative (`\dev\x`) paths, names Windows trims (`.. `, `...`) and odd UNC roots. Windows rules keep `..` at the drive or share root.
+- **Legit edits that were blocked now pass:** `~/proj/src/x` from outside the folder, and a new subfolder when the boundary was saved through a symlinked parent (macOS `/tmp`).
+- **`careful/bin/hook-extract.sh`** keeps trailing newlines on path fields and matches Node's handling of lone surrogates there. /careful's command values are unchanged.
+
 ## [1.92.8.0] - 2026-11-01
 
 **The secrets check no longer flags Python and Dart type names and variable reads as credentials (#3630).** A Python parameter like `session: HttpSession,` failed `gstack-pregate` as MEDIUM env.kv. Secrets findings can't be downgraded, so /ship wrote no receipt, and the only workaround was a file-wide allowlist entry. Dart's `'password': request.password,` and a React key like `key={item.id ?? index}` failed the same way. Reported by @dgrant in #3630. Approaches came from #3605 (@adam-balazs) and #3418/#3419 (@hbarney).
