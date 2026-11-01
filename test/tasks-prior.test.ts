@@ -42,7 +42,10 @@ function aggregate(w: ReturnType<typeof world>): string {
   const r = spawnSync('bash', ['-c', `${block}\nprintf '%s' "$AGGREGATED_TASKS"`], { cwd: w.repo, encoding: 'utf8', timeout: 30_000, env: { ...process.env, HOME: w.home } });
   return r.stdout;
 }
-const tasks = (cmd: string[], cwd: string) => spawnSync('bun', [BIN, ...cmd], { cwd, encoding: 'utf8', timeout: 30_000 });
+const tasks = (cmd: string[], repo: string) => {
+  const home = path.dirname(repo), state = path.join(home, '.gstack');
+  return spawnSync('bun', [BIN, ...cmd], { cwd: repo, encoding: 'utf8', timeout: 30_000, env: { ...process.env, HOME: home, GSTACK_HOME: state, GSTACK_STATE_ROOT: state } });
+};
 
 describe('the bug on main: the aggregator keeps only the newest run', () => {
   test('run 2 listing other work hides run 1\'s open task; an empty rerun shows run 1\'s stale task', () => {
