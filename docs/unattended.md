@@ -81,11 +81,17 @@ Terminal-Bench 2 exposure counts):
   later reviews reuse it), and every /ship step its receipt reads: review-log
   writes, Step 11.5, Step 20 and `gstack-ship-receipt write` and `result`.
 
-With `--render unattended`, `gstack-skill-start` prints `RENDER_KIND:
-unattended` and runs the session as unattended before any side effect. If the
-environment said otherwise it also prints `RENDER_KIND_MISMATCH: env=<kind>;
-this render runs as unattended`. An eval harness gives each trial its own
-`GSTACK_STATE_ROOT`, because Scope Lock's freeze state lives there.
+The render's rules also name the interactive sections it leaves out, so a step
+that still mentions one ("run Telemetry") skips that part. With `--render
+unattended`, `gstack-skill-start` prints `RENDER_KIND: unattended`. The session
+kind still comes from the environment alone, because every later helper
+(`gstack-review-log`, `gstack-brain-enqueue`, `gstack-ship-receipt`) reads it
+there, so when the environment is not unattended it prints
+`RENDER_KIND_MISMATCH: env=<kind>; launch this render with
+GSTACK_SESSION_KIND=unattended` and changes nothing else. An eval harness sets
+`GSTACK_SESSION_KIND=unattended` on every arm, control included, so the arms
+differ only by the render, and gives each trial its own `GSTACK_STATE_ROOT`,
+because Scope Lock's freeze state lives there.
 
 ## The terminal line
 

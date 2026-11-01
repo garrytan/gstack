@@ -15,7 +15,7 @@ import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt } from '../lib/ship-receipt';
 import { modulesMain } from '../scripts/modules-cli';
 import { LOCK_FILE, renderLoadout, type LoadoutLock } from '../scripts/modules-render';
-import { applySessionGuards } from '../scripts/resolvers/unattended';
+import { OMITTED_SECTIONS, applySessionGuards } from '../scripts/resolvers/unattended';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { cleanup, runBin } from './helpers/restamp-fixture';
 import { GREEN_GATE, dispatches, line, openPr, queue, readyReceipt, setPrBody, trainFixture, type TrainFixture } from './helpers/ship-queue-train-fixture';
@@ -86,6 +86,9 @@ describe('session-kind renders', () => {
     const review = read(dir, 'review/SKILL.md');
     for (const kept of ['## Step 5.8: Persist Eng Review result', '\`COMPLETED\`', '\`CONVERGED\`', 'gstack-review-log --start review', 'State INCOMPLETE if']) expect(review).toContain(kept);
     expect(review).not.toContain('gstack-next-version');
+    expect(review).not.toContain('Run Prior Learnings');
+    expect(review).toContain('Check web research readiness below before Step 4');
+    for (const name of OMITTED_SECTIONS) expect(review).toContain(`\`${name}\``);
     const investigate = read(dir, 'investigate/SKILL.md');
     expect(investigate).toContain('## Scope Lock');
     expect(investigate).toContain('freeze-state.sh" acquire');
@@ -101,7 +104,11 @@ describe('session-kind renders', () => {
     for (const rel of ['ship/sections/adversarial.md', 'ship/sections/plan-completion.md']) {
       const kept = portable(dir, rel).split('\n');
       const removed = portable(arm('interactive'), rel).split('\n');
-      for (const l of kept) removed.splice(removed.indexOf(l), 1);
+      for (const l of kept) {
+        const at = removed.indexOf(l);
+        expect([rel, l, at >= 0]).toEqual([rel, l, true]);
+        removed.splice(at, 1);
+      }
       expect([rel, kept.length > 0, removed.some(l => /gstack-review-log|gstack-ship-receipt|review_binding/.test(l))]).toEqual([rel, true, false]);
       expect([rel, removed.find(l => l.startsWith('## ') && !/^## (Prior|Capture) Learnings$/.test(l)) ?? null]).toEqual([rel, null]);
     }
@@ -115,6 +122,9 @@ describe('session-kind renders', () => {
     expect(review).toMatch(/gstack-skill-start" --skill "review" --model "gpt-6-astra" --render unattended/);
     expect(review.slice(0, review.indexOf('## Step 0:'))).not.toMatch(CEREMONY);
     expect(review).not.toMatch(/^## (Question Tuning|Telemetry \(run last\)|Prior Learnings|Capture Learnings|Shared preamble \(load first\))$/m);
+    const cli = await modulesMain(['render', '--host', 'claude', '--loadout', 'full', '--session-kind', 'unattended', '--out-dir', arm('cli')]);
+    expect([cli.code, cli.stderr]).toEqual([0, '']);
+    expect(cli.stdout).toStartWith('RENDERED: loadout=full session_kind=unattended host=claude ');
   }, 300_000);
 
   test('the committed tree refuses an unattended render and an unknown kind is refused by name', async () => {
@@ -148,17 +158,18 @@ describe('gstack-skill-start --render unattended', () => {
   const env0 = { PATH: process.env.PATH!, HOME: home, GSTACK_HOME: state, GSTACK_LEASE_DIR: path.join(state, 'leases') };
   const start = (args: string[], env: Record<string, string> = {}) => spawnSync(path.join(ROOT, 'bin', 'gstack-skill-start'), ['--skill', 'review', ...args], { cwd: home, encoding: 'utf-8', timeout: 30_000, env: { ...env0, ...env } });
 
-  test('an unset, interactive or spawned environment runs as unattended and says so before the session lines', () => {
-    for (const env of [{}, { GSTACK_SESSION_KIND: 'interactive' }, { GSTACK_SESSION_KIND: 'spawned' }] as Array<Record<string, string>>) {
+  test('a non-unattended environment keeps its own kind and the mismatch is named', () => {
+    const cases: Array<[Record<string, string>, string]> = [[{}, 'interactive'], [{ GSTACK_SESSION_KIND: 'interactive' }, 'interactive'], [{ GSTACK_SESSION_KIND: 'spawned' }, 'spawned'], [{ GSTACK_HEADLESS: '1' }, 'headless']];
+    for (const [env, kind] of cases) {
       const r = start(['--render', 'unattended'], env);
       expect(r.status).toBe(0);
-      const kind = env.GSTACK_SESSION_KIND ?? 'interactive';
-      expect(r.stdout).toContain(`RENDER_KIND: unattended\nRENDER_KIND_MISMATCH: env=${kind}; this render runs as unattended\n`);
-      expect(r.stdout).toContain('SESSION_KIND: unattended');
-      expect(r.stdout).toContain('UNATTENDED_SESSION: true');
-      expect(r.stdout).toMatch(/GSTACK_INSTRUCTION_BEGIN: unattended-session /);
-      expect(r.stdout.indexOf('RENDER_KIND: unattended')).toBeLessThan(r.stdout.indexOf('SESSION_KIND: unattended'));
+      expect(r.stdout).toContain(`RENDER_KIND: unattended\nRENDER_KIND_MISMATCH: env=${kind}; launch this render with GSTACK_SESSION_KIND=unattended\n`);
+      expect(r.stdout).toContain(`SESSION_KIND: ${kind}\n`);
+      expect(r.stdout).not.toContain('UNATTENDED_SESSION: true');
     }
+    const u = start(['--render', 'unattended'], { GSTACK_SESSION_KIND: 'unattended' });
+    expect(u.stdout).toContain('UNATTENDED_SESSION: true');
+    expect(u.stdout).toMatch(/GSTACK_INSTRUCTION_BEGIN: unattended-session /);
   });
 
   test('an unattended environment prints no mismatch; no flag keeps the old output; a bad value is refused', () => {
@@ -171,6 +182,9 @@ describe('gstack-skill-start --render unattended', () => {
     const bad = start(['--render', 'interactive']);
     expect(bad.status).toBe(2);
     expect(bad.stderr).toContain("--render takes unattended (got 'interactive')");
+    const bare = start(['--render']);
+    expect(bare.status).toBe(2);
+    expect(bare.stderr).toContain("--render takes unattended (got '')");
   });
 });
 

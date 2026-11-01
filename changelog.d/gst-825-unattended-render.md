@@ -2,7 +2,7 @@
 
 ### Added
 - `--session-kind interactive|unattended` on `bin/gstack-modules render` and `gen-skill-docs --out-dir`; `loadout.lock.json` records `session_kind`, and an unattended spec gets its own `spec_sha256`.
-- `gstack-skill-start --render unattended` prints `RENDER_KIND: unattended` and runs the session as unattended, printing `RENDER_KIND_MISMATCH` when the environment said otherwise.
+- `gstack-skill-start --render unattended` prints `RENDER_KIND: unattended`, and `RENDER_KIND_MISMATCH` when `GSTACK_SESSION_KIND` is not unattended. The session kind still comes from the environment, so an eval sets `GSTACK_SESSION_KIND=unattended` on every arm.
 - `{{IF_SESSION:interactive}}…{{/IF_SESSION}}` template guards.
 
 ### Tests

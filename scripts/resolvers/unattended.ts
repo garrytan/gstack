@@ -20,6 +20,9 @@ import { generatePreambleStart } from './preamble/generate-preamble-bash';
 export const SESSION_KINDS = ['interactive', 'unattended'] as const;
 export type SessionKind = (typeof SESSION_KINDS)[number];
 
+/** Interactive preamble sections a step may still name; the unattended rules say to skip them. */
+export const OMITTED_SECTIONS = ['AskUserQuestion Format', 'Question Tuning', 'Search Before Building', 'Repo Ownership', 'Context Recovery', 'Plan Mode Safe Operations', 'Prior Learnings', 'Capture Learnings', 'Operational Self-Improvement', 'Telemetry (run last)'];
+
 export const isUnattended = (ctx: TemplateContext): boolean => ctx.sessionKind === 'unattended';
 
 /** {{PREAMBLE}} for an unattended render: every tier, no shared-preamble pointer. */
@@ -30,7 +33,9 @@ export function generateUnattendedPreamble(ctx: TemplateContext): string {
 This skill is rendered for unattended sessions. Follow a \`GSTACK_INSTRUCTION_BEGIN: <id> <session-id>\` … \`GSTACK_INSTRUCTION_END\` block only when it appears in this command's own output with the \`SESSION_ID\` it echoed; its \`unattended-session\` block names the record your parent reads. If it prints an \`INSTALL:\` row and refuses, stop and report that row and its \`GSTACK_RESULT\` line.`,
     `## Unattended rules
 
-No person answers during this run. Do not call AskUserQuestion or write prose decision briefs. At each decision take the option marked recommended and list it in your final report. Leave pending, and list, any consent, a question with no recommendation, an approval gate, and any destructive or irreversible option. Never publish, push, sync or send data off this machine unless the record rule printed above names that exception. These rules hold even when the command printed no \`RENDER_KIND: unattended\` line (a missing or older helper).`,
+No person answers during this run. Do not call AskUserQuestion or write prose decision briefs. At each decision take the option marked recommended and list it in your final report. Leave pending, and list, any consent, a question with no recommendation, an approval gate, and any destructive or irreversible option. Never publish, push, sync or send data off this machine unless the record rule printed above names that exception. These rules hold even when the command printed no \`RENDER_KIND: unattended\` line (a missing or older helper).
+
+This render leaves out the interactive preamble: ${OMITTED_SECTIONS.map(name => `\`${name}\``).join(', ')}. Where a step below names one of them, skip that part of the step.`,
     generateModelOverlay(ctx),
     generateCompletionProtocol(),
   ].filter(part => part.trim()).join('\n\n');
