@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.92.43.0] - 2026-11-01
+
+**New page: [docs/support-tiers.md](docs/support-tiers.md) says what gstack supports fully and what it supports minimally.** macOS and Linux, with Claude and OpenAI models, get full support: the whole free suite and the paid evals. Windows (Git Bash or MSYS) and Gemini models get minimal support: install and the core skills (`/ship`, `/review`, `/qa-only`, `/investigate`, `/browse` on gstack's own browser) work without errors, checked on Windows by the `windows-smoke` job, which replaces the six-shard suite as the required Windows check when it lands, and by hand or one cheap smoke run on Gemini. Windows-only and Gemini-only reports that don't break install, startup or a core workflow close as won't fix with a link to the page.
+
+### Documentation
+- `docs/support-tiers.md`: the two tiers, what we stop doing, the Windows CI shape today (the six-shard `windows-free-tests` suite required on every pull request) and once `windows-smoke` lands (`windows-smoke` required, the six-shard suite nightly on main and non-blocking) and what doesn't change (eval models, the cross-family review voice).
+- README's platform notes and AGENTS.md's platform support section link to it.
+
 ## [1.92.42.0] - 2026-11-01
 
 **A /ship review pass that only left notes now binds at Step 11.5.** A pass whose findings were all fixed, deferred or noted has no open defect, but a driver could still log it as `issues_found`. Step 11.5 then refused it, and the only way out was an extra rebind pass (CAPY-2, qm#2837). When the tree changes during a pass, the refusal now names the start and end trees and the cheapest repair (GST-430).
