@@ -484,8 +484,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    field (`High:`, GST-766). A line whose labels are all negated closes the open finding and heads the next, so a finding
    worded around a negated label still arrives through its Severity or Blocks field. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
-   /ship passes it to `classify`, and a deferred-review issue shows it next to the label ("CRITICAL (the reviewer wrote
-   Severity: Low, Blocks: no)"). What blocks is unchanged.
+   a classified finding that carries `stated` shows it in its deferred-review issue next to the label ("CRITICAL (the
+   reviewer wrote Severity: Low, Blocks: no)"). What blocks is unchanged.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`

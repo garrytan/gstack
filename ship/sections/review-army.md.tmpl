@@ -94,7 +94,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    (all sources, queued Steps 10–11 included) as a JSON array to
    `.gstack/tmp/review-findings-p$PASS.json` with your file-write tool, each with
    `raised_by` (`core`, `qa`, a specialist, `red-team`, `adversarial-native`,
-   `outside-voice` or `fix-check`) and its merged.jsonl `stated`, if any, then:
+   `outside-voice` or `fix-check`), then:
    `~/.claude/skills/gstack/bin/gstack-review-scope classify --base <base> --pass $PASS --range-base $RANGE_BASE --findings .gstack/tmp/review-findings-p$PASS.json --json > .gstack/tmp/review-classified-p$PASS.json`
    (omit `--range-base` on pass 1). Every Step 9.4 scratch file lives under
    `.gstack/tmp/` (gitignored): `<classified>` below is this pass's classified
