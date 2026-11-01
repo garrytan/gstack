@@ -78,7 +78,7 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: '79c97d4f1c92e08f4ef5690f953af0287d5d377de8b499364386bea7285f9687', replay: 'R51' },
+    'lib/review-depth.ts': { sha: 'ba97794e039a67a7ef260613e45598dc4c0dbc360704093d65e860d1d56b6c0f', replay: 'R51' },
     'lib/review-risk.ts': { sha: 'ad2df4685d87dda0f3408cb4eb7cd2c2291fae79e0f17bb11c50700fb4c22000', replay: 'R51' },
 };
 

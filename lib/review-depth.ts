@@ -172,7 +172,7 @@ const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && m
 const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && dataCandidate(p, i.root);
 const uiText = (i: ClassInput, p: string) => !!i.added && classifyPath(p, i.root) === 'code' && uiTextOnly(p, i.removed?.[p], i.added[p]);
 const chartSvg = (i: ClassInput, p: string) => /\.svg$/i.test(p) && !!i.created?.includes(p) && !!i.added?.[p]?.length && classifyPath(p, i.root) === 'code'
-  && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p)) && !i.added[p]!.some(l => SVG_ACTIVE.test(l));
+  && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p)) && !SVG_ACTIVE.test(i.added[p]!.join('\n'));
 const pathClass = (i: ClassInput, p: string): PathClass => ((i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || uiText(i, p) || chartSvg(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */

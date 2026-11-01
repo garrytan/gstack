@@ -143,6 +143,11 @@ describe('a research write-up with a chart SVG (R51, gstack-evals#113)', () => {
   ])('an SVG with %s stays code', (_n, line) => {
     expect(plan(writeUp([...chart.slice(0, -1), line, '</svg>'])).class).toBe('code');
   });
+  test('an attribute split across lines still keeps the SVG code', () => {
+    expect(plan(writeUp(['<svg>', '<rect onclick', '="f()"/>', '</svg>'])).class).toBe('code');
+    expect(plan(writeUp(['<svg>', '<image href', '="https://e.example/a.png"/>', '</svg>'])).class).toBe('code');
+    expect(plan(writeUp(['<svg>', '<use href', '="#a"/>', '</svg>'])).class).toBe('docs');
+  });
   test('an edited SVG stays code: a changed line may sit inside an existing script block', () => {
     expect(plan({ ...writeUp(['  draw(next);']), created: [md] }).class).toBe('code');
   });
