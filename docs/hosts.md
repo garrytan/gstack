@@ -188,11 +188,14 @@ digest's first line shows its gstack version; re-copy it after upgrading.
 For Codex, setup reads the top-level `model` from
 `${CODEX_HOME:-~/.codex}/config.toml` and generates the matching behavioral
 profile, falling back to `gpt-6-astra` when no usable model is configured.
-`gpt-5.6-sol` automatically receives bounded-scope instructions that
-finish the requested lake without expanding into adjacent cleanup or speculative
-hardening. The Sol profile is exact-match only: dated snapshots and other 5.6
-variants get the generic GPT profile, and setup warns on near-misses like
-`gpt-5.6-sol-2026-08-01`. Override detection with `./setup --host codex --model <id>` — the
+The current OpenAI tiers are `gpt-6-astra` (frontier), `gpt-6.1-sol` (smart, the
+default eval and outside-voice tier) and `gpt-6-luna` (lowest cost); `gpt-6.1-sol`
+and `gpt-6-luna` get the generic GPT profile. Only `gpt-5.6-sol` receives the
+bounded-scope instructions that finish the requested lake without expanding into
+adjacent cleanup or speculative hardening, because that patch was measured on 5.6
+Sol; extending it to `gpt-6.1-sol` waits for its own scope eval. The Sol profile is
+exact-match only: dated snapshots and other 5.6 variants get the generic GPT
+profile, and setup warns on near-misses like `gpt-5.6-sol-2026-08-01`. Override detection with `./setup --host codex --model <id>` — the
 override applies to that run only; set `model` in your Codex `config.toml` to
 make it stick across upgrades. After changing your Codex model, rerun
 `./setup --host codex` to regenerate the skills.
