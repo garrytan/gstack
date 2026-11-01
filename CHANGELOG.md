@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.92.29.0] - 2026-11-01
+
+- `/ship`'s review collector no longer turns a severity word in a negation into a finding. A fix-check reader that closed with "found nothing CRITICAL" was recorded as a CRITICAL finding with no file or line, and the judge can't drop a finding, so the run carried a phantom blocker that could stop the review loop at its cap (GST-766, from GEVA-92 on gstack-evals #108). A label right after "no", "nothing", "not", "none", "zero", "without" or "never" (optionally followed by a word like "new" or "remaining", and through Markdown emphasis or brackets), and a label joined to it by a comma, a slash, "or", "nor" or "and", now counts as no finding. A label that opens a field ("High: …") is still collected, and a prose finding worded around a negated label still arrives through its Severity or Blocks field.
+- Each finding `/ship` collects now keeps the severity and Blocks its reviewer wrote (`stated` in merged.jsonl), and a deferred-review issue for a finding that carries them shows them next to the collected label, as in "CRITICAL (the reviewer wrote Severity: Low, Blocks: no)". Step 9.4 doesn't copy `stated` into its findings file yet, because that instruction lives in a reviewer brief that can change only after a no-loss replay. HARN-1 and GSTA-135 saw FIXABLE findings collected as CRITICAL while the reviewer's text said "Severity: Low. Blocks: no.", and nothing in the run showed the disagreement. What blocks a review pass is unchanged.
+
 ## [1.92.28.0] - 2026-11-01
 
 **A PR reviewed before #3654 keeps its /ship receipt after it merges main and moves its entry into `changelog.d/` (GST-343, #3606).** #3656 taught carry that a fragment is release metadata, but the base merge also brought in `changelog.d/README.md`. Carry counted that README as a product change, dropped the fragment rule for the whole range, and refused with RECEIPT_CARRY_PRODUCT_CHANGED although the product patch-id was unchanged.
