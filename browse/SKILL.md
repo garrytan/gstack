@@ -324,7 +324,7 @@ console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK
 aside repl '
 const pg = await openTab("<url>"), t = (m, p) => pg._sendToTarget(m, p);
 await t("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
-for (const [type, touchPoints] of [["touchStart", [{ x: <x>, y: <y> }]], ["touchEnd", []]]) await t("Input.dispatchTouchEvent", { type, touchPoints });
+for (const [type, touchPoints] of [["touchStart", [{ x: <tap-x>, y: <tap-y> }]], ["touchEnd", []]]) await t("Input.dispatchTouchEvent", { type, touchPoints });
 await closeTab(pg); console.log("GSTACK_STEP_OK");
 '
 ```
