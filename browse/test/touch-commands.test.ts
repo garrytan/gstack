@@ -145,6 +145,24 @@ describe('device', () => {
     await run('device', ['off']);
   });
 
+  test('annotated and heatmap snapshots and prettyscreenshot keep the phone', async () => {
+    await freshTouchTab();
+    const out = path.join(os.tmpdir(), `touch-annotate-${process.pid}.png`);
+    const captures: Array<[string, string[]]> = [
+      ['snapshot', ['-i', '-a', '-o', out]],
+      ['snapshot', ['-i', '-H', '{"@e1":"green"}', '-o', out]],
+      ['prettyscreenshot', [out]],
+    ];
+    for (const [cmd, args] of captures) {
+      if (cmd === 'prettyscreenshot') await run(cmd, args);
+      else await handleMetaCommand(cmd, args, bm, shutdown);
+      const p = await probe();
+      expect({ cmd, args, width: p.width, coarse: p.coarse }).toEqual({ cmd, args, width: 393, coarse: true });
+    }
+    fs.rmSync(out, { force: true });
+    await run('device', ['off']);
+  });
+
   test('survives a useragent context rebuild; the first restored request carries the phone UA', async () => {
     const id = await bm.newTab(baseUrl + '/echo');
     bm.switchTab(id, { bringToFront: false });

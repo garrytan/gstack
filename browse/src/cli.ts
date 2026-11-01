@@ -1094,12 +1094,11 @@ export async function sendCommand(state: ServerState, command: string, args: str
   // or the active tab.
   const extracted = extractTabId(args);
   const sessionFlag = extractSession(extracted.args);
-  args = sessionFlag.args;
   const envTab = process.env.BROWSE_TAB;
   const tabId = extracted.tabId ?? (envTab ? parseInt(envTab, 10) : undefined);
   const hasTab = tabId !== undefined && !isNaN(tabId);
   const { session, auto } = chooseSession({ hasTab, flag: sessionFlag.session, env: process.env, parentPid: process.ppid, lookup: systemProcLookup() });
-  const body = JSON.stringify({ command, args, ...(hasTab ? { tabId } : {}), ...(session ? { session, ...(auto ? { sessionAuto: true } : {}) } : {}) });
+  const body = JSON.stringify({ command, args: sessionFlag.args, ...(hasTab ? { tabId } : {}), ...(session ? { session, ...(auto ? { sessionAuto: true } : {}) } : {}) });
   const timeoutMs = command === 'cookie-import-browser' ? 90_000 : 30_000;
 
   try {

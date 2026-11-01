@@ -21,7 +21,7 @@ import { TEMP_DIR } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
 import { withCdpSession } from './cdp-bridge';
-import { handleDeviceCommand, refuseWhileDevice } from './device-emulation';
+import { handleDeviceCommand, reassertDevice, refuseWhileDevice } from './device-emulation';
 import { TOUCH_COMMANDS, handleTouchCommand } from './touch-commands';
 
 /**
@@ -1131,6 +1131,7 @@ export async function handleWriteCommand(
       if (viewportWidth && originalViewport) {
         await page.setViewportSize(originalViewport);
       }
+      await reassertDevice(session);
 
       const parts = ['Screenshot saved'];
       if (doCleanup) parts.push('(cleaned)');

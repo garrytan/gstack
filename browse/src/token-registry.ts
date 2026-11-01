@@ -135,6 +135,9 @@ export function assertValidClientId(clientId: unknown): asserts clientId is stri
   if (clientId.trim().toLowerCase() === 'root') {
     throw new ReservedClientIdError("clientId 'root' is reserved");
   }
+  if (clientId.trim().toLowerCase().startsWith('session:')) {
+    throw new ReservedClientIdError("clientId prefix 'session:' is reserved for agent sessions");
+  }
 }
 
 // ─── Types ──────────────────────────────────────────────────────

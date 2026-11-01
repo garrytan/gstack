@@ -32,6 +32,9 @@ const DEFAULT_IDLE_MINUTES = 120;
 const DEFAULT_MAX_SESSIONS = 16;
 
 const sessions = new Map<string, SessionRecord>();
+const MAX_DROPPED = 256;
+/** Sessions the idle sweep or the cap dropped, with their last URL, so a later read reports the reset instead of a blank tab. */
+const dropped = new Map<string, string>();
 
 function numberFromEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -56,6 +59,9 @@ async function sweepIdle(bm: BrowserManager, now: number, keep: string): Promise
 
 async function dropSession(bm: BrowserManager, name: string, record: SessionRecord): Promise<void> {
   sessions.delete(name);
+  dropped.delete(name);
+  dropped.set(name, record.lastUrl);
+  if (dropped.size > MAX_DROPPED) dropped.delete(dropped.keys().next().value!);
   if (bm.getConnectionMode() === 'headed') {
     bm.releaseClientTabs(record.owner);
     return;
@@ -82,11 +88,18 @@ function openTab(bm: BrowserManager, name: string, record: SessionRecord): Promi
   return record.opening;
 }
 
-async function runInSession<R extends Result>(bm: BrowserManager, name: string, command: string, fn: () => Promise<R>): Promise<Result> {
+async function runInSession<R extends Result>(bm: BrowserManager, name: string, command: string, quiet: boolean, fn: () => Promise<R>): Promise<Result> {
   const now = Date.now();
   await sweepIdle(bm, now, name);
   let record = sessions.get(name);
   let notice = '';
+  if (!record && dropped.has(name)) {
+    if (!REOPENING_COMMANDS.has(command)) {
+      const last = dropped.get(name) || 'about:blank';
+      return refuse(409, resultLine('browse', 'BROWSE_SESSION_TAB_RESET', `session ${name} was closed after going idle or to make room; it was on ${last}`));
+    }
+    dropped.delete(name);
+  }
   try {
     if (!record) {
       record = { tabId: 0, owner: `session:${name}`, lastUsed: now, inFlight: 0, lastUrl: '', opening: null };
@@ -112,7 +125,7 @@ async function runInSession<R extends Result>(bm: BrowserManager, name: string, 
   record.lastUsed = Date.now();
   try {
     const cr = await bm.runInTab(record, fn);
-    return notice && !cr.json ? { ...cr, result: `${notice}\n${cr.result}` } : cr;
+    return notice && !cr.json && !quiet ? { ...cr, result: `${notice}\n${cr.result}` } : cr;
   } finally {
     record.inFlight--;
     record.lastUsed = Date.now();
@@ -127,7 +140,7 @@ async function runInSession<R extends Result>(bm: BrowserManager, name: string, 
  */
 export async function runInRequestTab<R extends Result>(
   bm: BrowserManager,
-  body: { command: string; tabId?: number; session?: string; sessionAuto?: boolean },
+  body: { command: string; args?: string[]; tabId?: number; session?: string; sessionAuto?: boolean },
   tokenInfo: TokenInfo | null | undefined,
   fn: () => Promise<R>,
 ): Promise<Result> {
@@ -145,5 +158,5 @@ export async function runInRequestTab<R extends Result>(
   if (!SESSION_NAME.test(name)) {
     return refuse(400, resultLine('browse', 'BROWSE_SESSION_INVALID', JSON.stringify(name.slice(0, 80))));
   }
-  return runInSession(bm, name, body.command, fn);
+  return runInSession(bm, name, body.command, Boolean(body.args?.includes('--json')), fn);
 }

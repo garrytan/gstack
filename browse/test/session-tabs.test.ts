@@ -161,6 +161,12 @@ const rootTab = bm.getActiveTabId();
   steps.limit = { status: limited.status, result: limited.result, limitTabs: owned('session:limit').length,
     evictedStatus: evicted.status, fresh: owned('session:fresh').length, freshOpen: bm.pages.has(freshTab),
     limit2: owned('session:limit2').length };
+  process.env.BROWSE_MAX_SESSIONS = '16';
+  const victim = await run('url', [], { session: 'fresh' });
+  steps.evictedRead = { status: victim.status, result: victim.result, tabs: owned('session:fresh').length };
+  await run('goto', [U('back')], { session: 'fresh' });
+  steps.evictedRead.reopened = (await run('js', ['document.title'], { session: 'fresh' })).result;
+  process.env.BROWSE_MAX_SESSIONS = '1';
 }
 
 { // in headed mode an evicted session's tab is released to the user, not closed
@@ -177,6 +183,53 @@ const rootTab = bm.getActiveTabId();
   const switched = await run('tab', [String(other)], { session: 'pick' });
   const next = (await run('js', ['document.title'], { session: 'pick' })).result;
   steps.pick = { switched: switched.status, next, owner: bm.getTabOwner(other) ?? null };
+}
+
+{ // another session's context rebuild leaves this session on the tab it picked
+  process.env.BROWSE_MAX_SESSIONS = '16';
+  await run('goto', [U('first')], { session: 'two' });
+  const first = owned('session:two')[0];
+  await run('newtab', [U('second')], { session: 'two' });
+  await run('tab', [String(first)], { session: 'two' });
+  const ua = await run('useragent', ['Mozilla/5.0 gstack-other-rebuild'], { session: 'other' });
+  steps.otherRebuild = { ua: ua.status, title: (await run('js', ['document.title'], { session: 'two' })).result };
+}
+
+{ // a first-use notice never prefixes --json output
+  const r = await run('newtab', [U('j'), '--json'], { session: 'jsonfirst' });
+  let parsed = null;
+  try { parsed = JSON.parse(r.result); } catch {}
+  steps.jsonFirst = { status: r.status, parsed: parsed !== null && typeof parsed.tabId === 'number' };
+}
+
+{ // headed mode: a session's new tab is registered once and the user's active tab stays put
+  const ctx = bm.context;
+  const listener = (page) => {
+    const id = bm.nextTabId++;
+    bm.pages.set(id, page);
+    bm.tabSessions.set(id, new (bm.tabSessions.values().next().value.constructor)(page));
+    bm.activeTabId = id;
+  };
+  ctx.on('page', listener);
+  const userTab = bm.getActiveTabId();
+  const before = bm.pages.size;
+  try { await run('url', [], { session: 'headednew' }); } finally { ctx.off('page', listener); }
+  const tab = owned('session:headednew')[0];
+  steps.headedNew = { activeKept: bm.getActiveTabId() === userTab, added: bm.pages.size - before,
+    sameObject: [...bm.pages.values()].filter(p => p === bm.pages.get(tab)).length };
+}
+
+{ // headed viewport auto under a tab pin rebuilds the pinned tab, not the global one
+  const userTab = bm.getActiveTabId();
+  const userPage = bm.pages.get(userTab);
+  const pinned = JSON.parse((await run('newtab', [U('vp'), '--json'])).result).tabId;
+  bm.switchTab(userTab, { bringToFront: false });
+  const mode = bm.connectionMode;
+  bm.connectionMode = 'headed';
+  let r;
+  try { r = await run('viewport', ['auto'], { tabId: pinned }); } finally { bm.connectionMode = mode; }
+  steps.headedViewport = { status: r.status, userTracked: bm.pages.get(userTab) === userPage,
+    pinnedLive: bm.pages.has(pinned), pinnedUrl: bm.pages.get(pinned)?.url() ?? null };
 }
 
 { // state save and load inside a session land the session on its own saved page
@@ -293,6 +346,26 @@ describe('session lifecycle', () => {
   });
   test('tab <id> in a session moves that session to the tab for its next command', () => {
     expect(steps.pick).toEqual({ switched: 200, next: 'theirs', owner: null });
+  });
+  test('a session evicted at the cap reports the reset on its next read; goto reopens it', () => {
+    expect(steps.evictedRead.status).toBe(409);
+    expect(steps.evictedRead.result).toContain('BROWSE_SESSION_TAB_RESET');
+    expect(steps.evictedRead.result).toContain('s=busy');
+    expect(steps.evictedRead.tabs).toBe(0);
+    expect(steps.evictedRead.reopened).toBe('back');
+  });
+  test('another session\'s context rebuild keeps this session on the tab it picked', () => {
+    expect(steps.otherRebuild).toEqual({ ua: 200, title: 'first' });
+  });
+  test('the first-use notice never corrupts --json output', () => {
+    expect(steps.jsonFirst).toEqual({ status: 200, parsed: true });
+  });
+  test('headed: a session tab is registered once and the user keeps the active tab', () => {
+    expect(steps.headedNew).toEqual({ activeKept: true, added: 1, sameObject: 1 });
+  });
+  test('headed: viewport auto under a tab pin rebuilds only the pinned tab', () => {
+    expect(steps.headedViewport).toMatchObject({ status: 200, userTracked: true, pinnedLive: true });
+    expect(steps.headedViewport.pinnedUrl).toContain('s=vp');
   });
   test('state save and load inside a session leave it on its saved page', () => {
     expect(steps.stateLoad).toMatchObject({ save: 200, load: 200, afterStatus: 200, title: 'st', rootStatus: 200 });

@@ -88,3 +88,37 @@ describe('sidebar terminal agent', () => {
     expect(chooseSession({ hasTab: false, flag: undefined, env: { BROWSE_SESSION: '' }, parentPid: 7, lookup })).toEqual({});
   });
 });
+
+describe('CLI retry after a token change', () => {
+  test('the retried request keeps the --session the caller named', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-session-retry-'));
+    try {
+      const stateFile = path.join(dir, 'browse.json');
+      fs.writeFileSync(stateFile, JSON.stringify({ port: 9, token: 'fresh-token' }));
+      const script = path.join(dir, 'retry.ts');
+      fs.writeFileSync(script, `
+        const bodies = [];
+        globalThis.fetch = async (_url, init) => {
+          bodies.push(JSON.parse(init.body));
+          return bodies.length === 1 ? new Response('Unauthorized', { status: 401 }) : new Response('ok');
+        };
+        const { sendCommand } = await import(${JSON.stringify(path.resolve(import.meta.dir, '../src/cli.ts'))});
+        await sendCommand({ port: 9, token: 'stale-token' }, 'click', ['#delete', '--session', 'intended']);
+        console.log('BODIES=' + JSON.stringify(bodies));
+      `);
+      const r = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, BROWSE_STATE_FILE: stateFile, BROWSE_SESSION: '' } });
+      const bodies = JSON.parse(r.stdout.match(/BODIES=(.*)/)?.[1] ?? '[]');
+      expect(bodies).toHaveLength(2);
+      for (const body of bodies) expect(body).toMatchObject({ command: 'click', args: ['#delete'], session: 'intended' });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('gstack-render browse calls', () => {
+  test('turn the automatic session off: render pins its own tab ids', () => {
+    const source = fs.readFileSync(path.resolve(import.meta.dir, '../../lib/aside-render.ts'), 'utf8');
+    expect(source).toMatch(/runProc\(bin, args, [^\n]*BROWSE_SESSION: ''/);
+  });
+});
