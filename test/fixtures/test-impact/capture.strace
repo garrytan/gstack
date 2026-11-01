@@ -1,0 +1,129 @@
+# strace 6.8 capture (x86_64 Linux, bun 1.4.4) of test/cap.test.ts under env -i.
+# repo=/tmp/ti-capture/repo home=/tmp/ti-capture/home tmpdir=/tmp/ti-capture/run PATH=/usr/local/bin:/usr/bin:/bin
+# The test reads lib/data.txt by a computed path, lists test/data, spawns bin/tool2 (cd to bin, source ./tool2-lib.sh),
+# reads $HOME/.gitconfig, /tmp/ti-shared-state and .git/HEAD, probes lib/missing.txt, talks to its own loopback server,
+# and connects to 192.0.2.1:443.
+31600 execve("/usr/local/bin/bun", ["/usr/local/bin/bun", "--no-env-file", "--config=/dev/null", "test", "/tmp/ti-capture/repo/test/cap.test.ts"], ["PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/tmp/ti-capture/home", "TMPDIR=/tmp/ti-capture/run", "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0"]) = 0
+31600 access("/etc/ld.so.preload", R_OK) = -1 ENOENT (No such file or directory)
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3</etc/ld.so.cache>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3</usr/lib/x86_64-linux-gnu/libc.so.6>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/lib/x86_64-linux-gnu/libpthread.so.0", O_RDONLY|O_CLOEXEC) = 3</usr/lib/x86_64-linux-gnu/libpthread.so.0>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/lib/x86_64-linux-gnu/libdl.so.2", O_RDONLY|O_CLOEXEC) = 3</usr/lib/x86_64-linux-gnu/libdl.so.2>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/lib/x86_64-linux-gnu/libm.so.6", O_RDONLY|O_CLOEXEC) = 3</usr/lib/x86_64-linux-gnu/libm.so.6>
+31600 open("/proc/sys/vm/overcommit_memory", O_RDONLY) = 3</proc/sys/vm/overcommit_memory>
+31600 open("/sys/kernel/mm/transparent_hugepage/enabled", O_RDONLY) = 3</sys/kernel/mm/transparent_hugepage/enabled>
+31600 access("/sys/devices/system/node/node1", R_OK) = -1 ENOENT (No such file or directory)
+31600 access("/sys/devices/system/node/node2", R_OK) = -1 ENOENT (No such file or directory)
+31600 access("/sys/devices/system/node/node3", R_OK) = -1 ENOENT (No such file or directory)
+31600 access("/sys/devices/system/node/node4", R_OK) = -1 ENOENT (No such file or directory)
+31600 access("/sys/devices/system/node/node5", R_OK) = -1 ENOENT (No such file or directory)
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/self/maps", O_RDONLY|O_CLOEXEC) = 3</proc/31600/maps>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/dev/null", O_RDONLY|O_LARGEFILE|O_CLOEXEC) = 3</dev/null>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/sys/vm/mmap_min_addr", O_RDONLY) = 3</proc/sys/vm/mmap_min_addr>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/self/maps", O_RDONLY|O_CLOEXEC) = 3</proc/31600/maps>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/devices/system/cpu/online", O_RDONLY|O_CLOEXEC) = 3</sys/devices/system/cpu/online>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/self/cgroup", O_RDONLY|O_CLOEXEC) = 3</proc/31600/cgroup>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/work/30ccabc8-01c2-49f2-b7a8-dbc950e07067/cpu.max", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/work/cpu.max", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/cpu.max", O_RDONLY|O_CLOEXEC) = 3</sys/fs/cgroup/system.slice/capy-machine-server.service/cpu.max>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/cpu.max", O_RDONLY|O_CLOEXEC) = 3</sys/fs/cgroup/system.slice/cpu.max>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/cpu.max", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+31600 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7f69b45ad990, parent_tid=0x7f69b45ad990, exit_signal=0, stack=0x7f69b41ad000, stack_size=0x3fa7c0, tls=0x7f69b45ad6c0} => {parent_tid=[31601]}, 88) = 31601
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_DIRECTORY) = 3</>
+31600 getdents64(3</>, [{d_ino=2, d_off=12, d_reclen=24, d_type=DT_DIR, d_name="."}, {d_ino=2, d_off=24, d_reclen=24, d_type=DT_DIR, d_name=".."}, {d_ino=11, d_off=44, d_reclen=32, d_type=DT_DIR, d_name="lost+found"}, {d_ino=12, d_off=56, d_reclen=24, d_type=DT_LNK, d_name="bin"}, {d_ino=13, d_off=68, d_reclen=24, d_type=DT_LNK, d_name="lib"}, {d_ino=14, d_off=84, d_reclen=32, d_type=DT_LNK, d_name="lib64"}, {d_ino=15, d_off=96, d_reclen=24, d_type=DT_LNK, d_name="sbin"}, {d_ino=2730, d_off=108, d_reclen=24, d_type=DT_DIR, d_name="boot"}, {d_ino=3469, d_off=120, d_reclen=24, d_type=DT_DIR, d_name="dev"}, {d_ino=3272, d_off=132, d_reclen=24, d_type=DT_DIR, d_name="etc"}, {d_ino=3263, d_off=144, d_reclen=24, d_type=DT_DIR, d_name="home"}, {d_ino=16, d_off=160, d_reclen=32, d_type=DT_DIR, d_name="media"}, {d_ino=18, d_off=172, d_reclen=24, d_type=DT_DIR, d_name="mnt"}, {d_ino=3468, d_off=184, d_reclen=24, d_type=DT_DIR, d_name="opt"}, {d_ino=2731, d_off=196, d_reclen=24, d_type=DT_DIR, d_name="proc"}, {d_ino=2733, d_off=208, d_reclen=24, d_type=DT_DIR, d_name="root"}, {d_ino=3268, d_off=220, d_reclen=24, d_type=DT_DIR, d_name="run"}, {d_ino=3467, d_off=232, d_reclen=24, d_type=DT_DIR, d_name="srv"}, {d_ino=2732, d_off=244, d_reclen=24, d_type=DT_DIR, d_name="sys"}, {d_ino=17, d_off=256, d_reclen=24, d_type=DT_DIR, d_name="tmp"}, {d_ino=19, d_off=268, d_reclen=24, d_type=DT_DIR, d_name="usr"}, {d_ino=2734, d_off=280, d_reclen=24, d_type=DT_DIR, d_name="var"}, {d_ino=8359937, d_off=300, d_reclen=32, d_type=DT_DIR, d_name="workspace"}, {d_ino=5224961, d_off=316, d_reclen=24, d_type=DT_DIR, d_name="nix"}, {d_ino=7837441, d_off=344, d_reclen=40, d_type=DT_DIR, d_name="lib.usr-is-merged"}, {d_ino=2612481, d_off=372, d_reclen=40, d_type=DT_DIR, d_name="sbin.usr-is-merged"}, {d_ino=6792449, d_off=400, d_reclen=40, d_type=DT_DIR, d_name="bin.usr-is-merged"}, {d_ino=583, d_off=412, d_reclen=24, d_type=DT_REG, d_name=".e2b"}, {d_ino=3657473, d_off=4096, d_reclen=24, d_type=DT_DIR, d_name="code"}], 8192) = 776
+31600 getdents64(3</>, [], 8192)        = 0
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_DIRECTORY) = 4</tmp>
+31600 getdents64(4</tmp>, [{d_ino=17, d_off=12, d_reclen=24, d_type=DT_DIR, d_name="."}, {d_ino=2, d_off=24, d_reclen=24, d_type=DT_DIR, d_name=".."}, {d_ino=3135000, d_off=44, d_reclen=32, d_type=DT_DIR, d_name=".X11-unix"}, {d_ino=3135002, d_off=64, d_reclen=32, d_type=DT_DIR, d_name=".ICE-unix"}, {d_ino=3135004, d_off=84, d_reclen=32, d_type=DT_DIR, d_name=".XIM-unix"}, {d_ino=3135009, d_off=104, d_reclen=32, d_type=DT_DIR, d_name=".font-unix"}, {d_ino=3135011, d_off=184, d_reclen=96, d_type=DT_DIR, d_name="systemd-private-e2783ba5d46b4e4f9af3db4e72e19395-earlyoom.service-DZrZz7"}, {d_ino=3135023, d_off=272, d_reclen=104, d_type=DT_DIR, d_name="systemd-private-e2783ba5d46b4e4f9af3db4e72e19395-systemd-logind.service-MhEU5S"}, {d_ino=3135028, d_off=352, d_reclen=96, d_type=DT_DIR, d_name="systemd-private-e2783ba5d46b4e4f9af3db4e72e19395-chrony.service-Giee6x"}, {d_ino=14055, d_off=372, d_reclen=32, d_type=DT_REG, d_name="st.txt"}, {d_ino=3359, d_off=396, d_reclen=40, d_type=DT_SOCK, d_name="dbus-omgxS0MsPL"}, {d_ino=3160431, d_off=416, d_reclen=32, d_type=DT_DIR, d_name="ti-capture"}, {d_ino=3485, d_off=432, d_reclen=32, d_type=DT_REG, d_name=".X9-lock"}, {d_ino=14073, d_off=504, d_reclen=40, d_type=DT_REG, d_name="ti-shared-state"}, {d_ino=3135623, d_off=4096, d_reclen=40, d_type=DT_DIR, d_name="hsperfdata_root"}], 8192) = 688
+31600 getdents64(4</tmp>, [], 8192)     = 0
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_DIRECTORY) = 5</tmp/ti-capture>
+31601 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7f69b3dac990, parent_tid=0x7f69b3dac990, exit_signal=0, stack=0x7f69b35ac000, stack_size=0x7fa7c0, tls=0x7f69b3dac6c0} <unfinished ...>
+31600 getdents64(5</tmp/ti-capture>, [{d_ino=3160431, d_off=12, d_reclen=24, d_type=DT_DIR, d_name="."}, {d_ino=17, d_off=24, d_reclen=24, d_type=DT_DIR, d_name=".."}, {d_ino=3160432, d_off=36, d_reclen=24, d_type=DT_DIR, d_name="repo"}, {d_ino=3160439, d_off=48, d_reclen=24, d_type=DT_DIR, d_name="home"}, {d_ino=3160440, d_off=60, d_reclen=24, d_type=DT_DIR, d_name="run"}, {d_ino=3160477, d_off=80, d_reclen=32, d_type=DT_REG, d_name="raw.txt"}, {d_ino=3160478, d_off=148, d_reclen=32, d_type=DT_REG, d_name="trim.txt"}], 8192) = 184
+31600 getdents64(5</tmp/ti-capture>,  <unfinished ...>
+31601 <... clone3 resumed> => {parent_tid=[31602]}, 88) = 31602
+31600 <... getdents64 resumed>[], 8192) = 0
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_DIRECTORY) = 6</tmp/ti-capture/repo>
+31600 getdents64(6</tmp/ti-capture/repo>, [{d_ino=3160432, d_off=12, d_reclen=24, d_type=DT_DIR, d_name="."}, {d_ino=3160431, d_off=24, d_reclen=24, d_type=DT_DIR, d_name=".."}, {d_ino=3160433, d_off=36, d_reclen=24, d_type=DT_DIR, d_name="lib"}, {d_ino=3160434, d_off=48, d_reclen=24, d_type=DT_DIR, d_name="bin"}, {d_ino=3160435, d_off=60, d_reclen=24, d_type=DT_DIR, d_name="test"}, {d_ino=3160437, d_off=80, d_reclen=32, d_type=DT_DIR, d_name="node_modules"}, {d_ino=3160441, d_off=92, d_reclen=24, d_type=DT_DIR, d_name=".git"}, {d_ino=3160472, d_off=148, d_reclen=32, d_type=DT_REG, d_name="package.json"}], 8192) = 208
+31600 getdents64(6</tmp/ti-capture/repo>, [], 8192) = 0
+31600 openat(6</tmp/ti-capture/repo>, "package.json", O_RDONLY|O_LARGEFILE|O_CLOEXEC) = 8</tmp/ti-capture/repo/package.json>
+31601 openat(AT_FDCWD</tmp/ti-capture/repo>, "/etc/localtime", O_RDONLY|O_CLOEXEC) = 8</usr/share/zoneinfo/Etc/UTC>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/self/cgroup", O_RDONLY|O_CLOEXEC) = 5</proc/31600/cgroup>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/work/30ccabc8-01c2-49f2-b7a8-dbc950e07067/memory.max", O_RDONLY|O_CLOEXEC) = 5</sys/fs/cgroup/system.slice/capy-machine-server.service/work/30ccabc8-01c2-49f2-b7a8-dbc950e07067/memory.max>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/work/30ccabc8-01c2-49f2-b7a8-dbc950e07067/memory.high", O_RDONLY|O_CLOEXEC) = 5</sys/fs/cgroup/system.slice/capy-machine-server.service/work/30ccabc8-01c2-49f2-b7a8-dbc950e07067/memory.high>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/work/memory.max", O_RDONLY|O_CLOEXEC) = 5</sys/fs/cgroup/system.slice/capy-machine-server.service/work/memory.max>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/work/memory.high", O_RDONLY|O_CLOEXEC) = 5</sys/fs/cgroup/system.slice/capy-machine-server.service/work/memory.high>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/memory.max", O_RDONLY|O_CLOEXEC) = 5</sys/fs/cgroup/system.slice/capy-machine-server.service/memory.max>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/capy-machine-server.service/memory.high", O_RDONLY|O_CLOEXEC) = 5</sys/fs/cgroup/system.slice/capy-machine-server.service/memory.high>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/memory.max", O_RDONLY|O_CLOEXEC) = 5</sys/fs/cgroup/system.slice/memory.max>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/system.slice/memory.high", O_RDONLY|O_CLOEXEC) = 5</sys/fs/cgroup/system.slice/memory.high>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/memory.max", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/sys/fs/cgroup/memory.high", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/self/statm", O_RDONLY) = 5</proc/31600/statm>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/test/cap.test.ts", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_DIRECTORY) = -1 ENOTDIR (Not a directory)
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/test", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_DIRECTORY) = 5</tmp/ti-capture/repo/test>
+31600 getdents64(5</tmp/ti-capture/repo/test>, [{d_ino=3160435, d_off=12, d_reclen=24, d_type=DT_DIR, d_name="."}, {d_ino=3160432, d_off=24, d_reclen=24, d_type=DT_DIR, d_name=".."}, {d_ino=3160436, d_off=36, d_reclen=24, d_type=DT_DIR, d_name="data"}, {d_ino=3160476, d_off=80, d_reclen=32, d_type=DT_REG, d_name="cap.test.ts"}], 8192) = 104
+31600 getdents64(5</tmp/ti-capture/repo/test>, [], 8192) = 0
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/test", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_DIRECTORY) = 5</tmp/ti-capture/repo/test>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/test/cap.test.ts", O_RDONLY|O_LARGEFILE|O_CLOEXEC) = 5</tmp/ti-capture/repo/test/cap.test.ts>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/self/statm", O_RDONLY) = 5</proc/31600/statm>
+31600 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7f69b359b990, parent_tid=0x7f69b359b990, exit_signal=0, stack=0x7f69b351b000, stack_size=0x7a7c0, tls=0x7f69b359b6c0} => {parent_tid=[31603]}, 88) = 31603
+31600 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7f69b351a990, parent_tid=0x7f69b351a990, exit_signal=0, stack=0x7f69b349a000, stack_size=0x7a7c0, tls=0x7f69b351a6c0} => {parent_tid=[31604]}, 88) = 31604
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/self/statm", O_RDONLY) = 5</proc/31600/statm>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/lib/data.txt", O_RDONLY|O_NOCTTY|O_LARGEFILE|O_CLOEXEC) = 5</tmp/ti-capture/repo/lib/data.txt>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/test/data", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_DIRECTORY) = 5</tmp/ti-capture/repo/test/data>
+31600 getdents64(5</tmp/ti-capture/repo/test/data>, [{d_ino=3160436, d_off=12, d_reclen=24, d_type=DT_DIR, d_name="."}, {d_ino=3160435, d_off=24, d_reclen=24, d_type=DT_DIR, d_name=".."}, {d_ino=3160469, d_off=40, d_reclen=32, d_type=DT_REG, d_name="a.txt"}, {d_ino=3160470, d_off=80, d_reclen=32, d_type=DT_REG, d_name="b.txt"}], 8192) = 112
+31600 getdents64(5</tmp/ti-capture/repo/test/data>, [], 8192) = 0
+31600 vfork( <unfinished ...>
+31605 openat(AT_FDCWD</tmp/ti-capture/repo>, "/dev/null", O_RDONLY|O_CREAT, 0664) = 13</dev/null>
+31605 execve("/tmp/ti-capture/repo/bin/tool2", ["/tmp/ti-capture/repo/bin/tool2"], ["NODE_ENV=test", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/tmp/ti-capture/home", "TMPDIR=/tmp/ti-capture/run", "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0"] <unfinished ...>
+31600 <... vfork resumed>)              = 31605
+31605 <... execve resumed>)             = 0
+31605 access("/etc/ld.so.preload", R_OK) = -1 ENOENT (No such file or directory)
+31605 openat(AT_FDCWD</tmp/ti-capture/repo>, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3</etc/ld.so.cache>
+31605 openat(AT_FDCWD</tmp/ti-capture/repo>, "/lib/x86_64-linux-gnu/libtinfo.so.6", O_RDONLY|O_CLOEXEC) = 3</usr/lib/x86_64-linux-gnu/libtinfo.so.6.4>
+31605 openat(AT_FDCWD</tmp/ti-capture/repo>, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3</usr/lib/x86_64-linux-gnu/libc.so.6>
+31605 openat(AT_FDCWD</tmp/ti-capture/repo>, "/dev/tty", O_RDWR|O_NONBLOCK) = -1 ENXIO (No such device or address)
+31605 connect(3<socket:[40219]>, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) = -1 ENOENT (No such file or directory)
+31605 connect(3<socket:[40220]>, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) = -1 ENOENT (No such file or directory)
+31605 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/etc/nsswitch.conf", {st_dev=makedev(0xfe, 0), st_ino=3368, st_mode=S_IFREG|0644, st_nlink=1, st_uid=0, st_gid=0, st_blksize=4096, st_blocks=8, st_size=494, st_atime=1793493227 /* 2026-11-01T00:33:47.073331156+0000 */, st_atime_nsec=73331156, st_mtime=1659454483 /* 2022-08-02T15:34:43+0000 */, st_mtime_nsec=0, st_ctime=1786380947 /* 2026-08-10T16:55:47.139975296+0000 */, st_ctime_nsec=139975296}, 0) = 0
+31605 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/", {st_dev=makedev(0xfe, 0), st_ino=2, st_mode=S_IFDIR|0755, st_nlink=24, st_uid=0, st_gid=0, st_blksize=4096, st_blocks=8, st_size=4096, st_atime=1793543355 /* 2026-11-01T14:29:15.539582315+0000 */, st_atime_nsec=539582315, st_mtime=1793493900 /* 2026-11-01T00:45:00.131644750+0000 */, st_mtime_nsec=131644750, st_ctime=1793493900 /* 2026-11-01T00:45:00.131644750+0000 */, st_ctime_nsec=131644750}, 0) = 0
+31605 openat(AT_FDCWD</tmp/ti-capture/repo>, "/etc/nsswitch.conf", O_RDONLY|O_CLOEXEC) = 3</etc/nsswitch.conf>
+31605 openat(AT_FDCWD</tmp/ti-capture/repo>, "/etc/passwd", O_RDONLY|O_CLOEXEC) = 3</etc/passwd>
+31605 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/bin/tool2", O_RDONLY) = 3</tmp/ti-capture/repo/bin/tool2>
+31605 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/bin/tool2", {st_dev=makedev(0xfe, 0), st_ino=3160473, st_mode=S_IFREG|0755, st_nlink=1, st_uid=1001, st_gid=1001, st_blksize=4096, st_blocks=1, st_size=61, st_atime=1793543948 /* 2026-11-01T14:39:08.523801197+0000 */, st_atime_nsec=523801197, st_mtime=1793543948 /* 2026-11-01T14:39:08.451801164+0000 */, st_mtime_nsec=451801164, st_ctime=1793543948 /* 2026-11-01T14:39:08.455801166+0000 */, st_ctime_nsec=455801166}, 0) = 0
+31605 clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x7fb4d2faba10) = 31606
+31606 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, ".", {st_dev=makedev(0xfe, 0), st_ino=3160432, st_mode=S_IFDIR|0755, st_nlink=7, st_uid=1001, st_gid=1001, st_blksize=4096, st_blocks=0, st_size=128, st_atime=1793543948 /* 2026-11-01T14:39:08.479801177+0000 */, st_atime_nsec=479801177, st_mtime=1793543948 /* 2026-11-01T14:39:08.447801162+0000 */, st_mtime_nsec=447801162, st_ctime=1793543948 /* 2026-11-01T14:39:08.447801162+0000 */, st_ctime_nsec=447801162}, 0) = 0
+31606 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/usr/local/bin/dirname", 0x7ffca3f03460, 0) = -1 ENOENT (No such file or directory)
+31606 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/usr/bin/dirname", {st_dev=makedev(0xfe, 0), st_ino=305, st_mode=S_IFREG|0755, st_nlink=1, st_uid=0, st_gid=0, st_blksize=4096, st_blocks=72, st_size=35208, st_atime=1793493227 /* 2026-11-01T00:33:47.549331156+0000 */, st_atime_nsec=549331156, st_mtime=1769175004 /* 2026-01-23T13:30:04+0000 */, st_mtime_nsec=0, st_ctime=1786380947 /* 2026-08-10T16:55:47.151975261+0000 */, st_ctime_nsec=151975261}, 0) = 0
+31606 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/usr/bin/dirname", {st_dev=makedev(0xfe, 0), st_ino=305, st_mode=S_IFREG|0755, st_nlink=1, st_uid=0, st_gid=0, st_blksize=4096, st_blocks=72, st_size=35208, st_atime=1793493227 /* 2026-11-01T00:33:47.549331156+0000 */, st_atime_nsec=549331156, st_mtime=1769175004 /* 2026-01-23T13:30:04+0000 */, st_mtime_nsec=0, st_ctime=1786380947 /* 2026-08-10T16:55:47.151975261+0000 */, st_ctime_nsec=151975261}, 0) = 0
+31606 access("/usr/bin/dirname", X_OK)  = 0
+31606 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/usr/bin/dirname", {st_dev=makedev(0xfe, 0), st_ino=305, st_mode=S_IFREG|0755, st_nlink=1, st_uid=0, st_gid=0, st_blksize=4096, st_blocks=72, st_size=35208, st_atime=1793493227 /* 2026-11-01T00:33:47.549331156+0000 */, st_atime_nsec=549331156, st_mtime=1769175004 /* 2026-01-23T13:30:04+0000 */, st_mtime_nsec=0, st_ctime=1786380947 /* 2026-08-10T16:55:47.151975261+0000 */, st_ctime_nsec=151975261}, 0) = 0
+31606 access("/usr/bin/dirname", R_OK)  = 0
+31606 execve("/usr/bin/dirname", ["dirname", "/tmp/ti-capture/repo/bin/tool2"], ["PWD=/tmp/ti-capture/repo", "NODE_ENV=test", "HOME=/tmp/ti-capture/home", "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0", "TMPDIR=/tmp/ti-capture/run", "SHLVL=0", "PATH=/usr/local/bin:/usr/bin:/bin", "_=/usr/bin/dirname"]) = 0
+31606 access("/etc/ld.so.preload", R_OK) = -1 ENOENT (No such file or directory)
+31606 openat(AT_FDCWD</tmp/ti-capture/repo>, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3</etc/ld.so.cache>
+31606 openat(AT_FDCWD</tmp/ti-capture/repo>, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3</usr/lib/x86_64-linux-gnu/libc.so.6>
+31605 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=31606, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---
+31605 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp", {st_dev=makedev(0xfe, 0), st_ino=17, st_mode=S_IFDIR|S_ISVTX|0777, st_nlink=11, st_uid=0, st_gid=0, st_blksize=4096, st_blocks=8, st_size=4096, st_atime=1793543948 /* 2026-11-01T14:39:08.479801177+0000 */, st_atime_nsec=479801177, st_mtime=1793543948 /* 2026-11-01T14:39:08.455801166+0000 */, st_mtime_nsec=455801166, st_ctime=1793543948 /* 2026-11-01T14:39:08.455801166+0000 */, st_ctime_nsec=455801166}, 0) = 0
+31605 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture", {st_dev=makedev(0xfe, 0), st_ino=3160431, st_mode=S_IFDIR|0755, st_nlink=5, st_uid=1001, st_gid=1001, st_blksize=4096, st_blocks=0, st_size=128, st_atime=1793543959 /* 2026-11-01T14:39:19.527806224+0000 */, st_atime_nsec=527806224, st_mtime=1793543959 /* 2026-11-01T14:39:19.503806213+0000 */, st_mtime_nsec=503806213, st_ctime=1793543959 /* 2026-11-01T14:39:19.503806213+0000 */, st_ctime_nsec=503806213}, 0) = 0
+31605 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo", {st_dev=makedev(0xfe, 0), st_ino=3160432, st_mode=S_IFDIR|0755, st_nlink=7, st_uid=1001, st_gid=1001, st_blksize=4096, st_blocks=0, st_size=128, st_atime=1793543948 /* 2026-11-01T14:39:08.479801177+0000 */, st_atime_nsec=479801177, st_mtime=1793543948 /* 2026-11-01T14:39:08.447801162+0000 */, st_mtime_nsec=447801162, st_ctime=1793543948 /* 2026-11-01T14:39:08.447801162+0000 */, st_ctime_nsec=447801162}, 0) = 0
+31605 newfstatat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/bin", {st_dev=makedev(0xfe, 0), st_ino=3160434, st_mode=S_IFDIR|0755, st_nlink=2, st_uid=1001, st_gid=1001, st_blksize=4096, st_blocks=0, st_size=60, st_atime=1793543948 /* 2026-11-01T14:39:08.419801150+0000 */, st_atime_nsec=419801150, st_mtime=1793543948 /* 2026-11-01T14:39:08.451801164+0000 */, st_mtime_nsec=451801164, st_ctime=1793543948 /* 2026-11-01T14:39:08.451801164+0000 */, st_ctime_nsec=451801164}, 0) = 0
+31605 chdir("/tmp/ti-capture/repo/bin") = 0
+31605 openat(AT_FDCWD</tmp/ti-capture/repo/bin>, "./tool2-lib.sh", O_RDONLY) = 3</tmp/ti-capture/repo/bin/tool2-lib.sh>
+31600 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=31605, si_uid=1001, si_status=0, si_utime=0, si_stime=1 /* 0.01 s */} ---
+31600 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7f69b3499990, parent_tid=0x7f69b3499990, exit_signal=0, stack=0x7f69b3099000, stack_size=0x3fa7c0, tls=0x7f69b34996c0} => {parent_tid=[31607]}, 88) = 31607
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/home/.gitconfig", O_RDONLY|O_NOCTTY|O_LARGEFILE|O_CLOEXEC) = 10</tmp/ti-capture/home/.gitconfig>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-shared-state", O_RDONLY|O_NOCTTY|O_LARGEFILE|O_CLOEXEC) = 10</tmp/ti-shared-state>
+31607 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7f69b3098990, parent_tid=0x7f69b3098990, exit_signal=0, stack=0x7f69b2c98000, stack_size=0x3fa7c0, tls=0x7f69b30986c0} <unfinished ...>
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/tmp/ti-capture/repo/.git/HEAD", O_RDONLY|O_NOCTTY|O_LARGEFILE|O_CLOEXEC) = 10</tmp/ti-capture/repo/.git/HEAD>
+31607 <... clone3 resumed> => {parent_tid=[31608]}, 88) = 31608
+31600 access("/tmp/ti-capture/repo/lib/missing.txt", F_OK) = -1 ENOENT (No such file or directory)
+31600 openat(AT_FDCWD</tmp/ti-capture/repo>, "/proc/self/status", O_RDONLY|O_NOCTTY|O_LARGEFILE|O_CLOEXEC) = 8</proc/31600/status>
+31600 bind(8<socket:[40223]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("127.0.0.1")}, 16) = 0
+31600 getsockname(8<socket:[40223]>, {sa_family=AF_INET, sin_port=htons(34391), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+31600 getsockname(8<socket:[40223]>, {sa_family=AF_INET, sin_port=htons(34391), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+31600 getsockname(8<socket:[40223]>, {sa_family=AF_INET, sin_port=htons(34391), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+31600 getsockname(8<socket:[40223]>, {sa_family=AF_INET, sin_port=htons(34391), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+31600 getsockname(8<socket:[40223]>, {sa_family=AF_INET, sin_port=htons(34391), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+31600 connect(10<socket:[41347]>, {sa_family=AF_INET, sin_port=htons(34391), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS (Operation now in progress)
+31600 getsockname(11<socket:[41348]>, {sa_family=AF_INET, sin_port=htons(34391), sin_addr=inet_addr("127.0.0.1")}, [128 => 16]) = 0
+31600 connect(8<socket:[40225]>, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("192.0.2.1")}, 16) = -1 EINPROGRESS (Operation now in progress)

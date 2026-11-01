@@ -58,6 +58,18 @@ describe('always_run selection', () => {
     expect(l.err).not.toContain('PREGATE_NO_LANE');
   });
 
+  test('GST-233: a branch that drops a glob from the list still runs the merge base\'s entry', () => {
+    const repo = fixture({ tests: ['test/*-tripwire.test.js'] });
+    commit(repo, { [ALWAYS_RUN_PATH]: JSON.stringify({ tests: [] }), 'lib/util.js': 'exports.add = (a, b) => a + b + 0;\n' });
+    const r = lanes(repo);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain(`test/tree-tripwire.test.js (always_run, merge base ${ALWAYS_RUN_PATH})`);
+
+    const gone = fixture({ tests: ['test/*-tripwire.test.js'] });
+    commit(gone, { [ALWAYS_RUN_PATH]: null, 'lib/util.js': 'exports.add = (a, b) => a + b + 0;\n' });
+    expect(lanes(gone).out).toContain(`test/tree-tripwire.test.js (always_run, merge base ${ALWAYS_RUN_PATH})`);
+  });
+
   test('a malformed list stops with a message naming the file and the fix', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-always-run-'));
     try {

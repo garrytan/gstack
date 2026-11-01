@@ -237,6 +237,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/state-matrix-6792/**': ['test/state-matrix.test.ts'],
   'test/fixtures/pregate-timing/**': ['test/pregate-timing.test.ts'],
   'test/fixtures/skillify-narration/**': ['test/skill-fixture.test.ts'],
+  'test/fixtures/test-impact/capture.strace': ['test/test-impact-trace.test.ts'],
   'test/fixtures/test-value-seam-evidence.json': ['test/test-value-bar.test.ts'],
   'test/fixtures/third-party-actions-manual-wording.json': ['test/third-party-actions.test.ts'],
   'test/fixtures/third-party-actions-opus-consent-renders.json': ['test/third-party-actions.test.ts'],
