@@ -210,12 +210,12 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
   }, 90_000);
 
   test('reap reports a failed list and a failed destroy as failures; UBI_TTL_HOURS rejects leading zeros and more than three digits', () => {
-    const f = fakeVm({ listed: 'eu-central-h1 ubirun-other-1000000000-bbbb-t1\n' });
+    const f = fakeVm({ listed: 'eu-central-h1 ubirun-thrd1-1000000000-bbbb-t1\n' });
     try {
-      writeFileSync(join(f.root, 'bin/curl'), '#!/usr/bin/env bash\nout=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\nbody=$(cat)\ncase "$body" in\n  *\'"list"\'*) echo "eu-central-h1 ubirun-other-1000000000-bbbb-t1" > "$out"; printf 200 ;;\n  *\'"show"\'*) printf \'state: running\\nsize: standard-16\\nip4: 192.0.2.1\\n\' > "$out"; printf 200 ;;\n  *) echo "boom" > "$out"; printf 500 ;;\nesac\n');
+      writeFileSync(join(f.root, 'bin/curl'), '#!/usr/bin/env bash\nout=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\nbody=$(cat)\ncase "$body" in\n  *\'"list"\'*) echo "eu-central-h1 ubirun-thrd1-1000000000-bbbb-t1" > "$out"; printf 200 ;;\n  *\'"show"\'*) printf \'state: running\\nsize: standard-16\\nip4: 192.0.2.1\\n\' > "$out"; printf 200 ;;\n  *) echo "boom" > "$out"; printf 500 ;;\nesac\n');
       const destroyFails = run(f, ['reap']);
       expect(destroyFails.exitCode).toBe(1);
-      expect(destroyFails.stderr.toString()).toContain('failed to reap eu-central-h1/ubirun-other-1000000000-bbbb-t1');
+      expect(destroyFails.stderr.toString()).toContain('failed to reap eu-central-h1/ubirun-thrd1-1000000000-bbbb-t1');
       expect(destroyFails.stderr.toString()).toContain('reap: 1 of 1 expired VMs could not be destroyed');
       writeFileSync(join(f.root, 'bin/curl'), '#!/usr/bin/env bash\nout=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\ncat >/dev/null; echo "down" > "$out"; printf 503\n');
       const listFails = run(f, ['reap']);

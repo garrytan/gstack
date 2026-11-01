@@ -1002,8 +1002,8 @@ VM. `/ubicloud` runs it there through one entry point, `bin/gstack-ubi`
 (`scripts/ubicloud/ubi-runner.sh`), with the discipline a shared quota needs:
 every VM is named `ubirun-<owner>-<epoch>-<suffix>-t<hours>`, so its owner
 (`UBI_OWNER`, required to create one) and TTL (`UBI_TTL_HOURS`, default 3) are
-visible to everyone; every `up` first reaps VMs whose TTL ended, whichever owner
-made them, and its own owner's VMs with no TTL once they are 4 hours old; every run
+visible to everyone; every `up` first reaps its own owner's VMs whose TTL ended,
+and those with no TTL once they are 4 hours old, never another owner's; every run
 ends with `UBICLOUD: left=0` or fails; the
 quota preflight refuses before the create request when the project's running
 VMs plus the new size exceed the known ceiling (`UBI_QUOTA_VCPUS`, or the
@@ -1026,7 +1026,7 @@ Claude: UBICLOUD_API_KEY: set; UBI_OWNER=lane7
         gstack-ubi verify  (.gstack/ubicloud.json: bootstrap.sh, "bash scripts/verify.sh", standard-16)
         ubi-runner: reap: no expired VMs
         ubi-runner: creating eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3 (standard-16)
-        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (any later run of this script reaps it); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
+        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (this owner's next up or reap destroys it once it expires); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
         ubi-runner: heartbeat: command 300s elapsed, last output 2s ago
         ubi-runner: command exited 0 after 1140s
         ubi-runner: destroyed eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3

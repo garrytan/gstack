@@ -50,6 +50,7 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       const err = r.stderr.toString();
       expect(r.exitCode, err).toBe(0);
       expect(err).toMatch(/UBICLOUD: left=0 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n/);
+      expect(err).toMatch(/carries a 3h TTL \(this owner's next up or reap destroys it once it expires\); if this process dies first: /);
       expect(f.listed()).toBe('eu-central-h1 ubirun-thrd1-9999999999-sib1-t3\n');
       // Value: protects=UBI_LEFT_FILE carries the same leftover line pregate-remote.sh parses, apart from the command's output; fails_when=the file is not written or its format drifts from pregate-remote.sh's parser; why_new=the pregate stub hand-copies the format; seam=none; no_claim=real VM teardown (fake API and ssh)
       expect(readFileSync(leftFile, 'utf8')).toMatch(/^UBICLOUD: left=0 owner=thrd1 vm=ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3 others=1\n$/);
