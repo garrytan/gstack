@@ -68,7 +68,10 @@ const forkPoint = (cwd: string, base: string) => git(cwd, ['merge-base', `origin
 function merge(cwd: string, base: string, r: Report): boolean {
   const policy = shipPolicy(cwd, base);
   const stampAtMerge = policy?.queue_mode === 'stamp-at-merge';
-  const pending = stampAtMerge ? undefined : ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'].find(ref => fs.existsSync(path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', ref]).stdout.trim())));
+  const pending = stampAtMerge ? undefined : ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'].find(ref => {
+    const p = git(cwd, ['rev-parse', '--git-path', ref]);
+    return p.status === 0 && !!p.stdout.trim() && fs.existsSync(path.resolve(cwd, p.stdout.trim()));
+  });
   const unmerged = stampAtMerge ? [] : git(cwd, ['diff', '--name-only', '--diff-filter=U']).stdout.split('\n').filter(Boolean);
   if (pending) {
     r.stop(`an unfinished ${pending.replace(/_HEAD$/, '').toLowerCase().replace('_', '-')} is in progress (${pending}${unmerged.length ? `, conflicts in ${short(unmerged, 8)}` : ''}): resolve and commit it, or abort it, then rerun (Step 3)`);
