@@ -188,7 +188,7 @@ function pass(): number {
   const rangeBase = step === 'scoped' ? git(['rev-parse', '--verify', '--quiet', `${p.fix_range?.base ?? ''}^{commit}`])?.trim() : undefined;
   if (step === 'scoped' && !rangeBase) throw new BriefError('a scoped plan names no readable fix range base');
   const mergeBase = forkPoint(base);
-  const diffBase = flag('--diff-base') ?? (planArgs.includes('--adversarial-ran') ? rangeBase : undefined) ?? mergeBase;
+  const diffBase = (step === 'scoped' ? undefined : flag('--diff-base')) ?? (planArgs.includes('--adversarial-ran') ? rangeBase : undefined) ?? mergeBase;
   if (!diffBase) throw new BriefError(`no merge base between ${base} and HEAD`);
   const root = git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd();
   const extrasFile = flag('--extras');

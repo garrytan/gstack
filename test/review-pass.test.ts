@@ -591,6 +591,26 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(h.creates.map(c => c.title)).toContain('ship x22s1 red-team');
   }, 240_000);
 
+  // Value: protects=a scoped pass run the old way, with the Capy driver's diffBase set to the fix range, still gives the pending Step 11 voices the merge base and only the Red Team the range (GST-619); fails_when=--diff-base on a scoped step overrides the plan's bases and narrows the voices to the fix range;
+  //   why_new=#3670 merge fix-check (row 454): the driver's diffBase reached the voices on a scoped pass; seam=none; no_claim=a scoped pass after Step 11 ran, which reads the range throughout
+  test('a scoped pass given diffBase keeps the merge base for the Step 11 voices; only the Red Team reads the fix range', async () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+    const mergeBase = sh('git merge-base main HEAD').stdout.trim();
+    const rangeBase = sh('git rev-parse HEAD').stdout.trim();
+    expect(sh('echo "export const fix = 2;" >> src/a.ts && git commit -qam fix').status).toBe(0);
+    const out = path.join(dir, '.state/run/s2');
+    const planFlags = ['--pass', '1', '--last', 'full', '--fixed-blocking', '--pass1-depth', 'standard', '--range-base', rangeBase];
+    const res = await runPass(host(dir, env), { base: 'main', out, pass: 'x22s2', diffBase: rangeBase, planFlags });
+    expect(res).toContain('next=scoped');
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as { diff_base: string; readers: { role?: string; stage: string; diff_base?: string }[] };
+    expect(m.diff_base).toBe(mergeBase);
+    expect(m.readers.find(r => r.role === 'red-team')!.diff_base).toBe(rangeBase);
+    const voices = m.readers.filter(r => r.stage === 'voices');
+    expect(voices.length).toBeGreaterThan(0);
+    for (const v of voices) expect(v.diff_base ?? m.diff_base).toBe(mergeBase);
+  }, 240_000);
+
   // Value: protects=the program's final NEXT line survives a return that its reader outputs push to the 32 KB cap, and a pass whose out is not <run dir>/<pass dir> says it skipped the parts; fails_when=finish() cuts the tail line, the room ignores the parts trailer, or parts are skipped without a line;
   //   why_new=#3670 Step 11 (outside voice 2, adversarial 2 and 6); seam=none; no_claim=what the parent does with a capped return
   test('a near-cap return still ends with its NEXT line, and an odd out prints PARTS: skipped', async () => {
