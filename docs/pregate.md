@@ -182,9 +182,10 @@ Two stages with separate clocks, both printed:
   changed Python (`.py`, `.pyi`) or Dart file is scanned whole and only
   findings on its added lines count, so a line added inside an existing
   `"""` or `'''` string is still read as a literal; its rows give the file's
-  line number (`app.py, line 10`). The whole text is the version git diffed
-  (a full-context `git diff`), never the working copy; a file whose full diff
-  does not parse is scanned on its added lines alone, without that context.
+  line number (`app.py, line 10`). A tracked file's whole text is the version
+  git diffed (a full-context `git diff`), never the working copy; an untracked
+  file is read whole from disk. A file over the size limit, or whose full diff
+  does not parse, is scanned on its added lines alone, without that context.
 - `strays`: a new file at the repository root, a new top-level directory, or a
   scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
