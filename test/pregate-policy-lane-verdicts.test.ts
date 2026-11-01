@@ -102,6 +102,16 @@ describe('warn: ["lanes"] never lets a red test pass (GST-775 bug 2)', () => {
     expect(r.row.detail).toContain('lib/orphan.js');
     expect(r.row.detail).toContain('downgraded to warn');
   });
+
+  // Value: protects=a selected test this machine cannot run stays a requires-remote obligation under the downgrade, never a warn or a
+  //   pass; fails_when=withNoLaneWarning turns an unrun platform lane into warn; why_new=new arm; seam=none; no_claim=none
+  test('a selected test only a platform lane runs stays requires-remote, coded PREGATE_NO_LANE', () => {
+    const repo = fixture({ pregate: warnLanes });
+    commit(repo, { ...UNMAPPED, 'test/windows-paths.test.js': "const test = require('node:test');\ntest('windows paths again', () => {});\n" });
+    const r = lanes(repo);
+    expect([r.row.status, r.row.code]).toEqual(['requires-remote', 'PREGATE_NO_LANE']);
+    expect(r.row.detail).toContain('lib/orphan.js');
+  });
 });
 
 describe('a [] declaration does not skip a deleted test\'s owning suite (GST-775 bug 3)', () => {
