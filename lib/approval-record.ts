@@ -77,7 +77,7 @@ export function locate(o: { cwd: string; env: Env; branch?: string }): StoreLoca
   }
   if (!branch) return { code: 'APPROVAL_RECORD_NO_BRANCH', message: `no branch at ${o.cwd} (detached HEAD or not a git repository)` };
   const stateRoot = resolveStateRoot(o.env);
-  const slug = slugFromEnvironment(stateRoot, o.cwd) || 'unknown';
+  const slug = slugFromEnvironment(stateRoot, o.cwd, { scope: 'repository' }) || 'unknown';
   const dir = path.join(stateRoot, 'projects', slug, 'approvals');
   const file = path.join(dir, `${branchKey(branch)}.jsonl`);
   if (!contained(stateRoot, file)) return { code: 'APPROVAL_RECORD_INVALID', message: `record path escapes the state root: ${file}` };
