@@ -2310,7 +2310,9 @@ default `fetch-depth: 1`), a remote branch never fetched
 first parent is missing from a shallow history. The tool never guesses a
 base, because an empty diff against a wrong or absent base would read as "no
 gate edits" and pass review. `gstack-diff-scope` prints `SCOPE_ERROR=no_base`
-(all flags false, exit 2) for the same cause.
+(all flags false, exit 2) for the same cause, and also when no base was given
+and none resolves because `origin/HEAD` names the checked-out branch and no PR
+base, `origin/main` or `origin/master` exists (its comment line says so).
 
 **Fix.** Run the command the line prints. It is built for this checkout:
 `git fetch origin +<branch>:refs/remotes/origin/<branch>` for an unfetched
@@ -5224,7 +5226,9 @@ no local `main` (GST-774). The detail names the base, the head, and the real
 base (the PR's base from `gh`, else `origin/main`, else `origin/master`). For
 a pull request's head the queue refuses whenever the base contains it. On the
 base branch itself, on a detached HEAD, and on a fresh branch with no commits
-past its base, the step runs as before.
+past its base, the step runs as before. `gstack-diff-scope` reports it as
+`SCOPE_ERROR=base_contains_head` (all flags false, exit 2) with the reason on a
+comment line.
 
 **Fix.** Pass the real base (`--base main`, or the PR's base branch). When
 `origin/HEAD` names the checked-out branch, `git remote set-head origin main`
