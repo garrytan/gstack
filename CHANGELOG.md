@@ -1,5 +1,95 @@
 # Changelog
 
+## [1.92.20.0] - 2026-11-01
+
+**`/retro global` now sees Kimi Code, OMP and Antigravity sessions (#2917, #1977).** `gstack-global-discover` scanned only Claude Code, Codex and Gemini. A week spent in other agent CLIs went uncounted, and nothing showed a zero to notice.
+
+### Added
+- **Kimi Code** (`~/.kimi-code/session_index.jsonl`, window by `state.json` updatedAt, repo by workDir) and **OMP** (`~/.omp/agent/sessions/*/*.jsonl`, window by file mtime, repo by the cwd in the session file; `~/.omp/logs` is never counted) are counted per repo.
+- **Antigravity** (`~/.gemini/antigravity-cli/conversations/*.db`) is counted by the later of each database's and its `-wal` file's mtime. Its sessions count in `total_sessions` but belong to no repo, because the CLI stores the working directory inside an undocumented blob.
+
+### Changed
+- **One scanner registry** drives the JSON, the summary and the stderr line. Every registered tool appears in `tools`, zeros included, with a `label`. Antigravity's entry carries `unattributed: true`. Existing keys (`claude_code`, `codex`, `gemini`) keep their paths, and each repo's `sessions` lists every attributed tool.
+- **/retro global** builds its session counts and Tool Usage Analysis from that list. A tool missing from an older saved retro counts as 0.
+
+Thanks to @richardiitse (#2917) and @Akagilnc (#1977) for the reports and the store layouts.
+
+## [1.92.19.0] - 2026-11-01
+
+**On Linux and Windows the renderer goes straight to gstack's own browser instead of asking for Aside (#2864).** `probeAside()` in `lib/aside-render.ts`, used by /make-pdf, /diagram and `gstack-render`, used to run `aside --version` on any platform. When that failed it told the user to install a browser that only ships for macOS. Off macOS it now answers `NEEDS_ASIDE` with "Aside is macOS-only (this is linux)", without starting a process, and the renderer moves on to gstack's own browser. macOS behavior and `GSTACK_SKIP_ASIDE=1` are unchanged.
+
+### Changed
+- **`probeAside(timeoutMs, platform)`** takes the platform, which defaults to `process.platform`. The fake-CLI probe tests pass `darwin`, so they still run on Linux CI.
+
+Thanks to @furkankoykiran for the report. The bash readiness block inside browsing skills already prints `NEEDS_ASIDE: Linux` and is unchanged.
+
+## [1.92.18.0] - 2026-11-01
+
+- `install.sh --project` (through `gstack-capy-install`) resolves the directory it names to its git toplevel, which is where pregate admission looks for the install verdict. `--project <repo>/<subdir>` now writes, and reads pins from, the same place as `--project <repo>`, so a Bun pin declared only in a subpackage no longer applies. A value that isn't a directory, such as a repo slug or a directory this shell can't enter, is a usage error that asks for the checkout's path, and it stops before anything is cloned or installed. Before this change, a slug or a subdirectory keyed the verdict somewhere admission never looks, so a later pregate admission check read a stale verdict (GST-743).
+
+## [1.92.17.0] - 2026-11-01
+
+- `gstack-review-dispatch pass` takes the readers' diff base from the merge base with `origin/<base>`, the same base the review plan scores and the targeted reader checks. Before, a local `<base>` branch that lagged `origin/<base>` gave every brief the stale merge base, so reviewers read upstream commits the branch only inherited (GST-716).
+
+## [1.92.16.0] - 2026-11-01
+
+**/ship no longer pays for a second review loop when only main moved, a test file changed, or the docs audit's own requested fix landed.** Each of these used to count as a product change: a base merge after review (`ROUTE: … behavior=86` on gbrain #7739), main rewording the line next to a reviewed hunk (#3631, founderstar#441), a test-only fix (gbrain #8084), and a one-line index link the audit asked for (gbrain #8087). Each one cost another ~$19 loop or an owner's documentation exception. A real product change still sends the PR back through the full loop (GST-407, GST-384, GST-391).
+
+### Changed
+- **`gstack-ship-release finish --reviewed-base <sha>`** (the merge base /ship now saves with the reviewed tree) compares the branch's own patch per path. Paths only the base moved count as `base=`. A test code edit that only adds lines, with no gate edit (a skipped test, a snapshot or a relaxed gate value), counts as `tests=`: one fix-check reviewer reads its test hunks in the scoped-review packet, and the lanes rerun it, instead of the full loop. No test edit skips review. Name-only test conventions (`test_*.py`, `*Test.java`, `*Tests.swift`) count only under a test directory, so a product file named like a test takes the full loop. A removed or changed line, such as a weakened assertion, or a test file the scan cannot read still goes through the full loop. Without the flag the route is unchanged and prints `base=unknown`.
+- **A version stamp after review counts as release metadata.** `finish` used to read a slot stamp in `stamp_files` paths (a plugin.json `"version"` line, a stamp comment in a doc) as a behavior and docs change, so it stopped for the loop (`ROUTE: … behavior=8 docs=5` on gbrain #8095). A `stamp_files` path whose only edit swaps the old version for the new one, under a built-in form or a `stamp_patterns` template, is now metadata, the same rule the tree receipt and carry use. Any other edit to that path still stops.
+- **Adjacent base edits get a scoped review, not the full loop.** When the branch's +/- lines are the reviewed ones in the same places and only context lines the base edited differ, `finish` stops with `context=N` and `gstack-ship-receipt carry` with `RECEIPT_CARRY_SCOPED_REVIEW`. Both write a packet with just those hunks. A packet section over 200 lines is too large for one reviewer, so that path takes the full loop instead. After one fix-check reviewer comes back clean, `--context-reviewed <record>` or `carry --scoped-review <record>` continues, and the carry reason names the reviewer. The same lines moved somewhere else are still a product change.
+- **Docs audit freshness** ignores test code and paths only the base moved. `--docs-requested <path> --docs-result <audit result>` carries a fix the audit's own result asked for when its blockers or decisions name that exact path, the edit is at most 5 lines, and the doc caps still pass.
+- **`gstack-docs-candidate attempt <child output> --state <file>`** says whether an audit launch counts against Step 14.5's budget. A launch the child's install check refused is not counted, once per invocation. A second refusal stops for the install fix.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts` reproduces each trigger and runs the negative controls: a product edit, a changed conflict resolution, the same line moved to another place (with and without a base change), a skipped test, and product files named `café.ts` and `[id].ts`.
+
+## [1.92.15.0] - 2026-11-01
+
+bump: minor
+
+- Plan reviews check facts and keep one task list. `gstack-plan-reality check` now opens every `file:line` receipt and reports a missing file or out-of-range line as `REALITY_RECEIPT_UNRESOLVED` (#973). The /office-hours spec reviewer reads the repository, checks command flags through `gstack-office-hours-review probe --help <command>` (gstack bins that handle `--help` and a short list of common CLIs with their built-in subcommands only, run without your keys or tokens and never from a repository-local path; everything else is refused with `OFFICE_HOURS_PROBE_REFUSED`) and writes out the arithmetic behind any number it questions (#973). A plan-review rerun reconciles the last task list through the new `gstack-tasks` (`prior`, `add`, `supersede`), with task text written to a file rather than a command line, an empty list now means "ran, no findings", and `add` refuses while an earlier task is neither carried nor closed, so /autoplan's aggregate no longer drops an open task or shows a stale one (#1791).
+- /office-hours saves the approved wireframe beside the design doc and names it on a `Wireframe:` line, and /plan-design-review finds the design doc and rates the plan against that image (#340). /plan-eng-review and /plan-ceo-review tie storage to the data's queries, constraints and update boundaries rather than file count (#1048). The office-hours closing names the founder signals it counted before the note (#513).
+
+## [1.92.14.0] - 2026-11-01
+
+**A repository inside another repository can now be its own project: create an empty `.gstack-project` file in it.** gstack files each project's checkpoints, learnings and decisions under the outermost repository's slug, so a repo checked out inside a workspace repo filed its memory under the workspace and `/context-restore` couldn't find it later (#2649: 5 of one user's 16 nested repos, one with 73 checkpoints). The same marker in a plain folder above several repos gives them one shared memory, so a plan made in the umbrella carries into the repo where you build it (#1923). Nothing changes for anyone who doesn't create the file, and `GSTACK_PROJECT_SLUG` still wins.
+
+### Added
+- **`.gstack-project` marker.** The innermost marker on the way up from the current folder makes its folder the project root. The slug is that folder's own remote, or its name when it has none. A marker counts only when it is a regular file you own, in a folder whose name has a letter or digit, not in your home folder itself or above it, and at a repository's top folder or in a folder outside every repository. So a cloned repository can't plant one in a subfolder to pick another project's bucket. `gstack-slug --identity` prints `PROJECT_MARKER=` and one `MARKER_IGNORED=` line, with the reason, for each marker that didn't count; `--get PROJECT_MARKER` works too.
+- **`gstack-slug --adopt-legacy --from <slug> --under-root [--apply]`** previews, then copies and restamps, the checkpoints an old bucket holds that were saved inside the marked folder, so `/context-restore` finds them. The first run after you add a marker names the command when the old bucket holds checkpoints. A nested repo with its own remote and no marker gets a one-time hint on its first resolve.
+
+### Changed
+- **Marker results have their own cache entries** (`slug-cache/marker/`), so deleting the marker restores the folder's earlier slug byte for byte. A linked worktree outside an umbrella follows it through its main checkout, from its first run, for as long as the marker counts.
+- **`browse/bin/remote-slug` follows a counted marker**, linked worktrees included, so the design-doc lookups in /plan-ceo-review, /plan-devex-review, /autoplan and the spec review find docs where /office-hours saved them.
+- **Records that belong to one repository ignore every marker**: pregate policy and run scratch, approvals, `/verify` results, the review log, the `/ship` spend-cap pointer, the cached repo mode and the Greptile early-push answer stay under the repository's own slug (`gstack-slug --get REPO_SLUG`, `slugFromEnvironment(..., { scope: 'repository' })`), so a branch that commits a marker can't change which policy applies.
+
+### Tests
+- `test/gstack-slug-project-marker.test.ts`: 29 cases for the bash resolver, its TS twin and remote-slug (nested repo, umbrella, innermost wins, env wins, cache restored on removal, ignored subfolder, link, directory and `$HOME` markers, hostile origin, worktree outside the umbrella (resolved before or after its main checkout), scoped checkpoint recovery that never replaces an existing file, folder names with no usable letters, cache keys that differ only by `/` and `_`, a non-ASCII parent in the C locale, repo mode, the review log and the spend-cap pointer under a marker, recovered checkpoints keeping their repository, a remote-less repo's linked worktrees, hook reader, cross-writer entries, repository scope). The cases that expect a marker to take effect fail on the previous code; the ignored-marker cases are controls that pass on both.
+
+## [1.92.13.0] - 2026-11-01
+
+- `/ship`'s preflight no longer runs `git merge` when `origin/<base>` is already in HEAD. It checks `git merge-base --is-ancestor` first and reports `MERGE: up to date`, so a checkout whose guard refuses `git merge` (a shared machine) gets past Step 3 when there is nothing to merge. A moved base still merges (GST-691).
+
+## [1.92.12.0] - 2026-11-01
+
+**When the merge queue gets long, 3 to 6 PRs from one part of the code can now land as one wave PR: one /ship, one READY, one train slot and one version.** Every slot in a train pays for its own stamp commit, its own round of about 12 required workflow runs (about 15 minutes, one slot after another) and its own version. The last 10 merged trains landed 26 PRs this way, with 16 to 24 READY PRs waiting at every build (refs/notes/gstack-trains; gate runs 41165841909 to 41217563527). Garry's rule R46 (2026-10-31) asks every Captain to group functional areas into wave PRs when queues get long. `gstack-ship-queue wave` now does this inside gstack's own train tooling, so crews get it from gstack instead of from prose (GST-574).
+
+### Added
+- **`gstack-ship-queue wave plan`** (read-only) counts the live READY PRs (open, head equal to their READY receipt). Over 6, it prints `WAVE_ADVISED` and suggested groups of 3 to 6. PRs that change a common file always share a group. Each group takes its largest PR's area (a skill directory, the first word of a `lib/`, `bin/` or `test/` module name, or `docs`), and its integrator is the PR with the most changed lines. `train build` prints the same `WAVE_ADVISED` line when handed more than 6 pins. It is advice, never a refusal.
+- **`wave build --prs <n>@<sha>,...`** makes the integrator branch `wave/<nonce>`. It merges each constituent's pinned head onto main with the train's merge rules, as a merge commit whose second parent is the pin, so no constituent is rebased or squashed. It writes the wave record to `refs/notes/gstack-trains` before pushing and leaves one "frozen in wave" comment on each constituent. A conflict stops with `QUEUE_WAVE_CONFLICT` and leaves the merge in a worktree under the state root. `--continue` takes the integrator's committed resolution only when that commit merges exactly that pin. `--drop <pr>` rebuilds the wave without one PR on a new branch (never a force-push), and refuses with `QUEUE_WAVE_DEPENDENT` when another pin contains the dropped one. A drop that would leave fewer than 3 PRs, or `--release`, ends the wave so its PRs ride alone. Both wait until the wave PR is closed, because a train that already admitted it would still land it. Stacked PRs (whose base is another branch) cannot join a wave.
+- **`ready` and `train build` check a wave PR before it gets a slot.** They walk the wave branch back to its recorded base: every pin must be merged unchanged and in order, any other merge is refused, and every constituent must still be open at its pin. Otherwise they refuse with `QUEUE_WAVE_MOVED`. Train land's stamp commits after the last constituent are allowed, so a stamped wave is re-READY'd like any stamped PR. They refuse with `QUEUE_WAVE_UNKNOWN` when a `wave/` branch has no record, and with `QUEUE_WAVE_DUPLICATE` when a constituent of a live wave is READY'd or trained on its own, so it cannot land twice. READY gains `WAVE:` and `CONSTITUENTS:` lines. After that the wave PR is an ordinary slot: `train land`, `verify`, the stamp and the backstop are unchanged.
+- **`wave settle --wave <nonce>`** runs after the wave PR merges. It takes only a wave PR merged into the base branch, and checks that the merge commit is on that branch and carries the wave head (its tree, or the head merged onto the commit before it when the train merged the PR directly). Each constituent still at its pin gets a "Landed in wave #W as vX" comment, naming any integrator commits or hand-resolved merges that touched its files, and is closed if its head has not moved since. A constituent whose head moved stays open with a comment saying its newer work did not land. Reruns post nothing twice, and `--dry-run` shows what it would do.
+- `docs/ship-policy.md#wave-prs`, the merge-train section of `docs/captain.md`, the `/captain` skill, the READY template's `WAVE` lines and a `WAVE_TRIGGER` crew parameter. Seven new result codes, each with a troubleshooting entry.
+
+### Tests
+- `test/ship-queue-wave.test.ts` runs the real bin against the train fixture. It covers area and grouping rules; a wave build's merge chain, record, push and notices; size and moved refusals; a conflict, an early `--continue` refused, then a resolution; `--drop` as a new wave, its dry run, its dependent refusal and a drop under the minimum releasing the wave; a stacked constituent refused; `ready` and `train build` reading a wave from a record rebuilt from notes, with moved, duplicate (a constituent alone included) and unknown refusals; a wave head carrying train stamps; `WAVE_ADVISED` and `wave plan`; and `wave settle` refusing a merge into another branch, walking two stacked stamps, naming a hand-resolved merge, closing, leaving open and staying idempotent.
+
+## [1.92.11.0] - 2026-11-01
+
+- **Design mockups with Gemini when there's no OpenAI key (#990).** `/design-shotgun`, `/design-review`, `/plan-design-review` and `/design-html` used to fall back to HTML wireframes without an OpenAI key, and since OpenAI began requiring ID verification for every image model, even a new OpenAI key often made nothing. The design binary now uses Google's Gemini (`gemini-nano-banana-2.1` for images, `gemini-3.8-flash` for reading screenshots) when no OpenAI key is set. Get a free key at https://aistudio.google.com/apikey, then `export GEMINI_API_KEY=...` or run `$D setup --provider gemini`. OpenAI stays the default whenever its key exists; `GSTACK_DESIGN_PROVIDER=openai|gemini` picks one explicitly, and a failure on one provider is never retried on the other. Google calls are recorded in the egress ledger as `design-gemini` (hash and byte count only). On Google's free tier, prompts and images may be used to improve Google's products, and `$D` says so once per run. `$D setup` now takes `--provider` and `--key-stdin`, so an agent with no terminal can store a key. Thanks to @nbzy1995 for the proposal and to the people in #990, #998, #946, #881 and #777 for the ideas; no outside code was carried over.
+
 ## [1.92.10.0] - 2026-11-01
 
 **/ship's scoped second pass runs again, and its Red Team reviews the fix range while Step 11's voices still read the whole branch.** After a blocking fix on a small range, `gstack-review-plan` plans a scoped pass: one fix-check, the Red Team and the native adversarial pass on the range. `gstack-review-dispatch pass` refused that plan with `BRIEF_RENDER_FAILED: a pass dispatches no fix-check reader`, because a fix-check is not a pass reader. Every scoped pass failed this way, and GEVA-82 rendered its briefs by hand to get through (GST-619). Even past that refusal, the pass would have staged its Red Team on the merge base, because the Capy pass program never passes `--diff-base`.
