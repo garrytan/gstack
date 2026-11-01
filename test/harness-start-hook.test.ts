@@ -545,6 +545,12 @@ describe('start hook: HARN-18 smoke defects (GST-778)', () => {
       expect(r.calls()).toEqual([]);
       expect(fs.existsSync(path.join(r.profile, 'skills'))).toBe(true);
       expect(readLedger(res.ledger)!.meta.hook_active).toBe('no');
+      const bare = rig(t, { fresh: true, noCli: true });
+      const noCli = register(bare.o({ startHook: true })).hook;
+      expect(noCli).toMatchObject({ state: 'written', required: true });
+      expect(noCli?.detail).toContain(t + ' is not on PATH');
+      expect(noCli?.fix).toContain(t === 'openclaw' ? 'openclaw onboard' : 'hermes setup');
+      expect(noCli?.fix).not.toContain(t === 'openclaw' ? 'config set' : 'plugins enable');
     }
   }, 300_000);
 

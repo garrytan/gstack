@@ -120,7 +120,8 @@ function inspectConfig(t: HookTarget, profile: string, fix: string): HookResult 
   const why = t + ' is not on PATH';
   const written: HookResult = { state: 'written', detail: why + ', so gstack could not turn the plugin on or check it', fix };
   const cfg = hookConfig(t, profile);
-  if (!fs.existsSync(cfg)) return written;
+  const missing = noConfig(t, profile);
+  if (missing) return { ...missing, detail: why + ' and ' + missing.detail };
   let plugins: any;
   try { plugins = ((t === 'hermes' ? Bun.YAML.parse(fs.readFileSync(cfg, 'utf8')) : JSON.parse(fs.readFileSync(cfg, 'utf8'))) as any)?.plugins ?? {}; }
   catch { return { state: 'unknown', detail: why + ' and ' + cfg + ' could not be parsed, so gstack could not check the plugin', fix: 'gstack-harness status from a shell where ' + t + ' is on PATH' }; }
