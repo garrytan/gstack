@@ -210,7 +210,7 @@ The skill re-collects a PAT (one-time, discarded after), lists every project in 
 
 | Bin | Purpose |
 |---|---|
-| `gstack-gbrain-detect` | Emit current state as JSON: gbrain on PATH, version, config engine, doctor status, sync mode |
+| `gstack-gbrain-detect` | Emit current state as JSON: gbrain on PATH, version, config engine, doctor status, sync mode. `--doctor` runs the full brain-health gate that `/setup-gbrain` Step 5 uses (`gbrain doctor --json --scope=brain`); it prints `brain_ok`, `brain_failures` and `skill_failures`, and exits 0 only when `brain_ok` is true. Failed skill checks (gbrain grading another agent's skills folder) never decide `brain_ok`. |
 | `gstack-gbrain-install` | Detect-first installer (probes `~/git/gbrain`, `~/gbrain`, then fresh clone). Has `--dry-run` and `--validate-only` flags. PATH-shadow check exits 3 with remediation menu. |
 | `gstack-gbrain-lib.sh` | Sourced, not executed. Provides `read_secret_to_env VARNAME "prompt" [--echo-redacted "<sed-expr>"]` |
 | `gstack-gbrain-supabase-verify` | Structural URL check. Rejects direct-connection URLs (`db.*.supabase.co:5432`) with exit 3 |
@@ -226,7 +226,7 @@ Gbrain itself ships with these that gstack wraps:
 |---|---|
 | `gbrain init --pglite` | Initialize a local PGLite brain |
 | `gbrain init --non-interactive` | Initialize via env (`GBRAIN_DATABASE_URL` or `DATABASE_URL`). Never pass a URL as argv — it'll leak to shell history. |
-| `gbrain doctor --json` | Health check. Returns `{status: "ok"|"warnings"|"error", health_score: 0-100, checks: [...]}` |
+| `gbrain doctor --json` | Health check. Returns `{status: "healthy"|"warnings"|"unhealthy" (older gbrain: "ok"), health_score: 0-100, checks: [...]}`. `--scope=brain` (gbrain v0.41.20+) skips the skill checks. |
 | `gbrain migrate --to supabase --url ...` | Move a PGLite brain to Supabase (lossless, preserves source as backup) |
 | `gbrain migrate --to pglite` | Reverse migration |
 | `gbrain search "query"` | Search the brain |
