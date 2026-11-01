@@ -156,7 +156,7 @@ to it); everything else syncs. The held file stays queued and is re-scanned
 at every sync, and skill start prints:
 
 ```
-ARTIFACTS_SYNC: attention: status=held held=1. The secret scan is holding back 1 file(s); everything else still syncs. See which files and how to fix them: <bin> --status
+ARTIFACTS_SYNC: attention: status=held held=1. Sync is holding back 1 file(s) that the secret scan flagged or that are not valid JSON; everything else still syncs. See which files and how to fix them: <bin> --status
 ```
 
 To remediate:

@@ -38,9 +38,9 @@
 # applies; `ok` and `idle` print none. <bin> is this script's absolute path
 # and <N> the held count. Rows are read by test/gstack-skill-start.test.ts.
 #
-#   held         trigger: status=held: the secret scan held back flagged files and synced the rest
-#                line:    ARTIFACTS_SYNC: attention: status=held held=<N>. The secret scan is holding back <N> file(s); everything else still syncs. See which files and how to fix them: <bin> --status
-#                fix:     edit the file so the scan no longer matches, or <bin> --skip-file <path> (permanent; undo with <bin> --unskip-file <path>)
+#   held         trigger: status=held: the secret scan or the JSON check held back flagged files and synced the rest
+#                line:    ARTIFACTS_SYNC: attention: status=held held=<N>. Sync is holding back <N> file(s) that the secret scan flagged or that are not valid JSON; everything else still syncs. See which files and how to fix them: <bin> --status
+#                fix:     edit the file so the scan no longer matches (or repair a file that is not valid JSON), or <bin> --skip-file <path> (permanent; undo with <bin> --unskip-file <path>)
 #   blocked      trigger: status=blocked: a re-scan still flagged after the hold, so nothing was committed
 #                line:    ARTIFACTS_SYNC: attention: status=blocked. The secret scan flagged a file it could not hold back on its own, so nothing is syncing. See the fix: <bin> --status
 #                fix:     edit or skip the files named by <bin> --status, or clear the batch with <bin> --drop-queue --yes
@@ -144,7 +144,7 @@ remote_auth_hint() {
 # Status file schema (one JSON object; readers: --status, --attention, doctor):
 #   status        ok | idle | held | collision | blocked | push_failed | error
 #                 (collision: files were held only for case-colliding paths)
-#   held_count    files the secret scan held back this drain (hits + dependents)
+#   held_count    files the secret scan or the JSON check held back this drain (hits + dependents)
 #   case_held     queued files held because their path differs only by letter
 #                 case from another path in the repo or the batch
 #   case_names    the colliding path component names, comma-separated and
@@ -899,6 +899,8 @@ for rule, path in hits:
         "rule": rule,
         "dependents": deps,
         "fixes": [
+            f"{path} is not valid JSON (often git conflict markers from a merge); repair it and the next sync re-checks it"
+        ] if rule == "invalid-json" else [
             f"edit {path} so the secret scan no longer matches ({rule}); the next sync re-scans it",
             f"{self_bin} --skip-file {path}  (permanently excludes it{also} from future syncs; undo with {self_bin} --unskip-file {path})",
         ],
@@ -928,6 +930,33 @@ for path, rows in ((unstage_out, unstage), (wait_out, waiting)):
 PYEOF
 }
 
+# Append "invalid-json<TAB><path>" to the hits file $2 for every staged *.json
+# path in the NUL-separated names file $1 whose index blob does not parse
+# (#3763): a git merge can leave conflict markers in a synced JSON file, and
+# committing it spreads an unreadable file to every machine. A path the
+# secret scan already flagged is held for that reason alone.
+append_invalid_json_hits() {
+  python3 - "$GSTACK_HOME" "$1" "$2" <<'PYEOF'
+import json, subprocess, sys
+home, names_path, hits_path = sys.argv[1:4]
+with open(names_path, "rb") as f:
+    names = [p for p in f.read().decode("utf-8", "surrogateescape").split("\0") if p.endswith(".json")]
+with open(hits_path, encoding="utf-8", errors="surrogateescape") as f:
+    flagged = {l.rstrip("\r\n").split("\t", 1)[-1] for l in f if "\t" in l}
+with open(hits_path, "a", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
+    for p in names:
+        if p in flagged:
+            continue
+        blob = subprocess.run(["git", "-C", home, "cat-file", "blob", ":" + p], capture_output=True)
+        if blob.returncode != 0:
+            continue
+        try:
+            json.loads(blob.stdout.decode("utf-8"))
+        except ValueError:
+            out.write("invalid-json\t" + p + "\n")
+PYEOF
+}
+
 # Fail closed: unstage everything, keep the queue, status blocked.
 block_drain() {
   git -C "$GSTACK_HOME" reset -q HEAD -- . >/dev/null 2>&1 || true
@@ -949,6 +978,7 @@ hold_flagged_paths() {
   git -C "$GSTACK_HOME" diff --cached --no-renames > "$scan.diff" 2>/dev/null || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames -z --name-only > "$scan.names" 2>/dev/null || rc=1
   [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" || rc=1; }
+  [ "$rc" -eq 0 ] && { append_invalid_json_hits "$scan.names" "$scan.hits" || rc=1; }
   # A successful add need not stage the requested spelling or current bytes
   # (case-insensitive indexes and assume-unchanged can both report success).
   # Reuse the scanner's name snapshot; refusal preserves the index and queue.
@@ -1293,11 +1323,13 @@ subcmd_once() {
   hold_flagged_paths "$paths_file" "$groups_file" || exit 0
   ST_DRAINABLE=$(( ADD_FAILED + WAITING ))
   [ "$WAITING" -gt 0 ] && ST_NOTE="$ST_NOTE; $WAITING file(s) of a coupled group wait for a consistent generation (still queued)"
-  local held_n ok_code="ok"
+  local held_n json_n ok_code="ok"
   held_n=$(printf '%s' "$ST_HELD" | grep -o '"rule"' | wc -l | tr -d ' ')
+  json_n=$(printf '%s' "$ST_HELD" | grep -o '"rule": "invalid-json"' | wc -l | tr -d ' ')
   if [ "$held_n" -gt 0 ]; then
     ok_code="held"
-    ST_NOTE="$ST_NOTE; the secret scan held back $held_n flagged file(s) (and any coupled files), NOT synced; see held[] for each file's fixes"
+    [ "$held_n" -gt "$json_n" ] && ST_NOTE="$ST_NOTE; the secret scan held back $(( held_n - json_n )) flagged file(s) (and any coupled files), NOT synced; see held[] for each file's fixes"
+    [ "$json_n" -gt 0 ] && ST_NOTE="$ST_NOTE; $json_n synced file(s) are not valid JSON (often git conflict markers) and were held back (and any coupled files), NOT synced and still queued; see held[] for each file's fixes"
     echo "BRAIN_SYNC: held $held_n flagged file(s); see $SELF_BIN --status" >&2
   elif [ "$ST_CASE_HELD" -gt 0 ]; then
     ok_code="collision"
@@ -1495,7 +1527,7 @@ subcmd_attention() {
   case "$last_push" in $iso) ;; *) last_push="" ;; esac
 
   case "$code" in
-    held) echo "ARTIFACTS_SYNC: attention: status=held held=$held. The secret scan is holding back $held file(s); everything else still syncs. See which files and how to fix them: $bin --status" ;;
+    held) echo "ARTIFACTS_SYNC: attention: status=held held=$held. Sync is holding back $held file(s) that the secret scan flagged or that are not valid JSON; everything else still syncs. See which files and how to fix them: $bin --status" ;;
     blocked) echo "ARTIFACTS_SYNC: attention: status=blocked. The secret scan flagged a file it could not hold back on its own, so nothing is syncing. See the fix: $bin --status" ;;
     push_failed) echo "ARTIFACTS_SYNC: attention: status=push_failed. Synced files are committed locally but the push failed; it retries at skill start. See the cause: $bin --status" ;;
     error) echo "ARTIFACTS_SYNC: attention: status=error. The last sync stopped before committing; the queue is kept and retried. See the cause: $bin --status" ;;
