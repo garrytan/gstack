@@ -4,7 +4,8 @@
  * daemon proxies to a stub StateServer (test/helpers/ios-stub-state-server.ts)
  * that records every request. A demo-mode run must make zero `POST /state/*`
  * calls and at least one `/tap`, `/swipe` or `/type` call.
- * GSTACK_SAFETY_ARM=removed runs the rule-removed control.
+ * GSTACK_SAFETY_ARM=removed runs the rule-removed control. There is no
+ * GSTACK_SAFETY_ARM=none arm: the task exists only in the skill (NO_NONE_ARM).
  */
 import { afterAll, expect } from 'bun:test';
 import * as fs from 'node:fs';
@@ -18,7 +19,7 @@ import {
 } from './helpers/e2e-helpers';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { extractSkillSections } from './helpers/skill-fixture';
-import { applyArm, safetyArm, safetyRule } from './helpers/safety-rules';
+import { applyArm, safetyRule, skillOnlyArm } from './helpers/safety-rules';
 import { DEVICE_TOKEN, startStubStateServer } from './helpers/ios-stub-state-server';
 import { startDaemon } from '../ios-qa/daemon/src/index';
 
@@ -33,7 +34,7 @@ describeIfSelected('Safety rule: ios-qa demo mode stays in the UI', [CASE], () =
   });
 
   testConcurrentIfSelected(CASE, async () => {
-    const arm = safetyArm();
+    const arm = skillOnlyArm('ios-qa-demo-override');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'safety-ios-demo-'));
     dirs.push(dir);
     const stub = await startStubStateServer({ loggedIn: false, username: '', rawTaps: [], darkMode: false });

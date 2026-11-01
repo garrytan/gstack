@@ -308,6 +308,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-ship-queue (screen verdicts, scratch-merge screens, prune --stale, watch, forget, verify --post-merge, ready --dispatch-ci, --stack-tests) against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
+    file: 'test/ship-queue-train-generic.test.ts',
+    reason: 'drives bin/gstack-ship-queue train build, verdict, land, watch, init and doctor against the same #!/bin/sh gh shim plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead (windows-free-shard 1, run 41218228855)',
+  },
+  {
     file: 'test/ship-policy-compat.test.ts',
     reason: 'spawns bin/gstack-ship-policy, bin/gstack-restamp and bin/gstack-tree-receipt (shebangs) through test/helpers/restamp-fixture.ts',
   },

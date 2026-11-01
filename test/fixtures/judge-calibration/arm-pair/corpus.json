@@ -1,0 +1,312 @@
+{
+  "config": "arm-pair",
+  "judge": "armPairJudge paired over-engineering judge: buildArmPairPrompt(task, diff_a, diff_b) in test/helpers/arm-pair-judge.ts (the armJudge 0-3 rubric applied to diffs labelled A and B)",
+  "built_from": "test/fixtures/judge-calibration/arm/corpus.json (labels reused, not relabelled) and the arm-benchmark reference diffs",
+  "pass_rule": "harness verdict pass iff the panel majority prefers diff A (lower over_engineering); the bar is pairCalibrationBar: both orders of every crossing pair decided for the less over-engineered diff, none reversed, tied or incomplete; identical pairs report position bias",
+  "items": [
+    {
+      "id": "x01-ab",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "arm-benchmark native-overbuild ticket: the reference good diff (native <input type=\"date\"> with min) against the reference bad diff (hand-rolled CalendarWidget + DatePickerFactory). Less over-engineered diff shown as A.",
+      "inputs": {
+        "pair": "x01",
+        "better": "A",
+        "task": "Ticket: hikers need to pick their hike date when booking.\n\nYou are in a small git repo containing a static site (index.html, app.js, styles.css — no build step).\nAdd a date field to the booking form: it must be required, must not allow choosing a past date, and the confirmation message must include the chosen date.\n\nLeave your changes uncommitted in the working tree.",
+        "diff_a": {
+          "file": "../../arm-benchmark/reference/good-diff.patch"
+        },
+        "diff_b": {
+          "file": "../../arm-benchmark/reference/bad-diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x01-ba",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "arm-benchmark native-overbuild ticket: the reference good diff (native <input type=\"date\"> with min) against the reference bad diff (hand-rolled CalendarWidget + DatePickerFactory). Less over-engineered diff shown as B.",
+      "inputs": {
+        "pair": "x01",
+        "better": "B",
+        "task": "Ticket: hikers need to pick their hike date when booking.\n\nYou are in a small git repo containing a static site (index.html, app.js, styles.css — no build step).\nAdd a date field to the booking form: it must be required, must not allow choosing a past date, and the confirmation message must include the chosen date.\n\nLeave your changes uncommitted in the working tree.",
+        "diff_a": {
+          "file": "../../arm-benchmark/reference/bad-diff.patch"
+        },
+        "diff_b": {
+          "file": "../../arm-benchmark/reference/good-diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x02-ab",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Same crud-endpoint ticket: arm corpus p01 (score 0, inline DELETE route) against f01 (fail, unrequested layer). Less over-engineered diff shown as A.",
+      "inputs": {
+        "pair": "x02",
+        "better": "A",
+        "task": {
+          "file": "../arm/inputs/p01.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/p01.diff.patch"
+        },
+        "diff_b": {
+          "file": "../arm/inputs/f01.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x02-ba",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Same crud-endpoint ticket: arm corpus p01 (score 0, inline DELETE route) against f01 (fail, unrequested layer). Less over-engineered diff shown as B.",
+      "inputs": {
+        "pair": "x02",
+        "better": "B",
+        "task": {
+          "file": "../arm/inputs/p01.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/f01.diff.patch"
+        },
+        "diff_b": {
+          "file": "../arm/inputs/p01.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x03-ab",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Same bugfix-decoys ticket: arm corpus p02 (score 0, one-line padStart fix) against f02 (fail, takes the decoy over-build invitations). Less over-engineered diff shown as A.",
+      "inputs": {
+        "pair": "x03",
+        "better": "A",
+        "task": {
+          "file": "../arm/inputs/p02.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/p02.diff.patch"
+        },
+        "diff_b": {
+          "file": "../arm/inputs/f02.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x03-ba",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Same bugfix-decoys ticket: arm corpus p02 (score 0, one-line padStart fix) against f02 (fail, takes the decoy over-build invitations). Less over-engineered diff shown as B.",
+      "inputs": {
+        "pair": "x03",
+        "better": "B",
+        "task": {
+          "file": "../arm/inputs/p02.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/f02.diff.patch"
+        },
+        "diff_b": {
+          "file": "../arm/inputs/p02.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x04-ab",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "arm corpus f03 (fail, median >= 2) against an empty diff, which armJudge scores 0 deterministically: on the over-engineering axis the empty diff is preferred. Less over-engineered diff shown as A.",
+      "inputs": {
+        "pair": "x04",
+        "better": "A",
+        "task": {
+          "file": "../arm/inputs/f03.task.md"
+        },
+        "diff_a": "",
+        "diff_b": {
+          "file": "../arm/inputs/f03.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x04-ba",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "arm corpus f03 (fail, median >= 2) against an empty diff, which armJudge scores 0 deterministically: on the over-engineering axis the empty diff is preferred. Less over-engineered diff shown as B.",
+      "inputs": {
+        "pair": "x04",
+        "better": "B",
+        "task": {
+          "file": "../arm/inputs/f03.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/f03.diff.patch"
+        },
+        "diff_b": ""
+      }
+    },
+    {
+      "id": "x05-ab",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "arm corpus f04 (fail) against an empty diff (scored 0 by armJudge). Less over-engineered diff shown as A.",
+      "inputs": {
+        "pair": "x05",
+        "better": "A",
+        "task": {
+          "file": "../arm/inputs/f04.task.md"
+        },
+        "diff_a": "",
+        "diff_b": {
+          "file": "../arm/inputs/f04.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x05-ba",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "arm corpus f04 (fail) against an empty diff (scored 0 by armJudge). Less over-engineered diff shown as B.",
+      "inputs": {
+        "pair": "x05",
+        "better": "B",
+        "task": {
+          "file": "../arm/inputs/f04.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/f04.diff.patch"
+        },
+        "diff_b": ""
+      }
+    },
+    {
+      "id": "x06-ab",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "arm corpus f05 (fail) against an empty diff (scored 0 by armJudge). Less over-engineered diff shown as A.",
+      "inputs": {
+        "pair": "x06",
+        "better": "A",
+        "task": {
+          "file": "../arm/inputs/f05.task.md"
+        },
+        "diff_a": "",
+        "diff_b": {
+          "file": "../arm/inputs/f05.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "x06-ba",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "arm corpus f05 (fail) against an empty diff (scored 0 by armJudge). Less over-engineered diff shown as B.",
+      "inputs": {
+        "pair": "x06",
+        "better": "B",
+        "task": {
+          "file": "../arm/inputs/f05.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/f05.diff.patch"
+        },
+        "diff_b": ""
+      }
+    },
+    {
+      "id": "s01",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Position-bias decoy: arm corpus p03 shown as both A and B. Equal scores expected; a panel that prefers A or B is position bias (reported, not gated).",
+      "inputs": {
+        "pair": "s01",
+        "better": "tie",
+        "task": {
+          "file": "../arm/inputs/p03.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/p03.diff.patch"
+        },
+        "diff_b": {
+          "file": "../arm/inputs/p03.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "s02",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Position-bias decoy: arm corpus f06 shown as both A and B. Equal scores expected; a panel that prefers A or B is position bias (reported, not gated).",
+      "inputs": {
+        "pair": "s02",
+        "better": "tie",
+        "task": {
+          "file": "../arm/inputs/f06.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/f06.diff.patch"
+        },
+        "diff_b": {
+          "file": "../arm/inputs/f06.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "s03",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Position-bias decoy: arm corpus a01 shown as both A and B. Equal scores expected; a panel that prefers A or B is position bias (reported, not gated).",
+      "inputs": {
+        "pair": "s03",
+        "better": "tie",
+        "task": {
+          "file": "../arm/inputs/a01.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/a01.diff.patch"
+        },
+        "diff_b": {
+          "file": "../arm/inputs/a01.diff.patch"
+        }
+      }
+    },
+    {
+      "id": "s04",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Position-bias decoy: arm corpus a02 shown as both A and B. Equal scores expected; a panel that prefers A or B is position bias (reported, not gated).",
+      "inputs": {
+        "pair": "s04",
+        "better": "tie",
+        "task": {
+          "file": "../arm/inputs/a02.task.md"
+        },
+        "diff_a": {
+          "file": "../arm/inputs/a02.diff.patch"
+        },
+        "diff_b": {
+          "file": "../arm/inputs/a02.diff.patch"
+        }
+      }
+    }
+  ]
+}
