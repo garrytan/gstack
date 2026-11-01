@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.18.0] - 2026-11-01
+
+- `install.sh --project` (through `gstack-capy-install`) resolves the directory it names to its git toplevel, which is where pregate admission looks for the install verdict. `--project <repo>/<subdir>` now writes, and reads pins from, the same place as `--project <repo>`, so a Bun pin declared only in a subpackage no longer applies. A value that isn't a directory, such as a repo slug or a directory this shell can't enter, is a usage error that asks for the checkout's path, and it stops before anything is cloned or installed. Before this change, a slug or a subdirectory keyed the verdict somewhere admission never looks, so a later pregate admission check read a stale verdict (GST-743).
+
 ## [1.92.17.0] - 2026-11-01
 
 - `gstack-review-dispatch pass` takes the readers' diff base from the merge base with `origin/<base>`, the same base the review plan scores and the targeted reader checks. Before, a local `<base>` branch that lagged `origin/<base>` gave every brief the stale merge base, so reviewers read upstream commits the branch only inherited (GST-716).
