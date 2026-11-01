@@ -39,7 +39,7 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 <!-- One line per metric: name, the pass bar, the direction, and what a miss means for the decision. -->
 
 ## Arms
-<!-- One line per arm: the arm identity first (\`<model>\` or \`<model>#<loadout>\`, the model in lib/pricing.ts, e.g. \`claude-opus-5-5#no-gstack\`), settings, and the per-item cost from \`gstack-eval-plan arms\`. -->
+<!-- One line per arm: the arm identity first (\`<model>\` or \`<model>#<loadout>\`, the model in lib/pricing.ts, e.g. \`claude-opus-5-5#no-gstack\`), settings, and the per-item cost from \`gstack-eval-plan arms\`. Models under test are frontier models (today \`claude-opus-5-5\`, \`gpt-6.1-sol\`) plus at most one named low-cost primary; a Haiku or Sonnet arm only with a stated tier question. -->
 
 ## Comparison
 <!-- \`stack: loaded\` when any arm loads gstack or another skill stack (review variants, preamble loadouts, skill diets, a model panel under a stack); otherwise \`stack: none\` and a \`why:\` line. -->
@@ -292,10 +292,16 @@ export interface DryRunResult {
     reservation_fits_cap?: { ok: boolean; cap: number; max_input_tokens: number; per_arm: Record<string, number | null> };
     /** Present when the caller linted the arms against .gstack/eval-models.json (lib/eval-models.ts). */
     model_rules?: { ok: boolean; source: string; refused: string[] };
+    /** R54: Haiku and Sonnet are not models under test; arms on them alone are refused unless the plan asks about that tier. */
+    frontier: { ok: boolean; small_tier: string[]; tier_question: string | null; recost_usd: Record<string, number> };
   };
   per_item_usd: Record<string, number | null>; excluded_billing: readonly string[]; pass: boolean; stub: 'stub-model (no network, $0)';
 }
-export interface DryRunOptions { input: string; arms: string[]; fields?: string[]; outputBudget?: number; retryPrompt?: string; maxRows?: number; cap?: number; modelRules?: ModelRulesCheck }
+export interface DryRunOptions { input: string; arms: string[]; fields?: string[]; outputBudget?: number; retryPrompt?: string; maxRows?: number; cap?: number; modelRules?: ModelRulesCheck; tierQuestion?: string }
+
+/** Today's frontier models under test (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test); a small-tier plan is re-costed on these. */
+export const FRONTIER_MODELS = ['claude-opus-5-5', 'gpt-6.1-sol'] as const;
+export const isSmallTierModel = (model: string) => /(^|[-/])(haiku|sonnet)(-|$)/i.test(model);
 
 /** Four bytes per token, the estimator every gstack admission uses. */
 export const estimateTokens = (text: string) => Math.ceil(Buffer.byteLength(text, 'utf8') / 4);
@@ -335,9 +341,12 @@ export function dryRun(o: DryRunOptions): DryRunResult {
     checks.reservation_fits_cap = { ok: Object.values(perArm).every(v => v === null || v <= o.cap!), cap: o.cap, max_input_tokens: maxInput, per_arm: perArm };
   }
   if (o.modelRules) checks.model_rules = { ok: o.modelRules.ok, source: o.modelRules.source, refused: o.modelRules.errors.map(e => e.message) };
+  const smallTier = o.arms.filter(a => isSmallTierModel(armModel(a)));
+  const recost = Object.fromEntries(FRONTIER_MODELS.map(m => [m, rows * o.arms.length * estimateCostUsd({ input: avgIn, output: budget }, m)]));
+  checks.frontier = { ok: smallTier.length < o.arms.length || !!o.tierQuestion?.trim(), small_tier: smallTier, tier_question: o.tierQuestion?.trim() || null, recost_usd: recost };
   return {
     schema_version: 1, input: o.input, rows, bad_rows: bad, est_input_tokens: inputTokens, est_output_tokens: rows * budget, arms: o.arms, checks, per_item_usd: perItem,
-    excluded_billing: EXCLUDED_BILLING_CATEGORIES, pass: rows > 0 && bad.length === 0 && checks.price_table.ok && checks.output_budget.ok && checks.retry_prompt.ok && (checks.reservation_fits_cap?.ok ?? true) && (checks.model_rules?.ok ?? true), stub: 'stub-model (no network, $0)',
+    excluded_billing: EXCLUDED_BILLING_CATEGORIES, pass: rows > 0 && bad.length === 0 && checks.price_table.ok && checks.output_budget.ok && checks.retry_prompt.ok && (checks.reservation_fits_cap?.ok ?? true) && (checks.model_rules?.ok ?? true) && checks.frontier.ok, stub: 'stub-model (no network, $0)',
   };
 }
 
@@ -349,11 +358,19 @@ export function renderDryRun(r: DryRunResult): string {
     `CHECK: output-budget ${r.checks.output_budget.ok ? 'ok' : 'too small'} (${r.checks.output_budget.budget} tokens; reasoning floor ${r.checks.output_budget.floor})`,
     `CHECK: retry-prompt ${r.checks.retry_prompt.ok ? `ok — ${JSON.stringify(r.checks.retry_prompt.text)}` : 'missing (pass --retry-prompt <file> with the exact text the run will send)'}`,
     ...(r.checks.reservation_fits_cap ? [renderReservationCheck(r.checks.reservation_fits_cap, r.checks.output_budget.budget)] : []),
+    ...(r.checks.frontier.small_tier.length ? [renderFrontierCheck(r.checks.frontier, r.arms.length)] : []),
     ...(r.checks.model_rules ? [`CHECK: model-rules ${r.checks.model_rules.ok ? 'ok' : `refused ${r.checks.model_rules.refused.join('; ') || 'invalid rules'}`} (source ${r.checks.model_rules.source})`] : []),
     ...Object.entries(r.per_item_usd).map(([m, usd]) => `ESTIMATE: ${m} per_item=${usd === null ? 'unknown (no price)' : `$${usd.toFixed(4)}`} (estimate: excludes ${r.excluded_billing.length} billing categories, see lib/pricing.ts)`),
     `DRY_RUN_RESULT: ${r.pass ? 'pass' : 'fail'}`,
   ];
   return lines.join('\n') + '\n';
+}
+
+function renderFrontierCheck(c: DryRunResult['checks']['frontier'], arms: number): string {
+  const verdict = !c.ok ? 'refused (every arm is Haiku or Sonnet; pass --tier-question "<what the preregistration asks about that tier>" or test a frontier model)'
+    : c.tier_question ? `ok (tier question: ${JSON.stringify(c.tier_question)})` : 'warn (Haiku or Sonnet arms are not models under test)';
+  const recost = Object.entries(c.recost_usd).map(([m, usd]) => `${m} $${usd.toFixed(2)}`).join(', ');
+  return `CHECK: frontier ${verdict} small_tier=${c.small_tier.join(',')}; all ${arms} arm(s) re-costed on frontier prices: ${recost} (docs/TESTING_INTERNALS.md#frontier-models-under-test)`;
 }
 
 function renderReservationCheck(c: NonNullable<DryRunResult['checks']['reservation_fits_cap']>, budget: number): string {

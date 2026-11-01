@@ -1759,6 +1759,34 @@ it as the diagnostic. Candidate folders and git identity name a project, never
 the arm. The model panel (`test/skill-e2e-model-panel.test.ts`) runs a
 `<model>#no-gstack` arm beside each model (GST-468, GST-469).
 
+## Frontier models under test
+
+Garry, 2026-11-01 (R54): "I think you are spending too much time with Haiku and
+Sonnet, whereas GBrain and GStack are really designed to be used with frontier
+models like Opus and 6.1 Sol... just transfer from Haiku to Sonnet, who gives a
+shit about that, man?"
+
+**Models under test are frontier models.** Today that's `claude-opus-5-5` and
+`gpt-6.1-sol`, plus at most one low-cost primary the preregistration names. Haiku
+and Sonnet are not models under test. They aren't stand-ins for a frontier model,
+and an eval has no tier-transfer arms (Haiku against Sonnet, say) unless its
+preregistration says it is asking about that tier.
+
+**Verdicts need a frontier result.** A result measured only on Haiku or Sonnet
+can't carry a KEEP, FIX-METHOD or CUT-CANDIDATE verdict under R48. Rerun it on a
+frontier model first.
+
+**What the rule leaves alone.** Judges, cross-family review voices and a
+harness's shipped housekeeping model aren't models under test, so they keep the
+model they already use.
+
+**The check.** `gstack-eval-plan dry-run` prints `CHECK: frontier` whenever an arm
+is Haiku or Sonnet. When every arm is one, the dry run fails unless
+`--tier-question "<what the preregistration asks about that tier>"` is passed.
+When only some arms are, it warns. Either way it prices the whole plan on
+`claude-opus-5-5` and `gpt-6.1-sol`, so the budget is checked against frontier
+prices before any arm is swapped.
+
 ## Running evals as an agent: detach
 
 Moved verbatim from CLAUDE.md (#2096 size limit). The short rule stays in
