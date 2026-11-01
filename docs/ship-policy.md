@@ -573,14 +573,17 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
 ```
 
 - **When.** `wave plan` counts the live READY PRs (open, head equal to their
-  READY receipt, CI green at that head; a READY head whose CI is red or still
-  running prints a `NOT_GREEN` line and stays out of the plan). Over the
+  READY receipt, CI green at that head; a READY head whose CI is red, still
+  running or absent prints a `NOT_GREEN` line and stays out of the plan). A
+  READY PR whose CI, head or diff cannot be read fails the whole plan with
+  `QUEUE_PROOF_MISSING`. Over the
   trigger (6) it prints `WAVE_ADVISED` and suggested groups of 3 to 6: PRs
   whose changes to a common code file conflict (`git merge-tree` cannot merge
-  the two heads) always share a group, so that conflict is resolved once. Hub
+  the two heads, or the check itself fails) always share a group, so that
+  conflict is resolved once. Hub
   files never link PRs: anything under `docs/`, Markdown (generated skill
-  renders included; their `.tmpl` sources still link) and JSON ledgers and
-  registries. Most PRs append to them, and
+  renders included; their `.tmpl` sources still link) and every `.json` or
+  `.jsonl` file (ledgers and registries). Most PRs append to them, and
   linking through them once chained a 55-PR queue into a single area
   (GST-770). Each group takes its largest PR's functional
   area (a skill directory, the first word of a `lib/`, `bin/` or `test/`
