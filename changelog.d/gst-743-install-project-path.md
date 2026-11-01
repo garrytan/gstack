@@ -1,0 +1,1 @@
+- `install.sh --project` (through `gstack-capy-install`) refuses a value that is not a directory, such as a repo slug, with a usage error that asks for the checkout's path. Before, a slug silently keyed the install verdict and launch file to no project, so a later pregate admission check read a stale verdict (GST-743).
