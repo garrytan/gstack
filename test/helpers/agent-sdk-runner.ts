@@ -37,6 +37,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { resolveClaudeBinary as resolveClaudeBinaryShared } from '../../lib/claude-bin';
 import { resolveEvalModel } from '../../lib/eval-model';
+import { sdkSystemPrompt, type SystemPromptOption } from './sdk-system-prompt';
 import { SessionObserver, appendSessionLedger, sessionKey, type SessionEnd } from './session-ledger';
 import { hermeticChildEnv } from './hermetic-env';
 import type { SkillTestResult } from './session-runner';
@@ -74,18 +75,15 @@ export interface AgentSdkResult {
 /** Signature matching `query()` from the SDK. DI hook for unit tests. */
 export type QueryProvider = typeof query;
 
-/** Subset of SDK Options['systemPrompt'] we support. */
-export type SystemPromptOption =
-  | string
-  | { type: 'preset'; preset: 'claude_code'; append?: string; excludeDynamicSections?: boolean };
+export type { SystemPromptOption };
 
 export interface RunAgentSdkOptions {
   /**
-   * System prompt surface.
-   *   - bare string "" -> omit entirely (SDK default: no system prompt)
-   *   - bare string "...text..." -> REPLACE default with given text (use sparingly)
+   * System prompt surface (test/helpers/sdk-system-prompt.ts).
    *   - { type:'preset', preset:'claude_code' } -> use Claude Code default
    *   - { type:'preset', preset:'claude_code', append: "..." } -> default + append
+   *   - { type:'sdk-default', reason } -> omit; the SDK runs its bare stub
+   *   - { type:'custom', text, reason } -> REPLACE default with given text
    *
    * For overlay-efficacy measurement, the preset+append pattern is the right
    * one: it measures "does adding overlay text to the REAL Claude Code system
@@ -316,6 +314,7 @@ export async function runAgentSdkTest(
   opts: RunAgentSdkOptions,
 ): Promise<AgentSdkResult> {
   const sem = getApiSemaphore();
+  const systemPrompt = sdkSystemPrompt(opts.systemPrompt);
   const maxRetries = opts.maxRetries ?? 3;
   const queryImpl: QueryProvider = opts.queryProvider ?? query;
   // Default matches session-runner's frontier eval fallback. Tests that need a
@@ -444,11 +443,7 @@ export async function runAgentSdkTest(
           try { return await opts.canUseTool!(...args); } finally { observer.permission(-1); }
         } } : {}),
       };
-      // Empty bare string means "omit entirely" (SDK runs with no override).
-      // Any object or non-empty string is passed through.
-      if (typeof opts.systemPrompt === 'object' || opts.systemPrompt !== '') {
-        sdkOpts.systemPrompt = opts.systemPrompt;
-      }
+      Object.assign(sdkOpts, systemPrompt);
 
       opts.signal?.throwIfAborted();
       const q = queryImpl({

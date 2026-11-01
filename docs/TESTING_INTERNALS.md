@@ -1664,6 +1664,30 @@ lower-case words in path components under `test/fixtures/`; a substring match
 separate change with its own touchfile updates; the list is here so that change
 can be scoped.
 
+## Agent SDK system prompt
+
+An Agent SDK caller that leaves out `systemPrompt` doesn't get Claude Code's
+prompt. It gets the SDK's bare stub, and the stub drops the line that tells the
+model to run `/skill` through the Skill tool. A skill arm then never loads its
+skill, so a "no difference" result says nothing about the skill (FOUN-32 found
+this in another crew's null result).
+
+**Every caller says which prompt it uses.** `runAgentSdkTest` and every direct
+SDK `query()` call pass `CLAUDE_CODE_PRESET` from
+`test/helpers/sdk-system-prompt.ts` (an overlay arm adds `append`), or name why
+not: `{ type: 'sdk-default', reason }` for a stub provider or a connectivity
+probe, `{ type: 'custom', text, reason }` for an arm that replaces the prompt.
+The runner refuses a missing, empty or bare-string prompt before it starts, and
+`test/sdk-system-prompt-tripwire.test.ts` scans test/ and scripts/ for the same
+mistake in free CI. Arms that compare loadouts, the no-gstack arm included,
+keep the same preset and differ only in what the arm loads.
+
+**Record it, and treat a null on the stub as a method bug.** Every eval report
+and results table names the prompt each arm ran under (`claude_code`,
+`claude_code + append`, or the named reason). A null or negative result from an
+arm that ran on the SDK default is FIX-METHOD under R48 ("Why null?"): fix the
+prompt and rerun before reading it as KEEP or CUT-CANDIDATE.
+
 ## No-gstack arm
 
 Garry, 2026-10-31: "all of our head to head tests have to test no gstack from
