@@ -170,6 +170,15 @@ describe('negative controls: a policy that declares lanes still fails hard', () 
     expect([r.status, r.row.status, r.row.code]).toEqual([EXIT.fail, 'fail', 'PREGATE_NO_LANE']);
   });
 
+  // Value: protects=a --policy-from head file that adds a lane over a lane-less base makes the run strict; fails_when=the head merge
+  //   keeps the base's declaresLanes only; why_new=the merge is new; seam=none; no_claim=none
+  test('--policy-from head adding dependencies over a timeout-only base keeps PREGATE_NO_LANE', () => {
+    const repo = fixture({ pregate: { $schema: SCHEMA, timeout_s: 1800 }, baseFiles: NO_PLATFORM_LANE });
+    commit(repo, { ...GREEN, '.gstack/pregate.json': JSON.stringify({ $schema: SCHEMA, timeout_s: 1800, dependencies: { 'bin/tool': ['test/util.test.js'] } }) + '\n' });
+    const r = lanes(repo, ['--policy-from', 'head']);
+    expect([r.status, r.row.status, r.row.code]).toEqual([EXIT.fail, 'fail', 'PREGATE_NO_LANE']);
+  });
+
   // Value: protects=without a [] declaration a deleted test still runs its owning suite and an unmapped deleted source still fails;
   //   fails_when=moving the removed-test handling waives non-test removals; why_new=new; seam=none; no_claim=none
   test('a deleted source file under a lane-declaring policy still owes a lane', () => {
