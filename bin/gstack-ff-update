@@ -36,7 +36,14 @@
 #   exit 3  autostash-unrecoverable: (edits kept where they are)
 #   exit 4  not-fast-forward:
 #   exit 5  index-unreadable:
+#   exit 6  tracked-by-project: / version-reverted: (#1022, the preflight)
 #   exit 75 ff-busy: (another update holds this install's lock)
+#
+# gstack-ff-update --preflight <dir> runs only the exit-6 checks (exit 0 or 6);
+# bin/gstack-upgrade calls it before any fetch. A project that tracks the
+# install's files as plain blobs puts old ones back on every checkout of its
+# own, so VERSION freezes behind HEAD while updates seem to succeed; a
+# submodule gitlink is the supported shape and passes.
 # A rescue also prints the inspect, export and delete commands on stderr.
 
 set +e
@@ -49,15 +56,51 @@ ff_flatten() {
   printf '%s' "$1" | tr '\n\r\t' '   ' | sed "s/${_ff_esc}\[[0-9;?]*[ -\/]*[@-~]//g" | tr -d '\000-\037\177' | head -c "${2:-200}"
 }
 ff_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
-refuse() { printf '%s: %s\n' "$2" "$(ff_flatten "$3" 300)"; exit "$1"; }
+refuse() { printf '%s: %s\n' "$2" "$(ff_flatten "$3" "${4:-300}")"; exit "$1"; }
 
-[ $# -eq 2 ] && [ -n "$1" ] && [ -n "$2" ] || refuse 2 usage "gstack-ff-update <install dir> <revision>"
-DIR=$1 REV=$2
+[ $# -eq 2 ] && [ -n "$1" ] && [ -n "$2" ] || refuse 2 usage "gstack-ff-update <install dir> <revision> | --preflight <install dir>"
+PREFLIGHT=0
+if [ "$1" = --preflight ]; then PREFLIGHT=1 DIR=$2 REV=HEAD; else DIR=$1 REV=$2; fi
 cd -- "$DIR" 2>/dev/null || refuse 2 not-a-checkout "cannot enter $DIR"
 DIR=$(pwd -P)
 g() { git -c core.fsmonitor=false -c core.splitIndex=false "$@"; }
 [ "$(g rev-parse --is-inside-work-tree 2>/dev/null)" = true ] && [ -z "$(g rev-parse --show-prefix 2>/dev/null)" ] \
   || refuse 2 not-a-checkout "$DIR is not the top of a git checkout"
+
+# ── Preflight (#1022) ──
+# The repository enclosing the install's parent, probed with the caller's git
+# environment cleared; any git error there means not tracked.
+_PF=$(
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+  cd -- "$DIR/.." 2>/dev/null || exit 0  # best-effort: no parent directory means no project tracks the install
+  pg() { git -c core.fsmonitor=false -c core.splitIndex=false "$@"; }
+  _top=$(pg rev-parse --show-toplevel 2>/dev/null) || exit 0
+  _rel="$(pg rev-parse --show-prefix 2>/dev/null)${DIR##*/}" || exit 0
+  _n=0
+  while IFS= read -r _l; do
+    case "$_l" in (''|'160000 '*) ;; (*) _n=$((_n + 1)) ;; esac
+  done <<EOF_PF
+$(pg -C "$_top" --literal-pathspecs ls-files -s -- "$_rel" 2>/dev/null)
+EOF_PF
+  [ "$_n" -gt 0 ] && printf '%s\n%s\n%s\n' "$_top" "$_rel" "$_n"
+)
+if [ -n "$_PF" ]; then
+  _top=$(printf '%s\n' "$_PF" | sed -n 1p) _rel=$(printf '%s\n' "$_PF" | sed -n 2p) _n=$(printf '%s\n' "$_PF" | sed -n 3p)
+  _ign=$(printf '%s' "$_rel" | sed 's/[][*?\\]/\\&/g')
+  refuse 6 tracked-by-project "$_top tracks $_n files of the gstack install at $_rel, so every checkout there puts old gstack files back (VERSION frozen, #1022); nothing was changed; fix: git -C $(ff_quote "$_top") --literal-pathspecs rm -r -q --cached -- $(ff_quote "$_rel"), add /$_ign/ to $(ff_quote "$_top/.gitignore") and commit both on every branch you check out (or vendor gstack as a git submodule), then git -C $(ff_quote "$DIR") stash push -m 'files reverted by the project' (keeps every edit) and re-run" 4000
+fi
+# A VERSION whose first line differs from HEAD's. Any unmerged file is left to
+# the rescue below; the full update runs this inside the lock, where a VERSION
+# already at the target's (an interrupted move) is finished, not held.
+version_check() {
+  g cat-file -e HEAD:VERSION 2>/dev/null && [ -z "$(g ls-files -u 2>/dev/null)" ] || return 0
+  _have=$(head -1 VERSION 2>/dev/null | tr -d '\r') _want=$(g show HEAD:VERSION 2>/dev/null | head -1 | tr -d '\r')
+  [ "$_have" = "$_want" ] && return 0
+  [ -n "$1" ] && [ "$_have" = "$(g show "$1:VERSION" 2>/dev/null | head -1 | tr -d '\r')" ] && return 0
+  refuse 6 version-reverted "VERSION says ${_have:-nothing} but the checkout is at $_want: files changed outside git (an enclosing project's checkout puts old ones back, #1022, or a hand edit); nothing was changed; fix: git -C $(ff_quote "$DIR") stash push -m 'files reverted by the project' (keeps every edit), then re-run" 4000
+}
+[ "$PREFLIGHT" -eq 1 ] && { version_check; exit 0; }
+
 TARGET=$(g rev-parse -q --verify "$REV^{commit}" 2>/dev/null) || refuse 2 target-unresolvable "$REV does not name a commit in $DIR"
 COMMON=$(g rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
   || COMMON=$(cd -- "$(g rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
@@ -128,6 +171,7 @@ case "$_beat" in ''|*[!0-9]*|0) _beat=300 ;; esac
 HB_PID=$!
 
 # ── Inside the lock ──
+version_check "$TARGET"
 HEAD_OID=$(g rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null) || refuse 2 not-a-checkout "$DIR has no HEAD commit"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-ff-XXXXXX" 2>/dev/null) || refuse 3 autostash-unrecoverable "cannot create a temp directory under ${TMPDIR:-/tmp}; nothing was changed"
 g ls-files -u -z > "$TMP/unmerged.raw" 2>"$TMP/err" || refuse 5 index-unreadable "cannot read the index of $DIR ($(head -c 200 "$TMP/err")); nothing was changed"

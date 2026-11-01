@@ -121,7 +121,7 @@ export function shannonEntropy(s: string): number {
 //         (apiKey, authToken, clientSecret, stripeApiKey) — cacheKey/sortKey/
 //         monkey have no credential prefix and are rejected.
 const ENV_KV_NAME =
-  /^[ \t]*(?:export[ \t]+)?["']?([A-Za-z0-9_.-]*?(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE))["']?[ \t]*[:=]/i;
+  /^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*(?:export[ \t]+)?["']?([A-Za-z0-9_.-]*?(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE))["']?[ \t]*[:=]/i;
 const ENV_KV_SUFFIX =
   /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)$/i;
 const ENV_KV_CRED_PREFIX =
@@ -656,7 +656,7 @@ const CALL_SHAPED_VALUE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\(/;
  * A random key is mixed-case or one unbroken run, so it never takes this shape.
  */
 const SCHEMA_FIELD_NAME =
-  /^[ \t]*["']?(?:input|output|field|column|lookup|cache|sort|partition|range|index|row|group|join|property|metric|catalog|schema|translation|idempotency|dedup)[_.-]key["']?[ \t]*[:=]/;
+  /^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*["']?(?:input|output|field|column|lookup|cache|sort|partition|range|index|row|group|join|property|metric|catalog|schema|translation|idempotency|dedup)[_.-]key["']?[ \t]*[:=]/;
 const SCHEMA_FIELD_VALUE = /^[a-z][a-z0-9]*(?:[_.-][a-z][a-z0-9]*)+$/;
 function isSchemaFieldIdentifier(span: string, match: RegExpExecArray): boolean {
   return SCHEMA_FIELD_NAME.test(match[0]) && SCHEMA_FIELD_VALUE.test(span);
@@ -673,28 +673,127 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
 /**
  * #3048: in a TypeScript/JSX file, an unquoted value after `:` is a type or an
  * expression, never a string literal (`session: SessionState,`), and a JSX
- * brace holding only names and property reads (`key={turn.requestId + turn.role}`)
- * is an expression. Decided by file context, not by how the value looks:
+ * brace holding only names and property reads joined by + ?? || or &&
+ * (`key={turn.requestId + turn.role}`, `key={item.id ?? index}`, #3605) is an
+ * expression. Decided by file context, not by how the value looks:
  * `API_KEY=VelvetRiverOrbitSunset;` in a .env or YAML file is still a literal.
- * Without a known TS/JSX path nothing is exempt.
+ * #3630 (#3418, #3419): Dart and Python (.py, .pyi) qualify on the same grammar
+ * fact, no unquoted string literal, so `'password': request.password` and
+ * `session: HttpSession,` are names. Python's `=` forms
+ * (`password=request.password`) still fire: the separator must be `:`.
+ * Without a known source path nothing is exempt.
  */
-const TS_SOURCE = /\.(?:[cm]?tsx?|jsx)$/i;
+const CODE_SOURCE = /\.(?:[cm]?tsx?|jsx|dart|pyi?)$/i;
 const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s<>[\]|]*>)?(?:\[\])*$/;
 
+/**
+ * #3418: a `password:` pair inside a string is text in an embedded config,
+ * not a dict entry or annotation, so the name exemption must not reach it.
+ * In Python and Dart (no regex literals, so every quote is a string's), one
+ * linear pass per input (a scan validates many candidates against the same
+ * text) records every string's content span: a `'''`/`"""` block, or a
+ * `'`/`"` string that ends at its line unless a backslash continues it.
+ * Comments are skipped (`#` in Python; `//` and nested `/* *\/` in Dart), so a
+ * delimiter inside one opens nothing; a backslash escapes the next character, except in a Dart raw
+ * string (`r'''…'''`). The exemption needs the
+ * whole file to see a block's opener: pregate passes Dart and Python files
+ * whole, and the pre-push hook, which scans added lines alone, passes them
+ * without their path.
+ */
+const STRING_SPAN_SOURCE = /\.(?:dart|pyi?)$/i;
+let stringSpansCache: { text: string; lang: string; spans: Array<[number, number]> } | null = null;
+
+/** Drops the cached text once a scan ends, so a long-lived process holds no scanned input. */
+export function clearStringSpanCache(): void {
+  stringSpansCache = null;
+}
+
+function stringSpans(text: string, lang: "py" | "dart"): Array<[number, number]> {
+  if (stringSpansCache?.text === text && stringSpansCache.lang === lang) return stringSpansCache.spans;
+  const spans: Array<[number, number]> = [];
+  const n = text.length;
+  for (let i = 0; i < n; ) {
+    const c = text[i]!;
+    if (lang === "py" ? c === "#" : text.startsWith("//", i)) {
+      const eol = text.indexOf("\n", i);
+      i = eol < 0 ? n : eol;
+      continue;
+    }
+    if (lang === "dart" && text.startsWith("/*", i)) {
+      let depth = 1;
+      for (i += 2; i < n && depth > 0; ) {
+        if (text.startsWith("/*", i)) { depth += 1; i += 2; }
+        else if (text.startsWith("*/", i)) { depth -= 1; i += 2; }
+        else i += 1;
+      }
+      continue;
+    }
+    if (c !== '"' && c !== "'") { i += 1; continue; }
+    const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+    const multiline = close.length === 3;
+    const raw = lang === "dart" && text[i - 1] === "r" && !/[\w$]/.test(text[i - 2] ?? "");
+    let j = i + close.length;
+    while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) j += !raw && text[j] === "\\" ? 2 : 1;
+    spans.push([i + close.length, Math.min(j, n)]);
+    i = j + close.length;
+  }
+  stringSpansCache = { text, lang, spans };
+  return spans;
+}
+
+function insideString(text: string, offset: number, sourcePath: string): boolean {
+  if (!STRING_SPAN_SOURCE.test(sourcePath)) return false;
+  const spans = stringSpans(text, /\.dart$/i.test(sourcePath) ? "dart" : "py");
+  let lo = 0;
+  let hi = spans.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (offset < spans[mid]![0]) hi = mid - 1;
+    else if (offset >= spans[mid]![1]) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+
+/** The rest of a name's expression on its line, up to the comma, semicolon, bracket or comment that ends it; null when it continues on the next line. */
+function expressionTail(line: string, comment: string): string | null {
+  let rest = line;
+  let depth = 0;
+  for (let i = 0; i < rest.length; i += 1) {
+    const c = rest[i]!;
+    if (rest.startsWith(comment, i)) { rest = rest.slice(0, i); break; }
+    if (c === '"' || c === "'" || c === "`") {
+      const close = rest.indexOf(c, i + 1);
+      if (close < 0) return null;
+      i = close;
+    } else if ("([{".includes(c)) depth += 1;
+    else if (")]}".includes(c)) { if (--depth < 0) return rest.slice(0, i); }
+    else if ((c === "," || c === ";") && depth === 0) return rest.slice(0, i);
+  }
+  return depth > 0 || /(?:[=+\\]|\?\?|\|\||&&|\b(?:or|and))\s*$/.test(rest) ? null : rest;
+}
+
 function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
-  if (!sourcePath || !TS_SOURCE.test(sourcePath)) return false;
-  const { start } = spanBounds(match);
+  if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
+  const { start, end } = spanBounds(match);
   const before = match.input[start - 1];
   if (before === '"' || before === "'" || before === "`") return false;
   if (span.startsWith("{")) {
     const line = match.input.slice(start + 1).split("\n", 1)[0];
     const close = line.indexOf("}");
     if (close < 0 || /["'`]/.test(line.slice(0, close))) return false;
-    return line.slice(0, close).split("+").every(term => CODE_NAME_CHAIN.test(term.trim()));
+    if (!line.slice(0, close).split(/\+|\?\?|\|\||&&/).every(term => CODE_NAME_CHAIN.test(term.trim()))) return false;
+  } else {
+    const head = match[0].slice(0, match[0].length - span.length).trimEnd();
+    const separator = head.slice(-1);
+    if (separator !== ":" || !CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return false;
+    const rest = (span.endsWith("=") ? "=" : "") + match.input.slice(end).split("\n", 1)[0];
+    if (!/[,;]$/.test(span)) {
+      const tail = expressionTail(rest, /\.pyi?$/i.test(sourcePath) ? "#" : "//");
+      if (tail === null || carriesSecretLiteral(tail)) return false;
+    }
   }
-  const separator = match[0].slice(0, match[0].length - span.length).trimEnd().slice(-1);
-  if (separator !== ":") return false;
-  return CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""));
+  return !insideString(match.input, start, sourcePath);
 }
 
 export const PATTERNS: RedactPattern[] = [
@@ -962,7 +1061,16 @@ export const PATTERNS: RedactPattern[] = [
     // (cacheKey:, sortKey:, monkey:) fires a MEDIUM confirm on entropic
     // values. The value must stay capture group 1 (the engine masks group 1),
     // so name-shape checking lives in validate, not in a second group.
-    regex: /^[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,})["']?/i,
+    // GST-543: an optional leading `+` or `-` is a unified-diff line marker
+    // (`git diff | gstack-redact`, a diff fence in a PR body), and one more
+    // column before it (`++`, ` +`, `+-`) is a combined (merge) diff. Without
+    // them the line anchor stopped at the marker, so an added or removed credential
+    // went unreported (`-` alone matched only as a name character, never
+    // before indentation or `export`). A `-` followed by exactly one space
+    // and text is a Markdown bullet or YAML list item, not a marker, so those
+    // read as they did before. ENV_KV_NAME and SCHEMA_FIELD_NAME take the same
+    // marker so the name-shape and schema exemptions hold on a diff line.
+    regex: /^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,})["']?/i,
     // Only fire on credential-shaped names with high-entropy values — kills
     // `FOO_KEY=changeme` and `cacheKey: <entropic-id>` FPs. #2912: a value
     // that is exactly an environment read (`os.environ["X"]`,
@@ -971,7 +1079,7 @@ export const PATTERNS: RedactPattern[] = [
     // literal (`os.getenv("X", "<secret>")`). A literal appended to the read
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
     // #2899: a function call assigned to the name is code, not a value (see
-    // isCallExpression). #3048: so is a TS/JSX type or expression (isSourceExpression).
+    // isCallExpression). #3048, #3630: so is a TS/JSX/Dart/Python type or expression (isSourceExpression).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     validate: (span, match, opts) =>
       isCredentialShapedEnvName(match[0]) &&

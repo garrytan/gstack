@@ -12,9 +12,6 @@ description: |
   Use when asked to "tune questions", "stop asking me that", "too many questions",
   "show my profile", "what questions have I been asked", "show my vibe",
   "developer profile", or "turn off question tuning". (gstack)
-
-  Proactively suggest when the user says the same gstack question has come up before,
-  or when they explicitly override a recommendation for the Nth time.
 triggers:
   - tune questions
   - stop asking me that

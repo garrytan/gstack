@@ -39,8 +39,13 @@ export interface Manifest {
   version: 1; pass: string; out: string; ledger: string; merged: string; base: string; diff_base: string;
   stack: string; test_fw: string; learnings: string | null; checklist_root: string;
   next: string; plan_lines: string[]; readers: PassReader[]; before?: { tokens: number; credits: number };
+  /** Step 11's own reading at its first dispatch, so its note never counts the pass's readers again. */
+  before_voices?: { tokens: number; credits: number };
   log_starts?: Record<string, string>;
+  /** Decision 3.5's files for a fix-check reader: the fix list, touched hunks, test results and callers. */
+  fix_check?: FixCheckFiles;
 }
+export interface FixCheckFiles { fix_list: string; hunks: string; tests: string; callers?: string }
 export interface Extra { name: string; prompt_file: string; first?: boolean; model?: PassModel }
 
 /** Brief characters per transport chunk: even with every character escaped, one chunk line stays far under 1 MiB. */
@@ -68,24 +73,26 @@ export function detectTestFw(root: string): string {
 }
 
 const safe = (reader: string) => reader.replace(/[^a-zA-Z0-9._-]/g, '_');
-const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'red-team': 'red-team', 'adversarial-native': 'voices', 'outside-voice': 'voices', targeted: 'voices' };
+const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'fix-check': 'specialists', 'red-team': 'red-team', 'adversarial-native': 'voices', 'outside-voice': 'voices', targeted: 'voices' };
 
-/** The manifest for one pass from the plan's dispatches. A fix-check is not part of a pass, so it is refused. */
+/** The manifest for one pass from the plan's dispatches. A fix-check reader needs decision 3.5's files. */
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
   dispatches: Dispatch[]; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
-  targetedClasses?: readonly string[]; mergeBase?: string;
+  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles;
 }): Manifest {
   const readers: PassReader[] = [];
   for (const d of o.dispatches) {
     const stage = STAGE_OF[d.role];
-    if (!stage) throw new BriefError(`a pass dispatches no ${d.role} reader (fix-check runs on its own)`);
+    if (!stage) throw new BriefError(`a pass dispatches no ${d.role} reader`);
+    if (d.role === 'fix-check' && !o.fixCheck) throw new BriefError('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests (decision 3.5\'s files; --callers optional)');
     const role: BriefRole = d.role === 'specialist' && d.checklists ? 'specialist-batched' : d.role as BriefRole;
     const name = role === 'specialist' ? d.name : undefined;
     const reader = readerKey(role, name);
     const exclude = d.exclude.length ? diffCommand(d).slice('git diff <diff-base> '.length) : undefined;
     readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists,
-      ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}) });
+      ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}),
+      ...(role === 'red-team' && o.rangeBase ? { diff_base: o.rangeBase } : {}) });
   }
   for (const e of o.extras ?? []) {
     if (!/^[a-z0-9-]+$/.test(e.name)) throw new BriefError(`an audit reader's name is lowercase letters, digits and dashes: ${e.name}`);
@@ -97,6 +104,7 @@ export function buildManifest(o: {
     version: 1, pass: o.pass, out, ledger: path.resolve(o.ledger), merged: path.join(out, 'merged.jsonl'), base: o.base, diff_base: o.diffBase,
     stack: detectStack(o.root), test_fw: detectTestFw(o.root), learnings: o.learnings ?? null, checklist_root: o.checklistRoot,
     next: o.next, plan_lines: o.planLines, readers,
+    ...(o.fixCheck ? { fix_check: Object.fromEntries(Object.entries(o.fixCheck).filter(([, v]) => v).map(([k, v]) => [k, path.resolve(v as string)])) as unknown as FixCheckFiles } : {}),
   };
 }
 
@@ -142,7 +150,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       continue;
     }
     const role = r.role!;
-    const slots: Slots = { name: r.name, diff_base: m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
+    const slots: Slots = { name: r.name, diff_base: r.diff_base ?? m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
       checklists: r.checklists?.map(n => path.join(m.checklist_root, 'review/specialists', `${n}.md`)).join(',') };
     if (role === 'specialist') slots.checklist = path.join(m.checklist_root, 'review/specialists', `${r.name}.md`);
     let findingsSha: string | undefined;
@@ -154,6 +162,11 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       Object.assign(slots, { checklist: path.join(m.checklist_root, 'review/specialists/red-team.md'), findings, specialists: String(specialists) });
     }
     if (role === 'outside-voice') slots.diff = diffFor(m.diff_base);
+    if (role === 'fix-check') {
+      const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };
+      const fc = m.fix_check!;
+      Object.assign(slots, { fix_list: read(fc.fix_list, 'fix list'), hunks: read(fc.hunks, 'hunks'), tests: read(fc.tests, 'tests'), callers: read(fc.callers, 'callers') });
+    }
     let targeted = {};
     if (role === 'targeted') {
       const checklist = path.join(m.checklist_root, 'review/specialists/targeted.md');

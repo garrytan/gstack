@@ -352,7 +352,7 @@ warning on stderr). A repository without gstack's eval workflow declares
 "train": {
   "gate_workflow": "evals.yml", "free_workflow": "free-tests.yml",
   "full_gate_check": "gstack/full-gate", "record_artifact": "gstack-train-record",
-  "max_size": 3, "fill_hours": 1, "screen_selection": "gstack-paid",
+  "max_size": 5, "fill_hours": 1, "screen_selection": "gstack-paid",
   "trial_reservation_usd": 1.5
 },
 "min_gstack_version": "<the version that introduced train>"
@@ -573,6 +573,98 @@ a command gate cap below what a full train reserves, a merge method GitHub has
 turned off, and `rebase` as the merge method (`QUEUE_TRAIN_DOCTOR_FINDINGS`).
 Neither command writes anything.
 
+<a id="wave-prs"></a>
+### Wave PRs: several PRs in one slot
+
+When the queue is long, PRs that touch the same part of the code travel
+together as one **wave PR**: one integrator branch, one /ship, one READY, one
+train slot and one version (Garry's rule R46, 2026-10-31: "consolidating
+functional areas into larger wave PRs ... so we can land them faster with fewer
+test passes"). Each slot otherwise costs its own stamp commit and a full round
+of required checks before it merges, one slot after another, so a wave of
+three saves two of those rounds and two versions.
+
+```bash
+gstack-ship-queue wave plan                                     # read-only (merge-tree scratch objects aside): QUEUE, WAVE_ADVISED, WAVE_GROUP lines
+gstack-ship-queue wave build --area ship --prs 41@<sha>,42@<sha>,43@<sha>
+gstack-ship-queue wave build --wave <nonce> --continue          # after resolving a conflict in the printed worktree
+gstack-ship-queue wave build --wave <nonce> --drop 42           # rebuild without #42 as a new wave
+gstack-ship-queue wave build --wave <nonce> --release           # end the wave unlanded; its PRs ride alone
+gstack-ship-queue wave status [--wave <nonce>]
+gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave PR merged
+```
+
+- **When.** `wave plan` counts the live READY PRs (open, head equal to their
+  READY receipt, CI green at that head; a READY head whose CI is red, still
+  running or absent prints a `NOT_GREEN` line and stays out of the plan). A
+  READY PR whose CI, head or diff cannot be read fails the whole plan with
+  `QUEUE_PROOF_MISSING`. Over the
+  trigger (6) it prints `WAVE_ADVISED` and suggested groups of 3 to 6: PRs
+  whose changes to a common code file conflict (`git merge-tree` cannot merge
+  the two heads, or the check itself fails) always share a group, so that
+  conflict is resolved once. Hub
+  files never link PRs: anything under `docs/`, Markdown (generated skill
+  renders included; their `.tmpl` sources still link) and every `.json` or
+  `.jsonl` file (ledgers and registries). Most PRs append to them, and
+  linking through them once chained a 55-PR queue into a single area
+  (GST-770). Each group takes its largest PR's functional
+  area (a skill directory, the first word of a `lib/`, `bin/` or `test/`
+  module name, or `docs`), smaller groups ride solo, and the integrator is
+  the PR with the most changed lines. `train build` handed more than 6 pins
+  prints the same `WAVE_ADVISED` line. It is advice: urgent and repair PRs
+  still ride alone. While the queue stays long, plan new work as area waves
+  from the start, so each piece skips its own /ship.
+- **Build.** `wave build` checks every pin is an open, same-repository PR at
+  that head (`QUEUE_WAVE_MOVED`, `QUEUE_TRAIN_UNTRUSTED`), not already in a
+  live wave (`QUEUE_WAVE_DUPLICATE`), 3 to 6 of them (`QUEUE_WAVE_SIZE`;
+  `--min`/`--max` change it). It merges the heads in order onto main with the
+  train's merge rules, each as a merge commit whose second parent is the pin,
+  so no constituent is rebased or squashed. The wave record (kind `wave`) is
+  written locally and to `refs/notes/gstack-trains` before `wave/<nonce>` is
+  pushed, and each constituent gets one "frozen in wave" comment. Then the
+  integrator opens the wave PR (the printed `gh pr create` and body file, or
+  the host's PR tool), runs /ship on it and READYs it.
+- **Conflicts.** A merge that conflicts outside the CHANGELOG and the stamp
+  files stops with `QUEUE_WAVE_CONFLICT` and leaves the merge in progress in a
+  worktree under the state root. The integrator resolves and commits it there,
+  then `--continue` checks that commit merges exactly that pin onto the
+  recorded commit and finishes the chain.
+- **Frozen heads.** Once in, a constituent's head does not move. Fixes go on
+  the wave branch as integrator commits, which the chain check allows. A
+  constituent that has to change goes back to its owner: `--drop <pr>` builds
+  a new wave on a new branch (never a force-push; the integrator closes the
+  old wave PR first, and the old record is marked superseded), refused with
+  `QUEUE_WAVE_DEPENDENT` when another pin contains the dropped one. A drop
+  that would leave fewer PRs than the minimum releases the wave instead, and
+  `--release` does the same for a wave PR closed without merging: the record
+  is marked released and every constituent can be READY'd on its own again.
+  Both wait until the wave PR is closed, since a train that already admitted
+  it would still land it. A constituent must target the base branch; a
+  stacked PR is refused, because its pin carries its parent's commits.
+- **READY and the train.** `ready --pr <wave pr>` and `train build` read the
+  wave record for a `wave/<nonce>` head branch (rebuilt from the notes ref on a
+  fresh machine; `QUEUE_WAVE_UNKNOWN` when there is none). They walk the
+  branch's first parents back to the recorded base: every pin must be merged
+  unchanged, in order, and any other merge is refused. Every constituent must
+  still be open at its pin. READY gains `WAVE:` and `CONSTITUENTS:` lines.
+  `ready` and `train build` refuse a constituent of a live wave on its own
+  (`QUEUE_WAVE_DUPLICATE`), so it cannot land twice. A wave head may carry
+  train land's stamp commits after its last constituent, so a stamped wave
+  is re-READY'd like any stamped PR. From there the wave PR is an ordinary slot: `train
+  land`, `verify`, the stamp and the backstop treat it like any PR, and under
+  `changelog_fragments` its one stamp folds every constituent's fragment into
+  one version section.
+- **After the merge.** `wave settle` finds the wave PR merged into the base
+  branch, checks that its merge commit is on that branch and carries its head
+  (the head's tree, or the head merged onto the merge's parent when the train
+  merged the PR directly), and walks its chain (train land's stamp or update
+  commits on top are allowed). A
+  constituent still at its pin gets a "Landed in wave #W as vX (sha)" comment
+  naming any integrator commits or hand-resolved merges that touched its
+  files, and is closed. One whose head moved after the wave froze stays open
+  with a comment saying its newer work did not land. Comments carry a marker, so a
+  rerun posts nothing twice; `--dry-run` shows the plan.
+
 <a id="ship-before-ready"></a>
 **0. Lane: /ship before READY.** Every READY follows a /ship run on the branch
 at the head being READY'd, including a re-READY after a push (Garry,
@@ -702,8 +794,8 @@ forked (the chain's merge onto the pin's own prefix is the verdict), refuses
 `QUEUE_TRAIN_CONFLICT` for a pin that does not merge, and otherwise prints
 `MERGE_CHECK: T1..T<k> merge clean onto <base>@<sha>`, so a
 `QUEUE_TRAIN_WAITING` result is also a clean dry-run merge of the pool (the
-crew template's sibling trial merge, done by the tool). gstack's own block fills at 3 PRs or one hour (it was 5 PRs or
-three hours until 2026-10-26, which left READY PRs waiting most of a day). The same pins on the same base return the live train
+crew template's sibling trial merge, done by the tool). gstack's own block fills at 5 PRs or one hour (it was 5 PRs or
+three hours until 2026-10-26, which left READY PRs waiting most of a day, then 3 PRs or one hour until 2026-10-31). The same pins on the same base return the live train
 instead of a second one; `train build --train <nonce>` resumes a train from
 its record. Refusals, all before any spend: `QUEUE_TRAIN_UNTRUSTED` (a fork
 head), `QUEUE_TRAIN_MOVED` (a head moved from its pin),
@@ -1254,7 +1346,8 @@ receipt when the base moves:
 | What changed since /ship | The receipt |
 |---|---|
 | a merge of the base, product diff unchanged (tests, release metadata, registered outputs the pregate's regen check proved) | carries; no review reruns |
-| a merge of the base whose resolution changed product code | a fresh /ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
+| a merge of the base that edited lines next to the branch's unchanged hunks (the branch's +/- lines identical and in the same places) | carries after one fix-check reviewer reads the hunks and comes back clean (`RECEIPT_CARRY_SCOPED_REVIEW`, then `carry --scoped-review <record.json>`) |
+| a merge of the base whose resolution changed product code, or moved the branch's lines elsewhere | a fresh /ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
 | a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
 | any other rebase or force-push | a fresh /ship (`RECEIPT_CARRY_TREE_MISMATCH`) |
 | a stacked PR whose parent landed (squash or merge), retargeted to the base with the base merged in, HEAD's product diff exactly the one reviewed against the parent branch | carries (reason `stack parent <branch> landed`) |
@@ -1289,13 +1382,19 @@ falling back to the whitespace-stripping default, and a `git diff` or
 patch-ids differ, the refusal names up to `CARRY_NAMED_PATHS` (20) product
 paths whose patch against the base changed, walking only the paths the branch
 itself touched at either head (a base merge brings in every path the base
-changed, none of which can differ between the two base diffs). Product means every changed path that is not test code (`test/**`,
+changed, none of which can differ between the two base diffs), and of those
+only the paths that changed between the two heads or the two bases (a path with
+the same blob on both sides has the same patch). The product diff streams
+through a file under the git directory (`.git/gstack-patch-id`) into
+`git patch-id --verbatim`, so a PR with thousands of paths is not held in
+memory; a directory a killed run left there is removed after an hour. Product means every changed path that is not test code (`test/**`,
 `spec/**`, `e2e/**`, `**/*.test.<code ext>`, `**/*.spec.<code ext>` and the
 other `CARRY_TEST_GLOBS` in `lib/ship-receipt.ts`; an `openapi.spec.yaml` is
 product) or release metadata (`CHANGELOG.md`, `agents-digest/**`, each
 `<changelog_fragments.dir>/<slug>.md` fragment when the base policy sets
 `changelog_fragments` (not the directory's README.md or a nested path; a README
-change also makes the range's fragments product), and `VERSION`
+change the branch itself makes also makes the range's fragments product, while one
+a base merge brings in does not), and `VERSION`
 or `package.json` only while the change is a version stamp and nothing else: a
 dependency, a script or a new key makes them product). A path the policy's
 `stamp_files`, `stamp_paths` or `release_outputs` name is metadata only while
@@ -1326,11 +1425,18 @@ along the receipt's own history, `rewritten` once any hop was a rebase;
 `CARRY: carried from <old> to <new> (<reason>)` and the `GSTACK_RESULT:
 skill=ship status=complete` line, and its summary line ends with
 `carried_from=<old12>`. `CARRY: current` means the receipt already names HEAD;
-`--dry-run` prints `CARRY: would carry …` and writes nothing.
+`--dry-run` prints `CARRY: would carry …` and writes nothing. When the only
+difference is base context next to the branch's unchanged hunks and none of
+carry's other checks would refuse, `--dry-run` refuses
+`RECEIPT_CARRY_SCOPED_REVIEW` without writing the packet; carry without
+`--dry-run` writes it.
 
 A changed product path, or a product patch-id that differs, is
 [`RECEIPT_CARRY_PRODUCT_CHANGED`](troubleshooting.md#receipt-carry-product-changed)
-(exit 3; the refusal names the paths), and a working tree with uncommitted
+(exit 3; the refusal names the paths), except when the only difference is
+base context next to the branch's unchanged hunks, which is
+[`RECEIPT_CARRY_SCOPED_REVIEW`](troubleshooting.md#receipt-carry-scoped-review)
+until one fix-check reviewer clears the packet; a working tree with uncommitted
 changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
 
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
@@ -1356,7 +1462,12 @@ the carry when the branch has an open PR, in this order, and never reruns the
 review loop for a carried receipt:
 
 1. `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`. `CARRY: would
-   carry` is eligibility only; a refusal continues the full ship.
+   carry` is eligibility only; a refusal continues the full ship, except
+   `RECEIPT_CARRY_SCOPED_REVIEW`, for which `gstack-ship-preflight` prints
+   `NEXT: carry route`: fix what the base merge broke, commit and push, run carry
+   without `--dry-run` to write the packet, have one fix-check reviewer read it,
+   then carry with `--scoped-review <record.json>` and `--pregate`. A blocking
+   finding continues the full ship.
 2. At that pinned HEAD: the CHANGELOG check, the size-cap check the policy
    declares, and `gstack-pregate` (the remote tests stage when
    `requires_remote` asks for it). A failing check, or HEAD moving, continues
@@ -1649,7 +1760,9 @@ hand edit), and the replacement the current one, so a dependency pin
 that happens to equal the old version is `changed`; `stamp_patterns`
 templates count as stamp forms too). With `stamp_files` set, a file outside it
 is `changed (stamp_files: not in the repo's stamp_files allowlist)` whatever
-its diff. Any other byte is a change.
+its diff. Any other byte is a change. A diff git cannot produce between the two
+heads fails closed with `EVIDENCE_IDENTITY_UNKNOWN` and git's reason; it never
+reads as no change.
 
 Equivalence is decided per gate. A lane in `stamp_sensitive_gates` always
 `rerun`s; a verified lane is `reusable` only when the tree is same-modulo-stamps
