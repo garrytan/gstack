@@ -39,8 +39,6 @@ The 158 older open issues were re-checked against main 5cb5e1c (v1.91.83.0). Of 
   - #1048: "smallest clear diff" in `plan-eng-review/SKILL.md.tmpl` and `plan-ceo-review/SKILL.md.tmpl` has no schema-design carve-out, so it biases reviews toward JSON blobs. Add one tradeoff bullet, with a paid before/after case. **Effort:** S. **Priority:** P3.
   - #1791: every plan-eng-review run writes a fresh `tasks-eng-review-<ts>.jsonl` with no branch in the name and no reconciliation (`scripts/resolvers/tasks-section.ts`). Put the branch in the name and supersede earlier sets. **Effort:** M. **Priority:** P3.
   - #1957: /autoplan Phase 0 prints no matched-terms line for UI scope and keeps UI and DX terms in two places (`bin/gstack-autoplan-snapshot.ts`, `lib/autoplan-prompts.ts`). One shared terms module, and a `borderline` flag in the printed line. **Effort:** M. **Priority:** P3.
-- **Review**
-  - #356: `/review` has no repo-convention check, so a `.bat` added to a bash-and-Make repo passes. Add it to `review/specialists/maintainability.md`. **Effort:** S. **Priority:** P3.
 - **Office hours and design**
   - #340: the approved sketch stays in a purgeable `mktemp` dir and no downstream design skill reads it (`scripts/resolvers/design.ts`). Copy it next to the design doc and have plan-design-review and design-review read it. **Effort:** S. **Priority:** P3.
 - **Questions**

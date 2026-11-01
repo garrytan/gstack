@@ -32,6 +32,7 @@ export const PARTS: PartSpec[] = [
   { id: 'review-calibration', file: RA, from: '## Confidence Calibration', phase: 4 },
   { id: 'review-core', file: RA, from: '### Core checklist', phase: 4 },
   { id: 'checklist', file: 'review/checklist.md', from: null, phase: 4 },
+  { id: 'checklist-pass-2', file: 'review/checklist.md', from: '### Pass 2 — INFORMATIONAL', phase: 4 },
   { id: 'review-design', file: RA, from: '## Design Review (conditional, diff-scoped)', phase: 4 },
   { id: 'review-9.2', file: RA, from: '### Step 9.2: Collect and merge findings', phase: 4 },
   { id: 'review-9.3', file: RA, from: '### Step 9.3: Cross-review finding dedup', phase: 4 },

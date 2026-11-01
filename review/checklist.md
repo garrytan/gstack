@@ -4,6 +4,15 @@
 
 Review the merge-base diff from the caller, including its selected uncommitted and new source. Use the caller's detected base, not a hardcoded branch. Cite `file:line` and suggest fixes. Only flag real problems.
 
+**PR type (decide first, from the changed paths; write it as the first line of your review, `PR type: <type>`):**
+- **docs-only:** every path is Markdown or plain text under `docs/` or a README/CHANGELOG, and none is a prompt, template or skill file.
+- **CI/infra:** `.github/**`, other CI config (`.gitlab-ci.yml`, `.circleci/**`, `Jenkinsfile`, Buildkite), `Dockerfile*`, compose files, Terraform, Kubernetes or Helm manifests.
+- **scripts/tooling:** shell, batch and PowerShell files (`*.sh`, `*.bash`, `*.bat`, `*.cmd`, `*.ps1`), `Makefile`, lint and format config.
+- **application:** everything else. Code in other languages under `bin/`, `scripts/` or `tools/` (an extensionless file there included), package manifests and lockfiles, prompt templates (`*.tmpl`) and skill Markdown are application, as is any path you cannot place. When in doubt, application.
+- **mixed:** paths of more than one type above.
+
+On application and mixed diffs, run every category below exactly as written; nothing is skipped. On a CI/infra, scripts/tooling or docs-only diff, always run Gate Integrity, Shell Injection, Completeness Gaps, Distribution & CI/CD Pipeline and Repo Conventions & Platform Fit, and report every other category whose subject is absent from the diff once, in one line: `Not applicable (PR type: <type>): <categories>`. A not-applicable category never counts as passed.
+
 **Two-pass review:**
 - **Pass 1 (CRITICAL):** Run SQL & Data Safety, Race Conditions, LLM Output Trust Boundary, Shell Injection, Enum Completeness, and Gate Integrity first. Highest severity.
 - **Pass 2 (INFORMATIONAL):** Run remaining categories below. Lower severity but still actioned.
@@ -137,11 +146,19 @@ A gate is anything that would have made this change fail: a test, an assertion, 
 - Cross-platform builds: verify CI matrix covers all target OS/arch combinations, or documents which are untested
 - Version tag format consistency: `v1.2.3` vs `1.2.3` — must match across VERSION file, git tags, and publish scripts
 - Publish step idempotency: re-running the publish workflow should not fail (e.g., `gh release delete` before `gh release create`)
+- Scripts CI or a build relies on: strict mode (`set -euo pipefail` or the repo's equivalent) so a failed command fails the job, quoted variables, and commands that work on the CI runners' OS
+- Pinned versions: third-party actions pinned to a release tag or commit SHA (never a branch such as `@main`), and tools installed at a pinned version
 
 **DO NOT flag:**
 - Web services with existing auto-deploy pipelines (Docker build + K8s deploy)
 - Internal tools not distributed outside the team
-- Test-only CI changes (adding test steps, not publish steps)
+- Test-only CI changes (adding test steps, not publish steps), except for the script and pinning checks above
+
+#### Repo Conventions & Platform Fit (runs on every PR type)
+A finding here must name its concrete consequence (a script the CI runners cannot run, a second tool doing the same job); a style preference alone is not a finding.
+- New files use the languages, tools and naming the repo already uses for the same job: a `.bat` script in a repo whose scripts are bash plus a Makefile is a finding.
+- Scripts run on the platforms the CI runners and docs target.
+- New tooling repeats no existing tool (a second task runner, linter or install script beside the one the repo has).
 
 ---
 
@@ -171,7 +188,8 @@ CRITICAL (highest severity):      INFORMATIONAL (main agent):      SPECIALIST (p
 └─ Gate Integrity                 ├─ Time Window Safety            ├─ API Contract specialist
                                    ├─ Type Coercion at Boundaries   ├─ Simplification (advisory)
                                    ├─ View/Frontend                 └─ Red Team (conditional)
-                                   └─ Distribution & CI/CD Pipeline
+                                   ├─ Distribution & CI/CD Pipeline
+                                   └─ Repo Conventions & Platform Fit
 
 All findings are actioned via Fix-First Review. Severity determines
 presentation order and classification of AUTO-FIX vs ASK — critical
