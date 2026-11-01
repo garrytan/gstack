@@ -124,6 +124,20 @@ describe('gstack-ship-preflight', () => {
     expect(r.stdout.split('\n').filter(l => l.startsWith('LANE: ')).map(l => l.replace(/ log=\S+$/, ''))).toEqual(['LANE: a pass exit=0 tests_ran=2', 'LANE: b pass exit=0 tests_ran=2']);
     expect(lineOf(r.stdout, 'LANES')).toBe('LANES: serial (--lanes)');
     expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'fast', '--lane', LANE]).status).toBe(2);
+    expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE, '--lanes']).status).toBe(2);
+  });
+
+  // Value: protects=parallel lanes report in the order given even when a later lane finishes first, and an unflagged run names the core count
+  //   behind its default (GST-851); fails_when=results come back in finish order or the LANES line drops its reason; why_new=runLanes became a
+  //   worker pool; seam=runLanes, LANES line; no_claim=which default any given machine picks
+  test('--lanes parallel keeps lane order when a later lane finishes first; unflagged LANES names the core count', () => {
+    const f = fx();
+    const lane = (n: string, wait: number) => `${n}=sleep ${wait}; printf " 1 pass\\n 0 fail\\nRan 1 tests across 1 file. [5.00ms]\\n"`;
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'parallel', '--lane', lane('slow', 1), '--lane', lane('fast', 0)]);
+    expect(r.status).toBe(0);
+    expect(lineOf(r.stdout, 'LANES')).toBe('LANES: parallel (--lanes)');
+    expect(r.stdout.split('\n').filter(l => l.startsWith('LANE: ')).map(l => l.split(' ')[1])).toEqual(['slow', 'fast']);
+    expect(lineOf(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE]).stdout, 'LANES')).toMatch(/^LANES: (serial|parallel) \(\d+ cores\)$/);
   });
 
   // Value: protects=a small machine runs lanes one at a time without a flag, a large one keeps running them together, and the flag overrides

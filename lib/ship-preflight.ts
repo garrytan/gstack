@@ -154,7 +154,7 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   if (!base || typeof list === 'string') return { text: `gstack-ship-preflight: ${typeof list === 'string' ? list : '--base <base> is required'}\n`, exit: 2 };
   if (has('--tests-only') && !list.length) return { text: 'gstack-ship-preflight: --tests-only needs at least one --lane <label>=<command>\n', exit: 2 };
   const mode = flag('--lanes');
-  const concurrency = laneConcurrency(mode);
+  const concurrency = has('--lanes') && mode === undefined ? '--lanes needs serial or parallel' : laneConcurrency(mode);
   if (typeof concurrency === 'string') return { text: `gstack-ship-preflight: ${concurrency}\n`, exit: 2 };
   const r = new Report();
   if (has('--tests-only') || integrate(cwd, base, r)) {
