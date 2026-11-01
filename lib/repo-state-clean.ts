@@ -71,7 +71,8 @@ type Group = 'tmp' | 'browse';
 type Kind = 'remove' | 'cut' | 'rotate';
 export interface CleanOptions { apply: boolean; json: boolean; auditDays: number | null }
 interface Candidate { file: string; group: Group; kind: Kind }
-interface Action extends Candidate { bytes: number; reason: string; keep?: Buffer }
+interface Seen { dev: number; ino: number; size: number; mtimeMs: number }
+interface Action extends Candidate { bytes: number; reason: string; keep?: Buffer; seen: Seen }
 interface Skip { file: string; group: Group; reason: string }
 interface Done { action: Action; errno?: string }
 export interface CleanTarget { target: string; chosenBy: string }
@@ -211,7 +212,8 @@ function evaluate(c: Candidate, dir: string, busy: string | null, opts: CleanOpt
   if (c.kind === 'cut' && st.size <= LOG_CUT_OVER_BYTES) return null;
   if (now - st.mtimeMs < RECENT_MS) return { ...c, reason: 'modified within the last hour' };
   if (busy) return { ...c, reason: busy };
-  if (c.kind === 'remove') return { ...c, bytes: st.size, reason: 'codex scratch older than 7 days' };
+  const seen: Seen = { dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs };
+  if (c.kind === 'remove') return { ...c, seen, bytes: st.size, reason: 'codex scratch older than 7 days' };
   if (st.nlink !== 1) return { ...c, reason: `has ${st.nlink} hard links, so cutting it would change a file outside this folder; left alone` };
   let content: Buffer;
   try { content = c.kind === 'cut' ? readTail(c.file, st.size) : fs.readFileSync(c.file); } catch (e: any) {
@@ -222,12 +224,15 @@ function evaluate(c: Candidate, dir: string, busy: string | null, opts: CleanOpt
     const at = tail.indexOf(0x0a);
     if (at < 0) return { ...c, reason: 'no line break in its last 256 KB; left alone' };
     const keep = tail.subarray(at + 1);
-    return { ...c, keep, bytes: st.size - keep.length, reason: 'over 1 MB; keeps the last 256 KB from a line start' };
+    return { ...c, seen, keep, bytes: st.size - keep.length, reason: 'over 1 MB; keeps the last 256 KB from a line start' };
   }
-  const keep = auditKeep(content, now - opts.auditDays! * DAY_MS);
+  let keep: Buffer | string;
+  try { keep = auditKeep(content, now - opts.auditDays! * DAY_MS); } catch (e: any) {
+    return { ...c, reason: `cannot read (${e?.code ?? e?.name ?? 'error'}); left alone` };
+  }
   if (typeof keep === 'string') return { ...c, reason: keep };
   if (keep.length === st.size) return null;
-  return { ...c, keep, bytes: st.size - keep.length, reason: `audit entries older than ${opts.auditDays} days` };
+  return { ...c, seen, keep, bytes: st.size - keep.length, reason: `audit entries older than ${opts.auditDays} days` };
 }
 
 function candidates(target: string, opts: CleanOptions): { list: Candidate[]; skips: Skip[] } {
@@ -270,16 +275,34 @@ export function planClean(target: string, opts: CleanOptions, now = Date.now()):
   return { actions, skips };
 }
 
-function rewriteInPlace(file: string, keep: Buffer): void {
-  const before = fs.lstatSync(file);
+const changed = () => Object.assign(new Error('the file changed after it was checked; rerunning is safe'), { code: 'ECHANGED' });
+const same = (st: fs.Stats, seen: Seen) => st.dev === seen.dev && st.ino === seen.ino && st.size === seen.size && st.mtimeMs === seen.mtimeMs;
+
+function writeFully(fd: number, buf: Buffer, position: number): void {
+  for (let off = 0; off < buf.length;) {
+    const n = fs.writeSync(fd, buf, off, buf.length - off, position + off);
+    if (n <= 0) throw Object.assign(new Error('short write'), { code: 'EIO' });
+    off += n;
+  }
+}
+
+/** The parent folder is still the verified real folder, so a swapped link cannot redirect the change. */
+function parentIntact(file: string, dir: string): boolean {
+  const parent = path.dirname(file);
+  try { return !fs.lstatSync(parent).isSymbolicLink() && fs.realpathSync(parent) === dir; } catch { return false; }
+}
+
+/** A cut or trim keeps the inode, so O_APPEND writers go on; refused unless the file is exactly what evaluate saw. */
+function cutInPlace(file: string, keep: Buffer, seen: Seen): void {
   const fd = fs.openSync(file, fs.constants.O_RDWR | (fs.constants.O_NOFOLLOW ?? 0));
   try {
     const st = fs.fstatSync(fd);
-    if (st.ino !== before.ino || st.dev !== before.dev || st.nlink !== 1) throw Object.assign(new Error('the file changed before it could be cut'), { code: 'ECHANGED' });
-    fs.writeSync(fd, keep, 0, keep.length, 0);
+    if (st.nlink !== 1 || !same(st, seen)) throw changed();
+    writeFully(fd, keep, 0);
     fs.ftruncateSync(fd, keep.length);
   } finally { fs.closeSync(fd); }
 }
+
 
 /** Re-checks each planned action against its file and its group's liveness right before the change. */
 export function applyClean(target: string, planned: Action[], opts: CleanOptions): { done: Done[]; skips: Skip[] } {
@@ -298,8 +321,11 @@ export function applyClean(target: string, planned: Action[], opts: CleanOptions
     if (!fresh) continue;
     if (!('bytes' in fresh)) { skips.push(fresh); continue; }
     try {
-      if (fresh.kind === 'remove') fs.unlinkSync(fresh.file);
-      else rewriteInPlace(fresh.file, fresh.keep!);
+      if (!parentIntact(fresh.file, dirOf(fresh, target))) throw changed();
+      if (fresh.kind === 'remove') {
+        if (!same(fs.lstatSync(fresh.file), fresh.seen)) throw changed();
+        fs.unlinkSync(fresh.file);
+      } else cutInPlace(fresh.file, fresh.keep!, fresh.seen);
       done.push({ action: fresh });
     } catch (e: any) {
       done.push({ action: fresh, errno: e?.code ?? 'UNKNOWN' });
@@ -367,7 +393,7 @@ function run(argv: string[], env: NodeJS.ProcessEnv, cwd: string, io: Io): numbe
     return 3;
   }
   if ('missing' in resolved) {
-    if (opts.json) io.out(JSON.stringify({ schema_version: CLEAN_SCHEMA_VERSION, tool: 'gstack-clean', mode: opts.apply ? 'apply' : 'dry-run', status: 'nothing_to_do', target: resolved.missing, actions: [], skips: [], total: { actions: 0, bytes: 0, failed: 0, skipped: 0 }, error: null, exit_code: 0 }, null, 2));
+    if (opts.json) io.out(JSON.stringify({ schema_version: CLEAN_SCHEMA_VERSION, tool: 'gstack-clean', mode: opts.apply ? 'apply' : 'dry-run', status: 'nothing_to_do', target: resolved.missing, chosen_by: 'the .gstack folder at the git toplevel (missing)', audit_days: opts.auditDays, actions: [], skips: [], total: { actions: 0, bytes: 0, failed: 0, skipped: 0 }, error: null, exit_code: 0 }, null, 2));
     else io.out(`nothing to clean: ${resolved.missing} does not exist`);
     return 0;
   }
@@ -378,10 +404,15 @@ function run(argv: string[], env: NodeJS.ProcessEnv, cwd: string, io: Io): numbe
 }
 
 /** Synchronous, so a pipe gets every byte before the bin calls process.exit. */
+/** A reader that went away (EPIPE) ends the output quietly; the exit code still reports what was done. */
 function writeAll(fd: number, text: string): void {
   const buf = Buffer.from(text, 'utf8');
   for (let off = 0; off < buf.length;) {
-    try { off += fs.writeSync(fd, buf, off); } catch (e: any) { if (e?.code !== 'EAGAIN') throw e; }
+    try { off += fs.writeSync(fd, buf, off); } catch (e: any) {
+      if (e?.code === 'EPIPE') return;
+      if (e?.code !== 'EAGAIN') throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
   }
 }
 
@@ -392,7 +423,7 @@ export function main(argv: string[], env: NodeJS.ProcessEnv = process.env, cwd =
     return run(argv, env, cwd, io);
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    io.err(resultLine('gstack-clean', 'GSTACK_CLEAN_INTERNAL', `${err.name}: ${err.message}`.slice(0, 300)));
+    try { io.err(resultLine('gstack-clean', 'GSTACK_CLEAN_INTERNAL', `${err.name}: ${err.message}`.slice(0, 300))); } catch { /* stderr is gone too */ }
     return 1;
   }
 }
