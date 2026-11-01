@@ -6065,7 +6065,7 @@ QM registration does not work yet. QM's skill-pack import clones the whole repos
 
 ## Module loadouts (gstack-modules)
 
-These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modules` (guide: [loadouts.md](loadouts.md)). Each one exits 2 before anything is written, and none falls back to the `full` loadout: an eval arm that silently rendered `full` would measure the control.
+These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modules/--session-kind` (guide: [loadouts.md](loadouts.md)). Each one exits 2 before anything is written, and none falls back to the `full` loadout: an eval arm that silently rendered `full` would measure the control.
 
 <a id="loadouts-invalid"></a>
 ### `LOADOUTS_INVALID: modules/loadouts.json …`
@@ -6080,7 +6080,7 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 <a id="module-spec-invalid"></a>
 ### `MODULE_SPEC_INVALID: …`
 
-**Meaning.** A `--modules` token is not `-<module id>` or `+<module id>`, both `--loadout` and `--modules` were given, `gen:skill-docs` got a selection with exclusions but no `--out-dir`, or a render flag is missing or malformed. **Fix.** Write the spec as `<loadout>,-<id>,+<id>` (for example `full,-section:office-hours/second-opinion`) and pass the flags `bin/gstack-modules --help` lists.
+**Meaning.** A `--modules` token is not `-<module id>` or `+<module id>`, both `--loadout` and `--modules` were given, `gen:skill-docs` got a selection with exclusions or `--session-kind unattended` but no `--out-dir` outside the checkout ([unattended renders](loadouts.md#unattended-renders)), or a render flag is missing or malformed. **Fix.** Write the spec as `<loadout>,-<id>,+<id>` (for example `full,-section:office-hours/second-opinion`) and pass the flags `bin/gstack-modules --help` lists.
 
 <a id="module-unknown"></a>
 ### `MODULE_UNKNOWN: "<id>" is not a module`
